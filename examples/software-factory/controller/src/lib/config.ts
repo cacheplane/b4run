@@ -37,6 +37,14 @@ const EnvSchema = z.object({
   FACTORY_BUILDER_APP_ROOT: z.string({ message: "FACTORY_BUILDER_APP_ROOT is required" }).min(1),
 })
 
+/**
+ * Where a controller with state directory `stateDir` writes generated tasks. Shared with the
+ * CLI, which reads the state directory without loading the rest of the configuration.
+ */
+export function generatedTasksDirFor(stateDir: string): string {
+  return join(stateDir, "tasks")
+}
+
 export interface FactoryConfig {
   readonly workerUrl: string
   readonly workerRoute: string
@@ -73,7 +81,7 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
     registryPath: join(e.FACTORY_STATE_DIR, "registry.sqlite"),
     exportDir: e.FACTORY_EXPORT_DIR ?? join(e.FACTORY_STATE_DIR, "exports"),
     artifactsDir: e.FACTORY_ARTIFACTS_DIR ?? join(e.FACTORY_STATE_DIR, "artifacts"),
-    generatedTasksDir: join(e.FACTORY_STATE_DIR, "tasks"),
+    generatedTasksDir: generatedTasksDirFor(e.FACTORY_STATE_DIR),
     approvalTtlMs: e.FACTORY_APPROVAL_TTL_MS ?? 900_000,
     maxActiveMs: e.FACTORY_MAX_ACTIVE_MS ?? 1_200_000,
     maxChangedBytes: e.FACTORY_MAX_CHANGED_BYTES ?? 1024 * 1024,

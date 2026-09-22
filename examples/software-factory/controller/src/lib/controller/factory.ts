@@ -58,8 +58,13 @@ export interface FactoryOptions {
    * Without it every prompt is resolved from the catalog at the point of use.
    */
   readonly tasks?: Readonly<Record<string, string>>
-  /** Where the catalog is read from, for a test over a fixture catalog. */
-  readonly catalog?: CatalogOptions
+  /**
+   * Scopes ONLY the prompt lookup to a fixture catalog: for a test that drives create and
+   * the dispatch refusal over tasks the shipped catalog does not have. Policy, baseline, the
+   * verifier and the workspace reader read the process-wide search path `configureCatalog`
+   * sets, so a test that must dispatch a fixture task successfully uses that instead.
+   */
+  readonly promptCatalog?: CatalogOptions
   readonly approvalTtlMs?: number
   readonly maxActiveMs?: number
   /** Drafter turns an intake may spend before it blocks. Default 2. */
@@ -125,18 +130,18 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   const artifacts: ArtifactStore = createArtifactStore(options.artifactsDir)
   const log = options.log ?? (() => {})
   /**
-   * The prompt for `taskId`, or undefined when the catalog cannot serve it. Resolved at the
-   * point of use and never at boot: one unprepared sibling target must not decide whether
-   * the controller boots, and a task generated after boot is dispatchable the moment its
-   * directory lands. A task the catalog cannot load is reported here, once per use.
+   * The prompt for `taskId`, or the Error saying why the catalog cannot serve it. Resolved
+   * at the point of use and never at boot: one unprepared sibling target must not decide
+   * whether the controller boots, and a task generated after boot is dispatchable the moment
+   * its directory lands. A task the catalog cannot load is reported here, once per use.
    */
-  const prompt = (taskId: string): string | undefined => {
-    if (options.tasks) return options.tasks[taskId]
+  const prompt = (taskId: string): string | Error => {
+    if (options.tasks) return options.tasks[taskId] ?? new Error(`Unknown task ${taskId}`)
     try {
-      return promptFor(taskId, options.catalog ?? {})
+      return promptFor(taskId, options.promptCatalog ?? {})
     } catch (error) {
       log("task_unavailable", { id: taskId, error: String(error) })
-      return undefined
+      return error instanceof Error ? error : new Error(String(error))
     }
   }
   const now = options.now ?? Date.now
@@ -334,12 +339,15 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     isTracked: (id) => runs.has(id),
   }
 
-  async function startRun(id: string): Promise<void> {
+  /**
+   * Run the builder's turn on `id`'s thread. `input` is the prompt dispatch already resolved;
+   * an entry that reaches here without one (none today: dispatch is the only caller) resolves
+   * it itself, so this never sends an empty prompt.
+   */
+  async function startRun(id: string, input = prompt(mustGet(id).taskId)): Promise<void> {
     const row = mustGet(id)
     if (!row.workerThreadId) return
-    // dispatch already refused an unknown task; re-checked here so this never sends an empty prompt.
-    const input = prompt(row.taskId)
-    if (input === undefined) {
+    if (input instanceof Error) {
       recordEvent(id, "prompt_missing", { taskId: row.taskId })
       return
     }
@@ -362,7 +370,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
 
   const factory: Factory = {
     async create({ taskId, operationKey }) {
-      if (prompt(taskId) === undefined) throw new UnknownTaskError(taskId)
+      if (prompt(taskId) instanceof Error) throw new UnknownTaskError(taskId)
       // A caller-supplied operationKey is also the work-order address: the same key always
       // names the same id, which is what makes create idempotent across a crash.
       const id = operationKey
@@ -430,12 +438,16 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       // Refuse rather than send an empty prompt: a worker asked to fix nothing still burns a
       // thread and a run, and the resulting turn would fail in a way that looks like the worker.
       // Re-resolved here rather than trusted from create: the task may have stopped loading
-      // since (its target re-prepared, say), and that is a refusal, not a throw.
-      if (prompt(row.taskId) === undefined)
+      // since (its target re-prepared, say), and that is a refusal, not a throw. The cause
+      // rides along so an unprepared target is not reported as a task nobody has heard of.
+      const input = prompt(row.taskId)
+      if (input instanceof Error)
         return finish(key, {
           ok: false,
           state: row.state,
-          message: `Unknown task ${row.taskId}`,
+          message: options.tasks
+            ? `Unknown task ${row.taskId}`
+            : `Unknown task ${row.taskId}: ${input.message}`,
         })
       let threadId: string
       try {
@@ -470,7 +482,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         })
       }
       const outcome = finish(key, { ok: true, state: dispatched.state, message: "Dispatched" })
-      track(id, startRun(id))
+      track(id, startRun(id, input))
       return outcome
     },
 

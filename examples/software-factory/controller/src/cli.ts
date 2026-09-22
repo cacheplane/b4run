@@ -3,6 +3,7 @@ import { setTimeout as sleep } from "node:timers/promises"
 import { parseArgs } from "node:util"
 import { writeBuilderManifest } from "./lib/builder-manifest.js"
 import { type ControllerClient, ControllerHttpError, createControllerClient } from "./lib/client.js"
+import { generatedTasksDirFor } from "./lib/config.js"
 import type { WorkOrderState } from "./lib/domain/states.js"
 import type { WorkOrderRow } from "./lib/domain/work-order.js"
 import { openRegistryReader } from "./lib/registry/reader.js"
@@ -203,7 +204,7 @@ async function main(argv: string[]): Promise<number> {
     // Read directly rather than through the full config: this command needs no worker or
     // builder root, only the state directory's generated tasks, and only when there is one.
     const stateDir = process.env.FACTORY_STATE_DIR
-    if (stateDir) configureCatalog({ generatedTasksDir: join(stateDir, "tasks") })
+    if (stateDir) configureCatalog({ generatedTasksDir: generatedTasksDirFor(stateDir) })
     print({ path: await writeBuilderManifest(loadTask(values.task), values.out) })
     return 0
   }

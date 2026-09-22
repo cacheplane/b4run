@@ -158,7 +158,7 @@ describe("the controller over a partly unprepared catalog", () => {
       verifier: createFakeVerifier({ verdict: "pass" }),
       workspaceReader: createFakeWorkspaceReader({}),
       captureBaseline: async () => ({ digest: "a".repeat(64), files: new Map() }),
-      catalog: { tasksDir, targetsDir, repositoryRoot: root },
+      promptCatalog: { tasksDir, targetsDir, repositoryRoot: root },
       log: (event, payload) => {
         if (event === "task_unavailable")
           unavailable.push([String(payload.id), String(payload.error)])
@@ -187,7 +187,7 @@ describe("the controller over a partly unprepared catalog", () => {
       verifier: createFakeVerifier({ verdict: "pass" }),
       workspaceReader: createFakeWorkspaceReader({}),
       captureBaseline: async () => ({ digest: "a".repeat(64), files: new Map() }),
-      catalog: { tasksDir, targetsDir, repositoryRoot: root },
+      promptCatalog: { tasksDir, targetsDir, repositoryRoot: root },
     })
     const { id } = await factory.create({ taskId: "served" })
     // The target loses its image between create and dispatch: an upgrade, or a re-prepare.
@@ -197,7 +197,7 @@ describe("the controller over a partly unprepared catalog", () => {
     expect(await factory.dispatch(id)).toMatchObject({
       ok: false,
       state: "received",
-      message: "Unknown task served",
+      message: expect.stringMatching(/^Unknown task served: .*has not been prepared/),
     })
     expect(factory.show(id)?.state).toBe("received")
   })

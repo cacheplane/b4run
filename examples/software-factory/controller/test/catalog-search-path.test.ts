@@ -96,8 +96,18 @@ describe("catalog search path", () => {
     // Listing agrees with lookup: a directory that is not a catalog id is not an id.
     mkdirSync(join(generatedTasksDir, ".hidden"))
     mkdirSync(join(generatedTasksDir, "wo-listed"))
+    writeFileSync(join(generatedTasksDir, "wo-listed", "task.json"), "{}")
     expect(loadTaskIds()).toContain("wo-listed")
     expect(loadTaskIds()).not.toContain(".hidden")
+  })
+
+  it("does not list an intake in flight: a generated directory with only issue.md", () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-generated-"))
+    mkdirSync(join(dir, "wo-inflight0000000"))
+    writeFileSync(join(dir, "wo-inflight0000000", "issue.md"), "# an issue\n")
+    configureCatalog({ generatedTasksDir: dir })
+    expect(loadTaskIds()).not.toContain("wo-inflight0000000")
+    expect(() => loadTask("wo-inflight0000000")).toThrow(/^Unknown task: /)
   })
 
   it("still refuses to answer when the SHIPPED catalog itself is absent", () => {

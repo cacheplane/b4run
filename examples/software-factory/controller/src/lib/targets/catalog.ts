@@ -173,7 +173,7 @@ function readIds(dir: string, label: string): string[] {
 
 /**
  * As `readIds`, but null when `dir` does not exist: a catalog that may not exist yet. A
- * directory whose name is not a catalog id is not listed, so listing and lookup agree.
+ * directory whose name is not a catalog id is not listed: `taskDirectory` would refuse it.
  */
 function readIdsIfPresent(dir: string): string[] | null {
   try {
@@ -350,10 +350,11 @@ export interface Task {
 
 /**
  * Where tasks are looked up: the shipped catalog first, then the directory the controller
- * writes generated tasks into. Configured once by the runtime from the state directory;
- * every `loadTask(id)` call site then resolves a generated task with no signature change.
- * A shipped id shadows a generated one, so a generated task can never impersonate a task
- * an operator prepared by hand.
+ * writes generated tasks into. Process-wide state, configured by the runtime from the state
+ * directory (one runtime per process is the runtime's own contract); every `loadTask(id)`
+ * call site then resolves a generated task with no signature change. A shipped id shadows
+ * a generated one, so a generated task can never impersonate a task an operator prepared
+ * by hand.
  */
 let generatedTasksDir: string | undefined
 export function configureCatalog(options: { readonly generatedTasksDir?: string }): void {
@@ -363,7 +364,7 @@ export function resetCatalogForTests(): void {
   generatedTasksDir = undefined
 }
 /** An explicit `tasksDir` is looked up alone; otherwise the search path, shipped first. */
-function taskRoots(options: CatalogOptions): readonly string[] {
+function taskRoots(options: CatalogOptions): readonly [string, ...string[]] {
   if (options.tasksDir) return [options.tasksDir]
   return generatedTasksDir ? [tasksDir, generatedTasksDir] : [tasksDir]
 }
@@ -372,13 +373,16 @@ function taskRoots(options: CatalogOptions): readonly string[] {
  * Task ids present on disk, sorted within each root: the shipped catalog's first, then the
  * generated ones not already named by a shipped task. A new task is a directory, not a code
  * change. The shipped catalog must exist (`No task catalog`); the generated directory is
- * absent until the first draft lands, which is not an error.
+ * absent until the first draft lands, which is not an error. A generated directory counts
+ * only once it holds `task.json`: an intake in flight has a directory before it has a task,
+ * and what is listed must be what `loadTask` can find.
  */
 export function loadTaskIds(dir?: string): string[] {
-  const [first, ...rest] = dir ? [dir] : taskRoots({})
-  const ids = readIds(first as string, "task")
+  const [first, ...rest]: readonly [string, ...string[]] = dir ? [dir] : taskRoots({})
+  const ids = readIds(first, "task")
   for (const root of rest)
-    for (const id of readIdsIfPresent(root) ?? []) if (!ids.includes(id)) ids.push(id)
+    for (const id of readIdsIfPresent(root) ?? [])
+      if (!ids.includes(id) && existsSync(join(root, id, "task.json"))) ids.push(id)
   return ids
 }
 

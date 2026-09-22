@@ -40,36 +40,7 @@ export function createControllerRuntime(
     config,
     factory() {
       if (disposed) return Promise.reject(new Error("Controller runtime is disposed"))
-      // Before the factory and its collaborators exist: every `loadTask(id)` below — the
-      // prompt, the verifier, the baseline, the workspace reader — then finds a generated task.
-      configureCatalog({ generatedTasksDir: config.generatedTasksDir })
-      opening ??= createFactory({
-        registryPath: config.registryPath,
-        worker: createHttpWorkerClient(config.workerUrl),
-        workerRoute: config.workerRoute,
-        exportDir: config.exportDir,
-        artifactsDir: config.artifactsDir,
-        approvalTtlMs: config.approvalTtlMs,
-        maxActiveMs: config.maxActiveMs,
-        maxChangedBytes: config.maxChangedBytes,
-        verifier: createDockerVerifier(createArtifactStore(config.artifactsDir)),
-        workspaceReader: createThreadWorkspaceReader(
-          {
-            providerFor: (taskId) => builderSandboxProvider(loadTask(taskId).target),
-            appRoot: config.builderAppRoot,
-          },
-          (taskId) => targetInspectionOptions(loadTask(taskId)),
-        ),
-        captureBaseline: captureTargetBaseline,
-        // Defined keys only: an explicit `{ verifier: undefined }` must not erase a required
-        // collaborator, which a plain spread would do.
-        ...definedOnly(overrides),
-        log: (event, payload) => process.stderr.write(`${JSON.stringify({ event, ...payload })}\n`),
-      }).catch((error) => {
-        // A failed open is retried by the next caller, like middleware setup itself.
-        opening = undefined
-        throw error
-      })
+      opening ??= openFactory()
       return opening
     },
     async dispose() {
@@ -77,6 +48,40 @@ export function createControllerRuntime(
       const factory = await opening?.catch(() => undefined)
       await factory?.close()
     },
+  }
+
+  function openFactory(): Promise<Factory> {
+    // Once per runtime, before the factory and its collaborators exist: every `loadTask(id)`
+    // below — the prompt, the verifier, the baseline, the workspace reader — then finds a
+    // generated task. The search path is process-wide, like the runtime itself.
+    configureCatalog({ generatedTasksDir: config.generatedTasksDir })
+    return createFactory({
+      registryPath: config.registryPath,
+      worker: createHttpWorkerClient(config.workerUrl),
+      workerRoute: config.workerRoute,
+      exportDir: config.exportDir,
+      artifactsDir: config.artifactsDir,
+      approvalTtlMs: config.approvalTtlMs,
+      maxActiveMs: config.maxActiveMs,
+      maxChangedBytes: config.maxChangedBytes,
+      verifier: createDockerVerifier(createArtifactStore(config.artifactsDir)),
+      workspaceReader: createThreadWorkspaceReader(
+        {
+          providerFor: (taskId) => builderSandboxProvider(loadTask(taskId).target),
+          appRoot: config.builderAppRoot,
+        },
+        (taskId) => targetInspectionOptions(loadTask(taskId)),
+      ),
+      captureBaseline: captureTargetBaseline,
+      // Defined keys only: an explicit `{ verifier: undefined }` must not erase a required
+      // collaborator, which a plain spread would do.
+      ...definedOnly(overrides),
+      log: (event, payload) => process.stderr.write(`${JSON.stringify({ event, ...payload })}\n`),
+    }).catch((error) => {
+      // A failed open is retried by the next caller, like middleware setup itself.
+      opening = undefined
+      throw error
+    })
   }
 }
 
