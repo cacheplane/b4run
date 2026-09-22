@@ -113,9 +113,25 @@ the source of truth; a read never needed a run. Only the controller app writes t
 
 The state machine, journal, command log, verifier, workspace reader, assembly, bundle and
 export code move **unchanged** into `src/lib/`. The task and target catalog moves with them,
-and the builder's `b4.config.ts` imports it from the controller package. The builder stays
-its own app, reached over the loopback Agent Protocol as now; the controller is told the
-builder's app root so the workspace reader can address the builder's installation store. The
+and the builder imports nothing from it; see the as-landed note below.
+
+> **As landed:** the packages share no source. The controller writes a JSON manifest per
+> task (`factory builder-manifest`): the captured workspace, the target's image, sandbox
+> policy and permissions, and the prompt. The builder's `b4.config.ts` verifies and serves
+> it through the resolver form from §5, which is also how sub-project 3 will pick a task
+> per thread.
+
+> **As landed, the pins are historical.** The targets' `target.json` paths (`root`,
+> `imageContext`, `lockfile`) and the target Dockerfiles' `COPY` lines name the tree at the
+> **pinned commit**, where the fixtures lived under `examples/software-factory/server/`. They
+> are correct exactly as long as the pin predates this move. The next re-pin to a commit at or
+> after this branch must rewrite them to `examples/software-factory/controller/fixtures/...`
+> in the same edit: a missed `root` fails loudly at archive time, but a missed `imageContext`
+> entry silently builds a smaller image.
+
+The builder stays its own app, reached over the loopback Agent Protocol as now; the
+controller is told the builder's app root so the workspace reader can address the builder's
+installation store. The
 factory CLI becomes an HTTP client of the controller's routes for writes, and a read-only
 registry reader for reads.
 
@@ -138,6 +154,15 @@ runs on that thread. This is what the runtime's rules mean for the controller:
   say) and for the outcome recorded after an abort.
 - **The budget ticker lives in the route.** While `dispatch` awaits, it owns the active-time
   clock for that work order; there is no process-wide ticker.
+
+  > **As landed:** the ticker stays in the Factory. A process-lived Factory exists after all,
+  > opened by middleware `setup` and closed by `dispose`, so the ticker, tracked runs and
+  > `close()` keep their rung 2 shape; `dispatch` awaits its run through `Factory.settle`.
+  > Per-command reconcile skips the reattach when an observer for that work order is already
+  > live in this process (`ControllerContext.isTracked`), so it cannot evict the observer a
+  > `dispatch` left running; the `reconcile` route is the boot reconcile (`reconcileAll`),
+  > not a per-row loop. A `StaleRevisionError` is a refusal (`stale_revision`), not a 500.
+
 - **Reconcile is scoped.** Every mutating route reconciles its own work order before acting.
   `reconcile` on the fixed controller thread walks the whole registry and is called by the
   operator or a supervisor after a restart; the app has no boot hook to do it unasked.
@@ -160,11 +185,12 @@ runs on that thread. This is what the runtime's rules mean for the controller:
   The CLI's write commands are HTTP calls; its read commands open the registry read-only. A
   second controller process against the same registry is an operator error the registry does
   not detect (SQLite WAL permits it); recording an owner is a follow-up, not this rung.
-- **The Factory object becomes per-route.** `createFactory` today owns tracked runs, a ticker
-  and a close; a route constructs what it needs for one command against the shared registry
-  and tears it down when it returns. The verifier and workspace reader are constructed once
-  per process behind the app's middleware `setup` hook, which is the only lifecycle hook b4
-  gives an app, and disposed in `dispose`.
+- **The Factory object stays per-process** *(as landed; the draft said per-route)*. There is
+  one Factory for the controller process, opened by the app's middleware `setup` hook — the
+  only lifecycle hook b4 gives an app — and closed in `dispose`. Routes reach it through the
+  runtime singleton rather than constructing anything of their own, and the verifier and the
+  workspace reader are constructed once, inside it. Tracked runs, the budget ticker and
+  `close()` therefore keep their rung 2 shape (see §4.2).
 - **Nothing here needs a live model.** The port lands green on the scripted proofs.
 
 ### 4.4 Proof
@@ -485,6 +511,17 @@ a preparable target, and which a test can fail on:
 - **The development recapture hook loads metadata it ignores.** A static definition in an
   unbuilt app sets the recapture hook, so first admission performs one threads-store read per
   new thread and discards it. Harmless; the hook could signal it needs none.
+- **The runtime's 409 bodies carry `code` under `details`.** `runtime-fetch-core.ts` passes
+  `{ code }` as `createRequestErrorBody`'s second positional argument (`details`) for the
+  `run_in_flight` and `run_cancelled` 409s, so the body is
+  `{ error: { details: { code }, kind, message } }` and the documented top-level `error.code`
+  (with its docs URL) is never set. Every client of those two conflicts must read
+  `error.details.code`; the factory CLI does. Follow-up: fix in `@b4run/cli` as its own PR,
+  after which the CLI can read either.
+- **The registry has no owner record.** A second controller process against the same registry
+  is an operator error nothing detects — SQLite's WAL permits it, and the single-writer claim
+  rests on convention. Follow-up: a `controller_owner` row with a heartbeat, refused on open
+  while another owner is live.
 - **Rung 2's residuals stand**: candidate code runs in the oracle's container because the
   check imports the built artifact; the second-identity execution follow-up is still the fix.
 - **`review` is red repo-wide** while the Anthropic credits are exhausted. Every PR in this
