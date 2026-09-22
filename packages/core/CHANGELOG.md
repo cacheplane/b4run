@@ -1,5 +1,15 @@
 # @dawn-ai/core
 
+## 0.10.0
+
+### Patch Changes
+
+- Updated dependencies [71bccb3]
+  - @b4run/workspace@0.10.0
+  - @b4run/sqlite-storage@0.10.0
+  - @b4run/permissions@0.10.0
+  - @b4run/sdk@0.10.0
+
 ## 0.9.0
 
 ### Patch Changes

@@ -1,5 +1,18 @@
 # @dawn-example/research-server
 
+## 0.0.26
+
+### Patch Changes
+
+- Updated dependencies [185ae3c]
+- Updated dependencies [1cadde8]
+- Updated dependencies [71bccb3]
+  - @b4run/sandbox@0.10.0
+  - @b4run/langchain@0.10.0
+  - @b4run/cli@0.10.0
+  - @b4run/core@0.10.0
+  - @b4run/sdk@0.10.0
+
 ## 0.0.25
 
 ### Patch Changes

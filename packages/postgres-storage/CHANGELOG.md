@@ -1,5 +1,11 @@
 # @dawn-ai/postgres-storage
 
+## 0.10.0
+
+### Patch Changes
+
+- @b4run/permissions@0.10.0
+
 ## 0.9.0
 
 ### Patch Changes
