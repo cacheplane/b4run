@@ -27,6 +27,12 @@ function validRow() {
     activeMs: 0,
     activeStartedAt: null,
     awaitingSince: null,
+    origin: { kind: "catalog" },
+    pin: null,
+    targetId: null,
+    taskDigest: null,
+    intakeAttempts: 0,
+    maxIntakeAttempts: 2,
     createdAt: "2026-09-16T00:00:00.000Z",
     updatedAt: "2026-09-16T00:00:00.000Z",
   }

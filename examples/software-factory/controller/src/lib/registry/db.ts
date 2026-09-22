@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 
-export const SCHEMA_VERSION = 3
+export const SCHEMA_VERSION = 4
 
 export interface Registry {
   readonly db: DatabaseSync
@@ -24,7 +24,7 @@ interface Migration {
 }
 
 /** Spec: "Registry schema". active_started_at is the open interval the budget ticker measures. */
-const MIGRATIONS: readonly Migration[] = [
+export const MIGRATIONS: readonly Migration[] = [
   {
     version: 1,
     up: `
@@ -133,6 +133,23 @@ const MIGRATIONS: readonly Migration[] = [
     // after that; left in place it reads as exactly the channel that no longer exists.
     version: 3,
     up: "ALTER TABLE work_orders DROP COLUMN candidate_verified;",
+  },
+  {
+    // The intake prefix (sub-project 3a). SQLite cannot add a NOT NULL column without a
+    // default, so the counters default and the rest are nullable; an existing row reads as a
+    // catalog work order that never went through intake, which is exactly what it was.
+    version: 4,
+    up: `
+      ALTER TABLE work_orders ADD COLUMN origin_kind TEXT NOT NULL DEFAULT 'catalog';
+      ALTER TABLE work_orders ADD COLUMN origin_repository TEXT;
+      ALTER TABLE work_orders ADD COLUMN origin_number INTEGER;
+      ALTER TABLE work_orders ADD COLUMN origin_body_digest TEXT;
+      ALTER TABLE work_orders ADD COLUMN pin TEXT;
+      ALTER TABLE work_orders ADD COLUMN target_id TEXT;
+      ALTER TABLE work_orders ADD COLUMN task_digest TEXT;
+      ALTER TABLE work_orders ADD COLUMN intake_attempts INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE work_orders ADD COLUMN max_intake_attempts INTEGER NOT NULL DEFAULT 2;
+    `,
   },
 ]
 

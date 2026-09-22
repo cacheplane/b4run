@@ -56,6 +56,8 @@ export interface FactoryOptions {
   readonly tasks?: Readonly<Record<string, string>>
   readonly approvalTtlMs?: number
   readonly maxActiveMs?: number
+  /** Drafter turns an intake may spend before it blocks. Default 2. */
+  readonly maxIntakeAttempts?: number
   /** How long a cancel waits for the cancelled run's observer to settle. Default 10s. */
   readonly cancelSettleMs?: number
   readonly budgetTickMs?: number
@@ -378,6 +380,12 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         activeMs: 0,
         activeStartedAt: null,
         awaitingSince: null,
+        origin: { kind: "catalog" },
+        pin: null,
+        targetId: null,
+        taskDigest: null,
+        intakeAttempts: 0,
+        maxIntakeAttempts: options.maxIntakeAttempts ?? 2,
         createdAt: at,
         updatedAt: at,
       }

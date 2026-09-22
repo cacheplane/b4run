@@ -1,9 +1,16 @@
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { afterEach, describe, expect, it } from "vitest"
-import { openRegistry, RegistryVersionError, SCHEMA_VERSION } from "../src/lib/registry/db.ts"
+import {
+  MIGRATIONS,
+  openRegistry,
+  RegistryVersionError,
+  SCHEMA_VERSION,
+} from "../src/lib/registry/db.ts"
+import { openRegistryReader } from "../src/lib/registry/reader.ts"
+import { createWorkOrderStore } from "../src/lib/registry/work-orders.ts"
 
 const dirs: string[] = []
 afterEach(() => {
@@ -25,7 +32,7 @@ describe("openRegistry", () => {
       registry.db.prepare("PRAGMA table_info(work_orders)").all() as { name: string }[]
     ).map((c) => c.name)
     expect(columns).not.toContain("candidate_verified")
-    expect(SCHEMA_VERSION).toBe(3)
+    expect(SCHEMA_VERSION).toBe(4)
     registry.close()
   })
 
@@ -100,5 +107,53 @@ describe("migration 2", () => {
     db.prepare("INSERT INTO schema_version(version) VALUES (?)").run(SCHEMA_VERSION + 1)
     db.close()
     expect(() => openRegistry(path)).toThrow(RegistryVersionError)
+  })
+})
+
+describe("migration 4", () => {
+  it("upgrades a schema-3 registry and reads its rows as catalog work orders", () => {
+    // A registry exactly as schema 3 left it: the first three migrations by hand, a version
+    // row per migration, and one work order with only the schema-3 columns.
+    const path = tempPath()
+    mkdirSync(dirname(path), { recursive: true })
+    const db = new DatabaseSync(path)
+    db.exec("CREATE TABLE schema_version (version INTEGER PRIMARY KEY)")
+    for (const migration of MIGRATIONS.slice(0, 3)) {
+      db.exec(migration.up)
+      db.prepare("INSERT INTO schema_version(version) VALUES (?)").run(migration.version)
+    }
+    const at = "2026-09-16T00:00:00.000Z"
+    db.prepare(
+      `INSERT INTO work_orders (id, revision, state, task_id, worker_route, max_candidate_attempts,
+         max_active_ms, active_ms, created_at, updated_at)
+       VALUES ('wo-legacy', 0, 'received', 'cli-flags', '/build#agent', 1, 60000, 0, ?, ?)`,
+    ).run(at, at)
+    db.close()
+
+    const registry = openRegistry(path)
+    const version = registry.db.prepare("SELECT max(version) AS v FROM schema_version").get() as {
+      v: number
+    }
+    expect(version.v).toBe(4)
+    const expected = {
+      origin: { kind: "catalog" },
+      pin: null,
+      targetId: null,
+      taskDigest: null,
+      intakeAttempts: 0,
+      maxIntakeAttempts: 2,
+    }
+    const row = createWorkOrderStore(registry.db).get("wo-legacy")
+    expect(row).toMatchObject(expected)
+    expect(row?.state).toBe("received")
+    registry.close()
+
+    const reader = openRegistryReader(path)
+    try {
+      expect(reader.show("wo-legacy")).toMatchObject(expected)
+      expect(reader.list()).toHaveLength(1)
+    } finally {
+      reader.close()
+    }
   })
 })

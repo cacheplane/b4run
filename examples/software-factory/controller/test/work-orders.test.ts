@@ -24,6 +24,12 @@ function freshRow(id = "wo-1"): WorkOrderRow {
     activeMs: 0,
     activeStartedAt: null,
     awaitingSince: null,
+    origin: { kind: "catalog" },
+    pin: null,
+    targetId: null,
+    taskDigest: null,
+    intakeAttempts: 0,
+    maxIntakeAttempts: 2,
     createdAt: at,
     updatedAt: at,
   }
@@ -183,5 +189,40 @@ describe("work-order store", () => {
       expiresAt: at,
     })
     expect(s.approvals("wo-1")[0]?.bundleDigest).toBe(digest)
+  })
+
+  it("persists the intake fields and reads a catalog row as { kind: 'catalog' }", () => {
+    const s = store()
+    const row: WorkOrderRow = {
+      ...freshRow("wo-a"),
+      origin: {
+        kind: "issue",
+        repository: "cacheplane/b4run",
+        number: 778,
+        bodyDigest: "0".repeat(64),
+      },
+      pin: "a".repeat(40),
+      targetId: "devkit",
+      taskDigest: "b".repeat(64),
+      intakeAttempts: 1,
+      maxIntakeAttempts: 2,
+    }
+    s.insert(row)
+    expect(s.get("wo-a")).toEqual(row)
+    const updated = s.update(
+      "wo-a",
+      0,
+      { intakeAttempts: 2, taskDigest: "c".repeat(64), targetId: "devkit" },
+      at,
+    )
+    expect(updated.intakeAttempts).toBe(2)
+    expect(updated.taskDigest).toBe("c".repeat(64))
+    expect(updated.origin).toEqual(row.origin)
+    // A catalog work order has no origin: the columns are null and the row reads
+    // { kind: "catalog" }.
+    s.insert({ ...freshRow("wo-b") })
+    expect(s.get("wo-b")?.origin).toEqual({ kind: "catalog" })
+    expect(s.get("wo-b")?.pin).toBeNull()
+    expect(s.list().map((r) => r.id)).toEqual(["wo-a", "wo-b"])
   })
 })

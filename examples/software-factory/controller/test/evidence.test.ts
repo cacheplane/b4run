@@ -25,6 +25,12 @@ function stores() {
     activeMs: 0,
     activeStartedAt: null,
     awaitingSince: null,
+    origin: { kind: "catalog" },
+    pin: null,
+    targetId: null,
+    taskDigest: null,
+    intakeAttempts: 0,
+    maxIntakeAttempts: 2,
     createdAt: at,
     updatedAt: at,
   })
