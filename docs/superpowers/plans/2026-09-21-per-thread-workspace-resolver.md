@@ -1123,7 +1123,11 @@ export default config({
 
 The resolver runs once, when the thread is first admitted, and its result is recorded by
 digest; every later turn of that thread reads the record. Deleting the thread deletes the
-record, so a thread id reused after deletion is resolved again. The resolver runs inside
+record, so a thread id reused after deletion is resolved again. A resolver that captures
+from the app root (`directory: "."`) must exclude `.b4` with `excludeDirectories`, because
+the installation's own state lives there and is walked otherwise; an excluded directory
+must already exist when the capture runs, which is always true at admission but not for a
+static definition in a fresh clone at build time. The resolver runs inside
 the thread's admission critical section: honour `signal` and return promptly, because a
 resolver that hangs holds that thread's admission open. Thread metadata is client
 input, so validate it as the example does. `b4 check` reports a resolver as
