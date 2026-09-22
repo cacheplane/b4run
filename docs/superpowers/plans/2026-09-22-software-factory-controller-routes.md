@@ -1284,6 +1284,12 @@ pnpm --filter @b4-example/software-factory-controller test:sandbox
 
 Expected: every lane green, including tamper, delayed-writer and weak-repair. `target:prepare` rewrites `targets/*/target.json` with this host's image id; do NOT commit that diff (`git checkout -- examples/software-factory/controller/targets` after the run) unless the pin or Dockerfile changed.
 
+- [ ] **Step 2b: The builder package in the unfiltered turbo graph**
+
+Root `pnpm build` runs `@b4-example/software-factory-server#build` (`b4 build`), and `check` runs `b4 check`; both load `b4.config.ts`, which now throws without `FACTORY_BUILDER_MANIFEST`. (At the Task 2 commit the same build already failed for a different reason, so this is a branch regression to fix here, not a Task 3 one.) Make the builder's `build` and `check` scripts guard on the manifest: create `server/scripts/with-manifest.mjs` that exits 0 with `builder: FACTORY_BUILDER_MANIFEST is not set; skipping <command>` when the variable is unset, and otherwise spawns the given `b4` command with the same stdio and exit code; scripts become `"build": "node scripts/with-manifest.mjs b4 build"` and `"check": "node scripts/with-manifest.mjs b4 check"`. The Docker lane in CI sets the variable (from the manifest it writes with `factory builder-manifest`) so the real build runs there. Add `scripts/**` back to the server's tsconfig `include` only if the script is TypeScript; keep it `.mjs`. Test: a vitest case in `server/test/builder-config.test.ts` that spawns the script without the variable and asserts exit 0 and the notice on stdout, and with the variable pointing at a nonexistent file and a harmless command (`node -e "process.exit(3)"`) asserts exit 3 (the exit code is passed through).
+
+Also in this task: delete `server/test/isolated-app.ts` (no importer remains; the controller has `isolated-builder.ts`), and move the `$TURBO_ROOT$/examples/software-factory/README.md` turbo input from `@b4-example/software-factory-server#test` to the controller's entry (the README-reading test moved).
+
 - [ ] **Step 3: CI**
 
 In `.github/workflows/ci.yml`, replace the four `software-factory-server` commands in the factory lane with the controller equivalents:
