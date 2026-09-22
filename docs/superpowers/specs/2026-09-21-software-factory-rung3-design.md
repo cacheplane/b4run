@@ -87,56 +87,108 @@ Rungs 1 and 2 each surfaced a framework change by pointing the factory at real c
 
 ## 4. The controller as a b4 app of `workflow` routes
 
+> **Revised 2026-09-22** after a code survey of the runtime. The first draft assumed detached
+> runs, several runs per thread, and a boot hook; b4 has none of those. What follows is the
+> shape that fits the runtime as it is. The findings are in §4.5.
+
 ### 4.1 Shape
 
 `examples/software-factory/controller` is a new b4 app beside the existing `server` app, which
-becomes the builder only. The controller's routes are its commands,
-one `workflow` export each:
+becomes the builder only. The controller's **mutating commands** are `workflow` routes:
 
 ```
-src/app/work-orders/create/index.ts            create a work order (catalog task or issue)
-src/app/work-orders/dispatch/index.ts          create the builder thread, observe, verify
+src/app/work-orders/create/index.ts            create a work order (catalog task, later an issue)
+src/app/work-orders/dispatch/index.ts          create the builder thread, observe, verify; awaits the run
 src/app/work-orders/approve/index.ts           re-verify, freeze, export
 src/app/work-orders/deny/index.ts
 src/app/work-orders/cancel/index.ts
 src/app/work-orders/approve-intake/index.ts    §6
 src/app/work-orders/reject-intake/index.ts     §6
-src/app/work-orders/reconcile/index.ts         what factory boot does today
-src/app/work-orders/show/index.ts  list/  events/  evidence/   reads
+src/app/reconcile/index.ts                     the whole registry, on the controller thread
 ```
 
-Each route's `state.ts` is the command's typed input. The state machine, journal, command
-log, verifier, workspace reader, assembly, bundle and export code move **unchanged** into
-`src/lib/`. The registry stays SQLite under the app's state directory. The builder stays its
-own app, reached over the loopback Agent Protocol as now. The factory CLI thins to an HTTP
-client of the controller app's routes. This is a port, not a redesign: the same tests and the
-same proofs, driven over the Agent Protocol.
+**Reads are not routes.** `show`, `list`, `events` and `evidence` read the registry directly,
+read-only, from whatever process asks (the CLI, a test, later the Workbench). The registry is
+the source of truth; a read never needed a run. Only the controller app writes the registry.
 
-### 4.2 What changes, and what does not
+The state machine, journal, command log, verifier, workspace reader, assembly, bundle and
+export code move **unchanged** into `src/lib/`. The task and target catalog moves with them,
+and the builder's `b4.config.ts` imports it from the controller package. The builder stays
+its own app, reached over the loopback Agent Protocol as now; the controller is told the
+builder's app root so the workspace reader can address the builder's installation store. The
+factory CLI becomes an HTTP client of the controller's routes for writes, and a read-only
+registry reader for reads.
+
+### 4.2 One thread per work order
+
+A work order's id is its controller thread id. Every mutating command for that work order
+runs on that thread. This is what the runtime's rules mean for the controller:
+
+- **Serialisation is the runtime's.** One run at a time per thread; a second command on the
+  same work order while one is in flight is refused with the Agent Protocol's `run_in_flight`,
+  which the CLI reports as a refusal. Commands on different work orders run concurrently.
+- **`dispatch` awaits the run.** The route creates the builder thread, observes the turn,
+  verifies, and returns the outcome only when the work order has left its active states. The
+  CLI streams the run and prints journal events as they land; there is no fire-and-forget
+  `dispatch`. If the client disconnects, the route keeps running and the work order's fate is
+  recorded exactly as it would have been; reconcile covers a crash.
+- **Cancel is the runtime's cancel.** `cancel` is `POST /threads/<work-order-id>/cancel`, which
+  aborts the in-flight `dispatch` route's signal; the route's own cancel path records the
+  outcome. A `cancel` route exists for a work order that is not mid-run (`awaiting_approval`,
+  say) and for the outcome recorded after an abort.
+- **The budget ticker lives in the route.** While `dispatch` awaits, it owns the active-time
+  clock for that work order; there is no process-wide ticker.
+- **Reconcile is scoped.** Every mutating route reconciles its own work order before acting.
+  `reconcile` on the fixed controller thread walks the whole registry and is called by the
+  operator or a supervisor after a restart; the app has no boot hook to do it unasked.
+- **Refusals are return values.** A route returns the same `CommandOutcome` the Factory
+  returns today (`ok`, `state`, `message`), plus a `refusal` discriminator for the cases the
+  HTTP layer mapped to 400/404/409 (unknown task, unknown work order, command in flight,
+  invalid input). Thrown errors reach the runtime as 500s and lose the CLI's exit-code
+  contract, so nothing expected is thrown.
+- **Input is validated in the route.** A workflow route receives its input verbatim; the route
+  parses it with the command's zod schema. Typed-state generation does not apply.
+
+### 4.3 What changes, and what does not
 
 - **Idempotency is unchanged.** Every command already takes an operation key and returns the
-  recorded outcome on replay. A route invocation that is retried by a client is the same
-  command with the same key.
-- **Reconcile** runs at the start of every mutating command and as its own route, because a
-  `workflow` route has no boot hook. The RFC's rule holds: resume only compatible versions,
-  otherwise leave a blocked record.
-- **Cancellation** of an in-flight `dispatch` is the Agent Protocol's run cancel; the route
-  observes `ctx.signal` and the existing per-work-order abort does the rest. A cancelled
-  observer leaves the same journal a crash does, and reconcile handles both.
-- **Concurrency.** One controller process at a time per registry, as today; the installation
-  lock the registry takes is the guard. Two routes on the same work order serialise on the
-  command log's `in_flight` status, which already exists.
-- **The trust argument** is unchanged. The concern was never process separation; it was a
+  recorded outcome on replay; the key rides in the route's input.
+- **The trust argument is unchanged.** The concern was never process separation; it was a
   model deciding transitions. Workflow routes are code. The builder has four workspace tools
   and a denied network and no channel to the controller's routes.
+- **Single writer by construction.** Only the controller app opens the registry for writing.
+  The CLI's write commands are HTTP calls; its read commands open the registry read-only. A
+  second controller process against the same registry is an operator error the registry does
+  not detect (SQLite WAL permits it); recording an owner is a follow-up, not this rung.
+- **The Factory object becomes per-route.** `createFactory` today owns tracked runs, a ticker
+  and a close; a route constructs what it needs for one command against the shared registry
+  and tears it down when it returns. The verifier and workspace reader are constructed once
+  per process behind the app's middleware `setup` hook, which is the only lifecycle hook b4
+  gives an app, and disposed in `dispose`.
 - **Nothing here needs a live model.** The port lands green on the scripted proofs.
 
-### 4.3 Proof
+### 4.4 Proof
 
-The rung 2 sandbox lane passes against the ported controller with the CLI replaced by route
-calls, and the registry produced by a run is byte-compatible with rung 2's schema (a rung 2
+The rung 2 unit suite (fake worker, fake verifier, fake reader) passes against the ported
+controller with the CLI replaced by route calls and direct reads; the Docker lane passes
+unchanged; the registry produced by a run is byte-compatible with rung 2's schema (a rung 2
 registry opens and reconciles under rung 3). The adversarial cases (tamper, delayed writer,
-weak repair) are re-run, not assumed.
+weak repair) are re-run, not assumed. A cancelled `dispatch` records the same outcome as
+today's cancel, and a client that disconnects mid-`dispatch` leaves a work order that a later
+`show` reports as finished, not stuck.
+
+### 4.5 What the survey found, on record
+
+- A run on a `workflow` route holds its HTTP request open until the route returns; there is no
+  accept-then-poll mode, and an abandoned route keeps running with its run slot held.
+- One run at a time per thread; the thread id is the concurrency unit and the cancel target.
+- No boot hook. Middleware `setup` runs lazily before the first request it gates and is
+  retried on rejection; `dispose` runs on SIGTERM on Node targets only.
+- A workflow route sees no thread id, run id or route params; identity rides in its input.
+- Errors thrown from a route are 500s with the message in the body.
+- The registry takes no process lock.
+
+These are the concrete requirements list for the durable workflow primitive named in §3.
 
 ---
 
