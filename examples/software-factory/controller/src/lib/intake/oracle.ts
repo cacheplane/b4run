@@ -6,7 +6,10 @@ export interface ProveOracleInput {
   readonly workOrderId: string
   readonly taskId: string
   readonly policyDigest: string
-  /** The captured baseline's digest: the receipt then names the bytes it graded, the unpatched pin. */
+  /**
+   * The captured baseline's digest: the receipt then names the bytes it graded, the unpatched
+   * pin. A receipt naming any other digest is refused.
+   */
   readonly baselineDigest: string
   readonly signal: AbortSignal
 }
@@ -16,7 +19,7 @@ export type OracleProof =
   | {
       readonly proven: false
       readonly verdict: Verdict
-      /** The check that decided (`build`, `tamper`, `independent`, ...), or null if there was none. */
+      /** The check that decided (`build`, `tamper`, `independent`, ...), or null with none. */
       readonly checkId: string | null
       readonly receipt: Receipt
     }
@@ -29,7 +32,8 @@ export type OracleProof =
  * would pass on anything. A `fail` under any other check id is not a failing assertion
  * either: a tamper (`tamper`) or a build failure (`build`) proves nothing about the defect,
  * whatever the receipt's own verdict says. The not-proven arm names the deciding check so the
- * caller can journal why. Rejects only when the harness itself could not run.
+ * caller can journal why. Rejects when the harness itself could not run, and when the receipt
+ * names bytes other than the baseline it was asked to grade: a receipt is never guessed.
  */
 export async function proveOracle(input: ProveOracleInput): Promise<OracleProof> {
   const receipt = await input.verifier.verify(
@@ -43,6 +47,10 @@ export async function proveOracle(input: ProveOracleInput): Promise<OracleProof>
     },
     input.signal,
   )
+  if (receipt.candidateDigest !== input.baselineDigest)
+    throw new Error(
+      `the verifier issued a receipt for ${receipt.candidateDigest}, not the baseline ${input.baselineDigest} it was asked to grade`,
+    )
   const independent = receipt.checks.find((check) => check.id === "independent")
   if (independent?.verdict === "fail") return { proven: true, receipt }
   const decided = independent ?? receipt.checks[0] ?? null

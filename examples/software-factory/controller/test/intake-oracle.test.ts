@@ -54,9 +54,9 @@ describe("proveOracle", () => {
     expect(call.policyDigest).toBe("b".repeat(64))
   })
 
-  it("is not proven when the check passes on the defect", async () => {
+  it("is not proven when the check passes on the defect, and names the independent check", async () => {
     const proof = await prove(createFakeVerifier({ independent: "pass" }))
-    expect(proof).toMatchObject({ proven: false, verdict: "pass" })
+    expect(proof).toMatchObject({ proven: false, verdict: "pass", checkId: "independent" })
     expect(proof.receipt.verdict).toBe("pass")
   })
 
@@ -92,8 +92,13 @@ describe("proveOracle", () => {
     expect(proof).toMatchObject({ proven: false, verdict: "inconclusive", checkId: null })
   })
 
-  it("names the independent check when it decided against the proof", async () => {
-    const proof = await prove(createFakeVerifier({ independent: "pass" }))
-    expect(proof).toMatchObject({ proven: false, checkId: "independent" })
+  it("refuses a receipt that names bytes other than the baseline", async () => {
+    // A receipt is never guessed, and neither is what it graded: a verifier that answered for
+    // some other candidate cannot prove anything about the baseline.
+    const other = "e".repeat(64)
+    const receipt = { ...inline([{ id: "independent", verdict: "fail" }]), candidateDigest: other }
+    await expect(prove({ verify: async () => receipt })).rejects.toThrow(
+      `the verifier issued a receipt for ${other}, not the baseline ${baselineDigest} it was asked to grade`,
+    )
   })
 })

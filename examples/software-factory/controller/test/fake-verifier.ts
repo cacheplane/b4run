@@ -20,7 +20,7 @@ export interface FakeVerifierScript {
 }
 
 export interface FakeVerifier extends Verifier {
-  /** Candidate digests this verifier was asked to verify, in order. */
+  /** Candidate digests this verifier was asked to verify, in order: a convenience over `calls`. */
   readonly verified: string[]
   /** Every input this verifier was handed, in order, so a test can see the mode and changes. */
   readonly calls: VerifyInput[]

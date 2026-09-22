@@ -22,7 +22,7 @@ export interface DockerVerifierOptions {
  * RFC's separate-trusted-process recommendation applied to the one place the dogfood found it
  * mattered. {@link gradeSuite} carries the reasoning, including what this does and does not
  * remove from the independent session. Intake's independent-only session is its own container
- * too, with no candidate changes written into it, so the same reasoning holds there.
+ * too, and intake passes no changes, so the same reasoning holds there.
  *
  * Within a session the workspace is snapshotted before and after the suite. Any persistent
  * change the suite made is a rejection, which is what catches a candidate that repairs itself

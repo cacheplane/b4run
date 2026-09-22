@@ -425,6 +425,13 @@ It does not repair anything.
 5. **Prove the oracle.** Capture the baseline for the generated task and run **only the
    independent suite** against it in a verifier container. Verdict not `fail`:
    `oracle_did_not_fail`. This is the one change to `Verifier.verify`: a `suites` option.
+
+   **As landed.** `Verifier.verify` gains `mode: "independentOnly"` (default `full`). In that
+   mode a tamper is reported under check id `tamper` (full mode keeps `visible` and
+   `independent`), so that only a genuine failing assertion under id `independent` proves an
+   oracle. A build failure, a tamper or a deadline is `proven: false` with `checkId` naming
+   the deciding check, and the proof refuses a receipt whose `candidateDigest` is not the
+   baseline it asked for.
 6. Transition to `awaiting_intake_approval` with `targetId` and `taskDigest`.
 
 A failure at 2, 3 or 5 with attempts remaining journals the reason and starts another intake
