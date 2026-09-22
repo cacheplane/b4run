@@ -20,6 +20,15 @@ import {
   WRONG_NPM_PROVENANCE_CERTIFICATE,
 } from "./fixtures/b4-npm-audit-certificates.mjs"
 
+const HOSTILE_CACHE_ENVIRONMENT = Object.freeze({
+  npm_config_offline: "true",
+  NPM_CONFIG_OFFLINE: "true",
+  npm_config_prefer_offline: "true",
+  NPM_CONFIG_PREFER_OFFLINE: "true",
+  npm_config_prefer_online: "false",
+  NPM_CONFIG_PREFER_ONLINE: "false",
+})
+
 const VERSION = "0.8.22"
 const COMMIT_SHA = "0123456789abcdef0123456789abcdef01234567"
 const ENTRY = Object.freeze(packageEntry("@b4run/sdk"))
@@ -180,6 +189,7 @@ test("fails closed on strict audit-output drift, conflicting versions, and outpu
 test("uses one synthetic exact-package tree with no install, unpack, or lockfile", async () => {
   const calls = []
   const sourceEnvironment = {
+    ...HOSTILE_CACHE_ENVIRONMENT,
     PATH: process.env.PATH ?? "",
     LANG: "en_US.UTF-8",
     GITHUB_ACTIONS: "true",
@@ -201,6 +211,7 @@ test("uses one synthetic exact-package tree with no install, unpack, or lockfile
     ACTIONS_ID_TOKEN_REQUEST_TOKEN: "exact-oidc-token",
     ACTIONS_ID_TOKEN_REQUEST_URL: "https://token.actions.githubusercontent.com/exact",
   }
+  const originalEnvironment = { ...sourceEnvironment }
   const verifier = await createNpmAuditVerifier({
     environment: sourceEnvironment,
     signal: new AbortController().signal,
@@ -267,6 +278,10 @@ test("uses one synthetic exact-package tree with no install, unpack, or lockfile
       assert.ok(options.env.HOME.startsWith(root))
       assert.equal(options.env.npm_config_registry, "https://registry.npmjs.org/")
       assert.equal(options.env.npm_config_ignore_scripts, "true")
+      assert.equal(options.env.npm_config_prefer_online, "true")
+      for (const key of Object.keys(HOSTILE_CACHE_ENVIRONMENT)) {
+        if (key !== "npm_config_prefer_online") assert.equal(options.env[key], undefined, key)
+      }
       for (const secret of [
         "NODE_OPTIONS",
         "NPM_TOKEN",
@@ -280,6 +295,10 @@ test("uses one synthetic exact-package tree with no install, unpack, or lockfile
     }
 
     const publishEnvironment = verifier.publisherEnvironment({ candidate: CANDIDATE })
+    for (const key of Object.keys(HOSTILE_CACHE_ENVIRONMENT)) {
+      assert.equal(publishEnvironment[key], undefined, key)
+    }
+    assert.deepEqual(sourceEnvironment, originalEnvironment)
     assert.equal(publishEnvironment.ACTIONS_ID_TOKEN_REQUEST_TOKEN, "exact-oidc-token")
     assert.equal(
       publishEnvironment.ACTIONS_ID_TOKEN_REQUEST_URL,
@@ -686,6 +705,7 @@ async function batchVerifier(run, fileSystem = fs, signal = new AbortController(
     fileSystem,
     signal,
     environment: {
+      ...HOSTILE_CACHE_ENVIRONMENT,
       PATH: process.env.PATH ?? "",
       GITHUB_TOKEN: "secret",
       NPM_TOKEN: "secret",
@@ -714,6 +734,10 @@ async function batchVerifier(run, fileSystem = fs, signal = new AbortController(
       ])
         assert.equal(options.env[key], undefined)
       assert.equal(options.env.npm_config_ignore_scripts, "true")
+      assert.equal(options.env.npm_config_prefer_online, "true")
+      for (const key of Object.keys(HOSTILE_CACHE_ENVIRONMENT)) {
+        if (key !== "npm_config_prefer_online") assert.equal(options.env[key], undefined, key)
+      }
       return run(options)
     },
   })
@@ -1580,13 +1604,15 @@ test("exact propagation errors can converge only to complete verified evidence",
       exitCode: 1,
       stdout: JSON.stringify({ error: propagationError(code) }),
     })),
+    { exitCode: 0, stdout: JSON.stringify({ invalid: [], missing: [], verified: [] }) },
     { exitCode: 0, stdout: auditOutput() },
   ]
   const verifier = await createNpmAuditVerifier({
-    environment: {},
+    environment: { ...HOSTILE_CACHE_ENVIRONMENT },
     signal: new AbortController().signal,
-    async runNpm(_command, args) {
+    async runNpm(_command, args, options) {
       if (args[0] === "--version") return { exitCode: 0, stdout: "11.17.0" }
+      assert.equal(options.env.npm_config_prefer_online, "true")
       return results.shift()
     },
   })
@@ -1597,9 +1623,12 @@ test("exact propagation errors can converge only to complete verified evidence",
     assert.deepEqual(await verifier.verifyPackage({ entry: ENTRY, candidate: CANDIDATE }), {
       status: "pending",
     })
-    assert.equal(
-      (await verifier.verifyPackage({ entry: ENTRY, candidate: CANDIDATE })).status,
-      "verified",
+    assert.deepEqual(await verifier.verifyPackage({ entry: ENTRY, candidate: CANDIDATE }), {
+      status: "pending",
+    })
+    assert.deepEqual(
+      await verifier.verifyPackage({ entry: ENTRY, candidate: CANDIDATE }),
+      parseNpmAuditSignatures(auditOutput(), { entry: ENTRY, candidate: CANDIDATE }),
     )
     assert.equal(results.length, 0)
   } finally {
