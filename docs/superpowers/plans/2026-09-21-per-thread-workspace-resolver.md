@@ -35,7 +35,7 @@
 | `packages/cli/test/managed-workspace-runtime.test.ts` | End to end through the Agent Protocol, dev and built |
 | `apps/web/content/docs/api/workspace.mdx` | Contract block, fields table, exports table, lifecycle paragraph |
 | `apps/web/content/docs/sandbox.mdx` | A "Per-thread workspaces" subsection |
-| `apps/web/content/seo/lastmod.generated.json` | Regenerated |
+| `apps/web/app/seo/lastmod.generated.json` | Regenerated |
 | `.changeset/workspace-resolver.md` | `@b4run/workspace` minor, `@b4run/cli` minor |
 
 ---
@@ -1050,7 +1050,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Files:**
 - Modify: `apps/web/content/docs/api/workspace.mdx:29-40, 366-381, 513-521`
 - Modify: `apps/web/content/docs/sandbox.mdx:40-70` (the Lifecycle section)
-- Regenerate: `apps/web/content/seo/lastmod.generated.json`
+- Regenerate: `apps/web/app/seo/lastmod.generated.json`
 - Create: `.changeset/workspace-resolver.md`
 
 - [ ] **Step 1: Update the API contract block**
@@ -1176,7 +1176,7 @@ Expected: the check passes. If it reports a missing contract block for `Workspac
 - [ ] **Step 7: Commit**
 
 ```bash
-git add apps/web/content/docs/api/workspace.mdx apps/web/content/docs/sandbox.mdx apps/web/content/seo/lastmod.generated.json .changeset/workspace-resolver.md
+git add apps/web/content/docs/api/workspace.mdx apps/web/content/docs/sandbox.mdx apps/web/app/seo/lastmod.generated.json .changeset/workspace-resolver.md
 git commit -m "docs(workspace): per-thread workspace resolvers
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
