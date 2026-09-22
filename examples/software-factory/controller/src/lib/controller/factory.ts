@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from "node:crypto"
+import { existsSync, mkdirSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
 import { exportApproved } from "../delivery/export.js"
 import { CommandInFlightError, UnknownTaskError, UnknownWorkOrderError } from "../domain/errors.js"
@@ -14,9 +16,11 @@ import type {
   Candidate,
   CommandOutcome,
   FactoryEvent,
+  IssueOrigin,
   Receipt,
   WorkOrderRow,
 } from "../domain/work-order.js"
+import { issueText } from "../intake/issue.js"
 import { promptFor } from "../prompts.js"
 import { type CommandLog, createCommandLog } from "../registry/commands.js"
 import { openRegistry } from "../registry/db.js"
@@ -45,6 +49,11 @@ export interface FactoryOptions {
   readonly exportDir: string
   /** Content-addressed evidence store for candidate and check output. */
   readonly artifactsDir: string
+  /**
+   * Where an issue work order's `issue.md` (and later its drafted task) is written, under a
+   * directory named by the work order id: the catalog's generated-tasks root.
+   */
+  readonly generatedTasksDir: string
   readonly verifier: Verifier
   readonly workspaceReader: WorkspaceReader
   /** The controller's own baseline for a task. Injected so tests need no container. */
@@ -81,6 +90,17 @@ export interface FactoryOptions {
 
 export interface Factory {
   create(input: { taskId: string; operationKey?: string }): Promise<WorkOrderRow>
+  /**
+   * A work order from a GitHub issue: the origin and the pin are recorded on the row, the
+   * issue text is written as `<generatedTasksDir>/<id>/issue.md`, and `taskId` is the id
+   * itself, which is where intake will later materialise the drafted task.
+   */
+  createFromIssue(input: {
+    origin: IssueOrigin
+    pin: string
+    issue: { title: string; body: string }
+    operationKey?: string
+  }): Promise<WorkOrderRow>
   dispatch(id: string, operationKey?: string): Promise<CommandOutcome>
   approve(
     id: string,
@@ -368,58 +388,95 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     if (mustGet(id).state === "verifying") await runVerification(ctx, id)
   }
 
+  /**
+   * The insert both creates share. A caller-supplied operationKey is also the work-order
+   * address: the same key always names the same id, which is what makes create idempotent
+   * across a crash: a spent key whose row exists returns that row untouched.
+   */
+  function insertWorkOrder(
+    operationKey: string | undefined,
+    args: Record<string, unknown>,
+    fields: (id: string) => Pick<WorkOrderRow, "taskId" | "origin" | "pin">,
+    created: (id: string) => Record<string, unknown>,
+  ): WorkOrderRow {
+    const id = operationKey
+      ? `wo-${createHash("sha256").update(operationKey).digest("hex").slice(0, 16)}`
+      : `wo-${randomUUID().replace(/-/g, "").slice(0, 16)}`
+    const key = operationKey ?? `create:${id}`
+    const begun = commands.begin(key, id, { command: "create", args }, iso())
+    if (begun.status === "in_flight") throw new CommandInFlightError(key)
+    // A spent key with no row is a crash between the command log and the insert. The id is
+    // derived from the key, so re-running the insert is idempotent rather than a second work
+    // order — and throwing here would leave that key permanently unusable.
+    if (begun.status === "done") {
+      const existing = store.get(id)
+      if (existing) return existing
+    }
+    const at = iso()
+    const row: WorkOrderRow = {
+      id,
+      revision: 0,
+      state: "received",
+      ...fields(id),
+      workerRoute: options.workerRoute,
+      workerThreadId: null,
+      interruptId: null,
+      candidateDigest: null,
+      bundleDigest: null,
+      blockedReason: null,
+      failureReason: null,
+      maxCandidateAttempts: 1,
+      maxActiveMs: options.maxActiveMs ?? 1_200_000,
+      activeMs: 0,
+      activeStartedAt: null,
+      awaitingSince: null,
+      targetId: null,
+      taskDigest: null,
+      intakeAttempts: 0,
+      maxIntakeAttempts: options.maxIntakeAttempts ?? 2,
+      createdAt: at,
+      updatedAt: at,
+    }
+    store.transaction(() => {
+      store.insert(row)
+      recordEvent(id, "created", created(id))
+      // Only a fresh key has an outcome left to record; a replayed one already has its own.
+      if (begun.status === "new")
+        commands.complete(key, { ok: true, state: "received", message: "Created" })
+    })
+    return row
+  }
+
   const factory: Factory = {
     async create({ taskId, operationKey }) {
       if (prompt(taskId) instanceof Error) throw new UnknownTaskError(taskId)
-      // A caller-supplied operationKey is also the work-order address: the same key always
-      // names the same id, which is what makes create idempotent across a crash.
-      const id = operationKey
-        ? `wo-${createHash("sha256").update(operationKey).digest("hex").slice(0, 16)}`
-        : `wo-${randomUUID().replace(/-/g, "").slice(0, 16)}`
-      const key = operationKey ?? `create:${id}`
-      const begun = commands.begin(key, id, { command: "create", args: { taskId } }, iso())
-      if (begun.status === "in_flight") throw new CommandInFlightError(key)
-      // A spent key with no row is a crash between the command log and the insert. The id is
-      // derived from the key, so re-running the insert is idempotent rather than a second work
-      // order — and throwing here would leave that key permanently unusable.
-      if (begun.status === "done") {
-        const existing = store.get(id)
-        if (existing) return existing
+      return insertWorkOrder(
+        operationKey,
+        { taskId },
+        () => ({ taskId, origin: { kind: "catalog" }, pin: null }),
+        () => ({ taskId }),
+      )
+    },
+
+    async createFromIssue({ origin, pin, issue, operationKey }) {
+      const row = insertWorkOrder(
+        operationKey,
+        { origin, pin },
+        (id) => ({ taskId: id, origin, pin }),
+        () => ({ origin, pin }),
+      )
+      // The issue text lands after the row: a directory with only `issue.md` is not a task the
+      // catalog lists, so nothing can dispatch it. Written only when absent, so a replayed key
+      // rewrites nothing and a crash between the insert and this write is repaired by the replay.
+      const directory = join(options.generatedTasksDir, row.id)
+      const path = join(directory, "issue.md")
+      if (!existsSync(path)) {
+        mkdirSync(directory, { recursive: true })
+        writeFileSync(
+          path,
+          issueText({ ...issue, repository: origin.repository, number: origin.number }),
+        )
       }
-      const at = iso()
-      const row: WorkOrderRow = {
-        id,
-        revision: 0,
-        state: "received",
-        taskId,
-        workerRoute: options.workerRoute,
-        workerThreadId: null,
-        interruptId: null,
-        candidateDigest: null,
-        bundleDigest: null,
-        blockedReason: null,
-        failureReason: null,
-        maxCandidateAttempts: 1,
-        maxActiveMs: options.maxActiveMs ?? 1_200_000,
-        activeMs: 0,
-        activeStartedAt: null,
-        awaitingSince: null,
-        origin: { kind: "catalog" },
-        pin: null,
-        targetId: null,
-        taskDigest: null,
-        intakeAttempts: 0,
-        maxIntakeAttempts: options.maxIntakeAttempts ?? 2,
-        createdAt: at,
-        updatedAt: at,
-      }
-      store.transaction(() => {
-        store.insert(row)
-        recordEvent(id, "created", { taskId })
-        // Only a fresh key has an outcome left to record; a replayed one already has its own.
-        if (begun.status === "new")
-          commands.complete(key, { ok: true, state: "received", message: "Created" })
-      })
       return row
     },
 

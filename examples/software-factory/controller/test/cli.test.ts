@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
@@ -208,6 +208,83 @@ describe("cli", () => {
       }),
     )
     expect(failed.stderr).toContain("FACTORY_CONTROLLER_URL")
+  }, 90_000)
+
+  /** A `gh` that answers `issue view` with a fixed issue and refuses everything else. */
+  function stubGh(issue: { title: string; body: string; url: string }): string {
+    const path = join(dir, "gh")
+    writeFileSync(
+      path,
+      `#!/bin/sh
+case "$1 $2" in
+  "issue view") printf '%s\\n' '${JSON.stringify(issue)}' ;;
+  *) echo "unexpected gh $*" >&2; exit 1 ;;
+esac
+`,
+    )
+    chmodSync(path, 0o755)
+    return path
+  }
+
+  /** A repository whose `origin` is itself, so a shallow fetch of main works offline. */
+  async function localRepo(): Promise<{ root: string; head: string }> {
+    const root = join(dir, "repo")
+    const git = (...args: string[]) =>
+      run("git", ["-C", root, ...args], {
+        env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" },
+      })
+    await run("git", ["init", "-b", "main", root])
+    writeFileSync(join(root, "README.md"), "target\n")
+    await git("-c", "user.name=t", "-c", "user.email=t@t", "add", "README.md")
+    await git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init")
+    await git("remote", "add", "origin", root)
+    const { stdout } = await git("rev-parse", "HEAD")
+    return { root, head: stdout.trim() }
+  }
+
+  it("creates from an issue through a stubbed gh and a local target repository", async () => {
+    const { cli, env } = await boot()
+    const gh = stubGh({ title: "Fix the flag", body: "Body\n", url: "https://github.com/x/778" })
+    const { root, head } = await localRepo()
+    const issueEnv = { ...env, FACTORY_GH: gh, FACTORY_REPO_ROOT: root }
+    const { stdout } = await run(
+      process.execPath,
+      [tsxBin, cliEntry, "create", "--issue", "778", "--repo", "cacheplane/b4run"],
+      { env: issueEnv, cwd: packageRoot },
+    )
+    const created = JSON.parse(stdout)
+    expect(created).toMatchObject({ ok: true, state: "received" })
+    expect(created.row.origin).toMatchObject({
+      kind: "issue",
+      repository: "cacheplane/b4run",
+      number: 778,
+    })
+    expect(created.row.origin.bodyDigest).toMatch(/^[a-f0-9]{64}$/)
+    expect(created.row.pin).toBe(head)
+    expect(
+      readFileSync(join(served?.stateDir ?? "", "tasks", created.row.id, "issue.md"), "utf8"),
+    ).toBe("# Fix the flag (cacheplane/b4run#778)\n\nBody\n")
+    const { json: shown } = await cli("show", created.row.id)
+    expect(shown.pin).toBe(head)
+
+    const both = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "create", "--task", "cli-flags", "--issue", "778"], {
+        env: issueEnv,
+        cwd: packageRoot,
+      }),
+    )
+    expect(both.stderr).toContain("not both")
+    const neither = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "create"], { env: issueEnv, cwd: packageRoot }),
+    )
+    expect(neither.stderr).toContain("--task or --issue")
+    const notANumber = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "create", "--issue", "seven"], {
+        env: issueEnv,
+        cwd: packageRoot,
+      }),
+    )
+    expect(notANumber.stderr).toContain("positive integer")
   }, 90_000)
 
   it("writes a builder manifest without a controller, a registry or a Factory", async () => {

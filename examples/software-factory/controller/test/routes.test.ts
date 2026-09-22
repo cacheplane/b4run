@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs"
+import { existsSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
@@ -76,6 +76,45 @@ describe("controller routes", () => {
     expect(badTask.body).toMatchObject({ ok: false, refusal: "unknown_task" })
     const badInput = await served.run("create-3", "/work-orders/create#workflow", { nope: 1 })
     expect(badInput.body).toMatchObject({ ok: false, refusal: "invalid_input" })
+  })
+
+  it("creates from an issue, and refuses a mixed or a pinless issue input as invalid_input", async () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-routes-"))
+    served = await serveController(dir)
+    const origin = {
+      kind: "issue",
+      repository: "cacheplane/b4run",
+      number: 778,
+      bodyDigest: "0".repeat(64),
+    }
+    const created = await served.run("create-5", "/work-orders/create#workflow", {
+      origin,
+      pin: "a".repeat(40),
+      issue: { title: "T", body: "B" },
+    })
+    expect(created.status).toBe(200)
+    expect(created.body).toMatchObject({
+      ok: true,
+      state: "received",
+      row: { origin, pin: "a".repeat(40) },
+    })
+    const { row } = created.body as { row: { id: string; taskId: string } }
+    expect(row.taskId).toBe(row.id)
+    expect(existsSync(join(served.stateDir, "tasks", row.id, "issue.md"))).toBe(true)
+
+    const mixed = await served.run("create-6", "/work-orders/create#workflow", {
+      taskId: "cli-flags",
+      origin,
+      pin: "a".repeat(40),
+      issue: { title: "T", body: "B" },
+    })
+    expect(mixed.body).toMatchObject({ ok: false, refusal: "invalid_input" })
+    const pinless = await served.run("create-7", "/work-orders/create#workflow", {
+      origin,
+      issue: { title: "T", body: "B" },
+    })
+    expect(pinless.body).toMatchObject({ ok: false, refusal: "invalid_input" })
+    expect(JSON.stringify((pinless.body as { issues: unknown }).issues)).toContain("pin")
   })
 
   it("serialises commands per work order through the runtime's one-run-per-thread rule", async () => {

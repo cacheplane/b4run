@@ -50,6 +50,7 @@ async function boot(options: Omit<FakeWorkerOptions, "outboxDir"> = {}) {
   reader = createFakeWorkspaceReader({})
   factory = await createFactory({
     registryPath: join(dir, "registry.sqlite"),
+    generatedTasksDir: join(dir, "tasks"),
     worker: createHttpWorkerClient(fake.baseUrl),
     workerRoute: "/build#agent",
     exportDir: join(dir, "out"),
@@ -190,6 +191,7 @@ describe("create and dispatch", () => {
     reader = createFakeWorkspaceReader({})
     factory = await createFactory({
       registryPath: join(dir, "registry.sqlite"),
+      generatedTasksDir: join(dir, "tasks"),
       worker: createHttpWorkerClient(fake.baseUrl),
       workerRoute: "/build#agent",
       exportDir: join(dir, "out"),
@@ -213,6 +215,7 @@ describe("create and dispatch", () => {
     // dispatch is the only way to reach the guard — which is exactly the upgrade case.
     const starved = await createFactory({
       registryPath: join(dir, "registry.sqlite"),
+      generatedTasksDir: join(dir, "tasks"),
       worker: createHttpWorkerClient(fake.baseUrl),
       workerRoute: "/build#agent",
       exportDir: join(dir, "out"),

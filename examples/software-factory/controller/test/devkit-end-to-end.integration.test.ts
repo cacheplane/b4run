@@ -157,6 +157,7 @@ it(
     })
     factory = await createFactory({
       registryPath: join(dir, "registry.sqlite"),
+      generatedTasksDir: join(dir, "tasks"),
       worker: createHttpWorkerClient(worker.baseUrl),
       workerRoute: "/build#agent",
       exportDir,

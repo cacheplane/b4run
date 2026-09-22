@@ -11,8 +11,17 @@ export async function workflow(input: unknown) {
     CreateInput,
     input,
     () => controllerRuntime().factory(),
-    async ({ taskId, operationKey }, factory) => {
-      const row = await factory.create({ taskId, ...(operationKey ? { operationKey } : {}) })
+    async (input, factory) => {
+      const key = input.operationKey ? { operationKey: input.operationKey } : {}
+      const row =
+        "taskId" in input
+          ? await factory.create({ taskId: input.taskId, ...key })
+          : await factory.createFromIssue({
+              origin: input.origin,
+              pin: input.pin,
+              issue: input.issue,
+              ...key,
+            })
       return { ok: true, state: row.state, message: "Created", row }
     },
   )

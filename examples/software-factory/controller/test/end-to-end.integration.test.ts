@@ -135,6 +135,7 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
   worker = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only", threadId })
   factory = await createFactory({
     registryPath: join(dir, "registry.sqlite"),
+    generatedTasksDir: join(dir, "tasks"),
     worker: createHttpWorkerClient(worker.baseUrl),
     workerRoute: "/build#agent",
     exportDir,

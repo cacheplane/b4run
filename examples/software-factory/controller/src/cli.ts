@@ -6,13 +6,20 @@ import { type ControllerClient, ControllerHttpError, createControllerClient } fr
 import { generatedTasksDirFor } from "./lib/config.js"
 import type { WorkOrderState } from "./lib/domain/states.js"
 import type { WorkOrderRow } from "./lib/domain/work-order.js"
+import {
+  execFileExec,
+  fetchIssue,
+  repositoryFromRemoteUrl,
+  resolvePin,
+} from "./lib/intake/issue.js"
 import { openRegistryReader } from "./lib/registry/reader.js"
 import type { RouteOutcome } from "./lib/routes/outcome.js"
-import { configureCatalog, loadTask } from "./lib/targets/catalog.js"
+import { configureCatalog, loadTask, repositoryRoot } from "./lib/targets/catalog.js"
 
 const USAGE = `factory <command> [options]
 
   create    --task <id> [--key <operationKey>]
+  create    --issue <n> [--repo <owner/name>] [--key <operationKey>]
   dispatch  <workOrderId> [--key <operationKey>]
   approve   <workOrderId> --revision <n> --bundle <sha256> [--key <operationKey>]
   deny      <workOrderId> [--key <operationKey>]
@@ -29,6 +36,10 @@ FACTORY_CONTROLLER_URL is its base URL. The commands that read do not go through
 controller at all: they open <FACTORY_STATE_DIR>/registry.sqlite read-only. The cancel command uses
 both: it asks the controller to stop the run and then reads the row back.
 builder-manifest needs neither.
+
+create --issue reads the issue through gh (FACTORY_GH names the executable; default gh) and pins
+the work order to origin/main of the target checkout (FACTORY_REPO_ROOT; FACTORY_NO_FETCH=1 skips
+the fetch). The repository is --repo, else FACTORY_REPOSITORY, else the checkout's origin remote.
 
 Output is JSON on stdout; diagnostics go to stderr. Exit code 1 when a command is refused,
 and when a dispatch settles somewhere that still owes the operator work.`
@@ -170,12 +181,46 @@ async function cancel(id: string, key: string | undefined): Promise<number> {
   return outcome.ok ? 0 : 1
 }
 
+/**
+ * What `create --issue` sends: the issue as gh reports it now, and main's tip as the pin. Both
+ * are read before the controller is asked, so a refused create costs nothing on the controller.
+ */
+async function issueCreateInput(issueArg: string, repo: string | undefined) {
+  const number = Number(issueArg)
+  if (!/^\d+$/.test(issueArg) || !Number.isInteger(number) || number <= 0)
+    throw new Error(`--issue must be a positive integer, got ${JSON.stringify(issueArg)}`)
+  const root = repositoryRoot()
+  const repository = repo ?? process.env.FACTORY_REPOSITORY ?? (await repositoryFromOrigin(root))
+  if (!repository) throw new Error("cannot determine the repository; pass --repo <owner/name>")
+  const gh = process.env.FACTORY_GH ?? "gh"
+  const fetch = process.env.FACTORY_NO_FETCH !== "1"
+  const issue = await fetchIssue({ repository, number, gh })
+  const pin = await resolvePin({ repositoryRoot: root, fetch })
+  return {
+    origin: { kind: "issue" as const, repository, number, bodyDigest: issue.bodyDigest },
+    pin,
+    issue: { title: issue.title, body: issue.body },
+  }
+}
+
+/** `owner/name` from the checkout's origin remote, or null when there is none or it is not GitHub. */
+async function repositoryFromOrigin(root: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileExec("git", ["-C", root, "remote", "get-url", "origin"])
+    return repositoryFromRemoteUrl(stdout)
+  } catch {
+    return null
+  }
+}
+
 async function main(argv: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
     options: {
       task: { type: "string" },
+      issue: { type: "string" },
+      repo: { type: "string" },
       key: { type: "string" },
       revision: { type: "string" },
       bundle: { type: "string" },
@@ -211,11 +256,15 @@ async function main(argv: string[]): Promise<number> {
   try {
     switch (command) {
       case "create": {
-        if (!values.task) throw new Error("create requires --task")
-        const outcome = await client().create({
-          taskId: values.task,
-          ...(values.key ? { operationKey: values.key } : {}),
-        })
+        if (values.task && values.issue) throw new Error("create takes --task or --issue, not both")
+        if (!values.task && !values.issue) throw new Error("create requires --task or --issue")
+        const key = values.key ? { operationKey: values.key } : {}
+        const outcome = values.task
+          ? await client().create({ taskId: values.task, ...key })
+          : await client().create({
+              ...(await issueCreateInput(values.issue ?? "", values.repo)),
+              ...key,
+            })
         print(outcome)
         return outcome.ok ? 0 : 1
       }

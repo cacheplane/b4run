@@ -58,6 +58,7 @@ async function boot(
   const reader = createFakeWorkspaceReader({})
   factory = await createFactory({
     registryPath: join(dir, "registry.sqlite"),
+    generatedTasksDir: join(dir, "tasks"),
     worker: createHttpWorkerClient(fake.baseUrl),
     workerRoute: "/build#agent",
     exportDir: out(),

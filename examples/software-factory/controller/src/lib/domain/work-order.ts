@@ -2,24 +2,26 @@ import { z } from "zod"
 import { BLOCKED_REASONS, FAILURE_REASONS, STATES } from "./states.js"
 
 export const DIGEST_PATTERN = /^[a-f0-9]{64}$/
+/** A GitHub `owner/name`, as `gh --repo` takes it. */
+export const REPOSITORY_PATTERN = /^[\w.-]+\/[\w.-]+$/
 
 /**
  * Where a work order came from. A catalog work order names one of the controller's own tasks;
  * an issue work order was drafted from a GitHub issue, and `bodyDigest` is the digest of the
  * issue body the draft was made from, so a later edit to the issue is detectable.
  */
-export const OriginSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("catalog") }).strict(),
-  z
-    .object({
-      kind: z.literal("issue"),
-      repository: z.string().regex(/^[\w.-]+\/[\w.-]+$/),
-      number: z.number().int().positive(),
-      bodyDigest: z.string().regex(DIGEST_PATTERN),
-    })
-    .strict(),
-])
+export const CatalogOriginSchema = z.object({ kind: z.literal("catalog") }).strict()
+export const IssueOriginSchema = z
+  .object({
+    kind: z.literal("issue"),
+    repository: z.string().regex(REPOSITORY_PATTERN),
+    number: z.number().int().positive(),
+    bodyDigest: z.string().regex(DIGEST_PATTERN),
+  })
+  .strict()
+export const OriginSchema = z.discriminatedUnion("kind", [CatalogOriginSchema, IssueOriginSchema])
 export type Origin = z.infer<typeof OriginSchema>
+export type IssueOrigin = z.infer<typeof IssueOriginSchema>
 
 export const WorkOrderRowSchema = z.object({
   id: z.string().min(1),

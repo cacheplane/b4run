@@ -61,6 +61,7 @@ export function createControllerRuntime(
       workerRoute: config.workerRoute,
       exportDir: config.exportDir,
       artifactsDir: config.artifactsDir,
+      generatedTasksDir: config.generatedTasksDir,
       approvalTtlMs: config.approvalTtlMs,
       maxActiveMs: config.maxActiveMs,
       maxChangedBytes: config.maxChangedBytes,

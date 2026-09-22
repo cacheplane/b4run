@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import type { CatalogCreate, IssueCreate } from "./routes/input.js"
 import type { RouteOutcome } from "./routes/outcome.js"
 
 export class ControllerHttpError extends Error {
@@ -46,7 +47,7 @@ export function createControllerClient(baseUrl: string, fetchImpl: typeof fetch 
     ...(operationKey ? { operationKey } : {}),
   })
   return {
-    create: (input: { taskId: string; operationKey?: string }) =>
+    create: (input: CatalogCreate | IssueCreate) =>
       run(`create:${input.operationKey ?? randomUUID()}`, "/work-orders/create#workflow", input),
     dispatch: (id: string, operationKey?: string, signal?: AbortSignal) =>
       run(id, "/work-orders/dispatch#workflow", withKey(id, operationKey), signal),

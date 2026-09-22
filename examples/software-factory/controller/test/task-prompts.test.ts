@@ -151,6 +151,7 @@ describe("the controller over a partly unprepared catalog", () => {
     const unavailable: Array<[string, string]> = []
     factory = await createFactory({
       registryPath: join(dir, "registry.sqlite"),
+      generatedTasksDir: join(dir, "tasks"),
       worker: createHttpWorkerClient(worker.baseUrl),
       workerRoute: "/build#agent",
       exportDir: join(dir, "out"),
@@ -180,6 +181,7 @@ describe("the controller over a partly unprepared catalog", () => {
     worker = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only" })
     factory = await createFactory({
       registryPath: join(dir, "registry.sqlite"),
+      generatedTasksDir: join(dir, "tasks"),
       worker: createHttpWorkerClient(worker.baseUrl),
       workerRoute: "/build#agent",
       exportDir: join(dir, "out"),

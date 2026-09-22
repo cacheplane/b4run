@@ -26,6 +26,7 @@ let factory: Factory | undefined
 function factoryOptions(dir: string, registryPath: string): FactoryOptions {
   return {
     registryPath,
+    generatedTasksDir: join(dir, "tasks"),
     worker: createHttpWorkerClient(fake?.baseUrl ?? ""),
     workerRoute: "/build#agent",
     exportDir: join(dir, "out"),
