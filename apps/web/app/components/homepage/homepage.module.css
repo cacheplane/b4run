@@ -745,7 +745,7 @@
   /* Same line box as .flowNumber (12px / 1.6) so the arrow centers on it. */
   line-height: 19.2px;
   background: var(--paper);
-  color: #667811;
+  color: #627410; /* 4.74:1 on --paper; #667811 was 4.48:1 */
   z-index: 1;
 }
 .executionFlow li > strong {
@@ -761,7 +761,7 @@
   font:
     12px / 1.6 var(--font-jetbrains-mono),
     monospace;
-  color: #667811;
+  color: #627410; /* 4.74:1 on --paper; #667811 was 4.48:1 */
 }
 .ownership {
   display: flex;

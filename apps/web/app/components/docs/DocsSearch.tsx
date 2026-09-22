@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
+import { OPEN_DOCS_SEARCH_EVENT } from "./docs-search-events"
 import { filterDocsSearchResults, flattenDocsSearchIndex } from "./docs-search-results"
 import type { DocsSearchEntry } from "./search-index"
 
@@ -17,6 +18,9 @@ export function DocsSearch({ index }: Props) {
   const [active, setActive] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
+  // Whatever had focus when the dialog opened (the sidebar button, the
+  // header's mobile search button, or the page under Cmd/Ctrl-K).
+  const returnFocusRef = useRef<HTMLElement | null>(null)
   const [mounted, setMounted] = useState(false)
 
   // Portal target only exists in the browser; gate on mount to stay SSR-safe.
@@ -27,10 +31,22 @@ export function DocsSearch({ index }: Props) {
   const flat = useMemo(() => flattenDocsSearchIndex(index), [index])
   const results = useMemo(() => filterDocsSearchResults(query, flat), [query, flat])
 
+  const openSearch = useCallback(() => {
+    const focused = document.activeElement
+    if (focused instanceof HTMLElement && focused !== document.body) {
+      returnFocusRef.current = focused
+    }
+    setOpen(true)
+  }, [])
+
   const close = useCallback(() => {
     setOpen(false)
     setQuery("")
     setActive(0)
+    const target = returnFocusRef.current
+    returnFocusRef.current = null
+    // After the portal unmounts, hand focus back to the trigger.
+    if (target) window.setTimeout(() => target.focus({ preventScroll: true }), 0)
   }, [])
 
   const navigate = useCallback(
@@ -46,14 +62,18 @@ export function DocsSearch({ index }: Props) {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault()
-        setOpen(true)
+        if (!open) openSearch()
       } else if (e.key === "Escape" && open) {
         close()
       }
     }
     window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [open, close])
+    window.addEventListener(OPEN_DOCS_SEARCH_EVENT, openSearch)
+    return () => {
+      window.removeEventListener("keydown", onKey)
+      window.removeEventListener(OPEN_DOCS_SEARCH_EVENT, openSearch)
+    }
+  }, [open, close, openSearch])
 
   // Focus input whenever opened
   useEffect(() => {
@@ -70,10 +90,8 @@ export function DocsSearch({ index }: Props) {
   }, [active])
 
   const onInputKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Escape") {
-      e.preventDefault()
-      close()
-    } else if (e.key === "ArrowDown") {
+    // Escape is handled by the dialog panel for every focused control.
+    if (e.key === "ArrowDown") {
       e.preventDefault()
       setActive((a) => Math.min(a + 1, Math.max(0, results.length - 1)))
     } else if (e.key === "ArrowUp") {
@@ -90,7 +108,8 @@ export function DocsSearch({ index }: Props) {
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={openSearch}
+        aria-haspopup="dialog"
         className="w-full flex items-center justify-between gap-3 px-3 py-2 border border-divider rounded-md bg-surface/50 text-sm text-ink-dim hover:border-text-muted hover:text-ink-muted transition-colors mb-6"
         aria-label="Search docs (press Cmd+K)"
       >
@@ -124,7 +143,11 @@ export function DocsSearch({ index }: Props) {
             className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh] bg-ink/40 backdrop-blur-sm"
             onClick={close}
             onKeyDown={(e) => {
-              if (e.key === "Escape") close()
+              if (e.key === "Escape") {
+                e.preventDefault()
+                e.stopPropagation()
+                close()
+              }
             }}
             role="dialog"
             aria-modal="true"
@@ -134,7 +157,11 @@ export function DocsSearch({ index }: Props) {
             <div
               className="w-full max-w-xl mx-4 bg-surface border border-divider rounded-xl shadow-2xl overflow-hidden"
               onClick={(e) => e.stopPropagation()}
-              onKeyDown={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                // Escape bubbles to the dialog so it closes from the input or
+                // a focused result; other keys stay inside the panel.
+                if (e.key !== "Escape") e.stopPropagation()
+              }}
             >
               <div className="flex items-center gap-3 px-4 py-3 border-b border-divider">
                 <svg
@@ -161,11 +188,13 @@ export function DocsSearch({ index }: Props) {
                   }}
                   onKeyDown={onInputKey}
                   placeholder="Search B4.run docs..."
+                  aria-label="Search docs"
                   className="flex-1 bg-transparent text-ink placeholder-text-muted focus:outline-none text-sm"
                 />
                 <button
                   type="button"
                   onClick={close}
+                  aria-label="Close search"
                   className="text-xs text-ink-dim border border-divider rounded px-1.5 py-0.5 font-mono hover:text-ink"
                 >
                   ESC

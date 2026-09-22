@@ -9,8 +9,13 @@ import "./docs-brand.css"
 export default function DocsLayout({ children }: { children: ReactNode }) {
   return (
     <DocsBrandProvider>
-      <div data-docs-brand>
-        <ReadingLayout left={<DocsSidebar searchIndex={DOCS_INDEX} />} right={<DocsTOC />}>
+      <div data-docs-brand data-docs-layout>
+        <ReadingLayout
+          left={<DocsSidebar searchIndex={DOCS_INDEX} />}
+          leftLabel="Docs sidebar"
+          right={<DocsTOC />}
+          rightLabel="Page contents"
+        >
           {children}
         </ReadingLayout>
       </div>

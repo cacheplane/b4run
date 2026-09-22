@@ -94,7 +94,7 @@ export function MobileMenu() {
         aria-label="Open menu"
         aria-expanded={isOpen}
         aria-controls={menuId}
-        className="md:hidden inline-flex items-center justify-center w-10 h-10 rounded-md text-ink-muted hover:text-ink hover:bg-surface transition-colors"
+        className="md:hidden inline-flex items-center justify-center w-11 h-11 rounded-md text-ink-muted hover:text-ink hover:bg-surface transition-colors"
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden role="img">
           <title>Menu</title>
@@ -129,7 +129,7 @@ export function MobileMenu() {
               type="button"
               onClick={() => setIsOpen(false)}
               aria-label="Close menu"
-              className="inline-flex items-center justify-center w-10 h-10 rounded-md text-ink-muted hover:text-ink hover:bg-surface transition-colors"
+              className="inline-flex items-center justify-center w-11 h-11 rounded-md text-ink-muted hover:text-ink hover:bg-surface transition-colors"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden role="img">
                 <title>Close</title>

@@ -20,7 +20,7 @@ export function DocsSidebar({ searchIndex }: Props) {
         Documentation
       </p>
       <DocsSearch index={searchIndex} />
-      <nav className="space-y-6 mt-4">
+      <nav aria-label="Documentation" className="space-y-6 mt-4">
         {DOCS_NAV.map((section) => (
           <div key={section.label}>
             <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-dim mb-1.5 px-3">

@@ -1,58 +1,9 @@
 "use client"
 
-import { useEffect, useState } from "react"
-
-interface Heading {
-  readonly id: string
-  readonly text: string
-  readonly level: 2 | 3
-}
-
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "")
-}
+import { useDocsHeadings } from "./use-docs-headings"
 
 export function DocsTOC() {
-  const [headings, setHeadings] = useState<readonly Heading[]>([])
-  const [activeId, setActiveId] = useState<string | null>(null)
-
-  useEffect(() => {
-    const article = document.querySelector("article.prose-b4")
-    if (!article) return
-
-    const elements = Array.from(article.querySelectorAll<HTMLHeadingElement>("h2, h3"))
-    const parsed: Heading[] = elements.map((el) => {
-      const text = el.textContent?.trim() ?? ""
-      const id = el.id || slugify(text)
-      if (!el.id) el.id = id
-      return {
-        id,
-        text,
-        level: el.tagName === "H2" ? 2 : 3,
-      }
-    })
-    setHeadings(parsed)
-
-    if (parsed.length === 0) return
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((e) => e.isIntersecting)
-          .sort(
-            (a, b) => a.target.getBoundingClientRect().top - b.target.getBoundingClientRect().top,
-          )
-        const first = visible[0]
-        if (first) setActiveId(first.target.id)
-      },
-      { rootMargin: "0px 0px -70% 0px", threshold: 1 },
-    )
-    for (const el of elements) observer.observe(el)
-    return () => observer.disconnect()
-  }, [])
+  const { headings, activeId } = useDocsHeadings()
 
   if (headings.length === 0) return null
 

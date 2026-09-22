@@ -9,7 +9,7 @@ import { Walkthrough } from "./Walkthrough"
 export async function DeveloperHome() {
   const [prepared, narrative] = await Promise.all([prepareHomepage(), prepareNarrative()])
   return (
-    <div className={styles.home}>
+    <main id="content" tabIndex={-1} className={styles.home}>
       <div className={styles.container}>
         <section className={styles.hero} aria-labelledby="home-title">
           <p className={styles.eyebrow}>The TypeScript framework for agents.</p>
@@ -72,6 +72,6 @@ export async function DeveloperHome() {
           </div>
         </section>
       </div>
-    </div>
+    </main>
   )
 }

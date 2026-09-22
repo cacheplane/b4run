@@ -27,7 +27,7 @@ function Destination({ href, label }: DestinationProps) {
 // the header logo and footer at every width.
 export default function NotFound() {
   return (
-    <section data-not-found className="bg-[#f5f4f0] text-[#111]">
+    <main id="content" tabIndex={-1} data-not-found className="flex-1 bg-[#f5f4f0] text-[#111]">
       <div className={`${headerStyles.column} py-24 md:py-32`}>
         <p className="font-mono text-xs uppercase tracking-[0.07em] leading-[1.6] text-[#595b53]">
           404
@@ -56,6 +56,6 @@ export default function NotFound() {
           </li>
         </ul>
       </div>
-    </section>
+    </main>
   )
 }

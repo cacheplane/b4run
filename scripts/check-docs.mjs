@@ -4743,6 +4743,8 @@ const contentDocHrefs = walkFiles(docsContentRoot, (file) => file.endsWith(".mdx
   .sort()
 const wrapperDocHrefs = walkFiles(docsWrapperRoot, (file) => basename(file) === "page.tsx")
   .filter((file) => file !== join(docsWrapperRoot, "page.tsx"))
+  // Dynamic segments such as [...slug] are routing fallbacks (the docs 404), not pages.
+  .filter((file) => !relative(docsWrapperRoot, file).split(/[\\/]/).some((part) => part.startsWith("[")))
   .map((file) => {
     const relativePath = relative(docsWrapperRoot, file).replaceAll("\\", "/")
     return `/docs/${relativePath.slice(0, -"/page.tsx".length)}`

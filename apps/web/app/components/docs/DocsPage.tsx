@@ -5,6 +5,7 @@ import { resolveStaticSeoPage } from "../../seo/resolve"
 import { breadcrumbJsonLd, techArticleJsonLd } from "../../seo/structured-data"
 import { DocsBreadcrumb } from "./DocsBreadcrumb"
 import { DocsPrevNext } from "./DocsPrevNext"
+import { MobileDocsTOC } from "./MobileDocsTOC"
 import { PageActions } from "./PageActions"
 
 interface Props {
@@ -35,6 +36,7 @@ export function DocsPage({ href, Content, promptSlug }: Props) {
           {...(prompt?.body ? { promptBody: prompt.body } : {})}
         />
       </div>
+      <MobileDocsTOC />
       <article className="prose-b4">
         <Content />
       </article>

@@ -82,6 +82,7 @@ function FooterLink({ label, href, external }: LinkItem) {
 export function Footer() {
   return (
     <footer
+      data-site-footer
       className="bg-surface border-t border-divider"
       style={{ background: "#f5f4f0", color: "#111111", borderColor: "#d6d6cc" }}
     >

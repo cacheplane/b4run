@@ -28,10 +28,7 @@ export function PostHeader({ post }: { readonly post: Post }) {
       <div className="mb-2">
         <Eyebrow tone="accent">{eyebrow}</Eyebrow>
       </div>
-      <h1
-        className="font-display text-4xl md:text-5xl font-semibold tracking-tight mb-3 text-ink"
-        style={{ fontVariationSettings: "'opsz' 144, 'SOFT' 50" }}
-      >
+      <h1 className="text-4xl md:text-5xl font-semibold tracking-tight mb-3 text-ink">
         {post.title}
       </h1>
       <p className="text-lg text-ink-muted leading-relaxed">{post.description}</p>

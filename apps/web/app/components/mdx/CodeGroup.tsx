@@ -128,7 +128,7 @@ export function CodeGroup({ children }: CodeGroupProps) {
     >
       <CodeHeaderRow
         left={
-          <div role="tablist" className="flex items-end gap-1">
+          <div role="tablist" className="flex min-w-0 flex-wrap items-end gap-1">
             {blocks.map((b, i) => (
               <TabPill
                 key={b.key}

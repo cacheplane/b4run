@@ -118,6 +118,28 @@ describe("documentation search index", () => {
     ])
   })
 
+  it.each([
+    ["retry", "/docs/retry"],
+    ["memory", "/docs/memory"],
+    ["sandbox", "/docs/sandbox"],
+    ["tools", "/docs/tools"],
+  ])("ranks the %s guide above API-reference export aliases", (query, href) => {
+    const results = flattenDocsSearchIndex(DOCS_INDEX)
+    const matches = filterDocsSearchResults(query, results).map(({ href: match }) => match)
+    expect(matches[0]).toBe(href)
+    // No API reference page outranks the guide's own page row.
+    const firstApi = matches.findIndex((match) => match.startsWith("/docs/api/"))
+    expect(firstApi === -1 || firstApi > matches.indexOf(href)).toBe(true)
+  })
+
+  it("still finds an API page by an exact export name", () => {
+    const results = flattenDocsSearchIndex(DOCS_INDEX)
+    expect(filterDocsSearchResults("defineMemory", results)[0]?.href).toBe("/docs/api/sdk")
+    expect(filterDocsSearchResults("SandboxConfig", results).map(({ href }) => href)).toContain(
+      "/docs/api/sandbox",
+    )
+  })
+
   it("returns no results when neither visible text nor an alias matches", () => {
     const results = flattenDocsSearchIndex(DOCS_INDEX)
     expect(filterDocsSearchResults("definitely-no-such-doc-term", results)).toEqual([])
