@@ -2,8 +2,14 @@ import { stat } from "node:fs/promises"
 import { join } from "node:path"
 import { openWorkspaceInstallation } from "@b4run/sqlite-storage"
 import type { SandboxPolicy } from "@b4run/workspace"
-import { captureWorkspaceDefinition } from "@b4run/workspace/node"
-import { verifyWorkspaceArtifact } from "../build/workspace-artifact.js"
+import {
+  captureWorkspaceDefinition,
+  verifyCapturedWorkspaceDefinition,
+} from "@b4run/workspace/node"
+import {
+  verifyWorkspaceArtifact,
+  verifyWorkspaceResolverArtifact,
+} from "../build/workspace-artifact.js"
 import { loadOptionalB4Config } from "../node-config.js"
 import { ManagedWorkspaceManager } from "./managed-workspace-manager.js"
 import { SandboxManager } from "./sandbox-manager.js"
@@ -31,29 +37,71 @@ export async function resolveSandboxManager(
     ...(sandbox.security ? { security: sandbox.security } : {}),
   }
   let managed: ManagedWorkspaceManager | undefined
-  if (sandbox.workspace) {
+  const workspace = sandbox.workspace
+  if (workspace) {
     if (!sandbox.provider.workspaces)
       throw new Error("Sandbox provider does not support managed workspaces")
     if (!(await stat(join(appRoot, "workspace"))).isDirectory())
       throw new Error("Managed workspaces require app-root workspace/ capability")
-    const definition = options.built
-      ? verifyWorkspaceArtifact(options.artifact, sandbox.workspace)
-      : await captureWorkspaceDefinition(appRoot, sandbox.workspace)
-    const installation = openWorkspaceInstallation(appRoot)
-    try {
-      managed = new ManagedWorkspaceManager({
-        installation,
-        definition,
-        ...(!options.built
-          ? { captureDefinition: () => captureWorkspaceDefinition(appRoot, sandbox.workspace!) }
-          : {}),
-        provider: sandbox.provider.workspaces,
-        policy,
-        idleTimeoutMs: sandbox.idleTimeoutMs ?? DEFAULT_IDLE_MS,
-      })
-    } catch (error) {
-      installation.close()
-      throw error
+    if (typeof workspace === "function") {
+      // A resolver has nothing to capture at boot. In a built app the artifact
+      // must say so, or the config changed form since the build. Verified before
+      // opening the installation, so a mismatched config never creates sqlite files.
+      if (options.built) verifyWorkspaceResolverArtifact(options.artifact)
+      const installation = openWorkspaceInstallation(appRoot)
+      try {
+        managed = new ManagedWorkspaceManager({
+          installation,
+          captureDefinition: async (thread) => {
+            // Name the thread when the host's result is unusable, so the
+            // error reads as "your resolver returned a bad workspace", not as a
+            // framework shape complaint about an object the operator never wrote.
+            // A cancellation is rethrown unwrapped so callers can still detect it.
+            try {
+              const resolved = await workspace(thread)
+              if (resolved === null || typeof resolved !== "object")
+                throw new Error("returned no workspace definition")
+              return "version" in resolved
+                ? verifyCapturedWorkspaceDefinition(resolved)
+                : await captureWorkspaceDefinition(appRoot, resolved, { signal: thread.signal })
+            } catch (error) {
+              if (thread.signal.aborted) throw error
+              throw new Error(
+                `Workspace resolver for thread ${thread.threadId}: ${error instanceof Error ? error.message : String(error)}`,
+                { cause: error },
+              )
+            }
+          },
+          provider: sandbox.provider.workspaces,
+          policy,
+          idleTimeoutMs: sandbox.idleTimeoutMs ?? DEFAULT_IDLE_MS,
+        })
+      } catch (error) {
+        installation.close()
+        throw error
+      }
+    } else {
+      // Computed before opening the installation, so a failing static config
+      // never creates sqlite files.
+      const definition = options.built
+        ? verifyWorkspaceArtifact(options.artifact, workspace)
+        : await captureWorkspaceDefinition(appRoot, workspace)
+      const installation = openWorkspaceInstallation(appRoot)
+      try {
+        managed = new ManagedWorkspaceManager({
+          installation,
+          definition,
+          ...(!options.built
+            ? { captureDefinition: () => captureWorkspaceDefinition(appRoot, workspace) }
+            : {}),
+          provider: sandbox.provider.workspaces,
+          policy,
+          idleTimeoutMs: sandbox.idleTimeoutMs ?? DEFAULT_IDLE_MS,
+        })
+      } catch (error) {
+        installation.close()
+        throw error
+      }
     }
   }
   return new SandboxManager({

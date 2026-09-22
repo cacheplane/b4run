@@ -3,8 +3,9 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fakeSandbox } from "@b4run/sandbox/testing"
-import { openWorkspaceInstallation } from "@b4run/sqlite-storage"
+import { openWorkspaceInstallation, type WorkspaceInstallation } from "@b4run/sqlite-storage"
 import type {
+  CapturedWorkspaceDefinition,
   ManagedWorkspaceProvider,
   ReadyWorkspace,
   SandboxHandle,
@@ -19,13 +20,13 @@ const managers: ManagedWorkspaceManager[] = []
 const source = createSourceBundle([
   { path: "main.ts", bytes: new TextEncoder().encode("initial"), executable: false },
 ])
-function fixture(root = mkdtempSync(join(tmpdir(), "b4-managed-manager-"))) {
-  roots.push(root)
-  const installation = openWorkspaceInstallation(root)
-  const physical = new Map<string, ReadyWorkspace>()
-  const calls: string[] = []
+function makeProvider(
+  installation: WorkspaceInstallation,
+  physical: Map<string, ReadyWorkspace>,
+  calls: string[],
+): ManagedWorkspaceProvider {
   const legacy = fakeSandbox()
-  const provider: ManagedWorkspaceProvider = {
+  return {
     name: "managed-fake",
     async resolveEnvironment() {
       return {
@@ -74,6 +75,13 @@ function fixture(root = mkdtempSync(join(tmpdir(), "b4-managed-manager-"))) {
       physical.delete(target.intent.operationId)
     },
   }
+}
+function fixture(root = mkdtempSync(join(tmpdir(), "b4-managed-manager-"))) {
+  roots.push(root)
+  const installation = openWorkspaceInstallation(root)
+  const physical = new Map<string, ReadyWorkspace>()
+  const calls: string[] = []
+  const provider = makeProvider(installation, physical, calls)
   const definition = { version: 1 as const, source, environmentLinks: [] }
   const manager = new ManagedWorkspaceManager({
     installation,
@@ -258,4 +266,199 @@ it("blocks cached backend use after the recorded retention deadline", async () =
   } finally {
     clock.mockRestore()
   }
+})
+
+function resolverFixture(
+  captureDefinition: (thread: {
+    readonly threadId: string
+    readonly metadata: Readonly<Record<string, unknown>>
+    readonly signal: AbortSignal
+  }) => Promise<CapturedWorkspaceDefinition>,
+) {
+  const root = mkdtempSync(join(tmpdir(), "b4-managed-resolver-"))
+  roots.push(root)
+  const installation = openWorkspaceInstallation(root)
+  const physical = new Map<string, ReadyWorkspace>()
+  const calls: string[] = []
+  const provider = makeProvider(installation, physical, calls)
+  const manager = new ManagedWorkspaceManager({
+    installation,
+    provider,
+    policy: { network: { mode: "deny" } },
+    idleTimeoutMs: 0,
+    captureDefinition,
+  })
+  managers.push(manager)
+  return { manager, installation, calls }
+}
+
+function bundle(text: string) {
+  return createSourceBundle([
+    { path: "main.ts", bytes: new TextEncoder().encode(text), executable: false },
+  ])
+}
+
+it("calls the resolver once per thread, at first admission only", async () => {
+  const seen: string[] = []
+  const { manager } = resolverFixture(async (thread) => {
+    seen.push(`${thread.threadId}:${String(thread.metadata.task)}`)
+    return { version: 1, source: bundle(String(thread.metadata.task)), environmentLinks: [] }
+  })
+  const signal = new AbortController().signal
+  await manager.getForThread("one", signal, { metadata: async () => ({ task: "alpha" }) })
+  await manager.getForThread("one", signal, { metadata: async () => ({ task: "changed" }) })
+  const handle = await manager.getForThread("one", signal)
+  // Exercises the proxy's re-admission path (it must not invoke the resolver
+  // again). A backend call that fails would invalidate the cached session, so
+  // this uses the fake sandbox's default no-op exec rather than a filesystem
+  // read (the fake sandbox's volume is never seeded from the source bundle).
+  await handle.exec.runCommand({ command: "noop" }, { signal, workspaceRoot: handle.workspaceRoot })
+  expect(seen).toEqual(["one:alpha"])
+  expect(new TextDecoder().decode(manager.getWorkspace("one")?.readInitialFile("main.ts"))).toBe(
+    "alpha",
+  )
+})
+
+it("gives two threads different sources from their own metadata", async () => {
+  const { manager, installation } = resolverFixture(async (thread) => ({
+    version: 1,
+    source: bundle(String(thread.metadata.task)),
+    environmentLinks: [],
+  }))
+  const signal = new AbortController().signal
+  await manager.getForThread("one", signal, { metadata: async () => ({ task: "alpha" }) })
+  await manager.getForThread("two", signal, { metadata: async () => ({ task: "beta" }) })
+  const one = installation.associations.get("one")!.intent.sourceDigest
+  const two = installation.associations.get("two")!.intent.sourceDigest
+  expect(one).not.toBe(two)
+  expect(new TextDecoder().decode(manager.getWorkspace("two")?.readInitialFile("main.ts"))).toBe(
+    "beta",
+  )
+})
+
+it("hands the resolver the admission signal", async () => {
+  const controller = new AbortController()
+  const seen: AbortSignal[] = []
+  const { manager } = resolverFixture(async (thread) => {
+    seen.push(thread.signal)
+    return { version: 1, source: bundle("x"), environmentLinks: [] }
+  })
+  await manager.getForThread("one", controller.signal)
+  expect(seen).toHaveLength(1)
+  expect(seen[0]).toBe(controller.signal)
+})
+
+it("passes an empty metadata object when the runtime has none", async () => {
+  const seen: unknown[] = []
+  const { manager } = resolverFixture(async (thread) => {
+    seen.push(thread.metadata)
+    return { version: 1, source: bundle("x"), environmentLinks: [] }
+  })
+  await manager.getForThread("one", new AbortController().signal)
+  expect(seen).toEqual([{}])
+  expect(Object.isFrozen(seen[0])).toBe(true)
+})
+
+it("freezes the metadata handed to the resolver, even a live store row", async () => {
+  const liveRow: Record<string, unknown> = { taskId: "t-1" }
+  const seen: unknown[] = []
+  const { manager } = resolverFixture(async (thread) => {
+    seen.push(thread.metadata)
+    return { version: 1, source: bundle("x"), environmentLinks: [] }
+  })
+  await manager.getForThread("one", new AbortController().signal, {
+    metadata: async () => liveRow,
+  })
+  expect(Object.isFrozen(seen[0])).toBe(true)
+  expect(() => {
+    ;(seen[0] as Record<string, unknown>).taskId = "tampered"
+  }).toThrow()
+  // The resolver's copy is frozen; the store's own row is untouched by that attempt.
+  expect(liveRow.taskId).toBe("t-1")
+})
+
+it("treats a non-object metadata loader result as no metadata", async () => {
+  const seen: unknown[] = []
+  const { manager } = resolverFixture(async (thread) => {
+    seen.push(thread.metadata)
+    return { version: 1, source: bundle("x"), environmentLinks: [] }
+  })
+  await manager.getForThread("one", new AbortController().signal, {
+    metadata: async () => "not-an-object" as never,
+  })
+  expect(seen).toEqual([{}])
+})
+
+it("resolves once when two first admissions of the same thread overlap", async () => {
+  let resolverCalls = 0
+  const { manager, calls } = resolverFixture(async () => {
+    resolverCalls += 1
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    return { version: 1, source: bundle("x"), environmentLinks: [] }
+  })
+  const signal = new AbortController().signal
+  await Promise.all([manager.getForThread("one", signal), manager.getForThread("one", signal)])
+  expect(resolverCalls).toBe(1)
+  expect(calls.filter((call) => call === "create")).toHaveLength(1)
+})
+
+it("leaves no association or source when the admission is aborted during the resolver", async () => {
+  const controller = new AbortController()
+  const { manager, installation, calls } = resolverFixture(async (thread) => {
+    controller.abort()
+    thread.signal.throwIfAborted()
+    return { version: 1, source: bundle("never"), environmentLinks: [] }
+  })
+  await expect(manager.getForThread("one", controller.signal)).rejects.toThrow()
+  expect(installation.associations.get("one")).toBeUndefined()
+  expect(calls).not.toContain("create")
+})
+
+it("leaves no source when the resolver ignores the abort signal", async () => {
+  const controller = new AbortController()
+  const { manager, installation, calls } = resolverFixture(async () => {
+    controller.abort()
+    return { version: 1, source: bundle("ignored"), environmentLinks: [] }
+  })
+  await expect(manager.getForThread("one", controller.signal)).rejects.toThrow()
+  expect(installation.associations.get("one")).toBeUndefined()
+  expect(calls).not.toContain("create")
+  expect(installation.sources.get(bundle("ignored").digest)).toBeUndefined()
+})
+
+it("leaves no association and calls no provider when the resolver throws", async () => {
+  const { manager, installation, calls } = resolverFixture(async () => {
+    throw new Error("no task for this thread")
+  })
+  await expect(manager.getForThread("one", new AbortController().signal)).rejects.toThrow(
+    /no task for this thread/,
+  )
+  expect(installation.associations.get("one")).toBeUndefined()
+  expect(calls).not.toContain("create")
+})
+
+it("rejects a resolver result that is not a captured definition before any provider call", async () => {
+  const { manager, installation, calls } = resolverFixture(
+    async () => ({ version: 1, source: bundle("x") }) as never,
+  )
+  await expect(manager.getForThread("one", new AbortController().signal)).rejects.toThrow()
+  expect(installation.associations.get("one")).toBeUndefined()
+  expect(calls).not.toContain("create")
+})
+
+it("refuses to construct with neither a definition nor a resolver", () => {
+  const root = mkdtempSync(join(tmpdir(), "b4-managed-none-"))
+  roots.push(root)
+  const installation = openWorkspaceInstallation(root)
+  const provider = makeProvider(installation, new Map(), [])
+  expect(
+    () =>
+      new ManagedWorkspaceManager({
+        installation,
+        provider,
+        policy: { network: { mode: "deny" } },
+        idleTimeoutMs: 0,
+      }),
+  ).toThrow(/definition or a resolver/i)
+  installation.close()
 })

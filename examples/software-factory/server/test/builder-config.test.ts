@@ -8,7 +8,10 @@ describe("builder configuration", () => {
   it("denies the network and pins one image for both containers", () => {
     expect(config.sandbox?.network?.mode).toBe("deny")
     expect(config.sandbox?.provider.name).toBe("docker")
-    expect(config.sandbox?.workspace?.source.directory).toBe(".factory/captures/builder/cli-flags")
+    const workspace = config.sandbox?.workspace
+    if (typeof workspace === "function")
+      throw new Error("builder config must declare a static workspace")
+    expect(workspace?.source.directory).toBe(".factory/captures/builder/cli-flags")
   })
 
   it("pre-approves exactly the commands the target needs, so an interrupt is a surprise", () => {

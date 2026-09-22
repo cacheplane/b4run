@@ -32,6 +32,8 @@ export type {
   SandboxSecurityPolicy,
   SandboxWorkspaceReader,
   WorkspaceReadSource,
+  WorkspaceResolver,
+  WorkspaceResolverInput,
 } from "./sandbox-types.js"
 export type { SourceBundle, SourceFileInput } from "./source-bundle.js"
 export type { WorkspaceSourceDefinition } from "./source-capture.js"

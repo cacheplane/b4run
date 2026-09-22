@@ -5,7 +5,11 @@
  * redirects all of readFile/writeFile/listDir/runBash into the isolated env
  * with no change to the capability. See the execution-sandbox spec.
  */
-import type { ManagedWorkspaceProvider, WorkspaceDefinition } from "./managed-workspace.js"
+import type {
+  CapturedWorkspaceDefinition,
+  ManagedWorkspaceProvider,
+  WorkspaceDefinition,
+} from "./managed-workspace.js"
 import type { ExecBackend, FilesystemBackend } from "./types.js"
 
 export interface SandboxPolicy {
@@ -149,8 +153,41 @@ export interface SandboxProvider {
   }>
 }
 
+/**
+ * What a {@link WorkspaceResolver} is told about the thread it is deciding for.
+ * `metadata` is the client-supplied thread metadata as stored, with B4.run's
+ * reserved key stripped. It is client input: a resolver validates it and
+ * decides from it, it never trusts it.
+ */
+export interface WorkspaceResolverInput {
+  readonly threadId: string
+  readonly metadata: Readonly<Record<string, unknown>>
+  /** Aborted when the admitting run is cancelled. Pass it to any I/O the resolver does. */
+  readonly signal: AbortSignal
+}
+
+/**
+ * Host code that decides one thread's initial workspace. Called once per
+ * thread, at the thread's first admission, never again: the result is
+ * captured, recorded by digest in the thread's creation intent, and every
+ * later turn of that thread reads the record. A subagent runs under its
+ * parent's thread and resolves through the parent's record, so a resolver
+ * never sees a subagent's thread id. A returned `WorkspaceDefinition` is
+ * captured from the app root at that moment; a returned
+ * `CapturedWorkspaceDefinition` is verified and used as is.
+ */
+export type WorkspaceResolver = (
+  thread: WorkspaceResolverInput,
+) => Promise<WorkspaceDefinition | CapturedWorkspaceDefinition>
+
 export interface SandboxConfig {
-  readonly workspace?: WorkspaceDefinition
+  /**
+   * The initial managed workspace: one definition for every thread, or a
+   * {@link WorkspaceResolver} that decides per thread. `b4 build` captures a
+   * definition into the build artifact; a resolver is captured at run time
+   * and the artifact records only that a resolver is configured.
+   */
+  readonly workspace?: WorkspaceDefinition | WorkspaceResolver
   readonly provider: SandboxProvider
   readonly network?: SandboxPolicy["network"]
   readonly env?: SandboxPolicy["env"]

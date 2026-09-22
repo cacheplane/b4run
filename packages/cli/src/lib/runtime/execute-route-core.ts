@@ -76,6 +76,7 @@ import type { ExecBackend, FilesystemBackend } from "@b4run/workspace"
 import type { RunnableConfig } from "@langchain/core/runnables"
 import { isGraphInterrupt } from "@langchain/langgraph"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
+import { stripReservedThreadMetadata } from "../dev/thread-metadata.js"
 import { createB4Context } from "./b4-context.js"
 import { checkToolNameUniqueness } from "./check-tool-name-uniqueness.js"
 import { routeCheckpointer } from "./checkpoint-route-provenance.js"
@@ -980,10 +981,35 @@ async function prepareRouteExecutionForInvocation(
       "Managed workspace execution requires an admitted Node runtime and a thread identity",
     )
   }
+
+  // Canonical store resolution, hoisted above the admission block below so
+  // both it and the rest of the request read the SAME row: an embedder that
+  // passes a stable threadId but no store must not see `{}` in the workspace
+  // resolver while the rest of the request reads the real thread. Placed
+  // AFTER the guard above: a fallback-less runtime with a managed workspace
+  // configured but no admitted sandbox/thread should still fail with that
+  // guard's actionable message, not this store's generic "no instance
+  // provided" — the guard only reads `loadedB4Config`/`options`, so nothing
+  // here depends on it running first.
+  const threadsStore: ThreadsStore =
+    options.threadsStore ??
+    configThreadsStore ??
+    requireFallbacks(fallbacks, "threadsStore").defaultThreadsStore(options.appRoot)
+
   if (options.sandboxManager && sandboxKey) {
     const handle = await options.sandboxManager.getForThread(
       sandboxKey,
       options.signal ?? new AbortController().signal,
+      {
+        // Loaded only when the thread has no workspace record yet. The key is
+        // the SANDBOX key, so a subagent resolves through its parent's thread.
+        // The store read takes no signal today; the manager re-checks the
+        // admission signal after the resolver returns.
+        metadata: async () => {
+          const thread = await threadsStore.getThread(sandboxKey)
+          return stripReservedThreadMetadata(thread?.metadata) ?? {}
+        },
+      },
     )
     sandboxBackends = { filesystem: handle.filesystem, exec: handle.exec }
     sandboxWorkspaceRoot = handle.workspaceRoot
@@ -1012,11 +1038,6 @@ async function prepareRouteExecutionForInvocation(
     normalized.kind === "agent" && resolvedCheckpointer
       ? routeCheckpointer(resolvedCheckpointer, `${options.routeId}#${normalized.kind}`)
       : resolvedCheckpointer
-
-  const threadsStore: ThreadsStore =
-    options.threadsStore ??
-    configThreadsStore ??
-    requireFallbacks(fallbacks, "threadsStore").defaultThreadsStore(options.appRoot)
 
   // Deliberately outside the agent-only branch below: every route kind needs
   // the loaded store for ctx.fs permission gating, and createWorkspaceFs

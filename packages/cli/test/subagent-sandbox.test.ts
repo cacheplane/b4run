@@ -19,18 +19,26 @@ afterEach(async () => {
 describe("subagent sandbox preparation", () => {
   it("inherits the root sandbox key and recompiles sandbox-bound children per dispatch", async () => {
     const appRoot = await fixtureApp()
-    const getForThread = vi.fn(async () => ({
-      exec: { execute: vi.fn() },
-      filesystem: {
-        list: vi.fn(),
-        mkdir: vi.fn(),
-        read: vi.fn(),
-        remove: vi.fn(),
-        stat: vi.fn(),
-        write: vi.fn(),
-      },
-      workspaceRoot: "/workspace",
-    }))
+    const getForThread = vi.fn(
+      async (
+        _key: string,
+        _signal: AbortSignal,
+        _context?: {
+          metadata?: (signal: AbortSignal) => Promise<Readonly<Record<string, unknown>>>
+        },
+      ) => ({
+        exec: { execute: vi.fn() },
+        filesystem: {
+          list: vi.fn(),
+          mkdir: vi.fn(),
+          read: vi.fn(),
+          remove: vi.fn(),
+          stat: vi.fn(),
+          write: vi.fn(),
+        },
+        workspaceRoot: "/workspace",
+      }),
+    )
     const createReactAgent = vi.fn((_options: unknown) => ({
       invoke: vi.fn(async () => ({ messages: [new AIMessage("Child complete.")] })),
     }))
@@ -55,8 +63,26 @@ describe("subagent sandbox preparation", () => {
     expect(createReactAgent).toHaveBeenCalledTimes(3)
     expect(getForThread).toHaveBeenCalledTimes(3)
     for (const call of getForThread.mock.calls) {
-      expect(call).toEqual(["sandbox-root", expect.any(AbortSignal)])
+      // Admission now always hands the manager a third, lazy admission
+      // context (see execute-route-core.ts) so a resolver can read the
+      // thread's stored metadata — a store-backed function here since this
+      // fixture's config carries no threadsStore.
+      expect(call).toEqual([
+        "sandbox-root",
+        expect.any(AbortSignal),
+        { metadata: expect.any(Function) },
+      ])
     }
+    // This fixture's `b4.config.ts` carries no `threadsStore`, and
+    // `materializeResolvedRouteGraph` (via execute-route.ts) supplies the
+    // Node fallbacks, so the loader falls all the way through to the
+    // default sqlite store for `appRoot`. No run in this test ever created
+    // or updated a row for "sandbox-root", so the loader resolves `{}`.
+    // Asserting `resolves.toEqual({})` here proves the loader is wired and
+    // actually callable through this path; keying admission by the PARENT
+    // thread (not the child) is covered by managed-workspace-runtime.test.ts.
+    const context = getForThread.mock.calls[0]?.[2]
+    await expect(context?.metadata?.(new AbortController().signal)).resolves.toEqual({})
   })
 })
 
