@@ -1156,6 +1156,8 @@ export function openRegistryReader(path: string): RegistryReader {
 }
 ```
 
+Two cases the Task 5 review asks this task to define and test: (a) a state dir the controller has never opened: the file does not exist, so `openRegistryReader` throws "does not exist" (already specified); (b) a hot WAL left by a crashed writer: a read-only connection can fail with `SQLITE_READONLY_RECOVERY` when the WAL needs recovery. Document that the reader then reports "registry needs recovery; start the controller" rather than retrying, and add a test that opens the reader while the writer is still open (WAL present) and reads successfully (the common case).
+
 If `createWorkOrderStore` or `createEvidenceStore` executes a write at construction (a `CREATE TABLE` or migration), the read-only open throws; in that case split the SELECT statements into a `createWorkOrderReads(db)` and `createEvidenceReads(db)` used by both the stores and the reader, and report it. Preparing an INSERT on a read-only connection is allowed; only executing it fails. If importing `UnknownWorkOrderError` from `factory.ts` drags the verifier and Docker modules into the CLI's read path, move the three error classes into `src/lib/domain/errors.ts` and re-export them from `factory.ts`.
 
 - [ ] **Step 4: Run and commit**
@@ -1267,6 +1269,8 @@ export type ControllerClient = ReturnType<typeof createControllerClient>
 
 Delete `src/http.ts` and `test/http.test.ts`.
 
+Exit-code contract, from the Task 5 review. There are two body shapes: route refusals (HTTP 200, `{ ok: false, refusal, message }`) and runtime 409s with no `refusal` (`{ error: { kind, message, code } }`: `run_in_flight` for a second command on a busy work order, `run_cancelled` for a cancelled dispatch). Both exit 1, printing the body. A `dispatch` that returns 200 with `ok: false` and "Dispatch did not settle" means the work order is still live, not refused: exit 1 and say so. Cancelling a LIVE dispatch is the runtime cancel (`client.interrupt`), not the `cancel` route, which would 409; the CLI's `cancel` needs both, as specified above. Decision for this task: `dispatch` exits non-zero when the settled row is `blocked` or `failed`, using `settledOk` from `src/lib/controller/reconcile.ts` (the semantics reconciliation already uses); today's CLI exits 0 regardless, and that hides a failed work order from a script.
+
 - [ ] **Step 4: Run**
 
 ```bash
@@ -1376,7 +1380,13 @@ In §4.2 after the "The budget ticker lives in the route" bullet add:
 > **As landed:** the ticker stays in the Factory. A process-lived Factory exists after all,
 > opened by middleware `setup` and closed by `dispose`, so the ticker, tracked runs and
 > `close()` keep their rung 2 shape; `dispatch` awaits its run through `Factory.settle`.
+> Per-command reconcile skips the reattach when an observer for that work order is already
+> live in this process (`ControllerContext.isTracked`), so it cannot evict the observer a
+> `dispatch` left running; the `reconcile` route is the boot reconcile (`reconcileAll`),
+> not a per-row loop. A `StaleRevisionError` is a refusal (`stale_revision`), not a 500.
 ```
+
+And in §4.3 replace "**The Factory object becomes per-route.** ... disposed in `dispose`." with an as-landed note: one Factory per process, opened by middleware `setup` and closed by `dispose`; routes reach it through the runtime singleton; the verifier and reader are constructed once inside it.
 
 Also add to §4.1's as-landed note (or §9): the targets' `target.json` paths (`root`, `imageContext`, `lockfile`) and the target Dockerfiles' `COPY` lines name the tree at the PINNED commit, where the fixtures lived under `examples/software-factory/server/`; they are correct as long as the pin predates this move. The next re-pin to a commit at or after this branch must rewrite them to `examples/software-factory/controller/fixtures/...` in the same edit; a missed `root` fails loudly at archive time, a missed `imageContext` entry silently builds a smaller image.
 
@@ -1432,6 +1442,8 @@ git status --short examples/code-fixer
 - Names used consistently: `Factory.settle`, `Factory.reconcileWorkOrder`, `createControllerRuntime`, `controllerRuntime`, `resetControllerRuntimeForTests`, `RouteOutcome`, `command`, `refused`, `openRegistryReader`, `createControllerClient`, `writeBuilderManifest`, `BuilderManifestSchema`, `loadBuilderManifest`, `isolatedBuilder`, `serveController`, `FACTORY_BUILDER_APP_ROOT`, `FACTORY_BUILDER_MANIFEST`, `FACTORY_CONTROLLER_URL`.
 
 ## Follow-ups this plan records, not in scope
+
+- **Runtime defect found by Task 5:** `runtime-fetch-core.ts` passes `{ code }` as `createRequestErrorBody`'s second positional (`details`) for the `run_in_flight` (~line 2426) and `run_cancelled` (~line 2493) 409s, so the body is `{ error: { details: { code }, kind, message } }` and the top-level `error.code` (with its docs URL) is never set. Clients must read `error.details.code` for these two. Fix in `@b4run/cli` as its own PR; the CLI in Task 7 reads `details.code` until then.
 
 - The registry has no owner record; a second controller process is undetected. A `controller_owner` row with a heartbeat, refused on open when live, is the fix.
 - Authorization on the controller's routes (`src/thread-access.ts` or the middleware `handle`) is out of scope for this rung, as the RFC scopes it.
