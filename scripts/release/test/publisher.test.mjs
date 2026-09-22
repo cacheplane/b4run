@@ -80,6 +80,160 @@ test("publishes missing manifest tarballs serially in dependency order with crea
   }
 })
 
+for (const readinessStage of ["version", "audit"]) {
+  test(`ordinary uploads overlap acceptance-relative ${readinessStage} scanning with identical final evidence`, async () => {
+    const baseline = timedPublisherFixture({ readinessStage })
+    const baselineResult = await publishManifestSerially({
+      ...baseline.inputs,
+      firstPublication: true,
+    })
+    assert.equal(baseline.inputs.now(), 21 * 120_000)
+    const fixture = timedPublisherFixture({ readinessStage })
+    const result = await publishManifestSerially(fixture.inputs)
+    assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+    assert.equal(fixture.concurrentPublishes.maximum, 1)
+    assert.equal(fixture.publishesAtFirstPoll(), 21)
+    assert.equal(fixture.inputs.now(), 120_000)
+    const evidenceOptions = {
+      candidate: CANDIDATE,
+      manifest: fixture.inputs.manifest,
+      manifestSha256: manifestSha256(fixture.inputs.manifest),
+    }
+    assert.deepEqual(
+      canonicalNpmEvidenceBytes(result, evidenceOptions),
+      canonicalNpmEvidenceBytes(baselineResult, evidenceOptions),
+    )
+  })
+}
+
+for (const failureIndex of [0, 10, 20]) {
+  for (const afterAcceptance of [false, true]) {
+    test(`runner loss ${afterAcceptance ? "after" : "before"} acceptance at ${failureIndex} stops later uploads`, async () => {
+      const fixture = timedPublisherFixture({
+        readinessStage: afterAcceptance ? "version" : "audit",
+      })
+      const publish = fixture.inputs.publishTarball
+      let fail = true
+      fixture.inputs.publishTarball = async (request) => {
+        if (fail && request.entry.name === CANONICAL_RELEASE_PACKAGE_ORDER[failureIndex]) {
+          if (afterAcceptance) await publish(request)
+          throw new Error("runner lost")
+        }
+        return publish(request)
+      }
+      await assert.rejects(publishManifestSerially(fixture.inputs), /runner lost/u)
+      assert.deepEqual(
+        fixture.publishCalls,
+        CANONICAL_RELEASE_PACKAGE_ORDER.slice(0, failureIndex + Number(afterAcceptance)),
+      )
+      fail = false
+      assert.equal((await publishManifestSerially(fixture.inputs)).status, "NPM_COMPLETE")
+      assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+    })
+  }
+  test(`hidden acceptance at ${failureIndex} retries sealed bytes and duplicate rejection halts`, async () => {
+    const fixture = publisherFixture({ failAfterAcceptIndex: failureIndex })
+    const target = CANONICAL_RELEASE_PACKAGE_ORDER[failureIndex]
+    await assert.rejects(publishManifestSerially(fixture.inputs), /simulated runner loss/u)
+    const observe = fixture.inputs.observeRegistry
+    fixture.inputs.observeRegistry = async (request) => {
+      const result = await observe(request)
+      if (request.name !== target) return result
+      return request.version === undefined
+        ? { ...result, metadata: { ...result.metadata, latest: "0.8.20" } }
+        : { status: "ABSENT", operation: "package-version", httpStatus: 404, code: "E404" }
+    }
+    const attempts = []
+    fixture.inputs.publishTarball = async ({ entry }) => {
+      attempts.push(entry)
+      throw new Error("npm duplicate version rejected")
+    }
+    await assert.rejects(publishManifestSerially(fixture.inputs), /duplicate version rejected/u)
+    assert.deepEqual(attempts, [fixture.inputs.manifest.packages[failureIndex]])
+    assert.deepEqual(
+      fixture.publishCalls,
+      CANONICAL_RELEASE_PACKAGE_ORDER.slice(0, failureIndex + 1),
+    )
+  })
+}
+
+for (const targetIndex of [0, 20]) {
+  test(`deferred pending budget includes queue age for entry ${targetIndex}`, async () => {
+    const fixture = timedPublisherFixture({ uploadMs: 30_000, readyAfterMs: 0 })
+    const verify = fixture.inputs.verifyPackage
+    fixture.inputs.verifyPackage = async (request) =>
+      request.entry.name === CANONICAL_RELEASE_PACKAGE_ORDER[targetIndex]
+        ? { status: "pending" }
+        : verify(request)
+    await assert.rejects(publishManifestSerially(fixture.inputs), /registry did not converge/u)
+    assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+    assert.equal(fixture.inputs.now(), (targetIndex + 1) * 30_000 + TARBALL_CONVERGENCE_DEADLINE_MS)
+    assert.equal(fixture.pollCalls.length, targetIndex === 0 ? 0 : 68)
+  })
+}
+
+test("late pending entry cannot restart its budget after earlier deferred verification", async () => {
+  const fixture = timedPublisherFixture({ readyAfterMs: TARBALL_CONVERGENCE_DEADLINE_MS })
+  const verify = fixture.inputs.verifyPackage
+  fixture.inputs.verifyPackage = async (request) =>
+    request.entry.name === CANONICAL_RELEASE_PACKAGE_ORDER.at(-1)
+      ? { status: "pending" }
+      : verify(request)
+  await assert.rejects(publishManifestSerially(fixture.inputs), /registry did not converge/u)
+  assert.equal(fixture.inputs.now(), TARBALL_CONVERGENCE_DEADLINE_MS)
+  assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+  assert.ok(fixture.pollCalls.every(({ name }) => name === CANONICAL_RELEASE_PACKAGE_ORDER[0]))
+  assert.equal(fixture.logs.at(-1).elapsedMs, TARBALL_CONVERGENCE_DEADLINE_MS)
+  assert.equal(fixture.logs.at(-1).attempt, 1)
+})
+
+test("already-ready deferred evidence remains valid after its pending allowance", async () => {
+  const fixture = timedPublisherFixture({ uploadMs: 31_000, readyAfterMs: 0 })
+  assert.equal((await publishManifestSerially(fixture.inputs)).status, "NPM_COMPLETE")
+  assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+  assert.equal(fixture.pollCalls.length, 0)
+})
+
+function timedPublisherFixture({
+  uploadMs = 0,
+  readyAfterMs = 120_000,
+  readinessStage = "audit",
+} = {}) {
+  const fixture = publisherFixture()
+  const acceptedAt = new Map()
+  let time = 0
+  let firstPollPublishes
+  const publish = fixture.inputs.publishTarball
+  const verify = fixture.inputs.verifyPackage
+  fixture.inputs.now = () => time
+  fixture.inputs.publishTarball = async (request) => {
+    await publish(request)
+    time += uploadMs
+    acceptedAt.set(request.entry.name, time)
+  }
+  const observe = fixture.inputs.observeRegistry
+  fixture.inputs.observeRegistry = async (request) => {
+    if (
+      readinessStage === "version" &&
+      request.version !== undefined &&
+      time - acceptedAt.get(request.name) < readyAfterMs
+    ) {
+      return { status: "ABSENT", operation: "package-version", httpStatus: 404, code: "E404" }
+    }
+    return observe(request)
+  }
+  fixture.inputs.verifyPackage = async (request) =>
+    readinessStage === "audit" && time - acceptedAt.get(request.entry.name) < readyAfterMs
+      ? { status: "pending" }
+      : verify(request)
+  fixture.inputs.poll = async (request) => {
+    firstPollPublishes ??= fixture.publishCalls.length
+    fixture.pollCalls.push(request)
+    time += request.delayMs
+  }
+  return { ...fixture, publishesAtFirstPoll: () => firstPollPublishes }
+}
+
 test("starts every latest sweep read before waiting and preserves manifest order", async () => {
   const fixture = publisherFixture({
     initiallyPresent: [CANONICAL_RELEASE_PACKAGE_ORDER.length - 1],
@@ -377,7 +531,7 @@ test("a tarball that never propagates fails after the ten-minute convergence dea
     new RegExp(`npm registry tarball could not be verified for ${first}`, "u"),
   )
 
-  assert.deepEqual(fixture.publishCalls, [first])
+  assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
   // 10 × 2 s + 58 × 10 s = 600 s: the 69th observation sees the deadline elapsed.
   assert.equal(TARBALL_CONVERGENCE_DEADLINE_MS, 10 * 60_000)
   assert.equal(fixture.downloadCalls.filter((name) => name === first).length, 69)
@@ -399,7 +553,7 @@ test("a fetched tarball with mismatched bytes fails on the first download withou
     /registry tarball|digest|bytes.*match/iu,
   )
 
-  assert.deepEqual(fixture.publishCalls, [first])
+  assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
   assert.deepEqual(fixture.downloadCalls, [first])
   assert.deepEqual(fixture.pollCalls, [])
   assert.ok(!fixture.logs.some(({ event }) => event === "registry-tarball-pending"))
@@ -414,7 +568,7 @@ test("an integrity mismatch fails immediately before any tarball download or pol
     new RegExp(`identity or integrity conflicts for ${first}`, "u"),
   )
 
-  assert.deepEqual(fixture.publishCalls, [first])
+  assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
   assert.deepEqual(fixture.downloadCalls, [])
   assert.deepEqual(fixture.pollCalls, [])
 })
@@ -1452,8 +1606,42 @@ test("the publisher detects artifact mutation after initial verification and dur
   await assert.rejects(access(duringPublish.reportPath))
 })
 
+for (const failure of ["invalid-provenance", "final-sweep-drift"]) {
+  test(`deferred ${failure} after all uploads emits no completion files`, async (t) => {
+    const cli = await publisherCliFilesystem(t, "b4-publisher-deferred-failure-")
+    const fixture = publisherFixture()
+    const target = CANONICAL_RELEASE_PACKAGE_ORDER[0]
+    let audits = 0
+    await assert.rejects(
+      runPublisherCli(cli.argv, {
+        npmReader: fixture.npmReader,
+        createNpmAuditVerifier: stubAuditVerifierFactory({
+          async verifyPackage(request) {
+            if (request.entry.name === target) {
+              audits += 1
+              if (failure === "invalid-provenance") throw new Error("invalid provenance")
+              if (audits === 2) return { status: "pending" }
+            }
+            return fixture.inputs.verifyPackage(request)
+          },
+        }),
+        async runNpm(_command, args) {
+          fixture.acceptPublish(args[1])
+        },
+        log: fixture.inputs.log,
+      }),
+      failure === "invalid-provenance"
+        ? /invalid provenance/u
+        : /Final npm verification is incomplete/u,
+    )
+    assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+    await assert.rejects(access(cli.reportPath), { code: "ENOENT" })
+    await assert.rejects(access(cli.githubOutputPath), { code: "ENOENT" })
+  })
+}
+
 for (const expires of [false, true]) {
-  test(`the default publisher deadline ${expires ? "aborts verification at sixty minutes" : "allows cumulative propagation beyond twenty-five minutes"}`, async (t) => {
+  test(`the default publisher deadline ${expires ? "aborts verification at sixty minutes" : "overlaps acceptance-relative propagation"}`, async (t) => {
     const cli = await publisherCliFilesystem(t, "b4-publisher-default-budget-")
     const fixture = publisherFixture()
     const clock = virtualPublisherClock()
@@ -1480,12 +1668,12 @@ for (const expires of [false, true]) {
         assert.equal(command, "npm")
         assert.equal(args[0], "publish")
         assert.equal(signal.aborted, false)
-        const previous = fixture.publishCalls.at(-1)
-        if (previous !== undefined) assert.ok(verifiedAt.has(previous))
+        assert.equal(verifiedAt.size, 0, "new uploads precede convergence audits")
         activePublishes += 1
         maximumPublishes = Math.max(maximumPublishes, activePublishes)
         try {
           fixture.acceptPublish(args[1])
+          if (expires) clock.advance(170_000)
           publishedAt.set(fixture.publishCalls.at(-1), clock.now())
           await Promise.resolve()
         } finally {
@@ -1514,10 +1702,10 @@ for (const expires of [false, true]) {
       await assert.rejects(publishing, /publisher overall deadline/iu)
       assert.equal(clock.now(), 60 * 60_000)
       assert.equal(pollSignal.aborted, true)
-      assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER.slice(0, 20))
-      assert.equal(verifiedAt.size, 19)
+      assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+      assert.equal(verifiedAt.size, 20)
       await new Promise((resolve) => setImmediate(resolve))
-      assert.equal(fixture.publishCalls.length, 20)
+      assert.equal(fixture.publishCalls.length, 21)
       assert.deepEqual(writes, [])
       await assert.rejects(access(cli.reportPath), { code: "ENOENT" })
       await assert.rejects(access(cli.githubOutputPath), { code: "ENOENT" })
@@ -1525,8 +1713,7 @@ for (const expires of [false, true]) {
       const result = await publishing
       assert.equal(result.status, "NPM_COMPLETE")
       assert.equal(result.complete, true)
-      assert.equal(clock.now(), CANONICAL_RELEASE_PACKAGE_ORDER.length * propagationMs)
-      assert.ok(clock.now() > 25 * 60_000)
+      assert.equal(clock.now(), propagationMs)
       assert.equal(pollSignal.aborted, false)
       assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
       assert.equal(verifiedAt.size, CANONICAL_RELEASE_PACKAGE_ORDER.length)
