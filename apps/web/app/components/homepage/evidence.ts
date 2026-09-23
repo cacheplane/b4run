@@ -67,4 +67,4 @@ validateEvidence(data)
 export const evidence = data
 
 export const curatedEvidenceUrl =
-  "https://github.com/cacheplane/b4run/blob/c8c0d4b4a31b4da51ee98fc5d50aafbe968e304e/apps/web/app/components/homepage/evidence.json"
+  "https://github.com/cacheplane/b4run/blob/8bd704161e7527436dcad94c4bb101031b7969df/apps/web/app/components/homepage/evidence.json"
