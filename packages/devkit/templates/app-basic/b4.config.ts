@@ -1,1 +1,3 @@
-export default {}
+import { config } from "@b4run/cli"
+
+export default config({})

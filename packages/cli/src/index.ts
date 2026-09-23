@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-export { config } from "@b4run/core"
+export { type B4Config, config } from "@b4run/core"
 export {
   type ServeRuntimeHandle,
   type ServeRuntimeOptions,
