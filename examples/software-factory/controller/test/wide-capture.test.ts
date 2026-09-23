@@ -140,17 +140,17 @@ describe("wideCaptureInclude", () => {
 describe("stageWideCapture", () => {
   it("archives the include under repo/ and describes it as a baseline-free workspace", () => {
     const { root, pin } = repo()
-    const appRoot = mkdtempSync(join(tmpdir(), "factory-wide-app-"))
-    dirs.push(appRoot)
-    const instanceDir = ".factory/captures/drafter/wo-1.abc"
-    const definition = stageWideCapture(root, pin, instanceDir, { appRoot })
+    const captureRoot = mkdtempSync(join(tmpdir(), "factory-wide-app-"))
+    dirs.push(captureRoot)
+    const instanceDir = "captures/drafter/wo-1.abc"
+    const definition = stageWideCapture(root, pin, instanceDir, { captureRoot })
     expect(WIDE_CAPTURE_ROOT).toBe("repo")
     expect(definition).toEqual({
       source: { directory: instanceDir, include: EXPECTED.map((path) => `repo/${path}`) },
       environmentLinks: [],
     })
     expect("baseline" in definition).toBe(false)
-    const staged = join(appRoot, instanceDir)
+    const staged = join(captureRoot, instanceDir)
     for (const path of EXPECTED) expect(existsSync(join(staged, "repo", path))).toBe(true)
     // The object store, not the working tree.
     expect(existsSync(join(staged, "repo/packages/cli/src/untracked.ts"))).toBe(false)
@@ -165,12 +165,12 @@ describe("stageWideCapture", () => {
 
   it("captures under the framework's limits, recording the executable bit", async () => {
     const { root, pin } = repo()
-    const appRoot = mkdtempSync(join(tmpdir(), "factory-wide-app-"))
-    dirs.push(appRoot)
-    const instanceDir = ".factory/captures/drafter/wo-1.def"
+    const captureRoot = mkdtempSync(join(tmpdir(), "factory-wide-app-"))
+    dirs.push(captureRoot)
+    const instanceDir = "captures/drafter/wo-1.def"
     const captured = await captureWorkspaceDefinition(
-      appRoot,
-      stageWideCapture(root, pin, instanceDir, { appRoot }),
+      captureRoot,
+      stageWideCapture(root, pin, instanceDir, { captureRoot }),
     )
     expect(captured.baseline).toBeUndefined()
     expect(captured.environmentLinks).toEqual([])
@@ -182,30 +182,32 @@ describe("stageWideCapture", () => {
 
   it("refuses a staging directory it may not own, before removing anything", () => {
     const { root, pin } = repo()
-    const appRoot = mkdtempSync(join(tmpdir(), "factory-wide-app-"))
-    dirs.push(appRoot)
-    writeFileSync(join(appRoot, "keep.txt"), "still here\n")
-    mkdirSync(join(appRoot, ".factory", "captures"), { recursive: true })
-    writeFileSync(join(appRoot, ".factory", "captures", "keep.txt"), "still here\n")
+    const captureRoot = mkdtempSync(join(tmpdir(), "factory-wide-app-"))
+    dirs.push(captureRoot)
+    writeFileSync(join(captureRoot, "keep.txt"), "still here\n")
+    mkdirSync(join(captureRoot, "captures"), { recursive: true })
+    writeFileSync(join(captureRoot, "captures", "keep.txt"), "still here\n")
     for (const instanceDir of [
       "",
       ".",
       "..",
       "/tmp/x",
-      ".factory/captures",
-      ".factory/captures/",
-      ".factory/captures/../x",
-      ".factory/captures/drafter/./x",
-      ".factory/other/x",
-      "x/.factory/captures/x",
-      ".factory\\captures\\x",
+      "captures",
+      "captures/",
+      "captures/../x",
+      "captures/drafter/./x",
+      "other/x",
+      "x/captures/x",
+      "captures\\x",
+      // The old app-root-relative prefix: no longer a directory the capture root holds.
+      ".factory/captures/drafter/x",
     ]) {
-      expect(() => stageWideCapture(root, pin, instanceDir, { appRoot })).toThrow(
+      expect(() => stageWideCapture(root, pin, instanceDir, { captureRoot })).toThrow(
         CaptureDirectoryError,
       )
     }
-    expect(existsSync(join(appRoot, "keep.txt"))).toBe(true)
-    expect(existsSync(join(appRoot, ".factory", "captures", "keep.txt"))).toBe(true)
+    expect(existsSync(join(captureRoot, "keep.txt"))).toBe(true)
+    expect(existsSync(join(captureRoot, "captures", "keep.txt"))).toBe(true)
   })
 
   it("fails, naming export-ignore, and removes the staging when the archive drops a path", () => {
@@ -214,13 +216,13 @@ describe("stageWideCapture", () => {
     git(root, "add", ".gitattributes")
     git(root, "commit", "-q", "-m", "ignore one")
     const pin = git(root, "rev-parse", "HEAD")
-    const appRoot = mkdtempSync(join(tmpdir(), "factory-wide-app-"))
-    dirs.push(appRoot)
-    const instanceDir = ".factory/captures/drafter/wo-1.ign"
-    expect(() => stageWideCapture(root, pin, instanceDir, { appRoot })).toThrow(
+    const captureRoot = mkdtempSync(join(tmpdir(), "factory-wide-app-"))
+    dirs.push(captureRoot)
+    const instanceDir = "captures/drafter/wo-1.ign"
+    expect(() => stageWideCapture(root, pin, instanceDir, { captureRoot })).toThrow(
       /scripts\/run\.sh is absent from the archive .*export-ignore/,
     )
-    expect(existsSync(join(appRoot, instanceDir))).toBe(false)
+    expect(existsSync(join(captureRoot, instanceDir))).toBe(false)
   })
 
   it("the live HEAD's wide capture fits the framework's capture limits", {
@@ -228,11 +230,11 @@ describe("stageWideCapture", () => {
   }, async () => {
     const root = repositoryRoot()
     const pin = git(root, "rev-parse", "HEAD")
-    const appRoot = mkdtempSync(join(tmpdir(), "factory-wide-app-"))
-    dirs.push(appRoot)
-    const instanceDir = ".factory/captures/drafter/wo-live.ghi"
-    const definition = stageWideCapture(root, pin, instanceDir, { appRoot })
-    const captured = await captureWorkspaceDefinition(appRoot, definition)
+    const captureRoot = mkdtempSync(join(tmpdir(), "factory-wide-app-"))
+    dirs.push(captureRoot)
+    const instanceDir = "captures/drafter/wo-live.ghi"
+    const definition = stageWideCapture(root, pin, instanceDir, { captureRoot })
+    const captured = await captureWorkspaceDefinition(captureRoot, definition)
     expect(captured.source.files.length).toBe(definition.source.include.length)
     const executables = captured.source.files.filter((f) => f.executable).map((f) => f.path)
     const modes = execFileSync("git", ["-C", root, "ls-tree", "-r", pin], { encoding: "utf8" })

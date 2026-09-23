@@ -153,6 +153,7 @@ describe("the controller over a partly unprepared catalog", () => {
     factory = await createFactory({
       registryPath: join(dir, "registry.sqlite"),
       generatedTasksDir: join(dir, "tasks"),
+      captureRoot: dir,
       workers: fakeWorkerMap({
         builder: {
           client: createHttpWorkerClient(worker.baseUrl),
@@ -187,6 +188,7 @@ describe("the controller over a partly unprepared catalog", () => {
     factory = await createFactory({
       registryPath: join(dir, "registry.sqlite"),
       generatedTasksDir: join(dir, "tasks"),
+      captureRoot: dir,
       workers: fakeWorkerMap({
         builder: {
           client: createHttpWorkerClient(worker.baseUrl),

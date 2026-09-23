@@ -3,7 +3,7 @@ import { rmSync } from "node:fs"
 import { join } from "node:path"
 import { captureWorkspaceDefinition, readSourceFile } from "@b4run/workspace/node"
 import { captureDirectory } from "../targets/archive.js"
-import { appRoot, loadTask } from "../targets/catalog.js"
+import { loadTask } from "../targets/catalog.js"
 import { targetWorkspace } from "../targets/workspace.js"
 
 export interface CapturedBaseline {
@@ -13,7 +13,8 @@ export interface CapturedBaseline {
 
 /**
  * The controller's own baseline: the target's pinned subtree with the task's defect applied,
- * archived into the controller's own capture directory and captured with the framework's own
+ * archived into the controller's own capture directory under `options.captureRoot` (its
+ * `FACTORY_STATE_DIR`, never its app root: see `CaptureTargetOptions`) and captured with the framework's own
  * capture, so the digest it compares against is one it derived, never one a builder reported.
  *
  * The decoder is `fatal`, so a file that is not valid UTF-8 is a capture failure rather than
@@ -28,13 +29,15 @@ export interface CapturedBaseline {
 export async function captureTargetBaseline(
   taskId: string,
   signal: AbortSignal,
+  options: { readonly captureRoot: string },
 ): Promise<CapturedBaseline> {
+  const { captureRoot } = options
   const task = loadTask(taskId)
   const instance = randomUUID()
-  const instanceDirectory = join(appRoot, captureDirectory(taskId, "controller", instance))
+  const instanceDirectory = join(captureRoot, captureDirectory(taskId, "controller", instance))
   try {
-    const definition = targetWorkspace(task, "controller", { instance })
-    const captured = await captureWorkspaceDefinition(appRoot, definition, { signal })
+    const definition = targetWorkspace(task, "controller", { instance, captureRoot })
+    const captured = await captureWorkspaceDefinition(captureRoot, definition, { signal })
     const decoder = new TextDecoder("utf-8", { fatal: true })
     const files = new Map<string, string>()
     for (const entry of captured.source.files)

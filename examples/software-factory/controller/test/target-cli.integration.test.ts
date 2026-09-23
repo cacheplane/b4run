@@ -45,7 +45,7 @@ const verify = async (changes: Record<string, string>, id: string) => {
   const dir = await mkdtemp(join(tmpdir(), "factory-cli-"))
   dirs.push(dir)
   const artifacts = createArtifactStore(join(dir, "artifacts"))
-  const receipt = await createDockerVerifier(artifacts).verify(
+  const receipt = await createDockerVerifier(artifacts, { stagingRoot: dir }).verify(
     {
       workOrderId: id,
       taskId: TASK,
@@ -100,14 +100,18 @@ const REFERENCE_CASES = [
 /** The cases the fix changed; the other two pass on either side of it. */
 const FIXED_CASES = [0, 1, 2, 4].map((i) => REFERENCE_CASES[i] as string)
 
-const gradeWithReferenceTest = async (changes: Record<string, string>) =>
-  gradeSuite({
+const gradeWithReferenceTest = async (changes: Record<string, string>) => {
+  const stagingRoot = await mkdtemp(join(tmpdir(), "factory-cli-grade-"))
+  dirs.push(stagingRoot)
+  return gradeSuite({
     task: withReferenceTest(task),
     kind: "visible",
     changes: { [REFERENCE_TEST]: referenceTest(), ...changes },
     provider: dockerSandbox({ scope: "software-factory-verifier", image: imageTag(task.target) }),
     signal: AbortSignal.timeout(budget),
+    stagingRoot,
   })
+}
 
 describe("the cli target in its prepared image", () => {
   it(

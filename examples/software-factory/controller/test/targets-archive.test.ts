@@ -107,11 +107,11 @@ function task(pin: string, overrides: Partial<Task> = {}): Task {
 describe("captureTarget", () => {
   it("archives the pinned subtree, not the working tree, into an app-relative directory", () => {
     const { root, pin } = repo()
-    const appRoot = mkdtempSync(join(tmpdir(), "factory-archive-app-"))
-    dirs.push(appRoot)
-    const captured = captureTarget(task(pin), "controller", { appRoot, repositoryRoot: root })
-    expect(captured.directory).toBe(".factory/captures/controller/k")
-    expect(captured.absolute).toBe(join(appRoot, ".factory", "captures", "controller", "k"))
+    const captureRoot = mkdtempSync(join(tmpdir(), "factory-archive-app-"))
+    dirs.push(captureRoot)
+    const captured = captureTarget(task(pin), "controller", { captureRoot, repositoryRoot: root })
+    expect(captured.directory).toBe("captures/controller/k")
+    expect(captured.absolute).toBe(join(captureRoot, "captures", "controller", "k"))
     expect(readFileSync(join(captured.absolute, "src", "a.ts"), "utf8")).toBe(
       "export const a = 1\n",
     )
@@ -127,14 +127,14 @@ describe("captureTarget", () => {
 
   it("archives the whole repository when root is `.`", () => {
     const { root, pin } = repo()
-    const appRoot = mkdtempSync(join(tmpdir(), "factory-archive-app-"))
-    dirs.push(appRoot)
+    const captureRoot = mkdtempSync(join(tmpdir(), "factory-archive-app-"))
+    dirs.push(captureRoot)
     const t = task(pin)
     const whole = {
       ...t,
       target: { ...t.target, root: "." as const, capture: { include: ["pkg", "other.txt"] } },
     }
-    const captured = captureTarget(whole, "controller", { appRoot, repositoryRoot: root })
+    const captured = captureTarget(whole, "controller", { captureRoot, repositoryRoot: root })
     expect(readdirSync(captured.absolute).sort()).toEqual(["other.txt", "pkg"])
     expect(readFileSync(join(captured.absolute, "pkg", "src", "a.ts"), "utf8")).toBe(
       "export const a = 1\n",
@@ -143,31 +143,31 @@ describe("captureTarget", () => {
 
   it("applies the defect patch, and rebuilds the directory on every capture", () => {
     const { root, pin } = repo()
-    const appRoot = mkdtempSync(join(tmpdir(), "factory-archive-app-"))
-    dirs.push(appRoot)
+    const captureRoot = mkdtempSync(join(tmpdir(), "factory-archive-app-"))
+    dirs.push(captureRoot)
     const first = captureTarget(task(pin, { defectPatch: defect }), "builder", {
-      appRoot,
+      captureRoot,
       repositoryRoot: root,
     })
     expect(readFileSync(join(first.absolute, "src", "a.ts"), "utf8")).toBe("export const a = 0\n")
     writeFileSync(join(first.absolute, "stray.txt"), "left behind\n")
     const second = captureTarget(task(pin, { defectPatch: defect }), "builder", {
-      appRoot,
+      captureRoot,
       repositoryRoot: root,
     })
     expect(second.absolute).toBe(first.absolute)
     expect(existsSync(join(second.absolute, "stray.txt"))).toBe(false)
     // No scratch files survive beside the capture.
-    expect(readdirSync(join(appRoot, ".factory", "captures", "builder"))).toEqual(["k"])
+    expect(readdirSync(join(captureRoot, "captures", "builder"))).toEqual(["k"])
   })
 
   it("keeps the builder's and the controller's copies apart", () => {
     const { root, pin } = repo()
-    const appRoot = mkdtempSync(join(tmpdir(), "factory-archive-app-"))
-    dirs.push(appRoot)
-    const builder = captureTarget(task(pin), "builder", { appRoot, repositoryRoot: root })
+    const captureRoot = mkdtempSync(join(tmpdir(), "factory-archive-app-"))
+    dirs.push(captureRoot)
+    const builder = captureTarget(task(pin), "builder", { captureRoot, repositoryRoot: root })
     const controller = captureTarget(task(pin), "controller", {
-      appRoot,
+      captureRoot,
       repositoryRoot: root,
     })
     expect(builder.absolute).not.toBe(controller.absolute)
@@ -175,34 +175,34 @@ describe("captureTarget", () => {
 
   it("throws when the defect patch does not apply, and when an include path is not at the pin", () => {
     const { root, pin } = repo()
-    const appRoot = mkdtempSync(join(tmpdir(), "factory-archive-app-"))
-    dirs.push(appRoot)
+    const captureRoot = mkdtempSync(join(tmpdir(), "factory-archive-app-"))
+    dirs.push(captureRoot)
     const wrong = defect.replace("-export const a = 1", "-export const a = 9")
     expect(() =>
       captureTarget(task(pin, { defectPatch: wrong }), "builder", {
-        appRoot,
+        captureRoot,
         repositoryRoot: root,
       }),
     ).toThrow(/defect patch/)
     const t = task(pin)
     const missing = { ...t, target: { ...t.target, capture: { include: ["nope"] } } }
-    expect(() => captureTarget(missing, "builder", { appRoot, repositoryRoot: root })).toThrow(
+    expect(() => captureTarget(missing, "builder", { captureRoot, repositoryRoot: root })).toThrow(
       /nope/,
     )
   })
 
   it("leaves nothing behind when a capture fails", () => {
     const { root, pin } = repo()
-    const appRoot = mkdtempSync(join(tmpdir(), "factory-archive-app-"))
-    dirs.push(appRoot)
+    const captureRoot = mkdtempSync(join(tmpdir(), "factory-archive-app-"))
+    dirs.push(captureRoot)
     const wrong = defect.replace("-export const a = 1", "-export const a = 9")
     expect(() =>
       captureTarget(task(pin, { defectPatch: wrong }), "builder", {
-        appRoot,
+        captureRoot,
         repositoryRoot: root,
       }),
     ).toThrow()
-    const parent = join(appRoot, ".factory", "captures", "builder")
+    const parent = join(captureRoot, "captures", "builder")
     expect(existsSync(join(parent, "k"))).toBe(false)
     // No scratch sibling either: whatever the parent directory holds, it isn't a leftover.
     if (existsSync(parent)) expect(readdirSync(parent)).toEqual([])
@@ -210,20 +210,20 @@ describe("captureTarget", () => {
 
   it("keeps two instances of the same role and task apart, and neither clobbers the other", () => {
     const { root, pin } = repo()
-    const appRoot = mkdtempSync(join(tmpdir(), "factory-archive-app-"))
-    dirs.push(appRoot)
+    const captureRoot = mkdtempSync(join(tmpdir(), "factory-archive-app-"))
+    dirs.push(captureRoot)
     const one = captureTarget(task(pin), "controller", {
-      appRoot,
+      captureRoot,
       repositoryRoot: root,
       instance: "one",
     })
     const two = captureTarget(task(pin), "controller", {
-      appRoot,
+      captureRoot,
       repositoryRoot: root,
       instance: "two",
     })
-    expect(one.directory).toBe(".factory/captures/controller/k.one")
-    expect(two.directory).toBe(".factory/captures/controller/k.two")
+    expect(one.directory).toBe("captures/controller/k.one")
+    expect(two.directory).toBe("captures/controller/k.two")
     expect(one.absolute).not.toBe(two.absolute)
     writeFileSync(join(one.absolute, "stray.txt"), "only in one\n")
     expect(existsSync(join(one.absolute, "src", "a.ts"))).toBe(true)
@@ -234,7 +234,7 @@ describe("captureTarget", () => {
   it("refuses a role that is not a plain name", () => {
     const { root, pin } = repo()
     expect(() =>
-      captureTarget(task(pin), "../x" as CaptureRole, { appRoot: root, repositoryRoot: root }),
+      captureTarget(task(pin), "../x" as CaptureRole, { captureRoot: root, repositoryRoot: root }),
     ).toThrow(/role/)
   })
 })

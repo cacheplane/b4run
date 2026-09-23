@@ -40,9 +40,11 @@ function materialise(generated: string, id: string): string {
 const prove = async (id: string) => {
   const policy = loadPolicy(id)
   const signal = AbortSignal.timeout(280_000)
-  const baseline = await captureTargetBaseline(id, signal)
+  const baseline = await captureTargetBaseline(id, signal, { captureRoot: dir })
   return proveOracle({
-    verifier: createDockerVerifier(createArtifactStore(join(dir, "artifacts"))),
+    verifier: createDockerVerifier(createArtifactStore(join(dir, "artifacts")), {
+      stagingRoot: dir,
+    }),
     workOrderId: id,
     taskId: id,
     policyDigest: policy.policyDigest,

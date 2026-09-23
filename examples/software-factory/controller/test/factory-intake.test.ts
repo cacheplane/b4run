@@ -121,6 +121,7 @@ async function bootFactory(overrides: BootOverrides = {}) {
   factory = await createFactory({
     registryPath: registryPath(),
     generatedTasksDir: generated,
+    captureRoot: dir,
     workers: fakeWorkerMap({
       // One reader serves both stages: the drafter's `draft/` and the builder's candidate are
       // scripted under their own thread ids, and the fake ignores the task and the root.

@@ -152,7 +152,7 @@ const verify = async (changes: Record<string, string>, id: string) => {
   const dir = await mkdtemp(join(tmpdir(), "factory-tamper-"))
   dirs.push(dir)
   const artifacts = createArtifactStore(join(dir, "artifacts"))
-  const receipt = await createDockerVerifier(artifacts).verify(
+  const receipt = await createDockerVerifier(artifacts, { stagingRoot: dir }).verify(
     {
       workOrderId: id,
       taskId: TASK,

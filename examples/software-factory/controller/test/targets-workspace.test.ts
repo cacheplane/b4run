@@ -107,14 +107,12 @@ function task(pin: string): Task {
 describe("targetWorkspace", () => {
   it("captures from the role's archive with the task spec as TASK.md and one root link", () => {
     const { root, pin } = repo()
-    const appRoot = mkdtempSync(join(tmpdir(), "factory-ws-app-"))
-    dirs.push(appRoot)
+    const captureRoot = mkdtempSync(join(tmpdir(), "factory-ws-app-"))
+    dirs.push(captureRoot)
     const t = task(pin)
-    const definition = targetWorkspace(t, "controller", { appRoot, repositoryRoot: root })
-    expect(definition.source.directory).toBe(".factory/captures/controller/k")
-    expect(
-      existsSync(join(appRoot, ".factory", "captures", "controller", "k", "src", "a.ts")),
-    ).toBe(true)
+    const definition = targetWorkspace(t, "controller", { captureRoot, repositoryRoot: root })
+    expect(definition.source.directory).toBe("captures/controller/k")
+    expect(existsSync(join(captureRoot, "captures", "controller", "k", "src", "a.ts"))).toBe(true)
     // Flat, sorted, and derived from what the archive actually extracted — not restating the
     // target's own directory-shaped `capture.include`.
     expect(definition.source.include).toEqual(["package.json", "src/a.ts"])
@@ -129,8 +127,8 @@ describe("targetWorkspace", () => {
   })
 
   it("refuses a capture that carries the reserved TASK.md or .gitignore names", () => {
-    const appRoot = mkdtempSync(join(tmpdir(), "factory-ws-app-"))
-    dirs.push(appRoot)
+    const captureRoot = mkdtempSync(join(tmpdir(), "factory-ws-app-"))
+    dirs.push(captureRoot)
     for (const name of ["TASK.md", ".gitignore"]) {
       const { root, pin } = repoWithReservedFile(name)
       const t = task(pin)
@@ -139,7 +137,7 @@ describe("targetWorkspace", () => {
         target: { ...t.target, capture: { include: ["src", "package.json", name] } },
       }
       expect(() =>
-        targetWorkspace(withReserved, "controller", { appRoot, repositoryRoot: root }),
+        targetWorkspace(withReserved, "controller", { captureRoot, repositoryRoot: root }),
       ).toThrow(new RegExp(`must not contain ${name.replace(".", "\\.")}; it is reserved`))
     }
   })

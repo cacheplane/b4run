@@ -42,6 +42,7 @@ async function boot(
   factory = await createFactory({
     registryPath: join(dir, "registry.sqlite"),
     generatedTasksDir: join(dir, "tasks"),
+    captureRoot: dir,
     workers: fakeWorkerMap({
       builder: { client: createHttpWorkerClient(fake.baseUrl), reader },
     }),

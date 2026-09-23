@@ -2,8 +2,7 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import type { WorkspaceDefinition } from "@b4run/workspace"
-import { archiveTreeInto } from "./archive.js"
-import { appRoot as defaultAppRoot } from "./catalog.js"
+import { archiveTreeInto, CAPTURES_PREFIX } from "./archive.js"
 
 /**
  * Where the repository lives inside the drafter's workspace. The drafter writes its four
@@ -116,12 +115,15 @@ export function wideCaptureInclude(repositoryRoot: string, pin: string): string[
 }
 
 export interface StageWideCaptureOptions {
-  /** The app root `instanceDir` is relative to; the catalog's own by default. */
-  readonly appRoot?: string
+  /**
+   * The capture root `instanceDir` is relative to: the controller's `FACTORY_STATE_DIR`,
+   * never its app root (see `CaptureTargetOptions.captureRoot` in `archive.ts`).
+   */
+  readonly captureRoot: string
 }
 
 /** Every capture directory lives here; `stageWideCapture` removes nothing outside it. */
-export const CAPTURES_PREFIX = ".factory/captures/"
+export { CAPTURES_PREFIX }
 
 /** `instanceDir` is not a directory `stageWideCapture` may own, so nothing was touched. */
 export class CaptureDirectoryError extends Error {
@@ -129,11 +131,11 @@ export class CaptureDirectoryError extends Error {
 }
 
 /**
- * Is `instanceDir` a canonical app-relative path under {@link CAPTURES_PREFIX}: forward
+ * Is `instanceDir` a canonical capture-root-relative path under {@link CAPTURES_PREFIX}: forward
  * slashes only, no leading slash, no empty, `.` or `..` segment, and at least one segment
  * below the prefix? Checked before the `rmSync` that rebuilds it, because that removal is
  * recursive and `instanceDir` comes from the caller: an empty string or `.` would name the
- * app root itself.
+ * capture root itself (the state directory, registry and all).
  */
 function assertCaptureDirectory(instanceDir: string): void {
   const segments = instanceDir.split("/")
@@ -147,12 +149,12 @@ function assertCaptureDirectory(instanceDir: string): void {
 }
 
 /**
- * Archive the wide capture at `pin` under `<appRoot>/<instanceDir>/repo/` and describe it
+ * Archive the wide capture at `pin` under `<captureRoot>/<instanceDir>/repo/` and describe it
  * as a workspace: the repository under {@link WIDE_CAPTURE_ROOT}, no environment links (the
  * drafter runs nothing that needs a dependency tree) and NO baseline (there is no `.git`
  * for the drafter to diff against, and nothing it writes is read as a diff).
  *
- * `instanceDir` is app-relative and forward-slash, which is what the framework's capture
+ * `instanceDir` is capture-root-relative and forward-slash, which is what the framework's capture
  * takes as `source.directory`, and must lie under {@link CAPTURES_PREFIX} (see
  * {@link assertCaptureDirectory}); `captureDirectory` in `archive.ts` is how a caller
  * names one. The caller owns it and removes it once the capture has read the bytes into
@@ -167,11 +169,11 @@ export function stageWideCapture(
   repositoryRoot: string,
   pin: string,
   instanceDir: string,
-  options: StageWideCaptureOptions = {},
+  options: StageWideCaptureOptions,
 ): WorkspaceDefinition {
   assertCaptureDirectory(instanceDir)
   const include = wideCaptureInclude(repositoryRoot, pin)
-  const absolute = join(options.appRoot ?? defaultAppRoot, instanceDir)
+  const absolute = join(options.captureRoot, instanceDir)
   rmSync(absolute, { recursive: true, force: true })
   mkdirSync(absolute, { recursive: true })
   try {

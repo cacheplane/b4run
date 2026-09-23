@@ -55,6 +55,7 @@ async function boot(
   factory = await createFactory({
     registryPath: join(dir, "registry.sqlite"),
     generatedTasksDir: join(dir, "tasks"),
+    captureRoot: dir,
     workers: fakeWorkerMap({
       builder: { client: createHttpWorkerClient(fake.baseUrl), reader },
     }),
@@ -199,6 +200,7 @@ describe("create and dispatch", () => {
     factory = await createFactory({
       registryPath: join(dir, "registry.sqlite"),
       generatedTasksDir: join(dir, "tasks"),
+      captureRoot: dir,
       workers: fakeWorkerMap({
         builder: { client: createHttpWorkerClient(fake.baseUrl), reader },
       }),
@@ -226,6 +228,7 @@ describe("create and dispatch", () => {
     const unserved = await createFactory({
       registryPath: join(dir, "registry.sqlite"),
       generatedTasksDir: join(dir, "tasks"),
+      captureRoot: dir,
       workers: fakeWorkerMap({}),
       writeBuilderManifest: noopBuilderManifestWriter,
       exportDir: join(dir, "out"),
@@ -265,6 +268,7 @@ describe("create and dispatch", () => {
     const starved = await createFactory({
       registryPath: join(dir, "registry.sqlite"),
       generatedTasksDir: join(dir, "tasks"),
+      captureRoot: dir,
       workers: fakeWorkerMap({
         builder: { client: createHttpWorkerClient(fake.baseUrl), reader },
       }),

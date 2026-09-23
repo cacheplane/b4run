@@ -97,6 +97,13 @@ export interface FactoryOptions {
    * to both.
    */
   readonly generatedTasksDir: string
+  /**
+   * Where the default manifest writers stage the captures they take (`captures/<role>/...`):
+   * the runtime's `FACTORY_STATE_DIR`. Never the controller's app root: `b4 dev` watches that
+   * directory and restarts the server on a write it does not ignore, which killed `intake`
+   * mid-command the first time the factory ran under it.
+   */
+  readonly captureRoot: string
   readonly verifier: Verifier
   /**
    * Writes the drafter manifest `intake` hands the drafter before it creates the thread: the
@@ -307,6 +314,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   ) =>
     writeBuilderManifestOnDisk(loadTask(input.taskId, options.promptCatalog ?? {}), input.dir, {
       workOrderId: input.workOrderId,
+      captureRoot: options.captureRoot,
       signal: input.signal,
     })
   const now = options.now ?? Date.now
@@ -884,6 +892,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
             pin: row.pin,
             repositoryRoot: repository,
             dir: drafterWorker.manifestDir,
+            captureRoot: options.captureRoot,
             signal: abort.signal,
           })
           recordEvent(id, "drafter_manifest_written", {

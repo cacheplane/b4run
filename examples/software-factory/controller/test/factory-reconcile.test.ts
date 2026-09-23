@@ -61,6 +61,7 @@ async function bootFactory(overrides: Partial<FactoryOptions> = {}) {
   factory = await createFactory({
     registryPath: registryPath(),
     generatedTasksDir: join(dir, "tasks"),
+    captureRoot: dir,
     workers: fakeWorkerMap({
       builder: { client: createHttpWorkerClient(fake.baseUrl), reader },
     }),

@@ -6,7 +6,7 @@ import { captureWorkspaceDefinition } from "@b4run/workspace/node"
 import { z } from "zod"
 import { writeFileAtomic } from "./storage/atomic-file.js"
 import { captureDirectory } from "./targets/archive.js"
-import { appRoot as defaultAppRoot, ensurePin, isCatalogId } from "./targets/catalog.js"
+import { ensurePin, isCatalogId } from "./targets/catalog.js"
 import { stageWideCapture } from "./targets/wide-capture.js"
 
 /**
@@ -66,8 +66,11 @@ export interface WriteDrafterManifestOptions {
   readonly repositoryRoot: string
   /** Where the manifest is written: the drafter's `FACTORY_DRAFTER_MANIFEST_DIR`. */
   readonly dir: string
-  /** The app root the staging directory lives under; the controller's own by default. */
-  readonly appRoot?: string
+  /**
+   * The capture root the staging directory lives under: the controller's `FACTORY_STATE_DIR`,
+   * never its app root, which `b4 dev` watches (see `CaptureTargetOptions.captureRoot`).
+   */
+  readonly captureRoot: string
   readonly signal?: AbortSignal
 }
 
@@ -82,7 +85,7 @@ export interface WrittenDrafterManifest {
  * `<dir>/<workOrderId>.json`. The staging directory is per call
  * (`captureDirectory(workOrderId, "drafter", instance)`) and removed once the capture has
  * read the bytes into the definition, on failure too: nothing of the repository is left
- * under the controller beside the manifest itself. `ensurePin` runs first so a shallow
+ * under the capture root beside the manifest itself. `ensurePin` runs first so a shallow
  * checkout fetches the pin before the listing.
  *
  * The manifest is written compact, one line: it is machine-read only and, on this
@@ -96,21 +99,20 @@ export interface WrittenDrafterManifest {
 export async function writeDrafterManifest(
   options: WriteDrafterManifestOptions,
 ): Promise<WrittenDrafterManifest> {
-  const { workOrderId, pin, repositoryRoot, dir, signal } = options
+  const { workOrderId, pin, repositoryRoot, dir, captureRoot, signal } = options
   if (!isCatalogId(workOrderId))
     throw new Error(`drafter manifest workOrderId must be a catalog id, got ${workOrderId}`)
   signal?.throwIfAborted()
-  const appRoot = options.appRoot ?? defaultAppRoot
   ensurePin(repositoryRoot, workOrderId, pin, { label: `Work order ${workOrderId}'s draft` })
   const instanceDir = captureDirectory(workOrderId, "drafter", randomUUID())
   let workspace: Awaited<ReturnType<typeof captureWorkspaceDefinition>>
   try {
-    const definition = stageWideCapture(repositoryRoot, pin, instanceDir, { appRoot })
-    workspace = await captureWorkspaceDefinition(appRoot, definition, {
+    const definition = stageWideCapture(repositoryRoot, pin, instanceDir, { captureRoot })
+    workspace = await captureWorkspaceDefinition(captureRoot, definition, {
       ...(signal !== undefined ? { signal } : {}),
     })
   } finally {
-    rmSync(join(appRoot, instanceDir), { recursive: true, force: true })
+    rmSync(join(captureRoot, instanceDir), { recursive: true, force: true })
   }
   // Parsed, not merely typed: the controller validates what it writes against the SAME
   // schema the drafter will apply to it, so a manifest the drafter would refuse cannot be

@@ -1,4 +1,6 @@
-import { join } from "node:path"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join, resolve } from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
 import { parseArgs } from "node:util"
 import { writeBuilderManifest, writeBuilderTarget } from "./lib/builder-manifest.js"
@@ -356,12 +358,21 @@ async function main(argv: string[]): Promise<number> {
     const stateDir = process.env.FACTORY_STATE_DIR
     if (stateDir) configureCatalog({ generatedTasksDir: generatedTasksDirFor(stateDir) })
     const workOrder = values["work-order"]
-    const written = await writeBuilderManifest(
-      loadTask(values.task),
-      values.out,
-      workOrder !== undefined ? { workOrderId: workOrder } : {},
-    )
-    print({ path: written.path, sourceDigest: written.sourceDigest })
+    // The capture is staged under the state directory when there is one (where the controller
+    // stages its own), and otherwise under a temporary directory this command removes: never
+    // under the controller package, which a `b4 dev` controller watches and would restart on.
+    const captureRoot = stateDir
+      ? resolve(stateDir)
+      : mkdtempSync(join(tmpdir(), "factory-captures-"))
+    try {
+      const written = await writeBuilderManifest(loadTask(values.task), values.out, {
+        captureRoot,
+        ...(workOrder !== undefined ? { workOrderId: workOrder } : {}),
+      })
+      print({ path: written.path, sourceDigest: written.sourceDigest })
+    } finally {
+      if (!stateDir) rmSync(captureRoot, { recursive: true, force: true })
+    }
     return 0
   }
   try {

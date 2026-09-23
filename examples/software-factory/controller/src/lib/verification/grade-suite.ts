@@ -5,7 +5,7 @@ import { withWorkspace } from "@b4run/cli"
 import type { SandboxProvider } from "@b4run/workspace"
 import { inspectWorkspace } from "@b4run/workspace"
 import { captureDirectory } from "../targets/archive.js"
-import { appRoot, type Task } from "../targets/catalog.js"
+import type { Task } from "../targets/catalog.js"
 import {
   targetInspectionOptions,
   targetSandboxPolicy,
@@ -32,6 +32,12 @@ export interface GradeSuiteInput {
   readonly provider: SandboxProvider
   /** The verifier's composed deadline-and-caller signal; it bounds every session. */
   readonly signal: AbortSignal
+  /**
+   * Where the session's capture (`captures/verifier/...`) and its workspace state root
+   * (`verifiers/<uuid>`) are staged: the controller's `FACTORY_STATE_DIR`, never its app
+   * root, which `b4 dev` watches (see `CaptureTargetOptions.captureRoot`).
+   */
+  readonly stagingRoot: string
 }
 
 /**
@@ -67,21 +73,21 @@ export interface GradeSuiteInput {
  * graded against remain out of its reach for the same structural reason as before.
  */
 export async function gradeSuite(input: GradeSuiteInput): Promise<SuiteSession> {
-  const { task, kind, provider, signal } = input
+  const { task, kind, provider, signal, stagingRoot } = input
   const target = task.target
   // Per-session, not per-verification: two sessions that shared a capture directory would
   // rebuild it under each other, and the isolation is the whole point.
   const instance = randomUUID()
-  const stateRoot = join(appRoot, ".factory", "verifiers", randomUUID())
+  const stateRoot = join(stagingRoot, "verifiers", randomUUID())
   const inspection = targetInspectionOptions(task)
 
   try {
     return await withWorkspace(
       {
-        appRoot,
+        appRoot: stagingRoot,
         stateRoot,
         provider,
-        workspace: targetWorkspace(task, "verifier", { instance }),
+        workspace: targetWorkspace(task, "verifier", { instance, captureRoot: stagingRoot }),
         policy: targetSandboxPolicy(target),
         signal,
       },
@@ -140,7 +146,7 @@ export async function gradeSuite(input: GradeSuiteInput): Promise<SuiteSession> 
     // workspace preparation and does not read it after the callback ends.
     await Promise.allSettled([
       rm(stateRoot, { recursive: true, force: true }),
-      rm(join(appRoot, captureDirectory(task.id, "verifier", instance)), {
+      rm(join(stagingRoot, captureDirectory(task.id, "verifier", instance)), {
         recursive: true,
         force: true,
       }),

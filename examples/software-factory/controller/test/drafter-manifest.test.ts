@@ -42,7 +42,7 @@ function repo(): { root: string; pin: string } {
 
 const WORK_ORDER = "wo-0123456789abcdef"
 
-function appRoot(): string {
+function captureRoot(): string {
   const dir = mkdtempSync(join(tmpdir(), "factory-drafter-manifest-app-"))
   dirs.push(dir)
   return dir
@@ -51,14 +51,14 @@ function appRoot(): string {
 describe("writeDrafterManifest", () => {
   it("stages, captures and writes the work order's manifest, then removes the staging", async () => {
     const { root, pin } = repo()
-    const app = appRoot()
+    const app = captureRoot()
     const dir = join(app, "manifests", "nested")
     const result = await writeDrafterManifest({
       workOrderId: WORK_ORDER,
       pin,
       repositoryRoot: root,
       dir,
-      appRoot: app,
+      captureRoot: app,
       signal: new AbortController().signal,
     })
     expect(result.path).toBe(join(dir, `${WORK_ORDER}.json`))
@@ -80,19 +80,19 @@ describe("writeDrafterManifest", () => {
     ])
     expect(workspace.environmentLinks).toEqual([])
     // The staging instance directory is gone: the bytes live in the manifest now.
-    const captures = join(app, ".factory", "captures", "drafter")
+    const captures = join(app, "captures", "drafter")
     expect(existsSync(captures) ? readdirSync(captures) : []).toEqual([])
   })
 
   it("is deterministic: the same inputs give the same source digest", async () => {
     const { root, pin } = repo()
-    const app = appRoot()
+    const app = captureRoot()
     const options = {
       workOrderId: WORK_ORDER,
       pin,
       repositoryRoot: root,
       dir: join(app, "m"),
-      appRoot: app,
+      captureRoot: app,
     }
     const first = await writeDrafterManifest(options)
     const second = await writeDrafterManifest(options)
@@ -106,14 +106,15 @@ describe("writeDrafterManifest", () => {
         workOrderId: "../x",
         pin: "0".repeat(40),
         repositoryRoot: "/nonexistent",
-        dir: join(appRoot(), "m"),
+        dir: join(captureRoot(), "m"),
+        captureRoot: captureRoot(),
       }),
     ).rejects.toThrow(/workOrderId/)
   })
 
   it("with an already-aborted signal, writes nothing and leaves no staging behind", async () => {
     const { root, pin } = repo()
-    const app = appRoot()
+    const app = captureRoot()
     const dir = join(app, "m")
     const controller = new AbortController()
     controller.abort()
@@ -123,12 +124,12 @@ describe("writeDrafterManifest", () => {
         pin,
         repositoryRoot: root,
         dir,
-        appRoot: app,
+        captureRoot: app,
         signal: controller.signal,
       }),
     ).rejects.toThrow()
     expect(existsSync(join(dir, `${WORK_ORDER}.json`))).toBe(false)
-    expect(existsSync(join(app, ".factory"))).toBe(false)
+    expect(existsSync(join(app, "captures"))).toBe(false)
   })
 
   it("keeps the drafter's copy of the schema identical", () => {

@@ -369,3 +369,18 @@ Appended as the live replay of #714 runs.
    at 89dec62d). Fixed in `ensurePin` (depth only on an already shallow checkout) and repaired
    with `git fetch --unshallow`. A factory that fetches into the developer's own clone is a
    foot-gun: item 4's image registry should own its own object store.
+4. **The controller wrote run-time files into its own app root, and `b4 dev` restarted it
+   mid-request.** Started with `b4 dev` as the README prescribes, `intake` staged the
+   drafter's wide capture under `controller/.factory/captures/drafter/`; the dev watcher,
+   which ignores only `.b4/`, `workspace/`, `node_modules/`, lockfiles and `.pnpm-store`,
+   restarted the server, and the CLI got `Request canceled during server shutdown`. The
+   builder capture, the baseline capture and the verifier's staging (`.factory/verifiers`)
+   had the same shape. Fixed by staging all of them under `FACTORY_STATE_DIR` (`captures/`,
+   `verifiers/`), with the capture root a required argument rather than a default, and a
+   regression test that watches the app root through intake and dispatch. Framework
+   follow-ups: `b4 dev`'s ignore list is hard-coded (`classify-change.ts`), so an app should
+   be able to declare its run-time directories (e.g. `dev.watch.ignore` in `b4.config.ts`);
+   and tests built on `serveRuntime`, which does not watch, cannot catch a watch-mode defect
+   at all, so the framework's testing surface needs a watching variant. The builder's and
+   drafter's default manifest directories (`<app root>/.factory/manifests`, which the
+   controller writes into) are the same shape against those processes' own watchers.

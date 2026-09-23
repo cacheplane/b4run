@@ -38,10 +38,10 @@ describe("every shipped task", () => {
       dirs.push(scratch)
       // The pristine pin: the capture without the defect.
       const pristine = captureTarget({ ...task, defectPatch: null }, "reference", {
-        appRoot: scratch,
+        captureRoot: scratch,
       })
       // The baseline the builder sees: the capture with the defect, as the factory makes it.
-      const baseline = captureTarget(task, "test", { appRoot: scratch })
+      const baseline = captureTarget(task, "test", { captureRoot: scratch })
       // A shipped task is repairable by construction: only a generated task may lack the patch.
       expect(task.referencePatch, "a shipped task carries reference.patch").not.toBeNull()
       const reference = join(scratch, "reference.patch")

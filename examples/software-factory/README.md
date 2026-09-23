@@ -336,7 +336,10 @@ the work order's manifest there before it creates the thread, and removes it onc
 leaves `dispatched`/`running` (the resolver reads it once, at the thread's first admission;
 verification reads the workspace through the reader) or a cancel has settled the thread. Without the
 drafter pair the controller starts and every command works except `intake`, which refuses
-before spending anything.
+before spending anything. The controller keeps every file it writes at run time under
+`FACTORY_STATE_DIR` (the registry, evidence, generated tasks, and the captures it stages
+under `captures/` and `verifiers/`), so its own package directory stays read-only while it
+runs and `b4 dev` never restarts it mid-command.
 
 **5. Drive it** (terminal 4). Every command above and below runs from the repository root.
 The CLI's write commands are requests to the running controller
@@ -444,7 +447,7 @@ The controller app reads:
 | `FACTORY_BUILDER_TARGET` | with `FACTORY_WORKER_URL` | The target file that builder boots from (`factory builder-target`); the controller keys the entry by its `target.id` and takes the builder's pin from its `target.pin`. Missing or unreadable is a boot error naming it |
 | `FACTORY_WORKER_ROUTE` | no | Default `/build#agent`; only with the legacy pair |
 | `FACTORY_BUILDER_MANIFEST_DIR` | no | Default `<builder app root>/.factory/manifests`; must be the directory the builder process was started with. Only with the legacy pair |
-| `FACTORY_STATE_DIR` | yes | Holds `registry.sqlite`, `artifacts/` and `exports/` |
+| `FACTORY_STATE_DIR` | yes | Holds `registry.sqlite`, `artifacts/`, `exports/`, generated `tasks/`, and the `captures/` and `verifiers/` staging the controller removes after each use |
 | `FACTORY_DRAFTER_URL` | for `intake` | The drafter's Agent Protocol base URL, `http(s)` only. Set with `FACTORY_DRAFTER_APP_ROOT` or not at all |
 | `FACTORY_DRAFTER_APP_ROOT` | for `intake` | The DRAFTER package's root, so the controller can read a drafter thread's `draft/` through its installation store |
 | `FACTORY_DRAFTER_ROUTE` | no | Default `/intake#agent`; only with the drafter pair |
@@ -475,7 +478,11 @@ which may be empty; its `check` and `build` scripts default it to `.factory/mani
 writes and `FACTORY_STATE_DIR` for reads; `builder-target` and `builder-manifest` need
 neither. `builder-manifest --task <id> --out <dir> [--work-order <id>]` writes one work
 order's manifest (named by the task id by default) for driving a builder without a
-controller.
+controller; it stages its capture under `FACTORY_STATE_DIR` when that is set (as the
+controller does) and otherwise under a temporary directory it removes, never under the
+controller package. `target:prepare` builds from a temporary archive and writes only the
+target's `target.json` (under `FACTORY_TARGETS_DIR` when set), so run it before a `b4 dev`
+controller starts or point it at another targets directory.
 
 A work order whose worker has left the map — the drafter pair unset while a draft is in
 flight, a target's entry removed while its build runs — waits where it is, journalling

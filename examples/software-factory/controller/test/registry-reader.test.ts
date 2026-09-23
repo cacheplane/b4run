@@ -28,6 +28,7 @@ function factoryOptions(dir: string, registryPath: string): FactoryOptions {
   return {
     registryPath,
     generatedTasksDir: join(dir, "tasks"),
+    captureRoot: dir,
     workers: fakeWorkerMap({
       builder: {
         client: createHttpWorkerClient(fake?.baseUrl ?? ""),

@@ -1,4 +1,5 @@
 import { mkdirSync, statSync } from "node:fs"
+import { resolve } from "node:path"
 import {
   type DrafterEndpoint,
   type FactoryConfig,
@@ -113,6 +114,11 @@ export function createControllerRuntime(
       }
     }
     const { readers, ...factoryOverrides } = overrides
+    // Every run-time file the controller stages (captures, verifier state) lives under its
+    // state directory, never under its own app root: `b4 dev` restarts the server on any write
+    // under the app root it does not ignore, and did so mid-`intake` the first time the factory
+    // ran under it. Absolute, because the framework's capture resolves against it.
+    const captureRoot = resolve(config.stateDir)
     const workers = createWorkerMap(config, {
       createClient: createHttpWorkerClient,
       createBuilderReader: (entry) => readers?.builder ?? builderReader(entry),
@@ -127,11 +133,14 @@ export function createControllerRuntime(
       exportDir: config.exportDir,
       artifactsDir: config.artifactsDir,
       generatedTasksDir: config.generatedTasksDir,
+      captureRoot,
       approvalTtlMs: config.approvalTtlMs,
       maxActiveMs: config.maxActiveMs,
       maxChangedBytes: config.maxChangedBytes,
-      verifier: createDockerVerifier(createArtifactStore(config.artifactsDir)),
-      captureBaseline: captureTargetBaseline,
+      verifier: createDockerVerifier(createArtifactStore(config.artifactsDir), {
+        stagingRoot: captureRoot,
+      }),
+      captureBaseline: (taskId, signal) => captureTargetBaseline(taskId, signal, { captureRoot }),
       // Defined keys only: an explicit `{ verifier: undefined }` must not erase a required
       // collaborator, which a plain spread would do.
       ...definedOnly(factoryOverrides),

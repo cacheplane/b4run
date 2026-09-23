@@ -44,7 +44,11 @@ beforeAll(async () => {
   // The controller's half, twice: `wo-alpha` is the task's capture as `dispatch` writes it;
   // `wo-beta` is the same capture with one file more, so the two workspaces differ by a path
   // a listing can see and a digest the association records.
-  const alpha = await writeBuilderManifest(task, builder.manifestDir, { workOrderId: "wo-alpha" })
+  const alphaRoot = await mkdtemp(join(tmpdir(), "factory-builder-capture-"))
+  const alpha = await writeBuilderManifest(task, builder.manifestDir, {
+    workOrderId: "wo-alpha",
+    captureRoot: alphaRoot,
+  }).finally(() => rm(alphaRoot, { recursive: true, force: true }))
   digests["wo-alpha"] = alpha.sourceDigest
   const parsed = BuilderManifestSchema.parse(JSON.parse(await readFile(alpha.path, "utf8")))
   const workspace = verifyCapturedWorkspaceDefinition(parsed.workspace)
@@ -70,13 +74,13 @@ beforeAll(async () => {
     join(builder.manifestDir, "wo-elsewhere.json"),
     JSON.stringify({ ...parsed, workOrderId: "wo-elsewhere", targetId: "devkit" }),
   )
-  // The baseline bytes, from a throwaway capture of the pin under a temporary app root: the
+  // The baseline bytes, from a throwaway capture of the pin under a temporary root: the
   // same archive the manifest's workspace is built from, captured where it disturbs neither
   // the builder's nor the controller's capture directory.
   const captureRoot = await mkdtemp(join(tmpdir(), "factory-builder-baseline-"))
   try {
     repaired = await readFile(
-      join(captureTarget(task, "test", { appRoot: captureRoot }).absolute, source),
+      join(captureTarget(task, "test", { captureRoot }).absolute, source),
       "utf8",
     )
   } finally {

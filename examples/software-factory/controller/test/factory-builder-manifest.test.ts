@@ -65,6 +65,7 @@ async function boot(
   factory = await createFactory({
     registryPath: join(dir, "registry.sqlite"),
     generatedTasksDir: join(dir, "tasks"),
+    captureRoot: dir,
     workers: fakeWorkerMap({
       builder: { client: wrapClient(createHttpWorkerClient(fake.baseUrl)), reader, manifestDir },
     }),
@@ -323,6 +324,7 @@ async function reboot(): Promise<void> {
   factory = await createFactory({
     registryPath: join(dir, "registry.sqlite"),
     generatedTasksDir: join(dir, "tasks"),
+    captureRoot: dir,
     workers: fakeWorkerMap({
       builder: { client: createHttpWorkerClient(fake.baseUrl), reader, manifestDir },
     }),
