@@ -170,7 +170,7 @@ Update your CI runners and container base images too. See [Upgrading](/docs/upgr
 
 TypeScript doesn't know a new route, or a tool's input type is stale in `scenarios()`, `.mockTool()` or `.expectTool()`.
 
-Those types come from `.b4/b4.generated.d.ts`, which `b4 typegen` writes. `b4 dev` regenerates it before every restart, so it only goes stale when the dev server isn't running.
+Those types come from `.b4/b4.generated.d.ts`, which `b4 typegen` writes. `b4 dev`, `b4 run`, `b4 test` and `b4 build` regenerate it before they execute, so your editor's types only go stale when you change a tool without running any of them.
 
 Regenerate the types:
 
@@ -178,7 +178,7 @@ Regenerate the types:
 b4 typegen
 ```
 
-Run it after a fresh clone, before CI and after you change a tool signature. See [CLI Reference](/docs/cli#b4-typegen).
+Run it after a fresh clone, before CI, or to refresh your editor after changing a tool signature. See [CLI Reference](/docs/cli#b4-typegen).
 
 ## A module fails with `does not provide an export named`
 
