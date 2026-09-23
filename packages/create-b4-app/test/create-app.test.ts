@@ -410,8 +410,8 @@ describe("create-b4-app", () => {
     expect(stdout).not.toContain(".env.example")
     expect(stdout).not.toContain("npm run verify")
 
-    await assertExists(join(targetDir, "src/app/(public)/hello/[tenant]/index.ts"))
-    await assertExists(join(targetDir, "src/app/(public)/hello/[tenant]/tools/greet.ts"))
+    await assertExists(join(targetDir, "src/app/hello/index.ts"))
+    await assertExists(join(targetDir, "src/app/hello/tools/greet.ts"))
     await assertExists(join(targetDir, "test/agent.test.ts"))
     await expect(
       access(join(targetDir, "src/app/research/index.ts"), constants.F_OK),

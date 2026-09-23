@@ -43,15 +43,15 @@ From that generated app root, the supported contributor-local commands are:
 
 ```bash
 pnpm exec b4 verify
-echo '{"tenant":"acme"}' | pnpm exec b4 run '/hello/[tenant]'
+echo '{"messages":[{"role":"user","content":"Say hello to Ada"}]}' | pnpm exec b4 run /hello
 pnpm exec b4 test
 pnpm exec b4 dev
 ```
 
 The generated `basic` app is a single flat package, and demonstrates the route authoring lane with:
 
-- `src/app/(public)/hello/[tenant]/index.ts`
-- `src/app/(public)/hello/[tenant]/tools/greet.ts`
+- `src/app/hello/index.ts`
+- `src/app/hello/tools/greet.ts`
 
 Drop `--template basic` to scaffold the default `research` app instead. That one is a two-package workspace (`server/` holds the B4.run app, `web/` the B4.run Workbench UI), so the B4.run CLI runs from `server/` rather than the generated root, and the root `package.json` scripts delegate there for you.
 

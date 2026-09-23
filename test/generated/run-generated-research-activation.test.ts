@@ -1378,7 +1378,7 @@ test("activates the default research scaffold through the complete npm lifecycle
     // lives. Pointed at `server/` deliberately — asserting against the app root
     // would pass vacuously now that nothing but the orchestrator lives there.
     await expect(
-      access(join(appRoot, "server/src/app/(public)/hello/[tenant]/index.ts"), constants.F_OK),
+      access(join(appRoot, "server/src/app/hello/index.ts"), constants.F_OK),
     ).rejects.toThrow()
     // The other half of the workspace: the scaffold ships a web client too.
     await expect(access(join(appRoot, "web/app/page.tsx"), constants.F_OK)).resolves.toBeUndefined()
