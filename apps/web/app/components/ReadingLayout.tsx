@@ -20,7 +20,7 @@ export function ReadingLayout({
     <div className="grid grid-cols-1 md:grid-cols-[240px_minmax(0,1fr)] lg:grid-cols-[240px_minmax(0,1fr)_240px] xl:grid-cols-[280px_minmax(0,1fr)_240px]">
       <aside
         aria-label={leftLabel}
-        className="hidden md:block sticky self-start overflow-y-auto px-6 pt-12 pb-8 border-r border-divider top-[var(--header-h)] h-[calc(100vh-var(--header-h))]"
+        className="hidden md:block sticky self-start overflow-y-auto px-6 pt-12 pb-8 border-r border-rule top-[var(--header-h)] h-[calc(100vh-var(--header-h))]"
       >
         {left}
       </aside>
@@ -33,7 +33,7 @@ export function ReadingLayout({
       </main>
       <aside
         aria-label={rightLabel}
-        className="hidden lg:block sticky self-start overflow-y-auto px-6 pt-12 pb-8 border-l border-divider top-[var(--header-h)] h-[calc(100vh-var(--header-h))]"
+        className="hidden lg:block sticky self-start overflow-y-auto px-6 pt-12 pb-8 border-l border-rule top-[var(--header-h)] h-[calc(100vh-var(--header-h))]"
       >
         {right}
       </aside>

@@ -8,7 +8,7 @@ interface Props {
 export function DocsBreadcrumb({ href }: Props) {
   const crumbs = breadcrumbsFor(href)
   return (
-    <nav aria-label="Breadcrumb" className="text-xs text-ink-dim">
+    <nav aria-label="Breadcrumb" className="text-xs text-ink-muted">
       <ol className="flex items-center gap-2 flex-wrap">
         {crumbs.map((c, i) => (
           <li key={c.href ?? c.label} className="flex items-center gap-2">

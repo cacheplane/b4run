@@ -99,16 +99,3 @@ pre .mdx-inline-code {
   white-space: nowrap;
   overflow-wrap: normal;
 }
-
-/* TODO(design-system Task 7): delete once RelatedCards and DocsPrevNext render data-ui="card". */
-/* Related cards and pagination share the card hover. */
-[data-related-cards] > a,
-nav[aria-label="Pagination"] > a {
-  text-decoration: none;
-  border: 1px solid var(--color-rule);
-}
-[data-related-cards] > a:hover,
-nav[aria-label="Pagination"] > a:hover {
-  background: var(--color-relay-tint);
-  border-color: var(--color-rule-strong);
-}

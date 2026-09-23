@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
+import { Icon } from "../ui/Icon"
 import { OPEN_DOCS_SEARCH_EVENT } from "./docs-search-events"
 import { filterDocsSearchResults, flattenDocsSearchIndex } from "./docs-search-results"
 import type { DocsSearchEntry } from "./search-index"
@@ -110,37 +111,22 @@ export function DocsSearch({ index }: Props) {
         type="button"
         onClick={openSearch}
         aria-haspopup="dialog"
-        className="w-full flex items-center justify-between gap-3 px-3 py-2 border border-divider rounded-md bg-surface/50 text-sm text-ink-dim hover:border-text-muted hover:text-ink-muted transition-colors mb-6"
+        className="w-full flex items-center justify-between gap-3 px-3 py-2 border border-rule-strong bg-page text-sm text-ink-muted hover:border-ink hover:text-ink transition-colors mb-6"
         aria-label="Search docs (press Cmd+K)"
       >
         <span className="flex items-center gap-2">
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            role="img"
-          >
-            <title>Search</title>
-            <circle cx="11" cy="11" r="8" />
-            <path d="m21 21-4.3-4.3" />
-          </svg>
+          <Icon name="search" />
           Search
         </span>
-        <kbd className="font-mono text-[10px] text-ink-dim border border-divider rounded px-1.5 py-0.5">
-          ⌘K
-        </kbd>
+        <kbd data-ui="kbd">⌘K</kbd>
       </button>
 
       {open &&
         mounted &&
         createPortal(
           <div
-            data-docs-brand
             data-docs-search-overlay
-            className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh] bg-ink/40 backdrop-blur-sm"
+            className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh] backdrop-blur-sm"
             onClick={close}
             onKeyDown={(e) => {
               if (e.key === "Escape") {
@@ -155,7 +141,7 @@ export function DocsSearch({ index }: Props) {
           >
             {/* biome-ignore lint/a11y/noStaticElementInteractions: wrapper stops modal-close propagation; roles are on ancestor dialog */}
             <div
-              className="w-full max-w-xl mx-4 bg-surface border border-divider rounded-xl shadow-2xl overflow-hidden"
+              className="w-full max-w-xl mx-4 overflow-hidden"
               onClick={(e) => e.stopPropagation()}
               onKeyDown={(e) => {
                 // Escape bubbles to the dialog so it closes from the input or
@@ -163,21 +149,8 @@ export function DocsSearch({ index }: Props) {
                 if (e.key !== "Escape") e.stopPropagation()
               }}
             >
-              <div className="flex items-center gap-3 px-4 py-3 border-b border-divider">
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  className="text-ink-dim"
-                  role="img"
-                >
-                  <title>Search</title>
-                  <circle cx="11" cy="11" r="8" />
-                  <path d="m21 21-4.3-4.3" />
-                </svg>
+              <div className="flex items-center gap-3 px-4 py-3 border-b border-rule">
+                <Icon name="search" className="text-ink-muted" />
                 <input
                   ref={inputRef}
                   type="text"
@@ -189,13 +162,14 @@ export function DocsSearch({ index }: Props) {
                   onKeyDown={onInputKey}
                   placeholder="Search B4.run docs..."
                   aria-label="Search docs"
-                  className="flex-1 bg-transparent text-ink placeholder-text-muted focus:outline-none text-sm"
+                  className="flex-1 bg-transparent text-ink placeholder:text-ink-muted text-sm"
                 />
                 <button
                   type="button"
                   onClick={close}
                   aria-label="Close search"
-                  className="text-xs text-ink-dim border border-divider rounded px-1.5 py-0.5 font-mono hover:text-ink"
+                  data-ui="kbd"
+                  className="hover:text-ink"
                 >
                   ESC
                 </button>
@@ -203,7 +177,7 @@ export function DocsSearch({ index }: Props) {
 
               <ul ref={listRef} className="max-h-[60vh] overflow-y-auto py-2">
                 {results.length === 0 ? (
-                  <li className="px-4 py-6 text-sm text-ink-dim text-center">
+                  <li className="px-4 py-6 text-sm text-ink-muted text-center">
                     No results for &quot;{query}&quot;
                   </li>
                 ) : (
@@ -214,27 +188,19 @@ export function DocsSearch({ index }: Props) {
                         data-active={i === active}
                         onMouseEnter={() => setActive(i)}
                         onClick={() => navigate(r.href)}
-                        className={`w-full text-left px-4 py-2.5 flex items-center gap-3 ${
-                          i === active ? "bg-accent-saas/10" : ""
-                        }`}
+                        className="w-full text-left px-4 py-2.5 flex items-center gap-3"
                       >
                         <span
                           className={`text-[10px] uppercase tracking-wider font-semibold w-20 shrink-0 ${
-                            i === active ? "text-accent-saas" : "text-ink-dim"
+                            i === active ? "text-ink" : "text-ink-muted"
                           }`}
                         >
                           {r.section}
                         </span>
                         <span className="flex-1 min-w-0">
-                          <span
-                            className={`block text-sm font-semibold ${
-                              i === active ? "text-accent-saas" : "text-ink"
-                            }`}
-                          >
-                            {r.title}
-                          </span>
+                          <span className="block text-sm font-semibold text-ink">{r.title}</span>
                           {r.heading && (
-                            <span className="block text-xs text-ink-dim truncate">
+                            <span className="block text-xs text-ink-muted truncate">
                               <span aria-hidden>#</span> {r.heading.text}
                             </span>
                           )}

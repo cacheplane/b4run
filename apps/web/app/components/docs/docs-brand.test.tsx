@@ -51,6 +51,6 @@ describe("docs brand boundary", () => {
     const dialog = document.querySelector('[role="dialog"]')
     expect(dialog).not.toBeNull()
     expect(container.contains(dialog)).toBe(false)
-    expect(dialog?.hasAttribute("data-docs-brand")).toBe(true)
+    expect(dialog?.hasAttribute("data-docs-search-overlay")).toBe(true)
   })
 })

@@ -15,8 +15,12 @@ export function MobileDocsNav({ pathname, onNavigate }: Props) {
         const activeSection = section.items.some((item) => item.href === pathname)
         return (
           <details key={section.label} open={activeSection} className="group">
-            <summary className="flex cursor-pointer list-none items-center justify-between rounded-md px-3 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-dim hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-divider-strong">
-              {section.label}
+            {/* A <p> is invalid inside <summary>, so the eyebrow is a span
+                carrying the attributes the Eyebrow component would. */}
+            <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-ink-muted hover:bg-surface hover:text-ink">
+              <span data-ui="eyebrow" data-tone="muted">
+                {section.label}
+              </span>
               <span aria-hidden className="text-xs transition-transform group-open:rotate-90">
                 ›
               </span>
@@ -29,12 +33,9 @@ export function MobileDocsNav({ pathname, onNavigate }: Props) {
                     <Link
                       href={item.href}
                       onClick={onNavigate}
+                      data-ui="nav-item"
                       {...(active ? { "aria-current": "page" as const } : {})}
-                      className={`block rounded-md px-3 py-2 text-sm transition-colors ${
-                        active
-                          ? "text-accent-saas bg-accent-saas-soft"
-                          : "text-ink-muted hover:text-ink hover:bg-surface"
-                      }`}
+                      className="text-sm px-3 py-2"
                     >
                       {item.label}
                     </Link>
