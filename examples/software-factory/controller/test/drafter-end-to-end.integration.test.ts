@@ -76,7 +76,6 @@ const ENV = [
   "FACTORY_DRAFTER_MANIFEST_DIR",
   "OPENAI_BASE_URL",
   "OPENAI_API_KEY",
-  "FACTORY_NO_FETCH",
   "B4_PERMISSIONS_MODE",
 ] as const
 
@@ -93,13 +92,13 @@ const cleanups: Array<() => Promise<void>> = []
 
 beforeAll(async () => {
   for (const key of ENV) previousEnv[key] = process.env[key]
-  // A commit that is certainly in the object store, whatever the checkout's depth: the pin
-  // must never be fetched here (`FACTORY_NO_FETCH=1`), because the lane proves the capture,
-  // not the network.
-  pin = execFileSync("git", ["-C", repositoryRoot(), "rev-parse", "HEAD~1"], {
+  // The pin is HEAD: the one commit every checkout holds, a depth-1 CI clone included, and
+  // the capture reads it out of the object store either way, so HEAD proves the same thing
+  // a parent would. (The TARGET's pin, which the oracle proof's baseline needs, is
+  // `ensurePin`'s business as in the sibling lanes: `target:prepare` has fetched it.)
+  pin = execFileSync("git", ["-C", repositoryRoot(), "rev-parse", "HEAD"], {
     encoding: "utf8",
   }).trim()
-  process.env.FACTORY_NO_FETCH = "1"
   // `non-interactive` is the drafter's own setting; an operator's process-wide override
   // would make a denied command a parked prompt nobody answers.
   delete process.env.B4_PERMISSIONS_MODE
@@ -133,7 +132,9 @@ afterEach(async () => {
   runtime = undefined
   await builder?.close()
   builder = undefined
-  aimock.clearFixtures()
+  // Optional: a `beforeAll` that failed before aimock existed must not fail again here and
+  // mask what broke.
+  aimock?.clearFixtures()
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
 })
 
@@ -363,12 +364,15 @@ it("refuses a three-file draft by name, and the redraft's prompt carries the rea
       .replies("Three files are written.")
       .build(),
   )
-  // Turn two runs on the SAME thread, whose transcript already holds turn one, so a script
-  // written for a fresh thread would be selected against the wrong turn count. The
-  // controller's read of `draft/` is the one moment between the two turns, and the reader
-  // seam is where the model is re-scripted: from then on, every call is answered with a
-  // reply and no tool call, so the redraft writes nothing and the second read finds the
-  // same three files.
+  // Turn two cannot be scripted up front beside turn one. The redraft's prompt contains
+  // the issue, so every first-turn fixture content-matches it too, and aimock's turn
+  // selection (`selectByTurnIndex` in its router) prefers the indexed fixture nearest
+  // below the transcript's assistant count over an unindexed one wherever it sits in the
+  // list: a `Previous attempt was refused` fixture placed first would still lose to the
+  // first turn's reply. The controller's read of `draft/` is the one moment between the
+  // two turns, and the reader seam is where the model is re-scripted: from then on, every
+  // call is answered with a reply and no tool call, so the redraft writes nothing and the
+  // second read finds the same three files.
   const real = realDrafterReaderLazily()
   let reads = 0
   const factory = await bootController(dir, {

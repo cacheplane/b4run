@@ -150,7 +150,7 @@ it("serves each work order's own capture to its own thread", async () => {
 it("refuses a thread whose work order has no manifest, by name, in the run's error", async () => {
   const orphan = await createThread("wo-none")
   const result = await runTurn(orphan)
-  expect(result.status).not.toBe(200)
+  expect(result.status).toBeGreaterThanOrEqual(400)
   expect(result.text).toContain("no drafter manifest for wo-none")
   const store = openWorkspaceInstallationReader(root)
   try {

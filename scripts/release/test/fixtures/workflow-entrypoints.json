@@ -1010,7 +1010,7 @@
             "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
             "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
-            "timeout-minutes": 20
+            "timeout-minutes": 30
           },
           "steps": [
             {
@@ -1087,7 +1087,7 @@
               "classification": "safe",
               "descriptor": {
                 "name": "Software factory controller-owned verification",
-                "run": "pnpm turbo run build --filter=@b4-example/software-factory-controller^...\npnpm --filter @b4-example/software-factory-controller target:prepare cli-flags\npnpm --filter @b4-example/software-factory-controller target:prepare devkit\npnpm --filter @b4-example/software-factory-controller factory builder-manifest --task cli-flags --out \"$RUNNER_TEMP/factory-manifests\"\nFACTORY_BUILDER_MANIFEST=\"$RUNNER_TEMP/factory-manifests/cli-flags.json\" pnpm --filter @b4-example/software-factory-server check\nFACTORY_BUILDER_MANIFEST=\"$RUNNER_TEMP/factory-manifests/cli-flags.json\" pnpm --filter @b4-example/software-factory-server build\ndocker pull \"$(grep -o 'node:24-slim@sha256:[a-f0-9]*' examples/software-factory/drafter/src/drafter-image.ts)\"\nFACTORY_DRAFTER_MANIFEST_DIR=\"$RUNNER_TEMP/drafter-manifests\" pnpm --filter @b4-example/software-factory-drafter check\nFACTORY_DRAFTER_MANIFEST_DIR=\"$RUNNER_TEMP/drafter-manifests\" pnpm --filter @b4-example/software-factory-drafter build\npnpm --filter @b4-example/software-factory-drafter test:sandbox\npnpm --filter @b4-example/software-factory-controller test:sandbox\n"
+                "run": "pnpm turbo run build --filter=@b4-example/software-factory-controller^...\npnpm --filter @b4-example/software-factory-controller target:prepare cli-flags\npnpm --filter @b4-example/software-factory-controller target:prepare devkit\npnpm --filter @b4-example/software-factory-controller factory builder-manifest --task cli-flags --out \"$RUNNER_TEMP/factory-manifests\"\nFACTORY_BUILDER_MANIFEST=\"$RUNNER_TEMP/factory-manifests/cli-flags.json\" pnpm --filter @b4-example/software-factory-server check\nFACTORY_BUILDER_MANIFEST=\"$RUNNER_TEMP/factory-manifests/cli-flags.json\" pnpm --filter @b4-example/software-factory-server build\ndocker pull \"$(grep -oE '[a-z0-9.:/-]+@sha256:[a-f0-9]{64}' examples/software-factory/drafter/src/drafter-image.ts)\"\npnpm --filter @b4-example/software-factory-drafter check\npnpm --filter @b4-example/software-factory-drafter build\npnpm --filter @b4-example/software-factory-drafter test:sandbox\npnpm --filter @b4-example/software-factory-controller test:sandbox\n"
               }
             },
             {

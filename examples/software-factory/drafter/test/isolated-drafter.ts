@@ -3,6 +3,10 @@ import { tmpdir } from "node:os"
 import { basename, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
+// A deliberate copy of the controller's `test/isolated-app.ts`, not an import: the drafter
+// package is understood, typechecked and tested without the controller's source, tests
+// included. Keep the two in step by hand.
+
 /** This package's root: the app that isolatedDrafter() copies. */
 const packageRoot = fileURLToPath(new URL("../", import.meta.url))
 
