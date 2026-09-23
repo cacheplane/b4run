@@ -113,6 +113,7 @@ export const DOCS_NAV = [
       { label: "Stream Output", href: "/docs/recipes/stream-output" },
       { label: "Retry Transient Model Calls", href: "/docs/recipes/retry-flaky-tools" },
       { label: "Dispatch from a Route", href: "/docs/recipes/dispatch-from-route" },
+      { label: "Build a Research Assistant", href: "/docs/recipes/research-assistant" },
       { label: "Research Assistant Web UI", href: "/docs/recipes/research-web-ui" },
     ],
   },

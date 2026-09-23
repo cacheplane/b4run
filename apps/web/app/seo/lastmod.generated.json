@@ -2,9 +2,9 @@
   "version": 2,
   "routes": {
     "/": {
-      "lastModified": "2026-09-22T23:03:50.190Z",
-      "sourceDigest": "ae517d1beeecf74ab506d6ff76b8c317f35ddbfb76a485257eb0b952d30d1c44",
-      "recordDigest": "5d71935a81115f5445689921bc73ec1cef11ee0a1d89e99025032a7f8533a5c5"
+      "lastModified": "2026-09-23T00:56:00.139Z",
+      "sourceDigest": "d9add76a538b3b8f8b4f26839e3a35b0ab53f0d343a05f860fc75641e8ed3ae6",
+      "recordDigest": "7c3caf5aaaa48950608239a6b24a2b7fa4b5335c11d80369d662021de127de02"
     },
     "/blog": {
       "lastModified": "2026-09-22T19:17:28.383Z",
@@ -207,9 +207,9 @@
       "recordDigest": "9ac8c5449c664eb2c5dc99f42cca8b4b3fa2ca0230cfe6c68f1d07e246952cb8"
     },
     "/docs/getting-started": {
-      "lastModified": "2026-09-22T19:04:43.100Z",
-      "sourceDigest": "984ba982fe949ba31ca8a4a6d75cdd7a80d8f64aad52ec2a108e97006b97a6ae",
-      "recordDigest": "8787ccd7b47083c39a4401da92f273d69099da4de48239d00a1cbd81d4e7b32a"
+      "lastModified": "2026-09-23T00:46:15.343Z",
+      "sourceDigest": "8b04ef22bf359b3c324f4ea11ca3d01f9e7e02e049b461865e7ee62081ace5a2",
+      "recordDigest": "7cc440062c7f3b84ef3d681fc1c572b63893b2ff7c6198fd4b5b2713dddcdb9d"
     },
     "/docs/inspector": {
       "lastModified": "2026-09-22T19:04:43.100Z",
@@ -292,9 +292,9 @@
       "recordDigest": "21f942f971d61da97485b44d139af213379988ef5a5606672c7fd5ba7be9fcd1"
     },
     "/docs/recipes": {
-      "lastModified": "2026-09-22T19:04:43.100Z",
-      "sourceDigest": "e643e3a78446cc93766a6bcb0bd809429aac4d77fcd856cc9b2e9b977f1fac32",
-      "recordDigest": "26f3b034f0b5c57a56a2a090ade1b547d8d391409847bb2bb1ab8e30003a94c5"
+      "lastModified": "2026-09-23T00:46:15.343Z",
+      "sourceDigest": "004ab2ba2dfba3bf7dffb1bf77853f1de6f26018692707ffe631e9e82957edc1",
+      "recordDigest": "a0830b607e189b0f71dc3ea2ebbefb4b5e1e2a945ae8484add707d785e3c6466"
     },
     "/docs/recipes/add-a-tool": {
       "lastModified": "2026-09-22T19:04:43.100Z",
@@ -310,6 +310,11 @@
       "lastModified": "2026-09-22T19:04:43.100Z",
       "sourceDigest": "624e699cb8a0263e9e5fcbb94d90e47164f896b4eebfee895e173fc266568bf7",
       "recordDigest": "ce6be89ba2dd7a98711670dca3d82b91ddddb1e831123cb35f2695a590d3ef4b"
+    },
+    "/docs/recipes/research-assistant": {
+      "lastModified": "2026-09-23T00:46:15.343Z",
+      "sourceDigest": "e8356d63fb5373f4a5687c9cf9dc52413821717fdb9871102f44ad1746fb3702",
+      "recordDigest": "f6a0a611770a01b4824f98b23730754b626f68fe4083d204ad3d961aa0665eaa"
     },
     "/docs/recipes/research-web-ui": {
       "lastModified": "2026-09-22T19:04:43.100Z",

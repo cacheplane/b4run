@@ -52,6 +52,33 @@
   max-width: 550px;
   margin: 0;
 }
+/* The eyebrow stays on one line in both the fallback and the loaded mono font,
+   so the font swap never shifts the hero. */
+.hero > .eyebrow {
+  white-space: nowrap;
+}
+.home h1,
+.home h2,
+.home h3 {
+  text-wrap: balance;
+}
+.home p {
+  text-wrap: pretty;
+}
+/* Stacked, so the link never moves when the command's mono font swaps in. */
+.heroActions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 32px;
+  position: relative;
+  z-index: 1;
+}
+.command {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
 .dot {
   position: absolute;
   right: 20px;
@@ -553,41 +580,11 @@
   padding: 24px;
   margin-top: 48px;
 }
-.recording > summary {
+.recordingHeader {
   display: flex;
   justify-content: space-between;
-  align-items: center;
   gap: 24px;
-  cursor: pointer;
-  list-style: none;
-}
-.recording > summary::-webkit-details-marker {
-  display: none;
-}
-.recording > summary > span:first-child {
-  display: grid;
-  gap: 8px;
-}
-/* The duration shares the title's 32px line box and bottom edge, so both sit
-   on one visual line beside the eyebrow. */
-.recording > summary {
-  align-items: flex-end;
-}
-.recording > summary strong {
-  font-size: 25px;
-  line-height: 32px;
-  font-weight: 500;
-  letter-spacing: -0.035em;
-}
-.recording > summary > span:last-child {
-  font:
-    12px / 32px var(--font-jetbrains-mono),
-    monospace;
-  color: var(--quiet);
-}
-.recording > summary > span:last-child > span {
-  margin-left: 14px;
-  font-size: 22px;
+  flex-wrap: wrap;
 }
 @media (max-width: 900px) {
   .chapter {
@@ -609,17 +606,6 @@
   }
   .recording {
     padding: 20px;
-  }
-  .recording > summary > span:last-child {
-    line-height: 1.7;
-  }
-  .recording > summary {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 12px;
-  }
-  .recording > summary strong {
-    font-size: 23px;
   }
 }
 .wrapCode .codeLine {

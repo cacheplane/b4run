@@ -37,7 +37,8 @@ This project uses **B4.run**, a TypeScript-first meta-framework for building gra
 Examples:
 
 - Default research scaffold: `src/app/research/index.ts` → route id `/research`; agent route key `/research#agent`.
-- Optional basic scaffold (`pnpm create b4-app my-app -- --template basic`): `src/app/(public)/hello/[tenant]/index.ts` → route id `/hello/[tenant]`; callers pass `tenant` in JSON input.
+- Basic scaffold (`pnpm create b4-app my-app -- --template basic`): `src/app/hello/index.ts` → route id `/hello`; agent route key `/hello#agent`.
+- Dynamic segment: `src/app/(public)/hello/[tenant]/index.ts` → route id `/hello/[tenant]`; callers pass `tenant` in JSON input.
 
 ## Defining an Agent Route
 

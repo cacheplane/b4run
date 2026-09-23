@@ -1,6 +1,6 @@
 import "server-only"
 import { type BundledLanguage, createHighlighter } from "shiki"
-import { curatedEvidenceUrl, evidence, type SourceKey, sourceUrl } from "./evidence"
+import { curatedEvidenceUrl, evidence, type SourceKey } from "./evidence"
 import type { DisplayCode, WalkthroughProps } from "./types"
 
 const highlighter = createHighlighter({
@@ -84,13 +84,15 @@ function recordedDiff(): string {
 }
 
 export async function prepareHomepage(): Promise<{ walkthrough: WalkthroughProps }> {
+  // The recording ran an earlier revision of the example, so these panels show
+  // the recorded source without linking to a different revision on GitHub.
   const prepare = (key: SourceKey) => {
     const source = evidence.sources[key]
     return highlightCode(
       source.text,
       key === "plan" ? "markdown" : "typescript",
-      source.path,
-      sourceUrl(source.path),
+      `${source.path} · recorded`,
+      "",
     )
   }
   const [agent, config, plan, patch] = await Promise.all([

@@ -144,6 +144,10 @@ const FOUNDATION_DOCS_NAV = [
         href: "/docs/recipes/dispatch-from-route",
       },
       {
+        label: "Build a Research Assistant",
+        href: "/docs/recipes/research-assistant",
+      },
+      {
         label: "Research Assistant Web UI",
         href: "/docs/recipes/research-web-ui",
       },
@@ -443,19 +447,19 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
     expect(DOCS_NAV).toEqual(FOUNDATION_DOCS_NAV)
   })
 
-  it("pins the exact 60-page reading order", () => {
+  it("pins the exact 61-page reading order", () => {
     const expectedPages = (FOUNDATION_DOCS_NAV as readonly DocsNavSection[]).flatMap(
       (section) => section.items,
     )
 
-    expect(expectedPages).toHaveLength(60)
+    expect(expectedPages).toHaveLength(61)
     expect(DOCS_PAGES).toEqual(expectedPages)
   })
 
   it("adds sixteen hidden API leaves immediately after the hub", () => {
-    expect(DOCS_NAV.reduce((count, section) => count + section.items.length, 0)).toBe(60)
-    expect(DOCS_PAGES).toHaveLength(60)
-    expect(ALL_DOCS_PAGES).toHaveLength(76)
+    expect(DOCS_NAV.reduce((count, section) => count + section.items.length, 0)).toBe(61)
+    expect(DOCS_PAGES).toHaveLength(61)
+    expect(ALL_DOCS_PAGES).toHaveLength(77)
 
     const hubIndex = ALL_DOCS_PAGES.findIndex(({ href }) => href === "/docs/api")
     expect(ALL_DOCS_PAGES.slice(hubIndex + 1, hubIndex + 17)).toEqual(API_REFERENCE_PAGES)
@@ -678,16 +682,22 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
       match[1] ? [match[1]] : [],
     )
 
-    expect(source).toContain("[Deployment Options](/docs/deployment)")
-    expect(source).toContain("[Node and Docker](/docs/deployment/node)")
+    expect(source).toContain("--template basic")
     expect(source).not.toContain("## 5. Ship it")
     expect(source).not.toContain("docker run -p 8000:8000")
-    expect(cardTitles).toEqual(["Mental Model", "Add a Tool", "Deployment Options"])
+    expect(cardTitles).toEqual(["Build a Research Assistant", "Tools", "Routes"])
+  })
+
+  it("keeps the research recipe on the shipping journey", () => {
+    const source = readFileSync(join(CONTENT_ROOT, "recipes/research-assistant.mdx"), "utf8")
+    expect(source).toContain("[Deployment Options](/docs/deployment)")
+    expect(source).toContain("[Node and Docker](/docs/deployment/node)")
   })
 
   it("groups Recipes Overview around build, integrate, test, and deploy tasks", () => {
     const source = readFileSync(join(CONTENT_ROOT, "recipes/index.mdx"), "utf8")
     const recipeLabels = [
+      "Build a Research Assistant",
       "Add a Tool",
       "Typed State",
       "Retry Transient Model Calls",

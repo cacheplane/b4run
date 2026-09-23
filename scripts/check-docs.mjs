@@ -1752,7 +1752,7 @@ const checks = [
     ],
   },
   {
-    file: "apps/web/content/docs/getting-started.mdx",
+    file: "apps/web/content/docs/recipes/research-assistant.mdx",
     patterns: ["b4.config.ts"],
   },
   {
@@ -1860,12 +1860,18 @@ const gettingStartedSource = readFileSync(
   resolve(repoRoot, "apps/web/content/docs/getting-started.mdx"),
   "utf8",
 )
+const researchAssistantSource = readFileSync(
+  resolve(repoRoot, "apps/web/content/docs/recipes/research-assistant.mdx"),
+  "utf8",
+)
 for (const required of [
   "[Deployment Options](/docs/deployment)",
   "[Node and Docker](/docs/deployment/node)",
 ]) {
-  if (!gettingStartedSource.includes(required)) {
-    failures.push(`apps/web/content/docs/getting-started.mdx is missing journey link: ${required}`)
+  if (!researchAssistantSource.includes(required)) {
+    failures.push(
+      `apps/web/content/docs/recipes/research-assistant.mdx is missing journey link: ${required}`,
+    )
   }
 }
 for (const forbidden of ["## 5. Ship it", "docker run -p 8000:8000"]) {
@@ -1881,7 +1887,7 @@ const gettingStartedFinalCards = gettingStartedSource.slice(
 const gettingStartedDecisionTitles = [
   ...gettingStartedFinalCards.matchAll(/\btitle:\s*"([^"]+)"/g),
 ].map((match) => match[1])
-const expectedGettingStartedDecisionTitles = ["Mental Model", "Add a Tool", "Deployment Options"]
+const expectedGettingStartedDecisionTitles = ["Build a Research Assistant", "Tools", "Routes"]
 if (
   JSON.stringify(gettingStartedDecisionTitles) !==
   JSON.stringify(expectedGettingStartedDecisionTitles)
@@ -4258,6 +4264,7 @@ const expectedNavDocEntries = [
     href: "/docs/recipes/retry-flaky-tools",
   },
   { label: "Dispatch from a Route", href: "/docs/recipes/dispatch-from-route" },
+  { label: "Build a Research Assistant", href: "/docs/recipes/research-assistant" },
   { label: "Research Assistant Web UI", href: "/docs/recipes/research-web-ui" },
   { label: "Configuration Reference", href: "/docs/configuration" },
   { label: "CLI Reference", href: "/docs/cli" },
@@ -4354,9 +4361,9 @@ if (apiReferenceRegistry) {
     ...navDocEntries.slice(apiHubIndex + 1),
   ]
   const expectedAllDocsPageCount = navDocEntries.length + API_REFERENCE_PAGES.length
-  if (navDocEntries.length !== 60 || expectedAllDocsPages.length !== expectedAllDocsPageCount) {
+  if (navDocEntries.length !== 61 || expectedAllDocsPages.length !== expectedAllDocsPageCount) {
     failures.push(
-      `Docs page registries must retain 60 journey pages plus every registered API reference leaf; received ${navDocEntries.length} journey pages, ${API_REFERENCE_PAGES.length} reference leaves, and ${expectedAllDocsPages.length} total pages`,
+      `Docs page registries must retain 61 journey pages plus every registered API reference leaf; received ${navDocEntries.length} journey pages, ${API_REFERENCE_PAGES.length} reference leaves, and ${expectedAllDocsPages.length} total pages`,
     )
   }
   const navModule = await tsImport(pathToFileURL(docsNavPath).href, import.meta.url).catch(
