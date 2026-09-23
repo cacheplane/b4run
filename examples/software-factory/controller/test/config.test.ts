@@ -110,12 +110,16 @@ describe("the worker map", () => {
     ).toThrow(/FACTORY_WORKERS: devkit/)
   })
 
-  it("refuses the map and the legacy pair together", () => {
+  it("refuses the map beside any legacy knob, naming the one that was set", () => {
     expect(() => loadConfig({ ...base, FACTORY_WORKERS: workers })).toThrow(
-      "set FACTORY_WORKERS or FACTORY_WORKER_URL, not both",
+      "FACTORY_WORKERS is set; unset FACTORY_WORKER_URL and FACTORY_BUILDER_APP_ROOT",
     )
     expect(() => loadConfig({ ...mapped, FACTORY_BUILDER_APP_ROOT: "/tmp/builder" })).toThrow(
-      "set FACTORY_WORKERS or FACTORY_WORKER_URL, not both",
+      "FACTORY_WORKERS is set; unset FACTORY_BUILDER_APP_ROOT",
+    )
+    // The legacy route has nowhere to go: each entry carries its own.
+    expect(() => loadConfig({ ...mapped, FACTORY_WORKER_ROUTE: "/fix#agent" })).toThrow(
+      "FACTORY_WORKERS is set; unset FACTORY_WORKER_ROUTE",
     )
   })
 
@@ -207,6 +211,24 @@ describe("drafter configuration", () => {
     })
   })
 
+  it("refuses a drafter knob without the drafter, naming it", () => {
+    expect(() => loadConfig({ ...base, FACTORY_DRAFTER_ROUTE: "/draft#agent" })).toThrow(
+      "FACTORY_DRAFTER_ROUTE is set but the drafter is not: set FACTORY_DRAFTER_URL and FACTORY_DRAFTER_APP_ROOT, or unset it",
+    )
+    expect(() => loadConfig({ ...base, FACTORY_DRAFTER_MANIFEST_DIR: "/srv/m" })).toThrow(
+      "FACTORY_DRAFTER_MANIFEST_DIR is set but the drafter is not",
+    )
+    expect(() =>
+      loadConfig({
+        ...base,
+        FACTORY_DRAFTER_IMAGE: `node:24-slim@sha256:${"b".repeat(64)}`,
+        FACTORY_DRAFTER_MANIFEST_DIR: "/srv/m",
+      }),
+    ).toThrow(
+      "FACTORY_DRAFTER_MANIFEST_DIR and FACTORY_DRAFTER_IMAGE are set but the drafter is not: set FACTORY_DRAFTER_URL and FACTORY_DRAFTER_APP_ROOT, or unset them",
+    )
+  })
+
   it("refuses half a drafter: the URL and the app root come together", () => {
     const bothOrNeither = "FACTORY_DRAFTER_URL and FACTORY_DRAFTER_APP_ROOT: set both or neither"
     expect(() => loadConfig({ ...base, FACTORY_DRAFTER_URL: "http://127.0.0.1:4200" })).toThrow(
@@ -235,7 +257,7 @@ describe("drafter configuration", () => {
     expect(() => loadConfig({ ...pair, FACTORY_DRAFTER_MANIFEST_DIR: "" })).toThrow(
       /FACTORY_DRAFTER_MANIFEST_DIR/,
     )
-    expect(() => loadConfig({ ...base, FACTORY_DRAFTER_IMAGE: "" })).toThrow(
+    expect(() => loadConfig({ ...pair, FACTORY_DRAFTER_IMAGE: "" })).toThrow(
       /FACTORY_DRAFTER_IMAGE/,
     )
   })

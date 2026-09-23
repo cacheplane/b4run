@@ -335,7 +335,11 @@ describe("intake", () => {
     })
     expect(String(refusals(id)[0]?.payload.reason)).toMatch(/no-such-target/)
     expect(eventTypes(id)).not.toContain("transition:intake_retry")
-    expect(eventTypes(id).at(-1)).toBe("transition:intake_blocked")
+    // The block, then the manifest's removal: the removal follows the committed move.
+    expect(eventTypes(id).slice(-2)).toEqual([
+      "transition:intake_blocked",
+      "drafter_manifest_removed:",
+    ])
   })
 
   it("retries an invalid draft on the same thread with the refusal quoted, then parks", async () => {
@@ -554,10 +558,11 @@ describe("intake", () => {
     const { id } = await intake()
     const row = await factory.settleIntake(id, 20_000)
     expect(row).toMatchObject({ state: "blocked", blockedReason: "intake_run_failed" })
-    expect(factory.events(id).at(-1)?.payload).toMatchObject({
+    expect(factory.events(id).at(-2)?.payload).toMatchObject({
       event: "intake_blocked",
       error: "route exploded",
     })
+    expect(factory.events(id).at(-1)?.type).toBe("drafter_manifest_removed")
     expect(reader.reads).toEqual([])
   })
 
@@ -697,7 +702,15 @@ describe("the intake gate", () => {
     const approved = await factory.approveIntake(id, { revision: parked.revision, taskDigest })
     expect(approved).toEqual({ ok: true, state: "received", message: "Intake approved" })
     expect(factory.show(id)).toMatchObject({ state: "received", taskDigest, targetId: "devkit" })
-    expect(factory.events(id).at(-1)).toMatchObject({
+    // The approval's own transaction commits (the move and its journal line together), and
+    // only then is the manifest removed: nothing irreversible inside a unit that can roll back.
+    expect(
+      factory
+        .events(id)
+        .slice(-3)
+        .map((e) => e.type),
+    ).toEqual(["transition", "intake_approved", "drafter_manifest_removed"])
+    expect(factory.events(id).at(-2)).toMatchObject({
       type: "intake_approved",
       payload: { taskDigest },
     })

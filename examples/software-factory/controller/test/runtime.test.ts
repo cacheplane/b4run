@@ -61,7 +61,7 @@ describe("controller runtime", () => {
         FACTORY_WORKER_URL: fake.baseUrl,
         FACTORY_BUILDER_APP_ROOT: join(dir, "builder"),
       }),
-    ).toThrow("set FACTORY_WORKERS or FACTORY_WORKER_URL, not both")
+    ).toThrow("FACTORY_WORKERS is set; unset FACTORY_WORKER_URL and FACTORY_BUILDER_APP_ROOT")
   })
 
   it("configures intake from the drafter pair, and refuses intake without it", async () => {

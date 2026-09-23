@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { openRegistryReader } from "../src/lib/registry/reader.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { GOOD_DRAFT } from "./intake-fixtures.ts"
-import { FIRST_THREAD, type ServedController, serveController } from "./serve-controller.ts"
+import { FIRST_DRAFTER_THREAD, type ServedController, serveController } from "./serve-controller.ts"
 
 let dir: string
 let served: ServedController
@@ -161,7 +161,7 @@ describe("controller routes", () => {
       {},
       { verifier: createFakeVerifier({ independent: "fail" }) },
     )
-    served.workspace.queue(FIRST_THREAD, [GOOD_DRAFT, GOOD_DRAFT])
+    served.workspace.queue(FIRST_DRAFTER_THREAD, [GOOD_DRAFT, GOOD_DRAFT])
     const created = await served.run("create-8", "/work-orders/create#workflow", {
       origin: {
         kind: "issue",

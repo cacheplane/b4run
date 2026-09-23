@@ -97,6 +97,9 @@ async function settleIncompleteDispatch(
     // rolled-back transition would read as an adoption that never happened.
     ctx.recordEvent(id, "reconciled", { operationKey, resolution: "thread_adopted", threadId })
   } catch (error) {
+    // The thread is still the worker's, unobserved: journalled so an operator can find it,
+    // then the command is answered.
+    ctx.recordEvent(id, "dispatch_adoption_failed", { threadId, error: String(error) })
     ctx.commands.complete(operationKey, {
       ok: false,
       state: ctx.mustGet(id).state,

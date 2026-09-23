@@ -43,6 +43,16 @@ describe("the intake route", () => {
       expect(prompt).toContain(`\`${file}\``)
     expect(prompt).toMatch(/`draft\/checks\/<name>\.test\.ts`/)
     expect(prompt).toMatch(/create .*`draft\/` .*first/i)
+    // Each file's shape is the route's to state: the controller's message names the files
+    // and the targets, and restates none of this.
+    expect(prompt).toMatch(/`allowedSourcePaths`/)
+    expect(prompt).toMatch(/`immutablePaths`/)
+    expect(prompt).toMatch(/must not overlap/)
+    expect(prompt).toMatch(/`A1:`, `A2:`/)
+    expect(prompt).toMatch(/"runner": "node-test"/)
+    expect(prompt).toMatch(/every id the spec states must be covered/)
+    expect(prompt).toMatch(/Do not write a `visible` suite/)
+    expect(prompt).toMatch(/one test per assertion/)
     // What it must never do.
     expect(prompt).toMatch(/never write .*`repo\/`/i)
     expect(prompt).toMatch(/never repair/i)

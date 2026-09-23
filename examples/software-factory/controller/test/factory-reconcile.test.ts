@@ -14,6 +14,7 @@ import { createCommandLog } from "../src/lib/registry/commands.ts"
 import { openRegistry } from "../src/lib/registry/db.ts"
 import { createWorkOrderStore, type WorkOrderPatch } from "../src/lib/registry/work-orders.ts"
 import { createArtifactStore } from "../src/lib/storage/artifacts.ts"
+import { loadTask } from "../src/lib/targets/catalog.ts"
 import type { Verifier } from "../src/lib/verification/verifier.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
@@ -289,6 +290,47 @@ describe("reconciliation", () => {
       message: expect.stringMatching(/dispatch again/),
     })
     expect(threadPosts()).toBe(0)
+  })
+
+  it("journals an adoption that fails before it answers the command", async () => {
+    await bootWorker()
+    await bootFactory()
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await crash()
+    const created = await fetch(`${fake.baseUrl}/threads`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ metadata: { factoryWorkOrderId: id } }),
+    })
+    const threadId = ((await created.json()) as { thread_id: string }).thread_id
+    const registry = openRegistry(registryPath())
+    createCommandLog(registry.db).begin(
+      "dispatch-orphan",
+      id,
+      { command: "dispatch", args: {} },
+      now(),
+    )
+    createWorkOrderStore(registry.db).appendEvent(id, "thread_created", { threadId }, now())
+    registry.close()
+    // The map lost the target's worker between the crash and the boot: the thread cannot be
+    // adopted (no route to record it under), and that is said before the command is answered.
+    await bootFactory({ workers: fakeWorkerMap({}) })
+    expect(factory.show(id)).toMatchObject({ state: "received", workerThreadId: null })
+    const failed = factory.events(id).find((e) => e.type === "dispatch_adoption_failed")
+    expect(failed?.payload).toMatchObject({ threadId, error: expect.stringMatching(/no worker/) })
+    // Under this map a dispatch is refused before any key, replayed or not.
+    expect(await factory.dispatch(id, "dispatch-orphan")).toMatchObject({
+      ok: false,
+      message: `no worker for target ${loadTask("cli-flags").target.id}`,
+    })
+    // With the worker back, the key replays the answer reconciliation gave it.
+    await factory.close()
+    await bootFactory()
+    expect(await factory.dispatch(id, "dispatch-orphan")).toMatchObject({
+      ok: false,
+      state: "received",
+      message: expect.stringMatching(/could not be adopted/),
+    })
   })
 
   it("adopts the orphan thread a crashed dispatch journalled instead of creating a second one", async () => {

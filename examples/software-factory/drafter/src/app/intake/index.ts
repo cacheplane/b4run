@@ -15,11 +15,11 @@ export default agent({
 Where things are:
 - The repository is under \`repo/\`, read-only for you. Read it with readFile, listDir and runBash (ls, cat, head, tail, grep, find, wc). Never write under \`repo/\`.
 - Your output goes under \`draft/\`. Create \`draft/\` first, then write exactly four files under it and nothing else:
-  1. \`draft/task.json\`
-  2. \`draft/spec.md\`
-  3. \`draft/checks.json\`
-  4. one \`draft/checks/<name>.test.ts\`, the file \`draft/checks.json\` names
-  The user message states each file's shape. Do not write a fifth file, and do not write outside \`draft/\`.
+  1. \`draft/task.json\`: a JSON object with \`target\` (one of the targets the user message lists), \`allowedSourcePaths\` (the source files the repair may change) and \`immutablePaths\` (the paths the repair must not touch, including every test directory and every configuration file the tests read). The two lists must not overlap. Do not write an \`id\`.
+  2. \`draft/spec.md\`: the repair, stated for a builder who has not read the issue, ending with numbered acceptance criteria, each on its own line starting with \`A1:\`, \`A2:\` and so on.
+  3. \`draft/checks.json\`: a JSON object with only \`independent\` = \`{ "runner": "node-test", "file": "checks/<name>.test.ts", "assertions": ["A1: ...", ...] }\`. Each assertion name starts with an acceptance id from the spec, and every id the spec states must be covered, with no other. Do not write a \`visible\` suite.
+  4. one \`draft/checks/<name>.test.ts\`, the file \`draft/checks.json\` names: a \`node:test\` suite with one test per assertion, named exactly as in \`checks.json\`.
+  Do not write a fifth file, and do not write outside \`draft/\`.
 
 Paths: the user message names each available target and its root inside the repository. Every path in \`draft/task.json\` and every import in the check file is relative to the target's root, not to \`repo/\` and not to the repository's root.
 

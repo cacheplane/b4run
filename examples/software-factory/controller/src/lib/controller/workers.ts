@@ -1,8 +1,8 @@
 import {
+  ANY_TARGET,
   type DrafterEndpoint,
   type FactoryConfig,
   type WorkerEndpoint,
-  workerEndpointFor,
 } from "../config.js"
 import type { WorkerClient } from "../worker/client.js"
 import type { WorkspaceReader } from "../worker/workspace-reader.js"
@@ -67,6 +67,19 @@ export interface WorkerMapDependencies {
   createDrafterReader(entry: DrafterEndpoint): WorkspaceReader
 }
 
+/** A value made on first use and kept: `memo(k)` calls `make(k)` once per distinct `k`. */
+function memoized<K, V>(make: (key: K) => V): (key: K) => V {
+  const made = new Map<K, V>()
+  return (key) => {
+    let value = made.get(key)
+    if (value === undefined) {
+      value = make(key)
+      made.set(key, value)
+    }
+    return value
+  }
+}
+
 /**
  * The map from the configuration. Everything is built lazily and once: one client per
  * distinct URL (two targets served by one process share a connection), one reader per
@@ -78,53 +91,47 @@ export function createWorkerMap(
   config: Pick<FactoryConfig, "workers" | "drafter">,
   deps: WorkerMapDependencies,
 ): WorkerMap {
-  const clients = new Map<string, WorkerClient>()
-  const client = (url: string): WorkerClient => {
-    let existing = clients.get(url)
-    if (!existing) {
-      existing = deps.createClient(url)
-      clients.set(url, existing)
+  const client = memoized(deps.createClient)
+  /** The entry a target resolves to, under the key it has in `config.workers`: its own, else the wildcard's. */
+  const resolve = (targetId: string): { key: string; entry: WorkerEndpoint } | undefined => {
+    const key = config.workers[targetId] !== undefined ? targetId : ANY_TARGET
+    const entry = config.workers[key]
+    return entry === undefined ? undefined : { key, entry }
+  }
+  /** One reader per entry, keyed by the entry's key, not the target asked for. */
+  const readerFor = memoized((key: string) =>
+    deps.createBuilderReader(config.workers[key] as WorkerEndpoint),
+  )
+  const drafterEntry = config.drafter
+  const drafter =
+    drafterEntry === undefined
+      ? undefined
+      : memoized(
+          (entry: DrafterEndpoint): DrafterWorker => ({
+            client: client(entry.url),
+            route: entry.route,
+            reader: deps.createDrafterReader(entry),
+            manifestDir: entry.manifestDir,
+          }),
+        )
+  const forTarget = (targetId: string): TargetWorker | undefined => {
+    const resolved = resolve(targetId)
+    if (resolved === undefined) return undefined
+    const { key, entry } = resolved
+    return {
+      client: client(entry.url),
+      route: entry.route,
+      reader: readerFor(key),
+      appRoot: entry.appRoot,
     }
-    return existing
   }
-  /** Keyed by the entry's key in `config.workers`, not the target asked for. */
-  const readers = new Map<string, WorkspaceReader>()
-  const reader = (key: string, entry: WorkerEndpoint): WorkspaceReader => {
-    let existing = readers.get(key)
-    if (!existing) {
-      existing = deps.createBuilderReader(entry)
-      readers.set(key, existing)
-    }
-    return existing
-  }
-  let drafter: DrafterWorker | undefined
-  const map: WorkerMap = {
-    forTarget(targetId) {
-      const entry = workerEndpointFor(config.workers, targetId)
-      if (entry === undefined) return undefined
-      const key = config.workers[targetId] !== undefined ? targetId : "*"
-      return {
-        client: client(entry.url),
-        route: entry.route,
-        reader: reader(key, entry),
-        appRoot: entry.appRoot,
-      }
-    },
-  }
-  if (config.drafter !== undefined) {
-    const entry = config.drafter
-    Object.defineProperty(map, "drafter", {
-      enumerable: true,
-      get: (): DrafterWorker => {
-        drafter ??= {
-          client: client(entry.url),
-          route: entry.route,
-          reader: deps.createDrafterReader(entry),
-          manifestDir: entry.manifestDir,
-        }
-        return drafter
+  // A getter, not a spread over one: spreading would read it at boot.
+  if (drafter !== undefined && drafterEntry !== undefined)
+    return {
+      forTarget,
+      get drafter() {
+        return drafter(drafterEntry)
       },
-    })
-  }
-  return map
+    }
+  return { forTarget }
 }

@@ -25,6 +25,8 @@ const REPAIRED: Readonly<Record<string, string>> = {
  * scripts the drafter's `draft/` under this id.
  */
 export const FIRST_THREAD = "factory-routes-thread"
+/** The drafter's first thread: its own id, as two real workers would never share one. */
+export const FIRST_DRAFTER_THREAD = "factory-routes-drafter-thread"
 
 /** The environment `controllerRuntime()` reads, restored when the helper closes. */
 const FACTORY_ENV = [
@@ -90,12 +92,10 @@ export async function serveController(
     threadId: FIRST_THREAD,
     ...worker,
   })
-  // Both fakes name their first thread FIRST_THREAD: the scripted reader below is keyed by
-  // thread id and serves whichever stage asks first, exactly as before there were two.
   const drafter = await createFakeWorker({
     outboxDir: join(dir, "unused"),
     run: "edits_only",
-    threadId: FIRST_THREAD,
+    threadId: FIRST_DRAFTER_THREAD,
     ...drafterOptions,
   })
   process.env.FACTORY_WORKER_URL = fake.baseUrl
@@ -104,6 +104,8 @@ export async function serveController(
   process.env.FACTORY_DRAFTER_URL = drafter.baseUrl
   process.env.FACTORY_DRAFTER_APP_ROOT = join(dir, "drafter")
   for (const [key, value] of Object.entries(env)) process.env[key] = value
+  // One scripted reader, keyed by thread id, serves both stages: the builder's repair under
+  // its thread, and whatever `draft/` a test scripts under the drafter's.
   const workspace = createFakeWorkspaceReader({ [FIRST_THREAD]: REPAIRED })
   // This helper imports `../src/lib/runtime.ts` while the route modules the served app loads
   // import `../../../lib/runtime.js`. vite-node resolves both specifiers to the one module
@@ -114,7 +116,7 @@ export async function serveController(
   // Disposes any previous runtime, then clears it; the overrides bind the next open.
   await resetControllerRuntimeForTests({
     verifier: createFakeVerifier({ verdict: "pass" }),
-    // The same fake for the drafter's thread: its `draft/` is scripted under the thread id.
+    // The same fake for the drafter's thread: its `draft/` is scripted under FIRST_DRAFTER_THREAD.
     readers: { builder: workspace, drafter: workspace },
     captureBaseline: async () => ({ digest: "a".repeat(64), files: BASELINE }),
     // The pin of a served issue is no commit of any repository: the capture is stood in for,

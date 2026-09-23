@@ -6,17 +6,15 @@ import { loadTarget, loadTargetIds } from "../src/lib/targets/catalog.ts"
 const ISSUE =
   "# Spawn leaks a timer (cacheplane/b4run#778)\n\nA failing spawn leaves its deadline running.\n"
 
+const drafterSystemPrompt = () =>
+  readFileSync(new URL("../../drafter/src/app/intake/index.ts", import.meta.url), "utf8")
+
 describe("intakePrompt", () => {
-  it("asks for exactly the four draft files, carries the issue text, and lists the prepared targets", () => {
+  it("carries what varies: the issue, the four file names, and the prepared targets with roots", () => {
     const prompt = intakePrompt({ issueText: ISSUE })
     expect(prompt).toContain(ISSUE)
     for (const file of ["draft/task.json", "draft/spec.md", "draft/checks.json", "draft/checks/"])
       expect(prompt).toContain(file)
-    // The manifest fields the drafter fills, the acceptance-id shape and the one runner.
-    expect(prompt).toMatch(/allowedSourcePaths/)
-    expect(prompt).toMatch(/immutablePaths/)
-    expect(prompt).toMatch(/A1:/)
-    expect(prompt).toMatch(/node-test/)
     // Every prepared target, with its root, so the drafter can name one that exists.
     for (const id of loadTargetIds()) {
       const target = loadTarget(id)
@@ -24,7 +22,23 @@ describe("intakePrompt", () => {
       expect(prompt).toContain(target.root)
     }
     expect(prompt).toMatch(/[Dd]o not repair/)
+    expect(prompt).toContain("as your instructions say")
     expect(prompt).not.toContain("Previous attempt")
+  })
+
+  it("leaves the fixed rules to the drafter's own system prompt", () => {
+    const prompt = intakePrompt({ issueText: ISSUE })
+    // The file shapes, the acceptance-id form and the runner are stated once, by the route
+    // that runs the turn; the user message does not restate them.
+    for (const rule of ["allowedSourcePaths", "immutablePaths", "A1:", "node-test", "visible"])
+      expect(prompt).not.toContain(rule)
+    expect(prompt).not.toMatch(/runBash/)
+    const drafter = drafterSystemPrompt()
+    expect(drafter).toMatch(/allowedSourcePaths/)
+    expect(drafter).toMatch(/immutablePaths/)
+    expect(drafter).toMatch(/A1:/)
+    expect(drafter).toMatch(/node-test/)
+    expect(drafter).toMatch(/Do not write a .*visible.* suite/)
   })
 
   it("places the repository under repo/ and every path relative to the target's root", () => {
@@ -41,11 +55,7 @@ describe("intakePrompt", () => {
     expect(prompt).toContain(sentence)
     expect(prompt).not.toMatch(/repository-relative/)
     expect(prompt).not.toMatch(/repository-root-relative/)
-    const drafter = readFileSync(
-      new URL("../../drafter/src/app/intake/index.ts", import.meta.url),
-      "utf8",
-    )
-    expect(drafter).toContain(
+    expect(drafterSystemPrompt()).toContain(
       "relative to the target's root, not to \\`repo/\\` and not to the repository's root",
     )
   })

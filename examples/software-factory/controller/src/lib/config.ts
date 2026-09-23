@@ -177,11 +177,21 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
   }
   const e = parsed.data
   const invalid = (message: string) => new Error(`Invalid factory configuration:\n${message}`)
+  /** Set by the operator, as opposed to defaulted by the schema. */
+  const isSet = (name: string) => env[name] !== undefined
   // The worker map: `FACTORY_WORKERS`, or the legacy pair as the one wildcard entry. Never
-  // both: two sources for the same target would leave which one wins to the reader.
-  const legacy = e.FACTORY_WORKER_URL !== undefined || e.FACTORY_BUILDER_APP_ROOT !== undefined
-  if (e.FACTORY_WORKERS !== undefined && legacy)
-    throw invalid("set FACTORY_WORKERS or FACTORY_WORKER_URL, not both")
+  // both: two sources for the same target would leave which one wins to the reader. A knob
+  // of the other form is refused by name rather than ignored, so an operator who set it
+  // learns it does nothing.
+  if (e.FACTORY_WORKERS !== undefined) {
+    const stray = ["FACTORY_WORKER_URL", "FACTORY_BUILDER_APP_ROOT", "FACTORY_WORKER_ROUTE"].filter(
+      isSet,
+    )
+    if (stray.length > 0)
+      throw invalid(
+        `FACTORY_WORKERS is set; unset ${stray.join(" and ")} (the entries carry url, appRoot and route)`,
+      )
+  }
   let workers: Readonly<Record<string, WorkerEndpoint>>
   if (e.FACTORY_WORKERS !== undefined) {
     workers = Object.fromEntries(
@@ -206,9 +216,22 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
     }
   }
   // The drafter: a URL without an app root could start a turn nobody can read, and an app
-  // root without a URL could read a thread nobody can start.
+  // root without a URL could read a thread nobody can start. Its other knobs mean nothing
+  // without the pair, and an operator who set one is told so rather than left waiting for
+  // an intake that will refuse.
   if ((e.FACTORY_DRAFTER_URL === undefined) !== (e.FACTORY_DRAFTER_APP_ROOT === undefined))
     throw invalid("FACTORY_DRAFTER_URL and FACTORY_DRAFTER_APP_ROOT: set both or neither")
+  if (e.FACTORY_DRAFTER_URL === undefined) {
+    const stray = [
+      "FACTORY_DRAFTER_ROUTE",
+      "FACTORY_DRAFTER_MANIFEST_DIR",
+      "FACTORY_DRAFTER_IMAGE",
+    ].filter(isSet)
+    if (stray.length > 0)
+      throw invalid(
+        `${stray.join(" and ")} ${stray.length > 1 ? "are" : "is"} set but the drafter is not: set FACTORY_DRAFTER_URL and FACTORY_DRAFTER_APP_ROOT, or unset ${stray.length > 1 ? "them" : "it"}`,
+      )
+  }
   const drafter: DrafterEndpoint | undefined =
     e.FACTORY_DRAFTER_URL !== undefined && e.FACTORY_DRAFTER_APP_ROOT !== undefined
       ? {

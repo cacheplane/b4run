@@ -253,13 +253,41 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     log(type, { id, ...payload })
   }
 
+  /**
+   * Manifest removals a transition decided while a caller's own transaction was open. An
+   * `rm` cannot be rolled back, so it never runs inside a transaction: `transition` performs
+   * it after its own commits, and a caller that wraps `transition` in an outer transaction
+   * (`approveIntake`, `rejectIntake`) goes through `outerTransaction`, which flushes these
+   * once it has committed.
+   */
+  let outerDepth = 0
+  const pendingRemovals = new Set<string>()
+  const flushRemovals = () => {
+    for (const id of [...pendingRemovals]) {
+      pendingRemovals.delete(id)
+      removeDrafterManifest(ctx, id)
+    }
+  }
+  const outerTransaction = <T>(fn: () => T): T => {
+    outerDepth += 1
+    try {
+      return store.transaction(fn)
+    } finally {
+      outerDepth -= 1
+      if (outerDepth === 0) flushRemovals()
+    }
+  }
+  const leftIntakeStates = (from: WorkOrderRow["state"], to: WorkOrderRow["state"]) =>
+    INTAKE_STATES.has(from) && !INTAKE_STATES.has(to) && to !== "cancel_requested"
+
   const transition = (
     id: string,
     event: TransitionEvent,
     patch: WorkOrderPatch = {},
     payload: Record<string, unknown> = {},
-  ): WorkOrderRow =>
-    store.transaction(() => {
+  ): WorkOrderRow => {
+    let leftIntake = false
+    const updated = store.transaction(() => {
       const row = mustGet(id)
       const to = nextState(row.state, event)
       const accounting: WorkOrderPatch = {}
@@ -273,14 +301,6 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         accounting.activeStartedAt = iso()
       }
       const updated = store.update(id, row.revision, { ...patch, ...accounting, state: to }, iso())
-      // The drafter manifest lives until the intake thread has been admitted or never will
-      // be: removed when the row leaves the intake states for good (a block, an approval),
-      // not on a redraft (`intake_retry`, `reject_intake` stay inside them) and not on a
-      // cancel, whose `finishCancel` removes it once the thread itself is settled. Journalled
-      // before the transition line, in the same transaction: the move is what the journal
-      // ends on, and the removal is part of it.
-      if (INTAKE_STATES.has(row.state) && !INTAKE_STATES.has(to) && to !== "cancel_requested")
-        removeDrafterManifest(ctx, id)
       recordEvent(id, "transition", { event, from: row.state, to, ...payload })
       // Container work for a row that has left its phase has no one to report to: abort it
       // now rather than let it run to the verifier's own deadline. An `intake_retry` keeps
@@ -289,8 +309,22 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         phases.get(id)?.abort()
         phases.delete(id)
       }
+      // Decided here, where the move is known; performed below, once it has committed.
+      leftIntake = leftIntakeStates(row.state, to)
       return updated
     })
+    // The drafter manifest lives until the intake thread has been admitted or never will
+    // be: removed when the row leaves the intake states for good (a block, an approval),
+    // not on a redraft (`intake_retry`, `reject_intake` stay inside them) and not on a
+    // cancel, whose `finishCancel` removes it once the thread itself is settled. The removal
+    // follows the committed transition in the journal, and never runs inside a transaction:
+    // a caller's outer one defers it until that has committed too.
+    if (leftIntake) {
+      if (outerDepth === 0) removeDrafterManifest(ctx, id)
+      else pendingRemovals.add(id)
+    }
+    return updated
+  }
 
   const phaseSignal = (id: string): AbortSignal => {
     let controller = phases.get(id)
@@ -804,7 +838,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       if (taskDigest !== row.taskDigest)
         return refuse("Task digest does not match the work order's")
       try {
-        store.transaction(() => {
+        outerTransaction(() => {
           transition(id, "approve_intake", {}, { taskDigest, operationKey: key })
           recordEvent(id, "intake_approved", { taskDigest })
         })
@@ -829,7 +863,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       // and the next drafter turn (if there is one) quotes it.
       let next: WorkOrderRow
       try {
-        next = store.transaction(() => {
+        next = outerTransaction(() => {
           recordEvent(id, "intake_rejected", { note, attempt: row.intakeAttempts })
           // The rejected draft is no longer the row's, whichever way the row goes: its digest
           // and target are cleared so nothing (a `show`, the evidence, a later approve-intake)
@@ -903,14 +937,22 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       }
       // The worker map is the operator's configuration, not a function of the row: refused
       // before the key is spent, so the dispatch after the entry is added is not a replay.
-      // A task the catalog cannot load is the prompt refusal's below, under the key.
-      let worker: TargetWorker | undefined
+      // The target is the catalog's to name, and a task the catalog cannot load is the
+      // prompt refusal's below, under the key: only a resolved target can lack a worker.
+      let targetId: string | undefined
       try {
-        worker = workerFor(row)
-      } catch (error) {
-        if (error instanceof NoWorkerForTargetError && row.state === "received") {
-          recordEvent(id, "no_worker_for_target", { targetId: error.targetId })
-          return { ok: false, state: row.state, message: error.message }
+        targetId = targetOf(row)
+      } catch {
+        targetId = undefined
+      }
+      if (targetId !== undefined && row.state === "received") {
+        if (options.workers.forTarget(targetId) === undefined) {
+          recordEvent(id, "no_worker_for_target", { targetId })
+          return {
+            ok: false,
+            state: row.state,
+            message: new NoWorkerForTargetError(targetId).message,
+          }
         }
       }
       const key = operationKey ?? `dispatch:${id}:${row.revision}`
@@ -937,15 +979,16 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
             ? `Unknown task ${row.taskId}`
             : `Unknown task ${row.taskId}: ${input.message}`,
         })
+      // The prompt loaded, so the task loads and names its target; a map with no entry for
+      // it is the refusal above, now under the key.
+      targetId ??= targetOf(row)
+      const worker = options.workers.forTarget(targetId)
       if (worker === undefined) {
-        // The prompt loaded, so the task loads; a worker that still cannot be resolved is
-        // a map with no entry for a target the catalog only now named.
-        const targetId = targetOf(row)
         recordEvent(id, "no_worker_for_target", { targetId })
         return finish(key, {
           ok: false,
           state: row.state,
-          message: `no worker for target ${targetId}`,
+          message: new NoWorkerForTargetError(targetId).message,
         })
       }
       let threadId: string

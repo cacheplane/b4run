@@ -120,6 +120,9 @@
 ## Follow-ups this plan records, not in scope
 
 - Sweep of intake and builder threads (and their volumes) for terminal and approved work orders.
+- A `workerThreadStage` column (schema 5, `intake` | `build`) recorded with `workerThreadId`, so `workerOfThread` and `settleIncompleteDispatch` read the row instead of scanning the journal for `intake_thread_created` / `thread_created`.
+- One `probeThread(ctx, worker, row)` shared by `reconcileRun` and `reconcileIntake` (the `getThread` → state re-read → `pendingInterrupts` → state re-read prefix they duplicate).
+- Lift `targetOf`, `workerFor`, `drafter`, `holdsIntakeThread`, `workerOfThread` and `journalledIntakeThreadId` out of `factory.ts` (1,500 lines) into `controller/worker-of-row.ts`.
 - The builder-manifest equivalent of Task 4's Step 3b, for Task 6: once `writeBuilderManifest` is per work order, remove `<builderManifestDir>/<id>.json` when the work order leaves `building` for a terminal state or is approved, for the same reason (the resolver reads it once, at the thread's first admission).
 - Orphan `workspace_sources` rows (framework, §9).
 - A drafter gate: `denyPending` per worker is in Task 4; deny-on-block stays a follow-up.
