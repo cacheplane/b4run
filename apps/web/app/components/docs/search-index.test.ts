@@ -46,7 +46,7 @@ describe("documentation search index", () => {
     expect(expected).toContainEqual({
       href: "/docs/testing-agents/fixtures",
       title: "Fixtures and Recording",
-      section: "Test",
+      section: "Test and Evaluate",
     })
     expect(expected).toContainEqual({
       href: "/docs/thread-access",

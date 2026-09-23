@@ -27,16 +27,19 @@ export const DOCS_NAV = [
       { label: "Tools", href: "/docs/tools" },
       { label: "State", href: "/docs/state" },
       { label: "Workspace Filesystem", href: "/docs/workspace" },
+      { label: "Middleware", href: "/docs/middleware" },
+      { label: "Dev Server", href: "/docs/dev-server" },
     ],
   },
   {
-    label: "Harness",
+    label: "Agent Capabilities",
     items: [
       { label: "Planning", href: "/docs/planning" },
       { label: "Skills", href: "/docs/skills" },
       { label: "Subagents", href: "/docs/subagents" },
       { label: "Context Management", href: "/docs/context-management" },
       { label: "Reasoning Effort", href: "/docs/reasoning-effort" },
+      { label: "Retry", href: "/docs/retry" },
     ],
   },
   {
@@ -51,19 +54,17 @@ export const DOCS_NAV = [
     ],
   },
   {
-    label: "Integrate",
+    label: "Connect Clients",
     items: [
-      { label: "Dev Server", href: "/docs/dev-server" },
       { label: "Agent Protocol", href: "/docs/dev-server/agent-protocol" },
-      { label: "Middleware", href: "/docs/middleware" },
       { label: "AG-UI and Web Clients", href: "/docs/ag-ui" },
       { label: "Embed the Runtime", href: "/docs/embedding" },
-      { label: "Blueprints", href: "/docs/blueprints" },
     ],
   },
   {
-    label: "Test",
+    label: "Test and Evaluate",
     items: [
+      { label: "Testing Overview", href: "/docs/testing-overview" },
       { label: "Scenario Testing", href: "/docs/testing" },
       { label: "Agent Test Harness", href: "/docs/testing-agents" },
       { label: "Fixtures and Recording", href: "/docs/testing-agents/fixtures" },
@@ -71,23 +72,14 @@ export const DOCS_NAV = [
     ],
   },
   {
-    label: "Operate",
-    items: [
-      { label: "Persistence and Tenancy", href: "/docs/persistence" },
-      { label: "Production Topology", href: "/docs/production-topology" },
-      { label: "Retry", href: "/docs/retry" },
-      { label: "Observability", href: "/docs/observability" },
-      { label: "Inspector", href: "/docs/inspector" },
-      { label: "Upgrading", href: "/docs/upgrading" },
-    ],
-  },
-  {
     label: "Secure",
     items: [
       { label: "Security Architecture", href: "/docs/security-architecture" },
-      { label: "Access Control", href: "/docs/access-control" },
       { label: "Thread Access", href: "/docs/thread-access" },
+      { label: "Access Control", href: "/docs/access-control" },
       { label: "Permissions", href: "/docs/permissions" },
+      { label: "Execution Sandbox", href: "/docs/sandbox" },
+      { label: "Kubernetes Sandbox", href: "/docs/sandbox/kubernetes" },
     ],
   },
   {
@@ -96,11 +88,20 @@ export const DOCS_NAV = [
       { label: "Deployment Options", href: "/docs/deployment" },
       { label: "Node and Docker", href: "/docs/deployment/node" },
       { label: "Kubernetes", href: "/docs/deployment/kubernetes" },
-      { label: "LangSmith", href: "/docs/deployment/langsmith" },
-      { label: "Edge and Hono", href: "/docs/deployment/edge" },
       { label: "Vercel", href: "/docs/deployment/vercel" },
-      { label: "Execution Sandbox", href: "/docs/sandbox" },
-      { label: "Kubernetes Sandbox", href: "/docs/sandbox/kubernetes" },
+      { label: "Edge and Hono", href: "/docs/deployment/edge" },
+      { label: "LangSmith", href: "/docs/deployment/langsmith" },
+    ],
+  },
+  {
+    label: "Operate",
+    items: [
+      { label: "Persistence and Tenancy", href: "/docs/persistence" },
+      { label: "Production Topology", href: "/docs/production-topology" },
+      { label: "Observability", href: "/docs/observability" },
+      { label: "Inspector", href: "/docs/inspector" },
+      { label: "Troubleshooting", href: "/docs/troubleshooting" },
+      { label: "Upgrading", href: "/docs/upgrading" },
     ],
   },
   {
@@ -114,6 +115,7 @@ export const DOCS_NAV = [
       { label: "Retry Transient Model Calls", href: "/docs/recipes/retry-flaky-tools" },
       { label: "Dispatch from a Route", href: "/docs/recipes/dispatch-from-route" },
       { label: "Research Assistant Web UI", href: "/docs/recipes/research-web-ui" },
+      { label: "Blueprints", href: "/docs/blueprints" },
     ],
   },
   {
