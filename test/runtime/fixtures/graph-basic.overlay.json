@@ -1,6 +1,11 @@
 {
+  "deleteFiles": [
+    "src/app/hello/index.ts",
+    "src/app/hello/tools/greet.ts",
+    "src/app/hello/evals/smoke.eval.ts"
+  ],
   "files": {
-    "src/app/(public)/hello/[tenant]/index.ts": "import type { HelloState } from \"./state.js\";\n\nexport const graph = async (state: HelloState): Promise<HelloState> => ({\n  ...state,\n  greeting: `Hello, ${state.tenant}!`,\n});\n"
+    "src/app/(public)/hello/[tenant]/index.ts": "interface HelloState {\n  greeting?: string;\n  tenant: string;\n}\n\nexport const graph = async (state: HelloState): Promise<HelloState> => ({\n  ...state,\n  greeting: `Hello, ${state.tenant}!`,\n});\n"
   },
   "input": {
     "tenant": "graph-tenant"

@@ -7,9 +7,9 @@
       "recordDigest": "c4cf4515fbfccfdb96736253f0ee5e9b29539f8399b4d385e17e0836b8c68bb7"
     },
     "/blog": {
-      "lastModified": "2026-09-22T19:17:28.383Z",
-      "sourceDigest": "20f3ace66a4d131811723aa43cd6fe895c665437151632086410e2fc90659dfc",
-      "recordDigest": "e34b0bc828d1dd9d5920eb453ee09bad98e5ab190e5d5f45584e0dd889690025"
+      "lastModified": "2026-09-23T01:08:16.403Z",
+      "sourceDigest": "c4539a3553eeee190d5bb9b28c414acd64c88e6a50065c49c52269fe763dd248",
+      "recordDigest": "b3044162e067be2ac8bed813db13cbb1a066558947c2c3425c4f7fe3c88f770c"
     },
     "/blog/tags/agents": {
       "lastModified": "2026-09-22T19:17:28.383Z",
@@ -17,9 +17,9 @@
       "recordDigest": "3789a117a45f97f60b75c3f041ed0743165b1463573c977a6529c83ca2d011f6"
     },
     "/blog/tags/philosophy": {
-      "lastModified": "2026-09-22T19:17:28.383Z",
-      "sourceDigest": "20f3ace66a4d131811723aa43cd6fe895c665437151632086410e2fc90659dfc",
-      "recordDigest": "ad91e1e95a8e8ba3fb4709ad9c9d5b7942fcae6bcf4df87d2e4cac0beeecddd6"
+      "lastModified": "2026-09-23T01:08:16.403Z",
+      "sourceDigest": "c4539a3553eeee190d5bb9b28c414acd64c88e6a50065c49c52269fe763dd248",
+      "recordDigest": "ac067aae90659d6afab63d545d6b9701be8ef8774e8e3ee239cedc01cc9d92db"
     },
     "/blog/tags/typescript": {
       "lastModified": "2026-09-22T19:04:43.100Z",
@@ -197,9 +197,9 @@
       "recordDigest": "bf448a4a13305d2d0903ec071f1a5bf993315ce3987b5876204234538c5fb5bb"
     },
     "/docs/evals": {
-      "lastModified": "2026-09-22T19:04:43.100Z",
-      "sourceDigest": "9d9959ad14c7a3de286440c24af9c81c3011404b0bcabe121f2f4c31b6db399f",
-      "recordDigest": "3ee75f2027f892bfc0d338699aa4b0be8c3863e07dedca046d4442f59300de16"
+      "lastModified": "2026-09-23T01:08:16.403Z",
+      "sourceDigest": "e12f0f59545875b20dad6d78aecff587ee6d7795372d39b397657b6248806a7c",
+      "recordDigest": "498922fc038360176300932579798101897d61f9fa1a0b405e66dcfd85545fa8"
     },
     "/docs/faq": {
       "lastModified": "2026-09-22T19:04:43.100Z",
@@ -377,9 +377,9 @@
       "recordDigest": "d37ca40e84fef6fb1c3f8082db98166a0d9ae1cc1d41a1f5f59489f057751a7e"
     },
     "/docs/testing-agents": {
-      "lastModified": "2026-09-22T19:04:43.100Z",
-      "sourceDigest": "a387c88a1c8fafe1206022a38dbebc7a633c566ba1616b2a55d789e7628f4a23",
-      "recordDigest": "4ef03d07e338741dbea5b5c5152419790c6121e2162c56c5ba0148d36c4889eb"
+      "lastModified": "2026-09-23T01:08:16.403Z",
+      "sourceDigest": "306bfa5ed7afbd0647a6e38930ebaca30ef2e2730100fcadcdd8dda5074e10a6",
+      "recordDigest": "0ff94bae2acb7f798726494e5c0944cde93d3879905e7b3a8605a457639bd5c4"
     },
     "/docs/testing-agents/fixtures": {
       "lastModified": "2026-09-22T19:04:43.100Z",

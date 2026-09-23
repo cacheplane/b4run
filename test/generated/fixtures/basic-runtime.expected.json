@@ -4,11 +4,11 @@
     "executionSource": "in-process",
     "mode": "agent",
     "output": {
-      "greeting": "Hello, basic-tenant!",
-      "tenant": "basic-tenant"
+      "greeting": "Hello, Ada!",
+      "name": "Ada"
     },
-    "routeId": "/hello/[tenant]",
-    "routePath": "src/app/(public)/hello/[tenant]/index.ts",
+    "routeId": "/hello",
+    "routePath": "src/app/hello/index.ts",
     "status": "passed"
   },
   "runServerJson": {
@@ -16,18 +16,18 @@
     "executionSource": "server",
     "mode": "agent",
     "output": {
-      "greeting": "Hello, basic-tenant!",
-      "tenant": "basic-tenant"
+      "greeting": "Hello, Ada!",
+      "name": "Ada"
     },
-    "routeId": "/hello/[tenant]",
-    "routePath": "src/app/(public)/hello/[tenant]/index.ts",
+    "routeId": "/hello",
+    "routePath": "src/app/hello/index.ts",
     "status": "passed"
   },
   "serverRequest": {
     "input": {
-      "tenant": "basic-tenant"
+      "name": "Ada"
     },
-    "route": "/hello/[tenant]#agent"
+    "route": "/hello#agent"
   },
   "testStdout": "PASS basic in-process scenario\nPASS basic server scenario\nSummary: 2 passed, 0 failed"
 }

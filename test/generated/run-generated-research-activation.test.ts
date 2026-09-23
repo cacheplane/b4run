@@ -1256,7 +1256,7 @@ test("anchors the recorded server exit to a whole command line", () => {
   expect(() => assertRecordedServerExit(webFirst, { appRoot, script: "dev:web" })).toThrow()
 })
 
-test("activates the default research scaffold through the complete npm lifecycle", {
+test("activates the research scaffold (--template research) through the complete npm lifecycle", {
   timeout: ACTIVATION_TIMEOUT_MS,
 }, async ({ signal: testSignal }) => {
   const tempRoot = await createTrackedTempDir("b4-generated-research-activation-", tempDirs)
@@ -1364,7 +1364,7 @@ test("activates the default research scaffold through the complete npm lifecycle
     })
     expect(installerDir).toBe(installerRoot)
     const creatorResult = await runPackagedNpmCommand({
-      args: ["exec", "--", "create-b4-app", appRoot],
+      args: ["exec", "--", "create-b4-app", appRoot, "--template", "research"],
       cwd: installerDir,
       signal: lifecycleSignal,
       transcriptPath: commandsTranscriptPath,
@@ -1378,7 +1378,7 @@ test("activates the default research scaffold through the complete npm lifecycle
     // lives. Pointed at `server/` deliberately — asserting against the app root
     // would pass vacuously now that nothing but the orchestrator lives there.
     await expect(
-      access(join(appRoot, "server/src/app/(public)/hello/[tenant]/index.ts"), constants.F_OK),
+      access(join(appRoot, "server/src/app/hello/index.ts"), constants.F_OK),
     ).rejects.toThrow()
     // The other half of the workspace: the scaffold ships a web client too.
     await expect(access(join(appRoot, "web/app/page.tsx"), constants.F_OK)).resolves.toBeUndefined()
@@ -1389,9 +1389,8 @@ test("activates the default research scaffold through the complete npm lifecycle
       .split("\n")
       .filter((line) => line.startsWith(`$ (cd ${installerDir} && npm exec `))
     expect(creatorCommandLines).toEqual([
-      `$ (cd ${installerDir} && npm exec -- create-b4-app ${appRoot})`,
+      `$ (cd ${installerDir} && npm exec -- create-b4-app ${appRoot} --template research)`,
     ])
-    expect(creatorCommandLines[0]?.split(/\s+/)).not.toContain("--template")
 
     await writeRegistryNpmrc(appRoot, getTestRegistryUrl())
     // The B4.run server lives in `server/`, and its `start` script is

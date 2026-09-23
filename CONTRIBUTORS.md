@@ -34,7 +34,7 @@ For local authoring work, the canonical contributor-local path is:
 
 ```bash
 pnpm --filter create-b4-app build
-node packages/create-b4-app/dist/bin.js ../my-b4-app --mode internal --template basic
+node packages/create-b4-app/dist/bin.js ../my-b4-app --mode internal
 cd ../my-b4-app
 pnpm install
 ```
@@ -43,17 +43,17 @@ From that generated app root, the supported contributor-local commands are:
 
 ```bash
 pnpm exec b4 verify
-echo '{"tenant":"acme"}' | pnpm exec b4 run '/hello/[tenant]'
+echo '{"messages":[{"role":"user","content":"Say hello to Ada"}]}' | pnpm exec b4 run /hello
 pnpm exec b4 test
 pnpm exec b4 dev
 ```
 
-The generated `basic` app is a single flat package, and demonstrates the route authoring lane with:
+The generated app uses the default `basic` template. It is a single flat package, and demonstrates the route authoring lane with:
 
-- `src/app/(public)/hello/[tenant]/index.ts`
-- `src/app/(public)/hello/[tenant]/tools/greet.ts`
+- `src/app/hello/index.ts`
+- `src/app/hello/tools/greet.ts`
 
-Drop `--template basic` to scaffold the default `research` app instead. That one is a two-package workspace (`server/` holds the B4.run app, `web/` the B4.run Workbench UI), so the B4.run CLI runs from `server/` rather than the generated root, and the root `package.json` scripts delegate there for you.
+Add `--template research` to scaffold the `research` app instead. That one is a two-package workspace (`server/` holds the B4.run app, `web/` the B4.run Workbench UI), so the B4.run CLI runs from `server/` rather than the generated root, and the root `package.json` scripts delegate there for you.
 
 Use this path only when you intentionally want the generated app wired to the local B4.run checkout. The public user path remains `pnpm create b4-app`.
 
