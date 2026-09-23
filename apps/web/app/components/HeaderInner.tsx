@@ -4,7 +4,8 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { BrandLogo } from "./BrandLogo"
 import { CopyCommand } from "./CopyCommand"
-import { openDocsSearch } from "./docs/docs-search-events"
+import { DocsSearch, SearchShortcutHint } from "./docs/DocsSearch"
+import { loadDocsSearchIndex, openDocsSearch } from "./docs/docs-search-events"
 import homepageStyles from "./homepage/header.module.css"
 import { MobileMenu } from "./MobileMenu"
 
@@ -30,13 +31,18 @@ function isReadingLayout(pathname: string): boolean {
   return pathname.startsWith("/docs") || /^\/blog\/(?!tags(\/|$))[^/]+\/?$/.test(pathname)
 }
 
+const preloadSearch = () => void loadDocsSearchIndex().catch(() => {})
+
 function MobileDocsSearchButton() {
   return (
     <button
       type="button"
       onClick={openDocsSearch}
+      onPointerEnter={preloadSearch}
+      onFocus={preloadSearch}
       aria-label="Search docs"
       aria-haspopup="dialog"
+      aria-keyshortcuts="Meta+K Control+K /"
       data-mobile-docs-search
       className="md:hidden inline-flex items-center justify-center w-11 h-11 rounded-md text-ink-muted hover:text-ink hover:bg-surface transition-colors"
     >
@@ -54,6 +60,38 @@ function MobileDocsSearchButton() {
         <circle cx="11" cy="11" r="7" />
         <path d="m20 20-3.5-3.5" />
       </svg>
+    </button>
+  )
+}
+
+/** Desktop header search, for pages without the docs sidebar's search field. */
+function HeaderSearchButton() {
+  return (
+    <button
+      type="button"
+      onClick={openDocsSearch}
+      onPointerEnter={preloadSearch}
+      onFocus={preloadSearch}
+      aria-haspopup="dialog"
+      aria-keyshortcuts="Meta+K Control+K /"
+      data-header-docs-search
+      className="inline-flex items-center gap-2 rounded-md border border-divider px-2.5 py-1.5 text-ink-muted hover:text-ink hover:border-text-muted transition-colors"
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <circle cx="11" cy="11" r="8" />
+        <path d="m21 21-4.3-4.3" />
+      </svg>
+      Search docs
+      <SearchShortcutHint />
     </button>
   )
 }
@@ -83,6 +121,7 @@ export function HeaderInner({ repoUrl }: HeaderInnerProps) {
           <Link href="/blog" className={linkClass(pathname.startsWith("/blog"))}>
             Blog
           </Link>
+          {pathname.startsWith("/docs") ? null : <HeaderSearchButton />}
           <a
             href={repoUrl}
             target="_blank"
@@ -95,10 +134,13 @@ export function HeaderInner({ repoUrl }: HeaderInnerProps) {
           <CopyCommand command="npm create b4-app@latest my-agent" />
         </nav>
         <div className="flex items-center gap-1 md:hidden">
-          {pathname.startsWith("/docs") ? <MobileDocsSearchButton /> : null}
+          <MobileDocsSearchButton />
           <MobileMenu />
         </div>
       </div>
+      {/* One search dialog for the whole site: Cmd/Ctrl-K and "/" work on
+          every page, and every trigger above opens this instance. */}
+      <DocsSearch />
     </header>
   )
 }

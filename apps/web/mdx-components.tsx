@@ -1,11 +1,22 @@
 import type { MDXComponents } from "mdx/types"
+import { type ComponentProps, isValidElement, type ReactNode } from "react"
 import { CopyPromptButton } from "./app/components/CopyPromptButton"
 import { RelatedCards } from "./app/components/docs/RelatedCards"
 import { Callout } from "./app/components/mdx/Callout"
 import { InlineCode, Pre, RehypeFigure } from "./app/components/mdx/CodeBlock"
 import { CodeGroup } from "./app/components/mdx/CodeGroup"
+import { HeadingAnchor } from "./app/components/mdx/HeadingAnchor"
 import { Step, Steps } from "./app/components/mdx/Steps"
 import { Tab, Tabs } from "./app/components/mdx/Tabs"
+import { getPrompt, type PromptSlug } from "./content/prompts"
+
+/** Plain text of a heading's children, for the self-link's accessible name. */
+function textOf(node: ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return String(node)
+  if (Array.isArray(node)) return node.map(textOf).join("")
+  if (isValidElement(node)) return textOf((node.props as { children?: ReactNode }).children)
+  return ""
+}
 
 export function useMDXComponents(components: MDXComponents): MDXComponents {
   return {
@@ -16,7 +27,21 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
     Tabs,
     Tab,
     RelatedCards,
-    CopyPromptButton,
+    // `promptSlug` resolves to the same registered prompt the page actions
+    // menu copies, so a page never offers two different "agent prompts".
+    CopyPromptButton: ({
+      promptSlug,
+      prompt,
+      ...props
+    }: Omit<ComponentProps<typeof CopyPromptButton>, "prompt"> & {
+      readonly promptSlug?: PromptSlug
+      readonly prompt?: string
+    }) => (
+      <CopyPromptButton
+        {...props}
+        prompt={promptSlug ? getPrompt(promptSlug).body : (prompt ?? "")}
+      />
+    ),
     // `id` comes from rehype-slug and is the in-page anchor target — every
     // heading override has to pass it through, at every level.
     h1: ({ children, id }) => (
@@ -24,14 +49,21 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
         {children}
       </h1>
     ),
+    // H2 and H3 are the linkable sections (the TOC lists exactly these), so
+    // they carry the copy-link affordance. Ids stay the rehype-slug ids.
     h2: ({ children, id }) => (
-      <h2 id={id} className="text-2xl md:text-3xl font-semibold text-ink mt-10 mb-4 tracking-tight">
+      <h2
+        id={id}
+        className="group/heading text-2xl md:text-3xl font-semibold text-ink mt-10 mb-4 tracking-tight"
+      >
         {children}
+        {id ? <HeadingAnchor id={id} label={textOf(children)} /> : null}
       </h2>
     ),
     h3: ({ children, id }) => (
-      <h3 id={id} className="text-lg font-semibold text-ink mt-8 mb-3">
+      <h3 id={id} className="group/heading text-lg font-semibold text-ink mt-8 mb-3">
         {children}
+        {id ? <HeadingAnchor id={id} label={textOf(children)} /> : null}
       </h3>
     ),
     h4: ({ children, id }) => (

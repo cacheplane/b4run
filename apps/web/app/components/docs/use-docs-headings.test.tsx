@@ -61,4 +61,17 @@ describe("docs on-this-page", () => {
     await act(async () => container.querySelector("a")?.click())
     expect(details?.open).toBe(false)
   })
+
+  it("reads heading text without the copy-link affordance", async () => {
+    location.pathname = "/docs/tools"
+    setArticle(
+      '<h2 id="install">Install<span data-heading-anchor><a href="#install">#</a><span role="status">Link copied</span></span></h2>',
+    )
+    const container = document.createElement("div")
+    document.body.append(container)
+    const root = createRoot(container)
+    roots.push(root)
+    await act(async () => root.render(<DocsTOC />))
+    expect(tocLinks(container)).toEqual(["Install"])
+  })
 })

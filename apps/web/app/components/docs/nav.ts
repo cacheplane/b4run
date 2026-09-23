@@ -148,29 +148,38 @@ export interface DocsCrumb {
   readonly href?: string
 }
 
-// Build breadcrumbs for a given href. Every ancestor is a real route and the
-// current page is the final, unlinked crumb.
+const DOCS_HOME = "/docs/getting-started"
+
+// Build breadcrumbs for a given href: Docs / <nav section> / <page>. The
+// section is a label, not a route, so it is left unlinked; every other
+// ancestor links to a real route and the current page is the final, unlinked
+// crumb. Docs links to the first page, so on that page Docs is unlinked too
+// rather than linking to itself.
 export function breadcrumbsFor(href: string): readonly DocsCrumb[] {
+  const DOCS_CRUMB: DocsCrumb =
+    href === DOCS_HOME ? { label: "Docs" } : { label: "Docs", href: DOCS_HOME }
   const referencePage = API_REFERENCE_PAGES.find((page) => page.href === href)
   if (referencePage) {
+    const hub = sectionFor(referencePage.parent.href)
     return [
-      { label: "Home", href: "/" },
-      {
-        label: "Docs",
-        href: "/docs/getting-started",
-      },
+      DOCS_CRUMB,
+      ...(hub ? [{ label: hub.label }] : []),
       { label: referencePage.parent.label, href: referencePage.parent.href },
       { label: referencePage.label },
     ]
   }
 
   const page = DOCS_PAGES.find((item) => item.href === href)
-  const crumbs: DocsCrumb[] = [{ label: "Home", href: "/" }]
-  if (href !== "/docs/getting-started") {
-    crumbs.push({ label: "Docs", href: "/docs/getting-started" })
-  }
-  if (page) crumbs.push({ label: page.label })
-  return crumbs
+  const section = sectionFor(href)
+  return [
+    DOCS_CRUMB,
+    ...(section ? [{ label: section.label }] : []),
+    ...(page ? [{ label: page.label }] : []),
+  ]
+}
+
+function sectionFor(href: string): DocsNavSection | undefined {
+  return DOCS_NAV.find((section) => section.items.some((item) => item.href === href))
 }
 
 export function siblingsFor(href: string): {

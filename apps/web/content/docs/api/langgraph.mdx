@@ -139,6 +139,8 @@ export declare function assertExactlyOneEntry<TEntry>(
 ): asserts module is RouteModule<TEntry>
 ```
 
+### Behavior contracts
+
 #### Behavior contract `langgraph.entry.exclusive`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/langgraph/test/define-entry.test.ts","testNames":["rejects modules that provide both graph and workflow","rejects modules that provide neither graph nor workflow"]}] */}
 A route module must provide exactly one of graph or workflow.
