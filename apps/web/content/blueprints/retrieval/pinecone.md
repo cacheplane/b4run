@@ -39,11 +39,11 @@ You need two packages:
 Check `package.json` before installing to avoid duplicates. Install only what is missing.
 
 ```bash
-# pnpm (detected from pnpm-lock.yaml)
-pnpm add @pinecone-database/pinecone @langchain/openai
+# npm (detected from package-lock.json)
+npm install @pinecone-database/pinecone @langchain/openai
 
-# npm equivalent
-# npm install @pinecone-database/pinecone @langchain/openai
+# pnpm equivalent
+# pnpm add @pinecone-database/pinecone @langchain/openai
 
 # yarn equivalent
 # yarn add @pinecone-database/pinecone @langchain/openai

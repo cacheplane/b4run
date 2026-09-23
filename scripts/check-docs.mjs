@@ -1708,7 +1708,7 @@ if (process.argv[2] === "--analyze-detailed-api-references") {
 const checks = [
   {
     file: "apps/web/content/docs/api/sandbox.mdx",
-    patterns: ["pnpm add -D vitest", 'from "@b4run/sandbox/testing"'],
+    patterns: ["npm install -D vitest", 'from "@b4run/sandbox/testing"'],
   },
   {
     file: "apps/web/content/docs/api/memory.mdx",
@@ -2489,7 +2489,7 @@ const accuracyContracts = [
       "best-effort",
       "preflight?():",
       "warnings?: readonly string[]",
-      "pnpm add @b4run/sandbox",
+      "npm install @b4run/sandbox",
       'import type { SandboxHandle, SandboxPolicy } from "@b4run/sandbox"',
       "Provider retention can shorten this lifecycle",
       "sandbox-docker-e2e",
@@ -2587,7 +2587,7 @@ const accuracyContracts = [
       "injected `sandboxManager` takes precedence over `config.sandbox`",
       "injected `memoryStore` takes precedence over `config.memory.store`",
       'dockerSandbox({ scope: "my-app", image: "node:24-slim" })',
-      "pnpm add @b4run/postgres-storage pg",
+      "npm install @b4run/postgres-storage pg",
     ],
     forbidden: [
       "b4 start loads",

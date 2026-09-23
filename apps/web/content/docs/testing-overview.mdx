@@ -44,7 +44,7 @@ Scenarios run in-process by default. Add `.server(url)` to send one through a ru
 The harness boots your route in the test process and swaps the model's HTTP endpoint for aimock. Your tools, prompts and state run normally. Let's install it:
 
 ```bash
-pnpm add -D @b4run/testing vitest
+npm install -D @b4run/testing vitest
 ```
 
 Here is a minimal test:
@@ -72,7 +72,7 @@ it("filters open items", async () => {
 }, 60_000)
 ```
 
-Run it with `pnpm exec vitest --run`. See [Agent Test Harness](/docs/testing-agents) for the API. When an inline `script()` gets long, move it to a committed file as shown in [Fixtures and Recording](/docs/testing-agents/fixtures).
+Run it with `npx vitest --run`. See [Agent Test Harness](/docs/testing-agents) for the API. When an inline `script()` gets long, move it to a committed file as shown in [Fixtures and Recording](/docs/testing-agents/fixtures).
 
 ## Evals
 

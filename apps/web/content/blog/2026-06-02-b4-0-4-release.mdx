@@ -36,10 +36,10 @@ B4.run's agent harness intercepts the model's HTTP endpoint with a local mock. T
 Use Node.js 24 or later and select the basic template:
 
 ```bash
-pnpm create b4-app my-agents --template basic
+npm create b4-app@latest my-agents -- --template basic
 cd my-agents
-pnpm install
-pnpm test
+npm install
+npm test
 ```
 
 The basic template includes the `/hello` route and `test/agent.test.ts`. Its fixture-backed test runs without a provider API key. You'll only need provider configuration when you run the agent against a real model.

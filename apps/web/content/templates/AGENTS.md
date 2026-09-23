@@ -132,7 +132,7 @@ export async function workflow(
 
 The `RouteTools<"/research">` lookup uses the route's pathname as the key. These keys are populated by `b4 typegen`. Run `b4 typegen` if `b4:routes` does not resolve.
 
-## Commands (run via `pnpm exec`)
+## Commands (run via `npx`)
 
 - `b4 add [name]`: add B4.run-authored templates or components.
 - `b4 build`: write `.b4/build/langgraph.json` and per-route entry files for LangSmith deployment. Generated route keys are `<routeId>#<kind>` (e.g. `/research#agent`).

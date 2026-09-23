@@ -237,7 +237,7 @@ The same step writes `.b4/b4.generated.d.ts`, with the route registry, the tool 
 
 I recommend moving one graph at a time.
 
-1. **Scaffold a B4.run project next to the existing one.** Run `pnpm create b4-app my-agents-b4`. Don't merge the two repos yet. The old project keeps shipping while the new one takes shape.
+1. **Scaffold a B4.run project next to the existing one.** Run `npm create b4-app@latest my-agents-b4`. Don't merge the two repos yet. The old project keeps shipping while the new one takes shape.
 
 2. **Move one graph at a time.** Start with the lowest-risk graph. Create `src/app/<route>/index.ts` and export the existing `StateGraph` as `graph`. Tools, state and prompts keep their old import paths. Once it runs the same in staging, move the next graph.
 

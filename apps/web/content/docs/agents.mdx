@@ -45,13 +45,13 @@ export default agent({
 B4.run includes the OpenAI integration. Install the other LangChain provider packages as you need them:
 
 ```bash
-pnpm add @langchain/anthropic     # anthropic
-pnpm add @langchain/google-genai  # google
-pnpm add @langchain/mistralai     # mistral
-pnpm add @langchain/groq          # groq
-pnpm add @langchain/ollama        # ollama
-pnpm add @langchain/xai           # xai
-pnpm add @langchain/openrouter    # openrouter
+npm install @langchain/anthropic     # anthropic
+npm install @langchain/google-genai  # google
+npm install @langchain/mistralai     # mistral
+npm install @langchain/groq          # groq
+npm install @langchain/ollama        # ollama
+npm install @langchain/xai           # xai
+npm install @langchain/openrouter    # openrouter
 ```
 
 `b4 check` and `b4 verify` warn, with did-you-mean suggestions, when a model id isn't in B4.run's known list for its provider. Only `openai`, `google`, `anthropic` and `xai` have lists. The runtime prints the same warning once when it creates the model.

@@ -67,7 +67,7 @@ You see `Provider "anthropic" requires @langchain/anthropic. Install it with: pn
 Each model provider is a separate LangChain package. B4.run imports it when it builds the model, and the import fails when the package isn't installed. Install the package the message names:
 
 ```bash
-pnpm add @langchain/anthropic
+npm install @langchain/anthropic
 ```
 
 `b4 verify` also lists missing packages as a warning before you hit this at runtime. See [Agents](/docs/agents).

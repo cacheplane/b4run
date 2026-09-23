@@ -43,13 +43,13 @@ The preload runs in production, so install these as regular `dependencies`, not 
 Check `package.json` first and install only what is missing:
 
 ```bash
-pnpm add @opentelemetry/sdk-node @opentelemetry/auto-instrumentations-node \
+npm install @opentelemetry/sdk-node @opentelemetry/auto-instrumentations-node \
   @opentelemetry/instrumentation \
   @opentelemetry/exporter-trace-otlp-http @opentelemetry/resources \
   @opentelemetry/semantic-conventions
 
-# npm equivalent:
-# npm install @opentelemetry/sdk-node @opentelemetry/auto-instrumentations-node \
+# pnpm equivalent:
+# pnpm add @opentelemetry/sdk-node @opentelemetry/auto-instrumentations-node \
 #   @opentelemetry/instrumentation \
 #   @opentelemetry/exporter-trace-otlp-http @opentelemetry/resources \
 #   @opentelemetry/semantic-conventions
@@ -151,7 +151,7 @@ NODE_OPTIONS="--experimental-loader=@opentelemetry/instrumentation/hook.mjs --im
 For the generated Node target, run the emitted entry directly:
 
 ```bash
-pnpm exec b4 build --clean
+npx b4 build --clean
 
 OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318/v1/traces \
 OTEL_SERVICE_NAME=b4-app \
@@ -209,7 +209,7 @@ OpenTelemetry and other tracing integrations are independent. `b4 dev` enables L
 
    ```bash
    echo '{"messages":[{"role":"user","content":"Hello"}]}' \
-     | pnpm exec b4 run /research --url http://127.0.0.1:8000
+     | npx b4 run /research --url http://127.0.0.1:8000
    ```
 
 4. In the observability backend, find a trace whose service name matches `OTEL_SERVICE_NAME`. The preload check alone does not prove export; the backend trace does.
