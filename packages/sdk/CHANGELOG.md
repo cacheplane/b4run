@@ -1,5 +1,11 @@
 # @dawn-ai/sdk
 
+## 0.11.1
+
+### Patch Changes
+
+- c282336: `B4_E4001` and `B4_E4002` now link to the model providers section of the Agents docs (`/docs/agents#model-providers`) instead of the Configuration reference.
+
 ## 0.11.0
 
 ## 0.10.0

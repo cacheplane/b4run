@@ -1,5 +1,12 @@
 # @dawn-ai/workspace
 
+## 0.11.1
+
+### Patch Changes
+
+- Updated dependencies [c282336]
+  - @b4run/sdk@0.11.1
+
 ## 0.11.0
 
 ### Patch Changes
