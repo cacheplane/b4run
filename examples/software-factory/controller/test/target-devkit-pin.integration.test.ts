@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { readFileSync, writeFileSync } from "node:fs"
+import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import {
@@ -21,31 +22,39 @@ import {
  * was introduced and with every devkit path the target names present; in a shallow checkout
  * `ensurePin` fetches it by sha.
  *
- * The prepare writes the checked-in `targets/devkit/target.json`; the lane restores the
- * file's bytes afterwards, so a local run leaves the tree as it found it (the image stays,
- * and the next run's build is served from Docker's layer cache).
+ * The prepare runs over a COPY of `targets/devkit` (`FACTORY_TARGETS_DIR`), so the working
+ * tree is never written; the image stays, and the next run's build is served from Docker's
+ * layer cache.
  *
  * Requires Docker. Runs only under `test:sandbox`.
  */
 const SECOND_PIN = "bfaf0c2b3030eebb572703c8f70f0e063593b1fa"
-const manifestPath = join(targetsDir, "devkit", "target.json")
+const copy = mkdtempSync(join(tmpdir(), "factory-devkit-pin-targets-"))
+const manifestPath = join(copy, "devkit", "target.json")
+const shippedPath = join(targetsDir, "devkit", "target.json")
 let original: string
 let prepareMs = 0
 
 beforeAll(() => {
+  cpSync(join(targetsDir, "devkit"), join(copy, "devkit"), { recursive: true })
   original = readFileSync(manifestPath, "utf8")
   const started = Date.now()
   execFileSync(
     process.execPath,
     ["--import", "tsx", "scripts/prepare-target.ts", "devkit", "--pin", SECOND_PIN],
-    { cwd: appRoot, stdio: ["ignore", "inherit", "inherit"], timeout: 1_140_000 },
+    {
+      cwd: appRoot,
+      env: { ...process.env, FACTORY_TARGETS_DIR: copy },
+      stdio: ["ignore", "inherit", "inherit"],
+      timeout: 1_140_000,
+    },
   )
   prepareMs = Date.now() - started
   process.stderr.write(`target:prepare devkit --pin ${SECOND_PIN}: ${prepareMs} ms\n`)
 }, 1_200_000)
 
 afterAll(() => {
-  if (original !== undefined) writeFileSync(manifestPath, original)
+  rmSync(copy, { recursive: true, force: true })
 })
 
 describe("a target prepared at a second pin", () => {
@@ -56,8 +65,10 @@ describe("a target prepared at a second pin", () => {
     expect(manifest.images?.[before.pin]).toEqual(before.images?.[before.pin])
     expect(Object.keys(manifest.images ?? {}).sort()).toEqual([before.pin, SECOND_PIN].sort())
 
-    const atSecond = loadTarget("devkit", { pin: SECOND_PIN })
-    const atDefault = loadTarget("devkit")
+    // The shipped manifest was never written.
+    expect(readFileSync(shippedPath, "utf8")).toBe(original)
+    const atSecond = loadTarget("devkit", { targetsDir: copy, pin: SECOND_PIN })
+    const atDefault = loadTarget("devkit", { targetsDir: copy })
     expect(atSecond.pin).toBe(SECOND_PIN)
     expect(atDefault.pin).toBe(before.pin)
     const tag = imageTag(atSecond)
@@ -78,6 +89,8 @@ describe("a target prepared at a second pin", () => {
   })
 
   it("still refuses a pin nobody prepared", () => {
-    expect(() => loadTarget("devkit", { pin: "1".repeat(40) })).toThrow(ImageUnpreparedError)
+    expect(() => loadTarget("devkit", { targetsDir: copy, pin: "1".repeat(40) })).toThrow(
+      ImageUnpreparedError,
+    )
   })
 })

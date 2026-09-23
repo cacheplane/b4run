@@ -19,8 +19,10 @@ import {
   repositoryRoot,
   targetsDir as shippedTargetsDir,
   TargetSchema,
+  TargetUnpreparedError,
   TaskSchema,
   tasksDir,
+  UnknownTargetError,
 } from "../src/lib/targets/catalog.ts"
 
 const dirs: string[] = []
@@ -194,6 +196,9 @@ describe("target catalog", () => {
     const { root, pin } = repo()
     expect(() =>
       loadTarget("t", { targetsDir: targetsDir(pin, { images: undefined }), repositoryRoot: root }),
+    ).toThrow(TargetUnpreparedError)
+    expect(() =>
+      loadTarget("t", { targetsDir: targetsDir(pin, { images: undefined }), repositoryRoot: root }),
     ).toThrow(/not been prepared/)
     expect(() =>
       loadTarget("t", { targetsDir: targetsDir(pin, { images: {} }), repositoryRoot: root }),
@@ -211,6 +216,8 @@ describe("target catalog", () => {
     const target = loadTarget("t", { targetsDir: dir, repositoryRoot: root })
     expect(target.pin).toBe(pin)
     expect(target.image).toEqual(image)
+    // The loaded target is single-valued: one pin, one image, no map.
+    expect(target).not.toHaveProperty("images")
     // Both shapes at once is not a migration: the leftover `image` is an unknown key.
     expect(TargetSchema.safeParse({ ...manifest(pin), image }).success).toBe(false)
   })
@@ -244,7 +251,7 @@ describe("target catalog", () => {
     expect(caught).toBeInstanceOf(ImageUnpreparedError)
     expect(caught).toMatchObject({ targetId: "t", pin: second })
     expect(String((caught as Error).message)).toBe(
-      `Target t has no image prepared at ${second}: run target:prepare t --pin ${second}`,
+      `Target t has no image prepared at ${second}: run pnpm --filter @b4-example/software-factory-controller target:prepare t --pin ${second}`,
     )
     // A pin nothing holds is still image_unprepared, not a fetch: the image is looked up first.
     const nowhere = "1".repeat(40)
@@ -271,6 +278,9 @@ describe("target catalog", () => {
   it("refuses an unknown target and an id that disagrees with its directory", () => {
     const { root, pin } = repo()
     const dir = targetsDir(pin, { id: "other" })
+    expect(() => loadTarget("nope", { targetsDir: dir, repositoryRoot: root })).toThrow(
+      UnknownTargetError,
+    )
     expect(() => loadTarget("nope", { targetsDir: dir, repositoryRoot: root })).toThrow(
       /Unknown target: nope/,
     )
@@ -337,16 +347,14 @@ describe("target catalog", () => {
         // Written in the per-pin shape: the migration is for manifests from before it.
         const raw = JSON.parse(readFileSync(join(directory, "target.json"), "utf8"))
         expect(raw).not.toHaveProperty("image")
+        // Only the DEFAULT pin's entry is checked, and it must exist: an entry for another pin
+        // is an operator's, prepared on some host from a commit (and possibly a Dockerfile)
+        // this checkout need not hold.
+        const image = parsed.images?.[parsed.pin]
+        expect(image, `${id} has an image at its default pin`).toBeDefined()
         const dockerfile = readFileSync(join(directory, "Dockerfile"))
         const sha256 = createHash("sha256").update(dockerfile).digest("hex")
-        for (const [pin, image] of Object.entries(parsed.images ?? {})) {
-          expect(() =>
-            execFileSync("git", ["-C", root, "cat-file", "-e", `${pin}^{commit}`], {
-              stdio: "ignore",
-            }),
-          ).not.toThrow()
-          expect(image.dockerfileSha256).toBe(sha256)
-        }
+        expect(image?.dockerfileSha256).toBe(sha256)
       })
     }
   })

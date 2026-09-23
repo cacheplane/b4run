@@ -1,7 +1,17 @@
-import { execFileSync, spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { execFileSync, spawn } from "node:child_process"
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { delimiter, join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { appRoot, repositoryRoot, TargetSchema, targetsDir } from "../src/lib/targets/catalog.ts"
 import {
@@ -9,6 +19,7 @@ import {
   parsePrepareArgs,
   pathExistsAtPin,
   pathsRequiredAtPin,
+  recordImage,
   withImageAt,
 } from "../src/lib/targets/prepare.ts"
 
@@ -59,15 +70,32 @@ describe("parsePrepareArgs", () => {
 })
 
 describe("the paths required at the pin", () => {
-  it("names the root, every build-context entry and the lockfile, once each", () => {
+  it("names the root, the build context, the lockfile, the capture, the cwd and the runner configuration, once each", () => {
     expect(pathsRequiredAtPin(manifest)).toEqual([
       "pkg",
       "pkg/package.json",
       "pkg/package-lock.json",
+      "pkg/src",
+    ])
+    expect(
+      pathsRequiredAtPin({
+        ...manifest,
+        commands: { ...manifest.commands, cwd: "packages/x" },
+        runnerConfig: ["vitest.config.ts"],
+      }),
+    ).toEqual([
+      "pkg",
+      "pkg/package.json",
+      "pkg/package-lock.json",
+      "pkg/src",
+      "pkg/packages/x",
+      "pkg/vitest.config.ts",
     ])
     expect(pathsRequiredAtPin({ ...manifest, root: "." })).toEqual([
       "pkg/package.json",
       "pkg/package-lock.json",
+      "src",
+      "package.json",
     ])
   })
 
@@ -112,24 +140,103 @@ describe("withImageAt", () => {
   })
 })
 
+describe("recordImage", () => {
+  const identity = (json: string) => json
+
+  it("re-reads the manifest, keeps an entry recorded during the build, and renames into place", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "factory-record-"))
+    dirs.push(dir)
+    const path = join(dir, "target.json")
+    writeFileSync(path, JSON.stringify(manifest))
+    // Another prepare records PIN_B while this one builds (it read the manifest before).
+    const concurrent = withImageAt(manifest, PIN_B, image("2"))
+    writeFileSync(path, JSON.stringify(concurrent))
+    const pinC = "c".repeat(40)
+    await recordImage(path, pinC, image("3"), identity)
+    const after = TargetSchema.parse(JSON.parse(readFileSync(path, "utf8")))
+    expect(after.images).toEqual({ [PIN_A]: image("1"), [PIN_B]: image("2"), [pinC]: image("3") })
+    // Nothing left beside it: the bytes went through a temporary sibling and a rename.
+    expect(readdirSync(dir)).toEqual(["target.json"])
+  })
+
+  it("writes what the formatter returns, and leaves the manifest untouched when formatting fails", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "factory-record-"))
+    dirs.push(dir)
+    const path = join(dir, "target.json")
+    const before = JSON.stringify(manifest)
+    writeFileSync(path, before)
+    await expect(
+      recordImage(path, PIN_B, image("2"), () => {
+        throw new Error("formatter down")
+      }),
+    ).rejects.toThrow(/formatter down/)
+    expect(readFileSync(path, "utf8")).toBe(before)
+    await recordImage(path, PIN_B, image("2"), (json) => `${json.trimEnd()}\n`)
+    expect(readFileSync(path, "utf8").endsWith("}\n")).toBe(true)
+  })
+})
+
+/**
+ * PATH without any directory holding a `docker` executable, plus `git`: whatever this test
+ * spawns can never reach a build, whatever the script's order of checks becomes.
+ */
+function pathWithoutDocker(): string {
+  const bin = mkdtempSync(join(tmpdir(), "factory-no-docker-"))
+  dirs.push(bin)
+  const git = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim()
+  symlinkSync(git, join(bin, "git"))
+  const kept = (process.env.PATH ?? "")
+    .split(delimiter)
+    .filter((entry) => entry.length > 0 && !existsSync(join(entry, "docker")))
+  return [bin, ...kept].join(delimiter)
+}
+
+function run(
+  argv: readonly string[],
+  env: NodeJS.ProcessEnv,
+): Promise<{ status: number | null; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["--import", "tsx", ...argv], {
+      cwd: appRoot,
+      env,
+      stdio: ["ignore", "ignore", "pipe"],
+    })
+    let stderr = ""
+    child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
+      stderr += chunk
+    })
+    const timer = setTimeout(() => child.kill("SIGKILL"), 60_000)
+    child.on("error", reject)
+    child.on("close", (status) => {
+      clearTimeout(timer)
+      resolve({ status, stderr })
+    })
+  })
+}
+
 describe("prepare-target.ts at a pin its paths do not exist at", () => {
-  it("refuses cli-flags at HEAD by the path that moved, before any build", () => {
-    const manifestPath = join(targetsDir, "cli-flags", "target.json")
+  it("refuses cli-flags at HEAD by the path that moved, before any build, writing nothing", async () => {
+    // A COPY of the targets directory: the working tree is never the script's to write.
+    const copy = mkdtempSync(join(tmpdir(), "factory-prepare-targets-"))
+    dirs.push(copy)
+    cpSync(join(targetsDir, "cli-flags"), join(copy, "cli-flags"), { recursive: true })
+    const manifestPath = join(copy, "cli-flags", "target.json")
     const before = readFileSync(manifestPath, "utf8")
     const head = execFileSync("git", ["-C", repositoryRoot(), "rev-parse", "HEAD"], {
       encoding: "utf8",
     }).trim()
-    // The script is run as the operator runs it; it fails on the path check, which comes
-    // before the base pull and the build, so no Docker is needed to reach it.
-    const run = spawnSync(
-      process.execPath,
-      ["--import", "tsx", "scripts/prepare-target.ts", "cli-flags", "--pin", head],
-      { cwd: appRoot, encoding: "utf8", timeout: 60_000 },
+    const { status, stderr } = await run(
+      ["scripts/prepare-target.ts", "cli-flags", "--pin", head],
+      {
+        ...process.env,
+        PATH: pathWithoutDocker(),
+        FACTORY_TARGETS_DIR: copy,
+      },
     )
-    expect(run.status).not.toBe(0)
-    expect(run.stderr).toContain(
+    expect(status).not.toBe(0)
+    expect(stderr).toContain(
       `Target "cli-flags" names examples/software-factory/server/fixtures/cli-flags/project, which does not exist at ${head}: it cannot be prepared at that pin`,
     )
     expect(readFileSync(manifestPath, "utf8")).toBe(before)
-  })
+  }, 90_000)
 })

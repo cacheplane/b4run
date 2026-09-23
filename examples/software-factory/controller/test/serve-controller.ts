@@ -115,7 +115,7 @@ export async function serveController(
   // A commit the served controller's repository (this one) holds, so `intake`'s pin check
   // passes without a fetch, and the one the shipped targets hold images at, so a draft
   // naming one of them is looked up at a pin it was prepared for.
-  const pin = shippedPin()
+  const pin = shippedPin("devkit")
   for (const [key, value] of Object.entries(env)) process.env[key] = value
   // One scripted reader, keyed by thread id, serves both stages: the builder's repair under
   // its thread, and whatever `draft/` a test scripts under the drafter's.

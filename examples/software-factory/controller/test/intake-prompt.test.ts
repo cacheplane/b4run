@@ -6,7 +6,7 @@ import { intakePrompt, preparedTargets } from "../src/lib/prompts.ts"
 import { loadTarget, loadTargetIds, targetsDir } from "../src/lib/targets/catalog.ts"
 import { shippedPin } from "./temp-repo.ts"
 
-const PIN = shippedPin()
+const PIN = shippedPin("devkit")
 
 const ISSUE =
   "# Spawn leaks a timer (cacheplane/b4run#778)\n\nA failing spawn leaves its deadline running.\n"
@@ -20,12 +20,15 @@ describe("intakePrompt", () => {
     expect(prompt).toContain(ISSUE)
     for (const file of ["draft/task.json", "draft/spec.md", "draft/checks.json", "draft/checks/"])
       expect(prompt).toContain(file)
-    // Every prepared target, with its root, so the drafter can name one that exists.
+    // Every target prepared at the pin, with its root, so the drafter can name one that
+    // exists. Each shipped target at its own default pin: they are re-pinned independently.
     for (const id of loadTargetIds()) {
       const target = loadTarget(id)
-      expect(prompt).toContain(`\`${id}\``)
-      expect(prompt).toContain(target.root)
+      const atItsPin = intakePrompt({ pin: shippedPin(id), issueText: ISSUE })
+      expect(atItsPin).toContain(`\`${id}\``)
+      expect(atItsPin).toContain(target.root)
     }
+    expect(prompt).toContain("`devkit`")
     expect(prompt).toMatch(/[Dd]o not repair/)
     expect(prompt).toContain("as your instructions say")
     expect(prompt).not.toContain("Previous attempt")
@@ -51,7 +54,9 @@ describe("intakePrompt", () => {
     expect(prompt).toContain(`The repository is under \`repo/\`, checked out at ${PIN}`)
     // Each target with its root, so the drafter can find the package under `repo/`.
     for (const id of loadTargetIds())
-      expect(prompt).toContain(`- \`${id}\` (root: \`${loadTarget(id).root}\`)`)
+      expect(intakePrompt({ pin: shippedPin(id), issueText: ISSUE })).toContain(
+        `- \`${id}\` (root: \`${loadTarget(id).root}\`)`,
+      )
     // The one sentence the drafter's own system prompt states the same way: paths in the
     // manifest and imports in the check are relative to the target's root, not to `repo/`
     // and not to the repository's root.

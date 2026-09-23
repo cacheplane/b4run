@@ -66,7 +66,11 @@ export function promptFor(id: string, options: CatalogOptions = {}): string {
  * `parseDraft` would refuse a draft naming it, so offering it would only be offering a
  * refusal.
  */
-export function preparedTargets(pin: string, catalog: Omit<CatalogOptions, "pin"> = {}): string[] {
+export function preparedTargets(
+  pin: string,
+  /** Test-only: the catalog to list; the shipped one otherwise. */
+  catalog: Pick<CatalogOptions, "targetsDir" | "repositoryRoot"> = {},
+): string[] {
   const lines: string[] = []
   for (const id of loadTargetIds(catalog.targetsDir)) {
     try {
@@ -92,8 +96,8 @@ export function intakePrompt(input: {
   readonly pin: string
   readonly issueText: string
   readonly note?: string
-  /** Where the targets are looked up; the shipped catalog by default. */
-  readonly catalog?: Omit<CatalogOptions, "pin">
+  /** Test-only: where the targets are looked up; the shipped catalog otherwise. */
+  readonly catalog?: Pick<CatalogOptions, "targetsDir" | "repositoryRoot">
 }): string {
   const targets = preparedTargets(input.pin, input.catalog)
   const sections = [

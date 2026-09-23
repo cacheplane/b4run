@@ -133,11 +133,21 @@ the target, the baseline, the oracle proof and the verification are all looked u
 image prepared AT that pin. A target records one image per pin it was prepared at (`images`
 in `target.json`); a shipped task carries no pin and runs at its target's default `pin`. A draft
 whose target has no image at the work order's pin blocks at once (`image_unprepared`, naming
-the `target:prepare <id> --pin <pin>` an operator runs); no redraft can mend it. What is not
-per pin yet is the BUILDER's sandbox image: a builder process boots from one target file,
-written at the target's default pin, so a generated task at another pin is built in the
-default pin's image and verified in its own. And intake threads accumulate on the drafter, one
-per work order, since nothing sweeps a parked or blocked work order's drafter thread yet.
+the `pnpm --filter @b4-example/software-factory-controller target:prepare <id> --pin <pin>` an operator runs); no redraft can mend it. What is not per pin yet
+is the BUILDER's sandbox image: a builder process boots from one target file, written at the
+target's default pin, so a generated task at another pin is built in the default pin's image
+and verified in its own. `dispatch` guards that gap: for a task pinned away from its target's
+default pin it compares the two images' lockfile hashes, journals
+`builder_environment_differs { builderPin, taskPin, lockfileDiffers }`, and when they differ
+refuses before the operation key is spent (prepare the target at the work order's pin and
+restart its builder there; per-pin builders are a follow-up). And intake threads accumulate on
+the drafter, one per work order, since nothing sweeps a parked or blocked work order's drafter
+thread yet.
+
+**Upgrading across per-pin images.** The environment identity now digests the pin with the
+image, so every identity changed. A bundle frozen before the upgrade and still awaiting review
+refuses at `approve` ("Verification policy changed since the bundle was frozen; freeze a new
+bundle"): deny it, and a new work order verifies and freezes under the new identity.
 
 **`examples/code-fixer` is untouched by this rung.** The factory borrows its fixture image and
 nothing else; rung 0 drove code-fixer as its worker, and rung 1 does not.
@@ -203,10 +213,14 @@ The builder and the verifier both run in the target's prepared image, so this ne
     pnpm --filter @b4-example/software-factory-controller target:prepare cli-flags
     # builds b4-factory-cli-flags:<pin>-<dockerfile sha>, recorded as images[<pin>]
 
-`target:prepare <id> --pin <sha>` prepares the same target at another commit and records that
-image beside the others (an issue work order is pinned to `origin/main`, so a target is
-prepared at the pin its work orders name). The script refuses a pin at which the target's
-root, build context or lockfile does not exist, naming the path: `cli-flags`'s fixture lived
+`pnpm --filter @b4-example/software-factory-controller target:prepare <id> --pin <sha>` prepares the same target at another commit and records that image beside
+the others (an issue work order is pinned to `origin/main`, so a target is prepared at the pin
+its work orders name). The manifest is re-read after the build and only that pin's entry is
+merged, then renamed into place, so two prepares do not lose each other's entry and a running
+controller never reads a half-written file. `FACTORY_TARGETS_DIR` points the script and the
+catalog at another targets directory. The script refuses a pin at which any path the target
+names (root, build context, lockfile, capture entries, command directory, runner
+configuration) does not exist, naming the path: `cli-flags`'s fixture lived
 under the server before the controller split, so it can only be prepared at its historical
 pin, and `devkit` is the target that is re-pinned.
 

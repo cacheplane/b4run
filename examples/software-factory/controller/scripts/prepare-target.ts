@@ -1,10 +1,9 @@
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
-  appRoot,
   covers,
   ensurePin,
   imageTag,
@@ -17,7 +16,7 @@ import {
   parsePrepareArgs,
   pathExistsAtPin,
   pathsRequiredAtPin,
-  withImageAt,
+  recordImage,
 } from "../src/lib/targets/prepare.js"
 
 /**
@@ -28,7 +27,8 @@ import {
  * The build context is a git archive of the target's `imageContext` at the pin plus the
  * Dockerfile, never the working tree. The recorded image object (with the pin) is what
  * `environmentIdentity` digests: a local image id is host-specific, so the inputs travel
- * with it.
+ * with it. `FACTORY_TARGETS_DIR` points it (and the catalog) at another targets directory,
+ * so a lane can prepare a copy and never write the working tree.
  */
 const args = parsePrepareArgs(process.argv.slice(2))
 const { id } = args
@@ -167,12 +167,10 @@ try {
     )
 
   const image = { ...provisional, localId }
-  writeFileSync(manifestPath, `${JSON.stringify(withImageAt(manifest, pin, image), null, 2)}\n`)
-  // The manifest is a checked-in source file, so the script leaves the tree lint-clean.
-  execFileSync("npx", ["biome", "format", "--write", manifestPath], {
-    stdio: "inherit",
-    cwd: appRoot,
-  })
+  // Re-read, merge only this pin's entry, format and rename into place: the build above took
+  // tens of seconds, during which another prepare may have recorded its own pin, and a live
+  // controller may be reading this manifest.
+  await recordImage(manifestPath, pin, image)
   console.log(JSON.stringify({ tag, pin, ...image }, null, 2))
 } finally {
   rmSync(context, { recursive: true, force: true })

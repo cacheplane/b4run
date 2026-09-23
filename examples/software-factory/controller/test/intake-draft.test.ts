@@ -22,8 +22,8 @@ import { BAD_DRAFTS, GOOD_DRAFT, ORACLE_DRAFT } from "./intake-fixtures.ts"
 import { shippedPin } from "./temp-repo.ts"
 
 const WO = "wo-0123456789abcdef"
-/** The work order's pin: the one the shipped targets are prepared at. */
-const PIN = shippedPin()
+/** The work order's pin: the one the shipped devkit target (GOOD_DRAFT's) is prepared at. */
+const PIN = shippedPin("devkit")
 const files = (draft: Readonly<Record<string, string>>) => new Map(Object.entries(draft))
 let dir = ""
 afterEach(() => {
@@ -45,7 +45,10 @@ describe("parseDraft", () => {
   it("accepts the oracle draft: the cli-flags task with derived acceptance ids", () => {
     // The Docker lane's draft, checked here first so a fixture defect is a unit failure and
     // not a ten-minute lane.
-    const parsed = parseDraft(files(ORACLE_DRAFT), { workOrderId: WO, pin: PIN })
+    const parsed = parseDraft(files(ORACLE_DRAFT), {
+      workOrderId: WO,
+      pin: shippedPin("cli-flags"),
+    })
     expect(parsed.ok).toBe(true)
     if (!parsed.ok) throw new Error(parsed.reason)
     expect(parsed.manifest.target).toBe("cli-flags")
@@ -179,7 +182,7 @@ describe("parseDraft", () => {
     expect(parsed).toEqual({
       ok: false,
       blockedReason: "image_unprepared",
-      reason: `draft/task.json names target devkit, which has no image prepared at ${elsewhere}: an operator runs target:prepare devkit --pin ${elsewhere}`,
+      reason: `draft/task.json names target devkit, which has no image prepared at ${elsewhere}: an operator runs pnpm --filter @b4-example/software-factory-controller target:prepare devkit --pin ${elsewhere}`,
     })
   })
 
@@ -205,6 +208,49 @@ describe("parseDraft", () => {
       catalog: { targetsDir: dir },
     })
     expect(accepted.ok).toBe(true)
+  })
+
+  it("blocks as intake_run_failed, not a verdict on the draft, when the catalog fails the controller", () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-draft-broken-"))
+    const shipped = JSON.parse(readFileSync(join(targetsDir, "devkit", "target.json"), "utf8"))
+    mkdirSync(join(dir, "devkit"))
+    // A manifest caught mid-write (a torn file): not the drafter's fault, and not a missing target.
+    writeFileSync(join(dir, "devkit", "target.json"), JSON.stringify(shipped).slice(0, 40))
+    const torn = parseDraft(files(GOOD_DRAFT), {
+      workOrderId: WO,
+      pin: PIN,
+      catalog: { targetsDir: dir },
+    })
+    expect(torn).toMatchObject({ ok: false, blockedReason: "intake_run_failed" })
+    if (torn.ok) return
+    expect(torn.reason).toMatch(/^target "devkit" could not be loaded at /)
+    // A pin with an image that the repository cannot make present (no fetch allowed).
+    const absent = "3".repeat(40)
+    writeFileSync(
+      join(dir, "devkit", "target.json"),
+      JSON.stringify({ ...shipped, images: { [absent]: shipped.images[PIN] } }),
+    )
+    const previous = process.env.FACTORY_NO_FETCH
+    process.env.FACTORY_NO_FETCH = "1"
+    try {
+      const unfetched = parseDraft(files(GOOD_DRAFT), {
+        workOrderId: WO,
+        pin: absent,
+        catalog: { targetsDir: dir },
+      })
+      expect(unfetched).toMatchObject({ ok: false, blockedReason: "intake_run_failed" })
+      if (unfetched.ok) return
+      expect(unfetched.reason).toMatch(/not in the repository/)
+    } finally {
+      if (previous === undefined) delete process.env.FACTORY_NO_FETCH
+      else process.env.FACTORY_NO_FETCH = previous
+    }
+    // A target with no image at all is image_unprepared: the same operator action mends it.
+    const { images: _images, ...unprepared } = shipped
+    writeFileSync(join(dir, "devkit", "target.json"), JSON.stringify(unprepared))
+    expect(
+      parseDraft(files(GOOD_DRAFT), { workOrderId: WO, pin: PIN, catalog: { targetsDir: dir } }),
+    ).toMatchObject({ ok: false, blockedReason: "image_unprepared" })
   })
 
   it("refuses any draft file beyond the three manifests and the named check", () => {

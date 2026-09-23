@@ -39,7 +39,9 @@ const RESERVED_CAPTURE_PATHS = ["TASK.md", ".gitignore"]
  * Storage identity for the builder's sandboxes. Both the builder's own configuration and the
  * controller's reader construct a provider from this, in different processes: the scope and
  * the image are what address a thread's workspace, so a reader built with either different
- * would open a different (or no) workspace. One constructor, so they cannot drift apart.
+ * would open a different (or no) workspace. One constructor, so they cannot drift apart. The
+ * image is the builder's, the target at its DEFAULT pin (the builder target file is written
+ * there), which is not the verifier's image for a task pinned elsewhere.
  */
 export const builderSandboxScope = "software-factory-builder"
 

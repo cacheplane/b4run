@@ -301,6 +301,11 @@ async function proveDraft(
   }
   const parsed = parseDraft(draft, { workOrderId: id, pin })
   if (!parsed.ok) {
+    // The catalog failed the controller, not the drafter: no attempt is spent on it.
+    if (parsed.blockedReason === "intake_run_failed") {
+      unavailable("target_unavailable", parsed.reason, "the draft's target could not be loaded")
+      return
+    }
     await refuse(ctx, id, parsed.reason, parsed.blockedReason)
     return
   }

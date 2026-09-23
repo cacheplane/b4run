@@ -568,8 +568,10 @@ rather than a silent rebuild inside the controller.
 > pin. `loadTarget(id, { pin })` selects `images[pin]` BEFORE `ensurePin` (an unprepared pin
 > is refused without a fetch) and returns a single-valued target (`pin` the chosen one,
 > `image` its image), so `imageTag`, the archive and the providers did not change. No image at
-> the pin is `ImageUnpreparedError` ("has no image prepared at <pin>: run target:prepare <id>
-> --pin <pin>"), distinct from a target with no image at all. `target:prepare <id> --pin
+> the pin is `ImageUnpreparedError` ("has no image prepared at <pin>: run pnpm --filter
+> @b4-example/software-factory-controller target:prepare <id> --pin <pin>", one spelling,
+> `prepareCommand`); a target with no image at all is its subclass `TargetUnpreparedError`
+> ("has not been prepared"), and an unknown target is `UnknownTargetError`. `target:prepare <id> --pin
 > <sha>` builds at that commit and keeps every other pin's entry; it first refuses, by path, a
 > pin at which `root`, an `imageContext` entry or the `lockfile` does not exist
 > (`git cat-file -e`). The generated `task.json` carries `pin` (key order `id, target, pin,
@@ -585,7 +587,16 @@ rather than a silent rebuild inside the controller.
 > (the fixture under `server/`) cannot be re-pinned past the controller move, so `devkit` is
 > the per-pin target. The builder's sandbox image is still per process (its target file is
 > written at the default pin): a generated task at another pin is built in the default
-> pin's image and verified in its own, a follow-up.
+> pin's image and verified in its own. `dispatch` guards it before the key: it journals
+> `builder_environment_differs { builderPin, taskPin, lockfileDiffers }` and refuses unspent
+> when the two images' `lockfileSha256` differ; the controller's builder reader addresses the
+> builder's image (the default pin's), not the task's. Review fixes: the prepare script
+> re-reads the manifest after the build, merges only `images[pin]`, formats through Biome's
+> stdin and renames into place (`recordImage`, `storage/atomic-file.ts`); it checks every
+> path the target names at the pin (capture entries, `commands.cwd` and `runnerConfig`
+> under the root too); `FACTORY_TARGETS_DIR` redirects the catalog so a lane prepares a copy.
+> `parseDraft` maps an unreadable manifest or an unfetchable pin to `intake_run_failed` (no
+> attempt spent), `no_target_for_package` only to a missing target directory.
 
 ### 6.8 Proof
 
@@ -696,8 +707,11 @@ a preparable target, and which a test can fail on:
   (resolved in 3b, half B). The generated task carries the pin and every lookup is at it, in
   the image prepared at it (§6.7 as landed); a pin with no image blocks `image_unprepared`.
   What remains per process is the builder's sandbox image, written at the target's default
-  pin. Remaining follow-ups: the per-pin builder image, the drafter thread sweep, and orphaned
-  capture sources.
+  pin; `dispatch` refuses a task whose pin's lockfile differs from it and journals the
+  comparison when it does not. Remaining follow-ups: per-(target, pin) builders, the drafter
+  thread sweep, and orphaned capture sources.
+- **3a manifests are migrated on read.** A `target.json` with the single `image` is read as
+  `images[pin]`. Remove the migration at rung 4, once no 3a manifest can remain.
 
 ---
 

@@ -47,6 +47,7 @@ import {
   type CatalogOptions,
   ensurePin,
   isShippedTask,
+  loadTarget,
   loadTask,
   repositoryRoot,
 } from "../targets/catalog.js"
@@ -228,6 +229,33 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   const evidenceStore: EvidenceStore = createEvidenceStore(registry.db)
   const artifacts: ArtifactStore = createArtifactStore(options.artifactsDir)
   const log = options.log ?? (() => {})
+  /**
+   * Compare the builder's environment (the task's target at its default pin, which is where
+   * the builder process boots) with the task's own pin. Undefined when dispatch may go on;
+   * a message when the two images' lockfiles differ. Journals `builder_environment_differs`
+   * whenever the pins differ, with the verdict. The task loaded for the prompt a moment
+   * before, so a failure here is a catalog that changed in between, reported as a refusal.
+   */
+  const builderEnvironmentRefusal = (id: string, taskId: string): string | undefined => {
+    const catalog = options.promptCatalog ?? {}
+    let task: ReturnType<typeof loadTask>
+    let builderTarget: ReturnType<typeof loadTarget>
+    try {
+      task = loadTask(taskId, catalog)
+      if (task.manifest.pin === undefined) return undefined
+      const { pin: _pin, ...atDefault } = catalog
+      builderTarget = loadTarget(task.target.id, atDefault)
+    } catch (error) {
+      return `Builder environment for ${taskId} could not be resolved: ${String(error)}`
+    }
+    const builderPin = builderTarget.pin
+    const taskPin = task.target.pin
+    if (builderPin === taskPin) return undefined
+    const lockfileDiffers = builderTarget.image.lockfileSha256 !== task.target.image.lockfileSha256
+    recordEvent(id, "builder_environment_differs", { builderPin, taskPin, lockfileDiffers })
+    if (!lockfileDiffers) return undefined
+    return `builder for ${task.target.id} runs at ${builderPin}, whose dependencies differ from ${taskPin}: prepare the target at the work order's pin and restart its builder there, or wait for per-pin builders`
+  }
   /**
    * The prompt for `taskId`, or the Error saying why the catalog cannot serve it. Resolved
    * at the point of use and never at boot: one unprepared sibling target must not decide
@@ -1059,6 +1087,16 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
               : `Unknown task ${row.taskId}: ${input.message}`,
           }
       }
+      // The builder process boots from its target file, written at the target's DEFAULT pin;
+      // per-pin builders do not exist yet. A task pinned elsewhere is built in the default
+      // pin's image and verified in its own. Where the two images' dependencies agree
+      // (same lockfile) that is journalled and allowed; where they differ the build would run
+      // against dependencies the verifier never sees, so it is refused before the key: the
+      // operator's remedy (prepare, restart the builder) is not a function of the revision.
+      if (row.state === "received" && !options.tasks) {
+        const refusal = builderEnvironmentRefusal(id, row.taskId)
+        if (refusal !== undefined) return { ok: false, state: row.state, message: refusal }
+      }
       const key = operationKey ?? `dispatch:${id}:${row.revision}`
       const begun = commands.begin(key, id, { command: "dispatch", args: {} }, iso())
       if (begun.status === "done") return begun.outcome
@@ -1293,7 +1331,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         // A generated task runs at its work order's pin (its `task.json` carries it), so the
         // policy the export is re-verified under must be at the pin the bundle froze.
         if (frozen.pin !== policy.environment.pin)
-          return invalidated("Pin", String(frozen.pin), policy.environment.pin)
+          return invalidated("Generated task pin", String(frozen.pin), policy.environment.pin)
       }
 
       let receipt: Receipt

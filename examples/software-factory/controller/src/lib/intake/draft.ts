@@ -8,10 +8,12 @@ import {
   ImageUnpreparedError,
   isCatalogId,
   loadTarget,
+  prepareCommand,
   relativePath,
   TaskFieldsSchema,
   type TaskManifest,
   TaskSchema,
+  UnknownTargetError,
 } from "../targets/catalog.js"
 
 /** Where the drafter writes, relative to its workspace. Keys outside it are not the draft. */
@@ -46,7 +48,15 @@ export interface ParsedDraft {
 export type DraftRefusal = {
   readonly ok: false
   readonly reason: string
-  readonly blockedReason: "intake_invalid" | "no_target_for_package" | "image_unprepared"
+  /**
+   * `intake_run_failed` is not a verdict on the draft: the catalog could not be read, or the
+   * pin could not be made present. The caller blocks without spending a drafter attempt.
+   */
+  readonly blockedReason:
+    | "intake_invalid"
+    | "no_target_for_package"
+    | "image_unprepared"
+    | "intake_run_failed"
 }
 export type ParseResult = ({ readonly ok: true } & ParsedDraft) | DraftRefusal
 
@@ -151,7 +161,8 @@ export function parseDraft(
   input: {
     readonly workOrderId: string
     readonly pin: string
-    readonly catalog?: Omit<CatalogOptions, "pin">
+    /** Test-only: the catalog to look the target up in; the shipped one otherwise. */
+    readonly catalog?: Pick<CatalogOptions, "targetsDir" | "repositoryRoot">
   },
 ): ParseResult {
   const { workOrderId, pin } = input
@@ -196,13 +207,21 @@ export function parseDraft(
     if (error instanceof ImageUnpreparedError)
       return {
         ok: false,
-        reason: `${DRAFT_ROOT}task.json names target ${error.targetId}, which has no image prepared at ${error.pin}: an operator runs target:prepare ${error.targetId} --pin ${error.pin}`,
+        reason: `${DRAFT_ROOT}task.json names target ${error.targetId}, which has no image prepared at ${error.pin}: an operator runs ${prepareCommand(error.targetId, error.pin)}`,
         blockedReason: "image_unprepared",
       }
+    if (error instanceof UnknownTargetError)
+      return {
+        ok: false,
+        reason: `${DRAFT_ROOT}task.json names target ${JSON.stringify(manifest.target)}: ${error.message}`,
+        blockedReason: "no_target_for_package",
+      }
+    // Anything else is the controller's own trouble, not the draft's: a manifest it could
+    // not read or parse (a prepare mid-write, a bad edit), or a pin it could not fetch.
     return {
       ok: false,
-      reason: `${DRAFT_ROOT}task.json names target ${JSON.stringify(manifest.target)}: ${error instanceof Error ? error.message : String(error)}`,
-      blockedReason: "no_target_for_package",
+      reason: `target ${JSON.stringify(manifest.target)} could not be loaded at ${pin}: ${error instanceof Error ? error.message : String(error)}`,
+      blockedReason: "intake_run_failed",
     }
   }
 

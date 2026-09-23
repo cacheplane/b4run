@@ -8,7 +8,7 @@ import {
 import { createFactory, type Factory, type FactoryOptions } from "./controller/factory.js"
 import { createWorkerMap } from "./controller/workers.js"
 import { createArtifactStore } from "./storage/artifacts.js"
-import { configureCatalog, loadTask, resetCatalogForTests } from "./targets/catalog.js"
+import { configureCatalog, loadTarget, loadTask, resetCatalogForTests } from "./targets/catalog.js"
 import {
   builderSandboxProvider,
   drafterInspectionOptions,
@@ -142,11 +142,18 @@ export function createControllerRuntime(
     })
   }
 
-  /** A builder entry's reader: the provider is the task's target's, the store the entry's. */
+  /**
+   * A builder entry's reader: the provider is the one the BUILDER booted with, the task's
+   * target at its DEFAULT pin (`builder-target` writes that target file), and the store the
+   * entry's. Not the task's own pin: a generated task at another pin is verified in that
+   * pin's image, but its workspace lives under the builder's, and a reader addressing the
+   * other image would open no workspace at all.
+   */
   function builderReader(entry: WorkerEndpoint): WorkspaceReader {
     return createThreadWorkspaceReader(
       {
-        providerFor: (taskId) => builderSandboxProvider(loadTask(requireTaskId(taskId)).target),
+        providerFor: (taskId) =>
+          builderSandboxProvider(loadTarget(loadTask(requireTaskId(taskId)).target.id)),
         appRoot: entry.appRoot,
       },
       (taskId) => targetInspectionOptions(loadTask(requireTaskId(taskId))),

@@ -7,7 +7,13 @@ import { environmentIdentityDigest, type ImageInputs } from "../domain/digest.js
 
 /** The package root, derived from this module rather than the working directory. */
 export const appRoot = fileURLToPath(new URL("../../../", import.meta.url))
-export const targetsDir = join(appRoot, "targets")
+/**
+ * The target catalog: `targets/` under the app, unless `FACTORY_TARGETS_DIR` names another
+ * directory. The override exists so a lane can prepare a COPY of a target (the prepare
+ * script writes the manifest it reads) without ever writing the working tree; it is read
+ * once, at module load.
+ */
+export const targetsDir = process.env.FACTORY_TARGETS_DIR || join(appRoot, "targets")
 export const tasksDir = join(appRoot, "tasks")
 
 const HEX_64 = /^[a-f0-9]{64}$/
@@ -95,7 +101,6 @@ function migrateSingleImage(raw: unknown): unknown {
   const record = raw as Record<string, unknown>
   if (!("image" in record) || "images" in record) return raw
   const { image, ...rest } = record
-  if (image === undefined) return rest
   return typeof rest.pin === "string" ? { ...rest, images: { [rest.pin]: image } } : raw
 }
 
@@ -150,7 +155,7 @@ export type TargetManifest = z.infer<typeof TargetObjectSchema>
  * manifest's default) and `image` is the image prepared at it, so everything downstream
  * (`imageTag`, the archive, the providers) reads one pin and one image.
  */
-export interface Target extends TargetManifest {
+export interface Target extends Omit<TargetManifest, "images"> {
   readonly directory: string
   /** Present: `loadTarget` refuses a pin without one. */
   readonly image: Image
@@ -164,11 +169,23 @@ export interface CatalogOptions {
   readonly pin?: string
 }
 
+/** The one spelling of the command an operator runs to prepare `id` at `pin`. */
+export function prepareCommand(id: string, pin: string): string {
+  return `pnpm --filter @b4-example/software-factory-controller target:prepare ${id} --pin ${pin}`
+}
+
+/** No target directory of that id: the one catalog failure no operator action at a pin mends. */
+export class UnknownTargetError extends Error {
+  constructor(readonly targetId: string) {
+    super(`Unknown target: ${targetId}`)
+    this.name = "UnknownTargetError"
+  }
+}
+
 /**
- * The target has images, but none at the pin asked for: an operator prepares one with
- * `target:prepare <id> --pin <pin>`. Distinct from a target with no image at all ("has not
- * been prepared"), and from an unknown target: a work order at this pin is refused as
- * `image_unprepared`, which no redraft can mend.
+ * The target exists, but has no image at the pin asked for: an operator prepares one with
+ * `prepareCommand(id, pin)`. A work order at this pin is refused as `image_unprepared`, which
+ * no redraft can mend.
  */
 export class ImageUnpreparedError extends Error {
   constructor(
@@ -176,9 +193,21 @@ export class ImageUnpreparedError extends Error {
     readonly pin: string,
   ) {
     super(
-      `Target ${targetId} has no image prepared at ${pin}: run target:prepare ${targetId} --pin ${pin}`,
+      `Target ${targetId} has no image prepared at ${pin}: run ${prepareCommand(targetId, pin)}`,
     )
     this.name = "ImageUnpreparedError"
+  }
+}
+
+/**
+ * The target has no image at ANY pin: nobody has prepared it on this machine. A case of
+ * `ImageUnpreparedError` (the same operator action mends it) with its own message.
+ */
+export class TargetUnpreparedError extends ImageUnpreparedError {
+  constructor(targetId: string, pin: string) {
+    super(targetId, pin)
+    this.message = `Target ${targetId} has not been prepared: run ${prepareCommand(targetId, pin)}`
+    this.name = "TargetUnpreparedError"
   }
 }
 
@@ -253,22 +282,23 @@ export function loadTargetIds(dir = targetsDir): string[] {
 
 export function loadTarget(id: string, options: CatalogOptions = {}): Target {
   const dir = options.targetsDir ?? targetsDir
-  if (!loadTargetIds(dir).includes(id)) throw new Error(`Unknown target: ${id}`)
+  if (!loadTargetIds(dir).includes(id)) throw new UnknownTargetError(id)
   const directory = join(dir, id)
   const manifest = TargetSchema.parse(
     JSON.parse(readFileSync(join(directory, "target.json"), "utf8")),
   )
   if (manifest.id !== id) throw new Error(`Target ${id} declares a different id: ${manifest.id}`)
-  if (!manifest.images || Object.keys(manifest.images).length === 0)
-    throw new Error(`Target ${id} has not been prepared: run scripts/prepare-target.ts ${id}`)
   const pin = options.pin ?? manifest.pin
+  if (!manifest.images || Object.keys(manifest.images).length === 0)
+    throw new TargetUnpreparedError(id, pin)
   // Looked up before the pin is fetched: a pin with no image is refused without a network
   // round trip, and is refused the same way whether or not the object store holds it.
   const image = Object.hasOwn(manifest.images, pin) ? manifest.images[pin] : undefined
   if (!image) throw new ImageUnpreparedError(id, pin)
   const repo = options.repositoryRoot ?? repositoryRoot()
   ensurePin(repo, id, pin)
-  return { ...manifest, pin, image, directory }
+  const { images: _images, ...single } = manifest
+  return { ...single, pin, image, directory }
 }
 
 /**

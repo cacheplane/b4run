@@ -96,7 +96,7 @@ beforeAll(async () => {
   // is looked up at the work order's pin (3b), and `cli-flags` has an image at that commit
   // alone (its paths moved since, so it cannot be prepared at HEAD). `target:prepare` has
   // made it present in a shallow checkout, and `intake` ensures it again before the capture.
-  pin = shippedPin()
+  pin = shippedPin("cli-flags")
   // `non-interactive` is the drafter's own setting; an operator's process-wide override
   // would make a denied command a parked prompt nobody answers.
   delete process.env.B4_PERMISSIONS_MODE

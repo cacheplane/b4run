@@ -47,7 +47,7 @@ const ORIGIN: IssueOrigin = {
  * send it fetching), and the one the shipped targets hold images at (the draft's target is
  * looked up at the work order's pin).
  */
-const PIN = shippedPin()
+const PIN = shippedPin("devkit")
 const ISSUE = {
   title: "spawnProcess leaks its deadline timer",
   body: "A spawn that fails asynchronously leaves the deadline running.",
@@ -381,7 +381,7 @@ describe("intake", () => {
     expect(refusals(id)[0]?.payload).toMatchObject({
       blockedReason: "image_unprepared",
       attempt: 1,
-      reason: `draft/task.json names target devkit, which has no image prepared at ${head}: an operator runs target:prepare devkit --pin ${head}`,
+      reason: `draft/task.json names target devkit, which has no image prepared at ${head}: an operator runs pnpm --filter @b4-example/software-factory-controller target:prepare devkit --pin ${head}`,
     })
     expect(eventTypes(id)).not.toContain("transition:intake_retry")
     expect(verifier.calls).toHaveLength(0)

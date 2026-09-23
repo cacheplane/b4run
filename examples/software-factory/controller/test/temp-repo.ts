@@ -2,12 +2,7 @@ import { execFileSync } from "node:child_process"
 import { mkdtempSync, readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { isAbsolute, join } from "node:path"
-import {
-  loadTargetIds,
-  repositoryRoot,
-  TargetSchema,
-  targetsDir,
-} from "../src/lib/targets/catalog.ts"
+import { repositoryRoot, TargetSchema, targetsDir } from "../src/lib/targets/catalog.ts"
 
 const git = (root: string, ...args: string[]) =>
   execFileSync("git", ["-C", root, ...args], {
@@ -35,21 +30,13 @@ export function createEmptyRepo(prefix = "factory-repo-empty-"): string {
 }
 
 /**
- * The commit the shipped targets are prepared at: their default pin, and the one pin every
- * shipped target holds an image for. A work order that drafts against a shipped target must
- * be pinned here (`parseDraft` looks the target up at the work order's pin, and HEAD has no
- * image); both targets pin the same commit, which this asserts.
+ * The default pin of shipped target `targetId`: the commit it is prepared at, and so the pin
+ * a work order whose draft names that target must carry (`parseDraft` looks the target up
+ * at the work order's pin, and HEAD has no image). Per target: the targets are re-pinned
+ * independently.
  */
-export function shippedPin(): string {
-  const pins = new Set(
-    loadTargetIds().map(
-      (id) =>
-        TargetSchema.parse(JSON.parse(readFileSync(join(targetsDir, id, "target.json"), "utf8")))
-          .pin,
-    ),
-  )
-  const [pin, ...others] = pins
-  if (pin === undefined || others.length > 0)
-    throw new Error(`the shipped targets do not share one pin: ${[...pins].join(", ")}`)
-  return pin
+export function shippedPin(targetId: string): string {
+  return TargetSchema.parse(
+    JSON.parse(readFileSync(join(targetsDir, targetId, "target.json"), "utf8")),
+  ).pin
 }

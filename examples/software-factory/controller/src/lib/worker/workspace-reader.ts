@@ -164,10 +164,12 @@ async function requireDirectory(
 export interface ThreadWorkspaceSource {
   /**
    * Same kind, scope and image as the builder's `b4.config.ts` for that task. The image is
-   * the target's, and a target is a property of the task, so the provider is resolved PER
-   * TASK rather than once for the process: one provider for every task would address the
-   * wrong image as soon as a second target exists. The drafter's source has one image and
-   * ignores the task; the builder's throws on an undefined one.
+   * the one the builder booted with: its target's at the target's DEFAULT pin, whatever pin
+   * the task itself runs at (the verifier's image, not the builder's). A target is a property
+   * of the task, so the provider is resolved PER TASK rather than once for the process: one
+   * provider for every task would address the wrong image as soon as a second target exists.
+   * The drafter's source has one image and ignores the task; the builder's throws on an
+   * undefined one.
    */
   providerFor(taskId: string | undefined): SandboxProvider
   /** The builder app's root: where `b4` keeps `.b4/workspaces` for that app. */
