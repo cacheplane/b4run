@@ -62,7 +62,7 @@ Then move the route under the app directory, rename its entry file to `index.ts`
 
 ## A model provider package is missing
 
-You see `Provider "anthropic" requires @langchain/anthropic. Install it with: pnpm add @langchain/anthropic [B4_E4001]`.
+You see `Provider "anthropic" requires @langchain/anthropic. Install it with: npm install @langchain/anthropic [B4_E4001]`. The install command matches the package manager you ran B4.run with.
 
 Each model provider is a separate LangChain package. B4.run imports it when it builds the model, and the import fails when the package isn't installed. Install the package the message names:
 

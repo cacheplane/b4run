@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, test, vi } from "vitest"
 
-import { createChatModel, missingProviderPackageMessage } from "../src/chat-model-factory.js"
+import {
+  createChatModel,
+  installCommand,
+  missingProviderPackageMessage,
+} from "../src/chat-model-factory.js"
 
 class FakeModel {
   constructor(readonly options: Record<string, unknown>) {}
@@ -140,5 +144,41 @@ describe("createChatModel OPENAI_BASE_URL", () => {
       importer: async () => ({ ChatOpenAI: FakeChatOpenAI }),
     })
     expect(captured?.configuration).toBeUndefined()
+  })
+})
+
+describe("installCommand", () => {
+  it("matches the package manager that launched the process", () => {
+    expect(installCommand("@langchain/anthropic", "npm/10.9.0 node/v24.0.0 darwin arm64")).toBe(
+      "npm install @langchain/anthropic",
+    )
+    expect(installCommand("@langchain/anthropic", "pnpm/10.33.0 npm/? node/v24.0.0")).toBe(
+      "pnpm add @langchain/anthropic",
+    )
+    expect(installCommand("@langchain/anthropic", "yarn/4.5.0 npm/? node/v24.0.0")).toBe(
+      "yarn add @langchain/anthropic",
+    )
+    expect(installCommand("@langchain/anthropic", "bun/1.2.0 npm/? node/v24.0.0")).toBe(
+      "bun add @langchain/anthropic",
+    )
+  })
+
+  it("defaults to npm when the launcher is unknown", () => {
+    expect(installCommand("@langchain/anthropic", undefined)).toBe(
+      "npm install @langchain/anthropic",
+    )
+    expect(installCommand("@langchain/anthropic", "")).toBe("npm install @langchain/anthropic")
+    expect(installCommand("@langchain/anthropic", "deno/2.0.0")).toBe(
+      "npm install @langchain/anthropic",
+    )
+  })
+
+  it("puts the matching command in the missing-provider message", () => {
+    expect(
+      missingProviderPackageMessage("anthropic", "@langchain/anthropic", "npm/10.9.0"),
+    ).toContain("Install it with: npm install @langchain/anthropic [B4_E4001]")
+    expect(
+      missingProviderPackageMessage("anthropic", "@langchain/anthropic", "pnpm/10.33.0"),
+    ).toContain("Install it with: pnpm add @langchain/anthropic [B4_E4001]")
   })
 })

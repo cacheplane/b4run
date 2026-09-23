@@ -101,13 +101,29 @@ export function warnOnUnknownModelId(opts: {
   )
 }
 
+/**
+ * The install command for the package manager that launched this process.
+ * npm, pnpm, yarn and bun all set `npm_config_user_agent` (read through
+ * `readRuntimeEnv`, so this stays edge-safe); npm is the default
+ * because that is what `npm create b4-app` scaffolds.
+ */
+export function installCommand(packageName: string, userAgent: string | undefined): string {
+  const manager = userAgent?.split("/", 1)[0]
+  if (manager === "pnpm") return `pnpm add ${packageName}`
+  if (manager === "yarn") return `yarn add ${packageName}`
+  if (manager === "bun") return `bun add ${packageName}`
+  return `npm install ${packageName}`
+}
+
 export function missingProviderPackageMessage(
   provider: BuiltInModelProviderId,
   packageName: string,
+  userAgent?: string,
 ): string {
   const url = errorDocsUrl("B4_E4001")
   const docs = url ? ` See ${url}` : ""
-  return `Provider "${provider}" requires ${packageName}. Install it with: pnpm add ${packageName} [B4_E4001]${docs}`
+  const install = installCommand(packageName, userAgent ?? readRuntimeEnv("npm_config_user_agent"))
+  return `Provider "${provider}" requires ${packageName}. Install it with: ${install} [B4_E4001]${docs}`
 }
 
 /**
