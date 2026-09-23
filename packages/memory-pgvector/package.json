@@ -1,6 +1,6 @@
 {
   "name": "@b4run/memory-pgvector",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "private": false,
   "type": "module",
   "license": "MIT",

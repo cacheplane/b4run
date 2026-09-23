@@ -1,5 +1,11 @@
 # @dawn-ai/evals
 
+## 0.11.1
+
+### Patch Changes
+
+- @b4run/testing@0.11.1
+
 ## 0.11.0
 
 ### Patch Changes
