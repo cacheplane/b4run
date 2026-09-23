@@ -18,8 +18,9 @@ be empty; a thread whose manifest is missing is refused by name), `FACTORY_DRAFT
 from waiting on a person nobody has posted. `pnpm check` and `pnpm build` default the directory to `.factory/manifests`
 so the repository's unfiltered graph passes; `pnpm dev` does not, so a running drafter always
 has the directory the controller was told about. `pnpm test` is the always-on lane (the
-config and the route's static shape); `pnpm test:sandbox` needs Docker and the base image
-pulled by digest, serves this app from a private copy and proves the resolver: two threads
-for two work orders each admitted with their own capture, a third with no manifest refused
-by name. The whole intake for real, through the controller, is the controller's
-`drafter-end-to-end.integration.test.ts`.
+config and the route's static shape). The Docker lanes that serve this app live in the
+controller's `test:sandbox`, which needs Docker and the base image pulled by digest:
+`drafter-resolver.integration.test.ts` serves this app from a private copy and proves the
+resolver (two threads for two work orders each admitted with their own capture, a third
+with no manifest refused by name), and `drafter-end-to-end.integration.test.ts` is the whole
+intake for real, through the controller.

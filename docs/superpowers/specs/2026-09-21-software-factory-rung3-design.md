@@ -457,7 +457,7 @@ admits, and is never walked. The controller's configuration is a **worker map**
 (`FACTORY_WORKERS`, or the legacy `FACTORY_WORKER_URL` + `FACTORY_BUILDER_APP_ROOT` pair as
 the `*` entry) plus the drafter pair (`FACTORY_DRAFTER_URL` + `FACTORY_DRAFTER_APP_ROOT`,
 with `_ROUTE`, `_MANIFEST_DIR` and `_IMAGE` only beside them); `FACTORY_INTAKE_ROUTE` and
-`FACTORY_INTAKE_TASK` are gone. Proof: the drafter's `test:sandbox` admits two threads with
+`FACTORY_INTAKE_TASK` are gone. Proof: the controller's `drafter-resolver.integration.test.ts` serves the drafter and admits two threads with
 two captures through the resolver and refuses a third by name; the controller's
 `drafter-end-to-end.integration.test.ts` runs one real drafter turn against the wide capture
 and proves the oracle in the target's image. What half A does not do: the pin is captured

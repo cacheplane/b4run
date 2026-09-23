@@ -9,16 +9,18 @@ import { afterAll, beforeAll, expect, it } from "vitest"
 import { isolatedDrafter } from "./isolated-drafter.ts"
 
 /**
- * The resolver, served: one drafter process, two work orders, two threads, and each thread
- * sees its own capture and no other. The manifests are built here with the framework's own
- * capture over two tiny trees (the second holds one file more), in the exact shape the
- * controller writes; the controller's own lane
- * (`controller/test/drafter-end-to-end.integration.test.ts`) is where the real writer and
- * the real wide capture meet this same resolver. A third thread whose work order has no
- * manifest is refused at admission, by name, in the run's error.
+ * The drafter's resolver, served: one drafter process, two work orders, two threads, and
+ * each thread sees its own capture and no other. The manifests are built here with the
+ * framework's own capture over two tiny trees (the second holds one file more), in the
+ * exact shape the controller writes, and the drafter is booted from a private copy
+ * (`isolatedDrafter`). The lane lives in the controller's tests so the drafter package
+ * needs no test-only dependencies of its own; nothing here is imported into the drafter.
+ * `drafter-end-to-end.integration.test.ts` is where the real writer and the real wide
+ * capture meet this same resolver. A third thread whose work order has no manifest is
+ * refused at admission, by name, in the run's error.
  *
- * Requires Docker and the base image pulled by digest (`docker pull` of the literal in
- * `src/drafter-image.ts`). Runs only under `test:sandbox`.
+ * Requires Docker and the base image pulled by digest (`docker pull` of the literal in the
+ * drafter's `src/drafter-image.ts`). Runs only under `test:sandbox`.
  */
 
 const PROMPT = "List the repository."
@@ -88,7 +90,7 @@ function listingSeenBy(turn: number): string {
 beforeAll(async () => {
   for (const key of ENV) previousEnv[key] = process.env[key]
   delete process.env.B4_PERMISSIONS_MODE
-  scratch = await mkdtemp(join(tmpdir(), "drafter-intake-"))
+  scratch = await mkdtemp(join(tmpdir(), "drafter-resolver-"))
   root = await isolatedDrafter()
   manifestDir = join(root, ".factory", "manifests")
   await mkdir(manifestDir, { recursive: true })

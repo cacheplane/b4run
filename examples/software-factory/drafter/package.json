@@ -5,7 +5,6 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
-    "test:sandbox": "vitest run --config vitest.sandbox.config.ts",
     "typecheck": "tsc -p . --noEmit",
     "lint": "biome check .",
     "check": "FACTORY_DRAFTER_MANIFEST_DIR=\"${FACTORY_DRAFTER_MANIFEST_DIR:-.factory/manifests}\" b4 check",
@@ -20,8 +19,6 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
-    "@b4run/sqlite-storage": "workspace:*",
-    "@b4run/testing": "workspace:*",
     "@biomejs/biome": "2.5.6",
     "@types/node": "26.1.2",
     "typescript": "7.0.2",

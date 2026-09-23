@@ -458,9 +458,9 @@ jobs:
         # pull reads it from the file rather than restating it here (any
         # `<image>@sha256:<digest>` there is what gets pulled). The drafter's own
         # `check` and `build` default their manifest directory to one that need
-        # not exist, so they run as they are; its `test:sandbox` serves the app
-        # against the pulled image before the controller's `test:sandbox` runs
-        # the real intake turn through it.
+        # not exist, so they run as they are. The controller's `test:sandbox`
+        # then serves the drafter against the pulled image: its resolver lane
+        # (two threads, two captures) and the real intake turn through it.
         run: |
           pnpm turbo run build --filter=@b4-example/software-factory-controller^...
           pnpm --filter @b4-example/software-factory-controller target:prepare cli-flags
@@ -471,7 +471,6 @@ jobs:
           docker pull "$(grep -oE '[a-z0-9.:/-]+@sha256:[a-f0-9]{64}' examples/software-factory/drafter/src/drafter-image.ts)"
           pnpm --filter @b4-example/software-factory-drafter check
           pnpm --filter @b4-example/software-factory-drafter build
-          pnpm --filter @b4-example/software-factory-drafter test:sandbox
           pnpm --filter @b4-example/software-factory-controller test:sandbox
 
       - name: Managed Docker lifecycle and runtime restart

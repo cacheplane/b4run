@@ -388,10 +388,10 @@ config.
     # the builder
     pnpm --filter @b4-example/software-factory-server test
 
-    # the drafter
+    # the drafter (its base image, pulled by digest, is what the controller's
+    # test:sandbox serves it on)
     pnpm --filter @b4-example/software-factory-drafter test
     docker pull "$(grep -o 'node:24-slim@sha256:[a-f0-9]*' examples/software-factory/drafter/src/drafter-image.ts)"
-    pnpm --filter @b4-example/software-factory-drafter test:sandbox
 
 The controller's `test` is layer 1: every invariant, against a scripted worker, reader and
 verifier, and it is the only always-on lane. `test:sandbox` is layers 2 and 3 — the real
@@ -400,10 +400,11 @@ step above, which builds the target images it runs in, and the drafter's base im
 by digest. Layer 2 needs Docker even though its model is scripted: the app configures a
 sandbox, so the run acquires a real container — which is the point, since the permission
 config and `runBash` are exactly what that layer exists to exercise. Both fail rather than
-skip when Docker is absent. The drafter's own `test:sandbox` serves the drafter app and
-proves its resolver: two threads for two work orders each admitted with their own capture,
-and a thread with no manifest refused by name. The controller's
-`drafter-end-to-end.integration.test.ts` is the whole intake for real: the wide capture
+skip when Docker is absent. The controller's `drafter-resolver.integration.test.ts` serves
+the drafter app from a private copy and proves its resolver: two threads for two work
+orders each admitted with their own capture, and a thread with no manifest refused by name
+(it lives with the controller's lanes so the drafter needs no test-only dependencies). The
+controller's `drafter-end-to-end.integration.test.ts` is the whole intake for real: the wide capture
 staged at a pin, a scripted drafter turn in the drafter's own process and image, the
 re-rooted `draft/` read, and the oracle proof in the target's image.
 
@@ -413,5 +414,5 @@ target images (`target:prepare cli-flags` and `target:prepare devkit`), writes a
 manifest for `cli-flags` and runs the **builder's** own `check` and `build` against it — the
 only place either runs, since a manifest exists nowhere else — pulls the drafter's base image
 by the digest in `drafter/src/drafter-image.ts`, runs the drafter's `check` and `build`
-against an empty manifest directory, and then runs the drafter's `test:sandbox` and the
-controller's.
+against an empty manifest directory, and then runs the controller's `test:sandbox`, which
+serves the drafter in both of its drafter lanes.
