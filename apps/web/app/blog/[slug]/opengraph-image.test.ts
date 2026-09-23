@@ -7,6 +7,7 @@ type ImageModule = typeof import("./opengraph-image")
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
 const CURRENT_PRODUCTION_SLUGS = [
+  "what-is-a-software-factory",
   "eve-validates-the-shape",
   "app-router-for-ai-agents",
   "why-we-built-b4",

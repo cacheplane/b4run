@@ -1,0 +1,166 @@
+---
+title: What is a software factory?
+description: Software factory is a buzzword again. Here is what the term meant in 1968, what it means in 2026, and what we learned building one with B4.run.
+date: 2026-09-22
+tags: [philosophy, agents]
+type: post
+author: brian
+---
+
+"Software factory" is a buzzword again. If you have spent any time around coding agents this year, you have probably seen it: dark factories, light factories, agent factories, and factories with a capital F.
+
+I have been building one with B4.run for the past few weeks, and I kept getting stuck on a simple question: what is a software factory, actually?
+
+Let's take an honest look. We'll cover:
+
+- Where the term came from
+- Whether it ever worked
+- What it means in 2026
+- Where the factory analogy breaks
+- A definition that holds up across all of it
+- What we learned building one
+
+## Where did the term come from?
+
+The phrase is 58 years old. In October 1968, NATO held the first Software Engineering conference in Garmisch, Germany. Robert Bemer of General Electric presented a plan for what he called a "machine-controlled production environment, or software factory." My favorite line from the [conference report](http://homepages.cs.ncl.ac.uk/brian.randell/NATO/nato1968.PDF) is this one:
+
+> Ideally it should be impossible to produce programs exterior to this environment.
+
+That is a sandbox. Bemer wanted every program built, tested, measured and costed inside one controlled environment, with production records used to predict the next job.
+
+At the same conference, Doug McIlroy of Bell Labs presented [Mass Produced Software Components](https://mcilroy.cs.dartmouth.edu/components.txt). He said the hardware folks were "the industrialists and we are the crofters." He was also careful to point out that mass production, in the sense of copying, is trivial for software. Copying a program costs nothing. What he wanted was a catalogue of reusable parts.
+
+What surprised me most is that the objections we hear today were raised in that same room. One attendee warned that an automated system "may disguise some of what is happening." Another said that if you don't know what you're doing, automating it can be dangerous. And McIlroy said this:
+
+> It would be immoral for programmers to automate everybody but themselves.
+
+Fifty-eight years later, that is more or less the project.
+
+## Did it work?
+
+Sort of. It depends on what kind of work was going through the factory.
+
+### Hitachi and Toshiba
+
+In 1969, Hitachi opened the first software facility in the world called a factory. Some of its engineers wanted to call it a "Software Center." The company president overruled them and told them to call it a factory.
+
+It worked. According to Michael Cusumano's research at MIT, late projects at Hitachi dropped from over 72% in 1970 to 13% in 1973.
+
+Toshiba opened its Fuchu Software Factory in 1977. By 1985, nearly half of the code its programmers shipped was reused, and faults found in final testing fell dramatically. Then the gains flattened. Productivity grew 70% in the first five years and only 8% over the next four. Toshiba hit a practical ceiling of about 50% reuse and couldn't get past it.
+
+### SDC
+
+Around the same time, System Development Corporation in Santa Monica built a software factory of about 200 programmers with separate design, production and test groups. It never made it past the experiment. One manager summed it up in [Cusumano's study](https://archive.org/details/ussoftwarefactor00cusu):
+
+> Every job was totally different.
+
+Another said he didn't think the programmers considered themselves factory workers. The word "factory" became, in Cusumano's words, an anathema at SDC.
+
+So what was the difference between Toshiba and SDC? Toshiba had a focused product line and a steady stream of similar work. SDC had contract work where every project was different. I think this is the most important lesson in the history of the term, and we'll come back to it.
+
+## The middle years
+
+Between 2004 and 2023, the word was reused three more times, and each time it meant something a little different.
+
+**Microsoft** published *Software Factories* in 2004 (Jack Greenfield and Keith Short). Their factory was a Visual Studio environment configured to generate a specific type of application from models and domain-specific languages. Greenfield argued that software has economies of scope, not scale, and wrote that development would never be "a purely mechanical process tended by drones." It still didn't take off. The tooling was retired, and in 2010 Microsoft cancelled the core of Oslo, the modeling platform that came after it.
+
+**The US Department of Defense** got into the act with Kessel Run, founded in 2017. A DoD software factory is basically an in-house team with a DevSecOps pipeline. The GAO counted [29 of them in 2022](https://www.gao.gov/assets/gao-23-105611.pdf) and found that the reforms meant to support them were still a work in progress.
+
+**Outsourcing firms** used it too. In Brazil, a "fábrica de software" is a standard name for an outsourced development shop. This is the version that drew the criticism that the factory model treats developers as interchangeable parts.
+
+Notice the pattern. Microsoft industrialized the *artifact*. The DoD industrialized the *pipeline*. The outsourcers industrialized the *labor*. Same word, three different things.
+
+## What does it mean in 2026?
+
+Today, "software factory" almost always means the layer that sits *above* a coding agent.
+
+The best one-liner I have found comes from a [Firecrawl post](https://www.firecrawl.dev/blog/ai-software-factory) describing what it's like to drive a single agent by hand:
+
+> Everything except the typing is still you.
+
+You pick the task. You set up the environment. You decide whether the result is any good. You merge it. A factory moves those jobs out of your head and into infrastructure.
+
+I find it helpful to think in three tiers:
+
+1. **An agent harness** runs one loop on one task: the model, the tools, the instructions and the environment around it. This is Claude Code or Codex working in your repository.
+2. **An orchestrator** runs many loops at once, but you are still the one choosing the work and reading the diffs. Steve Yegge's Gas Town, which runs a couple dozen agents in parallel, is a good example.
+3. **A factory** makes intake, isolation, verification and the merge gate part of the system. Work comes from a queue, agents work in disposable sandboxes, the results are checked automatically, and a policy decides what ships.
+
+Within that third tier there is a real split.
+
+In January, Dan Shapiro published a five-level scale for AI coding, modeled on self-driving levels, and called level 5 the [Dark Factory](https://www.danshapiro.com/blog/2026/01/the-five-levels-from-spicy-autocomplete-to-the-software-factory/). The name comes from lights-out manufacturing, where the lights can stay off because no people are on the floor. Two weeks later, StrongDM published their [software factory](https://factory.strongdm.ai/) with two rules: code must not be written by humans, and code must not be reviewed by humans. Simon Willison [wrote it up](https://simonwillison.net/2026/Feb/7/software-factory/) the next day and asked what he called the most consequential question in software development right now: how do you prove the software works when agents write both the code and the tests?
+
+On the other side is what Addy Osmani calls the light, or lit, [factory](https://oreillyradar.substack.com/p/software-factories-light-and-dark). Humans don't disappear. Human judgment moves upstream, to the product, the design and the architecture, before an agent ever starts working.
+
+## Is it a buzzword?
+
+Partly, yes.
+
+Gartner has a name for this: "agent washing." In 2025, it estimated that only about 130 of the thousands of vendors claiming agentic AI actually have it. "Software factory" is heading the same way. It is starting to mean any CI pipeline with a model attached.
+
+The evidence is also thin. The big numbers, like 80% or even 100% of code being written by AI, are self-reported by the companies selling the AI. METR's 2025 study found experienced developers took 19% *longer* with AI while believing they were 20% faster. Its 2026 follow-up suggests developers are probably faster now, but METR calls its own data only very weak evidence for how much. The 2025 DORA report found AI adoption correlates with higher throughput and also higher instability.
+
+I have not found a factory vendor publishing the numbers that would tell us whether a factory works:
+
+- How long does it take an issue to become a merged change?
+- How often do agent-merged changes cause a failure?
+- What does each accepted change cost?
+
+If you are evaluating a factory, I would start by asking for those three numbers.
+
+## Where does the analogy break?
+
+The factory metaphor has been criticized for about as long as it has existed. Fred Brooks, in *No Silver Bullet* (1986), said the hardest part of building software is "deciding precisely what to build." Jack Reeves argued in 1992 that the source code *is* the design, and that the manufacturing step, compiling, is so cheap it is almost free. Martin Fowler made the same point: in software, all the effort is design.
+
+If they are right, and I think they are, then the traditional factory has always automated the easy half. Physical factories are great at producing the same, fully specified thing over and over. Software rarely needs that. Copying is free, and every change is a little bit of design.
+
+The analogy does hold in one place. Toyota's *jidoka*, or "stop the line," means the machine stops itself the moment something is wrong. A red build that blocks a merge is jidoka. The pipeline has always been the most factory-like thing we have.
+
+Here is what is genuinely new in 2026. Earlier factories industrialized everything *around* the programmer: the environment, the components, the pipeline and the labor. The dark factory claims to industrialize the programmer. And because agents now write the source code, the design work doesn't go away. It moves into the spec and the acceptance scenarios, which become the new source code.
+
+Real lights-out plants are a useful check. FANUC has built robots unsupervised for weeks at a time since 2001, but those plants make a fixed product, and even highly automated plants keep people on quality inspection. A software dark factory is trying to go dark on the design step, and I'm not aware of any physical factory that has done that.
+
+## So, what is a software factory?
+
+Here is my attempt:
+
+> A software factory is a long-lived system, above any single project, where work enters one standard way, every change is built inside one controlled environment, results are checked by verification the builders can't game, and a named person is accountable for what ships.
+
+The definition doesn't mention AI. Bemer's 1968 factory fits it, and so does Toshiba's. In 2026, the thing doing the building happens to be an agent in a sandbox.
+
+I think four tests separate a real factory from the buzzword:
+
+1. **A steady stream of similar work.** SDC failed without it. Bug queues, dependency upgrades and migrations are a good fit. New product design is not.
+2. **One enforced environment.** Bemer's "impossible to produce programs exterior to this environment" is exactly what a sandbox is.
+3. **Verification the builders can't game.** If the agent can influence its own grade, you have a very expensive way to make tests pass.
+4. **A named owner.** When something breaks in production, whose name is on it?
+
+If you are missing any of those, what you have is an agent with a cron job. That can be useful. It just isn't a factory.
+
+## What we learned building one
+
+We have been building a [software factory example](https://github.com/cacheplane/b4run/tree/main/examples/software-factory) with B4.run, and its target is the B4.run repository itself. I wanted to use the framework on the codebase I know best.
+
+We built it in small rungs, and each rung had to prove itself before we moved on. The example is two B4.run apps that share no source. The controller owns the work orders, and its commands (create, dispatch, approve, deny and cancel) are workflow routes. The builder is one bounded agent route that edits files in a container. The model doesn't decide what happens next. The controller does.
+
+The most important decision was this one:
+
+> The builder has no channel for a verdict.
+
+In the first rung, the worker agent reported whether it had succeeded. That turned out to be backwards. From the next rung on, the builder can only edit a workspace. The controller reads that workspace, runs the verification, and freezes a review bundle for a person to approve.
+
+Even then, keeping the builder away from its own grade was harder than I expected. The verifier ran two test suites: one the agent could see, and an independent check it couldn't. Both ran in the same container. The tamper check skipped the build output directory because that seemed harmless. It wasn't. The independent check graded that exact build output, so a candidate's code could start a detached process during the visible tests and swap the built file before the independent check ran. We proved it with a test payload, and nothing noticed the tampering. The candidate got to choose its own oracle's verdict.
+
+The fix was to exclude nothing from the tamper check and to give each suite its own container. The lesson stuck with me: every exclusion in an integrity check is a hole the moment the excluded path is also an input to the verdict.
+
+This is also why I don't buy the fully dark version yet. StrongDM's answer to reward hacking is holdout scenarios the agents never see, and I like that idea. But once a repair loop gets feedback from a test suite, that suite is no longer a true holdout. Verification independence isn't a detail of the factory. It *is* the factory.
+
+## Conclusion
+
+I think the word is worth keeping, with a caveat.
+
+It has always promised predictability and throughput, and for 58 years it has delivered that only in the narrow, repetitive part of the work. Hitachi took three years to bring late projects down from 72% to 13%. Nobody has published a before-and-after like that for an AI software factory yet.
+
+So I'll keep using the word, and try to use it honestly. A factory is not a model, and it is not an agent. It is the careful system around them that decides what work comes in, where it gets built, how it gets checked, and who is accountable for it.
+
+If you want to see how those pieces fit together in code, start with the [software factory example](https://github.com/cacheplane/b4run/tree/main/examples/software-factory) and the [Sandbox guide](/docs/sandbox). If you are building a factory of your own, or think the term should be retired, I would like to hear from you.
