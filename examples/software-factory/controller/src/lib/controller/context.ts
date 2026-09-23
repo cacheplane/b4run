@@ -7,9 +7,9 @@ import type { ArtifactStore } from "../storage/artifacts.js"
 import type { Verifier } from "../verification/verifier.js"
 import type { WorkerClient } from "../worker/client.js"
 import type { StreamFrame } from "../worker/wire.js"
-import type { WorkspaceReader } from "../worker/workspace-reader.js"
 import type { ObserveIntakeOptions } from "./intake.js"
 import type { ObserveRunOptions } from "./run-observer.js"
+import type { DrafterWorker, TargetWorker } from "./workers.js"
 
 /** What reconciliation and the run observer need from the factory. Kept narrow on purpose. */
 export interface ControllerContext {
@@ -18,17 +18,23 @@ export interface ControllerContext {
   readonly evidence: EvidenceStore
   readonly artifacts: ArtifactStore
   readonly verifier: Verifier
-  readonly workspaceReader: WorkspaceReader
-  readonly worker: WorkerClient
-  readonly workerRoute: string
-  /** The route the drafter turn runs on. */
-  readonly intakeRoute: string
   /**
-   * The catalog task whose provider and inspection options read the drafter thread's
-   * workspace (3a: the drafter runs in the builder process, whose workspace is fixed by its
-   * manifest task). Undefined when intake is not configured; the `intake` command refuses.
+   * The builder worker for the row's target: `row.targetId` for a generated task, the
+   * catalog task's target for a shipped one. Throws `NoWorkerForTargetError` when the map
+   * has no entry (and no wildcard) for it.
    */
-  readonly intakeTaskId: string | undefined
+  workerFor(row: WorkOrderRow): TargetWorker
+  /** The drafter. Throws `DrafterUnconfiguredError` when none is configured. */
+  drafter(): DrafterWorker
+  /**
+   * The worker holding `row.workerThreadId` right now. The column is shared by the intake
+   * thread and the builder thread, and which is which is a fact about the row's phase: the
+   * drafter's in the intake states, and in `received` while an approved draft's thread
+   * lingers until dispatch replaces it; the target's from `dispatched` on. Where the state
+   * no longer says (`cancel_requested`, `blocked`), the journal does: the thread `intake`
+   * recorded as `intake_thread_created` is the drafter's.
+   */
+  workerOfThread(row: WorkOrderRow): { readonly client: WorkerClient; readonly route: string }
   /** Where issue work orders keep `issue.md` and where intake materialises the drafted task. */
   readonly generatedTasksDir: string
   readonly exportDir: string

@@ -63,3 +63,50 @@ export const BAD_DRAFTS: Readonly<Record<string, Readonly<Record<string, string>
     emptySpec: { ...GOOD_DRAFT, "draft/spec.md": "\n\n" },
   },
 )
+
+/**
+ * A draft that IS an oracle at the shipped pin: the `cli-flags` task, whose pinned bytes are
+ * the defect (the Docker lanes prove its independent check fails on the unpatched baseline),
+ * turned into the four files a drafter writes. The shipped spec has no acceptance lines and
+ * the check names carry no ids, so both are derived here: one `A<n>:` line per independent
+ * assertion, and the assertion and test names prefixed to match. `GOOD_DRAFT` above cannot
+ * serve this purpose: `devkit-spawn-deadline`'s defect is injected by its `defect.patch`, and
+ * at the pin its check passes.
+ */
+const cliFlags = join(tasksDir, "cli-flags")
+const readCliFlags = (name: string) => readFileSync(join(cliFlags, name), "utf8")
+const { id: _cliId, ...cliTaskWithoutId } = JSON.parse(readCliFlags("task.json")) as Record<
+  string,
+  unknown
+>
+const cliChecks = JSON.parse(readCliFlags("checks.json")) as {
+  independent: { runner: string; file: string; assertions: string[] }
+}
+const cliAssertions = cliChecks.independent.assertions.map((name, i) => [
+  name,
+  `A${i + 1}: ${name}`,
+])
+let cliCheckFile = readCliFlags(cliChecks.independent.file)
+for (const [name, prefixed] of cliAssertions) {
+  const literal = JSON.stringify(name)
+  if (!cliCheckFile.includes(`test(${literal}`))
+    throw new Error(`fixture expects the shipped check to name ${literal}`)
+  cliCheckFile = cliCheckFile.replace(`test(${literal}`, `test(${JSON.stringify(prefixed)}`)
+}
+export const ORACLE_DRAFT: Readonly<Record<string, string>> = Object.freeze({
+  "draft/task.json": `${JSON.stringify(cliTaskWithoutId, null, 2)}\n`,
+  "draft/spec.md": `${readCliFlags("spec.md").replace(/\n*$/, "")}\n\n${cliAssertions
+    .map(([, prefixed]) => prefixed)
+    .join("\n")}\n`,
+  "draft/checks.json": `${JSON.stringify(
+    {
+      independent: {
+        ...cliChecks.independent,
+        assertions: cliAssertions.map(([, prefixed]) => prefixed),
+      },
+    },
+    null,
+    2,
+  )}\n`,
+  [`draft/${cliChecks.independent.file}`]: cliCheckFile,
+})

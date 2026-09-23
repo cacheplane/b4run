@@ -6,12 +6,19 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { type CaptureRole, captureTarget } from "../src/lib/targets/archive.ts"
+import {
+  ArchiveArgumentsError,
+  archiveTreeInto,
+  type CaptureRole,
+  captureTarget,
+  MAX_ARCHIVE_ARGV_BYTES,
+} from "../src/lib/targets/archive.ts"
 import type { Task } from "../src/lib/targets/catalog.ts"
 
 const dirs: string[] = []
@@ -229,5 +236,36 @@ describe("captureTarget", () => {
     expect(() =>
       captureTarget(task(pin), "../x" as CaptureRole, { appRoot: root, repositoryRoot: root }),
     ).toThrow(/role/)
+  })
+})
+
+describe("archiveTreeInto", () => {
+  it("extracts an explicit file list under a prefix, keeping the executable bit", () => {
+    const { root, pin } = repo()
+    execFileSync("git", ["-C", root, "update-index", "--chmod=+x", "pkg/src/a.ts"])
+    execFileSync("git", ["-C", root, "commit", "-q", "-m", "exec"])
+    const exec = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim()
+    expect(exec).not.toBe(pin)
+    const destination = mkdtempSync(join(tmpdir(), "factory-archive-dest-"))
+    dirs.push(destination)
+    archiveTreeInto(root, exec, ["pkg/src/a.ts", "pkg/package.json"], destination, {
+      prefix: "repo/",
+      label: "t",
+    })
+    expect(readdirSync(destination).sort()).toEqual(["repo"])
+    expect(readdirSync(join(destination, "repo", "pkg")).sort()).toEqual(["package.json", "src"])
+    expect(statSync(join(destination, "repo/pkg/src/a.ts")).mode & 0o111).not.toBe(0)
+    expect(statSync(join(destination, "repo/pkg/package.json")).mode & 0o111).toBe(0)
+  })
+
+  it("refuses an include list too large for one command line, before invoking git", () => {
+    const destination = mkdtempSync(join(tmpdir(), "factory-archive-dest-"))
+    dirs.push(destination)
+    const include = Array.from({ length: 6_000 }, (_, i) => `p/${"x".repeat(96)}/${i}.ts`)
+    expect(include.join(" ").length).toBeGreaterThan(MAX_ARCHIVE_ARGV_BYTES)
+    expect(() =>
+      archiveTreeInto("/nonexistent", "0".repeat(40), include, destination, { label: "t" }),
+    ).toThrow(ArchiveArgumentsError)
+    expect(readdirSync(destination)).toEqual([])
   })
 })

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto"
 import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
+import { DEFAULT_WORKER_ROUTE } from "../config.js"
 import { exportApproved } from "../delivery/export.js"
 import { canon } from "../domain/digest.js"
 import { CommandInFlightError, UnknownTaskError, UnknownWorkOrderError } from "../domain/errors.js"
@@ -23,6 +24,11 @@ import {
   type Receipt,
   type WorkOrderRow,
 } from "../domain/work-order.js"
+import {
+  type WriteDrafterManifestOptions,
+  type WrittenDrafterManifest,
+  writeDrafterManifest as writeDrafterManifestOnDisk,
+} from "../drafter-manifest.js"
 import { digestGeneratedTask } from "../intake/generated-task.js"
 import { issueText } from "../intake/issue.js"
 import { oracleReceiptIdFor } from "../intake/oracle.js"
@@ -33,24 +39,41 @@ import { createEvidenceStore, type EvidenceStore } from "../registry/evidence.js
 import { createWorkOrderStore, type WorkOrderPatch } from "../registry/work-orders.js"
 import { BundlePayloadSchema } from "../review/bundle.js"
 import { type ArtifactStore, createArtifactStore } from "../storage/artifacts.js"
-import { type CatalogOptions, isShippedTask } from "../targets/catalog.js"
+import {
+  type CatalogOptions,
+  ensurePin,
+  isShippedTask,
+  loadTask,
+  repositoryRoot,
+} from "../targets/catalog.js"
 import { loadPolicy } from "../verification/policy.js"
 import type { Verifier } from "../verification/verifier.js"
 import type { CancelResult, WorkerClient } from "../worker/client.js"
 import type { InterruptFrame, StreamFrame } from "../worker/wire.js"
-import type { WorkspaceReader } from "../worker/workspace-reader.js"
 import { type BudgetTicker, startBudgetTicker } from "./budget.js"
 import type { ControllerContext } from "./context.js"
-import { finishIntake, observeIntakeTurn, runIntake } from "./intake.js"
+import { finishIntake, observeIntakeTurn, removeDrafterManifest, runIntake } from "./intake.js"
 import { reconcileAll, reconcileWorkOrder } from "./reconcile.js"
 import { denyPending, observeRun } from "./run-observer.js"
 import { consumeTurn } from "./turns.js"
 import { runVerification } from "./verify.js"
+import {
+  DRAFTER_UNCONFIGURED,
+  DrafterUnconfiguredError,
+  type DrafterWorker,
+  NoWorkerForTargetError,
+  type TargetWorker,
+  type WorkerMap,
+} from "./workers.js"
 
 export interface FactoryOptions {
   readonly registryPath: string
-  readonly worker: WorkerClient
-  readonly workerRoute: string
+  /**
+   * One builder worker per target and one drafter (`createWorkerMap` in the runtime). Every
+   * worker call goes through the row: `workerFor` for the target's builder, `drafter()` for
+   * the intake thread, `workerOfThread` for whichever holds the row's thread right now.
+   */
+  readonly workers: WorkerMap
   /** Where the approved bytes are written, and the bundle's destination identity. */
   readonly exportDir: string
   /** Content-addressed evidence store for candidate and check output. */
@@ -62,15 +85,15 @@ export interface FactoryOptions {
    * to both.
    */
   readonly generatedTasksDir: string
-  /** The route the drafter turn runs on. Default `/intake#agent`. */
-  readonly intakeRoute?: string
-  /**
-   * The catalog task whose provider and inspection options read the drafter thread's
-   * workspace (see `FactoryConfig.intakeTaskId`). Absent, `intake` refuses.
-   */
-  readonly intakeTaskId?: string
   readonly verifier: Verifier
-  readonly workspaceReader: WorkspaceReader
+  /**
+   * Writes the drafter manifest `intake` hands the drafter before it creates the thread: the
+   * wide capture of the repository at the row's pin. Injected so tests need neither the
+   * repository at a real pin nor the capture; the runtime uses the real writer.
+   */
+  readonly writeDrafterManifest?: (
+    options: WriteDrafterManifestOptions,
+  ) => Promise<WrittenDrafterManifest>
   /** The controller's own baseline for a task. Injected so tests need no container. */
   captureBaseline(
     taskId: string,
@@ -214,6 +237,10 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
    */
   const phases = new Map<string, AbortController>()
   const PHASE_STATES: ReadonlySet<WorkOrderRow["state"]> = new Set(["verifying", "intake_running"])
+  const INTAKE_STATES: ReadonlySet<WorkOrderRow["state"]> = new Set([
+    "intake_running",
+    "awaiting_intake_approval",
+  ])
   let closed = false
   /** Started only once reconciliation has run, so no tick can race the boot rules. */
   let ticker: BudgetTicker | null = null
@@ -232,13 +259,41 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     log(type, { id, ...payload })
   }
 
+  /**
+   * Manifest removals a transition decided while a caller's own transaction was open. An
+   * `rm` cannot be rolled back, so it never runs inside a transaction: `transition` performs
+   * it after its own commits, and a caller that wraps `transition` in an outer transaction
+   * (`approveIntake`, `rejectIntake`) goes through `outerTransaction`, which flushes these
+   * once it has committed.
+   */
+  let outerDepth = 0
+  const pendingRemovals = new Set<string>()
+  const flushRemovals = () => {
+    for (const id of [...pendingRemovals]) {
+      pendingRemovals.delete(id)
+      removeDrafterManifest(ctx, id)
+    }
+  }
+  const outerTransaction = <T>(fn: () => T): T => {
+    outerDepth += 1
+    try {
+      return store.transaction(fn)
+    } finally {
+      outerDepth -= 1
+      if (outerDepth === 0) flushRemovals()
+    }
+  }
+  const leftIntakeStates = (from: WorkOrderRow["state"], to: WorkOrderRow["state"]) =>
+    INTAKE_STATES.has(from) && !INTAKE_STATES.has(to) && to !== "cancel_requested"
+
   const transition = (
     id: string,
     event: TransitionEvent,
     patch: WorkOrderPatch = {},
     payload: Record<string, unknown> = {},
-  ): WorkOrderRow =>
-    store.transaction(() => {
+  ): WorkOrderRow => {
+    let leftIntake = false
+    const updated = store.transaction(() => {
       const row = mustGet(id)
       const to = nextState(row.state, event)
       const accounting: WorkOrderPatch = {}
@@ -260,8 +315,22 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         phases.get(id)?.abort()
         phases.delete(id)
       }
+      // Decided here, where the move is known; performed below, once it has committed.
+      leftIntake = leftIntakeStates(row.state, to)
       return updated
     })
+    // The drafter manifest lives until the intake thread has been admitted or never will
+    // be: removed when the row leaves the intake states for good (a block, an approval),
+    // not on a redraft (`intake_retry`, `reject_intake` stay inside them) and not on a
+    // cancel, whose `finishCancel` removes it once the thread itself is settled. The removal
+    // follows the committed transition in the journal, and never runs inside a transaction:
+    // a caller's outer one defers it until that has committed too.
+    if (leftIntake) {
+      if (outerDepth === 0) removeDrafterManifest(ctx, id)
+      else pendingRemovals.add(id)
+    }
+    return updated
+  }
 
   const phaseSignal = (id: string): AbortSignal => {
     let controller = phases.get(id)
@@ -306,6 +375,59 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   }
 
   /**
+   * The target a row's builder thread belongs to: recorded on the row at `intake_drafted`
+   * for a generated task, the catalog's for a shipped one. A fixed prompt table (`tasks`)
+   * names no catalog, and the wildcard entry is the only one that can serve it. A task the
+   * catalog cannot load throws the catalog's own error: that is the task's fault (an
+   * unprepared target, say), which `dispatch` reports as such, not a missing worker.
+   */
+  function targetOf(row: WorkOrderRow): string {
+    if (row.targetId !== null) return row.targetId
+    if (options.tasks) return "*"
+    return loadTask(row.taskId, options.promptCatalog ?? {}).target.id
+  }
+  const workerFor = (row: WorkOrderRow): TargetWorker => {
+    const targetId = targetOf(row)
+    const worker = options.workers.forTarget(targetId)
+    if (worker === undefined) throw new NoWorkerForTargetError(targetId)
+    return worker
+  }
+  const drafter = (): DrafterWorker => {
+    const worker = options.workers.drafter
+    if (worker === undefined) throw new DrafterUnconfiguredError()
+    return worker
+  }
+  /** Did `intake` record `row.workerThreadId` as the thread it created for the drafter? */
+  function isJournalledIntakeThread(row: WorkOrderRow): boolean {
+    if (row.workerThreadId === null) return false
+    return store
+      .events(row.id)
+      .some(
+        (event) =>
+          event.type === "intake_thread_created" && event.payload.threadId === row.workerThreadId,
+      )
+  }
+  /** Is the row's thread the drafter's? See `ControllerContext.workerOfThread`. */
+  function holdsIntakeThread(row: WorkOrderRow): boolean {
+    switch (row.state) {
+      case "intake_running":
+      case "awaiting_intake_approval":
+        return true
+      case "received":
+        return row.taskDigest !== null && row.workerThreadId !== null
+      // A cancel or a block can come from either phase, and the state alone no longer says
+      // which: the journal, written before the row ever held the thread, does.
+      case "cancel_requested":
+      case "blocked":
+        return isJournalledIntakeThread(row)
+      default:
+        return false
+    }
+  }
+  const workerOfThread = (row: WorkOrderRow) =>
+    holdsIntakeThread(row) ? drafter() : workerFor(row)
+
+  /**
    * Is there a turn on `threadId` for the cancel to interrupt, and is the thread there at
    * all? The worker is the authority, not the controller's in-memory `runs` map: after a
    * restart that map is empty, and while a run is draining its last frames the map still
@@ -316,10 +438,11 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
    */
   async function threadLiveness(
     id: string,
+    worker: WorkerClient,
     threadId: string,
   ): Promise<"live" | "ended" | "missing" | "unknown"> {
     try {
-      const thread = await options.worker.getThread(threadId)
+      const thread = await worker.getThread(threadId)
       if (!thread) return "missing"
       return thread.status === "busy" ? "live" : "ended"
     } catch (error) {
@@ -341,11 +464,23 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     const row = mustGet(id)
     if (row.workerThreadId) {
       const threadId = row.workerThreadId
-      const liveness = await threadLiveness(id, threadId)
+      // Which worker holds the thread is the row's to say. A row whose worker is no longer
+      // configured (the drafter removed, a target's entry dropped) has nowhere to send the
+      // cancel and nothing to deny: the cancel is the operator's escape for a worker that is
+      // gone for good, so it settles the row with the fact journalled, rather than hold it
+      // in `cancel_requested` for a map that may never return.
+      let worker: WorkerClient | undefined
+      try {
+        worker = workerOfThread(row).client
+      } catch (error) {
+        recordEvent(id, "worker_unavailable", { phase: "cancel", error: String(error) })
+      }
+      const intakeThread = holdsIntakeThread(row)
+      const liveness = worker === undefined ? "missing" : await threadLiveness(id, worker, threadId)
       let result: CancelResult | null = null
-      if (liveness === "live" || liveness === "unknown") {
+      if (worker !== undefined && (liveness === "live" || liveness === "unknown")) {
         try {
-          result = await options.worker.cancel(threadId)
+          result = await worker.cancel(threadId)
         } catch (error) {
           // The turn may well still be running: a row reading `cancelled` here would be a
           // claim the worker never confirmed.
@@ -364,6 +499,9 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           return mustGet(id)
         }
       }
+      // The intake thread is settled: whatever the manifest was for, it has been admitted or
+      // never will be.
+      if (intakeThread) removeDrafterManifest(ctx, id)
     }
     try {
       return cause === "budget"
@@ -384,11 +522,9 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     evidence: evidenceStore,
     artifacts,
     verifier: options.verifier,
-    workspaceReader: options.workspaceReader,
-    worker: options.worker,
-    workerRoute: options.workerRoute,
-    intakeRoute: options.intakeRoute ?? "/intake#agent",
-    intakeTaskId: options.intakeTaskId,
+    workerFor,
+    drafter,
+    workerOfThread,
     generatedTasksDir: options.generatedTasksDir,
     exportDir: options.exportDir,
     maxChangedBytes: options.maxChangedBytes ?? 256 * 1024,
@@ -427,12 +563,8 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     }
     let frames: AsyncIterable<StreamFrame>
     try {
-      frames = await options.worker.startRun(
-        row.workerThreadId,
-        options.workerRoute,
-        input,
-        abort.signal,
-      )
+      const worker = workerFor(row)
+      frames = await worker.client.startRun(row.workerThreadId, worker.route, input, abort.signal)
     } catch (error) {
       recordEvent(id, "stream_lost", { phase: "run_start", error: String(error) })
       return
@@ -491,7 +623,9 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       revision: 0,
       state: "received",
       ...fields(id),
-      workerRoute: options.workerRoute,
+      // The route of the row's current thread: rewritten when a thread is committed to the
+      // row (`intake_started`, `dispatch_committed`), whose worker decides it.
+      workerRoute: DEFAULT_WORKER_ROUTE,
       workerThreadId: null,
       interruptId: null,
       candidateDigest: null,
@@ -573,7 +707,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       // Refused BEFORE the key is spent: a `received` row's revision does not change on a
       // refusal, so a refusal recorded under `intake:<id>:<revision>` would replay to every
       // later call at that revision — including the one after the operator sets
-      // `FACTORY_INTAKE_TASK` and restarts. None of these three is a function of the row's
+      // `FACTORY_DRAFTER_APP_ROOT` and restarts. None of these three is a function of the row's
       // revision (same principle as `createFromIssue`'s validation).
       const unspent = (message: string): CommandOutcome => ({
         ok: false,
@@ -589,10 +723,31 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         return unspent(
           "Work order already has an approved task; reject-intake is the only way back",
         )
-      // Refused here, not discovered after a thread and a turn were spent: without a task
-      // to read the drafter's workspace through, nothing the turn wrote could be read.
-      if (options.intakeTaskId === undefined)
-        return unspent("intake is not configured: set FACTORY_INTAKE_TASK")
+      // Refused here, not discovered after a thread and a turn were spent: without a drafter,
+      // nothing can run the turn or read what it wrote.
+      if (options.workers.drafter === undefined) return unspent(DRAFTER_UNCONFIGURED)
+      const drafterWorker = options.workers.drafter
+      // A retry after a rejection redrafts on the thread the first intake made: the drafter
+      // keeps its `draft/`, and the row already names it.
+      // A crashed `intake` journals `intake_thread_created` before `intake_started` reaches
+      // the row (the same window `dispatch` leaves): a rerun adopts that thread rather than
+      // leaving it idle on the worker and making a second one.
+      let threadId = row.workerThreadId ?? journalledIntakeThreadId(id)
+      // The pin is the one transient precondition of the manifest write below: a commit the
+      // repository does not hold yet is fetched here, and a fetch that fails is refused
+      // UNSPENT, so the same call after the network (or the operator) mends it is not the
+      // replay of this refusal. The write itself, under the key, then fails only on disk.
+      let repository: string
+      try {
+        repository = options.promptCatalog?.repositoryRoot ?? repositoryRoot()
+        if (!threadId && row.pin !== null)
+          ensurePin(repository, id, row.pin, { label: `Work order ${id}'s draft` })
+      } catch (error) {
+        recordEvent(id, "pin_unavailable", { pin: row.pin, error: String(error) })
+        return unspent(
+          `pin ${row.pin} is not in the repository and could not be fetched: ${String(error)}`,
+        )
+      }
       const key = operationKey ?? `intake:${id}:${row.revision}`
       const begun = commands.begin(key, id, { command: "intake", args: {} }, iso())
       if (begun.status === "done") return begun.outcome
@@ -600,20 +755,37 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       const refuse = (message: string) =>
         finish(key, { ok: false, state: mustGet(id).state, message })
       if (row.state !== "received") return refuse(`Cannot intake from ${row.state}`)
-      // A retry after a rejection redrafts on the thread the first intake made: the drafter
-      // keeps its `draft/`, and the row already names it.
-      // A crashed `intake` journals `intake_thread_created` before `intake_started` reaches
-      // the row (the same window `dispatch` leaves): a rerun adopts that thread rather than
-      // leaving it idle on the worker and making a second one.
-      let threadId = row.workerThreadId ?? journalledIntakeThreadId(id)
       let created = false
       if (!threadId) {
+        // The manifest first: the drafter's resolver reads it when the thread's first run is
+        // admitted, so a thread created before it exists would be one nothing can serve. A
+        // redraft (the thread exists) writes nothing — the thread was admitted with its
+        // manifest, and the pin cannot change.
+        if (row.pin === null) return refuse("An issue work order has no pin to draft at")
         try {
-          threadId = await options.worker.createThread({
+          const written = await (options.writeDrafterManifest ?? writeDrafterManifestOnDisk)({
+            workOrderId: id,
+            pin: row.pin,
+            repositoryRoot: repository,
+            dir: drafterWorker.manifestDir,
+            signal: abort.signal,
+          })
+          recordEvent(id, "drafter_manifest_written", {
+            path: written.path,
+            sourceDigest: written.sourceDigest,
+          })
+        } catch (error) {
+          recordEvent(id, "drafter_manifest_failed", { error: String(error) })
+          return refuse(`drafter manifest could not be written: ${String(error)}`)
+        }
+        try {
+          threadId = await drafterWorker.client.createThread({
             factoryWorkOrderId: id,
             factoryStage: "intake",
           })
         } catch (error) {
+          // No thread will ever be admitted with this manifest: the next intake writes its own.
+          removeDrafterManifest(ctx, id)
           return refuse(`Thread creation failed: ${String(error)}`)
         }
         created = true
@@ -623,17 +795,25 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       }
       let started: WorkOrderRow
       try {
-        started = transition(id, "intake_started", { workerThreadId: threadId }, { threadId })
+        started = transition(
+          id,
+          "intake_started",
+          { workerThreadId: threadId, workerRoute: drafterWorker.route },
+          { threadId },
+        )
       } catch (error) {
         // A cancel moved the row while the worker was creating the thread.
         if (!(error instanceof IllegalTransitionError)) throw error
         if (created) {
           recordEvent(id, "thread_orphaned", { threadId })
           try {
-            await options.worker.cancel(threadId)
+            await drafterWorker.client.cancel(threadId)
           } catch (cancelError) {
             recordEvent(id, "worker_cancel_failed", { threadId, error: String(cancelError) })
           }
+          // The cancel that moved the row found no thread on it, so it removed nothing: the
+          // manifest written a moment ago is this path's to remove.
+          removeDrafterManifest(ctx, id)
         }
         return refuse("Work order changed state while starting intake")
       }
@@ -680,7 +860,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       if (taskDigest !== row.taskDigest)
         return refuse("Task digest does not match the work order's")
       try {
-        store.transaction(() => {
+        outerTransaction(() => {
           transition(id, "approve_intake", {}, { taskDigest, operationKey: key })
           recordEvent(id, "intake_approved", { taskDigest })
         })
@@ -705,7 +885,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       // and the next drafter turn (if there is one) quotes it.
       let next: WorkOrderRow
       try {
-        next = store.transaction(() => {
+        next = outerTransaction(() => {
           recordEvent(id, "intake_rejected", { note, attempt: row.intakeAttempts })
           // The rejected draft is no longer the row's, whichever way the row goes: its digest
           // and target are cleared so nothing (a `show`, the evidence, a later approve-intake)
@@ -777,6 +957,26 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           }
         }
       }
+      // The worker map is the operator's configuration, not a function of the row: refused
+      // before the key is spent, so the dispatch after the entry is added is not a replay.
+      // The target is the catalog's to name, and a task the catalog cannot load is the
+      // prompt refusal's below, under the key: only a resolved target can lack a worker.
+      let targetId: string | undefined
+      try {
+        targetId = targetOf(row)
+      } catch {
+        targetId = undefined
+      }
+      if (targetId !== undefined && row.state === "received") {
+        if (options.workers.forTarget(targetId) === undefined) {
+          recordEvent(id, "no_worker_for_target", { targetId })
+          return {
+            ok: false,
+            state: row.state,
+            message: new NoWorkerForTargetError(targetId).message,
+          }
+        }
+      }
       const key = operationKey ?? `dispatch:${id}:${row.revision}`
       const begun = commands.begin(key, id, { command: "dispatch", args: {} }, iso())
       if (begun.status === "done") return begun.outcome
@@ -801,9 +1001,21 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
             ? `Unknown task ${row.taskId}`
             : `Unknown task ${row.taskId}: ${input.message}`,
         })
+      // The prompt loaded, so the task loads and names its target; a map with no entry for
+      // it is the refusal above, now under the key.
+      targetId ??= targetOf(row)
+      const worker = options.workers.forTarget(targetId)
+      if (worker === undefined) {
+        recordEvent(id, "no_worker_for_target", { targetId })
+        return finish(key, {
+          ok: false,
+          state: row.state,
+          message: new NoWorkerForTargetError(targetId).message,
+        })
+      }
       let threadId: string
       try {
-        threadId = await options.worker.createThread({ factoryWorkOrderId: id })
+        threadId = await worker.client.createThread({ factoryWorkOrderId: id })
       } catch (error) {
         return finish(key, {
           ok: false,
@@ -816,14 +1028,17 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       recordEvent(id, "thread_created", { threadId })
       let dispatched: WorkOrderRow
       try {
-        dispatched = transition(id, "dispatch_committed", { workerThreadId: threadId })
+        dispatched = transition(id, "dispatch_committed", {
+          workerThreadId: threadId,
+          workerRoute: worker.route,
+        })
       } catch (error) {
         // A cancel moved the row while the worker was creating the thread. The row cannot hold
         // the thread now, so end it here rather than leak a thread nothing observes.
         if (!(error instanceof IllegalTransitionError)) throw error
         recordEvent(id, "thread_orphaned", { threadId })
         try {
-          await options.worker.cancel(threadId)
+          await worker.client.cancel(threadId)
         } catch (cancelError) {
           recordEvent(id, "worker_cancel_failed", { threadId, error: String(cancelError) })
         }
@@ -1107,11 +1322,16 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       // has no gate, and the review the operator is denying is the controller's own frozen
       // bundle. Only a `blocked` row can be holding a prompt, and it is an unexpected one.
       if (row.state === "blocked") {
-        let pending: InterruptFrame[]
+        // The blocked row's thread may be the drafter's (a drafter parked on a prompt blocks
+        // the row too) or the builder's: the row says which, and the deny goes there.
+        const threadId = row.workerThreadId
+        let worker: { client: WorkerClient; route: string } | undefined
+        let pending: InterruptFrame[] = []
         try {
-          pending = row.workerThreadId
-            ? await options.worker.pendingInterrupts(row.workerThreadId)
-            : []
+          if (threadId) {
+            worker = workerOfThread(row)
+            pending = await worker.client.pendingInterrupts(threadId)
+          }
         } catch (error) {
           recordEvent(id, "pending_deny_failed", { error: String(error) })
           return refuse(`Deny could not be delivered to the worker: ${String(error)}`)
@@ -1119,17 +1339,16 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         // Re-read after the await: a cancel (operator or budget) may have moved the row while
         // this deny was reading the worker, and `deny` is not legal from where it left it.
         if (mustGet(id).state !== row.state) return refuse("Work order changed state while denying")
-        if (pending.length === 0)
+        if (pending.length === 0 || !threadId || !worker)
           // A blocked work order with nothing parked (verification_failed, say) has no prompt
           // to deny; denying it would fake a decision the worker never heard.
           return refuse("Nothing is pending to deny; cancel the work order instead")
 
-        const threadId = row.workerThreadId as string
         try {
           recordEvent(id, "pending_denied", { interruptIds: pending.map((p) => p.interruptId) })
-          const frames = await options.worker.resume(
+          const frames = await worker.client.resume(
             threadId,
-            options.workerRoute,
+            worker.route,
             pending.map((p) => ({ interruptId: p.interruptId, payload: "deny" as const })),
             abort.signal,
           )

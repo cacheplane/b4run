@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { openRegistryReader } from "../src/lib/registry/reader.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { GOOD_DRAFT } from "./intake-fixtures.ts"
-import { FIRST_THREAD, type ServedController, serveController } from "./serve-controller.ts"
+import { FIRST_DRAFTER_THREAD, type ServedController, serveController } from "./serve-controller.ts"
 
 let dir: string
 let served: ServedController
@@ -91,14 +91,14 @@ describe("controller routes", () => {
     }
     const created = await served.run("create-5", "/work-orders/create#workflow", {
       origin,
-      pin: "a".repeat(40),
+      pin: served.pin,
       issue: { title: "T", body: "B" },
     })
     expect(created.status).toBe(200)
     expect(created.body).toMatchObject({
       ok: true,
       state: "received",
-      row: { origin, pin: "a".repeat(40) },
+      row: { origin, pin: served.pin },
     })
     const { row } = created.body as { row: { id: string; taskId: string } }
     expect(row.taskId).toBe(row.id)
@@ -107,7 +107,7 @@ describe("controller routes", () => {
     const mixed = await served.run("create-6", "/work-orders/create#workflow", {
       taskId: "cli-flags",
       origin,
-      pin: "a".repeat(40),
+      pin: served.pin,
       issue: { title: "T", body: "B" },
     })
     expect(mixed.body).toMatchObject({ ok: false, refusal: "invalid_input" })
@@ -154,14 +154,14 @@ describe("controller routes", () => {
     dir = mkdtempSync(join(tmpdir(), "factory-routes-"))
     // The intake fakes: a verifier whose independent check FAILS on the baseline (the oracle
     // proof), a reader that hands the drafter's `draft/` back twice (the second is the redraft
-    // after the rejection), and the catalog task whose workspace the drafter runs in.
+    // after the rejection). The served controller always has a drafter app root, so `intake`
+    // is configured; the reader is the fake, so the root is never opened.
     served = await serveController(
       dir,
       {},
       { verifier: createFakeVerifier({ independent: "fail" }) },
-      { FACTORY_INTAKE_TASK: "devkit-spawn-deadline" },
     )
-    served.workspace.queue(FIRST_THREAD, [GOOD_DRAFT, GOOD_DRAFT])
+    served.workspace.queue(FIRST_DRAFTER_THREAD, [GOOD_DRAFT, GOOD_DRAFT])
     const created = await served.run("create-8", "/work-orders/create#workflow", {
       origin: {
         kind: "issue",
@@ -169,7 +169,7 @@ describe("controller routes", () => {
         number: 778,
         bodyDigest: "0".repeat(64),
       },
-      pin: "a".repeat(40),
+      pin: served.pin,
       issue: { title: "spawnProcess leaks its deadline timer", body: "B" },
     })
     const { id } = (created.body as { row: { id: string } }).row

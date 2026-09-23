@@ -1,21 +1,41 @@
-import { type FactoryConfig, loadConfig } from "./config.js"
+import { mkdirSync, statSync } from "node:fs"
+import {
+  type DrafterEndpoint,
+  type FactoryConfig,
+  loadConfig,
+  type WorkerEndpoint,
+} from "./config.js"
 import { createFactory, type Factory, type FactoryOptions } from "./controller/factory.js"
+import { createWorkerMap } from "./controller/workers.js"
 import { createArtifactStore } from "./storage/artifacts.js"
 import { configureCatalog, loadTask, resetCatalogForTests } from "./targets/catalog.js"
-import { builderSandboxProvider, targetInspectionOptions } from "./targets/workspace.js"
+import {
+  builderSandboxProvider,
+  drafterInspectionOptions,
+  drafterSandboxProvider,
+  targetInspectionOptions,
+} from "./targets/workspace.js"
 import { captureTargetBaseline } from "./verification/baseline.js"
 import { createDockerVerifier } from "./verification/docker-verifier.js"
 import { createHttpWorkerClient } from "./worker/client.js"
-import { createThreadWorkspaceReader } from "./worker/workspace-reader.js"
+import { createThreadWorkspaceReader, type WorkspaceReader } from "./worker/workspace-reader.js"
 
 /**
  * The collaborators a test may replace. Everything else the runtime builds is real: only
- * the three that need a container, a builder installation on disk, or a target checkout
- * are injectable, so a test can drive the REAL routes without those.
+ * those that need a container, a worker installation on disk, a target checkout or the
+ * repository at a pin are injectable, so a test can drive the REAL routes without those.
+ * The readers are keyed by role: the worker map itself (clients, routes, app roots) is the
+ * configuration's, and a test points its two fake workers at it through the environment.
  */
 export type ControllerRuntimeOverrides = Partial<
-  Pick<FactoryOptions, "verifier" | "workspaceReader" | "captureBaseline">
->
+  Pick<FactoryOptions, "verifier" | "captureBaseline" | "writeDrafterManifest">
+> & {
+  readonly readers?: {
+    /** Replaces the reader of EVERY builder worker entry. */
+    readonly builder?: WorkspaceReader
+    readonly drafter?: WorkspaceReader
+  }
+}
 
 export interface ControllerRuntime {
   readonly config: FactoryConfig
@@ -55,43 +75,49 @@ export function createControllerRuntime(
     // below — the prompt, the verifier, the baseline, the workspace reader — then finds a
     // generated task. The search path is process-wide, like the runtime itself.
     configureCatalog({ generatedTasksDir: config.generatedTasksDir })
-    // The intake task is what every drafter workspace is read through: an id the catalog
-    // cannot serve is refused at boot, not after a drafter turn has been spent on it.
-    if (config.intakeTaskId !== undefined) {
+    // The drafter app root is what every drafter thread is resolved through: a path that is
+    // not a directory is refused at boot, not after a drafter turn has been spent on it. Only
+    // the directory is checked — its `.b4/workspaces` store does not exist until the drafter
+    // app has booted, and starting the controller first is a valid order. The manifest
+    // directory is the controller's own to make: the drafter only reads it.
+    if (config.drafter !== undefined) {
+      if (!isDirectory(config.drafter.appRoot))
+        return Promise.reject(
+          new Error(`FACTORY_DRAFTER_APP_ROOT is not a directory (${config.drafter.appRoot})`),
+        )
       try {
-        loadTask(config.intakeTaskId)
+        mkdirSync(config.drafter.manifestDir, { recursive: true })
       } catch (error) {
         return Promise.reject(
           new Error(
-            `FACTORY_INTAKE_TASK names a task the catalog cannot load (${config.intakeTaskId}): ${error instanceof Error ? error.message : String(error)}`,
+            `FACTORY_DRAFTER_MANIFEST_DIR could not be created (${config.drafter.manifestDir}): ${String(error)}`,
           ),
         )
       }
     }
+    const { readers, ...factoryOverrides } = overrides
+    const workers = createWorkerMap(config, {
+      createClient: createHttpWorkerClient,
+      createBuilderReader: (entry) => readers?.builder ?? builderReader(entry),
+      // The drafter's threads live under ITS app root, addressed by a provider of its scope
+      // and image, and are read re-rooted at `draft/`: the wide capture under `repo/` is
+      // never walked.
+      createDrafterReader: (entry) => readers?.drafter ?? drafterReader(entry),
+    })
     return createFactory({
       registryPath: config.registryPath,
-      worker: createHttpWorkerClient(config.workerUrl),
-      workerRoute: config.workerRoute,
+      workers,
       exportDir: config.exportDir,
       artifactsDir: config.artifactsDir,
       generatedTasksDir: config.generatedTasksDir,
-      intakeRoute: config.intakeRoute,
-      ...(config.intakeTaskId !== undefined ? { intakeTaskId: config.intakeTaskId } : {}),
       approvalTtlMs: config.approvalTtlMs,
       maxActiveMs: config.maxActiveMs,
       maxChangedBytes: config.maxChangedBytes,
       verifier: createDockerVerifier(createArtifactStore(config.artifactsDir)),
-      workspaceReader: createThreadWorkspaceReader(
-        {
-          providerFor: (taskId) => builderSandboxProvider(loadTask(taskId).target),
-          appRoot: config.builderAppRoot,
-        },
-        (taskId) => targetInspectionOptions(loadTask(taskId)),
-      ),
       captureBaseline: captureTargetBaseline,
       // Defined keys only: an explicit `{ verifier: undefined }` must not erase a required
       // collaborator, which a plain spread would do.
-      ...definedOnly(overrides),
+      ...definedOnly(factoryOverrides),
       log: (event, payload) => process.stderr.write(`${JSON.stringify({ event, ...payload })}\n`),
     }).catch((error) => {
       // A failed open is retried by the next caller, like middleware setup itself.
@@ -99,13 +125,78 @@ export function createControllerRuntime(
       throw error
     })
   }
+
+  /** A builder entry's reader: the provider is the task's target's, the store the entry's. */
+  function builderReader(entry: WorkerEndpoint): WorkspaceReader {
+    return createThreadWorkspaceReader(
+      {
+        providerFor: (taskId) => builderSandboxProvider(loadTask(requireTaskId(taskId)).target),
+        appRoot: entry.appRoot,
+      },
+      (taskId) => targetInspectionOptions(loadTask(requireTaskId(taskId))),
+    )
+  }
+
+  function drafterReader(entry: DrafterEndpoint): WorkspaceReader {
+    return namingDrafterAppRoot(
+      createThreadWorkspaceReader(
+        {
+          providerFor: () => drafterSandboxProvider(config.drafterImage),
+          appRoot: entry.appRoot,
+        },
+        () => ({ ...drafterInspectionOptions(), root: "draft" }),
+      ),
+      entry.appRoot,
+    )
+  }
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+/**
+ * A drafter app root that exists but holds no installation store is the one read failure
+ * whose cause is the operator's configuration (the drafter app never booted there, or it is
+ * the wrong directory), not the thread's: the journal line names the variable to fix.
+ */
+function namingDrafterAppRoot(reader: WorkspaceReader, appRoot: string): WorkspaceReader {
+  return {
+    async read(target, signal) {
+      try {
+        return await reader.read(target, signal)
+      } catch (error) {
+        // Matched by text: the framework throws a plain `Error` here
+        // (`openWorkspaceInstallationReader` in
+        // `packages/sqlite-storage/src/workspace/installation.ts`, "No workspace installation
+        // under <appRoot>"), with no class or code to test for.
+        if (error instanceof Error && /No workspace installation/.test(error.message)) {
+          throw new Error(
+            `FACTORY_DRAFTER_APP_ROOT has no workspace installation: has the drafter app booted under ${appRoot}? (${error.message})`,
+            { cause: error },
+          )
+        }
+        throw error
+      }
+    },
+  }
+}
+
+/** The builder's reader is addressed by thread AND task; a read without one is a caller fault. */
+function requireTaskId(taskId: string | undefined): string {
+  if (taskId === undefined) throw new Error("The builder workspace reader needs a task id")
+  return taskId
 }
 
 /** A spread of `overrides` that cannot blank a field: `undefined` values are dropped. */
-function definedOnly(overrides: ControllerRuntimeOverrides): ControllerRuntimeOverrides {
+function definedOnly<T extends object>(overrides: T): Partial<T> {
   return Object.fromEntries(
     Object.entries(overrides).filter(([, value]) => value !== undefined),
-  ) as ControllerRuntimeOverrides
+  ) as Partial<T>
 }
 
 /** The module-scope instance the app's middleware and routes share. */

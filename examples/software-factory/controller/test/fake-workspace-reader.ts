@@ -16,7 +16,11 @@ export interface FakeWorkspaceReader extends WorkspaceReader {
   queue(threadId: string, files: readonly Readonly<Record<string, string>>[]): void
 }
 
-/** Scripted stand-in: the test chooses exactly what the builder appears to have written. */
+/**
+ * Scripted stand-in: the test chooses exactly what the builder (or the drafter) appears to
+ * have written. It ignores the target's task id and any read root: a test scripts the keys
+ * it wants back, `draft/`-prefixed for a drafter thread.
+ */
 export function createFakeWorkspaceReader(
   threads: Readonly<Record<string, Readonly<Record<string, string>>>>,
 ): FakeWorkspaceReader {

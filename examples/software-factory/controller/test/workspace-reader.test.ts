@@ -2,13 +2,15 @@ import { readFileSync } from "node:fs"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import type { SandboxProvider } from "@b4run/workspace"
+import type { SandboxProvider, SandboxWorkspaceReader } from "@b4run/workspace"
 import { afterEach, describe, expect, it } from "vitest"
 import { loadTask } from "../src/lib/targets/catalog.ts"
 import { targetInspectionOptions, targetSandboxPolicy } from "../src/lib/targets/workspace.ts"
 import {
   createThreadWorkspaceReader,
+  InvalidWorkspaceRootError,
   type WorkspaceReadOptions,
+  WorkspaceRootMissingError,
 } from "../src/lib/worker/workspace-reader.ts"
 import { fakeManagedApp } from "./fake-managed-provider.ts"
 import { createFakeWorkspaceReader } from "./fake-workspace-reader.ts"
@@ -16,8 +18,11 @@ import { createFakeWorkspaceReader } from "./fake-workspace-reader.ts"
 /** Every read names the thread AND the task: inspection options are per task. */
 const target = (threadId: string, taskId = "cli-flags") => ({ threadId, taskId })
 
-/** The task's own inspection options, as the controller derives them. */
-const inspectionOptions = (taskId: string) => targetInspectionOptions(loadTask(taskId))
+/** The task's own inspection options, as the controller derives them (the builder's reader). */
+const inspectionOptions = (taskId: string | undefined) => {
+  if (taskId === undefined) throw new Error("the builder reader needs a task")
+  return targetInspectionOptions(loadTask(taskId))
+}
 
 describe("fake workspace reader", () => {
   it("returns the scripted bytes for a thread and rejects an unknown one", async () => {
@@ -211,5 +216,152 @@ describe("inspection options travel with the reader", () => {
     } finally {
       await app.close()
     }
+  })
+})
+
+/**
+ * The drafter's thread holds the wide capture under `repo/` (executables, more bytes than
+ * an inspection allows) next to the four files it writes under `draft/`. The controller
+ * reads that thread re-rooted at `draft/`: inspection starts there, so `repo/` is never
+ * walked, and the keys come back `draft/`-prefixed so the parser sees the tree it expects.
+ */
+describe("the re-rooted read", () => {
+  const apps: Array<Awaited<ReturnType<typeof fakeManagedApp>>> = []
+  afterEach(async () => {
+    for (const app of apps.splice(0)) await app.close()
+  })
+
+  const options = (root?: string): WorkspaceReadOptions => ({
+    excludeRootDirectories: [],
+    expectedRootSymlinks: {},
+    ...(root === undefined ? {} : { root }),
+  })
+
+  /**
+   * A drafter thread with an executable under `repo/`, recording every path the filesystem
+   * is asked about. The in-memory volume cannot hold an executable bit, so the reader the
+   * provider opens is wrapped: `repo/bin/tool` reports itself executable.
+   */
+  const drafterThread = async (files: Record<string, string>) => {
+    const app = await fakeManagedApp()
+    apps.push(app)
+    await app.seed("t-1", files)
+    const touched: string[] = []
+    const workspaces = app.provider.workspaces as NonNullable<SandboxProvider["workspaces"]>
+    const open = workspaces.openWorkspaceReader as NonNullable<
+      typeof workspaces.openWorkspaceReader
+    >
+    const provider: SandboxProvider = {
+      ...app.provider,
+      workspaces: {
+        ...workspaces,
+        async openWorkspaceReader(input) {
+          const reader = await open.call(workspaces, input)
+          const fs = reader.filesystem
+          const recorded: SandboxWorkspaceReader["filesystem"] = {
+            ...fs,
+            async lstat(path, ctx) {
+              touched.push(path)
+              const metadata = await fs.lstat(path, ctx)
+              return path.endsWith("/repo/bin/tool") ? { ...metadata, executable: true } : metadata
+            },
+            listDir(path, ctx) {
+              touched.push(path)
+              return fs.listDir(path, ctx)
+            },
+            readBinaryFile(path, ctx, opts) {
+              touched.push(path)
+              return fs.readBinaryFile(path, ctx, opts)
+            },
+          }
+          return { ...reader, filesystem: recorded }
+        },
+      },
+    }
+    return { source: { appRoot: app.appRoot, providerFor: () => provider }, touched }
+  }
+  const wide = { "repo/bin/tool": "#!/bin/sh\n", "repo/src/a.ts": "a\n", "draft/task.json": "{}\n" }
+
+  it("returns only draft/, prefixed, and never stats repo/", async () => {
+    const { source, touched } = await drafterThread(wide)
+    const reader = createThreadWorkspaceReader(source, () => options("draft"))
+    expect(await reader.read({ threadId: "t-1" }, AbortSignal.timeout(5_000))).toEqual(
+      new Map([["draft/task.json", "{}\n"]]),
+    )
+    expect(touched.some((path) => path.includes("/repo"))).toBe(false)
+    expect(touched).toContain("/workspace/draft/task.json")
+  })
+
+  it("is what makes the wide capture readable: the same thread without a root throws on the executable", async () => {
+    const { source } = await drafterThread(wide)
+    const reader = createThreadWorkspaceReader(source, () => options())
+    await expect(reader.read({ threadId: "t-1" }, AbortSignal.timeout(5_000))).rejects.toThrow(
+      /Executable workspace file: repo\/bin\/tool/,
+    )
+  })
+
+  it("reports a missing root as WorkspaceRootMissingError, distinct from a failed read", async () => {
+    const { source, touched } = await drafterThread({ "repo/bin/tool": "#!/bin/sh\n" })
+    const reader = createThreadWorkspaceReader(source, () => options("draft"))
+    const failure = await reader.read({ threadId: "t-1" }, AbortSignal.timeout(5_000)).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+    expect(failure).toBeInstanceOf(WorkspaceRootMissingError)
+    expect((failure as WorkspaceRootMissingError).root).toBe("draft")
+    expect((failure as WorkspaceRootMissingError).kind).toBe("absent")
+    expect(touched.some((path) => path.includes("/repo"))).toBe(false)
+  })
+
+  it("reports a root that is a file, not a directory, the same way", async () => {
+    const { source } = await drafterThread({ draft: "not a directory\n" })
+    const reader = createThreadWorkspaceReader(source, () => options("draft"))
+    await expect(
+      reader.read({ threadId: "t-1" }, AbortSignal.timeout(5_000)),
+    ).rejects.toMatchObject({
+      name: "WorkspaceRootMissingError",
+      kind: "not_directory",
+      root: "draft",
+    })
+  })
+
+  it("reads a nested root and prefixes with the whole of it", async () => {
+    const { source } = await drafterThread({ "out/draft/task.json": "{}\n", "out/other": "x\n" })
+    const reader = createThreadWorkspaceReader(source, () => options("out/draft"))
+    expect(await reader.read({ threadId: "t-1" }, AbortSignal.timeout(5_000))).toEqual(
+      new Map([["out/draft/task.json", "{}\n"]]),
+    )
+  })
+
+  it("refuses a root that is not a canonical relative directory, before it opens anything", async () => {
+    let opened = false
+    const app = await fakeManagedApp()
+    apps.push(app)
+    await app.seed("t-1", { "draft/task.json": "{}\n" })
+    const workspaces = app.provider.workspaces as NonNullable<SandboxProvider["workspaces"]>
+    const source = {
+      appRoot: app.appRoot,
+      providerFor: () => ({
+        ...app.provider,
+        workspaces: {
+          ...workspaces,
+          openWorkspaceReader(
+            input: Parameters<NonNullable<typeof workspaces.openWorkspaceReader>>[0],
+          ) {
+            opened = true
+            return (
+              workspaces.openWorkspaceReader as NonNullable<typeof workspaces.openWorkspaceReader>
+            )(input)
+          },
+        },
+      }),
+    }
+    for (const root of ["..", "draft/..", "/draft", "draft\0", "", "draft/", "./draft", "a\\b"]) {
+      const reader = createThreadWorkspaceReader(source, () => options(root))
+      await expect(reader.read({ threadId: "t-1" }, AbortSignal.timeout(1_000))).rejects.toThrow(
+        InvalidWorkspaceRootError,
+      )
+    }
+    expect(opened).toBe(false)
   })
 })

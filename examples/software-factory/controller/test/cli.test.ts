@@ -9,7 +9,7 @@ import { openRegistryReader } from "../src/lib/registry/reader.ts"
 import { tasksDir } from "../src/lib/targets/catalog.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { BAD_DRAFTS, GOOD_DRAFT } from "./intake-fixtures.ts"
-import { FIRST_THREAD, type ServedController, serveController } from "./serve-controller.ts"
+import { FIRST_DRAFTER_THREAD, type ServedController, serveController } from "./serve-controller.ts"
 
 const run = promisify(execFile)
 // Resolved from the package's own node_modules rather than relying on `pnpm` being on PATH
@@ -291,13 +291,9 @@ esac
   }, 90_000)
 
   it("drives the intake gate: intake tails and parks, reject-intake redrafts, approve-intake needs the digest", async () => {
-    const { cli, spawn } = await boot(
-      {},
-      { verifier: createFakeVerifier({ independent: "fail" }) },
-      { FACTORY_INTAKE_TASK: "devkit-spawn-deadline" },
-    )
+    const { cli, spawn } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
     if (!served) throw new Error("no controller")
-    served.workspace.queue(FIRST_THREAD, [GOOD_DRAFT, GOOD_DRAFT])
+    served.workspace.queue(FIRST_DRAFTER_THREAD, [GOOD_DRAFT, GOOD_DRAFT])
     const created = await served.run("create-cli-issue", "/work-orders/create#workflow", {
       origin: {
         kind: "issue",
@@ -305,7 +301,7 @@ esac
         number: 778,
         bodyDigest: "0".repeat(64),
       },
-      pin: "a".repeat(40),
+      pin: served.pin,
       issue: { title: "spawnProcess leaks its deadline timer", body: "B" },
     })
     const id = (created.body as { row: { id: string } }).row.id
@@ -365,15 +361,11 @@ esac
   }, 90_000)
 
   it("exits non-zero when an intake settles blocked", async () => {
-    const { cli, spawn } = await boot(
-      {},
-      { verifier: createFakeVerifier({ independent: "fail" }) },
-      { FACTORY_INTAKE_TASK: "devkit-spawn-deadline" },
-    )
+    const { cli, spawn } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
     if (!served) throw new Error("no controller")
     // A draft naming a package with no prepared target blocks at once: no redraft can
     // prepare one, so this is the one refusal that never spends a second attempt.
-    served.workspace.set(FIRST_THREAD, BAD_DRAFTS.badTarget as Record<string, string>)
+    served.workspace.set(FIRST_DRAFTER_THREAD, BAD_DRAFTS.badTarget as Record<string, string>)
     const created = await served.run("create-cli-blocked", "/work-orders/create#workflow", {
       origin: {
         kind: "issue",
@@ -381,7 +373,7 @@ esac
         number: 778,
         bodyDigest: "0".repeat(64),
       },
-      pin: "a".repeat(40),
+      pin: served.pin,
       issue: { title: "T", body: "B" },
     })
     const id = (created.body as { row: { id: string } }).row.id
@@ -397,15 +389,11 @@ esac
   }, 90_000)
 
   it("exits non-zero when a rejection exhausts the drafter's attempts", async () => {
-    const { cli, spawn } = await boot(
-      {},
-      { verifier: createFakeVerifier({ independent: "fail" }) },
-      { FACTORY_INTAKE_TASK: "devkit-spawn-deadline" },
-    )
+    const { cli, spawn } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
     if (!served) throw new Error("no controller")
     // Two good drafts, two rejections: the default of two attempts is spent by the redraft,
     // so the second rejection has nothing left to start and the work order blocks.
-    served.workspace.queue(FIRST_THREAD, [GOOD_DRAFT, GOOD_DRAFT])
+    served.workspace.queue(FIRST_DRAFTER_THREAD, [GOOD_DRAFT, GOOD_DRAFT])
     const created = await served.run("create-cli-exhausted", "/work-orders/create#workflow", {
       origin: {
         kind: "issue",
@@ -413,7 +401,7 @@ esac
         number: 778,
         bodyDigest: "0".repeat(64),
       },
-      pin: "a".repeat(40),
+      pin: served.pin,
       issue: { title: "T", body: "B" },
     })
     const id = (created.body as { row: { id: string } }).row.id

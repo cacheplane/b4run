@@ -48,6 +48,36 @@ export function builderSandboxProvider(target: Target): SandboxProvider {
   return dockerSandbox({ scope: builderSandboxScope, image: imageTag(target) })
 }
 
+/**
+ * The drafter's sandbox provider. The scope and the image MUST equal the drafter app's own
+ * config (`drafter/b4.config.ts`: scope `software-factory-drafter`, image `DRAFTER_IMAGE`
+ * unless `FACTORY_DRAFTER_IMAGE` overrides it) because the two values are the whole of the
+ * provider's identity: they are what address a drafter thread's workspace, and a reader
+ * built with either different would open a different (or no) workspace. The image reaches
+ * the controller through its configuration, never by importing the drafter's source.
+ */
+export function drafterSandboxProvider(image: string): SandboxProvider {
+  return dockerSandbox({ scope: "software-factory-drafter", image })
+}
+
+/**
+ * How a drafter thread is inspected. These bounds apply to the re-rooted `draft/` read
+ * (the reader's `root` option, Task 3) and never to `repo/`: the wide capture holds
+ * executables and more bytes than an inspection allows, and is never read back.
+ * Four small text files is the whole of what the drafter is expected to write; a `draft/`
+ * that is larger than this is refused rather than read. No environment links and no
+ * baseline, so no root symlinks and no `.git` to exclude.
+ */
+export function drafterInspectionOptions(): WorkspaceReadOptions {
+  return {
+    excludeRootDirectories: [],
+    expectedRootSymlinks: {},
+    maxEntries: 200,
+    maxFileBytes: 512 * 1024,
+    maxTotalBytes: 2 * 1024 * 1024,
+  }
+}
+
 /** Denied network, and the target's measured CPU, memory and per-command ceiling. */
 export function targetSandboxPolicy(target: Target): SandboxPolicy {
   return {

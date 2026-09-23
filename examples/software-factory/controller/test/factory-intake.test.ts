@@ -1,24 +1,34 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { createFactory, type Factory, type FactoryOptions } from "../src/lib/controller/factory.ts"
+import { DRAFTER_UNCONFIGURED } from "../src/lib/controller/workers.ts"
 import type { IssueOrigin, WorkOrderRow } from "../src/lib/domain/work-order.ts"
 import { digestGeneratedTask } from "../src/lib/intake/generated-task.ts"
 import { taskPrompt } from "../src/lib/prompts.ts"
+import { createCommandLog } from "../src/lib/registry/commands.ts"
 import { openRegistry } from "../src/lib/registry/db.ts"
 import { createWorkOrderStore, type WorkOrderPatch } from "../src/lib/registry/work-orders.ts"
 import { configureCatalog, loadTask, resetCatalogForTests } from "../src/lib/targets/catalog.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
-import type { WorkspaceReader } from "../src/lib/worker/workspace-reader.ts"
+import {
+  type WorkspaceReader,
+  WorkspaceRootMissingError,
+} from "../src/lib/worker/workspace-reader.ts"
 import { createFakeVerifier, type FakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
+import { fakeWorkerMap } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
 import { BAD_DRAFTS, GOOD_DRAFT } from "./intake-fixtures.ts"
+import { createEmptyRepo, repositoryHead } from "./temp-repo.ts"
 
 let dir: string
 let generated: string
+/** The DRAFTER: the worker the intake thread lives on, and the one a test's run behaviour scripts. */
 let fake: FakeWorker
+/** The builder: a second process, where dispatch creates the builder thread. */
+let builder: FakeWorker
 let factory: Factory
 let reader: FakeWorkspaceReader
 let verifier: FakeVerifier
@@ -31,7 +41,12 @@ const ORIGIN: IssueOrigin = {
   number: 778,
   bodyDigest: "0".repeat(64),
 }
-const PIN = "a".repeat(40)
+/**
+ * The pin every issue here names: a commit this repository holds (`intake` checks the pin
+ * is one the controller can find before it writes a manifest, and an invented sha would
+ * send it fetching).
+ */
+const PIN = repositoryHead().pin
 const ISSUE = {
   title: "spawnProcess leaks its deadline timer",
   body: "A spawn that fails asynchronously leaves the deadline running.",
@@ -50,6 +65,27 @@ const repaired = () => ({
   [SOURCE]: "export const deadline = 'cleared'\n",
 })
 
+/** Where the controller writes the drafter's manifests: the drafter's `FACTORY_DRAFTER_MANIFEST_DIR`. */
+const manifestDir = () => join(dir, "drafter", "manifests")
+const manifestPath = (id: string) => join(manifestDir(), `${id}.json`)
+/** The manifests written this test, in order: what the drafter's resolver would be handed. */
+let manifestWrites: { workOrderId: string; pin: string; dir: string }[]
+/**
+ * Stands in for the wide capture: the pin here is not a commit of any repository, and the
+ * real writer's capture is tens of MiB. Writes the same file, at the same path.
+ */
+const fakeManifestWriter: NonNullable<FactoryOptions["writeDrafterManifest"]> = async ({
+  workOrderId,
+  pin,
+  dir: target,
+}) => {
+  manifestWrites.push({ workOrderId, pin, dir: target })
+  mkdirSync(target, { recursive: true })
+  const path = join(target, `${workOrderId}.json`)
+  writeFileSync(path, `${JSON.stringify({ version: 1, workOrderId, pin })}\n`)
+  return { path, sourceDigest: "c".repeat(64) }
+}
+
 async function bootWorker(options: Omit<FakeWorkerOptions, "outboxDir"> = {}) {
   dir = mkdtempSync(join(tmpdir(), "factory-intake-"))
   generated = join(dir, "state", "tasks")
@@ -57,60 +93,87 @@ async function bootWorker(options: Omit<FakeWorkerOptions, "outboxDir"> = {}) {
   // What the runtime does once per process: every `loadTask(id)` — the policy, the prompt
   // for the builder — then finds the task intake materialises under the work order's id.
   configureCatalog({ generatedTasksDir: generated })
+  // Two processes, as deployed: the run behaviour a test scripts is the DRAFTER's turn.
   fake = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only", ...options })
+  // Its first thread is named apart from the drafter's: each fake numbers its own threads,
+  // and a test that compares the two ids must not be fooled by two `fake-thread-1`s.
+  builder = await createFakeWorker({
+    outboxDir: join(dir, "unused"),
+    run: "edits_only",
+    threadId: "builder-thread-1",
+  })
   // The reader outlives each factory, exactly as the drafter's sandbox outlives a restart.
   reader = createFakeWorkspaceReader({})
   verifier = createFakeVerifier({ independent: "fail" })
+  manifestWrites = []
 }
-/** `omit` drops options entirely: exactOptionalPropertyTypes forbids passing `undefined`. */
-async function bootFactory(
-  overrides: Partial<FactoryOptions> = {},
-  omit: readonly (keyof FactoryOptions)[] = [],
-) {
-  const options: FactoryOptions = {
+interface BootOverrides extends Partial<Omit<FactoryOptions, "workers">> {
+  /** The drafter's reader; the shared fake by default. */
+  readonly drafterReader?: WorkspaceReader
+  /** `false`: no drafter in the map, as a controller without the drafter pair boots. */
+  readonly withDrafter?: boolean
+}
+async function bootFactory(overrides: BootOverrides = {}) {
+  const { drafterReader, withDrafter = true, ...rest } = overrides
+  factory = await createFactory({
     registryPath: registryPath(),
     generatedTasksDir: generated,
-    worker: createHttpWorkerClient(fake.baseUrl),
-    workerRoute: "/build#agent",
-    intakeRoute: "/intake#agent",
-    intakeTaskId: "devkit-spawn-deadline",
+    workers: fakeWorkerMap({
+      // One reader serves both stages: the drafter's `draft/` and the builder's candidate are
+      // scripted under their own thread ids, and the fake ignores the task and the root.
+      builder: { client: createHttpWorkerClient(builder.baseUrl), reader },
+      ...(withDrafter
+        ? {
+            drafter: {
+              client: createHttpWorkerClient(fake.baseUrl),
+              reader: drafterReader ?? reader,
+              manifestDir: manifestDir(),
+            },
+          }
+        : {}),
+    }),
     exportDir: join(dir, "out"),
     artifactsDir: join(dir, "artifacts"),
     verifier,
-    workspaceReader: reader,
     captureBaseline,
-    ...overrides,
-  }
-  factory = await createFactory(
-    Object.fromEntries(
-      Object.entries(options).filter(([key]) => !omit.includes(key as keyof FactoryOptions)),
-    ) as unknown as FactoryOptions,
-  )
+    writeDrafterManifest: fakeManifestWriter,
+    ...rest,
+  })
   return factory
 }
 async function boot(
   worker: Omit<FakeWorkerOptions, "outboxDir"> = {},
-  overrides: Partial<FactoryOptions> = {},
+  overrides: BootOverrides = {},
 ) {
   await bootWorker(worker)
   await bootFactory(overrides)
 }
 afterEach(async () => {
   resetCatalogForTests()
+  delete process.env.FACTORY_REPO_ROOT
+  delete process.env.FACTORY_NO_FETCH
   await factory?.close()
   await fake?.close()
+  await builder?.close()
   if (dir) rmSync(dir, { recursive: true, force: true })
   dir = undefined as unknown as string
   fake = undefined as unknown as FakeWorker
+  builder = undefined as unknown as FakeWorker
   factory = undefined as unknown as Factory
   reader = undefined as unknown as FakeWorkspaceReader
 })
 
 const crash = () => factory.close()
+/** The drafter's requests: every intake thread and turn lands on it. */
 const threadPosts = () => fake.requests.filter((r) => r.path === "/threads")
 const runPosts = () =>
   fake.requests.filter((r) => r.method === "POST" && r.path.endsWith("/runs/stream"))
 const cancels = () => fake.requests.filter((r) => r.path.endsWith("/cancel"))
+const resumes = () => fake.requests.filter((r) => r.method === "POST" && r.path.endsWith("/resume"))
+/** The builder's: nothing before dispatch. */
+const builderThreadPosts = () => builder.requests.filter((r) => r.path === "/threads")
+const builderRunPosts = () =>
+  builder.requests.filter((r) => r.method === "POST" && r.path.endsWith("/runs/stream"))
 /** The prompt the worker was sent on run `index`; throws when there was no such run. */
 function promptOf(index: number): string {
   const post = runPosts()[index]
@@ -174,10 +237,12 @@ describe("intake", () => {
 
     expect(eventTypes(id)).toEqual([
       "created:",
+      "drafter_manifest_written:",
       "intake_thread_created:",
       "transition:intake_started",
       "intake_run_started:",
       "intake_turn_ended:",
+      "draft_read:",
       "task_generated:",
       "oracle_receipt:",
       "transition:intake_drafted",
@@ -186,14 +251,25 @@ describe("intake", () => {
     expect(receipt).toMatchObject({ verdict: "fail", checkId: "independent", proven: true })
     expect(receipt?.receiptId).toMatch(/^rc-/)
 
-    // The drafter thread is the intake stage's, on the intake route, prompted with the issue
-    // and the four-file instruction.
+    // The drafter thread is the intake stage's, on the DRAFTER and its route, prompted with
+    // the issue and the four-file instruction; the builder heard nothing.
     expect(threadPosts()).toHaveLength(1)
     expect(threadPosts()[0]?.body).toMatchObject({
       metadata: { factoryWorkOrderId: id, factoryStage: "intake" },
     })
+    expect(builder.requests).toEqual([])
+    expect(row.workerRoute).toBe("/intake#agent")
     expect(runPosts()).toHaveLength(1)
     expect(runPosts()[0]?.body).toMatchObject({ route: "/intake#agent" })
+    // The manifest the drafter's resolver reads was written for this work order, at the
+    // row's pin, into the drafter's manifest directory, BEFORE the thread was created; it
+    // stays while the draft awaits a person (a rejection redrafts on the same thread).
+    expect(manifestWrites).toEqual([{ workOrderId: id, pin: PIN, dir: manifestDir() }])
+    expect(JSON.parse(readFileSync(manifestPath(id), "utf8"))).toMatchObject({ workOrderId: id })
+    expect(factory.events(id).find((e) => e.type === "drafter_manifest_written")?.payload).toEqual({
+      path: manifestPath(id),
+      sourceDigest: "c".repeat(64),
+    })
     expect(promptOf(0)).toContain(ISSUE.title)
     expect(promptOf(0)).toContain("draft/task.json")
     // The proof ran the independent suite alone, over no changes, on the generated task.
@@ -226,16 +302,18 @@ describe("intake", () => {
     expect(threadPosts()).toHaveLength(1)
 
     await factory.close()
-    await bootFactory({}, ["intakeTaskId"])
+    await bootFactory({ withDrafter: false })
     const fresh = await factory.createFromIssue({ origin: ORIGIN, pin: PIN, issue: ISSUE })
     expect(await factory.intake(fresh.id)).toEqual({
       ok: false,
       state: "received",
-      message: "intake is not configured: set FACTORY_INTAKE_TASK",
+      message: DRAFTER_UNCONFIGURED,
     })
-    // Refused before a thread is spent, and before the key is: the operator configures the
-    // task and restarts, and the same call under the default key is not a replayed refusal.
+    // Refused before a thread is spent, before a manifest is written, and before the key is:
+    // the operator configures the drafter and restarts, and the same call under the default
+    // key is not a replayed refusal.
     expect(threadPosts()).toHaveLength(1)
+    expect(manifestWrites).toHaveLength(1)
     await factory.close()
     await bootFactory()
     expect(await factory.intake(fresh.id)).toEqual({
@@ -266,7 +344,11 @@ describe("intake", () => {
     })
     expect(String(refusals(id)[0]?.payload.reason)).toMatch(/no-such-target/)
     expect(eventTypes(id)).not.toContain("transition:intake_retry")
-    expect(eventTypes(id).at(-1)).toBe("transition:intake_blocked")
+    // The block, then the manifest's removal: the removal follows the committed move.
+    expect(eventTypes(id).slice(-2)).toEqual([
+      "transition:intake_blocked",
+      "drafter_manifest_removed:",
+    ])
   })
 
   it("retries an invalid draft on the same thread with the refusal quoted, then parks", async () => {
@@ -310,6 +392,135 @@ describe("intake", () => {
     // The row says the attempts ran out; the journal says what the last one was refused for.
     expect(refusals(id)[1]?.payload).toMatchObject({ blockedReason: "intake_invalid", attempt: 2 })
     expect(eventTypes(id).filter((t) => t === "transition:intake_retry")).toHaveLength(1)
+    // The retry kept the manifest (the same thread redrafts); the block removed it: nothing
+    // will admit that thread again.
+    expect(manifestWrites).toHaveLength(1)
+    expect(existsSync(manifestPath(id))).toBe(false)
+    expect(factory.events(id).find((e) => e.type === "drafter_manifest_removed")?.payload).toEqual({
+      path: manifestPath(id),
+    })
+    const types = eventTypes(id)
+    expect(types.indexOf("drafter_manifest_removed:")).toBeGreaterThan(
+      types.indexOf("transition:intake_retry"),
+    )
+  })
+
+  it("removes the manifest when the drafter thread cannot be created", async () => {
+    await boot()
+    const { id } = await createIssue()
+    await fake.close()
+    expect(await factory.intake(id)).toMatchObject({
+      ok: false,
+      state: "received",
+      message: expect.stringMatching(/^Thread creation failed/),
+    })
+    expect(manifestWrites).toHaveLength(1)
+    expect(existsSync(manifestPath(id))).toBe(false)
+    expect(eventTypes(id)).toEqual([
+      "created:",
+      "drafter_manifest_written:",
+      "drafter_manifest_removed:",
+    ])
+  })
+
+  it("removes the manifest when a cancel lands before the intake thread is committed", async () => {
+    await bootWorker()
+    // The cancel arrives in the window after the manifest is written and before the thread
+    // is committed to the row: the writer is the one seam inside that window.
+    await bootFactory({
+      writeDrafterManifest: async (options) => {
+        const written = await fakeManifestWriter(options)
+        expect(await factory.cancel(options.workOrderId)).toMatchObject({
+          ok: true,
+          state: "cancelled",
+        })
+        return written
+      },
+    })
+    const { id } = await createIssue()
+    expect(await factory.intake(id)).toEqual({
+      ok: false,
+      state: "cancelled",
+      message: "Work order changed state while starting intake",
+    })
+    // The thread was made, orphaned and cancelled on the drafter; the manifest went with it.
+    expect(threadPosts()).toHaveLength(1)
+    expect(eventTypes(id)).toContain("thread_orphaned:")
+    expect(existsSync(manifestPath(id))).toBe(false)
+    const types = eventTypes(id)
+    expect(types.indexOf("drafter_manifest_removed:")).toBeGreaterThan(
+      types.indexOf("thread_orphaned:"),
+    )
+    expect(factory.show(id)).toMatchObject({ state: "cancelled", workerThreadId: null })
+  })
+
+  it("refuses a pin the repository cannot reach without spending the key, and proceeds once it can", async () => {
+    await boot()
+    const { id } = await createIssue()
+    // The controller's repository does not hold the pin and may not fetch: the one transient
+    // precondition of the manifest write, refused before the key.
+    const empty = createEmptyRepo(join(dir, "empty-"))
+    process.env.FACTORY_REPO_ROOT = empty
+    process.env.FACTORY_NO_FETCH = "1"
+    expect(await factory.intake(id)).toEqual({
+      ok: false,
+      state: "received",
+      message: expect.stringMatching(
+        new RegExp(
+          `^pin ${PIN} is not in the repository and could not be fetched: .*FACTORY_NO_FETCH=1`,
+        ),
+      ),
+    })
+    expect(manifestWrites).toEqual([])
+    expect(threadPosts()).toHaveLength(0)
+    expect(factory.events(id).at(-1)).toMatchObject({
+      type: "pin_unavailable",
+      payload: { pin: PIN },
+    })
+    // The pin becomes reachable (here: the controller's repository is the one that holds
+    // it again): the SAME call, under the default key, is not a replayed refusal.
+    delete process.env.FACTORY_REPO_ROOT
+    delete process.env.FACTORY_NO_FETCH
+    expect(await factory.intake(id)).toEqual({
+      ok: true,
+      state: "intake_running",
+      message: "Intake started",
+    })
+    expect(manifestWrites).toEqual([{ workOrderId: id, pin: PIN, dir: manifestDir() }])
+    reader.set((factory.show(id) as WorkOrderRow).workerThreadId as string, GOOD_DRAFT)
+    expect((await factory.settleIntake(id, 20_000)).state).toBe("awaiting_intake_approval")
+  })
+
+  it("refuses the intake, key spent, when the drafter manifest cannot be written", async () => {
+    await boot()
+    const { id } = await createIssue()
+    await factory.close()
+    await bootFactory({
+      writeDrafterManifest: async () => {
+        throw new Error("git archive failed")
+      },
+    })
+    expect(await factory.intake(id)).toEqual({
+      ok: false,
+      state: "received",
+      message: "drafter manifest could not be written: Error: git archive failed",
+    })
+    // No thread was spent on a manifest nothing can serve.
+    expect(threadPosts()).toHaveLength(0)
+    expect(factory.events(id).at(-1)).toMatchObject({
+      type: "drafter_manifest_failed",
+      payload: { error: "Error: git archive failed" },
+    })
+    // The key is spent: the same call replays the refusal, and a fresh key (a restart after
+    // the operator fixes the repository) writes and starts.
+    expect(await factory.intake(id)).toMatchObject({ ok: false, state: "received" })
+    await factory.close()
+    await bootFactory()
+    expect(await factory.intake(id, "intake-again")).toMatchObject({
+      ok: true,
+      state: "intake_running",
+    })
+    expect(existsSync(manifestPath(id))).toBe(true)
   })
 
   it("refuses a check that does not fail on the baseline, and exhausts the attempts on it", async () => {
@@ -393,10 +604,11 @@ describe("intake", () => {
     const { id } = await intake()
     const row = await factory.settleIntake(id, 20_000)
     expect(row).toMatchObject({ state: "blocked", blockedReason: "intake_run_failed" })
-    expect(factory.events(id).at(-1)?.payload).toMatchObject({
+    expect(factory.events(id).at(-2)?.payload).toMatchObject({
       event: "intake_blocked",
       error: "route exploded",
     })
+    expect(factory.events(id).at(-1)?.type).toBe("drafter_manifest_removed")
     expect(reader.reads).toEqual([])
   })
 
@@ -415,6 +627,85 @@ describe("intake", () => {
     expect(factory.events(id).find((e) => e.type === "stream_lost")?.payload).toMatchObject({
       phase: "intake_start",
     })
+  })
+})
+
+describe("the drafter thread's draft/", () => {
+  /** A drafter reader whose thread has no `draft/` at all: the reader reports the root missing. */
+  const noDraft: WorkspaceReader = {
+    async read(target) {
+      throw new WorkspaceRootMissingError("draft", target.threadId, "absent")
+    },
+  }
+
+  it("refuses a missing draft/ as an invalid draft: the attempt is spent and the retry quotes it", async () => {
+    await bootWorker()
+    await bootFactory({ drafterReader: noDraft })
+    const { id, threadId } = await createIssue().then(async ({ id }) => {
+      expect(await factory.intake(id)).toMatchObject({ ok: true })
+      return { id, threadId: (factory.show(id) as WorkOrderRow).workerThreadId as string }
+    })
+    const row = await factory.settleIntake(id, 20_000)
+    // Two attempts by default, both refused the same way: the second exhausts them.
+    expect(row).toMatchObject({
+      state: "blocked",
+      blockedReason: "intake_attempts_exhausted",
+      intakeAttempts: 2,
+      workerThreadId: threadId,
+    })
+    expect(refusals(id).map((e) => e.payload)).toEqual([
+      expect.objectContaining({ blockedReason: "intake_invalid", attempt: 1 }),
+      expect.objectContaining({ blockedReason: "intake_invalid", attempt: 2 }),
+    ])
+    expect(refusals(id)[0]?.payload.reason).toBe(
+      "draft/ is missing: the drafter wrote nothing under it",
+    )
+    // Not a failed run: a reader that could not read is `intake_run_failed`; this one read
+    // the thread and found nothing where the draft belongs.
+    expect(eventSeen(id, "workspace_unreadable")).toBe(false)
+    expect(runPosts()).toHaveLength(2)
+    expect(promptOf(1)).toContain("draft/ is missing")
+    // The builder's reader was never consulted for the drafter thread.
+    expect(reader.reads).toEqual([])
+  })
+
+  it("refuses a draft/ that is a file, not a directory, with its own reason", async () => {
+    await bootWorker()
+    const fileNotDirectory: WorkspaceReader = {
+      async read(target) {
+        throw new WorkspaceRootMissingError("draft", target.threadId, "not_directory")
+      },
+    }
+    await bootFactory({ drafterReader: fileNotDirectory })
+    const { id } = await createIssue()
+    expect(await factory.intake(id)).toMatchObject({ ok: true })
+    const row = await factory.settleIntake(id, 20_000)
+    expect(row).toMatchObject({ state: "blocked", blockedReason: "intake_attempts_exhausted" })
+    expect(refusals(id)[0]?.payload).toMatchObject({
+      blockedReason: "intake_invalid",
+      reason: "draft/ is not a directory: the drafter must write files under it",
+    })
+    expect(promptOf(1)).toContain("draft/ is not a directory")
+  })
+
+  it("keeps every other read failure a failed run, not a spent attempt", async () => {
+    await bootWorker()
+    const broken: WorkspaceReader = {
+      async read() {
+        throw new Error("the sandbox is gone")
+      },
+    }
+    await bootFactory({ drafterReader: broken })
+    const { id } = await createIssue()
+    expect(await factory.intake(id)).toMatchObject({ ok: true })
+    const row = await factory.settleIntake(id, 20_000)
+    expect(row).toMatchObject({
+      state: "blocked",
+      blockedReason: "intake_run_failed",
+      intakeAttempts: 0,
+    })
+    expect(eventSeen(id, "workspace_unreadable")).toBe(true)
+    expect(refusals(id)).toEqual([])
   })
 })
 
@@ -457,7 +748,15 @@ describe("the intake gate", () => {
     const approved = await factory.approveIntake(id, { revision: parked.revision, taskDigest })
     expect(approved).toEqual({ ok: true, state: "received", message: "Intake approved" })
     expect(factory.show(id)).toMatchObject({ state: "received", taskDigest, targetId: "devkit" })
-    expect(factory.events(id).at(-1)).toMatchObject({
+    // The approval's own transaction commits (the move and its journal line together), and
+    // only then is the manifest removed: nothing irreversible inside a unit that can roll back.
+    expect(
+      factory
+        .events(id)
+        .slice(-3)
+        .map((e) => e.type),
+    ).toEqual(["transition", "intake_approved", "drafter_manifest_removed"])
+    expect(factory.events(id).at(-2)).toMatchObject({
       type: "intake_approved",
       payload: { taskDigest },
     })
@@ -492,10 +791,16 @@ describe("the intake gate", () => {
     })
     writeFileSync(spec, original)
     expect(threadPosts()).toHaveLength(1)
+    // The approval ended the manifest's life: the drafter thread was admitted with it, and
+    // no redraft can follow an approval.
+    expect(existsSync(manifestPath(id))).toBe(false)
+    expect(eventTypes(id)).toContain("drafter_manifest_removed:")
 
-    // Rung 2 from here: the builder gets its own thread, the generated task's prompt, and the
-    // full verification of what it left behind.
+    // Rung 2 from here: the builder gets its own thread ON THE BUILDER, the generated task's
+    // prompt, and the full verification of what it left behind. The drafter hears nothing
+    // more.
     verifier.script = { verdict: "pass" }
+    expect(builderThreadPosts()).toHaveLength(0)
     expect(await factory.dispatch(id)).toEqual({
       ok: true,
       state: "dispatched",
@@ -504,13 +809,16 @@ describe("the intake gate", () => {
     const dispatched = await factory.waitFor(id, (r) => r.state !== "received")
     const builderThread = dispatched.workerThreadId as string
     expect(builderThread).not.toBe(parked.workerThreadId)
+    expect(dispatched.workerRoute).toBe("/build#agent")
     reader.set(builderThread, repaired())
     const row = await factory.settle(id, 20_000)
     expect(row).toMatchObject({ state: "awaiting_approval", taskDigest, targetId: "devkit" })
     expect(row.candidateDigest).toMatch(/^[a-f0-9]{64}$/)
-    expect(threadPosts()).toHaveLength(2)
-    expect(threadPosts()[1]?.body).toMatchObject({ metadata: { factoryWorkOrderId: id } })
-    expect(runPosts()[1]?.body).toMatchObject({
+    expect(threadPosts()).toHaveLength(1)
+    expect(runPosts()).toHaveLength(1)
+    expect(builderThreadPosts()).toHaveLength(1)
+    expect(builderThreadPosts()[0]?.body).toMatchObject({ metadata: { factoryWorkOrderId: id } })
+    expect(builderRunPosts()[0]?.body).toMatchObject({
       route: "/build#agent",
       input: { messages: [{ role: "user", content: taskPrompt(loadTask(id)) }] },
     })
@@ -590,6 +898,8 @@ describe("the intake gate", () => {
     // its proof is no longer the row's evidence, until the redraft parks a new one.
     expect(factory.show(id)).toMatchObject({ taskDigest: null, targetId: null })
     expect(factory.evidence(id).oracleReceipt).toBeNull()
+    // The redraft reuses the admitted thread, so the manifest is kept and not rewritten.
+    expect(existsSync(manifestPath(id))).toBe(true)
     const row = await factory.settleIntake(id, 20_000)
     expect(row).toMatchObject({
       state: "awaiting_intake_approval",
@@ -597,6 +907,8 @@ describe("the intake gate", () => {
       workerThreadId: threadId,
     })
     expect(threadPosts()).toHaveLength(1)
+    expect(manifestWrites).toHaveLength(1)
+    expect(existsSync(manifestPath(id))).toBe(true)
     expect(runPosts()).toHaveLength(2)
     expect(promptOf(1)).toContain("Previous attempt was refused")
     expect(promptOf(1)).toContain(note)
@@ -617,6 +929,8 @@ describe("the intake gate", () => {
       intakeAttempts: 2,
     })
     expect(runPosts()).toHaveLength(2)
+    // Blocked with no attempts left: nothing will redraft on that thread, and the manifest goes.
+    expect(existsSync(manifestPath(id))).toBe(false)
     expect(await factory.rejectIntake(id, { note: "again" })).toMatchObject({
       ok: false,
       message: "Cannot reject intake from blocked",
@@ -636,13 +950,133 @@ describe("the intake gate", () => {
       types.indexOf("transition:run_ended_after_cancel"),
     )
     expect(factory.show(id)).toMatchObject({ state: "cancelled", intakeAttempts: 0 })
+    // The cancel went to the DRAFTER, which holds the thread; the builder was never asked.
+    expect(builder.requests).toEqual([])
+    // A settled intake thread needs no manifest.
+    expect(existsSync(manifestPath(id))).toBe(false)
+    expect(types.indexOf("drafter_manifest_removed:")).toBeLessThan(
+      types.indexOf("transition:run_ended_after_cancel"),
+    )
     // Nothing was drafted: no read, no proof.
     expect(reader.reads).toEqual([])
     expect(verifier.calls).toEqual([])
   })
+
+  it("settles a cancel as cancelled, journalled, when the row's worker has left the map", async () => {
+    await boot({ run: "hang" })
+    const { id } = await intake()
+    await factory.waitFor(id, () => eventSeen(id, "intake_run_started"))
+    await factory.close()
+    // The drafter pair unset under a draft in flight: the boot walk cannot reach the thread
+    // and says so; the row waits.
+    await bootFactory({ withDrafter: false })
+    expect(factory.show(id)?.state).toBe("intake_running")
+    expect(factory.events(id).at(-1)).toMatchObject({
+      type: "reconcile_failed",
+      payload: { error: expect.stringMatching(/intake is not configured/) },
+    })
+    // The operator's escape: nothing to cancel on, nothing to deny, and the row settles.
+    expect(await factory.cancel(id)).toEqual({ ok: true, state: "cancelled", message: "Cancelled" })
+    expect(factory.events(id).find((e) => e.type === "worker_unavailable")?.payload).toMatchObject({
+      phase: "cancel",
+      error: expect.stringMatching(/intake is not configured/),
+    })
+    expect(cancels()).toHaveLength(0)
+    expect(resumes()).toHaveLength(0)
+    expect(factory.show(id)).toMatchObject({ state: "cancelled" })
+  })
+
+  it("denies a prompt the drafter parked on, on the drafter's route, whether by deny or by cancel", async () => {
+    await boot({ run: "unexpected_interrupt" })
+    const { id, threadId } = await intake()
+    const blocked = await factory.settleIntake(id, 20_000)
+    expect(blocked).toMatchObject({ state: "blocked", blockedReason: "intake_run_failed" })
+    expect(fake.thread(threadId)?.pending).not.toBeNull()
+    // The state alone no longer says whose thread this is: the journal does.
+    expect(await factory.deny(id)).toEqual({ ok: true, state: "denied", message: "Denied" })
+    expect(resumes()).toHaveLength(1)
+    expect(resumes()[0]).toMatchObject({
+      path: `/threads/${threadId}/resume`,
+      body: { route: "/intake#agent" },
+    })
+    expect(fake.thread(threadId)?.pending).toBeNull()
+    expect(builder.requests).toEqual([])
+
+    // The same through cancel: a second blocked row, its parked prompt denied by the cancel.
+    const second = await factory.createFromIssue({ origin: ORIGIN, pin: PIN, issue: ISSUE })
+    expect(await factory.intake(second.id)).toMatchObject({ ok: true })
+    await factory.settleIntake(second.id, 20_000)
+    const secondThread = (factory.show(second.id) as WorkOrderRow).workerThreadId as string
+    expect(await factory.cancel(second.id)).toMatchObject({ ok: true, state: "cancelled" })
+    expect(resumes()).toHaveLength(2)
+    expect(resumes()[1]).toMatchObject({
+      path: `/threads/${secondThread}/resume`,
+      body: { route: "/intake#agent" },
+    })
+    expect(builder.requests).toEqual([])
+    expect(existsSync(manifestPath(second.id))).toBe(false)
+  })
 })
 
 describe("intake reconciliation", () => {
+  it("adopts a builder thread a crashed dispatch journalled behind the lingering drafter thread", async () => {
+    await bootWorker()
+    await bootFactory()
+    const { id } = await intake()
+    const parked = await factory.settleIntake(id, 20_000)
+    const intakeThread = parked.workerThreadId as string
+    expect(
+      await factory.approveIntake(id, {
+        revision: parked.revision,
+        taskDigest: parked.taskDigest as string,
+      }),
+    ).toMatchObject({ ok: true, state: "received" })
+    await crash()
+    // The window a crashed dispatch leaves on an approved-draft row: the builder thread
+    // exists and is journalled, the command is open, and the row still holds the drafter's.
+    const created = await fetch(`${builder.baseUrl}/threads`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ metadata: { factoryWorkOrderId: id } }),
+    })
+    const builderThread = ((await created.json()) as { thread_id: string }).thread_id
+    expect(builderThread).not.toBe(intakeThread)
+    const registry = openRegistry(registryPath())
+    createWorkOrderStore(registry.db).appendEvent(
+      id,
+      "thread_created",
+      { threadId: builderThread },
+      new Date().toISOString(),
+    )
+    const commands = createCommandLog(registry.db)
+    commands.begin(
+      "dispatch-orphan",
+      id,
+      { command: "dispatch", args: {} },
+      new Date().toISOString(),
+    )
+    registry.close()
+    reader.set(builderThread, repaired())
+    verifier.script = { verdict: "pass" }
+    await bootFactory()
+    // No second builder thread: the journalled one is adopted, on the builder's route.
+    expect(builderThreadPosts()).toHaveLength(1)
+    expect(
+      factory.events(id).find((e) => e.payload.resolution === "thread_adopted")?.payload,
+    ).toMatchObject({ threadId: builderThread, operationKey: "dispatch-orphan" })
+    const row = await factory.settle(id, 20_000)
+    expect(row).toMatchObject({
+      state: "awaiting_approval",
+      workerThreadId: builderThread,
+      workerRoute: "/build#agent",
+    })
+    expect(await factory.dispatch(id, "dispatch-orphan")).toMatchObject({
+      ok: true,
+      state: "dispatched",
+      message: "Adopted thread after restart",
+    })
+  })
+
   it("finishes an intake whose turn ended while nobody watched", async () => {
     await bootWorker()
     await bootFactory()
@@ -770,7 +1204,7 @@ describe("intake reconciliation", () => {
           signal.addEventListener("abort", () => reject(signal.reason), { once: true })
         }),
     }
-    await bootFactory({ workspaceReader: holding })
+    await bootFactory({ drafterReader: holding })
     await askedOnce
     expect(factory.show(id)?.state).toBe("intake_running")
     await factory.close()

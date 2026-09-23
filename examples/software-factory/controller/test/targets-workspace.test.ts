@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
@@ -7,6 +7,8 @@ import { imageTag, type Task } from "../src/lib/targets/catalog.ts"
 import {
   builderSandboxProvider,
   builderSandboxScope,
+  drafterInspectionOptions,
+  drafterSandboxProvider,
   targetInspectionOptions,
   targetSandboxPolicy,
   targetWorkspace,
@@ -176,5 +178,28 @@ describe("builderSandboxProvider", () => {
     expect(provider.name).toBe("docker")
     expect(imageTag(t.target)).toMatch(/^b4-factory-t:[a-f0-9]{12}-[a-f0-9]{12}$/)
     expect(builderSandboxScope).toBe("software-factory-builder")
+  })
+})
+
+describe("the drafter's provider and inspection", () => {
+  it("addresses the drafter's threads by the scope its config declares and the given image", () => {
+    const provider = drafterSandboxProvider(`node:24-slim@sha256:${"0".repeat(64)}`)
+    expect(provider.name).toBe("docker")
+    // The literal the drafter's b4.config.ts uses, pinned by name here.
+    const config = readFileSync(new URL("../../drafter/b4.config.ts", import.meta.url), "utf8")
+    expect(config).toContain('scope: "software-factory-drafter"')
+    expect(
+      readFileSync(new URL("../src/lib/targets/workspace.ts", import.meta.url), "utf8"),
+    ).toContain('scope: "software-factory-drafter"')
+  })
+
+  it("inspects a draft as a handful of small text files with no links and no baseline", () => {
+    expect(drafterInspectionOptions()).toEqual({
+      excludeRootDirectories: [],
+      expectedRootSymlinks: {},
+      maxEntries: 200,
+      maxFileBytes: 512 * 1024,
+      maxTotalBytes: 2 * 1024 * 1024,
+    })
   })
 })

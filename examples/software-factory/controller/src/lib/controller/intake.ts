@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import type { BlockedReason } from "../domain/states.js"
 import type { WorkOrderRow } from "../domain/work-order.js"
@@ -8,9 +8,11 @@ import { proveOracle } from "../intake/oracle.js"
 import { intakePrompt } from "../prompts.js"
 import { loadPolicy } from "../verification/policy.js"
 import { classifyDone, type StreamFrame } from "../worker/wire.js"
+import { WorkspaceRootMissingError } from "../worker/workspace-reader.js"
 import type { ControllerContext } from "./context.js"
 import { reconcileWorkOrder } from "./reconcile.js"
 import { consumeTurn } from "./turns.js"
+import type { DrafterWorker } from "./workers.js"
 
 /**
  * The intake phase (spec §6.5), mirroring `verify.ts`: one drafter turn on the work order's
@@ -107,7 +109,8 @@ async function runDrafterTurn(
   }
   let frames: AsyncIterable<StreamFrame>
   try {
-    frames = await ctx.worker.startRun(threadId, ctx.intakeRoute, prompt, ctx.signal)
+    const drafter = ctx.drafter()
+    frames = await drafter.client.startRun(threadId, drafter.route, prompt, ctx.signal)
   } catch (error) {
     ctx.recordEvent(id, "stream_lost", { phase: "intake_start", error: String(error) })
     // A closing factory or a cancel aborted the start; the row is theirs, not this run's.
@@ -237,25 +240,50 @@ async function proveDraft(
     block(ctx, id, "intake_run_failed", { reason, error: String(error) })
   }
 
-  if (ctx.intakeTaskId === undefined) {
-    block(ctx, id, "intake_run_failed", {
-      reason: "intake is not configured: set FACTORY_INTAKE_TASK",
-    })
+  // The `intake` command refused before the thread existed; a row that reaches here with no
+  // drafter is a fault of this process (the map changed under it), not a state to spend an
+  // attempt on.
+  let drafter: DrafterWorker
+  try {
+    drafter = ctx.drafter()
+  } catch (error) {
+    block(ctx, id, "intake_run_failed", { reason: String(error) })
     return
   }
-  let observed: ReadonlyMap<string, string>
+  // The read is re-rooted at `draft/` (the reader's `root`), so the keys already carry the
+  // prefix `parseDraft` expects and nothing under `repo/` was walked.
+  let draft: ReadonlyMap<string, string>
+  const readStarted = Date.now()
   try {
-    observed = await ctx.workspaceReader.read({ threadId, taskId: ctx.intakeTaskId }, signal)
+    draft = await drafter.reader.read({ threadId }, signal)
   } catch (error) {
+    // The one read failure that IS a verdict on the draft: the thread was reached and there
+    // is nothing where the draft belongs. The drafter's fault, and an attempt spent on it.
+    if (error instanceof WorkspaceRootMissingError && !signal.aborted) {
+      await refuse(
+        ctx,
+        id,
+        error.kind === "absent"
+          ? `${DRAFT_ROOT} is missing: the drafter wrote nothing under it`
+          : `${DRAFT_ROOT} is not a directory: the drafter must write files under it`,
+        "intake_invalid",
+      )
+      return
+    }
     unavailable("workspace_unreadable", error, "the drafter workspace could not be read")
     return
   }
+  // What the re-rooted read returned, on the record: the paths are the drafter's whole
+  // output as the controller saw it, and a count under the inspection bound with a duration
+  // of seconds is the journal's own evidence that `repo/` was never walked.
+  ctx.recordEvent(id, "draft_read", {
+    files: [...draft.keys()].sort(),
+    ms: Date.now() - readStarted,
+  })
   // The read was an await: a cancel may have moved the row, and nothing below is legal from
   // where it left it.
   if (!isIntake(ctx.mustGet(id).state)) return
 
-  const draft = new Map<string, string>()
-  for (const [path, content] of observed) if (path.startsWith(DRAFT_ROOT)) draft.set(path, content)
   const parsed = parseDraft(draft, { workOrderId: id })
   if (!parsed.ok) {
     await refuse(ctx, id, parsed.reason, parsed.blockedReason)
@@ -338,6 +366,35 @@ async function proveDraft(
     },
     { taskDigest: generated.digest, receiptId: receipt.id, attempt: current.intakeAttempts + 1 },
   )
+}
+
+/**
+ * Remove the work order's drafter manifest (`<manifestDir>/<id>.json`), the file `intake`
+ * wrote for the drafter's resolver. The resolver reads it once, when the thread's first run
+ * is admitted, so it is dead weight (some 20 MiB on this repository) from then on; it is
+ * removed when the row leaves the intake states for good (a block, an approval, a settled
+ * cancel) and kept across a redraft, which reuses the admitted thread. A removal that fails
+ * is journalled and never fails the command that asked for it: the manifest is not evidence,
+ * and a stale one costs disk, not correctness. Nothing to remove (no drafter configured, or
+ * the file already gone) is not a failure.
+ */
+export function removeDrafterManifest(ctx: ControllerContext, id: string): void {
+  let dir: string
+  try {
+    dir = ctx.drafter().manifestDir
+  } catch {
+    return
+  }
+  const path = join(dir, `${id}.json`)
+  try {
+    // Already gone (removed at the block, then asked again by the cancel that followed) is
+    // nothing to journal: the line says a file was removed, and it was not.
+    if (!existsSync(path)) return
+    rmSync(path, { force: true })
+    ctx.recordEvent(id, "drafter_manifest_removed", { path })
+  } catch (error) {
+    ctx.recordEvent(id, "drafter_manifest_remove_failed", { path, error: String(error) })
+  }
 }
 
 /**

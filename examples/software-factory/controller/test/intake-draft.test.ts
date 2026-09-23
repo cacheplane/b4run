@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { acceptanceIdsOf, parseDraft } from "../src/lib/intake/draft.ts"
 import { digestGeneratedTask, writeGeneratedTask } from "../src/lib/intake/generated-task.ts"
 import { configureCatalog, loadTask, resetCatalogForTests } from "../src/lib/targets/catalog.ts"
-import { BAD_DRAFTS, GOOD_DRAFT } from "./intake-fixtures.ts"
+import { BAD_DRAFTS, GOOD_DRAFT, ORACLE_DRAFT } from "./intake-fixtures.ts"
 
 const WO = "wo-0123456789abcdef"
 const files = (draft: Readonly<Record<string, string>>) => new Map(Object.entries(draft))
@@ -34,6 +34,22 @@ describe("acceptanceIdsOf", () => {
 })
 
 describe("parseDraft", () => {
+  it("accepts the oracle draft: the cli-flags task with derived acceptance ids", () => {
+    // The Docker lane's draft, checked here first so a fixture defect is a unit failure and
+    // not a ten-minute lane.
+    const parsed = parseDraft(files(ORACLE_DRAFT), { workOrderId: WO })
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) throw new Error(parsed.reason)
+    expect(parsed.manifest.target).toBe("cli-flags")
+    expect(parsed.checks.independent.file).toBe("checks/independent.test.ts")
+    expect(parsed.acceptanceIds).toEqual(["A1", "A2", "A3"])
+    expect(parsed.checks.independent.assertions.map((a) => a.slice(0, 3))).toEqual([
+      "A1:",
+      "A2:",
+      "A3:",
+    ])
+  })
+
   it("accepts the good draft and fills id, visible and acceptance ids", () => {
     const parsed = parseDraft(files(GOOD_DRAFT), { workOrderId: WO })
     expect(parsed.ok).toBe(true)

@@ -14,6 +14,7 @@ import {
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
+import { fakeWorkerMap } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
 
 let dir: string
@@ -54,12 +55,12 @@ async function boot(
   factory = await createFactory({
     registryPath: join(dir, "registry.sqlite"),
     generatedTasksDir: join(dir, "tasks"),
-    worker: createHttpWorkerClient(fake.baseUrl),
-    workerRoute: "/build#agent",
+    workers: fakeWorkerMap({
+      builder: { client: createHttpWorkerClient(fake.baseUrl), reader },
+    }),
     exportDir: join(dir, "out"),
     artifactsDir: join(dir, "artifacts"),
     verifier: createFakeVerifier({ verdict: "pass" }),
-    workspaceReader: reader,
     captureBaseline: captureRepairable,
     ...overrides,
   })
@@ -196,12 +197,12 @@ describe("create and dispatch", () => {
     factory = await createFactory({
       registryPath: join(dir, "registry.sqlite"),
       generatedTasksDir: join(dir, "tasks"),
-      worker: createHttpWorkerClient(fake.baseUrl),
-      workerRoute: "/build#agent",
+      workers: fakeWorkerMap({
+        builder: { client: createHttpWorkerClient(fake.baseUrl), reader },
+      }),
       exportDir: join(dir, "out"),
       artifactsDir: join(dir, "artifacts"),
       verifier: createFakeVerifier({ verdict: "pass" }),
-      workspaceReader: reader,
       captureBaseline: captureRepairable,
       now: () => (clock += 1_000),
     })
@@ -212,6 +213,46 @@ describe("create and dispatch", () => {
     expect(row.activeStartedAt).toBeNull()
   })
 
+  it("refuses a target no worker serves before spending the key, and dispatches once one does", async () => {
+    await boot()
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    const targetId = loadTask("cli-flags").target.id
+    // The map is the operator's configuration, not a function of the row: an empty map
+    // (no entry for the target, no wildcard) refuses without a key, so the dispatch after
+    // the entry is added is not the replay of this refusal.
+    const unserved = await createFactory({
+      registryPath: join(dir, "registry.sqlite"),
+      generatedTasksDir: join(dir, "tasks"),
+      workers: fakeWorkerMap({}),
+      exportDir: join(dir, "out"),
+      artifactsDir: join(dir, "artifacts"),
+      verifier: createFakeVerifier({ verdict: "pass" }),
+      captureBaseline: captureRepairable,
+    })
+    try {
+      expect(await unserved.dispatch(id)).toEqual({
+        ok: false,
+        state: "received",
+        message: `no worker for target ${targetId}`,
+      })
+      expect(unserved.show(id)?.state).toBe("received")
+      expect(unserved.events(id).at(-1)).toMatchObject({
+        type: "no_worker_for_target",
+        payload: { targetId },
+      })
+      expect(fake.requests.some((r) => r.path === "/threads")).toBe(false)
+    } finally {
+      await unserved.close()
+    }
+    // The same call, under the default key, once the map serves the target.
+    expect(await factory.dispatch(id)).toEqual({
+      ok: true,
+      state: "dispatched",
+      message: "Dispatched",
+    })
+    expect(fake.requests.filter((r) => r.path === "/threads")).toHaveLength(1)
+  })
+
   it("refuses to dispatch a task with no prompt instead of sending an empty one", async () => {
     await boot()
     const { id } = await factory.create({ taskId: "cli-flags" })
@@ -220,12 +261,12 @@ describe("create and dispatch", () => {
     const starved = await createFactory({
       registryPath: join(dir, "registry.sqlite"),
       generatedTasksDir: join(dir, "tasks"),
-      worker: createHttpWorkerClient(fake.baseUrl),
-      workerRoute: "/build#agent",
+      workers: fakeWorkerMap({
+        builder: { client: createHttpWorkerClient(fake.baseUrl), reader },
+      }),
       exportDir: join(dir, "out"),
       artifactsDir: join(dir, "artifacts"),
       verifier: createFakeVerifier({ verdict: "pass" }),
-      workspaceReader: reader,
       captureBaseline: captureRepairable,
       tasks: { other: "something else" },
     })

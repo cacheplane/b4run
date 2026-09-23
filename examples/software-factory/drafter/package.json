@@ -1,0 +1,27 @@
+{
+  "name": "@b4-example/software-factory-drafter",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p . --noEmit",
+    "lint": "biome check .",
+    "check": "FACTORY_DRAFTER_MANIFEST_DIR=\"${FACTORY_DRAFTER_MANIFEST_DIR:-.factory/manifests}\" b4 check",
+    "build": "FACTORY_DRAFTER_MANIFEST_DIR=\"${FACTORY_DRAFTER_MANIFEST_DIR:-.factory/manifests}\" b4 build",
+    "dev": "b4 dev"
+  },
+  "dependencies": {
+    "@b4run/cli": "workspace:*",
+    "@b4run/sandbox": "workspace:*",
+    "@b4run/sdk": "workspace:*",
+    "@b4run/workspace": "workspace:*",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.6",
+    "@types/node": "26.1.2",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11"
+  }
+}
