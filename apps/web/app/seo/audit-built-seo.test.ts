@@ -6,6 +6,7 @@ import {
   canonicalForPath,
   compareOrderedInventory,
   docSectionOccurrences,
+  docsOgImageUrl,
   extractPageMetadata,
   flattenJsonLd,
   lastmodSourceFailures,
@@ -38,27 +39,31 @@ function sitemapXml(url: string): string {
 </urlset>`
 }
 
+const SITE_ENTITIES = [
+  {
+    "@id": "https://b4.run/#organization",
+    "@type": "Organization",
+    logo: {
+      "@id": "https://b4.run/#logo",
+      "@type": "ImageObject",
+      url: "https://b4.run/brand/b4-logo-horizontal-black.svg",
+    },
+    name: "B4.run",
+    url: "https://b4.run/",
+  },
+  {
+    "@id": "https://b4.run/#website",
+    "@type": "WebSite",
+    name: "B4.run",
+    publisher: { "@id": "https://b4.run/#organization" },
+    url: "https://b4.run/",
+  },
+]
+
 function auditablePostHtml(imageUrl: string): string {
   const description = "A production-visible post description."
   const jsonLd = [
-    {
-      "@id": "https://b4.run/#organization",
-      "@type": "Organization",
-      logo: {
-        "@id": "https://b4.run/#logo",
-        "@type": "ImageObject",
-        url: "https://b4.run/brand/b4-logo-horizontal-black.svg",
-      },
-      name: "B4.run",
-      url: "https://b4.run/",
-    },
-    {
-      "@id": "https://b4.run/#website",
-      "@type": "WebSite",
-      name: "B4.run",
-      publisher: { "@id": "https://b4.run/#organization" },
-      url: "https://b4.run/",
-    },
+    ...SITE_ENTITIES,
     { "@type": "BlogPosting", description },
     { "@type": "BreadcrumbList" },
   ]
@@ -73,7 +78,11 @@ function auditablePostHtml(imageUrl: string): string {
   </body></html>`
 }
 
-function observeAuditFetches(options: { pageHtml?: string; sitemapUrl: string }): string[] {
+function observeAuditFetches(options: {
+  pageHtml?: string
+  pagePath?: string
+  sitemapUrl: string
+}): string[] {
   const escapedTargets: string[] = []
   vi.stubGlobal(
     "fetch",
@@ -94,7 +103,10 @@ function observeAuditFetches(options: { pageHtml?: string; sitemapUrl: string })
           status: 200,
         })
       }
-      if (requested.pathname === POST_PATH && options.pageHtml !== undefined) {
+      if (
+        requested.pathname === (options.pagePath ?? POST_PATH) &&
+        options.pageHtml !== undefined
+      ) {
         return new Response(options.pageHtml, {
           headers: { "content-type": "text/html" },
           status: 200,
@@ -340,6 +352,32 @@ describe("built SEO audit parsing", () => {
     await auditBuiltSeo({ asOf: "2026-08-26", baseUrl: LOCAL_ORIGIN })
 
     expect(escapedTargets).toEqual([])
+  })
+
+  it("names each docs card after its page path", () => {
+    expect(docsOgImageUrl("/docs/memory/long-term")).toBe("https://b4.run/og/docs/memory/long-term")
+  })
+
+  it("fails a docs page that reuses the site card instead of its own", async () => {
+    observeAuditFetches({
+      pageHtml: pageHtml([
+        ...SITE_ENTITIES,
+        {
+          "@type": "TechArticle",
+          description: "Route description",
+          image: "https://b4.run/og/docs/tools",
+        },
+        { "@type": "BreadcrumbList" },
+      ]),
+      pagePath: "/docs/tools",
+      sitemapUrl: "https://b4.run/docs/tools",
+    })
+
+    const { failures } = await auditBuiltSeo({ asOf: "2026-08-26", baseUrl: LOCAL_ORIGIN })
+
+    expect(failures).toContain(
+      "/docs/tools: expected og:image https://b4.run/og/docs/tools; found https://b4.run/opengraph-image?abc",
+    )
   })
 
   it("keeps a rendered OG image path on the configured local origin", async () => {

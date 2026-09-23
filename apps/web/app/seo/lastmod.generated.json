@@ -2,9 +2,9 @@
   "version": 2,
   "routes": {
     "/": {
-      "lastModified": "2026-09-23T14:30:23.813Z",
-      "sourceDigest": "7d16aec97521d43a7b72404d1e2e70fa64d7736bfe900e8b5388a1c65280ffa1",
-      "recordDigest": "f3055c3bc47a194655dfa21b8d12a485fdf70d3649122ef7183e20ec1716d595"
+      "lastModified": "2026-09-23T16:08:23.185Z",
+      "sourceDigest": "d8b19d75eb45594b399b8ee77598a0f22b33d48a33a57b43718f9093e717a307",
+      "recordDigest": "2389ee05ac15991b7950f5ff0f8c6ee511b0a10b1c788054232c89870ea0f289"
     },
     "/blog": {
       "lastModified": "2026-09-23T06:32:01.789Z",
@@ -217,9 +217,9 @@
       "recordDigest": "40a94ee5af8553537fa1425175273fe6464bf7e798bc8e3b8ee63ee8daa3b4cf"
     },
     "/docs/getting-started": {
-      "lastModified": "2026-09-23T03:34:06.942Z",
-      "sourceDigest": "6f75eea680274cdcebc60eae6463a02325513f478dcbd672894c3730e9644758",
-      "recordDigest": "3948eb7c2d277ecd45b4bcfe1c19e806eeea440bd7a7a56423adb677050fc233"
+      "lastModified": "2026-09-23T16:08:23.185Z",
+      "sourceDigest": "25c7e586d555b2af57239f43ec42d9b8478025697ce9e067dc9b4dcd5f6e061e",
+      "recordDigest": "8144be2e02dc9d42950544f2211ffa58bfd019a4aa14515052fe6af5dc574110"
     },
     "/docs/inspector": {
       "lastModified": "2026-09-23T06:32:01.789Z",

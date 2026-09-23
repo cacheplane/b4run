@@ -165,6 +165,9 @@ it("renders source markup as inert text", async () => {
   const html = renderToString(<CodePanel code={code} />)
   expect(html).not.toContain('<script>alert("inert")</script>')
   expect(html).toContain("&lt;")
+  // Token colours are classes from app/styles/syntax.css, not inline styles.
+  expect(html).toContain('class="sh')
+  expect(html).not.toContain("style=")
 })
 
 it("renders and copies the complete review tool with visual wrapping only", async () => {

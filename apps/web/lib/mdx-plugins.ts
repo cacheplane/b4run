@@ -6,6 +6,7 @@
  * tests resolve the same list so they exercise the shipped pipeline instead of a
  * hand-maintained copy of it.
  */
+import { SYNTAX_CLASSES } from "./shiki-classes"
 import { PAPER_RELAY_THEME } from "./shiki-theme"
 
 // Mutable on purpose: `@next/mdx` accepts a mutable `PluggableList`.
@@ -30,4 +31,7 @@ export const MDX_REHYPE_PLUGINS: MdxPluginSpec[] = [
       defaultLang: "plaintext",
     },
   ],
+  // Swaps each token's inline colour for a class from app/styles/syntax.css.
+  // Named by absolute path: every consumer imports plugin names as given.
+  [`${import.meta.dirname}/rehype-syntax-classes.mjs`, { classes: SYNTAX_CLASSES }],
 ]

@@ -160,9 +160,9 @@ describe("guard: the old palette and its classes stay gone", () => {
     expect(hits).toEqual([])
   })
 
-  it("has no hex colour outside tokens.css, the TS mirror, the Shiki theme, and the OG image routes", () => {
+  it("has no hex colour outside tokens.css, the TS mirror, the Shiki theme (and its generated syntax.css), and the OG image routes", () => {
     const allowed =
-      /(styles\/tokens\.css|lib\/shiki-theme\.ts|lib\/design-tokens\.ts|opengraph-image\.tsx|site\.webmanifest)$/
+      /(styles\/tokens\.css|styles\/syntax\.css|lib\/shiki-theme\.ts|lib\/design-tokens\.ts|opengraph-image\.tsx|site\.webmanifest)$/
     // ui.css paints diff lines in the two Shiki foregrounds it mirrors; nothing else in it may be hex.
     const shikiMirror = /^#(c5d985|f0ae95)$/i
     const hits = sources

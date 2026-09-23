@@ -644,6 +644,34 @@ describe("blog SEO API", () => {
   })
 })
 
+describe("docs social images", () => {
+  it("points every docs page's Open Graph and Twitter image at its own prerendered card", () => {
+    const urls = new Set<string>()
+    for (const page of Object.values(DOCS_SEO_PAGES)) {
+      const metadata = toMetadata(page)
+      const expected = {
+        url: `/og${page.path}`,
+        type: "image/png",
+        width: 1200,
+        height: 630,
+        alt: `${page.title} · B4.run docs`,
+      }
+
+      expect(metadata.openGraph?.images).toEqual([expected])
+      expect(metadata.twitter?.images).toEqual([expected])
+      urls.add(expected.url)
+    }
+    expect(urls.size).toBe(ALL_DOCS_PAGES.length)
+  })
+
+  it("keeps the site card on the homepage", () => {
+    const home = resolveStaticSeoPage("/")
+    expect(toMetadata(home).openGraph?.images).toEqual([
+      expect.objectContaining({ url: "/opengraph-image" }),
+    ])
+  })
+})
+
 describe("static SEO pages", () => {
   it("resolves one normalized Getting Started description across metadata and TechArticle data", () => {
     const page = resolveStaticSeoPage(GETTING_STARTED_PATH)
@@ -677,11 +705,11 @@ describe("static SEO pages", () => {
         description: GETTING_STARTED_DESCRIPTION,
         images: [
           {
-            url: "/opengraph-image",
+            url: "/og/docs/getting-started",
             type: "image/png",
             width: 1200,
             height: 630,
-            alt: "B4.run: Ridiculous speed. Readable code.",
+            alt: "Getting Started · B4.run docs",
           },
         ],
       },
@@ -691,11 +719,11 @@ describe("static SEO pages", () => {
         description: GETTING_STARTED_DESCRIPTION,
         images: [
           {
-            url: "/opengraph-image",
+            url: "/og/docs/getting-started",
             type: "image/png",
             width: 1200,
             height: 630,
-            alt: "B4.run: Ridiculous speed. Readable code.",
+            alt: "Getting Started · B4.run docs",
           },
         ],
       },
@@ -926,6 +954,7 @@ describe("article structured data completeness", () => {
       expect(entity.author).toEqual({ "@id": "https://b4.run/#organization" })
       expect(entity.publisher).toEqual({ "@id": "https://b4.run/#organization" })
       expect(entity.isPartOf).toEqual({ "@id": "https://b4.run/#website" })
+      expect(entity.image).toBe(`https://b4.run/og${page.path}`)
     }
     expect(siteJsonLd()["@graph"][0]["@id"]).toBe("https://b4.run/#organization")
   })
