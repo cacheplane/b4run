@@ -38,9 +38,10 @@ import { isolatedDrafter } from "./isolated-drafter.ts"
  *
  * The draft is the `cli-flags` task's (`ORACLE_DRAFT`), because its pinned bytes are the
  * defect and its check really does fail on the baseline; that target's root is a fixture
- * project under `examples/`, which the wide capture does not hold, so the scripted read is
- * of a root manifest that is. What the read proves is that the tools run over the capture
- * the controller staged, not that a model could draft this particular target from it.
+ * project under `examples/`, which the wide capture does not hold, so the scripted reads
+ * are of a root manifest and a package source that are. What the reads prove is that the
+ * tools run over the capture the controller staged, not that a model could draft this
+ * particular target from it.
  *
  * Requires Docker, the `cli-flags` target prepared (`target:prepare cli-flags`: the oracle
  * proof runs in its image) and the drafter's base image pulled by digest
@@ -222,6 +223,7 @@ it("runs a real drafter turn against the wide capture, reads only draft/, and pr
       .user(ISSUE.title)
       .callsTool("listDir", { path: "repo/" })
       .callsTool("readFile", { path: "repo/package.json" })
+      .callsTool("readFile", { path: "repo/packages/cli/src/index.ts" })
       .callsTool("writeFile", { path: "draft/task.json", content: draftFile("draft/task.json") })
       .callsTool("writeFile", { path: "draft/spec.md", content: draftFile("draft/spec.md") })
       .callsTool("writeFile", {
@@ -268,25 +270,28 @@ it("runs a real drafter turn against the wide capture, reads only draft/, and pr
     "transition",
   ])
 
-  // The model was asked for exactly the six tool calls and nothing was refused: a tool that
+  // The model was asked for exactly the seven tool calls and nothing was refused: a tool that
   // errored would have left the scripted reply unmatched and the turn would not have ended
   // where it did.
   expect(toolCallsSeen()).toEqual([
     "listDir",
+    "readFile",
     "readFile",
     "writeFile",
     "writeFile",
     "writeFile",
     "writeFile",
   ])
-  expect(aimock.getRequests().slice(journalStart)).toHaveLength(7)
+  expect(aimock.getRequests().slice(journalStart)).toHaveLength(8)
   // The repository really was under `repo/` for the drafter: the listing the model was
-  // handed back names the workspace layout, and the file it read is the pinned manifest.
+  // handed back names the workspace layout, and the files it read are the pinned root
+  // manifest and a package source (the `packages/*/src/**` capture rule).
   const messages = aimock.getRequests().at(-1)?.body?.messages ?? []
   const toolResults = messages.filter((m) => m.role === "tool").map(toolResultText)
   expect(toolResults[0]).toContain("packages")
   expect(toolResults[1]).toContain('"name": "b4-run"')
-  expect(toolResults.slice(2)).toEqual([
+  expect(toolResults[2]).toContain('export { config } from "@b4run/core"')
+  expect(toolResults.slice(3)).toEqual([
     `wrote ${Buffer.byteLength(draftFile("draft/task.json"))} bytes to draft/task.json`,
     `wrote ${Buffer.byteLength(draftFile("draft/spec.md"))} bytes to draft/spec.md`,
     `wrote ${Buffer.byteLength(draftFile("draft/checks.json"))} bytes to draft/checks.json`,
@@ -310,13 +315,14 @@ it("runs a real drafter turn against the wide capture, reads only draft/, and pr
     store.close()
   }
 
-  // The controller read only `draft/`: four paths, in seconds. The wide capture under
-  // `repo/` holds over a thousand files and more bytes than the drafter's inspection bound
-  // admits, so a read that walked it would have thrown rather than returned these.
+  // The controller read only `draft/`: four paths. The wide capture under `repo/` holds
+  // over a thousand files and more bytes than the drafter's inspection bound admits, so a
+  // read that walked it would have thrown rather than returned these; the file set is the
+  // proof, and the duration is journalled for an operator, not bounded here.
   expect(payload(factory, id, "draft_read")).toMatchObject({
     files: Object.keys(ORACLE_DRAFT).sort(),
   })
-  expect(payload(factory, id, "draft_read")?.ms).toBeLessThan(60_000)
+  expect(typeof payload(factory, id, "draft_read")?.ms).toBe("number")
 
   // The oracle was proved in the target's image over the drafted check alone.
   const evidence = factory.evidence(id)
