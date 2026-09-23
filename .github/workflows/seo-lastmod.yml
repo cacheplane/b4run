@@ -3,21 +3,22 @@ name: SEO lastmod
 # Keeps apps/web/app/seo/lastmod.generated.json current on main, so that
 # regenerating it is never a pull request author's job.
 #
-# WHY THE FILE IS STILL COMMITTED. The manifest is the only record of when
-# each route's content last changed: the generator preserves an entry's
-# timestamp while its source digest matches and stamps "now" when it does
-# not. Nothing else stores that history — the generator never consults Git,
-# deliberately, so that a shallow deploy checkout produces the same output as
-# a full clone. It is also imported statically by apps/web/app/seo/lastmod.ts,
-# so it has to exist on disk for typecheck and next build. Generating it from
-# scratch during a build would therefore stamp every route with the build's
-# own clock and destroy the signal it exists to carry.
+# WHY THE FILE IS STILL COMMITTED. Each route's timestamp is the committer
+# date of the newest commit touching its sources, which needs full history.
+# Deploy and PR checkouts are shallow, and a shallow boundary commit looks like
+# it touched every file, so there the generator cannot date anything and keeps
+# the recorded value instead. The committed manifest is what carries the dates
+# to those checkouts. It is also imported statically by
+# apps/web/app/seo/lastmod.ts, so it has to exist on disk for typecheck and
+# next build. This job checks out full history (fetch-depth: 0) so every route
+# is dated from Git.
 #
 # WHAT THIS BUYS. Pull requests no longer touch the file at all, so two
 # branches that both edit docs stop conflicting inside a generated artifact,
 # and a merge no longer lands a manifest whose timestamps are whenever the
-# author happened to run the script. The timestamp now reflects when the
-# content reached main, which is the date the sitemap is claiming.
+# author happened to run the script. On main a squash-merge's committer date
+# is when the content reached main, which is the date the sitemap is claiming,
+# and regenerating the same commit always yields the same manifest.
 #
 # LOOP SAFETY. The push trigger is scoped to the content this manifest is
 # derived from. This job's own commit touches only the manifest, which is not
@@ -58,6 +59,9 @@ jobs:
           # persisted credentials, so the push and the rebase below use one
           # explicit remote.
           persist-credentials: false
+          # Full history: lastModified is each route's newest commit date, and
+          # a shallow clone cannot date anything.
+          fetch-depth: 0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
