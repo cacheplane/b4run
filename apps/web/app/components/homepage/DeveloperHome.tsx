@@ -34,7 +34,7 @@ export async function DeveloperHome() {
           <div className={styles.heroActions}>
             <CopyCommand command={createCommand} className={styles.command ?? ""} />
             <a href="/docs/getting-started" className={styles.textLink}>
-              Get started
+              Get started →
             </a>
           </div>
           <span className={styles.dot} aria-hidden="true" />
@@ -68,7 +68,7 @@ export async function DeveloperHome() {
             <CopyCommand command={createCommand} variant="dark" className={styles.command ?? ""} />
             <br />
             <a href="/docs/getting-started" className={styles.reportLink}>
-              Getting Started
+              Getting Started →
             </a>
           </div>
           <div>
@@ -78,7 +78,7 @@ export async function DeveloperHome() {
               live runs.
             </p>
             <a href="/docs/cli#b4-add" className={styles.reportLink}>
-              Using the B4 CLI
+              Using the B4 CLI →
             </a>
             <br />
             <a

@@ -49,7 +49,7 @@ export function Narrative({ code }: { code: Record<NarrativeKey, DisplayCode> })
       >
         <p>Choose a model and a task. B4 runs the tool-call loop.</p>
         <a className={styles.textLink} href="/docs/agents">
-          Agents
+          Agents →
         </a>
       </Chapter>
       <Chapter
@@ -67,7 +67,7 @@ export function Narrative({ code }: { code: Record<NarrativeKey, DisplayCode> })
       >
         <p>Declare the files. B4 manages their lifecycle in an isolated Docker workspace.</p>
         <a className={styles.textLink} href="/docs/sandbox">
-          Workspaces + sandboxes
+          Workspaces + sandboxes →
         </a>
       </Chapter>
       <Chapter
@@ -81,7 +81,7 @@ export function Narrative({ code }: { code: Record<NarrativeKey, DisplayCode> })
           Export a function. B4 derives its schema from your types and supplies <code>ctx</code>.
         </p>
         <a className={styles.textLink} href="/docs/tools">
-          Tools
+          Tools →
         </a>
       </Chapter>
       <Chapter
@@ -101,7 +101,7 @@ export function Narrative({ code }: { code: Record<NarrativeKey, DisplayCode> })
       >
         <p>A plan seeds the checklist. Skills provide reusable instructions.</p>
         <a className={styles.textLink} href="/docs/skills">
-          Plans + skills
+          Plans + skills →
         </a>
       </Chapter>
       <Chapter
@@ -113,7 +113,7 @@ export function Narrative({ code }: { code: Record<NarrativeKey, DisplayCode> })
       >
         <p>Test the patch in a fresh workspace. Require every named check to pass.</p>
         <a className={styles.textLink} href="/docs/evals">
-          Evaluate the workflow
+          Evaluate the workflow →
         </a>
       </Chapter>
       <Chapter
@@ -131,7 +131,7 @@ export function Narrative({ code }: { code: Record<NarrativeKey, DisplayCode> })
       >
         <p>B4 pauses before export. You approve the exact patch, and the tool checks it again.</p>
         <a className={styles.textLink} href="/docs/permissions">
-          Approval
+          Approval →
         </a>
       </Chapter>
       <ExecutionFlow />

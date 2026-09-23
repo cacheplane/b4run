@@ -23,7 +23,7 @@ it("opens with the install command and a first agent from the basic template", a
   container.innerHTML = renderToString(await DeveloperHome())
   const hero = container.querySelector('[aria-labelledby="home-title"]')
   expect(hero?.textContent).toContain("npm create b4-app@latest my-agent")
-  expect(hero?.querySelector('a[href="/docs/getting-started"]')?.textContent).toBe("Get started")
+  expect(hero?.querySelector('a[href="/docs/getting-started"]')?.textContent).toBe("Get started →")
   const first = container.querySelector("#first-agent")
   expect(first?.textContent).toContain("src/app/hello/index.ts")
   expect(first?.textContent).toContain("src/app/hello/tools/greet.ts")

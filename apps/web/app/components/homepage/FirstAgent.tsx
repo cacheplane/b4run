@@ -15,7 +15,7 @@ export function FirstAgent({ code }: { code: Record<FirstAgentKey, DisplayCode> 
           writes the schema.
         </p>
         <a className={styles.textLink} href="/docs/tools">
-          Tools
+          Tools →
         </a>
       </div>
       <div className={styles.chapterCode}>
