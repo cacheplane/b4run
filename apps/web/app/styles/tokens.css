@@ -72,8 +72,8 @@
   --text-display--font-weight: 600;
   --text-display--letter-spacing: -0.055em;
 
-  /* Shape: square, flat. Removing the defaults makes any stray rounded-* or
-     shadow-* utility emit nothing; the design-system test forbids the classes. */
+  /* Shape: square, flat. Removing the defaults makes any stray radius or
+     elevation utility emit nothing; the design-system test forbids the classes. */
   --radius-*: initial;
   --shadow-*: initial;
   --inset-shadow-*: initial;

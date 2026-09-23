@@ -1,5 +1,6 @@
 import "server-only"
 import { type BundledLanguage, createHighlighter } from "shiki"
+import { COLOR } from "../../../lib/design-tokens"
 import { PAPER_RELAY_THEME } from "../../../lib/shiki-theme"
 import { curatedEvidenceUrl, evidence, type SourceKey, sourceUrl } from "./evidence"
 import type { DisplayCode, WalkthroughProps } from "./types"
@@ -36,7 +37,7 @@ export async function highlightCode(
         line
           .map(
             (token) =>
-              `<span style="color:${token.color ?? "#f5f4f0"}">${escapeHtml(token.content)}</span>`,
+              `<span style="color:${token.color ?? COLOR["panel-ink"]}">${escapeHtml(token.content)}</span>`,
           )
           .join("") || " ",
     ),

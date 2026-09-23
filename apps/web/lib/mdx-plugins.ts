@@ -24,7 +24,7 @@ export const MDX_REHYPE_PLUGINS: MdxPluginSpec[] = [
   [
     "rehype-pretty-code",
     {
-      // One theme everywhere: no dual --shiki-light/--shiki-dark spans.
+      // One theme everywhere: no dual light/dark colour spans per token.
       theme: PAPER_RELAY_THEME,
       keepBackground: false,
       defaultLang: "plaintext",
