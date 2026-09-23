@@ -16,13 +16,20 @@ import matter from "gray-matter"
  * Writes apps/web/app/seo/lastmod.generated.json: one `lastModified` per
  * route the sitemap lists.
  *
- * A route's date is the committer date (UTC) of the newest commit touching
- * any of its sources (see `readGitHistory`), so the manifest is a function of
- * the checked-out commit. When history cannot date a route — uncommitted
- * sources, a shallow clone, no Git — the recorded value is kept while the
- * source digest matches and the generation time is stamped when it does not.
- * The workflow in .github/workflows/seo-lastmod.yml regenerates it on main
- * from a full clone.
+ * Recorded entries are authoritative while content is unchanged: a route
+ * whose source digest still matches its recorded entry keeps that entry
+ * exactly, whatever Git history now says. Only a new route, or one whose
+ * sources changed, is dated afresh — by the committer date (UTC) of the
+ * newest commit touching any of its sources (see `readGitHistory`), or by the
+ * generation time when history cannot date it (uncommitted sources, a shallow
+ * clone, no Git).
+ *
+ * That is what makes regeneration a pull request's job without the churn: a
+ * PR that edits content commits it, runs `pnpm --dir apps/web seo:lastmod`,
+ * and only the entries for the routes it changed move. The squash merge that
+ * later lands it on main gets a newer commit date, but the content digest is
+ * unchanged, so the date recorded in the PR stands and `--check` passes on
+ * main in a full-history checkout.
  */
 const scriptFile = realpathSync(fileURLToPath(import.meta.url))
 const scriptDir = dirname(scriptFile)
@@ -84,12 +91,12 @@ function readPost(source) {
   }
 }
 
-function sourceDigest(sources) {
+function sourceDigest(sources, root = repoRoot) {
   const hash = createHash("sha256")
   const sortedSources = [...sources].sort(compareCodePoints)
 
   for (const source of sortedSources) {
-    const relativeSource = normalizeRelativePath(relative(repoRoot, source))
+    const relativeSource = normalizeRelativePath(relative(root, source))
     const content = readFileSync(source)
     hash.update(`${relativeSource.length}:${relativeSource}:${content.length}:`)
     hash.update(content)
@@ -185,13 +192,12 @@ function publicationFloorsFor(asOf) {
  * Commit history for the manifest's sources, or `undefined` when Git cannot
  * answer (no `git` binary, not a repository).
  *
+ * Consulted only for routes whose content changed or that are new: a new
  * `lastModified` is the committer date of the newest commit that touched any
- * of a route's sources. That makes it a pure function of the checked-out
- * commit: two branches that leave a page alone produce the same entry for it,
- * and regenerating the same commit always produces the same manifest.
+ * of the route's sources.
  *
  * Two cases cannot be dated from history, and both leave the file `unknown`
- * so the caller falls back to the manifest's recorded value:
+ * so the caller falls back to the generation time:
  *
  * - **Dirty sources** (modified, staged or untracked). Their content is not in
  *   any commit yet, so no commit date describes it.
@@ -296,28 +302,71 @@ export function committedLastModified(relativeSources, history, floor) {
   return floor !== undefined && floor > latest ? floor : latest
 }
 
-const repoRelative = (source) => normalizeRelativePath(relative(repoRoot, source))
-
-function manifestContent(asOf, existingContent, check, generationTimestamp) {
-  const sourcesByRoute = sourcesByRouteFor(asOf)
-  const floors = publicationFloorsFor(asOf)
-  const history = readGitHistory(repoRoot, [...sourcesByRoute.values()].flat().map(repoRelative))
+/**
+ * The manifest for `sourcesByRoute` (route → absolute source paths under
+ * `root`), or `undefined` in check mode when some route cannot be dated
+ * without the clock.
+ *
+ * Per route, in order:
+ * 1. The recorded entry, verbatim, while its source digest matches and the
+ *    record is well formed (`selectLastModified`). Git is not consulted: a
+ *    squash merge or rebase re-dates the commits behind unchanged content,
+ *    and that must not move the page's date.
+ * 2. Otherwise the newest commit date of its sources, raised to the route's
+ *    publication floor.
+ * 3. Otherwise (dirty sources, shallow boundary, no Git) the generation time.
+ *    Check mode fails instead, since that value cannot be reproduced.
+ *
+ * Routes absent from `sourcesByRoute` are dropped.
+ */
+export function generateManifest({
+  root = repoRoot,
+  sourcesByRoute,
+  floors = new Map(),
+  existingContent = "",
+  check = false,
+  generationTimestamp,
+}) {
+  const toRelative = (source) => normalizeRelativePath(relative(root, source))
   const existingEntries = existingManifestEntries(existingContent)
-  const entries = []
   const sortedRoutes = [...sourcesByRoute.entries()].sort(([left], [right]) =>
     compareCodePoints(left, right),
   )
+  const digests = new Map(
+    sortedRoutes.map(([route, sources]) => [route, sourceDigest(sources, root)]),
+  )
+  const recorded = new Map()
+  const undated = []
+  for (const [route] of sortedRoutes) {
+    const kept = selectLastModified(
+      existingEntries.get(route),
+      route,
+      digests.get(route),
+      undefined,
+      generationTimestamp,
+    )
+    if (kept === undefined) undated.push(route)
+    else recorded.set(route, kept)
+  }
 
+  // Only routes without a usable record need history; skip Git entirely when
+  // every route is unchanged.
+  const history =
+    undated.length === 0
+      ? undefined
+      : readGitHistory(
+          root,
+          undated.flatMap((route) => sourcesByRoute.get(route).map(toRelative)),
+        )
+
+  const entries = []
   for (const [route, sources] of sortedRoutes) {
-    const digest = sourceDigest(sources)
-    const committed = committedLastModified(sources.map(repoRelative), history, floors.get(route))
-    // Fallback when history cannot date the route: keep the recorded value
-    // while the content is unchanged, otherwise stamp the generation time.
-    const preservedLastModified =
-      committed ??
-      selectLastModified(existingEntries.get(route), route, digest, undefined, generationTimestamp)
-    if (check && preservedLastModified === undefined) return undefined
-    const lastModified = preservedLastModified ?? generationTimestamp
+    const digest = digests.get(route)
+    const lastModified =
+      recorded.get(route) ??
+      committedLastModified(sources.map(toRelative), history, floors.get(route)) ??
+      (check ? undefined : generationTimestamp)
+    if (lastModified === undefined) return undefined
     entries.push([
       route,
       {
@@ -329,6 +378,16 @@ function manifestContent(asOf, existingContent, check, generationTimestamp) {
   }
 
   return `${JSON.stringify({ version: 2, routes: Object.fromEntries(entries) }, null, 2)}\n`
+}
+
+function manifestContent(asOf, existingContent, check, generationTimestamp) {
+  return generateManifest({
+    sourcesByRoute: sourcesByRouteFor(asOf),
+    floors: publicationFloorsFor(asOf),
+    existingContent,
+    check,
+    generationTimestamp,
+  })
 }
 
 function asOfDate(value) {
@@ -373,11 +432,10 @@ function optionsFor(argv) {
 /**
  * Routes the manifest covers but should not, or should cover but does not.
  *
- * This is the half of freshness a pull request still has to own. A stale
- * timestamp is harmless and gets corrected on main, but a route the manifest
- * has never seen has no timestamp at all, and `requireValidLastModified`
- * throws on it — so adding or removing a page without regenerating breaks the
- * site build rather than just dating it wrong.
+ * The cheap gate a pull request cannot skip. A stale timestamp only dates a
+ * page wrong, but a route the manifest has never seen has no timestamp at
+ * all, and `requireValidLastModified` throws on it — so adding or removing a
+ * page without regenerating breaks the site build.
  */
 export function routeCoverageDrift(asOf, existingContent) {
   const expected = [...sourcesByRouteFor(asOf).keys()].sort(compareCodePoints)

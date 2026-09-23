@@ -142,9 +142,9 @@
       "recordDigest": "fbd8a797655a538b9b346d8599f16e88a7764828f45b2628a910f2df1f1e2a53"
     },
     "/docs/cli": {
-      "lastModified": "2026-09-23T06:30:00.000Z",
-      "sourceDigest": "c332a6eb13988ce35395ca7fdd54ab2d0eca299746a2b0d78713c47fb4322af2",
-      "recordDigest": "263bccfed45e9d99adabb4cb64b45843004896fee765eab4cd1d782c65a284ae"
+      "lastModified": "2026-09-23T20:35:34.000Z",
+      "sourceDigest": "20181276c4b0fc0e135c5e1f195299ca013baa07ba90dabfce76a260a8723fed",
+      "recordDigest": "bc12c0558aa88fd4e0ff75cffde09d7d2b93657524edd80f6641371a1ad459c6"
     },
     "/docs/configuration": {
       "lastModified": "2026-09-23T17:27:43.000Z",
@@ -412,9 +412,9 @@
       "recordDigest": "2d2515396129a1db351cdce48b3b26f5de14f76f0be90562d9ea6d31b1e44853"
     },
     "/docs/tools": {
-      "lastModified": "2026-09-23T18:12:39.000Z",
-      "sourceDigest": "6d93912e5515f8096911a90ef9a8b90a0008698f03cc2b334369363fcb3c0350",
-      "recordDigest": "8fd83fc1f24a47dde114a961865240c2dd8f59670d34254baf6e7ea19de3d8a7"
+      "lastModified": "2026-09-23T20:35:34.000Z",
+      "sourceDigest": "0bf7827a44f337ba8d1d0b1baa448fbd9a4103c74a81254509913e3aa4fd50d3",
+      "recordDigest": "b473b7e0f8247f6cd850513e30a0ced947db1f0a7674937eb9cd97012a1cb9aa"
     },
     "/docs/troubleshooting": {
       "lastModified": "2026-09-23T18:32:41.000Z",

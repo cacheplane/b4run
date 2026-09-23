@@ -36,11 +36,9 @@ const checkFailure = (result: { readonly stderr: string; readonly stdout: string
   "the generator exited non-zero and printed nothing"
 
 describe("generate-seo-lastmod", () => {
-  // The committed manifest is regenerated on main by .github/workflows/seo-lastmod.yml,
-  // not by whoever edits a page, so these assert the generator's own round trip
-  // rather than that the checked-in file is currently up to date. Asserting the
-  // latter made every docs branch regenerate a shared artifact and conflict with
-  // every other docs branch inside it.
+  // These assert the generator's own round trip rather than that the
+  // checked-in file is current: a stale timestamp only dates a page wrong, and
+  // route coverage (below) is the gate that keeps the build from throwing.
   it("accepts a manifest it just generated from today's production visibility", () => {
     const directory = mkdtempSync(join(tmpdir(), "b4-lastmod-"))
     temporaryDirectories.push(directory)
@@ -74,9 +72,8 @@ describe("generate-seo-lastmod", () => {
   })
 
   it("covers every route the site renders", () => {
-    // The gate a pull request still has to satisfy. Timestamps drift harmlessly
-    // and are corrected on main; a missing route has no timestamp at all and
-    // makes requireValidLastModified throw during the build.
+    // Timestamps can drift harmlessly; a missing route has no timestamp at
+    // all and makes requireValidLastModified throw during the build.
     const result = runGenerator("--check-routes")
 
     expect(result.stderr).toBe("")
@@ -141,9 +138,8 @@ describe("generate-seo-lastmod", () => {
     expect(result.stderr).toContain("/docs/removed-page")
   })
 
-  it("tolerates a timestamp that main has not refreshed yet", () => {
-    // The whole point of moving regeneration to main: an edited page whose
-    // timestamp is still the old one must not fail a pull request.
+  it("tolerates a stale timestamp in the route-coverage check", () => {
+    // Route coverage is about which routes exist, not when they changed.
     const manifest = JSON.parse(readFileSync(generatedManifest, "utf8"))
     const [route] = Object.keys(manifest.routes)
     manifest.routes[route as string].sourceDigest = "1".repeat(64)
@@ -333,6 +329,101 @@ describe("generate-seo-lastmod", () => {
       temporaryDirectories.push(directory)
 
       expect(generatorModule.readGitHistory(directory, ["a.mdx"])).toBeUndefined()
+    })
+
+    describe("recorded entries while content is unchanged", () => {
+      const at = (directory: string, ...files: string[]) =>
+        files.map((file) => join(directory, file))
+      const generate = (
+        directory: string,
+        sourcesByRoute: Map<string, string[]>,
+        existingContent = "",
+        check = false,
+      ): string | undefined =>
+        generatorModule.generateManifest({
+          root: directory,
+          sourcesByRoute,
+          existingContent,
+          check,
+          generationTimestamp: "2026-12-31T00:00:00.000Z",
+        })
+      const routesOf = (content: string | undefined) => {
+        if (content === undefined) throw new Error("no manifest generated")
+        return JSON.parse(content).routes
+      }
+      const site = (directory: string) =>
+        new Map([
+          ["/docs/a", at(directory, "a.mdx")],
+          ["/docs/b", at(directory, "b.mdx")],
+        ])
+
+      it("keeps a recorded date after a squash re-dates the unchanged content", () => {
+        // A PR records its branch commit dates; the squash merge lands the same
+        // content in a newer commit. History now says a later date, but the
+        // digest matches, so the PR's recorded date must stand — and --check
+        // must agree on main.
+        const directory = repository()
+        const recorded = generate(directory, site(directory))
+        expect(routesOf(recorded)["/docs/a"].lastModified).toBe("2026-03-04T03:06:07.000Z")
+
+        git(directory, [
+          "reset",
+          "-q",
+          "--soft",
+          git(directory, ["rev-list", "--max-parents=0", "HEAD"]).trim(),
+        ])
+        git(directory, ["commit", "-q", "--amend", "-m", "squash"], "2026-06-01T00:00:00Z")
+        expect(historyOf(directory, ["a.mdx"]).dates.get("a.mdx")).toBe("2026-06-01T00:00:00.000Z")
+
+        expect(generate(directory, site(directory), recorded)).toBe(recorded)
+        expect(generate(directory, site(directory), recorded, true)).toBe(recorded)
+      })
+
+      it("dates a changed route from Git and leaves the others alone", () => {
+        const directory = repository()
+        const recorded = generate(directory, site(directory))
+        commit(directory, "b.mdx", "b2", "2026-07-01T00:00:00Z")
+
+        const regenerated = routesOf(generate(directory, site(directory), recorded))
+
+        expect(regenerated["/docs/b"].lastModified).toBe("2026-07-01T00:00:00.000Z")
+        expect(regenerated["/docs/b"].sourceDigest).not.toBe(
+          routesOf(recorded)["/docs/b"].sourceDigest,
+        )
+        expect(regenerated["/docs/a"]).toEqual(routesOf(recorded)["/docs/a"])
+      })
+
+      it("is a no-op when regenerated over its own output", () => {
+        const directory = repository()
+        const first = generate(directory, site(directory))
+        const second = generate(directory, site(directory), first)
+
+        expect(second).toBe(first)
+        expect(generate(directory, site(directory), second)).toBe(first)
+      })
+
+      it("drops a route the site no longer renders", () => {
+        const directory = repository()
+        const recorded = generate(directory, site(directory))
+
+        const regenerated = routesOf(
+          generate(directory, new Map([["/docs/a", at(directory, "a.mdx")]]), recorded),
+        )
+
+        expect(Object.keys(regenerated)).toEqual(["/docs/a"])
+        expect(regenerated["/docs/a"]).toEqual(routesOf(recorded)["/docs/a"])
+      })
+
+      it("fails check mode for changed content that history cannot date", () => {
+        const directory = repository()
+        const recorded = generate(directory, site(directory))
+        writeFileSync(join(directory, "a.mdx"), "a3 (uncommitted)")
+
+        expect(generate(directory, site(directory), recorded, true)).toBeUndefined()
+        expect(
+          routesOf(generate(directory, site(directory), recorded))["/docs/a"].lastModified,
+        ).toBe("2026-12-31T00:00:00.000Z")
+      })
     })
 
     it("dates a blog listing no earlier than its newest post's publication day", () => {

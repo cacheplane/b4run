@@ -3906,56 +3906,6 @@
         "kind": "step-uses",
         "value": "changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d"
       }
-    ],
-    "seo-lastmod.yml": [
-      {
-        "classification": "safe",
-        "job": "regenerate",
-        "stepIndex": 0,
-        "step": "Checkout",
-        "kind": "step-uses",
-        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
-      },
-      {
-        "classification": "safe",
-        "job": "regenerate",
-        "stepIndex": 1,
-        "step": "Setup pnpm",
-        "kind": "step-uses",
-        "value": "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
-      },
-      {
-        "classification": "safe",
-        "job": "regenerate",
-        "stepIndex": 2,
-        "step": "Setup Node.js",
-        "kind": "step-uses",
-        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
-      },
-      {
-        "classification": "safe",
-        "job": "regenerate",
-        "stepIndex": 3,
-        "step": "Install dependencies",
-        "kind": "run",
-        "value": "pnpm install --frozen-lockfile"
-      },
-      {
-        "classification": "safe",
-        "job": "regenerate",
-        "stepIndex": 4,
-        "step": "Regenerate the manifest",
-        "kind": "run",
-        "value": "pnpm --dir apps/web seo:lastmod"
-      },
-      {
-        "classification": "safe",
-        "job": "regenerate",
-        "stepIndex": 5,
-        "step": "Commit and push when it changed",
-        "kind": "run",
-        "value": "set -eu\nif git diff --quiet -- \"$MANIFEST\"; then\n  echo \"Manifest already current; nothing to push.\"\n  exit 0\nfi\n\n# Fail loudly if the run dirtied anything else: this job is only\n# ever allowed to move one generated file.\nUNEXPECTED=\"$(git diff --name-only -- . \":(exclude)$MANIFEST\")\"\nif [ -n \"$UNEXPECTED\" ]; then\n  echo \"::error::Refusing to push: unexpected changes outside the manifest:\"\n  echo \"$UNEXPECTED\"\n  exit 1\nfi\n\ngit config user.name \"github-actions[bot]\"\ngit config user.email \"41898282+github-actions[bot]@users.noreply.github.com\"\ngit add -- \"$MANIFEST\"\ngit commit -m \"chore(web): regenerate SEO lastmod manifest [skip ci]\"\n\nREMOTE=\"https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git\"\n# A push that lost a race must not be retried blindly onto whatever\n# landed meanwhile: rebase this one-file commit and try again, and\n# give up rather than force anything.\nfor attempt in 1 2 3; do\n  if git push \"$REMOTE\" \"HEAD:${GITHUB_REF_NAME}\"; then\n    echo \"Pushed the regenerated manifest.\"\n    exit 0\n  fi\n  echo \"Push rejected (attempt ${attempt}); rebasing onto the current branch tip.\"\n  git fetch \"$REMOTE\" \"${GITHUB_REF_NAME}\"\n  git rebase FETCH_HEAD || {\n    echo \"::error::Rebase failed; leaving main untouched.\"\n    exit 1\n  }\ndone\n\necho \"::error::Could not push the regenerated manifest after 3 attempts.\"\nexit 1\n"
-      }
     ]
   }
 }
