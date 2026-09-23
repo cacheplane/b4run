@@ -431,6 +431,40 @@ the one `checks.json` names. A generated task needs no `reference.patch` (option
 catalog now). Acceptance ids are the `A<n>:` lines of `spec.md`, and the independent check's
 assertion names must start with those ids and be set-equal to them.
 
+**As landed (3b, half A).** The drafter is its own app, `examples/software-factory/drafter/`
+(`@b4-example/software-factory-drafter`), not a route on the builder: one `intake` agent
+route, model from `FACTORY_DRAFTER_MODEL` (default `gpt-5-mini`), the four workspace tools
+and nothing else. Its **image** is the plain `node:24-slim` base pinned by digest
+(`drafter/src/drafter-image.ts`, the one copy CI pulls by grepping the literal), not a built
+image: the drafter runs no build and no tests, so `targets/repo-readonly` as a prepared
+target never existed. Its workspace is the **wide capture** staged by the controller
+(`controller/src/lib/targets/wide-capture.ts`: root manifests, `packages/*` manifests,
+READMEs, `src/**` and `test/**`, `scripts/**` minus the release fixtures and any path the
+framework's capture would refuse; never `apps/`, `examples/` or `docs/`), read out of the git
+object store at the work order's pin, captured with the framework's own capture and served
+under `repo/` with **no baseline** and no environment links; `draft/` is not pre-created, the
+drafter makes it. The capture reaches the drafter as a **manifest per work order**:
+`intake` writes `<FACTORY_DRAFTER_MANIFEST_DIR>/<id>.json` (default
+`<drafter app root>/.factory/manifests`) before it creates the thread with
+`{ factoryWorkOrderId }`, the drafter's resolver (`sandbox.workspace` as a function of the
+thread) loads and verifies it at first admission, and the controller removes it when the
+work order leaves intake for good. **Permissions are non-interactive** with a short
+allow-list of command starts (`ls`, `cat`, `head`, `tail`, `grep`, `wc`): nobody is watching
+a drafter turn, so a command off the list is denied rather than parked. The controller reads
+the thread **re-rooted at `draft/`** (`WorkspaceReadOptions.root`), which is what makes the
+wide capture readable at all: `repo/` holds executables and more bytes than an inspection
+admits, and is never walked. The controller's configuration is a **worker map**
+(`FACTORY_WORKERS`, or the legacy `FACTORY_WORKER_URL` + `FACTORY_BUILDER_APP_ROOT` pair as
+the `*` entry) plus the drafter pair (`FACTORY_DRAFTER_URL` + `FACTORY_DRAFTER_APP_ROOT`,
+with `_ROUTE`, `_MANIFEST_DIR` and `_IMAGE` only beside them); `FACTORY_INTAKE_ROUTE` and
+`FACTORY_INTAKE_TASK` are gone. Proof: the drafter's `test:sandbox` admits two threads with
+two captures through the resolver and refuses a third by name; the controller's
+`drafter-end-to-end.integration.test.ts` runs one real drafter turn against the wide capture
+and proves the oracle in the target's image. What half A does not do: the pin is captured
+for the drafter but the oracle proof and verification still run in the target's prepared
+image at the pin it was prepared from, and the builder still resolves one manifest per
+process (§6.7, half B).
+
 ### 6.5 What the controller does with the draft
 
 `src/lib/controller/intake.ts`, mirroring `verify.ts`:
@@ -549,7 +583,12 @@ a preparable target, and which a test can fail on:
   unrelated change is a false oracle a person must catch. Mitigation: the approver sees the
   failing run's output in the evidence, not only the verdict.
 - **Wide read capture for intake.** Intake sees more of the repository than the builder. It
-  writes only to `draft/` and its output is never trusted without the steps in §6.5.
+  is asked to write only under `draft/`, but `repo/` is not write-fenced: the permission gate
+  allows every write inside a workspace, so the drafter can edit its copy of the repository.
+  The boundary is the read, not the write: the controller reads the thread re-rooted at
+  `draft/`, the network is denied, and the capture is that thread's own, so a write under
+  `repo/` changes what the drafter sees and nothing else; and its output is never trusted
+  without the steps in §6.5.
 - **Union permissions on the builder app** (§5.4) until per-thread permissions exist.
 - **No per-package target exists yet** for most packages. Rung 3 prepares two or three and
   blocks on the rest with a named reason.
@@ -585,10 +624,14 @@ a preparable target, and which a test can fail on:
   intake turn rules block an interrupt as `intake_run_failed` and leave the prompt pending
   on the thread; only a `cancel` denies it (`denyPending`), and the drafter needs no gate
   today. Follow-up: deny on block, or a `denyPending` route, before a real drafter can ask.
-- **The 3a inspection constraint.** The drafter thread's workspace is read through
-  `FACTORY_INTAKE_TASK`'s provider and inspection options, so the drafter can only run in
-  exactly that builder's static workspace; a drafter with its own app removes the constraint
-  (3b).
+- **The 3a inspection constraint** (resolved in 3b, half A). The drafter thread's workspace
+  was read through `FACTORY_INTAKE_TASK`'s provider and inspection options, so the drafter
+  could only run in exactly that builder's static workspace; the drafter app, its own
+  provider and the re-rooted `draft/` read removed it.
+- **The wide capture holds no `examples/`.** A target whose root is a fixture project under
+  `examples/` (the shipped `cli-flags`) can be verified but not drafted from the capture: a
+  drafter would find no source to read. The two real repository targets the program is
+  about (`packages/*`) are in it; a fixture target is for the lanes.
 - **3a runs verification in the target's prepared image, not at the work order's pin.** The
   pin is recorded on the row and in the bundle; 3b honours it with per-pin images. Until then
   a work order created against a newer `origin/main` is verified in the environment the target

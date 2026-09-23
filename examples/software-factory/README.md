@@ -16,7 +16,7 @@ Rung 0 asked the worker whether it had succeeded. Rung 1 stops asking.
 
 ## Packages
 
-This example is two b4 apps that share no source:
+This example is three b4 apps that share no source:
 
 - **`controller/`** (`@b4-example/software-factory-controller`) — the controller *as a b4 app*.
   Its mutating commands are `workflow` routes: `/work-orders/create#workflow`,
@@ -27,16 +27,25 @@ This example is two b4 apps that share no source:
   and the `factory` CLI.
 - **`server/`** (`@b4-example/software-factory-server`) — the builder: one bounded route that
   edits files in a container, and nothing else.
+- **`drafter/`** (`@b4-example/software-factory-drafter`) — the drafter: one `intake` agent
+  route with the four built-in workspace tools, run on the plain `node:24-slim` base image
+  pinned by digest, with the network denied and permissions non-interactive. It reads a wide
+  read-only capture of the repository and writes a task under `draft/`; it repairs nothing.
 
-**The boundary.** The builder imports no controller code. What crosses between them is a
-**manifest**: a JSON file the controller writes per task (`factory builder-manifest`) naming
-the captured workspace, the target's image, scope, sandbox policy and permissions, and the
-prompt. The builder's `b4.config.ts` reads `FACTORY_BUILDER_MANIFEST`, verifies it, and serves
-the workspace through the resolver form of `sandbox.workspace`. A builder without that
-variable refuses to load, which is why its `build` and `check` scripts run behind
-`scripts/with-manifest.mjs` and skip with a notice when it is unset: the repository-wide
-`build` has no task in hand, and the real build is the one the Docker lane runs after writing
-a manifest.
+**The boundary.** Neither worker imports controller code. What crosses between them is a
+**manifest**: a JSON file the controller writes naming a captured workspace. The builder's is
+per task (`factory builder-manifest`) and also carries the target's image, scope, sandbox
+policy, permissions and prompt; the builder's `b4.config.ts` reads `FACTORY_BUILDER_MANIFEST`,
+verifies it, and serves the workspace through the resolver form of `sandbox.workspace`. A
+builder without that variable refuses to load, which is why its `build` and `check` scripts
+run behind `scripts/with-manifest.mjs` and skip with a notice when it is unset: the
+repository-wide `build` has no task in hand, and the real build is the one the Docker lane
+runs after writing a manifest. The drafter's manifest is per **work order**: `intake` writes
+`<FACTORY_DRAFTER_MANIFEST_DIR>/<workOrderId>.json` before it creates the drafter thread, the
+thread is created with `{ factoryWorkOrderId }`, and the drafter's resolver loads that file
+when the thread's first run is admitted. The drafter's `b4.config.ts` needs only the
+directory (`FACTORY_DRAFTER_MANIFEST_DIR`), which may be empty at boot, so its `check` and
+`build` run everywhere and refusal happens per thread, by name.
 
 ## What it proves
 
@@ -111,15 +120,14 @@ limits and permission allow-list. That is a stronger control point than the cata
 replaced — a key only selected among the target definitions in the repository, while a
 manifest states them outright.
 
-**Intake is scripted, not real, in this sub-project.** The drafter turn runs in the builder
-process on the route `FACTORY_INTAKE_ROUTE`, in the workspace of `FACTORY_INTAKE_TASK`; the
-drafter with its own app, image and wide read-only capture of the repository is the next
-sub-project. The route is configurable and exercised only by the test fake: the builder app
-does not implement it yet, so `factory intake` against the real builder ends
-`blocked (intake_run_failed)` until the drafter lands. The work order's pin is recorded on the row and in the bundle but not honoured:
-the oracle proof and verification run in the target's prepared image, at the pin that image
-was prepared from. And intake threads accumulate on the worker, one per work order, since
-nothing sweeps a parked or blocked work order's drafter thread yet.
+**The pin is captured for the drafter but not yet honoured by the verifier.** The wide
+capture the drafter reads is taken at the work order's pin, out of the object store. The
+oracle proof and the verification, though, still run in the target's prepared image at the
+pin that image was prepared from, and the builder still resolves its workspace from one
+manifest per process rather than per work order; per-pin images and the builder's per-work-order
+resolver are the second half of this sub-project. The pin is recorded on the row and in the
+bundle, so the evidence says both. And intake threads accumulate on the drafter, one per work
+order, since nothing sweeps a parked or blocked work order's drafter thread yet.
 
 **`examples/code-fixer` is untouched by this rung.** The factory borrows its fixture image and
 nothing else; rung 0 drove code-fixer as its worker, and rung 1 does not.
@@ -186,7 +194,8 @@ The builder and the verifier both run in the target's prepared image, so this ne
     # builds b4-factory-cli-flags:<pin>-<dockerfile sha>
 
 **1. Write the builder's manifest.** The builder is a function of one input, and the
-controller writes it from the catalog. This command needs no controller and no registry:
+controller writes it from the catalog. This command needs no controller and no registry
+(the drafter's manifests need no step: `intake` writes one per work order):
 
     pnpm --filter @b4-example/software-factory-controller \
       factory builder-manifest --task cli-flags --out /tmp/factory-manifests
@@ -197,16 +206,39 @@ controller writes it from the catalog. This command needs no controller and no r
     OPENAI_API_KEY=... \
       pnpm --filter @b4-example/software-factory-server dev --port 4100
 
-**3. Start the controller** (terminal 2). It needs the builder's URL, its own state directory,
-and the builder's *app root* — the package whose installation store the workspace reader
-addresses:
+**3. Start the drafter** (terminal 2), told where the controller will leave its manifests.
+It reads the repository through the capture in each manifest, never through the filesystem,
+so it needs no repository path:
+
+    FACTORY_DRAFTER_MANIFEST_DIR=/tmp/drafter-manifests \
+    OPENAI_API_KEY=... \
+      pnpm --filter @b4-example/software-factory-drafter dev --port 4200
+
+`FACTORY_DRAFTER_MODEL` (default `gpt-5-mini`) picks the model. Do not set
+`B4_PERMISSIONS_MODE` in this process: it would override the app's `non-interactive` mode,
+and a drafter that parks on a permission prompt is a turn nobody answers.
+
+**4. Start the controller** (terminal 3). It needs a *worker map* — which builder process
+serves which target — its own state directory, and the drafter pair: the drafter's URL and
+its *app root*, the package whose installation store the controller reads `draft/` from. For
+one builder serving every target, the legacy pair `FACTORY_WORKER_URL` +
+`FACTORY_BUILDER_APP_ROOT` is that map:
 
     FACTORY_WORKER_URL=http://127.0.0.1:4100 \
-    FACTORY_STATE_DIR=$PWD/.factory \
     FACTORY_BUILDER_APP_ROOT=$PWD/examples/software-factory/server \
+    FACTORY_DRAFTER_URL=http://127.0.0.1:4200 \
+    FACTORY_DRAFTER_APP_ROOT=$PWD/examples/software-factory/drafter \
+    FACTORY_DRAFTER_MANIFEST_DIR=/tmp/drafter-manifests \
+    FACTORY_STATE_DIR=$PWD/.factory \
       pnpm --filter @b4-example/software-factory-controller dev --port 4300
 
-**4. Drive it** (terminal 3). Every command above and below runs from the repository root.
+With one builder process per target, `FACTORY_WORKERS` replaces the pair: a JSON object from
+target id (or `*` for every target without an entry of its own) to `{ "url", "appRoot",
+"route"? }`. The two forms are exclusive; setting both is refused by name. Without the
+drafter pair the controller starts and every command works except `intake`, which refuses
+before spending anything.
+
+**5. Drive it** (terminal 4). Every command above and below runs from the repository root.
 The CLI's write commands are requests to the running controller
 (`FACTORY_CONTROLLER_URL`); its read commands never touch the controller at all — they open
 `<FACTORY_STATE_DIR>/registry.sqlite` read-only. So both variables are set:
@@ -238,11 +270,28 @@ both variables: it interrupts a live dispatch through the runtime, falls back to
 route for a work order that is not mid-run, and reads the row back.
 
 **Intake.** A work order created with `--issue` has no task yet: `factory intake <id>` runs a
-drafter turn on the builder process and waits for it, as `dispatch` does. The drafter must
-write exactly four files under `draft/` — `task.json` (the target, the allowed and immutable
-paths), `spec.md` (the repair, with acceptance criteria as `A<n>:` lines), `checks.json` (the
-independent suite) and the one check file it names — and repairs nothing. The controller
-validates the draft, fits it to a prepared target, materialises it as a task directory under
+drafter turn on the drafter process and waits for it, as `dispatch` does. Before the thread
+exists the controller stages the **wide capture** of the repository at the work order's pin,
+out of the git object store: the root manifests (`package.json`, `pnpm-workspace.yaml`,
+`pnpm-lock.yaml`, `turbo.json`, `biome.json`, `.npmrc`, `tsconfig*.json`), every
+`packages/*/package.json`, `tsconfig*.json` and `README.md`, every `packages/*/src/**` and
+`packages/*/test/**`, and `scripts/**` minus `scripts/release/test/fixtures/**` and any path
+the framework's capture would refuse; nothing under `apps/`, `examples/` or `docs/`, no
+`node_modules`, no `.git`. It is captured with the
+framework's own capture, written as the work order's manifest, and served to the drafter
+thread under `repo/`, with no baseline and no environment links. The drafter must write
+exactly four files under `draft/` beside it — `task.json` (the target, the allowed and
+immutable paths), `spec.md` (the repair, with acceptance criteria as `A<n>:` lines),
+`checks.json` (the independent suite) and the one check file it names — and repairs nothing.
+`repo/` is **not write-fenced**: the permission gate allows every write inside a workspace,
+and the drafter could edit its copy of the repository. That is safe because nothing reads
+the copy back — the controller reads the thread **re-rooted at `draft/`** (a read of a
+different root, not a filter over the whole tree), the network is denied, and the capture
+is the thread's own; a write under `repo/` changes what the drafter sees and nothing else.
+The manifest lives until the work order leaves intake for good (a block, an approval, a
+settled cancel): a redraft reuses the admitted thread and needs no manifest, and one is
+some 20 MiB on this repository, so it is removed rather than kept. The controller validates
+the draft, fits it to a prepared target, materialises it as a task directory under
 `<FACTORY_STATE_DIR>/tasks/<id>/` (the four files plus `issue.md`), and then **proves the
 oracle**: it runs only the drafted check, with no candidate changes, against the unpatched
 baseline in the target's image, and the check must FAIL there. A check that passes on the
@@ -278,18 +327,22 @@ The controller app reads:
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `FACTORY_WORKER_URL` | yes | The builder's Agent Protocol base URL, `http(s)` only |
+| `FACTORY_WORKERS` | one of the two | The worker map: JSON from target id (or `*`) to `{ "url", "appRoot", "route"? }`, one builder process per target. Exclusive with the pair below |
+| `FACTORY_WORKER_URL` | one of the two | The legacy pair, with `FACTORY_BUILDER_APP_ROOT`: one builder for every target, i.e. the `*` entry. `http(s)` only |
+| `FACTORY_BUILDER_APP_ROOT` | with `FACTORY_WORKER_URL` | The BUILDER package's root, so the workspace reader can address its installation store |
+| `FACTORY_WORKER_ROUTE` | no | Default `/build#agent`; only with the legacy pair |
 | `FACTORY_STATE_DIR` | yes | Holds `registry.sqlite`, `artifacts/` and `exports/` |
-| `FACTORY_BUILDER_APP_ROOT` | yes | The BUILDER package's root, so the workspace reader can address its installation store |
-| `FACTORY_WORKER_ROUTE` | no | Default `/build#agent` |
+| `FACTORY_DRAFTER_URL` | for `intake` | The drafter's Agent Protocol base URL, `http(s)` only. Set with `FACTORY_DRAFTER_APP_ROOT` or not at all |
+| `FACTORY_DRAFTER_APP_ROOT` | for `intake` | The DRAFTER package's root, so the controller can read a drafter thread's `draft/` through its installation store |
+| `FACTORY_DRAFTER_ROUTE` | no | Default `/intake#agent`; only with the drafter pair |
+| `FACTORY_DRAFTER_MANIFEST_DIR` | no | Default `<drafter app root>/.factory/manifests`; must be the directory the drafter process was started with. Only with the drafter pair |
+| `FACTORY_DRAFTER_IMAGE` | no | Default: the pinned `node:24-slim` digest. Must equal what the drafter booted with, since the image is half of the provider identity the controller reads its threads by. Only with the drafter pair |
 | `FACTORY_EXPORT_DIR` | no | Default `<state>/exports`; also the bundle's destination identity |
 | `FACTORY_ARTIFACTS_DIR` | no | Default `<state>/artifacts`, the content-addressed evidence store |
 | `FACTORY_APPROVAL_TTL_MS` | no | Default 900000 |
 | `FACTORY_MAX_ACTIVE_MS` | no | Default 1200000; waiting on a person is not active time |
 | `FACTORY_MAX_CHANGED_BYTES` | no | Default 1048576; exceeding it is a `scope_violation`, never a truncation |
-| `FACTORY_REPO_ROOT` | no | The repository the targets pin into; default `git rev-parse --show-toplevel` from the package. Set by the Docker-lane tests, which copy the app outside the repository. |
-| `FACTORY_INTAKE_ROUTE` | no | Default `/intake#agent`: the route the drafter turn runs on |
-| `FACTORY_INTAKE_TASK` | for `intake` | The catalog task whose workspace the drafter runs in. Required because in this sub-project the drafter turn runs in the builder process, whose workspace is fixed by its manifest task; without it `intake` refuses before spending anything |
+| `FACTORY_REPO_ROOT` | no | The repository the targets pin into and the wide capture is taken from; default `git rev-parse --show-toplevel` from the package. Set by the Docker-lane tests, which copy the app outside the repository. |
 
 The CLI's `create --issue` reads `FACTORY_GH` (default `gh`: the executable that answers
 `issue view`), `FACTORY_REPOSITORY` (the `owner/name` to read from, else `--repo`, else the
@@ -297,14 +350,19 @@ checkout's `origin` remote) and `FACTORY_NO_FETCH` (`1` skips the `git fetch ori
 before the pin is resolved from the checkout named by `FACTORY_REPO_ROOT`).
 
 The builder app reads `FACTORY_BUILDER_MANIFEST` (required: the manifest path) and
-`FACTORY_BUILDER_MODEL` (default `gpt-5-mini`). The CLI reads `FACTORY_CONTROLLER_URL` for
+`FACTORY_BUILDER_MODEL` (default `gpt-5-mini`). The drafter app reads
+`FACTORY_DRAFTER_MANIFEST_DIR` (required: the manifest directory, which may be empty),
+`FACTORY_DRAFTER_IMAGE` (default: the pinned digest in `drafter/src/drafter-image.ts`) and
+`FACTORY_DRAFTER_MODEL` (default `gpt-5-mini`). The CLI reads `FACTORY_CONTROLLER_URL` for
 writes and `FACTORY_STATE_DIR` for reads; `builder-manifest` needs neither.
 
 Unknown keys are stripped rather than rejected, so an old service file keeps starting. Rung 0's
 `FACTORY_WORKER_OUTBOX` and `FACTORY_RECEIPT_WAIT_MS` name nothing now — the trust transfer
 they existed for is gone. Neither does anything rung 2 used to configure the standalone CLI's
 port or the builder's task: the controller is an app with its own port, and the builder's task
-is whichever one its manifest names.
+is whichever one its manifest names. The scripted intake's `FACTORY_INTAKE_ROUTE` and
+`FACTORY_INTAKE_TASK` are gone the same way: the drafter is its own process now, and
+`intake` refuses by name when the drafter pair is unset.
 
 ## Tests
 
@@ -319,17 +377,30 @@ config.
     # the builder
     pnpm --filter @b4-example/software-factory-server test
 
+    # the drafter
+    pnpm --filter @b4-example/software-factory-drafter test
+    docker pull "$(grep -o 'node:24-slim@sha256:[a-f0-9]*' examples/software-factory/drafter/src/drafter-image.ts)"
+    pnpm --filter @b4-example/software-factory-drafter test:sandbox
+
 The controller's `test` is layer 1: every invariant, against a scripted worker, reader and
 verifier, and it is the only always-on lane. `test:sandbox` is layers 2 and 3 — the real
-builder and the real verifier — and needs Docker plus the `target:prepare` step above, which
-builds the target images it runs in. Layer 2 needs Docker even though its model is scripted:
-the app configures a sandbox, so the run acquires a real container — which is the point, since
-the permission config and `runBash` are exactly what that layer exists to exercise. Both fail
-rather than skip when Docker is absent.
+builder, the real drafter and the real verifier — and needs Docker plus the `target:prepare`
+step above, which builds the target images it runs in, and the drafter's base image pulled
+by digest. Layer 2 needs Docker even though its model is scripted: the app configures a
+sandbox, so the run acquires a real container — which is the point, since the permission
+config and `runBash` are exactly what that layer exists to exercise. Both fail rather than
+skip when Docker is absent. The drafter's own `test:sandbox` serves the drafter app and
+proves its resolver: two threads for two work orders each admitted with their own capture,
+and a thread with no manifest refused by name. The controller's
+`drafter-end-to-end.integration.test.ts` is the whole intake for real: the wide capture
+staged at a pin, a scripted drafter turn in the drafter's own process and image, the
+re-rooted `draft/` read, and the oracle proof in the target's image.
 
-In CI, both packages' always-on lanes run inside `source-validate`'s `pnpm test`, which the
-`validate` gate aggregates. The Docker work is the `sandbox-docker` job: it prepares both
+In CI, all three packages' always-on lanes run inside `source-validate`'s `pnpm test`, which
+the `validate` gate aggregates. The Docker work is the `sandbox-docker` job: it prepares both
 target images (`target:prepare cli-flags` and `target:prepare devkit`), writes a builder
 manifest for `cli-flags` and runs the **builder's** own `check` and `build` against it — the
-only place either runs, since a manifest exists nowhere else — and then runs the controller's
-`test:sandbox`.
+only place either runs, since a manifest exists nowhere else — pulls the drafter's base image
+by the digest in `drafter/src/drafter-image.ts`, runs the drafter's `check` and `build`
+against an empty manifest directory, and then runs the drafter's `test:sandbox` and the
+controller's.

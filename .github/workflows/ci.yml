@@ -452,6 +452,13 @@ jobs:
         # for want of one. `factory builder-manifest` writes a real manifest for
         # `cli-flags` first, and both commands run against it. `check` runs the
         # provider preflight, which needs Docker; this lane has it.
+        #
+        # The drafter runs on the plain `node:24-slim` base, pinned by digest in
+        # `drafter/src/drafter-image.ts`; that literal is the only copy, so the
+        # pull reads it from the file rather than restating it here. The drafter's
+        # own `check` and `build` need a manifest directory (empty is fine), and
+        # its `test:sandbox` serves the app against the pulled image before the
+        # controller's `test:sandbox` runs the real intake turn through it.
         run: |
           pnpm turbo run build --filter=@b4-example/software-factory-controller^...
           pnpm --filter @b4-example/software-factory-controller target:prepare cli-flags
@@ -459,6 +466,10 @@ jobs:
           pnpm --filter @b4-example/software-factory-controller factory builder-manifest --task cli-flags --out "$RUNNER_TEMP/factory-manifests"
           FACTORY_BUILDER_MANIFEST="$RUNNER_TEMP/factory-manifests/cli-flags.json" pnpm --filter @b4-example/software-factory-server check
           FACTORY_BUILDER_MANIFEST="$RUNNER_TEMP/factory-manifests/cli-flags.json" pnpm --filter @b4-example/software-factory-server build
+          docker pull "$(grep -o 'node:24-slim@sha256:[a-f0-9]*' examples/software-factory/drafter/src/drafter-image.ts)"
+          FACTORY_DRAFTER_MANIFEST_DIR="$RUNNER_TEMP/drafter-manifests" pnpm --filter @b4-example/software-factory-drafter check
+          FACTORY_DRAFTER_MANIFEST_DIR="$RUNNER_TEMP/drafter-manifests" pnpm --filter @b4-example/software-factory-drafter build
+          pnpm --filter @b4-example/software-factory-drafter test:sandbox
           pnpm --filter @b4-example/software-factory-controller test:sandbox
 
       - name: Managed Docker lifecycle and runtime restart
