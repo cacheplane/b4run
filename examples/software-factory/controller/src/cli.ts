@@ -32,7 +32,7 @@ const USAGE = `factory <command> [options]
   events    <workOrderId>
   evidence  <workOrderId>
   list
-  builder-target   --target <id> --out <dir>
+  builder-target   --target <id> [--pin <sha>] --out <dir>
   builder-manifest --task <id> --out <dir> [--work-order <workOrderId>]
 
 The commands that change something are requests to a running controller:
@@ -42,7 +42,9 @@ both: it asks the controller to stop the run and then reads the row back.
 builder-target and builder-manifest need neither.
 
 builder-target writes <dir>/<id>.target.json, the file one builder process serving that target
-boots from (FACTORY_BUILDER_TARGET). builder-manifest writes <dir>/<work-order>.json (the work
+boots from (FACTORY_BUILDER_TARGET), for the image prepared at --pin (default: the target's
+default pin). One builder serves one pin; the controller reads the pin from that file (or a
+FACTORY_WORKERS entry's pin) and refuses a dispatch whose task pin's environment differs. builder-manifest writes <dir>/<work-order>.json (the work
 order defaults to the task id): the controller writes one per work order at dispatch into the
 target's manifest directory, and this command is for driving a builder without a controller.
 
@@ -260,6 +262,7 @@ async function main(argv: string[]): Promise<number> {
       note: { type: "string" },
       out: { type: "string" },
       target: { type: "string" },
+      pin: { type: "string" },
       "work-order": { type: "string" },
       help: { type: "boolean", default: false },
     },
@@ -283,7 +286,13 @@ async function main(argv: string[]): Promise<number> {
   if (command === "builder-target") {
     if (!values.target) throw new Error("builder-target requires --target")
     if (!values.out) throw new Error("builder-target requires --out")
-    print({ path: await writeBuilderTarget(loadTarget(values.target), values.out) })
+    const pin = values.pin
+    if (pin !== undefined && !/^[a-f0-9]{40}$/.test(pin))
+      throw new Error(`builder-target --pin must be a full lowercase commit sha, got ${pin}`)
+    // The image at that pin must be prepared; `loadTarget`'s `ImageUnpreparedError` names the
+    // command that prepares it.
+    const target = loadTarget(values.target, pin !== undefined ? { pin } : {})
+    print({ path: await writeBuilderTarget(target, values.out), pin: target.pin })
     return 0
   }
   if (command === "builder-manifest") {

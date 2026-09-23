@@ -13,7 +13,7 @@ import {
   writeBuilderManifest,
   writeBuilderTarget,
 } from "../src/lib/builder-manifest.ts"
-import { loadTask } from "../src/lib/targets/catalog.ts"
+import { imageTag, loadTask } from "../src/lib/targets/catalog.ts"
 import { builderPermissions } from "../src/lib/targets/permissions.ts"
 import { builderSandboxScope, targetSandboxPolicy } from "../src/lib/targets/workspace.ts"
 
@@ -40,7 +40,9 @@ describe("builder target", () => {
     // against the same constructors the controller uses, so a third option added there
     // without a field here fails rather than silently changing the builder's SandboxConfig.
     expect(file.target.scope).toBe(builderSandboxScope)
-    expect(file.target.image).toMatch(/^b4-factory-/)
+    expect(file.target.image).toBe(imageTag(task.target))
+    // The pin the image was prepared at: what the controller compares each task's pin with.
+    expect(file.target.pin).toBe(task.target.pin)
     expect(file.target.policy).toEqual(targetSandboxPolicy(task.target))
     expect(file.target.permissions).toEqual(builderPermissions(task.target))
     // The builder's own copy of the schema accepts it: it is the file the builder boots from.

@@ -9,7 +9,7 @@
     "lint": "biome check .",
     "check": "FACTORY_BUILDER_MANIFEST_DIR=\"${FACTORY_BUILDER_MANIFEST_DIR:-.factory/manifests}\" node scripts/with-target.mjs b4 check",
     "build": "FACTORY_BUILDER_MANIFEST_DIR=\"${FACTORY_BUILDER_MANIFEST_DIR:-.factory/manifests}\" node scripts/with-target.mjs b4 build",
-    "dev": "b4 dev"
+    "dev": "FACTORY_BUILDER_MANIFEST_DIR=\"${FACTORY_BUILDER_MANIFEST_DIR:-.factory/manifests}\" b4 dev"
   },
   "dependencies": {
     "@b4run/cli": "workspace:*",

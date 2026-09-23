@@ -23,6 +23,11 @@ export interface TargetWorker {
    * builder process's `FACTORY_BUILDER_MANIFEST_DIR`.
    */
   readonly manifestDir: string
+  /**
+   * The pin the builder process runs at (its target file's). Absent: the target's default
+   * pin. `dispatch` compares each task's pin with it, and the reader addresses its image.
+   */
+  readonly pin?: string
 }
 
 /** The drafter as the controller talks to it. */
@@ -122,6 +127,7 @@ export function createWorkerMap(
       reader: readerFor(key),
       appRoot: entry.appRoot,
       manifestDir: entry.manifestDir,
+      ...(entry.pin !== undefined ? { pin: entry.pin } : {}),
     }
   }
   // A getter, not a spread over one: spreading would read it at boot.

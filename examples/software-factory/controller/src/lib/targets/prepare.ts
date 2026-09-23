@@ -10,7 +10,7 @@ import { appRoot, commitSha, type Image, type TargetManifest, TargetSchema } fro
  * writes back. The script itself is Docker and git; these are what a unit test can reach.
  */
 
-export interface PrepareArgs {
+interface PrepareArgs {
   readonly id: string
   /** Absent: the manifest's own (default) pin. */
   readonly pin?: string
@@ -95,7 +95,7 @@ export function withImageAt(
 }
 
 /** Format `json` as the checked-in manifests are (Biome, from the app's own configuration). */
-export function formatManifest(json: string): string {
+function formatManifest(json: string): string {
   return execFileSync("npx", ["biome", "format", "--stdin-file-path=target.json"], {
     cwd: appRoot,
     input: json,

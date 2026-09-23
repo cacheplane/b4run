@@ -16,6 +16,8 @@ export interface FakeWorkerMapOptions {
      * the file names a directory of its own.
      */
     readonly manifestDir?: string
+    /** The pin the builder runs at; the target's default when absent. */
+    readonly pin?: string
   }
   /** The drafter. Absent: intake is not configured. */
   readonly drafter?: {
@@ -39,6 +41,7 @@ export function fakeWorkerMap(options: FakeWorkerMapOptions): WorkerMap {
         route: options.builder.route ?? "/build#agent",
         appRoot: options.builder.appRoot ?? "/unused/builder",
         manifestDir: options.builder.manifestDir ?? "/unused/builder-manifests",
+        ...(options.builder.pin !== undefined ? { pin: options.builder.pin } : {}),
       }
     : undefined
   const drafter: DrafterWorker | undefined = options.drafter

@@ -28,6 +28,7 @@ const target: BuilderTarget = {
     id: "fixture-target",
     scope: "software-factory-builder",
     image: "b4-factory-fixture-target:deadbeefcafe-0123456789ab",
+    pin: "d".repeat(40),
     policy: {
       network: { mode: "deny" },
       env: { npm_config_cache: "/tmp/npm-cache" },

@@ -43,18 +43,48 @@ export function removeJournalledManifest(
  * thread (thread creation failed, or the row moved while the thread was being made). The
  * file is `<dir>/<id>.json` whoever wrote it, so a concurrent command under another key (a
  * second dispatch, an intake after a reject) may own it by now: it is removed only while the
- * row holds no thread, or holds `ownThreadId`, and kept (journalled) otherwise.
+ * row holds no thread, holds `ownThreadId`, or still holds `priorThreadId` (the thread the
+ * row held when the command began: after `approve_intake` a `received` row still carries its
+ * INTAKE thread, which is no builder's), and kept (journalled) otherwise.
  */
 export function removeOwnManifest(
   ctx: ControllerContext,
   id: string,
   role: ManifestRole,
   ownThreadId: string | null,
+  priorThreadId: string | null = null,
 ): void {
   const holder = ctx.mustGet(id).workerThreadId
-  if (holder !== null && holder !== ownThreadId) {
+  if (holder !== null && holder !== ownThreadId && holder !== priorThreadId) {
     ctx.recordEvent(id, `${role}_manifest_kept`, { threadId: holder })
     return
   }
+  removeJournalledManifest(ctx, id, role)
+}
+
+/** The event that hands a role's manifest to a thread: after it, the thread owns the file. */
+const HANDED_TO_THREAD: Record<ManifestRole, string> = {
+  builder: "thread_created",
+  drafter: "intake_thread_created",
+}
+
+/**
+ * Remove the role's manifest when the command that wrote it never handed it to a thread: the
+ * last `<role>_manifest_written` has no `thread_created` (builder) or `intake_thread_created`
+ * (drafter) after it. That is a command that crashed, or was cancelled, between the write and
+ * the thread; no thread will ever be admitted with the file, and a rerun writes its own.
+ */
+export function removeUnhandedManifest(
+  ctx: ControllerContext,
+  id: string,
+  role: ManifestRole,
+): void {
+  const events = ctx.store.events(id)
+  let written = -1
+  events.forEach((event, index) => {
+    if (event.type === `${role}_manifest_written`) written = index
+  })
+  if (written === -1) return
+  if (events.slice(written + 1).some((event) => event.type === HANDED_TO_THREAD[role])) return
   removeJournalledManifest(ctx, id, role)
 }

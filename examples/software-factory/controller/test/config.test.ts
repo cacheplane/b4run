@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { DRAFTER_IMAGE, loadConfig, workerEndpointFor } from "../src/lib/config.ts"
 import { writeTargetFile } from "./builder-target-file.ts"
+import { shippedPin } from "./temp-repo.ts"
 
 const targets = mkdtempSync(join(tmpdir(), "factory-config-targets-"))
 const cliFlagsTarget = writeTargetFile(targets, "cli-flags")
@@ -30,8 +31,17 @@ describe("loadConfig", () => {
         route: "/build#agent",
         // The builder's FACTORY_BUILDER_MANIFEST_DIR default, under its app root.
         manifestDir: "/tmp/builder/.factory/manifests",
+        // Read from the target file the builder boots from: the pin it runs at.
+        pin: shippedPin("cli-flags"),
       },
     })
+  })
+
+  it("reads the legacy builder's pin from its target file", () => {
+    const pinned = writeTargetFile(join(targets, "pinned"), "devkit", "e".repeat(40))
+    expect(loadConfig({ ...base, FACTORY_BUILDER_TARGET: pinned }).workers.devkit?.pin).toBe(
+      "e".repeat(40),
+    )
   })
 
   it("rejects missing or malformed values", () => {
@@ -117,6 +127,22 @@ describe("the worker map", () => {
     expect(workerEndpointFor(config.workers, "devkit")?.appRoot).toBe("/srv/devkit-builder")
     // A target with no entry has no worker.
     expect(workerEndpointFor(config.workers, "testing")).toBeUndefined()
+  })
+
+  it("accepts a pin on a FACTORY_WORKERS entry, and refuses one that is not a full sha", () => {
+    const entry = { url: "http://127.0.0.1:4101", appRoot: "/srv/devkit-builder" }
+    expect(
+      loadConfig({
+        FACTORY_STATE_DIR: "/tmp/state",
+        FACTORY_WORKERS: JSON.stringify({ devkit: { ...entry, pin: "f".repeat(40) } }),
+      }).workers.devkit?.pin,
+    ).toBe("f".repeat(40))
+    expect(() =>
+      loadConfig({
+        FACTORY_STATE_DIR: "/tmp/state",
+        FACTORY_WORKERS: JSON.stringify({ devkit: { ...entry, pin: "abc" } }),
+      }),
+    ).toThrow(/full lowercase commit sha/)
   })
 
   it("keys entries by target id alone: the wildcard is gone", () => {

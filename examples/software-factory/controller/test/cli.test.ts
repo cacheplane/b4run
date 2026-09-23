@@ -440,6 +440,55 @@ esac
     const target = BuilderTargetSchema.parse(JSON.parse(readFileSync(targetPath, "utf8")))
     expect(target.target.id).toBe(targetId)
     expect(target.target.policy.network.mode).toBe("deny")
+    // Without --pin: the target's default pin, recorded in the file with that pin's image.
+    const defaultPin = loadTask("cli-flags").target.pin
+    expect(target.target.pin).toBe(defaultPin)
+    expect(target.target.image).toContain(`:${defaultPin.slice(0, 12)}-`)
+
+    // With --pin: the image prepared at that pin, and the pin recorded beside it.
+    const pinnedDir = join(dir, "pinned")
+    const { stdout: pinnedOut } = await run(
+      process.execPath,
+      [
+        tsxBin,
+        cliEntry,
+        "builder-target",
+        "--target",
+        targetId,
+        "--pin",
+        defaultPin,
+        "--out",
+        pinnedDir,
+      ],
+      { env: rest, cwd: packageRoot },
+    )
+    expect(JSON.parse(pinnedOut).pin).toBe(defaultPin)
+    const pinned = BuilderTargetSchema.parse(
+      JSON.parse(readFileSync(join(pinnedDir, `${targetId}.target.json`), "utf8")),
+    )
+    expect(pinned.target).toEqual(target.target)
+    // A pin with no image prepared: refused, naming the command that prepares one.
+    const unprepared = "1".repeat(40)
+    const refused = await failing(
+      run(
+        process.execPath,
+        [
+          tsxBin,
+          cliEntry,
+          "builder-target",
+          "--target",
+          targetId,
+          "--pin",
+          unprepared,
+          "--out",
+          pinnedDir,
+        ],
+        { env: rest, cwd: packageRoot },
+      ),
+    )
+    expect(refused.stderr).toContain(
+      `pnpm --filter @b4-example/software-factory-controller target:prepare ${targetId} --pin ${unprepared}`,
+    )
 
     // The work order defaults to the task: a lane with no controller names the file itself.
     const { stdout } = await run(

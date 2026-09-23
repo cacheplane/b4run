@@ -585,12 +585,21 @@ rather than a silent rebuild inside the controller.
 > change carry the v1 identity and no longer approve (examples; acceptable). `approve`
 > asserts a generated task's frozen `pin` equals the policy's. `cli-flags`'s historical paths
 > (the fixture under `server/`) cannot be re-pinned past the controller move, so `devkit` is
-> the per-pin target. The builder's sandbox image is still per process (its target file is
-> written at the default pin): a generated task at another pin is built in the default
-> pin's image and verified in its own. `dispatch` guards it before the key: it journals
-> `builder_environment_differs { builderPin, taskPin, lockfileDiffers }` and refuses unspent
-> when the two images' `lockfileSha256` differ; the controller's builder reader addresses the
-> builder's image (the default pin's), not the task's. Review fixes: the prepare script
+> the per-pin target. A builder has a pin: `factory builder-target --target <id> [--pin
+> <sha>]` writes the image at that pin and records `pin` in the target file (both schema
+> copies); the controller takes a worker's pin from that file (legacy pair) or the
+> `FACTORY_WORKERS` entry's optional `pin` (default: the target's default pin). One builder
+> serves one pin at a time. Before the key, `dispatch` compares the task's pin (a generated
+> task's own, a catalog task's target default) with the WORKER's: the same pin needs nothing;
+> different pins whose images agree on `lockfileSha256`, `baseManifestDigest` and
+> `dockerfileSha256` proceed with `builder_environment_differs { builderPin, taskPin,
+> lockfileDiffers, baseDiffers, dockerfileDiffers }`; anything else is refused unspent with
+> the remedy (prepare at the task's pin, restart the builder from `builder-target --pin`, set
+> the pin on its worker entry; or cancel). The controller's builder reader addresses the
+> worker's pin image, the one the builder process runs. After `approve_intake` a `received`
+> row still holds its intake thread, which no longer keeps a failed dispatch's builder
+> manifest; a manifest a crashed or cancelled command never handed to a thread is removed by
+> reconcile (`dispatch_incomplete`, an open `intake`) and by a cancel from `received`. Review fixes: the prepare script
 > re-reads the manifest after the build, merges only `images[pin]`, formats through Biome's
 > stdin and renames into place (`recordImage`, `storage/atomic-file.ts`); it checks every
 > path the target names at the pin (capture entries, `commands.cwd` and `runnerConfig`
@@ -706,10 +715,11 @@ a preparable target, and which a test can fail on:
 - **3a ran verification in the target's prepared image, not at the work order's pin**
   (resolved in 3b, half B). The generated task carries the pin and every lookup is at it, in
   the image prepared at it (§6.7 as landed); a pin with no image blocks `image_unprepared`.
-  What remains per process is the builder's sandbox image, written at the target's default
-  pin; `dispatch` refuses a task whose pin's lockfile differs from it and journals the
-  comparison when it does not. Remaining follow-ups: per-(target, pin) builders, the drafter
-  thread sweep, and orphaned capture sources.
+  A builder runs at one pin (its target file's, recorded on its worker entry); `dispatch`
+  refuses a task whose pin's environment differs from the builder's and names the remedy
+  (restart the builder at the task's pin), so one target serves one pin at a time.
+  Remaining follow-ups: per-(target, pin) builders, the drafter thread sweep, and orphaned
+  capture sources.
 - **3a manifests are migrated on read.** A `target.json` with the single `image` is read as
   `images[pin]`. Remove the migration at rung 4, once no 3a manifest can remain.
 

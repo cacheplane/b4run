@@ -47,10 +47,12 @@ import {
   type CatalogOptions,
   ensurePin,
   isShippedTask,
-  loadTarget,
+  type loadTarget,
   loadTask,
+  prepareCommand,
   repositoryRoot,
 } from "../targets/catalog.js"
+import { builderTarget } from "../targets/workspace.js"
 import { loadPolicy } from "../verification/policy.js"
 import type { Verifier } from "../verification/verifier.js"
 import type { CancelResult, WorkerClient } from "../worker/client.js"
@@ -58,7 +60,11 @@ import type { InterruptFrame, StreamFrame } from "../worker/wire.js"
 import { type BudgetTicker, startBudgetTicker } from "./budget.js"
 import type { ControllerContext } from "./context.js"
 import { finishIntake, observeIntakeTurn, removeDrafterManifest, runIntake } from "./intake.js"
-import { removeJournalledManifest, removeOwnManifest } from "./manifest-files.js"
+import {
+  removeJournalledManifest,
+  removeOwnManifest,
+  removeUnhandedManifest,
+} from "./manifest-files.js"
 import { reconcileAll, reconcileWorkOrder } from "./reconcile.js"
 import { denyPending, observeRun } from "./run-observer.js"
 import { consumeTurn } from "./turns.js"
@@ -230,31 +236,51 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   const artifacts: ArtifactStore = createArtifactStore(options.artifactsDir)
   const log = options.log ?? (() => {})
   /**
-   * Compare the builder's environment (the task's target at its default pin, which is where
-   * the builder process boots) with the task's own pin. Undefined when dispatch may go on;
-   * a message when the two images' lockfiles differ. Journals `builder_environment_differs`
-   * whenever the pins differ, with the verdict. The task loaded for the prompt a moment
-   * before, so a failure here is a catalog that changed in between, reported as a refusal.
+   * Compare the environment the task's builder RUNS (its target at the worker's pin: the pin
+   * of the target file it booted from, the target's default when the entry names none) with
+   * the one the task is verified in (the target at the task's pin, or the default pin for a
+   * catalog task). Undefined when dispatch may go on; a refusal message otherwise. The same
+   * pin needs nothing; different pins whose images agree on lockfile, base image and
+   * Dockerfile are journalled and allowed; any other difference is refused, because the
+   * build would run against an environment the verifier never sees. Journals
+   * `builder_environment_differs` whenever the pins differ.
    */
-  const builderEnvironmentRefusal = (id: string, taskId: string): string | undefined => {
+  const builderEnvironmentRefusal = (
+    id: string,
+    taskId: string,
+    worker: { readonly pin?: string },
+  ): string | undefined => {
     const catalog = options.promptCatalog ?? {}
+    const { pin: _pin, ...unpinned } = catalog
     let task: ReturnType<typeof loadTask>
-    let builderTarget: ReturnType<typeof loadTarget>
+    let builder: ReturnType<typeof loadTarget>
     try {
       task = loadTask(taskId, catalog)
-      if (task.manifest.pin === undefined) return undefined
-      const { pin: _pin, ...atDefault } = catalog
-      builderTarget = loadTarget(task.target.id, atDefault)
+      builder = builderTarget(task.target.id, worker.pin, unpinned)
     } catch (error) {
-      return `Builder environment for ${taskId} could not be resolved: ${String(error)}`
+      return `Builder environment for ${taskId} could not be resolved: ${error instanceof Error ? error.message : String(error)}`
     }
-    const builderPin = builderTarget.pin
+    const builderPin = builder.pin
     const taskPin = task.target.pin
     if (builderPin === taskPin) return undefined
-    const lockfileDiffers = builderTarget.image.lockfileSha256 !== task.target.image.lockfileSha256
-    recordEvent(id, "builder_environment_differs", { builderPin, taskPin, lockfileDiffers })
-    if (!lockfileDiffers) return undefined
-    return `builder for ${task.target.id} runs at ${builderPin}, whose dependencies differ from ${taskPin}: prepare the target at the work order's pin and restart its builder there, or wait for per-pin builders`
+    const lockfileDiffers = builder.image.lockfileSha256 !== task.target.image.lockfileSha256
+    const baseDiffers = builder.image.baseManifestDigest !== task.target.image.baseManifestDigest
+    const dockerfileDiffers = builder.image.dockerfileSha256 !== task.target.image.dockerfileSha256
+    recordEvent(id, "builder_environment_differs", {
+      builderPin,
+      taskPin,
+      lockfileDiffers,
+      baseDiffers,
+      dockerfileDiffers,
+    })
+    if (!lockfileDiffers && !baseDiffers && !dockerfileDiffers) return undefined
+    const what = [
+      ...(lockfileDiffers ? ["lockfile"] : []),
+      ...(baseDiffers ? ["base image"] : []),
+      ...(dockerfileDiffers ? ["Dockerfile"] : []),
+    ].join(", ")
+    const target = task.target.id
+    return `builder for ${target} runs at ${builderPin}, whose environment (${what}) differs from ${taskPin}: prepare ${target} at ${taskPin} (\`${prepareCommand(target, taskPin)}\`), then restart its builder from \`factory builder-target --target ${target} --pin ${taskPin}\` and set that pin on its worker entry; or cancel`
   }
   /**
    * The prompt for `taskId`, or the Error saying why the catalog cannot serve it. Resolved
@@ -589,6 +615,10 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       if (intakeThread) removeDrafterManifest(ctx, id)
       else removeBuilderManifest(id)
     }
+    // A command that wrote a manifest and was cancelled (or crashed) before it created the
+    // thread: from `received` there is no thread to settle, and nothing will ever read it.
+    removeUnhandedManifest(ctx, id, "builder")
+    removeUnhandedManifest(ctx, id, "drafter")
     try {
       return cause === "budget"
         ? transition(id, "run_ended_after_budget", { blockedReason: "budget_exhausted" })
@@ -1087,14 +1117,15 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
               : `Unknown task ${row.taskId}: ${input.message}`,
           }
       }
-      // The builder process boots from its target file, written at the target's DEFAULT pin;
-      // per-pin builders do not exist yet. A task pinned elsewhere is built in the default
-      // pin's image and verified in its own. Where the two images' dependencies agree
-      // (same lockfile) that is journalled and allowed; where they differ the build would run
-      // against dependencies the verifier never sees, so it is refused before the key: the
-      // operator's remedy (prepare, restart the builder) is not a function of the revision.
-      if (row.state === "received" && !options.tasks) {
-        const refusal = builderEnvironmentRefusal(id, row.taskId)
+      // The builder process boots from its target file, at ONE pin (the file's). A task at
+      // another pin is built in that pin's image and verified in its own: allowed and
+      // journalled where the two environments agree, refused before the key where they do
+      // not, since the operator's remedy (prepare, restart the builder at the task's pin) is
+      // not a function of the row's revision.
+      if (row.state === "received" && !options.tasks && targetId !== undefined) {
+        const worker = options.workers.forTarget(targetId)
+        const refusal =
+          worker === undefined ? undefined : builderEnvironmentRefusal(id, row.taskId, worker)
         if (refusal !== undefined) return { ok: false, state: row.state, message: refusal }
       }
       const key = operationKey ?? `dispatch:${id}:${row.revision}`
@@ -1160,7 +1191,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         // No thread will ever be admitted with this manifest: the next dispatch writes its own.
         // Unless a concurrent dispatch under another key has committed a thread since, whose
         // manifest this now is.
-        removeOwnManifest(ctx, id, "builder", null)
+        removeOwnManifest(ctx, id, "builder", null, row.workerThreadId)
         return finish(key, {
           ok: false,
           state: row.state,
@@ -1189,7 +1220,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         // The cancel that moved the row found no thread on it, so it removed nothing: the
         // manifest written a moment ago is this path's to remove, unless the row holds
         // another command's thread by now.
-        removeOwnManifest(ctx, id, "builder", threadId)
+        removeOwnManifest(ctx, id, "builder", threadId, row.workerThreadId)
         return finish(key, {
           ok: false,
           state: mustGet(id).state,

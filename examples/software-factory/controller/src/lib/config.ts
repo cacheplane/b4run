@@ -44,6 +44,12 @@ export interface WorkerEndpoint {
    * default.
    */
   readonly manifestDir: string
+  /**
+   * The pin the builder process runs at: the `pin` of the target file it booted from. One
+   * builder serves one pin at a time. Absent (a `FACTORY_WORKERS` entry that names none):
+   * the target's default pin, resolved from the catalog where it is used.
+   */
+  readonly pin?: string
 }
 
 /** The drafter: the one process that runs `/intake#agent` for every issue work order. */
@@ -68,6 +74,11 @@ const WorkerEndpointSchema = z
     appRoot: z.string().min(1),
     route: z.string().min(1).default(DEFAULT_WORKER_ROUTE),
     manifestDir: z.string().min(1).optional(),
+    /** The builder's pin: the `--pin` its target file was written at. The target's default pin when absent. */
+    pin: z
+      .string()
+      .regex(/^[a-f0-9]{40}$/, "pin must be a full lowercase commit sha")
+      .optional(),
   })
   .strict()
 
@@ -197,11 +208,11 @@ export function workerEndpointFor(
 }
 
 /**
- * The target id in the builder target file at `path`: the same file the builder boots from,
- * parsed with the same schema, so the controller routes to that builder exactly the work
- * orders its resolver will admit.
+ * The target id and pin in the builder target file at `path`: the same file the builder boots
+ * from, parsed with the same schema, so the controller routes to that builder exactly the
+ * work orders its resolver will admit, and compares each task's pin with the one it runs at.
  */
-function builderTargetId(path: string): string {
+function builderTargetOf(path: string): { readonly id: string; readonly pin: string } {
   let text: string
   try {
     text = readFileSync(path, "utf8")
@@ -209,7 +220,8 @@ function builderTargetId(path: string): string {
     throw new Error(`FACTORY_BUILDER_TARGET could not be read (${path}): ${String(error)}`)
   }
   try {
-    return BuilderTargetSchema.parse(JSON.parse(text)).target.id
+    const { id, pin } = BuilderTargetSchema.parse(JSON.parse(text)).target
+    return { id, pin }
   } catch (error) {
     throw new Error(
       `FACTORY_BUILDER_TARGET is not a builder target file (${path}): ${error instanceof z.ZodError ? z.prettifyError(error) : String(error)}`,
@@ -246,7 +258,7 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
     ].filter(isSet)
     if (stray.length > 0)
       throw invalid(
-        `FACTORY_WORKERS is set; unset ${stray.join(" and ")} (the entries carry url, appRoot, route and manifestDir)`,
+        `FACTORY_WORKERS is set; unset ${stray.join(" and ")} (the entries carry url, appRoot, route, manifestDir and pin)`,
       )
   }
   let workers: Readonly<Record<string, WorkerEndpoint>>
@@ -259,6 +271,7 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
           appRoot: entry.appRoot,
           route: entry.route,
           manifestDir: entry.manifestDir ?? defaultManifestDir(entry.appRoot),
+          ...(entry.pin !== undefined ? { pin: entry.pin } : {}),
         },
       ]),
     )
@@ -293,14 +306,15 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
       throw invalid(
         "FACTORY_BUILDER_TARGET is required with FACTORY_WORKER_URL: the target file that builder boots from (`factory builder-target`), which names the one target it serves",
       )
-    let targetId: string
+    let builderTarget: { readonly id: string; readonly pin: string }
     try {
-      targetId = builderTargetId(e.FACTORY_BUILDER_TARGET)
+      builderTarget = builderTargetOf(e.FACTORY_BUILDER_TARGET)
     } catch (error) {
       throw invalid(error instanceof Error ? error.message : String(error))
     }
     workers = {
-      [targetId]: {
+      [builderTarget.id]: {
+        pin: builderTarget.pin,
         url: e.FACTORY_WORKER_URL.replace(/\/$/, ""),
         appRoot: e.FACTORY_BUILDER_APP_ROOT,
         route: e.FACTORY_WORKER_ROUTE,

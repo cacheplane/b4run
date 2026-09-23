@@ -46,6 +46,8 @@ export const BuilderTargetSchema = z
         /** The two options `dockerSandbox` receives, and the whole of the provider's identity. */
         scope: z.string().min(1),
         image: z.string().min(1),
+        /** The commit that image was prepared at; the controller compares each task's pin with it. */
+        pin: z.string().regex(/^[a-f0-9]{40}$/),
         /**
          * The sandbox policy, modelled key by key and `.strict()` throughout rather than as an
          * opaque record. A misspelled `netwrok` or `modee` would otherwise parse, drop out of
@@ -109,12 +111,12 @@ export const BuilderManifestSchema = z
 export type BuilderManifest = z.infer<typeof BuilderManifestSchema>
 
 /** Where the target file for `targetId` lives under `dir`. */
-export function builderTargetPath(dir: string, targetId: string): string {
+function builderTargetPath(dir: string, targetId: string): string {
   return join(dir, `${targetId}.target.json`)
 }
 
 /** Where the manifest for `workOrderId` lives under `dir`: the name the builder's resolver reads. */
-export function builderManifestPath(dir: string, workOrderId: string): string {
+function builderManifestPath(dir: string, workOrderId: string): string {
   if (!CATALOG_ID.test(workOrderId))
     throw new Error(`builder manifest workOrderId must be a catalog id, got ${workOrderId}`)
   return join(dir, `${workOrderId}.json`)
@@ -122,7 +124,8 @@ export function builderManifestPath(dir: string, workOrderId: string): string {
 
 /**
  * Write `<dir>/<targetId>.target.json` and return its path: the one file a builder process
- * serving `target` boots from (`FACTORY_BUILDER_TARGET`).
+ * serving `target` boots from (`FACTORY_BUILDER_TARGET`). The file records the pin `target`
+ * was loaded at, whose image the builder runs: one builder serves one pin at a time.
  */
 export async function writeBuilderTarget(target: Target, dir: string): Promise<string> {
   // Parsed, not merely typed: the controller validates what it writes against the SAME schema
@@ -136,6 +139,7 @@ export async function writeBuilderTarget(target: Target, dir: string): Promise<s
       id: target.id,
       scope: builderSandboxScope,
       image: imageTag(target),
+      pin: target.pin,
       policy: targetSandboxPolicy(target),
       permissions: builderPermissions(target),
     },
@@ -146,7 +150,7 @@ export async function writeBuilderTarget(target: Target, dir: string): Promise<s
   return path
 }
 
-export interface WriteBuilderManifestOptions {
+interface WriteBuilderManifestOptions {
   /** The file name and the id the builder's resolver is asked for; the task's id by default. */
   readonly workOrderId?: string
   /** The app root the capture is staged under; the controller's own by default. */

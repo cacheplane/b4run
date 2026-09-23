@@ -136,11 +136,10 @@ whose target has no image at the work order's pin blocks at once (`image_unprepa
 the `pnpm --filter @b4-example/software-factory-controller target:prepare <id> --pin <pin>` an operator runs); no redraft can mend it. What is not per pin yet
 is the BUILDER's sandbox image: a builder process boots from one target file, written at the
 target's default pin, so a generated task at another pin is built in the default pin's image
-and verified in its own. `dispatch` guards that gap: for a task pinned away from its target's
-default pin it compares the two images' lockfile hashes, journals
-`builder_environment_differs { builderPin, taskPin, lockfileDiffers }`, and when they differ
-refuses before the operation key is spent (prepare the target at the work order's pin and
-restart its builder there; per-pin builders are a follow-up). And intake threads accumulate on
+and verified in its own. A builder runs at ONE pin, its target file's (`builder-target
+--pin`, recorded on its worker entry), and `dispatch` compares each task's pin with it: see
+step 1 for the rule and the remedy. Running several pins of one target at once is a
+follow-up (per-(target, pin) builders). And intake threads accumulate on
 the drafter, one per work order, since nothing sweeps a parked or blocked work order's drafter
 thread yet.
 
@@ -231,6 +230,17 @@ no registry (the manifests need no step: `dispatch` and `intake` write one per w
     pnpm --filter @b4-example/software-factory-controller \
       factory builder-target --target cli-flags --out /tmp/factory-builder
 
+The file records the pin whose image the builder runs: the target's default pin, or
+`--pin <sha>` for another prepared one (`builder-target --target devkit --pin <sha>`; a pin
+with no image is refused, naming the prepare command). **One builder serves one pin at a
+time.** `dispatch` compares each task's pin (a generated task's work order pin, a catalog
+task's target default) with its builder's: the same pin needs nothing; a different pin whose
+image agrees on lockfile, base image and Dockerfile is allowed and journalled
+(`builder_environment_differs`, with which of the three differ); any other difference is
+refused before the key with the remedy: prepare the target at the task's pin, restart its
+builder from `builder-target --target <id> --pin <taskPin>`, and set that pin on its worker
+entry (or cancel the work order).
+
 **2. Start the builder** (terminal 1), pointed at that file and at the directory the
 controller will leave its manifests in:
 
@@ -247,6 +257,7 @@ package (what the Docker lanes' `isolatedApp` does), and the controller refuses 
 in which two builders, or a builder and the drafter, share one. For `cli-flags` and
 `devkit`, say:
 
+    pnpm --filter @b4-example/software-factory-controller target:prepare devkit
     for t in cli-flags devkit; do
       rsync -a --exclude node_modules --exclude .b4 --exclude .factory \
         examples/software-factory/server/ /tmp/builder-$t/
@@ -300,9 +311,10 @@ directory it was started with):
 The legacy pair is one entry, keyed by the id in that target file: a work order of any
 other target has no worker, and `dispatch` refuses it (`no worker for target <id>`) before
 spending its key or a thread. With one builder process per target, `FACTORY_WORKERS` replaces
-the pair: a JSON object from target id to `{ "url", "appRoot", "route"?, "manifestDir"? }`,
-where `manifestDir` (default `<appRoot>/.factory/manifests`) is that process's
-`FACTORY_BUILDER_MANIFEST_DIR`. For the two builders above:
+the pair: a JSON object from target id to `{ "url", "appRoot", "route"?, "manifestDir"?,
+"pin"? }`, where `manifestDir` (default `<appRoot>/.factory/manifests`) is that process's
+`FACTORY_BUILDER_MANIFEST_DIR` and `pin` (default the target's default pin) is the pin its
+target file was written at. The legacy pair reads the pin from `FACTORY_BUILDER_TARGET`. For the two builders above:
 
     FACTORY_WORKERS='{
       "cli-flags": { "url": "http://127.0.0.1:4100", "appRoot": "/tmp/builder-cli-flags",
@@ -421,10 +433,10 @@ The controller app reads:
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `FACTORY_WORKERS` | one of the two | The worker map: JSON from target id to `{ "url", "appRoot", "route"?, "manifestDir"? }`, one builder process (URL and app root of its own) per target; `manifestDir` defaults to `<appRoot>/.factory/manifests`. Exclusive with the pair below |
+| `FACTORY_WORKERS` | one of the two | The worker map: JSON from target id to `{ "url", "appRoot", "route"?, "manifestDir"?, "pin"? }`, one builder process (URL and app root of its own) per target; `manifestDir` defaults to `<appRoot>/.factory/manifests`. Exclusive with the pair below |
 | `FACTORY_WORKER_URL` | one of the two | The legacy pair, with `FACTORY_BUILDER_APP_ROOT` and `FACTORY_BUILDER_TARGET`: one builder, for the one target its target file names. `http(s)` only |
 | `FACTORY_BUILDER_APP_ROOT` | with `FACTORY_WORKER_URL` | The BUILDER package's root, so the workspace reader can address its installation store |
-| `FACTORY_BUILDER_TARGET` | with `FACTORY_WORKER_URL` | The target file that builder boots from (`factory builder-target`); the controller keys the entry by its `target.id`. Missing or unreadable is a boot error naming it |
+| `FACTORY_BUILDER_TARGET` | with `FACTORY_WORKER_URL` | The target file that builder boots from (`factory builder-target`); the controller keys the entry by its `target.id` and takes the builder's pin from its `target.pin`. Missing or unreadable is a boot error naming it |
 | `FACTORY_WORKER_ROUTE` | no | Default `/build#agent`; only with the legacy pair |
 | `FACTORY_BUILDER_MANIFEST_DIR` | no | Default `<builder app root>/.factory/manifests`; must be the directory the builder process was started with. Only with the legacy pair |
 | `FACTORY_STATE_DIR` | yes | Holds `registry.sqlite`, `artifacts/` and `exports/` |

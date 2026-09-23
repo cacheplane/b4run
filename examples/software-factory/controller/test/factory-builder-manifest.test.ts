@@ -12,6 +12,9 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { BuilderManifestSchema } from "../src/lib/builder-manifest.ts"
 import { createFactory, type Factory, type FactoryOptions } from "../src/lib/controller/factory.ts"
+import { createCommandLog } from "../src/lib/registry/commands.ts"
+import { openRegistry } from "../src/lib/registry/db.ts"
+import { createWorkOrderStore, type WorkOrderPatch } from "../src/lib/registry/work-orders.ts"
 import { createHttpWorkerClient, type WorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
@@ -283,5 +286,136 @@ describe("the builder manifest at dispatch", () => {
       path: join(elsewhere(), `${id}.json`),
     })
     expect(readdirSync(elsewhere())).toEqual([])
+  })
+})
+
+/** Rewrite the row directly: the shape an approved intake, or a crash, leaves it in. */
+function forceRow(id: string, patch: WorkOrderPatch): void {
+  const registry = openRegistry(join(dir, "registry.sqlite"))
+  const rows = createWorkOrderStore(registry.db)
+  const row = rows.get(id)
+  if (!row) throw new Error(`no work order ${id}`)
+  rows.update(id, row.revision, patch, new Date().toISOString())
+  registry.close()
+}
+
+/** Write what a command that crashed after its manifest write leaves behind. */
+function crashedAfterManifest(
+  id: string,
+  role: "builder" | "drafter",
+  command: "dispatch" | "intake" | null,
+): string {
+  const manifests = join(dir, `${role}-crashed`)
+  mkdirSync(manifests, { recursive: true })
+  const path = join(manifests, `${id}.json`)
+  writeFileSync(path, "{}\n")
+  const registry = openRegistry(join(dir, "registry.sqlite"))
+  const now = new Date().toISOString()
+  createWorkOrderStore(registry.db).appendEvent(id, `${role}_manifest_written`, { path }, now)
+  if (command !== null)
+    createCommandLog(registry.db).begin(`${command}-crashed`, id, { command, args: {} }, now)
+  registry.close()
+  return path
+}
+
+/** A second controller over the same registry: the restart after a crash. */
+async function reboot(): Promise<void> {
+  factory = await createFactory({
+    registryPath: join(dir, "registry.sqlite"),
+    generatedTasksDir: join(dir, "tasks"),
+    workers: fakeWorkerMap({
+      builder: { client: createHttpWorkerClient(fake.baseUrl), reader, manifestDir },
+    }),
+    exportDir: join(dir, "out"),
+    artifactsDir: join(dir, "artifacts"),
+    verifier: createFakeVerifier({ verdict: "pass" }),
+    captureBaseline: captureRepairable,
+  })
+}
+
+describe("the builder manifest of an approved issue work order (the row still holds its intake thread)", () => {
+  it("is removed when the thread cannot be created", async () => {
+    await boot({}, {}, (client) => ({
+      ...client,
+      createThread: async () => {
+        throw new Error("worker down")
+      },
+    }))
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    forceRow(id, { workerThreadId: "intake-thread-1" })
+    expect(await factory.dispatch(id)).toMatchObject({
+      ok: false,
+      message: expect.stringContaining("Thread creation failed"),
+    })
+    // The intake thread is no builder's: it does not keep the file.
+    expect(types(id)).toContain("builder_manifest_removed")
+    expect(types(id)).not.toContain("builder_manifest_kept")
+    expect(readdirSync(manifestDir)).toEqual([])
+  })
+
+  it("is removed, not kept, when a cancel moves the row while the thread is being made", async () => {
+    let rowId = ""
+    await boot({}, {}, (client) => ({
+      ...client,
+      createThread: async (metadata) => {
+        await factory.cancel(rowId)
+        return client.createThread(metadata)
+      },
+    }))
+    rowId = (await factory.create({ taskId: "cli-flags" })).id
+    forceRow(rowId, { workerThreadId: "intake-thread-1" })
+    expect(await factory.dispatch(rowId)).toMatchObject({
+      ok: false,
+      message: "Work order changed state while dispatching",
+    })
+    expect(types(rowId)).not.toContain("builder_manifest_kept")
+    expect(existsSync(manifestPath(rowId))).toBe(false)
+  })
+})
+
+describe("a manifest a crashed command never handed to a thread", () => {
+  it("is removed when reconcile settles the incomplete dispatch", async () => {
+    await boot()
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.close()
+    const path = crashedAfterManifest(id, "builder", "dispatch")
+    await reboot()
+    expect(existsSync(path)).toBe(false)
+    expect(event(id, "builder_manifest_removed")?.payload).toEqual({ path })
+    expect(factory.show(id)?.state).toBe("received")
+  })
+
+  it("is removed when reconcile finds the open intake that wrote the drafter's", async () => {
+    await boot()
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.close()
+    const path = crashedAfterManifest(id, "drafter", "intake")
+    await reboot()
+    expect(existsSync(path)).toBe(false)
+    expect(event(id, "drafter_manifest_removed")?.payload).toEqual({ path })
+  })
+
+  it("is removed by a cancel from received", async () => {
+    await boot()
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.close()
+    const path = crashedAfterManifest(id, "builder", null)
+    await reboot()
+    expect(existsSync(path)).toBe(true)
+    await factory.cancel(id)
+    expect(factory.show(id)?.state).toBe("cancelled")
+    expect(existsSync(path)).toBe(false)
+  })
+
+  it("is kept once a thread was created after it", async () => {
+    await boot({ run: "hang" })
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    expect(await factory.dispatch(id)).toMatchObject({ ok: true })
+    await factory.waitFor(id, (r) => r.state === "running")
+    await factory.close()
+    await reboot()
+    // Reconcile adopts the running thread; the manifest it was admitted with is its own.
+    expect(types(id)).not.toContain("builder_manifest_removed")
+    await factory.cancel(id)
   })
 })

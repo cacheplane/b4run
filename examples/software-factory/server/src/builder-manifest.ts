@@ -32,6 +32,8 @@ export const BuilderTargetSchema = z
         /** The two options `dockerSandbox` receives, and the whole of the provider's identity. */
         scope: z.string().min(1),
         image: z.string().min(1),
+        /** The commit that image was prepared at; the controller compares each task's pin with it. */
+        pin: z.string().regex(/^[a-f0-9]{40}$/),
         /**
          * The sandbox policy, modelled key by key and `.strict()` throughout rather than as an
          * opaque record. A misspelled `netwrok` or `modee` would otherwise parse, drop out of
