@@ -384,3 +384,14 @@ Appended as the live replay of #714 runs.
    at all, so the framework's testing surface needs a watching variant. The builder's and
    drafter's default manifest directories (`<app root>/.factory/manifests`, which the
    controller writes into) are the same shape against those processes' own watchers.
+5. **The work-order budget did not know the target.** `FACTORY_MAX_ACTIVE_MS` defaults to 20
+   minutes and is fixed on the row at create, but one verification of the `cli` target is two
+   sessions of about 12 minutes each, so a work order created under the default would have
+   been exhausted mid-verification with no warning. Now journalled at create and refused
+   unspent at dispatch. Item 4's registry should record measured verifier time per (target,
+   pin) and derive the budget, so an operator never sizes it by hand.
+6. **Preparing a heavy package's image is fragile work.** The `cli` Dockerfile hoists nested
+   dependencies over the root's copies (now declared and checked), duplicates the capture's
+   package list by hand (now checked at prepare), and the base-image pull wedged twice on
+   Docker Desktop. Each of these is evidence for item 5: the generator, not the operator,
+   should produce the image recipe from the lockfile.
