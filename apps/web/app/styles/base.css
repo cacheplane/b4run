@@ -18,7 +18,7 @@ html {
 }
 
 /* One focus ring for the whole site. Controls on the dark panel restate
-   --color-focus (see prose.css [data-code-frame]). */
+   --color-focus (see ui.css [data-code-frame]). */
 :focus-visible {
   outline: var(--ring-width) solid var(--color-focus);
   outline-offset: 3px;
@@ -68,25 +68,4 @@ body:has([data-docs-layout]) [data-site-footer] {
 .skip-link:focus {
   transform: none;
   outline-color: var(--color-relay);
-}
-
-@media print {
-  header,
-  footer,
-  aside,
-  [data-page-actions],
-  [data-mobile-docs-toc],
-  button {
-    display: none !important;
-  }
-  [data-code-frame],
-  pre {
-    background: transparent !important;
-    color: black !important;
-    border: 1px solid black;
-  }
-  a[href^="http"]::after {
-    content: " (" attr(href) ")";
-    font-size: 0.85em;
-  }
 }

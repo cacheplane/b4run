@@ -2,7 +2,9 @@
    records the contrast it was chosen for. Values reach Tailwind through @theme
    (`bg-page`, `text-ink-muted`, `text-eyebrow`, …) and CSS modules through
    `var(--color-*)`. A future dark mode restates every --color-* under
-   `[data-theme="dark"]` and aliases nothing (see docs/brand/website-design-system.md). */
+   `[data-theme="dark"]` and aliases nothing (see docs/brand/website-design-system.md).
+   Tailwind prunes unused @theme variables; reference a token from a scanned file
+   under `app/` (or declare it `@theme static`) before relying on `var(--…)` elsewhere. */
 @theme {
   /* Surfaces */
   --color-page: #f5f4f0; /* paper */

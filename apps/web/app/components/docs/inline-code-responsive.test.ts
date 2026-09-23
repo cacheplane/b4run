@@ -20,7 +20,7 @@ describe("responsive inline code", () => {
     // prose.css has several 47.999rem media blocks; take the one about inline code.
     const mediaRule = [...CSS.matchAll(/@media\s*\(max-width:\s*47\.999rem\)\s*{([\s\S]*?)\n}/g)]
       .map((m) => m[1])
-      .find((body) => body?.includes(".mdx-inline-code"))
+      .find((body) => body?.trimStart().startsWith(".mdx-inline-code"))
 
     expect(mediaRule).toMatch(
       /\.mdx-inline-code\s*{[^}]*white-space:\s*normal;[^}]*overflow-wrap:\s*anywhere;/s,
