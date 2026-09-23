@@ -19,7 +19,7 @@ Set `B4_BLUEPRINTS_URL` to use a self-hosted catalog (or a local dev server) ins
 
 ## Code-fixer agent example
 
-`b4 add code-fixer` prints a guide for installing the qualified example from a pinned source commit with B4 0.8.32 packages. The agent repairs one of two historical defects in a Docker workspace, verifies the patch independently, and asks for runtime approval before exporting it locally. You need Docker, Git, and Node 24. Deterministic replay needs no model API key.
+`b4 add code-fixer` prints a guide for installing the qualified example from a pinned source commit with B4 0.10.0 packages. The agent repairs a historical CLI defect in a Docker workspace, verifies the patch independently, and asks for runtime approval before exporting it locally. You need Docker, Git, and Node 24. The verification tests use scripted model responses and need no model API key.
 
 If your existing app has incompatible sandbox or permission settings, the guide installs into a sibling app instead. It preserves your edits and records where the installation came from. Read the [installation guide](/blueprints/code-fixer.md) for setup and verification.
 
