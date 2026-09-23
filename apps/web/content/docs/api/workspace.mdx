@@ -78,7 +78,7 @@ The root's emitted subpath graph has no runtime package or Node built-in depende
 
 ### `@b4run/workspace/node`
 
-The `/node` entry owns the exports below. Its types are also exported from the dependency-free root; its runtime functions are only in `/node`.
+The `/node` entry owns the exports below. Its types are also exported from the dependency-free root. Its runtime functions are only in `/node`.
 
 | Export | Responsibility |
 |---|---|
@@ -105,14 +105,14 @@ The `/node` entry owns the exports below. Its types are also exported from the d
 ### Bounded text inspection
 
 `inspectWorkspace(source, options?)` accepts a `WorkspaceFs` or `SandboxHandle`.
-It returns `{ files, symlinks, totalBytes, entries }`; file keys are relative paths.
+It returns `{ files, symlinks, totalBytes, entries }`. File keys are relative paths.
 Metadata and binary reads are required. Unsupported entries, executable files,
 NUL bytes, invalid UTF-8, and exceeded limits fail inspection. UTF-8 BOMs remain
 part of the returned text.
 
 Defaults are 10,000 entries, 2 MiB per file, and 16 MiB total. Override these with
 `maxEntries`, `maxFileBytes`, and `maxTotalBytes`. `excludeRootDirectories` omits
-only directory subtrees; a file or link at an excluded name fails. Every entry in
+only directory subtrees. A file or link at an excluded name fails. Every entry in
 `expectedRootSymlinks` must exist with its exact raw link target. Other symlinks
 are rejected. `signal` cancels inspection.
 
@@ -129,7 +129,7 @@ const inspection = await inspectWorkspace(ctx.fs, {
 Inspection uses separate metadata and read operations, so it is not an atomic
 snapshot. Quiesce writers or revalidate before acting on an inventory. Expected
 links establish link identity, not the contents of their targets. Custom backends
-must honor byte limits during reads to bound allocation; the built-in local,
+must honor byte limits during reads to bound allocation. The built-in local,
 Docker, and Kubernetes readers cap content before collecting it.
 
 ```ts api-contract="@b4run/workspace#.:BackendContext"
@@ -292,7 +292,7 @@ export interface SandboxProvider {
 
 `openWorkspaceReader` is an optional capability. Presence is the probe: a provider whose storage cannot be attached a second time omits it rather than implementing it unreliably. An implementation must leave the thread's sandbox undisturbed, make writes impossible rather than merely undocumented, and reject rather than return an empty view when the thread has no workspace storage.
 
-It is not an authorization boundary. The caller already holds the provider; naming a thread id is not a claim of ownership.
+It is not an authorization boundary. The caller already holds the provider. Naming a thread id is not a claim of ownership.
 
 ```ts api-contract="@b4run/workspace#.:SandboxWorkspaceReader"
 export interface SandboxWorkspaceReader extends WorkspaceReadSource {
@@ -363,7 +363,7 @@ export interface OpenManagedWorkspaceReaderInput {
 | `readonly signal` | `AbortSignal` | yes | Cancel the open. |
 | `readonly runAsNonRoot` | `SandboxSecurityPolicy["runAsNonRoot"]` | no | Match the identity that owns the produced files; defaults to the provider's secure default. |
 
-The Docker provider verifies the record, binding and volume exactly as `reconnect` does, then binds the managed volume's backing directory read-only in a separate networkless container. It never lists, starts, stops or replaces a session container; a lost record or volume is a `lost` error, never a recreated volume. A co-located host process obtains the `ReadyWorkspace` through `@b4run/sqlite-storage`'s `openWorkspaceInstallationReader`; `@b4run/cli/workspace`'s `withManagedWorkspaceReader` joins the two by thread id.
+The Docker provider verifies the record, binding and volume exactly as `reconnect` does, then binds the managed volume's backing directory read-only in a separate networkless container. It never lists, starts, stops or replaces a session container. A lost record or volume is a `lost` error, never a recreated volume. A co-located host process obtains the `ReadyWorkspace` through `@b4run/sqlite-storage`'s `openWorkspaceInstallationReader`. `@b4run/cli/workspace`'s `withManagedWorkspaceReader` joins the two by thread id.
 
 ```ts api-contract="@b4run/workspace#.:SandboxConfig"
 export interface SandboxConfig {
@@ -479,11 +479,11 @@ missing path, and returns an independently owned byte array.
 
 `captureWorkspaceSource` resolves directory and referenced file paths relative to
 `appRoot`. `directory: "."` selects that root. `include` is an exact inventory of
-regular files relative to the source directory; missing or extra files fail.
+regular files relative to the source directory. Missing or extra files fail.
 `excludeDirectories` names existing directory subtrees to skip, without following
 symlinks. Additional `files` entries declare destination paths with either a file
 reference relative to `appRoot`, or inline text and an optional executable flag.
-Text preserves BOMs and rejects malformed Unicode; referenced files preserve their
+Text preserves BOMs and rejects malformed Unicode. Referenced files preserve their
 executable flags. Duplicate destinations, conflicting ancestors, and inconsistent
 directory casing are rejected.
 
@@ -502,48 +502,51 @@ defense against a hostile host process swapping ancestor directories. Cancellati
 closes open handles and returns no completed bundle. These utilities do not create
 sandboxes or activate managed workspace recovery in runtime configuration.
 
-### Lifecycle, failure, and trust boundaries
+### Lifecycle, failures, and trust
 
 Backend methods receive absolute paths and a cancellation signal from their caller. Core owns the path jail and canonical-root enforcement. `localFilesystem` canonicalizes existing ancestors, including escaping symlinks, and does not enforce that boundary. Its reads default to a 256 KiB cap, allow a per-call override, and reject missing or oversized files. Writes create parent directories.
 
-`localExec` defaults to a 30-second timeout. A non-empty `allowedCommands` list rejects a command unless a regular expression matches. When `args.env` is omitted, `localExec` inherits `process.env`; when supplied, it replaces that environment. By contrast, `SandboxPolicy.env` is the explicit environment injected into a sandbox and does not inherit the host environment.
+`localExec` defaults to a 30-second timeout. A non-empty `allowedCommands` list rejects a command unless a regular expression matches. When `args.env` is omitted, `localExec` inherits `process.env`. When supplied, it replaces that environment. By contrast, `SandboxPolicy.env` is the explicit environment injected into a sandbox and does not inherit the host environment.
 
-Sandbox `release()` and `destroy()` have distinct lifecycle roles; each provider defines the exact persistence and cleanup behavior. Security fields express provider-agnostic intent; an unset field does not by itself prove a particular provider's enforcement.
+Sandbox `release()` and `destroy()` have distinct lifecycle roles. Each provider defines the exact persistence and cleanup behavior. Security fields express provider-agnostic intent. An unset field does not by itself prove a particular provider's enforcement.
 
-Logging middleware defaults to `console.error`. A custom destination receives `{ method, args }`. Filesystem logging does not serialize binary content and passes through `realPath`, `statFile`, `removeFile`, `touchFile`, and `mkdir`; treat logged paths, command text, working directories, and text write contents as potentially sensitive.
+Logging middleware defaults to `console.error`. A custom destination receives `{ method, args }`. Filesystem logging does not serialize binary content and passes through `realPath`, `statFile`, `removeFile`, `touchFile`, and `mkdir`. Treat logged paths, command text, working directories, and text write contents as potentially sensitive.
 
 ### Managed workspace lifecycle
 
 Declare `sandbox.workspace` with an exact source inventory. `b4 build` captures
-source bytes for the Node target; startup verifies the artifact and retains it
+source bytes for the Node target. Startup verifies the artifact and retains it
 in the installation store. Existing threads retain their original source and
 provenance across deployment changes. Providers without `workspaces` support
-reject the configuration. The first qualified provider is Docker; managed
+reject the configuration. The first qualified provider is Docker. Managed
 workspace builds require `build: { targets: ["node"] }` and the existing app-root
 `workspace/` capability marker.
 
 `sandbox.workspace` may instead be a `WorkspaceResolver`: host code called once per
 thread, at the thread's first admission, with the thread id and its stored client
-metadata. What it returns is captured (or verified, if already captured), recorded by
-digest in that thread's creation intent, and never re-resolved: later turns, restarts and
-readers all use the record. `b4 build` cannot capture a resolver, so the artifact records
-only that one is configured, and startup refuses an artifact whose form disagrees with the
-loaded config. The result is decided by deployed host code, never by the client or the
-model; a resolver treats the metadata it is given as input to validate, not as authority.
+metadata. B4.run captures what it returns (or verifies it, if already captured) and
+records it by digest in that thread's creation intent. It's never re-resolved. Later
+turns, restarts and readers all use the record.
+
+`b4 build` can't capture a resolver, so the artifact only records that one is
+configured, and startup refuses an artifact whose form disagrees with the loaded
+config. Deployed host code decides the result, never the client or the model. A
+resolver treats the metadata it is given as input to validate, not as authority.
 
 The resolver sees the thread's stored metadata with B4.run's reserved
 key stripped. On the server run endpoints (`runs/stream`, `runs/wait`, AG-UI), `route` is
 present and server-authoritative, because the runtime stamps it before admission and the
-store's merge overwrites any client value; under `b4 run` it is absent. Every other key is
-client-writable, so metadata must never be an authorization input. `POST /threads` always
-assigns the id, so to attach metadata before the first resolution create the thread and
-use the id it returns. `b4 run` mints a fresh thread per invocation, so the resolver runs
-on every run with empty metadata.
+store's merge overwrites any client value. Under `b4 run` it is absent. Every other key is
+client-writable, so never use metadata as an authorization input.
+
+`POST /threads` always assigns the id, so to attach metadata before the first
+resolution, create the thread and use the id it returns. `b4 run` creates a fresh
+thread per invocation, so the resolver runs on every run with empty metadata.
 
 Provider creation receives an immutable `SourceBundle`, bounded to 64 MiB of
 original content, and a persisted `WorkspaceCreateIntent`. Readiness must match
 that intent before tools receive a session. An unknown outcome cannot authorize
-a new operation. Release targets a compute incarnation; destroy targets the
+a new operation. Release targets a compute incarnation. Destroy targets the
 original operation and may run before readiness exists. Missing established
 storage is an explicit failure, never an instruction to reseed.
 
@@ -552,7 +555,7 @@ They cannot overlap source files or generated `.git` metadata. Docker requires
 a Node-capable preparation image, keeps those targets read-only, and supports
 UID/GID 1000 for managed non-root execution. Git baselines use fixed identity
 and time with ambient configuration and hooks disabled. The stored baseline
-commit is provenance; agent-writable `.git` contents are not verification truth.
+commit is provenance. Agent-writable `.git` contents are not verification truth.
 
 ## Examples and related guides
 

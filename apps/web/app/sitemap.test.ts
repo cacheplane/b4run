@@ -172,11 +172,16 @@ describe("sitemap documentation entries", () => {
     expect(new Set(resolvedPaths)).toEqual(new Set(expectedPaths))
     expect(new Set(resolvedPaths).size).toBe(resolvedPaths.length)
     expect(resolvedPaths).not.toContain("/docs")
-    expect(resolvedPaths).not.toContain("/blog/b4-0-8-framework-around-the-agent")
-    expect(resolvedPaths).not.toContain("/blog/b4-at-the-edge")
-    expect(resolvedPaths).not.toContain("/blog/b4-0-4-release")
+    expect(resolvedPaths).toContain("/blog/b4-0-8-framework-around-the-agent")
+    expect(resolvedPaths).toContain("/blog/b4-at-the-edge")
+    expect(resolvedPaths).toContain("/blog/b4-0-4-release")
+    expect(resolvedPaths).toContain("/blog/tags/releases")
+    expect(resolvedPaths).toContain("/blog/tags/patterns")
+    // Both posts are dated after the frozen as-of date.
+    expect(resolvedPaths).not.toContain("/blog/build-a-code-fixing-agent-you-can-read")
+    expect(resolvedPaths).not.toContain("/blog/what-is-a-software-factory")
     expect(entries).toHaveLength(2 + ALL_DOCS_PAGES.length + posts.length + tags.length)
-    expect(entries).toHaveLength(87)
+    expect(entries).toHaveLength(92)
   })
 
   it("keeps production post and tag static params aligned with the frozen sitemap inventory", async () => {

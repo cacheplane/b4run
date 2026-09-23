@@ -1,16 +1,19 @@
 # Context Management
 
-Long agent runs accumulate tool results, model replies and subagent exchanges. Left alone, that history can exceed the model's context window and cause errors or truncation. B4.run manages the context window in two ways: tool-output offloading (on by default) and conversation summarization (opt-in).
+Long agent runs pile up tool results, model replies and subagent messages. Left alone, that history can overflow the model's context window and cause errors or truncation. B4.run keeps it in check two ways:
+
+- **Tool-output offloading** is on by default.
+- **Summarization** is off until you turn it on.
 
 ## Tool-output offloading
 
-When a tool returns a large result, B4.run writes the full output to `workspace/tool-outputs/` and replaces the in-context payload with a short stub. The stub contains a configurable number of preview lines plus a file handle. When the agent needs the full content, it calls `readFile` with that handle, and the content goes into the next model turn.
+When a tool returns a large result, B4.run writes the full output to `workspace/tool-outputs/` and puts a short stub in the context. The stub has a few preview lines (you choose how many) and a file path. When the agent needs the full content, it calls `readFile` with that path, and the content goes into the next model turn.
 
-Offloading turns on as soon as a `workspace/` directory exists at the app root. You don't need to configure anything else.
+Offloading turns on as soon as a `workspace/` directory exists at the app root. There's nothing else to configure.
 
 ### What the model sees
 
-The in-context stub looks like this:
+The stub looks like this:
 
 ```text
 [Tool output offloaded — 12,345 chars exceeded the 1,500-char limit.
@@ -22,7 +25,7 @@ line 2 …
 Read the full output with the readFile tool at the path above.]
 ```
 
-The model can work from the preview or call `readFile` to fetch more. The full content lives on disk, so it survives across model turns without using context tokens.
+The model can work from the preview or call `readFile` for the rest. The full content stays on disk, so it's there on later turns without using context tokens.
 
 ### Configuration
 
@@ -43,26 +46,26 @@ export default {
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `offloadThresholdChars` | `number` | `40000` | Serialized character length above which a result is offloaded. |
-| `previewLines` | `number` | `10` | Number of leading lines kept in the in-context stub. |
-| `maxBytes` | `number` | `268435456` | Maximum total bytes stored under `workspace/tool-outputs/`. Oldest files are evicted first when the budget is exceeded. |
-| `ttlMs` | `number` | `10800000` | Offloaded files older than this many milliseconds are deleted. Default is 3 hours. |
-| `gcThrottleMs` | `number` | `10000` | Minimum milliseconds between GC scans. Default is 10 seconds. |
-| `noOffloadTools` | `string[]` | `[]` | Additional tool names whose output is never offloaded. Merged with the built-in exempt set (`readFile`, `listDir`). |
+| `offloadThresholdChars` | `number` | `40000` | Offload results longer than this many characters (serialized). |
+| `previewLines` | `number` | `10` | Lines kept in the stub. |
+| `maxBytes` | `number` | `268435456` | Total bytes kept in `workspace/tool-outputs/`. Past that, the oldest files go first. |
+| `ttlMs` | `number` | `10800000` | Delete offloaded files older than this (3 hours). |
+| `gcThrottleMs` | `number` | `10000` | Minimum time between cleanup passes (10 seconds). |
+| `noOffloadTools` | `string[]` | `[]` | More tools to never offload, on top of `readFile` and `listDir`. |
 
-Offloading needs a filesystem to spill to, so `toolOutput` is [gated off the `hono` edge target](/docs/deployment/edge#what-the-edge-cannot-serve) at build time, and a runtime with no filesystem raises `B4_E1005` per request instead of ignoring the settings. Summarization has no such dependency and runs on every target.
+Offloading needs a filesystem, so the build [turns `toolOutput` off for the `hono` edge target](/docs/deployment/edge#what-the-edge-cannot-serve). A runtime with no filesystem fails each request with `B4_E1005` rather than silently ignoring the settings. Summarization needs no filesystem and runs on every target.
 
 ### Exemptions
 
-`readFile` and `listDir` are always exempt from offloading, so the agent can read back offloaded content without it being offloaded again. Use `noOffloadTools` to exempt more tools, such as a tool that already returns a compact summary.
+`readFile` and `listDir` are never offloaded, so the agent can read an offloaded file back without it getting offloaded again. Use `noOffloadTools` to exempt more tools, such as one that already returns a short summary.
 
 ### Garbage collection
 
-B4.run runs a GC pass (at most once per `gcThrottleMs`) that removes files older than `ttlMs` and, if the total size still exceeds `maxBytes`, deletes oldest files first until the budget is satisfied. The GC runs in the background and does not block agent turns.
+At most once per `gcThrottleMs`, B4.run runs a cleanup pass in the background. It deletes files older than `ttlMs`. If the total is still over `maxBytes`, it deletes the oldest files until it fits. Agent turns never wait on it.
 
 ## Conversation summarization
 
-Summarization compresses older message history once a thread's token count exceeds a threshold. The most recent turns stay verbatim. Everything older is folded into a rolling summary that is prepended to the conversation on the next model call.
+Once a thread's token count passes a threshold, summarization shrinks the older messages. The most recent turns stay word for word. Everything older is folded into a running summary, which goes at the start of the thread on the next model call.
 
 Let's enable it in `b4.config.ts`:
 
@@ -78,23 +81,23 @@ export default {
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `enabled` | `boolean` | `false` | Enable conversation summarization. Off by default. |
-| `maxTokens` | `number` | `12000` | Token count above which older history is summarized. |
-| `keepRecentTurns` | `number` | `6` | Most-recent turns (each starting at a `HumanMessage`) kept verbatim, never summarized. |
-| `model` | `string` | Route's model | Model used for the summary LLM call. Defaults to the same model the route uses. |
-| `tokenCounter` | `(text: string) => number \| Promise<number>` | Lazy `gpt-tokenizer` (o200k_base) | Custom token-counting function. |
-| `summarize` | `(args) => Promise<string>` | Built-in single-LLM-call summarizer | Custom summary generator. Receives `messages`, `model`, `previousSummary`, and `signal`. |
+| `enabled` | `boolean` | `false` | Turns summarization on. |
+| `maxTokens` | `number` | `12000` | Summarize older history past this many tokens. |
+| `keepRecentTurns` | `number` | `6` | Recent turns (each starting at a `HumanMessage`) that are never summarized. |
+| `model` | `string` | Route's model | Model that writes the summary. |
+| `tokenCounter` | `(text: string) => number \| Promise<number>` | `gpt-tokenizer` (o200k_base), loaded on demand | Your own token counter. |
+| `summarize` | `(args) => Promise<string>` | One model call | Your own summarizer. Receives `messages`, `model`, `previousSummary`, and `signal`. |
 
-The `tokenCounter` hook lets you plug in a different tokenizer. The `summarize` hook replaces the whole summary step, for example to use a cheaper model, apply domain-specific compression or route through a different provider.
+Use `tokenCounter` to plug in a different tokenizer. `summarize` replaces the whole summary step, for example to use a cheaper model, compress in a way that suits your domain, or call a different provider.
 
 ## How they compose
 
-Offloading and summarization handle different kinds of context growth:
+Offloading and summarization handle different kinds of growth:
 
-- **Tool-output offloading** acts per tool result. It keeps a single large result from filling the context.
-- **Conversation summarization** acts per conversation. It compresses history that has built up over many turns.
+- **Tool-output offloading** works on one tool result at a time. It keeps a single large result from filling the context.
+- **Summarization** works on the whole thread. It shrinks history that built up over many turns.
 
-Both can be active at the same time. Here is a typical configuration for a long-running research agent:
+You can use both at once. Here's a typical setup for a long-running research agent:
 
 ```ts title="b4.config.ts"
 export default {

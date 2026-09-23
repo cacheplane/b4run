@@ -277,9 +277,18 @@ describe("built SEO audit parsing", () => {
 
   it("counts an exact llms-full document section despite colliding authored headings", () => {
     const source = "# Tools\n\nAuthored content\n\n### Tools\n\nNested heading"
-    const body = `## Documentation\n\n### Tools\n\n${source}\n\n---\n\n### Agents\n\nOther`
+    const section =
+      "### Tools\n\nSource: https://b4.run/docs/tools\n\nAuthored content\n\n##### Tools\n\nNested heading"
+    const body = `## Documentation\n\n${section}\n\n---\n\n### Agents\n\nOther`
 
-    expect(docSectionOccurrences(body, "Tools", source)).toBe(1)
+    expect(docSectionOccurrences(body, { label: "Tools", path: "/docs/tools" }, source)).toBe(1)
+    expect(
+      docSectionOccurrences(
+        `${body}\n\n${section}`,
+        { label: "Tools", path: "/docs/tools" },
+        source,
+      ),
+    ).toBe(2)
   })
 
   it("accepts shared sitemap dates when each matches its source record", () => {

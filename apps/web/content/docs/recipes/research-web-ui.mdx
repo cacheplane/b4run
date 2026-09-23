@@ -1,8 +1,8 @@
 # Research Assistant Web UI
 
-Learn how to wire a [CopilotKit](https://docs.copilotkit.ai) web client to B4.run's research demo over [AG-UI](/docs/ag-ui). The example is a workbench instead of a chat widget. It renders its own thread rail, transcript, and composer instead of mounting `CopilotSidebar`, so the streamed report and the plan, researcher, tool, and permission cards all appear inline in message order.
+B4.run's research demo ships with a [CopilotKit](https://docs.copilotkit.ai) web client that talks to the server over [AG-UI](/docs/ag-ui). Let's walk through how it's wired. The client is a workbench, not a chat widget. It renders its own thread rail, transcript, and composer in place of `CopilotSidebar`, so the streamed report and the plan, researcher, tool, and permission cards all appear inline in message order.
 
-This recipe covers the application wiring. For the endpoint, event contract, threading, and standard interrupt outcome, see [AG-UI and Web Clients](/docs/ag-ui).
+This recipe covers the application wiring. For the endpoint, events, threading, and interrupt outcomes, see [AG-UI and Web Clients](/docs/ag-ui).
 
 ## What you'll build
 
@@ -14,9 +14,9 @@ The demo lives in `examples/research`: a B4.run server (`server/`) and a Next.js
 - **Researcher cards:** delegated-work status, child checklist progress, and a bounded trail of child-tool names and statuses.
 - **Suggestions + tools:** three discovery prompts on the empty state, and generic root-tool cards in the transcript.
 - **Permissions:** the standard interrupt UI owns the approve and deny actions, rendered at the end of the transcript where the run stopped.
-- **Composer:** send, and stop while a run is in flight. It is blocked while the agent is running or waiting on an approval, and the header says which.
+- **Composer:** send, and stop while a run is in flight. It's blocked while the agent is running or waiting on an approval, and the header says which.
 
-The plan and researcher cards are informational. They never resolve or cancel an interrupt. Interrupt outcomes and answers use the standard AG-UI fields described on the protocol page.
+The plan and researcher cards only display progress. Interrupts are resolved through the standard AG-UI fields described on the protocol page.
 
 The Workbench also reviews durable memory. A small panel reaches B4.run through the same allowlisted, same-origin proxy used for thread hydration. See [Approve memory candidates](#approve-memory-candidates) below.
 
@@ -100,7 +100,7 @@ export const POST = handler
 
 </CodeGroup>
 
-The catch-all route is required. It exposes CopilotKit's V2 REST and SSE paths under `/api/copilotkit/*`. Setting `useSingleEndpoint={false}` makes the browser start with `GET /api/copilotkit/info` instead of sending the legacy method envelope to the base URL. The web runtime holds no model credential. Only the B4.run server has `OPENAI_API_KEY`.
+The catch-all route is required. It exposes CopilotKit's V2 REST and SSE paths under `/api/copilotkit/*`. Setting `useSingleEndpoint={false}` makes the browser start with `GET /api/copilotkit/info` rather than send the legacy method envelope to the base URL. Only the B4.run server has `OPENAI_API_KEY`. The web runtime holds no model credential.
 
 <Callout type="warn" title="Register the agent as default">
   CopilotKit hooks that omit an `agentId` resolve the id `default`. Register the
@@ -117,18 +117,18 @@ Three pieces of that tree matter most:
 
 `AppShell` is the only component that talks to the agent. It calls `useAgent()` with no arguments. That unscoped form takes its thread from the surrounding chat configuration, so the transcript, `useInterrupt`, `useSuggestions`, and the tool-call renderers all resolve the same agent and thread.
 
-Dropping the sidebar has two consequences worth copying if you build your own shell:
+Dropping the sidebar has two consequences you'll want to handle if you build your own shell:
 
 - **Run failures need a subscription.** `copilotkit.runAgent` does not reject when a run fails. It catches, emits an error, and resolves normally. Failures surface through `copilotkit.subscribe({ onError })`, which the sidebar used to do for you.
 - **The permission gate needs `renderInChat: false`.** The default (`true`) publishes the element into `<CopilotChat>`/`<CopilotSidebar>`. With neither mounted, the gate renders nowhere: the run parks with no approve or deny UI, no error, and green tests. With it set, `useInterrupt` returns the element and `Transcript` places it at the end of the message list.
 
-Threads are local to the browser. B4.run's server can create and fetch a thread by id but cannot list threads, so the rail keeps its own list in `localStorage` behind a `ThreadSource` interface (`examples/research/web/app/lib/thread-source.ts`). The app does not use CopilotKit's `useThreads`.
+Threads are local to the browser. B4.run's server can create and fetch a thread by id, but it has no endpoint to list threads. So the rail keeps its own list in `localStorage` behind a `ThreadSource` interface (`examples/research/web/app/lib/thread-source.ts`), and the app skips CopilotKit's `useThreads`.
 
-The same seam restores history when you switch threads. CopilotKit's own replay path (`connectAgent`) is only reached from inside `<CopilotChat>`, which this app does not mount. So the shell reads `GET /threads/:id/state` through the proxy and maps the checkpoint's LangChain envelopes into the shapes the transcript already renders (`app/lib/hydrate.ts`). Messages, tool calls and results, and the plan come back. Subagent activity cards from earlier runs are not checkpointed, so they don't, and the app says so in a line above the restored messages.
+The same seam restores history when you switch threads. CopilotKit's own replay path (`connectAgent`) only runs inside `<CopilotChat>`, which this app leaves out. So the shell reads `GET /threads/:id/state` through the proxy and maps the checkpoint's LangChain envelopes into the shapes the transcript already renders (`app/lib/hydrate.ts`). Messages, tool calls and results, and the plan come back. Subagent activity cards from earlier runs aren't checkpointed, so they don't, and the app says so in a line above the restored messages.
 
 The same seam also carries `GET /threads/:id/pending_interrupts`, which lets a permission prompt survive a reload. `useInterrupt` only gets its state from live run events, so after a reload the server is still holding the gate and nothing on screen says so. `app/components/HydratedInterrupts.tsx` asks for the parked interrupts and reports their count upward, so the composer stays blocked until one is answered.
 
-To restyle the app, edit `examples/research/web/app/theme.css`. It defines the palette as CSS variables and re-exports it as Tailwind tokens through `@theme inline`. That is why the app's utilities read `bg-wb-surface`, `border-wb-border`, and `rounded-wb`.
+To restyle the app, edit `examples/research/web/app/theme.css`. It defines the palette as CSS variables and re-exports it as Tailwind tokens through `@theme inline`. That's why the app's utilities read `bg-wb-surface`, `border-wb-border`, and `rounded-wb`.
 
 ## Render plan and researcher activities
 
@@ -154,13 +154,13 @@ Then import the stylesheet once, in your root layout:
 import "@b4run/ag-ui/react/styles.css"
 ```
 
-You need that import. The cards carry no inline styles, so without it they render as bare markup. To restyle them, override the `--b4-activity-*` custom properties in your own CSS. The [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) walks through every customization option.
+The cards carry no inline styles, so without that import they render as bare markup. To restyle them, override the `--b4-activity-*` custom properties in your own CSS. The [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) walks through every customization option.
 
-`b4ActivityRenderers` is a module-scope constant, so the registry keeps a stable identity across React renders. Each renderer is keyed by the adapter's own activity-type constant. Both renderers validate the public activity content with a strict runtime schema, so a payload with unknown or incompatible fields fails closed instead of dumping arbitrary JSON into the transcript.
+`b4ActivityRenderers` is a module-scope constant, so the registry keeps a stable identity across React renders. Each renderer is keyed by the adapter's own activity-type constant. Both renderers validate the activity content with a strict runtime schema, so they reject a payload with unknown or incompatible fields rather than dump arbitrary JSON into the transcript.
 
-The example passes its own `workbenchActivityRenderers` instead, from `examples/research/web/app/components/activity-renderers.tsx`. These wrap the packaged `PlanActivityCard` and `SubagentActivityCard` and pass the packaged content schemas. They only add per-part classes through the `classNames` prop, so validation and bounds stay in the package where they are tested.
+The example passes its own `workbenchActivityRenderers`, from `examples/research/web/app/components/activity-renderers.tsx`. These wrap the packaged `PlanActivityCard` and `SubagentActivityCard` and pass the packaged content schemas. They only add per-part classes through the `classNames` prop, so validation and bounds stay in the package, where they're tested.
 
-There is one catch with `classNames`. An entry can only set a property that the package stylesheet leaves unset on that element, because the package's CSS is unlayered and Tailwind's utilities are not. The properties the stylesheet does set on the card's own box (background, border color, radius, text color, font-size, margin, and padding), plus the header's font weight and the depth badge's background, are reachable through the `--b4-activity-*` tokens instead. The app sets those in `app/theme.css`.
+There's one catch with `classNames`. An entry can only set a property that the package stylesheet leaves unset on that element, because the package's CSS is unlayered and Tailwind's utilities are layered. For the properties the stylesheet does set on the card's own box (background, border color, radius, text color, font-size, margin, and padding), plus the header's font weight and the depth badge's background, use the `--b4-activity-*` tokens. The app sets those in `app/theme.css`.
 
 React and `@copilotkit/react-core` are optional peer dependencies of `@b4run/ag-ui`, and only the `./react` subpath needs them. A server that uses the root or `./sse` entry installs nothing extra.
 
@@ -174,7 +174,7 @@ Root plan snapshots replace `b4:plan:${runId}` and carry the complete todo list.
 
 These activities are the whole presentation of the two built-in orchestration tools. When a `writeTodos` or `task` call produced its activity, B4.run's AG-UI adapter emits no tool call/result events for that call. So the wildcard tool card receives the ordinary tools (`recall`, `searchCorpus`, `readDoc`, `writeFile`, and `runBash` once approved) but never `writeTodos` or `task`. The adapter does this suppression, not CopilotKit or these renderers.
 
-The wildcard card is still the fail-open fallback. If an activity cannot be produced (no tool-call id, a malformed payload, or delegation that never starts), the ordinary tool events survive and the generic card renders them. That is why its `task` argument summary is worth keeping.
+The wildcard card is still the fail-open fallback. If an activity cannot be produced (no tool-call id, a malformed payload, or delegation that never starts), the ordinary tool events survive and the generic card renders them. So keep its `task` argument summary.
 
 Choose **Research a topic** on the empty transcript to see the root plan and researcher progress update before the cited answer. This live flow uses the B4.run server's model key. The automated browser check only proves V2 transport selection.
 

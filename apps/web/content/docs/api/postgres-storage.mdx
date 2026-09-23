@@ -2,7 +2,7 @@
 
 ## Use this when
 
-Use this package when a deployed B4.run application needs shared durable checkpoints, Agent Protocol threads, and permission grants across instances. Each permissions-store instance caches grants and observes another instance's writes after its next `load()`. The root accepts a structural pool for Node or edge hosts; `/node` adds `pg` connection-string convenience.
+Use this package when a deployed B4.run application needs shared durable checkpoints, Agent Protocol threads, and permission grants across instances. Each permissions-store instance caches grants and observes another instance's writes after its next `load()`. The root accepts a structural pool for Node or edge hosts. `/node` adds `pg` connection-string convenience.
 
 ## Install and import
 
@@ -175,11 +175,11 @@ The main entry links without Node built-ins for edge pools, while /node delibera
 
 Migration state is instance-scoped. In a per-request host, migrate an unflagged cold set of all three components, then set `assumeMigrated` only for the same database, schema, prefix, component, and current package schema. A wrong assertion fails on the first query. Checkpoint, thread, and permission migrations are separate.
 
-Another process sees a durable permission grant only after that store calls `load()`. When you construct a custom permissions store, pass the resolved `mode` and config explicitly; B4.run does not overlay sibling configuration onto an already-created store.
+Another process sees a durable permission grant only after that store calls `load()`. When you construct a custom permissions store, pass the resolved `mode` and config explicitly. B4.run does not overlay sibling configuration onto an already-created store.
 
-Do not mark every store as owning one shared pool. An injected pool defaults to caller-owned and receives no error listener from B4.run; setting `ownsPool: true` makes that store end it. A `/node` factory-created pool is owned, monitored, and closed by that store.
+Do not mark every store as owning one shared pool. An injected pool defaults to caller-owned and receives no error listener from B4.run. Setting `ownsPool: true` makes that store end it. A `/node` factory-created pool is owned, monitored, and closed by that store.
 
-Schemas, table prefixes, and thread IDs organize data; they are not tenant authorization boundaries. Rows are plaintext unless your database and infrastructure provide encryption.
+Schemas, table prefixes, and thread IDs organize data, but they are not tenant authorization boundaries. Rows are plaintext unless your database and infrastructure provide encryption.
 
 ## Examples and related guides
 

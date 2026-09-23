@@ -1,10 +1,12 @@
 # Agent Test Harness
 
-Agent tests in CI should be deterministic and replay committed fixtures. `@b4run/testing` intercepts the model's HTTP endpoint with **aimock**, a local mock that replays pre-written fixtures. Your tools, prompts, capabilities and state all run normally. Only the LLM is replaced.
+Learn how to test an agent route without calling a real model. `@b4run/testing` intercepts the model's HTTP endpoint with **aimock**, a local mock that replays pre-written fixtures. Your tools, prompts, capabilities and state all run normally. Only the LLM is replaced, so the tests are deterministic and safe for CI.
 
-In CI, the fixture is the source of truth. Locally, you can opt into live mode to probe model behaviour, with looser assertions that account for nondeterminism.
+Locally, you can opt into live mode to probe model behaviour, with looser assertions that allow for nondeterminism.
 
 ## Install
+
+Install the harness and vitest as dev dependencies:
 
 ```bash
 pnpm add -D @b4run/testing vitest
@@ -58,19 +60,23 @@ script()
   .build()                           // returns AimockFixture[]; or pass builder directly to h.run()
 ```
 
-aimock matches fixtures by substring on the latest user message plus `turnIndex` (count of assistant messages already in the thread). You do not need to call `.build()`. Pass the builder directly to `h.run({ fixtures })` and B4.run unwraps it for you.
+aimock matches fixtures by substring on the latest user message plus `turnIndex` (count of assistant messages already in the thread). You can skip `.build()`. Pass the builder directly to `h.run({ fixtures })` and B4.run unwraps it for you.
 
 ## Recipes
 
 ### Assert a tool was called with specific args
 
+Use `expectToolCalled` with `withArgs`:
+
 ```ts
 expectToolCalled(run, "applyFilter").withArgs({ status: "open" })
 ```
 
-`withArgs` does a partial (subset) match, so extra args are ignored. Chain `.times(n)` to assert exact call count, or `.never()` to assert the tool was not called.
+`withArgs` does a partial (subset) match, so extra args are ignored. Chain `.times(n)` to assert a call count, or `.never()` to assert the tool wasn't called.
 
 ### Assert the final message
+
+`expectFinalMessage` supports substring, regex, and full-text checks:
 
 ```ts
 expectFinalMessage(run).toContain("Found 2")
@@ -80,11 +86,15 @@ expectFinalMessage(run).toEqual("Found 2 open items.")
 
 ### Assert streamed tokens arrived
 
+This one throws when nothing streamed:
+
 ```ts
 expectStreamedTokens(run)  // throws if zero tokens were streamed
 ```
 
 ### Multi-turn: run the agent twice
+
+The second run continues the same thread, so its fixture expects `turnIndex: 1`:
 
 ```ts
 const first = await h.run({
@@ -112,9 +122,11 @@ expectFinalMessage(first).toContain("3 tasks")
 expectFinalMessage(followUp).toContain("2 tasks left")
 ```
 
-Two `h.run()` calls without a reset are two turns on the same thread, so the follow-up can exercise conversation state.
+Two `h.run()` calls without a reset are two turns on the same thread, so the follow-up can exercise thread state.
 
 ### Fresh-thread test isolation
+
+Call `h.reset()` to start over on a new thread:
 
 ```ts
 const original = await h.run({
@@ -133,7 +145,7 @@ expectFinalMessage(original).toContain("Remembered")
 expectFinalMessage(isolated).toContain("No project")
 ```
 
-Use `h.reset()` between scenarios or tests that require a fresh thread, not between turns in one conversation.
+Use `h.reset()` between scenarios or tests that need a fresh thread. Leave it out between turns of one thread.
 
 ### Tool output offloading
 
@@ -145,11 +157,13 @@ expectOffloaded(run, "generateReport")
 
 ### Assert tools were called in order
 
+Pass the tool names in the order you expect:
+
 ```ts
 expectToolSequence(run, ["searchCorpus", "readDoc", "writeFile"])
 ```
 
-This asserts that the named tools were called in that order. By default it is a subsequence match, so other tools may appear between them. Pass `{ strict: true }` to require the tools to appear consecutively:
+By default it's a subsequence match, so other tools may appear between them. Pass `{ strict: true }` to require the tools to appear consecutively:
 
 ```ts
 expectToolSequence(run, ["validate", "save"], { strict: true })
@@ -157,13 +171,15 @@ expectToolSequence(run, ["validate", "save"], { strict: true })
 
 ### Assert no tool returned an error
 
+HITL permission interrupts don't count as errors here:
+
 ```ts
 expectNoToolErrors(run)
 ```
 
-HITL permission interrupts are not counted as errors.
+To inspect tool results yourself, use `run.toolResults`. It's a `ReadonlyArray<ObservedToolResult>` collected from the run's streamed `tool_result` events. A tool that threw streams its `status: "error"` ToolMessage, so `isError` never depends on the final message list. A stream that carried no tool results falls back to the final thread messages via `deriveToolResults` (also exported).
 
-To inspect tool results yourself, use `run.toolResults`. It is a `ReadonlyArray<ObservedToolResult>` collected from the run's streamed `tool_result` events. A tool that threw streams its `status: "error"` ToolMessage, so `isError` never depends on the final message list. A stream that carried no tool results falls back to the final conversation messages via `deriveToolResults` (also exported). Each entry has the shape `{ name: string, status?: "error" | "success", content: unknown, isError: boolean }`. Use it to assert on specific error messages or content when `expectNoToolErrors` is too broad:
+Each entry has the shape `{ name: string, status?: "error" | "success", content: unknown, isError: boolean }`. Use it to assert on specific error messages or content when `expectNoToolErrors` is too broad:
 
 ```ts
 import { deriveToolResults } from "@b4run/testing"
@@ -173,6 +189,8 @@ expect(failing).toHaveLength(0)
 ```
 
 ### State assertions
+
+`expectState` reads the final agent state:
 
 ```ts
 expectState(run).messages.toHaveLength(3)
@@ -184,7 +202,7 @@ expectState(run).field("todos").toEqual([{ content: "ship it", status: "pending"
 
 ### Supply the middleware context
 
-`createAgentHarness` invokes the route's agent directly, so `src/middleware.ts` never runs and `ctx.middleware` is `undefined` inside tools. Pass `middlewareContext` with the record your middleware would have returned from `allow(context)`. It is either a fixed value or a function evaluated once per `run()`/`resume()` that receives the turn's `threadId` and `input`:
+`createAgentHarness` invokes the route's agent directly, so `src/middleware.ts` never runs and `ctx.middleware` is `undefined` inside tools. Pass `middlewareContext` with the record your middleware would have returned from `allow(context)`. It's either a fixed value or a function evaluated once per `run()`/`resume()` that receives the turn's `threadId` and `input`:
 
 ```ts
 const h = await createAgentHarness({
@@ -199,19 +217,19 @@ const h = await createAgentHarness({
 
 Every tool the run invokes reads that record as `ctx.middleware`. The same option is accepted on `defineEval` so `b4 eval` can drive routes whose tools depend on middleware.
 
-## Choose the execution boundary
+## Choose how much to run
 
-`@b4run/testing` exposes a separate factory for each execution boundary:
+`@b4run/testing` has a separate factory for each level:
 
-- **`createAgentHarness()`** runs tools, prompts, capabilities, and state directly through B4.run's runtime in the test process. It is the default choice for fast agent-behavior tests and does not bind an application port.
-- **`createAgentProtocolInjector()`** drives Agent Protocol requests through the runtime's fetch handler without binding a port. Use it when the HTTP request, response, or SSE contract is the behavior under test.
-- **`createSubprocessApp()`** starts a real `b4 dev` child process. Use it for process-boundary, restart, and persistence tests.
+- **`createAgentHarness()`** runs tools, prompts, capabilities, and state directly through B4.run's runtime in the test process, with no application port. Use it by default for fast agent-behavior tests.
+- **`createAgentProtocolInjector()`** drives Agent Protocol requests through the runtime's fetch handler without binding a port. Use it when the HTTP request, response, or SSE shape is what you're testing.
+- **`createSubprocessApp()`** starts a real `b4 dev` child process. Use it for multi-process, restart, and persistence tests.
 
-Each factory has its own option and result types. `createAgentHarness()` does not accept a `mode` option.
+Each factory has its own option and result types. There's no `mode` option on `createAgentHarness()`.
 
 ## CI setup
 
-You don't need any extra setup. aimock runs on a random port and stops when the harness closes. The only thing to guard is that fixture files are committed:
+You don't need any extra setup. aimock runs on a random port and stops when the harness closes. Just guard that fixture files are committed:
 
 ```yaml title=".github/workflows/ci.yml"
 - run: pnpm exec vitest --run
@@ -272,7 +290,9 @@ The suite also exercises:
 - Offloading of a large `readDoc` result.
 - The HITL permission gate for `runBash`, followed by resume.
 
-These scenarios share one harness and call `h.reset()` per test. `reset()` starts a fresh thread and clears the previous scenario's fixtures, so the tests stay isolated. The separately gated `server/test/sandbox-docker.test.ts` verifies that shared tools operate inside an isolated Docker workspace without leaking files to the host or a fresh thread sandbox.
+These scenarios share one harness and call `h.reset()` per test. `reset()` starts a fresh thread and clears the previous scenario's fixtures, so the tests stay isolated.
+
+The separately gated `server/test/sandbox-docker.test.ts` checks that shared tools run inside an isolated Docker workspace and leak no files to the host or to a fresh thread sandbox.
 
 Grow it by:
 

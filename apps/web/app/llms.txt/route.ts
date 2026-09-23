@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server"
 import { getAllPosts } from "../components/blog/post-index"
 
+// Rendered once at build time and served from the CDN; rebuilt every deploy.
+export const dynamic = "force-static"
+
 function buildLlmsTxt(): string {
   const blogSection = [
     "",

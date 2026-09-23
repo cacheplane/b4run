@@ -1,10 +1,10 @@
 # Retry
 
-The `retry` field on `agent()` retries transient LLM failures: rate limits, server errors, network timeouts and OpenAI overload responses. Errors like an invalid API key or an unknown model fail right away.
+The `retry` option on `agent()` retries model calls that fail for temporary reasons: rate limits, server errors, network timeouts and OpenAI overload responses. Errors like an invalid API key or an unknown model fail right away.
 
 ## Configuring retry
 
-Set `retry` on the `agent()` descriptor:
+Set `retry` in `agent()`:
 
 ```ts title="src/app/(public)/research/index.ts"
 import { agent } from "@b4run/sdk"
@@ -18,25 +18,25 @@ export default agent({
 
 | Field | Default | Notes |
 |---|---|---|
-| `maxAttempts` | `3` | Total number of attempts (including the first call). `1` disables retry. |
-| `baseDelay` | `1000` (ms) | Base delay before the first retry. Backoff is exponential with jitter. |
+| `maxAttempts` | `3` | Total attempts, counting the first call. `1` turns retry off. |
+| `baseDelay` | `1000` (ms) | Delay before the first retry. It doubles each time, plus some random jitter. |
 
 If you omit `retry`, the agent uses the defaults (3 attempts, 1s base delay).
 
 ## What's retried
 
-B4.run retries an error when its message matches one of these transient patterns:
+B4.run retries an error when its message matches one of these patterns:
 
 - **Rate limits:** `429`, `rate limit`
 - **Server errors:** `500`, `502`, `503`
 - **Network errors:** `ECONNRESET`, `ECONNREFUSED`, `ETIMEDOUT`, `timeout`, `network`
 - **OpenAI transient:** `overloaded`, `server_error`
 
-Anything else (invalid API key, model not found, schema validation errors, abort) fails immediately without retry.
+Anything else (invalid API key, model not found, schema validation errors, abort) fails right away.
 
 ## Backoff
 
-Delay before retry `n` (zero-indexed) is:
+The delay before retry `n` (counting from zero) is:
 
 ```
 delay = min(baseDelay * 2^n + jitter, 10s)
@@ -51,21 +51,23 @@ With the defaults (1s base, 3 attempts):
 | 2 | ~1000–1500 ms |
 | 3 | ~2000–2500 ms |
 
-The non-stream fallback honors the configured `baseDelay`. The 10 second cap keeps long retry chains from backing off forever.
+Non-streaming calls use your `baseDelay`. The 10 second cap keeps long retry chains from waiting longer and longer.
 
 ## Streaming behavior
 
-For streaming routes, retry only applies if the failure happens **before any token or event is yielded to the client**. The streaming path uses a 1-second base delay regardless of the configured `baseDelay`. Once content has streamed, the client has already seen it, so B4.run cannot retry. The error propagates through the stream instead.
+For streaming routes, B4.run retries only if the call fails **before any token or event reaches the client**. Streaming always uses a 1-second base delay, whatever your `baseDelay` is. Once content has streamed, the client has already seen it, so B4.run can't retry. The error comes through the stream.
 
-If you need stronger guarantees, retry at a higher level in your client, or use `/threads/:id/runs/wait` when partial output is not useful.
+If you need more than that, retry in your client, or use `/threads/:id/runs/wait` when partial output is no use to you.
 
 ## Abort signals
 
-An Agent Protocol viewer disconnect does not abort the run. The run stays available for the thread to resume. An AG-UI disconnect, explicit Agent Protocol cancellation (`POST /threads/:id/cancel`) and server shutdown do abort the run. The signal reaches agent execution and tools as `ctx.signal`. Provider and tool operations must listen to that signal for pending I/O to stop promptly.
+Three things abort a run: an AG-UI client disconnecting, an Agent Protocol cancel (`POST /threads/:id/cancel`), and server shutdown. An Agent Protocol client disconnecting leaves the run going, so the thread can pick it up again.
+
+The abort signal reaches the agent and its tools as `ctx.signal`. Provider calls and tools have to listen to it for pending I/O to stop quickly.
 
 ## Per-route, not global
 
-Each `agent()` descriptor sets its own policy. There is no global retry config:
+Each `agent()` sets its own retry policy. There's no global setting:
 
 ```ts
 // Critical billing route: fail fast on transient errors

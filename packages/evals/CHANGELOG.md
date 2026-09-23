@@ -1,5 +1,12 @@
 # @dawn-ai/evals
 
+## 0.11.0
+
+### Patch Changes
+
+- Updated dependencies [a30db23]
+  - @b4run/testing@0.11.0
+
 ## 0.10.0
 
 ### Patch Changes

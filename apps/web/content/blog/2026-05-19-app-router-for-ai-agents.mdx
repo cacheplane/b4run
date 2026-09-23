@@ -15,18 +15,18 @@ B4.run applies the same idea to agents. A route has an entry point, tools, state
 
 ## Goals
 
-By the end of this post, we will know how to:
+By the end of this post, we'll know how to:
 
 1. Define an agent route with a dynamic parameter.
 2. Add a tool using a TypeScript function.
 3. Declare the route's state and locate its tests.
 4. Add planning, skills, and a research subagent.
 
-You do not need previous experience building agents. In this example, an **agent** is a model that can request calls to functions we provide. Those functions are its **tools**, and the runtime executes them on its behalf.
+You don't need any previous experience building agents. In this example, an **agent** is a model that can request calls to functions we provide. Those functions are its **tools**, and the runtime executes them on its behalf.
 
 ## Start with the route
 
-Suppose we are building an assistant that helps customers check the status of an order. Each organization using the application is a tenant.
+Suppose we're building an assistant that helps customers check the status of an order. Each organization using the application is a tenant.
 
 Our route starts with one file:
 
@@ -78,7 +78,7 @@ export default async (
 }
 ```
 
-The service URL is a placeholder. Replace it with your order service and enforce authentication and tenant ownership there. A route parameter is data supplied to the application. It does not prove who the caller is.
+The service URL is a placeholder. Replace it with your order service and enforce authentication and tenant ownership there. A route parameter is just data the caller sent, so it can't prove who the caller is.
 
 A few things to note about the function:
 
@@ -88,7 +88,7 @@ A few things to note about the function:
 4. We check the HTTP status before returning a result.
 5. The returned object becomes the tool result available to the model.
 
-Of course, the `as` expression only describes the response to TypeScript. It does not validate the JSON at runtime, so a production tool should validate a response it cannot trust.
+Of course, the `as` expression only tells TypeScript what to expect. Nothing checks the JSON at runtime, so a production tool should validate any response it can't trust.
 
 When a customer asks about an order, the agent requests `lookupOrder` with an order id. The runtime calls the function and sends the result back to the model, which explains the status to the customer.
 
@@ -110,7 +110,7 @@ Here we use Zod to declare a required `tenant` string and an optional `orderId` 
 
 Why declare the shape? Other code can use the generated types instead of repeating the interface. If we change the state, TypeScript points us to the code that depends on it.
 
-The tool input and route state serve different purposes. The tool input describes one function call. The route state describes data available during the route's execution. Adding `orderId` to state does not, by itself, request an order lookup.
+The tool input and route state serve different purposes. The tool input describes one function call. The route state describes data available during the route's execution. Adding `orderId` to state won't trigger an order lookup by itself.
 
 ## Keep tests with the route
 
@@ -138,7 +138,7 @@ A `plan.md` file can provide an initial checklist:
 
 B4.run gives the agent a `writeTodos` tool to update the list, a `todos` state channel to retain it, and `plan_update` events that a client can display.
 
-The checklist organizes the work and shows progress. It does not force the model to complete every step correctly, so we still need tools, tests and application rules to check the result.
+The checklist organizes the work and shows progress. The model can still skip or botch a step, so we still need tools, tests and application rules to check the result.
 
 ## Add detailed instructions with a skill
 
@@ -150,7 +150,7 @@ src/app/support/[tenant]/skills/refund-policy/SKILL.md
 
 B4.run tells the agent which skills are available and exposes `readSkill({ name })`. The agent loads the refund instructions when a customer asks about a refund, so the whole policy doesn't ride along in every prompt.
 
-A skill explains a procedure. It does not authorize or prevent a transaction. If a refund requires authorization, enforce that in the application and its approval rules.
+A skill explains a procedure. If a refund requires authorization, enforce that in the application and its approval rules.
 
 ## Delegate research to a subagent
 
@@ -169,11 +169,11 @@ export default agent({
 })
 ```
 
-The `description` helps the parent decide when to delegate. The `systemPrompt` instructs the child during its own run. The descriptor alone does not give it access to documents, so we add its document-search tool under `subagents/research/tools/`.
+The `description` helps the parent decide when to delegate. The `systemPrompt` instructs the child during its own run. To let it read documents, we add a document-search tool under `subagents/research/tools/`.
 
 The parent gets a `task({ subagent, input })` tool for calling its children. It can request work from `research` and use the findings in its response.
 
-Children have their own tool configuration and do not inherit the parent's route-local tools. To restrict delegation, use the parent's `delegation` policy. The [Subagents guide](/docs/subagents) explains the defaults and named rules.
+Each child has its own tool configuration and doesn't inherit the parent's route-local tools. To restrict delegation, use the parent's `delegation` policy. The [Subagents guide](/docs/subagents) explains the defaults and named rules.
 
 ## Review the application structure
 
@@ -202,7 +202,7 @@ src/
 
 We can follow a customer request through the files: the parent receives it, a tool retrieves order data and a specialist researches a policy. State, instructions and tests sit beside the behavior they describe.
 
-The route convention also supports other entry types. Export a `workflow` for a deterministic async function, a `graph` for a LangGraph graph or a `chain` for a LangChain runnable. Each `index.ts` declares one entry shape, so you can choose the execution model without a different project layout.
+The route convention also supports other entry types. Export a `workflow` for a deterministic async function, a `graph` for a LangGraph graph or a `chain` for a LangChain runnable. Each `index.ts` declares one entry shape, so you can pick the execution model and keep the same project layout.
 
 ## Conclusion
 

@@ -1,8 +1,10 @@
 # Observability
 
+Observability shows what an agent actually did on a run: its prompts, its tool calls, and where the time and tokens went. You can trace runs to LangSmith, or watch the dev server's live SSE stream.
+
 ## LangSmith tracing
 
-B4.run runs on LangGraph, which sends traces to LangSmith when tracing is enabled. One agent run produces a nested trace under a single root run. It includes every LLM call (prompts, token counts and latency), every tool call (input and output) and every subagent child run. You can see where time and tokens go without adding instrumentation code to your routes.
+B4.run runs on LangGraph, which sends traces to LangSmith when tracing is enabled. One agent run produces a nested trace under a single root run. It includes every LLM call (prompts, token counts and latency), every tool call (input and output) and every subagent child run. You don't need to add any instrumentation code to your routes.
 
 ## Enabling tracing
 
@@ -26,11 +28,11 @@ Open any run in the LangSmith UI. The hierarchy follows the LangGraph execution 
 
 ### Human-in-the-loop interrupts in LangSmith
 
-A HITL permission interrupt appears in LangSmith as a tool run with status `interrupted` and a `GraphInterrupt` in the error field. This is a pause. The root run stays `success` and the agent continues once the interrupt is resolved. A real error has status `error` and an exception string in the error field.
+A HITL permission interrupt appears in LangSmith as a tool run with status `interrupted` and a `GraphInterrupt` in the error field. This is a pause, not a failure. The root run stays `success`, and the agent continues once the interrupt is resolved. A real error has status `error` and an exception string in the error field.
 
 ## Live SSE streaming (no account required)
 
-Without a LangSmith account, you can use the dev server's `runs/stream` endpoint, which streams every event in real time over SSE. Each event has a type (`chunk`, `tool_call`, `tool_result`, `plan_update`, `interrupt`, `subagent.*`, `done`) and a JSON payload you can pipe to any terminal or client. See [Agent Protocol](/docs/dev-server/agent-protocol) for the full event-type table and connection instructions.
+No LangSmith account? You can use the dev server's `runs/stream` endpoint, which streams every event in real time over SSE. Each event has a type (`chunk`, `tool_call`, `tool_result`, `plan_update`, `interrupt`, `subagent.*`, `done`) and a JSON payload you can pipe to any terminal or client. See [Agent Protocol](/docs/dev-server/agent-protocol) for the full event-type table and connection instructions.
 
 ## Related
 

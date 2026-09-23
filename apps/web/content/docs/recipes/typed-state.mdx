@@ -1,8 +1,6 @@
 # Typed State
 
-Learn how to give a route a typed state shape, including the values it needs to run:
-
-## The code
+A `state.ts` file gives a route typed state. Here's a `/hello/[tenant]` workflow whose state includes its tenant:
 
 <CodeGroup>
 ```ts title="src/app/(public)/hello/[tenant]/state.ts"
@@ -52,10 +50,10 @@ export async function workflow(
   { "route": "/hello/[tenant]#workflow", "input": { "tenant": "acme" } }
   ```
 
-  A concrete `/hello/acme` path is not how B4.run populates route state.
-- **Parse workflow input explicitly.** Workflow routes do not automatically parse `state.ts`. Calling `state.parse(input)` validates the input and applies fields declared with `.default(...)` when the caller omits them.
-- **This workflow imports and parses the schema directly,** so it can keep `tenant` required. For agent-state discovery, B4.run validates `{}` to extract defaults. If you reuse this schema for an agent route, make every top-level field accept missing input so discovery does not skip it.
-- **State is JSON-serializable.** It crosses the runtime boundary on every `runs/wait` and `runs/stream` call. Use primitives, plain objects, and arrays.
+  B4.run fills route state from the input, never from a concrete path like `/hello/acme`.
+- **Parse workflow input yourself.** A workflow route receives its input as is. Calling `state.parse(input)` validates it and fills in fields declared with `.default(...)` when the caller leaves them out.
+- **This workflow imports and parses the schema directly,** so it can keep `tenant` required. For agent-state discovery, B4.run validates `{}` to extract defaults. If you reuse this schema for an agent route, make every top-level field accept missing input, or discovery skips the schema.
+- **State is JSON-serializable.** It's serialized on every `runs/wait` and `runs/stream` call, so use primitives, plain objects, and arrays.
 
 ## Related
 

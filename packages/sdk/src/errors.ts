@@ -101,12 +101,12 @@ export const B4_ERRORS = {
   B4_E4001: {
     code: "B4_E4001",
     title: "Model provider package missing",
-    docsPath: "/docs/configuration",
+    docsPath: "/docs/agents#model-providers",
   },
   B4_E4002: {
     code: "B4_E4002",
     title: "Unknown model id",
-    docsPath: "/docs/configuration",
+    docsPath: "/docs/agents#model-providers",
   },
   B4_E5001: {
     code: "B4_E5001",

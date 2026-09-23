@@ -1,8 +1,6 @@
 # Auth Middleware
 
-Learn how to add execution authentication that rejects unauthenticated route-execution requests and passes the verified user identity to every tool call in that execution:
-
-## The code
+Let's add execution authentication with one middleware file. It rejects route-execution requests that don't carry a valid bearer token, and it passes the verified user id to every tool call in that run:
 
 <CodeGroup>
 ```ts title="src/middleware.ts"
@@ -66,15 +64,15 @@ export async function workflow(
 
 ## Notes
 
-- **Tool name equals the file basename.** The tool file is `tools/loadProfile.ts`, so you call it as `ctx.tools.loadProfile(...)`. A file named `tools/load-profile.ts` would be `ctx.tools["load-profile"](...)`. Use camelCase filenames to get camelCase `ctx.tools` keys.
-- **One global middleware.** `src/middleware.ts` runs once per route-execution request before the route. There is no stack of layered middlewares, so branch on `req.routeId` if you need per-route policy.
+- **The tool name is the file name.** The file is `tools/loadProfile.ts`, so you call `ctx.tools.loadProfile(...)`. A file named `tools/load-profile.ts` would be `ctx.tools["load-profile"](...)`, so stick with camelCase file names.
+- **There's one global middleware.** `src/middleware.ts` runs once per route-execution request, before the route. For per-route policy, branch on `req.routeId`.
 - **`reject` short-circuits.** The route never runs, and the body of `reject(status, body?)` becomes the HTTP response.
-- **`allow(context)` flows to tools.** Whatever you pass becomes `ctx.middleware` on every tool call for that request. If you call `allow()` with no arguments, it is `undefined`.
-- **Throwing returns 500.** Any uncaught error becomes HTTP 500. Use an explicit `reject(401, ...)` with a real body so callers get a useful response.
-- **Deployment scope matters.** This middleware runs under `b4 dev`, the Node B4.run HTTP runtime (`b4 start` or generated `server.mjs`), and Hono builds. Generated LangSmith graph entries do not include B4.run HTTP middleware, so enforce authentication at that platform's boundary.
+- **`allow(context)` flows to tools.** Whatever you pass becomes `ctx.middleware` on every tool call for that request. Call `allow()` with no arguments and it's `undefined`.
+- **Throwing returns 500.** Any uncaught error becomes HTTP 500. Return an explicit `reject(401, ...)` with a real body so callers get a useful response.
+- **Check where you deploy.** This middleware runs under `b4 dev`, the Node B4.run HTTP runtime (`b4 start` or the generated `server.mjs`), and Hono builds. The generated LangSmith graph entries leave B4.run's HTTP middleware out, so on LangSmith you'll enforce authentication in the platform itself.
 
 <Callout type="warn" title="This is execution auth, not service auth">
-  B4.run middleware covers Agent Protocol stream, wait, and resume execution plus AG-UI. Thread create/read/delete/state, cancellation, memory-candidate management, and health checks bypass it. Put authentication, tenant authorization, and network policy around the entire B4.run HTTP surface in an outer host or reverse proxy. Exempt only the probes you mean to make public. See [Security Architecture](/docs/security-architecture) for the endpoint boundary.
+  B4.run middleware covers Agent Protocol stream, wait, and resume execution plus AG-UI. Thread create/read/delete/state, cancellation, memory-candidate management, and health checks bypass it. Put authentication, tenant authorization, and network policy around the entire B4.run HTTP surface in an outer host or reverse proxy. Exempt only the probes you mean to make public. See [Security Architecture](/docs/security-architecture) for which endpoints each layer covers.
 </Callout>
 
 ## Related

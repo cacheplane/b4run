@@ -9,7 +9,7 @@ author: brian
 
 I built B4.run to make TypeScript agent applications easier to understand and maintain. I wanted to open a project, find the agent I needed to change, and see its tools and state right beside it.
 
-If you have built an Express or Angular application, you have probably asked your team: where should this code live? A consistent answer makes the next feature easier to build and the next pull request easier to review.
+If you've built an Express or Angular application, you've probably asked your team: where should this code live? A consistent answer makes the next feature easier to build and the next pull request easier to review.
 
 Agent applications need that consistency too. Let's look at the problem, then walk through the approach I took with B4.run.
 
@@ -69,7 +69,7 @@ A few things to note:
 
 - `index.ts` is the entry point for the route.
 - `[tenant]` declares a dynamic route parameter, such as the organization using the application.
-- `(public)` groups files without becoming part of the route id. The folder name does not grant public access. Authentication is still your application code.
+- `(public)` groups files without becoming part of the route id. The folder name grants no access by itself. Authentication is still up to your application code.
 - `tools/` contains tools specific to this route.
 - `state.ts` can declare the data the route accepts and maintains.
 
@@ -185,4 +185,4 @@ The [Getting Started guide](/docs/getting-started) walks through the starter and
 
 I like frameworks that make the next change easier to understand. With B4.run, a route has a folder, its tools are typed functions, and the build derives the wiring from those files.
 
-A small application may be well served by LangGraph.js on its own. As you add routes, tools and capabilities, shared conventions cut down the setup a team has to maintain. That is why I built B4.run: so we spend more time on what an agent should do, in a structure that shows how it does it.
+A small application may be well served by LangGraph.js on its own. As you add routes, tools and capabilities, shared conventions cut down the setup a team has to maintain. That's why I built B4.run: so we spend more time on what an agent should do, in a structure that shows how it does it.

@@ -4,6 +4,8 @@ Recall is how an agent searches its memory. The generated `recall` tool builds a
 
 ## The generated recall tool
 
+Here is a typical call:
+
 ```ts
 await recall({
   query: "customer shipping preference",
@@ -14,17 +16,17 @@ await recall({
 })
 ```
 
-The `memory.ts` scope declaration chooses which dimensions exist, and runtime values plus `memory.resolveScope` construct the namespace for those dimensions. The workspace and route values come from the app root and route path. `resolveScope` receives only `routePath` and `appRoot` and does not receive verified identity, so tenant and user scope still need authenticated wiring in your application.
+The `memory.ts` scope declaration chooses which dimensions exist, and runtime values plus `memory.resolveScope` construct the namespace for those dimensions. The workspace and route values come from the app root and route path. `resolveScope` receives only `routePath` and `appRoot`. It does not receive verified identity, so tenant and user scope still need authenticated wiring in your application.
 
 `since` and `until` accept ISO instants or relative expressions, resolved against the request clock. The tool passes one fixed evaluation timestamp as `now`. That timestamp filters expired rows and anchors recency scoring, so fix it in tests that assert order or window boundaries.
 
 `MemoryStore.search` defaults to active records and a limit of eight. A query-less search filters by namespace, status, kind, tags, expiry, and an optional event-time window, without scoring relevance. Without a window it orders by `updatedAt`. With `since` or `until` it orders by `effectiveAt` (falling back to `createdAt`).
 
-Tags are applied after the result limit in both in-repo stores. Query-less search limits the ordered rows before filtering tags, and ranked and hybrid search slice the ranked list first. Eligible tagged rows below that boundary are omitted, so a tagged result can hold fewer than `limit` records. Tags narrow a bounded result. They do not page through every tagged record.
+Tags are applied after the result limit in both in-repo stores. Query-less search limits the ordered rows before filtering tags, and ranked and hybrid search slice the ranked list first. Eligible tagged rows below that boundary are omitted, so a tagged result can hold fewer than `limit` records. Tags narrow a bounded result. They won't page through every tagged record.
 
 ## How recall ranks
 
-A keyword query tokenizes the query and the record content. `candidatePool` keeps the newest token-matching rows before scoring them, so a relevant older match outside that pool cannot reach the result. As histories grow, raise the pool and measure latency and quality.
+A keyword query tokenizes the query and the record content. `candidatePool` keeps the newest token-matching rows before scoring them, so a relevant older match outside that pool can't reach the result. As histories grow, raise the pool and measure latency and quality.
 
 The pool is then ranked with three signals:
 
@@ -34,7 +36,7 @@ The pool is then ranked with three signals:
 | Recency | 0.3 | Exponential decay with a 14-day half-life |
 | Confidence | 0.1 | Uses the stored record confidence |
 
-Ties break by newest `updatedAt`, then `id`. Matching uses exact tokens with no stemming, so use consistent words for IDs, product names, and domain terms.
+Ties break by newest `updatedAt`, then `id`. Matching compares whole tokens with no stemming, so use consistent words for IDs, product names, and domain terms.
 
 Here are the defaults in **b4.config.ts**:
 
@@ -73,7 +75,7 @@ export default {
 } satisfies import("@b4run/core").B4Config
 ```
 
-Hybrid search takes the union of the keyword list and the vector-nearest list, combines their ranks with Reciprocal Rank Fusion, and then applies bounded recency and confidence. Keyword matches stay in because embeddings are weak on exact IDs, codes, and names.
+Hybrid search takes the union of the keyword list and the vector-nearest list, combines their ranks with Reciprocal Rank Fusion, and then applies bounded recency and confidence. Keyword matches stay in because embeddings are weak on IDs, codes, and names.
 
 Every stored embedding carries the embedder model id. Vector comparison only includes rows whose model id matches the active embedder, so incompatible vector spaces are never compared. After you change embedders, older rows still take part in keyword search until you re-embed them.
 
@@ -104,33 +106,33 @@ export default {
 
 SQLite loads matching-model vectors and runs an exact vector scan in process. The pgvector store asks an HNSW index for approximate candidates before applying the shared hybrid stages. Candidate sets can differ, so the two backends can return different orders. Evaluate retrieval quality on each backend you deploy, with realistic data.
 
-A custom store owns its ranking, so the built-in `memory.recall` and `memory.vector` tuning does not apply to it. Document and test that store's `MemoryStore.search` contract yourself.
+A custom store brings its own ranking, and the built-in `memory.recall` and `memory.vector` tuning is ignored. Document and test how that store's `MemoryStore.search` behaves yourself.
 
 ## The injected index
 
-Before the model starts, B4.run runs a query-less search for a small index of active memories and adds `id: content` lines to the prompt. It is a recency-ordered sample, not the whole store, so the agent should call `recall` for a specific topic or time window.
+Before the model starts, B4.run runs a query-less search for a small index of active memories and adds `id: content` lines to the prompt. It's a recency-ordered sample of the store, so the agent should call `recall` for a specific topic or time window.
 
 ## Evaluate retrieval
 
-Build an evaluation set that expects record IDs, not exact prose. Include:
+Build an evaluation set that expects record IDs rather than prose. Include:
 
-1. literal codes and names that require keyword matching;
-2. paraphrases that need vectors;
-3. expired and out-of-window records;
-4. equal-relevance records with different timestamps or confidence;
-5. rows embedded by an older model id;
-6. enough data to exercise the configured candidate bounds.
+1. Literal codes and names that require keyword matching.
+2. Paraphrases that need vectors.
+3. Expired and out-of-window records.
+4. Equal-relevance records with different timestamps or confidence.
+5. Rows embedded by an older model id.
+6. Enough data to exercise the configured candidate bounds.
 
-Pin the store contents, `now`, the embedder output, and the ranking config. Run the set against SQLite and pgvector separately, and do not expect the same order from both.
+Pin the store contents, `now`, the embedder output, and the ranking config. Run the set against SQLite and pgvector separately, and expect a different order from each.
 
 ## Troubleshooting
 
-- No results: confirm the exact namespace, active status, kind, tags, and time window.
+- No results: confirm the full namespace, active status, kind, tags, and time window.
 - A record vanished: compare `expiresAt` with the fixed evaluation timestamp.
-- Literal ID misses: keep keyword recall enabled and use the exact token.
+- Literal ID misses: keep keyword recall enabled and use the literal token.
 - Paraphrase misses: verify the query and rows have embeddings with the same model id.
 - Different Postgres ordering: inspect HNSW candidate recall and ties before changing second-stage weights.
-- Admin page looks unlike recall: that is expected. `browse` filters and sorts records without semantic ranking.
+- Admin page looks unlike recall: that's expected. `browse` filters and sorts records without semantic ranking.
 
 ## Related
 

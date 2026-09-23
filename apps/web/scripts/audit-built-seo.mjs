@@ -4,13 +4,14 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { isDeepStrictEqual } from "node:util"
 import matter from "gray-matter"
+import { llmsDocSection } from "../lib/llms-markdown.mjs"
 
 const scriptFile = realpathSync(fileURLToPath(import.meta.url))
 const scriptDirectory = dirname(scriptFile)
 const appRoot = resolve(scriptDirectory, "..")
 const productionOrigin = "https://b4.run"
 const currentInventoryDate = "2026-08-26"
-const currentInventoryCount = 87
+const currentInventoryCount = 92
 const approvedRobotsAgents = [
   "*",
   "GPTBot",
@@ -557,8 +558,10 @@ function occurrences(haystack, needle) {
   return count
 }
 
-export function docSectionOccurrences(body, label, source) {
-  return occurrences(body, `### ${label}\n\n${source}`)
+// /llms-full.txt serves each docs page converted to plain Markdown; render the
+// same section from the authored source and require it verbatim.
+export function docSectionOccurrences(body, page, source) {
+  return occurrences(body, llmsDocSection({ label: page.label, href: page.path }, source))
 }
 
 export function parseAuditOptions(argv) {
@@ -702,7 +705,7 @@ export async function auditBuiltSeo({ asOf, baseUrl }) {
       if (path === "/llms-full.txt") {
         for (const doc of inventory.docs) {
           const source = readFileSync(doc.sourcePath, "utf8")
-          if (docSectionOccurrences(body, doc.label, source) !== 1) {
+          if (docSectionOccurrences(body, doc, source) !== 1) {
             throw new Error(`${doc.path} exact authored section is not present exactly once`)
           }
           summary.llmsDocs += 1

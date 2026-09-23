@@ -11,13 +11,13 @@ On June 17, Vercel introduced [eve](https://vercel.com/changelog/introducing-eve
 
 I care about that idea in B4.run too. I want a developer to open an agent application and see where its behavior comes from.
 
-Of course, a similar file structure does not make two frameworks interchangeable. Let's look at what the structure helps us understand, then at the runtime and integration choices behind it.
+Of course, a similar file structure doesn't make two frameworks interchangeable. Let's look at what the structure helps us understand, then at the runtime and integration choices behind it.
 
-**Updated September 2026:** The comparison below uses the linked documentation and B4.run's current conventions. It is not a complete feature comparison of the June releases.
+**Updated September 2026:** The comparison below uses the linked documentation and B4.run's current conventions. It isn't a complete feature comparison of the June releases.
 
 ## Goals
 
-If you are evaluating an agent framework, I suggest starting with three questions:
+If you're evaluating an agent framework, I suggest starting with three questions:
 
 1. Can my team understand and test the application code?
 2. How will users interact with the agent?
@@ -67,14 +67,14 @@ I like this because it gives us a starting point for answering "what can this ag
 
 ## Compare the integration points
 
-Here are a few decisions you will run into while building an application:
+Here are a few decisions you'll run into while building an application:
 
 | Decision | eve | B4.run |
 | --- | --- | --- |
-| Where do instructions live? | `instructions.md` beside the agent declaration | `systemPrompt` in the route descriptor; additional prompt memory and skills have file conventions |
+| Where do instructions live? | `instructions.md` beside the agent declaration | `systemPrompt` in the route descriptor, plus file conventions for prompt memory and skills |
 | How is an agent organized? | An agent directory | A route under `src/app/` |
 | How do tools declare input? | The documented tool example uses an explicit input schema | Type generation reads the TypeScript function signature |
-| How do users reach it? | Channel integrations, including Slack, Discord, and GitHub | HTTP APIs and an AG-UI adapter for clients; application code connects other channels |
+| How do users reach it? | Channel integrations, including Slack, Discord, and GitHub | HTTP APIs and an AG-UI adapter for clients. Application code connects other channels. |
 | Which deployment path should I examine? | The documented Vercel deployment and its services | The Node/Docker, LangSmith, and other target-specific B4.run deployment guides |
 
 The eve details here come from its [announcement](https://vercel.com/changelog/introducing-eve-an-open-source-agent-framework) and [documentation](https://vercel.com/docs/eve). B4.run's [Tools](/docs/tools), [AG-UI](/docs/ag-ui), and [Deployment](/docs/deployment) guides explain its corresponding APIs.
@@ -93,9 +93,9 @@ export default async ({ name }: { readonly name: string }) => {
 }
 ```
 
-The function accepts a `name` string. Type generation derives that required input from the signature, so we do not write a second schema for the same argument.
+The function accepts a `name` string. Type generation derives that required input from the signature, so we don't write a second schema for the same argument.
 
-This helps when your team already relies on TypeScript while refactoring. It removes one source of duplication. You still need runtime validation of external data and application authorization in the tool.
+This helps when your team already leans on TypeScript while refactoring, because there's one less copy of the input to keep in sync. The tool still has to validate external data and check authorization at runtime.
 
 ## Client integrations
 
@@ -111,11 +111,11 @@ If you need another channel, plan for the application work around the HTTP call:
 
 The **runtime** executes the agent and its tools. Storage retains the conversation and execution state across requests.
 
-B4.run builds on LangGraph.js. Its runtime keeps checkpoints, threads and permission grants in SQLite or a configured Postgres backend. Long-term memory is a separate store, so choosing Postgres for conversation state does not configure the agent's memory collection.
+B4.run builds on LangGraph.js. Its runtime keeps checkpoints, threads and permission grants in SQLite or a configured Postgres backend. Long-term memory is a separate store, so choosing Postgres for conversation state leaves the agent's memory collection to its own configuration.
 
 Vercel's [eve documentation](https://vercel.com/docs/eve) describes how its deployment uses Vercel Workflows, Sandbox, AI Gateway and related platform services. If you evaluate that path, include those services in your deployment and operations plan.
 
-For either framework, I would test the same small scenario: start a conversation, stop the application, then continue it. Next, test an approval that pauses a run and resumes after a user decision. Those exercises tell you more about the fit than a "durable execution" checkbox.
+For either framework, I'd test the same small scenario: start a conversation, stop the application, then continue it. Next, test an approval that pauses a run and resumes after a user decision. Those exercises tell you more about the fit than a "durable execution" checkbox.
 
 ## Tools that execute code
 
@@ -127,7 +127,7 @@ Evaluate the environment your application will actually use. A container, a host
 
 ## How I would evaluate the fit
 
-I would build one small application in each candidate framework and follow it through development, testing and deployment:
+I'd build one small application in each candidate framework and follow it through development, testing and deployment:
 
 1. Add one tool that calls an existing service.
 2. Write a repeatable test for a successful response and a service failure.
@@ -139,7 +139,7 @@ Then compare the application code and operational setup each version needs, alon
 
 ## Conclusion
 
-I am glad to see more agent frameworks give application code a predictable structure. It makes the instructions, tools and execution easier to find and discuss.
+I'm glad to see more agent frameworks give application code a predictable structure. It makes the instructions, tools and execution easier to find and discuss.
 
 For B4.run, I value the combination of filesystem routes, TypeScript-derived tool inputs and the LangGraph.js ecosystem. Your choice also depends on the clients, services and deployment environment your team needs.
 

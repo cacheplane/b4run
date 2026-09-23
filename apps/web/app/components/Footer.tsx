@@ -71,7 +71,7 @@ export function Footer() {
           <div className="col-span-2 md:col-span-1">
             <BrandLogo imageClassName="h-7" variant="dark" />
             <p className="text-sm text-ink-muted mt-3 leading-relaxed max-w-[28ch]">
-              The TypeScript framework for agents.
+              An agent framework, the way I'd build it.
             </p>
           </div>
           {COLUMNS.map((col) => (
@@ -85,7 +85,16 @@ export function Footer() {
         </div>
         <div className="mt-12 pt-6 border-t border-rule flex flex-col md:flex-row gap-2 md:justify-between text-xs text-ink-muted">
           <span>{`© ${new Date().getFullYear()} B4.run. MIT-licensed.`}</span>
-          <span>Built on the LangChain ecosystem.</span>
+          <span>
+            Made with{" "}
+            <SiteLink
+              href="https://brianflove.com"
+              className="underline decoration-olive underline-offset-4 hover:text-ink"
+            >
+              b-love
+            </SiteLink>
+            . Built on the LangChain ecosystem.
+          </span>
         </div>
       </div>
     </footer>

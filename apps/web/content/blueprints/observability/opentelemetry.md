@@ -14,9 +14,9 @@ You are an AI coding agent adding OpenTelemetry tracing to a B4.run app running 
 
 Confirm all of the following before changing the app:
 
-1. **Node.js 24 or newer** — this matches B4.run's runtime requirement and supports the `--import` preload used below.
-2. **An OTLP/HTTP trace endpoint** — an OpenTelemetry Collector or compatible backend such as Jaeger, Honeycomb, or Grafana Tempo must be reachable from the runtime.
-3. **A controllable Node startup path** — use this blueprint with `b4 start` or the generated Node target's `.b4/build/server.mjs`. For the `hono` edge target, use instrumentation supported by that platform. For generated `langsmith` entries, evaluate platform tracing first.
+1. **Node.js 24 or newer**: this matches B4.run's runtime requirement and supports the `--import` preload used below.
+2. **An OTLP/HTTP trace endpoint**: an OpenTelemetry Collector or compatible backend such as Jaeger, Honeycomb, or Grafana Tempo must be reachable from the runtime.
+3. **A controllable Node startup path**: use this blueprint with `b4 start` or the generated Node target's `.b4/build/server.mjs`. For the `hono` edge target, use instrumentation supported by that platform. For generated `langsmith` entries, evaluate platform tracing first.
 
 If no OTLP backend or controllable Node process is available, stop and explain what must be supplied.
 

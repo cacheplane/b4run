@@ -24,7 +24,7 @@ import { scenarios } from "@b4run/sdk/testing"
 | `@b4run/sdk/pure` | edge-safe | dependency-free | integration | supported |
 | `@b4run/sdk/testing` | node-only | not-claimed | testing | supported |
 
-`@b4run/sdk/testing` is the route-scoped scenario API used by `b4 test`; it is not the `@b4run/testing` package, which provides a programmatic agent harness.
+`@b4run/sdk/testing` is the route-scoped scenario API used by `b4 test`. It's not the `@b4run/testing` package, which provides a programmatic agent harness.
 
 ## Public exports
 
@@ -161,7 +161,7 @@ import { scenarios } from "@b4run/sdk/testing"
 
 ### `agent()` and `AgentConfig`
 
-Use `agent()` as a route module's default export. `model` and `systemPrompt` are required; optional policy, retry, reasoning, subagent, and tool fields are preserved on the branded descriptor.
+Use `agent()` as a route module's default export. `model` and `systemPrompt` are required. Optional policy, retry, reasoning, subagent, and tool fields are preserved on the branded descriptor.
 
 ```ts api-contract="@b4run/sdk#.:agent"
 export declare function agent<const Subagents extends SubagentMap = {}>(
@@ -202,7 +202,7 @@ export interface AgentConfig<Subagents extends SubagentMap = {}> {
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/sdk/test/agent.test.ts","testNames":["descriptor is recognized by isB4Agent","carries a tools scope through to the descriptor","omits tools when not provided"]}] */}
 agent() returns a branded descriptor and includes optional tool scope only when supplied.
 
-#### Exact agent configuration signatures
+#### Agent configuration signatures
 
 ```ts api-contract="@b4run/sdk#.:ReasoningConfig"
 export interface ReasoningConfig {
@@ -239,7 +239,7 @@ Middleware returns an explicit continue or reject result. Use `allow(context?)` 
 `defineMiddleware` accepts either the handler function or a lifecycle
 definition with optional `setup(ctx)` and `dispose()` hooks around `handle`.
 `setup` runs once, lazily, before the first gated request and is retried on the
-next request if it rejects; `dispose` runs from the Node runtimes' shutdown
+next request if it rejects. `dispose` runs from the Node runtimes' shutdown
 path. See [Lifecycle hooks](/docs/middleware#lifecycle-hooks). The definition
 may also carry `after(run)`, which receives an AG-UI run's final assistant
 message with the allowed context and may keep, replace, or `reject(...)` it
@@ -302,7 +302,7 @@ export interface RouteConfig {
 
 ### `defineMemory()`
 
-Declare the typed schema, kind, and namespace dimensions for a route's `memory.ts` module. `identity` is optional; semantic memory defaults its reconciliation identity elsewhere.
+Declare the typed schema, kind, and namespace dimensions for a route's `memory.ts` module. `identity` is optional. Semantic memory defaults its reconciliation identity elsewhere.
 
 ```ts api-contract="@b4run/sdk#.:defineMemory"
 export declare function defineMemory<S extends z.ZodTypeAny>(def: {

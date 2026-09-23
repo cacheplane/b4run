@@ -32,7 +32,7 @@ export default async function OG() {
         {/* biome-ignore lint/performance/noImgElement: ImageResponse renders the supplied SVG into a PNG. */}
         <img src={wordmark} width={190} height={42} alt="b4.run" />
         <span style={{ fontSize: 20, color: COLOR["ink-muted"] }}>
-          The TypeScript framework for agents.
+          An agent framework, the way I'd build it.
         </span>
       </div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>

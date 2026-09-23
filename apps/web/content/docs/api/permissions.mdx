@@ -116,7 +116,7 @@ export declare function createPermissionsStore(opts: {
 }): PermissionsStore
 ```
 
-The inline input object is public; `CreateOptions` is not exported.
+The inline input object is public. `CreateOptions` is not exported.
 
 ### Behavior contracts
 
@@ -132,7 +132,7 @@ Reserved tool names match exactly rather than by prefix.
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/permissions/test/pattern-matching.test.ts","testNames":["matches an exact parent route and subagent name tuple","does not prefix-match a serialized tuple identity"]}] */}
 Reserved subagent identities match exactly rather than by prefix.
 
-#### Pattern boundaries
+#### Pattern matching limits
 
 Reserved `tool` and `subagent` keys use exact matching. Other keys use `candidate.startsWith(pattern)`, so callers must choose boundary-safe patterns: paths normally end in `/`, and memory namespaces use the terminating `|` returned by `suggestedMemoryPattern()`.
 
@@ -140,9 +140,9 @@ Reserved `tool` and `subagent` keys use exact matching. Other keys use `candidat
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/permissions/test/permissions-store.test.ts","testNames":["ignores the runtime file in non-interactive mode"]}] */}
 Non-interactive mode ignores the runtime permissions file.
 
-### Store lifecycle and trust boundary
+### Store lifecycle and trust
 
-Call and await `store.load()` before any store use, especially before `addAllow()` or other persistence. Calling `addAllow()` first can overwrite grants already present in the runtime file. In interactive mode `load()` reads `.b4/permissions.json`; non-interactive mode uses config maps and ignores that runtime file; bypass mode returns `unknown` for every match. A malformed interactive runtime file rejects `load()`.
+Call and await `store.load()` before any store use, especially before `addAllow()` or other persistence. Calling `addAllow()` first can overwrite grants already present in the runtime file. In interactive mode `load()` reads `.b4/permissions.json`. Non-interactive mode uses config maps and ignores that runtime file. Bypass mode returns `unknown` for every match. A malformed interactive runtime file rejects `load()`.
 
 Only `addAllow()` persists a runtime decision. It serializes concurrent writes, creates `.b4/permissions.json`, updates the in-memory allow map, and adds `.b4/` to `.gitignore`. The store has no deny-write or close method. Pass the resolved `config` and `mode` when you construct it.
 

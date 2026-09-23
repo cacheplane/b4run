@@ -213,9 +213,9 @@ AgentHarness reset starts a fresh scenario and clears prior fixtures; close is i
 
 ### Harness and fixture lifecycle
 
-Fixtures accumulate until `reset()`, and the first match wins. `reset()` starts a new harness thread and replaces fixtures; it does not erase every application store. Live and record are separate modes. `getRecordedFixtures()` returns only the latest run. The standalone `record()` helper spawns the aimock CLI and is not harness record mode.
+Fixtures accumulate until `reset()`, and the first match wins. `reset()` starts a new harness thread and replaces fixtures, but it does not erase every application store. Live and record are separate modes. `getRecordedFixtures()` returns only the latest run. The standalone `record()` helper spawns the aimock CLI and is not harness record mode.
 
-All four `run*Conformance` helpers register Vitest suites. Call them inside a test module with a fresh `makeStore`; they do not start Docker or Postgres. `createWorkspaceHarness()` is permissive by default and is not an execution sandbox. `fakeEmbedder()` is test data, not a production semantic model.
+All four `run*Conformance` helpers register Vitest suites. Call them inside a test module with a fresh `makeStore`, and start Docker or Postgres yourself. `createWorkspaceHarness()` is permissive by default and is not an execution sandbox. `fakeEmbedder()` is test data, not a production semantic model.
 
 ## Examples and related guides
 
