@@ -1,0 +1,90 @@
+/* apps/web/app/styles/tokens.css
+   The one token source for b4.run. Names are roles, not colours; every colour
+   records the contrast it was chosen for. Values reach Tailwind through @theme
+   (`bg-page`, `text-ink-muted`, `text-eyebrow`, …) and CSS modules through
+   `var(--color-*)`. A future dark mode restates every --color-* under
+   `[data-theme="dark"]` and aliases nothing (see docs/brand/website-design-system.md). */
+@theme {
+  /* Surfaces */
+  --color-page: #f5f4f0; /* paper */
+  --color-surface: #eeeee7; /* cards, strips, table heads on paper */
+  --color-surface-sunk: #e8e8df; /* inline code on paper */
+  --color-rule: #d6d6cc; /* decorative rules only, never a control boundary */
+  --color-rule-strong: #75796a; /* control boundaries: 3.6:1 on page */
+
+  /* Ink */
+  --color-ink: #111111; /* 17.2:1 on page */
+  --color-ink-muted: #595b53; /* 6.3:1 on page; the only secondary text colour */
+
+  /* Accent */
+  --color-relay: #b4ce37; /* fills only: 1.6:1 on page, never text */
+  --color-relay-tint: #e7edd1; /* selection, active nav, callout body */
+  --color-relay-ink: #424d18; /* text on relay-tint: 7.6:1 */
+  --color-olive: #627410; /* accent text and underlines on page: 4.7:1 */
+  --color-focus: #667811; /* focus ring on page: 4.5:1 */
+
+  /* Dark code panel */
+  --color-panel: #17181b;
+  --color-panel-strip: #202226; /* header / footer strip inside a panel */
+  --color-panel-ink: #f5f4f0; /* 16.1:1 on panel */
+  --color-panel-muted: #c4c8bc; /* 10.5:1 on panel: labels, captions */
+  --color-panel-dim: #a3aa99; /* 7.4:1 on panel: line numbers, comments, inactive tabs */
+  --color-panel-rule: #4d5148;
+  --color-panel-accent: #b4ce37; /* 9.6:1 on panel: markers, highlighted line, copied state */
+
+  /* Status */
+  --color-ok: #1f6f3f; /* 5.9:1 on ok-tint */
+  --color-ok-tint: #e3efe4;
+  --color-warn: #8a5100; /* 6.0:1 on warn-tint */
+  --color-warn-tint: #fff1ce;
+  --color-danger: #a12f25; /* 6.2:1 on danger-tint */
+  --color-danger-tint: #fbe8e5;
+
+  /* Type */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, "SFMono-Regular", monospace;
+
+  --text-eyebrow: 12px; /* the one eyebrow: mono, uppercase (see [data-ui="eyebrow"]) */
+  --text-eyebrow--line-height: 1.6;
+  --text-eyebrow--font-weight: 500;
+  --text-eyebrow--letter-spacing: 0.07em;
+  --text-body: 16px;
+  --text-body--line-height: 1.65;
+  --text-body-lg: 19px;
+  --text-body-lg--line-height: 1.65;
+  --text-code: 13px;
+  --text-code--line-height: 1.55;
+  --text-h1: clamp(36px, 4.5vw, 44px);
+  --text-h1--line-height: 1.1;
+  --text-h1--font-weight: 600;
+  --text-h1--letter-spacing: -0.03em;
+  --text-h2: 28px;
+  --text-h2--line-height: 1.2;
+  --text-h2--font-weight: 600;
+  --text-h2--letter-spacing: -0.03em;
+  --text-h3: 20px;
+  --text-h3--line-height: 1.3;
+  --text-h3--font-weight: 600;
+  --text-h3--letter-spacing: -0.02em;
+  --text-display: clamp(44px, 6.5vw, 88px);
+  --text-display--line-height: 1.03;
+  --text-display--font-weight: 600;
+  --text-display--letter-spacing: -0.055em;
+
+  /* Shape: square, flat. Removing the defaults makes any stray rounded-* or
+     shadow-* utility emit nothing; the design-system test forbids the classes. */
+  --radius-*: initial;
+  --shadow-*: initial;
+  --inset-shadow-*: initial;
+  --drop-shadow-*: initial;
+}
+
+:root {
+  /* Chrome height — the header bar is a fixed 71px row + 1px border at every
+     width (header.module.css .bar). Used by ReadingLayout sticky offsets and
+     anchor scroll padding. */
+  --header-h: 4.5rem;
+  --ring-width: 3px;
+  --prose-max: 68ch;
+  --column-max: 1280px;
+}
