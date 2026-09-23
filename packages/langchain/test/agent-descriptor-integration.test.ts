@@ -8,9 +8,10 @@ describe("agent() descriptor integration", () => {
   test("B4Agent descriptor is recognized and does not throw invoke error", async () => {
     let openAIModel: unknown
 
-    vi.doMock("@langchain/langgraph/prebuilt", () => ({
-      createReactAgent: vi.fn((options: { llm: unknown }) => {
-        openAIModel = options.llm
+    vi.doMock("langchain", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("langchain")>()),
+      createAgent: vi.fn((options: { model: unknown }) => {
+        openAIModel = options.model
         return {
           invoke: vi.fn().mockResolvedValue(new AIMessage({ content: "Descriptor!" })),
         }
@@ -39,7 +40,7 @@ describe("agent() descriptor integration", () => {
       signal: new AbortController().signal,
       tools: [],
     }).finally(() => {
-      vi.doUnmock("@langchain/langgraph/prebuilt")
+      vi.doUnmock("langchain")
       vi.doUnmock("@langchain/openai")
     })
 
@@ -52,8 +53,9 @@ describe("agent() descriptor integration", () => {
   test("B4Agent with tools passes tools to materialized agent", async () => {
     let agentTools: readonly unknown[] | undefined
 
-    vi.doMock("@langchain/langgraph/prebuilt", () => ({
-      createReactAgent: vi.fn((options: { tools?: readonly unknown[] }) => {
+    vi.doMock("langchain", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("langchain")>()),
+      createAgent: vi.fn((options: { tools?: readonly unknown[] }) => {
         agentTools = options.tools
         return {
           invoke: vi.fn().mockResolvedValue(new AIMessage({ content: "Tool ready!" })),
@@ -85,7 +87,7 @@ describe("agent() descriptor integration", () => {
       signal: new AbortController().signal,
       tools,
     }).finally(() => {
-      vi.doUnmock("@langchain/langgraph/prebuilt")
+      vi.doUnmock("langchain")
       vi.doUnmock("@langchain/openai")
     })
 

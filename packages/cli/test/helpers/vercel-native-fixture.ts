@@ -609,9 +609,9 @@ export function renderNativeFixtureManifest(
     scripts: { build: "b4 build" },
     dependencies: {
       ...localDependencies,
-      "@langchain/core": "1.2.5",
-      "@langchain/langgraph": "1.4.9",
-      "@langchain/langgraph-checkpoint": "1.1.3",
+      "@langchain/core": "1.2.12",
+      "@langchain/langgraph": "1.4.17",
+      "@langchain/langgraph-checkpoint": "1.1.5",
       "@neondatabase/serverless": "1.1.0",
       hono: "4.12.28",
       pg: "8.22.0",

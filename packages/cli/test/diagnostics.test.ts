@@ -42,8 +42,8 @@ describe("diagnose", () => {
     installPkg("@langchain/core", { name: "@langchain/core", version: "1.1.40", type: "module" })
     const d = diagnose(esmError("@langchain/core", "tool"), { appRoot })
     // requiredCoreRange resolves @b4run/langchain from the cli package location,
-    // independent of the temp appRoot. Expect the real floor, e.g. "^1.1.47".
-    expect(d?.hint).toMatch(/satisfying \^?1\.1\.\d+/)
+    // independent of the temp appRoot. Expect the real floor, e.g. "^1.2.12".
+    expect(d?.hint).toMatch(/satisfying \^?1\.2\.\d+/)
   })
 
   it("treats a CommonJS-typed @langchain package as a version issue, not a module-format issue", () => {

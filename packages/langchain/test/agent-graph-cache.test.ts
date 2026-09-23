@@ -2,15 +2,15 @@
  * The compiled-graph cache is keyed by (descriptor, checkpointer) — the two
  * halves of that claim, counted rather than inferred.
  *
- * `createReactAgent` embeds the checkpointer it is handed, so the cache key has
+ * `createAgent` embeds the checkpointer it is handed, so the cache key has
  * to include it or an edge deploy's request N+1 runs against request N's
  * disposed connection (see the sibling
  * `agent-graph-per-request-checkpointer.test.ts`, which proves the runtime half
  * against a real graph). The risk in fixing that is over-correcting into a
  * compile per request on NODE, where one boot-resolved checkpointer serves the
- * whole process — so this file counts `createReactAgent` invocations directly.
+ * whole process — so this file counts `createAgent` invocations directly.
  *
- * `createReactAgent` is mocked here precisely BECAUSE it is the thing being
+ * `createAgent` is mocked here precisely BECAUSE it is the thing being
  * counted; the real graph would give us identity but not a call count.
  */
 
@@ -28,20 +28,23 @@ import {
 
 /** Installs the mocks and returns the compile counter. */
 function countCompilations(): { calls: () => number } {
-  const createReactAgent = vi.fn(() => ({
+  const createAgent = vi.fn(() => ({
     invoke: vi.fn().mockResolvedValue(new AIMessage({ content: "ok" })),
   }))
-  vi.doMock("@langchain/langgraph/prebuilt", () => ({ createReactAgent }))
+  vi.doMock("langchain", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("langchain")>()),
+    createAgent,
+  }))
   vi.doMock("@langchain/openai", () => ({
     ChatOpenAI: class {
       constructor(readonly options: Record<string, unknown>) {}
     },
   }))
-  return { calls: () => createReactAgent.mock.calls.length }
+  return { calls: () => createAgent.mock.calls.length }
 }
 
 afterEach(() => {
-  vi.doUnmock("@langchain/langgraph/prebuilt")
+  vi.doUnmock("langchain")
   vi.doUnmock("@langchain/openai")
   __resetMaterializedAgentsForTests()
 })
@@ -214,7 +217,7 @@ test.each([
   "tools use invocation middleware without contaminating the ordinary cache: %j",
   async (...contexts) => {
     const observed: unknown[] = []
-    const createReactAgent = vi.fn(
+    const createAgent = vi.fn(
       (options: { tools: { invoke: (input: object) => Promise<unknown> }[] }) => ({
         invoke: async () => {
           await options.tools[0]?.invoke({})
@@ -222,7 +225,10 @@ test.each([
         },
       }),
     )
-    vi.doMock("@langchain/langgraph/prebuilt", () => ({ createReactAgent }))
+    vi.doMock("langchain", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("langchain")>()),
+      createAgent,
+    }))
     vi.doMock("@langchain/openai", () => ({
       ChatOpenAI: class {},
     }))
@@ -252,7 +258,7 @@ test.each([
     }
 
     expect(observed).toEqual(contexts)
-    expect(createReactAgent).toHaveBeenCalledTimes(
+    expect(createAgent).toHaveBeenCalledTimes(
       contexts.filter((context) => context !== undefined).length + 1,
     )
   },

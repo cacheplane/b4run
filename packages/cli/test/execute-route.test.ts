@@ -13,7 +13,7 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { force: true, recursive: true })))
   Reflect.deleteProperty(globalThis, "__b4Task10PolicyCalls")
   Reflect.deleteProperty(globalThis, "__b4Task10Filesystem")
-  vi.doUnmock("@langchain/langgraph/prebuilt")
+  vi.doUnmock("langchain")
   vi.doUnmock("@langchain/openai")
 })
 
@@ -119,11 +119,14 @@ describe("materializeResolvedRouteGraph", () => {
   })
 
   it("lazily materializes one checkpointer-free child graph while rechecking policy", async () => {
-    const createReactAgent = vi.fn((options: unknown) => ({
+    const createAgent = vi.fn((options: unknown) => ({
       invoke: vi.fn(async () => ({ messages: [new AIMessage("Child complete.")] })),
       options,
     }))
-    vi.doMock("@langchain/langgraph/prebuilt", () => ({ createReactAgent }))
+    vi.doMock("langchain", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("langchain")>()),
+      createAgent,
+    }))
     vi.doMock("@langchain/openai", () => ({ ChatOpenAI: class {} }))
     const appRoot = await fixtureApp({ child: true, constrainedChild: true })
     const rootSignal = new AbortController().signal
@@ -137,18 +140,18 @@ describe("materializeResolvedRouteGraph", () => {
       signal: rootSignal,
     })
 
-    expect(createReactAgent).toHaveBeenCalledTimes(1)
-    const task = findTaskTool(createReactAgent.mock.calls[0]?.[0])
+    expect(createAgent).toHaveBeenCalledTimes(1)
+    const task = findTaskTool(createAgent.mock.calls[0]?.[0])
 
     await invokeTask(task, "task-first", rootSignal)
 
-    expect(createReactAgent).toHaveBeenCalledTimes(2)
-    const childOptions = createReactAgent.mock.calls[1]?.[0] as { readonly checkpointer?: unknown }
+    expect(createAgent).toHaveBeenCalledTimes(2)
+    const childOptions = createAgent.mock.calls[1]?.[0] as { readonly checkpointer?: unknown }
     expect(childOptions.checkpointer).toBeUndefined()
 
     await invokeTask(task, "task-second", rootSignal)
 
-    expect(createReactAgent).toHaveBeenCalledTimes(2)
+    expect(createAgent).toHaveBeenCalledTimes(2)
     expect(Reflect.get(globalThis, "__b4Task10PolicyCalls")).toBe(2)
   })
 
@@ -168,8 +171,11 @@ describe("materializeResolvedRouteGraph", () => {
       },
       writeFile: async () => ({ bytesWritten: 0 }),
     })
-    const createReactAgent = vi.fn((options: unknown) => ({ options }))
-    vi.doMock("@langchain/langgraph/prebuilt", () => ({ createReactAgent }))
+    const createAgent = vi.fn((options: unknown) => ({ options }))
+    vi.doMock("langchain", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("langchain")>()),
+      createAgent,
+    }))
     vi.doMock("@langchain/openai", () => ({ ChatOpenAI: class {} }))
     const appRoot = await writeFixtureFiles({
       "b4.config.ts": `const filesystem = globalThis.__b4Task10Filesystem
@@ -190,7 +196,7 @@ export default async (_input: unknown, ctx: B4ToolContext) => ctx.fs.readFile("n
       routePath: "/parent",
       signal: preparationSignal,
     })
-    const readLive = findNamedTool(createReactAgent.mock.calls[0]?.[0], "read-live")
+    const readLive = findNamedTool(createAgent.mock.calls[0]?.[0], "read-live")
 
     await expect(readLive.func({}, undefined, { signal: liveSignal })).resolves.toBe(
       JSON.stringify("live contents"),

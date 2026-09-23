@@ -7,6 +7,17 @@ import type { Plugin } from "esbuild"
 const BUILTIN_NAMESPACE = "b4-vercel-literal-node-builtin"
 const PG_NATIVE_NAMESPACE = "b4-vercel-optional-pg-native"
 const PG_NATIVE_CLIENT_PATH = join("lib", "native", "client.js")
+const LANGCHAIN_UNIVERSAL_PATH = join("dist", "chat_models", "universal.js")
+/**
+ * The one non-literal dynamic import in `langchain`: `initChatModel` loads a
+ * provider package named by a model-id string. `createAgent` imports it for
+ * string model ids, which B4.run never passes (agent routes hand it a model
+ * instance), so the self-contained bundle replaces the import with a clear
+ * failure instead of shipping an import the function directory cannot satisfy.
+ */
+const LANGCHAIN_PROVIDER_IMPORT = "import(config.package)"
+const LANGCHAIN_PROVIDER_IMPORT_REPLACEMENT =
+  'Promise.reject(new Error("B4.run\'s Vercel bundle cannot load a chat model from a model-id string; pass a model instance."))'
 
 interface PackageManifest {
   readonly name?: unknown
@@ -55,6 +66,19 @@ async function isOptionalPgNativeImporter(importer: string): Promise<boolean> {
   )
 }
 
+async function isLangchainUniversalModule(path: string): Promise<boolean> {
+  const packageRoot = dirname(dirname(dirname(path)))
+  if (relative(packageRoot, path) !== LANGCHAIN_UNIVERSAL_PATH) return false
+  try {
+    const manifest: PackageManifest = JSON.parse(
+      await readFile(join(packageRoot, "package.json"), "utf8"),
+    )
+    return manifest.name === "langchain"
+  } catch {
+    return false
+  }
+}
+
 /** @internal Build-only compatibility for self-contained Node Vercel bundles. */
 export function createVercelNodeCompatibilityPlugin(): Plugin {
   return {
@@ -74,6 +98,24 @@ throw error
 `,
         loader: "js",
       }))
+
+      build.onLoad({ filter: /[\\/]chat_models[\\/]universal\.js$/ }, async (args) => {
+        if (!(await isLangchainUniversalModule(args.path))) return undefined
+        const source = await readFile(args.path, "utf8")
+        const occurrences = source.split(LANGCHAIN_PROVIDER_IMPORT).length - 1
+        if (occurrences !== 1) {
+          throw new Error(
+            `Expected exactly one ${LANGCHAIN_PROVIDER_IMPORT} in ${args.path}, found ${occurrences}; this langchain version needs a new Vercel bundle rewrite.`,
+          )
+        }
+        return {
+          contents: source.replace(
+            LANGCHAIN_PROVIDER_IMPORT,
+            LANGCHAIN_PROVIDER_IMPORT_REPLACEMENT,
+          ),
+          loader: "js",
+        }
+      })
 
       build.onResolve({ filter: /.*/ }, (args) => {
         if (args.kind !== "require-call") return undefined

@@ -191,20 +191,24 @@ A tool without a description still works, but the model only sees its name. I re
 
 ## Ending the run from a tool
 
-By default a tool's result goes back to the model for another turn, and the run ends only when the model answers without calling a tool. When a tool's result *is* the answer, that extra turn buys nothing: the model spends tokens and seconds saying what the tool already did. Export `returnDirect` to end the run on the tool's result instead:
+By default a tool's result goes back to the model for another turn, and the run ends only when the model answers without calling a tool. When a tool's result *is* the answer, that extra turn buys nothing: the model spends tokens and seconds saying what the tool already did. Export `returnDirect` to end the run on the tool's successful result instead:
 
-```ts title="src/app/(public)/assistant/tools/answer.ts"
+```ts title="src/app/(public)/assistant/tools/render.ts"
 export const returnDirect = true
 
+const COMPONENTS = new Set(["Table", "Chart", "Summary"])
+
 /** Show the composed answer to the user. Call exactly once, last. */
-export default async (input: { readonly text: string }) => {
-  return { text: input.text }
+export default async (input: { readonly ui: readonly string[] }) => {
+  const unknown = input.ui.filter((name) => !COMPONENTS.has(name))
+  if (unknown.length > 0) throw new Error(`invalid_ui: unknown components ${unknown.join(", ")}`)
+  return { rendered: true }
 }
 ```
 
 The run's final state then carries no closing assistant message: the last message is the tool result, the AG-UI stream ends after `TOOL_CALL_RESULT` with `RUN_FINISHED`, and a middleware `after` hook runs with an empty final message. Reserve it for a tool the model is instructed to call last; a `returnDirect` tool called mid-plan ends the run there.
 
-A failed call ends the run too. When a `returnDirect` tool throws, or the model's arguments fail the tool's schema, the error becomes the tool result and the run stops on it, so the model never sees the error and never gets to retry. Only mark a tool `returnDirect` if it cannot usefully fail. A tool that validates the model's output and expects the model to fix a rejected call, such as a renderer that rejects an unknown component, should stay a normal tool and let the model close the run.
+Only a successful call ends the run. When a `returnDirect` tool throws, or the model's arguments fail the tool's schema, the error goes back to the model like any other tool error, so the model can correct the call and try again; the first call that succeeds ends the run. That makes `returnDirect` a good fit for a tool that validates the model's output, like the renderer above.
 
 ## Invoking a tool
 

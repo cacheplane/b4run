@@ -656,8 +656,11 @@ describe("native subagent event projection", () => {
 
 describe("executeAgent with B4Agent descriptors", () => {
   test("materializes v2 agents so parallel tool calls have independent graph tasks", async () => {
-    const createReactAgent = vi.fn(() => ({ invoke: vi.fn() }))
-    vi.doMock("@langchain/langgraph/prebuilt", () => ({ createReactAgent }))
+    const createAgent = vi.fn(() => ({ invoke: vi.fn() }))
+    vi.doMock("langchain", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("langchain")>()),
+      createAgent,
+    }))
     vi.doMock("@langchain/openai", () => ({
       ChatOpenAI: class {},
     }))
@@ -670,17 +673,20 @@ describe("executeAgent with B4Agent descriptors", () => {
         tools: [],
       })
 
-      expect(createReactAgent).toHaveBeenCalledWith(expect.objectContaining({ version: "v2" }))
+      expect(createAgent).toHaveBeenCalledWith(expect.objectContaining({ version: "v2" }))
     } finally {
       __resetMaterializedAgentsForTests()
-      vi.doUnmock("@langchain/langgraph/prebuilt")
+      vi.doUnmock("langchain")
       vi.doUnmock("@langchain/openai")
     }
   })
 
   test("does not reuse a compiled graph across distinct subagent resolvers", async () => {
-    const createReactAgent = vi.fn(() => ({ invoke: vi.fn() }))
-    vi.doMock("@langchain/langgraph/prebuilt", () => ({ createReactAgent }))
+    const createAgent = vi.fn(() => ({ invoke: vi.fn() }))
+    vi.doMock("langchain", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("langchain")>()),
+      createAgent,
+    }))
     vi.doMock("@langchain/openai", () => ({
       ChatOpenAI: class {},
     }))
@@ -716,18 +722,21 @@ describe("executeAgent with B4Agent descriptors", () => {
         tools: [task],
       })
 
-      expect(createReactAgent).toHaveBeenCalledTimes(2)
+      expect(createAgent).toHaveBeenCalledTimes(2)
       expect(second).not.toBe(first)
     } finally {
       __resetMaterializedAgentsForTests()
-      vi.doUnmock("@langchain/langgraph/prebuilt")
+      vi.doUnmock("langchain")
       vi.doUnmock("@langchain/openai")
     }
   })
 
   test("does not reuse a compiled graph when stream transformers change", async () => {
-    const createReactAgent = vi.fn(() => ({ invoke: vi.fn() }))
-    vi.doMock("@langchain/langgraph/prebuilt", () => ({ createReactAgent }))
+    const createAgent = vi.fn(() => ({ invoke: vi.fn() }))
+    vi.doMock("langchain", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("langchain")>()),
+      createAgent,
+    }))
     vi.doMock("@langchain/openai", () => ({
       ChatOpenAI: class {},
     }))
@@ -762,11 +771,11 @@ describe("executeAgent with B4Agent descriptors", () => {
         tools: [tool],
       })
 
-      expect(createReactAgent).toHaveBeenCalledTimes(2)
+      expect(createAgent).toHaveBeenCalledTimes(2)
       expect(second).not.toBe(first)
     } finally {
       __resetMaterializedAgentsForTests()
-      vi.doUnmock("@langchain/langgraph/prebuilt")
+      vi.doUnmock("langchain")
       vi.doUnmock("@langchain/openai")
     }
   })
@@ -774,9 +783,10 @@ describe("executeAgent with B4Agent descriptors", () => {
   test("B4Agent descriptor is recognized and does not throw invoke error", async () => {
     let openAIModel: unknown
 
-    vi.doMock("@langchain/langgraph/prebuilt", () => ({
-      createReactAgent: vi.fn((options: { llm: unknown }) => {
-        openAIModel = options.llm
+    vi.doMock("langchain", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("langchain")>()),
+      createAgent: vi.fn((options: { model: unknown }) => {
+        openAIModel = options.model
         return {
           invoke: vi.fn().mockResolvedValue(new AIMessage({ content: "OpenAI!" })),
         }
@@ -805,7 +815,7 @@ describe("executeAgent with B4Agent descriptors", () => {
       signal: new AbortController().signal,
       tools: [],
     }).finally(() => {
-      vi.doUnmock("@langchain/langgraph/prebuilt")
+      vi.doUnmock("langchain")
       vi.doUnmock("@langchain/openai")
     })
 
@@ -818,9 +828,10 @@ describe("executeAgent with B4Agent descriptors", () => {
   test("B4Agent descriptor explicit provider overrides model inference", async () => {
     let groqModel: unknown
 
-    vi.doMock("@langchain/langgraph/prebuilt", () => ({
-      createReactAgent: vi.fn((options: { llm: unknown }) => {
-        groqModel = options.llm
+    vi.doMock("langchain", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("langchain")>()),
+      createAgent: vi.fn((options: { model: unknown }) => {
+        groqModel = options.model
         return {
           invoke: vi.fn().mockResolvedValue(new AIMessage({ content: "Groq!" })),
         }
@@ -857,7 +868,7 @@ describe("executeAgent with B4Agent descriptors", () => {
       signal: new AbortController().signal,
       tools: [],
     }).finally(() => {
-      vi.doUnmock("@langchain/langgraph/prebuilt")
+      vi.doUnmock("langchain")
       vi.doUnmock("@langchain/openai")
       vi.doUnmock("@langchain/groq")
     })
@@ -904,9 +915,10 @@ describe("executeAgent with B4Agent descriptors", () => {
   test("B4Agent descriptor infers non-OpenAI provider from model", async () => {
     let anthropicModel: unknown
 
-    vi.doMock("@langchain/langgraph/prebuilt", () => ({
-      createReactAgent: vi.fn((options: { llm: unknown }) => {
-        anthropicModel = options.llm
+    vi.doMock("langchain", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("langchain")>()),
+      createAgent: vi.fn((options: { model: unknown }) => {
+        anthropicModel = options.model
         return {
           invoke: vi.fn().mockResolvedValue(new AIMessage({ content: "Anthropic!" })),
         }
@@ -942,7 +954,7 @@ describe("executeAgent with B4Agent descriptors", () => {
       signal: new AbortController().signal,
       tools: [],
     }).finally(() => {
-      vi.doUnmock("@langchain/langgraph/prebuilt")
+      vi.doUnmock("langchain")
       vi.doUnmock("@langchain/openai")
       vi.doUnmock("@langchain/anthropic")
     })
@@ -994,8 +1006,9 @@ describe("executeAgent with B4Agent descriptors", () => {
 
   test("recursionLimit from the descriptor is passed into the graph config", async () => {
     const invoke = vi.fn().mockResolvedValue(new AIMessage({ content: "ok" }))
-    vi.doMock("@langchain/langgraph/prebuilt", () => ({
-      createReactAgent: vi.fn(() => ({ invoke })),
+    vi.doMock("langchain", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("langchain")>()),
+      createAgent: vi.fn(() => ({ invoke })),
     }))
     vi.doMock("@langchain/openai", () => ({
       ChatOpenAI: class {
@@ -1017,7 +1030,7 @@ describe("executeAgent with B4Agent descriptors", () => {
       signal: new AbortController().signal,
       tools: [],
     }).finally(() => {
-      vi.doUnmock("@langchain/langgraph/prebuilt")
+      vi.doUnmock("langchain")
       vi.doUnmock("@langchain/openai")
     })
 
@@ -1027,8 +1040,9 @@ describe("executeAgent with B4Agent descriptors", () => {
 
   test("no recursionLimit leaves the graph config default (unset)", async () => {
     const invoke = vi.fn().mockResolvedValue(new AIMessage({ content: "ok" }))
-    vi.doMock("@langchain/langgraph/prebuilt", () => ({
-      createReactAgent: vi.fn(() => ({ invoke })),
+    vi.doMock("langchain", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("langchain")>()),
+      createAgent: vi.fn(() => ({ invoke })),
     }))
     vi.doMock("@langchain/openai", () => ({
       ChatOpenAI: class {
@@ -1046,7 +1060,7 @@ describe("executeAgent with B4Agent descriptors", () => {
       signal: new AbortController().signal,
       tools: [],
     }).finally(() => {
-      vi.doUnmock("@langchain/langgraph/prebuilt")
+      vi.doUnmock("langchain")
       vi.doUnmock("@langchain/openai")
     })
 
