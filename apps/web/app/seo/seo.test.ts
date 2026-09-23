@@ -868,3 +868,41 @@ describe("JsonLd", () => {
     expect(html).not.toContain("</script><script>")
   })
 })
+
+describe("article structured data completeness", () => {
+  it("gives every BlogPosting a social image and a modification date", () => {
+    for (const post of authoredPosts()) {
+      const page = resolveBlogSeoPage(post)
+      const entity = blogPostingJsonLd(page)
+
+      expect(entity.dateModified).toBe(page.lastModified)
+      expect(Number.isNaN(Date.parse(entity.dateModified))).toBe(false)
+      expect(entity.image).toBe(
+        post.ogImage !== undefined
+          ? new URL(post.ogImage, page.canonical).href
+          : `${page.canonical}/opengraph-image`,
+      )
+      expect(entity.image).toMatch(/^https:\/\/b4\.run\//)
+    }
+  })
+
+  it("prefers a post's explicit social image", () => {
+    const post = authoredPosts()[0]
+    if (!post) throw new Error("Expected an authored blog post")
+
+    const entity = blogPostingJsonLd(resolveBlogSeoPage({ ...post, ogImage: "/brand/card.png" }))
+    expect(entity.image).toBe("https://b4.run/brand/card.png")
+  })
+
+  it("identifies every TechArticle and credits the site organization", () => {
+    for (const page of Object.values(DOCS_SEO_PAGES)) {
+      const entity = techArticleJsonLd(page)
+
+      expect(entity["@id"]).toBe(`${page.canonical}#article`)
+      expect(entity.author).toEqual({ "@id": "https://b4.run/#organization" })
+      expect(entity.publisher).toEqual({ "@id": "https://b4.run/#organization" })
+      expect(entity.isPartOf).toEqual({ "@id": "https://b4.run/#website" })
+    }
+    expect(siteJsonLd()["@graph"][0]["@id"]).toBe("https://b4.run/#organization")
+  })
+})
