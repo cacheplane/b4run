@@ -124,7 +124,7 @@ publication checks belong to the repository's
 
 `b4 add code-fixer` provides the installation instructions for your coding agent.
 The published blueprint installs this app from source commit
-`bfaf0c2b3030eebb572703c8f70f0e063593b1fa` with published B4 0.10.0 packages.
+`89b95af3eb660fda8a45b2b5527da6bf8a29ea8d` with published B4 0.11.0 packages.
 Use this checkout's built packages while contributing. Do not combine this source
 with older published B4 packages. Maintainers verify a copied app against packed
 packages with `pnpm code-fixer:consumer --packed`.
