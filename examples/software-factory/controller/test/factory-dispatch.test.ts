@@ -2,7 +2,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { createFactory, type Factory } from "../src/lib/controller/factory.ts"
+import { createFactory, type Factory, type FactoryOptions } from "../src/lib/controller/factory.ts"
 import { ACTIVE_STATES } from "../src/lib/domain/states.ts"
 import { taskPrompt } from "../src/lib/prompts.ts"
 import {
@@ -43,7 +43,10 @@ const repaired = () => ({
 /** A workspace identical to the baseline: the builder ran and changed nothing. */
 const untouched = () => ({ ...repaired(), "src/cli.ts": "broken\n" })
 
-async function boot(options: Omit<FakeWorkerOptions, "outboxDir"> = {}) {
+async function boot(
+  options: Omit<FakeWorkerOptions, "outboxDir"> = {},
+  overrides: Partial<FactoryOptions> = {},
+) {
   dir = mkdtempSync(join(tmpdir(), "factory-dispatch-"))
   mkdirSync(join(dir, "out"), { recursive: true })
   fake = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only", ...options })
@@ -58,6 +61,7 @@ async function boot(options: Omit<FakeWorkerOptions, "outboxDir"> = {}) {
     verifier: createFakeVerifier({ verdict: "pass" }),
     workspaceReader: reader,
     captureBaseline: captureRepairable,
+    ...overrides,
   })
 }
 afterEach(async () => {
@@ -284,34 +288,26 @@ function materialiseGeneratedTask(id: string): string {
 }
 
 describe("generated tasks", () => {
-  it("dispatches a work order for a task materialised under the generated directory", async () => {
+  it("refuses to create a catalog work order over a generated task the search path resolves", async () => {
+    // A draft left on disk (refused, or never approved) is a task `loadTask` serves, and it
+    // would carry no digest for the gate to bind: the only way to a generated task is
+    // `createFromIssue` + `intake` + `approveIntake` (proved in factory-intake.test).
     configureCatalog({ generatedTasksDir: materialiseGeneratedTask("wo-0123456789abcdef") })
     await boot()
-    const created = await factory.create({ taskId: "wo-0123456789abcdef" })
-    expect(created.state).toBe("received")
-    expect(await factory.dispatch(created.id)).toEqual({
-      ok: true,
-      state: "dispatched",
-      message: "Dispatched",
-    })
-    const dispatched = await factory.waitFor(created.id, (r) => r.workerThreadId !== null)
-    reader.set(dispatched.workerThreadId as string, repaired())
-    const row = await factory.waitFor(created.id, (r) => settled(r.state), 20_000)
-    expect(row.state).toBe("awaiting_approval")
-    // The prompt is the generated task's own, resolved through the search path.
-    expect(fake.requests.at(-1)?.body).toMatchObject({
-      input: {
-        messages: [{ role: "user", content: taskPrompt(loadTask("wo-0123456789abcdef")) }],
-      },
-    })
+    expect(loadTask("wo-0123456789abcdef").id).toBe("wo-0123456789abcdef")
+    await expect(factory.create({ taskId: "wo-0123456789abcdef" })).rejects.toThrow(/Unknown task/)
+    expect(factory.list()).toEqual([])
   })
 
-  it("accepts a work order for a task materialised after the controller booted", async () => {
-    // Configured before any task exists there: the runtime does this once from the state
-    // directory, and the first draft only lands later.
+  it("resolves a shipped task at the point of use, not at boot", async () => {
+    // The laziness the runtime relies on, expressed through the shipped catalog itself: the
+    // factory's prompt catalog names a tasks directory that is empty at boot, and a task
+    // that lands there afterwards is creatable the moment its directory does. (The same
+    // directory doubles as the search path's generated root, so dispatch resolves it too.)
     generated = mkdtempSync(join(tmpdir(), "factory-generated-"))
-    configureCatalog({ generatedTasksDir: join(generated, "tasks") })
-    await boot()
+    const tasks = join(generated, "tasks")
+    configureCatalog({ generatedTasksDir: tasks })
+    await boot({}, { promptCatalog: { tasksDir: tasks } })
     await expect(factory.create({ taskId: "wo-fedcba9876543210" })).rejects.toThrow(/Unknown task/)
     materialiseGeneratedTask("wo-fedcba9876543210")
     const created = await factory.create({ taskId: "wo-fedcba9876543210" })

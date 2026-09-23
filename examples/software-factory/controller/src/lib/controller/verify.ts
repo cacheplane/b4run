@@ -1,5 +1,5 @@
 import type { WorkOrderRow } from "../domain/work-order.js"
-import { provenOracleReceiptId } from "../intake/oracle.js"
+import { oracleReceiptIdFor } from "../intake/oracle.js"
 import { freezeBundle } from "../review/bundle.js"
 import { AssemblyRejectedError, assembleCandidate } from "../verification/assemble.js"
 import { loadPolicy } from "../verification/policy.js"
@@ -214,7 +214,7 @@ async function verifyCandidate(
     origin: row.origin,
     pin: row.pin,
     taskDigest: row.taskDigest,
-    oracleReceiptId: provenOracleReceiptId(ctx.store.events(id)),
+    oracleReceiptId: oracleReceiptIdFor(ctx.store.events(id), row.taskDigest),
   })
 
   ctx.store.transaction(() => {

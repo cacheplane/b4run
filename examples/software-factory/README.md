@@ -255,6 +255,8 @@ prepare one. A draft that parks in
 row's `taskDigest`, `approve-intake` recomputes the directory's digest at call time and refuses
 if either differs, so what the person read is what the builder and the verifier are given.
 `reject-intake --note` journals the note and, attempts permitting, waits for the redraft.
+Unlike `awaiting_approval`, `awaiting_intake_approval` has no expiry: the draft waits as long
+as it takes, and waiting on a person is not active time.
 The review bundle later freezes the origin (issue and body digest), the pin, the approved task
 digest and the oracle receipt id, so approving the export consents to all of them together.
 A bundle frozen before these fields existed no longer parses, and there is no re-freeze from

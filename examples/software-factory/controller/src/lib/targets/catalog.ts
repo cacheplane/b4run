@@ -187,6 +187,17 @@ function readIdsIfPresent(dir: string): string[] | null {
   }
 }
 
+/**
+ * Is `id` a task of the SHIPPED catalog (`dir`, the operator-prepared one), as opposed to a
+ * generated task the search path can also resolve? `create --task` is answered by this and
+ * not by `loadTask`: a generated directory left on disk by a refused or unapproved draft
+ * would otherwise be creatable as a catalog work order, with no task digest for the gate to
+ * bind, and the intake gate would be bypassed.
+ */
+export function isShippedTask(id: string, dir = tasksDir): boolean {
+  return isCatalogId(id) && existsSync(join(dir, id, "task.json"))
+}
+
 /** Target ids present on disk, sorted. A new target is a directory, not a code change. */
 export function loadTargetIds(dir = targetsDir): string[] {
   return readIds(dir, "target")

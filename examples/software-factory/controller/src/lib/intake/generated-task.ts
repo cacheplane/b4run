@@ -1,5 +1,13 @@
 import { createHash, randomBytes } from "node:crypto"
-import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { dirname, join, relative, sep } from "node:path"
 import type { ParsedDraft } from "./draft.js"
 
@@ -73,10 +81,19 @@ export function writeGeneratedTask(
       mkdirSync(dirname(absolute), { recursive: true })
       writeFileSync(absolute, bytes)
     }
-    // Between this removal and the rename there is no task at `directory`; a concurrent
-    // `loadTask` sees "Unknown task", never a partial one. The window is two syscalls wide.
-    rmSync(directory, { recursive: true, force: true })
+    // A rename swap, never a removal before the rename: a crash between the two must not
+    // leave the work order without a directory (and so without its `issue.md`). Between the
+    // two renames a concurrent `loadTask` sees "Unknown task", never a partial task; the
+    // window is one syscall wide. What a crash can leave is the previous attempt as a
+    // `.<id>.old-<random>` sibling — a dot name, so `loadTaskIds` never lists it — which the
+    // next write of this id or a sweep removes.
+    const previous = join(
+      generatedTasksDir,
+      `.${draft.manifest.id}.old-${randomBytes(8).toString("hex")}`,
+    )
+    if (existsSync(directory)) renameSync(directory, previous)
     renameSync(staging, directory)
+    rmSync(previous, { recursive: true, force: true })
   } catch (error) {
     rmSync(staging, { recursive: true, force: true })
     throw error

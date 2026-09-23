@@ -397,8 +397,9 @@ held by the controller. Idempotent on the operation key like every create.
 **As landed.** The CLI validates the issue number, reads the issue and resolves the pin
 BEFORE the controller is asked, so a refused create spends no operation key. The fetch is a
 plain `git fetch origin <branch>`, never `--depth=1`, which would turn the operator's full
-clone (shared by every linked worktree) into a shallow one. The body is normalised to LF
-before it is digested and written, since a web-authored GitHub body arrives CRLF. `issue.md`
+clone (shared by every linked worktree) into a shallow one. `bodyDigest` is over the raw
+body, so an edit is never hidden; only `issue.md` is normalised to LF, since a web-authored
+GitHub body arrives CRLF. `issue.md`
 is written only when absent, so a replayed key rewrites nothing and a crash between the row
 insert and the write is repaired by the replay.
 

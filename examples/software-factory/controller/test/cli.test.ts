@@ -338,6 +338,8 @@ esac
     const { json: redrafted } = await cli("reject-intake", id, "--note", "name the timer")
     expect(redrafted).toMatchObject({ ok: true, state: "awaiting_intake_approval" })
     expect(redrafted.row.intakeAttempts).toBe(2)
+    // The redraft's own digest, not the rejected one's: the rejection cleared it.
+    expect(redrafted.row.taskDigest).toMatch(/^[a-f0-9]{64}$/)
 
     // The digest an operator approves is the one `show` prints, not one from an earlier run.
     const { json: shown } = await cli("show", id)
@@ -426,6 +428,12 @@ esac
       message: "Intake rejected; no drafter attempts remain, the work order is blocked",
       row: { state: "blocked", blockedReason: "intake_attempts_exhausted" },
     })
+    // A rejected draft is nobody's: `show` carries no digest and no target for it, and the
+    // evidence shows no oracle proof for a draft that is not the row's.
+    const { json: shown } = await cli("show", id)
+    expect(shown).toMatchObject({ state: "blocked", taskDigest: null, targetId: null })
+    const { json: evidence } = await cli("evidence", id)
+    expect(evidence.oracleReceipt).toBeNull()
   }, 90_000)
 
   it("writes a builder manifest without a controller, a registry or a Factory", async () => {

@@ -53,7 +53,7 @@ export interface FetchedIssue {
 }
 
 /** The digest `FetchedIssue.bodyDigest` carries. */
-export function issueBodyDigest(issue: { readonly title: string; readonly body: string }): string {
+function issueBodyDigest(issue: { readonly title: string; readonly body: string }): string {
   return createHash("sha256").update(`${issue.title}\n${issue.body}`).digest("hex")
 }
 

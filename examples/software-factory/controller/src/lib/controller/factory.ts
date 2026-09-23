@@ -25,7 +25,7 @@ import {
 } from "../domain/work-order.js"
 import { digestGeneratedTask } from "../intake/generated-task.js"
 import { issueText } from "../intake/issue.js"
-import { provenOracleReceiptId } from "../intake/oracle.js"
+import { oracleReceiptIdFor } from "../intake/oracle.js"
 import { promptFor } from "../prompts.js"
 import { type CommandLog, createCommandLog } from "../registry/commands.js"
 import { openRegistry } from "../registry/db.js"
@@ -33,7 +33,7 @@ import { createEvidenceStore, type EvidenceStore } from "../registry/evidence.js
 import { createWorkOrderStore, type WorkOrderPatch } from "../registry/work-orders.js"
 import { BundlePayloadSchema } from "../review/bundle.js"
 import { type ArtifactStore, createArtifactStore } from "../storage/artifacts.js"
-import type { CatalogOptions } from "../targets/catalog.js"
+import { type CatalogOptions, isShippedTask } from "../targets/catalog.js"
 import { loadPolicy } from "../verification/policy.js"
 import type { Verifier } from "../verification/verifier.js"
 import type { CancelResult, WorkerClient } from "../worker/client.js"
@@ -522,6 +522,14 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
 
   const factory: Factory = {
     async create({ taskId, operationKey }) {
+      // Shipped catalog only, decided BEFORE the key is spent. The search path also resolves
+      // generated tasks, so without this a draft left under `<state>/tasks/` (refused, or
+      // never approved) could be created as a catalog work order with `taskDigest: null`,
+      // and dispatch and approve would bind nothing: a generated task is reachable only
+      // through `createFromIssue` + `intake` + `approveIntake`. An injected `tasks` map is
+      // the test seam and names its own catalog.
+      if (!options.tasks && !isShippedTask(taskId, options.promptCatalog?.tasksDir))
+        throw new UnknownTaskError(taskId)
       if (prompt(taskId) instanceof Error) throw new UnknownTaskError(taskId)
       return insertWorkOrder(operationKey, { taskId }, () => ({
         taskId,
@@ -699,14 +707,22 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       try {
         next = store.transaction(() => {
           recordEvent(id, "intake_rejected", { note, attempt: row.intakeAttempts })
+          // The rejected draft is no longer the row's, whichever way the row goes: its digest
+          // and target are cleared so nothing (a `show`, the evidence, a later approve-intake)
+          // can mistake it for the one being drafted, or for one a blocked row still holds.
           if (row.intakeAttempts >= row.maxIntakeAttempts)
             return transition(
               id,
               "intake_blocked",
-              { blockedReason: "intake_attempts_exhausted" },
+              { blockedReason: "intake_attempts_exhausted", taskDigest: null, targetId: null },
               { reason: note, operationKey: key },
             )
-          return transition(id, "reject_intake", {}, { reason: note, operationKey: key })
+          return transition(
+            id,
+            "reject_intake",
+            { taskDigest: null, targetId: null },
+            { reason: note, operationKey: key },
+          )
         })
       } catch (error) {
         if (!(error instanceof IllegalTransitionError)) throw error
@@ -1215,7 +1231,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       const candidate = row.candidateDigest ? evidenceStore.candidate(row.candidateDigest) : null
       const bundle = row.bundleDigest ? evidenceStore.bundle(row.bundleDigest) : null
       const receipt = bundle ? evidenceStore.receipt(bundle.receiptId) : null
-      const oracleId = provenOracleReceiptId(store.events(id))
+      const oracleId = oracleReceiptIdFor(store.events(id), row.taskDigest)
       const oracleReceipt = oracleId ? evidenceStore.receipt(oracleId) : null
       return { candidate, receipt, bundle, oracleReceipt }
     },

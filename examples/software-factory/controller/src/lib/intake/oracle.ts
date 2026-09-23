@@ -36,16 +36,22 @@ export type OracleProof =
  * names bytes other than the baseline it was asked to grade: a receipt is never guessed.
  */
 /**
- * The receipt of the proof the current draft was parked on: the LAST `oracle_receipt` the
- * journal holds with `proven: true`, since a refused draft's proof is journalled too and the
- * approved task is the latest proven one. Null with none (a catalog work order had no intake).
- * Read from the journal rather than the row because the row records the digest the proof was
- * for, not the receipt it earned.
+ * The receipt of the proof the row's CURRENT draft was parked on: the `intake_drafted` event
+ * that parked `taskDigest`, which names the receipt it was earned by (only a proven receipt
+ * ever parks a draft). Null with no current draft — a catalog work order, or an issue work
+ * order whose draft was rejected (`reject_intake` clears the row's digest) — so a rejected
+ * draft's proof is never shown as evidence for the one being drafted. Read from the journal
+ * rather than the row because the row records the digest, not the receipt.
  */
-export function provenOracleReceiptId(events: readonly FactoryEvent[]): string | null {
+export function oracleReceiptIdFor(
+  events: readonly FactoryEvent[],
+  taskDigest: string | null,
+): string | null {
+  if (taskDigest === null) return null
   for (let i = events.length - 1; i >= 0; i--) {
     const event = events[i] as FactoryEvent
-    if (event.type !== "oracle_receipt" || event.payload.proven !== true) continue
+    if (event.type !== "transition" || event.payload.event !== "intake_drafted") continue
+    if (event.payload.taskDigest !== taskDigest) continue
     const receiptId = event.payload.receiptId
     return typeof receiptId === "string" && receiptId.length > 0 ? receiptId : null
   }

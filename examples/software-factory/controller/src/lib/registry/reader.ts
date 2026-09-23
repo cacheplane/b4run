@@ -8,7 +8,7 @@ import type {
   Receipt,
   WorkOrderRow,
 } from "../domain/work-order.js"
-import { provenOracleReceiptId } from "../intake/oracle.js"
+import { oracleReceiptIdFor } from "../intake/oracle.js"
 import { RegistryOutdatedError, RegistryVersionError, SCHEMA_VERSION } from "./db.js"
 import { createEvidenceStore } from "./evidence.js"
 import { createWorkOrderStore } from "./work-orders.js"
@@ -81,7 +81,7 @@ export function openRegistryReader(path: string): RegistryReader {
       const candidate = row.candidateDigest ? evidence.candidate(row.candidateDigest) : null
       const bundle = row.bundleDigest ? evidence.bundle(row.bundleDigest) : null
       const receipt = bundle ? evidence.receipt(bundle.receiptId) : null
-      const oracleId = provenOracleReceiptId(store.events(id))
+      const oracleId = oracleReceiptIdFor(store.events(id), row.taskDigest)
       const oracleReceipt = oracleId ? evidence.receipt(oracleId) : null
       return { candidate, receipt, bundle, oracleReceipt }
     },

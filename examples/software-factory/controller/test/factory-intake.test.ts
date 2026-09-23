@@ -579,11 +579,17 @@ describe("the intake gate", () => {
     const { id, threadId } = await intake()
     await factory.settleIntake(id, 20_000)
     const note = "the check should exercise the async failure path, not the sync one"
+    const before = factory.evidence(id).oracleReceipt
+    expect(before).not.toBeNull()
     expect(await factory.rejectIntake(id, { note })).toEqual({
       ok: true,
       state: "intake_running",
       message: "Intake rejected; redrafting",
     })
+    // The rejected draft is nobody's from here: the row's digest and target are cleared, and
+    // its proof is no longer the row's evidence, until the redraft parks a new one.
+    expect(factory.show(id)).toMatchObject({ taskDigest: null, targetId: null })
+    expect(factory.evidence(id).oracleReceipt).toBeNull()
     const row = await factory.settleIntake(id, 20_000)
     expect(row).toMatchObject({
       state: "awaiting_intake_approval",

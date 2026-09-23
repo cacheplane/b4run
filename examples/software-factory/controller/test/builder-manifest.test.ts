@@ -9,7 +9,9 @@ import { builderPermissions } from "../src/lib/targets/permissions.ts"
 import { builderSandboxScope, targetSandboxPolicy } from "../src/lib/targets/workspace.ts"
 
 let dir: string
-afterEach(() => rmSync(dir, { recursive: true, force: true }))
+afterEach(() => {
+  if (dir) rmSync(dir, { recursive: true, force: true })
+})
 
 describe("builder manifest", () => {
   it("writes everything the builder's config needs, as data", async () => {
