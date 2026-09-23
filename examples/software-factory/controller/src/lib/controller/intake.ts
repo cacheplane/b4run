@@ -253,6 +253,7 @@ async function proveDraft(
   // The read is re-rooted at `draft/` (the reader's `root`), so the keys already carry the
   // prefix `parseDraft` expects and nothing under `repo/` was walked.
   let draft: ReadonlyMap<string, string>
+  const readStarted = Date.now()
   try {
     draft = await drafter.reader.read({ threadId }, signal)
   } catch (error) {
@@ -272,6 +273,13 @@ async function proveDraft(
     unavailable("workspace_unreadable", error, "the drafter workspace could not be read")
     return
   }
+  // What the re-rooted read returned, on the record: the paths are the drafter's whole
+  // output as the controller saw it, and a count under the inspection bound with a duration
+  // of seconds is the journal's own evidence that `repo/` was never walked.
+  ctx.recordEvent(id, "draft_read", {
+    files: [...draft.keys()].sort(),
+    ms: Date.now() - readStarted,
+  })
   // The read was an await: a cancel may have moved the row, and nothing below is legal from
   // where it left it.
   if (!isIntake(ctx.mustGet(id).state)) return

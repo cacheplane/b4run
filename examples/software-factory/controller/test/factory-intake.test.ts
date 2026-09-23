@@ -234,6 +234,7 @@ describe("intake", () => {
       "transition:intake_started",
       "intake_run_started:",
       "intake_turn_ended:",
+      "draft_read:",
       "task_generated:",
       "oracle_receipt:",
       "transition:intake_drafted",
