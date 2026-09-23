@@ -1,0 +1,204 @@
+# Troubleshooting
+
+This page lists the problems people hit most often, by what you see. Each entry gives the cause, the fix and a link to the page with the details. When an error carries a `B4_Exxxx` code, the CLI prints it with a docs link, and [Error Codes](/docs/errors) lists every code.
+
+A good first step for almost any problem is `b4 verify`. It checks the app, its routes, generated types, dependencies and your runtime in one call:
+
+```bash
+b4 verify
+```
+
+## `b4` says it could not find `b4.config.ts`
+
+You see `Could not find b4.config.ts from <directory>`.
+
+The CLI walks up from the current directory looking for a directory that holds both `b4.config.ts` and `package.json`, and it didn't find one. In a scaffolded app, the B4.run app lives in `server/`, not at the workspace root.
+
+Run the command from the app directory, or point at it with `--cwd`:
+
+```bash
+b4 check --cwd server
+```
+
+See [CLI Reference](/docs/cli).
+
+## `b4 check` fails with `B4_E1006`
+
+You see `must set "type": "module"` followed by `[B4_E1006]`.
+
+B4.run loads `b4.config.ts` and every route `index.ts` as ES modules. Without `"type": "module"` in the app root's `package.json`, Node compiles them as CommonJS.
+
+Add the field to the app root's `package.json`:
+
+```json
+{
+  "type": "module"
+}
+```
+
+See [Upgrading](/docs/upgrading#the-app-root-must-declare-type-module).
+
+## `b4 check` reports a route with no recognisable export
+
+You see `Route entry <path> has no recognisable export` followed by `[B4_E1007]`.
+
+Every directory under the app directory that has an `index.ts` is a route. That file must have a default export of `agent(...)`, or export exactly one of `agent`, `workflow`, `graph` or `chain`. If the message says the file was loaded as CommonJS, a nested `package.json` is missing `"type": "module"`.
+
+Fix the export, or add `"type": "module"` to the `package.json` the message names. If the directory is not a route, prefix its name with `_` so discovery skips it. See [CLI Reference](/docs/cli#b4-check).
+
+## `b4 check` finds fewer routes than you expect
+
+You see `B4.run app is valid: 0 routes discovered.` or a route is missing from the list.
+
+Discovery only looks inside the app directory. That is `src/app` unless `appDir` in `b4.config.ts` says otherwise. It only treats a directory as a route when it contains a file named `index.ts`, and it skips any directory whose name starts with `_`.
+
+Check the route list and the paths it resolved:
+
+```bash
+b4 routes
+```
+
+Then move the route under the app directory, rename its entry file to `index.ts`, or fix `appDir`. See [Routes](/docs/routes) and [Configuration Reference](/docs/configuration#appdir).
+
+## A model provider package is missing
+
+You see `Provider "anthropic" requires @langchain/anthropic. Install it with: pnpm add @langchain/anthropic [B4_E4001]`.
+
+Each model provider is a separate LangChain package. B4.run imports it when it builds the model, and the import fails when the package isn't installed. Install the package the message names:
+
+```bash
+pnpm add @langchain/anthropic
+```
+
+`b4 verify` also lists missing packages as a warning before you hit this at runtime. See [Agents](/docs/agents).
+
+## The model call fails for lack of an API key
+
+`b4 verify` prints `Warning: Missing environment variables: OPENAI_API_KEY.`, or the first model call fails with an authentication error.
+
+`b4 verify` works out which key each provider needs from the models your routes use. `b4 dev` reads keys from `./.env` in the app root by default. In production, keys must come from the shell or the hosting platform.
+
+Add the key to `.env` in the app root:
+
+```bash
+OPENAI_API_KEY=sk-...
+```
+
+A local Ollama model needs no key. See [Configuration Reference](/docs/configuration#env).
+
+## An unknown model id warning
+
+You see `[b4:models] [B4_E4002] model "<id>" is not a known <provider> model id.`
+
+The model id isn't in B4.run's list for that provider. It's a warning, and the run proceeds anyway. Usually it's a typo. When B4.run knows a close match, the message suggests it. If the id is new and real, you can ignore the warning. See [Agents](/docs/agents).
+
+## The dev server port is already in use
+
+You see `Fatal dev session error: Port 3002 is unavailable`.
+
+Another process already listens on that port. It's often an earlier `b4 dev` that didn't exit. The scaffolded server runs `b4 dev --port 3002`, and the Workbench runs `next dev -p 3010`.
+
+Stop the other process, or pick another port:
+
+```bash
+lsof -i :3002
+b4 dev --port 3003
+```
+
+Without `--port`, `b4 dev` picks a free port and prints the URL. If you move the server off 3002, set `B4_SERVER_URL` in `web/.env` so the Workbench can find it. To move the Workbench off 3010, change `-p 3010` in `web/package.json`. See [Dev Server](/docs/dev-server).
+
+## The Docker sandbox is unavailable
+
+`b4 check` or `b4 verify` says the Docker daemon is not reachable because `docker version` failed. `b4 check` tags it `[B4_E1002]` and `b4 verify` tags it `[B4_E2002]`.
+
+Your `b4.config.ts` configures a sandbox provider, and B4.run runs its preflight before it trusts it. The Docker provider's preflight runs `docker version`, which fails when the daemon is down.
+
+Start Docker Desktop (or the Docker daemon), then confirm it answers:
+
+```bash
+docker version
+b4 verify
+```
+
+See [Execution Sandbox](/docs/sandbox#quickstart).
+
+## An approval never resumes the run
+
+The run pauses on a permission prompt, and nothing happens after you answer it.
+
+The run stays parked until a `POST /threads/:thread_id/resume` request answers every pending interrupt on the root thread. The body must be exactly `{ resume, route }`, with one entry per pending `interruptId`. A partial, stale, duplicate or extra set returns `409`, and a second resume while one is in flight returns `409` with `resume_in_progress`.
+
+List what is still pending, then answer all of it in one request:
+
+```bash
+curl -sS "$BASE_URL/threads/$THREAD_ID/pending_interrupts"
+```
+
+This also works after a page reload, when the client no longer has the stream that carried the `interrupt` event. See [Permissions](/docs/permissions#resuming-an-interrupted-run) and [Agent Protocol](/docs/dev-server/agent-protocol#interrupt-and-resume).
+
+## `b4 verify` fails
+
+You see `Verify failed:` followed by the reason.
+
+`b4 verify` runs five checks: `app`, `routes`, `typegen`, `deps` and `runtime`. Missing packages and environment variables in `deps` are warnings. The others fail the command. The reason names the failing check, and a `[B4_Exxxx]` footer follows when the failure has a code.
+
+Get the full report to see which check failed:
+
+```bash
+b4 verify --json
+```
+
+Then fix the failure with the matching entry on this page. See [CLI Reference](/docs/cli#b4-verify).
+
+## Your Node version is too old
+
+`b4 verify` fails with `Node <version> is below the required floor 24.0.0.`, or `create-b4-app` says `B4.run requires Node 24+`.
+
+B4.run needs Node 24 or later. Node 24 bundles npm 11 and ships `node:sqlite` without a flag.
+
+Switch to Node 24 and reinstall:
+
+```bash
+nvm install 24
+nvm use 24
+npm install
+```
+
+Update your CI runners and container base images too. See [Upgrading](/docs/upgrading#node-24-is-the-minimum).
+
+## Route names or tool types are out of date in your editor
+
+TypeScript doesn't know a new route, or a tool's input type is stale in `scenarios()`, `.mockTool()` or `.expectTool()`.
+
+Those types come from `.b4/b4.generated.d.ts`, which `b4 typegen` writes. `b4 dev`, `b4 run`, `b4 test` and `b4 build` regenerate it before they execute, so your editor's types only go stale when you change a tool without running any of them.
+
+Regenerate the types:
+
+```bash
+b4 typegen
+```
+
+Run it after a fresh clone, before CI, or to refresh your editor after changing a tool signature. See [CLI Reference](/docs/cli#b4-typegen).
+
+## A module fails with `does not provide an export named`
+
+A route, tool or `b4.config.ts` fails to load with an ESM named-export error.
+
+There are two usual causes. An older `@langchain/core` got hoisted, or a CommonJS dependency is imported with named bindings. B4.run prints the package it failed on and the likely cause.
+
+Find a duplicate `@langchain/core` with:
+
+```bash
+npm ls @langchain/core
+```
+
+For a CommonJS package, use a default import and destructure it. See [CLI Reference](/docs/cli#troubleshooting-imports).
+
+## Related
+
+<RelatedCards items={[
+  { href: "/docs/errors", title: "Error Codes", subtitle: "every B4_Exxxx code and where it is documented" },
+  { href: "/docs/cli", title: "CLI Reference", subtitle: "b4 check, b4 verify, b4 typegen, and b4 dev" },
+  { href: "/docs/upgrading", title: "Upgrading", subtitle: "breaking changes that surface as new errors" },
+  { href: "/docs/dev-server", title: "Dev Server", subtitle: "ports, restarts, and the local runtime" },
+]} />

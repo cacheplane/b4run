@@ -2,7 +2,7 @@
 
 The execution sandbox runs workspace tools inside an isolated filesystem, shell and network boundary instead of the app's local `workspace/` directory. Add a `sandbox` key to `b4.config.ts`, and B4.run routes `readFile`, `writeFile`, `listDir` and `runBash` through a `SandboxProvider`. B4.run ships a Docker reference implementation, and other providers can implement the same contract. The built-in providers hash an application scope with each logical thread ID to name their resources. Your application still authorizes thread access.
 
-The sandbox is one of three independent controls. [Tool scoping](/docs/tools) decides which tools the model can call, [permissions](/docs/permissions) decide whether a call may run, and the sandbox limits what an allowed call can touch.
+The sandbox is one of four independent [access controls](/docs/access-control). [Tool scoping](/docs/tools#scoping-a-routes-tools) decides which tools the model can call, [permissions](/docs/permissions) decide whether a call may run, the sandbox limits what an allowed call can touch, and [guarded delegation](/docs/subagents#delegation-policy) decides whether a subagent receives the delegated input.
 
 ## Quickstart
 
@@ -138,34 +138,6 @@ Providers map the policy differently, so read the provider's guide before assumi
 ## Kubernetes provider
 
 Configuration, prerequisites and the cluster security boundary live in [Kubernetes Sandbox](/docs/sandbox/kubernetes).
-
-### Security hardening on Kubernetes
-
-See [Kubernetes Sandbox](/docs/sandbox/kubernetes) for Pod security contexts, Pod Security Standards, resource controls, ServiceAccount-token isolation and PID-limit scope.
-
-### Network policy on Kubernetes
-
-See [Kubernetes Sandbox](/docs/sandbox/kubernetes) for DNS exceptions, CNI requirements, and how chart and per-thread NetworkPolicies compose.
-
-## Deploying the sandbox infrastructure (Helm)
-
-Install and operate `b4-sandbox-infra` with the [Kubernetes Sandbox guide](/docs/sandbox/kubernetes).
-
-### Key caveats
-
-Namespace alignment, storage, DNS, CNI enforcement, quotas and PVC cleanup are covered in [Kubernetes Sandbox](/docs/sandbox/kubernetes).
-
-## Deploying a B4.run app (Helm)
-
-Deploy the app with [Kubernetes](/docs/deployment/kubernetes), and operate its provider with [Kubernetes Sandbox](/docs/sandbox/kubernetes).
-
-### ServiceAccount and namespace wiring
-
-Use [Kubernetes Sandbox](/docs/sandbox/kubernetes) for RBAC and [Kubernetes deployment](/docs/deployment/kubernetes) for the app chart.
-
-### Env, secrets, and replicas
-
-See [Kubernetes deployment](/docs/deployment/kubernetes) for app settings and [Kubernetes Sandbox](/docs/sandbox/kubernetes) for namespace controls.
 
 ## Subagents
 

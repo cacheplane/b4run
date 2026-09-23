@@ -2,6 +2,18 @@
 
 B4.run's route middleware is an execution hook. It does not protect the whole service. Put outer authentication and tenant authorization in front of every non-local runtime endpoint, then layer B4.run's inner agent controls behind it.
 
+## Pages in this section
+
+This page covers the service edge. The other Secure pages cover the checks inside B4.run:
+
+| Page | What it covers |
+|---|---|
+| [Thread Access](/docs/thread-access) | Who may create, read, change or delete a thread, checked in the runtime on every thread endpoint. |
+| [Access Control](/docs/access-control) | The four controls on a running route (tool scoping, permissions, execution sandbox and guarded delegation) and how they compose. |
+| [Permissions](/docs/permissions) | Human-in-the-loop approval for commands, paths, tools, subagents and memory writes. |
+| [Execution Sandbox](/docs/sandbox) | Running the workspace tools in an isolated filesystem, shell and network. |
+| [Kubernetes Sandbox](/docs/sandbox/kubernetes) | The Pod-backed sandbox provider and the cluster setup it needs. |
+
 ## Start at the service edge
 
 Authenticate the caller before the request reaches the B4.run service and restrict network reachability where possible. The outer layer should reject unauthenticated access consistently, apply rate and body-size limits, terminate TLS, and attach verified identity for authorization and audit.
@@ -52,12 +64,12 @@ The model and request body must not choose those canonical fields. Keep authoriz
 
 ## Inner agent controls
 
-After service authentication and tenant authorization, use [Access Control](/docs/access-control) to compose narrower controls:
+After service authentication and tenant authorization, [Access Control](/docs/access-control) composes four narrower controls on each running route:
 
-- [tool scope](/docs/tools#scoping-a-routes-tools) limits which tools are offered;
-- [Permissions](/docs/permissions) gates commands, paths, approved tools, delegations, and selected memory writes;
-- [Execution Sandbox](/docs/sandbox) constrains B4.run's workspace filesystem and shell backends;
-- [Subagents](/docs/subagents#delegation-policy) can guard the input sent to a child.
+- [Tool scoping](/docs/tools#scoping-a-routes-tools) limits which tools the model is offered.
+- [Permissions](/docs/permissions) gate commands, paths, approved tools, delegations and selected memory writes.
+- The [execution sandbox](/docs/sandbox) constrains B4.run's workspace filesystem and shell tools.
+- [Guarded delegation](/docs/subagents#delegation-policy) decides whether a subagent receives the delegated input.
 
 These controls do not isolate arbitrary application code. Authored tools execute in the app process unless they isolate themselves; give their database clients, cloud credentials, network access, and filesystem behavior least privilege of their own.
 
@@ -95,7 +107,7 @@ Review the exact capabilities of the selected [Deployment Options](/docs/deploym
 
 <RelatedCards items={[
   { href: "/docs/middleware", title: "Middleware", subtitle: "execution gating and verified context flow" },
-  { href: "/docs/access-control", title: "Access Control", subtitle: "tool scope, permissions, sandbox, and delegation" },
+  { href: "/docs/access-control", title: "Access Control", subtitle: "tool scoping, permissions, execution sandbox and guarded delegation" },
   { href: "/docs/persistence", title: "Persistence and Tenancy", subtitle: "data ownership, deletion, and encryption" },
   { href: "/docs/production-topology", title: "Production Topology", subtitle: "replica and cancellation routing" },
 ]} />

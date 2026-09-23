@@ -1,16 +1,16 @@
 # Access Control
 
-B4.run has four independent decision planes. They compose, and none substitutes for another. Each route uses the planes it needs.
+Four independent controls decide what a running route can do: tool scoping, permissions, the execution sandbox and guarded delegation. They compose, and none substitutes for another. Each route uses the controls it needs.
 
 <Callout type="warn" title="Start outside the agent boundary">
-  These planes do not authenticate the whole HTTP service or establish tenant ownership. Protect health, thread management, state, cancellation, AG-UI, execution and memory-candidate routes at the service edge. See [Security Architecture](/docs/security-architecture). B4.run middleware is a narrower execution hook.
+  These controls do not authenticate the whole HTTP service or establish tenant ownership. Protect health, thread management, state, cancellation, AG-UI, execution and memory-candidate routes at the service edge. See [Security Architecture](/docs/security-architecture). B4.run middleware is a narrower execution hook, and [Thread Access](/docs/thread-access) decides who may use a thread.
 </Callout>
 
-| Layer | Question it answers | Docs |
+| Control | Question it answers | Docs |
 |---|---|---|
 | Tool scoping | *Which* tools can the model call? | [Tools](/docs/tools#scoping-a-routes-tools) |
-| Permissions / HITL | *Whether* a given call runs | [Permissions](/docs/permissions) |
-| Execution sandbox | *What* an allowed, approved call can actually touch | [Sandbox](/docs/sandbox) |
+| Permissions | *Whether* a given call runs (human-in-the-loop approval) | [Permissions](/docs/permissions) |
+| Execution sandbox | *What* an allowed, approved call can actually touch | [Execution Sandbox](/docs/sandbox) |
 | Guarded delegation | *Whether* a child receives the delegated input before any of its tools execute | [Subagents](/docs/subagents#delegation-policy) |
 
 ## Tool scoping
@@ -39,7 +39,7 @@ A parent's `delegation` policy runs at the final dispatch boundary, before the c
 
 ## How they compose
 
-A route that uses pattern-gated shell commands in an isolated environment, separately approves an authored deployment tool, and reviews delegated input stacks all four planes:
+A route that uses pattern-gated shell commands in an isolated environment, separately approves an authored deployment tool, and reviews delegated input uses all four controls:
 
 ```ts title="b4.config.ts"
 import { config } from "@b4run/cli"
@@ -71,7 +71,7 @@ export default agent({
 })
 ```
 
-<Callout type="info" title="Each plane answers a separate question">
+<Callout type="info" title="Each control answers a separate question">
   Tool scoping without a sandbox still lets an allowed `runBash` touch the whole host filesystem. A sandbox redirects only B4.run's built-in workspace tools (`readFile`, `writeFile`, `listDir` and `runBash`) into the isolated environment. Authored tools such as `deployProd` still execute in the app process and need their own least-privilege and isolation design. Permissions without a sandbox still pause for approval, but an approved workspace call runs on the host. Guarded delegation controls whether a child receives input. It does not limit what that child can call or access after it starts.
 </Callout>
 

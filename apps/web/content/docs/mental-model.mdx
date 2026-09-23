@@ -31,9 +31,18 @@ Agent route features are discovered from files and descriptors. `workspace/AGENT
 
 *Middleware* runs before route execution in `b4 dev` and the built Node and Hono HTTP runtimes. It lives at `src/middleware.ts` (or root `middleware.ts`) and can reject a request or attach request-scoped context for tools.
 
-### Access control: three layers
+<span id="access-control-three-layers"></span>
 
-Three independent layers govern what a route can do once it's running: [tool scoping](/docs/tools) decides *which* tools the model may call, [permissions](/docs/permissions) decide *whether* a given call runs (human-in-the-loop approval), and the [execution sandbox](/docs/sandbox) decides *what* an allowed, approved call can actually touch. They compose, and none substitutes for another. See [Access Control](/docs/access-control) for the combined picture.
+### Access control: four controls
+
+Four independent controls decide what a route can do once it's running:
+
+- [Tool scoping](/docs/tools#scoping-a-routes-tools) decides *which* tools the model can call.
+- [Permissions](/docs/permissions) decide *whether* a given call runs (human-in-the-loop approval).
+- The [execution sandbox](/docs/sandbox) decides *what* an allowed, approved call can actually touch.
+- [Guarded delegation](/docs/subagents#delegation-policy) decides *whether* a subagent receives the delegated input at all.
+
+They compose, and none substitutes for another. They all sit behind your service's own authentication and [thread access](/docs/thread-access) policy. See [Access Control](/docs/access-control) for the combined picture.
 
 ## The runtime
 

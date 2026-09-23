@@ -23,7 +23,7 @@ describe("MobileDocsNav", () => {
     }
     expect(disclosures.filter(([, attributes]) => attributes?.includes("open"))).toHaveLength(1)
     expect(disclosures.find(([, attributes]) => attributes?.includes("open"))?.[2]).toContain(
-      ">Test<",
+      ">Test and Evaluate<",
     )
   })
 

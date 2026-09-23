@@ -218,26 +218,6 @@ You don't need any extra setup. aimock runs on a random port and stops when the 
 - run: test -z "$(git status --porcelain -- test/fixtures/)"   # tracked and untracked drift
 ```
 
-## Fixture files: author, commit, replay
-
-[Fixtures and Recording](/docs/testing-agents/fixtures) is the canonical workflow.
-
-### Author inline and snapshot to a file
-
-See [Fixtures and Recording](/docs/testing-agents/fixtures).
-
-### Record from a real model (local only)
-
-See [Fixtures and Recording](/docs/testing-agents/fixtures).
-
-### Replay a fixture file in tests
-
-See [Fixtures and Recording](/docs/testing-agents/fixtures).
-
-## Live mode (real model)
-
-See [Fixtures and Recording](/docs/testing-agents/fixtures).
-
 ## Your scaffolded app already has a test
 
 The default `basic` template generates `test/agent.test.ts`, which imports `@b4run/testing` and replays one scripted greeting against the `/hello#agent` route. The research template (`npm create b4-app@latest my-agent -- --template research`) generates `server/test/research.test.ts`, which covers its `/research#agent` route. In either app, run the suite right after scaffolding from the app root:
@@ -302,6 +282,7 @@ Grow it by:
 ## Related
 
 <RelatedCards items={[
+  { href: "/docs/testing-overview", title: "Testing Overview", subtitle: "when to use scenario tests, the agent harness, or evals" },
   { href: "/docs/testing", title: "Scenario Testing", subtitle: "declarative run.test.ts scenarios for route-output unit tests" },
   { href: "/docs/testing-agents/fixtures", title: "Fixtures and Recording", subtitle: "author, record, commit, and replay model fixtures" },
   { href: "/docs/agents", title: "Agents", subtitle: "the agent route kind that @b4run/testing exercises" },

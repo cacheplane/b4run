@@ -1,0 +1,114 @@
+# Testing Overview
+
+B4.run gives you three ways to test an app. Scenario tests check what a route returns. The agent test harness checks what an agent does, turn by turn, against a replayed model. Evals score an agent over a whole dataset and fail CI when quality drops. This page helps you pick one. Each section links to the page with the details.
+
+## Which one should I use?
+
+Here is how the three compare:
+
+| | Scenario tests | Agent test harness | Evals |
+|---|---|---|---|
+| **Runs with** | `b4 test` | `vitest` | `b4 eval` |
+| **Package** | `@b4run/sdk/testing` | `@b4run/testing` | `@b4run/evals` and `@b4run/testing` |
+| **Real model?** | The route runs as written, so an agent route calls its configured provider | No. aimock replays fixtures. Live mode is a local opt-in | Not by default. `--live` and `--record` call the real model locally |
+| **Files** | `src/app/<route>/run.test.ts` | Any vitest test file, such as `test/agent.test.ts` | `src/app/<route>/evals/*.eval.ts` |
+| **Typical use** | Route input and output, workflow logic, mocked application tools | Tool calls, final messages, interrupts and state for an agent route | A quality bar across many cases that survives prompt and model changes |
+
+I recommend starting with scenario tests for workflow, graph and chain routes. Use the harness for agent routes, because it keeps the model deterministic. Add evals once you care about a score across a dataset rather than a single pass or fail.
+
+## Scenario tests
+
+A scenario file sits next to the route it tests and default-exports a suite built with `scenarios()`:
+
+```ts title="src/app/(public)/support/[tenant]/run.test.ts"
+import { scenarios } from "@b4run/sdk/testing"
+
+export default scenarios("/support/[tenant]").scenario("greets a tenant", (s) =>
+  s
+    .input({ tenant: "acme" })
+    .expectPassed()
+    .expectOutput({ tenant: "acme", greeting: "Hello, acme!" }),
+)
+```
+
+Then run every scenario in the app:
+
+```bash
+b4 test
+```
+
+Scenarios run in-process by default. Add `.server(url)` to send one through a running dev server when you need to exercise middleware or the HTTP boundary. See [Scenario Testing](/docs/testing).
+
+## Agent test harness
+
+The harness boots your route in the test process and swaps the model's HTTP endpoint for aimock. Your tools, prompts and state run normally. Let's install it:
+
+```bash
+pnpm add -D @b4run/testing vitest
+```
+
+Here is a minimal test:
+
+```ts title="test/agent.test.ts"
+import { fileURLToPath } from "node:url"
+import { afterAll, it } from "vitest"
+import { createAgentHarness, expectToolCalled, script } from "@b4run/testing"
+
+const appRoot = fileURLToPath(new URL("..", import.meta.url))
+const h = await createAgentHarness({ appRoot, route: "/chat#agent" })
+afterAll(async () => {
+  await h.close()
+})
+
+it("filters open items", async () => {
+  const run = await h.run({
+    input: "Filter open items",
+    fixtures: script()
+      .user("Filter open items")
+      .callsTool("applyFilter", { status: "open" })
+      .replies("Found 2 open items."),
+  })
+  expectToolCalled(run, "applyFilter").withArgs({ status: "open" })
+}, 60_000)
+```
+
+Run it with `pnpm exec vitest --run`. See [Agent Test Harness](/docs/testing-agents) for the API. When an inline `script()` gets long, move it to a committed file as shown in [Fixtures and Recording](/docs/testing-agents/fixtures).
+
+## Evals
+
+An eval runs an agent over a dataset, scores each output and gates on the aggregate. It lives in an `evals/` directory under the route:
+
+```ts title="src/app/chat/evals/quality.eval.ts"
+import { contains, defineEval } from "@b4run/evals"
+import { script } from "@b4run/testing"
+
+export default defineEval({
+  name: "chat quality",
+  dataset: [
+    {
+      name: "greets the user",
+      input: "hello",
+      fixtures: script().user("hello").replies("Hi! How can I help?"),
+    },
+  ],
+  scorers: [contains("help", { threshold: 1 })],
+  threshold: 1,
+})
+```
+
+Then run it:
+
+```bash
+b4 eval
+```
+
+Plain `b4 eval` replays fixtures and is safe for CI. `b4 eval --live` measures the real model on your machine, and `b4 eval --record` captures real responses as fixture files. Both need `OPENAI_API_KEY`. See [Evals](/docs/evals).
+
+## Related
+
+<RelatedCards items={[
+  { href: "/docs/testing", title: "Scenario Testing", subtitle: "run.test.ts scenarios run by b4 test" },
+  { href: "/docs/testing-agents", title: "Agent Test Harness", subtitle: "vitest tests against a replayed model" },
+  { href: "/docs/testing-agents/fixtures", title: "Fixtures and Recording", subtitle: "author, record, commit, and replay model fixtures" },
+  { href: "/docs/evals", title: "Evals", subtitle: "score an agent over a dataset and gate CI on it" },
+]} />
