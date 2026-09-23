@@ -1,6 +1,7 @@
-import type { Metadata } from "next"
+import type { Metadata, Viewport } from "next"
 import { Inter, JetBrains_Mono } from "next/font/google"
 import type { ReactNode } from "react"
+import { COLOR } from "../lib/design-tokens"
 import { Footer } from "./components/Footer"
 import { Header } from "./components/Header"
 import { JsonLd } from "./seo/JsonLd"
@@ -61,6 +62,11 @@ export const metadata: Metadata = {
     capable: true,
     statusBarStyle: "default",
   },
+}
+
+export const viewport: Viewport = {
+  themeColor: COLOR.page,
+  colorScheme: "light",
 }
 
 export default function RootLayout({ children }: { children: ReactNode }) {

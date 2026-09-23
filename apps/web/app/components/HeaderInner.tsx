@@ -7,6 +7,8 @@ import { openDocsSearch } from "./docs/docs-search-events"
 import homepageStyles from "./homepage/header.module.css"
 import { MobileMenu } from "./MobileMenu"
 import { CopyCommand } from "./ui/CopyCommand"
+import { Icon } from "./ui/Icon"
+import { SiteLink } from "./ui/SiteLink"
 
 function GitHubIcon() {
   return (
@@ -38,22 +40,10 @@ function MobileDocsSearchButton() {
       aria-label="Search docs"
       aria-haspopup="dialog"
       data-mobile-docs-search
-      className="md:hidden inline-flex items-center justify-center w-11 h-11 rounded-md text-ink-muted hover:text-ink hover:bg-surface transition-colors"
+      data-ui="icon-button"
+      className="md:hidden"
     >
-      <svg
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        aria-hidden="true"
-        focusable="false"
-      >
-        <circle cx="11" cy="11" r="7" />
-        <path d="m20 20-3.5-3.5" />
-      </svg>
+      <Icon name="search" size="md" />
     </button>
   )
 }
@@ -83,15 +73,14 @@ export function HeaderInner({ repoUrl }: HeaderInnerProps) {
           <Link href="/blog" className={linkClass(pathname.startsWith("/blog"))}>
             Blog
           </Link>
-          <a
+          <SiteLink
             href={repoUrl}
-            target="_blank"
-            rel="noopener noreferrer"
             aria-label="GitHub"
+            data-no-arrow
             className="inline-flex items-center gap-1.5 text-ink-muted hover:text-ink transition-colors"
           >
             <GitHubIcon />
-          </a>
+          </SiteLink>
           <CopyCommand command="npm create b4-app@latest my-agent" />
         </nav>
         <div className="flex items-center gap-1 md:hidden">

@@ -48,7 +48,7 @@ it("labels the main nav and adds a mobile docs-search button only on docs pages"
   const docs = render("/docs/tools")
   expect(docs).toContain('aria-label="Main"')
   expect(docs).toMatch(
-    /<button(?=[^>]*data-mobile-docs-search)(?=[^>]*aria-label="Search docs")(?=[^>]*md:hidden)(?=[^>]*w-11 h-11)/,
+    /<button(?=[^>]*data-mobile-docs-search)(?=[^>]*aria-label="Search docs")(?=[^>]*md:hidden)(?=[^>]*data-ui="icon-button")/,
   )
   expect(render("/")).not.toContain("data-mobile-docs-search")
   expect(render("/blog")).not.toContain("data-mobile-docs-search")
