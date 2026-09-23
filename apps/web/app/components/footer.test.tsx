@@ -3,7 +3,8 @@ import { expect, it } from "vitest"
 import { Footer } from "./Footer"
 
 const anchor = (html: string, href: string) => {
-  const match = new RegExp(`<a [^>]*href="${href.replace(/[.]/g, "\\.")}"[^>]*>`).exec(html)
+  const escaped = href.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const match = new RegExp(`<a [^>]*href="${escaped}"[^>]*>`).exec(html)
   expect(match, href).not.toBeNull()
   return match?.[0] ?? ""
 }
