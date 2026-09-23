@@ -70,19 +70,20 @@ That's it. We don't register the tool anywhere. The agent picks it up because it
 
 ## Check the app
 
-Next, generate the types and check the app:
+Next, check the app:
 
 ```bash
-npx b4 typegen
 npx b4 check
 ```
 
-`typegen` reads your tool signatures and writes the schemas and types to `.b4/`. Run it after you add or change a tool. `check` validates the routes, tools and configuration:
+`check` validates the routes, tools and configuration:
 
 ```
 B4.run app is valid: 1 routes discovered.
 - /hello (agent)
 ```
+
+We don't generate anything by hand. `b4 run`, `npm test` and the dev server write the tool schemas and types to `.b4/` before they run.
 
 ## Run the agent
 
