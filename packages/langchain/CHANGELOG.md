@@ -1,5 +1,21 @@
 # @dawn-ai/langchain
 
+## 0.11.0
+
+### Minor Changes
+
+- 54aa602: A tool module can export `returnDirect = true` to end the run on its result instead of handing control back to the model for another turn. LangGraph's prebuilt agent already routes such a tool straight to the end of the graph; B4 now reads the export during tool discovery, carries it on the tool definition, and sets it on the LangChain tool. The run's last message is then the tool result: no closing assistant message is produced, the AG-UI stream ends after `TOOL_CALL_RESULT`, and a middleware `after` hook sees an empty final message. A non-boolean export is a discovery error.
+
+### Patch Changes
+
+- 18961bb: Assistant text now streams for providers that deliver it as content blocks. LangChain's Anthropic integration coerces a chunk's content to a plain string only when the request binds no tools, and every B4 agent binds tools, so an Anthropic-backed agent produced no assistant text tokens at all; the same shape reaches the adapter from OpenAI's Responses API. The agent adapter now reads a chunk's `text` blocks, ignoring thinking, citation and tool-input deltas, so those models stream their prose like any other.
+- a30db23: LangChain dependencies move to their current releases: `@langchain/core` 1.2.12, `@langchain/langgraph` 1.4.17, `@langchain/langgraph-checkpoint` 1.1.5, `@langchain/openai` 1.5.13, `@langchain/anthropic` 1.5.11, `@langchain/google-genai` 2.3.2, `@langchain/xai` 1.4.13 and `@langchain/openrouter` 0.4.13, with the peer ranges raised to match. The lockfile is deduplicated so that every workspace package resolves the same single copy of `@langchain/langgraph` and `@langchain/core`.
+- Updated dependencies [a30db23]
+- Updated dependencies [54aa602]
+  - @b4run/core@0.11.0
+  - @b4run/sdk@0.11.0
+  - @b4run/workspace@0.11.0
+
 ## 0.10.0
 
 ### Minor Changes

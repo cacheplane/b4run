@@ -1,5 +1,13 @@
 # @dawn-ai/vite-plugin
 
+## 0.11.0
+
+### Patch Changes
+
+- Updated dependencies [a30db23]
+- Updated dependencies [54aa602]
+  - @b4run/core@0.11.0
+
 ## 0.10.0
 
 ### Patch Changes
