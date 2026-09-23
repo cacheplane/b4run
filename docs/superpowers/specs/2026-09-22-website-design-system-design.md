@@ -90,9 +90,10 @@ colour comment records its contrast ratio against the surface it is used on.
 | Panel | `panel` | `#17181b` | dark code panel |
 | | `panel-strip` | `#202226` | panel header/footer strip |
 | | `panel-ink` | `#f5f4f0` | 16.1:1 on panel |
-| | `panel-muted` | `#c4c8bc` | 10.5:1 on panel |
+| | `panel-muted` | `#c4c8bc` | 10.5:1 on panel; labels, captions |
+| | `panel-dim` | `#a3aa99` | 7.4:1 on panel; line numbers, comments, inactive tabs |
 | | `panel-rule` | `#4d5148` | rules inside the panel |
-| | `panel-accent` | `#b4ce37` | active tab marker / highlighted line (fills) |
+| | `panel-accent` | `#b4ce37` | 9.6:1 on panel; active tab marker, highlighted line, copied state (text is allowed on the panel, never on paper) |
 | Status | `ok` / `ok-tint` | `#1f6f3f` / `#e3efe4` | tip callouts, diff add (5.9:1 on tint) |
 | | `warn` / `warn-tint` | `#8a5100` / `#fff1ce` | 6.0:1 |
 | | `danger` / `danger-tint` | `#a12f25` / `#fbe8e5` | 6.2:1 |
@@ -142,7 +143,7 @@ unscoped and on tokens: headings (`h1` line-height 1.1, `h2` 600 with the
 top rule and relay dot, `text-wrap: balance`); links (`ink` text, `olive`
 underline 1px, 2px on hover); inline code (`surface-sunk`, `ink`, square, no
 border-radius, wraps at every width); the Shiki `pre` rules (one theme, see §4);
-highlighted / diff lines; tables (`surface` head, `rule` borders, inline code
+highlighted / diff lines; tables (`relay-tint` head as docs have today, `rule` borders, inline code
 inside a table gets `overflow-wrap: normal` and `white-space: nowrap` and the
 wrapper scrolls horizontally, so `AGENTS.md` stays one token); callouts; steps;
 tabs; related cards; pagination. Prose blocks get `max-width: var(--prose-max)`
