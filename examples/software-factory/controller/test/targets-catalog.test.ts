@@ -163,7 +163,7 @@ function holdsCommit(root: string, sha: string): boolean {
 
 describe("target catalog", () => {
   it("lists the targets shipped with the factory", () => {
-    expect(loadTargetIds()).toEqual(["cli-flags", "devkit"])
+    expect(loadTargetIds()).toEqual(["cli", "cli-flags", "devkit"])
   })
 
   it("loads a target whose pin the repository holds", () => {
@@ -440,7 +440,7 @@ function tasksDirFor(
 
 describe("task catalog", () => {
   it("lists the tasks shipped with the factory", () => {
-    expect(loadTaskIds()).toEqual(["cli-flags", "devkit-spawn-deadline"])
+    expect(loadTaskIds()).toEqual(["cli-flags", "cli-runs-wait-undefined", "devkit-spawn-deadline"])
   })
 
   it("loads a task with its target, spec, checks and patches", () => {
