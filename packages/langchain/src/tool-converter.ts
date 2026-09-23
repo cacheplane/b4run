@@ -32,6 +32,8 @@ interface B4ToolDefinition {
     },
   ) => Promise<unknown> | unknown
   readonly schema?: unknown
+  /** End the run on this tool's result; see the core `B4ToolDefinition`. */
+  readonly returnDirect?: boolean
 }
 
 export type OffloadFn = (
@@ -55,6 +57,9 @@ export function convertToolToLangChain(
     name: tool.name,
     description: tool.description ?? "",
     schema,
+    // LangGraph's prebuilt agent ends the run on this tool's result instead
+    // of routing back to the model; see `B4ToolDefinition.returnDirect`.
+    ...(tool.returnDirect === true ? { returnDirect: true } : {}),
     func: async (input, runManager, config) => {
       const liveConfig = runManager
         ? patchConfig(config, { callbacks: runManager.getChild() })

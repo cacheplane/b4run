@@ -182,6 +182,22 @@ export default async (input: { readonly tenant: string }) => {
 
 Tools without a description still work, but the LLM only sees the tool name. I recommend writing the one-liner.
 
+## Ending the run from a tool
+
+By default a tool's result goes back to the model for another turn, and the run ends only when the model answers without calling a tool. When a tool's result *is* the answer, that extra turn buys nothing: the model spends tokens and seconds saying what the tool already did. Export `returnDirect` to end the run on the tool's result instead:
+
+```ts title="src/app/(public)/assistant/tools/render.ts"
+export const returnDirect = true
+
+/** Show the composed answer to the user. Call exactly once, last. */
+export default async (input: { readonly text: string }, ctx: B4ToolContext) => {
+  await ctx.middleware.validateUi(input)
+  return { rendered: true }
+}
+```
+
+The run's final state then carries no closing assistant message: the last message is the tool result, the AG-UI stream ends after `TOOL_CALL_RESULT` with `RUN_FINISHED`, and a middleware `after` hook runs with an empty final message. Reserve it for a tool the model is instructed to call last; a `returnDirect` tool called mid-plan ends the run there.
+
 ## Invoking a tool
 
 Inside a `workflow`, tools are invoked through `ctx.tools.<name>(...)`:

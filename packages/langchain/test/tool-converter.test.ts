@@ -252,6 +252,21 @@ describe("convertToolToLangChain", () => {
     expect(result).toBe(JSON.stringify({ greeting: "Hello, World!" }))
   })
 
+  test("marks the LangChain tool returnDirect when the definition asks for it", () => {
+    const direct = convertToolToLangChain({
+      name: "render",
+      returnDirect: true,
+      run: async () => ({ rendered: true }),
+    })
+    const ordinary = convertToolToLangChain({
+      name: "lookup",
+      run: async () => ({ ok: true }),
+    })
+
+    expect(direct.returnDirect).toBe(true)
+    expect(ordinary.returnDirect).toBe(false)
+  })
+
   test("uses empty description when none provided", () => {
     const b4Tool = {
       name: "ping",
@@ -297,7 +312,6 @@ describe("convertToolToLangChain", () => {
     const b4Tool = {
       name: "lookup",
       description: "Look up customer",
-      filePath: "/app/tools/lookup.ts",
       run: async (input: unknown) => input,
       schema,
       scope: "shared" as const,
