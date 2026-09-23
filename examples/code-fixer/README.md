@@ -8,4 +8,4 @@ for setup, a complete API run, code tour, and evals.
 Repository-only qualification, the second historical defect, batch attempts,
 and publication evidence live in [test/code-fixer](../../test/code-fixer/).
 The [installation blueprint](./BLUEPRINT.md) installs this app from the
-published B4 0.10.0 release.
+published B4 0.11.0 release.

@@ -41,10 +41,15 @@ describe("/blueprints/[name].md", () => {
     expect(text).toMatch(/^# Code-fixer/)
     expect(text).not.toMatch(/^---/)
     expect(text).not.toContain("source: official")
-    expect(text).toContain("bfaf0c2b3030eebb572703c8f70f0e063593b1fa")
+    expect(text).toContain("89b95af3eb660fda8a45b2b5527da6bf8a29ea8d")
     expect(text).toContain(
-      "npm exec --yes --package=create-b4-app@0.10.0 -- create-b4-app <new-target> --template basic --dist-tag 0.10.0",
+      "npm exec --yes --package=create-b4-app@0.11.0 -- create-b4-app <new-target> --template basic --dist-tag 0.11.0",
     )
+    expect(text).toContain("src/app/hello/")
+    expect(text).not.toContain("(public)")
+    expect(text).not.toContain("0.10.0")
+    expect(text).not.toContain("bfaf0c2b3030eebb572703c8f70f0e063593b1fa")
+    expect(text).not.toContain("fixture-v1")
     expect(text).toContain("// b4-blueprint: code-fixer@1")
     expect(text).toContain(".dockerignore")
     expect(text).toContain("npm run test:sandbox")

@@ -1,6 +1,6 @@
 ---
 description: Install a code-fixing agent with isolated Docker workspaces, independent verification, and approval-gated local export.
-website: https://github.com/cacheplane/b4run/tree/bfaf0c2b3030eebb572703c8f70f0e063593b1fa/examples/code-fixer
+website: https://github.com/cacheplane/b4run/tree/89b95af3eb660fda8a45b2b5527da6bf8a29ea8d/examples/code-fixer
 version: 1
 tags: [agents, code-fixer, docker, evaluation, approval]
 source: official
@@ -13,10 +13,10 @@ B4.run application files. `b4 add code-fixer` prints this guide; it does not
 install dependencies or run the application. Apply it within the user's requested
 installation scope.
 
-Use source commit **`bfaf0c2b3030eebb572703c8f70f0e063593b1fa`** from
-`cacheplane/b4run` and published B4 package release **`0.10.0`** throughout.
+Use source commit **`89b95af3eb660fda8a45b2b5527da6bf8a29ea8d`** from
+`cacheplane/b4run` and published B4 package release **`0.11.0`** throughout.
 Do not substitute a branch, `latest`, workspace links, or another package release.
-The [pinned example](https://github.com/cacheplane/b4run/tree/bfaf0c2b3030eebb572703c8f70f0e063593b1fa/examples/code-fixer)
+The [pinned example](https://github.com/cacheplane/b4run/tree/89b95af3eb660fda8a45b2b5527da6bf8a29ea8d/examples/code-fixer)
 is the implementation authority. Copy its files; do not handwrite a second agent.
 The example repairs one historical CLI defect. Its tests use scripted model
 responses. They do not measure live-model repair quality.
@@ -51,17 +51,18 @@ that workspace's dependency policy can preserve the exact release. Replace
 `<new-target>` with that path and use the supported public scaffold:
 
 ```sh
-npm exec --yes --package=create-b4-app@0.10.0 -- create-b4-app <new-target> --template basic --dist-tag 0.10.0
+npm exec --yes --package=create-b4-app@0.11.0 -- create-b4-app <new-target> --template basic --dist-tag 0.11.0
 ```
 
-Here `--dist-tag 0.10.0` writes literal `0.10.0` B4 dependency specifiers. Do not
+`basic` is the 0.11.0 default template; the flag keeps the choice explicit. Here
+`--dist-tag 0.11.0` writes literal `0.11.0` B4 dependency specifiers. Do not
 use internal scaffold mode. Follow the detected package manager for the app's
 subsequent commands and retain its lockfile; npm launches the scaffold regardless
 of which package manager you choose for the app.
 
 Record the freshly generated file inventory before applying the example. In an
 app created by this command, remove only the identified scaffold demonstration
-route `src/app/(public)/hello/` and its `test/agent.test.ts`. Generated `.b4` route
+route `src/app/hello/` and its `test/agent.test.ts`. Generated `.b4` route
 declarations may be regenerated after removal. Never remove those paths from a
 pre-existing app without establishing that they are untouched scaffold files and
 that their removal is within scope. Preserve the scaffold's `AGENTS.md`, metadata,
@@ -74,7 +75,7 @@ Fetch into a new temporary directory, separate from the destination. These
 commands acquire source only; they do not execute any fetched script:
 
 ```sh
-B4_CODE_FIXER_REV=bfaf0c2b3030eebb572703c8f70f0e063593b1fa
+B4_CODE_FIXER_REV=89b95af3eb660fda8a45b2b5527da6bf8a29ea8d
 B4_CODE_FIXER_SOURCE=$(mktemp -d)
 git -C "$B4_CODE_FIXER_SOURCE" init --quiet
 git -C "$B4_CODE_FIXER_SOURCE" remote add origin https://github.com/cacheplane/b4run.git
@@ -122,8 +123,8 @@ allowlist; if an existing app's Docker context conflicts, use a sibling app.
 
 1. Merge `package.json`, preserving the app's name, metadata, compatible extra
    dependencies, and overrides. Pin runtime packages `@b4run/cli`, `@b4run/sdk`,
-   `@b4run/sandbox`, and `@b4run/workspace` to literal `0.10.0`. Pin development
-   packages `@b4run/testing` and `@b4run/evals` to literal `0.10.0` too. Keep any
+   `@b4run/sandbox`, and `@b4run/workspace` to literal `0.11.0`. Pin development
+   packages `@b4run/testing` and `@b4run/evals` to literal `0.11.0` too. Keep any
    scaffold B4 packages at that same exact release. Use the pinned source's exact
    non-B4 dependency versions where dependencies are added. Skip `@biomejs/biome`,
    which serves only the omitted `lint` command. Resolve incompatible existing
@@ -147,10 +148,12 @@ allowlist; if an existing app's Docker context conflicts, use a sibling app.
 4. Review `b4.config.ts` before applying it. Preserve network denial, resource
    limits, read-only prepared dependencies, and approval-gated export. Replace the
    example's `code-fixer-local` Docker scope with a stable installation-specific
-   scope, or retain an existing reviewed compatible scope. The prepared image tag
-   `b4-code-fixer:fixture-v1` is fixed in `src/project/workspace.ts`, so
-   installations on one host share it. Preserve explicit compatible
-   model/environment conventions. `B4_CODE_FIXER_MODEL` selects the model, and
+   scope, or retain an existing reviewed compatible scope. Do not name the
+   prepared image yourself. `src/project/image.ts` derives its
+   `b4-code-fixer:<hash>` tag from the `Dockerfile`, `.dockerignore`, and the
+   sample's `package.json` and lockfile. Installations with identical inputs on
+   one host share an image, and any changed input gets its own tag. Preserve
+   explicit compatible model/environment conventions. `B4_CODE_FIXER_MODEL` selects the model, and
    `gpt-5-mini` is the default. Never put host API keys in the sandbox
    environment. Merge ignore rules for `.b4`, `artifacts`, `.env`, and `.env.*`,
    retaining an exception for `.env.example` and existing user rules.
@@ -186,8 +189,11 @@ npm test
 npm run test:sandbox
 ```
 
-`sandbox:prepare` pulls `node:24-slim` and builds the prepared dependency image.
-If the pull cannot complete, record the failure. Do not edit the script.
+`sandbox:prepare` builds the prepared dependency image on the `node:24-slim` base
+that the `Dockerfile` pins by digest. It pulls that base only if the host does not
+already hold it. If a prepared image for identical inputs exists, it reuses that
+image and does not build. If a required pull or build cannot complete, record the
+failure. Do not edit the script or the `Dockerfile`.
 `npm test` runs the focused unit tests. `npm run test:sandbox` runs the Docker
 acceptance tests. They drive the agent through the checked-in reference repair
 with scripted model responses. They require all six repair criteria and exercise
