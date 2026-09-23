@@ -1,4 +1,3 @@
-// apps/web/lib/design-tokens.ts
 /**
  * TS mirror of the colour roles in app/styles/tokens.css, for the places that
  * cannot read CSS variables: Satori Open Graph images and `viewport.themeColor`.

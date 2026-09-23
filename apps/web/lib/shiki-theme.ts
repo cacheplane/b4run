@@ -6,12 +6,12 @@
  */
 import type { ThemeRegistrationRaw } from "shiki"
 
-// rehype-pretty-code only recognizes a raw JSON theme (as opposed to a
-// light/dark theme map) when it carries `tokenColors`, so this mirrors
-// `settings` under both keys; shiki itself reads `settings` first.
+// rehype-pretty-code 0.14's `isJSONTheme()` check is `Object.hasOwn(theme, "tokenColors")`;
+// without that key the object is treated as a light/dark theme map instead of a raw JSON
+// theme. So this mirrors `settings` under both keys; shiki itself reads `settings ?? tokenColors`.
 const settings = [
   {
-    scope: ["keyword", "storage", "keyword.control", "keyword.operator.new"],
+    scope: ["keyword", "storage", "keyword.operator.new"],
     settings: { foreground: "#c5d985" },
   },
   {
@@ -34,7 +34,6 @@ const settings = [
       "entity.name.function",
       "support.function",
       "variable",
-      "variable.other",
       "entity.name.tag",
       "entity.other.attribute-name",
     ],
@@ -48,6 +47,8 @@ const settings = [
 
 // `satisfies` keeps the literal types (the test reads settings[].settings.foreground)
 // while staying assignable to shiki's mutable-array theme type; `as const` is not.
+// `ThemeRegistrationRaw` types `foreground` as optional; it's the literal inference from
+// `satisfies` (not the wider optional type) that lets the test call `.toLowerCase()` on it.
 export const PAPER_RELAY_THEME = {
   name: "paper-relay",
   type: "dark",
