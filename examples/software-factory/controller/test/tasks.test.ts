@@ -20,6 +20,18 @@ const apply = (patch: string, cwd: string, ...extra: string[]) =>
 
 describe("every shipped task", () => {
   for (const id of loadTaskIds()) {
+    it(`${id}: carries no pin, so it runs at its target's default pin`, () => {
+      const task = loadTask(id)
+      expect(task.manifest.pin).toBeUndefined()
+      expect(
+        JSON.parse(readFileSync(join(task.directory, "task.json"), "utf8")),
+      ).not.toHaveProperty("pin")
+      const target = JSON.parse(
+        readFileSync(join(task.target.directory, "target.json"), "utf8"),
+      ) as { pin: string }
+      expect(task.target.pin).toBe(target.pin)
+    })
+
     it(`${id}: its patches apply to the pin, and defect then reference restores the pinned bytes`, async () => {
       const task = loadTask(id)
       const scratch = await mkdtemp(join(tmpdir(), "factory-tasks-"))

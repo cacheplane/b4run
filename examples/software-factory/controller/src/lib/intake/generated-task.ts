@@ -23,13 +23,15 @@ type FileSet = ReadonlyMap<string, Buffer>
 
 /** The exact bytes a generated task directory holds, before anything touches disk. */
 function planFiles(draft: ParsedDraft, issueText: string): FileSet {
-  const { id, target, allowedSourcePaths, immutablePaths } = draft.manifest
+  const { id, target, pin, allowedSourcePaths, immutablePaths } = draft.manifest
+  if (pin === undefined) throw new Error(`generated task ${id} carries no pin`)
   const files = new Map<string, Buffer>()
   const text = (path: string, content: string) => files.set(path, Buffer.from(content, "utf8"))
-  // Keys in schema order, so two runs over the same draft write the same bytes.
+  // Keys in schema order, so two runs over the same draft write the same bytes. The pin is
+  // in the file, so the task digest binds the commit the task runs at.
   text(
     "task.json",
-    `${JSON.stringify({ id, target, allowedSourcePaths, immutablePaths }, null, 2)}\n`,
+    `${JSON.stringify({ id, target, pin, allowedSourcePaths, immutablePaths }, null, 2)}\n`,
   )
   text("checks.json", `${JSON.stringify(draft.checks, null, 2)}\n`)
   text("spec.md", draft.specText)

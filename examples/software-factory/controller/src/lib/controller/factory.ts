@@ -1290,6 +1290,10 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         }
         if (onDisk.digest !== frozen.taskDigest)
           return invalidated("Generated task", frozen.taskDigest, onDisk.digest)
+        // A generated task runs at its work order's pin (its `task.json` carries it), so the
+        // policy the export is re-verified under must be at the pin the bundle froze.
+        if (frozen.pin !== policy.environment.pin)
+          return invalidated("Pin", String(frozen.pin), policy.environment.pin)
       }
 
       let receipt: Receipt

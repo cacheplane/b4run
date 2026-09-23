@@ -31,12 +31,14 @@
     "commandTimeoutMs": 120000,
     "verifierDeadlineMs": 300000
   },
-  "image": {
-    "localId": "sha256:6cebb9c51d679546e1d9df491bd1401894d7b8b5e83c9fe8672dc1e8809519bf",
-    "platform": "linux/arm64",
-    "baseManifestDigest": "sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553",
-    "dockerfileSha256": "74e1ff3ded50de3cb0feb67d371bb3c5b4e4e7f265c155a3e3cf86cf140dd9a7",
-    "lockfileSha256": "b92d3418bfb83f0be82978baab1bfe2b04c465727432639d43448118b8202da8",
-    "pnpmVersion": "10.33.0"
+  "images": {
+    "6a59e00aed466330c182989265786af396f39d80": {
+      "localId": "sha256:6cebb9c51d679546e1d9df491bd1401894d7b8b5e83c9fe8672dc1e8809519bf",
+      "platform": "linux/arm64",
+      "baseManifestDigest": "sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553",
+      "dockerfileSha256": "74e1ff3ded50de3cb0feb67d371bb3c5b4e4e7f265c155a3e3cf86cf140dd9a7",
+      "lockfileSha256": "b92d3418bfb83f0be82978baab1bfe2b04c465727432639d43448118b8202da8",
+      "pnpmVersion": "10.33.0"
+    }
   }
 }

@@ -60,19 +60,20 @@ export function promptFor(id: string, options: CatalogOptions = {}): string {
 }
 
 /**
- * The prepared targets a draft may name, one line each with the target's root. A target the
- * catalog cannot load (no image: nobody has prepared it on this machine) is left out rather
- * than listed: `parseDraft` would refuse a draft naming it, so offering it would only be
- * offering a refusal.
+ * The targets prepared AT `pin` a draft may name, one line each with the target's root. A
+ * target the catalog cannot load there (no image at the pin: nobody has run
+ * `target:prepare <id> --pin <pin>` on this machine) is left out rather than listed:
+ * `parseDraft` would refuse a draft naming it, so offering it would only be offering a
+ * refusal.
  */
-function preparedTargets(): string[] {
+export function preparedTargets(pin: string, catalog: Omit<CatalogOptions, "pin"> = {}): string[] {
   const lines: string[] = []
-  for (const id of loadTargetIds()) {
+  for (const id of loadTargetIds(catalog.targetsDir)) {
     try {
-      const target = loadTarget(id)
+      const target = loadTarget(id, { ...catalog, pin })
       lines.push(`- \`${id}\` (root: \`${target.root}\`)`)
     } catch {
-      // Unprepared: not something a draft can be pinned to.
+      // Unprepared at this pin: not something this work order's draft can name.
     }
   }
   return lines
@@ -83,20 +84,23 @@ function preparedTargets(): string[] {
  * fixed rules — the four files and their shapes, `draft/` only, no repair, the check's
  * contract — are the drafter route's own system prompt (`drafter/src/app/intake/index.ts`),
  * which this message points at rather than restates. What only the controller knows goes
- * here: the issue, the targets prepared on this machine with their roots (a draft naming
- * any other would only be refused), and the previous attempt's refusal, quoted so the
- * redraft can mend it rather than guess.
+ * here: the issue, the targets prepared on this machine at the work order's pin with their
+ * roots (a draft naming any other would only be refused), and the previous attempt's
+ * refusal, quoted so the redraft can mend it rather than guess.
  */
 export function intakePrompt(input: {
+  readonly pin: string
   readonly issueText: string
   readonly note?: string
+  /** Where the targets are looked up; the shipped catalog by default. */
+  readonly catalog?: Omit<CatalogOptions, "pin">
 }): string {
-  const targets = preparedTargets()
+  const targets = preparedTargets(input.pin, input.catalog)
   const sections = [
     [
       `You are drafting a repair task from the GitHub issue below. Write the four files under \`${DRAFT_ROOT}\` (\`${DRAFT_ROOT}task.json\`, \`${DRAFT_ROOT}spec.md\`, \`${DRAFT_ROOT}checks.json\` and \`${DRAFT_ROOT}checks/<name>.test.ts\`) as your instructions say. Do not repair anything: write the task, not the fix.`,
       "",
-      "The repository is under `repo/`. Available targets (choose the one whose package the issue is about), each with its root inside the repository:",
+      `The repository is under \`repo/\`, checked out at ${input.pin}. Available targets, those prepared at that commit (choose the one whose package the issue is about), each with its root inside the repository:`,
       ...(targets.length > 0 ? targets : ["- (none prepared)"]),
       "",
       "Every path in `task.json` and every import in the check file is relative to the chosen target's root, not to `repo/` and not to the repository's root.",

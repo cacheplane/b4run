@@ -21,7 +21,7 @@ import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fak
 import { fakeWorkerMap, noopBuilderManifestWriter } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
 import { BAD_DRAFTS, GOOD_DRAFT } from "./intake-fixtures.ts"
-import { createEmptyRepo, repositoryHead } from "./temp-repo.ts"
+import { createEmptyRepo, repositoryHead, shippedPin } from "./temp-repo.ts"
 
 let dir: string
 let generated: string
@@ -44,9 +44,10 @@ const ORIGIN: IssueOrigin = {
 /**
  * The pin every issue here names: a commit this repository holds (`intake` checks the pin
  * is one the controller can find before it writes a manifest, and an invented sha would
- * send it fetching).
+ * send it fetching), and the one the shipped targets hold images at (the draft's target is
+ * looked up at the work order's pin).
  */
-const PIN = repositoryHead().pin
+const PIN = shippedPin()
 const ISSUE = {
   title: "spawnProcess leaks its deadline timer",
   body: "A spawn that fails asynchronously leaves the deadline running.",
@@ -352,6 +353,38 @@ describe("intake", () => {
       "transition:intake_blocked",
       "drafter_manifest_removed:",
     ])
+  })
+
+  it("blocks image_unprepared after one attempt when the target has no image at the work order's pin", async () => {
+    await boot({}, { maxIntakeAttempts: 2 })
+    // HEAD: a commit this repository holds (so `intake` admits it without a fetch), at which
+    // no shipped target has been prepared.
+    const head = repositoryHead().pin
+    expect(head).not.toBe(PIN)
+    const { id } = await factory.createFromIssue({ origin: ORIGIN, pin: head, issue: ISSUE })
+    expect(await factory.intake(id)).toMatchObject({ ok: true, state: "intake_running" })
+    const threadId = (factory.show(id) as WorkOrderRow).workerThreadId as string
+    reader.set(threadId, GOOD_DRAFT)
+    const row = await factory.settleIntake(id, 20_000)
+    expect(row).toMatchObject({
+      state: "blocked",
+      blockedReason: "image_unprepared",
+      intakeAttempts: 1,
+      targetId: null,
+      taskDigest: null,
+    })
+    // The prompt offered nothing: no target is prepared at that pin.
+    expect(promptOf(0)).toContain("(none prepared)")
+    expect(promptOf(0)).toContain(head)
+    expect(runPosts()).toHaveLength(1)
+    expect(refusals(id)).toHaveLength(1)
+    expect(refusals(id)[0]?.payload).toMatchObject({
+      blockedReason: "image_unprepared",
+      attempt: 1,
+      reason: `draft/task.json names target devkit, which has no image prepared at ${head}: an operator runs target:prepare devkit --pin ${head}`,
+    })
+    expect(eventTypes(id)).not.toContain("transition:intake_retry")
+    expect(verifier.calls).toHaveLength(0)
   })
 
   it("retries an invalid draft on the same thread with the refusal quoted, then parks", async () => {

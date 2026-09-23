@@ -95,11 +95,18 @@ async function runDrafterTurn(
     block(ctx, id, "intake_run_failed", { reason: "issue.md could not be read" })
     return
   }
-  // The prompt lists the prepared targets from disk, and a catalog that cannot be read is
-  // a refusal to start the turn, not a fault to leave the row stranded on.
+  // An issue row always has a pin (`createFromIssue` requires one); a row without is a fault
+  // of whoever made it, and there is no commit to list prepared targets at.
+  if (row.pin === null) {
+    block(ctx, id, "intake_run_failed", { reason: "the work order has no pin to draft at" })
+    return
+  }
+  // The prompt lists the targets prepared at the pin from disk, and a catalog that cannot be
+  // read is a refusal to start the turn, not a fault to leave the row stranded on.
   let prompt: string
   try {
     prompt = intakePrompt({
+      pin: row.pin,
       issueText: issue,
       ...(input.note !== undefined ? { note: input.note } : {}),
     })
@@ -285,7 +292,14 @@ async function proveDraft(
   // where it left it.
   if (!isIntake(ctx.mustGet(id).state)) return
 
-  const parsed = parseDraft(draft, { workOrderId: id })
+  // The pin the work order was created at: the generated task carries it, so the target, the
+  // baseline, the image and the policy are all looked up at it.
+  const { pin } = ctx.mustGet(id)
+  if (pin === null) {
+    block(ctx, id, "intake_run_failed", { reason: "the work order has no pin to draft at" })
+    return
+  }
+  const parsed = parseDraft(draft, { workOrderId: id, pin })
   if (!parsed.ok) {
     await refuse(ctx, id, parsed.reason, parsed.blockedReason)
     return
@@ -381,7 +395,8 @@ export function removeDrafterManifest(ctx: ControllerContext, id: string): void 
 
 /**
  * A draft the controller will not take. The attempt is spent either way; a
- * `no_target_for_package` never retries (no redraft can prepare a target), and the last
+ * `no_target_for_package` or an `image_unprepared` never retries (no redraft can prepare a
+ * target, or an image at the pin), and the last
  * attempt blocks as `intake_attempts_exhausted` with the refusal in the journal. Otherwise
  * the row stays `intake_running` through `intake_retry` and another turn runs on the same
  * thread with the reason quoted.
@@ -390,20 +405,24 @@ async function refuse(
   ctx: ControllerContext,
   id: string,
   reason: string,
-  blockedReason: "intake_invalid" | "no_target_for_package" | "oracle_did_not_fail",
+  blockedReason:
+    | "intake_invalid"
+    | "no_target_for_package"
+    | "image_unprepared"
+    | "oracle_did_not_fail",
 ): Promise<void> {
   const current = ctx.mustGet(id)
   if (!isIntake(current.state)) return
   const attempt = current.intakeAttempts + 1
   ctx.recordEvent(id, "intake_refused", { reason, blockedReason, attempt })
   const exhausted = attempt >= current.maxIntakeAttempts
-  if (blockedReason === "no_target_for_package" || exhausted) {
+  const final = blockedReason === "no_target_for_package" || blockedReason === "image_unprepared"
+  if (final || exhausted) {
     ctx.transition(
       id,
       "intake_blocked",
       {
-        blockedReason:
-          blockedReason === "no_target_for_package" ? blockedReason : "intake_attempts_exhausted",
+        blockedReason: final ? blockedReason : "intake_attempts_exhausted",
         intakeAttempts: attempt,
       },
       { reason, blockedReason, attempt },

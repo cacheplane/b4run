@@ -217,7 +217,8 @@ describe("environmentIdentityDigest", () => {
     lockfileSha256: "d".repeat(64),
     pnpmVersion: "10.33.0",
   }
-  const one = environmentIdentityDigest(image)
+  const pin = "e".repeat(40)
+  const one = environmentIdentityDigest(image, pin)
 
   it("is a 64-hex digest", () => {
     expect(one).toMatch(/^[a-f0-9]{64}$/)
@@ -225,7 +226,11 @@ describe("environmentIdentityDigest", () => {
 
   for (const key of Object.keys(image) as (keyof typeof image)[]) {
     it(`moves when ${key} moves`, () => {
-      expect(environmentIdentityDigest({ ...image, [key]: `${image[key]}-x` })).not.toBe(one)
+      expect(environmentIdentityDigest({ ...image, [key]: `${image[key]}-x` }, pin)).not.toBe(one)
     })
   }
+
+  it("moves when the pin moves, with every image input the same", () => {
+    expect(environmentIdentityDigest(image, "f".repeat(40))).not.toBe(one)
+  })
 })

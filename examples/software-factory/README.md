@@ -127,12 +127,17 @@ the workspace a work order's thread starts from. That is a stronger control poin
 catalog key it replaced — a key only selected among the target definitions in the
 repository, while these files state them outright.
 
-**The pin is captured for the drafter but not yet honoured by the verifier.** The wide
-capture the drafter reads is taken at the work order's pin, out of the object store. The
-oracle proof and the verification, though, still run in the target's prepared image at the
-pin that image was prepared from; per-pin images are the rest of this sub-project. The pin is recorded on the row and in the
-bundle, so the evidence says both. And intake threads accumulate on the drafter, one per work
-order, since nothing sweeps a parked or blocked work order's drafter thread yet.
+**The pin is honoured, one image per pin.** The wide capture the drafter reads is taken at
+the work order's pin, out of the object store; the generated `task.json` carries that pin, so
+the target, the baseline, the oracle proof and the verification are all looked up at it, in the
+image prepared AT that pin. A target records one image per pin it was prepared at (`images`
+in `target.json`); a shipped task carries no pin and runs at its target's default `pin`. A draft
+whose target has no image at the work order's pin blocks at once (`image_unprepared`, naming
+the `target:prepare <id> --pin <pin>` an operator runs); no redraft can mend it. What is not
+per pin yet is the BUILDER's sandbox image: a builder process boots from one target file,
+written at the target's default pin, so a generated task at another pin is built in the
+default pin's image and verified in its own. And intake threads accumulate on the drafter, one
+per work order, since nothing sweeps a parked or blocked work order's drafter thread yet.
 
 **`examples/code-fixer` is untouched by this rung.** The factory borrows its fixture image and
 nothing else; rung 0 drove code-fixer as its worker, and rung 1 does not.
@@ -196,7 +201,14 @@ nothing walks the registry after a restart unless an operator or a supervisor as
 The builder and the verifier both run in the target's prepared image, so this needs Docker:
 
     pnpm --filter @b4-example/software-factory-controller target:prepare cli-flags
-    # builds b4-factory-cli-flags:<pin>-<dockerfile sha>
+    # builds b4-factory-cli-flags:<pin>-<dockerfile sha>, recorded as images[<pin>]
+
+`target:prepare <id> --pin <sha>` prepares the same target at another commit and records that
+image beside the others (an issue work order is pinned to `origin/main`, so a target is
+prepared at the pin its work orders name). The script refuses a pin at which the target's
+root, build context or lockfile does not exist, naming the path: `cli-flags`'s fixture lived
+under the server before the controller split, so it can only be prepared at its historical
+pin, and `devkit` is the target that is re-pinned.
 
 **1. Write the builder's target file.** A builder process serves one target, and the
 controller writes that target's file from the catalog. This command needs no controller and
@@ -361,7 +373,9 @@ defect would pass on anything, so that draft is refused. An invalid draft or one
 an oracle starts another drafter turn on the same thread with the refusal quoted; the
 attempts default to 2, and the last refusal blocks the work order. A draft naming a package
 with no prepared target blocks immediately (`no_target_for_package`), since no redraft can
-prepare one. A draft that parks in
+prepare one, and so does a draft whose target has no image at the work order's pin
+(`image_unprepared`: the prompt lists only the targets prepared at that pin, and the task's
+`pin` is the controller's to fill, never the draft's). A draft that parks in
 `awaiting_intake_approval` is read on disk and approved **by digest**: `show` prints the
 row's `taskDigest`, `approve-intake` recomputes the directory's digest at call time and refuses
 if either differs, so what the person read is what the builder and the verifier are given.

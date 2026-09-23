@@ -562,6 +562,31 @@ whose image is absent is a `target:prepare --pin <sha>` before dispatch (the scr
 the manifest's pin today; the flag is part of sub-project 3), surfaced as a blocked reason
 rather than a silent rebuild inside the controller.
 
+> **As landed (3b, half B).** `target.json` records `images: Record<pin, Image>`; the 3a
+> single `image` is read as `images[pin]` (a migration on read; the shipped manifests were
+> rewritten and the prepare script writes only `images`). `pin` stays the target's DEFAULT
+> pin. `loadTarget(id, { pin })` selects `images[pin]` BEFORE `ensurePin` (an unprepared pin
+> is refused without a fetch) and returns a single-valued target (`pin` the chosen one,
+> `image` its image), so `imageTag`, the archive and the providers did not change. No image at
+> the pin is `ImageUnpreparedError` ("has no image prepared at <pin>: run target:prepare <id>
+> --pin <pin>"), distinct from a target with no image at all. `target:prepare <id> --pin
+> <sha>` builds at that commit and keeps every other pin's entry; it first refuses, by path, a
+> pin at which `root`, an `imageContext` entry or the `lockfile` does not exist
+> (`git cat-file -e`). The generated `task.json` carries `pin` (key order `id, target, pin,
+> allowedSourcePaths, immutablePaths`; the drafter may not write one: the draft schema omits
+> it, strictly), so the task digest binds it and `loadTask` passes it to `loadTarget`: every
+> lookup (policy, baseline, verifier, builder manifest) is at the work order's pin with no
+> signature change; a shipped task carries no pin. A draft whose target has no image at the
+> pin is refused `image_unprepared`, never retried; `preparedTargets(pin)` lists only the
+> targets prepared at it. `environmentIdentity` folds the pin (`b4-factory-environment-v2`),
+> so two pins with identical image inputs are two environments; bundles frozen before this
+> change carry the v1 identity and no longer approve (examples; acceptable). `approve`
+> asserts a generated task's frozen `pin` equals the policy's. `cli-flags`'s historical paths
+> (the fixture under `server/`) cannot be re-pinned past the controller move, so `devkit` is
+> the per-pin target. The builder's sandbox image is still per process (its target file is
+> written at the default pin): a generated task at another pin is built in the default
+> pin's image and verified in its own, a follow-up.
+
 ### 6.8 Proof
 
 - Unit: the state table with the new rows; `parseDraft` on good and bad drafts; digest
@@ -667,10 +692,12 @@ a preparable target, and which a test can fail on:
   `examples/` (the shipped `cli-flags`) can be verified but not drafted from the capture: a
   drafter would find no source to read. The two real repository targets the program is
   about (`packages/*`) are in it; a fixture target is for the lanes.
-- **3a runs verification in the target's prepared image, not at the work order's pin.** The
-  pin is recorded on the row and in the bundle; 3b honours it with per-pin images. Until then
-  a work order created against a newer `origin/main` is verified in the environment the target
-  was last prepared at, and the bundle says both.
+- **3a ran verification in the target's prepared image, not at the work order's pin**
+  (resolved in 3b, half B). The generated task carries the pin and every lookup is at it, in
+  the image prepared at it (§6.7 as landed); a pin with no image blocks `image_unprepared`.
+  What remains per process is the builder's sandbox image, written at the target's default
+  pin. Remaining follow-ups: the per-pin builder image, the drafter thread sweep, and orphaned
+  capture sources.
 
 ---
 

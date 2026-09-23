@@ -73,7 +73,7 @@ function catalogs(pin: string): { targetsDir: string; tasksDir: string } {
         root: ".",
         capture: { include: ["a.txt"] },
         snapshotIgnore: [],
-        ...(prepared ? { image } : {}),
+        ...(prepared ? { images: { [pin]: image } } : {}),
         imageContext: ["package.json"],
         lockfile: "pnpm-lock.yaml",
         imageAssertResolves: [],
@@ -204,7 +204,7 @@ describe("the controller over a partly unprepared catalog", () => {
     // The target loses its image between create and dispatch: an upgrade, or a re-prepare.
     const manifestPath = join(targetsDir, "ready", "target.json")
     const prepared = readFileSync(manifestPath, "utf8")
-    const { image: _image, ...unprepared } = JSON.parse(prepared)
+    const { images: _images, ...unprepared } = JSON.parse(prepared)
     writeFileSync(manifestPath, JSON.stringify(unprepared))
     expect(await factory.dispatch(id)).toMatchObject({
       ok: false,
