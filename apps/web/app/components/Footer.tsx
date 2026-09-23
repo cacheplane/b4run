@@ -18,7 +18,11 @@ const COLUMNS: readonly Column[] = [
     heading: "Product",
     items: [
       { label: "Docs", href: "/docs/getting-started" },
-      { label: "Examples", href: "/docs/recipes" },
+      {
+        label: "Examples",
+        href: "https://github.com/cacheplane/b4run/tree/main/examples",
+        external: true,
+      },
       {
         label: "Developer walkthrough",
         href: "https://github.com/cacheplane/b4run/blob/main/examples/code-fixer/server/WALKTHROUGH.md",

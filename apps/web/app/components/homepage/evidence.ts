@@ -6,6 +6,14 @@ export type HomeEvidence = typeof data
 export type SourceKey = keyof HomeEvidence["sources"]
 export type CapabilityKey = keyof HomeEvidence["snippets"]
 const hash = (text: string) => createHash("sha256").update(text).digest("hex")
+const requiredCriteria = [
+  "reproduced",
+  "verified",
+  "approval",
+  "visible",
+  "independent",
+  "scope",
+] as const satisfies readonly (keyof HomeEvidence["criteria"])[]
 
 export function sourceExcerpt(value: HomeEvidence, key: CapabilityKey): string {
   const snippet = value.snippets[key]
@@ -21,21 +29,21 @@ export function validateEvidence(value: HomeEvidence): void {
   // Independently pin the reviewed document; embedded hashes alone are self-attested.
   if (
     hash(JSON.stringify(value)) !==
-    "039ea922f7b63332650f609bc86d7e9c55a6fd5637b9d4e38d6b3d376a50fe45"
+    "c74c2fb36190f4afcc55e61f834ec7a08fed9edbf7749dd3e4e218e67b0dc58a"
   )
     throw new Error("Homepage evidence differs from the reviewed snapshot")
   if (
     value.schemaVersion !== 1 ||
-    value.id !== "90532f93-a8b9-43ff-9d94-b664a37af813" ||
-    value.recordingSha256 !== "1a1dd2187554737ef3401e4c63fcd5d4e746c3506b9dc01eb9dfaa3db57c95db" ||
+    value.id !== "de4487ee-d4c9-443b-be34-70afcafcb203" ||
+    value.recordingSha256 !== "cbfc5455b732051b53a93399c6e3f7c926271e543f8e17ace1d03303b2a99c13" ||
     value.mode !== "live" ||
     value.dirty ||
     value.status !== "approval-pending" ||
     value.model !== "gpt-5" ||
-    value.durationMs !== 113145 ||
-    value.agentCommit !== "cbe93c9b53ac6981436b20814b544aa4ce38f4b5" ||
-    value.sourceCommit !== "91619fa68522079087f09e9ead792b30a09bd6de" ||
-    !Object.values(value.criteria).every((passed) => passed === true)
+    value.durationMs !== 374150 ||
+    value.agentCommit !== "d6a2dc01ebf4f605fc089131557f735f2a6ccf4e" ||
+    value.sourceCommit !== "bfaf0c2b3030eebb572703c8f70f0e063593b1fa" ||
+    !requiredCriteria.every((key) => value.criteria[key] === true)
   )
     throw new Error("Invalid homepage recording provenance or outcome")
   const expected = [
@@ -57,10 +65,6 @@ export function validateEvidence(value: HomeEvidence): void {
 
 validateEvidence(data)
 export const evidence = data
-export const reportUrl =
-  "https://github.com/cacheplane/b4run/blob/main/docs/superpowers/runbooks/2026-09-13-code-fixer-live-evaluations.md"
-export const sourceUrl = (path: string) =>
-  `https://github.com/cacheplane/b4run/blob/${data.sourceCommit}/examples/code-fixer/server/${path}`
 
 export const curatedEvidenceUrl =
-  "https://github.com/cacheplane/b4run/blob/c8c0d4b4a31b4da51ee98fc5d50aafbe968e304e/apps/web/app/components/homepage/evidence.json"
+  "https://github.com/cacheplane/b4run/blob/8bd704161e7527436dcad94c4bb101031b7969df/apps/web/app/components/homepage/evidence.json"

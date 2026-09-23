@@ -2,24 +2,24 @@
   "version": 2,
   "routes": {
     "/": {
-      "lastModified": "2026-09-23T01:43:11.785Z",
-      "sourceDigest": "db0c6b00b19c54f7b41b1f063ec2831fd095e7a852b7d2a16a9d605cbfe31e00",
-      "recordDigest": "0716a0a2ca79d8e1fb987122e480a2ffbfe17cb002adcc6c9487aa2da33ac6f2"
+      "lastModified": "2026-09-23T03:34:06.942Z",
+      "sourceDigest": "bf517721670cfab2fca1f786224e873cf7db5c4ecbf1897e938ab0174f464c4e",
+      "recordDigest": "888de1750b5fc38b61e0549fd8b642638bde9757598e62e89799d8d4b1f15a79"
     },
     "/blog": {
-      "lastModified": "2026-09-23T02:19:48.785Z",
-      "sourceDigest": "c4539a3553eeee190d5bb9b28c414acd64c88e6a50065c49c52269fe763dd248",
-      "recordDigest": "a855c33938ccbd132202504c7b6ee14237eee8ef891d38f3b85485e75f9b45a9"
+      "lastModified": "2026-09-23T03:34:06.942Z",
+      "sourceDigest": "8a82774709eb2fd3c922bb83c68c62c90aed5be27dc223faf42533a0f067e6f8",
+      "recordDigest": "a34911471813361b94bcfa8f52cbc7ce8c0d34dab12fafc5bd13f92dc9af7f0d"
     },
     "/blog/tags/agents": {
-      "lastModified": "2026-09-22T19:17:28.383Z",
-      "sourceDigest": "9da9452ea27dd3ac6f4a19397ecb615dfda86a5e48e2be88da0e45a7f2184638",
-      "recordDigest": "3789a117a45f97f60b75c3f041ed0743165b1463573c977a6529c83ca2d011f6"
+      "lastModified": "2026-09-23T03:34:06.942Z",
+      "sourceDigest": "c01daf161361f58f9c4037619d4ee654f33f7d5340b8c9f3b0d4f180268ac325",
+      "recordDigest": "e2a6a38b8eb0f814fffba51f42229f2ce13f42de838a86630e431365efe04d6f"
     },
     "/blog/tags/philosophy": {
-      "lastModified": "2026-09-23T02:19:48.785Z",
-      "sourceDigest": "c4539a3553eeee190d5bb9b28c414acd64c88e6a50065c49c52269fe763dd248",
-      "recordDigest": "a28e01cf9740ab1c4568f851b775a090a8496bd02fef87922268d4badc90c401"
+      "lastModified": "2026-09-23T03:34:06.942Z",
+      "sourceDigest": "8a82774709eb2fd3c922bb83c68c62c90aed5be27dc223faf42533a0f067e6f8",
+      "recordDigest": "cb01eb326efa916dea10b86f09ac0389165517db7e4a4e5867a661988c8a83d6"
     },
     "/blog/tags/typescript": {
       "lastModified": "2026-09-22T19:04:43.100Z",
@@ -207,9 +207,9 @@
       "recordDigest": "9ac8c5449c664eb2c5dc99f42cca8b4b3fa2ca0230cfe6c68f1d07e246952cb8"
     },
     "/docs/getting-started": {
-      "lastModified": "2026-09-23T01:43:11.785Z",
-      "sourceDigest": "aefd38f2664c040526a44dddd45f2c11267db3a1187feaf5be8d8d210fe161c6",
-      "recordDigest": "a951ab68201ae9d0e89aa8464dac610a9bc940808e3cab1609ea80922de86a82"
+      "lastModified": "2026-09-23T03:34:06.942Z",
+      "sourceDigest": "6f75eea680274cdcebc60eae6463a02325513f478dcbd672894c3730e9644758",
+      "recordDigest": "3948eb7c2d277ecd45b4bcfe1c19e806eeea440bd7a7a56423adb677050fc233"
     },
     "/docs/inspector": {
       "lastModified": "2026-09-23T00:31:55.933Z",
@@ -292,9 +292,9 @@
       "recordDigest": "21f942f971d61da97485b44d139af213379988ef5a5606672c7fd5ba7be9fcd1"
     },
     "/docs/recipes": {
-      "lastModified": "2026-09-22T19:04:43.100Z",
-      "sourceDigest": "e643e3a78446cc93766a6bcb0bd809429aac4d77fcd856cc9b2e9b977f1fac32",
-      "recordDigest": "26f3b034f0b5c57a56a2a090ade1b547d8d391409847bb2bb1ab8e30003a94c5"
+      "lastModified": "2026-09-23T03:34:06.942Z",
+      "sourceDigest": "004ab2ba2dfba3bf7dffb1bf77853f1de6f26018692707ffe631e9e82957edc1",
+      "recordDigest": "77e965e7f1e25c14504f698bbcaf04e85f5d6e9d96cc31cbbe0cdfd59a971fcf"
     },
     "/docs/recipes/add-a-tool": {
       "lastModified": "2026-09-22T19:04:43.100Z",
@@ -310,6 +310,11 @@
       "lastModified": "2026-09-22T19:04:43.100Z",
       "sourceDigest": "624e699cb8a0263e9e5fcbb94d90e47164f896b4eebfee895e173fc266568bf7",
       "recordDigest": "ce6be89ba2dd7a98711670dca3d82b91ddddb1e831123cb35f2695a590d3ef4b"
+    },
+    "/docs/recipes/research-assistant": {
+      "lastModified": "2026-09-23T03:34:06.942Z",
+      "sourceDigest": "b4647ecdfd45b92e2fd65bd39f8ae30cbdb70480376c5dd42b810d0caf72adf9",
+      "recordDigest": "7ee5a0a062402bdaff6bf17aac411510f334d8e9d399e8848e39936f3b1674cb"
     },
     "/docs/recipes/research-web-ui": {
       "lastModified": "2026-09-22T19:04:43.100Z",

@@ -7,66 +7,40 @@ export interface PromptEntry {
   readonly body: string
 }
 
-const SCAFFOLD = `Help me scaffold a new B4.run app from the research starter. B4.run is a TypeScript-first meta-framework for building graph-based AI agents with file-system routing, shared and route-local tools, and inferred types.
+const SCAFFOLD = `Help me build my first B4.run agent. B4.run is the TypeScript framework for LangGraph.js. An agent is a folder: the folder is the route, and each file in its \`tools/\` folder is a tool. B4.run writes each tool's schema from its TypeScript input type.
 
-1. Run the scaffold:
+1. Scaffold the app:
    \`\`\`
-   npm create b4-app@latest my-agent -- --template research
+   npm create b4-app@latest my-agent
    cd my-agent
    npm install
    \`\`\`
-   Without \`--template research\`, the command scaffolds the default \`basic\` template: one package with a single \`/hello\` agent and one typed \`greet\` tool.
+   This creates the default \`basic\` template: one package with a \`/hello\` agent in \`src/app/hello/index.ts\` and one typed \`greet\` tool in \`src/app/hello/tools/greet.ts\`. Pass \`-- --template research\` instead for the larger research assistant with subagents, planning, memory, and a web UI.
 
-2. Walk me through the generated project structure. Explain:
-   - The two-package npm workspace: \`server/\` is the B4.run app and \`web/\` is the B4.run Workbench browser client. Every path below is relative to \`server/\`, and the root \`package.json\` scripts delegate into whichever package owns them.
-   - How routes are directories containing an \`index.ts\` that exports exactly one of: default \`agent(...)\`, named \`workflow\` (async function), named \`graph\` (LangGraph graph), or named \`chain\` (LangChain LCEL Runnable).
-   - \`state.ts\` — the optional Zod route state schema.
-   - \`src/tools/*.ts\` — shared tools available across routes. The research scaffold puts \`searchCorpus\` and \`readDoc\` here.
-   - \`src/app/<route>/tools/*.ts\` — optional route-local tools. They are visible only to that route and shadow same-named shared tools.
-   - \`plan.md\` — route-local planning seed that adds todo state and \`writeTodos\`.
-   - \`subagents/<name>/index.ts\` — immediate child agent routes exposed through \`task({ subagent, input })\`; children receive shared tools and their own local tools, not the parent's local tools.
-   - \`skills/<name>/SKILL.md\` — route-local instructions loaded on demand through \`readSkill\`.
-   - \`memory.md\` — stable prompt memory for one route, and \`memory.ts\` — a typed long-term collection that contributes \`recall\` and \`remember\`.
-   - \`workspace/\` — corpus, reports, and scripts; \`workspace/AGENTS.md\` is app-level prompt guidance shared by consuming agent routes and subagents.
-   - Optional \`sandbox\` config — routes workspace filesystem and shell calls through a provider such as the Docker reference implementation.
-   - Route groups like \`(public)\` — excluded from pathname when a template uses them.
-   - Dynamic segments like \`[tenant]\` — preserved in the route id; provide values in JSON input when invoking the route.
-   - \`.b4/b4.generated.d.ts\` — auto-generated ambient types from the TypeScript compiler API.
+2. Walk me through the two files. Explain:
+   - \`index.ts\` default-exports \`agent({ model, systemPrompt })\`.
+   - Each file in \`tools/\` default-exports one async function. The file name is the tool name, the doc comment is its description, and the input type is its schema.
+   - \`.b4/b4.generated.d.ts\` is generated. Never edit it.
 
-3. Start with type generation, validation, typechecking, the offline deterministic agent harness tests, and the replay-backed eval. These need no model-provider key:
+3. Help me add a second tool in \`src/app/hello/tools/\`. Keep it deterministic, with no network call.
+
+4. Validate the app. None of these need a model-provider key, because the test and the eval replay recorded model responses:
    \`\`\`
-   npm run typegen
-   npm run check
-   npm run typecheck
+   npx b4 typegen
+   npx b4 check
    npm test
    npm run eval
    \`\`\`
 
-4. Only then opt into a live model run. Copy the server package's environment template, require the user to add a real \`OPENAI_API_KEY\`, run the preflight, and start the tested dev script. Never invent or commit a key:
+5. Only then run the agent live. Require me to set a real \`OPENAI_API_KEY\`. Never invent or commit a key:
    \`\`\`
-   cp server/.env.example server/.env
-   # Add a real OPENAI_API_KEY to server/.env
-   npm run verify
-   npm run dev:server
+   export OPENAI_API_KEY=...
+   echo '{"messages":[{"role":"user","content":"Say hello to Ada."}]}' | npx b4 run /hello
    \`\`\`
-   The generated dev script serves \`http://127.0.0.1:3002\`.
 
-5. In a second terminal, start the B4.run Workbench — the generated \`web/\` package, an AG-UI/CopilotKit client with a thread rail, streaming transcript, plan and subagent activity cards, permission prompts, and memory review:
-   \`\`\`
-   npm run dev:web
-   \`\`\`
-   It serves \`http://localhost:3010\` and reaches the agent server through a same-origin proxy. No model key belongs in this package.
+6. For a dev server, run \`npm run dev\`. It serves Agent Protocol and AG-UI on \`http://127.0.0.1:3000\` and reloads as I edit.
 
-6. Show the Agent Protocol shape for the same route:
-   \`\`\`
-   THREAD_ID=$(curl -s -X POST http://127.0.0.1:3002/threads -H 'content-type: application/json' -d '{}' | jq -r .thread_id)
-   curl -s -X POST http://127.0.0.1:3002/threads/$THREAD_ID/runs/wait \\
-     -H 'content-type: application/json' \\
-     -d '{"route":"/research#agent","input":{"messages":[{"role":"user","content":"What are common agent architectures?"}]}}'
-   \`\`\`
-   For streaming, use the same body with \`POST /threads/$THREAD_ID/runs/stream\` and consume the SSE events.
-
-7. Summarize what I can build next: add a tool, add a new route, write an agent harness test, add a replay/live eval, or opt into sandboxed execution.
+7. Summarize what I can build next: add a route, write an agent harness test, add an eval, or start from the research template.
 
 Key packages: \`@b4run/sdk\` (authoring contract), \`@b4run/langgraph\` (graphs/workflows), \`@b4run/langchain\` (LCEL and provider-aware agent materialization), \`@b4run/cli\` (CLI).
 
@@ -316,8 +290,8 @@ Reference: https://b4.run/llms.txt
 export const PROMPTS: readonly PromptEntry[] = [
   {
     slug: "scaffold",
-    title: "Scaffold a new B4.run app",
-    description: "Create a new B4.run project and walk through the structure.",
+    title: "Build your first B4.run agent",
+    description: "Scaffold the basic template, add a typed tool, and run it.",
     body: SCAFFOLD,
   },
   {

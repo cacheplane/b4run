@@ -7,6 +7,8 @@ export interface DisplayCode {
   readonly fold?: { readonly start: number; readonly end: number }
   readonly wrap?: boolean
   readonly linkLabel?: string
+  /** Accessible region name when `path` alone would repeat another panel's. */
+  readonly label?: string
 }
 export interface WalkthroughProps {
   readonly files: Readonly<Record<"agent" | "config" | "plan", DisplayCode>>
