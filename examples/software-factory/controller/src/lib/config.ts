@@ -36,6 +36,12 @@ export interface WorkerEndpoint {
   /** The worker app's root: where its installation store (`.b4/workspaces`) lives. */
   readonly appRoot: string
   readonly route: string
+  /**
+   * Where `dispatch` writes one manifest per work order for this worker's resolver to read:
+   * the builder process's `FACTORY_BUILDER_MANIFEST_DIR`. `<appRoot>/.factory/manifests` by
+   * default.
+   */
+  readonly manifestDir: string
 }
 
 /** The drafter: the one process that runs `/intake#agent` for every issue work order. */
@@ -61,6 +67,7 @@ const WorkerEndpointSchema = z
     url: httpUrl("url"),
     appRoot: z.string().min(1),
     route: z.string().min(1).default(DEFAULT_WORKER_ROUTE),
+    manifestDir: z.string().min(1).optional(),
   })
   .strict()
 
@@ -107,6 +114,7 @@ const EnvSchema = z.object({
   FACTORY_WORKER_URL: httpUrl("FACTORY_WORKER_URL").optional(),
   FACTORY_WORKER_ROUTE: z.string().min(1).default(DEFAULT_WORKER_ROUTE),
   FACTORY_BUILDER_APP_ROOT: z.string().min(1).optional(),
+  FACTORY_BUILDER_MANIFEST_DIR: z.string().min(1).optional(),
   FACTORY_STATE_DIR: z.string({ message: "FACTORY_STATE_DIR is required" }).min(1),
   FACTORY_EXPORT_DIR: z.string().min(1).optional(),
   FACTORY_ARTIFACTS_DIR: z.string().min(1).optional(),
@@ -169,6 +177,11 @@ export function workerEndpointFor(
   return workers[targetId] ?? workers[ANY_TARGET]
 }
 
+/** Where a worker app reads its manifests when nobody says otherwise. */
+function defaultManifestDir(appRoot: string): string {
+  return join(appRoot, ".factory", "manifests")
+}
+
 export function loadConfig(env: Readonly<Record<string, string | undefined>>): FactoryConfig {
   const parsed = EnvSchema.safeParse(env)
   if (!parsed.success) {
@@ -184,12 +197,15 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
   // of the other form is refused by name rather than ignored, so an operator who set it
   // learns it does nothing.
   if (e.FACTORY_WORKERS !== undefined) {
-    const stray = ["FACTORY_WORKER_URL", "FACTORY_BUILDER_APP_ROOT", "FACTORY_WORKER_ROUTE"].filter(
-      isSet,
-    )
+    const stray = [
+      "FACTORY_WORKER_URL",
+      "FACTORY_BUILDER_APP_ROOT",
+      "FACTORY_WORKER_ROUTE",
+      "FACTORY_BUILDER_MANIFEST_DIR",
+    ].filter(isSet)
     if (stray.length > 0)
       throw invalid(
-        `FACTORY_WORKERS is set; unset ${stray.join(" and ")} (the entries carry url, appRoot and route)`,
+        `FACTORY_WORKERS is set; unset ${stray.join(" and ")} (the entries carry url, appRoot, route and manifestDir)`,
       )
   }
   let workers: Readonly<Record<string, WorkerEndpoint>>
@@ -197,7 +213,12 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
     workers = Object.fromEntries(
       Object.entries(e.FACTORY_WORKERS).map(([id, entry]) => [
         id,
-        { url: entry.url.replace(/\/$/, ""), appRoot: entry.appRoot, route: entry.route },
+        {
+          url: entry.url.replace(/\/$/, ""),
+          appRoot: entry.appRoot,
+          route: entry.route,
+          manifestDir: entry.manifestDir ?? defaultManifestDir(entry.appRoot),
+        },
       ]),
     )
     // One process has one installation store: two entries at one URL naming different app
@@ -208,6 +229,12 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
       if (seen !== undefined && seen[1].appRoot !== entry.appRoot)
         throw invalid(
           `FACTORY_WORKERS: workers ${seen[0]} and ${id} share ${entry.url} but name different app roots (${seen[1].appRoot}, ${entry.appRoot})`,
+        )
+      // Nor one manifest directory: the process reads the one it booted with, and a manifest
+      // written anywhere else is one its resolver never finds.
+      if (seen !== undefined && seen[1].manifestDir !== entry.manifestDir)
+        throw invalid(
+          `FACTORY_WORKERS: workers ${seen[0]} and ${id} share ${entry.url} but name different manifest directories (${seen[1].manifestDir}, ${entry.manifestDir})`,
         )
       byUrl.set(entry.url, [id, entry])
     }
@@ -223,6 +250,8 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
         url: e.FACTORY_WORKER_URL.replace(/\/$/, ""),
         appRoot: e.FACTORY_BUILDER_APP_ROOT,
         route: e.FACTORY_WORKER_ROUTE,
+        manifestDir:
+          e.FACTORY_BUILDER_MANIFEST_DIR ?? defaultManifestDir(e.FACTORY_BUILDER_APP_ROOT),
       },
     }
   }
@@ -250,8 +279,7 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
           appRoot: e.FACTORY_DRAFTER_APP_ROOT,
           route: e.FACTORY_DRAFTER_ROUTE,
           manifestDir:
-            e.FACTORY_DRAFTER_MANIFEST_DIR ??
-            join(e.FACTORY_DRAFTER_APP_ROOT, ".factory", "manifests"),
+            e.FACTORY_DRAFTER_MANIFEST_DIR ?? defaultManifestDir(e.FACTORY_DRAFTER_APP_ROOT),
         }
       : undefined
   return {

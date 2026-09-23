@@ -29,8 +29,18 @@ function deps() {
   }
 }
 
-const A = { url: "http://a:4100", appRoot: "/srv/a", route: "/build#agent" }
-const B = { url: "http://b:4100", appRoot: "/srv/b", route: "/repair#agent" }
+const A = {
+  url: "http://a:4100",
+  appRoot: "/srv/a",
+  route: "/build#agent",
+  manifestDir: "/srv/a/.factory/manifests",
+}
+const B = {
+  url: "http://b:4100",
+  appRoot: "/srv/b",
+  route: "/repair#agent",
+  manifestDir: "/srv/b/manifests",
+}
 
 describe("createWorkerMap", () => {
   it("makes one client per URL and one reader per entry, lazily", () => {
@@ -44,8 +54,17 @@ describe("createWorkerMap", () => {
     const devkit = map.forTarget("devkit")
     const cli = map.forTarget("cli")
     const testing = map.forTarget("testing")
-    expect(devkit).toMatchObject({ route: "/build#agent", appRoot: "/srv/a" })
-    expect(cli).toMatchObject({ route: "/repair#agent", appRoot: "/srv/b" })
+    expect(devkit).toMatchObject({
+      route: "/build#agent",
+      appRoot: "/srv/a",
+      manifestDir: "/srv/a/.factory/manifests",
+    })
+    // Each entry carries the manifest directory its process reads: where `dispatch` writes.
+    expect(cli).toMatchObject({
+      route: "/repair#agent",
+      appRoot: "/srv/b",
+      manifestDir: "/srv/b/manifests",
+    })
     // `devkit` and `cli` are served by one process: one client between them, two readers
     // (each entry's installation store is its own).
     expect(devkit?.client).toBe(cli?.client)

@@ -23,6 +23,11 @@ export interface TargetWorker {
   /** Reads a builder thread's candidate bytes (addressed by thread AND task). */
   readonly reader: WorkspaceReader
   readonly appRoot: string
+  /**
+   * Where `dispatch` writes the work order's manifest before it creates the thread: the
+   * builder process's `FACTORY_BUILDER_MANIFEST_DIR`.
+   */
+  readonly manifestDir: string
 }
 
 /** The drafter as the controller talks to it. */
@@ -123,6 +128,7 @@ export function createWorkerMap(
       route: entry.route,
       reader: readerFor(key),
       appRoot: entry.appRoot,
+      manifestDir: entry.manifestDir,
     }
   }
   // A getter, not a spread over one: spreading would read it at boot.

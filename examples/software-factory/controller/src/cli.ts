@@ -1,7 +1,7 @@
 import { join } from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
 import { parseArgs } from "node:util"
-import { writeBuilderManifest } from "./lib/builder-manifest.js"
+import { writeBuilderManifest, writeBuilderTarget } from "./lib/builder-manifest.js"
 import { type ControllerClient, ControllerHttpError, createControllerClient } from "./lib/client.js"
 import { generatedTasksDirFor } from "./lib/config.js"
 import type { WorkOrderState } from "./lib/domain/states.js"
@@ -14,7 +14,7 @@ import {
 } from "./lib/intake/issue.js"
 import { openRegistryReader } from "./lib/registry/reader.js"
 import type { RouteOutcome } from "./lib/routes/outcome.js"
-import { configureCatalog, loadTask, repositoryRoot } from "./lib/targets/catalog.js"
+import { configureCatalog, loadTarget, loadTask, repositoryRoot } from "./lib/targets/catalog.js"
 
 const USAGE = `factory <command> [options]
 
@@ -32,13 +32,19 @@ const USAGE = `factory <command> [options]
   events    <workOrderId>
   evidence  <workOrderId>
   list
-  builder-manifest --task <id> --out <dir>
+  builder-target   --target <id> --out <dir>
+  builder-manifest --task <id> --out <dir> [--work-order <workOrderId>]
 
 The commands that change something are requests to a running controller:
 FACTORY_CONTROLLER_URL is its base URL. The commands that read do not go through the
 controller at all: they open <FACTORY_STATE_DIR>/registry.sqlite read-only. The cancel command uses
 both: it asks the controller to stop the run and then reads the row back.
-builder-manifest needs neither.
+builder-target and builder-manifest need neither.
+
+builder-target writes <dir>/<id>.target.json, the file one builder process serving that target
+boots from (FACTORY_BUILDER_TARGET). builder-manifest writes <dir>/<work-order>.json (the work
+order defaults to the task id): the controller writes one per work order at dispatch into the
+target's manifest directory, and this command is for driving a builder without a controller.
 
 create --issue reads the issue through gh (FACTORY_GH names the executable; default gh) and pins
 the work order to origin/main of the target checkout (FACTORY_REPO_ROOT; FACTORY_NO_FETCH=1 skips
@@ -253,6 +259,8 @@ async function main(argv: string[]): Promise<number> {
       digest: { type: "string" },
       note: { type: "string" },
       out: { type: "string" },
+      target: { type: "string" },
+      "work-order": { type: "string" },
       help: { type: "boolean", default: false },
     },
   })
@@ -269,8 +277,15 @@ async function main(argv: string[]): Promise<number> {
     if (!id) throw new Error(`${command} requires a work order id`)
     return id
   }
-  // Answered before anything is opened: writing a builder manifest reads the catalog and
-  // captures an archive, and needs neither a controller nor a registry.
+  // Answered before anything is opened: writing a builder target or manifest reads the
+  // catalog (and, for a manifest, captures an archive), and needs neither a controller nor a
+  // registry.
+  if (command === "builder-target") {
+    if (!values.target) throw new Error("builder-target requires --target")
+    if (!values.out) throw new Error("builder-target requires --out")
+    print({ path: await writeBuilderTarget(loadTarget(values.target), values.out) })
+    return 0
+  }
   if (command === "builder-manifest") {
     if (!values.task) throw new Error("builder-manifest requires --task")
     if (!values.out) throw new Error("builder-manifest requires --out")
@@ -278,7 +293,13 @@ async function main(argv: string[]): Promise<number> {
     // builder root, only the state directory's generated tasks, and only when there is one.
     const stateDir = process.env.FACTORY_STATE_DIR
     if (stateDir) configureCatalog({ generatedTasksDir: generatedTasksDirFor(stateDir) })
-    print({ path: await writeBuilderManifest(loadTask(values.task), values.out) })
+    const workOrder = values["work-order"]
+    const written = await writeBuilderManifest(
+      loadTask(values.task),
+      values.out,
+      workOrder !== undefined ? { workOrderId: workOrder } : {},
+    )
+    print({ path: written.path, sourceDigest: written.sourceDigest })
     return 0
   }
   try {

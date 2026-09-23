@@ -118,10 +118,12 @@ describe("create and dispatch", () => {
       .map((e) => `${e.type}:${String(e.payload.event ?? "")}`)
     expect(types).toEqual([
       "created:",
+      "builder_manifest_written:",
       "thread_created:",
       "transition:dispatch_committed",
       "transition:run_started",
       "transition:turn_ended_with_workspace",
+      "builder_manifest_removed:",
       "candidate_assembled:",
       "receipt_issued:",
       "bundle_frozen:",

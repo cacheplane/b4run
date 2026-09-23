@@ -447,11 +447,12 @@ jobs:
         # the copy it makes), only its installed dependencies.
         #
         # The builder's OWN `check` and `build` run here and nowhere else: its
-        # `b4.config.ts` is a function of the manifest, so outside this job the
-        # repository's unfiltered `build`/`check` skip it (scripts/with-manifest.mjs)
-        # for want of one. `factory builder-manifest` writes a real manifest for
-        # `cli-flags` first, and both commands run against it. `check` runs the
-        # provider preflight, which needs Docker; this lane has it.
+        # `b4.config.ts` is a function of its target file, so outside this job the
+        # repository's unfiltered `build`/`check` skip it (scripts/with-target.mjs)
+        # for want of one. `factory builder-target` writes the real `cli-flags`
+        # target file first, and both commands run against it with an empty
+        # manifest directory (manifests are per work order, read at resolve time).
+        # `check` runs the provider preflight, which needs Docker; this lane has it.
         #
         # The drafter runs on the plain `node:24-slim` base, pinned by digest in
         # `drafter/src/drafter-image.ts`; that literal is the only copy, so the
@@ -465,9 +466,10 @@ jobs:
           pnpm turbo run build --filter=@b4-example/software-factory-controller^...
           pnpm --filter @b4-example/software-factory-controller target:prepare cli-flags
           pnpm --filter @b4-example/software-factory-controller target:prepare devkit
-          pnpm --filter @b4-example/software-factory-controller factory builder-manifest --task cli-flags --out "$RUNNER_TEMP/factory-manifests"
-          FACTORY_BUILDER_MANIFEST="$RUNNER_TEMP/factory-manifests/cli-flags.json" pnpm --filter @b4-example/software-factory-server check
-          FACTORY_BUILDER_MANIFEST="$RUNNER_TEMP/factory-manifests/cli-flags.json" pnpm --filter @b4-example/software-factory-server build
+          pnpm --filter @b4-example/software-factory-controller factory builder-target --target cli-flags --out "$RUNNER_TEMP/factory-builder"
+          mkdir -p "$RUNNER_TEMP/factory-builder/manifests"
+          FACTORY_BUILDER_TARGET="$RUNNER_TEMP/factory-builder/cli-flags.target.json" FACTORY_BUILDER_MANIFEST_DIR="$RUNNER_TEMP/factory-builder/manifests" pnpm --filter @b4-example/software-factory-server check
+          FACTORY_BUILDER_TARGET="$RUNNER_TEMP/factory-builder/cli-flags.target.json" FACTORY_BUILDER_MANIFEST_DIR="$RUNNER_TEMP/factory-builder/manifests" pnpm --filter @b4-example/software-factory-server build
           docker pull "$(grep -oE '[a-z0-9.:/-]+@sha256:[a-f0-9]{64}' examples/software-factory/drafter/src/drafter-image.ts)"
           pnpm --filter @b4-example/software-factory-drafter check
           pnpm --filter @b4-example/software-factory-drafter build

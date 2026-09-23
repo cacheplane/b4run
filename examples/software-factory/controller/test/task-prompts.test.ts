@@ -197,11 +197,17 @@ describe("the controller over a partly unprepared catalog", () => {
       verifier: createFakeVerifier({ verdict: "pass" }),
       captureBaseline: async () => ({ digest: "a".repeat(64), files: new Map() }),
       promptCatalog: { tasksDir, targetsDir, repositoryRoot: root },
+      // The fixture task lives only in `promptCatalog`; the manifest is not this test's.
+      writeBuilderManifest: async ({ dir: target, workOrderId }) => ({
+        path: join(target, `${workOrderId}.json`),
+        sourceDigest: "e".repeat(64),
+      }),
     })
     const { id } = await factory.create({ taskId: "served" })
     // The target loses its image between create and dispatch: an upgrade, or a re-prepare.
     const manifestPath = join(targetsDir, "ready", "target.json")
-    const { image: _image, ...unprepared } = JSON.parse(readFileSync(manifestPath, "utf8"))
+    const prepared = readFileSync(manifestPath, "utf8")
+    const { image: _image, ...unprepared } = JSON.parse(prepared)
     writeFileSync(manifestPath, JSON.stringify(unprepared))
     expect(await factory.dispatch(id)).toMatchObject({
       ok: false,
@@ -209,6 +215,11 @@ describe("the controller over a partly unprepared catalog", () => {
       message: expect.stringMatching(/^Unknown task served: .*has not been prepared/),
     })
     expect(factory.show(id)?.state).toBe("received")
+    // Refused before the key is spent: the lookup is where a target's pin is fetched, and a
+    // refusal that is not a function of the row's revision must not be replayed to the
+    // dispatch after the target is prepared again, under the same default key.
+    writeFileSync(manifestPath, prepared)
+    expect(await factory.dispatch(id)).toMatchObject({ ok: true, state: "dispatched" })
   })
 
   it("resolves generated tasks through the configured search path when no catalog is given", () => {

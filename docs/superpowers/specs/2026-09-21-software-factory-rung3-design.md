@@ -120,6 +120,17 @@ and the builder imports nothing from it; see the as-landed note below.
 > policy and permissions, and the prompt. The builder's `b4.config.ts` verifies and serves
 > it through the resolver form from §5, which is also how sub-project 3 will pick a task
 > per thread.
+>
+> **As landed (3b, half B, Task 6):** the builder's input is split in two. A per-process
+> **target file** (`factory builder-target --target <id>`, read from `FACTORY_BUILDER_TARGET`
+> at boot) carries the target's scope, image, sandbox policy and permissions, which the
+> framework fixes per app; a per-work-order **manifest**
+> (`<FACTORY_BUILDER_MANIFEST_DIR>/<workOrderId>.json`: `workOrderId`, `taskId`, `targetId`,
+> `workspace`, no prompt) is written by `dispatch` into the target worker's manifest
+> directory before it creates the thread, and the builder's resolver loads it by
+> `metadata.factoryWorkOrderId`, refusing one whose `targetId` is not its own. One builder
+> process per target; the prompt is the run's user message, and the route's system prompt is
+> fixed.
 
 > **As landed, the pins are historical.** The targets' `target.json` paths (`root`,
 > `imageContext`, `lockfile`) and the target Dockerfiles' `COPY` lines name the tree at the
@@ -330,6 +341,15 @@ second framework change this rung does not need. Recorded as a follow-up.
 > **As landed:** the sandbox-lane proof belongs to sub-project 3, which owns the builder's
 > resolver; sub-project 1 proves two threads through the Agent Protocol with the fake managed
 > provider, in development and from a built artifact.
+>
+> **As landed (3b, Task 6):** the sandbox lane is the controller's
+> `builder.integration.test.ts`: one served builder process for `cli-flags`, two work
+> orders' manifests (the second with one file more), two threads created with their own
+> `factoryWorkOrderId`, each association's `intent.sourceDigest` equal to its manifest's and
+> each listing showing its own workspace; a thread with no manifest, and one with another
+> target's, refused by name at admission. The two end-to-end builder lanes dispatch through
+> the controller to the served builder, so the thread is admitted with the manifest
+> `dispatch` wrote.
 
 ### 5.6 What it does not do
 
@@ -464,6 +484,18 @@ and proves the oracle in the target's image. What half A does not do: the pin is
 for the drafter but the oracle proof and verification still run in the target's prepared
 image at the pin it was prepared from, and the builder still resolves one manifest per
 process (§6.7, half B).
+
+**As landed (3b, half B, Task 6).** The builder resolves its workspace per work order the
+same way (§4.1's as-landed note): `dispatch` writes the manifest into
+`workerFor(row).manifestDir` (a `FACTORY_WORKERS` entry's `manifestDir`, or
+`FACTORY_BUILDER_MANIFEST_DIR` beside the legacy pair; default
+`<appRoot>/.factory/manifests`) after the key is begun and before `createThread`, journals
+`builder_manifest_written { path, sourceDigest }`, and refuses under the key with
+`builder_manifest_failed` if it cannot. The prompt lookup, which is where the target's pin is
+fetched into a shallow checkout, now runs before the key, so its refusal is unspent. The
+manifest is removed (`builder_manifest_removed`, failures journalled and never fatal, outside
+any transaction) when the row leaves `dispatched`/`running` for anything but a cancel, by a
+settled cancel of a builder thread, and when thread creation fails or the thread is orphaned.
 
 ### 6.5 What the controller does with the draft
 

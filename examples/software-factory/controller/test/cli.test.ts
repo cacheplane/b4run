@@ -4,9 +4,9 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
 import { afterEach, describe, expect, it } from "vitest"
-import { BuilderManifestSchema } from "../src/lib/builder-manifest.ts"
+import { BuilderManifestSchema, BuilderTargetSchema } from "../src/lib/builder-manifest.ts"
 import { openRegistryReader } from "../src/lib/registry/reader.ts"
-import { tasksDir } from "../src/lib/targets/catalog.ts"
+import { loadTask, tasksDir } from "../src/lib/targets/catalog.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { BAD_DRAFTS, GOOD_DRAFT } from "./intake-fixtures.ts"
 import { FIRST_DRAFTER_THREAD, type ServedController, serveController } from "./serve-controller.ts"
@@ -424,21 +424,54 @@ esac
     expect(evidence.oracleReceipt).toBeNull()
   }, 90_000)
 
-  it("writes a builder manifest without a controller, a registry or a Factory", async () => {
+  it("writes a builder target and manifest without a controller, a registry or a Factory", async () => {
     dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
     // Deliberately neither variable: a command that still needed one would fail here.
     const { FACTORY_CONTROLLER_URL, FACTORY_STATE_DIR, FACTORY_WORKER_URL, ...rest } = process.env
     const out = join(dir, "manifests")
+    const targetId = loadTask("cli-flags").target.id
+    const { stdout: targetOut } = await run(
+      process.execPath,
+      [tsxBin, cliEntry, "builder-target", "--target", targetId, "--out", dir],
+      { env: rest, cwd: packageRoot },
+    )
+    const targetPath = JSON.parse(targetOut).path
+    expect(targetPath).toBe(join(dir, `${targetId}.target.json`))
+    const target = BuilderTargetSchema.parse(JSON.parse(readFileSync(targetPath, "utf8")))
+    expect(target.target.id).toBe(targetId)
+    expect(target.target.policy.network.mode).toBe("deny")
+
+    // The work order defaults to the task: a lane with no controller names the file itself.
     const { stdout } = await run(
       process.execPath,
       [tsxBin, cliEntry, "builder-manifest", "--task", "cli-flags", "--out", out],
       { env: rest, cwd: packageRoot },
     )
-    const { path } = JSON.parse(stdout)
+    const { path, sourceDigest } = JSON.parse(stdout)
     expect(path).toBe(join(out, "cli-flags.json"))
     const manifest = BuilderManifestSchema.parse(JSON.parse(readFileSync(path, "utf8")))
-    expect(manifest.taskId).toBe("cli-flags")
-    expect(manifest.target.policy.network.mode).toBe("deny")
+    expect(manifest).toMatchObject({ taskId: "cli-flags", workOrderId: "cli-flags", targetId })
+    expect(sourceDigest).toMatch(/^[a-f0-9]{64}$/)
+    const { stdout: named } = await run(
+      process.execPath,
+      [
+        tsxBin,
+        cliEntry,
+        "builder-manifest",
+        "--task",
+        "cli-flags",
+        "--work-order",
+        "wo-named",
+        "--out",
+        out,
+      ],
+      { env: rest, cwd: packageRoot },
+    )
+    expect(JSON.parse(named).path).toBe(join(out, "wo-named.json"))
+    expect(
+      BuilderManifestSchema.parse(JSON.parse(readFileSync(join(out, "wo-named.json"), "utf8")))
+        .workOrderId,
+    ).toBe("wo-named")
   }, 60_000)
 
   it("writes a builder manifest for a task generated under FACTORY_STATE_DIR", async () => {

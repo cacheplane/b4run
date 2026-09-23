@@ -16,7 +16,13 @@ describe("loadConfig", () => {
     expect(config.registryPath).toBe("/tmp/state/registry.sqlite")
     // The legacy pair is the wildcard entry: one builder for every target, on the default route.
     expect(config.workers).toEqual({
-      "*": { url: "http://127.0.0.1:4100", appRoot: "/tmp/builder", route: "/build#agent" },
+      "*": {
+        url: "http://127.0.0.1:4100",
+        appRoot: "/tmp/builder",
+        route: "/build#agent",
+        // The builder's FACTORY_BUILDER_MANIFEST_DIR default, under its app root.
+        manifestDir: "/tmp/builder/.factory/manifests",
+      },
     })
   })
 
@@ -56,11 +62,13 @@ describe("the worker map", () => {
         url: "http://127.0.0.1:4101",
         appRoot: "/srv/devkit-builder",
         route: "/build#agent",
+        manifestDir: "/srv/devkit-builder/.factory/manifests",
       },
       "cli-flags": {
         url: "http://127.0.0.1:4102",
         appRoot: "/srv/cli-builder",
         route: "/repair#agent",
+        manifestDir: "/srv/cli-builder/.factory/manifests",
       },
     })
     expect(workerEndpointFor(config.workers, "devkit")?.appRoot).toBe("/srv/devkit-builder")
@@ -144,6 +152,53 @@ describe("the worker map", () => {
     // The legacy route has nowhere to go: each entry carries its own.
     expect(() => loadConfig({ ...mapped, FACTORY_WORKER_ROUTE: "/fix#agent" })).toThrow(
       "FACTORY_WORKERS is set; unset FACTORY_WORKER_ROUTE",
+    )
+  })
+
+  it("takes each entry's manifest directory, or its app root's default", () => {
+    const config = loadConfig({
+      ...mapped,
+      FACTORY_WORKERS: JSON.stringify({
+        devkit: { url: "http://127.0.0.1:4101", appRoot: "/srv/a", manifestDir: "/var/m/devkit" },
+        cli: { url: "http://127.0.0.1:4102", appRoot: "/srv/b" },
+      }),
+    })
+    expect(config.workers.devkit?.manifestDir).toBe("/var/m/devkit")
+    expect(config.workers.cli?.manifestDir).toBe("/srv/b/.factory/manifests")
+    expect(() =>
+      loadConfig({
+        ...mapped,
+        FACTORY_WORKERS: JSON.stringify({
+          devkit: { url: "http://x", appRoot: "/a", manifestDir: "" },
+        }),
+      }),
+    ).toThrow(/FACTORY_WORKERS: devkit.manifestDir/)
+  })
+
+  it("refuses two entries at one URL that name different manifest directories", () => {
+    // One process boots with one FACTORY_BUILDER_MANIFEST_DIR: a manifest written anywhere
+    // else is one its resolver never finds.
+    expect(() =>
+      loadConfig({
+        ...mapped,
+        FACTORY_WORKERS: JSON.stringify({
+          devkit: { url: "http://127.0.0.1:4101", appRoot: "/srv/a", manifestDir: "/m/1" },
+          cli: { url: "http://127.0.0.1:4101", appRoot: "/srv/a", manifestDir: "/m/2" },
+        }),
+      }),
+    ).toThrow(
+      "FACTORY_WORKERS: workers devkit and cli share http://127.0.0.1:4101 but name different manifest directories (/m/1, /m/2)",
+    )
+  })
+
+  it("takes FACTORY_BUILDER_MANIFEST_DIR into the legacy entry, and refuses it beside the map", () => {
+    expect(
+      loadConfig({ ...base, FACTORY_BUILDER_MANIFEST_DIR: "/var/manifests" }).workers["*"]
+        ?.manifestDir,
+    ).toBe("/var/manifests")
+    // The map's entries carry their own: a process-wide one would name nobody's directory.
+    expect(() => loadConfig({ ...mapped, FACTORY_BUILDER_MANIFEST_DIR: "/var/manifests" })).toThrow(
+      "FACTORY_WORKERS is set; unset FACTORY_BUILDER_MANIFEST_DIR",
     )
   })
 

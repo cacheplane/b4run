@@ -28,7 +28,10 @@ import { createThreadWorkspaceReader, type WorkspaceReader } from "./worker/work
  * configuration's, and a test points its two fake workers at it through the environment.
  */
 export type ControllerRuntimeOverrides = Partial<
-  Pick<FactoryOptions, "verifier" | "captureBaseline" | "writeDrafterManifest">
+  Pick<
+    FactoryOptions,
+    "verifier" | "captureBaseline" | "writeDrafterManifest" | "writeBuilderManifest"
+  >
 > & {
   readonly readers?: {
     /** Replaces the reader of EVERY builder worker entry. */
@@ -91,6 +94,19 @@ export function createControllerRuntime(
         return Promise.reject(
           new Error(
             `FACTORY_DRAFTER_MANIFEST_DIR could not be created (${config.drafter.manifestDir}): ${String(error)}`,
+          ),
+        )
+      }
+    }
+    // Each builder entry's manifest directory is the controller's to make too, for the same
+    // reason: `dispatch` writes into it, the builder only reads it.
+    for (const [key, entry] of Object.entries(config.workers)) {
+      try {
+        mkdirSync(entry.manifestDir, { recursive: true })
+      } catch (error) {
+        return Promise.reject(
+          new Error(
+            `the manifest directory of worker ${key} could not be created (${entry.manifestDir}): ${String(error)}`,
           ),
         )
       }

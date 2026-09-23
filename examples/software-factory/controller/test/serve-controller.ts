@@ -34,6 +34,7 @@ const FACTORY_ENV = [
   "FACTORY_WORKER_URL",
   "FACTORY_STATE_DIR",
   "FACTORY_BUILDER_APP_ROOT",
+  "FACTORY_BUILDER_MANIFEST_DIR",
   "FACTORY_DRAFTER_URL",
   "FACTORY_DRAFTER_APP_ROOT",
 ] as const
@@ -132,6 +133,14 @@ export async function serveController(
       const path = join(target, `${workOrderId}.json`)
       writeFileSync(path, `${JSON.stringify({ version: 1, workOrderId, pin })}\n`)
       return { path, sourceDigest: "c".repeat(64) }
+    },
+    // The builder is a fake too, whose threads resolve nothing: the file stands in for the
+    // capture the real writer would take (and a drafted task's target's is not this lane's).
+    writeBuilderManifest: async ({ dir: target, workOrderId, taskId }) => {
+      mkdirSync(target, { recursive: true })
+      const path = join(target, `${workOrderId}.json`)
+      writeFileSync(path, `${JSON.stringify({ version: 1, workOrderId, taskId })}\n`)
+      return { path, sourceDigest: "d".repeat(64) }
     },
     ...runtimeOverrides,
   })

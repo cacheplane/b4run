@@ -1,3 +1,6 @@
+import { mkdtempSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import type { DrafterWorker, TargetWorker, WorkerMap } from "../src/lib/controller/workers.ts"
 import type { WorkerClient } from "../src/lib/worker/client.ts"
 import type { WorkspaceReader } from "../src/lib/worker/workspace-reader.ts"
@@ -9,6 +12,11 @@ export interface FakeWorkerMapOptions {
     readonly reader: WorkspaceReader
     readonly route?: string
     readonly appRoot?: string
+    /**
+     * Where `dispatch` writes builder manifests. A fresh temporary directory by default, so a
+     * test that does not care still exercises the real write (and the OS reclaims it).
+     */
+    readonly manifestDir?: string
   }
   /** The drafter. Absent: intake is not configured. */
   readonly drafter?: {
@@ -31,6 +39,8 @@ export function fakeWorkerMap(options: FakeWorkerMapOptions): WorkerMap {
         reader: options.builder.reader,
         route: options.builder.route ?? "/build#agent",
         appRoot: options.builder.appRoot ?? "/unused/builder",
+        manifestDir:
+          options.builder.manifestDir ?? mkdtempSync(join(tmpdir(), "factory-builder-manifests-")),
       }
     : undefined
   const drafter: DrafterWorker | undefined = options.drafter

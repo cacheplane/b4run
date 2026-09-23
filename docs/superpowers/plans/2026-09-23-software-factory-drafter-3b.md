@@ -88,7 +88,57 @@
 
 **Files:** `C/src/lib/builder-manifest.ts` (`writeBuilderManifest(task, dir, { workOrderId })` names the file by work order id; the manifest gains `workOrderId`; the `prompt` field is removed: the run content already carries it), `S/src/builder-manifest.ts` (schema copy; `loadBuilderManifest(dir, workOrderId)`; boot needs `FACTORY_BUILDER_MANIFEST_DIR` plus the STATIC parts: `FACTORY_BUILDER_TARGET=<dir>/target.json` written once by `factory builder-target --target <id> --out <dir>` with `{ id, scope, image, policy, permissions }`, since provider/policy/permissions cannot vary per thread), `S/b4.config.ts` (resolver reads `metadata.factoryWorkOrderId`, loads `<dir>/<id>.json`, verifies; provider/policy/permissions from the target file), `S/src/app/build/index.ts` (system prompt = fixed rules only), `S/scripts/with-manifest.mjs` (gates on the target file instead), `C/src/lib/controller/factory.ts` dispatch (writes the manifest into the target worker's `manifestDir` BEFORE `createThread`, journals `builder_manifest_written`), `C/src/cli.ts` (`builder-manifest` becomes `builder-target`; keep `builder-manifest --task --out` for the Docker lanes that drive the builder without a controller, writing `<taskId>.json` AND accepting `--work-order`), README, tests (`S/test/builder-config.test.ts` two-thread resolver unit test; `C/test/builder-manifest.test.ts`; `C/test/builder.integration.test.ts` adjusted; `serve-controller.ts`).
 
-- [ ] Steps: failing tests → implement → gate (incl. `S/` check/build with a target file) → commit `feat(software-factory): the builder resolves its workspace per work order`.
+- [x] Steps: failing tests → implement → gate (incl. `S/` check/build with a target file) → commit `feat(software-factory): the builder resolves its workspace per work order`.
+
+**As landed.** Two builder inputs. `FACTORY_BUILDER_TARGET` names `<dir>/<id>.target.json`
+(`{ version: 1, target: { id, scope, image, policy, permissions } }`, `BuilderTargetSchema`),
+written by `factory builder-target --target <id> --out <dir>` (`writeBuilderTarget(target,
+dir)`); `FACTORY_BUILDER_MANIFEST_DIR` holds `<workOrderId>.json`
+(`{ version: 1, workOrderId, taskId, targetId, workspace }`, `BuilderManifestSchema`, no
+`prompt`). Both schemas and `CATALOG_ID` are byte-identical between
+`C/src/lib/builder-manifest.ts` and `S/src/builder-manifest.ts`, pinned by one identity test.
+`S/b4.config.ts` reads both at boot (both required; an empty directory is fine) and resolves
+per thread through `workOrderIdOf(metadata)` + `loadBuilderManifest(dir, id, targetId)`,
+which refuses a manifest for another target ("is for target X, but this builder serves Y").
+`S/src/app/build/index.ts`'s system prompt is a fixed role statement plus the three
+non-negotiable rules; the task's instructions (`taskPrompt`, whose own rules are not
+repeated) are the run's user message, as `startRun` already sent. `S/scripts/with-manifest.mjs`
+became `with-target.mjs`, gating on `FACTORY_BUILDER_TARGET`; the package's `check`/`build`
+default `FACTORY_BUILDER_MANIFEST_DIR` to `.factory/manifests`; turbo's builder `env` is the
+two variables. `writeBuilderManifest(task, dir, { workOrderId?, appRoot?, signal? })` returns
+`{ path, sourceDigest }` and stages its capture in a per-call instance directory it removes,
+so two work orders of one task can be captured at once. Controller: `WorkerEndpoint` and
+`TargetWorker` carry `manifestDir` (`FACTORY_WORKERS` entry `manifestDir`, or
+`FACTORY_BUILDER_MANIFEST_DIR` beside the legacy pair, refused beside the map; default
+`<appRoot>/.factory/manifests`; two entries at one URL must agree on it); the runtime
+`mkdir -p`s each at boot. `dispatch` resolves the prompt BEFORE the key (the lookup is
+`loadTarget`'s `ensurePin`, which was NOT before the key for a generated task: now a failed
+fetch, or a task that stopped loading, is refused unspent and the next dispatch under the
+same default key proceeds), then under the key writes the manifest through
+`FactoryOptions.writeBuilderManifest` (default: the real writer over the process-wide
+catalog), journals `builder_manifest_written`, and on failure refuses with
+`builder_manifest_failed`. Removal (`builder_manifest_removed`, `builder_manifest_remove_failed`
+never fatal) happens in `transition` when the row leaves `dispatched`/`running` for anything
+but `cancel_requested` (deferred past an outer transaction like the drafter's), in
+`finishCancel` for a builder thread, and on a failed `createThread` or an orphaned thread.
+The CLI keeps `builder-manifest --task --out` with `--work-order` (default: the task id).
+Tests: `S/test/builder-config.test.ts` (two work orders → two digests; wrong target, unknown,
+malformed, stale-prompt and tampered manifests refused; missing target file and missing
+directory are boot errors; fixed system prompt); `C/test/builder-manifest.test.ts` (both
+identities, file named by the work order, no `prompt`, concurrent captures);
+`C/test/factory-builder-manifest.test.ts` (written before the thread, removed at
+`verifying`, on `run_failed`, by a cancel of a running build after the worker confirmed it,
+on a failed thread creation; a failed write refuses spent); `task-prompts.test.ts` (the
+pre-key refusal is unspent). The Docker lanes could not use `createAgentHarness` (it mints
+thread ids with no metadata, so no thread can name a work order): `C/test/served-builder.ts`
+serves the builder with `serveRuntime` for one target and creates threads through
+`POST /threads { metadata: { factoryWorkOrderId } }`; `builder.integration.test.ts` is the
+two-work-order lane (plus the no-manifest and wrong-target refusals), and the two end-to-end
+lanes now dispatch through the controller to the served builder instead of pointing a fake
+worker at a harness thread. CI's sandbox-docker step writes the `cli-flags` target file and
+runs the builder's `check`/`build` with an empty manifest directory; both audited workflow
+fixtures changed by one string each, regenerated through the contracts test's own
+`workflowExecutables`/`workflowDescriptor` from a scratch copy and verified canonically equal.
 
 ### Task 7: Per-pin images
 
@@ -125,7 +175,7 @@
 - A `workerThreadStage` column (schema 5, `intake` | `build`) recorded with `workerThreadId`, so `workerOfThread` and `settleIncompleteDispatch` read the row instead of scanning the journal for `intake_thread_created` / `thread_created`.
 - One `probeThread(ctx, worker, row)` shared by `reconcileRun` and `reconcileIntake` (the `getThread` → state re-read → `pendingInterrupts` → state re-read prefix they duplicate).
 - Lift `targetOf`, `workerFor`, `drafter`, `holdsIntakeThread`, `workerOfThread` and `journalledIntakeThreadId` out of `factory.ts` (1,500 lines) into `controller/worker-of-row.ts`.
-- The builder-manifest equivalent of Task 4's Step 3b, for Task 6: once `writeBuilderManifest` is per work order, remove `<builderManifestDir>/<id>.json` when the work order leaves `building` for a terminal state or is approved, for the same reason (the resolver reads it once, at the thread's first admission).
+- ~~The builder-manifest equivalent of Task 4's Step 3b~~: landed in Task 6.
 - Orphan `workspace_sources` rows (framework, §9).
 - A drafter gate: `denyPending` per worker is in Task 4; deny-on-block stays a follow-up.
 - `cli-flags` cannot be re-pinned past the controller move without per-pin paths; devkit is the per-pin target.
