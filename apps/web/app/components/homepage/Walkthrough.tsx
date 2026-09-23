@@ -35,13 +35,13 @@ export function Walkthrough(props: WalkthroughProps) {
       </fieldset>
       <div className={styles.walkthroughGrid}>
         <div className={styles.proof} aria-live="polite">
-          <p className={styles.proofLabel}>
+          <Eyebrow className={styles.proofLabel}>
             {step === "verify"
               ? "✓ Independent verification passed"
               : step === "repair"
                 ? "Source change captured"
                 : "Failure reproduced"}
-          </p>
+          </Eyebrow>
           <h3>
             {step === "verify" ? (
               <>

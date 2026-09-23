@@ -112,7 +112,6 @@
   min-width: 0;
 }
 .agentSource > .eyebrow {
-  color: var(--color-panel-muted);
   margin: 0;
   padding: 16px 18px 0;
 }
@@ -125,12 +124,6 @@
   background: var(--color-surface);
 }
 .proofLabel {
-  font:
-    11px / 1.6 var(--font-mono),
-    monospace;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-ink-muted);
   margin: 0;
 }
 .proof h3 {
@@ -345,7 +338,6 @@
   padding: 40px;
 }
 .takeaway .eyebrow {
-  color: var(--color-panel-muted);
   margin-bottom: 18px;
 }
 .takeaway h2 + p {

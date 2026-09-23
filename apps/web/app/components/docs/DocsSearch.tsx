@@ -11,6 +11,8 @@ import {
   useState,
   useSyncExternalStore,
 } from "react"
+import { Button } from "../ui/Button"
+import { Eyebrow } from "../ui/Eyebrow"
 import { Icon } from "../ui/Icon"
 import {
   isTypingTarget,
@@ -64,22 +66,23 @@ const SHORTCUTS = "Meta+K Control+K /"
 /** The docs sidebar's full-width search field button. */
 export function DocsSearchTrigger() {
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="sm"
       onClick={openDocsSearch}
       onPointerEnter={() => void loadDocsSearchIndex().catch(() => {})}
       onFocus={() => void loadDocsSearchIndex().catch(() => {})}
       aria-haspopup="dialog"
       aria-keyshortcuts={SHORTCUTS}
       data-docs-search-trigger
-      className="w-full flex items-center justify-between gap-3 px-3 py-2 border border-rule-strong bg-page text-sm text-ink-muted hover:border-ink hover:text-ink transition-colors mb-6"
+      className="w-full justify-between mb-6"
     >
       <span className="flex items-center gap-2">
         <Icon name="search" />
         Search docs
       </span>
       <SearchShortcutHint />
-    </button>
+    </Button>
   )
 }
 
@@ -265,7 +268,6 @@ export function DocsSearch() {
     <dialog
       ref={dialogRef}
       data-docs-search-dialog
-      data-docs-search-overlay
       aria-label="Search docs"
       onCancel={(event) => {
         event.preventDefault()
@@ -286,7 +288,7 @@ export function DocsSearch() {
       }}
       className="fixed inset-0 z-50 m-0 h-dvh max-h-none w-full max-w-none items-start justify-center border-0 p-0 pt-[12vh] backdrop-blur-sm backdrop:bg-transparent open:flex"
     >
-      {/* The scrim and the panel are styled by ui.css ([data-docs-search-overlay]). */}
+      {/* The scrim and the panel are styled by ui.css ([data-docs-search-dialog]). */}
       <div className="w-full max-w-xl mx-4 overflow-hidden">
         <div className="flex items-center gap-3 px-4 py-3 border-b border-rule">
           <Icon name="search" className="text-ink-muted" />
@@ -367,13 +369,9 @@ export function DocsSearch() {
                 onClick={() => navigate(hit.href)}
                 className="cursor-pointer px-4 py-2.5"
               >
-                <span
-                  className={`block text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ${
-                    selected ? "text-ink" : "text-ink-muted"
-                  }`}
-                >
+                <Eyebrow as="span" className="block whitespace-nowrap">
                   {hit.section}
-                </span>
+                </Eyebrow>
                 <span className="block text-sm font-semibold text-ink">
                   {hit.heading ? hit.heading.text : hit.title}
                 </span>

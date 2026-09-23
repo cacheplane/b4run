@@ -15,7 +15,7 @@ interface SiteLinkProps
 }
 
 /** `http(s)://` hrefs leave the site and open in a new tab. */
-export function isExternalHref(href: string): boolean {
+function isExternalHref(href: string): boolean {
   return /^https?:\/\//.test(href)
 }
 

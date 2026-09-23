@@ -16,12 +16,9 @@ export function DocsTOC() {
           <li key={h.id}>
             <a
               href={`#${h.id}`}
+              data-ui="nav-item"
               aria-current={activeId === h.id ? "location" : undefined}
-              className={`block py-0.5 transition-colors -ml-px border-l [overflow-wrap:anywhere] ${
-                activeId === h.id
-                  ? "text-ink border-ink font-semibold"
-                  : "text-ink-muted border-transparent hover:text-ink"
-              }`}
+              className="py-0.5 -ml-px [overflow-wrap:anywhere]"
               style={{ paddingLeft: h.level === 3 ? 24 : 12 }}
             >
               {h.text}

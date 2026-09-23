@@ -67,5 +67,5 @@ body:has([data-docs-layout]) [data-site-footer] {
 }
 .skip-link:focus {
   transform: none;
-  outline-color: var(--color-relay);
+  outline-color: var(--color-focus);
 }

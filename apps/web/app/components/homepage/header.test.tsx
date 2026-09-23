@@ -25,6 +25,7 @@ it("renders the same header, with the install command, on every page", () => {
       .split("<dialog")[0]
       ?.replace(/<button[^>]*data-header-docs-search[\s\S]*?<\/button>/, "")
       .replace(/text-ink(-muted hover:text-ink)? transition-colors/g, "")
+      .replace(/ aria-current="page"/g, "")
       .replace(/ data-layout="[a-z]+"/, "")
   expect(strip(render("/docs/getting-started"))).toBe(strip(home))
   expect(strip(render("/blog"))).toBe(strip(home))

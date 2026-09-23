@@ -9,16 +9,16 @@ this page is the implementation contract.
 
 | File | Holds |
 | --- | --- |
-| `apps/web/app/styles/tokens.css` | The `@theme` block: every colour, type, radius and shadow token. The only file that may contain a colour value (plus the Shiki theme and `lib/design-tokens.ts`). |
+| `apps/web/app/styles/tokens.css` | The one `@theme` block: every colour, type, radius and shadow token. The only stylesheet that may contain a colour value, with two exceptions the guard test names: the two Shiki-mirror diff colours in `ui.css` (`#c5d985`, `#f0ae95`) and `print.css`'s `black`. Outside CSS, hex also lives in the Shiki theme, `lib/design-tokens.ts`, the OG image route and `public/site.webmanifest`. |
 | `apps/web/app/styles/base.css` | `html`/`body`, `::selection`, the global `:focus-visible` ring, `text-wrap`, the skip link. |
 | `apps/web/app/styles/prose.css` | MDX prose: headings, the reading measure, links, inline code. Lives in `@layer components`, so a Tailwind utility on the same element wins. |
-| `apps/web/app/styles/ui.css` | `[data-ui="…"]` primitives, the dark code frame, callouts, tables/tabs/steps, docs-chrome one-offs (search overlay, page-actions menu, sidebar marker), and the off-site link arrow. Lives in `@layer components`. |
+| `apps/web/app/styles/ui.css` | `[data-ui="…"]` primitives, the dark code frame, callouts, tables/tabs/steps, docs-chrome one-offs (the search dialog keyed off `data-docs-search-dialog`, page-actions menu, sidebar marker), and the off-site link arrow. Lives in `@layer components`. |
 | `apps/web/app/styles/print.css` | Print only: chrome and controls hidden, code prints as a bordered block, off-site links show their URL inline. Imported last and unlayered, so its `:root :is(...)` rules outrank the `@layer components` files. |
 | `apps/web/lib/design-tokens.ts` | TS mirror of the colour roles (`COLOR`) for Satori OG images and `viewport.themeColor`, plus the Shiki foreground list. |
 | `apps/web/lib/shiki-theme.ts` | The single `paper-relay` syntax theme. |
 | `apps/web/lib/design-system-checks.ts` | The `themeTokens` (parses the `@theme` block) and `contrast` (WCAG luminance ratio) helpers the test imports. |
 | `apps/web/app/components/ui/` | `Eyebrow`, `Button`, `SiteLink`, `Card`, `Icon`, `CopyCommand`. |
-| `apps/web/app/styles/design-system.test.ts` | Pins token values, TS-mirror parity, contrast ratios, and forbids the old palette and classes. |
+| `apps/web/app/styles/design-system.test.ts` | Pins token values, TS-mirror parity, contrast ratios; forbids the old palette and classes, hex and named/functional colours outside the files above, and a second `@theme`. |
 
 CSS modules (`homepage.module.css`, `blog.module.css`, `header.module.css`)
 hold page layout only and consume tokens through `var(--color-*)`.
@@ -92,12 +92,12 @@ nothing casts a shadow. The only curves are the relay dots (`border-radius: 50%`
 | Component | Markup | Variants |
 | --- | --- | --- |
 | `Eyebrow` | `<p\|span data-ui="eyebrow" data-tone>` | tone `muted` (default), `olive`, `tint` (on relay-tint), `panel`; `as="p"` (default) or `"span"` where a `<p>` is invalid |
-| `Button` | `<button\|a data-ui="button" data-variant data-size>` | `primary` (relay fill, ink border), `secondary` (ink border), `ghost`; `size="sm"` mono. Forwards the rest of the anchor or button attributes. |
+| `Button` | `<button\|a data-ui="button" data-variant data-size>` | `primary` (relay fill, ink border), `secondary` (ink border), `ghost` (rule-strong border, muted text; ink on hover — the header and sidebar search triggers and the page-actions controls); `size="sm"` mono 2rem, `size="icon"` 44px square for an icon-only control. Forwards the rest of the anchor or button attributes, including `ref`. |
 | `SiteLink` | `next/link` or a plain `<a>` | `http(s)://` hrefs get `target="_blank" rel="noopener noreferrer"`; `mailto:`, `download`, or a caller-supplied `target` render a plain `<a>` with no injected target. Never writes ↗. |
 | `Card` | `<a\|div data-ui="card">` | Link cards get the relay-tint hover. |
-| `Icon` | `<svg data-ui="icon" data-size>` | names: `copy`, `check`, `search`, `menu`, `close`, `arrowUpRight`, `arrowRight`, `chevronDown`; `sm` 16px (default), `md` 20px, stroke 1.5 |
-| `CopyCommand` | `<div data-ui="copy-command" data-variant>` | `light`, `dark` |
-| `data-ui="nav-item"` | docs sidebar / mobile nav / TOC links | active = tint + ink left border + 600 |
+| `Icon` | `<svg data-ui="icon" data-size>` | names: `copy`, `check`, `search`, `menu`, `close`, `arrowRight`; `sm` 16px (default), `md` 20px, stroke 1.5 |
+| `CopyCommand` | `<span data-ui="copy-command" data-variant>` wrapping one `<button>` (the whole chip is the copy target) and a `role="status"` beneath it for the copy result | `light`, `dark` |
+| `data-ui="nav-item"` | docs sidebar and mobile nav links (`aria-current="page"`), desktop and mobile TOC links (`aria-current="location"`) | active = tint + ink left border + 600 |
 | `data-ui="icon-button"` | 44px icon controls | |
 | `data-ui="chip"` | blog tag filters | active (`aria-current="page"`) = relay fill + ink border |
 | `data-ui="kbd"` | ⌘K / ESC chips | |
@@ -108,9 +108,10 @@ nothing casts a shadow. The only curves are the relay dots (`border-radius: 50%`
 - Relay is a fill. Text on paper is ink, ink-muted or olive; on the panel it may be panel-accent.
 - ↗ means off-site. It is drawn by `a[href^="http"]::after` in `ui.css` (and, in print, spelled out as the URL by `print.css`); markup never contains the glyph. Icon-only links add `data-no-arrow`.
 - One eyebrow (`Eyebrow`), one focus ring (`:focus-visible` in base.css; the dark code frame restates `--color-focus` to `panel-accent`), one link style in prose (ink text, olive underline, 2px on hover).
-- Prose text stops at `--prose-max` (56ch ≈ 565px ≈ 70 average characters; `ch` is the "0" width, so 68 characters of prose is well under 68ch); code, tables, tabs and card grids keep the column.
+- Every small uppercase label is an `Eyebrow` (section headings, the homepage proof label, search result sections), with two deliberate exceptions that are different roles, not eyebrows: the callout label (`[data-callout-label]`, 600 weight, sans) and table `th`.
+- Prose text (and a blog post's `<header>`) stops at `--prose-max` (56ch ≈ 565px ≈ 70 average characters; `ch` is the "0" width, so 68 characters of prose is well under 68ch); code, tables, tabs and card grids keep the column.
 - Inline code inside a table never wraps; the table scrolls.
-- No hex outside `tokens.css`, `shiki-theme.ts`, `design-tokens.ts` and the OG routes.
+- No hex outside `tokens.css`, `shiki-theme.ts`, `design-tokens.ts`, the OG route and `site.webmanifest`, except the two Shiki-mirror diff colours in `ui.css`. No named (`white`, `black`, …) or functional (`rgb()`, `hsl()`, `oklch()`) colour in any stylesheet but `tokens.css` and `print.css`.
 
 ## Adding a token
 

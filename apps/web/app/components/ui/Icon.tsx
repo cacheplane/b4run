@@ -16,19 +16,12 @@ const GLYPHS = {
   ),
   menu: <path d="M4 7h16M4 12h16M4 17h16" />,
   close: <path d="M6 6l12 12M6 18L18 6" />,
-  arrowUpRight: (
-    <>
-      <line x1="7" y1="17" x2="17" y2="7" />
-      <polyline points="7 7 17 7 17 17" />
-    </>
-  ),
   arrowRight: (
     <>
       <path d="M5 12h14" />
       <path d="m13 6 6 6-6 6" />
     </>
   ),
-  chevronDown: <path d="m6 9 6 6 6-6" />,
 } satisfies Record<string, ReactNode>
 
 export type IconName = keyof typeof GLYPHS

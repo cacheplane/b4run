@@ -11,7 +11,7 @@ export function DocsSidebar() {
   return (
     <div data-docs-sidebar>
       <Eyebrow className="mb-4 flex items-center gap-2">
-        <span className="inline-block w-1 h-1 bg-relay" aria-hidden />
+        <span className="inline-block w-1 h-1" aria-hidden />
         Documentation
       </Eyebrow>
       <DocsSearchTrigger />

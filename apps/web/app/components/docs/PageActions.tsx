@@ -10,6 +10,7 @@ import {
   useState,
 } from "react"
 import { CopyStatus, useCopyFeedback } from "../copy-feedback"
+import { Button } from "../ui/Button"
 import { Icon } from "../ui/Icon"
 import { pageUrl, sourceSlug } from "./page-actions"
 
@@ -299,24 +300,26 @@ export function PageActions({ slug, promptBody }: PageActionsProps) {
         // Out of flow, so the result never shifts the buttons.
         className="absolute right-0 top-full mt-1 text-xs text-ink-muted whitespace-nowrap"
       />
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="sm"
         data-copy-page
         onClick={() => {
           setCopied("page")
           void copy(pageMarkdown(slug))
         }}
         title="Copy this page as Markdown, for pasting into an LLM"
-        className="inline-flex shrink-0 h-11 md:h-7 items-center gap-2 px-3 border border-rule-strong text-xs text-ink-muted hover:text-ink hover:border-ink transition-colors"
+        className="shrink-0 min-h-11 md:min-h-8"
       >
         {state === "copied" && copied === "page" ? <Icon name="check" /> : <PageIcon />}
         Copy page
-      </button>
+      </Button>
 
-      <button
+      <Button
+        variant="ghost"
+        size="icon"
         ref={triggerRef}
         id={triggerId}
-        type="button"
         onClick={() => {
           focusOnOpen.current = "first"
           setOpen((o) => !o)
@@ -326,10 +329,10 @@ export function PageActions({ slug, promptBody }: PageActionsProps) {
         aria-expanded={open}
         aria-controls={menuId}
         aria-label="More page actions"
-        className="inline-flex shrink-0 items-center justify-center h-11 w-11 md:h-7 md:w-7 border border-rule-strong text-ink-muted hover:text-ink hover:border-ink transition-colors"
+        className="shrink-0 md:min-h-8 md:w-8"
       >
         <DotsIcon />
-      </button>
+      </Button>
 
       {open && (
         <div

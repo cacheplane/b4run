@@ -215,7 +215,8 @@ function ScrollFade({
   useEffect(() => {
     const scroller = scrollerRef.current
     if (!scroller) return
-    // Fade into whatever the code actually sits on (themes differ).
+    // Fade into whatever the code actually sits on: the panel inside a code
+    // frame, or a caller's own background.
     for (let el: HTMLElement | null = scroller; el; el = el.parentElement) {
       const color = getComputedStyle(el).backgroundColor
       if (color && color !== "transparent" && !/rgba\(.*,\s*0\)$/.test(color)) {

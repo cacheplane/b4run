@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { DocsCalloutLabel } from "../docs/DocsBrandProvider"
+import { DocsCalloutLabel } from "../docs/DocsCalloutLabels"
 
 type CalloutType = "info" | "tip" | "warn" | "danger"
 

@@ -39,12 +39,13 @@
     }
   }
 
-  /* Reading measure: top-level text blocks stop at --prose-max; code, tables,
-     tabs and card grids keep the full column. Only direct children are capped:
-     text nested inside a callout, step or tab is already inside a capped or
-     full-width container, and a code frame inside a Step stays full width. */
+  /* Reading measure: top-level text blocks (and a post's <header>: title and
+     description) stop at --prose-max; code, tables, tabs and card grids keep
+     the full column. Only direct children are capped: text nested inside a
+     callout, step or tab is already inside a capped or full-width container,
+     and a code frame inside a Step stays full width. */
   .prose-b4
-  > :where(p, ul, ol, blockquote, h1, h2, h3, h4, [data-callout-type], [data-prose-steps]) {
+  > :where(p, ul, ol, blockquote, h1, h2, h3, h4, header, [data-callout-type], [data-prose-steps]) {
     max-width: var(--prose-max);
   }
 

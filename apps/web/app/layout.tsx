@@ -48,14 +48,14 @@ export const metadata: Metadata = {
     title: "B4.run: the TypeScript meta-framework for LangGraph.js",
     description:
       "B4.run adds file-system routing, route-local tools, generated types, and HMR to your LangGraph.js stack. You keep the runtime and skip the boilerplate.",
-    // Image is provided by app/opengraph-image.tsx (1200×630, cream palette).
+    // Image is provided by app/opengraph-image.tsx (1200×630, on the paper tokens).
   },
   twitter: {
     card: SOCIAL_CARD,
     title: "B4.run: the TypeScript meta-framework for LangGraph.js",
     description:
       "B4.run adds file-system routing, route-local tools, generated types, and HMR to your LangGraph.js stack. You keep the runtime and skip the boilerplate.",
-    // Image is provided by app/twitter-image.tsx (re-exports opengraph-image).
+    // No twitter-image route: Twitter falls back to the Open Graph image above.
   },
   appleWebApp: {
     title: "B4.run",

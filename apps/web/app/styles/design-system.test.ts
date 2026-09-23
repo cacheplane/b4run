@@ -176,6 +176,29 @@ describe("guard: the old palette and its classes stay gone", () => {
     expect([...new Set(hits)]).toEqual([])
   })
 
+  it("has no named or functional colour in CSS outside tokens.css and print.css", () => {
+    // `white-space` and friends are properties, not colours: the word must not
+    // continue into a hyphenated identifier.
+    const colour =
+      /\b(white|black|red|blue|green|gray|grey|yellow|orange)\b(?!-)|rgba?\(|hsla?\(|oklch\(/
+    const hits = sources
+      .filter(({ path }) => path.endsWith(".css") && !/styles\/(tokens|print)\.css$/.test(path))
+      .flatMap(({ path, text }) => {
+        const m = stripComments(text).match(colour)
+        return m ? [`${path}: ${m[0]}`] : []
+      })
+    expect(hits).toEqual([])
+  })
+
+  it("has exactly one @theme block, in tokens.css", () => {
+    expect(stripComments(tokensCss).match(/@theme\b/g)).toHaveLength(1)
+    const elsewhere = sources
+      .filter(({ path }) => path.endsWith(".css") && !path.endsWith("styles/tokens.css"))
+      .filter(({ text }) => /@theme\b/.test(stripComments(text)))
+      .map(({ path }) => path)
+    expect(elsewhere).toEqual([])
+  })
+
   it("has no border-radius other than 0 or 50% in CSS", () => {
     const hits = sources
       .filter(({ path }) => path.endsWith(".css"))

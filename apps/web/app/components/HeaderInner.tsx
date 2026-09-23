@@ -7,6 +7,7 @@ import { DocsSearch, SearchShortcutHint } from "./docs/DocsSearch"
 import { loadDocsSearchIndex, openDocsSearch } from "./docs/docs-search-events"
 import homepageStyles from "./homepage/header.module.css"
 import { MobileMenu } from "./MobileMenu"
+import { Button } from "./ui/Button"
 import { CopyCommand } from "./ui/CopyCommand"
 import { Icon } from "./ui/Icon"
 import { SiteLink } from "./ui/SiteLink"
@@ -57,20 +58,20 @@ function MobileDocsSearchButton() {
 /** Desktop header search, for pages without the docs sidebar's search field. */
 function HeaderSearchButton() {
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="sm"
       onClick={openDocsSearch}
       onPointerEnter={preloadSearch}
       onFocus={preloadSearch}
       aria-haspopup="dialog"
       aria-keyshortcuts="Meta+K Control+K /"
       data-header-docs-search
-      className="inline-flex items-center gap-2 border border-rule-strong px-2.5 py-1.5 text-ink-muted hover:text-ink hover:border-ink transition-colors"
     >
       <Icon name="search" />
       Search docs
       <SearchShortcutHint />
-    </button>
+    </Button>
   )
 }
 
@@ -82,6 +83,8 @@ export function HeaderInner({ repoUrl }: HeaderInnerProps) {
   const pathname = usePathname()
   const linkClass = (active: boolean) =>
     active ? "text-ink transition-colors" : "text-ink-muted hover:text-ink transition-colors"
+  const docsActive = pathname.startsWith("/docs")
+  const blogActive = pathname.startsWith("/blog")
 
   // Same header everywhere; only its column tracks the page layout underneath:
   // docs and blog posts are full-width reading layouts, everything else uses
@@ -93,13 +96,21 @@ export function HeaderInner({ repoUrl }: HeaderInnerProps) {
       <div className={`${homepageStyles.bar} flex justify-between items-center`}>
         <BrandLogo imageClassName="h-8" variant="dark" />
         <nav aria-label="Main" className="hidden md:flex items-center gap-6 text-sm">
-          <Link href="/docs/getting-started" className={linkClass(pathname.startsWith("/docs"))}>
+          <Link
+            href="/docs/getting-started"
+            className={linkClass(docsActive)}
+            {...(docsActive ? { "aria-current": "page" as const } : {})}
+          >
             Docs
           </Link>
-          <Link href="/blog" className={linkClass(pathname.startsWith("/blog"))}>
+          <Link
+            href="/blog"
+            className={linkClass(blogActive)}
+            {...(blogActive ? { "aria-current": "page" as const } : {})}
+          >
             Blog
           </Link>
-          {pathname.startsWith("/docs") ? null : <HeaderSearchButton />}
+          {docsActive ? null : <HeaderSearchButton />}
           <SiteLink
             href={repoUrl}
             aria-label="GitHub"

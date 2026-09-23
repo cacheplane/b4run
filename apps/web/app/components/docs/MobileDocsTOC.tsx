@@ -35,7 +35,8 @@ export function MobileDocsTOC() {
                 onClick={() => {
                   if (detailsRef.current) detailsRef.current.open = false
                 }}
-                className="flex min-h-11 items-center pr-3 text-ink-muted hover:bg-surface hover:text-ink [overflow-wrap:anywhere]"
+                data-ui="nav-item"
+                className="flex min-h-11 items-center pr-3 [overflow-wrap:anywhere]"
                 style={{ paddingLeft: h.level === 3 ? 28 : 12 }}
               >
                 {h.text}

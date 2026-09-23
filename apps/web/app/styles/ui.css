@@ -225,6 +225,13 @@
     font-family: var(--font-mono);
     font-weight: 500;
   }
+  /* Icon-only control: a 44px square target. */
+  [data-ui="button"][data-size="icon"] {
+    min-height: 2.75rem;
+    width: 2.75rem;
+    padding: 0;
+    justify-content: center;
+  }
 
   /* The `$ command` chip in the header, mobile menu, homepage and blog CTA.
      The wrapper positions the result; the whole chip is the copy button
@@ -429,16 +436,20 @@
     padding: 0.125rem 0.375rem;
   }
 
-  /* Docs chrome one-offs: search dialog, page-actions menu, sidebar marker. */
-  [data-docs-search-overlay] {
+  /* Docs chrome one-offs: search dialog (the scrim is the dialog element, the
+     panel its first child), page-actions menu, sidebar marker. */
+  [data-docs-search-dialog] {
     background: color-mix(in srgb, var(--color-ink) 40%, transparent);
   }
-  [data-docs-search-overlay] > div {
+  [data-docs-search-dialog] > div {
     background: var(--color-page);
     border: 1px solid var(--color-rule-strong);
   }
-  [data-docs-search-overlay] [data-active="true"] {
+  [data-docs-search-dialog] [data-active="true"] {
     background: var(--color-relay-tint);
+  }
+  [data-docs-search-dialog] [data-active="true"] [data-ui="eyebrow"] {
+    color: var(--color-ink);
   }
   [data-page-actions] [role="menu"] {
     background: var(--color-page);
