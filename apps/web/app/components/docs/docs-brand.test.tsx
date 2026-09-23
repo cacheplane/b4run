@@ -6,7 +6,10 @@ import { Callout } from "../mdx/Callout"
 import { DocsBrandProvider } from "./DocsBrandProvider"
 import { DocsSearch } from "./DocsSearch"
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }))
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+  usePathname: () => "/docs/tools",
+}))
 const roots: ReturnType<typeof createRoot>[] = []
 afterEach(async () => {
   for (const root of roots) await act(async () => root.unmount())
@@ -39,18 +42,18 @@ describe("docs brand boundary", () => {
     const elsewhere = await render(<Callout type={type}>Keep this body</Callout>)
     expect(elsewhere.textContent).not.toContain(label)
   })
-  it("keeps custom callout titles and scopes the actual search portal", async () => {
+  it("keeps custom callout titles and scopes the site-wide search panel", async () => {
     const container = await render(
       <DocsBrandProvider>
         <Callout title="Before you deploy">Body</Callout>
-        <DocsSearch index={[]} />
       </DocsBrandProvider>,
     )
     expect(container.textContent).toContain("Before you deploy")
-    await act(async () => container.querySelector("button")?.click())
-    const dialog = document.querySelector('[role="dialog"]')
-    expect(dialog).not.toBeNull()
-    expect(container.contains(dialog)).toBe(false)
-    expect(dialog?.hasAttribute("data-docs-brand")).toBe(true)
+    // The search dialog is mounted in the site header, outside any docs
+    // layout, so its panel carries the docs palette itself.
+    const search = await render(<DocsSearch />)
+    const panel = search.querySelector("dialog[data-docs-search-dialog] > [data-docs-brand]")
+    expect(panel).not.toBeNull()
+    expect(search.querySelector("dialog")?.hasAttribute("data-docs-brand")).toBe(false)
   })
 })

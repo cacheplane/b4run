@@ -30,11 +30,7 @@ export function DocsPage({ href, Content, promptSlug }: Props) {
       ) : null}
       <div className="mb-4 flex items-center justify-between gap-4">
         <DocsBreadcrumb href={href} />
-        <PageActions
-          slug={slug}
-          {...(promptSlug ? { promptSlug } : {})}
-          {...(prompt?.body ? { promptBody: prompt.body } : {})}
-        />
+        <PageActions slug={slug} {...(prompt?.body ? { promptBody: prompt.body } : {})} />
       </div>
       <MobileDocsTOC />
       <article className="prose-b4">

@@ -118,6 +118,8 @@ export declare function createPermissionsStore(opts: {
 
 The inline input object is public; `CreateOptions` is not exported.
 
+### Behavior contracts
+
 #### Behavior contract `permissions.match.prefix`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/permissions/test/pattern-matching.test.ts","testNames":["commands keep prefix matching","treats path candidates with absolute prefixes","allows deeper namespaces under the route","deny wins over allow when both match","deny wins over allow for the memory key"]}] */}
 Non-reserved command, path, and memory candidates use prefix matching, and deny wins over allow.

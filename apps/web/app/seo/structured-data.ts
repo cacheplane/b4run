@@ -118,15 +118,24 @@ export function techArticleJsonLd(page: TechArticleSeoPage): TechArticleJsonLd {
   }
 }
 
+/** The visible trail minus unlinked ancestors; the final crumb always stays. */
+export function structuredBreadcrumbs<T extends { readonly href?: string }>(
+  crumbs: readonly T[],
+): readonly T[] {
+  return crumbs.filter((crumb, index) => crumb.href !== undefined || index === crumbs.length - 1)
+}
+
 export function breadcrumbJsonLd(page: SeoPage): BreadcrumbListJsonLd {
   return {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
     "@id": `${page.canonical}#breadcrumb`,
-    itemListElement: page.breadcrumbs.map((crumb, index) => {
+    // An unlinked ancestor (a docs nav section label) has no URL to give, and
+    // every ancestor ListItem needs one, so the list keeps linked ancestors.
+    itemListElement: structuredBreadcrumbs(page.breadcrumbs).map((crumb, index, crumbs) => {
       const item = crumb.href
         ? new URL(crumb.href, page.canonical).href
-        : page.kind !== "TechArticle" && index === page.breadcrumbs.length - 1
+        : page.kind !== "TechArticle" && index === crumbs.length - 1
           ? page.canonical
           : undefined
 

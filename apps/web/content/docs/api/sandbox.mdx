@@ -94,6 +94,8 @@ export declare function runProviderConformance(opts: {
 
 `workspaceReads` declares the optional `openWorkspaceReader` capability. Setting it registers the workspace-read contract. Omitting it asserts the provider does not implement it. Either way, the kit registers a test that checks the declaration against the provider. No test is skipped, because a skipped test would make an unchecked contract look like a passing one.
 
+### Behavior contracts
+
 #### Behavior contract `sandbox.docker.release`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/sandbox/test/docker-sandbox.unit.test.ts","testNames":["release removes container but not volume; destroy removes both"]}] */}
 Docker release removes the container but retains its volume; destroy removes both.
