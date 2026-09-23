@@ -53,3 +53,11 @@ it("labels the main nav and adds a mobile docs-search button only on docs pages"
   expect(render("/")).not.toContain("data-mobile-docs-search")
   expect(render("/blog")).not.toContain("data-mobile-docs-search")
 })
+
+it("suppresses the ↗ on the desktop GitHub icon link", () => {
+  location.pathname = "/"
+  const html = renderToString(<HeaderInner repoUrl="https://github.com/cacheplane/b4run" />)
+  expect(html).toMatch(
+    /<a[^>]*data-no-arrow[^>]*aria-label="GitHub"|<a[^>]*aria-label="GitHub"[^>]*data-no-arrow/,
+  )
+})

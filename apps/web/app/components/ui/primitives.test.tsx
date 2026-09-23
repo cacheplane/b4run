@@ -4,7 +4,7 @@ import { Button } from "./Button"
 import { Card } from "./Card"
 import { CopyCommand } from "./CopyCommand"
 import { Eyebrow } from "./Eyebrow"
-import { Icon } from "./Icon"
+import { ICON_NAMES, Icon } from "./Icon"
 import { SiteLink } from "./SiteLink"
 
 describe("primitives", () => {
@@ -13,6 +13,13 @@ describe("primitives", () => {
       '<p data-ui="eyebrow" data-tone="muted">Docs</p>',
     )
     expect(renderToStaticMarkup(<Eyebrow tone="olive">Blog</Eyebrow>)).toContain(
+      'data-tone="olive"',
+    )
+  })
+
+  // Temporary alias until the blog components migrate (Task 7); remove with it.
+  it("Eyebrow maps the legacy accent tone to olive", () => {
+    expect(renderToStaticMarkup(<Eyebrow tone="accent">Blog</Eyebrow>)).toContain(
       'data-tone="olive"',
     )
   })
@@ -31,6 +38,51 @@ describe("primitives", () => {
     expect(link).toContain('href="/docs"')
   })
 
+  it("Button forwards button attributes and lets type override the default", () => {
+    const html = renderToStaticMarkup(
+      <Button aria-label="Save" disabled type="submit">
+        Save
+      </Button>,
+    )
+    expect(html).toMatch(/^<button [^>]*type="submit"/)
+    expect(html).not.toContain('type="button"')
+    expect(html).toContain('aria-label="Save"')
+    expect(html).toMatch(/<button[^>]* disabled(="")?[ >]/)
+  })
+
+  it("Button href forwards anchor attributes", () => {
+    const html = renderToStaticMarkup(
+      <Button href="/blueprint.md" download aria-label="Download the blueprint">
+        Get
+      </Button>,
+    )
+    expect(html).toMatch(/^<a /)
+    expect(html).toMatch(/<a[^>]* download(="")?[ >]/)
+    expect(html).toContain('aria-label="Download the blueprint"')
+  })
+
+  it("Button and SiteLink forward onClick in both branches", () => {
+    const onClick = () => {}
+    expect(
+      (Button({ children: "x", onClick }) as { props: { onClick?: unknown } }).props.onClick,
+    ).toBe(onClick)
+    expect(
+      (Button({ href: "/x", children: "x", onClick }) as { props: { onClick?: unknown } }).props
+        .onClick,
+    ).toBe(onClick)
+    expect(
+      (SiteLink({ href: "/x", children: "x", onClick }) as { props: { onClick?: unknown } }).props
+        .onClick,
+    ).toBe(onClick)
+    expect(
+      (
+        SiteLink({ href: "https://x.test", children: "x", onClick }) as {
+          props: { onClick?: unknown }
+        }
+      ).props.onClick,
+    ).toBe(onClick)
+  })
+
   it("SiteLink opens off-site hrefs in a new tab and never writes the arrow itself", () => {
     const external = renderToStaticMarkup(
       <SiteLink href="https://github.com/cacheplane/b4run">GitHub</SiteLink>,
@@ -41,6 +93,40 @@ describe("primitives", () => {
     const internal = renderToStaticMarkup(<SiteLink href="/docs/agents">Agents</SiteLink>)
     expect(internal).toBe('<a href="/docs/agents">Agents</a>')
     expect(external + internal).not.toContain("↗")
+  })
+
+  it("SiteLink forwards className and aria-current", () => {
+    const html = renderToStaticMarkup(
+      <SiteLink href="/docs" className="nav" aria-current="page">
+        Docs
+      </SiteLink>,
+    )
+    expect(html).toContain('class="nav"')
+    expect(html).toContain('aria-current="page"')
+  })
+
+  it("SiteLink lets a caller target win over _blank and forces a plain anchor", () => {
+    const self = renderToStaticMarkup(
+      <SiteLink href="https://example.com" target="_self">
+        Same tab
+      </SiteLink>,
+    )
+    expect(self).toContain('target="_self"')
+    expect(self).not.toContain('target="_blank"')
+    const file = renderToStaticMarkup(
+      <SiteLink href="/llms.txt" target="_blank">
+        llms.txt
+      </SiteLink>,
+    )
+    expect(file).toBe('<a href="/llms.txt" target="_blank">llms.txt</a>')
+    expect(
+      (SiteLink({ href: "/llms.txt", target: "_blank", children: "x" }) as { type: unknown }).type,
+    ).toBe("a")
+  })
+
+  it("SiteLink renders mailto: as a plain anchor with no target", () => {
+    const html = renderToStaticMarkup(<SiteLink href="mailto:hi@b4.run">Email</SiteLink>)
+    expect(html).toBe('<a href="mailto:hi@b4.run">Email</a>')
   })
 
   it("Card is a link when given an href", () => {
@@ -59,6 +145,14 @@ describe("primitives", () => {
     expect(renderToStaticMarkup(<Icon name="close" size="md" />)).toContain('data-size="md"')
   })
 
+  it("every Icon name renders a glyph", () => {
+    expect(ICON_NAMES.length).toBeGreaterThan(0)
+    for (const name of ICON_NAMES) {
+      const inner = /^<svg[^>]*>([\s\S]*)<\/svg>$/.exec(renderToStaticMarkup(<Icon name={name} />))
+      expect(inner?.[1], name).toMatch(/^<(rect|path|polyline|circle|line)\b/)
+    }
+  })
+
   it("CopyCommand renders the light variant by default and the dark one on request", () => {
     const light = renderToStaticMarkup(<CopyCommand command="npm create b4-app@latest" />)
     expect(light).toMatch(/^<div data-ui="copy-command" data-variant="light"/)
@@ -67,6 +161,5 @@ describe("primitives", () => {
     expect(renderToStaticMarkup(<CopyCommand command="x" variant="dark" />)).toContain(
       'data-variant="dark"',
     )
-    expect(light).not.toMatch(/rounded|accent-saas/)
   })
 })

@@ -6,6 +6,8 @@ import { SiteLink } from "./ui/SiteLink"
 interface LinkItem {
   readonly label: string
   readonly href: string
+  /** Same-origin files (RSS, llms.txt) must bypass the client router and open in a new tab. */
+  readonly target?: "_blank"
 }
 
 interface Column {
@@ -32,8 +34,8 @@ const COLUMNS: readonly Column[] = [
       { label: "GitHub", href: "https://github.com/cacheplane/b4run" },
       { label: "npm", href: "https://www.npmjs.com/org/b4run" },
       { label: "LangGraph.js", href: "https://www.langchain.com/langgraph" },
-      { label: "RSS feed", href: "/blog/rss.xml" },
-      { label: "llms.txt", href: "/llms.txt" },
+      { label: "RSS feed", href: "/blog/rss.xml", target: "_blank" },
+      { label: "llms.txt", href: "/llms.txt", target: "_blank" },
     ],
   },
   {
@@ -49,10 +51,11 @@ const COLUMNS: readonly Column[] = [
   },
 ]
 
-function FooterLink({ label, href }: LinkItem) {
+function FooterLink({ label, href, target }: LinkItem) {
   return (
     <SiteLink
       href={href}
+      {...(target !== undefined ? { target } : {})}
       className="text-sm text-ink-muted hover:text-ink transition-colors block py-0.5"
     >
       {label}

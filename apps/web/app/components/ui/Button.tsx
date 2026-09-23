@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react"
+import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode } from "react"
 
 type Variant = "primary" | "secondary" | "ghost"
 
@@ -8,9 +8,10 @@ interface Common {
   readonly size?: "sm"
   readonly className?: string
 }
-interface LinkButton extends Common {
+interface LinkButton
+  extends Common,
+    Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "className" | "children" | "href"> {
   readonly href: string
-  readonly download?: boolean
 }
 interface RealButton
   extends Common,
@@ -18,8 +19,10 @@ interface RealButton
   readonly href?: undefined
 }
 
-/** Square, ink-bordered. Renders <a> when given an href (plain anchor: the
-    homepage and 404 link to files and anchors next/link does not handle). */
+/**
+ * Square, ink-bordered. Renders <a> when given an href (plain anchor: the
+ * homepage and 404 link to files and anchors next/link does not handle).
+ */
 export function Button(props: LinkButton | RealButton) {
   const { children, variant = "primary", size, className } = props
   const shared = {
@@ -29,8 +32,9 @@ export function Button(props: LinkButton | RealButton) {
     ...(className ? { className } : {}),
   }
   if (props.href !== undefined) {
+    const { href, variant: _v, size: _s, className: _c, children: _ch, ...rest } = props
     return (
-      <a {...shared} href={props.href} {...(props.download ? { download: true } : {})}>
+      <a {...shared} href={href} {...rest}>
         {children}
       </a>
     )

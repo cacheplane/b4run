@@ -1,23 +1,27 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Icon } from "./Icon"
 
-interface Props {
+interface CopyCommandProps {
   readonly command: string
   /** light on paper (default); dark on the code panel (blog CTA, homepage takeaway). */
   readonly variant?: "light" | "dark"
   readonly className?: string
 }
 
-export function CopyCommand({ command, variant = "light", className }: Props) {
+export function CopyCommand({ command, variant = "light", className }: CopyCommandProps) {
   const [copied, setCopied] = useState(false)
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  useEffect(() => () => clearTimeout(resetTimer.current), [])
 
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(command)
       setCopied(true)
-      setTimeout(() => setCopied(false), 1800)
+      clearTimeout(resetTimer.current)
+      resetTimer.current = setTimeout(() => setCopied(false), 1800)
     } catch {
       // clipboard unavailable — silent no-op
     }
