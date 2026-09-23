@@ -3,7 +3,9 @@ import { dirname, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 import { type CompileOptions, compile } from "@mdx-js/mdx"
 import GithubSlugger from "github-slugger"
-import { describe, expect, it } from "vitest"
+import { createElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
+import { describe, expect, it, vi } from "vitest"
 
 import { MDX_REHYPE_PLUGINS, MDX_REMARK_PLUGINS } from "../../../lib/mdx-plugins"
 import {
@@ -13,7 +15,12 @@ import {
   GENERATED_ROUTES_ARTIFACT,
   PACKAGE_CATALOG,
 } from "./api-reference"
+import { LegacyAnchorRedirect } from "./LegacyAnchorRedirect"
+import { LEGACY_ANCHORS, type LegacyAnchor, legacyRedirectsFor } from "./legacy-anchors"
 import { DOCS_INDEX } from "./search-index"
+
+// LegacyAnchorRedirect reads the router; the markup under test does not use it.
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: () => {} }) }))
 
 const DOCS_DIR = join(dirname(fileURLToPath(import.meta.url)), "../../../content/docs")
 const REPO_ROOT = join(DOCS_DIR, "../../../..")
@@ -294,7 +301,7 @@ function canonicalOwnerViolations(
 function movedLinkViolations(
   file: string,
   source: string,
-  contracts: readonly CompatibilityAnchor[],
+  contracts: readonly Pick<LegacyAnchor, "legacyFile" | "legacyHref" | "canonicalHref">[],
 ): string[] {
   const contractsByHref = new Map(contracts.map((contract) => [contract.legacyHref, contract]))
   return markdownDestinationOccurrences(source).flatMap(({ index, destination }) => {
@@ -800,121 +807,13 @@ function canonicalApiDestination(id: string, ownerHref: string): string {
   throw new Error(`unmapped compatibility id ${id}`)
 }
 
-interface CompatibilityAnchor {
-  readonly legacyFile: string
-  readonly legacyHref: string
-  readonly canonicalHref: string
+/** The ids `LegacyAnchorRedirect` renders into a docs page, in DOM order. */
+function renderedLegacyIds(legacyPath: string): string[] {
+  const html = renderToStaticMarkup(
+    createElement(LegacyAnchorRedirect, { redirects: legacyRedirectsFor(legacyPath) }),
+  )
+  return [...html.matchAll(/\sid="([^"]+)"/g)].flatMap((match) => (match[1] ? [match[1]] : []))
 }
-
-function compatibilityAnchors(
-  legacyFile: string,
-  legacyPath: string,
-  canonicalHref: string,
-  fragments: readonly string[],
-): CompatibilityAnchor[] {
-  return fragments.map((fragment) => ({
-    legacyFile,
-    legacyHref: `${legacyPath}#${fragment}`,
-    canonicalHref,
-  }))
-}
-
-const COMPATIBILITY_ANCHOR_MAP = [
-  ...compatibilityAnchors("memory.mdx", "/docs/memory", "/docs/memory/long-term", [
-    "long-term-collection-memoryts",
-    "generated-tools",
-    "write-governance",
-    "ask-mode",
-    "reviewing-candidates",
-    "configuration",
-    "testing",
-    "verifying-against-a-real-model",
-    "whats-deferred",
-  ]),
-  ...compatibilityAnchors("memory.mdx", "/docs/memory", "/docs/memory/retrieval", [
-    "how-recall-ranks",
-    "semantic-recall-opt-in",
-    "postgres-backend-pgvector",
-    "the-injected-index",
-  ]),
-  ...compatibilityAnchors("memory.mdx", "/docs/memory", "/docs/memory/episodes", [
-    "episodic-memory",
-    "enabling-the-run-recorder",
-    "what-gets-recorded",
-    "retention",
-    "time-windowed-recall",
-    "governance",
-    "agent-authored-episodes",
-  ]),
-  ...compatibilityAnchors("memory.mdx", "/docs/memory", "/docs/memory/distillation", [
-    "distillation",
-    "consolidation",
-    "reflection",
-    "distilled-records-are-found-by-keyword",
-    "provenance",
-    "cost",
-    "running-it-on-a-schedule",
-    "distillation-configuration",
-  ]),
-  ...compatibilityAnchors("deployment.mdx", "/docs/deployment", "/docs/deployment/node", [
-    "deploying-to-production-nodedocker",
-  ]),
-  ...compatibilityAnchors("deployment.mdx", "/docs/deployment", "/docs/deployment/kubernetes", [
-    "deploying-on-kubernetes",
-  ]),
-  ...compatibilityAnchors("deployment.mdx", "/docs/deployment", "/docs/deployment/langsmith", [
-    "the-langsmith--langgraph-platform-path",
-  ]),
-  ...compatibilityAnchors("deployment.mdx", "/docs/deployment", "/docs/deployment/edge", [
-    "edge-runtimes",
-    "the-b4runclifetch-entry-point",
-    "the-hono-build-target",
-    "why-the-stores-are-per-request",
-    "what-the-edge-cannot-serve",
-    "what-is-proven-and-what-is-not",
-  ]),
-  ...compatibilityAnchors("deployment.mdx", "/docs/deployment", "/docs/deployment", [
-    "what-b4run-does-not-do",
-    "troubleshooting",
-    "related",
-  ]),
-  ...compatibilityAnchors("deployment.mdx", "/docs/deployment", "/docs/deployment/node", [
-    "self-hosting",
-  ]),
-  ...compatibilityAnchors("sandbox.mdx", "/docs/sandbox", "/docs/sandbox/kubernetes", [
-    "kubernetes-provider",
-    "security-hardening-on-kubernetes",
-    "network-policy-on-kubernetes",
-    "deploying-the-sandbox-infrastructure-helm",
-    "key-caveats",
-    "deploying-a-b4run-app-helm",
-    "serviceaccount-and-namespace-wiring",
-    "env-secrets-and-replicas",
-  ]),
-  ...compatibilityAnchors("dev-server.mdx", "/docs/dev-server", "/docs/dev-server/agent-protocol", [
-    "agent-protocol-endpoints",
-    "sse-event-types",
-    "thread-lifecycle-with-curl",
-    "one-run-at-a-time-per-thread",
-    "client-disconnect",
-  ]),
-  ...compatibilityAnchors("dev-server.mdx", "/docs/dev-server", "/docs/ag-ui", ["ag-ui-endpoint"]),
-  ...compatibilityAnchors("dev-server.mdx", "/docs/dev-server", "/docs/observability", ["tracing"]),
-  ...compatibilityAnchors("dev-server.mdx", "/docs/dev-server", "/docs/middleware", ["middleware"]),
-  ...compatibilityAnchors("memory.mdx", "/docs/memory", "/docs/workspace", ["updating-it"]),
-  ...compatibilityAnchors(
-    "testing-agents.mdx",
-    "/docs/testing-agents",
-    "/docs/testing-agents/fixtures",
-    [
-      "fixture-files-author-commit-replay",
-      "author-inline-and-snapshot-to-a-file",
-      "record-from-a-real-model-local-only",
-      "replay-a-fixture-file-in-tests",
-      "live-mode-real-model",
-    ],
-  ),
-] as const
 
 function isOrderedSubsequence(expected: readonly string[], actual: readonly string[]): boolean {
   let actualIndex = 0
@@ -1347,10 +1246,15 @@ describe("docs links and in-page anchors", () => {
       expect(api?.ids).toContain(catalogOnly.canonicalReferenceDestination.split("#")[1])
     }
 
-    const deployment = pages.get("deployment.mdx")
-    expect(deployment?.ids).toContain("what-the-edge-cannot-serve")
-    expect(deployment?.ids).toContain("why-the-stores-are-per-request")
-    expect(deployment?.ids).toContain("what-is-proven-and-what-is-not")
+    // A moved section's old id is either a heading or an invisible id that
+    // LegacyAnchorRedirect renders, so check the ids the rendered page carries.
+    const renderedPageIds = (file: string, path: string): ReadonlySet<string> =>
+      new Set([...(pages.get(file)?.ids ?? []), ...renderedLegacyIds(path)])
+
+    const deployment = renderedPageIds("deployment.mdx", "/docs/deployment")
+    expect(deployment).toContain("what-the-edge-cannot-serve")
+    expect(deployment).toContain("why-the-stores-are-per-request")
+    expect(deployment).toContain("what-is-proven-and-what-is-not")
 
     const edge = pages.get("deployment/edge.mdx")
     expect(edge?.ids).toContain("what-the-edge-cannot-serve")
@@ -1363,14 +1267,14 @@ describe("docs links and in-page anchors", () => {
       "one-run-at-a-time-per-thread",
       "client-disconnect",
     ]
-    const devServer = pages.get("dev-server.mdx")
+    const devServer = renderedPageIds("dev-server.mdx", "/docs/dev-server")
     const agentProtocol = pages.get("dev-server/agent-protocol.mdx")
     for (const anchor of agentProtocolAnchors) {
-      expect(devServer?.ids).toContain(anchor)
+      expect(devServer).toContain(anchor)
       expect(agentProtocol?.ids).toContain(anchor)
     }
 
-    const agentHarness = pages.get("testing-agents.mdx")
+    const agentHarness = renderedPageIds("testing-agents.mdx", "/docs/testing-agents")
     const fixtureGuide = pages.get("testing-agents/fixtures.mdx")
     for (const anchor of [
       "fixture-files-author-commit-replay",
@@ -1379,11 +1283,11 @@ describe("docs links and in-page anchors", () => {
       "replay-a-fixture-file-in-tests",
       "live-mode-real-model",
     ]) {
-      expect(agentHarness?.ids).toContain(anchor)
+      expect(agentHarness).toContain(anchor)
       expect(fixtureGuide?.ids).toContain(anchor)
     }
 
-    const memory = pages.get("memory.mdx")
+    const memory = renderedPageIds("memory.mdx", "/docs/memory")
     const longTerm = pages.get("memory/long-term.mdx")
     const retrieval = pages.get("memory/retrieval.mdx")
     const episodes = pages.get("memory/episodes.mdx")
@@ -1394,15 +1298,15 @@ describe("docs links and in-page anchors", () => {
       "semantic-recall-opt-in",
       "postgres-backend-pgvector",
     ]) {
-      expect(memory?.ids).toContain(anchor)
+      expect(memory).toContain(anchor)
       expect(retrieval?.ids).toContain(anchor)
     }
-    expect(memory?.ids).toContain("episodic-memory")
+    expect(memory).toContain("episodic-memory")
     expect(episodes?.ids).toContain("episodic-memory")
-    expect(memory?.ids).toContain("distillation")
+    expect(memory).toContain("distillation")
     expect(distillation?.ids).toContain("distillation")
     for (const anchor of ["write-governance", "reviewing-candidates", "configuration", "testing"]) {
-      expect(memory?.ids).toContain(anchor)
+      expect(memory).toContain(anchor)
       expect(longTerm?.ids).toContain(anchor)
     }
 
@@ -1511,7 +1415,7 @@ describe("docs links and in-page anchors", () => {
     ).toContain("missing /docs/memory/retrieval")
   })
 
-  it("exempts a legacy self-link only inside its matching compatibility stub", () => {
+  it("exempts a legacy self-link only inside its matching retained section", () => {
     const legacyHref = "/docs/memory#how-recall-ranks"
     const contract = {
       legacyFile: "memory.mdx",
@@ -1532,16 +1436,55 @@ describe("docs links and in-page anchors", () => {
     ).toHaveLength(1)
   })
 
-  it("retains every explicit compatibility anchor and its canonical destination", () => {
+  it("keeps every legacy fragment on its old page and maps it to a real canonical target", () => {
     const broken: string[] = []
+    const legacyHrefs = new Set<string>()
 
-    for (const { legacyFile, legacyHref, canonicalHref } of COMPATIBILITY_ANCHOR_MAP) {
-      const fragment = legacyHref.split("#")[1]
-      if (!fragment || !pages.get(legacyFile)?.ids.has(fragment)) {
-        broken.push(`${legacyHref} -> no such compatibility heading`)
+    for (const { legacyFile, legacyHref, canonicalHref, mode } of LEGACY_ANCHORS) {
+      const [legacyPath, fragment] = legacyHref.split("#")
+      if (legacyHrefs.has(legacyHref)) broken.push(`${legacyHref} -> mapped twice`)
+      legacyHrefs.add(legacyHref)
+      const page = pages.get(legacyFile)
+      if (!legacyPath || !fragment || !page || hrefToFile(legacyPath, pages) !== legacyFile) {
+        broken.push(`${legacyHref} -> not a fragment of ${legacyFile}`)
+        continue
       }
-      if (!pages.has(hrefToFile(canonicalHref, pages))) {
+
+      const rendered = renderedLegacyIds(legacyPath)
+      if (mode === "section") {
+        // A retained section is a real heading on the old page, never a redirect.
+        if (!page.orderedIds.includes(fragment)) {
+          broken.push(`${legacyHref} -> no such retained heading`)
+        }
+        if (rendered.includes(fragment)) broken.push(`${legacyHref} -> section also redirects`)
+      } else {
+        // A redirect is an invisible id the page renders once, not a stub heading.
+        if (page.ids.has(fragment)) broken.push(`${legacyHref} -> still a heading or explicit id`)
+        if (rendered.filter((id) => id === fragment).length !== 1) {
+          broken.push(`${legacyHref} -> not rendered exactly once by LegacyAnchorRedirect`)
+        }
+      }
+
+      const [canonicalPath, canonicalFragment] = canonicalHref.split("#")
+      const canonicalPage = canonicalPath ? pages.get(hrefToFile(canonicalPath, pages)) : undefined
+      if (!canonicalPage) {
         broken.push(`${canonicalHref} -> no such canonical page`)
+      } else if (canonicalFragment !== undefined && !canonicalPage.ids.has(canonicalFragment)) {
+        broken.push(`${canonicalHref} -> no such canonical heading`)
+      }
+      if (LEGACY_ANCHORS.some((anchor) => anchor.legacyHref === canonicalHref)) {
+        broken.push(`${legacyHref} -> ${canonicalHref} is itself a legacy fragment`)
+      }
+    }
+
+    // Every id LegacyAnchorRedirect renders comes from a mapped redirect.
+    for (const legacyPath of new Set(
+      LEGACY_ANCHORS.map(({ legacyHref }) => legacyHref.split("#")[0]),
+    )) {
+      if (!legacyPath) continue
+      for (const id of renderedLegacyIds(legacyPath)) {
+        const anchor = LEGACY_ANCHORS.find(({ legacyHref }) => legacyHref === `${legacyPath}#${id}`)
+        if (anchor?.mode !== "redirect") broken.push(`${legacyPath}#${id} -> unmapped rendered id`)
       }
     }
 
@@ -1550,21 +1493,13 @@ describe("docs links and in-page anchors", () => {
 
   it("keeps maintained inbound links on each focused canonical owner", () => {
     const docViolations = files.flatMap((file) =>
-      movedLinkViolations(
-        file,
-        readFileSync(join(DOCS_DIR, file), "utf8"),
-        COMPATIBILITY_ANCHOR_MAP,
-      ),
+      movedLinkViolations(file, readFileSync(join(DOCS_DIR, file), "utf8"), LEGACY_ANCHORS),
     )
     const readmeViolations = [
       ...maintainedReadmes(join(REPO_ROOT, "packages")),
       ...maintainedReadmes(join(REPO_ROOT, "examples")),
     ].flatMap((file) =>
-      movedLinkViolations(
-        relative(REPO_ROOT, file),
-        readFileSync(file, "utf8"),
-        COMPATIBILITY_ANCHOR_MAP,
-      ),
+      movedLinkViolations(relative(REPO_ROOT, file), readFileSync(file, "utf8"), LEGACY_ANCHORS),
     )
 
     expect([...docViolations, ...readmeViolations]).toEqual([])

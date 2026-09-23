@@ -71,42 +71,6 @@ Use [Node and Docker](/docs/deployment/node) to run the full B4.run HTTP runtime
 - If `b4 build` succeeds but the deployed host cannot import a package, make sure every package the emitted artifacts import is declared where the host installs or bundles production dependencies.
 - If local protocol tests pass but the target fails, test the target's real transport, authentication layer, environment injection and durable stores. Passing Node or Hono HTTP tests says nothing about LangSmith, and a local workerd run says nothing about a live edge provider.
 
-## Deploying to production (Node/Docker)
-
-This section moved to [Node and Docker](/docs/deployment/node).
-
-## Deploying on Kubernetes
-
-This section moved to [Kubernetes](/docs/deployment/kubernetes).
-
-## The LangSmith / LangGraph Platform path
-
-This section moved to [LangSmith](/docs/deployment/langsmith).
-
-## Edge runtimes
-
-This section moved to [Edge and Hono](/docs/deployment/edge).
-
-### The `@b4run/cli/fetch` entry point
-
-See [Edge and Hono](/docs/deployment/edge).
-
-### The `hono` build target
-
-See [Edge and Hono](/docs/deployment/edge).
-
-#### Why the stores are per-request
-
-See [Edge and Hono](/docs/deployment/edge).
-
-#### What the edge cannot serve
-
-See [Edge and Hono](/docs/deployment/edge).
-
-#### What is proven, and what is not
-
-See [Edge and Hono](/docs/deployment/edge).
-
 ## Related
 
 See [Production Foundations](#production-foundations) before you expose a deployment.

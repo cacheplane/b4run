@@ -218,6 +218,13 @@ export const DOCS_SEO_ENTRIES = [
     sourcePath: "apps/web/content/docs/embedding.mdx",
   },
   {
+    path: "/docs/testing-overview",
+    title: "Testing Overview",
+    description:
+      "Choose between B4.run scenario tests, the agent test harness, and evals by what each runs, whether it calls a model, and where files live.",
+    sourcePath: "apps/web/content/docs/testing-overview.mdx",
+  },
+  {
     path: "/docs/testing",
     title: "Scenario Testing",
     description:
@@ -356,6 +363,13 @@ export const DOCS_SEO_ENTRIES = [
     description:
       "Inspect B4.run memory in a local browser UI with ranked search, filters, live refresh, timelines, candidate approval, rejection, and deletion.",
     sourcePath: "apps/web/content/docs/inspector.mdx",
+  },
+  {
+    path: "/docs/troubleshooting",
+    title: "Troubleshooting",
+    description:
+      "Fix common B4.run problems by symptom: route discovery, missing provider packages or keys, busy ports, Docker, stuck approvals, and Node version.",
+    sourcePath: "apps/web/content/docs/troubleshooting.mdx",
   },
   {
     path: "/docs/upgrading",

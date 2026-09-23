@@ -64,6 +64,7 @@ export const DOCS_NAV = [
   {
     label: "Test and Evaluate",
     items: [
+      { label: "Testing Overview", href: "/docs/testing-overview" },
       { label: "Scenario Testing", href: "/docs/testing" },
       { label: "Agent Test Harness", href: "/docs/testing-agents" },
       { label: "Fixtures and Recording", href: "/docs/testing-agents/fixtures" },
@@ -99,6 +100,7 @@ export const DOCS_NAV = [
       { label: "Production Topology", href: "/docs/production-topology" },
       { label: "Observability", href: "/docs/observability" },
       { label: "Inspector", href: "/docs/inspector" },
+      { label: "Troubleshooting", href: "/docs/troubleshooting" },
       { label: "Upgrading", href: "/docs/upgrading" },
     ],
   },

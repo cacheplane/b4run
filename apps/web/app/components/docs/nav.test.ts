@@ -82,6 +82,7 @@ const FOUNDATION_DOCS_NAV = [
   {
     label: "Test and Evaluate",
     items: [
+      { label: "Testing Overview", href: "/docs/testing-overview" },
       { label: "Scenario Testing", href: "/docs/testing" },
       { label: "Agent Test Harness", href: "/docs/testing-agents" },
       { label: "Fixtures and Recording", href: "/docs/testing-agents/fixtures" },
@@ -117,6 +118,7 @@ const FOUNDATION_DOCS_NAV = [
       { label: "Production Topology", href: "/docs/production-topology" },
       { label: "Observability", href: "/docs/observability" },
       { label: "Inspector", href: "/docs/inspector" },
+      { label: "Troubleshooting", href: "/docs/troubleshooting" },
       { label: "Upgrading", href: "/docs/upgrading" },
     ],
   },
@@ -428,19 +430,19 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
     expect(DOCS_NAV).toEqual(FOUNDATION_DOCS_NAV)
   })
 
-  it("pins the exact 60-page reading order", () => {
+  it("pins the exact 62-page reading order", () => {
     const expectedPages = (FOUNDATION_DOCS_NAV as readonly DocsNavSection[]).flatMap(
       (section) => section.items,
     )
 
-    expect(expectedPages).toHaveLength(60)
+    expect(expectedPages).toHaveLength(62)
     expect(DOCS_PAGES).toEqual(expectedPages)
   })
 
   it("adds sixteen hidden API leaves immediately after the hub", () => {
-    expect(DOCS_NAV.reduce((count, section) => count + section.items.length, 0)).toBe(60)
-    expect(DOCS_PAGES).toHaveLength(60)
-    expect(ALL_DOCS_PAGES).toHaveLength(76)
+    expect(DOCS_NAV.reduce((count, section) => count + section.items.length, 0)).toBe(62)
+    expect(DOCS_PAGES).toHaveLength(62)
+    expect(ALL_DOCS_PAGES).toHaveLength(78)
 
     const hubIndex = ALL_DOCS_PAGES.findIndex(({ href }) => href === "/docs/api")
     expect(ALL_DOCS_PAGES.slice(hubIndex + 1, hubIndex + 17)).toEqual(API_REFERENCE_PAGES)
@@ -492,7 +494,7 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
     }
   })
 
-  it("uses a Docs / section / page trail with the current route as the final crumb for all 75 pages", () => {
+  it("uses a Docs / section / page trail with the current route as the final crumb for all 78 pages", () => {
     const sectionLabels = new Set<string>(DOCS_NAV.map((section) => section.label))
     for (const page of ALL_DOCS_PAGES) {
       const crumbs = breadcrumbsFor(page.href)

@@ -60,29 +60,6 @@ The ready line shows the current URL, and each restart line shows the changed
 file category. Set `B4_DEV_SHUTDOWN_TIMEOUT_MS` to change the grace
 window used while stopping a child runtime.
 
-## Agent Protocol endpoints
-
-The HTTP contract moved to [Agent Protocol](/docs/dev-server/agent-protocol).
-
-### SSE event types
-
-Event table: [Agent Protocol](/docs/dev-server/agent-protocol).
-
-### Thread lifecycle with curl
-
-[Agent Protocol](/docs/dev-server/agent-protocol) has the copyable create, run,
-and state sequence.
-
-### One run at a time per thread
-
-See [Agent Protocol](/docs/dev-server/agent-protocol) for run serialization and
-explicit cancellation.
-
-### Client disconnect
-
-See [Agent Protocol](/docs/dev-server/agent-protocol) for the durable
-viewer-disconnect policy.
-
 ## AG-UI endpoint
 
 Browser clients use the separate [AG-UI endpoint and lifecycle](/docs/ag-ui).
