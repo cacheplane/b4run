@@ -1,6 +1,8 @@
 import { readdir, readFile, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { expect, it } from "vitest"
+import { preparedImageTag } from "../../../examples/code-fixer/server/src/project/image.ts"
+import { sandboxImage } from "../../../examples/code-fixer/server/src/project/workspace.ts"
 import { isolatedApp } from "../evaluation/isolated-app.ts"
 import { fixtureDirectory } from "../fixtures/catalog.ts"
 
@@ -22,3 +24,21 @@ it.each(["cli-flags", "nullable-inputs"])(
     }
   },
 )
+
+it("gives each historical sample its own content-addressed image", async () => {
+  const roots = [
+    await isolatedApp(undefined, "cli-flags"),
+    await isolatedApp(undefined, "nullable-inputs"),
+  ]
+  try {
+    const [cliFlags, nullable] = roots.map((root) => preparedImageTag(root))
+    // The copied cli-flags app has the example's own inputs, so both name one image.
+    expect(cliFlags).toBe(sandboxImage)
+    expect(nullable).not.toBe(sandboxImage)
+    expect(await readFile(join(roots[1] ?? "", "Dockerfile"), "utf8")).toContain(
+      "/opt/fixtures/nullable-inputs/",
+    )
+  } finally {
+    for (const root of roots) await rm(root, { recursive: true, force: true })
+  }
+})

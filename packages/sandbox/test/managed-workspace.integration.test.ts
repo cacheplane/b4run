@@ -4,6 +4,7 @@ import { createSourceBundle, createWorkspaceIntent } from "@b4run/workspace/node
 import { describe, expect, it } from "vitest"
 import { createDocker } from "../src/docker/docker-cli.ts"
 import { createDockerManagedWorkspaces } from "../src/docker/managed-workspace.ts"
+import { managedTestImage } from "./support/managed-test-image.ts"
 
 describe.skipIf(process.env.B4_TEST_DOCKER !== "1")(
   "managed Docker qualification",
@@ -14,7 +15,7 @@ describe.skipIf(process.env.B4_TEST_DOCKER !== "1")(
         signal = new AbortController().signal
       const opts = {
         scope: `managed-test-${randomUUID()}`,
-        image: process.env.B4_TEST_MANAGED_IMAGE ?? "b4-code-fixer:fixture-v1",
+        image: managedTestImage(),
         docker,
       }
       const provider = createDockerManagedWorkspaces(opts)
@@ -117,7 +118,7 @@ describe.skipIf(process.env.B4_TEST_DOCKER !== "1")(
       }
       const opts = {
         scope: `interrupt-${randomUUID()}`,
-        image: process.env.B4_TEST_MANAGED_IMAGE ?? "b4-code-fixer:fixture-v1",
+        image: managedTestImage(),
         docker,
       }
       const provider = createDockerManagedWorkspaces(opts)
@@ -185,7 +186,7 @@ describe.skipIf(process.env.B4_TEST_DOCKER !== "1")(
         signal = new AbortController().signal
       const opts = {
         scope: `managed-reader-${randomUUID()}`,
-        image: process.env.B4_TEST_MANAGED_IMAGE ?? "b4-code-fixer:fixture-v1",
+        image: managedTestImage(),
         docker,
       }
       const provider = createDockerManagedWorkspaces(opts)
