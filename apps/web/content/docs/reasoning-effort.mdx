@@ -1,11 +1,11 @@
 # Reasoning Effort
 
-Reasoning effort is route-level model tuning for OpenAI-backed `agent()` routes.
-Use it when one agent route needs a different reasoning budget than the rest of the app. For example, a support coordinator might stay cheap and fast, while a tool-heavy planning route asks for deeper reasoning.
+Reasoning effort sets how hard an OpenAI model thinks in one `agent()` route.
+Use it when one route needs more (or less) reasoning than the rest of the app. For example, a support coordinator might stay cheap and fast, while a planning route that calls many tools asks for deeper reasoning.
 
 ## Quick start
 
-Set `reasoning.effort` on an `agent()` descriptor:
+Set `reasoning.effort` in `agent()`:
 
 ```ts title="src/app/support/[tenant]/index.ts"
 import { agent } from "@b4run/sdk"
@@ -21,7 +21,7 @@ export default agent({
 
 ## Supported values
 
-B4.run's type surface accepts:
+B4.run's types accept these values:
 
 ```ts
 type ReasoningEffort =
@@ -33,22 +33,15 @@ type ReasoningEffort =
   | "xhigh"
 ```
 
-The model provider decides which values are meaningful for a given model, and non-reasoning models ignore the setting.
+The provider decides which values mean something for each model. Models without reasoning ignore the setting.
 
-If you omit `reasoning`, B4.run does not pass a `reasoningEffort` value, and the provider's default applies.
+Leave out `reasoning`, and B4.run sends no `reasoningEffort` value, so the provider's default applies.
 
 ## Where it applies
 
-Reasoning effort applies to B4.run's `agent()` descriptor path, where `@b4run/langchain` materializes the descriptor with `ChatOpenAI`.
+Reasoning effort applies to `agent()` routes, where `@b4run/langchain` builds the model with `ChatOpenAI`.
 
-It does not automatically affect:
-
-- `workflow` routes
-- raw `graph` routes
-- `chain` routes
-- models you instantiate manually inside your own graph or chain
-
-For those paths, configure reasoning on the model instance you create.
+In `workflow`, raw `graph` and `chain` routes, and for any model you create yourself, set reasoning on that model instance.
 
 ## What B4.run passes through
 
@@ -70,23 +63,23 @@ It adds no prompt fragment, tool, state field or stream event.
 
 I recommend leaving it unset until you see that a route needs it.
 
-Use lower values for routes where latency and cost matter more than deliberation:
+Use lower values for routes where speed and cost matter more than careful thinking:
 
 ```ts
 reasoning: { effort: "minimal" }
 ```
 
-Use higher values when the route is tool-heavy, planning-heavy, or asked to synthesize several pieces of evidence:
+Use higher values when the route calls many tools, plans a lot, or has to combine several pieces of evidence:
 
 ```ts
 reasoning: { effort: "high" }
 ```
 
-Reasoning effort is not a substitute for better tools or clearer route design. If the agent lacks the right context, more reasoning will not create it.
+Of course, more reasoning won't make up for missing tools or context. If the agent doesn't have the information, thinking harder won't find it.
 
 ## Subagents
 
-Reasoning effort is set per descriptor, so a parent and child route with different budgets each set their own:
+Each `agent()` sets its own reasoning effort, so a parent and child can use different values:
 
 ```ts
 // parent
@@ -104,7 +97,7 @@ export default agent({
 })
 ```
 
-The parent setting does not automatically override the child setting.
+A child keeps its own setting, whatever the parent uses.
 
 ## Related
 

@@ -230,9 +230,10 @@ describe("homepage SEO", () => {
 
 describe("production SEO inventory", () => {
   it("applies an explicit UTC as-of date before normalizing posts, tags, and descriptions", () => {
+    // Strip both probe tags so only the scheduled and draft posts can create them.
     const visiblePosts = productionPosts().map((post) => ({
       ...post,
-      tags: post.tags.filter((tag) => tag !== "typescript"),
+      tags: post.tags.filter((tag) => tag !== "typescript" && tag !== "patterns"),
     }))
     const sourcePost = visiblePosts[0]
     expect(sourcePost).toBeDefined()
@@ -280,14 +281,14 @@ describe("production SEO inventory", () => {
     expect(before.map(({ path }) => path)).not.toContain("/blog/draft-inventory-post")
     expect(before.map(({ path }) => path)).not.toContain("/blog/tags/typescript")
     expect(before.map(({ path }) => path)).not.toContain("/blog/tags/patterns")
-    expect(before).toHaveLength(86)
+    expect(before).toHaveLength(90)
     expectNormalizedDescriptions(before)
     for (const pages of [publicationDate, after]) {
       expect(pages.map(({ path }) => path)).toContain("/blog/scheduled-inventory-post")
       expect(pages.map(({ path }) => path)).not.toContain("/blog/draft-inventory-post")
       expect(pages.map(({ path }) => path)).toContain("/blog/tags/typescript")
       expect(pages.map(({ path }) => path)).not.toContain("/blog/tags/patterns")
-      expect(pages).toHaveLength(88)
+      expect(pages).toHaveLength(92)
       expectNormalizedDescriptions(pages)
     }
   })
@@ -331,7 +332,7 @@ describe("production SEO inventory", () => {
     }
   })
 
-  it("builds one normalized route-kind union for the current 87 indexable routes", () => {
+  it("builds one normalized route-kind union for the current 92 indexable routes", () => {
     const buildSeoPageInventory = Reflect.get(seoResolvers, "buildSeoPageInventory")
     expect(buildSeoPageInventory).toBeTypeOf("function")
     if (typeof buildSeoPageInventory !== "function") return
@@ -345,24 +346,29 @@ describe("production SEO inventory", () => {
       "/",
       "/blog",
       ...ALL_DOCS_PAGES.map(({ href }) => href),
+      "/blog/b4-0-8-framework-around-the-agent",
+      "/blog/b4-at-the-edge",
       "/blog/eve-validates-the-shape",
+      "/blog/b4-0-4-release",
       "/blog/app-router-for-ai-agents",
       "/blog/why-we-built-b4",
-      "/blog/tags/philosophy",
       "/blog/tags/agents",
       "/blog/tags/typescript",
+      "/blog/tags/philosophy",
+      "/blog/tags/releases",
+      "/blog/tags/patterns",
     ])
-    expect(pages).toHaveLength(87)
+    expect(pages).toHaveLength(92)
     expect(pages.map(({ routeKind }) => routeKind)).toEqual([
       "home",
       "blog-index",
       ...Array.from({ length: 79 }, () => "docs"),
-      ...Array.from({ length: 3 }, () => "blog-post"),
-      ...Array.from({ length: 3 }, () => "blog-tag"),
+      ...Array.from({ length: 6 }, () => "blog-post"),
+      ...Array.from({ length: 5 }, () => "blog-tag"),
     ])
   })
 
-  it("keeps all 87 production descriptions normalized and globally unique", () => {
+  it("keeps all 92 production descriptions normalized and globally unique", () => {
     const buildSeoPageInventory = Reflect.get(seoResolvers, "buildSeoPageInventory")
     expect(buildSeoPageInventory).toBeTypeOf("function")
     if (typeof buildSeoPageInventory !== "function") return
@@ -371,7 +377,7 @@ describe("production SEO inventory", () => {
       readonly path: string
       readonly description: string
     }[]
-    expect(pages).toHaveLength(87)
+    expect(pages).toHaveLength(92)
     expectNormalizedDescriptions(pages)
   })
 })
@@ -405,8 +411,8 @@ describe("blog SEO API", () => {
     )
     const postPages = posts.map(resolveBlogSeoPage)
 
-    expect(posts).toHaveLength(3)
-    expect(tags).toEqual(["agents", "philosophy", "typescript"])
+    expect(posts).toHaveLength(6)
+    expect(tags).toEqual(["agents", "patterns", "philosophy", "releases", "typescript"])
     expect([
       resolveBlogIndexSeoPage().path,
       ...tagPages.map((page) => page.path),
@@ -414,9 +420,14 @@ describe("blog SEO API", () => {
     ]).toEqual([
       "/blog",
       "/blog/tags/agents",
+      "/blog/tags/patterns",
       "/blog/tags/philosophy",
+      "/blog/tags/releases",
       "/blog/tags/typescript",
+      "/blog/b4-0-8-framework-around-the-agent",
+      "/blog/b4-at-the-edge",
       "/blog/eve-validates-the-shape",
+      "/blog/b4-0-4-release",
       "/blog/app-router-for-ai-agents",
       "/blog/why-we-built-b4",
     ])
@@ -437,7 +448,20 @@ describe("blog SEO API", () => {
       expectValidDescription(description)
       expect(description).toContain(tag)
       expect(description).toContain(String(posts.length))
-      for (const post of posts) expect(description).toContain(post.title)
+      // Every title is listed when the titled form fits in 155 characters.
+      // Only then does the description fall back to a count-only summary.
+      const noun = posts.length === 1 ? "post" : "posts"
+      const titled = `Read ${posts.length} B4.run blog ${noun} tagged "${tag}": ${posts
+        .map((post) => post.title)
+        .join("; ")}.`
+      if (titled.length <= 155) {
+        expect(description).toBe(titled)
+        for (const post of posts) expect(description).toContain(post.title)
+      } else {
+        expect(description).toBe(
+          `Read ${posts.length} published B4.run blog ${noun} tagged "${tag}", selected from the current production-visible article collection.`,
+        )
+      }
       return description
     })
     expect(new Set(tagDescriptions).size).toBe(tagDescriptions.length)

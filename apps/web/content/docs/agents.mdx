@@ -1,10 +1,10 @@
 # Agents
 
-An agent is an LLM-driven route that picks its tools at runtime. It's the default scaffolded route, and I recommend it when you want the model to decide what to do. For deterministic flows, use a `workflow`, `graph` or `chain` instead.
+An agent is a route where the model decides which tools to call. It's the route the scaffold creates, and I recommend it whenever you want the model to decide what to do. When you want to control the steps yourself, use a `workflow`, `graph` or `chain`.
 
 ## A minimal agent
 
-A route's `index.ts` exports an agent created by `agent({ model, systemPrompt })`. B4.run discovers the tools in the sibling `tools/` directory and wires them into the generated graph:
+A route's `index.ts` default-exports `agent({ model, systemPrompt })`. B4.run finds the tools in the route's `tools/` directory and wires them into the generated graph:
 
 <CodeGroup>
 ```ts title="src/app/(public)/research/index.ts"
@@ -24,13 +24,13 @@ export default async (input: { readonly query: string }) => {
 ```
 </CodeGroup>
 
-`index.ts` is the agent entry, and any TypeScript file in `tools/` is discovered for it. B4.run infers parameter types from the function signature at `b4 build` time.
+`index.ts` is the agent, and every TypeScript file in `tools/` becomes one of its tools. B4.run infers the parameter types from each function signature when you run `b4 build`.
 
 ## Model providers
 
-The built-in `agent()` route materializes to a LangChain chat model. B4.run infers providers for known model families and lazy-loads the matching LangChain integration package. Supported built-in provider ids are `openai`, `anthropic`, `google`, `mistral`, `groq`, `ollama`, `xai`, and `openrouter` (see [`ModelProviderId`](/docs/api/sdk#b4runsdk-1)). Raw `graph` and `chain` routes can still instantiate any provider directly.
+An `agent()` route runs on a LangChain chat model. B4.run infers the provider from known model names and loads the matching LangChain package on demand. The built-in provider ids are `openai`, `anthropic`, `google`, `mistral`, `groq`, `ollama`, `xai`, and `openrouter` (see [`ModelProviderId`](/docs/api/sdk#b4runsdk-1)). Raw `graph` and `chain` routes can create any provider themselves.
 
-Set `provider` to one of the supported built-in provider ids when the model name is an alias, ambiguous, local, or routed through a provider gateway:
+Set `provider` yourself when the model name is an alias, ambiguous, local, or routed through a gateway:
 
 ```ts title="src/app/(public)/research/index.ts"
 import { agent } from "@b4run/sdk"
@@ -42,7 +42,7 @@ export default agent({
 })
 ```
 
-B4.run includes the OpenAI integration for the default path. Install other LangChain provider packages as your app needs them:
+B4.run includes the OpenAI integration. Install the other LangChain provider packages as you need them:
 
 ```bash
 pnpm add @langchain/anthropic     # anthropic
@@ -54,20 +54,22 @@ pnpm add @langchain/xai           # xai
 pnpm add @langchain/openrouter    # openrouter
 ```
 
-`b4 check` (and `b4 verify`) warn when a model id isn't in B4.run's curated list for the resolved provider (`openai`, `google`, `anthropic`, `xai`), with did-you-mean suggestions. The runtime prints the same advisory once when it constructs the model. The warning is advisory: new, proxy or gateway model ids run fine if your provider accepts them. Providers without curated lists (`mistral`, `groq`, `ollama`, `openrouter`) never get the warning.
+`b4 check` and `b4 verify` warn, with did-you-mean suggestions, when a model id isn't in B4.run's known list for its provider. Only `openai`, `google`, `anthropic` and `xai` have lists. The runtime prints the same warning once when it creates the model.
+
+It's only a warning. New, proxy and gateway model ids run fine as long as your provider accepts them.
 
 ## When to pick an agent
 
-A route's `index.ts` exports exactly one of four entry shapes, and you can mix shapes across routes in the same project:
+A route's `index.ts` exports one of four entry shapes, and different routes in a project can use different shapes:
 
-- **Agent**: the model picks tools at runtime. Use it for conversational and discovery-style routes.
-- **Workflow**: a deterministic async function with typed state. Use it when you control the order of operations.
+- **Agent**: the model picks the tools. Use it for chat and open-ended research.
+- **Workflow**: a plain async function. Use it when you want to write the steps yourself.
 - **Graph**: the full LangGraph DSL with branching, looping and conditional edges. Use it when the flow has structure the model shouldn't decide.
 - **Chain**: a LangChain LCEL `Runnable`. Use it for simple linear pipelines.
 
 ## Tool auto-binding
 
-You don't write a `tools: [...]` array. B4.run wires every file in the route's `tools/` directory into the generated graph at build time:
+You don't write a `tools: [...]` array. At build time, B4.run wires every file in the route's `tools/` directory into the generated graph:
 
 ```ts title="src/app/(public)/research/tools/search.ts"
 export default async (input: { readonly query: string }) => {
@@ -75,13 +77,13 @@ export default async (input: { readonly query: string }) => {
 }
 ```
 
-B4.run's compiler integration reads the exported parameter type and turns it into a JSON schema for the LLM. The agent calls `tools.search({ query })` at runtime when the model decides to.
+B4.run reads the parameter type and turns it into a JSON schema for the model. When the model decides it needs a search, it calls `search` with a `query`.
 
 See [Tools](/docs/tools) for the full input/output rules and the generated declarations.
 
 ## Retry
 
-Agents accept a `retry` config for transient model and provider failures:
+Agents take a `retry` option for temporary model and provider failures:
 
 ```ts title="src/app/.../index.ts"
 export default agent({
@@ -95,7 +97,7 @@ See [Retry](/docs/retry) for the backoff strategy, what is retried, and the stre
 
 ## Built-in agent features
 
-Agent routes can opt into more behavior through files and descriptor fields:
+You turn on more agent features by adding files or options:
 
 - [Memory](/docs/memory) loads `workspace/AGENTS.md` into the prompt.
 - [Planning](/docs/planning) adds `plan.md`, `writeTodos`, `todos`, and `plan_update`.
@@ -106,7 +108,7 @@ Agent routes can opt into more behavior through files and descriptor fields:
 
 ## Streaming
 
-The local dev server exposes streaming via `runs/stream`. See [Agent Protocol](/docs/dev-server/agent-protocol) for the protocol details.
+The dev server streams a run's output from `runs/stream`. See [Agent Protocol](/docs/dev-server/agent-protocol) for the details.
 
 ## Related
 

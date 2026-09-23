@@ -1,8 +1,6 @@
 # Stream Output
 
-Learn how to get a route's response incrementally instead of all at once at the end. We'll call `/threads/:id/runs/stream` and read the SSE frames:
-
-## The code
+A research run can take a minute or more. Let's stream its output as it arrives by calling `/threads/:id/runs/stream` and reading the SSE frames:
 
 ```ts title="scripts/stream-research.ts"
 // 1. Create a thread first (or reuse an existing one).
@@ -92,15 +90,15 @@ Every event frame is `event: <type>\ndata: <json>\n\n`. Parse the `event:` line 
 | `subagent.tool_result` | `{ call_id, name, output }` | Tool result inside a subagent. |
 | `subagent.message` | `{ call_id, content }` | Text chunk from a subagent. |
 | `subagent.end` | `{ call_id, final_message?, error? }` | Subagent finished or failed. |
-| `done` | `{ output: unknown }` | Run complete; `output` is the final route result. |
+| `done` | `{ output: unknown }` | Run complete. `output` is the final route result. |
 
 ## Notes
 
 - **AP URL shape.** The endpoint is `/threads/:id/runs/stream`, and the body is `{ route, input }`. Get a thread id from `POST /threads` first.
-- **The response is `text/event-stream`.** It is raw SSE, not JSON. Parse `event:` and `data:` lines per frame, or use a client like `eventsource-parser`.
-- **Heartbeats are comments.** A `: ping` heartbeat contains no `event:` or `data:` payload, so clients ignore it.
-- **Use `/threads/:id/runs/wait` when you don't need progress.** Streaming makes callers parse more. Pick `runs/stream` when partial output is useful: long agent reasoning, token-by-token text, intermediate workflow states, [planning](/docs/planning) updates, or [subagent](/docs/subagents) activity.
-- **Retry has limits during streams.** Retry is available only before the first stream event. Any emitted token or event commits the response. See [Retry](/docs/retry) for the streaming caveat.
+- **The response is `text/event-stream`.** Parse the `event:` and `data:` lines in each frame, or use a client like `eventsource-parser`.
+- **Heartbeats are comments.** A `: ping` heartbeat has no `event:` or `data:` line, so clients skip it.
+- **Use `/threads/:id/runs/wait` when you don't need progress.** It returns one JSON result, which is less to parse. Pick `runs/stream` when partial output is useful: long agent reasoning, token-by-token text, intermediate workflow states, [planning](/docs/planning) updates, or [subagent](/docs/subagents) activity.
+- **Retry stops at the first event.** Retry is available only before the first stream event. Any emitted token or event commits the response. See [Retry](/docs/retry).
 
 ## Related
 

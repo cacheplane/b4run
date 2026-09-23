@@ -9,40 +9,45 @@ B4.run writes those conventions once, so you can focus on the agent.
 
 - A *route* is a folder. Its path is the agent endpoint.
 - A route's `index.ts` exports one of: `agent`, `workflow`, `graph`, `chain`.
-- *Tools* live in shared `src/tools/` or next to a route in its `tools/` directory. Their parameter types are inferred at build time.
-- *State* is the JSON payload passed through the route runtime.
-- Agent routes can opt into built-in behavior such as memory, planning, skills, subagents, and reasoning effort.
-- *Middleware* is an optional app-level request gate for B4.run's dev server and built HTTP runtimes.
+- *Tools* live in the shared `src/tools/` or in a route's own `tools/` directory. B4.run infers their parameter types at build time.
+- *State* is the JSON a route takes in and returns.
+- Agent routes can turn on built-in features such as memory, planning, skills, subagents, and reasoning effort.
+- *Middleware* is an optional request gate for the dev server and the built HTTP runtimes.
 - LangGraph runs the graph. B4.run handles the rest.
 
 ## The pieces
 
-A *route* is a folder under `src/app/`. The folder path becomes the agent endpoint at runtime, so `src/app/research/` answers to `/research`. Everything a route needs lives next to it.
+A *route* is a folder under `src/app/`. The folder path becomes the endpoint, so `src/app/research/` answers to `/research`. Everything a route needs lives in that folder.
 
-A *route entry* is the route's default behavior. Each route has exactly one `index.ts` that exports an `agent`, a `workflow`, a `graph`, or a `chain`. Pick the shape that fits the problem; mix shapes across routes in the same project.
+A *route entry* is what the route runs. Each route has one `index.ts` that exports an `agent`, a `workflow`, a `graph`, or a `chain`. Pick the shape that fits the problem, route by route.
 
-Export an `agent` when the model should decide what to do. It picks tools at runtime and can pause for a human. Export a `workflow` when you own the order of operations as a deterministic, typed async function. Both use the same routing, types and dev loop. You can drop to `graph` or `chain` for raw LangGraph at any time. See [Agents](/docs/agents) and [Routes](/docs/routes) for each shape.
+Export an `agent` when the model should decide what to do. It picks tools as it goes and can pause for a person. Export a `workflow` when you want to write the steps yourself as a plain async function. Both get the same routing, types and dev loop. You can drop down to `graph` or `chain` for raw LangGraph whenever you like. See [Agents](/docs/agents) and [Routes](/docs/routes) for each shape.
 
-*Tools* are default-exported async functions in shared `src/tools/` or a route's local `tools/` directory. B4.run reads each tool's parameter type at build time and turns it into a JSON schema. Shared tools are available across routes; a route-local tool can specialize or shadow one for that route. Agents call tools by name; the model picks when.
+*Tools* are default-exported async functions in the shared `src/tools/` or a route's own `tools/` directory. B4.run reads each tool's parameter type at build time and turns it into a JSON schema. Every route can use the shared tools, and a route-local tool with the same name replaces the shared one for that route. In an agent, the model decides when to call each tool.
 
-*State* is an optional typed shape declared in `state.ts` next to the route. Dynamic segments (`[tenant]`, `[...rest]`) are preserved in the route id and generated route metadata; callers pass the corresponding values in the JSON input they send to the runtime.
+*State* is an optional typed shape in a `state.ts` file next to the route. Dynamic segments (`[tenant]`, `[...rest]`) stay in the route id and the generated route metadata. Callers pass their values in the JSON input.
 
-Agent route features are discovered from files and descriptors. `workspace/AGENTS.md` supplies persistent prompt guidance on every turn; route-local `memory.ts` defines typed cross-session memory; episodic records retain run history for later recall and distillation. `plan.md` provides planning, `skills/<name>/SKILL.md` provides route-local skills, `subagents/` provides child specialists, and `reasoning` tunes OpenAI-backed agent routes.
+Agent features turn on when B4.run finds their files:
 
-*Middleware* runs before route execution in `b4 dev` and the built Node and Hono HTTP runtimes. It lives at `src/middleware.ts` (or root `middleware.ts`) and can reject a request or attach request-scoped context for tools.
+- `workspace/AGENTS.md` adds prompt guidance on every turn.
+- `memory.ts` defines typed memory that lasts across threads, and episodic records keep run history for later recall.
+- `plan.md` turns on planning, `skills/<name>/SKILL.md` adds skills, and `subagents/` holds child agents.
+- The `reasoning` option tunes OpenAI-backed agent routes.
+
+*Middleware* runs before the route in `b4 dev` and in the built Node and Hono HTTP runtimes. It lives at `src/middleware.ts` (or a root `middleware.ts`). It can reject a request or attach context for the tools to read.
 
 <span id="access-control-three-layers"></span>
 
 ### Access control: four controls
 
-Four independent controls decide what a route can do once it's running:
+Four separate controls decide what a running route can do:
 
 - [Tool scoping](/docs/tools#scoping-a-routes-tools) decides *which* tools the model can call.
 - [Permissions](/docs/permissions) decide *whether* a given call runs (human-in-the-loop approval).
-- The [execution sandbox](/docs/sandbox) decides *what* an allowed, approved call can actually touch.
-- [Guarded delegation](/docs/subagents#delegation-policy) decides *whether* a subagent receives the delegated input at all.
+- The [execution sandbox](/docs/sandbox) decides *what* an allowed, approved call can touch.
+- [Guarded delegation](/docs/subagents#delegation-policy) decides *whether* a subagent gets the delegated input at all.
 
-They compose, and none substitutes for another. They all sit behind your service's own authentication and [thread access](/docs/thread-access) policy. See [Access Control](/docs/access-control) for the combined picture.
+You need all four, since each covers something the others don't. They all sit behind your service's own authentication and [thread access](/docs/thread-access) policy. See [Access Control](/docs/access-control) for how they fit together.
 
 ## The runtime
 
@@ -76,15 +81,15 @@ POST /threads/<id>/runs/wait  { "route": "/research#agent", "input": { "messages
 
 Let's walk through each step:
 
-1. **Thread lookup.** The Agent Protocol endpoint resolves the thread from `.b4/threads.sqlite`. A thread is created with `POST /threads`; its id is passed in subsequent run requests.
-2. **Route id match.** B4.run resolves the route id against the discovered file tree. Route groups (`(public)/`) drop from the path; the `#agent` suffix selects the agent entry on the route.
-3. **Input state.** The JSON input is passed to the route. Agent routes may apply defaults from `state.ts`; workflow, graph, and chain routes receive the runtime input for their adapter.
-4. **Middleware.** The app-level middleware runs when present. It can short-circuit the request or pass through with request-scoped context for tools.
-5. **Route entry.** The exported `agent`, `workflow`, `graph`, or `chain` runs. Agent routes receive materialized tools, and `workflow(state, ctx)` receives the typed `RuntimeContext`; raw graph and chain routes keep their native invocation and imported dependencies.
-6. **Tool calls.** Tools called by name are typechecked against the schemas B4.run generated at build time. The `searchCorpus` tool searches the bundled corpus; `readDoc` reads a document in full; the model picks when to call each.
-7. **Typed output.** The route returns a typed value. B4.run streams or returns it depending on the call (`runs/wait` vs `runs/stream` on the thread).
+1. **Thread lookup.** The Agent Protocol endpoint finds the thread in `.b4/threads.sqlite`. You create a thread with `POST /threads` and pass its id in later run requests.
+2. **Route id match.** B4.run matches the route id against the file tree. Route groups (`(public)/`) drop out of the path, and the `#agent` suffix picks the agent entry.
+3. **Input state.** B4.run passes the JSON input to the route. Agent routes fill in defaults from `state.ts`. Workflow, graph, and chain routes get the input as sent (a workflow can parse it with its own `state.ts`).
+4. **Middleware.** The app's middleware runs, if there is one. It can stop the request or let it through with context for the tools.
+5. **Route entry.** The exported `agent`, `workflow`, `graph`, or `chain` runs. Agent routes get their tools wired in, and `workflow(input, ctx)` gets the typed `RuntimeContext`. Raw graph and chain routes run the way LangGraph and LangChain run them, with the dependencies they import.
+6. **Tool calls.** B4.run checks each tool call against the schemas it generated at build time. Here, `searchCorpus` searches the bundled corpus and `readDoc` reads a whole document. The model decides when to call each.
+7. **Typed output.** The route returns a typed value. B4.run returns it in one response (`runs/wait`) or streams it (`runs/stream`).
 
-Runs execute on a thread. Between turns, B4.run checkpoints the LangGraph state to SQLite under `.b4/checkpoints.sqlite`.
+Runs happen on a thread. Between turns, B4.run saves the LangGraph state to SQLite in `.b4/checkpoints.sqlite`.
 
 <Callout>
   **Durable by default.** Every B4.run app ships a working checkpointer and thread store with no
@@ -95,44 +100,42 @@ Runs execute on a thread. Between turns, B4.run checkpoints the LangGraph state 
 
 ## Build vs runtime
 
-`b4 build` and `b4 typegen` walk your routes, infer tool parameter types from function signatures, and emit `.b4/b4.generated.d.ts`. That generated file is the route registry, the tool registry, and the typed `RouteTools<P>` map. After build, your editor can autocomplete `ctx.tools.searchCorpus` and complain when a tool's signature drifts from its caller.
+`b4 build` and `b4 typegen` walk your routes, infer tool parameter types from function signatures, and write `.b4/b4.generated.d.ts`. That file holds the route registry, the tool registry, and the typed `RouteTools<P>` map. Once it exists, your editor autocompletes `ctx.tools.searchCorpus` and flags a caller that no longer matches a tool's signature.
 
-At *runtime*, `b4 run`, `b4 dev`, and built B4.run HTTP entries execute routes. There is no manual `tools: [...]` array and no per-route registration for agent and workflow routes. B4.run wires up the build-time types and the runtime dispatcher.
+At *runtime*, `b4 run`, `b4 dev`, and the built HTTP entries run your routes. For agent and workflow routes, you never write a `tools: [...]` array or register a route. B4.run wires that up from the files.
 
 ## Where B4.run ends and LangGraph begins
 
-B4.run does not replace LangGraph. It packages LangGraph applications for several hosts.
+B4.run builds on LangGraph and packages LangGraph apps for several hosts.
 
 | Component | Role |
 |-----------|------|
 | B4.run | File-system routing, tool and state typegen, the HMR dev server, CLI commands, generated entries, and the default SQLite stores. |
 | LangGraph | `StateGraph`, channels, graph execution, and the checkpoint interface. |
 | Node target | B4.run's full Agent Protocol and AG-UI HTTP server, including Node filesystem-backed capabilities. |
-| Hono target | B4.run's fetch-based HTTP runtime for edge hosts; Node-only filesystem features are gated. |
-| LangSmith target | Generated graph entries and `langgraph.json` for LangSmith to deploy; LangSmith provides hosting and observability. |
+| Hono target | B4.run's fetch-based HTTP runtime for edge hosts. Node-only filesystem features aren't available. |
+| LangSmith target | Generated graph entries and `langgraph.json` for LangSmith to deploy. LangSmith provides hosting and observability. |
 
-The default `@b4run/sqlite-storage` package backs both the checkpointer (`.b4/checkpoints.sqlite`) and the threads store (`.b4/threads.sqlite`). You can swap it for your own implementation.
+The default `@b4run/sqlite-storage` package backs both the checkpointer (`.b4/checkpoints.sqlite`) and the thread store (`.b4/threads.sqlite`). You can swap in your own.
 
-LangSmith is a deployment and observability platform, separate from LangGraph. B4.run generates the artifacts LangSmith consumes (`langgraph.json` and per-route entry files). You bring your own LangSmith project and tracing setup.
+LangSmith is a deployment and observability platform, separate from LangGraph. B4.run generates the files LangSmith deploys (`langgraph.json` and one entry file per route). You bring your own LangSmith project and tracing setup.
 
-You also bring your own LangGraph workflows, LCEL chains and model providers. B4.run does not change any of those. It puts conventions around them.
-
-## What to read next
-
-1. **I want to build something now.** [Getting Started](/docs/getting-started)
-2. **I want to understand a piece in depth.** [Routes](/docs/routes), [Agents](/docs/agents), [Tools](/docs/tools), [State](/docs/state), [Memory](/docs/memory), [Planning](/docs/planning), [Skills](/docs/skills), [Subagents](/docs/subagents), [Reasoning Effort](/docs/reasoning-effort), [Middleware](/docs/middleware), [Retry](/docs/retry)
-3. **I want to see the surface.** [CLI](/docs/cli), [Dev Server](/docs/dev-server), [Deployment](/docs/deployment)
+You also bring your own LangGraph graphs, LCEL chains and model providers. B4.run leaves them as they are and puts conventions around them.
 
 ## Related
 
 <RelatedCards items={[
+  { href: "/docs/getting-started", title: "Getting Started", subtitle: "build something now" },
   { href: "/docs/routes", title: "Routes", subtitle: "the folder-as-route convention" },
   { href: "/docs/agents", title: "Agents", subtitle: "the default route entry" },
   { href: "/docs/tools", title: "Tools", subtitle: "co-located tools and type inference" },
+  { href: "/docs/state", title: "State", subtitle: "typed JSON input and output" },
   { href: "/docs/memory", title: "Memory", subtitle: "workspace-level prompt context" },
   { href: "/docs/planning", title: "Planning", subtitle: "route-local todo state and stream events" },
   { href: "/docs/skills", title: "Skills", subtitle: "load long instructions on demand" },
   { href: "/docs/subagents", title: "Subagents", subtitle: "delegate to child agent routes" },
+  { href: "/docs/middleware", title: "Middleware", subtitle: "gate requests before a route runs" },
+  { href: "/docs/cli", title: "CLI Reference", subtitle: "every b4 command" },
   { href: "/docs/dev-server/agent-protocol", title: "Agent Protocol", subtitle: "the runtime protocol" },
   { href: "/docs/recipes", title: "Recipes Overview", subtitle: "task-oriented how-tos" },
   { href: "/docs/faq", title: "FAQ", subtitle: "one-line answers to the recurring questions" },

@@ -1,16 +1,16 @@
 ---
 title: Build a code-fixing agent you can read
 description: Follow a B4.run agent from a failing CLI test through a Docker workspace, independent checks, and approval of the exact change.
-date: 2026-09-21
+date: 2026-09-15
 tags: [typescript, agents, patterns]
 type: post
 author: brian
-draft: true
 ---
 
-> Unpublished draft for review.
-
 Learn how to build a code-fixing agent with TypeScript and B4.run.
+
+**Updated September 2026:** The source links now point to commit `b4084553`
+from September 20, and the published blueprint uses B4.run 0.10.0.
 
 If you've written a Node.js application that reads files, runs a command and
 checks the result, you already know most of the pieces we'll use. The new part
@@ -151,7 +151,7 @@ Do not change tests, dependency versions, configuration, or the handler.
 
 [Source: `sample/task.md`](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006803a2671a955/examples/code-fixer/server/sample/task.md#L1-L7).
 
-That gives us a precise edit boundary: `src/cli.ts`. A repair must also preserve
+That tells the agent it may edit one file: `src/cli.ts`. A repair must also preserve
 `--cwd`, numeric `--cap` values, rejection of invalid arguments and dry-run
 behavior.
 
@@ -189,7 +189,7 @@ source and choose an edit itself.
 
 Next, let's open `src/app/fix/index.ts`.
 
-B4 uses the application directory to discover routes. This file defines the
+B4.run uses the application directory to discover routes. This file defines the
 `/fix` agent, and the `tools` directory beside it holds that agent's own functions.
 We define the agent by passing a configuration object to `agent()`:
 
@@ -294,7 +294,7 @@ Each conversation starts with its own copy of the broken project. The model can
 make changes without touching the sample in our repository, and we can compare
 those changes with the original files.
 
-B4 calls a conversation a **thread**. The workspace belongs to that thread, so
+B4.run calls a conversation a **thread**. The workspace belongs to that thread, so
 later tool calls in the same conversation can see earlier edits.
 
 Let's declare the files that go into a new workspace:
@@ -337,10 +337,10 @@ editable and the handler, test, package files and license as immutable. Those
 lists decide the captured source and what candidate inspection accepts. They do
 not make files in the editing workspace read-only.
 
-B4 captures the starting bytes, initializes the workspace and owns reconnection
+B4.run captures the starting bytes, initializes the workspace and handles reconnection
 and deletion. `baseline: "git"` lets the model inspect a diff while working.
 The review tool reads the original bytes through `ctx.workspace.readInitialFile`,
-so editing Git metadata cannot redefine the review baseline.
+so editing Git metadata can't change what the review compares against.
 
 ### Configure the sandbox
 
@@ -388,8 +388,8 @@ Let's quickly review:
 The container can't download packages while the agent works, so we prepare the
 project's dependencies in the image first. We'll run that step when we start the app.
 
-The B4 server on the host still calls the language model. Denying network access
-to the sandbox doesn't block that call, and the host's API key is not passed into
+The B4.run server on the host still calls the language model. Denying network access
+to the sandbox doesn't block that call, and the host's API key never reaches
 the container.
 
 The [full config](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006803a2671a955/examples/code-fixer/server/b4.config.ts) also allows reads of the prepared
@@ -438,8 +438,8 @@ export default async function prepareReview(_input: Record<string, never>, ctx: 
 
 Let's walk through it:
 
-1. `_input` is an empty input object. The model does not need to supply file
-   contents here because the function reads the workspace itself.
+1. `_input` is an empty input object. The function reads the workspace itself,
+   so the model doesn't supply any file contents.
 2. `ctx` is a `B4ToolContext` supplied by the runtime. It gives the tool access
    to the workspace, filesystem operations and cancellation signal.
 3. `inspectCandidate(ctx)` compares the current files with the original files
@@ -455,8 +455,8 @@ person reviewing the change.
 ### Inspect the changed files
 
 The [candidate inspector](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006803a2671a955/examples/code-fixer/server/src/review/inspect.ts) first reads the
-original project identity and files from B4's captured source. It then reads the
-current workspace through this shared B4 API:
+original project identity and files from B4.run's captured source. It then reads the
+current workspace through this shared B4.run API:
 
 ```ts
   const { files: current } = await inspectWorkspace(ctx.fs, {
@@ -489,8 +489,8 @@ also fails.
 The candidate contains the complete changed-file contents, workspace ID and
 initial source digest. A **digest** is a value calculated from some data that
 tells us whether the data has changed. [`candidateDigest`](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006803a2671a955/examples/code-fixer/server/src/review/candidate.ts)
-sorts the changed paths and hashes these fields with SHA-256, which identifies
-the exact bytes under review. The diff is generated from the same validated
+sorts the changed paths and hashes these fields with SHA-256, which pins down
+the bytes under review. The diff is generated from the same validated
 contents, with three lines of surrounding context.
 
 ## Verify the change with a fresh project copy
@@ -500,7 +500,7 @@ directory it has been editing. Instead, we'll create another workspace from the
 original source and apply only the accepted candidate files. That gives us the
 original tests and configuration with the proposed source change.
 
-[`verifyChanges`](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006803a2671a955/examples/code-fixer/server/src/review/verifier.ts) uses B4's `withWorkspace`
+[`verifyChanges`](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006803a2671a955/examples/code-fixer/server/src/review/verifier.ts) uses B4.run's `withWorkspace`
 to create a disposable Docker workspace from the captured source and image
 identity. It applies the candidate's changed files, then:
 
@@ -546,7 +546,7 @@ those names concrete:
 | Reject invalid arguments | Unknown flags, a missing cap, and a nonnumeric cap exit unsuccessfully. |
 | Preserve a dry run | Create `memory.json`, run consolidation with `--dry-run`, then require unchanged contents and no additional files. |
 
-The verifier reads structured Node test-runner events. Exit code zero is not
+The verifier reads structured Node test-runner events. Exit code zero isn't
 enough: every expected assertion must occur exactly once and pass, with no skip
 or todo. Output printed by submitted code is recorded as stdout and never counts
 as a passing assertion.
@@ -566,7 +566,7 @@ in our agent configuration:
 tools: { approve: ["exportForReview"] },
 ```
 
-When the model requests `exportForReview({candidate})`, B4 pauses before running
+When the model requests `exportForReview({candidate})`, B4.run pauses before running
 the tool and returns a pending approval request. A client can display that request,
 let the person decide and send the decision back to resume the run.
 
@@ -655,7 +655,7 @@ pass, so a successful test can't make up for a missing approval request:
 | `verified` | A recognized `npm test` command passed after the first `writeFile`. |
 | `visible` | The latest successful preparation reports passing visible tests. |
 | `independent` | That preparation reports passing independent checks. |
-| `scope` | Its validated candidate contains changed files; preparation already enforced the allowed paths. |
+| `scope` | Its validated candidate contains changed files. Preparation already enforced the allowed paths. |
 | `approval` | The run has one pending export-tool interrupt, no export result, and the export call carries the same validated candidate digest as preparation. |
 
 The first two scores establish command results and order. They don't establish
@@ -744,18 +744,19 @@ workspace:
 curl --fail-with-body -X DELETE http://127.0.0.1:3001/threads/$THREAD
 ```
 
-These commands use the ordinary B4 HTTP runtime, not an evaluation runner. The [example README](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006803a2671a955/examples/code-fixer/server/README.md) also covers
+These commands use the ordinary B4.run HTTP runtime, not an evaluation runner. The [example README](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006803a2671a955/examples/code-fixer/server/README.md) also covers
 built-server execution and adapting the sample.
 
 ### Installing from a blueprint
 
 You may also see `b4 add code-fixer` in the documentation. That command prints
-an installation guide for a coding agent to apply. It does not install or start
-the application itself.
+an installation guide for a coding agent to apply. You (or your coding agent)
+still install and start the application.
 
-The [published guide](https://b4.run/blueprints/code-fixer.md) currently uses an
-earlier example with B4 0.8.32. To follow the code in this article, use the linked
-repository example and the checkout instructions above.
+When this post came out, the [published guide](https://b4.run/blueprints/code-fixer.md)
+used an earlier example with B4.run 0.8.32. It now installs the example on B4.run 0.10.0.
+To follow the code in this article, use the linked repository example and the
+checkout instructions above.
 
 ## What belongs in the framework?
 
@@ -763,11 +764,11 @@ Building an example like this is a good way to find work that belongs in the
 framework.
 
 Every application that edits files needs to know where the files live, what they
-contained at the start and how to release its resources when finished. B4 handles
-source capture and the workspace lifecycle. It also owns the approval pause and
-resume.
+contained at the start and how to release its resources when finished. B4.run handles
+source capture and the workspace lifecycle. It also handles the approval pause
+and resume.
 
-The code-fixer moved another reusable operation into B4: `inspectWorkspace`. The
+The code-fixer moved another reusable operation into B4.run: `inspectWorkspace`. The
 app used to maintain its own file walker and snapshot program. Now it passes
 limits and expected links to the shared inspection function. You can see that change in
 [PR #670](https://github.com/cacheplane/b4run/pull/670).

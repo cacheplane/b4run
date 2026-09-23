@@ -1,22 +1,22 @@
 # Routes
 
-A route is a folder under `src/app/`. Its path becomes the agent endpoint. A route's `index.ts` exports exactly one entry shape: `agent`, `workflow`, `graph`, or `chain`.
+A route is a folder under `src/app/`, and its path becomes the endpoint. The route's `index.ts` exports one entry, in one of four shapes: `agent`, `workflow`, `graph`, or `chain`.
 
 ## Route entry
 
-Here are the four entry shapes:
+Here are the four shapes:
 
-- **`agent`**: an LLM-driven flow with auto-discovered tools. This is the default scaffold export. See [Agents](/docs/agents).
-- **`workflow`**: a deterministic async function with typed state. See [workflow](#workflow) below.
+- **`agent`**: a model-driven loop that calls the route's tools. The scaffold uses this one. See [Agents](/docs/agents).
+- **`workflow`**: a plain async function that you write step by step. See [workflow](#workflow) below.
 - **`graph`**: a LangGraph graph, for branching, looping and conditional edges.
 - **`chain`**: a LangChain LCEL `Runnable`, for simple linear pipelines.
 
 ## Pathname rules
 
-Routes follow the same conventions as the Next.js App Router:
+Routes follow the Next.js App Router conventions:
 
-- `(group)/`: a route group, excluded from the path
-- `[segment]/`: a dynamic segment, preserved in the route id and exposed in generated route params
+- `(group)/`: a route group, left out of the path
+- `[segment]/`: a dynamic segment, kept in the route id and in the generated route params
 - `[...rest]/`: a catch-all
 - `[[...optional]]/`: an optional catch-all
 
@@ -33,51 +33,57 @@ src/app/
           greet.ts      ← auto-discovered for agents and RuntimeContext
 ```
 
-The `(public)/` segment is excluded from the path, so this route is `/hello/[tenant]`.
+The `(public)/` segment is left out of the path, so this route is `/hello/[tenant]`.
 
-## workflow
+## `workflow`
 
-A `workflow` is a deterministic async function. The first argument is the route's input state, and the second is a `RuntimeContext` that exposes the route's discovered tools:
+A `workflow` is an async function. The first argument is the caller's JSON input, and the second is a `RuntimeContext` with the route's tools:
 
 ```ts title="src/app/(public)/hello/[tenant]/index.ts"
 import type { RuntimeContext } from "@b4run/sdk"
 import type { RouteTools } from "b4:routes"
-import type { z } from "zod"
-import type state from "./state.js"
-
-type HelloState = z.infer<typeof state>
+import state from "./state.js"
 
 export async function workflow(
-  state: HelloState,
+  input: unknown,
   ctx: RuntimeContext<RouteTools<"/hello/[tenant]">>,
 ) {
-  const r = await ctx.tools.greet({ tenant: state.tenant })
-  return { ...state, greeting: r.greeting }
+  const parsed = state.parse(input)
+  const r = await ctx.tools.greet({ tenant: parsed.tenant })
+  return { ...parsed, greeting: r.greeting }
 }
 ```
 
-The `RouteTools<"/hello/[tenant]">` generic resolves to the union of tools auto-discovered in this route's `tools/` directory.
+Let's quickly review:
 
-## graph
+- B4.run passes the input to a workflow as-is. It applies `state.ts` automatically only for agent routes, so the workflow imports the schema and calls `state.parse(input)` itself. That gives you typed state with its defaults filled in.
+- `RouteTools<"/hello/[tenant]">` types `ctx.tools` with the tools in this route's `tools/` directory (plus the shared `src/tools/`).
+- B4.run returns whatever the workflow returns.
 
-Export a compiled LangGraph graph as a named `graph` export:
+## `graph`
+
+Export a compiled LangGraph graph as `graph`:
 
 ```ts title="src/app/(public)/hello/[tenant]/index.ts"
-import { StateGraph, START, END } from "@langchain/langgraph"
-import type { HelloState } from "./state.js"
+import { Annotation, StateGraph, START, END } from "@langchain/langgraph"
 
-export const graph = new StateGraph<HelloState>({ channels: { /* ... */ } })
-  .addNode("greet", async (state) => state)
+const HelloState = Annotation.Root({
+  name: Annotation<string>,
+  greeting: Annotation<string>,
+})
+
+export const graph = new StateGraph(HelloState)
+  .addNode("greet", async (state) => ({ greeting: `Hello, ${state.name}!` }))
   .addEdge(START, "greet")
   .addEdge("greet", END)
   .compile()
 ```
 
-The graph receives the caller's JSON input and runs through B4.run's runtime. You still declare state channels, as LangGraph requires.
+The graph gets the caller's JSON input and runs in B4.run's runtime. A graph declares its own state with LangGraph's `Annotation`, and `state.ts` doesn't apply to it.
 
-## chain
+## `chain`
 
-Export a LangChain LCEL `Runnable` as a named `chain` export:
+Export a LangChain LCEL `Runnable` as `chain`:
 
 ```ts title="src/app/(public)/hello/[tenant]/index.ts"
 import { RunnableSequence } from "@langchain/core/runnables"
@@ -89,14 +95,14 @@ export const chain = RunnableSequence.from([
 
 ## Running a route
 
-Routes dispatch by path:
+Run a route by its path:
 
 ```bash
 $ echo '{"tenant":"acme"}' | b4 run '/hello/[tenant]'
 $ b4 dev    # HMR + dev server
 ```
 
-For programmatic dispatch, see [Agent Protocol](/docs/dev-server/agent-protocol) for the runtime API and the `runs/wait` / `runs/stream` endpoints.
+To call a route from code, use the `runs/wait` and `runs/stream` endpoints described in [Agent Protocol](/docs/dev-server/agent-protocol).
 
 ## Related
 

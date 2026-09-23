@@ -1716,7 +1716,7 @@ const checks = [
       "SQLite stores memory rows (including content, data, source, and tags) as plaintext",
       "Low-level `MemoryStore` implementations can store typed procedural records",
       "the generated `remember` tool returns a not-yet-wired rejection",
-      "namespace organizes records; it is not a security boundary",
+      "namespace organizes records. It is not a security boundary",
     ],
   },
   {
@@ -2047,7 +2047,7 @@ const accuracyContracts = [
       "does not embed",
       '`memory.writes: "off"` makes the recorder a no-op',
       "failed episode records currently use `toolsUsed: []`",
-      "## Episodic memory",
+      '<span id="episodic-memory"></span>',
     ],
     forbidden: [
       "parked interrupts are completed runs",
@@ -2086,7 +2086,7 @@ const accuracyContracts = [
       "prompt injection",
       "rejecting every candidate insight deletes every persisted watermark",
       "repeat the model call and its cost",
-      "## Distillation",
+      "## The two commands",
     ],
     forbidden: [
       "distillation runs automatically",

@@ -30,7 +30,7 @@ import { b4ActivityRenderers } from "@b4run/ag-ui/react"
 | `@b4run/ag-ui/react` | node-only | not-claimed | application | supported |
 | `@b4run/ag-ui/react/styles.css` | n/a | n/a | integration | supported |
 
-The adapter translates protocol data; it does not authenticate a caller or make client-supplied thread, run, state, tool, or context data authoritative.
+The adapter only translates protocol data, so it neither authenticates a caller nor makes client-supplied thread, run, state, tool, or context data authoritative.
 
 `@b4run/ag-ui/react` is the client entry. It ships CopilotKit renderers for B4.run's built-in orchestration activities. React and `@copilotkit/react-core` are optional peer dependencies, so a server that imports only the root or `/sse` entry installs neither. The entry is recorded as `node-only` because B4.run's edge guard requires an import graph free of unguarded Node globals, and React's JSX runtime reads `process.env.NODE_ENV`. It is meant for browser bundles, where your bundler substitutes that value.
 
@@ -83,7 +83,9 @@ The adapter translates protocol data; it does not authenticate a caller or make 
 | `B4ToolRowProps` | Describe the props passed to a replacement `ToolRow`. |
 | `cx` | Join a package default class with an optional consumer class (customization rung 4: what an ejected card imports in place of its internal `./parts.js` path). |
 
-`b4ActivityRenderers` is the drop-in default. Use an individual renderer to register only one card or to mix it with your own. The cards are plain React components and don't need CopilotKit. `SubagentActivityContentOutput` is wider than `B4SubagentActivityContent` in one way: this package compiles with `exactOptionalPropertyTypes` and zod does not, so a parsed value can carry an explicit `todos: undefined`. `ActivityChecklist`, `PlanActivityCard`, and `SubagentActivityCard` all accept optional `classNames` and `components` props built from these two types; see [`@b4run/ag-ui/react/styles.css`](#b4runag-uireactstylescss) below for rung 1 and the [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) for a runnable example of every rung.
+`b4ActivityRenderers` is the drop-in default. Use an individual renderer to register only one card or to mix it with your own. The cards are plain React components and don't need CopilotKit.
+
+`SubagentActivityContentOutput` is wider than `B4SubagentActivityContent` in one way: this package compiles with `exactOptionalPropertyTypes` and zod does not, so a parsed value can carry an explicit `todos: undefined`. `ActivityChecklist`, `PlanActivityCard`, and `SubagentActivityCard` all accept optional `classNames` and `components` props built from these two types. See [`@b4run/ag-ui/react/styles.css`](#b4runag-uireactstylescss) below for rung 1 and the [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) for a runnable example of every rung.
 
 ### `@b4run/ag-ui/react/styles.css`
 
@@ -93,7 +95,17 @@ This subpath is the activity cards' default stylesheet. It has no TypeScript exp
 import "@b4run/ag-ui/react/styles.css"
 ```
 
-The sheet is optional, and the cards render without it. Every rule that styles an element is scoped to the `b4-activity` prefix, so it can't restyle the rest of your application. The sheet also declares `--b4-activity-*` custom properties on `:root`. To restyle the cards, override these properties in your own CSS: `--b4-activity-surface`, `--b4-activity-border`, `--b4-activity-text`, `--b4-activity-muted`, `--b4-activity-running`, `--b4-activity-complete`, `--b4-activity-failed`, `--b4-activity-badge-bg`, `--b4-activity-radius`, `--b4-activity-gap`, `--b4-activity-font-size`, `--b4-activity-margin`, `--b4-activity-padding`, and `--b4-activity-header-weight`. `--b4-activity-badge-bg` defaults to `var(--b4-activity-border)`, so the depth badge follows the palette unless you point it elsewhere. Put the overrides in plain, unlayered CSS. A Tailwind `@theme` block won't work, because token values declared there lose to this sheet. A dark palette applies under `prefers-color-scheme: dark`. Set `data-b4-theme="light"` or `data-b4-theme="dark"` on the root element to pin one (the selectors match only `:root`, not an arbitrary ancestor). All three token blocks are wrapped in `:where()`, so they carry no specificity and your own `:root` override wins in every theme, whatever the stylesheet order.
+The sheet is optional, and the cards render without it. Every rule that styles an element is scoped to the `b4-activity` prefix, so it can't restyle the rest of your application.
+
+The sheet also declares `--b4-activity-*` custom properties on `:root`. To restyle the cards, override these properties in your own CSS:
+
+- `--b4-activity-surface`, `--b4-activity-border`, `--b4-activity-text`, `--b4-activity-muted`
+- `--b4-activity-running`, `--b4-activity-complete`, `--b4-activity-failed`, `--b4-activity-badge-bg`
+- `--b4-activity-radius`, `--b4-activity-gap`, `--b4-activity-font-size`, `--b4-activity-margin`, `--b4-activity-padding`, and `--b4-activity-header-weight`
+
+`--b4-activity-badge-bg` defaults to `var(--b4-activity-border)`, so the depth badge follows the palette unless you point it elsewhere.
+
+Put the overrides in plain, unlayered CSS. A Tailwind `@theme` block won't work, because token values declared there lose to this sheet. A dark palette applies under `prefers-color-scheme: dark`. Set `data-b4-theme="light"` or `data-b4-theme="dark"` on the root element to pin one (the selectors match only `:root`). All three token blocks are wrapped in `:where()`, so they carry no specificity and your own `:root` override wins in every theme, whatever the stylesheet order.
 
 ## Key contracts
 
@@ -202,9 +214,9 @@ toAguiEvents turns an upstream throw into a final `RUN_ERROR` event and closes a
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/ag-ui/test/inbound.test.ts","testNames":["maps user and assistant messages to B4.run messages","maps a resume array to B4.run resume requests","omits the resume property for an empty resume array","raw preserves the original input for tools/state/context access"]}] */}
 fromRunAgentInput maps supported messages and resume entries into B4.run shapes, omits resume for an empty array, and preserves the untouched AG-UI input under raw for tools, state, and context.
 
-### Stream boundaries
+### Stream edge cases
 
-Unknown chunk kinds are ignored after closing an open text frame. A stream that ends without `done` still finishes successfully. Interrupts are accumulated in the `RUN_FINISHED` outcome; after an interrupt, later non-interrupt chunks are suppressed until the outcome. A malformed interrupt terminates with `RUN_ERROR`.
+Unknown chunk kinds are ignored after closing an open text frame. A stream that ends without `done` still finishes successfully. Interrupts are accumulated in the `RUN_FINISHED` outcome. After an interrupt, later non-interrupt chunks are suppressed until the outcome. A malformed interrupt terminates with `RUN_ERROR`.
 
 `fromRunAgentInput()` normalizes messages and resume entries. It preserves the original input as `raw`, leaving tools, state, and context for application-owned validation and policy.
 

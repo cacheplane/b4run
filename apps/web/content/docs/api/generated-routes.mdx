@@ -41,7 +41,7 @@ The module has no runtime or purity classification because TypeScript erases eve
 
 ### Route paths and parameters
 
-With no routes, `B4RoutePath` is `never` and the parameter map is empty. A dynamic segment becomes `string`, a catch-all becomes `string[]`, and an optional catch-all becomes an optional `string[]` property. `B4RouteParams` tells callers which dynamic-segment fields to include in invocation input; B4.run derives the names, not the values, from the route path. For ordinary `[param]` agent routes, B4.run separates those fields from message input and exposes them to middleware and tool context instead of merging them into `B4RouteState`.
+With no routes, `B4RoutePath` is `never` and the parameter map is empty. A dynamic segment becomes `string`, a catch-all becomes `string[]`, and an optional catch-all becomes an optional `string[]` property. `B4RouteParams` tells callers which dynamic-segment fields to include in invocation input. B4.run derives the names, not the values, from the route path. For ordinary `[param]` agent routes, B4.run separates those fields from message input and exposes them to middleware and tool context instead of merging them into `B4RouteState`.
 
 ### Tools
 
@@ -53,7 +53,7 @@ B4RouteTools omits routes with no tools and renders void-input tools as zero-arg
 
 ### State
 
-State types come only from fields discovered in a route's `state.ts`. When state exports are present, `RouteState<P>` indexes `B4RouteState[P]` for a route in that map; it does not merge dynamic route parameters into state.
+State types come only from fields discovered in a route's `state.ts`. When state exports are present, `RouteState<P>` indexes `B4RouteState[P]` for a route in that map. Dynamic route parameters stay out of state.
 
 #### Behavior contract `generated-routes.state-conditional`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/core/test/render-route-types.test.ts","testNames":["adds only the state exports when generated route state is present","does NOT include B4RouteState when stateTypes is omitted"]}] */}

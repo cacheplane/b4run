@@ -1,6 +1,6 @@
 # Long-term Memory
 
-Use a route-local `memory.ts` when an agent needs durable, typed records instead of another prompt file. It declares the record shape, kind, namespace dimensions, and identity.
+Add a route-local `memory.ts` when an agent needs durable, typed records rather than another prompt file. It declares the record shape, kind, namespace dimensions, and identity.
 
 ## Declare a collection
 
@@ -27,7 +27,7 @@ export default defineMemory({
 - `schema` validates `remember.data` at typegen time and again at runtime.
 - `identity` selects fields used to reconcile semantic facts. It defaults to `subject` and `predicate`.
 
-`semantic`, `episodic`, and `reflection` writes are wired today. `procedural` exists in the type system, but its generated write path is not wired, so `remember` rejects `procedural` writes.
+`semantic`, `episodic`, and `reflection` writes are wired today. `procedural` exists in the type system only, so `remember` rejects `procedural` writes.
 
 ## Scope is addressing, not authentication
 
@@ -44,14 +44,16 @@ export default {
 } satisfies import("@b4run/core").B4Config
 ```
 
-B4.run keeps only the dimensions the route declares, so this example needs `agent` in the `scope` of `memory.ts`. The callback receives only `routePath` and `appRoot`. It does not receive verified identity or middleware context. Never derive a tenant boundary from an untrusted route parameter, thread id, or request body. If a namespace needs a verified tenant or user, add application-owned wiring that authenticates that identity, and test cross-tenant isolation. See [Persistence and Tenancy](/docs/persistence#tenant-ownership).
+B4.run keeps only the dimensions the route declares, so this example needs `agent` in the `scope` of `memory.ts`.
+
+The callback receives only `routePath` and `appRoot`. It does not receive verified identity or middleware context. Never derive a tenant from an untrusted route parameter, thread id, or request body. If a namespace needs a verified tenant or user, add your own wiring that authenticates that identity, and test cross-tenant isolation. See [Persistence and Tenancy](/docs/persistence#tenant-ownership).
 
 ## Generated `recall` and `remember` tools
 
 Typegen adds generated `recall` and `remember` tools to any agent route with a `memory.ts`:
 
 - `recall({ query?, kind?, tags?, limit?, since?, until? })` reads active in-scope records. [Recall and Retrieval](/docs/memory/retrieval) covers ranking and time windows.
-- `remember({ data, content, tags?, confidence? })` validates the typed data and stores a human-readable `content` string. It is omitted when `memory.writes` is `"off"`.
+- `remember({ data, content, tags?, confidence? })` validates the typed data and stores a human-readable `content` string. It's omitted when `memory.writes` is `"off"`.
 
 The model-facing data type follows your Zod schema, and runtime validation still runs when the model calls the tool.
 
@@ -65,7 +67,7 @@ Semantic IDs are derived from the namespace and serialized data. With automatic 
 | Same identity and same data | Update content, confidence, tags, and `updatedAt` on the existing record |
 | Same identity and different data | Write the new record and supersede the old one |
 
-Episodic and reflection records append instead of reconciling. Their IDs salt the namespace and data with the write timestamp, so repeated writes normally stay distinct. The store upserts by ID, so identical namespace and data written in the same millisecond get the same ID and overwrite each other.
+Episodic and reflection records always append. Their IDs salt the namespace and data with the write timestamp, so repeated writes normally stay distinct. The store upserts by ID, so identical namespace and data written in the same millisecond get the same ID and overwrite each other.
 
 Each record carries `createdAt` and `updatedAt`. Append kinds also use the request timestamp as `effectiveAt`. The model can supply content, tags, and confidence. It cannot set identity or timestamp fields.
 
@@ -83,18 +85,20 @@ export default {
 
 | Mode | Behavior |
 |---|---|
-| `candidate` | Default. Writes are stored for review and do not appear in normal recall until approved. |
+| `candidate` | Default. Writes are stored for review and stay out of normal recall until approved. |
 | `auto` | Adds and reconciliations become active immediately. |
 | `ask` | Adds and idempotent updates act like `auto`. A semantic supersede goes through the memory permission gate. |
 | `off` | The generated `remember` tool is absent. |
 
-Approving a semantic candidate reconciles its identity before activation. Episodic and reflection candidates just activate, because append records do not contradict earlier events or insights.
+Approving a semantic candidate reconciles its identity before activation. Episodic and reflection candidates just activate, because append records can't contradict earlier events or insights.
 
 ### `ask` mode
 
 `ask` gates only the semantic contradiction branch. A new fact with no matching identity, or one that repeats the same data, writes without a prompt. Episodic and reflection writes never trigger the supersede gate.
 
-In headless/non-interactive mode, an unknown decision is allowed, so `ask` behaves like `auto`. And without a permissions store, the supersede is also allowed. Explicit deny rules are still honored. This makes `ask` a supervision affordance, not a security boundary. When a write must be prevented, use an explicit deny policy and application authorization. An interactive decision held in one process is not distributed authorization.
+In headless/non-interactive mode, an unknown decision is allowed, so `ask` behaves like `auto`. And without a permissions store, the supersede is also allowed. Explicit deny rules are still honored.
+
+This makes `ask` a supervision affordance, not a security boundary. When a write must be prevented, use an explicit deny policy and application authorization. Keep in mind that an interactive decision lives in one process, so it won't authorize anything across replicas.
 
 ## Reviewing candidates
 
@@ -106,17 +110,17 @@ b4 memory approve <id>
 b4 memory reject <id>
 ```
 
-The local runtime also exposes list, approve, and reject routes for candidates. They have no authentication of their own, so put them behind application-owned authentication and tenant authorization before exposing them. For a broader admin surface, follow [Browse and Manage Memory](/docs/memory/browse).
+The local runtime also exposes list, approve, and reject routes for candidates. They have no authentication of their own, so put them behind your own authentication and tenant authorization before exposing them. For a broader admin surface, follow [Browse and Manage Memory](/docs/memory/browse).
 
 ## Stores and lifecycle
 
 The default Node store is SQLite at `.b4/memory.sqlite`. Set `memory.store` to use another backend. `@b4run/memory-pgvector` provides a shared Postgres store with vector candidate retrieval. It stays separate from the checkpoint, thread metadata, and permissions stores.
 
-Deleting a thread does not delete long-term memory. Call the store's `delete(id)` to remove one record, and `prune({ now, namespacePrefix?, cap? })` to remove expired records and enforce episodic caps. Account deletion, retention, backups, and audit across every namespace-bearing store are your application's job.
+Long-term memory outlives the thread. Call the store's `delete(id)` to remove one record, and `prune({ now, namespacePrefix?, cap? })` to remove expired records and enforce episodic caps. Account deletion, retention, backups, and audit across every namespace-bearing store are your application's job.
 
 ## Configuration
 
-The store, governance mode, ranking, embeddings, episode recording, distillation, and scope resolution are all set independently. Here are the first three:
+You set the store, governance mode, ranking, embeddings, episode recording, distillation, and scope resolution independently. Here are the first three:
 
 ```ts title="b4.config.ts"
 import { sqliteMemoryStore } from "@b4run/memory"
@@ -159,7 +163,9 @@ await seedMemory(store, [{
 }])
 ```
 
-This builds the same workspace value the runtime uses: the basename of the app root, not the full filesystem path. The `:memory:` database is process-local, so there is no file to clean up. Test the namespace, schema rejection, candidate approval, semantic update/supersede behavior, and retention separately. Fix timestamps in store tests so recency and expiry do not depend on the wall clock.
+This builds the same workspace value the runtime uses: the basename of the app root, not the full filesystem path. The `:memory:` database is process-local, so there's no file to clean up.
+
+Test the namespace, schema rejection, candidate approval, semantic update/supersede behavior, and retention separately. Fix timestamps in store tests so recency and expiry don't depend on the wall clock.
 
 ### Verifying against a real model
 
@@ -167,7 +173,12 @@ Once the deterministic tests pass, add a narrow integration test that asks the c
 
 ## What's deferred
 
-The `procedural` kind is typed but has no generated write path. There is no automatic migration between namespace schemes, no account-erasure transaction across stores, and no verified request principal passed into `resolveScope`. Build those boundaries in your application. A declared scope does not supply identity.
+A few things aren't built yet:
+
+- The `procedural` kind is typed but has no generated write path.
+- Nothing migrates records between namespace schemes.
+- There's no account-erasure transaction across stores.
+- `resolveScope` gets no verified request principal. A declared scope names the dimensions, and your application supplies the identity.
 
 ## Related
 

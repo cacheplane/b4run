@@ -1,9 +1,9 @@
 # Skills
 
 Skills let a route offer long instructions without putting them all in the system prompt.
-The model sees a short list of skills and calls `readSkill({ name })` when one is relevant, so the baseline prompt stays small.
+The model sees a short list of skills and calls `readSkill({ name })` when it needs one, so the prompt stays small.
 
-Use skills for route-local instructions that are too long or too conditional for the main `systemPrompt`, such as refund rules, triage procedures, coding standards for a workflow, or escalation playbooks.
+Use skills for instructions that are too long for `systemPrompt` or only apply sometimes, such as refund rules, triage steps or escalation playbooks.
 
 ## Quick start
 
@@ -17,7 +17,7 @@ src/app/support/[tenant]/
       SKILL.md
 ```
 
-Every skill file must include frontmatter with a `description`:
+Every skill file needs frontmatter with a `description`:
 
 ```md title="src/app/support/[tenant]/skills/refund-policy/SKILL.md"
 ---
@@ -46,7 +46,7 @@ By default, the skill name is the directory name. For example, this file creates
 skills/refund-policy/SKILL.md
 ```
 
-You can override the model-facing name in frontmatter:
+To give the model a different name, set `name` in the frontmatter:
 
 ```md
 ---
@@ -55,13 +55,13 @@ description: Instructions for refund, exchange, and exception questions.
 ---
 ```
 
-Skill names must be unique within the route. If two skills resolve to the same name, route preparation fails with a duplicate-name error.
+Each skill name must be unique within the route. If two skills end up with the same name, the route fails to load with a duplicate-name error.
 
-Directory names must start with a letter or number and can contain letters, numbers, underscores, and hyphens. Dotfiles, spaces, and punctuation-heavy names are ignored during discovery.
+A directory name starts with a letter or number and can contain letters, numbers, underscores, and hyphens. B4.run skips directories whose names start with a dot or contain spaces or other punctuation.
 
 ## What the model sees
 
-B4.run renders a compact prompt fragment:
+B4.run adds a short section to the prompt:
 
 ```text
 # Skills
@@ -72,21 +72,21 @@ to load its full instructions before acting.
 - **refund-policy** - Instructions for refund, exchange, and exception questions.
 ```
 
-Skill entries are sorted by name in the prompt.
+Skills are listed by name, in alphabetical order.
 
-The `readSkill` tool accepts:
+The `readSkill` tool takes:
 
 ```ts
 { name: string }
 ```
 
-For a known skill, it returns the markdown body after frontmatter. For an unknown skill, it returns a string listing the available names. Tool schema validation rejects an invalid input shape.
+For a known skill, it returns the markdown body after the frontmatter. For an unknown name, it returns a string listing the available names. Input of the wrong shape fails schema validation.
 
-B4.run reads the skill bodies during route preparation, not from disk on every `readSkill` call.
+B4.run reads the skill files once, when it prepares the route. `readSkill` serves them from memory.
 
 ## Frontmatter requirements
 
-`description` is required because it is the only information the model sees before choosing whether to load the skill.
+`description` is required, because it's all the model sees when it decides whether to load the skill.
 
 Here is a valid skill:
 
@@ -98,7 +98,7 @@ description: Use for billing dispute triage.
 ...
 ```
 
-This fails route preparation:
+This one fails to load:
 
 ```md
 Use for billing dispute triage.
@@ -114,13 +114,13 @@ name: billing-disputes
 ...
 ```
 
-Keep the description short and action-oriented.
+Keep the description short, and say when to use the skill.
 
-B4.run's frontmatter parser is small on purpose. Use simple `key: value` fields, and don't rely on full YAML features.
+B4.run's frontmatter parser is small on purpose. Stick to simple `key: value` fields rather than full YAML.
 
 ## Generated types
 
-`b4 typegen` includes `readSkill` in generated route tool types when a route has at least one valid `skills/<name>/SKILL.md` file.
+When a route has at least one valid `skills/<name>/SKILL.md` file, `b4 typegen` adds `readSkill` to that route's generated tool types.
 
 The generated input type is:
 
@@ -138,9 +138,9 @@ string
 
 Skills are implemented by `createSkillsMarker()`.
 
-During agent route preparation, B4.run discovers skill directories, reads frontmatter and body content, and contributes the `readSkill` tool and the prompt fragment. The tool holds each skill body in memory until `readSkill` runs.
+When B4.run prepares an agent route, it reads each skill's frontmatter and body, then adds the `readSkill` tool and the prompt section.
 
-Skills do not add state fields or stream transformers.
+Skills add no state fields or stream transformers.
 
 ## Related
 

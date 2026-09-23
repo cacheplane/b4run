@@ -1,12 +1,18 @@
 # API Reference
 
-This catalog lists the package, subpath, or executable that owns each B4.run contract. Application code starts with `@b4run/sdk`. The focused references cover exact exports, defaults, errors, and lifecycle rules.
+This page lists every B4.run package, subpath and executable, and links to its reference. Application code starts with `@b4run/sdk`. Each focused reference covers a package's exports, defaults, errors and lifecycle rules.
 
 ## Package and surface index
 
-Application shortcuts: author routes with the [`@b4run/sdk` reference](/docs/api/sdk); use the [`b4` command or runtime entries](/docs/api/cli), including `/fetch` for supported edge integrations; test programmatically with [`@b4run/testing`](/docs/api/testing); score behavior with [`@b4run/evals`](/docs/api/evals); and import app-specific tool and state types from [`b4:routes`](/docs/api/generated-routes).
+Application shortcuts: most apps only need these surfaces.
 
-In the runtime column, `node-only` means the surface fails B4.run's edge-safety guard. It does not mean the surface can't run in a browser. Most `node-only` entries are server-side, but `@b4run/ag-ui/react` targets the browser and fails the guard only because React's JSX runtime reads `process.env.NODE_ENV`.
+- [`@b4run/sdk`](/docs/api/sdk) to author routes.
+- The [`b4` command and runtime entries](/docs/api/cli), including `/fetch` for supported edge integrations.
+- [`@b4run/testing`](/docs/api/testing) to test programmatically.
+- [`@b4run/evals`](/docs/api/evals) to score behavior.
+- [`b4:routes`](/docs/api/generated-routes) for your app's generated tool and state types.
+
+In the runtime column, `node-only` means the surface fails B4.run's edge-safety guard. A `node-only` surface can still run in a browser. Most `node-only` entries are server-side, but `@b4run/ag-ui/react` targets the browser and fails the guard only because React's JSX runtime reads `process.env.NODE_ENV`.
 
 | Package | Purpose | Audience | Stability | Surfaces | Artifact boundaries | README | Reference | Guide |
 |---|---|---|---|---|---|---|---|---|
@@ -36,9 +42,11 @@ Generated surface: `b4:routes` (focused reference · generated types; compile-ti
 
 ## Reference conventions
 
-**Audience** says who should import a surface: application code, integration code, tests, tooling, or B4.run internals. **Stability** separates supported APIs from low-level or internal contracts. **Documentation** says whether a surface has a focused reference, a catalog summary, or an internal-only boundary. Each artifact boundary says whether a surface is runtime code, static configuration, metadata, generated types, a command, or a separately operated application. Runtime imports also state their purity claim.
+- **Audience** says who should import a surface: application code, integration code, tests, tooling, or B4.run internals.
+- **Stability** separates supported APIs from low-level or internal ones.
+- **Artifact boundaries** says whether each surface has a focused reference, a catalog summary, or is internal only. It also says whether the surface is runtime code, static configuration, metadata, generated types, a command, or a separately operated application. Runtime imports state their purity claim too.
 
-The headings below keep links from the old single-page reference working. Each one points to its canonical page and section. Use the canonical link in new docs.
+The headings below keep links from the old single-page reference working. Each one points to the page and section that now documents it. Use that link in new docs.
 
 ## @b4run/sdk
 
@@ -470,7 +478,7 @@ See the canonical [generated state contract](/docs/api/generated-routes#state).
 
 ## Where to read more
 
-Start with [Agents](/docs/agents), [Routes](/docs/routes), and [Tools](/docs/tools). The package references above cover each exact import, field, default, error, and lifecycle rule.
+Start with [Agents](/docs/agents), [Routes](/docs/routes), and [Tools](/docs/tools). The package references above cover each import, field, default, error, and lifecycle rule.
 
 ## Related
 

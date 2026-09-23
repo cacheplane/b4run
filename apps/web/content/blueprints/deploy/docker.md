@@ -14,7 +14,7 @@ You are an AI coding agent preparing a B4.run app for self-hosting with the `nod
 
 Confirm these prerequisites before changing the app:
 
-1. **Node.js 24 or newer** — B4.run packages require Node >=24:
+1. **Node.js 24 or newer**: B4.run packages require Node >=24:
 
    ```bash
    node --version
@@ -22,7 +22,7 @@ Confirm these prerequisites before changing the app:
 
    If the reported major is below 24, switch or upgrade Node before continuing.
 
-2. **Docker** — confirm the daemon tooling is installed:
+2. **Docker**: confirm the daemon tooling is installed:
 
    ```bash
    docker --version
@@ -30,7 +30,7 @@ Confirm these prerequisites before changing the app:
 
    If Docker is unavailable, install it from [docker.com/get-started](https://www.docker.com/get-started/) before building the image.
 
-3. **Project conventions and package metadata** — read `AGENTS.md` when present, then inspect `b4.config.ts`, `package.json`, every lockfile, `.dockerignore`, and any existing root `Dockerfile`. Do not assume the generated image uses the repository's preferred package manager; its install step is always npm.
+3. **Project conventions and package metadata**: read `AGENTS.md` when present, then inspect `b4.config.ts`, `package.json`, every lockfile, `.dockerignore`, and any existing root `Dockerfile`. Do not assume the generated image uses the repository's preferred package manager; its install step is always npm.
 
 ## Keep the CLI at runtime
 
@@ -94,8 +94,8 @@ Use `npx b4 ...` or `yarn b4 ...` equivalents when that is the project's package
 
 The Node target emits:
 
-- `.b4/build/server.mjs` — the production entry point that boots the B4.run HTTP runtime.
-- `.b4/build/modules.mjs` — the static route, tool, state, memory, and middleware module manifest generated from the app.
+- `.b4/build/server.mjs`: the production entry point that boots the B4.run HTTP runtime.
+- `.b4/build/modules.mjs`: the static route, tool, state, memory, and middleware module manifest generated from the app.
 - A generated Dockerfile containing B4.run's authoritative marker:
 
   ```text
@@ -176,7 +176,7 @@ curl --fail http://127.0.0.1:8000/healthz
 curl --fail http://127.0.0.1:8000/readyz
 ```
 
-Then exercise one application route through Agent Protocol or AG-UI to validate model credentials and route wiring—neither probe covers the model provider.
+Then exercise one application route through Agent Protocol or AG-UI to validate model credentials and route wiring. Neither probe covers the model provider.
 
 ## Replica and persistence limits
 

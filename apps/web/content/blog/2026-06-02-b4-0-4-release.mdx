@@ -6,12 +6,11 @@ tags: []
 type: release
 version: 0.4.0
 author: brian
-draft: true
 ---
 
-Testing an agent can feel unfamiliar at first. We are used to calling a function with an input and asserting its output. A model can give different answers to the same question, and calling it in every test adds network dependencies and cost.
+Testing an agent can feel strange at first. We're used to calling a function with an input and asserting its output. A model can give different answers to the same question, and calling it in every test adds network calls and cost.
 
-The 0.4 release added an offline agent test to the starter application. A new project included the test harness, Vitest and a fixture describing the model's response. Let's look at why that is useful and how the test works.
+The 0.4 release added an offline agent test to the starter application. A new project included the test harness, Vitest and a fixture describing the model's response. Let's look at why that's useful and how the test works.
 
 **Version note:** The code below uses the current `@b4run` package names and basic starter, which arrived after 0.4. Use the current starter to follow along.
 
@@ -43,7 +42,7 @@ pnpm install
 pnpm test
 ```
 
-The basic template includes the `/hello/[tenant]` route and `test/agent.test.ts`. Its fixture-backed test runs without a provider API key. Running the agent against a real model is a separate step that needs provider configuration.
+The basic template includes the `/hello` route and `test/agent.test.ts`. Its fixture-backed test runs without a provider API key. You'll only need provider configuration when you run the agent against a real model.
 
 ## Read the test
 
@@ -55,13 +54,13 @@ import { afterAll, it } from "vitest"
 import { createAgentHarness, expectFinalMessage, script } from "@b4run/testing"
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url))
-const h = await createAgentHarness({ appRoot, route: "/hello/[tenant]#agent" })
+const h = await createAgentHarness({ appRoot, route: "/hello#agent" })
 afterAll(() => h.close())
 
-it("greets the tenant", async () => {
+it("greets by name", async () => {
   const run = await h.run({
-    input: "Say hello",
-    fixtures: script().user("Say hello").replies("Hello from Acme!"),
+    input: "Say hello to Ada",
+    fixtures: script().user("Say hello to Ada").replies("Hello, Ada!"),
   })
   expectFinalMessage(run).toContain("Hello")
 }, 60_000)
@@ -75,7 +74,7 @@ Let's break this down:
 
 ### 2. Create the harness
 
-`createAgentHarness()` prepares the application for a test run. The `route` value selects `/hello/[tenant]`, and `#agent` identifies the agent entry.
+`createAgentHarness()` prepares the application for a test run. The `route` value selects `/hello`, and `#agent` identifies the agent entry.
 
 The harness starts the local model mock, runs type generation, and resolves the route. We register `h.close()` with Vitest's `afterAll()` hook so the test releases those resources when it finishes.
 
@@ -84,7 +83,7 @@ The harness starts the local model mock, runs type generation, and resolves the 
 The `script()` builder describes the exchange:
 
 ```ts
-script().user("Say hello").replies("Hello from Acme!")
+script().user("Say hello to Ada").replies("Hello, Ada!")
 ```
 
 The user message selects the fixture, and `replies()` supplies the model's response. When the route makes its model request, the local mock returns this text without contacting the real provider.
@@ -93,7 +92,7 @@ The user message selects the fixture, and `replies()` supplies the model's respo
 
 Finally, `expectFinalMessage(run).toContain("Hello")` checks the final message returned by the run.
 
-The `60_000` argument is Vitest's timeout in milliseconds. It allows up to a minute for the scenario to run. It does not make the test wait a minute.
+The `60_000` argument is Vitest's timeout in milliseconds. It gives the scenario up to a minute to finish.
 
 ## Test a tool call
 
@@ -114,12 +113,12 @@ This tests how the application handles a known tool call. We can assert the tool
 
 The greeting test tells us the application can run the selected route with the supplied fixture and return the expected message. A tool scenario checks the wiring and behavior around a scripted call.
 
-It does not tell us whether a live model will choose the correct tool, because we supplied that choice in the fixture. For the same reason, it can't show that a changed prompt improves the model's answers.
+It can't tell us whether a live model will choose the correct tool, because we supplied that choice in the fixture. For the same reason, it can't show that a changed prompt improves the model's answers.
 
 Use fixture-backed tests for repeatable application behavior. Use live runs and representative evaluation datasets to investigate model behavior.
 
 ## Conclusion
 
-The useful part of this release was giving a new application a test from day one. We can run the route, control the model response and make an assertion before adding our own features.
+In my opinion, the best part of this release was giving a new application a test from day one. We can run the route, control the model response and make an assertion before adding our own features.
 
 Start with that small test. As you add tools and state, add scenarios for the behavior you expect and the failures you need to handle. The [Testing agents guide](/docs/testing-agents) and [Evals guide](/docs/evals) explain how to extend that coverage.

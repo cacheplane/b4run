@@ -1,12 +1,12 @@
 # Node and Docker
 
-The Node target is the one I recommend for production. It runs B4.run's complete HTTP runtime, so choose it when you need Agent Protocol, AG-UI, middleware, filesystem-backed capabilities or an execution sandbox.
+I recommend the Node target for production. It runs B4.run's complete HTTP runtime, so it's the one to choose when you need Agent Protocol, AG-UI, middleware, filesystem-backed capabilities or an execution sandbox.
 
-## Recommendation and prerequisites
+## Prerequisites
 
 - Use Node 24 or newer. B4.run packages require it.
 - Keep `@b4run/cli` in production `dependencies`, because the emitted server imports it at runtime.
-- Run `b4 build` on the host before building an image. The generated Dockerfile copies `.b4/build` and does not run B4.run inside the image.
+- Run `b4 build` on the host before you build an image. The generated Dockerfile copies `.b4/build` into the image and runs the server from there.
 - Put authentication, tenant authorization and network restriction around the full service before you expose it.
 
 For an npm-managed app, make the CLI a production dependency like this:
@@ -17,7 +17,7 @@ npm install @b4run/cli --save
 
 ## Select the Node target
 
-B4.run emits Node and LangSmith when `build.targets` is absent. To build only Node, list it explicitly:
+B4.run emits Node and LangSmith when `build.targets` is absent. To build only Node, list it:
 
 ```ts title="b4.config.ts"
 import { config } from "@b4run/cli"
@@ -31,13 +31,11 @@ export default config({
 
 `b4 build` writes:
 
-| File | Purpose |
-|---|---|
-| `.b4/build/modules.mjs` | Static imports for discovered routes, tools, state, route memory, and middleware |
-| `.b4/build/server.mjs` | Loads that manifest and calls `serveRuntime()` on the production listener |
-| `Dockerfile` | A marker-managed `node:24-slim` image definition |
+- `.b4/build/modules.mjs` holds static imports for the discovered routes, tools, state, route memory and middleware.
+- `.b4/build/server.mjs` loads that manifest and calls `serveRuntime()` on the production listener.
+- `Dockerfile` is a marker-managed `node:24-slim` image definition.
 
-If the root `Dockerfile` still carries B4.run's generated marker, a later build refreshes it. If it has no marker, B4.run leaves it alone and writes the generated version to `.b4/build/Dockerfile`.
+If the root `Dockerfile` still carries B4.run's generated marker, the next build refreshes it. If it has no marker, B4.run leaves it alone and writes the generated version to `.b4/build/Dockerfile`.
 
 ## Run directly
 
@@ -56,7 +54,7 @@ b4 start --host 127.0.0.1 --port 3000
 
 ## Use the generated Dockerfile
 
-Create `.dockerignore` before the first `docker build`, or merge these exclusions into the existing file. Keep `.b4/build` in the context because the generated image runs its `server.mjs`:
+Create `.dockerignore` before the first `docker build`, or merge these exclusions into your existing file. Keep `.b4/build` in the context, because the generated image runs its `server.mjs`:
 
 ```text title=".dockerignore"
 .env
@@ -70,7 +68,7 @@ coverage
 .DS_Store
 ```
 
-Once the ignore file is in place, emit a fresh `.b4/build` on the host and build the image:
+Now emit a fresh `.b4/build` on the host and build the image:
 
 ```bash
 b4 check
@@ -81,39 +79,39 @@ docker run --rm -p 127.0.0.1:8000:8000 --env-file .env my-b4-app
 
 The loopback-only publish (`127.0.0.1:8000:8000`) is fine for a local smoke test. In production, put the service behind an authenticated proxy or network policy.
 
-The generated Dockerfile uses `COPY . .`, so every unignored file in the build context can end up in an image layer. That includes a secret that a later Dockerfile instruction deletes. `docker run --env-file .env` injects runtime values, but it does not undo a secret already baked into an image layer. Review the final context and image history in CI, and pass production secrets through the runtime or orchestrator instead of the build context.
+The generated Dockerfile uses `COPY . .`, so every unignored file in the build context can end up in an image layer. That includes a secret that a later Dockerfile instruction deletes. `docker run --env-file .env` injects runtime values, but it does not undo a secret already baked into an image layer. Review the final context and image history in CI. Pass production secrets through the runtime or orchestrator, and keep them out of the build context.
 
-The generated image runs `npm ci --omit=dev || npm install --omit=dev`. It does not invoke pnpm or Yarn, even though its copy step tolerates an optional pnpm lockfile. Use a hand-authored Dockerfile if your production install needs another package manager or stricter lockfile behavior.
+The generated image runs `npm ci --omit=dev || npm install --omit=dev`. Its copy step tolerates an optional pnpm lockfile, but the install always uses npm. If your production install needs pnpm, Yarn or stricter lockfile behavior, write your own Dockerfile.
 
-Don't exclude `.b4/build` in `.dockerignore`. The image's command is `node .b4/build/server.mjs`.
+The image's command is `node .b4/build/server.mjs`, so don't exclude `.b4/build` in `.dockerignore`.
 
-<Callout type="warn" title="The generated image does not make workspace writable">
+<Callout type="warn" title="The workspace is read-only in the generated image">
   The generated Dockerfile uses `COPY . .`, then runs only `chown -R 1000:1000 /app/.b4` before `USER 1000:1000`. If the build context contains `/app/workspace`, Docker copies it as root-owned. Local `writeFile`, shell commands that mutate the workspace, and tool-output offloading can then fail with `EACCES`.
 
-  When you need local workspace writes, use a hand-authored Dockerfile that adjusts ownership (for example, `COPY --chown=1000:1000 . .` or an explicit `chown` for `/app/workspace`) and validate the resulting least-privilege boundary. The emitter does not make that change for you.
+  When you need local workspace writes, write your own Dockerfile that adjusts ownership (for example, `COPY --chown=1000:1000 . .` or an explicit `chown` for `/app/workspace`). Then check that the result is still least-privilege.
 </Callout>
 
 ## Environment and secrets
 
-Pass model credentials, database URLs and provider configuration at runtime. For local Docker smoke tests, `--env-file .env` is convenient. In production, use the orchestrator's secret mechanism and don't copy secret files into the image.
+Pass model credentials, database URLs and provider configuration at runtime. For local Docker smoke tests, `--env-file .env` is convenient. In production, use the orchestrator's secret mechanism, and keep secret files out of the image.
 
-`src/middleware.ts` is execution middleware, not service-wide authentication. Health, thread management and state routes, cancellation, and memory-candidate management include paths that bypass middleware. Your external authentication and tenant boundary must cover the entire service, with only intentionally public probes exempted.
+`src/middleware.ts` is execution middleware. It isn't service-wide authentication: health, thread management and state routes, cancellation and memory-candidate management include paths that bypass it. Your outer authentication and tenant checks must cover the whole service, exempting only probes you mean to make public.
 
 ## Filesystem and sandbox
 
-The Node runtime can use local `.b4` stores and filesystem-backed capabilities, and it can construct the configured [execution sandbox](/docs/sandbox). Each of these is a separate durability domain:
+The Node runtime can use local `.b4` stores and filesystem-backed capabilities, and it can build the configured [execution sandbox](/docs/sandbox). Each of these persists separately:
 
-- `.b4` inside a container is local to that container unless the deployment mounts or replaces it with durable storage.
+- `.b4` inside a container stays local to that container, unless the deployment mounts durable storage there or swaps in shared stores.
 - Sandbox workspaces follow the selected sandbox provider's volume lifecycle.
-- Shared Postgres checkpoints, threads, and permissions do not automatically make long-term memory or workspace files shared.
+- Shared Postgres checkpoints, threads and permissions leave long-term memory and workspace files local. Those need their own shared stores.
 
 Choose those stores in [Persistence and Tenancy](/docs/persistence), and coordinate replicas as described in [Production Topology](/docs/production-topology).
 
 ## Health and shutdown
 
-`GET /healthz` returns a process-level success response. Treat it as **liveness**, not dependency readiness: the handler does not query the model, database or sandbox provider. In an embedded fetch/Hono assembly with `requestStores`, stores are constructed before route dispatch, so even a health request can fail before the handler runs. That still isn't a complete dependency check.
+`GET /healthz` returns a process-level success response. Treat it as **liveness**, not dependency readiness. The handler never queries the model, database or sandbox provider. In an embedded fetch/Hono assembly with `requestStores`, stores are built before route dispatch, so even a health request can fail before the handler runs. That still isn't a complete dependency check.
 
-The generated `.b4/build/server.mjs` does not currently install signal handlers. `serveRuntime()` handles signals only when a caller opts in with `installSignalHandlers: true`. A larger host can own signals itself and call `await runtime.close()` in its shutdown path. Plan rollout grace periods and request draining around this limitation.
+The generated `.b4/build/server.mjs` does not currently install signal handlers. `serveRuntime()` handles signals only when a caller opts in with `installSignalHandlers: true`. A larger host can handle signals itself and call `await runtime.close()` in its shutdown path. Plan rollout grace periods and request draining around this.
 
 ## Production checklist
 
@@ -121,24 +119,24 @@ The generated `.b4/build/server.mjs` does not currently install signal handlers.
 2. Create or audit `.dockerignore`, then run `b4 check`, `b4 build` and `b4 verify` before building the image.
 3. Test the built image on loopback, including Agent Protocol and AG-UI streaming.
 4. Inject secrets at runtime, and authenticate and restrict the whole service.
-5. Configure durable stores and backup/retention policy for every state domain you rely on.
+5. Configure durable stores, backups and retention for every kind of state you rely on.
 6. Keep one replica unless thread-aware routing or distributed serialization and cancel routing are guaranteed.
 7. Account for the generated server's missing signal handlers during rollout.
 
 ## Troubleshooting
 
-- **Container cannot import `@b4run/cli`:** move it from `devDependencies` to `dependencies`, rebuild on the host, then rebuild the image.
+- **The container can't import `@b4run/cli`:** move it from `devDependencies` to `dependencies`, rebuild on the host, then rebuild the image.
 - **`server.mjs` is missing in the image:** run `b4 build` first and remove `.b4/build` from `.dockerignore`.
-- **A custom Dockerfile was not replaced:** B4.run preserves unmarked root files; inspect `.b4/build/Dockerfile`.
-- **The health probe is green but requests fail:** test the actual database, model, sandbox, authentication and route path. `/healthz` does not validate them.
-- **Cancellation or the one-run gate behaves inconsistently across replicas:** route a thread to its owning process or add distributed serialization and cancel routing.
+- **Your custom Dockerfile wasn't replaced:** B4.run keeps unmarked root files. Look in `.b4/build/Dockerfile` for the generated one.
+- **The health probe is green but requests fail:** test the actual database, model, sandbox, authentication and route path. `/healthz` checks none of them.
+- **Cancellation or the one-run gate behaves inconsistently across replicas:** route each thread to the process running it, or add distributed serialization and cancel routing.
 
-## Related guides
+## Related
 
 <RelatedCards
   items={[
     { href: "/docs/deployment/kubernetes", title: "Kubernetes", description: "Install the built image with the b4-app chart." },
-    { href: "/docs/persistence", title: "Persistence and Tenancy", description: "Select and operate every durability domain." },
+    { href: "/docs/persistence", title: "Persistence and Tenancy", description: "Select and operate every durable store." },
     { href: "/docs/production-topology", title: "Production Topology", description: "Design probes, draining, and replica coordination." },
     { href: "/docs/security-architecture", title: "Security Architecture", description: "Protect the full HTTP surface." },
   ]}

@@ -8,7 +8,7 @@ B4.run can run its own Node listener, or it can give you a web-standard fetch ha
 - Use `serveRuntime` when your code should create and close that listener.
 - Use `createRuntimeFetchHandler` when an existing server, worker, test harness, or Hono app owns the transport and dependency lifetimes.
 
-Embedding does not change the rooted B4.run endpoint paths or widen middleware coverage. The host still owns blanket authentication, tenant authorization, proxy behavior, readiness, and process shutdown.
+The rooted B4.run endpoint paths and middleware coverage stay the same when you embed. Your host still handles blanket authentication, tenant authorization, proxy behavior, readiness, and process shutdown.
 
 ## Own a Node server with serveRuntime
 
@@ -33,13 +33,15 @@ const runtime = await serveRuntime({
 console.log(`B4.run listening on ${runtime.url}`)
 ```
 
-`serveRuntime` defaults `installSignalHandlers` to `false`. If your host already coordinates several servers, keep signal handling there and call `await runtime.close()` in your own shutdown sequence. `b4 start` opts in. The generated Node `server.mjs` currently does not.
+`serveRuntime` defaults `installSignalHandlers` to `false`. If your host already coordinates several servers, keep signal handling there and call `await runtime.close()` in your own shutdown sequence. `b4 start` opts in. The generated Node `server.mjs` currently leaves it off.
 
 ## Compose the fetch runtime
 
 The edge-safe entry is `@b4run/cli/fetch`. It does no route discovery and has no filesystem or SQLite fallback, so you supply the generated edge manifest, a serializable config, and every store your exposed endpoints need.
 
-The example below is an **advanced lifecycle/store skeleton**, not a complete production edge/model host. It leaves out the generated `seedModelImporter` wiring, literal provider imports, `seedRuntimeEnv` binding seeding, and the complete serialized configuration. Without those, a model route can bundle incorrectly or read the wrong environment. For a production edge deployment, use the generated `.b4/build/app.mjs`. A host that replaces it must reproduce everything that artifact does, on top of this lifecycle pattern:
+The example below is an **advanced lifecycle/store skeleton**, not a complete production edge/model host. It leaves out the generated `seedModelImporter` wiring, literal provider imports, `seedRuntimeEnv` binding seeding, and the complete serialized configuration. Without those, a model route can bundle incorrectly or read the wrong environment.
+
+For a production edge deployment, use the generated `.b4/build/app.mjs`. A host that replaces it must reproduce everything that artifact does, on top of this lifecycle pattern:
 
 ```ts title="runtime.ts"
 import { createRuntimeFetchHandler } from "@b4run/cli/fetch"
@@ -83,12 +85,14 @@ export default {
 
 Let's quickly review:
 
-- The handler is built lazily, inside the first request. Construction creates an `AbortController`, which workerd does not allow in module/global scope, so only the promise and a plain binding map live there.
-- The environment is bound to the incoming `Request`, so a later request cannot reuse the first request's database environment by accident.
+- The handler is built lazily, inside the first request. Construction creates an `AbortController`, which workerd forbids in module/global scope, so only the promise and a plain binding map live there.
+- The environment is bound to the incoming `Request`, so a later request can't reuse the first request's database environment by accident.
 - The memoized promise is reset when construction rejects, so a later invocation can retry.
 - `"/my-app"` is a placeholder for a specific value. `APP_ROOT` must exactly match the rooted namespace baked into `modules.edge.mjs`, currently `/<app-directory-basename>`. A mismatch splits the manifest's route/cache identity from the handler identity.
 
-`requestStores` can return a checkpointer, threads store, permissions store, memory store, and `dispose`. A resource that can live as long as the handler can be passed at boot instead. A store supplied by `requestStores` is used as-is. B4.run does not call `load()` on it and does not reapply sibling `permissions.mode`, `permissions.allow`, or `permissions.deny` from `b4.config.ts`. If a request reaches a required store you left out, it fails loudly instead of opening local SQLite.
+`requestStores` can return a checkpointer, threads store, permissions store, memory store, and `dispose`. A resource that can live as long as the handler can be passed at boot instead.
+
+A store supplied by `requestStores` is used as-is. B4.run does not call `load()` on it and does not reapply sibling `permissions.mode`, `permissions.allow`, or `permissions.deny` from `b4.config.ts`. If a request reaches a required store you left out, it fails loudly. It never falls back to local SQLite.
 
 ## Compose with Hono
 
@@ -106,25 +110,25 @@ app.route("/", b4App)
 export default app
 ```
 
-The generated app has no base-path option. Do not put it under a `/b4` prefix or use Hono's request-rebuilding mount helper. B4.run's routes are rooted, and the per-request environment lookup is keyed by the original request. Keep `app.route("/", b4App)` exactly as shown.
+The generated app has no base-path option. Don't put it under a `/b4` prefix or use Hono's request-rebuilding mount helper. B4.run's routes are rooted, and the per-request environment lookup is keyed by the original request. Keep `app.route("/", b4App)` as shown.
 
 ## Lower-level tooling surface
 
-`@b4run/cli/runtime` is a lower-level tooling surface for B4.run's testing and internal runtime integrations. It exposes dynamic, Node-oriented machinery and is not the entry point for embedding. Application hosts should import `serveRuntime` and `loadStaticModules` from the package root, or `createRuntimeFetchHandler` from `@b4run/cli/fetch`.
+`@b4run/cli/runtime` is a lower-level tooling surface for B4.run's testing and internal runtime integrations. It exposes dynamic, Node-oriented machinery, so skip it when embedding. Application hosts should import `serveRuntime` and `loadStaticModules` from the package root, or `createRuntimeFetchHandler` from `@b4run/cli/fetch`.
 
 ## Dependency precedence
 
 On Node, modules, middleware, and store instances you pass in win. When a store is missing, Node falls back to the matching `b4.config.ts` field, and then to the local SQLite/file default where one exists. A `requestStores` result overrides matching boot instances for that request.
 
-The edge fetch entry has no filesystem fallback. It cannot discover routes, load config, read permission files, or open default SQLite, so you supply those dependencies. A configured feature the edge cannot serve fails with a capability error.
+The edge fetch entry has no filesystem fallback. It can't discover routes, load config, read permission files, or open default SQLite, so you supply those dependencies. A configured feature the edge cannot serve fails with a capability error.
 
 ## Endpoint paths
 
-Embedding changes who owns the listener, not the API layout. The handler dispatches these rooted paths:
+Embedding changes who runs the listener. The API layout stays put. The handler dispatches these rooted paths:
 
-- `/healthz` for liveness (never builds request stores) and `/readyz` for dependency readiness (builds them and probes each durable store, as [Production Topology](/docs/production-topology) explains);
-- `/threads` and `/threads/:thread_id/...` for Agent Protocol management and execution;
-- `/agui/:routeId` for AG-UI;
+- `/healthz` for liveness (never builds request stores) and `/readyz` for dependency readiness (builds them and probes each durable store, as [Production Topology](/docs/production-topology) explains).
+- `/threads` and `/threads/:thread_id/...` for Agent Protocol management and execution.
+- `/agui/:routeId` for AG-UI.
 - `/memory/candidates...` for memory candidate management.
 
 Route keys and thread ids still need URL encoding where the protocol requires it. If you need a public prefix, rewrite it at an outer proxy and test every request/response path. The runtime has no prefix setting.
@@ -133,7 +137,7 @@ Route keys and thread ids still need URL encoding where the protocol requires it
 
 The handler tracks response lifetime and run lifetime separately. For server-sent events, stream the response body through the host without buffering it. An Agent Protocol run can keep going after its viewer disconnects, but an AG-UI run aborts on disconnect.
 
-Await `close()` before ending pools your application owns. `close()` stops accepting requests, aborts shutdown-aware work, drains with a time bound, waits for request-store disposal, and releases sandboxes. It does not close injected boot stores or pools.
+Await `close()` before ending pools your application owns. `close()` stops accepting requests, aborts shutdown-aware work, drains with a time bound, waits for request-store disposal, and releases sandboxes. Injected boot stores and pools stay open for you to close.
 
 If a request-store factory throws before returning, it must clean up whatever it already opened:
 
@@ -198,7 +202,7 @@ export async function createApplicationRequestStores(
 Let's quickly review:
 
 - The explicit `await permissionsStore.load()` fulfills the store's load contract before the store is returned. In `interactive` mode, that call hydrates persisted runtime grants into the synchronous match cache. Other modes skip those grants on purpose.
-- B4.run calls neither `ready()` nor `load()` for a `requestStores` override. It also does not layer the sibling B4.run permission config or the `B4_PERMISSIONS_MODE` override onto a custom store. Your application owns the effective mode, static allow/deny policy, hydration, refresh, and disposal.
+- B4.run calls neither `ready()` nor `load()` for a `requestStores` override. It also skips layering the sibling B4.run permission config or the `B4_PERMISSIONS_MODE` override onto a custom store. Your application owns the effective mode, static allow/deny policy, hydration, refresh, and disposal.
 - `dispose` runs after the response and any run it started have settled.
 - If construction or hydration throws, the runtime has nothing to dispose, so the `catch` closes the partly opened pool itself.
 
@@ -211,11 +215,11 @@ await handler.close()
 await pool.end()
 ```
 
-That way active runs and response bodies cannot write through an ended pool.
+That way active runs and response bodies can't write through an ended pool.
 
 ## Authentication
 
-Put blanket authentication and tenant authorization in the owning server or proxy. B4.run middleware runs for Agent Protocol execution/resume and AG-UI, but health, thread management, state, cancellation, and memory candidate routes bypass it. Read [Security Architecture](/docs/security-architecture) before you expose an embedded handler.
+Put blanket authentication and tenant authorization in your host server or proxy. B4.run middleware runs for Agent Protocol execution/resume and AG-UI, but health, thread management, state, cancellation, and memory candidate routes bypass it. Read [Security Architecture](/docs/security-architecture) before you expose an embedded handler.
 
 ## Test the embedded host
 

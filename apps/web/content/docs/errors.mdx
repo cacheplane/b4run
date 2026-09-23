@@ -2,13 +2,13 @@
 
 # Error Codes
 
-Every user-facing B4.run failure carries a stable `B4_Exxxx` code. B4 prints the
-code wherever the failure appears (CLI stderr, HTTP/SSE error bodies and
+Every user-facing B4.run failure carries a stable `B4_Exxxx` code. You'll see
+the code wherever the failure shows up (CLI stderr, HTTP/SSE error bodies and
 permission-denial tool results), so you can search for it and link to it.
 
 Codes are grouped by range: `E1xxx` config / `b4 check`, `E2xxx` sandbox,
 `E3xxx` permissions, `E4xxx` model / provider, and `E5xxx` runtime / import.
-Some codes have no docs link. They are still valid, searchable identifiers.
+A code without a docs link is still a stable identifier you can search for.
 
 | Code | Meaning | Docs |
 | --- | --- | --- |
@@ -26,8 +26,8 @@ Some codes have no docs link. They are still valid, searchable identifiers.
 | `B4_E3002` | Subagent dispatch denied | [/docs/subagents#delegation-policy](/docs/subagents#delegation-policy) |
 | `B4_E3003` | Thread access policy failed to load | [/docs/thread-access#load-failures](/docs/thread-access#load-failures) |
 | `B4_E3004` | Middleware failed to load | [/docs/middleware#when-middleware-fails-to-load](/docs/middleware#when-middleware-fails-to-load) |
-| `B4_E4001` | Model provider package missing | [/docs/configuration](/docs/configuration) |
-| `B4_E4002` | Unknown model id | [/docs/configuration](/docs/configuration) |
+| `B4_E4001` | Model provider package missing | [/docs/agents#model-providers](/docs/agents#model-providers) |
+| `B4_E4002` | Unknown model id | [/docs/agents#model-providers](/docs/agents#model-providers) |
 | `B4_E5001` | Import or export mismatch | None |
 | `B4_E5002` | Tool file has the wrong shape | [/docs/tools](/docs/tools) |
 | `B4_E5003` | Subagent unavailable or dispatch failed | [/docs/subagents#dispatch-failures](/docs/subagents#dispatch-failures) |

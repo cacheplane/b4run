@@ -19,7 +19,7 @@ import {
 } from "@b4run/langchain"
 ```
 
-Install the optional LangChain provider package selected by your agents. `@langchain/openai` is included; Anthropic, Google, Mistral, Groq, Ollama, xAI, and OpenRouter integrations are optional peer dependencies.
+Install the optional LangChain provider package selected by your agents. `@langchain/openai` is included. Anthropic, Google, Mistral, Groq, Ollama, xAI, and OpenRouter integrations are optional peer dependencies.
 
 ## Compatibility and audience
 
@@ -28,7 +28,7 @@ Install the optional LangChain provider package selected by your agents. `@langc
 | `@b4run/langchain` | edge-safe | not-claimed | integration | supported |
 | `@b4run/langchain/package.json` | package metadata | n/a | tooling | supported |
 
-The runtime root is edge-safe for B4.run's emitted Hono/workerd target. The evidence is the emitted Hono app round trip on Node and a gated real-workerd lane without `nodejs_compat`; guards bundle the exact surface with the model layer externalized. The root is not dependency-free and makes no general browser promise: provider integrations, application tools, stores, and dynamically selected imports keep their own requirements. `./package.json` is data for tooling, not TypeScript inventory or runtime code.
+The runtime root is edge-safe for B4.run's emitted Hono/workerd target. The evidence is the emitted Hono app round trip on Node and a gated real-workerd lane without `nodejs_compat`. Guards bundle the exact surface with the model layer externalized. The root is not dependency-free and makes no general browser promise: provider integrations, application tools, stores, and dynamically selected imports keep their own requirements. `./package.json` is data for tooling, not TypeScript inventory or runtime code.
 
 ## Public exports
 
@@ -119,7 +119,7 @@ export interface AgentStreamChunk {
 | `readonly messageId` | `string` | no | Identify the source model invocation for text tokens within this stream. |
 
 Text token data remains a string. Non-subagent model text carries `messageId`
-from its model invocation; a `message_end` chunk with `{ messageId }` follows
+from its model invocation. A `message_end` chunk with `{ messageId }` follows
 that model's text before any same-model tool announcements. Models that emit no
 text produce no completion chunk. This preserves independent text framing for
 concurrent nested models. Invocation identity does not deduplicate replays.
@@ -189,7 +189,7 @@ export interface UnwrappedToolResult {
 | `readonly content` | `string` | yes | Carry agent-visible content. |
 | `readonly stateUpdates` | `Record<string, unknown> \| undefined` | yes | Carry optional channel updates. |
 
-Several callable exports use non-barrel helper shapes in their declarations. These shapes are listed here for reading; you can't import them:
+Several callable exports use non-barrel helper shapes in their declarations. These shapes are listed here for reading. You can't import them:
 
 ```ts
 type Importer = (specifier: string) => Promise<Record<string, unknown>>
@@ -224,9 +224,9 @@ type BuildStubArgs = {
 }
 ```
 
-The larger inline `AgentOptions` shape used by `executeAgent` and `streamAgent` requires `checkpointer`, `entry`, `input`, `routeParamNames`, `signal`, and `tools`; it also accepts middleware, retry, state, prompt, offload, summarization, subagent, thread, sandbox, and cache-bypass controls. The subagent converter accepts a private `{ name, description?, schema? }` placeholder, and the tool converter accepts the same basic tool definition plus a `run` callback. `defaultSummarize` accepts messages, model, optional previous summary, and signal.
+The larger inline `AgentOptions` shape used by `executeAgent` and `streamAgent` requires `checkpointer`, `entry`, `input`, `routeParamNames`, `signal`, and `tools`. It also accepts middleware, retry, state, prompt, offload, summarization, subagent, thread, sandbox, and cache-bypass controls. The subagent converter accepts a private `{ name, description?, schema? }` placeholder, and the tool converter accepts the same basic tool definition plus a `run` callback. `defaultSummarize` accepts messages, model, optional previous summary, and signal.
 
-Materialized graphs are cached by descriptor plus checkpointer. Sandbox-bound tools, subagents, stream transformers, and explicit bypass requests skip reuse. A checkpointer is mandatory at runtime; `threadId` is also required for an interrupted run to resume. Generated edge assembly must seed its static provider importer before model construction.
+Materialized graphs are cached by descriptor plus checkpointer. Sandbox-bound tools, subagents, stream transformers, and explicit bypass requests skip reuse. A checkpointer is mandatory at runtime. `threadId` is also required for an interrupted run to resume. Generated edge assembly must seed its static provider importer before model construction.
 
 ### Behavior contracts
 
@@ -234,17 +234,19 @@ Materialized graphs are cached by descriptor plus checkpointer. Sandbox-bound to
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/langchain/test/model-provider-resolver.test.ts","testNames":["explicit provider bypasses inference"]}] */}
 An explicit model provider bypasses provider inference.
 
-#### Provider lifecycle and failure boundaries
+#### Provider lifecycle and failures
 
-Unknown explicit providers throw with the supported list. If no provider is explicit and inference fails, resolution throws before model construction. `seedModelImporter()` is last-call-wins process state; seed it during runtime assembly, not per request.
+Unknown explicit providers throw with the supported list. If no provider is explicit and inference fails, resolution throws before model construction. `seedModelImporter()` is last-call-wins process state. Seed it during runtime assembly, not per request.
 
-`createChatModel({ responseFormat })` and `streamAgent({ responseFormat })` bind a `JsonSchemaResponseFormat` on the root model as the provider's native schema-constrained output (OpenAI `response_format` with `json_schema` and `strict: true`, or Anthropic `output_config.format`). The route's tools stay bound, so tool-calling turns are unaffected and only the final message is constrained. Only the providers in `JSON_SCHEMA_RESPONSE_FORMAT_PROVIDERS` qualify. Any other provider throws `unsupportedResponseFormatMessage(provider)` before its package is imported, so it never runs unconstrained. A format-bound agent always compiles a fresh graph and never touches the materialized-agent cache. The AG-UI endpoint sources it from the client's `hashbrown.responseSchema`; see [AG-UI](/docs/ag-ui#response-schema).
+`createChatModel({ responseFormat })` and `streamAgent({ responseFormat })` bind a `JsonSchemaResponseFormat` on the root model as the provider's native schema-constrained output (OpenAI `response_format` with `json_schema` and `strict: true`, or Anthropic `output_config.format`). The route's tools stay bound, so tool-calling turns are unaffected and only the final message is constrained.
+
+Only the providers in `JSON_SCHEMA_RESPONSE_FORMAT_PROVIDERS` qualify. Any other provider throws `unsupportedResponseFormatMessage(provider)` before its package is imported, so it never runs unconstrained. A format-bound agent always compiles a fresh graph and never touches the materialized-agent cache. The AG-UI endpoint sources it from the client's `hashbrown.responseSchema`. See [AG-UI](/docs/ag-ui#response-schema).
 
 #### Behavior contract `langchain.retry.exhaustion`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/langchain/test/retry.test.ts","testNames":["throws after max attempts exhausted"]}] */}
 Retry throws after the configured maximum attempts are exhausted.
 
-#### Retry failure boundaries
+#### Retry failures
 
 Only recognized transient messages retry. Non-transient failures throw immediately, cancellation throws `Operation aborted`, and retry delays include up to 500 ms of jitter capped by `maxDelayMs`.
 
@@ -252,7 +254,7 @@ Only recognized transient messages retry. Non-transient failures throw immediate
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/langchain/test/tool-loop.test.ts","testNames":["limits tool loop iterations to prevent infinite loops"]}] */}
 The tool loop limits iterations to prevent an infinite loop.
 
-#### Tool-loop failure boundaries
+#### Tool-loop failures
 
 Unknown tools and thrown tool failures become `ToolMessage` error content. Reaching the default 10 rounds, or an explicit lower limit, throws rather than returning a partial result.
 
@@ -260,11 +262,13 @@ Unknown tools and thrown tool failures become `ToolMessage` error content. Reach
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/langchain/test/chain-adapter.test.ts","testNames":["stream falls back to invoke when no stream method"]}] */}
 A chain stream falls back to invoke when the entry has no stream method.
 
-#### Chain, offload, and summarization boundaries
+#### Chain, offload, and summarization limits
 
-The fallback yields the invocation result once. Both execute and stream reject entries without `invoke`; native `stream()` results may be returned directly or through a promise.
+The fallback yields the invocation result once. Both execute and stream reject entries without `invoke`. Native `stream()` results may be returned directly or through a promise.
 
-Offload thresholds count characters, and the full tool output is written into the workspace; both stored content and preview stubs may contain sensitive data. Filenames sanitize tool names and call IDs; without a call ID they use a content hash. Cleanup is throttled and best-effort, while `offloadToolOutput()` returns original content if persistence fails. Tool wrapper recognition is strict: extra keys, arrays, missing `result`, or `result: undefined` use plain-return handling. Summarization changes only the model's input view; on summarizer failure it falls back to full history for that turn. It is context compression, not a trust or security boundary.
+Offload thresholds count characters, and the full tool output is written into the workspace. Both stored content and preview stubs may contain sensitive data. Filenames sanitize tool names and call IDs. Without a call ID they use a content hash. Cleanup is throttled and best-effort, while `offloadToolOutput()` returns original content if persistence fails. Tool wrapper recognition is strict: extra keys, arrays, missing `result`, or `result: undefined` use plain-return handling.
+
+Summarization changes only the model's input view. If the summarizer fails, that turn falls back to full history. It compresses context and isn't a security control.
 
 ## Examples and related guides
 

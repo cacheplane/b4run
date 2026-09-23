@@ -142,9 +142,9 @@ runEval scores every case with every scorer; a scorer exception becomes zero wit
 
 ### Evaluation semantics
 
-Cases and scorers run sequentially. A scorer error is contained, but a `runCase` error is not. An explicit `gate` wins over top-level `threshold`; without either, the report is informational with `gated: false` and `passed: true`. A scorer's own threshold controls its case pass bar and inclusion in `gate.perScorer()`; case pass status otherwise uses the separate default bar of `0.5`. `gate.perScorer()` ignores scorers without an explicit threshold.
+Cases and scorers run sequentially. A scorer error is contained, but a `runCase` error is not. An explicit `gate` wins over top-level `threshold`. Without either, the report is informational with `gated: false` and `passed: true`. A scorer's own threshold controls its case pass bar and inclusion in `gate.perScorer()`. Case pass status otherwise uses the separate default bar of `0.5`. `gate.perScorer()` ignores scorers without an explicit threshold.
 
-`defineEval()` rejects an empty inline dataset, but a file or factory may resolve empty. Programmatic `runEval()` resolves relative dataset paths from `baseDir` or the current working directory; the CLI supplies the eval file's context. `jsonEquals()` uses `JSON.stringify()` equality. `tokensUnder()` is strictly less than its budget and counts collected stream chunks or deltas, not model-tokenizer tokens. Memory scorers are behavioral signals, not authorization checks.
+`defineEval()` rejects an empty inline dataset, but a file or factory may resolve empty. Programmatic `runEval()` resolves relative dataset paths from `baseDir` or the current working directory. The CLI supplies the eval file's context. `jsonEquals()` uses `JSON.stringify()` equality. `tokensUnder()` is strictly less than its budget and counts collected stream chunks or deltas, not model-tokenizer tokens. Memory scorers are behavioral signals, not authorization checks.
 
 ## Examples and related guides
 

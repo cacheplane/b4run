@@ -23,7 +23,7 @@ import { fakeSandbox, runProviderConformance } from "@b4run/sandbox/testing"
 | `@b4run/sandbox` | node-only | not-claimed | application | supported |
 | `@b4run/sandbox/testing` | node-only | not-claimed | testing | supported |
 
-The root uses Node APIs, Docker process execution, and the Kubernetes client. `/testing` imports Vitest and is test-facing. Ordinary package tests use fakes; real-provider evidence lives in gated Docker and Kubernetes integration lanes.
+The root uses Node APIs, Docker process execution, and the Kubernetes client. `/testing` imports Vitest and is test-facing. Ordinary package tests use fakes. Real-provider evidence lives in gated Docker and Kubernetes integration lanes.
 
 ## Public exports
 
@@ -106,7 +106,7 @@ Kubernetes release deletes the Pod but retains the PVC; destroy removes both.
 
 #### Operational cleanup caveat
 
-These are successful-path lifecycle contracts. The cleanup calls swallow provider deletion errors, and the Kubernetes PVC wait stops after 30 seconds; operators must detect and reap leftovers.
+These are successful-path lifecycle contracts. The cleanup calls swallow provider deletion errors, and the Kubernetes PVC wait stops after 30 seconds. Operators must detect and reap leftovers.
 
 #### Behavior contract `sandbox.kubernetes.allow-network`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/sandbox/test/kube-sandbox.unit.test.ts","testNames":["network:allow with no allowlist emits no NetworkPolicy"]}] */}
@@ -114,7 +114,7 @@ Kubernetes `network:allow` without an allowlist emits no NetworkPolicy.
 
 #### Network enforcement caveat
 
-The absence of a provider-created policy does not promise unrestricted egress: cluster defaults, infrastructure policies, and CNI behavior still apply. Preflight checks Kubernetes API reachability and the complete runtime permission set, reporting authorization denials, review failures, and transport failures separately. Unknown CNI enforcement produces a warning; preflight does not prove NetworkPolicy enforcement.
+The absence of a provider-created policy does not promise unrestricted egress: cluster defaults, infrastructure policies, and CNI behavior still apply. Preflight checks Kubernetes API reachability and the complete runtime permission set, reporting authorization denials, review failures, and transport failures separately. Unknown CNI enforcement produces a warning. Preflight does not prove NetworkPolicy enforcement.
 
 #### Behavior contract `sandbox.error.create`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/sandbox/test/sandbox-error-code.test.ts","testNames":["a failed container creation throws an error tagged B4_E2001"]}] */}
@@ -124,7 +124,7 @@ A failed sandbox container creation is tagged `B4_E2001`.
 
 `dockerSandbox` implements the optional `openWorkspaceReader` member of `SandboxProvider`. It attaches the thread's existing workspace into a separate, ephemeral, networkless container as a read-only bind of the volume's own backing directory, and reads through that container, so the thread's keeper is never inspected, started, stopped, or replaced. Writes fail at the kernel. It reads a thread whose compute was already released, and rejects with `B4_E2001` when the thread has no workspace storage. The reader runs as uid/gid `1000:1000` unless the input says otherwise.
 
-The bind is deliberate: a `-v <volume>:/workspace:ro` mount would **create** the volume if it were missing, so a reader racing a thread delete would resurrect that thread's workspace as an empty volume and the next `acquire()` would reattach it. A bind refuses a missing source instead. The cost is that reading needs a volume with a host-visible backing path, which is what the default local driver provides; a volume that reports none is rejected rather than read.
+The bind is deliberate: a `-v <volume>:/workspace:ro` mount would **create** the volume if it were missing, so a reader racing a thread delete would resurrect that thread's workspace as an empty volume and the next `acquire()` would reattach it. A bind refuses a missing source instead. The cost is that reading needs a volume with a host-visible backing path, which is what the default local driver provides. A volume that reports none is rejected rather than read.
 
 
 `kubernetesSandbox` omits the member: a `ReadWriteOnce` PersistentVolumeClaim cannot be mounted by a second Pod unless it lands on the same node.
@@ -133,7 +133,9 @@ The bind is deliberate: a `-v <volume>:/workspace:ro` mount would **create** the
 
 #### Provider identity and reattachment caveat
 
-Both provider factories require a nonblank `scope: string`. Resource names use a stable hash of scope and the exact thread ID; handles retain the logical thread ID. Scope is case-sensitive, is not authorization, and adds no cross-process coordination. Changing scope selects different storage. This is a breaking change from unscoped providers: legacy storage is not automatically reattached, migrated, or deleted. A running Kubernetes Pod is reattached without applying changed image, environment, resources, or security, and a prior deny policy is not removed by a later allow acquire. Release before changing provider options or policy.
+Both provider factories require a nonblank `scope: string`. Resource names use a stable hash of the scope and thread ID, and handles keep the logical thread ID. Scope is case-sensitive, isn't authorization, and adds no cross-process coordination.
+
+Changing scope selects different storage. That's a breaking change from unscoped providers, because legacy storage is not automatically reattached, migrated, or deleted. A running Kubernetes Pod is reattached without applying a changed image, environment, resources, or security, and a later allow acquire leaves a prior deny policy in place. Release before you change provider options or policy.
 
 ## Examples and related guides
 

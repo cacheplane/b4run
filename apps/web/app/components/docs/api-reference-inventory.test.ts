@@ -2236,7 +2236,7 @@ describe("package API reference pages", { timeout: 30_000 }, () => {
     expect(permissions).toContain("especially before `addAllow()`")
     expect(permissions).not.toContain("Call `load()` before matching")
     expect(permissions).toContain("Only `addAllow()` persists a runtime decision")
-    expect(permissions).toContain("inline input object is public; `CreateOptions` is not exported")
+    expect(permissions).toContain("inline input object is public. `CreateOptions` is not exported")
 
     const workspace = foundationalContent("workspace")
     expect(workspace).toContain("Core owns the path jail")

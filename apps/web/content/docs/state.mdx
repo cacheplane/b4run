@@ -1,10 +1,15 @@
 # State
 
-State is the JSON payload passed to a route entry and returned by the route runtime. A route can declare its state contract in a colocated `state.ts` file.
+State is the JSON a route receives as input and returns as output. You describe its shape in a `state.ts` file next to the route's `index.ts`.
 
 ## The shape
 
-When present, `state.ts` default-exports a Zod schema or Standard Schema value. Agent routes discover and apply state defaults from it, and you can derive the TypeScript type via `z.infer<typeof state>`:
+`state.ts` default-exports a Zod schema (or any Standard Schema value). B4.run uses it two ways:
+
+- **Agent routes** apply it automatically. B4.run reads the defaults and fills them into the agent's state.
+- **Workflow routes** import it like any other module and parse their input with it.
+
+Either way, `z.infer<typeof state>` gives you the TypeScript type:
 
 <CodeGroup>
 ```ts title="src/app/(public)/hello/[tenant]/state.ts"
@@ -33,15 +38,17 @@ export async function workflow(input: unknown, ctx: RuntimeContext): Promise<Hel
 ```
 </CodeGroup>
 
-Agent-state discovery extracts defaults by validating `{}`. A schema that rejects `{}` is skipped, so its agent state defaults and generated types are not produced. Make every top-level field accept missing input, usually with `.default(...)`. Agent routes apply defaults from a successfully discovered schema automatically. Plain workflows must parse their unknown input explicitly, as above; their schema defaults appear only after `state.parse(input)` succeeds.
+To find the defaults, B4.run tries validating `{}` against the schema. A schema that rejects `{}` is skipped, and you get no agent defaults and no generated types for it. So give every top-level field a way to be missing, usually with `.default(...)`.
+
+Plain workflows must parse their input themselves, as above. The input arrives as `unknown`, and the defaults appear once `state.parse(input)` succeeds.
 
 <Callout type="info" title="Zod or any Standard Schema">
-  State discovery accepts a Zod-compatible schema or any value that implements [Standard Schema](https://standardschema.dev/). It calls `~standard.validate({})` when that slot is present, otherwise `.parse({})`, and requires a successful object value. The scaffold uses Zod.
+  State discovery accepts a Zod-compatible schema or any value that implements [Standard Schema](https://standardschema.dev/). It calls `~standard.validate({})` when that method exists, otherwise `.parse({})`, and expects an object back. The scaffold uses Zod.
 </Callout>
 
 ## Dynamic segments are route params
 
-If your route's directory contains a dynamic segment like `[tenant]`, B4.run records that segment in generated route metadata. Route execution is input-driven, so pass the value in the JSON input you send to `b4 run`, `runs/wait`, or `runs/stream`.
+If a route's path has a dynamic segment like `[tenant]`, B4.run records it in the generated route metadata. The value itself comes from the input, so pass it in the JSON you send to `b4 run`, `runs/wait`, or `runs/stream`:
 
 ```
 src/app/(public)/hello/[tenant]/  →  route id /hello/[tenant]
@@ -53,46 +60,46 @@ For example:
 echo '{"tenant":"acme"}' | b4 run '/hello/[tenant]'
 ```
 
-The schema covers state your entry reads or the caller supplies. Do not rely on a concrete pathname with an inline tenant value to populate `tenant`. The resolver matches the parameterized route id (`/hello/[tenant]`) or the route entry file path.
+A concrete path like `/hello/acme` won't fill in `tenant`. The resolver matches the route id with its brackets (`/hello/[tenant]`) or the route entry file path.
 
 <Callout type="info" title="Naming matters">
-  When you include a dynamic segment value in input state, keep the field name aligned with the segment name. Generated route parameter types use the segment names.
+  When you pass a dynamic segment value in the input, name the field after the segment. The generated route parameter types use the segment names.
 </Callout>
 
 ## Custom reducers
 
-Each route may include a `reducers/` directory with one file per state field. The default export is a `(current, incoming) => merged` function that overrides B4.run's default merge for that field:
+An agent route can have a `reducers/` directory with one file per state field. Each file default-exports a `(current, incoming) => merged` function that replaces B4.run's default merge for that field:
 
 ```ts title="src/app/(public)/hello/[tenant]/reducers/context.ts"
 export default (current: string, incoming: string) =>
   current ? `${current}\n${incoming}` : incoming
 ```
 
-The file basename must equal the state-field name (`context.ts` reduces `state.context`). Reducers help with accumulation patterns (concatenating logs, summing counters, deduplicating lists) where the default object spread is too coarse.
+The file name must match the field name (`context.ts` reduces `state.context`). Reducers are handy when a field accumulates, like appending logs, summing counters or deduplicating lists.
 
 ## Rules
 
 <Steps>
   <Step title="State must be JSON-serializable">
-    B4.run serializes state across runtime boundaries (`b4 run`, `b4 dev`, the Node runtime, Hono builds, and scenario tests), and LangSmith serializes state at its own boundary. Use primitives, plain objects and arrays. Don't use classes, Dates or Maps.
+    B4.run serializes state whenever it enters or leaves a route (`b4 run`, `b4 dev`, the Node runtime, Hono builds, and scenario tests), and so does LangSmith. Use primitives, plain objects and arrays. Don't use classes, Dates or Maps.
   </Step>
   <Step title="Prefer readonly">
-    Mark fields `readonly` (or use Zod's `.readonly()`) when they should not be mutated. The entry function returns a new state object rather than mutating the input. This keeps scenario tests deterministic and LangGraph checkpoint-safe.
+    Mark fields `readonly` (or use Zod's `.readonly()`) so nothing mutates them. The entry function returns a new state object. This keeps scenario tests deterministic and LangGraph checkpoints safe.
   </Step>
   <Step title="Outputs accumulate">
-    A workflow can return `{ ...state, newField }` when you want to preserve incoming state. B4.run returns the route output. It does not automatically merge workflow output with the input for you.
+    B4.run returns the workflow's result as-is. To keep the incoming state, return `{ ...state, newField }`.
   </Step>
 </Steps>
 
 ## State flow
 
-State crosses the runtime boundary at every entry point:
+Here's how state gets in and out at each entry point:
 
 - `b4 run` reads JSON from stdin and writes JSON to stdout.
-- `runs/wait` and `runs/stream` under `b4 dev`, the Node runtime (`b4 start` or `.b4/build/server.mjs`) and Hono builds use B4.run's `{ route, input }` HTTP envelope, where `route` is `<routeId>#<kind>`.
-- LangSmith deployments use LangSmith's own request envelope, keyed by `assistant_id`. Do not send B4.run's `{ route, input }` body unchanged.
+- `runs/wait` and `runs/stream` (under `b4 dev`, the Node runtime, and Hono builds) take B4.run's `{ route, input }` HTTP body, where `route` is `<routeId>#<kind>`. The Node runtime is `b4 start` or `.b4/build/server.mjs`.
+- LangSmith deployments use LangSmith's own request body, keyed by `assistant_id`. You'll need to adapt B4.run's `{ route, input }` body for it.
 
-Tool results, intermediate values and other in-route data live inside the entry for a single run. Only the route result crosses the boundary.
+Tool results and other values inside a run stay inside the entry. Only the route's result goes back to the caller.
 
 ## Related
 
