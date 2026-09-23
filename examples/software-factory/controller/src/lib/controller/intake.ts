@@ -8,6 +8,7 @@ import { proveOracle } from "../intake/oracle.js"
 import { intakePrompt } from "../prompts.js"
 import { loadPolicy } from "../verification/policy.js"
 import { classifyDone, type StreamFrame } from "../worker/wire.js"
+import { WorkspaceRootMissingError } from "../worker/workspace-reader.js"
 import type { ControllerContext } from "./context.js"
 import { reconcileWorkOrder } from "./reconcile.js"
 import { consumeTurn } from "./turns.js"
@@ -237,16 +238,31 @@ async function proveDraft(
     block(ctx, id, "intake_run_failed", { reason, error: String(error) })
   }
 
-  if (ctx.intakeTaskId === undefined) {
+  // The `intake` command refused before the thread existed; a row that reaches here without
+  // a reader is a fault of this process, not a state to spend an attempt on.
+  if (ctx.drafterReader === undefined) {
     block(ctx, id, "intake_run_failed", {
-      reason: "intake is not configured: set FACTORY_INTAKE_TASK",
+      reason: "intake is not configured: set FACTORY_DRAFTER_APP_ROOT",
     })
     return
   }
-  let observed: ReadonlyMap<string, string>
+  // The read is re-rooted at `draft/` (the reader's `root`), so the keys already carry the
+  // prefix `parseDraft` expects and nothing under `repo/` was walked.
+  let draft: ReadonlyMap<string, string>
   try {
-    observed = await ctx.workspaceReader.read({ threadId, taskId: ctx.intakeTaskId }, signal)
+    draft = await ctx.drafterReader.read({ threadId }, signal)
   } catch (error) {
+    // The one read failure that IS a verdict on the draft: the thread was reached and there
+    // is nothing where the draft belongs. The drafter's fault, and an attempt spent on it.
+    if (error instanceof WorkspaceRootMissingError && !signal.aborted) {
+      await refuse(
+        ctx,
+        id,
+        `${DRAFT_ROOT} is missing: the drafter wrote nothing under it`,
+        "intake_invalid",
+      )
+      return
+    }
     unavailable("workspace_unreadable", error, "the drafter workspace could not be read")
     return
   }
@@ -254,8 +270,6 @@ async function proveDraft(
   // where it left it.
   if (!isIntake(ctx.mustGet(id).state)) return
 
-  const draft = new Map<string, string>()
-  for (const [path, content] of observed) if (path.startsWith(DRAFT_ROOT)) draft.set(path, content)
   const parsed = parseDraft(draft, { workOrderId: id })
   if (!parsed.ok) {
     await refuse(ctx, id, parsed.reason, parsed.blockedReason)

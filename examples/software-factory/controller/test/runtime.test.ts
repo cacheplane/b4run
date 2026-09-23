@@ -28,7 +28,7 @@ describe("controller runtime", () => {
     await expect(runtime.factory()).rejects.toThrow(/disposed/)
   })
 
-  it("refuses an intake task the catalog cannot load at boot, and accepts one it can", async () => {
+  it("configures intake from the drafter app root, and refuses intake without it", async () => {
     dir = mkdtempSync(join(tmpdir(), "factory-runtime-"))
     fake = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only" })
     const env = {
@@ -36,14 +36,44 @@ describe("controller runtime", () => {
       FACTORY_STATE_DIR: join(dir, "state"),
       FACTORY_BUILDER_APP_ROOT: join(dir, "builder"),
     }
-    const unknown = createControllerRuntime({ ...env, FACTORY_INTAKE_TASK: "no-such-task" })
-    await expect(unknown.factory()).rejects.toThrow(
-      /FACTORY_INTAKE_TASK names a task the catalog cannot load \(no-such-task\)/,
-    )
-    await unknown.dispose()
-    const known = createControllerRuntime({ ...env, FACTORY_INTAKE_TASK: "devkit-spawn-deadline" })
-    await expect(known.factory()).resolves.toBeDefined()
-    await known.dispose()
+    const issue = {
+      origin: {
+        kind: "issue" as const,
+        repository: "cacheplane/b4run",
+        number: 778,
+        bodyDigest: "0".repeat(64),
+      },
+      pin: "a".repeat(40),
+      issue: { title: "t", body: "b" },
+    }
+    const without = createControllerRuntime(env)
+    const unconfigured = await without.factory()
+    const { id } = await unconfigured.createFromIssue(issue)
+    expect(await unconfigured.intake(id)).toEqual({
+      ok: false,
+      state: "received",
+      message: "intake is not configured: set FACTORY_DRAFTER_APP_ROOT",
+    })
+    await without.dispose()
+    // The legacy task variable configures nothing any more: parsed, but not what intake reads.
+    const legacy = createControllerRuntime({ ...env, FACTORY_INTAKE_TASK: "devkit-spawn-deadline" })
+    const stillUnconfigured = await legacy.factory()
+    expect(await stillUnconfigured.intake(id)).toMatchObject({ ok: false })
+    await legacy.dispose()
+    const configured = createControllerRuntime({
+      ...env,
+      FACTORY_DRAFTER_APP_ROOT: join(dir, "drafter"),
+    })
+    const factory = await configured.factory()
+    expect(await factory.intake(id)).toEqual({
+      ok: true,
+      state: "intake_running",
+      message: "Intake started",
+    })
+    // The real drafter reader finds no installation under the app root: a failed run, and
+    // the row is blocked rather than left running when the runtime is disposed.
+    expect((await factory.settleIntake(id, 20_000)).blockedReason).toBe("intake_run_failed")
+    await configured.dispose()
   })
 
   it("retries a failed open on the next call", async () => {

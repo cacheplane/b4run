@@ -16,6 +16,15 @@ const positiveInt = (name: string) =>
     })
 
 /**
+ * The drafter app's sandbox image, pinned by digest, copied from `drafter/src/drafter-image.ts`
+ * rather than imported: the controller imports no drafter source. The image is half of the
+ * provider's identity (the scope is the other half), so a controller reading a drafter thread
+ * with a different image opens no workspace; `config.test.ts` pins the two literals equal.
+ */
+export const DRAFTER_IMAGE =
+  "node:24-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6"
+
+/**
  * The environment the controller reads. Unknown keys are stripped rather than
  * rejected, which is how rung 0's `FACTORY_WORKER_OUTBOX` and
  * `FACTORY_RECEIPT_WAIT_MS` stop mattering without breaking an environment that
@@ -36,7 +45,11 @@ const EnvSchema = z.object({
   FACTORY_MAX_CHANGED_BYTES: positiveInt("FACTORY_MAX_CHANGED_BYTES"),
   FACTORY_BUILDER_APP_ROOT: z.string({ message: "FACTORY_BUILDER_APP_ROOT is required" }).min(1),
   FACTORY_INTAKE_ROUTE: z.string().min(1).default("/intake#agent"),
+  // Parsed but no longer read: the drafter thread is read through the drafter app's root
+  // and image (below), not through a catalog task's workspace. Removed in Task 4.
   FACTORY_INTAKE_TASK: z.string().min(1).optional(),
+  FACTORY_DRAFTER_APP_ROOT: z.string().min(1).optional(),
+  FACTORY_DRAFTER_IMAGE: z.string().min(1).default(DRAFTER_IMAGE),
 })
 
 /**
@@ -70,18 +83,24 @@ export interface FactoryConfig {
   /** The route the drafter turn runs on. */
   readonly intakeRoute: string
   /**
-   * The catalog task whose workspace the drafter turn runs in. In 3a the drafter runs in the
-   * BUILDER process, whose workspace is fixed by its manifest task, so the controller reads
-   * the intake thread's workspace with that task's provider and inspection options. Absent,
-   * the `intake` command refuses.
-   *
-   * The 3a constraint this encodes: the intake thread's workspace must be exactly the
-   * builder's static workspace for that task — its `environmentLinks` are the reader's
-   * required root symlinks, so a drafter workspace shaped any other way is unreadable — and
-   * the read walks the whole tree to keep `draft/*`. Both change in 3b, when the drafter gets
-   * a workspace and inspection options of its own.
+   * The 3a way of reading the drafter thread: the catalog task whose builder workspace the
+   * drafter ran in. Still parsed so an operator's environment keeps starting, but nothing
+   * reads it any more: the drafter thread is read through {@link drafterAppRoot}. Removed in
+   * Task 4.
    */
   readonly intakeTaskId?: string
+  /**
+   * The DRAFTER app's root: where its installation store (`.b4/workspaces`) lives, which is
+   * how the controller resolves an intake thread to the workspace the drafter wrote `draft/`
+   * in. Absent, the `intake` command refuses before spending anything.
+   */
+  readonly drafterAppRoot?: string
+  /**
+   * The drafter's sandbox image: with the fixed scope, the identity of the provider that
+   * addresses a drafter thread's workspace. Must equal what the drafter app booted with
+   * (`FACTORY_DRAFTER_IMAGE` on both, else the pinned default on both).
+   */
+  readonly drafterImage: string
 }
 
 export function loadConfig(env: Readonly<Record<string, string | undefined>>): FactoryConfig {
@@ -105,5 +124,9 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
     builderAppRoot: e.FACTORY_BUILDER_APP_ROOT,
     intakeRoute: e.FACTORY_INTAKE_ROUTE,
     ...(e.FACTORY_INTAKE_TASK !== undefined ? { intakeTaskId: e.FACTORY_INTAKE_TASK } : {}),
+    ...(e.FACTORY_DRAFTER_APP_ROOT !== undefined
+      ? { drafterAppRoot: e.FACTORY_DRAFTER_APP_ROOT }
+      : {}),
+    drafterImage: e.FACTORY_DRAFTER_IMAGE,
   }
 }

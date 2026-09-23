@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
-import { loadConfig } from "../src/lib/config.ts"
+import { DRAFTER_IMAGE, loadConfig } from "../src/lib/config.ts"
 
 const base = {
   FACTORY_WORKER_URL: "http://127.0.0.1:4100",
@@ -90,5 +91,45 @@ describe("intake configuration", () => {
   it("rejects a blank intake route or task", () => {
     expect(() => loadConfig({ ...base, FACTORY_INTAKE_ROUTE: "" })).toThrow(/FACTORY_INTAKE_ROUTE/)
     expect(() => loadConfig({ ...base, FACTORY_INTAKE_TASK: "" })).toThrow(/FACTORY_INTAKE_TASK/)
+  })
+})
+
+describe("drafter configuration", () => {
+  it("leaves the drafter app root unset and defaults the image to the pinned digest", () => {
+    const config = loadConfig(base)
+    expect(config.drafterAppRoot).toBeUndefined()
+    expect(Object.keys(config)).not.toContain("drafterAppRoot")
+    expect(config.drafterImage).toBe(DRAFTER_IMAGE)
+  })
+
+  it("takes an explicit drafter app root and image", () => {
+    const config = loadConfig({
+      ...base,
+      FACTORY_DRAFTER_APP_ROOT: "/srv/drafter",
+      FACTORY_DRAFTER_IMAGE: `node:24-slim@sha256:${"b".repeat(64)}`,
+    })
+    expect(config.drafterAppRoot).toBe("/srv/drafter")
+    expect(config.drafterImage).toBe(`node:24-slim@sha256:${"b".repeat(64)}`)
+  })
+
+  it("rejects a blank drafter app root or image", () => {
+    expect(() => loadConfig({ ...base, FACTORY_DRAFTER_APP_ROOT: "" })).toThrow(
+      /FACTORY_DRAFTER_APP_ROOT/,
+    )
+    expect(() => loadConfig({ ...base, FACTORY_DRAFTER_IMAGE: "" })).toThrow(
+      /FACTORY_DRAFTER_IMAGE/,
+    )
+  })
+
+  it("pins the default image to the drafter's own, which the controller does not import", () => {
+    // The image is half of the provider's identity: a controller reading with a different
+    // one opens no workspace. The drafter's source is read here as text, so the equality is
+    // proven without the controller importing it.
+    const source = readFileSync(
+      new URL("../../drafter/src/drafter-image.ts", import.meta.url),
+      "utf8",
+    )
+    const match = source.match(/export const DRAFTER_IMAGE =\s*"([^"]+)"/)
+    expect(match?.[1]).toBe(DRAFTER_IMAGE)
   })
 })

@@ -64,13 +64,14 @@ export interface FactoryOptions {
   readonly generatedTasksDir: string
   /** The route the drafter turn runs on. Default `/intake#agent`. */
   readonly intakeRoute?: string
-  /**
-   * The catalog task whose provider and inspection options read the drafter thread's
-   * workspace (see `FactoryConfig.intakeTaskId`). Absent, `intake` refuses.
-   */
-  readonly intakeTaskId?: string
   readonly verifier: Verifier
+  /** Reads a builder thread's candidate bytes (addressed by thread AND task). */
   readonly workspaceReader: WorkspaceReader
+  /**
+   * Reads a drafter thread re-rooted at `draft/` (addressed by thread alone). Absent when
+   * no drafter app root is configured: `intake` refuses before spending anything.
+   */
+  readonly drafterReader?: WorkspaceReader
   /** The controller's own baseline for a task. Injected so tests need no container. */
   captureBaseline(
     taskId: string,
@@ -388,7 +389,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     worker: options.worker,
     workerRoute: options.workerRoute,
     intakeRoute: options.intakeRoute ?? "/intake#agent",
-    intakeTaskId: options.intakeTaskId,
+    drafterReader: options.drafterReader,
     generatedTasksDir: options.generatedTasksDir,
     exportDir: options.exportDir,
     maxChangedBytes: options.maxChangedBytes ?? 256 * 1024,
@@ -573,7 +574,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       // Refused BEFORE the key is spent: a `received` row's revision does not change on a
       // refusal, so a refusal recorded under `intake:<id>:<revision>` would replay to every
       // later call at that revision — including the one after the operator sets
-      // `FACTORY_INTAKE_TASK` and restarts. None of these three is a function of the row's
+      // `FACTORY_DRAFTER_APP_ROOT` and restarts. None of these three is a function of the row's
       // revision (same principle as `createFromIssue`'s validation).
       const unspent = (message: string): CommandOutcome => ({
         ok: false,
@@ -589,10 +590,10 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         return unspent(
           "Work order already has an approved task; reject-intake is the only way back",
         )
-      // Refused here, not discovered after a thread and a turn were spent: without a task
-      // to read the drafter's workspace through, nothing the turn wrote could be read.
-      if (options.intakeTaskId === undefined)
-        return unspent("intake is not configured: set FACTORY_INTAKE_TASK")
+      // Refused here, not discovered after a thread and a turn were spent: without a reader
+      // for the drafter's workspace, nothing the turn wrote could be read.
+      if (options.drafterReader === undefined)
+        return unspent("intake is not configured: set FACTORY_DRAFTER_APP_ROOT")
       const key = operationKey ?? `intake:${id}:${row.revision}`
       const begun = commands.begin(key, id, { command: "intake", args: {} }, iso())
       if (begun.status === "done") return begun.outcome

@@ -10,7 +10,10 @@ import { openRegistry } from "../src/lib/registry/db.ts"
 import { createWorkOrderStore, type WorkOrderPatch } from "../src/lib/registry/work-orders.ts"
 import { configureCatalog, loadTask, resetCatalogForTests } from "../src/lib/targets/catalog.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
-import type { WorkspaceReader } from "../src/lib/worker/workspace-reader.ts"
+import {
+  type WorkspaceReader,
+  WorkspaceRootMissingError,
+} from "../src/lib/worker/workspace-reader.ts"
 import { createFakeVerifier, type FakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
@@ -73,11 +76,13 @@ async function bootFactory(
     worker: createHttpWorkerClient(fake.baseUrl),
     workerRoute: "/build#agent",
     intakeRoute: "/intake#agent",
-    intakeTaskId: "devkit-spawn-deadline",
     exportDir: join(dir, "out"),
     artifactsDir: join(dir, "artifacts"),
     verifier,
     workspaceReader: reader,
+    // One fake serves both stages: the drafter's `draft/` and the builder's candidate are
+    // scripted under their own thread ids, and the fake ignores the task and the root.
+    drafterReader: reader,
     captureBaseline,
     ...overrides,
   }
@@ -226,15 +231,15 @@ describe("intake", () => {
     expect(threadPosts()).toHaveLength(1)
 
     await factory.close()
-    await bootFactory({}, ["intakeTaskId"])
+    await bootFactory({}, ["drafterReader"])
     const fresh = await factory.createFromIssue({ origin: ORIGIN, pin: PIN, issue: ISSUE })
     expect(await factory.intake(fresh.id)).toEqual({
       ok: false,
       state: "received",
-      message: "intake is not configured: set FACTORY_INTAKE_TASK",
+      message: "intake is not configured: set FACTORY_DRAFTER_APP_ROOT",
     })
     // Refused before a thread is spent, and before the key is: the operator configures the
-    // task and restarts, and the same call under the default key is not a replayed refusal.
+    // drafter and restarts, and the same call under the default key is not a replayed refusal.
     expect(threadPosts()).toHaveLength(1)
     await factory.close()
     await bootFactory()
@@ -415,6 +420,66 @@ describe("intake", () => {
     expect(factory.events(id).find((e) => e.type === "stream_lost")?.payload).toMatchObject({
       phase: "intake_start",
     })
+  })
+})
+
+describe("the drafter thread's draft/", () => {
+  /** A drafter reader whose thread has no `draft/` at all: the reader reports the root missing. */
+  const noDraft: WorkspaceReader = {
+    async read(target) {
+      throw new WorkspaceRootMissingError("draft", target.threadId)
+    },
+  }
+
+  it("refuses a missing draft/ as an invalid draft: the attempt is spent and the retry quotes it", async () => {
+    await bootWorker()
+    await bootFactory({ drafterReader: noDraft })
+    const { id, threadId } = await createIssue().then(async ({ id }) => {
+      expect(await factory.intake(id)).toMatchObject({ ok: true })
+      return { id, threadId: (factory.show(id) as WorkOrderRow).workerThreadId as string }
+    })
+    const row = await factory.settleIntake(id, 20_000)
+    // Two attempts by default, both refused the same way: the second exhausts them.
+    expect(row).toMatchObject({
+      state: "blocked",
+      blockedReason: "intake_attempts_exhausted",
+      intakeAttempts: 2,
+      workerThreadId: threadId,
+    })
+    expect(refusals(id).map((e) => e.payload)).toEqual([
+      expect.objectContaining({ blockedReason: "intake_invalid", attempt: 1 }),
+      expect.objectContaining({ blockedReason: "intake_invalid", attempt: 2 }),
+    ])
+    expect(refusals(id)[0]?.payload.reason).toBe(
+      "draft/ is missing: the drafter wrote nothing under it",
+    )
+    // Not a failed run: a reader that could not read is `intake_run_failed`; this one read
+    // the thread and found nothing where the draft belongs.
+    expect(eventSeen(id, "workspace_unreadable")).toBe(false)
+    expect(runPosts()).toHaveLength(2)
+    expect(promptOf(1)).toContain("draft/ is missing")
+    // The builder's reader was never consulted for the drafter thread.
+    expect(reader.reads).toEqual([])
+  })
+
+  it("keeps every other read failure a failed run, not a spent attempt", async () => {
+    await bootWorker()
+    const broken: WorkspaceReader = {
+      async read() {
+        throw new Error("the sandbox is gone")
+      },
+    }
+    await bootFactory({ drafterReader: broken })
+    const { id } = await createIssue()
+    expect(await factory.intake(id)).toMatchObject({ ok: true })
+    const row = await factory.settleIntake(id, 20_000)
+    expect(row).toMatchObject({
+      state: "blocked",
+      blockedReason: "intake_run_failed",
+      intakeAttempts: 0,
+    })
+    expect(eventSeen(id, "workspace_unreadable")).toBe(true)
+    expect(refusals(id)).toEqual([])
   })
 })
 
@@ -770,7 +835,7 @@ describe("intake reconciliation", () => {
           signal.addEventListener("abort", () => reject(signal.reason), { once: true })
         }),
     }
-    await bootFactory({ workspaceReader: holding })
+    await bootFactory({ drafterReader: holding })
     await askedOnce
     expect(factory.show(id)?.state).toBe("intake_running")
     await factory.close()

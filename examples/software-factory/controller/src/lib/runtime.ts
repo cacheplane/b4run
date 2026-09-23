@@ -2,7 +2,12 @@ import { type FactoryConfig, loadConfig } from "./config.js"
 import { createFactory, type Factory, type FactoryOptions } from "./controller/factory.js"
 import { createArtifactStore } from "./storage/artifacts.js"
 import { configureCatalog, loadTask, resetCatalogForTests } from "./targets/catalog.js"
-import { builderSandboxProvider, targetInspectionOptions } from "./targets/workspace.js"
+import {
+  builderSandboxProvider,
+  drafterInspectionOptions,
+  drafterSandboxProvider,
+  targetInspectionOptions,
+} from "./targets/workspace.js"
 import { captureTargetBaseline } from "./verification/baseline.js"
 import { createDockerVerifier } from "./verification/docker-verifier.js"
 import { createHttpWorkerClient } from "./worker/client.js"
@@ -14,7 +19,7 @@ import { createThreadWorkspaceReader } from "./worker/workspace-reader.js"
  * are injectable, so a test can drive the REAL routes without those.
  */
 export type ControllerRuntimeOverrides = Partial<
-  Pick<FactoryOptions, "verifier" | "workspaceReader" | "captureBaseline">
+  Pick<FactoryOptions, "verifier" | "workspaceReader" | "drafterReader" | "captureBaseline">
 >
 
 export interface ControllerRuntime {
@@ -55,19 +60,6 @@ export function createControllerRuntime(
     // below — the prompt, the verifier, the baseline, the workspace reader — then finds a
     // generated task. The search path is process-wide, like the runtime itself.
     configureCatalog({ generatedTasksDir: config.generatedTasksDir })
-    // The intake task is what every drafter workspace is read through: an id the catalog
-    // cannot serve is refused at boot, not after a drafter turn has been spent on it.
-    if (config.intakeTaskId !== undefined) {
-      try {
-        loadTask(config.intakeTaskId)
-      } catch (error) {
-        return Promise.reject(
-          new Error(
-            `FACTORY_INTAKE_TASK names a task the catalog cannot load (${config.intakeTaskId}): ${error instanceof Error ? error.message : String(error)}`,
-          ),
-        )
-      }
-    }
     return createFactory({
       registryPath: config.registryPath,
       worker: createHttpWorkerClient(config.workerUrl),
@@ -76,18 +68,31 @@ export function createControllerRuntime(
       artifactsDir: config.artifactsDir,
       generatedTasksDir: config.generatedTasksDir,
       intakeRoute: config.intakeRoute,
-      ...(config.intakeTaskId !== undefined ? { intakeTaskId: config.intakeTaskId } : {}),
       approvalTtlMs: config.approvalTtlMs,
       maxActiveMs: config.maxActiveMs,
       maxChangedBytes: config.maxChangedBytes,
       verifier: createDockerVerifier(createArtifactStore(config.artifactsDir)),
       workspaceReader: createThreadWorkspaceReader(
         {
-          providerFor: (taskId) => builderSandboxProvider(loadTask(taskId).target),
+          providerFor: (taskId) => builderSandboxProvider(loadTask(requireTaskId(taskId)).target),
           appRoot: config.builderAppRoot,
         },
-        (taskId) => targetInspectionOptions(loadTask(taskId)),
+        (taskId) => targetInspectionOptions(loadTask(requireTaskId(taskId))),
       ),
+      // The drafter's threads live under ITS app root, addressed by a provider of its scope
+      // and image, and are read re-rooted at `draft/`: the wide capture under `repo/` is
+      // never walked. Only when a drafter app root is configured; otherwise `intake` refuses.
+      ...(config.drafterAppRoot !== undefined
+        ? {
+            drafterReader: createThreadWorkspaceReader(
+              {
+                providerFor: () => drafterSandboxProvider(config.drafterImage),
+                appRoot: config.drafterAppRoot,
+              },
+              () => ({ ...drafterInspectionOptions(), root: "draft" }),
+            ),
+          }
+        : {}),
       captureBaseline: captureTargetBaseline,
       // Defined keys only: an explicit `{ verifier: undefined }` must not erase a required
       // collaborator, which a plain spread would do.
@@ -99,6 +104,12 @@ export function createControllerRuntime(
       throw error
     })
   }
+}
+
+/** The builder's reader is addressed by thread AND task; a read without one is a caller fault. */
+function requireTaskId(taskId: string | undefined): string {
+  if (taskId === undefined) throw new Error("The builder workspace reader needs a task id")
+  return taskId
 }
 
 /** A spread of `overrides` that cannot blank a field: `undefined` values are dropped. */

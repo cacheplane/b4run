@@ -294,7 +294,7 @@ esac
     const { cli, spawn } = await boot(
       {},
       { verifier: createFakeVerifier({ independent: "fail" }) },
-      { FACTORY_INTAKE_TASK: "devkit-spawn-deadline" },
+      { FACTORY_DRAFTER_APP_ROOT: "/nonexistent/drafter" },
     )
     if (!served) throw new Error("no controller")
     served.workspace.queue(FIRST_THREAD, [GOOD_DRAFT, GOOD_DRAFT])
@@ -368,7 +368,7 @@ esac
     const { cli, spawn } = await boot(
       {},
       { verifier: createFakeVerifier({ independent: "fail" }) },
-      { FACTORY_INTAKE_TASK: "devkit-spawn-deadline" },
+      { FACTORY_DRAFTER_APP_ROOT: "/nonexistent/drafter" },
     )
     if (!served) throw new Error("no controller")
     // A draft naming a package with no prepared target blocks at once: no redraft can
@@ -400,7 +400,7 @@ esac
     const { cli, spawn } = await boot(
       {},
       { verifier: createFakeVerifier({ independent: "fail" }) },
-      { FACTORY_INTAKE_TASK: "devkit-spawn-deadline" },
+      { FACTORY_DRAFTER_APP_ROOT: "/nonexistent/drafter" },
     )
     if (!served) throw new Error("no controller")
     // Two good drafts, two rejections: the default of two attempts is spent by the redraft,

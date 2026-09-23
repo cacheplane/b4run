@@ -24,11 +24,12 @@ export interface ControllerContext {
   /** The route the drafter turn runs on. */
   readonly intakeRoute: string
   /**
-   * The catalog task whose provider and inspection options read the drafter thread's
-   * workspace (3a: the drafter runs in the builder process, whose workspace is fixed by its
-   * manifest task). Undefined when intake is not configured; the `intake` command refuses.
+   * Reads a drafter thread re-rooted at `draft/`: the keys it returns carry that prefix and
+   * nothing under `repo/` is walked. Undefined when intake is not configured (no drafter app
+   * root); the `intake` command refuses before a thread is spent, so the phase itself treats
+   * an undefined reader as a fault.
    */
-  readonly intakeTaskId: string | undefined
+  readonly drafterReader: WorkspaceReader | undefined
   /** Where issue work orders keep `issue.md` and where intake materialises the drafted task. */
   readonly generatedTasksDir: string
   readonly exportDir: string

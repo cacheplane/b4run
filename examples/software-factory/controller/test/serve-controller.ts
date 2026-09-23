@@ -87,6 +87,8 @@ export async function serveController(
   await resetControllerRuntimeForTests({
     verifier: createFakeVerifier({ verdict: "pass" }),
     workspaceReader: workspace,
+    // The same fake for the drafter's thread: its `draft/` is scripted under the thread id.
+    drafterReader: workspace,
     captureBaseline: async () => ({ digest: "a".repeat(64), files: BASELINE }),
     ...overrides,
   })

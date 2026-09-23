@@ -82,6 +82,7 @@
         "$TURBO_ROOT$/examples/software-factory/server/src/builder-manifest.ts",
         "$TURBO_ROOT$/examples/software-factory/server",
         "$TURBO_ROOT$/examples/software-factory/drafter/b4.config.ts",
+        "$TURBO_ROOT$/examples/software-factory/drafter/src/drafter-image.ts",
         "$TURBO_ROOT$/examples/software-factory/drafter/src/drafter-manifest.ts"
       ]
     },
