@@ -91,7 +91,9 @@ describe("tool discovery error messages", () => {
       `export const returnDirect = "yes"
        export default async () => ({ rendered: true })`,
     )
-    await expect(discover()).rejects.toThrow(/exports returnDirect, which must be a boolean \(got a string\)/)
+    await expect(discover()).rejects.toThrow(
+      /exports returnDirect, which must be a boolean \(got a string\)/,
+    )
     await expect(discover()).rejects.toThrow(/b4\.run\/docs\/tools/)
   })
 })
