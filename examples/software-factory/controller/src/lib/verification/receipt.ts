@@ -152,7 +152,9 @@ function independentOnlyPlan(
  *   failure named after the file, with no cause, and no named test runs at all;
  * - a failure under any other name is a test the check does not name;
  * - a named test that fails by a throw (`TypeError`, a missing export) has not asserted
- *   anything about the behaviour: it is how a placeholder or a wrong import fails.
+ *   anything about the behaviour: it is how a placeholder or a wrong import fails;
+ * - a `todo` or `skip` test proves nothing whatever it reports: node:test runs a todo test
+ *   and reports its failure without failing the run, so it cannot be the failing assertion.
  * The live run's first drafted check failed on `ERR_MODULE_NOT_FOUND` and was read as an
  * oracle. Full-mode grading is untouched: there a failure of any kind rejects the candidate.
  */
@@ -164,7 +166,8 @@ function unprovenFailure(
   const unnamed = failed.filter((event) => !assertions.includes(event.name))
   if (unnamed.length > 0)
     return `inconclusive: failures outside the named assertions prove nothing (the file may not have loaded): ${unnamed.map(describeFailure).join(", ")}`
-  if (!failed.some((event) => event.failure === ASSERTION_FAILURE))
+  const proving = failed.filter((event) => !event.todo && !event.skip)
+  if (!proving.some((event) => event.failure === ASSERTION_FAILURE))
     return failed.length === 0
       ? "inconclusive: the suite failed but no named assertion ran and failed"
       : `inconclusive: no named assertion failed by assertion (${ASSERTION_FAILURE}): ${failed.map(describeFailure).join(", ")}`
@@ -172,7 +175,7 @@ function unprovenFailure(
 }
 
 const describeFailure = (event: SuiteEvent): string =>
-  `${JSON.stringify(event.name)} (${event.failure ?? "no cause"})`
+  `${JSON.stringify(event.name)} (${event.failure ?? "no cause"}${event.todo ? ", todo" : ""}${event.skip ? ", skip" : ""})`
 
 /**
  * The receipt a tampering candidate gets: one check, named for the session it happened in

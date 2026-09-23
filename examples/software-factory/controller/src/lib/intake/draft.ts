@@ -151,6 +151,27 @@ function strayFile(
 }
 
 /**
+ * The refusal for a spec and a check that disagree on their acceptance ids. It teaches the
+ * rule rather than only the mismatch: the live run's drafter stated scope ("only this file
+ * changes") as an `A<n>` no test can assert, was refused, and on the retry wrote it again.
+ */
+export function acceptanceMismatch(stated: readonly string[], checked: readonly string[]): string {
+  const missing = stated.filter((id) => !checked.includes(id))
+  const extra = checked.filter((id) => !stated.includes(id))
+  const gap = [
+    ...(missing.length ? [`states [${missing.join(", ")}] that no assertion covers`] : []),
+    ...(extra.length ? [`does not state [${extra.join(", ")}] that an assertion names`] : []),
+  ].join(" and ")
+  return (
+    `${DRAFT_ROOT}spec.md states [${stated.join(", ")}] but the check asserts [${checked.join(", ")}] ` +
+    `(the spec ${gap}): every A<n> must be an observable behaviour asserted by one top-level ` +
+    `test named 'A<n>: ...' in the check and listed in ${DRAFT_ROOT}checks.json; state scope ` +
+    `(what the repair may change) in ${DRAFT_ROOT}task.json allowedSourcePaths and ` +
+    `immutablePaths, not as an acceptance criterion`
+  )
+}
+
+/**
  * Turn what a drafter wrote under `draft/` into a task the catalog can load, or refuse it with
  * a reason that names the offending file. The controller fills what the drafter must not
  * decide: the id and the pin (the work order's), the visible suite (the regression guard),
@@ -265,10 +286,7 @@ export function parseDraft(
     checks.independent.assertions.map((name) => name.match(ACCEPTANCE_ID)?.[1] ?? ""),
   )
   const stated = sortedSet(acceptanceIds)
-  if (!sameSet(checked, stated))
-    return invalid(
-      `${DRAFT_ROOT}checks.json independent assertions cover [${checked.join(", ")}] but ${DRAFT_ROOT}spec.md states [${stated.join(", ")}]`,
-    )
+  if (!sameSet(checked, stated)) return invalid(acceptanceMismatch(stated, checked))
 
   if (!draft.has(checks.independent.file))
     return invalid(

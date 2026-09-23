@@ -194,6 +194,21 @@ describe("gradeNodeTestEvents", () => {
       { type: "test:fail", name: "checks/y.test.ts" },
     ])
   })
+
+  it("carries a todo or skip mark, so a todo's failure is not read as the proving one", () => {
+    const graded = gradeNodeTestEvents(
+      0,
+      [
+        { ...ev("test:fail", "x", false, true), failure: "ERR_ASSERTION" },
+        ev("test:pass", "y", true),
+      ],
+      ["x", "y"],
+    )
+    expect(graded.events).toEqual([
+      { type: "test:fail", name: "x", failure: "ERR_ASSERTION", todo: true },
+      { type: "test:pass", name: "y", skip: true },
+    ])
+  })
 })
 
 /**
@@ -243,6 +258,15 @@ describe("runNodeTestSuite against node:test", () => {
       expect(asserts.events).toEqual([
         { type: "test:fail", name: "A1: x", failure: "ERR_ASSERTION" },
         { type: "test:fail", name: "A2: y", failure: "TypeError" },
+      ])
+      // node:test runs a todo test and reports its failure without failing the run.
+      writeFileSync(
+        join(cwd, "checks", "todo.test.mjs"),
+        "import test from 'node:test'\nimport assert from 'node:assert'\ntest('A1: x', { todo: true }, () => assert.equal(1, 2))\n",
+      )
+      const todo = await run("checks/todo.test.mjs", ["A1: x"])
+      expect(todo.events).toEqual([
+        { type: "test:fail", name: "A1: x", failure: "ERR_ASSERTION", todo: true },
       ])
     } finally {
       rmSync(cwd, { recursive: true, force: true })

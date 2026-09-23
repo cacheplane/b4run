@@ -409,10 +409,48 @@ describe("intake", () => {
     const types = eventTypes(id)
     expect(types.indexOf("intake_refused:")).toBeLessThan(types.indexOf("transition:intake_retry"))
     expect(types.at(-1)).toBe("transition:intake_drafted")
+    // The refused draft is kept where the operator can read it after the retry overwrote
+    // the drafter's own `draft/`, beside the reason, and the journal says where.
+    const kept = join(generated, ".refused", id, "attempt-1")
+    expect(refusal?.payload).toMatchObject({
+      keptAt: kept,
+      keptFiles: ["checks.json", "checks/spawn-deadline.test.ts", "spec.md", "task.json"],
+    })
+    expect(readFileSync(join(kept, "spec.md"), "utf8")).toBe(
+      (BAD_DRAFTS.acceptanceMismatch as Draft)["draft/spec.md"],
+    )
+    expect(readFileSync(join(kept, "reason.txt"), "utf8")).toBe(`attempt 1: ${reason}\n`)
+    // Outside the task directory: the approved digest is over the task alone.
+    const row2 = factory.show(id) as WorkOrderRow
+    expect(digestGeneratedTask(join(generated, id))).toBe(row2.taskDigest)
+    expect(existsSync(join(generated, id, "refused"))).toBe(false)
     // The second turn is told what was wrong with the first.
     expect(promptOf(0)).not.toContain("Previous attempt was refused")
     expect(promptOf(1)).toContain("Previous attempt was refused")
     expect(promptOf(1)).toContain(reason)
+  })
+
+  it("keeps a refused draft's hostile keys inside its own directory", async () => {
+    await boot({}, { maxIntakeAttempts: 2 })
+    const hostile = { ...GOOD_DRAFT, "draft/../../escape.txt": "x", "draft/reason.txt": "forged" }
+    const { id } = await intake({ queue: [hostile, GOOD_DRAFT] })
+    expect(await factory.settleIntake(id, 20_000)).toMatchObject({
+      state: "awaiting_intake_approval",
+    })
+    const kept = join(generated, ".refused", id, "attempt-1")
+    expect(refusals(id)[0]?.payload.keptFiles).toEqual([
+      "checks.json",
+      "checks/spawn-deadline.test.ts",
+      "spec.md",
+      "task.json",
+    ])
+    expect(existsSync(join(generated, ".refused", "escape.txt"))).toBe(false)
+    expect(existsSync(join(generated, "escape.txt"))).toBe(false)
+    const reasonText = readFileSync(join(kept, "reason.txt"), "utf8")
+    expect(reasonText).toMatch(/^attempt 1: draft file .* is not a canonical relative path/)
+    expect(reasonText).toContain(
+      'Not copied (not a canonical path under draft/): "draft/../../escape.txt", "draft/reason.txt"',
+    )
   })
 
   it("blocks as attempts exhausted when the redraft is still invalid", async () => {
@@ -428,6 +466,20 @@ describe("intake", () => {
     expect(refusals(id)).toHaveLength(2)
     // The row says the attempts ran out; the journal says what the last one was refused for.
     expect(refusals(id)[1]?.payload).toMatchObject({ blockedReason: "intake_invalid", attempt: 2 })
+    // The blocking transition agrees with the row, and carries the last refusal beside it.
+    const blocked = factory
+      .events(id)
+      .find((e) => e.type === "transition" && e.payload.event === "intake_blocked")
+    expect(blocked?.payload).toMatchObject({
+      blockedReason: "intake_attempts_exhausted",
+      lastRefusal: "intake_invalid",
+      attempt: 2,
+    })
+    // Both attempts' drafts are kept, each with its own reason.
+    for (const attempt of [1, 2])
+      expect(
+        readFileSync(join(generated, ".refused", id, `attempt-${attempt}`, "reason.txt"), "utf8"),
+      ).toMatch(new RegExp(`^attempt ${attempt}: draft/spec\\.md states \\[A1, A2\\]`))
     expect(eventTypes(id).filter((t) => t === "transition:intake_retry")).toHaveLength(1)
     // The retry kept the manifest (the same thread redrafts); the block removed it: nothing
     // will admit that thread again.
@@ -615,6 +667,17 @@ describe("intake", () => {
     expect(verifier.calls).toHaveLength(2)
     expect(refusals(id)).toHaveLength(2)
     expect(refusals(id)[1]?.payload).toMatchObject({ blockedReason: "oracle_did_not_fail" })
+    const blocked = factory
+      .events(id)
+      .find((e) => e.type === "transition" && e.payload.event === "intake_blocked")
+    expect(blocked?.payload).toMatchObject({
+      blockedReason: "intake_attempts_exhausted",
+      lastRefusal: "oracle_did_not_fail",
+    })
+    // A draft the oracle did not prove is kept too: it parsed, so every file is there.
+    expect(readFileSync(join(generated, ".refused", id, "attempt-2", "checks.json"), "utf8")).toBe(
+      GOOD_DRAFT["draft/checks.json"],
+    )
     expect(String(refusals(id)[1]?.payload.reason)).toMatch(/did not fail.*pass \(independent\)/)
     const receipts = factory.events(id).filter((e) => e.type === "oracle_receipt")
     expect(receipts).toHaveLength(2)
@@ -737,6 +800,11 @@ describe("the drafter thread's draft/", () => {
     ])
     expect(refusals(id)[0]?.payload.reason).toBe(
       "draft/ is missing: the drafter wrote nothing under it",
+    )
+    // Nothing to copy, but the reason is still kept where an operator looks.
+    expect(refusals(id)[0]?.payload.keptFiles).toEqual([])
+    expect(readFileSync(join(generated, ".refused", id, "attempt-1", "reason.txt"), "utf8")).toBe(
+      "attempt 1: draft/ is missing: the drafter wrote nothing under it\n",
     )
     // Not a failed run: a reader that could not read is `intake_run_failed`; this one read
     // the thread and found nothing where the draft belongs.
@@ -1006,6 +1074,11 @@ describe("the intake gate", () => {
       blockedReason: "intake_attempts_exhausted",
       intakeAttempts: 2,
     })
+    expect(
+      factory
+        .events(id)
+        .find((e) => e.type === "transition" && e.payload.event === "intake_blocked")?.payload,
+    ).toMatchObject({ blockedReason: "intake_attempts_exhausted", lastRefusal: "intake_rejected" })
     expect(runPosts()).toHaveLength(2)
     // Blocked with no attempts left: nothing will redraft on that thread, and the manifest goes.
     expect(existsSync(manifestPath(id))).toBe(false)

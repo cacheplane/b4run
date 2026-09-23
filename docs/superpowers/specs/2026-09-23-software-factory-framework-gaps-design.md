@@ -450,3 +450,42 @@ Appended as the live replay of #714 runs.
     Fixed in the verifier's independent-only grading (rung 3 spec §6.5, as landed): a
     failure proves the oracle only when a named assertion failed by assertion and nothing
     unnamed failed; anything else is `inconclusive`, and the refusal quotes why.
+    The rule guards against accidental load failures only. A check that deliberately always
+    fails (`assert.fail()` in its `A1`, or an assertion no code could satisfy) is still
+    "proven": it fails by assertion on the baseline like a real oracle. That is safe, not
+    merely tolerated: such a check can never pass full-mode grading, so no candidate is ever
+    exported against it, and a person reads and approves every draft before a builder spends
+    anything on it. The review of d6cb0d06 found one more hole, now closed: a `todo` or
+    `skip` test no longer counts as the failing assertion that proves, because node:test
+    reports a failing `test.todo` without failing the run.
+14. **Scope stated as an acceptance criterion looped the refusal.** In attempt 3 of the #714
+    replay the drafter wrote "only `runtime-fetch-core.ts` changes" as `A2`, which no test can
+    assert, so its check covered `[A1]` against a spec stating `[A1, A2]`. The refusal named
+    only the mismatch; the retry repeated it and the work order exhausted its attempts. Fixed
+    both ways: the drafter's system prompt says an acceptance criterion is an observable
+    behaviour asserted by one named top-level test and that scope belongs in `task.json`
+    (`allowedSourcePaths`, `immutablePaths`), and the refusal itself now teaches that rule
+    rather than only naming the ids.
+15. **Denied read commands drove about 1.5M input tokens per work order.** The drafter's
+    allow-list (`ls cat head tail grep wc`, a prefix match on the whole line) denied every
+    `bash -lc "nl -ba <file> | sed -n 'a,bp'"` the drafter tried in attempt 3, so it fell
+    back to `readFile` on the 3,600-line `runtime-fetch-core.ts` whole, in each of three
+    threads, and every later call carried it again (finding 11's cost, repeated per
+    attempt). Fixed in the drafter: `sed -n` and `nl` are on the list, and the system prompt
+    says to run commands without a `bash -lc` wrapper and to read large files in ranges
+    (`grep -n`, then `sed -n 'a,bp'`). The list still bounds only which commands start a
+    line; the boundary is the re-rooted read and the denied network. Finding 11's framework
+    item (`readFile` with ranges and a size cap) would make the prompt rule unnecessary.
+16. **Refused drafts were not kept.** A retry runs on the same thread and rewrites `draft/`
+    in place, so after a refusal the only record of what the model produced was the one line
+    of the refusal. Fixed: each refused attempt's `draft/` files and a `reason.txt` are copied
+    to `<FACTORY_STATE_DIR>/tasks/.refused/<id>/attempt-<n>/` and the path is journalled on
+    `intake_refused` (`keptAt`). Not under `tasks/<id>/`: that directory is replaced wholesale
+    by the next attempt and digested wholesale by the approval gate. The final
+    `intake_blocked` transition now carries `blockedReason: intake_attempts_exhausted`
+    (matching the row) and `lastRefusal` (the refusal that spent the last attempt).
+17. **A killed controller left orphan drafter session containers.** Killing the processes
+    mid-intake left the drafter's per-thread sandbox containers running with nothing to own
+    them until someone noticed. A follow-up: a sweep, on drafter (and builder)
+    startup, of the provider scope's containers whose thread has no live run, in the same
+    spirit as finding 7's startup rule for `busy` threads.

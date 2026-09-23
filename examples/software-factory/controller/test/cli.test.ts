@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process"
 import { chmodSync, cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { createServer, type Server } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
@@ -479,9 +480,10 @@ esac
       }),
     )
     expect(stderr).toContain("the request ended before its answer")
-    // Blocked is not intake's success, whichever way the answer arrived.
+    // Blocked is not intake's success, whichever way the answer arrived: `ok` is the
+    // command's success set, as the route decides it, not "the row settled".
     expect(JSON.parse(stdout)).toMatchObject({
-      ok: true,
+      ok: false,
       state: "blocked",
       row: { state: "blocked", blockedReason: "no_target_for_package" },
     })
@@ -549,6 +551,85 @@ esac
     expect(shown).toMatchObject({ state: "blocked", taskDigest: null, targetId: null })
     const { json: evidence } = await cli("evidence", id)
     expect(evidence.oracleReceipt).toBeNull()
+  }, 90_000)
+
+  /** Park a work order for approval through the real controller, and return its id. */
+  async function parkedIntake(cli: Awaited<ReturnType<typeof boot>>["cli"], key: string) {
+    if (!served) throw new Error("no controller")
+    served.workspace.set(FIRST_DRAFTER_THREAD, GOOD_DRAFT as Record<string, string>)
+    const created = await served.run(key, "/work-orders/create#workflow", {
+      origin: {
+        kind: "issue",
+        repository: "cacheplane/b4run",
+        number: 778,
+        bodyDigest: "0".repeat(64),
+      },
+      pin: served.pin,
+      issue: { title: "T", body: "B" },
+    })
+    const id = (created.body as { row: { id: string } }).row.id
+    const { json: parked } = await cli("intake", id)
+    expect(parked).toMatchObject({ ok: true, state: "awaiting_intake_approval" })
+    return { id, revision: parked.row.revision as number }
+  }
+
+  /** A TCP server that accepts each connection and drops it unread: the request never arrives. */
+  async function dropping(): Promise<{ url: string; server: Server }> {
+    const server = createServer((socket) => socket.destroy())
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+    const address = server.address()
+    if (address === null || typeof address === "string") throw new Error("no port")
+    return { url: `http://127.0.0.1:${address.port}`, server }
+  }
+
+  it("does not read a reject-intake that never reached the controller as settled", async () => {
+    // The review's false success: `reject-intake` starts from `awaiting_intake_approval`, its
+    // own success state, so a request lost in transport used to poll once, find the row
+    // there, and answer "Settled as awaiting_intake_approval", exit 0.
+    const { cli, env, stateDir } = await boot(
+      {},
+      { verifier: createFakeVerifier({ independent: "fail" }) },
+    )
+    const { id, revision } = await parkedIntake(cli, "create-cli-lost")
+    const { url, server } = await dropping()
+    try {
+      const { stdout, stderr } = await failing(
+        run(process.execPath, [tsxBin, cliEntry, "reject-intake", id, "--note", "redo"], {
+          env: { ...env, FACTORY_CONTROLLER_URL: url, FACTORY_CLI_ARRIVAL_WINDOW_MS: "1500" },
+          cwd: packageRoot,
+        }),
+      )
+      expect(stderr).toContain("the request ended before its answer")
+      expect(JSON.parse(stdout)).toMatchObject({
+        ok: false,
+        state: "awaiting_intake_approval",
+        row: { id, state: "awaiting_intake_approval", revision },
+      })
+      expect(JSON.parse(stdout).message).toMatch(/^The request did not reach the controller/)
+    } finally {
+      await new Promise((resolve) => server.close(resolve))
+    }
+    // Nothing moved: the draft is still parked at the revision the operator read.
+    expect(await pollState(stateDir, id, () => true)).toBe("awaiting_intake_approval")
+  }, 90_000)
+
+  it("does not poll after a refused connection: nothing was sent", async () => {
+    const { cli, env } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
+    const { id } = await parkedIntake(cli, "create-cli-refused")
+    // A port nobody listens on: bound, read, closed.
+    const { url, server } = await dropping()
+    await new Promise((resolve) => server.close(resolve))
+    const started = Date.now()
+    const { stderr } = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "reject-intake", id, "--note", "redo"], {
+        env: { ...env, FACTORY_CONTROLLER_URL: url },
+        cwd: packageRoot,
+      }),
+    )
+    expect(stderr).not.toContain("following the row")
+    expect(stderr).toMatch(/fetch failed/)
+    // Well inside the default arrival window: it never waited on the row.
+    expect(Date.now() - started).toBeLessThan(30_000)
   }, 90_000)
 
   it("writes a builder target and manifest without a controller, a registry or a Factory", async () => {

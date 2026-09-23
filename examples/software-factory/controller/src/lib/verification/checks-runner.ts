@@ -15,6 +15,12 @@ export interface SuiteEvent {
    * file itself, with no cause.
    */
   readonly failure?: string
+  /**
+   * Present (and true) only for a `test.skip` / `test.todo` event. node:test reports a todo
+   * test that fails as a `test:fail` that does not fail the run: it proves nothing.
+   */
+  readonly skip?: true
+  readonly todo?: true
 }
 
 export interface SuiteResult {
@@ -70,6 +76,8 @@ export function gradeNodeTestEvents(
       ...(typeof event.failure === "string" && event.failure.length > 0
         ? { failure: event.failure }
         : {}),
+      ...(event.skip ? { skip: true as const } : {}),
+      ...(event.todo ? { todo: true as const } : {}),
     })),
   }
 }

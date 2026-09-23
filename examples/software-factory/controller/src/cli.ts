@@ -71,7 +71,12 @@ that show prints, or reject-intake with a note the next drafter turn quotes.
 dispatch, intake and reject-intake await the run. When the request itself ends first (an HTTP
 timeout on a long wait, a dropped connection), the command says so on stderr and follows the
 row in the registry (FACTORY_STATE_DIR) until it leaves its active state, for up to the row's
-active budget plus 10 minutes, then answers from the row with the same exit codes.
+active budget plus 10 minutes, then answers from the row with the same exit codes. The row is
+read before the request is sent: a row whose revision never moves past that reading within a
+minute is a request that did not reach the controller, and the command says so and exits 1.
+A draft intake refuses is kept for reading after the retry overwrites it: each refused
+attempt's draft/ files and its reason.txt, under
+<FACTORY_STATE_DIR>/tasks/.refused/<workOrderId>/attempt-<n>/ (journalled as keptAt).
 
 Output is JSON on stdout; diagnostics go to stderr. Exit code 1 when a command is refused,
 when a dispatch settles somewhere that still owes the operator work, and when an intake or a
@@ -180,16 +185,52 @@ const DISPATCH_ACTIVE: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>([
 const POLL_GRACE_MS = 10 * 60_000
 
 /**
+ * How long a fallen-back command waits for the row to move past what it read before sending.
+ * A request that reached the controller moves the row (every command's first transition
+ * bumps the revision) long before any transport timeout fires; one that never arrived leaves
+ * it where it was, which for `reject-intake` is its own success state. Tests shorten it with
+ * `FACTORY_CLI_ARRIVAL_WINDOW_MS`; nothing an operator runs sets it.
+ */
+function arrivalWindowMs(): number {
+  const raw = process.env.FACTORY_CLI_ARRIVAL_WINDOW_MS
+  if (raw === undefined || raw === "") return 60_000
+  const ms = Number(raw)
+  if (!Number.isInteger(ms) || ms <= 0)
+    throw new Error(`FACTORY_CLI_ARRIVAL_WINDOW_MS must be a positive integer, got ${raw}`)
+  return ms
+}
+
+/** The row as it was before the request was sent: what "the request moved it" is measured from. */
+interface RowMark {
+  readonly state: WorkOrderState
+  readonly revision: number
+}
+
+/** Connection errors that mean nothing was sent: there is no work to wait for. */
+const NEVER_SENT = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN"])
+
+/**
  * The request failed in transport, not by the controller's answer: the connection ended or a
  * timeout fired (undici's 300 s headers timeout on a long `runs/wait` is the case this exists
- * for). A refused connection is not one: nothing reached the controller, so there is no work
- * to wait for.
+ * for). A refused connection or an unresolvable host is not one: nothing reached the
+ * controller, so there is no work to wait for. Everything else MAY have reached it, and
+ * `followRow` decides from the row whether it did.
  */
 function transportFailure(error: unknown): boolean {
   if (error instanceof ControllerHttpError || !(error instanceof Error)) return false
   const cause = (error as { cause?: { code?: unknown } }).cause
-  if (cause?.code === "ECONNREFUSED") return false
+  if (typeof cause?.code === "string" && NEVER_SENT.has(cause.code)) return false
   return error.name === "TimeoutError" || error.name === "AbortError" || error instanceof TypeError
+}
+
+/** The row before the request, or undefined when the registry cannot say (no state dir yet). */
+function markRow(id: string): RowMark | undefined {
+  try {
+    const row = read((reader) => reader.show(id))
+    return row ? { state: row.state, revision: row.revision } : undefined
+  } catch {
+    return undefined
+  }
 }
 
 /**
@@ -203,7 +244,11 @@ async function awaiting(
   id: string,
   request: (controller: ControllerClient) => Promise<RouteOutcome>,
   active: ReadonlySet<WorkOrderState>,
+  success: ReadonlySet<WorkOrderState>,
 ): Promise<RouteOutcome> {
+  // Read before the request leaves: the only evidence, if the request dies in transport, of
+  // whether it ever reached the controller.
+  const before = markRow(id)
   let seq = 0
   // Aborted the moment the request resolves, so a dispatch that finishes in 200 ms does not
   // hold the process for the rest of a 500 ms tick.
@@ -223,7 +268,7 @@ async function awaiting(
     process.stderr.write(
       `factory: the request ended before its answer (${reason}); the work goes on in the controller, following the row in the registry\n`,
     )
-    return await followRow(id, active)
+    return await followRow(id, active, success, before)
   } finally {
     stop.abort()
     await tail
@@ -254,11 +299,38 @@ async function pollRow(
 }
 
 /**
- * The answer an awaiting command gives once its request is gone: the row, once it has left
- * `active`. `ok` is whether it settled; the caller's exit code is read off the row's state
- * exactly as it is off a route's answer.
+ * The answer an awaiting command gives once its request is gone. The row must first show the
+ * request arrived: its revision moved past `before` (every command's first transition bumps
+ * it), or it entered `active`. A row that has not moved within the arrival window is a
+ * request that never reached the controller, however settled its state looks: `reject-intake`
+ * starts from `awaiting_intake_approval`, its own success state. Once it has moved, the row
+ * is followed until it leaves `active`, and `ok` is the command's own success set, exactly as
+ * the route decides it.
  */
-async function followRow(id: string, active: ReadonlySet<WorkOrderState>): Promise<RouteOutcome> {
+async function followRow(
+  id: string,
+  active: ReadonlySet<WorkOrderState>,
+  success: ReadonlySet<WorkOrderState>,
+  before: RowMark | undefined,
+): Promise<RouteOutcome> {
+  if (before === undefined)
+    return {
+      ok: false,
+      message:
+        "The request ended before its answer, and the row could not be read before it was sent, so whether it reached the controller is unknown; run show",
+    }
+  const moved = (r: WorkOrderRow) =>
+    r.revision > before.revision || (!active.has(before.state) && active.has(r.state))
+  const arrival = arrivalWindowMs()
+  const arrived = await pollRow(id, (r) => r !== null && moved(r), arrival, 250)
+  if (!arrived) throw new Error(`Unknown work order ${id}`)
+  if (!moved(arrived))
+    return {
+      ok: false,
+      state: arrived.state,
+      message: `The request did not reach the controller: the row is still ${arrived.state} at revision ${arrived.revision} ${Math.round(arrival / 1_000)} s after it ended; nothing was done, run the command again`,
+      row: arrived,
+    }
   const row = await pollRow(
     id,
     (r) => r !== null && !active.has(r.state),
@@ -268,7 +340,7 @@ async function followRow(id: string, active: ReadonlySet<WorkOrderState>): Promi
   if (!row) throw new Error(`Unknown work order ${id}`)
   const settled = !active.has(row.state)
   return {
-    ok: settled,
+    ok: settled && success.has(row.state),
     state: row.state,
     message: settled
       ? `Settled as ${row.state} (read from the registry after the request ended)`
@@ -499,6 +571,7 @@ async function main(argv: string[]): Promise<number> {
           id,
           (controller) => controller.dispatch(id, values.key),
           DISPATCH_ACTIVE,
+          DISPATCH_SUCCESS,
         )
         print(outcome)
         return outcome.ok && outcome.row && DISPATCH_SUCCESS.has(outcome.row.state) ? 0 : 1
@@ -509,6 +582,7 @@ async function main(argv: string[]): Promise<number> {
           id,
           (controller) => controller.intake(id, values.key),
           INTAKE_ACTIVE,
+          INTAKE_SUCCESS,
         )
         print(outcome)
         return outcome.ok && outcome.row && INTAKE_SUCCESS.has(outcome.row.state) ? 0 : 1
@@ -536,6 +610,7 @@ async function main(argv: string[]): Promise<number> {
               ...(values.key ? { operationKey: values.key } : {}),
             }),
           INTAKE_ACTIVE,
+          INTAKE_SUCCESS,
         )
         print(outcome)
         return outcome.ok && outcome.row && INTAKE_SUCCESS.has(outcome.row.state) ? 0 : 1

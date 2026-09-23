@@ -238,6 +238,23 @@ describe("assembleReceipt in independentOnly mode", () => {
     expect(both.checks[0]?.evidence).toContain('"setup" (ERR_ASSERTION)')
   })
 
+  it("never reads a todo or skipped test's failure as the proving assertion", () => {
+    // node:test runs a `test.todo` and reports its failure without failing the run: a check
+    // whose only failing assertion is a todo has proved nothing about the defect.
+    for (const flag of [{ todo: true as const }, { skip: true as const }]) {
+      const marked = { ...assertionFailed(), ...flag }
+      const decided = alone(session({ result: suite("fail", "", [marked]) }))
+      expect(decided.verdict).toBe("inconclusive")
+      expect(decided.checks[0]?.evidence).toContain(
+        `"A1" (ERR_ASSERTION, ${"todo" in flag ? "todo" : "skip"})`,
+      )
+      // Beside a real failing assertion, the real one still proves.
+      expect(
+        alone(session({ result: suite("fail", "", [marked, assertionFailed()]) })).verdict,
+      ).toBe("fail")
+    }
+  })
+
   it("grades a named test that failed by a throw, not an assertion, as inconclusive", () => {
     const threw = { type: "test:fail", name: "A1", failure: "TypeError" }
     const decided = alone(session({ result: suite("fail", "", [threw]) }))

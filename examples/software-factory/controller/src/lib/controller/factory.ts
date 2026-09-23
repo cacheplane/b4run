@@ -1061,7 +1061,12 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
               id,
               "intake_blocked",
               { blockedReason: "intake_attempts_exhausted", taskDigest: null, targetId: null },
-              { reason: note, operationKey: key },
+              {
+                reason: note,
+                blockedReason: "intake_attempts_exhausted",
+                lastRefusal: "intake_rejected",
+                operationKey: key,
+              },
             )
           return transition(
             id,

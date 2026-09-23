@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { acceptanceIdsOf, parseDraft } from "../src/lib/intake/draft.ts"
+import { acceptanceIdsOf, acceptanceMismatch, parseDraft } from "../src/lib/intake/draft.ts"
 import { digestGeneratedTask, writeGeneratedTask } from "../src/lib/intake/generated-task.ts"
 import {
   configureCatalog,
@@ -104,6 +104,30 @@ describe("parseDraft", () => {
     expect(reason("missingCheckFile")).toMatch(/draft\/checks\/other\.test\.ts/)
     expect(reason("emptySpec")).toMatch(/draft\/spec\.md is blank/)
     expect(reason("missingTask")).toMatch(/draft\/task\.json is missing/)
+  })
+
+  it("teaches the rule when the spec and the check disagree on acceptance ids", () => {
+    // The live run: scope stated as A2, which no test can assert, refused twice with only the
+    // mismatch named. The refusal now names the rule and where scope belongs.
+    const parsed = parseDraft(files(BAD_DRAFTS.acceptanceMismatch ?? {}), {
+      workOrderId: WO,
+      pin: PIN,
+    })
+    expect(parsed.ok).toBe(false)
+    if (parsed.ok) return
+    expect(parsed.reason).toBe(acceptanceMismatch(["A1", "A2"], ["A1"]))
+    expect(parsed.reason).toContain(
+      "draft/spec.md states [A1, A2] but the check asserts [A1] (the spec states [A2] that no assertion covers)",
+    )
+    expect(parsed.reason).toMatch(/every A<n> must be an observable behaviour/)
+    expect(parsed.reason).toContain("top-level test named 'A<n>: ...'")
+    expect(parsed.reason).toMatch(
+      /state scope .* in draft\/task\.json .*not as an acceptance criterion/,
+    )
+    // The other direction: an assertion naming an id the spec never states.
+    expect(acceptanceMismatch(["A1"], ["A1", "A3"])).toContain(
+      "does not state [A3] that an assertion names",
+    )
   })
 
   it("fills the target's runner configuration into immutablePaths, after the drafter's own", () => {

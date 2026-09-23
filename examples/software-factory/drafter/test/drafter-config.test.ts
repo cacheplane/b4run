@@ -137,10 +137,16 @@ describe("the drafter's sandbox and permissions", () => {
     const config = await loadConfig()
     expect(config.permissions?.mode).toBe("non-interactive")
     expect(config.permissions?.allow).toEqual({
-      bash: ["ls", "cat", "head", "tail", "grep", "wc"],
+      bash: ["ls", "cat", "head", "tail", "grep", "wc", "sed -n", "nl"],
     })
     // `find -exec` / `find -delete` would make the list a fig leaf; the need is covered.
     expect(config.permissions?.allow?.bash).not.toContain("find")
+    // A shell wrapper would admit anything behind it: the live run's drafter tried
+    // `bash -lc "nl -ba ... | sed -n ..."`, and that stays denied.
+    for (const wrapped of ['bash -lc "ls"', 'sh -c "ls"'])
+      expect(config.permissions?.allow?.bash?.some((p) => wrapped.startsWith(p))).toBe(false)
+    // `sed` only as `sed -n`: a bare `sed` entry would admit `sed -i` at the start of a line.
+    expect(config.permissions?.allow?.bash).not.toContain("sed")
     expect(config.toolOutput?.previewLines).toBe(10)
   })
 })

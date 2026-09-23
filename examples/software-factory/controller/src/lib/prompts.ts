@@ -84,9 +84,12 @@ export function targetLine(
     )
   } else facts.push(`paths start inside that directory and look like \`${source}/...\``)
   const built = target.snapshotIgnore.find((prefix) => prefix === `${pkg}dist/`)
+  // ESM resolves an import specifier against the importing file, not the working directory:
+  // "imports the built artifact by that path" read as `import "packages/.../dist/x.js"` is
+  // ERR_MODULE_NOT_FOUND. The check runs from the target root, so it goes through `cwd`.
   if (built && target.commands.build.length > 0)
     facts.push(
-      `the build writes \`${built}\`, and the check imports the built artifact by that path`,
+      `the build writes \`${built}\`, and the check loads the built artifact with \`await import(join(process.cwd(), "${built}<file>.js"))\``,
     )
   facts.push("its runner configuration is fixed by the factory")
   return `- \`${target.id}\` (root: \`${target.root}\`, ${facts.join("; ")})`
@@ -118,10 +121,13 @@ export function preparedTargets(
 /**
  * How a path is spelled, stated the same way here and in the drafter's system prompt. A root
  * of `.` is said outright to be the repository root: the live run's drafter, told paths were
- * "not relative to the repository's root", wrote them relative to the package instead.
+ * "not relative to the repository's root", wrote them relative to the package instead. The
+ * check's imports are NOT relative to the root (ESM resolves them against the check file), so
+ * the rule says how the check reaches the root instead: through `process.cwd()`, as the
+ * shipped reference checks do.
  */
 export const ROOT_RULE =
-  "Every path in `task.json` and every import in the check file is relative to the chosen target's root, not to `repo/`. A root of `.` is the repository root: paths then start there (`packages/<name>/...`), never at the package."
+  "Every path in `task.json` is relative to the chosen target's root, not to `repo/`. A root of `.` is the repository root: paths then start there (`packages/<name>/...`), never at the package. The check runs with the target's root as its working directory and loads the built artifact with `await import(join(process.cwd(), \"packages/<name>/dist/<file>.js\"))`, never a relative `import` specifier, which resolves against the check file's own directory."
 
 /**
  * The drafter's single turn (spec §6.4): what varies from one work order to the next. The

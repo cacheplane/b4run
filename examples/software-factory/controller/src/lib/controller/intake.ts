@@ -1,11 +1,12 @@
-import { readFileSync } from "node:fs"
-import { join } from "node:path"
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { dirname, join } from "node:path"
 import type { BlockedReason } from "../domain/states.js"
 import type { Receipt, WorkOrderRow } from "../domain/work-order.js"
 import { DRAFT_ROOT, parseDraft } from "../intake/draft.js"
 import { writeGeneratedTask } from "../intake/generated-task.js"
 import { proveOracle } from "../intake/oracle.js"
 import { intakePrompt } from "../prompts.js"
+import { relativePath } from "../targets/catalog.js"
 import { loadPolicy } from "../verification/policy.js"
 import { classifyDone, type StreamFrame } from "../worker/wire.js"
 import { WorkspaceRootMissingError } from "../worker/workspace-reader.js"
@@ -275,6 +276,7 @@ async function proveDraft(
           ? `${DRAFT_ROOT} is missing: the drafter wrote nothing under it`
           : `${DRAFT_ROOT} is not a directory: the drafter must write files under it`,
         "intake_invalid",
+        new Map(),
       )
       return
     }
@@ -306,7 +308,7 @@ async function proveDraft(
       unavailable("target_unavailable", parsed.reason, "the draft's target could not be loaded")
       return
     }
-    await refuse(ctx, id, parsed.reason, parsed.blockedReason)
+    await refuse(ctx, id, parsed.reason, parsed.blockedReason, draft)
     return
   }
 
@@ -373,6 +375,7 @@ async function proveDraft(
       id,
       `the drafted check did not fail on the unpatched baseline: ${proof.verdict} (${proof.checkId ?? "no check ran"})${why ? `: ${why}` : ""}`,
       "oracle_did_not_fail",
+      draft,
     )
     return
   }
@@ -400,38 +403,95 @@ export function removeDrafterManifest(ctx: ControllerContext, id: string): void 
 }
 
 /**
+ * Where a refused attempt's draft is kept: `<generatedTasksDir>/.refused/<id>/attempt-<n>/`.
+ * Not under the task directory itself (`<generatedTasksDir>/<id>/`): that directory is
+ * replaced wholesale by the next attempt's `writeGeneratedTask`, and digested wholesale by
+ * the approval gate, so a copy there would either be lost or change the digest a person
+ * approves. A dot name is not a catalog id, so the catalog never lists it as a task.
+ */
+export function refusedDraftDir(ctx: ControllerContext, id: string, attempt: number): string {
+  return join(ctx.generatedTasksDir, ".refused", id, `attempt-${attempt}`)
+}
+
+/**
+ * Copy what the controller read under `draft/` for a refused attempt, with the refusal as
+ * `reason.txt`, so an operator can read what the model produced after the retry overwrites
+ * the drafter's own `draft/`. The keys are drafter-controlled: only canonical relative paths
+ * are written (the rest are named in `reason.txt`), so none can land outside the directory.
+ * Best effort: a copy that cannot be written is journalled and the refusal proceeds.
+ */
+function keepRefusedDraft(
+  ctx: ControllerContext,
+  id: string,
+  attempt: number,
+  reason: string,
+  draft: ReadonlyMap<string, string>,
+): { readonly keptAt: string; readonly files: readonly string[] } | undefined {
+  const directory = refusedDraftDir(ctx, id, attempt)
+  try {
+    rmSync(directory, { recursive: true, force: true })
+    mkdirSync(directory, { recursive: true })
+    const files: string[] = []
+    const skipped: string[] = []
+    for (const [key, content] of draft) {
+      const path = key.startsWith(DRAFT_ROOT) ? key.slice(DRAFT_ROOT.length) : key
+      if (path === "reason.txt" || path.includes("\0") || !relativePath.safeParse(path).success) {
+        skipped.push(key)
+        continue
+      }
+      const absolute = join(directory, path)
+      mkdirSync(dirname(absolute), { recursive: true })
+      writeFileSync(absolute, content)
+      files.push(path)
+    }
+    const note = skipped.length
+      ? `\n\nNot copied (not a canonical path under ${DRAFT_ROOT}): ${skipped.map((k) => JSON.stringify(k)).join(", ")}`
+      : ""
+    writeFileSync(join(directory, "reason.txt"), `attempt ${attempt}: ${reason}${note}\n`)
+    return { keptAt: directory, files: files.sort() }
+  } catch (error) {
+    ctx.recordEvent(id, "refused_draft_unkept", { attempt, path: directory, error: String(error) })
+    return undefined
+  }
+}
+
+/**
  * A draft the controller will not take. The attempt is spent either way; a
  * `no_target_for_package` or an `image_unprepared` never retries (no redraft can prepare a
  * target, or an image at the pin), and the last
  * attempt blocks as `intake_attempts_exhausted` with the refusal in the journal. Otherwise
  * the row stays `intake_running` through `intake_retry` and another turn runs on the same
- * thread with the reason quoted.
+ * thread with the reason quoted. What was read is kept first (`keepRefusedDraft`), since the
+ * retry's turn rewrites the drafter's `draft/` in place.
  */
 async function refuse(
   ctx: ControllerContext,
   id: string,
   reason: string,
-  blockedReason:
-    | "intake_invalid"
-    | "no_target_for_package"
-    | "image_unprepared"
-    | "oracle_did_not_fail",
+  refusal: "intake_invalid" | "no_target_for_package" | "image_unprepared" | "oracle_did_not_fail",
+  draft: ReadonlyMap<string, string>,
 ): Promise<void> {
   const current = ctx.mustGet(id)
   if (!isIntake(current.state)) return
   const attempt = current.intakeAttempts + 1
-  ctx.recordEvent(id, "intake_refused", { reason, blockedReason, attempt })
+  const kept = keepRefusedDraft(ctx, id, attempt, reason, draft)
+  ctx.recordEvent(id, "intake_refused", {
+    reason,
+    blockedReason: refusal,
+    attempt,
+    ...(kept ? { keptAt: kept.keptAt, keptFiles: kept.files } : {}),
+  })
   const exhausted = attempt >= current.maxIntakeAttempts
-  const final = blockedReason === "no_target_for_package" || blockedReason === "image_unprepared"
+  const final = refusal === "no_target_for_package" || refusal === "image_unprepared"
   if (final || exhausted) {
+    // The row's reason and the transition's agree; the refusal that spent the last attempt
+    // rides beside it as `lastRefusal`, and each `intake_refused` above keeps its own.
+    const blockedReason = final ? refusal : "intake_attempts_exhausted"
     ctx.transition(
       id,
       "intake_blocked",
-      {
-        blockedReason: final ? blockedReason : "intake_attempts_exhausted",
-        intakeAttempts: attempt,
-      },
-      { reason, blockedReason, attempt },
+      { blockedReason, intakeAttempts: attempt },
+      { reason, blockedReason, lastRefusal: refusal, attempt },
     )
     return
   }
