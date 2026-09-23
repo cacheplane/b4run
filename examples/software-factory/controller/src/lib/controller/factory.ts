@@ -145,6 +145,12 @@ export interface FactoryOptions {
   readonly promptCatalog?: CatalogOptions
   readonly approvalTtlMs?: number
   readonly maxActiveMs?: number
+  /**
+   * Test seam: dispatch a row whose budget is below twice its target's verifier deadline
+   * (still journalled). For a test of budget exhaustion itself, whose tiny budget no real
+   * target's verification fits; never set by the runtime's configuration.
+   */
+  readonly allowBudgetBelowVerifierDeadline?: boolean
   /** Drafter turns an intake may spend before it blocks. Default 2. */
   readonly maxIntakeAttempts?: number
   /** How long a cancel waits for the cancelled run's observer to settle. Default 10s. */
@@ -499,6 +505,28 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     if (options.tasks) return "*"
     return loadTask(row.taskId, options.promptCatalog ?? {}).target.id
   }
+  /**
+   * The row's active budget against its target's verifier deadline, when the budget is short.
+   * The budget is fixed on the row at create (`FACTORY_MAX_ACTIVE_MS`) and covers the
+   * builder's turn AND the verification, which may take up to the target's deadline: a
+   * budget under twice that deadline (the verification, and as long again for the turn) can
+   * run out mid-verification and fail a candidate for the factory's own slowness. Undefined
+   * when the budget suffices, or when the task does not load (its own refusal says why).
+   */
+  function budgetShortfall(
+    row: WorkOrderRow,
+  ): { maxActiveMs: number; verifierDeadlineMs: number; targetId: string } | undefined {
+    if (options.tasks) return undefined
+    let target: { id: string; resources: { verifierDeadlineMs: number } }
+    try {
+      target = loadTask(row.taskId, options.promptCatalog ?? {}).target
+    } catch {
+      return undefined
+    }
+    const verifierDeadlineMs = target.resources.verifierDeadlineMs
+    if (2 * verifierDeadlineMs <= row.maxActiveMs) return undefined
+    return { maxActiveMs: row.maxActiveMs, verifierDeadlineMs, targetId: target.id }
+  }
   const workerFor = (row: WorkOrderRow): TargetWorker => {
     const targetId = targetOf(row)
     const worker = options.workers.forTarget(targetId)
@@ -789,11 +817,21 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       if (!options.tasks && !isShippedTask(taskId, options.promptCatalog?.tasksDir))
         throw new UnknownTaskError(taskId)
       if (prompt(taskId) instanceof Error) throw new UnknownTaskError(taskId)
-      return insertWorkOrder(operationKey, { taskId }, () => ({
+      const row = insertWorkOrder(operationKey, { taskId }, () => ({
         taskId,
         origin: { kind: "catalog" },
         pin: null,
       }))
+      // A warning, not a refusal: the row is created (its budget cannot change after), and
+      // `dispatch` refuses it. Journalled once, so a replayed key adds nothing. A generated
+      // task has no target until its draft is approved; `dispatch` is its check.
+      const shortfall = budgetShortfall(row)
+      if (
+        shortfall !== undefined &&
+        !store.events(row.id).some((e) => e.type === "budget_below_verifier_deadline")
+      )
+        recordEvent(row.id, "budget_below_verifier_deadline", { phase: "create", ...shortfall })
+      return row
     },
 
     async createFromIssue({ origin, pin, issue, operationKey }) {
@@ -1125,6 +1163,21 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
               ? `Unknown task ${row.taskId}`
               : `Unknown task ${row.taskId}: ${input.message}`,
           }
+      }
+      // A budget the verification alone may exhaust is refused before a thread and a turn are
+      // spent, and before the key: the remedy (raise FACTORY_MAX_ACTIVE_MS, create again) is
+      // the operator's, and a target re-prepared with a shorter deadline dispatches this row.
+      if (row.state === "received") {
+        const shortfall = budgetShortfall(row)
+        if (shortfall !== undefined) {
+          recordEvent(id, "budget_below_verifier_deadline", { phase: "dispatch", ...shortfall })
+          if (!options.allowBudgetBelowVerifierDeadline)
+            return {
+              ok: false,
+              state: row.state,
+              message: `Work order ${id}'s active budget (${shortfall.maxActiveMs} ms, FACTORY_MAX_ACTIVE_MS when it was created) is below twice target ${shortfall.targetId}'s verifier deadline (${shortfall.verifierDeadlineMs} ms): verification alone could exhaust it. Restart the controller with FACTORY_MAX_ACTIVE_MS=${2 * shortfall.verifierDeadlineMs} or more, cancel this work order and create it again`,
+            }
+        }
       }
       // The builder process boots from its target file, at ONE pin (the file's). A task at
       // another pin is built in that pin's image and verified in its own: allowed and

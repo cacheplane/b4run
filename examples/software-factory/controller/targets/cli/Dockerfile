@@ -21,9 +21,12 @@ RUN pnpm install --frozen-lockfile --filter @b4run/cli... --ignore-scripts --con
 # package resolves must be in the ROOT node_modules, and three things the hoisted install
 # left elsewhere are moved there:
 #  1. Nested dependencies. Hoisting keeps the root project's version at the root and nests a
-#     package's conflicting one under packages/<p>/node_modules (cli's commander 15 against
-#     the root's 8, cli's hono and @hono/node-server, core's `typescript`, which is the
-#     TypeScript 6 compiler API core's typegen imports). Each is promoted over the root's.
+#     package's conflicting one under packages/<p>/node_modules: cli's commander 15.0.0 (the
+#     root has 8.3.0), hono 4.13.5 (root 4.13.3) and @hono/node-server 2.1.1 (root 1.19.17),
+#     and core's `typescript`, which is the TypeScript 6 compiler API core's typegen imports.
+#     Each is promoted over the root's. EXPECTED_PROMOTED is that set, by the name the loop
+#     sees: a lockfile or pin that nests anything else, or nests one name twice, fails the
+#     build rather than silently replacing a root package the other packages resolve.
 #  2. The root's own TypeScript 7 (the `tsc` every package builds with) would be overwritten
 #     by that promotion, so it moves aside first and `tsc` becomes a shim onto it.
 #  3. Workspace links. pnpm writes them relative (`../../packages/core`), which resolves to
@@ -35,6 +38,8 @@ RUN set -eu \
  && rm -f node_modules/.bin/tsc \
  && printf '#!/bin/sh\nexec node /opt/targets/cli/tools/node_modules/typescript/bin/tsc "$@"\n' > node_modules/.bin/tsc \
  && chmod 755 node_modules/.bin/tsc \
+ && EXPECTED_PROMOTED="@hono/node-server commander hono typescript" \
+ && PROMOTED="" \
  && for p in $CAPTURED; do \
       nm="packages/$p/node_modules"; [ -d "$nm" ] || continue; \
       for entry in "$nm"/* "$nm"/@*/*; do \
@@ -42,10 +47,16 @@ RUN set -eu \
         rel="${entry#"$nm"/}"; \
         case "$rel" in @b4run|@b4run/*|.bin) continue ;; esac; \
         case "$rel" in @*/*) ;; @*) continue ;; esac; \
+        case " $PROMOTED " in *" $rel "*) echo "promoted twice: $rel (again from packages/$p)" >&2; exit 1 ;; esac; \
+        PROMOTED="$PROMOTED $rel"; \
         rm -rf "node_modules/$rel" && mkdir -p "node_modules/$(dirname "$rel")" && mv "$entry" "node_modules/$rel"; \
       done; \
       rm -rf "$nm"; \
     done \
+ && actual="$(printf '%s\n' $PROMOTED | LC_ALL=C sort | tr '\n' ' ')" \
+ && expected="$(printf '%s\n' $EXPECTED_PROMOTED | LC_ALL=C sort | tr '\n' ' ')" \
+ && echo "promoted over the root's: $actual" \
+ && if [ "$actual" != "$expected" ]; then echo "expected to promote exactly: $expected" >&2; exit 1; fi \
  && for p in $CAPTURED; do \
       rm -rf "node_modules/@b4run/$p" && ln -s "/workspace/packages/$p" "node_modules/@b4run/$p"; \
     done

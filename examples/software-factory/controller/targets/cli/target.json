@@ -137,6 +137,9 @@
     "nodeTestExecArgv": []
   },
   "runnerConfig": [
+    "package.json",
+    ".npmrc",
+    "pnpm-workspace.yaml",
     "packages/cli/package.json",
     "packages/cli/vitest.config.ts",
     "packages/cli/tsconfig.json",
@@ -151,10 +154,10 @@
   },
   "images": {
     "765e6e16fec86bba0859d3f85edf7136f663f720": {
-      "localId": "sha256:46de1aa9077dab80a85de774c28ab304f9eb1a5e963564e6e504e715268f82e2",
+      "localId": "sha256:36de4996c83bf0b4258a24e2ebab9b286f7aba713cce9a047dc438c3e304af86",
       "platform": "linux/arm64",
       "baseManifestDigest": "sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6",
-      "dockerfileSha256": "b9525573ee6d695897cfea7b5696c6cfe8b3b927f3d667a370d1d03a1d719ffc",
+      "dockerfileSha256": "2268d8469b20def45293ec92480aa75556a447926c5eccc6a76038d804cdb333",
       "lockfileSha256": "9256fdd7e5f8fc39aaa08909551d5da601c0359f9ae4e181742d73c9e82798b8",
       "pnpmVersion": "10.33.0"
     }

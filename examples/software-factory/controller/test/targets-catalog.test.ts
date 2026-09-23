@@ -98,12 +98,12 @@ function targetsDir(pin: string, overrides: Record<string, unknown> = {}): strin
 }
 
 /**
- * An origin with two commits and a `--depth 1` clone of it, which is the shape of a CI
+ * An origin with three commits and a `--depth 1` clone of it, which is the shape of a CI
  * checkout: the clone holds the tip and not the commit a target pins. `file://` (not a bare
  * path) is what makes the clone shallow, and `allowAnySHA1InWant` is what lets a fetch ask
  * for one commit by SHA, as GitHub's servers do.
  */
-function shallowClone(): { origin: string; clone: string; older: string } {
+function shallowClone(): { origin: string; clone: string; older: string; middle: string } {
   const origin = mkdtempSync(join(tmpdir(), "factory-origin-"))
   dirs.push(origin)
   const git = (...args: string[]) =>
@@ -118,13 +118,16 @@ function shallowClone(): { origin: string; clone: string; older: string } {
   const older = git("rev-parse", "HEAD")
   writeFileSync(join(origin, "a.txt"), "b\n")
   git("commit", "-q", "-a", "-m", "two")
+  const middle = git("rev-parse", "HEAD")
+  writeFileSync(join(origin, "a.txt"), "b2\n")
+  git("commit", "-q", "-a", "-m", "two and a half")
   const clone = mkdtempSync(join(tmpdir(), "factory-clone-"))
   dirs.push(clone)
   rmSync(clone, { recursive: true, force: true })
   execFileSync("git", ["clone", "-q", "--depth", "1", `file://${origin}`, clone], {
     encoding: "utf8",
   })
-  return { origin, clone, older }
+  return { origin, clone, older, middle }
 }
 
 /**
@@ -207,11 +210,16 @@ describe("target catalog", () => {
   })
 
   it("fetches a missing pin into a shallow clone by sha, and it stays shallow", () => {
-    const { clone, older } = shallowClone()
+    // The pin has a parent: `--depth=1` fetches it alone and marks it a shallow boundary, where
+    // a plain fetch would pull its whole history (the root commit) and leave no mark on it.
+    const { clone, older, middle } = shallowClone()
     expect(isShallow(clone)).toBe(true)
-    ensurePin(clone, "t", older)
-    expect(holdsCommit(clone, older)).toBe(true)
+    ensurePin(clone, "t", middle)
+    expect(holdsCommit(clone, middle)).toBe(true)
+    expect(holdsCommit(clone, older)).toBe(false)
     expect(isShallow(clone)).toBe(true)
+    const boundaries = readFileSync(join(clone, ".git", "shallow"), "utf8").split("\n")
+    expect(boundaries).toContain(middle)
   })
 
   it("refuses a missing pin without fetching when FACTORY_NO_FETCH is set", () => {

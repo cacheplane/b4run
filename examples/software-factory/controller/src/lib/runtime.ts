@@ -32,7 +32,11 @@ import { createThreadWorkspaceReader, type WorkspaceReader } from "./worker/work
 export type ControllerRuntimeOverrides = Partial<
   Pick<
     FactoryOptions,
-    "verifier" | "captureBaseline" | "writeDrafterManifest" | "writeBuilderManifest"
+    | "verifier"
+    | "captureBaseline"
+    | "writeDrafterManifest"
+    | "writeBuilderManifest"
+    | "allowBudgetBelowVerifierDeadline"
   >
 > & {
   readonly readers?: {

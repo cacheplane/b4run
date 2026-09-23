@@ -15,6 +15,9 @@ import { delimiter, join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { appRoot, repositoryRoot, TargetSchema, targetsDir } from "../src/lib/targets/catalog.ts"
 import {
+  capturedListMismatch,
+  capturedPackages,
+  dockerfileCapturedPackages,
   firstMissingPath,
   parsePrepareArgs,
   pathExistsAtPin,
@@ -239,4 +242,44 @@ describe("prepare-target.ts at a pin its paths do not exist at", () => {
     )
     expect(readFileSync(manifestPath, "utf8")).toBe(before)
   }, 90_000)
+})
+
+describe("a Dockerfile's CAPTURED list against the capture", () => {
+  const capture = {
+    id: "t",
+    capture: {
+      include: ["package.json", "packages/a/src", "packages/a/package.json", "packages/b"],
+    },
+  }
+  it("reads the packages a capture includes and the ones a Dockerfile restates", () => {
+    expect(capturedPackages(capture)).toEqual(["a", "b"])
+    expect(dockerfileCapturedPackages('RUN set -eu \\\n && CAPTURED="b  a" \\\n')).toEqual([
+      "b",
+      "a",
+    ])
+    expect(dockerfileCapturedPackages("FROM node\n")).toBeUndefined()
+  })
+
+  it("agrees, or names each disagreement", () => {
+    expect(capturedListMismatch(capture, 'CAPTURED="a b"')).toBeUndefined()
+    expect(capturedListMismatch(capture, "FROM node")).toBeUndefined()
+    const message = capturedListMismatch(capture, 'CAPTURED="a c a"')
+    expect(message).toContain("captured but not in CAPTURED: b")
+    expect(message).toContain("in CAPTURED but not captured: c")
+    expect(message).toContain("repeated in CAPTURED: a")
+  })
+
+  it("holds for every shipped target", () => {
+    for (const id of readdirSync(targetsDir)) {
+      const directory = join(targetsDir, id)
+      if (!existsSync(join(directory, "target.json"))) continue
+      const manifest = TargetSchema.parse(
+        JSON.parse(readFileSync(join(directory, "target.json"), "utf8")),
+      )
+      const dockerfile = readFileSync(join(directory, "Dockerfile"), "utf8")
+      expect(capturedListMismatch(manifest, dockerfile), id).toBeUndefined()
+    }
+    const cli = readFileSync(join(targetsDir, "cli", "Dockerfile"), "utf8")
+    expect(dockerfileCapturedPackages(cli)).toHaveLength(11)
+  })
 })

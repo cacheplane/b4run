@@ -366,7 +366,10 @@ describe("cancel", () => {
 
 describe("budget", () => {
   it("cancels an over-budget run and blocks it with budget_exhausted", async () => {
-    await boot({ run: "hang" }, { maxActiveMs: 1_000, budgetTickMs: 10 })
+    await boot(
+      { run: "hang" },
+      { maxActiveMs: 1_000, budgetTickMs: 10, allowBudgetBelowVerifierDeadline: true },
+    )
     const { id } = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(id)
     await factory.waitFor(id, (r) => r.state === "running")
@@ -381,7 +384,7 @@ describe("budget", () => {
   })
 
   it("does not count time spent awaiting approval", async () => {
-    await boot({}, { maxActiveMs: 1_000, budgetTickMs: 10 })
+    await boot({}, { maxActiveMs: 1_000, budgetTickMs: 10, allowBudgetBelowVerifierDeadline: true })
     const row = await awaiting()
     nowMs += 60_000
     await new Promise((resolve) => setTimeout(resolve, 50))

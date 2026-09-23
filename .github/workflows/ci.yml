@@ -438,8 +438,13 @@ jobs:
         # asserts the target's modules resolve inside it, and rewrites
         # `targets/<id>/target.json` with the runner's own local image id. That
         # manifest diff is expected here and nothing in this job asserts a clean
-        # tree. Both shipped targets are prepared because the Docker lanes cover
-        # both. The dependency build is the factory's own closure (`^...`
+        # tree. `cli-flags` and `devkit` are prepared because the Docker lanes
+        # here cover them. The `cli` target is not: its lane
+        # (`target-cli.integration.test.ts`) is opt-in (`FACTORY_TEST_CLI_TARGET=1`,
+        # `test:sandbox:cli`) and skips here, because its image is 2 GB and its
+        # six verifier sessions take about 70 minutes against this job's 30 until
+        # the framework's per-operation snapshot cost is fixed (the first-live-issue
+        # plan, Task 2, trap 9). The dependency build is the factory's own closure (`^...`
         # excludes the example, whose `build` is `b4 build`), which is already
         # warm from the code-fixer build above. The controller owns the targets,
         # the task catalog and every Docker-gated lane; the builder package those

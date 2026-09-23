@@ -110,6 +110,12 @@ repair inside a target: a spec with named acceptance ids, the defect and referen
 and the visible and independent checks. It lives under `tasks/<id>/`. Adding either is a
 directory and a prepared image, not a code change; the design is in
 [the rung 2 spec](../../docs/superpowers/specs/2026-09-19-software-factory-rung2-design.md).
+A target's `resources.verifierDeadlineMs` bounds one verification, and a work order's active
+budget (`FACTORY_MAX_ACTIVE_MS`, fixed on the row when it is created) covers the builder's turn
+and the verification together. A budget below twice the target's verifier deadline is
+journalled at `create` (`budget_below_verifier_deadline`) and refused at `dispatch`, before a
+thread is spent: the `cli` target verifies for up to an hour, so its work orders need
+`FACTORY_MAX_ACTIVE_MS=7200000` or more set on the controller before `create`.
 
 ## What it does not do
 
@@ -456,7 +462,7 @@ The controller app reads:
 | `FACTORY_EXPORT_DIR` | no | Default `<state>/exports`; also the bundle's destination identity |
 | `FACTORY_ARTIFACTS_DIR` | no | Default `<state>/artifacts`, the content-addressed evidence store |
 | `FACTORY_APPROVAL_TTL_MS` | no | Default 900000 |
-| `FACTORY_MAX_ACTIVE_MS` | no | Default 1200000; waiting on a person is not active time |
+| `FACTORY_MAX_ACTIVE_MS` | no | Default 1200000; waiting on a person is not active time. Must be at least twice the target's `verifierDeadlineMs` or `dispatch` refuses (the `cli` target: 7200000) |
 | `FACTORY_MAX_CHANGED_BYTES` | no | Default 1048576; exceeding it is a `scope_violation`, never a truncation |
 | `FACTORY_REPO_ROOT` | no | The repository the targets pin into and the wide capture is taken from; default `git rev-parse --show-toplevel` from the package. Set by the Docker-lane tests, which copy the app outside the repository. |
 
@@ -547,4 +553,9 @@ an empty manifest directory — the only place either runs, since a target file 
 else — pulls the drafter's base image
 by the digest in `drafter/src/drafter-image.ts`, runs the drafter's `check` and `build`
 against an empty manifest directory, and then runs the controller's `test:sandbox`, which
-serves the drafter in both of its drafter lanes.
+serves the drafter in both of its drafter lanes. The `cli` target's lane
+(`target-cli.integration.test.ts`) is opt-in and skips there: it needs the `cli` image (2 GB)
+and runs about 70 minutes, so it runs by hand with
+`pnpm --filter @b4-example/software-factory-controller target:prepare cli` and then
+`pnpm --filter @b4-example/software-factory-controller test:sandbox:cli`
+(`FACTORY_TEST_CLI_TARGET=1`).

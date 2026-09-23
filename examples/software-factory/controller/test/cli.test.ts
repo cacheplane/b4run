@@ -157,7 +157,12 @@ describe("cli", () => {
     // The other end a dispatch can settle at without being refused: the run never finished,
     // the ticker spent its budget, and the row is `blocked`. A script must not read that as
     // a delivered change either.
-    const { cli, spawn } = await boot({ run: "hang" }, {}, { FACTORY_MAX_ACTIVE_MS: "1000" })
+    // A budget no real verification fits, so the dispatch refusal that guards it is waived.
+    const { cli, spawn } = await boot(
+      { run: "hang" },
+      { allowBudgetBelowVerifierDeadline: true },
+      { FACTORY_MAX_ACTIVE_MS: "1000" },
+    )
     const { json: created } = await cli("create", "--task", "cli-flags")
     const id = created.row.id as string
     const { stdout } = await failing(spawn("dispatch", id).promise)
@@ -330,10 +335,18 @@ esac
         { env: { ...issueEnv, FACTORY_NO_FETCH: "1" }, cwd: packageRoot },
       ),
     )
-    expect(refused.stderr).toContain(`Issue 778's replay pin pins ${absent}`)
+    expect(refused.stderr).toContain(`Issue 778 (replay) pins ${absent}`)
     expect(refused.stderr).toContain("FACTORY_NO_FETCH=1")
     const unknownShort = await failing(create("--pin", "0123456789"))
     expect(unknownShort.stderr).toContain("pass the full 40-hex sha")
+    // A branch whose name is hex resolves (refs win over abbreviations) to wherever it points,
+    // which is not a commit the argument abbreviates: refused, not recorded as the pin.
+    const tip = (await git("rev-parse", "HEAD")).stdout.trim()
+    const hexName = tip.startsWith("cafe") ? "beef" : "cafe"
+    await git("branch", hexName, "HEAD")
+    const hexBranch = await failing(create("--pin", hexName, "--key", "hex-branch"))
+    expect(hexBranch.stderr).toContain(`--pin ${hexName} resolved to ${tip}`)
+    expect(hexBranch.stderr).toContain("pass the full 40-hex sha")
     const withTask = await failing(
       run(process.execPath, [tsxBin, cliEntry, "create", "--task", "cli-flags", "--pin", first], {
         env: issueEnv,

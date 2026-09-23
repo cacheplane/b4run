@@ -250,7 +250,7 @@ async function issueCreateInput(
   if (replayPin !== undefined) {
     // A replay: the commit is named, so origin/main is never consulted. A full sha missing from
     // a shallow checkout is fetched by sha; FACTORY_NO_FETCH=1 refuses it instead, naming it.
-    ensurePin(root, `issue-${number}`, replayPin, { label: `Issue ${number}'s replay pin` })
+    ensurePin(root, `issue-${number}`, replayPin, { label: `Issue ${number} (replay)` })
     pin = replayPin
   } else {
     pin = await resolvePin({ repositoryRoot: root, fetch })
@@ -289,6 +289,12 @@ async function replayPinOf(root: string, pinArg: string): Promise<string> {
   const sha = stdout.trim()
   if (!COMMIT_PATTERN.test(sha))
     throw new Error(`--pin ${pinArg} resolved to ${JSON.stringify(sha)}, not a commit`)
+  // `rev-parse` prefers a ref to an abbreviated sha: a branch or tag whose name is hex (`cafe`)
+  // resolves to wherever it points. `--pin` names a commit, so the answer must extend it.
+  if (!sha.startsWith(pinArg.toLowerCase()))
+    throw new Error(
+      `--pin ${pinArg} resolved to ${sha}, which is not a commit it abbreviates (a branch or tag of that name?); pass the full 40-hex sha`,
+    )
   return sha
 }
 

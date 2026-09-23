@@ -12,6 +12,7 @@ import {
   targetsDir,
 } from "../src/lib/targets/catalog.js"
 import {
+  capturedListMismatch,
   firstMissingPath,
   parsePrepareArgs,
   pathExistsAtPin,
@@ -51,6 +52,14 @@ if (missing !== undefined)
   throw new Error(
     `Target "${id}" names ${missing}, which does not exist at ${pin}: it cannot be prepared at that pin`,
   )
+// A Dockerfile that relinks workspace packages by name restates the capture's package list;
+// the two must agree, or the image links a package to nothing or leaves one at its
+// manifest-only copy. Refused before the pull and the build, by name.
+const capturedMismatch = capturedListMismatch(
+  manifest,
+  readFileSync(join(directory, "Dockerfile"), "utf8"),
+)
+if (capturedMismatch !== undefined) throw new Error(capturedMismatch)
 // The lockfile hash only means something if the lockfile was in the build context: a hash
 // over a file the build never saw records an input that did not produce the image.
 if (!covers(manifest.imageContext, manifest.lockfile))

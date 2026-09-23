@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { dockerSandbox } from "@b4run/sandbox"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, beforeAll, describe, expect, it } from "vitest"
 import type { Receipt } from "../src/lib/domain/work-order.ts"
 import type { ArtifactStore } from "../src/lib/storage/artifacts.ts"
 import { createArtifactStore } from "../src/lib/storage/artifacts.ts"
@@ -31,10 +31,21 @@ import { applyReference } from "./reference-repair.ts"
 const TASK = "cli-runs-wait-undefined"
 const FIX = "b090ad42ffbf063d2540a80454ee480d1a0ebbf4"
 const REFERENCE_TEST = "packages/cli/test/runs-wait-output.test.ts"
-const task = loadTask(TASK)
-const policy = loadPolicy(TASK)
-const allowed = task.manifest.allowedSourcePaths[0] as string
-const budget = task.target.resources.verifierDeadlineMs
+/**
+ * Opt-in (`FACTORY_TEST_CLI_TARGET=1`, or `pnpm test:sandbox:cli`): the lane needs the `cli`
+ * image prepared on this host (2 GB), and runs about 70 minutes, six verifier sessions of
+ * about 12 minutes each until the framework's per-operation snapshot cost is fixed (plan,
+ * Task 2, trap 9). The CI `sandbox-docker` job prepares neither and has 30 minutes.
+ */
+const ENABLED = process.env.FACTORY_TEST_CLI_TARGET === "1"
+/** Stated rather than read from the target, so an unprepared checkout skips at collection. */
+const DEADLINE_SLACK_MS = 3_600_000 + 60_000
+
+/** Resolved inside the gated block: loading the task needs the prepared image and the pin. */
+let task: Task
+let policy: ReturnType<typeof loadPolicy>
+let allowed: string
+let budget: number
 
 const dirs: string[] = []
 afterEach(async () => {
@@ -113,7 +124,16 @@ const gradeWithReferenceTest = async (changes: Record<string, string>) => {
   })
 }
 
-describe("the cli target in its prepared image", () => {
+describe.skipIf(!ENABLED)("the cli target in its prepared image", () => {
+  beforeAll(() => {
+    task = loadTask(TASK)
+    policy = loadPolicy(TASK)
+    allowed = task.manifest.allowedSourcePaths[0] as string
+    budget = task.target.resources.verifierDeadlineMs
+    // The per-case timeouts below are fixed at collection, before the task loads.
+    expect(budget + 60_000).toBeLessThanOrEqual(DEADLINE_SLACK_MS)
+  })
+
   it(
     "builds, runs the scoped suite and admits the task: the reference repair passes both suites",
     async () => {
@@ -122,7 +142,7 @@ describe("the cli target in its prepared image", () => {
       expect(receipt.verdict).toBe("pass")
       expect(receipt.environmentIdentity).toBe(policy.environment.identity)
     },
-    budget + 60_000,
+    DEADLINE_SLACK_MS,
   )
 
   it(
@@ -134,9 +154,13 @@ describe("the cli target in its prepared image", () => {
       expect(summary(receipt)).toEqual(["visible:pass", "independent:fail"])
       expect(receipt.verdict).toBe("fail")
       const independentOutput = await evidenceOf(artifacts, receipt, "independent")
-      expect(independentOutput).toContain("A1 failed")
+      // The fix changed A1, A2, A3 and A5; A4 (falsy outputs) and A6 (an ordinary object)
+      // pass on both sides of it.
+      for (const failed of ["A1", "A2", "A3", "A5"])
+        expect(independentOutput).toContain(`${failed} failed`)
+      for (const held of ["A4", "A6"]) expect(independentOutput).not.toContain(`${held} failed`)
     },
-    budget + 60_000,
+    DEADLINE_SLACK_MS,
   )
 
   it(
@@ -149,8 +173,10 @@ describe("the cli target in its prepared image", () => {
       const events = session.result?.events ?? []
       const failed = events.filter((e) => e.type === "test:fail").map((e) => e.name)
       expect(failed.sort()).toEqual([...FIXED_CASES].sort())
+      // The scoped suite ran in the same session and passed: well over a hundred tests.
+      expect(events.filter((e) => e.type === "test:pass").length).toBeGreaterThan(100)
     },
-    budget + 60_000,
+    DEADLINE_SLACK_MS,
   )
 
   it(
@@ -167,6 +193,6 @@ describe("the cli target in its prepared image", () => {
       expect(events.filter((e) => e.type === "test:pass").length).toBeGreaterThan(100)
       expect(events.some((e) => e.type === "test:fail")).toBe(false)
     },
-    budget + 60_000,
+    DEADLINE_SLACK_MS,
   )
 })

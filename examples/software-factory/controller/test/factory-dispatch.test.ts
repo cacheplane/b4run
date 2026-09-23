@@ -260,6 +260,41 @@ describe("create and dispatch", () => {
     expect(fake.requests.filter((r) => r.path === "/threads")).toHaveLength(1)
   })
 
+  it("warns at create and refuses dispatch when the budget is below twice the verifier deadline", async () => {
+    // The shipped `cli` target verifies for up to an hour; the default budget is 20 minutes.
+    const deadline = loadTask("cli-runs-wait-undefined").target.resources.verifierDeadlineMs
+    expect(2 * deadline).toBeGreaterThan(1_200_000)
+    await boot()
+    const { id } = await factory.create({ taskId: "cli-runs-wait-undefined" })
+    const shortfall = { maxActiveMs: 1_200_000, verifierDeadlineMs: deadline, targetId: "cli" }
+    expect(factory.events(id).at(-1)).toMatchObject({
+      type: "budget_below_verifier_deadline",
+      payload: { phase: "create", ...shortfall },
+    })
+    const refused = await factory.dispatch(id)
+    expect(refused).toMatchObject({ ok: false, state: "received" })
+    expect(refused.message).toContain(`FACTORY_MAX_ACTIVE_MS=${2 * deadline}`)
+    expect(factory.events(id).at(-1)).toMatchObject({
+      type: "budget_below_verifier_deadline",
+      payload: { phase: "dispatch", ...shortfall },
+    })
+    expect(factory.show(id)?.state).toBe("received")
+    expect(fake.requests.some((r) => r.path === "/threads")).toBe(false)
+    // A small target's task under the same budget is not warned about.
+    const small = await factory.create({ taskId: "cli-flags" })
+    expect(factory.events(small.id).some((e) => e.type === "budget_below_verifier_deadline")).toBe(
+      false,
+    )
+  })
+
+  it("dispatches a slow target's task once the budget covers twice its verifier deadline", async () => {
+    const deadline = loadTask("cli-runs-wait-undefined").target.resources.verifierDeadlineMs
+    await boot({}, { maxActiveMs: 2 * deadline })
+    const { id } = await factory.create({ taskId: "cli-runs-wait-undefined" })
+    expect(await factory.dispatch(id)).toMatchObject({ ok: true, state: "dispatched" })
+    expect(factory.events(id).some((e) => e.type === "budget_below_verifier_deadline")).toBe(false)
+  })
+
   it("refuses to dispatch a task with no prompt instead of sending an empty one", async () => {
     await boot()
     const { id } = await factory.create({ taskId: "cli-flags" })
