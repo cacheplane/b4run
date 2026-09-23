@@ -9,6 +9,7 @@ import {
   ChecksSchema,
   covers,
   environmentIdentity,
+  ImageUnpreparedError,
   imageTag,
   loadTarget,
   loadTargetIds,
@@ -18,8 +19,10 @@ import {
   repositoryRoot,
   targetsDir as shippedTargetsDir,
   TargetSchema,
+  TargetUnpreparedError,
   TaskSchema,
   tasksDir,
+  UnknownTargetError,
 } from "../src/lib/targets/catalog.ts"
 
 const dirs: string[] = []
@@ -58,7 +61,7 @@ function manifest(pin: string, overrides: Record<string, unknown> = {}) {
     root: ".",
     capture: { include: ["a.txt"] },
     snapshotIgnore: [],
-    image,
+    images: { [pin]: image },
     imageContext: ["package.json"],
     lockfile: "pnpm-lock.yaml",
     imageAssertResolves: [],
@@ -73,6 +76,15 @@ function manifest(pin: string, overrides: Record<string, unknown> = {}) {
     resources: { memoryMb: 1024, cpus: 1, commandTimeoutMs: 120_000, verifierDeadlineMs: 300_000 },
     ...overrides,
   }
+}
+
+/** A throwaway repository with two commits: two pins a target can hold images at. */
+function twoCommitRepo(): { root: string; first: string; second: string } {
+  const { root, pin: first } = repo()
+  writeFileSync(join(root, "a.txt"), "b\n")
+  execFileSync("git", ["-C", root, "commit", "-q", "-a", "-m", "two"])
+  const second = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim()
+  return { root, first, second }
 }
 
 /** Write a targets directory holding one target manifest. */
@@ -183,13 +195,92 @@ describe("target catalog", () => {
   it("refuses a target that has not been prepared", () => {
     const { root, pin } = repo()
     expect(() =>
-      loadTarget("t", { targetsDir: targetsDir(pin, { image: undefined }), repositoryRoot: root }),
+      loadTarget("t", { targetsDir: targetsDir(pin, { images: undefined }), repositoryRoot: root }),
+    ).toThrow(TargetUnpreparedError)
+    expect(() =>
+      loadTarget("t", { targetsDir: targetsDir(pin, { images: undefined }), repositoryRoot: root }),
     ).toThrow(/not been prepared/)
+    expect(() =>
+      loadTarget("t", { targetsDir: targetsDir(pin, { images: {} }), repositoryRoot: root }),
+    ).toThrow(/not been prepared/)
+  })
+
+  it("reads 3a's single image as the manifest pin's entry of images", () => {
+    const { root, pin } = repo()
+    const old = { ...manifest(pin), image }
+    delete (old as { images?: unknown }).images
+    expect(TargetSchema.parse(old).images).toEqual({ [pin]: image })
+    expect("image" in TargetSchema.parse(old)).toBe(false)
+    const dir = targetsDir(pin)
+    writeFileSync(join(dir, "t", "target.json"), JSON.stringify(old))
+    const target = loadTarget("t", { targetsDir: dir, repositoryRoot: root })
+    expect(target.pin).toBe(pin)
+    expect(target.image).toEqual(image)
+    // The loaded target is single-valued: one pin, one image, no map.
+    expect(target).not.toHaveProperty("images")
+    // Both shapes at once is not a migration: the leftover `image` is an unknown key.
+    expect(TargetSchema.safeParse({ ...manifest(pin), image }).success).toBe(false)
+  })
+
+  it("selects the image prepared at the pin asked for, and defaults to the manifest's pin", () => {
+    const { root, first, second } = twoCommitRepo()
+    const other = {
+      ...image,
+      localId: `sha256:${"9".repeat(64)}`,
+      dockerfileSha256: "8".repeat(64),
+    }
+    const dir = targetsDir(first, { images: { [first]: image, [second]: other } })
+    const byDefault = loadTarget("t", { targetsDir: dir, repositoryRoot: root })
+    expect(byDefault.pin).toBe(first)
+    expect(byDefault.image).toEqual(image)
+    const atSecond = loadTarget("t", { targetsDir: dir, repositoryRoot: root, pin: second })
+    expect(atSecond.pin).toBe(second)
+    expect(atSecond.image).toEqual(other)
+    expect(imageTag(atSecond)).toBe(`b4-factory-t:${second.slice(0, 12)}-${"8".repeat(12)}`)
+  })
+
+  it("refuses a pin the target has no image at, distinctly and without fetching", () => {
+    const { root, first, second } = twoCommitRepo()
+    const dir = targetsDir(first)
+    let caught: unknown
+    try {
+      loadTarget("t", { targetsDir: dir, repositoryRoot: root, pin: second })
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(ImageUnpreparedError)
+    expect(caught).toMatchObject({ targetId: "t", pin: second })
+    expect(String((caught as Error).message)).toBe(
+      `Target t has no image prepared at ${second}: run pnpm --filter @b4-example/software-factory-controller target:prepare t --pin ${second}`,
+    )
+    // A pin nothing holds is still image_unprepared, not a fetch: the image is looked up first.
+    const nowhere = "1".repeat(40)
+    const previous = process.env.FACTORY_NO_FETCH
+    process.env.FACTORY_NO_FETCH = "1"
+    try {
+      expect(() =>
+        loadTarget("t", { targetsDir: dir, repositoryRoot: root, pin: nowhere }),
+      ).toThrow(ImageUnpreparedError)
+    } finally {
+      if (previous === undefined) delete process.env.FACTORY_NO_FETCH
+      else process.env.FACTORY_NO_FETCH = previous
+    }
+  })
+
+  it("gives two pins with identical image inputs two environment identities", () => {
+    const { root, first, second } = twoCommitRepo()
+    const dir = targetsDir(first, { images: { [first]: image, [second]: image } })
+    const a = loadTarget("t", { targetsDir: dir, repositoryRoot: root, pin: first })
+    const b = loadTarget("t", { targetsDir: dir, repositoryRoot: root, pin: second })
+    expect(environmentIdentity(a)).not.toBe(environmentIdentity(b))
   })
 
   it("refuses an unknown target and an id that disagrees with its directory", () => {
     const { root, pin } = repo()
     const dir = targetsDir(pin, { id: "other" })
+    expect(() => loadTarget("nope", { targetsDir: dir, repositoryRoot: root })).toThrow(
+      UnknownTargetError,
+    )
     expect(() => loadTarget("nope", { targetsDir: dir, repositoryRoot: root })).toThrow(
       /Unknown target: nope/,
     )
@@ -253,11 +344,17 @@ describe("target catalog", () => {
           }),
         ).not.toThrow()
 
-        if (parsed.image) {
-          const dockerfile = readFileSync(join(directory, "Dockerfile"))
-          const sha256 = createHash("sha256").update(dockerfile).digest("hex")
-          expect(parsed.image.dockerfileSha256).toBe(sha256)
-        }
+        // Written in the per-pin shape: the migration is for manifests from before it.
+        const raw = JSON.parse(readFileSync(join(directory, "target.json"), "utf8"))
+        expect(raw).not.toHaveProperty("image")
+        // Only the DEFAULT pin's entry is checked, and it must exist: an entry for another pin
+        // is an operator's, prepared on some host from a commit (and possibly a Dockerfile)
+        // this checkout need not hold.
+        const image = parsed.images?.[parsed.pin]
+        expect(image, `${id} has an image at its default pin`).toBeDefined()
+        const dockerfile = readFileSync(join(directory, "Dockerfile"))
+        const sha256 = createHash("sha256").update(dockerfile).digest("hex")
+        expect(image?.dockerfileSha256).toBe(sha256)
       })
     }
   })

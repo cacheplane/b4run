@@ -1,10 +1,9 @@
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
-  appRoot,
   covers,
   ensurePin,
   imageTag,
@@ -12,25 +11,46 @@ import {
   TargetSchema,
   targetsDir,
 } from "../src/lib/targets/catalog.js"
+import {
+  firstMissingPath,
+  parsePrepareArgs,
+  pathExistsAtPin,
+  pathsRequiredAtPin,
+  recordImage,
+} from "../src/lib/targets/prepare.js"
 
 /**
- * Build a target's image at its pin and record the inputs that produced it.
+ * Build a target's image at a pin and record the inputs that produced it under that pin.
  *
+ * `prepare-target.ts <id> [--pin <sha>]`: the pin is the manifest's default unless `--pin`
+ * names another; the image is recorded as `images[<pin>]`, every other pin's entry kept.
  * The build context is a git archive of the target's `imageContext` at the pin plus the
- * Dockerfile, never the working tree. The recorded `image` object is what
+ * Dockerfile, never the working tree. The recorded image object (with the pin) is what
  * `environmentIdentity` digests: a local image id is host-specific, so the inputs travel
- * with it.
+ * with it. `FACTORY_TARGETS_DIR` points it (and the catalog) at another targets directory,
+ * so a lane can prepare a copy and never write the working tree.
  */
-const id = process.argv[2]
-if (!id) throw new Error("usage: prepare-target.ts <target-id>")
+const args = parsePrepareArgs(process.argv.slice(2))
+const { id } = args
 const directory = join(targetsDir, id)
 const manifestPath = join(directory, "target.json")
 const manifest = TargetSchema.parse(JSON.parse(readFileSync(manifestPath, "utf8")))
+const pin = args.pin ?? manifest.pin
 const repo = repositoryRoot()
-// This script parses the manifest itself (the image may be absent, which `loadTarget`
+// This script parses the manifest itself (the pin may have no image yet, which `loadTarget`
 // refuses), so it must make the pin present the same way `loadTarget` does: a shallow
 // checkout has everything but the commit the archive below is taken from.
-ensurePin(repo, id, manifest.pin)
+ensurePin(repo, id, pin)
+// Every path the image is built from must exist at the pin: `git archive` of a missing path
+// fails with a message naming nothing useful, and a target whose files moved since (the
+// `cli-flags` fixture's historical paths) is refused here, by name, before any build.
+const missing = firstMissingPath(pathsRequiredAtPin(manifest), (path) =>
+  pathExistsAtPin(repo, pin, path),
+)
+if (missing !== undefined)
+  throw new Error(
+    `Target "${id}" names ${missing}, which does not exist at ${pin}: it cannot be prepared at that pin`,
+  )
 // The lockfile hash only means something if the lockfile was in the build context: a hash
 // over a file the build never saw records an input that did not produce the image.
 if (!covers(manifest.imageContext, manifest.lockfile))
@@ -77,7 +97,7 @@ try {
     "--format=tar",
     "-o",
     tar,
-    manifest.pin,
+    pin,
     "--",
     ...manifest.imageContext,
   ])
@@ -85,14 +105,12 @@ try {
   rmSync(tar)
   cpSync(join(directory, "Dockerfile"), join(context, "Dockerfile"))
 
-  const rootPackage = JSON.parse(sh("git", ["-C", repo, "show", `${manifest.pin}:package.json`]))
+  const rootPackage = JSON.parse(sh("git", ["-C", repo, "show", `${pin}:package.json`]))
   const pnpmVersion = String(rootPackage.packageManager ?? "").replace(/^pnpm@/, "")
-  if (!/^\d+\.\d+\.\d+$/.test(pnpmVersion)) throw new Error(`No pnpm version at ${manifest.pin}`)
+  if (!/^\d+\.\d+\.\d+$/.test(pnpmVersion)) throw new Error(`No pnpm version at ${pin}`)
 
   const dockerfileSha256 = sha(readFileSync(join(directory, "Dockerfile")))
-  const lockfileSha256 = sha(
-    bytes("git", ["-C", repo, "show", `${manifest.pin}:${manifest.lockfile}`]),
-  )
+  const lockfileSha256 = sha(bytes("git", ["-C", repo, "show", `${pin}:${manifest.lockfile}`]))
   // The tag binds the pin and the Dockerfile (see `imageTag`), so it is computable before the
   // build from a provisional image object; `localId` is the only field the build supplies.
   const provisional = {
@@ -103,7 +121,7 @@ try {
     lockfileSha256,
     pnpmVersion,
   }
-  const tag = imageTag({ id: manifest.id, pin: manifest.pin, image: provisional })
+  const tag = imageTag({ id: manifest.id, pin, image: provisional })
   execFileSync(
     "docker",
     [
@@ -149,16 +167,11 @@ try {
     )
 
   const image = { ...provisional, localId }
-  // `image` is deleted before the spread so it is always written last, whatever order the
-  // manifest on disk happened to be in.
-  const { image: _previousImage, ...manifestWithoutImage } = manifest
-  writeFileSync(manifestPath, `${JSON.stringify({ ...manifestWithoutImage, image }, null, 2)}\n`)
-  // The manifest is a checked-in source file, so the script leaves the tree lint-clean.
-  execFileSync("npx", ["biome", "format", "--write", manifestPath], {
-    stdio: "inherit",
-    cwd: appRoot,
-  })
-  console.log(JSON.stringify({ tag, ...image }, null, 2))
+  // Re-read, merge only this pin's entry, format and rename into place: the build above took
+  // tens of seconds, during which another prepare may have recorded its own pin, and a live
+  // controller may be reading this manifest.
+  await recordImage(manifestPath, pin, image)
+  console.log(JSON.stringify({ tag, pin, ...image }, null, 2))
 } finally {
   rmSync(context, { recursive: true, force: true })
 }

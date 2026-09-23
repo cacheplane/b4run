@@ -120,6 +120,17 @@ and the builder imports nothing from it; see the as-landed note below.
 > policy and permissions, and the prompt. The builder's `b4.config.ts` verifies and serves
 > it through the resolver form from §5, which is also how sub-project 3 will pick a task
 > per thread.
+>
+> **As landed (3b, half B, Task 6):** the builder's input is split in two. A per-process
+> **target file** (`factory builder-target --target <id>`, read from `FACTORY_BUILDER_TARGET`
+> at boot) carries the target's scope, image, sandbox policy and permissions, which the
+> framework fixes per app; a per-work-order **manifest**
+> (`<FACTORY_BUILDER_MANIFEST_DIR>/<workOrderId>.json`: `workOrderId`, `taskId`, `targetId`,
+> `workspace`, no prompt) is written by `dispatch` into the target worker's manifest
+> directory before it creates the thread, and the builder's resolver loads it by
+> `metadata.factoryWorkOrderId`, refusing one whose `targetId` is not its own. One builder
+> process per target; the prompt is the run's user message, and the route's system prompt is
+> fixed.
 
 > **As landed, the pins are historical.** The targets' `target.json` paths (`root`,
 > `imageContext`, `lockfile`) and the target Dockerfiles' `COPY` lines name the tree at the
@@ -330,6 +341,15 @@ second framework change this rung does not need. Recorded as a follow-up.
 > **As landed:** the sandbox-lane proof belongs to sub-project 3, which owns the builder's
 > resolver; sub-project 1 proves two threads through the Agent Protocol with the fake managed
 > provider, in development and from a built artifact.
+>
+> **As landed (3b, Task 6):** the sandbox lane is the controller's
+> `builder.integration.test.ts`: one served builder process for `cli-flags`, two work
+> orders' manifests (the second with one file more), two threads created with their own
+> `factoryWorkOrderId`, each association's `intent.sourceDigest` equal to its manifest's and
+> each listing showing its own workspace; a thread with no manifest, and one with another
+> target's, refused by name at admission. The two end-to-end builder lanes dispatch through
+> the controller to the served builder, so the thread is admitted with the manifest
+> `dispatch` wrote.
 
 ### 5.6 What it does not do
 
@@ -465,6 +485,21 @@ for the drafter but the oracle proof and verification still run in the target's 
 image at the pin it was prepared from, and the builder still resolves one manifest per
 process (§6.7, half B).
 
+**As landed (3b, half B, Task 6).** The builder resolves its workspace per work order the
+same way (§4.1's as-landed note): `dispatch` writes the manifest into
+`workerFor(row).manifestDir` (a `FACTORY_WORKERS` entry's `manifestDir`, or
+`FACTORY_BUILDER_MANIFEST_DIR` beside the legacy pair; default
+`<appRoot>/.factory/manifests`) after the key is begun and before `createThread`, journals
+`builder_manifest_written { path, sourceDigest }`, and refuses under the key with
+`builder_manifest_failed` if it cannot. The prompt lookup, which is where the target's pin is
+fetched into a shallow checkout, now runs before the key, so its refusal is unspent. The
+manifest is removed (`builder_manifest_removed`, failures journalled and never fatal, outside
+any transaction) when the row leaves `dispatched`/`running` for anything but a cancel, by a
+settled cancel of a builder thread, and when thread creation fails or the thread is orphaned
+(those two only while the row holds no thread or this command's own). The worker map has no
+wildcard: the legacy pair is keyed by the target in `FACTORY_BUILDER_TARGET`, so a work order
+no builder serves is refused before its key is spent.
+
 ### 6.5 What the controller does with the draft
 
 `src/lib/controller/intake.ts`, mirroring `verify.ts`:
@@ -526,6 +561,51 @@ The pin is recorded per work order. `loadTarget(id, { pin })` overrides the mani
 whose image is absent is a `target:prepare --pin <sha>` before dispatch (the script takes only
 the manifest's pin today; the flag is part of sub-project 3), surfaced as a blocked reason
 rather than a silent rebuild inside the controller.
+
+> **As landed (3b, half B).** `target.json` records `images: Record<pin, Image>`; the 3a
+> single `image` is read as `images[pin]` (a migration on read; the shipped manifests were
+> rewritten and the prepare script writes only `images`). `pin` stays the target's DEFAULT
+> pin. `loadTarget(id, { pin })` selects `images[pin]` BEFORE `ensurePin` (an unprepared pin
+> is refused without a fetch) and returns a single-valued target (`pin` the chosen one,
+> `image` its image), so `imageTag`, the archive and the providers did not change. No image at
+> the pin is `ImageUnpreparedError` ("has no image prepared at <pin>: run pnpm --filter
+> @b4-example/software-factory-controller target:prepare <id> --pin <pin>", one spelling,
+> `prepareCommand`); a target with no image at all is its subclass `TargetUnpreparedError`
+> ("has not been prepared"), and an unknown target is `UnknownTargetError`. `target:prepare <id> --pin
+> <sha>` builds at that commit and keeps every other pin's entry; it first refuses, by path, a
+> pin at which `root`, an `imageContext` entry or the `lockfile` does not exist
+> (`git cat-file -e`). The generated `task.json` carries `pin` (key order `id, target, pin,
+> allowedSourcePaths, immutablePaths`; the drafter may not write one: the draft schema omits
+> it, strictly), so the task digest binds it and `loadTask` passes it to `loadTarget`: every
+> lookup (policy, baseline, verifier, builder manifest) is at the work order's pin with no
+> signature change; a shipped task carries no pin. A draft whose target has no image at the
+> pin is refused `image_unprepared`, never retried; `preparedTargets(pin)` lists only the
+> targets prepared at it. `environmentIdentity` folds the pin (`b4-factory-environment-v2`),
+> so two pins with identical image inputs are two environments; bundles frozen before this
+> change carry the v1 identity and no longer approve (examples; acceptable). `approve`
+> asserts a generated task's frozen `pin` equals the policy's. `cli-flags`'s historical paths
+> (the fixture under `server/`) cannot be re-pinned past the controller move, so `devkit` is
+> the per-pin target. A builder has a pin: `factory builder-target --target <id> [--pin
+> <sha>]` writes the image at that pin and records `pin` in the target file (both schema
+> copies); the controller takes a worker's pin from that file (legacy pair) or the
+> `FACTORY_WORKERS` entry's optional `pin` (default: the target's default pin). One builder
+> serves one pin at a time. Before the key, `dispatch` compares the task's pin (a generated
+> task's own, a catalog task's target default) with the WORKER's: the same pin needs nothing;
+> different pins whose images agree on `lockfileSha256`, `baseManifestDigest` and
+> `dockerfileSha256` proceed with `builder_environment_differs { builderPin, taskPin,
+> lockfileDiffers, baseDiffers, dockerfileDiffers }`; anything else is refused unspent with
+> the remedy (prepare at the task's pin, restart the builder from `builder-target --pin`, set
+> the pin on its worker entry; or cancel). The controller's builder reader addresses the
+> worker's pin image, the one the builder process runs. After `approve_intake` a `received`
+> row still holds its intake thread, which no longer keeps a failed dispatch's builder
+> manifest; a manifest a crashed or cancelled command never handed to a thread is removed by
+> reconcile (`dispatch_incomplete`, an open `intake`) and by a cancel from `received`. Review fixes: the prepare script
+> re-reads the manifest after the build, merges only `images[pin]`, formats through Biome's
+> stdin and renames into place (`recordImage`, `storage/atomic-file.ts`); it checks every
+> path the target names at the pin (capture entries, `commands.cwd` and `runnerConfig`
+> under the root too); `FACTORY_TARGETS_DIR` redirects the catalog so a lane prepares a copy.
+> `parseDraft` maps an unreadable manifest or an unfetchable pin to `intake_run_failed` (no
+> attempt spent), `no_target_for_package` only to a missing target directory.
 
 ### 6.8 Proof
 
@@ -632,10 +712,16 @@ a preparable target, and which a test can fail on:
   `examples/` (the shipped `cli-flags`) can be verified but not drafted from the capture: a
   drafter would find no source to read. The two real repository targets the program is
   about (`packages/*`) are in it; a fixture target is for the lanes.
-- **3a runs verification in the target's prepared image, not at the work order's pin.** The
-  pin is recorded on the row and in the bundle; 3b honours it with per-pin images. Until then
-  a work order created against a newer `origin/main` is verified in the environment the target
-  was last prepared at, and the bundle says both.
+- **3a ran verification in the target's prepared image, not at the work order's pin**
+  (resolved in 3b, half B). The generated task carries the pin and every lookup is at it, in
+  the image prepared at it (§6.7 as landed); a pin with no image blocks `image_unprepared`.
+  A builder runs at one pin (its target file's, recorded on its worker entry); `dispatch`
+  refuses a task whose pin's environment differs from the builder's and names the remedy
+  (restart the builder at the task's pin), so one target serves one pin at a time.
+  Remaining follow-ups: per-(target, pin) builders, the drafter thread sweep, and orphaned
+  capture sources.
+- **3a manifests are migrated on read.** A `target.json` with the single `image` is read as
+  `images[pin]`. Remove the migration at rung 4, once no 3a manifest can remain.
 
 ---
 

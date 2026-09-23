@@ -11,17 +11,17 @@ import { createCommandLog } from "../src/lib/registry/commands.ts"
 import { openRegistry } from "../src/lib/registry/db.ts"
 import { createWorkOrderStore, type WorkOrderPatch } from "../src/lib/registry/work-orders.ts"
 import { configureCatalog, loadTask, resetCatalogForTests } from "../src/lib/targets/catalog.ts"
-import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
+import { createHttpWorkerClient, type WorkerClient } from "../src/lib/worker/client.ts"
 import {
   type WorkspaceReader,
   WorkspaceRootMissingError,
 } from "../src/lib/worker/workspace-reader.ts"
 import { createFakeVerifier, type FakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
-import { fakeWorkerMap } from "./fake-worker-map.ts"
+import { fakeWorkerMap, noopBuilderManifestWriter } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
 import { BAD_DRAFTS, GOOD_DRAFT } from "./intake-fixtures.ts"
-import { createEmptyRepo, repositoryHead } from "./temp-repo.ts"
+import { createEmptyRepo, repositoryHead, shippedPin } from "./temp-repo.ts"
 
 let dir: string
 let generated: string
@@ -44,9 +44,10 @@ const ORIGIN: IssueOrigin = {
 /**
  * The pin every issue here names: a commit this repository holds (`intake` checks the pin
  * is one the controller can find before it writes a manifest, and an invented sha would
- * send it fetching).
+ * send it fetching), and the one the shipped targets hold images at (the draft's target is
+ * looked up at the work order's pin).
  */
-const PIN = repositoryHead().pin
+const PIN = shippedPin("devkit")
 const ISSUE = {
   title: "spawnProcess leaks its deadline timer",
   body: "A spawn that fails asynchronously leaves the deadline running.",
@@ -112,9 +113,11 @@ interface BootOverrides extends Partial<Omit<FactoryOptions, "workers">> {
   readonly drafterReader?: WorkspaceReader
   /** `false`: no drafter in the map, as a controller without the drafter pair boots. */
   readonly withDrafter?: boolean
+  /** Wraps the drafter's client, e.g. to hold or fail a thread creation. */
+  readonly drafterClient?: (client: WorkerClient) => WorkerClient
 }
 async function bootFactory(overrides: BootOverrides = {}) {
-  const { drafterReader, withDrafter = true, ...rest } = overrides
+  const { drafterReader, withDrafter = true, drafterClient = (c) => c, ...rest } = overrides
   factory = await createFactory({
     registryPath: registryPath(),
     generatedTasksDir: generated,
@@ -125,13 +128,14 @@ async function bootFactory(overrides: BootOverrides = {}) {
       ...(withDrafter
         ? {
             drafter: {
-              client: createHttpWorkerClient(fake.baseUrl),
+              client: drafterClient(createHttpWorkerClient(fake.baseUrl)),
               reader: drafterReader ?? reader,
               manifestDir: manifestDir(),
             },
           }
         : {}),
     }),
+    writeBuilderManifest: noopBuilderManifestWriter,
     exportDir: join(dir, "out"),
     artifactsDir: join(dir, "artifacts"),
     verifier,
@@ -351,6 +355,38 @@ describe("intake", () => {
     ])
   })
 
+  it("blocks image_unprepared after one attempt when the target has no image at the work order's pin", async () => {
+    await boot({}, { maxIntakeAttempts: 2 })
+    // HEAD: a commit this repository holds (so `intake` admits it without a fetch), at which
+    // no shipped target has been prepared.
+    const head = repositoryHead().pin
+    expect(head).not.toBe(PIN)
+    const { id } = await factory.createFromIssue({ origin: ORIGIN, pin: head, issue: ISSUE })
+    expect(await factory.intake(id)).toMatchObject({ ok: true, state: "intake_running" })
+    const threadId = (factory.show(id) as WorkOrderRow).workerThreadId as string
+    reader.set(threadId, GOOD_DRAFT)
+    const row = await factory.settleIntake(id, 20_000)
+    expect(row).toMatchObject({
+      state: "blocked",
+      blockedReason: "image_unprepared",
+      intakeAttempts: 1,
+      targetId: null,
+      taskDigest: null,
+    })
+    // The prompt offered nothing: no target is prepared at that pin.
+    expect(promptOf(0)).toContain("(none prepared)")
+    expect(promptOf(0)).toContain(head)
+    expect(runPosts()).toHaveLength(1)
+    expect(refusals(id)).toHaveLength(1)
+    expect(refusals(id)[0]?.payload).toMatchObject({
+      blockedReason: "image_unprepared",
+      attempt: 1,
+      reason: `draft/task.json names target devkit, which has no image prepared at ${head}: an operator runs pnpm --filter @b4-example/software-factory-controller target:prepare devkit --pin ${head}`,
+    })
+    expect(eventTypes(id)).not.toContain("transition:intake_retry")
+    expect(verifier.calls).toHaveLength(0)
+  })
+
   it("retries an invalid draft on the same thread with the refusal quoted, then parks", async () => {
     await boot({}, { maxIntakeAttempts: 2 })
     const { id, threadId } = await intake({
@@ -489,6 +525,47 @@ describe("intake", () => {
     expect(manifestWrites).toEqual([{ workOrderId: id, pin: PIN, dir: manifestDir() }])
     reader.set((factory.show(id) as WorkOrderRow).workerThreadId as string, GOOD_DRAFT)
     expect((await factory.settleIntake(id, 20_000)).state).toBe("awaiting_intake_approval")
+  })
+
+  it("keeps the manifest when a failed intake finds another intake's thread on the row", async () => {
+    // Two intakes under two keys: the first's thread creation hangs until the second has
+    // committed its own thread (whose manifest is the same file), then fails. The failed one
+    // must not remove the manifest the committed thread is about to be admitted with.
+    let release!: () => void
+    const released = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let calls = 0
+    await bootWorker({ run: "hang" })
+    await bootFactory({
+      drafterClient: (client) => ({
+        ...client,
+        createThread: async (metadata) => {
+          calls += 1
+          if (calls === 1) {
+            await released
+            throw new Error("drafter down")
+          }
+          return client.createThread(metadata)
+        },
+      }),
+    })
+    const { id } = await createIssue()
+    const first = factory.intake(id, "intake-a")
+    await factory.waitFor(id, () => calls === 1)
+    expect(await factory.intake(id, "intake-b")).toMatchObject({ ok: true })
+    const holder = (factory.show(id) as WorkOrderRow).workerThreadId
+    release()
+    expect(await first).toMatchObject({
+      ok: false,
+      message: expect.stringContaining("drafter down"),
+    })
+    expect(existsSync(manifestPath(id))).toBe(true)
+    expect(factory.events(id).find((e) => e.type === "drafter_manifest_kept")?.payload).toEqual({
+      threadId: holder,
+    })
+    expect(eventSeen(id, "drafter_manifest_removed")).toBe(false)
+    await factory.cancel(id)
   })
 
   it("refuses the intake, key spent, when the drafter manifest cannot be written", async () => {

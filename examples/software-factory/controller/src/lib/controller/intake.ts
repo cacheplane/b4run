@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync } from "node:fs"
+import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import type { BlockedReason } from "../domain/states.js"
 import type { WorkOrderRow } from "../domain/work-order.js"
@@ -10,6 +10,7 @@ import { loadPolicy } from "../verification/policy.js"
 import { classifyDone, type StreamFrame } from "../worker/wire.js"
 import { WorkspaceRootMissingError } from "../worker/workspace-reader.js"
 import type { ControllerContext } from "./context.js"
+import { removeJournalledManifest } from "./manifest-files.js"
 import { reconcileWorkOrder } from "./reconcile.js"
 import { consumeTurn } from "./turns.js"
 import type { DrafterWorker } from "./workers.js"
@@ -94,11 +95,18 @@ async function runDrafterTurn(
     block(ctx, id, "intake_run_failed", { reason: "issue.md could not be read" })
     return
   }
-  // The prompt lists the prepared targets from disk, and a catalog that cannot be read is
-  // a refusal to start the turn, not a fault to leave the row stranded on.
+  // An issue row always has a pin (`createFromIssue` requires one); a row without is a fault
+  // of whoever made it, and there is no commit to list prepared targets at.
+  if (row.pin === null) {
+    block(ctx, id, "intake_run_failed", { reason: "the work order has no pin to draft at" })
+    return
+  }
+  // The prompt lists the targets prepared at the pin from disk, and a catalog that cannot be
+  // read is a refusal to start the turn, not a fault to leave the row stranded on.
   let prompt: string
   try {
     prompt = intakePrompt({
+      pin: row.pin,
       issueText: issue,
       ...(input.note !== undefined ? { note: input.note } : {}),
     })
@@ -284,8 +292,20 @@ async function proveDraft(
   // where it left it.
   if (!isIntake(ctx.mustGet(id).state)) return
 
-  const parsed = parseDraft(draft, { workOrderId: id })
+  // The pin the work order was created at: the generated task carries it, so the target, the
+  // baseline, the image and the policy are all looked up at it.
+  const { pin } = ctx.mustGet(id)
+  if (pin === null) {
+    block(ctx, id, "intake_run_failed", { reason: "the work order has no pin to draft at" })
+    return
+  }
+  const parsed = parseDraft(draft, { workOrderId: id, pin })
   if (!parsed.ok) {
+    // The catalog failed the controller, not the drafter: no attempt is spent on it.
+    if (parsed.blockedReason === "intake_run_failed") {
+      unavailable("target_unavailable", parsed.reason, "the draft's target could not be loaded")
+      return
+    }
     await refuse(ctx, id, parsed.reason, parsed.blockedReason)
     return
   }
@@ -369,37 +389,19 @@ async function proveDraft(
 }
 
 /**
- * Remove the work order's drafter manifest (`<manifestDir>/<id>.json`), the file `intake`
- * wrote for the drafter's resolver. The resolver reads it once, when the thread's first run
- * is admitted, so it is dead weight (some 20 MiB on this repository) from then on; it is
- * removed when the row leaves the intake states for good (a block, an approval, a settled
- * cancel) and kept across a redraft, which reuses the admitted thread. A removal that fails
- * is journalled and never fails the command that asked for it: the manifest is not evidence,
- * and a stale one costs disk, not correctness. Nothing to remove (no drafter configured, or
- * the file already gone) is not a failure.
+ * Remove the work order's drafter manifest, the file `intake` wrote for the drafter's
+ * resolver, at the path the journal recorded (see `removeJournalledManifest`). It is removed
+ * when the row leaves the intake states for good (a block, an approval, a settled cancel)
+ * and kept across a redraft, which reuses the admitted thread.
  */
 export function removeDrafterManifest(ctx: ControllerContext, id: string): void {
-  let dir: string
-  try {
-    dir = ctx.drafter().manifestDir
-  } catch {
-    return
-  }
-  const path = join(dir, `${id}.json`)
-  try {
-    // Already gone (removed at the block, then asked again by the cancel that followed) is
-    // nothing to journal: the line says a file was removed, and it was not.
-    if (!existsSync(path)) return
-    rmSync(path, { force: true })
-    ctx.recordEvent(id, "drafter_manifest_removed", { path })
-  } catch (error) {
-    ctx.recordEvent(id, "drafter_manifest_remove_failed", { path, error: String(error) })
-  }
+  removeJournalledManifest(ctx, id, "drafter")
 }
 
 /**
  * A draft the controller will not take. The attempt is spent either way; a
- * `no_target_for_package` never retries (no redraft can prepare a target), and the last
+ * `no_target_for_package` or an `image_unprepared` never retries (no redraft can prepare a
+ * target, or an image at the pin), and the last
  * attempt blocks as `intake_attempts_exhausted` with the refusal in the journal. Otherwise
  * the row stays `intake_running` through `intake_retry` and another turn runs on the same
  * thread with the reason quoted.
@@ -408,20 +410,24 @@ async function refuse(
   ctx: ControllerContext,
   id: string,
   reason: string,
-  blockedReason: "intake_invalid" | "no_target_for_package" | "oracle_did_not_fail",
+  blockedReason:
+    | "intake_invalid"
+    | "no_target_for_package"
+    | "image_unprepared"
+    | "oracle_did_not_fail",
 ): Promise<void> {
   const current = ctx.mustGet(id)
   if (!isIntake(current.state)) return
   const attempt = current.intakeAttempts + 1
   ctx.recordEvent(id, "intake_refused", { reason, blockedReason, attempt })
   const exhausted = attempt >= current.maxIntakeAttempts
-  if (blockedReason === "no_target_for_package" || exhausted) {
+  const final = blockedReason === "no_target_for_package" || blockedReason === "image_unprepared"
+  if (final || exhausted) {
     ctx.transition(
       id,
       "intake_blocked",
       {
-        blockedReason:
-          blockedReason === "no_target_for_package" ? blockedReason : "intake_attempts_exhausted",
+        blockedReason: final ? blockedReason : "intake_attempts_exhausted",
         intakeAttempts: attempt,
       },
       { reason, blockedReason, attempt },

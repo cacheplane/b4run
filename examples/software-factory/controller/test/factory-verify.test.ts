@@ -6,7 +6,7 @@ import { createFactory, type Factory } from "../src/lib/controller/factory.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
-import { fakeWorkerMap } from "./fake-worker-map.ts"
+import { fakeWorkerMap, noopBuilderManifestWriter } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader } from "./fake-workspace-reader.ts"
 
 let dir: string
@@ -45,6 +45,7 @@ async function boot(
     workers: fakeWorkerMap({
       builder: { client: createHttpWorkerClient(fake.baseUrl), reader },
     }),
+    writeBuilderManifest: noopBuilderManifestWriter,
     exportDir: join(dir, "out"),
     artifactsDir: join(dir, "artifacts"),
     verifier,

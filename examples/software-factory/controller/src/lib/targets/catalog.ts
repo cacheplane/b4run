@@ -7,10 +7,17 @@ import { environmentIdentityDigest, type ImageInputs } from "../domain/digest.js
 
 /** The package root, derived from this module rather than the working directory. */
 export const appRoot = fileURLToPath(new URL("../../../", import.meta.url))
-export const targetsDir = join(appRoot, "targets")
+/**
+ * The target catalog: `targets/` under the app, unless `FACTORY_TARGETS_DIR` names another
+ * directory. The override exists so a lane can prepare a COPY of a target (the prepare
+ * script writes the manifest it reads) without ever writing the working tree; it is read
+ * once, at module load.
+ */
+export const targetsDir = process.env.FACTORY_TARGETS_DIR || join(appRoot, "targets")
 export const tasksDir = join(appRoot, "tasks")
 
 const HEX_64 = /^[a-f0-9]{64}$/
+const COMMIT = /^[a-f0-9]{40}$/
 const SHA_256_REF = /^sha256:[a-f0-9]{64}$/
 
 /** Every `/`-separated segment is non-empty and neither `.` nor `..`. */
@@ -81,16 +88,36 @@ export const ImageSchema = z
   .strict() satisfies z.ZodType<ImageInputs>
 export type Image = z.infer<typeof ImageSchema>
 
-export const TargetSchema = z
+/** A full lowercase commit sha: what a pin is, and what keys a target's images. */
+export const commitSha = z.string().regex(COMMIT, "pin must be a full lowercase commit sha")
+
+/**
+ * The manifest as 3a wrote it carried one `image`, prepared at the manifest's `pin`. It is
+ * read as that pin's entry of `images`; the prepare script writes only `images`. A manifest
+ * carrying both is not migrated, so the strict schema refuses the leftover `image`.
+ */
+function migrateSingleImage(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return raw
+  const record = raw as Record<string, unknown>
+  if (!("image" in record) || "images" in record) return raw
+  const { image, ...rest } = record
+  return typeof rest.pin === "string" ? { ...rest, images: { [rest.pin]: image } } : raw
+}
+
+const TargetObjectSchema = z
   .object({
     id: z.string().min(1),
-    pin: z.string().regex(/^[a-f0-9]{40}$/, "pin must be a full lowercase commit sha"),
+    /** The target's DEFAULT pin: what a shipped task runs at, and what `target:prepare` prepares without `--pin`. */
+    pin: commitSha,
     root: z.union([z.literal("."), relativePath]),
     capture: z.object({ include: z.array(relativePath).min(1) }).strict(),
     /** Root-relative prefixes a suite may write under; the tamper comparison skips them. */
     snapshotIgnore: z.array(pathPrefix),
-    /** Absent until `scripts/prepare-target.ts` has run for this pin. */
-    image: ImageSchema.optional(),
+    /**
+     * One image per pin it was prepared at (`target:prepare <id> --pin <sha>`). Absent until
+     * the prepare script has run at least once; a pin with no entry is `image_unprepared`.
+     */
+    images: z.record(commitSha, ImageSchema).optional(),
     /** Repository paths copied into the image build context at the pin. */
     imageContext: z.array(relativePath).min(1),
     /** Repository path of the lockfile whose sha256 enters the image object. */
@@ -120,11 +147,17 @@ export const TargetSchema = z
       .strict(),
   })
   .strict()
-export type TargetManifest = z.infer<typeof TargetSchema>
+export const TargetSchema = z.preprocess(migrateSingleImage, TargetObjectSchema)
+export type TargetManifest = z.infer<typeof TargetObjectSchema>
 
-export interface Target extends TargetManifest {
+/**
+ * A target as loaded AT one pin: `pin` is the chosen pin (the work order's, or the
+ * manifest's default) and `image` is the image prepared at it, so everything downstream
+ * (`imageTag`, the archive, the providers) reads one pin and one image.
+ */
+export interface Target extends Omit<TargetManifest, "images"> {
   readonly directory: string
-  /** Present: `loadTarget` refuses a manifest without one. */
+  /** Present: `loadTarget` refuses a pin without one. */
   readonly image: Image
 }
 
@@ -132,6 +165,50 @@ export interface CatalogOptions {
   readonly targetsDir?: string
   readonly tasksDir?: string
   readonly repositoryRoot?: string
+  /** The pin to load the target at; the manifest's own `pin` when absent. */
+  readonly pin?: string
+}
+
+/** The one spelling of the command an operator runs to prepare `id` at `pin`. */
+export function prepareCommand(id: string, pin: string): string {
+  return `pnpm --filter @b4-example/software-factory-controller target:prepare ${id} --pin ${pin}`
+}
+
+/** No target directory of that id: the one catalog failure no operator action at a pin mends. */
+export class UnknownTargetError extends Error {
+  constructor(readonly targetId: string) {
+    super(`Unknown target: ${targetId}`)
+    this.name = "UnknownTargetError"
+  }
+}
+
+/**
+ * The target exists, but has no image at the pin asked for: an operator prepares one with
+ * `prepareCommand(id, pin)`. A work order at this pin is refused as `image_unprepared`, which
+ * no redraft can mend.
+ */
+export class ImageUnpreparedError extends Error {
+  constructor(
+    readonly targetId: string,
+    readonly pin: string,
+  ) {
+    super(
+      `Target ${targetId} has no image prepared at ${pin}: run ${prepareCommand(targetId, pin)}`,
+    )
+    this.name = "ImageUnpreparedError"
+  }
+}
+
+/**
+ * The target has no image at ANY pin: nobody has prepared it on this machine. A case of
+ * `ImageUnpreparedError` (the same operator action mends it) with its own message.
+ */
+export class TargetUnpreparedError extends ImageUnpreparedError {
+  constructor(targetId: string, pin: string) {
+    super(targetId, pin)
+    this.message = `Target ${targetId} has not been prepared: run ${prepareCommand(targetId, pin)}`
+    this.name = "TargetUnpreparedError"
+  }
 }
 
 /**
@@ -205,17 +282,23 @@ export function loadTargetIds(dir = targetsDir): string[] {
 
 export function loadTarget(id: string, options: CatalogOptions = {}): Target {
   const dir = options.targetsDir ?? targetsDir
-  if (!loadTargetIds(dir).includes(id)) throw new Error(`Unknown target: ${id}`)
+  if (!loadTargetIds(dir).includes(id)) throw new UnknownTargetError(id)
   const directory = join(dir, id)
   const manifest = TargetSchema.parse(
     JSON.parse(readFileSync(join(directory, "target.json"), "utf8")),
   )
   if (manifest.id !== id) throw new Error(`Target ${id} declares a different id: ${manifest.id}`)
-  if (!manifest.image)
-    throw new Error(`Target ${id} has not been prepared: run scripts/prepare-target.ts ${id}`)
+  const pin = options.pin ?? manifest.pin
+  if (!manifest.images || Object.keys(manifest.images).length === 0)
+    throw new TargetUnpreparedError(id, pin)
+  // Looked up before the pin is fetched: a pin with no image is refused without a network
+  // round trip, and is refused the same way whether or not the object store holds it.
+  const image = Object.hasOwn(manifest.images, pin) ? manifest.images[pin] : undefined
+  if (!image) throw new ImageUnpreparedError(id, pin)
   const repo = options.repositoryRoot ?? repositoryRoot()
-  ensurePin(repo, id, manifest.pin)
-  return { ...manifest, image: manifest.image, directory }
+  ensurePin(repo, id, pin)
+  const { images: _images, ...single } = manifest
+  return { ...single, pin, image, directory }
 }
 
 /**
@@ -275,9 +358,13 @@ export function imageTag(target: Pick<Target, "id" | "pin" | "image">): string {
   return `b4-factory-${target.id}:${target.pin.slice(0, 12)}-${target.image.dockerfileSha256.slice(0, 12)}`
 }
 
-/** The environment identity every receipt and bundle binds for this target. */
-export function environmentIdentity(target: Pick<Target, "image">): string {
-  return environmentIdentityDigest(target.image)
+/**
+ * The environment identity every receipt and bundle binds for this target at its pin. The
+ * pin is folded in: two pins whose Dockerfile and lockfile agree build two images, and a
+ * verdict earned in one must not be bound to the other.
+ */
+export function environmentIdentity(target: Pick<Target, "image" | "pin">): string {
+  return environmentIdentityDigest(target.image, target.pin)
 }
 
 /**
@@ -352,6 +439,11 @@ export const TaskFieldsSchema = z
   .object({
     id: z.string().min(1),
     target: z.string().min(1),
+    /**
+     * The pin the task runs at. A generated task carries its work order's; a shipped task
+     * omits it and runs at its target's default pin.
+     */
+    pin: commitSha.optional(),
     allowedSourcePaths: z.array(allowedSourcePath).min(1),
     immutablePaths: z.array(relativePath),
   })
@@ -483,7 +575,10 @@ export function loadTask(id: string, options: CatalogOptions = {}): Task {
     "task.json",
   )
   if (manifest.id !== id) throw new Error(`Task ${id} declares a different id: ${manifest.id}`)
-  const target = loadTarget(manifest.target, options)
+  const target = loadTarget(
+    manifest.target,
+    manifest.pin !== undefined ? { ...options, pin: manifest.pin } : options,
+  )
   const checks = parseTaskFile(
     ChecksSchema,
     JSON.parse(readFileSync(join(directory, "checks.json"), "utf8")),

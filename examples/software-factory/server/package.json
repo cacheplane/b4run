@@ -7,9 +7,9 @@
     "test": "vitest run",
     "typecheck": "tsc -p . --noEmit",
     "lint": "biome check .",
-    "check": "node scripts/with-manifest.mjs b4 check",
-    "build": "node scripts/with-manifest.mjs b4 build",
-    "dev": "b4 dev"
+    "check": "FACTORY_BUILDER_MANIFEST_DIR=\"${FACTORY_BUILDER_MANIFEST_DIR:-.factory/manifests}\" node scripts/with-target.mjs b4 check",
+    "build": "FACTORY_BUILDER_MANIFEST_DIR=\"${FACTORY_BUILDER_MANIFEST_DIR:-.factory/manifests}\" node scripts/with-target.mjs b4 build",
+    "dev": "FACTORY_BUILDER_MANIFEST_DIR=\"${FACTORY_BUILDER_MANIFEST_DIR:-.factory/manifests}\" b4 dev"
   },
   "dependencies": {
     "@b4run/cli": "workspace:*",

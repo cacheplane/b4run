@@ -2,6 +2,10 @@ import { createHash, randomUUID } from "node:crypto"
 import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
+import {
+  type WrittenBuilderManifest,
+  writeBuilderManifest as writeBuilderManifestOnDisk,
+} from "../builder-manifest.js"
 import { DEFAULT_WORKER_ROUTE } from "../config.js"
 import { exportApproved } from "../delivery/export.js"
 import { canon } from "../domain/digest.js"
@@ -43,9 +47,12 @@ import {
   type CatalogOptions,
   ensurePin,
   isShippedTask,
+  type loadTarget,
   loadTask,
+  prepareCommand,
   repositoryRoot,
 } from "../targets/catalog.js"
+import { builderTarget } from "../targets/workspace.js"
 import { loadPolicy } from "../verification/policy.js"
 import type { Verifier } from "../verification/verifier.js"
 import type { CancelResult, WorkerClient } from "../worker/client.js"
@@ -53,6 +60,11 @@ import type { InterruptFrame, StreamFrame } from "../worker/wire.js"
 import { type BudgetTicker, startBudgetTicker } from "./budget.js"
 import type { ControllerContext } from "./context.js"
 import { finishIntake, observeIntakeTurn, removeDrafterManifest, runIntake } from "./intake.js"
+import {
+  removeJournalledManifest,
+  removeOwnManifest,
+  removeUnhandedManifest,
+} from "./manifest-files.js"
 import { reconcileAll, reconcileWorkOrder } from "./reconcile.js"
 import { denyPending, observeRun } from "./run-observer.js"
 import { consumeTurn } from "./turns.js"
@@ -94,6 +106,18 @@ export interface FactoryOptions {
   readonly writeDrafterManifest?: (
     options: WriteDrafterManifestOptions,
   ) => Promise<WrittenDrafterManifest>
+  /**
+   * Writes the builder manifest `dispatch` hands the target's builder before it creates the
+   * thread: the task's workspace, captured at the target's pin, named by the work order.
+   * Injected so a test can fail the write or count it; the runtime (and every test that does
+   * not inject one) uses the real writer over the process-wide catalog.
+   */
+  readonly writeBuilderManifest?: (input: {
+    readonly taskId: string
+    readonly workOrderId: string
+    readonly dir: string
+    readonly signal: AbortSignal
+  }) => Promise<WrittenBuilderManifest>
   /** The controller's own baseline for a task. Injected so tests need no container. */
   captureBaseline(
     taskId: string,
@@ -212,6 +236,53 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   const artifacts: ArtifactStore = createArtifactStore(options.artifactsDir)
   const log = options.log ?? (() => {})
   /**
+   * Compare the environment the task's builder RUNS (its target at the worker's pin: the pin
+   * of the target file it booted from, the target's default when the entry names none) with
+   * the one the task is verified in (the target at the task's pin, or the default pin for a
+   * catalog task). Undefined when dispatch may go on; a refusal message otherwise. The same
+   * pin needs nothing; different pins whose images agree on lockfile, base image and
+   * Dockerfile are journalled and allowed; any other difference is refused, because the
+   * build would run against an environment the verifier never sees. Journals
+   * `builder_environment_differs` whenever the pins differ.
+   */
+  const builderEnvironmentRefusal = (
+    id: string,
+    taskId: string,
+    worker: { readonly pin?: string },
+  ): string | undefined => {
+    const catalog = options.promptCatalog ?? {}
+    const { pin: _pin, ...unpinned } = catalog
+    let task: ReturnType<typeof loadTask>
+    let builder: ReturnType<typeof loadTarget>
+    try {
+      task = loadTask(taskId, catalog)
+      builder = builderTarget(task.target.id, worker.pin, unpinned)
+    } catch (error) {
+      return `Builder environment for ${taskId} could not be resolved: ${error instanceof Error ? error.message : String(error)}`
+    }
+    const builderPin = builder.pin
+    const taskPin = task.target.pin
+    if (builderPin === taskPin) return undefined
+    const lockfileDiffers = builder.image.lockfileSha256 !== task.target.image.lockfileSha256
+    const baseDiffers = builder.image.baseManifestDigest !== task.target.image.baseManifestDigest
+    const dockerfileDiffers = builder.image.dockerfileSha256 !== task.target.image.dockerfileSha256
+    recordEvent(id, "builder_environment_differs", {
+      builderPin,
+      taskPin,
+      lockfileDiffers,
+      baseDiffers,
+      dockerfileDiffers,
+    })
+    if (!lockfileDiffers && !baseDiffers && !dockerfileDiffers) return undefined
+    const what = [
+      ...(lockfileDiffers ? ["lockfile"] : []),
+      ...(baseDiffers ? ["base image"] : []),
+      ...(dockerfileDiffers ? ["Dockerfile"] : []),
+    ].join(", ")
+    const target = task.target.id
+    return `builder for ${target} runs at ${builderPin}, whose environment (${what}) differs from ${taskPin}: prepare ${target} at ${taskPin} (\`${prepareCommand(target, taskPin)}\`), then restart its builder from \`factory builder-target --target ${target} --pin ${taskPin}\` and set that pin on its worker entry; or cancel`
+  }
+  /**
    * The prompt for `taskId`, or the Error saying why the catalog cannot serve it. Resolved
    * at the point of use and never at boot: one unprepared sibling target must not decide
    * whether the controller boots, and a task generated after boot is dispatchable the moment
@@ -226,6 +297,18 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       return error instanceof Error ? error : new Error(String(error))
     }
   }
+  /**
+   * The runtime's builder manifest writer: the task from the catalog the prompt came from
+   * (`promptCatalog` when a test scopes one, the process-wide search path otherwise),
+   * captured.
+   */
+  const writeBuilderManifestFromCatalog: NonNullable<FactoryOptions["writeBuilderManifest"]> = (
+    input,
+  ) =>
+    writeBuilderManifestOnDisk(loadTask(input.taskId, options.promptCatalog ?? {}), input.dir, {
+      workOrderId: input.workOrderId,
+      signal: input.signal,
+    })
   const now = options.now ?? Date.now
   const iso = () => new Date(now()).toISOString()
   const abort = new AbortController()
@@ -241,6 +324,8 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     "intake_running",
     "awaiting_intake_approval",
   ])
+  /** Where a builder thread is before its first turn has certainly been admitted. */
+  const BUILD_STATES: ReadonlySet<WorkOrderRow["state"]> = new Set(["dispatched", "running"])
   let closed = false
   /** Started only once reconciliation has run, so no tick can race the boot rules. */
   let ticker: BudgetTicker | null = null
@@ -268,10 +353,15 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
    */
   let outerDepth = 0
   const pendingRemovals = new Set<string>()
+  const pendingBuilderRemovals = new Set<string>()
   const flushRemovals = () => {
     for (const id of [...pendingRemovals]) {
       pendingRemovals.delete(id)
       removeDrafterManifest(ctx, id)
+    }
+    for (const id of [...pendingBuilderRemovals]) {
+      pendingBuilderRemovals.delete(id)
+      removeBuilderManifest(id)
     }
   }
   const outerTransaction = <T>(fn: () => T): T => {
@@ -285,6 +375,8 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   }
   const leftIntakeStates = (from: WorkOrderRow["state"], to: WorkOrderRow["state"]) =>
     INTAKE_STATES.has(from) && !INTAKE_STATES.has(to) && to !== "cancel_requested"
+  const leftBuildStates = (from: WorkOrderRow["state"], to: WorkOrderRow["state"]) =>
+    BUILD_STATES.has(from) && !BUILD_STATES.has(to) && to !== "cancel_requested"
 
   const transition = (
     id: string,
@@ -293,6 +385,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     payload: Record<string, unknown> = {},
   ): WorkOrderRow => {
     let leftIntake = false
+    let leftBuild = false
     const updated = store.transaction(() => {
       const row = mustGet(id)
       const to = nextState(row.state, event)
@@ -317,6 +410,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       }
       // Decided here, where the move is known; performed below, once it has committed.
       leftIntake = leftIntakeStates(row.state, to)
+      leftBuild = leftBuildStates(row.state, to)
       return updated
     })
     // The drafter manifest lives until the intake thread has been admitted or never will
@@ -328,6 +422,15 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     if (leftIntake) {
       if (outerDepth === 0) removeDrafterManifest(ctx, id)
       else pendingRemovals.add(id)
+    }
+    // The builder manifest likewise: the builder's resolver reads it once, when the thread's
+    // first run is admitted, which has happened (or never will) once the row leaves
+    // `dispatched`/`running` for anything but a cancel, whose `finishCancel` removes it once
+    // the thread is settled. Verification and approval read the workspace through the
+    // reader, never through the resolver.
+    if (leftBuild) {
+      if (outerDepth === 0) removeBuilderManifest(id)
+      else pendingBuilderRemovals.add(id)
     }
     return updated
   }
@@ -376,8 +479,10 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
 
   /**
    * The target a row's builder thread belongs to: recorded on the row at `intake_drafted`
-   * for a generated task, the catalog's for a shipped one. A fixed prompt table (`tasks`)
-   * names no catalog, and the wildcard entry is the only one that can serve it. A task the
+   * for a generated task, the catalog's for a shipped one. A fixed prompt table (`tasks`, a
+   * test seam the runtime never sets) names no catalog and so no target: it resolves to the
+   * placeholder `*`, which no configured map has an entry for and only a test's fake map
+   * (which serves every id) answers. A task the
    * catalog cannot load throws the catalog's own error: that is the task's fault (an
    * unprepared target, say), which `dispatch` reports as such, not a missing worker.
    */
@@ -426,6 +531,12 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   }
   const workerOfThread = (row: WorkOrderRow) =>
     holdsIntakeThread(row) ? drafter() : workerFor(row)
+
+  /**
+   * Remove the work order's builder manifest, the file `dispatch` wrote for the builder's
+   * resolver, at the path the journal recorded (see `removeJournalledManifest`).
+   */
+  const removeBuilderManifest = (id: string): void => removeJournalledManifest(ctx, id, "builder")
 
   /**
    * Is there a turn on `threadId` for the cancel to interrupt, and is the thread there at
@@ -499,10 +610,15 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           return mustGet(id)
         }
       }
-      // The intake thread is settled: whatever the manifest was for, it has been admitted or
-      // never will be.
+      // The thread is settled: whatever its manifest was for, it has been admitted or never
+      // will be.
       if (intakeThread) removeDrafterManifest(ctx, id)
+      else removeBuilderManifest(id)
     }
+    // A command that wrote a manifest and was cancelled (or crashed) before it created the
+    // thread: from `received` there is no thread to settle, and nothing will ever read it.
+    removeUnhandedManifest(ctx, id, "builder")
+    removeUnhandedManifest(ctx, id, "drafter")
     try {
       return cause === "budget"
         ? transition(id, "run_ended_after_budget", { blockedReason: "budget_exhausted" })
@@ -785,7 +901,9 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           })
         } catch (error) {
           // No thread will ever be admitted with this manifest: the next intake writes its own.
-          removeDrafterManifest(ctx, id)
+          // Unless a concurrent intake under another key has committed a thread since, whose
+          // manifest this now is.
+          removeOwnManifest(ctx, id, "drafter", null)
           return refuse(`Thread creation failed: ${String(error)}`)
         }
         created = true
@@ -812,8 +930,9 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
             recordEvent(id, "worker_cancel_failed", { threadId, error: String(cancelError) })
           }
           // The cancel that moved the row found no thread on it, so it removed nothing: the
-          // manifest written a moment ago is this path's to remove.
-          removeDrafterManifest(ctx, id)
+          // manifest written a moment ago is this path's to remove, unless the row holds
+          // another command's thread by now.
+          removeOwnManifest(ctx, id, "drafter", threadId)
         }
         return refuse("Work order changed state while starting intake")
       }
@@ -977,6 +1096,38 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           }
         }
       }
+      // Refuse rather than send an empty prompt: a worker asked to fix nothing still burns a
+      // thread and a run, and the resulting turn would fail in a way that looks like the
+      // worker. Re-resolved here rather than trusted from create: the task may have stopped
+      // loading since (its target re-prepared, say). Resolved BEFORE the key is spent: the
+      // lookup is where the target's pin is fetched into a shallow checkout (`loadTarget`'s
+      // `ensurePin`), and a fetch that fails is transient, not a function of the row's
+      // revision; the dispatch after the network mends is not the replay of this refusal. It
+      // also makes the manifest write below depend on nothing but the disk. The cause rides
+      // along so an unprepared target is not reported as a task nobody has heard of.
+      let input: string | Error | undefined
+      if (row.state === "received") {
+        input = prompt(row.taskId)
+        if (input instanceof Error)
+          return {
+            ok: false,
+            state: row.state,
+            message: options.tasks
+              ? `Unknown task ${row.taskId}`
+              : `Unknown task ${row.taskId}: ${input.message}`,
+          }
+      }
+      // The builder process boots from its target file, at ONE pin (the file's). A task at
+      // another pin is built in that pin's image and verified in its own: allowed and
+      // journalled where the two environments agree, refused before the key where they do
+      // not, since the operator's remedy (prepare, restart the builder at the task's pin) is
+      // not a function of the row's revision.
+      if (row.state === "received" && !options.tasks && targetId !== undefined) {
+        const worker = options.workers.forTarget(targetId)
+        const refusal =
+          worker === undefined ? undefined : builderEnvironmentRefusal(id, row.taskId, worker)
+        if (refusal !== undefined) return { ok: false, state: row.state, message: refusal }
+      }
       const key = operationKey ?? `dispatch:${id}:${row.revision}`
       const begun = commands.begin(key, id, { command: "dispatch", args: {} }, iso())
       if (begun.status === "done") return begun.outcome
@@ -987,12 +1138,9 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           state: row.state,
           message: `Cannot dispatch from ${row.state}`,
         })
-      // Refuse rather than send an empty prompt: a worker asked to fix nothing still burns a
-      // thread and a run, and the resulting turn would fail in a way that looks like the worker.
-      // Re-resolved here rather than trusted from create: the task may have stopped loading
-      // since (its target re-prepared, say), and that is a refusal, not a throw. The cause
-      // rides along so an unprepared target is not reported as a task nobody has heard of.
-      const input = prompt(row.taskId)
+      // The pre-key lookup ran for every `received` row, and a row in any other state was
+      // refused just above; resolved again only if a refactor ever lets one through unset.
+      input ??= prompt(row.taskId)
       if (input instanceof Error)
         return finish(key, {
           ok: false,
@@ -1013,10 +1161,37 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           message: new NoWorkerForTargetError(targetId).message,
         })
       }
+      // The manifest first: the builder's resolver reads `<manifestDir>/<id>.json` when the
+      // thread's first run is admitted, so a thread created before it exists would be one
+      // nothing can serve. The pin is already in the object store (the prompt lookup above
+      // fetched it), so this fails only on the capture or the disk: under the key.
+      try {
+        const written = await (options.writeBuilderManifest ?? writeBuilderManifestFromCatalog)({
+          taskId: row.taskId,
+          workOrderId: id,
+          dir: worker.manifestDir,
+          signal: abort.signal,
+        })
+        recordEvent(id, "builder_manifest_written", {
+          path: written.path,
+          sourceDigest: written.sourceDigest,
+        })
+      } catch (error) {
+        recordEvent(id, "builder_manifest_failed", { error: String(error) })
+        return finish(key, {
+          ok: false,
+          state: row.state,
+          message: `builder manifest could not be written: ${String(error)}`,
+        })
+      }
       let threadId: string
       try {
         threadId = await worker.client.createThread({ factoryWorkOrderId: id })
       } catch (error) {
+        // No thread will ever be admitted with this manifest: the next dispatch writes its own.
+        // Unless a concurrent dispatch under another key has committed a thread since, whose
+        // manifest this now is.
+        removeOwnManifest(ctx, id, "builder", null, row.workerThreadId)
         return finish(key, {
           ok: false,
           state: row.state,
@@ -1042,6 +1217,10 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         } catch (cancelError) {
           recordEvent(id, "worker_cancel_failed", { threadId, error: String(cancelError) })
         }
+        // The cancel that moved the row found no thread on it, so it removed nothing: the
+        // manifest written a moment ago is this path's to remove, unless the row holds
+        // another command's thread by now.
+        removeOwnManifest(ctx, id, "builder", threadId, row.workerThreadId)
         return finish(key, {
           ok: false,
           state: mustGet(id).state,
@@ -1180,6 +1359,10 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         }
         if (onDisk.digest !== frozen.taskDigest)
           return invalidated("Generated task", frozen.taskDigest, onDisk.digest)
+        // A generated task runs at its work order's pin (its `task.json` carries it), so the
+        // policy the export is re-verified under must be at the pin the bundle froze.
+        if (frozen.pin !== policy.environment.pin)
+          return invalidated("Generated task pin", String(frozen.pin), policy.environment.pin)
       }
 
       let receipt: Receipt

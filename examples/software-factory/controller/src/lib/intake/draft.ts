@@ -1,14 +1,19 @@
 import { z } from "zod"
 import {
   assertTaskFitsTarget,
+  type CatalogOptions,
   type Checks,
   ChecksSchema,
+  commitSha,
+  ImageUnpreparedError,
   isCatalogId,
   loadTarget,
+  prepareCommand,
   relativePath,
   TaskFieldsSchema,
   type TaskManifest,
   TaskSchema,
+  UnknownTargetError,
 } from "../targets/catalog.js"
 
 /** Where the drafter writes, relative to its workspace. Keys outside it are not the draft. */
@@ -16,8 +21,12 @@ export const DRAFT_ROOT = "draft/"
 
 /** The draft's own checks manifest: the independent suite only. The visible suite is the controller's. */
 const DraftChecksSchema = z.object({ independent: ChecksSchema.shape.independent }).strict()
-/** The draft's task manifest: everything but the id, which is the work order's. */
-const DraftTaskSchema = TaskFieldsSchema.omit({ id: true }).strict()
+/**
+ * The draft's task manifest: everything but the id and the pin, which are the work order's.
+ * A drafter that writes a `pin` is refused by the strict schema: the pin is what the work
+ * order was created at, never something the draft may choose.
+ */
+const DraftTaskSchema = TaskFieldsSchema.omit({ id: true, pin: true }).strict()
 
 /**
  * The visible suite every generated task carries: the target's whole vitest suite with no
@@ -39,7 +48,15 @@ export interface ParsedDraft {
 export type DraftRefusal = {
   readonly ok: false
   readonly reason: string
-  readonly blockedReason: "intake_invalid" | "no_target_for_package"
+  /**
+   * `intake_run_failed` is not a verdict on the draft: the catalog could not be read, or the
+   * pin could not be made present. The caller blocks without spending a drafter attempt.
+   */
+  readonly blockedReason:
+    | "intake_invalid"
+    | "no_target_for_package"
+    | "image_unprepared"
+    | "intake_run_failed"
 }
 export type ParseResult = ({ readonly ok: true } & ParsedDraft) | DraftRefusal
 
@@ -134,18 +151,29 @@ function strayFile(
 /**
  * Turn what a drafter wrote under `draft/` into a task the catalog can load, or refuse it with
  * a reason that names the offending file. The controller fills what the drafter must not
- * decide: the id (the work order's) and the visible suite (the regression guard). Every rule
- * `loadTask` would apply later is applied here, so a materialised task is always loadable.
+ * decide: the id and the pin (the work order's) and the visible suite (the regression guard).
+ * Every rule `loadTask` would apply later is applied here, so a materialised task is always
+ * loadable, at the work order's pin. `catalog` is where the target is looked up (the shipped
+ * catalog by default); its own `pin`, if any, is ignored for the work order's.
  */
 export function parseDraft(
   files: ReadonlyMap<string, string>,
-  input: { readonly workOrderId: string },
+  input: {
+    readonly workOrderId: string
+    readonly pin: string
+    /** Test-only: the catalog to look the target up in; the shipped one otherwise. */
+    readonly catalog?: Pick<CatalogOptions, "targetsDir" | "repositoryRoot">
+  },
 ): ParseResult {
-  const { workOrderId } = input
+  const { workOrderId, pin } = input
   if (!isCatalogId(workOrderId))
     return invalid(
       `work order id ${JSON.stringify(workOrderId)} is not a catalog id, so ${DRAFT_ROOT}task.json cannot be filled`,
     )
+  // The caller's pin, not the draft's: a malformed one is a fault of the caller, reported as
+  // such, never a refusal the drafter could mend.
+  if (!commitSha.safeParse(pin).success)
+    throw new Error(`parseDraft: work order ${workOrderId} has no valid pin (${String(pin)})`)
   const draft = new Map<string, string>()
   for (const [path, content] of files)
     if (path.startsWith(DRAFT_ROOT)) draft.set(path.slice(DRAFT_ROOT.length), content)
@@ -160,6 +188,7 @@ export function parseDraft(
   const filled = TaskSchema.safeParse({
     id: workOrderId,
     target: draftTask.data.target,
+    pin,
     allowedSourcePaths: draftTask.data.allowedSourcePaths,
     immutablePaths: draftTask.data.immutablePaths,
   })
@@ -168,15 +197,31 @@ export function parseDraft(
   const manifest = filled.data
 
   // Before checks.json on purpose: an unknown target is the least fixable defect, so its
-  // refusal (`no_target_for_package`) wins on precedence over anything a redraft could mend.
+  // refusal (`no_target_for_package`) wins on precedence over anything a redraft could mend;
+  // a known target with no image at the work order's pin (`image_unprepared`) is an
+  // operator's to mend, never the drafter's.
   let target: ReturnType<typeof loadTarget>
   try {
-    target = loadTarget(manifest.target)
+    target = loadTarget(manifest.target, { ...input.catalog, pin })
   } catch (error) {
+    if (error instanceof ImageUnpreparedError)
+      return {
+        ok: false,
+        reason: `${DRAFT_ROOT}task.json names target ${error.targetId}, which has no image prepared at ${error.pin}: an operator runs ${prepareCommand(error.targetId, error.pin)}`,
+        blockedReason: "image_unprepared",
+      }
+    if (error instanceof UnknownTargetError)
+      return {
+        ok: false,
+        reason: `${DRAFT_ROOT}task.json names target ${JSON.stringify(manifest.target)}: ${error.message}`,
+        blockedReason: "no_target_for_package",
+      }
+    // Anything else is the controller's own trouble, not the draft's: a manifest it could
+    // not read or parse (a prepare mid-write, a bad edit), or a pin it could not fetch.
     return {
       ok: false,
-      reason: `${DRAFT_ROOT}task.json names target ${JSON.stringify(manifest.target)}: ${error instanceof Error ? error.message : String(error)}`,
-      blockedReason: "no_target_for_package",
+      reason: `target ${JSON.stringify(manifest.target)} could not be loaded at ${pin}: ${error instanceof Error ? error.message : String(error)}`,
+      blockedReason: "intake_run_failed",
     }
   }
 

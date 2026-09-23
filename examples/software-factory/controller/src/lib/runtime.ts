@@ -11,6 +11,7 @@ import { createArtifactStore } from "./storage/artifacts.js"
 import { configureCatalog, loadTask, resetCatalogForTests } from "./targets/catalog.js"
 import {
   builderSandboxProvider,
+  builderTargetForTask,
   drafterInspectionOptions,
   drafterSandboxProvider,
   targetInspectionOptions,
@@ -28,7 +29,10 @@ import { createThreadWorkspaceReader, type WorkspaceReader } from "./worker/work
  * configuration's, and a test points its two fake workers at it through the environment.
  */
 export type ControllerRuntimeOverrides = Partial<
-  Pick<FactoryOptions, "verifier" | "captureBaseline" | "writeDrafterManifest">
+  Pick<
+    FactoryOptions,
+    "verifier" | "captureBaseline" | "writeDrafterManifest" | "writeBuilderManifest"
+  >
 > & {
   readonly readers?: {
     /** Replaces the reader of EVERY builder worker entry. */
@@ -95,6 +99,19 @@ export function createControllerRuntime(
         )
       }
     }
+    // Each builder entry's manifest directory is the controller's to make too, for the same
+    // reason: `dispatch` writes into it, the builder only reads it.
+    for (const [key, entry] of Object.entries(config.workers)) {
+      try {
+        mkdirSync(entry.manifestDir, { recursive: true })
+      } catch (error) {
+        return Promise.reject(
+          new Error(
+            `the manifest directory of worker ${key} could not be created (${entry.manifestDir}): ${String(error)}`,
+          ),
+        )
+      }
+    }
     const { readers, ...factoryOverrides } = overrides
     const workers = createWorkerMap(config, {
       createClient: createHttpWorkerClient,
@@ -126,11 +143,18 @@ export function createControllerRuntime(
     })
   }
 
-  /** A builder entry's reader: the provider is the task's target's, the store the entry's. */
+  /**
+   * A builder entry's reader: the provider is the one the BUILDER booted with, the task's
+   * target at the ENTRY's pin (its target file's; the target's default when the entry names
+   * none), and the store the entry's. Not the task's own pin: a task at another pin is
+   * verified in that pin's image, but its workspace lives under the builder's, and a reader
+   * addressing the other image would open no workspace at all.
+   */
   function builderReader(entry: WorkerEndpoint): WorkspaceReader {
     return createThreadWorkspaceReader(
       {
-        providerFor: (taskId) => builderSandboxProvider(loadTask(requireTaskId(taskId)).target),
+        providerFor: (taskId) =>
+          builderSandboxProvider(builderTargetForTask(requireTaskId(taskId), entry.pin)),
         appRoot: entry.appRoot,
       },
       (taskId) => targetInspectionOptions(loadTask(requireTaskId(taskId))),

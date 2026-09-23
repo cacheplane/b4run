@@ -1,9 +1,9 @@
 import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { createAgentHarness, script } from "@b4run/testing"
+import { openWorkspaceInstallationReader } from "@b4run/sqlite-storage"
+import { script } from "@b4run/testing"
 import { afterEach, expect, it } from "vitest"
-import { writeBuilderManifest } from "../src/lib/builder-manifest.ts"
 import { createFactory, type Factory } from "../src/lib/controller/factory.ts"
 import { taskPrompt } from "../src/lib/prompts.ts"
 import { createArtifactStore } from "../src/lib/storage/artifacts.ts"
@@ -14,15 +14,16 @@ import { createDockerVerifier } from "../src/lib/verification/docker-verifier.ts
 import { loadPolicy } from "../src/lib/verification/policy.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createThreadWorkspaceReader } from "../src/lib/worker/workspace-reader.ts"
-import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
 import { fakeWorkerMap } from "./fake-worker-map.ts"
-import { isolatedBuilder } from "./isolated-builder.ts"
 import { applyReference } from "./reference-repair.ts"
+import { type ServedBuilder, serveBuilder, toolCallsSeen, toolResults } from "./served-builder.ts"
 
 /**
  * Layer 3 for the monorepo target: the same join the `cli-flags` lane proves, over a real
- * package pinned out of this repository. The builder's own tools write the reference repair
- * into its managed workspace; the controller reads those bytes through the byte channel,
+ * package pinned out of this repository. The controller dispatches to the real builder app,
+ * served for the `devkit` target, whose resolver serves the work order's manifest that
+ * `dispatch` wrote; the builder's own tools write the reference repair into its managed
+ * workspace; the controller reads those bytes through the byte channel,
  * assembles them against ITS OWN archive of the pin, verifies them in the prepared image,
  * freezes a bundle, approves and exports exactly those bytes.
  *
@@ -53,14 +54,15 @@ const ANSI = new RegExp(`(?:\\\\u001b|${String.fromCodePoint(0x1b)})\\[[0-9;]*m`
 const budget = task.target.resources.verifierDeadlineMs
 
 let factory: Factory | undefined
-let worker: FakeWorker | undefined
+let builder: ServedBuilder | undefined
+const threads: string[] = []
 const cleanups: Array<() => Promise<void>> = []
 
 afterEach(async () => {
   await factory?.close()
   factory = undefined
-  await worker?.close()
-  worker = undefined
+  await builder?.close(threads.splice(0))
+  builder = undefined
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
 })
 
@@ -75,28 +77,13 @@ it(
     // them is this lane's fault and not the candidate's.
     const repaired = await applyReference(TASK)
 
-    const appRoot = await isolatedBuilder()
-    cleanups.push(() => rm(appRoot, { recursive: true, force: true }))
-    // The builder's whole configuration, written by the controller: the captured workspace
-    // bytes, the sandbox policy, THIS target's image and this task's prompt. The copied
-    // `b4.config.ts` reads FACTORY_BUILDER_MANIFEST at module load and the harness loads it
-    // when it starts, so the variable has to be set before `createAgentHarness` — otherwise
-    // the builder would not come up at all, let alone for the wrong task. The harness boots
-    // the app in this process and takes no env of its own, so this is `process.env`,
-    // restored by a cleanup.
-    const manifestPath = await writeBuilderManifest(task, join(dir, "manifest"))
-    const previousManifest = process.env.FACTORY_BUILDER_MANIFEST
-    process.env.FACTORY_BUILDER_MANIFEST = manifestPath
-    cleanups.push(async () => {
-      if (previousManifest === undefined) delete process.env.FACTORY_BUILDER_MANIFEST
-      else process.env.FACTORY_BUILDER_MANIFEST = previousManifest
-    })
-    const harness = await createAgentHarness({ appRoot, route: "/build#agent" })
-    cleanups.push(() => harness.close({ destroyWorkspaces: true }))
+    // The builder, served for THIS target: its target file carries the devkit image, policy
+    // and permissions; its manifest directory starts empty, for `dispatch` to write into.
+    builder = await serveBuilder(task.target)
+    const served = builder
     const input = taskPrompt(task)
-    const run = await harness.run({
-      input,
-      fixtures: script()
+    served.aimock.addFixtures(
+      script()
         .user(input)
         .callsTool("readFile", { path: "TASK.md" })
         .callsTool("readFile", { path: source })
@@ -105,38 +92,87 @@ it(
         .callsTool("runBash", { command: testCommand })
         .replies("Repair complete.")
         .build(),
+    )
+    const reader = () =>
+      createThreadWorkspaceReader(
+        { providerFor: () => builderSandboxProvider(task.target), appRoot: served.appRoot },
+        () => targetInspectionOptions(task),
+      )
+    factory = await createFactory({
+      registryPath: join(dir, "registry.sqlite"),
+      generatedTasksDir: join(dir, "tasks"),
+      workers: fakeWorkerMap({
+        builder: {
+          client: createHttpWorkerClient(served.url),
+          reader: reader(),
+          appRoot: served.appRoot,
+          manifestDir: served.manifestDir,
+        },
+      }),
+      exportDir,
+      artifactsDir: join(dir, "artifacts"),
+      verifier: createDockerVerifier(createArtifactStore(join(dir, "artifacts"))),
+      captureBaseline: captureTargetBaseline,
+      // The active clock runs from dispatch, and this lane's builder turn really builds and
+      // tests inside its container before the verifier does. Four times the target's own
+      // deadline is headroom for that turn and the TWO verifications (the receipt's, and the
+      // one at approve).
+      maxActiveMs: 4 * budget,
     })
+    const { id } = await factory.create({ taskId: TASK })
+    expect(await factory.dispatch(id)).toMatchObject({ ok: true, state: "dispatched" })
+    const reviewed = await factory.waitFor(
+      id,
+      (row) =>
+        row.state === "awaiting_approval" || row.state === "blocked" || row.state === "failed",
+      2 * budget + 120_000,
+    )
+    expect({ state: reviewed.state, blocked: reviewed.blockedReason }).toEqual({
+      state: "awaiting_approval",
+      blocked: null,
+    })
+    const threadId = reviewed.workerThreadId as string
+    threads.push(threadId)
+
     // Every tool call the builder made was admitted: the spec is in the workspace to read,
     // the one path the task permits is writable, and the target's OWN build and test
     // invocations matched `builderPermissions(devkit)` against a real container rather than
-    // surfacing as an interrupt. A refusal here would arrive as `isError`.
-    expect(run.toolResults.map((result) => result.isError)).toEqual([
-      false,
-      false,
-      false,
-      false,
-      false,
+    // surfacing as an interrupt (which would have parked the turn before its last call).
+    expect(toolCallsSeen(served.aimock)).toEqual([
+      "readFile",
+      "readFile",
+      "writeFile",
+      "runBash",
+      "runBash",
     ])
     // The suite really ran over the repaired bytes in the builder's container, with the
     // dependency link resolving `vitest`: the summary line is vitest's own, and the runner
     // colours it, so the colour codes come out before the shape is pinned.
-    const suiteOutput = String(run.toolResults[4]?.content).replaceAll(ANSI, "")
+    const suiteOutput = String(toolResults(served.aimock)[4]).replaceAll(ANSI, "")
     expect(suiteOutput).toMatch(/Tests\s+\d+ passed/)
     expect(suiteOutput).toContain('"exitCode":0')
-    const threadId = run.threadId
 
-    // The bytes are in the BUILDER'S workspace before the controller is ever constructed:
-    // read them through the same reader the controller will use, from a different provider
-    // instance addressing the same storage by scope, image and installation store.
-    const reader = createThreadWorkspaceReader(
-      { providerFor: () => builderSandboxProvider(task.target), appRoot },
-      () => targetInspectionOptions(task),
-    )
-    const observed = await reader.read({ threadId, taskId: TASK }, AbortSignal.timeout(120_000))
+    // Admitted through the resolver, from the manifest `dispatch` wrote for this work order;
+    // the manifest itself is gone once the turn ended.
+    const written = factory.events(id).find((e) => e.type === "builder_manifest_written")?.payload
+    const installation = openWorkspaceInstallationReader(served.appRoot)
+    try {
+      expect(installation.associations.get(threadId)?.intent.sourceDigest).toBe(
+        written?.sourceDigest,
+      )
+    } finally {
+      installation.close()
+    }
+    expect(await readdir(served.manifestDir)).toEqual([])
+
+    // The bytes are in the BUILDER'S workspace: read them through the same reader the
+    // controller used, from a different provider instance addressing the same storage by
+    // scope, image and installation store.
+    const observed = await reader().read({ threadId, taskId: TASK }, AbortSignal.timeout(120_000))
     // The builder's build wrote `packages/devkit/dist/**` into the workspace; the reader drops
     // every path under the target's `snapshotIgnore` prefixes, because the assembly rule
     // rejects any path the baseline lacks and build output is not a candidate. Without the
-    // filter the work order below would block with `scope_violation`.
+    // filter the work order would have blocked with `scope_violation`.
     expect([...observed.keys()].filter((path) => path.startsWith("packages/devkit/dist/"))).toEqual(
       [],
     )
@@ -150,45 +186,6 @@ it(
     // The dependency tree is a root symlink inspection validates against its exact target
     // rather than walking into.
     expect(observed.has("node_modules")).toBe(false)
-
-    worker = await createFakeWorker({
-      outboxDir: join(dir, "unused"),
-      run: "edits_only",
-      threadId,
-    })
-    factory = await createFactory({
-      registryPath: join(dir, "registry.sqlite"),
-      generatedTasksDir: join(dir, "tasks"),
-      workers: fakeWorkerMap({
-        builder: {
-          client: createHttpWorkerClient(worker.baseUrl),
-          reader: createThreadWorkspaceReader(
-            { providerFor: () => builderSandboxProvider(task.target), appRoot },
-            () => targetInspectionOptions(task),
-          ),
-        },
-      }),
-      exportDir,
-      artifactsDir: join(dir, "artifacts"),
-      verifier: createDockerVerifier(createArtifactStore(join(dir, "artifacts"))),
-      captureBaseline: captureTargetBaseline,
-      // The active clock starts at dispatch, which is after the builder's turn, so none of
-      // the turn above is charged to it. Four times the target's own deadline is headroom for
-      // the TWO verifications this lane runs (the receipt's, and the one at approve).
-      maxActiveMs: 4 * budget,
-    })
-    const { id } = await factory.create({ taskId: TASK })
-    await factory.dispatch(id)
-    const reviewed = await factory.waitFor(
-      id,
-      (row) =>
-        row.state === "awaiting_approval" || row.state === "blocked" || row.state === "failed",
-      budget + 120_000,
-    )
-    expect({ state: reviewed.state, blocked: reviewed.blockedReason }).toEqual({
-      state: "awaiting_approval",
-      blocked: null,
-    })
 
     const evidence = factory.evidence(id)
     // The candidate is the diff between the controller's own capture of the pin and the bytes
@@ -218,5 +215,5 @@ it(
     ) as { changes: Record<string, string> }
     expect(exported.changes).toEqual({ [source]: repaired })
   },
-  4 * budget + 120_000,
+  5 * budget + 120_000,
 )

@@ -192,10 +192,13 @@ export interface ImageInputs {
 /**
  * The environment identity every receipt and bundle binds. A local Docker image
  * id alone is host-specific and unverifiable elsewhere; digesting it together
- * with the inputs that produced it lets a second host verify the inputs.
+ * with the inputs that produced it lets a second host verify the inputs. The pin
+ * the image was prepared at is one of those inputs: two pins with the same
+ * Dockerfile and lockfile are still two environments.
  */
-export function environmentIdentityDigest(image: ImageInputs): string {
-  return digest("b4-factory-environment-v1", {
+export function environmentIdentityDigest(image: ImageInputs, pin: string): string {
+  return digest("b4-factory-environment-v2", {
+    pin,
     localId: image.localId,
     platform: image.platform,
     baseManifestDigest: image.baseManifestDigest,

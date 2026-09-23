@@ -1,9 +1,9 @@
 import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { createAgentHarness, script } from "@b4run/testing"
+import { openWorkspaceInstallationReader } from "@b4run/sqlite-storage"
+import { script } from "@b4run/testing"
 import { afterEach, expect, it } from "vitest"
-import { writeBuilderManifest } from "../src/lib/builder-manifest.ts"
 import { createFactory, type Factory } from "../src/lib/controller/factory.ts"
 import { taskPrompt } from "../src/lib/prompts.ts"
 import { createArtifactStore } from "../src/lib/storage/artifacts.ts"
@@ -13,38 +13,40 @@ import { captureTargetBaseline } from "../src/lib/verification/baseline.ts"
 import { createDockerVerifier } from "../src/lib/verification/docker-verifier.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createThreadWorkspaceReader } from "../src/lib/worker/workspace-reader.ts"
-import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
 import { fakeWorkerMap } from "./fake-worker-map.ts"
-import { isolatedBuilder } from "./isolated-builder.ts"
 import { applyReference } from "./reference-repair.ts"
+import { type ServedBuilder, serveBuilder, toolCallsSeen, toolResults } from "./served-builder.ts"
 
 /**
  * The join: bytes the BUILDER'S OWN TOOLS wrote into its managed workspace during a real
- * turn, read out by the controller's own reader, assembled against the controller's own
- * captured baseline, verified in the controller's own container, frozen into a bundle and
- * exported.
+ * turn the CONTROLLER dispatched, read out by the controller's own reader, assembled against
+ * the controller's own captured baseline, verified in the controller's own container, frozen
+ * into a bundle and exported.
  *
- * What is real here: the builder route, its tools, its permission config, its managed
- * workspace (a `b4-ws-volume-*` published under the builder's installation), the reader (a
- * separate read-only container over that volume, resolved through the builder's installation
- * store), the captured baseline, the assembly, the verifier, the bundle and the export. What
- * is not: the model is scripted (the harness's aimock), and the Agent Protocol worker the
- * controller dispatches to is the fake HTTP one, pointed at the thread the real builder just
- * ran — the controller then reads that thread's workspace for itself.
+ * What is real here: the controller's `dispatch` (it writes the work order's builder manifest
+ * into the builder's manifest directory and creates the thread with `{ factoryWorkOrderId }`),
+ * the builder app served by `serveRuntime` for the `cli-flags` target, its per-work-order
+ * resolver, its route, tools and permission config, its managed workspace (a
+ * `b4-ws-volume-*` published under the builder's installation), the Agent Protocol between
+ * the two, the reader (a separate read-only container over that volume, resolved through the
+ * builder's installation store), the captured baseline, the assembly, the verifier, the
+ * bundle and the export. What is not: the model is scripted (aimock).
  */
 
 const task = loadTask("cli-flags")
 const source = task.manifest.allowedSourcePaths[0] as string
+const input = taskPrompt(task)
 
 let factory: Factory | undefined
-let worker: FakeWorker | undefined
+let builder: ServedBuilder | undefined
+const threads: string[] = []
 const cleanups: Array<() => Promise<void>> = []
 
 afterEach(async () => {
   await factory?.close()
   factory = undefined
-  await worker?.close()
-  worker = undefined
+  await builder?.close(threads.splice(0))
+  builder = undefined
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
 })
 
@@ -58,52 +60,79 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
   const repaired = await applyReference()
 
   // The builder: this package's own app, in an isolated root so its installation store and
-  // checkpoints are this test's and nobody else's. The harness OWNS that installation for as
-  // long as it is open — exactly as a running `b4` server does — so the controller below has
-  // to read it without becoming a second owner.
-  const appRoot = await isolatedBuilder()
-  cleanups.push(() => rm(appRoot, { recursive: true, force: true }))
-  // Its whole configuration, written by the controller: the captured workspace bytes, the
-  // sandbox policy, the image and the prompt. The copied `b4.config.ts` reads
-  // FACTORY_BUILDER_MANIFEST at module load and the harness loads it when it starts, so the
-  // variable is set BEFORE `createAgentHarness`; the harness boots the app in this process
-  // and takes no env of its own, so this is `process.env`, restored by a cleanup.
-  const manifestPath = await writeBuilderManifest(task, join(dir, "manifest"))
-  const previousManifest = process.env.FACTORY_BUILDER_MANIFEST
-  process.env.FACTORY_BUILDER_MANIFEST = manifestPath
-  cleanups.push(async () => {
-    if (previousManifest === undefined) delete process.env.FACTORY_BUILDER_MANIFEST
-    else process.env.FACTORY_BUILDER_MANIFEST = previousManifest
-  })
-  const harness = await createAgentHarness({ appRoot, route: "/build#agent" })
-  cleanups.push(() => harness.close({ destroyWorkspaces: true }))
-  const input = taskPrompt(task)
-  const run = await harness.run({
-    input,
-    fixtures: script()
+  // checkpoints are this test's and nobody else's, served for the `cli-flags` target. Its
+  // manifest directory starts empty: `dispatch` writes the work order's manifest there.
+  builder = await serveBuilder(task.target)
+  const served = builder
+  served.aimock.addFixtures(
+    script()
       .user(input)
       .callsTool("readFile", { path: "TASK.md" })
       .callsTool("writeFile", { path: source, content: repaired })
       .callsTool("runBash", { command: "npm test" })
       .replies("Repair complete.")
       .build(),
+  )
+  const reader = () =>
+    createThreadWorkspaceReader(
+      { providerFor: () => builderSandboxProvider(task.target), appRoot: served.appRoot },
+      () => targetInspectionOptions(task),
+    )
+  factory = await createFactory({
+    registryPath: join(dir, "registry.sqlite"),
+    generatedTasksDir: join(dir, "tasks"),
+    workers: fakeWorkerMap({
+      builder: {
+        client: createHttpWorkerClient(served.url),
+        reader: reader(),
+        appRoot: served.appRoot,
+        manifestDir: served.manifestDir,
+      },
+    }),
+    exportDir,
+    artifactsDir: join(dir, "artifacts"),
+    verifier: createDockerVerifier(createArtifactStore(join(dir, "artifacts"))),
+    captureBaseline: captureTargetBaseline,
   })
+  const { id } = await factory.create({ taskId: "cli-flags" })
+  expect(await factory.dispatch(id)).toMatchObject({ ok: true, state: "dispatched" })
+  const reviewed = await factory.waitFor(
+    id,
+    (row) => row.state === "awaiting_approval" || row.state === "blocked" || row.state === "failed",
+    600_000,
+  )
+  expect({ state: reviewed.state, blocked: reviewed.blockedReason }).toEqual({
+    state: "awaiting_approval",
+    blocked: null,
+  })
+  const threadId = reviewed.workerThreadId as string
+  threads.push(threadId)
+
   // The bytes really are in the builder's workspace: its own tools put them there and the
   // fixture's test command ran over them in the container.
-  expect(run.toolResults.map((result) => result.isError)).toEqual([false, false, false])
-  expect(String(run.toolResults[2]?.content)).toContain("b4-fixture-cli-flags")
-  const threadId = run.threadId
+  expect(toolCallsSeen(served.aimock)).toEqual(["readFile", "writeFile", "runBash"])
+  expect(toolResults(served.aimock)[2]).toContain("b4-fixture-cli-flags")
+
+  // The thread was admitted THROUGH the resolver, from the manifest `dispatch` wrote for this
+  // work order: the builder's installation store associates it with that manifest's digest.
+  // And the manifest is gone once the turn ended: it was needed once, at admission.
+  const written = factory.events(id).find((e) => e.type === "builder_manifest_written")?.payload
+  expect(written?.path).toBe(join(served.manifestDir, `${id}.json`))
+  const installation = openWorkspaceInstallationReader(served.appRoot)
+  try {
+    expect(installation.associations.get(threadId)?.intent.sourceDigest).toBe(written?.sourceDigest)
+  } finally {
+    installation.close()
+  }
+  expect(await readdir(served.manifestDir)).toEqual([])
+  expect(factory.events(id).map((e) => e.type)).toContain("builder_manifest_removed")
 
   // Read while the thread is IDLE BETWEEN TURNS, with its session container still alive:
   // one of the two states the read surface is specified for, and the one `docker exec` into
   // the builder could never serve safely. A DIFFERENT provider instance, as the controller is
   // a different process in production, addressing the same storage by scope, image and the
   // builder's installation store.
-  const reader = createThreadWorkspaceReader(
-    { providerFor: () => builderSandboxProvider(task.target), appRoot },
-    () => targetInspectionOptions(task),
-  )
-  const observed = await reader.read(
+  const observed = await reader().read(
     { threadId, taskId: "cli-flags" },
     AbortSignal.timeout(120_000),
   )
@@ -118,50 +147,19 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
   // baseline and must survive, so the exclusion has to be a root-directory rule.
   expect(observed.has(".gitignore")).toBe(true)
   expect(observed.has("node_modules")).toBe(false)
-  // Reading disturbed nothing: the builder's next turn runs its tools in the same session
-  // and workspace. (Which script the harness replays for that turn is not asserted — its
-  // fixtures match on the conversation, and the first turn's prompt is still in it.)
-  const again = await harness.run({
-    input: "Confirm the file.",
-    fixtures: script()
+  // Reading disturbed nothing, and the manifest's removal cost the thread nothing: the
+  // builder's next turn runs its tools in the same session and workspace, admitted long ago.
+  served.aimock.addFixtures(
+    script()
       .user("Confirm the file.")
       .callsTool("readFile", { path: source })
       .replies("Confirmed.")
       .build(),
-  })
-  expect(again.threadId).toBe(threadId)
-  expect(again.toolResults.length).toBeGreaterThan(0)
-  expect(again.toolResults.map((result) => result.isError)).not.toContain(true)
-
-  worker = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only", threadId })
-  factory = await createFactory({
-    registryPath: join(dir, "registry.sqlite"),
-    generatedTasksDir: join(dir, "tasks"),
-    workers: fakeWorkerMap({
-      builder: {
-        client: createHttpWorkerClient(worker.baseUrl),
-        reader: createThreadWorkspaceReader(
-          { providerFor: () => builderSandboxProvider(task.target), appRoot },
-          () => targetInspectionOptions(task),
-        ),
-      },
-    }),
-    exportDir,
-    artifactsDir: join(dir, "artifacts"),
-    verifier: createDockerVerifier(createArtifactStore(join(dir, "artifacts"))),
-    captureBaseline: captureTargetBaseline,
-  })
-  const { id } = await factory.create({ taskId: "cli-flags" })
-  await factory.dispatch(id)
-  const reviewed = await factory.waitFor(
-    id,
-    (row) => row.state === "awaiting_approval" || row.state === "blocked" || row.state === "failed",
-    600_000,
   )
-  expect({ state: reviewed.state, blocked: reviewed.blockedReason }).toEqual({
-    state: "awaiting_approval",
-    blocked: null,
-  })
+  expect((await served.runTurn(threadId, "Confirm the file.")).status).toBe(200)
+  // The repaired bytes, read back by the builder's own tool on a turn the resolver took no
+  // part in.
+  expect(toolResults(served.aimock).at(-1)).toContain(repaired.trimEnd())
 
   const evidence = factory.evidence(id)
   // The candidate is the diff between the controller's captured baseline and the bytes it

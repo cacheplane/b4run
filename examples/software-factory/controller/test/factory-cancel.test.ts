@@ -8,7 +8,7 @@ import type { Verifier } from "../src/lib/verification/verifier.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
-import { fakeWorkerMap } from "./fake-worker-map.ts"
+import { fakeWorkerMap, noopBuilderManifestWriter } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
 
 let dir: string
@@ -53,6 +53,7 @@ async function boot(
     workers: fakeWorkerMap({
       builder: { client: createHttpWorkerClient(fake.baseUrl), reader },
     }),
+    writeBuilderManifest: noopBuilderManifestWriter,
     exportDir: out(),
     artifactsDir: join(dir, "artifacts"),
     verifier: createFakeVerifier({ verdict: "pass" }),
@@ -312,6 +313,7 @@ describe("cancel", () => {
       workers: fakeWorkerMap({
         builder: { client: createHttpWorkerClient(replacement.baseUrl), reader },
       }),
+      writeBuilderManifest: noopBuilderManifestWriter,
       exportDir: out(),
       artifactsDir: join(dir, "artifacts"),
       verifier: createFakeVerifier({ verdict: "pass" }),

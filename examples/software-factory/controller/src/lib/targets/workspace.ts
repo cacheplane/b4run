@@ -3,7 +3,14 @@ import { dockerSandbox } from "@b4run/sandbox"
 import type { SandboxPolicy, SandboxProvider, WorkspaceDefinition } from "@b4run/workspace"
 import type { WorkspaceReadOptions } from "../worker/workspace-reader.js"
 import { type CaptureRole, type CaptureTargetOptions, captureTarget } from "./archive.js"
-import { imageTag, type Target, type Task } from "./catalog.js"
+import {
+  type CatalogOptions,
+  imageTag,
+  loadTarget,
+  loadTask,
+  type Target,
+  type Task,
+} from "./catalog.js"
 
 /**
  * Every regular file under `absolute`, relative to it, forward-slash, sorted.
@@ -39,9 +46,33 @@ const RESERVED_CAPTURE_PATHS = ["TASK.md", ".gitignore"]
  * Storage identity for the builder's sandboxes. Both the builder's own configuration and the
  * controller's reader construct a provider from this, in different processes: the scope and
  * the image are what address a thread's workspace, so a reader built with either different
- * would open a different (or no) workspace. One constructor, so they cannot drift apart.
+ * would open a different (or no) workspace. One constructor, so they cannot drift apart. The
+ * image is the builder's, the target at the builder's pin (its target file's, see
+ * `builderTarget`), which is not the verifier's image for a task pinned elsewhere.
  */
 export const builderSandboxScope = "software-factory-builder"
+
+/**
+ * The target a builder serving `targetId` runs: at `workerPin` (its target file's pin), or at
+ * the target's default pin when the worker names none. One builder serves one pin at a time,
+ * whatever pin a task it is handed runs at.
+ */
+export function builderTarget(
+  targetId: string,
+  workerPin: string | undefined,
+  catalog: Pick<CatalogOptions, "targetsDir" | "tasksDir" | "repositoryRoot"> = {},
+): Target {
+  return loadTarget(targetId, workerPin !== undefined ? { ...catalog, pin: workerPin } : catalog)
+}
+
+/** {@link builderTarget} for the builder a task is dispatched to: the task names the target. */
+export function builderTargetForTask(
+  taskId: string,
+  workerPin: string | undefined,
+  catalog: Pick<CatalogOptions, "targetsDir" | "tasksDir" | "repositoryRoot"> = {},
+): Target {
+  return builderTarget(loadTask(taskId, catalog).target.id, workerPin, catalog)
+}
 
 /** The builder's sandbox provider for a target. Construct one per process; it holds no shared state. */
 export function builderSandboxProvider(target: Target): SandboxProvider {

@@ -218,35 +218,42 @@ first load; `FACTORY_NO_FETCH=1` turns a missing pin into a hard error.
 
 Three processes: the builder, the controller, and the CLI that drives it.
 
-**1. Write the builder's manifest.** The builder is a b4 app configured by ONE input: the
-manifest the controller writes. It carries the captured workspace bytes, the sandbox policy,
-the target's image and the task's prompt, so the builder resolves no pin and reads no task
-catalog of its own. This command needs neither a controller nor a registry:
+**1. Write the builder's target file.** The builder is a b4 app configured by two inputs the
+controller writes: a per-process target file (the target's image, scope, sandbox policy and
+permissions, which the framework fixes per app) and one manifest per work order (the
+captured workspace bytes), which `dispatch` writes into the builder's manifest directory
+before it creates the thread. The builder resolves no pin and reads no task catalog of its
+own. Writing the target file needs neither a controller nor a registry:
 
 ```bash
-pnpm --filter @b4-example/software-factory-controller factory builder-manifest \
-  --task devkit-spawn-deadline --out /tmp/factory-manifests
+pnpm --filter @b4-example/software-factory-controller factory builder-target \
+  --target devkit --out /tmp/factory-builder
 ```
 
-**2. Start the builder** (terminal 1). `b4.config.ts` reads `FACTORY_BUILDER_MANIFEST` at
-module load, so it must be set before the process starts, and one builder process serves one
-task:
+**2. Start the builder** (terminal 1). `b4.config.ts` reads `FACTORY_BUILDER_TARGET` and
+`FACTORY_BUILDER_MANIFEST_DIR` at module load, so both must be set before the process
+starts, and one builder process serves one target:
 
 ```bash
-FACTORY_BUILDER_MANIFEST=/tmp/factory-manifests/devkit-spawn-deadline.json \
+FACTORY_BUILDER_TARGET=/tmp/factory-builder/devkit.target.json \
+FACTORY_BUILDER_MANIFEST_DIR=/tmp/builder-manifests \
 OPENAI_API_KEY=... \
   pnpm --filter @b4-example/software-factory-server dev --port 4100
 ```
 
 **3. Start the controller** (terminal 2). It is a b4 app too: its mutating commands are
 `workflow` routes, and it owns the targets, the task catalog and the registry. Its
-environment names the builder to dispatch to, where its state lives, and the builder's *app
-root* — the package whose installation store the workspace reader addresses:
+environment names the builder to dispatch to, where its state lives, the builder's *app
+root* — the package whose installation store the workspace reader addresses — and the
+builder's target file, which is how the controller knows the one target that builder serves
+(a work order of any other target is refused before anything is spent):
 
 ```bash
 FACTORY_WORKER_URL=http://127.0.0.1:4100 \
 FACTORY_STATE_DIR=$PWD/.factory \
 FACTORY_BUILDER_APP_ROOT=$PWD/examples/software-factory/server \
+FACTORY_BUILDER_TARGET=/tmp/factory-builder/devkit.target.json \
+FACTORY_BUILDER_MANIFEST_DIR=/tmp/builder-manifests \
   pnpm --filter @b4-example/software-factory-controller dev --port 4300
 ```
 

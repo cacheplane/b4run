@@ -13,7 +13,7 @@ import {
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
-import { fakeWorkerMap } from "./fake-worker-map.ts"
+import { fakeWorkerMap, noopBuilderManifestWriter } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader } from "./fake-workspace-reader.ts"
 
 const dirs: string[] = []
@@ -73,7 +73,7 @@ function catalogs(pin: string): { targetsDir: string; tasksDir: string } {
         root: ".",
         capture: { include: ["a.txt"] },
         snapshotIgnore: [],
-        ...(prepared ? { image } : {}),
+        ...(prepared ? { images: { [pin]: image } } : {}),
         imageContext: ["package.json"],
         lockfile: "pnpm-lock.yaml",
         imageAssertResolves: [],
@@ -159,6 +159,7 @@ describe("the controller over a partly unprepared catalog", () => {
           reader: createFakeWorkspaceReader({}),
         },
       }),
+      writeBuilderManifest: noopBuilderManifestWriter,
       exportDir: join(dir, "out"),
       artifactsDir: join(dir, "artifacts"),
       verifier: createFakeVerifier({ verdict: "pass" }),
@@ -192,6 +193,7 @@ describe("the controller over a partly unprepared catalog", () => {
           reader: createFakeWorkspaceReader({}),
         },
       }),
+      writeBuilderManifest: noopBuilderManifestWriter,
       exportDir: join(dir, "out"),
       artifactsDir: join(dir, "artifacts"),
       verifier: createFakeVerifier({ verdict: "pass" }),
@@ -201,7 +203,8 @@ describe("the controller over a partly unprepared catalog", () => {
     const { id } = await factory.create({ taskId: "served" })
     // The target loses its image between create and dispatch: an upgrade, or a re-prepare.
     const manifestPath = join(targetsDir, "ready", "target.json")
-    const { image: _image, ...unprepared } = JSON.parse(readFileSync(manifestPath, "utf8"))
+    const prepared = readFileSync(manifestPath, "utf8")
+    const { images: _images, ...unprepared } = JSON.parse(prepared)
     writeFileSync(manifestPath, JSON.stringify(unprepared))
     expect(await factory.dispatch(id)).toMatchObject({
       ok: false,
@@ -209,6 +212,11 @@ describe("the controller over a partly unprepared catalog", () => {
       message: expect.stringMatching(/^Unknown task served: .*has not been prepared/),
     })
     expect(factory.show(id)?.state).toBe("received")
+    // Refused before the key is spent: the lookup is where a target's pin is fetched, and a
+    // refusal that is not a function of the row's revision must not be replayed to the
+    // dispatch after the target is prepared again, under the same default key.
+    writeFileSync(manifestPath, prepared)
+    expect(await factory.dispatch(id)).toMatchObject({ ok: true, state: "dispatched" })
   })
 
   it("resolves generated tasks through the configured search path when no catalog is given", () => {

@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, rm } from "node:fs/promises"
@@ -10,16 +9,17 @@ import { type Aimock, createAimock, script } from "@b4run/testing"
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest"
 import type { Factory } from "../src/lib/controller/factory.ts"
 import { type ControllerRuntime, createControllerRuntime } from "../src/lib/runtime.ts"
-import { repositoryRoot } from "../src/lib/targets/catalog.ts"
 import { drafterInspectionOptions, drafterSandboxProvider } from "../src/lib/targets/workspace.ts"
 import {
   createThreadWorkspaceReader,
   type WorkspaceReader,
 } from "../src/lib/worker/workspace-reader.ts"
+import { writeTargetFile } from "./builder-target-file.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
 import { createFakeWorkspaceReader } from "./fake-workspace-reader.ts"
 import { ORACLE_DRAFT } from "./intake-fixtures.ts"
 import { isolatedDrafter } from "./isolated-drafter.ts"
+import { shippedPin } from "./temp-repo.ts"
 
 /**
  * The intake half of the factory, for real: one drafter turn in the DRAFTER'S OWN PROCESS
@@ -92,13 +92,11 @@ const cleanups: Array<() => Promise<void>> = []
 
 beforeAll(async () => {
   for (const key of ENV) previousEnv[key] = process.env[key]
-  // The pin is HEAD: the one commit every checkout holds, a depth-1 CI clone included, and
-  // the capture reads it out of the object store either way, so HEAD proves the same thing
-  // a parent would. (The TARGET's pin, which the oracle proof's baseline needs, is
-  // `ensurePin`'s business as in the sibling lanes: `target:prepare` has fetched it.)
-  pin = execFileSync("git", ["-C", repositoryRoot(), "rev-parse", "HEAD"], {
-    encoding: "utf8",
-  }).trim()
+  // The work order's pin is the one the shipped targets are prepared at: the draft's target
+  // is looked up at the work order's pin (3b), and `cli-flags` has an image at that commit
+  // alone (its paths moved since, so it cannot be prepared at HEAD). `target:prepare` has
+  // made it present in a shallow checkout, and `intake` ensures it again before the capture.
+  pin = shippedPin("cli-flags")
   // `non-interactive` is the drafter's own setting; an operator's process-wide override
   // would make a denied command a parked prompt nobody answers.
   delete process.env.B4_PERMISSIONS_MODE
@@ -154,6 +152,7 @@ async function bootController(
     {
       FACTORY_WORKER_URL: builder.baseUrl,
       FACTORY_BUILDER_APP_ROOT: join(dir, "builder"),
+      FACTORY_BUILDER_TARGET: writeTargetFile(join(dir, "targets"), "cli-flags"),
       FACTORY_STATE_DIR: join(dir, "state"),
       FACTORY_DRAFTER_URL: drafter.url,
       FACTORY_DRAFTER_APP_ROOT: drafterRoot,

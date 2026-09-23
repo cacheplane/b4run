@@ -88,19 +88,79 @@
 
 **Files:** `C/src/lib/builder-manifest.ts` (`writeBuilderManifest(task, dir, { workOrderId })` names the file by work order id; the manifest gains `workOrderId`; the `prompt` field is removed: the run content already carries it), `S/src/builder-manifest.ts` (schema copy; `loadBuilderManifest(dir, workOrderId)`; boot needs `FACTORY_BUILDER_MANIFEST_DIR` plus the STATIC parts: `FACTORY_BUILDER_TARGET=<dir>/target.json` written once by `factory builder-target --target <id> --out <dir>` with `{ id, scope, image, policy, permissions }`, since provider/policy/permissions cannot vary per thread), `S/b4.config.ts` (resolver reads `metadata.factoryWorkOrderId`, loads `<dir>/<id>.json`, verifies; provider/policy/permissions from the target file), `S/src/app/build/index.ts` (system prompt = fixed rules only), `S/scripts/with-manifest.mjs` (gates on the target file instead), `C/src/lib/controller/factory.ts` dispatch (writes the manifest into the target worker's `manifestDir` BEFORE `createThread`, journals `builder_manifest_written`), `C/src/cli.ts` (`builder-manifest` becomes `builder-target`; keep `builder-manifest --task --out` for the Docker lanes that drive the builder without a controller, writing `<taskId>.json` AND accepting `--work-order`), README, tests (`S/test/builder-config.test.ts` two-thread resolver unit test; `C/test/builder-manifest.test.ts`; `C/test/builder.integration.test.ts` adjusted; `serve-controller.ts`).
 
-- [ ] Steps: failing tests → implement → gate (incl. `S/` check/build with a target file) → commit `feat(software-factory): the builder resolves its workspace per work order`.
+- [x] Steps: failing tests → implement → gate (incl. `S/` check/build with a target file) → commit `feat(software-factory): the builder resolves its workspace per work order`.
+
+**As landed.** Two builder inputs. `FACTORY_BUILDER_TARGET` names `<dir>/<id>.target.json`
+(`{ version: 1, target: { id, scope, image, policy, permissions } }`, `BuilderTargetSchema`),
+written by `factory builder-target --target <id> --out <dir>` (`writeBuilderTarget(target,
+dir)`); `FACTORY_BUILDER_MANIFEST_DIR` holds `<workOrderId>.json`
+(`{ version: 1, workOrderId, taskId, targetId, workspace }`, `BuilderManifestSchema`, no
+`prompt`). Both schemas and `CATALOG_ID` are byte-identical between
+`C/src/lib/builder-manifest.ts` and `S/src/builder-manifest.ts`, pinned by one identity test.
+`S/b4.config.ts` reads both at boot (both required; an empty directory is fine) and resolves
+per thread through `workOrderIdOf(metadata)` + `loadBuilderManifest(dir, id, targetId)`,
+which refuses a manifest for another target ("is for target X, but this builder serves Y").
+`S/src/app/build/index.ts`'s system prompt is a fixed role statement plus the three
+non-negotiable rules; the task's instructions (`taskPrompt`, whose own rules are not
+repeated) are the run's user message, as `startRun` already sent. `S/scripts/with-manifest.mjs`
+became `with-target.mjs`, gating on `FACTORY_BUILDER_TARGET`; the package's `check`/`build`
+default `FACTORY_BUILDER_MANIFEST_DIR` to `.factory/manifests`; turbo's builder `env` is the
+two variables. `writeBuilderManifest(task, dir, { workOrderId?, appRoot?, signal? })` returns
+`{ path, sourceDigest }` and stages its capture in a per-call instance directory it removes,
+so two work orders of one task can be captured at once. Controller: `WorkerEndpoint` and
+`TargetWorker` carry `manifestDir` (`FACTORY_WORKERS` entry `manifestDir`, or
+`FACTORY_BUILDER_MANIFEST_DIR` beside the legacy pair, refused beside the map; default
+`<appRoot>/.factory/manifests`; two entries at one URL must agree on it); the runtime
+`mkdir -p`s each at boot. `dispatch` resolves the prompt BEFORE the key (the lookup is
+`loadTarget`'s `ensurePin`, which was NOT before the key for a generated task: now a failed
+fetch, or a task that stopped loading, is refused unspent and the next dispatch under the
+same default key proceeds), then under the key writes the manifest through
+`FactoryOptions.writeBuilderManifest` (default: the real writer over the process-wide
+catalog), journals `builder_manifest_written`, and on failure refuses with
+`builder_manifest_failed`. Removal (`builder_manifest_removed`, `builder_manifest_remove_failed`
+never fatal) happens in `transition` when the row leaves `dispatched`/`running` for anything
+but `cancel_requested` (deferred past an outer transaction like the drafter's), in
+`finishCancel` for a builder thread, and on a failed `createThread` or an orphaned thread.
+The CLI keeps `builder-manifest --task --out` with `--work-order` (default: the task id). **Review fixes.** The wildcard is gone: the legacy pair requires `FACTORY_BUILDER_TARGET` (the file the builder boots from) and is keyed by its `target.id`, `FACTORY_WORKERS` keys must be target ids, one URL serves one target, and no two entries (nor an entry and the drafter) share an app root, so a work order of a target no builder serves is the unspent `no worker for target` refusal rather than a thread burned at admission. `options.tasks` (a test seam) still resolves to the placeholder `*`, which only a fake map serves. Both manifests are written atomically (temp sibling + `rename`, `storage/atomic-file.ts`) and removed at the path the journal recorded (`controller/manifest-files.ts`); the failed-`createThread` and orphaned-thread paths of `dispatch` and `intake` remove only while the row holds no thread or their own, else journal `*_manifest_kept`. Unit tests with a fake builder boot with `noopBuilderManifestWriter`.
+Tests: `S/test/builder-config.test.ts` (two work orders → two digests; wrong target, unknown,
+malformed, stale-prompt and tampered manifests refused; missing target file and missing
+directory are boot errors; fixed system prompt); `C/test/builder-manifest.test.ts` (both
+identities, file named by the work order, no `prompt`, concurrent captures);
+`C/test/factory-builder-manifest.test.ts` (written before the thread, removed at
+`verifying`, on `run_failed`, by a cancel of a running build after the worker confirmed it,
+on a failed thread creation; a failed write refuses spent); `task-prompts.test.ts` (the
+pre-key refusal is unspent). The Docker lanes could not use `createAgentHarness` (it mints
+thread ids with no metadata, so no thread can name a work order): `C/test/served-builder.ts`
+serves the builder with `serveRuntime` for one target and creates threads through
+`POST /threads { metadata: { factoryWorkOrderId } }`; `builder.integration.test.ts` is the
+two-work-order lane (plus the no-manifest and wrong-target refusals), and the two end-to-end
+lanes now dispatch through the controller to the served builder instead of pointing a fake
+worker at a harness thread. CI's sandbox-docker step writes the `cli-flags` target file and
+runs the builder's `check`/`build` with an empty manifest directory; both audited workflow
+fixtures changed by one string each, regenerated through the contracts test's own
+`workflowExecutables`/`workflowDescriptor` from a scratch copy and verified canonically equal.
 
 ### Task 7: Per-pin images
 
 **Files:** `C/src/lib/targets/catalog.ts` (`TargetSchema.images: Record<pin, Image>` with `image` migrated: a manifest with the old single `image` is read as `images[manifest.pin]` and the prepare script rewrites it; `CatalogOptions.pin?`; `loadTarget(id, { pin })` selects `images[pin]`, `ensurePin(pin)`, sets `Target.pin = pin`; absent → `ImageUnpreparedError(id, pin)` distinct from "not prepared"; `environmentIdentity` folds the pin into the digested inputs), `C/scripts/prepare-target.ts` (`--pin <sha>` overrides the manifest's pin for archive, package.json, lockfile, tag; writes `images[pin]`; refuses a pin at which `root`/`imageContext`/`lockfile` do not exist with the message naming the path, so the historical `cli-flags` paths fail loudly rather than build a wrong image), `C/src/lib/domain/states.ts` (`image_unprepared` blocked reason), tests (`targets-catalog.test.ts`: two images, selection by pin, the migration read, the unprepared error; a prepare-script unit test over its pure parts if it has any, else a Docker-lane case in Task 9).
 
-- [ ] Steps → commit `feat(software-factory): a target records one image per pin`.
+- [x] Steps → commit `feat(software-factory): a target records one image per pin`.
+
+**As landed** (one commit with Task 8). `TargetSchema` is `z.preprocess(migrateSingleImage, …)`: a manifest with `image` and no `images` is read as `images[pin]`; one with both is refused (the leftover `image` is an unknown key). The two shipped manifests were rewritten into `images`. `loadTarget(id, { pin })` looks `images[pin]` up BEFORE `ensurePin`, so an unprepared pin throws `ImageUnpreparedError` (exported, `targetId`/`pin` fields) without a fetch; no images at all is still "has not been prepared". `environmentIdentity(target)` = `environmentIdentityDigest(image, pin)` under the new tag `b4-factory-environment-v2`, so every previously frozen bundle's identity changed. The script's pure parts are `src/lib/targets/prepare.ts` (`parsePrepareArgs`, `pathsRequiredAtPin`, `firstMissingPath`, `pathExistsAtPin`, `withImageAt`), unit-tested in `test/targets-prepare.test.ts`, which also runs the real script for `cli-flags --pin HEAD` and asserts the refusal names the fixture root (no Docker: the check precedes the pull). Docker: `test/target-devkit-pin.integration.test.ts` prepares `devkit --pin bfaf0c2b` (Release 0.10.0, on main) in `beforeAll` (≈42 s locally), asserts both pins' entries, the tag's pin prefix, the image by `docker image inspect`, distinct identities and the second pin's lockfile hash, then restores `target.json`'s bytes.
 
 ### Task 8: The work order's pin reaches every lookup
 
 **Files:** `C/src/lib/intake/draft.ts` (`parseDraft(files, { workOrderId, pin })` fills `pin` into the manifest; `loadTarget(target, { pin })`; `ImageUnpreparedError` → refusal `image_unprepared` naming target and pin, no retry), `C/src/lib/targets/catalog.ts` (`TaskSchema.pin?`: a generated task carries it, a shipped task omits it; `loadTask` passes `manifest.pin` to `loadTarget`), `generated-task.ts` (the digest covers it through `task.json`), `prompts.ts` (`preparedTargets(pin)` lists targets prepared AT the pin; `intakePrompt` takes the pin and says so), `policy.ts` (`policyEnvironment.pin` is now the loaded target's pin = the row's), `verify.ts`/`factory.ts` approve (assert `frozen.pin === policy.environment.pin` for a generated task), `C/src/lib/controller/intake.ts` (passes `row.pin`), `baseline.ts` (unchanged: `captureTarget` reads `task.target.pin`, now the row's), `docker-verifier.ts` (unchanged: `imageTag(task.target)`), `runtime.ts`'s `providerFor` (unchanged). Tests: `intake-draft.test.ts` (the pin in the manifest and the digest; `image_unprepared`), `factory-intake.test.ts` (a work order pinned at a sha the target has no image for blocks `image_unprepared` after one attempt), `tasks.test.ts` (shipped tasks have no pin).
 
-- [ ] Steps → commit `feat(software-factory): verification runs at the work order's pin`.
+- [x] Steps → commit `feat(software-factory): verification runs at the work order's pin`.
+
+**As landed.** `parseDraft(files, { workOrderId, pin, catalog? })` (the `catalog` seam is the test's fixture targets directory); a malformed `pin` is a thrown caller fault, not a refusal. `DraftTaskSchema` omits `id` and `pin` strictly. `runDrafterTurn` and `proveDraft` block `intake_run_failed` on a null row pin. `refuse` treats `image_unprepared` like `no_target_for_package` (final, never retried). `preparedTargets(pin, catalog?)` is exported; `intakePrompt({ pin, issueText, note?, catalog? })` says the repository is checked out at the pin and the listed targets are those prepared at it. `approve` compares `frozen.pin` to `policy.environment.pin` for a generated task, after the task-digest check (a consistency assertion: a changed `task.json` pin is already a digest change). Tests that draft against a shipped target now pin at `shippedPin()` (`test/temp-repo.ts`: the default pin every shipped target shares) instead of HEAD: `factory-intake`, `intake-draft`, `intake-prompt`, `serve-controller.ts` (and so `cli.test.ts`), and the drafter end-to-end lane (its work order is now at the shipped pin; `cli-flags` cannot be prepared at HEAD). NOT per pin: the builder's sandbox image, fixed per process by its target file at the default pin; recorded in README and §9.
+
+**Review fixes** (`fix(software-factory): prepare writes atomically; a builder whose dependencies differ from the pin is refused`). `recordImage` (re-read, merge `images[pin]`, Biome via stdin, `writeFileAtomic`); `FACTORY_TARGETS_DIR` (the catalog's `targetsDir` default, read at module load) so the per-pin lane prepares a temp copy and `targets-prepare.test.ts` runs the script on a copy with no `docker` on PATH; `pathsRequiredAtPin` covers capture entries, `commands.cwd` and `runnerConfig`; `UnknownTargetError`/`TargetUnpreparedError`; `parseDraft` → `intake_run_failed` for a catalog or fetch fault (handled in `proveDraft` as `unavailable`, no attempt spent); `dispatch`'s pre-key `builder_environment_differs` guard (`test/factory-builder-environment.test.ts`, both branches); the runtime's builder reader now addresses the builder's default-pin image; `shippedPin(targetId)`; loaded `Target` omits `images`; one prepare-command spelling (`prepareCommand`); approve's field is "Generated task pin".
+
+**Final-review fixes** (`fix(software-factory): a builder has a pin, and the dispatch guard compares against it`). `builder-target --pin` (the target file's `pin`, both schema copies); `WorkerEndpoint`/`TargetWorker.pin` (legacy: from the target file; `FACTORY_WORKERS`: optional entry key); `builderTarget(targetId, workerPin)` / `builderTargetForTask` in `targets/workspace.ts`, used by the dispatch guard and the runtime's builder reader; the guard compares task pin with worker pin for every task (catalog tasks at their default pin) over lockfile, base image and Dockerfile, refusing unspent with the prepare/`builder-target --pin` remedy. `removeOwnManifest` takes the row's pre-dispatch thread (an approved draft's intake thread) as an allowed holder. `removeUnhandedManifest` (`manifest-files.ts`): the last `<role>_manifest_written` with no `thread_created`/`intake_thread_created` after it is removed by reconcile's `dispatch_incomplete`, by reconcile of an open `intake`, and by `finishCancel`. The builder's `dev` script defaults `FACTORY_BUILDER_MANIFEST_DIR`. Tests: `factory-builder-environment.test.ts` (same pin, compatible, lockfile, base+Dockerfile, catalog task at a non-default worker pin, the reader's target), `config.test.ts` (legacy pin, entry pin), `cli.test.ts` (`--pin` writes pin and image; unprepared pin names the prepare command), `builder-manifest.test.ts`, `factory-builder-manifest.test.ts` (intake-held row on both failure paths; crashed dispatch, crashed intake, cancel from received, handed manifest kept).
+
+**Follow-ups.** `target:prepare --forget <pin>` / `--prune` to drop pin entries (and images). Operator-prepared pin entries belong in a host-local registry under the controller's state directory, with only the default pin committed in `target.json` (today a `--pin` prepare edits a checked-in file with a host-specific `localId`). Per-(target, pin) builders, which retire the lockfile guard.
 
 ### Task 9: Proof for Half B, docs, PR
 
@@ -125,7 +185,10 @@
 - A `workerThreadStage` column (schema 5, `intake` | `build`) recorded with `workerThreadId`, so `workerOfThread` and `settleIncompleteDispatch` read the row instead of scanning the journal for `intake_thread_created` / `thread_created`.
 - One `probeThread(ctx, worker, row)` shared by `reconcileRun` and `reconcileIntake` (the `getThread` → state re-read → `pendingInterrupts` → state re-read prefix they duplicate).
 - Lift `targetOf`, `workerFor`, `drafter`, `holdsIntakeThread`, `workerOfThread` and `journalledIntakeThreadId` out of `factory.ts` (1,500 lines) into `controller/worker-of-row.ts`.
-- The builder-manifest equivalent of Task 4's Step 3b, for Task 6: once `writeBuilderManifest` is per work order, remove `<builderManifestDir>/<id>.json` when the work order leaves `building` for a terminal state or is approved, for the same reason (the resolver reads it once, at the thread's first admission).
+- ~~The builder-manifest equivalent of Task 4's Step 3b~~: landed in Task 6.
+- One `manifestLifecycle(role)` helper shared by the drafter and the builder: today they share only the removal (`controller/manifest-files.ts`: `removeJournalledManifest`, `removeOwnManifest`), while the write-before-thread, the `*_manifest_failed` refusal and the state-exit trigger are written out twice in `factory.ts`.
+- A `serveApp` scaffold shared by `C/test/served-builder.ts` and the drafter lanes (`drafter-resolver`, `drafter-end-to-end`): each serves a private copy with `serveRuntime`, one aimock, env set before boot and restored after, and `POST /threads` with `{ factoryWorkOrderId }`.
+- The builder's target file is not a turbo `inputs` entry: its path is whatever `FACTORY_BUILDER_TARGET` says at run time (in CI, under `$RUNNER_TEMP`), which a static input glob cannot name. Only the variable is in the task's `env`, so a changed file at the same path does not invalidate a cached `check`/`build`; the one place those run with a target file (CI's sandbox-docker step) does not use the turbo cache for them.
 - Orphan `workspace_sources` rows (framework, §9).
 - A drafter gate: `denyPending` per worker is in Task 4; deny-on-block stays a follow-up.
 - `cli-flags` cannot be re-pinned past the controller move without per-pin paths; devkit is the per-pin target.
