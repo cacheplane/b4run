@@ -349,6 +349,12 @@ export interface B4ToolDefinition {
     },
   ) => Promise<unknown> | unknown
   readonly schema?: unknown
+  /**
+   * End the run on this tool's result instead of handing control back to the
+   * model for another turn. For an agent whose answer is what the tool
+   * produced, this skips a model turn whose only job would be to say so.
+   */
+  readonly returnDirect?: boolean
 }
 
 export interface PromptFragment {
