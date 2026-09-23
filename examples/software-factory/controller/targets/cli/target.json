@@ -146,6 +146,16 @@
     "packages/cli/tsconfig.build.json",
     "packages/config-typescript"
   ],
+  "draftingNotes": [
+    "A route is a directory under the app's `src/app/` holding an `index.ts`; its route id is that path (`src/app/noop/index.ts` is `/noop`). Discovery lives in `packages/core/src/discovery/discover-routes.ts`.",
+    "A route `index.ts` must export exactly one of `agent`, `workflow`, `graph` or `chain` (or `export default agent(...)`); a module whose only export is a default function fails route discovery with `B4_E1007` (no recognisable export).",
+    "A plain async function is a valid entry: `export const workflow = async (input, ctx) => ({ ok: true })`; the cli's tests also use `export const graph = async (input) => ...`.",
+    "A run names its route as `<route id>#<export name>`: `/noop#workflow` for a `workflow` export, `/noop#graph` for a `graph` export.",
+    "A fixture app is a directory holding `package.json` (`{ \"name\": \"fixture\", \"type\": \"module\" }`; without `\"type\": \"module\"` the app is refused with `B4_E1006`), `b4.config.ts` (`export default {}`) and `src/app/<name>/index.ts`; the cli's tests create it under `os.tmpdir()` with `mkdtemp`.",
+    "The cli's tests serve the app with `const handler = await createRuntimeFetchHandler({ appRoot })` (a check imports it from `packages/cli/dist/runtime-exports.js`), send requests with `await handler.fetch(new Request(\"http://localhost/...\", ...))`, and finish with `await handler.close()`.",
+    "`POST /threads/<thread id>/runs/wait` with the JSON body `{ \"input\": {}, \"route\": \"/noop#workflow\" }` runs the route; with no thread-access policy in `b4.config.ts` the thread is created on first use, so no separate create request is needed.",
+    "Worked examples at this pin: `packages/cli/test/boot-instance-passthrough.test.ts` (`fixtureApp`, `runsWait`) and `packages/cli/test/run-cancellation.test.ts` (`setupBlockingRoute`, `runWaitRequest`)."
+  ],
   "resources": {
     "memoryMb": 1536,
     "cpus": 2,

@@ -16,6 +16,14 @@ export interface SuiteEvent {
    */
   readonly failure?: string
   /**
+   * On a `test:fail`, the first line of what the failure said, ANSI-stripped and bounded to
+   * {@link FAILURE_MESSAGE_LIMIT} characters: the cause's own message for a test that failed,
+   * and for a file that failed to load, the first error line the child wrote to stderr (the
+   * runner's own message for that failure is only `test failed`). Absent when there was none.
+   * A refusal quotes it so a redraft is told what actually happened, not just its code.
+   */
+  readonly message?: string
+  /**
    * Present (and true) only for a `test.skip` / `test.todo` event. node:test reports a todo
    * test that fails as a `test:fail` that does not fail the run: it proves nothing.
    */
@@ -37,6 +45,33 @@ export interface RawEvent {
   readonly todo: boolean
   /** See {@link SuiteEvent.failure}; null or absent when the runner gave none. */
   readonly failure?: string | null
+  /** See {@link SuiteEvent.message}; raw, before {@link failureMessageLine} trims it. */
+  readonly message?: string | null
+}
+
+/** The most of a failure's message a {@link SuiteEvent} keeps. */
+export const FAILURE_MESSAGE_LIMIT = 300
+
+// CSI and OSC escape sequences: colour codes a runner or a thrown message may carry.
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching escape sequences is the point
+const ANSI = /\u001b(?:\[[0-9;?]*[ -/]*[@-~]|\][^\u0007\u001b]*(?:\u0007|\u001b\\))/g
+
+/**
+ * The first non-empty line of a failure message, ANSI-stripped, whitespace-trimmed and
+ * bounded to {@link FAILURE_MESSAGE_LIMIT} characters (an ellipsis marks a cut), or null when
+ * nothing is left. One line because a refusal reason is one line.
+ */
+export function failureMessageLine(message: string | null | undefined): string | null {
+  if (typeof message !== "string") return null
+  const line = message
+    .replace(ANSI, "")
+    .split(/\r?\n/)
+    .map((part) => part.trim())
+    .find((part) => part.length > 0)
+  if (line === undefined) return null
+  return line.length > FAILURE_MESSAGE_LIMIT
+    ? `${line.slice(0, FAILURE_MESSAGE_LIMIT - 1)}\u2026`
+    : line
 }
 
 /**
@@ -70,15 +105,19 @@ export function gradeNodeTestEvents(
   const sawFailure = events.some((event) => event.type === "test:fail")
   return {
     verdict: passed ? "pass" : sawFailure ? "fail" : "inconclusive",
-    events: events.map((event) => ({
-      type: event.type,
-      name: event.name,
-      ...(typeof event.failure === "string" && event.failure.length > 0
-        ? { failure: event.failure }
-        : {}),
-      ...(event.skip ? { skip: true as const } : {}),
-      ...(event.todo ? { todo: true as const } : {}),
-    })),
+    events: events.map((event) => {
+      const message = event.type === "test:fail" ? failureMessageLine(event.message) : null
+      return {
+        type: event.type,
+        name: event.name,
+        ...(typeof event.failure === "string" && event.failure.length > 0
+          ? { failure: event.failure }
+          : {}),
+        ...(message !== null ? { message } : {}),
+        ...(event.skip ? { skip: true as const } : {}),
+        ...(event.todo ? { todo: true as const } : {}),
+      }
+    }),
   }
 }
 
@@ -244,13 +283,26 @@ const { run } = require('node:test')
 ;(async () => {
   const events = []
   let output = ''
+  let stderr = ''
+  // A file that fails to load is reported as 'test failed' with no cause: what went wrong is
+  // only in the child's stderr, so its first error line stands in for the message. One file
+  // runs, so its stderr is all of it (the events name that file relative and absolute).
+  const loadError = () => {
+    const text = stderr.replace(/\\u001b\\[[0-9;?]*[ -\\/]*[@-~]/g, '')
+    const line = text.split('\\n').find((l) => /^\\s*[A-Za-z]*(?:Error|Exception)\\b[^:\\n]*:\\s*\\S/.test(l))
+    return line ?? null
+  }
   for await (const event of run({ files: [${JSON.stringify(suite.file)}], execArgv: ${JSON.stringify([...target.commands.nodeTestExecArgv])}, concurrency: 1 })) {
     if (event.type === 'test:pass' || event.type === 'test:fail') {
-      const cause = event.type === 'test:fail' ? event.data.details?.error?.cause : undefined
+      const error = event.type === 'test:fail' ? event.data.details?.error : undefined
+      const cause = error?.cause
       const failure = cause && typeof cause === 'object' ? (typeof cause.code === 'string' ? cause.code : typeof cause.name === 'string' ? cause.name : null) : null
-      events.push({ type: event.type, name: event.data.name, skip: !!event.data.skip, todo: !!event.data.todo, failure })
+      const raw = cause && typeof cause === 'object' ? (typeof cause.message === 'string' ? cause.message : null) : event.type === 'test:fail' ? (loadError() ?? (typeof cause === 'string' && cause !== 'test failed' ? cause : null)) : null
+      const message = typeof raw === 'string' ? raw.slice(0, 4096) : null
+      events.push({ type: event.type, name: event.data.name, skip: !!event.data.skip, todo: !!event.data.todo, failure, message })
     }
     if (event.type === 'test:stdout' || event.type === 'test:stderr') output += event.data.message
+    if (event.type === 'test:stderr' && stderr.length < 65536) stderr += event.data.message
   }
   process.stdout.write(JSON.stringify({ events, output }))
 })().catch((error) => { console.error(error); process.exitCode = 1 })

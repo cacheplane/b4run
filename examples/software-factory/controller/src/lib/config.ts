@@ -150,6 +150,7 @@ const EnvSchema = z.object({
   FACTORY_APPROVAL_TTL_MS: positiveInt("FACTORY_APPROVAL_TTL_MS"),
   FACTORY_MAX_ACTIVE_MS: positiveInt("FACTORY_MAX_ACTIVE_MS"),
   FACTORY_MAX_CHANGED_BYTES: positiveInt("FACTORY_MAX_CHANGED_BYTES"),
+  FACTORY_MAX_INTAKE_ATTEMPTS: positiveInt("FACTORY_MAX_INTAKE_ATTEMPTS"),
   /** The drafter pair: set both or neither. */
   FACTORY_DRAFTER_URL: httpUrl("FACTORY_DRAFTER_URL").optional(),
   FACTORY_DRAFTER_APP_ROOT: z.string().min(1).optional(),
@@ -191,6 +192,11 @@ export interface FactoryConfig {
   readonly approvalTtlMs: number
   readonly maxActiveMs: number
   readonly maxChangedBytes: number
+  /**
+   * Drafter turns an issue intake may spend before it blocks: fixed on the row at create,
+   * like `maxActiveMs`, so a restart with another value leaves existing work orders alone.
+   */
+  readonly maxIntakeAttempts: number
   /**
    * The drafter's sandbox image: with the fixed scope, the identity of the provider that
    * addresses a drafter thread's workspace. Must equal what the drafter app booted with
@@ -368,6 +374,7 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
     approvalTtlMs: e.FACTORY_APPROVAL_TTL_MS ?? 900_000,
     maxActiveMs: e.FACTORY_MAX_ACTIVE_MS ?? 1_200_000,
     maxChangedBytes: e.FACTORY_MAX_CHANGED_BYTES ?? 1024 * 1024,
+    maxIntakeAttempts: e.FACTORY_MAX_INTAKE_ATTEMPTS ?? 2,
     drafterImage: e.FACTORY_DRAFTER_IMAGE,
   }
 }

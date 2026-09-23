@@ -225,7 +225,7 @@ describe("assembleReceipt in independentOnly mode", () => {
     expect(decided.verdict).toBe("inconclusive")
     expect(summary(decided)).toEqual(["independent:inconclusive"])
     expect(decided.checks[0]?.evidence).toMatch(
-      /^inconclusive: failures outside the named assertions prove nothing \(the file may not have loaded\): "checks\/runs-wait\.test\.ts" \(no cause\)\n/,
+      /^inconclusive: the check file failed to load \("checks\/runs-wait\.test\.ts"\): no error message was reported; no named test ran, so it proves nothing\n/,
     )
     expect(decided.checks[0]?.evidence).toContain("Cannot find module")
   })
@@ -235,7 +235,9 @@ describe("assembleReceipt in independentOnly mode", () => {
     expect(alone(session({ result: suite("fail", "", [extra]) })).verdict).toBe("inconclusive")
     const both = alone(session({ result: suite("fail", "", [assertionFailed(), extra]) }))
     expect(both.verdict).toBe("inconclusive")
-    expect(both.checks[0]?.evidence).toContain('"setup" (ERR_ASSERTION)')
+    expect(both.checks[0]?.evidence).toContain(
+      '"setup" failed with ERR_ASSERTION, but it is not a named assertion',
+    )
   })
 
   it("never reads a todo or skipped test's failure as the proving assertion", () => {
@@ -246,7 +248,7 @@ describe("assembleReceipt in independentOnly mode", () => {
       const decided = alone(session({ result: suite("fail", "", [marked]) }))
       expect(decided.verdict).toBe("inconclusive")
       expect(decided.checks[0]?.evidence).toContain(
-        `"A1" (ERR_ASSERTION, ${"todo" in flag ? "todo" : "skip"})`,
+        `"A1" failed with ERR_ASSERTION, but it is marked ${"todo" in flag ? "todo" : "skip"}`,
       )
       // Beside a real failing assertion, the real one still proves.
       expect(
@@ -260,10 +262,58 @@ describe("assembleReceipt in independentOnly mode", () => {
     const decided = alone(session({ result: suite("fail", "", [threw]) }))
     expect(decided.verdict).toBe("inconclusive")
     expect(decided.checks[0]?.evidence).toMatch(
-      /^inconclusive: no named assertion failed by assertion \(ERR_ASSERTION\): "A1" \(TypeError\)/,
+      /^inconclusive: "A1" failed with TypeError, not an assertion failure: the check must reach the behaviour and fail on an assert\n/,
     )
     // With no events at all a failure is still not a named assertion failing.
     expect(alone(session({ result: suite("fail", "") })).verdict).toBe("inconclusive")
+  })
+
+  it("quotes each failure's code and message, one line, as attempt 4's refusal should have", () => {
+    // Attempt 4: the check's fixture route exported a default function, so the runtime threw
+    // B4_E1007 before the check reached the behaviour. The refusal must say so, not read as
+    // if A1 failed by assertion.
+    const name =
+      "A1: POST /threads/:id/runs/wait returns HTTP 200 and a JSON body (not a 500) when the route's entry returns undefined."
+    const decided = assembleReceipt({
+      visible: null,
+      mode: "independentOnly",
+      acceptanceIds: { visible: [], independent: [name, "A2: y"] },
+      independent: session({
+        result: suite("fail", "stderr\n", [
+          {
+            type: "test:fail",
+            name,
+            failure: "B4_E1007",
+            message:
+              "Route entry /tmp/b4run-test-x/src/app/noop/index.ts has no recognisable export (found: default).",
+          },
+          { type: "test:fail", name: "A2: y", failure: "ERR_ASSERTION", todo: true },
+        ]),
+      }),
+    })
+    expect(decided.verdict).toBe("inconclusive")
+    const [first, ...rest] = (decided.checks[0]?.evidence ?? "").split("\n")
+    expect(first).toBe(
+      'inconclusive: A1 failed with B4_E1007 ("Route entry /tmp/b4run-test-x/src/app/noop/index.ts has no recognisable export (found: default)."), not an assertion failure: the check must reach the behaviour and fail on an assert; A2 failed with ERR_ASSERTION, but it is marked todo: a todo test proves nothing',
+    )
+    expect(rest.join("\n")).toBe("stderr\n")
+  })
+
+  it("says a check file failed to load, with the error line the runner saw", () => {
+    const decided = alone(
+      session({
+        result: suite("fail", "", [
+          {
+            type: "test:fail",
+            name: "checks/runs-wait.test.ts",
+            message: "Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/workspace/dist/x.js'",
+          },
+        ]),
+      }),
+    )
+    expect(decided.checks[0]?.evidence.split("\n")[0]).toBe(
+      `inconclusive: the check file failed to load ("checks/runs-wait.test.ts"): Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/workspace/dist/x.js'; no named test ran, so it proves nothing`,
+    )
   })
 
   it("proves a named assertion failing by assertion, beside named tests that threw", () => {

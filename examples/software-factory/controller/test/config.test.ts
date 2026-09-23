@@ -319,6 +319,15 @@ describe("rung 1 configuration", () => {
     expect(Object.keys(stale)).not.toContain("intakeTaskId")
   })
 
+  it("defaults intake attempts to 2, takes a positive integer, and refuses anything else", () => {
+    expect(loadConfig(base).maxIntakeAttempts).toBe(2)
+    expect(loadConfig({ ...base, FACTORY_MAX_INTAKE_ATTEMPTS: "4" }).maxIntakeAttempts).toBe(4)
+    for (const bad of ["0", "-1", "1.5", "two"])
+      expect(() => loadConfig({ ...base, FACTORY_MAX_INTAKE_ATTEMPTS: bad })).toThrow(
+        /FACTORY_MAX_INTAKE_ATTEMPTS/,
+      )
+  })
+
   it("rejects a non-positive byte cap", () => {
     expect(() => loadConfig({ ...base, FACTORY_MAX_CHANGED_BYTES: "0" })).toThrow(
       /FACTORY_MAX_CHANGED_BYTES/,

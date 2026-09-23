@@ -2,8 +2,22 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { intakePrompt, preparedTargets, ROOT_RULE, targetLine } from "../src/lib/prompts.ts"
-import { loadTarget, loadTargetIds, targetsDir, tasksDir } from "../src/lib/targets/catalog.ts"
+import {
+  intakePrompt,
+  preparedTargets,
+  ROOT_RULE,
+  targetLine,
+  targetNotes,
+} from "../src/lib/prompts.ts"
+import {
+  environmentIdentity,
+  imageTag,
+  loadTarget,
+  loadTargetIds,
+  TargetSchema,
+  targetsDir,
+  tasksDir,
+} from "../src/lib/targets/catalog.ts"
 import { shippedPin } from "./temp-repo.ts"
 
 const PIN = shippedPin("devkit")
@@ -93,6 +107,49 @@ describe("intakePrompt", () => {
     expect(targetLine(loadTarget("cli-flags"))).toBe(
       `- \`cli-flags\` (root: \`${loadTarget("cli-flags").root}\`, paths start inside that directory and look like \`src/...\`; its runner configuration is fixed by the factory)`,
     )
+  })
+
+  it("renders a target's drafting notes under its line, and only its own", () => {
+    const cli = loadTarget("cli")
+    const notes = cli.draftingNotes ?? []
+    expect(notes.length).toBeGreaterThan(0)
+    const prompt = intakePrompt({ pin: shippedPin("cli"), issueText: ISSUE })
+    const block = [
+      targetLine(cli),
+      "  Notes for writing a check against `cli`:",
+      ...notes.map((note) => `  - ${note}`),
+    ].join("\n")
+    expect(prompt).toContain(`${block}\n`)
+    expect(targetNotes(cli)).toEqual(block.split("\n").slice(1))
+    // Attempt 4's check exported a default function and named `/noop#graph`: the notes say
+    // which exports discovery recognises and how the route key is spelled.
+    expect(prompt).toContain("`B4_E1007`")
+    expect(prompt).toContain("`/noop#workflow`")
+    expect(prompt).toContain("packages/cli/dist/runtime-exports.js")
+    // A target without notes renders none.
+    expect(targetNotes({ id: "x" })).toEqual([])
+    expect(targetNotes({ id: "x", draftingNotes: [] })).toEqual([])
+  })
+
+  it("keeps drafting notes out of the image: editing them needs no target:prepare", () => {
+    const cli = loadTarget("cli")
+    const edited = { ...cli, draftingNotes: ["something else entirely"] }
+    const bare = { ...cli, draftingNotes: undefined }
+    expect(imageTag(edited)).toBe(imageTag(cli))
+    expect(imageTag(bare)).toBe(imageTag(cli))
+    expect(environmentIdentity(edited)).toBe(environmentIdentity(cli))
+  })
+
+  it("bounds drafting notes: one line each, at most ten", () => {
+    const shipped = JSON.parse(readFileSync(join(targetsDir, "cli", "target.json"), "utf8"))
+    const parse = (draftingNotes: unknown) =>
+      TargetSchema.safeParse({ ...shipped, draftingNotes }).success
+    expect(parse(["one", "two"])).toBe(true)
+    expect(parse(["two\nlines"])).toBe(false)
+    expect(parse([""])).toBe(false)
+    expect(parse(Array.from({ length: 11 }, (_, i) => `note ${i}`))).toBe(false)
+    const { draftingNotes: _notes, ...without } = shipped
+    expect(TargetSchema.safeParse(without).success).toBe(true)
   })
 
   it("tells the drafter the check's contract: built artifact from the target root, a real path, real assertions", () => {

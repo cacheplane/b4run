@@ -96,7 +96,19 @@ export function targetLine(
 }
 
 /**
- * The targets prepared AT `pin` a draft may name, one line each (`targetLine`). A
+ * A target's `draftingNotes`, as bullets nested under its `targetLine`: what only the
+ * target's own code can tell a drafter (attempt 4's check wrote a route with a default export,
+ * which the runtime refused as `B4_E1007` before the check reached the behaviour).
+ */
+export function targetNotes(target: Pick<Target, "id" | "draftingNotes">): string[] {
+  const notes = target.draftingNotes ?? []
+  if (notes.length === 0) return []
+  return [`  Notes for writing a check against \`${target.id}\`:`, ...notes.map((n) => `  - ${n}`)]
+}
+
+/**
+ * The targets prepared AT `pin` a draft may name, one line each (`targetLine`), each
+ * followed by its drafting notes (`targetNotes`). A
  * target the catalog cannot load there (no image at the pin: nobody has run
  * `target:prepare <id> --pin <pin>` on this machine) is left out rather than listed:
  * `parseDraft` would refuse a draft naming it, so offering it would only be offering a
@@ -110,7 +122,8 @@ export function preparedTargets(
   const lines: string[] = []
   for (const id of loadTargetIds(catalog.targetsDir)) {
     try {
-      lines.push(targetLine(loadTarget(id, { ...catalog, pin })))
+      const target = loadTarget(id, { ...catalog, pin })
+      lines.push(targetLine(target), ...targetNotes(target))
     } catch {
       // Unprepared at this pin: not something this work order's draft can name.
     }

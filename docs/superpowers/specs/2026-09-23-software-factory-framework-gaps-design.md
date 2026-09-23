@@ -489,3 +489,41 @@ Appended as the live replay of #714 runs.
     them until someone noticed. A follow-up: a sweep, on drafter (and builder)
     startup, of the provider scope's containers whose thread has no live run, in the same
     spirit as finding 7's startup rule for `busy` threads.
+18. **Attempt 4 ran end to end through the oracle proof, and the proof refused correctly.**
+    On `wo-d05f62938d288cb4` the pipeline drafted, captured the baseline and ran the oracle
+    proof in the `cli` image (10.5 minutes). The drafted check wrote a fixture route
+    `src/app/noop/index.ts` exporting only `export default async function handler()` and ran
+    route `/noop#graph`; the runtime refused the fixture at route discovery with `B4_E1007`
+    (no recognisable export), so `A1` failed by a throw before reaching the behaviour, and the
+    proof graded it `inconclusive`. That is the rule of finding 13 doing its job.
+19. **Refusal text quality decides whether a redraft can succeed.** Attempt 4's refusal read
+    `no named assertion failed by assertion (ERR_ASSERTION): "A1: …" (B4_E1007)`: it read as
+    if A1 had failed by assertion and carried no message, so a redraft could not tell what
+    the runtime rejected. Fixed in the controller: the node-test grading keeps each failure's
+    code and the first line of its message (ANSI-stripped, 300 characters at most; for a file
+    that fails to load, the first error line of its stderr), and the refusal says, per failing
+    test, `A1 failed with B4_E1007 ("Route entry … has no recognisable export (found:
+    default)."), not an assertion failure: the check must reach the behaviour and fail on an
+    assert`, or `the check file failed to load (…): <error line>`. The drafter's retry prompt
+    quotes that line.
+20. **Project knowledge a drafter lacks belongs to the target.** How a route exports its
+    entry, how a run names its route (`/noop#workflow`), and which helper the package's own
+    tests drive the runtime with are facts about the target's code, not about one issue, and
+    a drafter should not have to rediscover them from 3,000-line files each attempt. Targets
+    now carry optional `draftingNotes` (at most ten one-line facts, rendered under the
+    target's line in the intake prompt, not an image input); the `cli` target's are verified
+    against its pin. Item 5's generator should draft these notes from the package's own tests
+    (fixture helpers, route shapes, request builders) for a person to review with the rest of
+    the target.
+21. **`b4 dev` restarts on `.turbo/*.log` writes.** Running a turbo-driven command
+    (`pnpm lint`, `pnpm build`) in the repository that holds the live factory apps writes
+    each package's `.turbo/*.log` under the app roots, and the dev watcher restarts every
+    live service. Another instance of finding 4's framework item: the watcher's ignore list
+    should cover tool caches (`.turbo/`) and let an app declare its own run-time directories.
+22. **A blocked intake leaves its generated task on disk.** After the last refusal the
+    generated `tasks/<id>/` stays beside the kept refused copy under
+    `tasks/.refused/<id>/attempt-<n>/`. Acceptable: it is inert, because only
+    `approve-intake` by digest puts a generated task in front of a builder, and a blocked
+    row cannot be approved. Noted so nobody reads the directory as live. The attempt cap is
+    now `FACTORY_MAX_INTAKE_ATTEMPTS` (default 2, fixed on the row at create), so an operator
+    replaying an issue can grant a redraft more room without a code change.

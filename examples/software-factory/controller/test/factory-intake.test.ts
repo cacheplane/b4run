@@ -10,7 +10,10 @@ import { taskPrompt } from "../src/lib/prompts.ts"
 import { createCommandLog } from "../src/lib/registry/commands.ts"
 import { openRegistry } from "../src/lib/registry/db.ts"
 import { createWorkOrderStore, type WorkOrderPatch } from "../src/lib/registry/work-orders.ts"
+import { createArtifactStore } from "../src/lib/storage/artifacts.ts"
 import { configureCatalog, loadTask, resetCatalogForTests } from "../src/lib/targets/catalog.ts"
+import { assembleReceipt, evidenceRef } from "../src/lib/verification/receipt.ts"
+import type { Verifier } from "../src/lib/verification/verifier.ts"
 import { createHttpWorkerClient, type WorkerClient } from "../src/lib/worker/client.ts"
 import {
   type WorkspaceReader,
@@ -683,6 +686,61 @@ describe("intake", () => {
     expect(receipts).toHaveLength(2)
     expect(receipts[0]?.payload).toMatchObject({ verdict: "pass", proven: false })
     expect(promptOf(1)).toContain("did not fail on the unpatched baseline")
+  })
+
+  it("quotes what the check failed with in the refusal and the redraft's prompt", async () => {
+    // Attempt 4: the check's fixture route had only a default export, so A1 failed with the
+    // runtime's B4_E1007 before reaching the behaviour. The receipt is the real verifier's
+    // own decision over those events, and its evidence lands in the factory's artifact store.
+    await bootWorker()
+    const artifacts = createArtifactStore(join(dir, "artifacts"))
+    const name = "A1: runs/wait answers 200"
+    const message =
+      "Route entry /tmp/fixture/src/app/noop/index.ts has no recognisable export (found: default)."
+    const realShaped: Verifier = {
+      async verify(input) {
+        const plan = assembleReceipt({
+          visible: null,
+          mode: "independentOnly",
+          acceptanceIds: { visible: [], independent: [name] },
+          independent: {
+            build: { ok: true, output: "" },
+            tampered: false,
+            result: {
+              verdict: "fail",
+              output: "stderr\n",
+              events: [{ type: "test:fail", name, failure: "B4_E1007", message }],
+            },
+          },
+        })
+        return {
+          id: `rc-${input.workOrderId}-${Math.random().toString(36).slice(2)}`,
+          workOrderId: input.workOrderId,
+          candidateDigest: input.candidateDigest,
+          verifierIdentity: "test:real-plan",
+          policyDigest: input.policyDigest,
+          environmentIdentity: "test:none",
+          issuedAt: new Date().toISOString(),
+          verdict: plan.verdict,
+          checks: await Promise.all(
+            plan.checks.map(async (check) => ({
+              id: check.id,
+              acceptanceIds: [...check.acceptanceIds],
+              verdict: check.verdict,
+              evidence: [evidenceRef(check.id, (await artifacts.put(check.evidence)).digest)],
+            })),
+          ),
+        }
+      },
+    }
+    await bootFactory({ verifier: realShaped, maxIntakeAttempts: 2 })
+    const { id } = await intake()
+    await factory.settleIntake(id, 20_000)
+    const quoted = `A1 failed with B4_E1007 (${JSON.stringify(message)}), not an assertion failure: the check must reach the behaviour and fail on an assert`
+    expect(String(refusals(id)[0]?.payload.reason)).toBe(
+      `the drafted check did not fail on the unpatched baseline: inconclusive (independent): ${quoted}`,
+    )
+    expect(promptOf(1)).toContain(quoted)
   })
 
   it("blocks as a failed run, not a spent attempt, when the harness cannot run", async () => {

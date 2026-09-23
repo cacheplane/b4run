@@ -4,6 +4,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
+  FAILURE_MESSAGE_LIMIT,
+  failureMessageLine,
   gradeNodeTestEvents,
   gradeVitestReport,
   runBuild,
@@ -195,6 +197,42 @@ describe("gradeNodeTestEvents", () => {
     ])
   })
 
+  it("keeps a failure's message as one bounded, ANSI-free line, and only on a failure", () => {
+    const graded = gradeNodeTestEvents(
+      1,
+      [
+        {
+          ...ev("test:fail", "x"),
+          failure: "B4_E1007",
+          message:
+            "\n\u001b[31mRoute entry a.ts has no recognisable export\u001b[39m (found: default).\nA route index.ts must export ...",
+        },
+        { ...ev("test:fail", "y"), failure: "Error", message: `  ${"z".repeat(400)}  ` },
+        { ...ev("test:fail", "w"), failure: "Error", message: "\n  \n" },
+        { ...ev("test:pass", "v"), message: "ignored" },
+      ],
+      ["x", "y", "w", "v"],
+    )
+    expect(graded.events).toEqual([
+      {
+        type: "test:fail",
+        name: "x",
+        failure: "B4_E1007",
+        message: "Route entry a.ts has no recognisable export (found: default).",
+      },
+      {
+        type: "test:fail",
+        name: "y",
+        failure: "Error",
+        message: `${"z".repeat(FAILURE_MESSAGE_LIMIT - 1)}\u2026`,
+      },
+      { type: "test:fail", name: "w", failure: "Error" },
+      { type: "test:pass", name: "v" },
+    ])
+    expect(failureMessageLine(`${"z".repeat(400)}`)?.length).toBe(FAILURE_MESSAGE_LIMIT)
+    expect(failureMessageLine(null)).toBeNull()
+  })
+
   it("carries a todo or skip mark, so a todo's failure is not read as the proving one", () => {
     const graded = gradeNodeTestEvents(
       0,
@@ -242,7 +280,7 @@ describe("runNodeTestSuite against node:test", () => {
       )
       writeFileSync(
         join(cwd, "checks", "asserts.test.mjs"),
-        "import test from 'node:test'\nimport assert from 'node:assert'\ntest('A1: x', () => assert.equal(1, 2))\ntest('A2: y', () => { throw new TypeError('no') })\n",
+        "import test from 'node:test'\nimport assert from 'node:assert'\ntest('A1: x', () => assert.equal(1, 2))\ntest('A2: y', () => { throw new TypeError('no') })\ntest('A3: z', () => { const e = new Error('\\u001b[31mRoute entry noop/index.ts has no recognisable export (found: default).\\u001b[39m\\nA route index.ts must export ...'); e.code = 'B4_E1007'; throw e })\n",
       )
       const run = (file: string, assertions: string[]) =>
         runNodeTestSuite(
@@ -253,11 +291,27 @@ describe("runNodeTestSuite against node:test", () => {
         )
       const missing = await run("checks/missing.test.mjs", ["A1: x"])
       expect(missing.verdict).toBe("fail")
-      expect(missing.events).toEqual([{ type: "test:fail", name: "checks/missing.test.mjs" }])
-      const asserts = await run("checks/asserts.test.mjs", ["A1: x", "A2: y"])
+      // The runner says only "test failed" for a file that never loaded: the message is the
+      // child's own first error line from stderr.
+      expect(missing.events).toEqual([
+        {
+          type: "test:fail",
+          name: "checks/missing.test.mjs",
+          message: expect.stringMatching(
+            /^Error \[ERR_MODULE_NOT_FOUND\]: Cannot find module '.*\/dist\/nowhere\.js' imported from /,
+          ),
+        },
+      ])
+      const asserts = await run("checks/asserts.test.mjs", ["A1: x", "A2: y", "A3: z"])
       expect(asserts.events).toEqual([
-        { type: "test:fail", name: "A1: x", failure: "ERR_ASSERTION" },
-        { type: "test:fail", name: "A2: y", failure: "TypeError" },
+        { type: "test:fail", name: "A1: x", failure: "ERR_ASSERTION", message: "1 == 2" },
+        { type: "test:fail", name: "A2: y", failure: "TypeError", message: "no" },
+        {
+          type: "test:fail",
+          name: "A3: z",
+          failure: "B4_E1007",
+          message: "Route entry noop/index.ts has no recognisable export (found: default).",
+        },
       ])
       // node:test runs a todo test and reports its failure without failing the run.
       writeFileSync(
@@ -266,7 +320,13 @@ describe("runNodeTestSuite against node:test", () => {
       )
       const todo = await run("checks/todo.test.mjs", ["A1: x"])
       expect(todo.events).toEqual([
-        { type: "test:fail", name: "A1: x", failure: "ERR_ASSERTION", todo: true },
+        {
+          type: "test:fail",
+          name: "A1: x",
+          failure: "ERR_ASSERTION",
+          message: "1 == 2",
+          todo: true,
+        },
       ])
     } finally {
       rmSync(cwd, { recursive: true, force: true })

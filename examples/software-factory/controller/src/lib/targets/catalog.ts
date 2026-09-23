@@ -137,6 +137,24 @@ const TargetObjectSchema = z
       .strict(),
     /** Files the test command reads to decide what to run; every task must keep them immutable. */
     runnerConfig: z.array(relativePath).min(1),
+    /**
+     * Short facts about the target's own code that a drafter needs to write a check and cannot
+     * be expected to know: how a fixture is shaped, which export a loader recognises, which
+     * helper the package's own tests drive it with. Rendered under the target's line in the
+     * intake prompt, one bullet each. Not an image input (`imageTag` and the environment
+     * identity never read them), so editing them needs no `target:prepare`. Facts, never a
+     * solution: every drafted task for the target sees them.
+     */
+    draftingNotes: z
+      .array(
+        z
+          .string()
+          .min(1)
+          .max(400)
+          .refine((note) => !/[\r\n]/.test(note), "a drafting note is one line"),
+      )
+      .max(10)
+      .optional(),
     resources: z
       .object({
         memoryMb: z.number().int().positive(),

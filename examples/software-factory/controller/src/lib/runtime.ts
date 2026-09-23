@@ -140,6 +140,7 @@ export function createControllerRuntime(
       captureRoot,
       approvalTtlMs: config.approvalTtlMs,
       maxActiveMs: config.maxActiveMs,
+      maxIntakeAttempts: config.maxIntakeAttempts,
       maxChangedBytes: config.maxChangedBytes,
       verifier: createDockerVerifier(createArtifactStore(config.artifactsDir), {
         stagingRoot: captureRoot,

@@ -116,6 +116,13 @@ and the verification together. A budget below twice the target's verifier deadli
 journalled at `create` (`budget_below_verifier_deadline`) and refused at `dispatch`, before a
 thread is spent: the `cli` target verifies for up to an hour, so its work orders need
 `FACTORY_MAX_ACTIVE_MS=7200000` or more set on the controller before `create`.
+A target may carry `draftingNotes`: at most ten one-line facts about its own code that a
+drafter needs to write a check (how a fixture route exports its entry, how a run names its
+route, which helper the package's own tests drive it with). The intake prompt lists them under
+the target's line. They are facts true at the target's pin, never a solution, and they are not
+an image input: editing them changes no image tag or environment identity and needs no
+`target:prepare`. The `cli` target's notes are how attempt 4's check could have reached the
+behaviour instead of failing route discovery with `B4_E1007`.
 
 ## What it does not do
 
@@ -437,9 +444,16 @@ oracle**: it runs only the drafted check, with no candidate changes, against the
 baseline in the target's image, and the check must FAIL there, by a named `A<n>` assertion
 failing by assertion (`ERR_ASSERTION`). A check that passes on the defect would pass on
 anything, and one that cannot load (a wrong import, a syntax error) or fails only by a throw
-or in a test it does not name proves nothing (`inconclusive`), so either draft is refused. An invalid draft or one that is not
+or in a test it does not name proves nothing (`inconclusive`), so either draft is refused. The
+refusal quotes each failure: which test, its error code and the first line of its message
+(`A1 failed with B4_E1007 ("Route entry ... has no recognisable export (found: default)."), not
+an assertion failure: ...`), or the first error line of a check file that failed to load. An
+invalid draft or one that is not
 an oracle starts another drafter turn on the same thread with the refusal quoted; the
-attempts default to 2, and the last refusal blocks the work order. A draft naming a package
+attempts default to 2 (`FACTORY_MAX_INTAKE_ATTEMPTS`, fixed on the row at create), and the
+last refusal blocks the work order. A blocked intake's generated task stays on disk beside the
+kept refused copy; it is inert, since only an approval by digest puts a task in front of a
+builder. A draft naming a package
 with no prepared target blocks immediately (`no_target_for_package`), since no redraft can
 prepare one, and so does a draft whose target has no image at the work order's pin
 (`image_unprepared`: the prompt lists only the targets prepared at that pin, and the task's
@@ -492,6 +506,7 @@ The controller app reads:
 | `FACTORY_APPROVAL_TTL_MS` | no | Default 900000 |
 | `FACTORY_MAX_ACTIVE_MS` | no | Default 1200000; waiting on a person is not active time. Must be at least twice the target's `verifierDeadlineMs` or `dispatch` refuses (the `cli` target: 7200000) |
 | `FACTORY_MAX_CHANGED_BYTES` | no | Default 1048576; exceeding it is a `scope_violation`, never a truncation |
+| `FACTORY_MAX_INTAKE_ATTEMPTS` | no | Default 2, a positive integer: the drafter turns an issue intake may spend before its last refusal blocks it. Fixed on the row at create, like `FACTORY_MAX_ACTIVE_MS` |
 | `FACTORY_REPO_ROOT` | no | The repository the targets pin into and the wide capture is taken from; default `git rev-parse --show-toplevel` from the package. Set by the Docker-lane tests, which copy the app outside the repository. |
 
 The CLI's `create --issue` reads `FACTORY_GH` (default `gh`: the executable that answers
