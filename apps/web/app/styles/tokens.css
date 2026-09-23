@@ -86,6 +86,7 @@
      anchor scroll padding. */
   --header-h: 4.5rem;
   --ring-width: 3px;
-  --prose-max: 68ch;
+  /* ≈ 565px in Inter 16px ≈ 70 average characters; ch is the "0" width, so 68 chars of prose is well under 68ch */
+  --prose-max: 56ch;
   --column-max: 1280px;
 }

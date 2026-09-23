@@ -17,10 +17,7 @@ export function RelatedCards({ items }: RelatedCardsProps) {
       {items.map((item) => (
         <Card key={item.href} href={item.href} className="group relative px-4 py-3">
           <span className="absolute top-[17px] right-3 text-ink-muted group-hover:text-ink transition-colors">
-            <Icon
-              name="arrowUpRight"
-              className="transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
-            />
+            <Icon name="arrowRight" className="transition-transform group-hover:translate-x-0.5" />
           </span>
           <div className="pr-6">
             <div className="text-base font-semibold text-ink">{item.title}</div>

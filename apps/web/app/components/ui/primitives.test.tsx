@@ -15,6 +15,9 @@ describe("primitives", () => {
     expect(renderToStaticMarkup(<Eyebrow tone="olive">Blog</Eyebrow>)).toContain(
       'data-tone="olive"',
     )
+    expect(renderToStaticMarkup(<Eyebrow tone="tint">Essay</Eyebrow>)).toBe(
+      '<p data-ui="eyebrow" data-tone="tint">Essay</p>',
+    )
     expect(renderToStaticMarkup(<Eyebrow tone="panel">Panel</Eyebrow>)).toBe(
       '<p data-ui="eyebrow" data-tone="panel">Panel</p>',
     )

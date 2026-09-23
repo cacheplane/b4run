@@ -11,9 +11,9 @@ this page is the implementation contract.
 | --- | --- |
 | `apps/web/app/styles/tokens.css` | The `@theme` block: every colour, type, radius and shadow token. The only file that may contain a colour value (plus the Shiki theme and `lib/design-tokens.ts`). |
 | `apps/web/app/styles/base.css` | `html`/`body`, `::selection`, the global `:focus-visible` ring, `text-wrap`, the skip link. |
-| `apps/web/app/styles/prose.css` | MDX prose: headings, the reading measure, links, inline code. Unlayered so it beats Tailwind utilities on the same elements. |
-| `apps/web/app/styles/ui.css` | `[data-ui="…"]` primitives, the dark code frame, callouts, tables/tabs/steps, docs-chrome one-offs (search overlay, page-actions menu, sidebar marker), and the off-site link arrow. |
-| `apps/web/app/styles/print.css` | Print only: chrome and controls hidden, code prints as a bordered block, off-site links show their URL inline. Imported last so its `:root :is(...)` rules outrank the unlayered files. |
+| `apps/web/app/styles/prose.css` | MDX prose: headings, the reading measure, links, inline code. Lives in `@layer components`, so a Tailwind utility on the same element wins. |
+| `apps/web/app/styles/ui.css` | `[data-ui="…"]` primitives, the dark code frame, callouts, tables/tabs/steps, docs-chrome one-offs (search overlay, page-actions menu, sidebar marker), and the off-site link arrow. Lives in `@layer components`. |
+| `apps/web/app/styles/print.css` | Print only: chrome and controls hidden, code prints as a bordered block, off-site links show their URL inline. Imported last and unlayered, so its `:root :is(...)` rules outrank the `@layer components` files. |
 | `apps/web/lib/design-tokens.ts` | TS mirror of the colour roles (`COLOR`) for Satori OG images and `viewport.themeColor`, plus the Shiki foreground list. |
 | `apps/web/lib/shiki-theme.ts` | The single `paper-relay` syntax theme. |
 | `apps/web/lib/design-system-checks.ts` | The `themeTokens` (parses the `@theme` block) and `contrast` (WCAG luminance ratio) helpers the test imports. |
@@ -84,18 +84,18 @@ Composite tokens: `text-eyebrow` (12px/1.6, 500, 0.07em, mono, uppercase),
 
 `--radius-*` and `--shadow-*` are reset to `initial`: corners are square and
 nothing casts a shadow. The only curves are the relay dots (`border-radius: 50%`).
-`:root` holds `--header-h 4.5rem`, `--ring-width 3px`, `--prose-max 68ch`,
+`:root` holds `--header-h 4.5rem`, `--ring-width 3px`, `--prose-max 56ch`,
 `--column-max 1280px`.
 
 ## Primitives
 
 | Component | Markup | Variants |
 | --- | --- | --- |
-| `Eyebrow` | `<p\|span data-ui="eyebrow" data-tone>` | tone `muted` (default), `olive`, `panel`; `as="p"` (default) or `"span"` where a `<p>` is invalid |
+| `Eyebrow` | `<p\|span data-ui="eyebrow" data-tone>` | tone `muted` (default), `olive`, `tint` (on relay-tint), `panel`; `as="p"` (default) or `"span"` where a `<p>` is invalid |
 | `Button` | `<button\|a data-ui="button" data-variant data-size>` | `primary` (relay fill, ink border), `secondary` (ink border), `ghost`; `size="sm"` mono. Forwards the rest of the anchor or button attributes. |
 | `SiteLink` | `next/link` or a plain `<a>` | `http(s)://` hrefs get `target="_blank" rel="noopener noreferrer"`; `mailto:`, `download`, or a caller-supplied `target` render a plain `<a>` with no injected target. Never writes ↗. |
 | `Card` | `<a\|div data-ui="card">` | Link cards get the relay-tint hover. |
-| `Icon` | `<svg data-ui="icon" data-size>` | names: `copy`, `check`, `search`, `menu`, `close`, `arrowUpRight`, `chevronDown`; `sm` 16px (default), `md` 20px, stroke 1.5 |
+| `Icon` | `<svg data-ui="icon" data-size>` | names: `copy`, `check`, `search`, `menu`, `close`, `arrowUpRight`, `arrowRight`, `chevronDown`; `sm` 16px (default), `md` 20px, stroke 1.5 |
 | `CopyCommand` | `<div data-ui="copy-command" data-variant>` | `light`, `dark` |
 | `data-ui="nav-item"` | docs sidebar / mobile nav / TOC links | active = tint + ink left border + 600 |
 | `data-ui="icon-button"` | 44px icon controls | |
@@ -108,7 +108,7 @@ nothing casts a shadow. The only curves are the relay dots (`border-radius: 50%`
 - Relay is a fill. Text on paper is ink, ink-muted or olive; on the panel it may be panel-accent.
 - ↗ means off-site. It is drawn by `a[href^="http"]::after` in `ui.css` (and, in print, spelled out as the URL by `print.css`); markup never contains the glyph. Icon-only links add `data-no-arrow`.
 - One eyebrow (`Eyebrow`), one focus ring (`:focus-visible` in base.css; the dark code frame restates `--color-focus` to `panel-accent`), one link style in prose (ink text, olive underline, 2px on hover).
-- Prose text stops at `--prose-max` (68ch); code, tables, tabs and card grids keep the column.
+- Prose text stops at `--prose-max` (56ch ≈ 565px ≈ 70 average characters; `ch` is the "0" width, so 68 characters of prose is well under 68ch); code, tables, tabs and card grids keep the column.
 - Inline code inside a table never wraps; the table scrolls.
 - No hex outside `tokens.css`, `shiki-theme.ts`, `design-tokens.ts` and the OG routes.
 

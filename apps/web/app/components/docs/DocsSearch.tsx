@@ -164,13 +164,7 @@ export function DocsSearch({ index }: Props) {
                   aria-label="Search docs"
                   className="flex-1 bg-transparent text-ink placeholder:text-ink-muted text-sm"
                 />
-                <button
-                  type="button"
-                  onClick={close}
-                  aria-label="Close search"
-                  data-ui="kbd"
-                  className="hover:text-ink"
-                >
+                <button type="button" onClick={close} aria-label="Close search" data-ui="kbd">
                   ESC
                 </button>
               </div>

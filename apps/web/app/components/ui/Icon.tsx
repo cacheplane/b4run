@@ -22,6 +22,12 @@ const GLYPHS = {
       <polyline points="7 7 17 7 17 17" />
     </>
   ),
+  arrowRight: (
+    <>
+      <path d="M5 12h14" />
+      <path d="m13 6 6 6-6 6" />
+    </>
+  ),
   chevronDown: <path d="m6 9 6 6 6-6" />,
 } satisfies Record<string, ReactNode>
 

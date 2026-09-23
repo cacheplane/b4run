@@ -23,7 +23,7 @@ export function FeaturedPostCard({ post }: { readonly post: Post }) {
       href={`/blog/${encodeURIComponent(post.slug)}`}
       className={`${styles.card} ${styles.featured}`}
     >
-      <Eyebrow tone="olive">Essay · {post.readingTimeMinutes} min read</Eyebrow>
+      <Eyebrow tone="tint">Essay · {post.readingTimeMinutes} min read</Eyebrow>
       <h2 className="text-h2 mt-2 mb-2">{post.title}</h2>
       <p className="text-base mb-4 leading-relaxed">{post.description}</p>
       <div className="text-xs">

@@ -10,7 +10,8 @@ const CSS = readFileSync(
 
 describe("responsive inline code", () => {
   it("never forces inline code onto one line", () => {
-    const baseRule = /^\.mdx-inline-code\s*{([^}]*)}/m.exec(CSS)?.[1]
+    // prose.css lives in @layer components, so every rule is indented one level.
+    const baseRule = /^ *\.mdx-inline-code\s*{([^}]*)}/m.exec(CSS)?.[1]
 
     expect(baseRule).toBeDefined()
     expect(baseRule).not.toMatch(/white-space:\s*nowrap/)
@@ -18,7 +19,10 @@ describe("responsive inline code", () => {
 
   it("wraps inline code below 48rem while preserving block-code behavior", () => {
     // prose.css has several 47.999rem media blocks; take the one about inline code.
-    const mediaRule = [...CSS.matchAll(/@media\s*\(max-width:\s*47\.999rem\)\s*{([\s\S]*?)\n}/g)]
+    // A block closes at the layer indent (two spaces); nested rules close deeper.
+    const mediaRule = [
+      ...CSS.matchAll(/@media\s*\(max-width:\s*47\.999rem\)\s*{([\s\S]*?)\n {2}}/g),
+    ]
       .map((m) => m[1])
       .find((body) => body?.trimStart().startsWith(".mdx-inline-code"))
 

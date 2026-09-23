@@ -1,10 +1,10 @@
 import type { ReactNode } from "react"
 
-type Tone = "muted" | "olive" | "panel"
+type Tone = "muted" | "olive" | "tint" | "panel"
 
 interface EyebrowProps {
   readonly children: ReactNode
-  /** muted on paper (default), olive for a highlighted label, panel on the dark panel. */
+  /** muted on paper (default), olive for a highlighted label, tint (relay-ink) on a relay-tint surface, panel on the dark panel. */
   readonly tone?: Tone
   /** Optional; `string | undefined` so a CSS-module lookup can be passed straight through. */
   readonly className?: string | undefined
