@@ -1,39 +1,18 @@
-.blog {
-  --color-page: #f5f4f0;
-  --color-surface: #efeee8;
-  --color-surface-sunk: #e8e8df;
-  --color-ink: #111111;
-  --color-ink-muted: #55594f;
-  --color-ink-dim: #62665b;
-  --color-divider: #d6d6cc;
-  --color-accent-saas: #52610f;
-  --color-accent-saas-soft: #e6eccf;
-  background: #f5f4f0;
-  color: #111111;
-}
-.blog :is(h1, h2, h3, h4) {
-  font-family: var(--font-inter), sans-serif;
-  font-variation-settings: normal;
-}
-.blog :focus-visible {
-  outline: 3px solid #667811;
-  outline-offset: 4px;
-}
 .card {
   display: block;
   padding: 28px;
-  border: 1px solid #d6d6cc;
-  background: #f5f4f0;
+  border: 1px solid var(--color-rule);
+  background: var(--color-page);
 }
 .card:hover {
-  border-color: #667811;
-  background: #efeee8;
+  border-color: var(--color-rule-strong);
+  background: var(--color-relay-tint);
 }
 .featured {
   padding: 36px;
   margin-bottom: 24px;
-  border-left: 4px solid #b4ce37;
-  background: #e9eddb;
+  border-left: 4px solid var(--color-relay);
+  background: var(--color-relay-tint);
 }
 /* Block-level so the badge is exactly as tall as the essay eyebrow (16px) and
    titles in the same card row line up. */
@@ -41,34 +20,35 @@
   display: block;
   width: fit-content;
   font:
-    11px / 12px var(--font-jetbrains-mono),
+    11px / 12px var(--font-mono),
     monospace;
   padding: 2px 8px;
-  background: #e6eccf;
-  color: #354007;
+  background: var(--color-relay-tint);
+  color: var(--color-relay-ink);
 }
 .chip {
   display: inline-flex;
   align-items: center;
   min-height: 44px;
   padding: 8px 12px;
-  border: 1px solid #d6d6cc;
-  color: #55594f;
+  border: 1px solid var(--color-rule);
+  color: var(--color-ink-muted);
   font-size: 12px;
 }
 .chip:hover {
-  border-color: #667811;
-  color: #111;
+  border-color: var(--color-ink);
+  color: var(--color-ink);
 }
 .active {
-  background: #b4ce37;
-  color: #111;
-  border-color: #667811;
+  background: var(--color-relay);
+  color: var(--color-ink);
+  border-color: var(--color-ink);
 }
 .cta {
   padding: 64px 0;
-  background: #17181b;
-  color: #f5f4f0;
+  background: var(--color-panel);
+  color: var(--color-panel-ink);
+  --color-focus: var(--color-panel-accent);
 }
 /* Same column as the blog index (max-w-[960px] px-6 md:px-8). */
 .ctaInner {
@@ -83,14 +63,14 @@
 }
 .cta h2 {
   font:
-    600 clamp(32px, 5vw, 56px) / 1.1 var(--font-inter),
+    600 clamp(32px, 5vw, 56px) / 1.1 var(--font-sans),
     sans-serif;
   letter-spacing: -0.04em;
 }
 .cta p {
   margin: 20px 0;
   max-width: 55ch;
-  color: #c3c6bb;
+  color: var(--color-panel-muted);
 }
 .ctaLinks {
   display: flex;
@@ -104,6 +84,7 @@
   align-items: center;
   text-decoration: underline;
   text-underline-offset: 4px;
+  text-decoration-color: var(--color-panel-accent);
 }
 @media (max-width: 600px) {
   .card,

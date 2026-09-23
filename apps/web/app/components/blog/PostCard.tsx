@@ -23,7 +23,7 @@ export function PostCard({ post }: { readonly post: Post }) {
       )}
       <h3 className="text-lg font-semibold text-ink mt-2 mb-1 leading-snug">{post.title}</h3>
       <p className="text-sm text-ink-muted leading-relaxed mb-3">{post.description}</p>
-      <div className="text-xs text-ink-dim">{formatDate(post.date)}</div>
+      <div className="text-xs text-ink-muted">{formatDate(post.date)}</div>
     </Link>
   )
 }

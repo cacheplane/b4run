@@ -24,30 +24,22 @@ export function PostHeader({ post }: { readonly post: Post }) {
     url: "https://github.com/blove",
   }
   return (
-    <header className="mb-8 pb-8 border-b border-divider">
+    <header className="mb-8 pb-8 border-b border-rule">
       <div className="mb-2">
-        <Eyebrow tone="accent">{eyebrow}</Eyebrow>
+        <Eyebrow tone="olive">{eyebrow}</Eyebrow>
       </div>
-      <h1 className="text-4xl md:text-5xl font-semibold tracking-tight mb-3 text-ink">
-        {post.title}
-      </h1>
+      <h1 className="text-h1 text-ink mb-3">{post.title}</h1>
       <p className="text-lg text-ink-muted leading-relaxed">{post.description}</p>
-      <div className="text-sm text-ink-dim mt-4">{formatDate(post.date)}</div>
+      <div className="text-sm text-ink-muted mt-4">{formatDate(post.date)}</div>
 
       {/* Mobile-only: author byline + tags. Desktop sees these in the PostMeta left rail. */}
       <div className="md:hidden mt-5 flex items-center gap-3">
-        <Image
-          src={author.avatar}
-          alt={author.name}
-          width={28}
-          height={28}
-          className="rounded-full"
-        />
+        <Image src={author.avatar} alt={author.name} width={28} height={28} />
         <a
           href={author.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-sm text-ink hover:text-accent-saas transition-colors"
+          className="text-sm text-ink underline decoration-olive underline-offset-4"
         >
           {author.name}
         </a>

@@ -17,13 +17,6 @@ describe("primitives", () => {
     )
   })
 
-  // Temporary alias until the blog components migrate (Task 7); remove with it.
-  it("Eyebrow maps the legacy accent tone to olive", () => {
-    expect(renderToStaticMarkup(<Eyebrow tone="accent">Blog</Eyebrow>)).toContain(
-      'data-tone="olive"',
-    )
-  })
-
   it("Button is a <button> without href and an <a> with one", () => {
     const button = renderToStaticMarkup(<Button>Go</Button>)
     expect(button).toMatch(/^<button [^>]*type="button"/)
