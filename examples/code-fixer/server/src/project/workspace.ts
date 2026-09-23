@@ -3,7 +3,7 @@ import type { WorkspaceDefinition } from "@b4run/workspace"
 import { projectManifest } from "./catalog.js"
 
 export const appRoot = fileURLToPath(new URL("../../", import.meta.url))
-export const sandboxImage = "b4-code-fixer:fixture-v1"
+export { sandboxImage } from "./image.js"
 export const sandboxPolicy = {
   network: { mode: "deny" as const },
   env: { npm_config_cache: "/tmp/npm-cache", npm_config_update_notifier: "false" },
