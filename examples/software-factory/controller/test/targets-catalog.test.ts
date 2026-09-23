@@ -8,6 +8,7 @@ import {
   assertTaskFitsTarget,
   ChecksSchema,
   covers,
+  ensurePin,
   environmentIdentity,
   ImageUnpreparedError,
   imageTag,
@@ -126,6 +127,31 @@ function shallowClone(): { origin: string; clone: string; older: string } {
   return { origin, clone, older }
 }
 
+/**
+ * A FULL clone of an origin that then gains a commit the clone lacks: the operator's
+ * checkout, behind origin. `ensurePin` of that commit must not make it shallow.
+ */
+function fullCloneBehind(): { clone: string; newer: string } {
+  const { origin } = shallowClone()
+  const clone = mkdtempSync(join(tmpdir(), "factory-full-clone-"))
+  dirs.push(clone)
+  rmSync(clone, { recursive: true, force: true })
+  execFileSync("git", ["clone", "-q", `file://${origin}`, clone], { encoding: "utf8" })
+  const git = (...args: string[]) =>
+    execFileSync("git", ["-C", origin, ...args], { encoding: "utf8" }).trim()
+  writeFileSync(join(origin, "a.txt"), "c\n")
+  git("commit", "-q", "-a", "-m", "three")
+  return { clone, newer: git("rev-parse", "HEAD") }
+}
+
+function isShallow(root: string): boolean {
+  return (
+    execFileSync("git", ["-C", root, "rev-parse", "--is-shallow-repository"], {
+      encoding: "utf8",
+    }).trim() === "true"
+  )
+}
+
 function holdsCommit(root: string, sha: string): boolean {
   try {
     execFileSync("git", ["-C", root, "cat-file", "-e", `${sha}^{commit}`], { stdio: "ignore" })
@@ -168,6 +194,24 @@ describe("target catalog", () => {
     const target = loadTarget("t", { targetsDir: targetsDir(older), repositoryRoot: clone })
     expect(target.pin).toBe(older)
     expect(holdsCommit(clone, older)).toBe(true)
+  })
+
+  it("never makes a full clone shallow when it fetches a missing pin", () => {
+    const { clone, newer } = fullCloneBehind()
+    expect(isShallow(clone)).toBe(false)
+    expect(holdsCommit(clone, newer)).toBe(false)
+    ensurePin(clone, "t", newer)
+    expect(holdsCommit(clone, newer)).toBe(true)
+    expect(isShallow(clone)).toBe(false)
+    expect(existsSync(join(clone, ".git", "shallow"))).toBe(false)
+  })
+
+  it("fetches a missing pin into a shallow clone by sha, and it stays shallow", () => {
+    const { clone, older } = shallowClone()
+    expect(isShallow(clone)).toBe(true)
+    ensurePin(clone, "t", older)
+    expect(holdsCommit(clone, older)).toBe(true)
+    expect(isShallow(clone)).toBe(true)
   })
 
   it("refuses a missing pin without fetching when FACTORY_NO_FETCH is set", () => {

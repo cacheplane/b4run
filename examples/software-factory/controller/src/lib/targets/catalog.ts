@@ -326,7 +326,7 @@ export function ensurePin(
     `factory: pin ${pin.slice(0, 12)} for ${label} is not in the local object store; fetching it from origin\n`,
   )
   try {
-    execFileSync("git", ["-C", repo, "fetch", "--depth=1", "origin", pin], {
+    execFileSync("git", ["-C", repo, "fetch", ...pinFetchDepth(repo), "origin", pin], {
       stdio: ["ignore", "ignore", "inherit"],
       timeout: 120_000,
     })
@@ -335,6 +335,26 @@ export function ensurePin(
   }
   if (!commitExists(repo, pin))
     throw new Error(`${missing} (fetching it from origin also failed: the fetch did not add it)`)
+}
+
+/**
+ * `--depth=1` only for a checkout that is already shallow (CI's): there it fetches the one
+ * commit and nothing else. On a full clone the same flag would make the clone shallow
+ * (`.git/shallow`, shared by every linked worktree, truncating history for all of them), and
+ * a plain fetch of a full clone is already incremental. A probe that fails reads as full: the
+ * plain fetch is the one that cannot damage the clone.
+ */
+function pinFetchDepth(repo: string): string[] {
+  try {
+    const shallow = execFileSync("git", ["-C", repo, "rev-parse", "--is-shallow-repository"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 10_000,
+    }).trim()
+    return shallow === "true" ? ["--depth=1"] : []
+  } catch {
+    return []
+  }
 }
 
 function commitExists(repo: string, pin: string): boolean {
