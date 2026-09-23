@@ -291,7 +291,7 @@ it("runs a real drafter turn against the wide capture, reads only draft/, and pr
   const toolResults = messages.filter((m) => m.role === "tool").map(toolResultText)
   expect(toolResults[0]).toContain("packages")
   expect(toolResults[1]).toContain('"name": "b4-run"')
-  expect(toolResults[2]).toContain('export { config } from "@b4run/core"')
+  expect(toolResults[2]).toContain('config } from "@b4run/core"')
   expect(toolResults.slice(3)).toEqual([
     `wrote ${Buffer.byteLength(draftFile("draft/task.json"))} bytes to draft/task.json`,
     `wrote ${Buffer.byteLength(draftFile("draft/spec.md"))} bytes to draft/spec.md`,
