@@ -243,13 +243,16 @@ OPENAI_API_KEY=... \
 
 **3. Start the controller** (terminal 2). It is a b4 app too: its mutating commands are
 `workflow` routes, and it owns the targets, the task catalog and the registry. Its
-environment names the builder to dispatch to, where its state lives, and the builder's *app
-root* — the package whose installation store the workspace reader addresses:
+environment names the builder to dispatch to, where its state lives, the builder's *app
+root* — the package whose installation store the workspace reader addresses — and the
+builder's target file, which is how the controller knows the one target that builder serves
+(a work order of any other target is refused before anything is spent):
 
 ```bash
 FACTORY_WORKER_URL=http://127.0.0.1:4100 \
 FACTORY_STATE_DIR=$PWD/.factory \
 FACTORY_BUILDER_APP_ROOT=$PWD/examples/software-factory/server \
+FACTORY_BUILDER_TARGET=/tmp/factory-builder/devkit.target.json \
 FACTORY_BUILDER_MANIFEST_DIR=/tmp/builder-manifests \
   pnpm --filter @b4-example/software-factory-controller dev --port 4300
 ```

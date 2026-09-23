@@ -3,6 +3,7 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { type ServeRuntimeHandle, serveRuntime } from "@b4run/cli"
 import type { ControllerRuntimeOverrides } from "../src/lib/runtime.ts"
+import { writeTargetFile } from "./builder-target-file.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
@@ -35,6 +36,7 @@ const FACTORY_ENV = [
   "FACTORY_STATE_DIR",
   "FACTORY_BUILDER_APP_ROOT",
   "FACTORY_BUILDER_MANIFEST_DIR",
+  "FACTORY_BUILDER_TARGET",
   "FACTORY_DRAFTER_URL",
   "FACTORY_DRAFTER_APP_ROOT",
 ] as const
@@ -65,7 +67,7 @@ export interface ServedController {
  * asks for the Factory.
  *
  * The routes, the runtime, the middleware and the Agent Protocol endpoints are the real
- * ones, and so is the worker map (the legacy pair for the builder, the drafter pair for the
+ * ones, and so is the worker map (the legacy pair for the `cli-flags` builder, the drafter pair for the
  * drafter). The collaborators that need a container, a worker installation on disk, a
  * target checkout or the repository at a pin are the same scripted stand-ins the HTTP layer
  * uses: without them every dispatch here ends `blocked` on an unreadable workspace, which
@@ -105,6 +107,9 @@ export async function serveController(
   process.env.FACTORY_WORKER_URL = fake.baseUrl
   process.env.FACTORY_STATE_DIR = stateDir
   process.env.FACTORY_BUILDER_APP_ROOT = join(dir, "builder")
+  // The one builder serves `cli-flags`, which is every task these lanes dispatch: the
+  // controller keys the legacy pair by the target its builder's target file names.
+  process.env.FACTORY_BUILDER_TARGET = writeTargetFile(join(dir, "targets"), "cli-flags")
   process.env.FACTORY_DRAFTER_URL = drafter.baseUrl
   process.env.FACTORY_DRAFTER_APP_ROOT = join(dir, "drafter")
   // A commit the served controller's repository (this one) holds, so `intake`'s pin check

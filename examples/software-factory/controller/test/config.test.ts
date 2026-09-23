@@ -1,11 +1,18 @@
-import { readFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { DRAFTER_IMAGE, loadConfig, workerEndpointFor } from "../src/lib/config.ts"
+import { writeTargetFile } from "./builder-target-file.ts"
+
+const targets = mkdtempSync(join(tmpdir(), "factory-config-targets-"))
+const cliFlagsTarget = writeTargetFile(targets, "cli-flags")
 
 const base = {
   FACTORY_WORKER_URL: "http://127.0.0.1:4100",
   FACTORY_STATE_DIR: "/tmp/state",
   FACTORY_BUILDER_APP_ROOT: "/tmp/builder",
+  FACTORY_BUILDER_TARGET: cliFlagsTarget,
 }
 
 describe("loadConfig", () => {
@@ -14,9 +21,10 @@ describe("loadConfig", () => {
     expect(config.approvalTtlMs).toBe(900_000)
     expect(config.maxActiveMs).toBe(1_200_000)
     expect(config.registryPath).toBe("/tmp/state/registry.sqlite")
-    // The legacy pair is the wildcard entry: one builder for every target, on the default route.
+    // The legacy pair is ONE entry, keyed by the target its builder's target file names, on
+    // the default route.
     expect(config.workers).toEqual({
-      "*": {
+      "cli-flags": {
         url: "http://127.0.0.1:4100",
         appRoot: "/tmp/builder",
         route: "/build#agent",
@@ -41,6 +49,41 @@ describe("loadConfig", () => {
     expect(() => loadConfig(withoutBuilderRoot)).toThrow(/FACTORY_BUILDER_APP_ROOT is required/)
     const { FACTORY_WORKER_URL: _url, ...withoutUrl } = base
     expect(() => loadConfig(withoutUrl)).toThrow(/FACTORY_WORKER_URL is required/)
+  })
+})
+
+describe("the legacy pair's target", () => {
+  it("is required: the controller must know which target the one builder serves", () => {
+    const { FACTORY_BUILDER_TARGET: _omitted, ...without } = base
+    expect(() => loadConfig(without)).toThrow(
+      /FACTORY_BUILDER_TARGET is required with FACTORY_WORKER_URL/,
+    )
+  })
+
+  it("is read from the builder's own target file, and refused by name when it cannot be", () => {
+    expect(
+      Object.keys(
+        loadConfig({ ...base, FACTORY_BUILDER_TARGET: writeTargetFile(targets, "devkit") }).workers,
+      ),
+    ).toEqual(["devkit"])
+    expect(() =>
+      loadConfig({ ...base, FACTORY_BUILDER_TARGET: join(targets, "absent.json") }),
+    ).toThrow(/FACTORY_BUILDER_TARGET could not be read/)
+    const garbled = join(targets, "garbled.json")
+    writeFileSync(garbled, JSON.stringify({ version: 1, target: { id: "cli-flags" } }))
+    expect(() => loadConfig({ ...base, FACTORY_BUILDER_TARGET: garbled })).toThrow(
+      /FACTORY_BUILDER_TARGET is not a builder target file/,
+    )
+  })
+
+  it("routes no other target to that builder", () => {
+    const { workers } = loadConfig(base)
+    expect(workerEndpointFor(workers, "cli-flags")?.url).toBe("http://127.0.0.1:4100")
+    // No wildcard: a work order of another target has no worker, and `dispatch` refuses it
+    // before spending anything, rather than burning it on a builder that would refuse it.
+    expect(workerEndpointFor(workers, "devkit")).toBeUndefined()
+    expect(workerEndpointFor(workers, "*")).toBeUndefined()
+    expect(workerEndpointFor(workers, "constructor")).toBeUndefined()
   })
 })
 
@@ -72,22 +115,20 @@ describe("the worker map", () => {
       },
     })
     expect(workerEndpointFor(config.workers, "devkit")?.appRoot).toBe("/srv/devkit-builder")
-    // No wildcard: a target with no entry has no worker.
+    // A target with no entry has no worker.
     expect(workerEndpointFor(config.workers, "testing")).toBeUndefined()
   })
 
-  it("resolves a target through its own entry before the wildcard", () => {
-    const both = loadConfig({
-      ...mapped,
-      FACTORY_WORKERS: JSON.stringify({
-        "*": { url: "http://127.0.0.1:4100", appRoot: "/srv/any" },
-        devkit: { url: "http://127.0.0.1:4101", appRoot: "/srv/devkit" },
+  it("keys entries by target id alone: the wildcard is gone", () => {
+    // A builder process serves one target, so an entry matching several would route work
+    // orders to a builder that refuses them at admission.
+    expect(() =>
+      loadConfig({
+        ...mapped,
+        FACTORY_WORKERS: JSON.stringify({ "*": { url: "http://127.0.0.1:4100", appRoot: "/a" } }),
       }),
-    })
-    expect(workerEndpointFor(both.workers, "devkit")?.url).toBe("http://127.0.0.1:4101")
-    expect(workerEndpointFor(both.workers, "testing")?.url).toBe("http://127.0.0.1:4100")
-    expect(workerEndpointFor(loadConfig(base).workers, "anything")?.url).toBe(
-      "http://127.0.0.1:4100",
+    ).toThrow(
+      'FACTORY_WORKERS: "*" is not a target id: each entry is keyed by the one target its builder serves',
     )
   })
 
@@ -118,33 +159,39 @@ describe("the worker map", () => {
     ).toThrow(/FACTORY_WORKERS: devkit/)
   })
 
-  it("refuses two entries at one URL that name different app roots", () => {
+  it("refuses two targets on one builder process", () => {
     expect(() =>
       loadConfig({
         ...mapped,
         FACTORY_WORKERS: JSON.stringify({
           devkit: { url: "http://127.0.0.1:4101", appRoot: "/srv/a" },
-          cli: { url: "http://127.0.0.1:4101/", appRoot: "/srv/b" },
+          cli: { url: "http://127.0.0.1:4101/", appRoot: "/srv/a" },
         }),
       }),
     ).toThrow(
-      "FACTORY_WORKERS: workers devkit and cli share http://127.0.0.1:4101 but name different app roots (/srv/a, /srv/b)",
+      "FACTORY_WORKERS: workers devkit and cli share http://127.0.0.1:4101, but a builder process serves one target: run one process per target",
     )
-    // The same root at one URL is one process serving two targets: fine.
+  })
+
+  it("refuses two builder processes over one app root", () => {
+    // Two processes over one `.b4/workspaces` store would each take the other's threads for
+    // their own; each builder process is its own copy of the package.
     expect(() =>
       loadConfig({
         ...mapped,
         FACTORY_WORKERS: JSON.stringify({
-          devkit: { url: "http://127.0.0.1:4101", appRoot: "/srv/a" },
-          cli: { url: "http://127.0.0.1:4101", appRoot: "/srv/a" },
+          devkit: { url: "http://127.0.0.1:4101", appRoot: "/srv/builder" },
+          cli: { url: "http://127.0.0.1:4102", appRoot: "/srv/builder/" },
         }),
       }),
-    ).not.toThrow()
+    ).toThrow(
+      "FACTORY_WORKERS: workers devkit and cli share the app root /srv/builder/: give each builder process its own copy of the package",
+    )
   })
 
   it("refuses the map beside any legacy knob, naming the one that was set", () => {
     expect(() => loadConfig({ ...base, FACTORY_WORKERS: workers })).toThrow(
-      "FACTORY_WORKERS is set; unset FACTORY_WORKER_URL and FACTORY_BUILDER_APP_ROOT",
+      "FACTORY_WORKERS is set; unset FACTORY_WORKER_URL and FACTORY_BUILDER_APP_ROOT and FACTORY_BUILDER_TARGET",
     )
     expect(() => loadConfig({ ...mapped, FACTORY_BUILDER_APP_ROOT: "/tmp/builder" })).toThrow(
       "FACTORY_WORKERS is set; unset FACTORY_BUILDER_APP_ROOT",
@@ -152,6 +199,10 @@ describe("the worker map", () => {
     // The legacy route has nowhere to go: each entry carries its own.
     expect(() => loadConfig({ ...mapped, FACTORY_WORKER_ROUTE: "/fix#agent" })).toThrow(
       "FACTORY_WORKERS is set; unset FACTORY_WORKER_ROUTE",
+    )
+    // Nor the legacy target: each entry's key is its target.
+    expect(() => loadConfig({ ...mapped, FACTORY_BUILDER_TARGET: cliFlagsTarget })).toThrow(
+      "FACTORY_WORKERS is set; unset FACTORY_BUILDER_TARGET",
     )
   })
 
@@ -175,25 +226,9 @@ describe("the worker map", () => {
     ).toThrow(/FACTORY_WORKERS: devkit.manifestDir/)
   })
 
-  it("refuses two entries at one URL that name different manifest directories", () => {
-    // One process boots with one FACTORY_BUILDER_MANIFEST_DIR: a manifest written anywhere
-    // else is one its resolver never finds.
-    expect(() =>
-      loadConfig({
-        ...mapped,
-        FACTORY_WORKERS: JSON.stringify({
-          devkit: { url: "http://127.0.0.1:4101", appRoot: "/srv/a", manifestDir: "/m/1" },
-          cli: { url: "http://127.0.0.1:4101", appRoot: "/srv/a", manifestDir: "/m/2" },
-        }),
-      }),
-    ).toThrow(
-      "FACTORY_WORKERS: workers devkit and cli share http://127.0.0.1:4101 but name different manifest directories (/m/1, /m/2)",
-    )
-  })
-
   it("takes FACTORY_BUILDER_MANIFEST_DIR into the legacy entry, and refuses it beside the map", () => {
     expect(
-      loadConfig({ ...base, FACTORY_BUILDER_MANIFEST_DIR: "/var/manifests" }).workers["*"]
+      loadConfig({ ...base, FACTORY_BUILDER_MANIFEST_DIR: "/var/manifests" }).workers["cli-flags"]
         ?.manifestDir,
     ).toBe("/var/manifests")
     // The map's entries carry their own: a process-wide one would name nobody's directory.
@@ -202,10 +237,22 @@ describe("the worker map", () => {
     )
   })
 
-  it("takes the legacy route into the wildcard entry", () => {
-    expect(loadConfig({ ...base, FACTORY_WORKER_ROUTE: "/fix#agent" }).workers["*"]?.route).toBe(
-      "/fix#agent",
+  it("takes the legacy route into the legacy entry", () => {
+    expect(
+      loadConfig({ ...base, FACTORY_WORKER_ROUTE: "/fix#agent" }).workers["cli-flags"]?.route,
+    ).toBe("/fix#agent")
+  })
+
+  it("refuses a drafter app root that is also a builder's", () => {
+    const drafter = { FACTORY_DRAFTER_URL: "http://127.0.0.1:4200" }
+    expect(() =>
+      loadConfig({ ...base, ...drafter, FACTORY_DRAFTER_APP_ROOT: "/tmp/builder/" }),
+    ).toThrow(
+      "FACTORY_DRAFTER_APP_ROOT is worker cli-flags's app root too (/tmp/builder/): the drafter and every builder each need their own",
     )
+    expect(() =>
+      loadConfig({ ...mapped, ...drafter, FACTORY_DRAFTER_APP_ROOT: "/srv/cli-builder" }),
+    ).toThrow(/FACTORY_DRAFTER_APP_ROOT is worker cli-flags's app root too/)
   })
 })
 

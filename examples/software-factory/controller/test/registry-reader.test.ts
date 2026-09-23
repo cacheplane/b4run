@@ -15,7 +15,7 @@ import { openRegistryReader } from "../src/lib/registry/reader.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
-import { fakeWorkerMap } from "./fake-worker-map.ts"
+import { fakeWorkerMap, noopBuilderManifestWriter } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader } from "./fake-workspace-reader.ts"
 
 let dir: string
@@ -34,6 +34,7 @@ function factoryOptions(dir: string, registryPath: string): FactoryOptions {
         reader: createFakeWorkspaceReader({}),
       },
     }),
+    writeBuilderManifest: noopBuilderManifestWriter,
     exportDir: join(dir, "out"),
     artifactsDir: join(dir, "artifacts"),
     verifier: createFakeVerifier({ verdict: "pass" }),

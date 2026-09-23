@@ -10,7 +10,6 @@ import {
 import {
   BuilderManifestSchema,
   BuilderTargetSchema,
-  removeBuilderManifestFile,
   writeBuilderManifest,
   writeBuilderTarget,
 } from "../src/lib/builder-manifest.ts"
@@ -148,15 +147,16 @@ describe("builder manifest", () => {
     expect(readdirSync(dir)).toEqual([])
   })
 
-  it("removes a manifest by work order, and says whether there was one", async () => {
+  it("replaces a manifest atomically, leaving no temporary file beside it", async () => {
     const dir = tempDir("factory-manifest-")
-    const { path } = await writeBuilderManifest(loadTask("cli-flags"), dir, {
-      workOrderId: "wo-a",
-      appRoot: tempDir("factory-manifest-app-"),
-    })
-    expect(removeBuilderManifestFile(dir, "wo-a")).toBe(true)
-    expect(existsSync(path)).toBe(false)
-    expect(removeBuilderManifestFile(dir, "wo-a")).toBe(false)
+    const app = tempDir("factory-manifest-app-")
+    const task = loadTask("cli-flags")
+    await writeBuilderManifest(task, dir, { workOrderId: "wo-a", appRoot: app })
+    // A second write of the same work order (a redispatch) renames over the first: a
+    // resolver reading at that moment sees one whole file or the other.
+    await writeBuilderManifest(task, dir, { workOrderId: "wo-a", appRoot: app })
+    expect(readdirSync(dir)).toEqual(["wo-a.json"])
+    expect(existsSync(join(dir, "wo-a.json"))).toBe(true)
   })
 })
 

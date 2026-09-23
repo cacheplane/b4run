@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto"
 import { rmSync } from "node:fs"
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { captureWorkspaceDefinition } from "@b4run/workspace/node"
 import { z } from "zod"
+import { writeFileAtomic } from "./storage/atomic-file.js"
 import { captureDirectory } from "./targets/archive.js"
 import { appRoot as defaultAppRoot, ensurePin, isCatalogId } from "./targets/catalog.js"
 import { stageWideCapture } from "./targets/wide-capture.js"
@@ -121,6 +122,6 @@ export async function writeDrafterManifest(
   })
   await mkdir(dir, { recursive: true })
   const path = join(dir, `${workOrderId}.json`)
-  await writeFile(path, `${JSON.stringify(manifest)}\n`)
+  await writeFileAtomic(path, `${JSON.stringify(manifest)}\n`)
   return { path, sourceDigest: manifest.workspace.source.digest }
 }

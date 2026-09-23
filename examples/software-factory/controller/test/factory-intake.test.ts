@@ -11,14 +11,14 @@ import { createCommandLog } from "../src/lib/registry/commands.ts"
 import { openRegistry } from "../src/lib/registry/db.ts"
 import { createWorkOrderStore, type WorkOrderPatch } from "../src/lib/registry/work-orders.ts"
 import { configureCatalog, loadTask, resetCatalogForTests } from "../src/lib/targets/catalog.ts"
-import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
+import { createHttpWorkerClient, type WorkerClient } from "../src/lib/worker/client.ts"
 import {
   type WorkspaceReader,
   WorkspaceRootMissingError,
 } from "../src/lib/worker/workspace-reader.ts"
 import { createFakeVerifier, type FakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
-import { fakeWorkerMap } from "./fake-worker-map.ts"
+import { fakeWorkerMap, noopBuilderManifestWriter } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
 import { BAD_DRAFTS, GOOD_DRAFT } from "./intake-fixtures.ts"
 import { createEmptyRepo, repositoryHead } from "./temp-repo.ts"
@@ -112,9 +112,11 @@ interface BootOverrides extends Partial<Omit<FactoryOptions, "workers">> {
   readonly drafterReader?: WorkspaceReader
   /** `false`: no drafter in the map, as a controller without the drafter pair boots. */
   readonly withDrafter?: boolean
+  /** Wraps the drafter's client, e.g. to hold or fail a thread creation. */
+  readonly drafterClient?: (client: WorkerClient) => WorkerClient
 }
 async function bootFactory(overrides: BootOverrides = {}) {
-  const { drafterReader, withDrafter = true, ...rest } = overrides
+  const { drafterReader, withDrafter = true, drafterClient = (c) => c, ...rest } = overrides
   factory = await createFactory({
     registryPath: registryPath(),
     generatedTasksDir: generated,
@@ -125,13 +127,14 @@ async function bootFactory(overrides: BootOverrides = {}) {
       ...(withDrafter
         ? {
             drafter: {
-              client: createHttpWorkerClient(fake.baseUrl),
+              client: drafterClient(createHttpWorkerClient(fake.baseUrl)),
               reader: drafterReader ?? reader,
               manifestDir: manifestDir(),
             },
           }
         : {}),
     }),
+    writeBuilderManifest: noopBuilderManifestWriter,
     exportDir: join(dir, "out"),
     artifactsDir: join(dir, "artifacts"),
     verifier,
@@ -489,6 +492,47 @@ describe("intake", () => {
     expect(manifestWrites).toEqual([{ workOrderId: id, pin: PIN, dir: manifestDir() }])
     reader.set((factory.show(id) as WorkOrderRow).workerThreadId as string, GOOD_DRAFT)
     expect((await factory.settleIntake(id, 20_000)).state).toBe("awaiting_intake_approval")
+  })
+
+  it("keeps the manifest when a failed intake finds another intake's thread on the row", async () => {
+    // Two intakes under two keys: the first's thread creation hangs until the second has
+    // committed its own thread (whose manifest is the same file), then fails. The failed one
+    // must not remove the manifest the committed thread is about to be admitted with.
+    let release!: () => void
+    const released = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let calls = 0
+    await bootWorker({ run: "hang" })
+    await bootFactory({
+      drafterClient: (client) => ({
+        ...client,
+        createThread: async (metadata) => {
+          calls += 1
+          if (calls === 1) {
+            await released
+            throw new Error("drafter down")
+          }
+          return client.createThread(metadata)
+        },
+      }),
+    })
+    const { id } = await createIssue()
+    const first = factory.intake(id, "intake-a")
+    await factory.waitFor(id, () => calls === 1)
+    expect(await factory.intake(id, "intake-b")).toMatchObject({ ok: true })
+    const holder = (factory.show(id) as WorkOrderRow).workerThreadId
+    release()
+    expect(await first).toMatchObject({
+      ok: false,
+      message: expect.stringContaining("drafter down"),
+    })
+    expect(existsSync(manifestPath(id))).toBe(true)
+    expect(factory.events(id).find((e) => e.type === "drafter_manifest_kept")?.payload).toEqual({
+      threadId: holder,
+    })
+    expect(eventSeen(id, "drafter_manifest_removed")).toBe(false)
+    await factory.cancel(id)
   })
 
   it("refuses the intake, key spent, when the drafter manifest cannot be written", async () => {

@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
@@ -188,5 +196,92 @@ describe("the builder manifest at dispatch", () => {
     // No thread will ever be admitted with it: nothing is left for the next dispatch to trip on.
     expect(types(id)).toEqual(["created", "builder_manifest_written", "builder_manifest_removed"])
     expect(readdirSync(manifestDir)).toEqual([])
+  })
+
+  it("is kept by a failed dispatch when another dispatch's thread holds the row by then", async () => {
+    // Two dispatches under two keys: the first's thread creation hangs until the second has
+    // committed its own thread (whose manifest is the same file), then fails. The failed one
+    // must not remove a manifest the committed thread's first run is about to be admitted with.
+    let release!: () => void
+    const released = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let calls = 0
+    await boot({ run: "hang" }, {}, (client) => ({
+      ...client,
+      createThread: async (metadata) => {
+        calls += 1
+        if (calls === 1) {
+          await released
+          throw new Error("worker down")
+        }
+        return client.createThread(metadata)
+      },
+    }))
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    const first = factory.dispatch(id, "dispatch-a")
+    await factory.waitFor(id, () => calls === 1)
+    expect(await factory.dispatch(id, "dispatch-b")).toMatchObject({ ok: true })
+    const holder = (await factory.waitFor(id, (r) => r.state === "running")).workerThreadId
+    release()
+    expect(await first).toMatchObject({
+      ok: false,
+      message: expect.stringContaining("worker down"),
+    })
+    expect(existsSync(manifestPath(id))).toBe(true)
+    expect(event(id, "builder_manifest_kept")?.payload).toEqual({ threadId: holder })
+    expect(types(id)).not.toContain("builder_manifest_removed")
+    await factory.cancel(id)
+    // The cancel settled the committed thread: now it is removed.
+    expect(existsSync(manifestPath(id))).toBe(false)
+  })
+
+  it("is removed by a dispatch whose own thread was orphaned by a cancel", async () => {
+    let cancelled: Promise<unknown> | undefined
+    let rowId = ""
+    await boot({}, {}, (client) => ({
+      ...client,
+      createThread: async (metadata) => {
+        // The cancel lands while the worker is making the thread: the row cannot take it.
+        cancelled = factory.cancel(rowId)
+        await cancelled
+        return client.createThread(metadata)
+      },
+    }))
+    rowId = (await factory.create({ taskId: "cli-flags" })).id
+    expect(await factory.dispatch(rowId)).toMatchObject({
+      ok: false,
+      message: "Work order changed state while dispatching",
+    })
+    expect(factory.show(rowId)?.state).toBe("cancelled")
+    expect(types(rowId)).toContain("thread_orphaned")
+    expect(existsSync(manifestPath(rowId))).toBe(false)
+    expect(types(rowId)).toContain("builder_manifest_removed")
+  })
+
+  it("is removed at the path the journal recorded, not one recomputed from the map", async () => {
+    // A writer that puts the file somewhere other than the worker's directory: removal
+    // follows the journal, so it still finds it once the turn has ended.
+    const elsewhere = () => join(dir, "elsewhere")
+    await boot(
+      {},
+      {
+        writeBuilderManifest: async ({ workOrderId }) => {
+          mkdirSync(elsewhere(), { recursive: true })
+          const path = join(elsewhere(), `${workOrderId}.json`)
+          writeFileSync(path, "{}\n")
+          return { path, sourceDigest: "f".repeat(64) }
+        },
+      },
+    )
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id)
+    const dispatched = await factory.waitFor(id, (r) => r.workerThreadId !== null)
+    reader.set(dispatched.workerThreadId as string, repaired())
+    await factory.waitFor(id, (r) => r.state === "awaiting_approval", 20_000)
+    expect(event(id, "builder_manifest_removed")?.payload).toEqual({
+      path: join(elsewhere(), `${id}.json`),
+    })
+    expect(readdirSync(elsewhere())).toEqual([])
   })
 })

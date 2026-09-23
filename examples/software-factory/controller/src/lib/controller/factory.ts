@@ -3,8 +3,6 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
 import {
-  builderManifestPath,
-  removeBuilderManifestFile,
   type WrittenBuilderManifest,
   writeBuilderManifest as writeBuilderManifestOnDisk,
 } from "../builder-manifest.js"
@@ -59,6 +57,7 @@ import type { InterruptFrame, StreamFrame } from "../worker/wire.js"
 import { type BudgetTicker, startBudgetTicker } from "./budget.js"
 import type { ControllerContext } from "./context.js"
 import { finishIntake, observeIntakeTurn, removeDrafterManifest, runIntake } from "./intake.js"
+import { removeJournalledManifest, removeOwnManifest } from "./manifest-files.js"
 import { reconcileAll, reconcileWorkOrder } from "./reconcile.js"
 import { denyPending, observeRun } from "./run-observer.js"
 import { consumeTurn } from "./turns.js"
@@ -244,6 +243,18 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       return error instanceof Error ? error : new Error(String(error))
     }
   }
+  /**
+   * The runtime's builder manifest writer: the task from the catalog the prompt came from
+   * (`promptCatalog` when a test scopes one, the process-wide search path otherwise),
+   * captured.
+   */
+  const writeBuilderManifestFromCatalog: NonNullable<FactoryOptions["writeBuilderManifest"]> = (
+    input,
+  ) =>
+    writeBuilderManifestOnDisk(loadTask(input.taskId, options.promptCatalog ?? {}), input.dir, {
+      workOrderId: input.workOrderId,
+      signal: input.signal,
+    })
   const now = options.now ?? Date.now
   const iso = () => new Date(now()).toISOString()
   const abort = new AbortController()
@@ -414,8 +425,10 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
 
   /**
    * The target a row's builder thread belongs to: recorded on the row at `intake_drafted`
-   * for a generated task, the catalog's for a shipped one. A fixed prompt table (`tasks`)
-   * names no catalog, and the wildcard entry is the only one that can serve it. A task the
+   * for a generated task, the catalog's for a shipped one. A fixed prompt table (`tasks`, a
+   * test seam the runtime never sets) names no catalog and so no target: it resolves to the
+   * placeholder `*`, which no configured map has an entry for and only a test's fake map
+   * (which serves every id) answers. A task the
    * catalog cannot load throws the catalog's own error: that is the task's fault (an
    * unprepared target, say), which `dispatch` reports as such, not a missing worker.
    */
@@ -466,27 +479,10 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     holdsIntakeThread(row) ? drafter() : workerFor(row)
 
   /**
-   * Remove the work order's builder manifest (`<manifestDir>/<id>.json`, in its target
-   * worker's directory), the file `dispatch` wrote for the builder's resolver. The resolver
-   * reads it once, at the thread's first admission, so it is dead weight from then on. A
-   * removal that fails is journalled and never fails the command that asked for it: the
-   * manifest is not evidence, and a stale one costs disk, not correctness. Nothing to remove
-   * (no worker for the target any more, or the file already gone) is not a failure.
+   * Remove the work order's builder manifest, the file `dispatch` wrote for the builder's
+   * resolver, at the path the journal recorded (see `removeJournalledManifest`).
    */
-  function removeBuilderManifest(id: string): void {
-    let dir: string
-    try {
-      dir = workerFor(mustGet(id)).manifestDir
-    } catch {
-      return
-    }
-    const path = builderManifestPath(dir, id)
-    try {
-      if (removeBuilderManifestFile(dir, id)) recordEvent(id, "builder_manifest_removed", { path })
-    } catch (error) {
-      recordEvent(id, "builder_manifest_remove_failed", { path, error: String(error) })
-    }
-  }
+  const removeBuilderManifest = (id: string): void => removeJournalledManifest(ctx, id, "builder")
 
   /**
    * Is there a turn on `threadId` for the cancel to interrupt, and is the thread there at
@@ -847,7 +843,9 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           })
         } catch (error) {
           // No thread will ever be admitted with this manifest: the next intake writes its own.
-          removeDrafterManifest(ctx, id)
+          // Unless a concurrent intake under another key has committed a thread since, whose
+          // manifest this now is.
+          removeOwnManifest(ctx, id, "drafter", null)
           return refuse(`Thread creation failed: ${String(error)}`)
         }
         created = true
@@ -874,8 +872,9 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
             recordEvent(id, "worker_cancel_failed", { threadId, error: String(cancelError) })
           }
           // The cancel that moved the row found no thread on it, so it removed nothing: the
-          // manifest written a moment ago is this path's to remove.
-          removeDrafterManifest(ctx, id)
+          // manifest written a moment ago is this path's to remove, unless the row holds
+          // another command's thread by now.
+          removeOwnManifest(ctx, id, "drafter", threadId)
         }
         return refuse("Work order changed state while starting intake")
       }
@@ -1121,7 +1120,9 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         threadId = await worker.client.createThread({ factoryWorkOrderId: id })
       } catch (error) {
         // No thread will ever be admitted with this manifest: the next dispatch writes its own.
-        removeBuilderManifest(id)
+        // Unless a concurrent dispatch under another key has committed a thread since, whose
+        // manifest this now is.
+        removeOwnManifest(ctx, id, "builder", null)
         return finish(key, {
           ok: false,
           state: row.state,
@@ -1148,8 +1149,9 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           recordEvent(id, "worker_cancel_failed", { threadId, error: String(cancelError) })
         }
         // The cancel that moved the row found no thread on it, so it removed nothing: the
-        // manifest written a moment ago is this path's to remove.
-        removeBuilderManifest(id)
+        // manifest written a moment ago is this path's to remove, unless the row holds
+        // another command's thread by now.
+        removeOwnManifest(ctx, id, "builder", threadId)
         return finish(key, {
           ok: false,
           state: mustGet(id).state,
@@ -1677,17 +1679,4 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   }
 
   return factory
-}
-
-/** The runtime's builder manifest writer: the task from the process-wide catalog, captured. */
-async function writeBuilderManifestFromCatalog(input: {
-  readonly taskId: string
-  readonly workOrderId: string
-  readonly dir: string
-  readonly signal: AbortSignal
-}): Promise<WrittenBuilderManifest> {
-  return writeBuilderManifestOnDisk(loadTask(input.taskId), input.dir, {
-    workOrderId: input.workOrderId,
-    signal: input.signal,
-  })
 }

@@ -137,6 +137,10 @@ it("drives the real builder to write the repaired source and nothing else", asyn
   }
 }, 300_000)
 
+// ORDER-COUPLED: this test reuses the first test's `wo-alpha` thread (`threads[0]`) and the
+// one aimock journal the whole file shares, so it must run after it, in this file, in
+// sequence (vitest's default within a file; the sandbox config also disables file
+// parallelism). Run alone (`-t`), it fails on the missing thread rather than proving less.
 it("serves a second work order's own workspace from the same builder process", async () => {
   // Fresh thread, fresh script: list the workspace root, then stop.
   builder.aimock.addFixtures(
@@ -151,7 +155,8 @@ it("serves a second work order's own workspace from the same builder process", a
 
   // And alpha's thread, admitted first through the same resolver, keeps its own: a second
   // turn on it lists no EXTRA.md.
-  const alpha = threads[0] as string
+  const alpha = threads[0]
+  if (alpha === undefined) throw new Error("run the whole file: this test needs the first's thread")
   expect((await builder.runTurn(alpha, LIST)).status).toBe(200)
   expect(toolResults(builder.aimock).at(-1)).not.toContain("EXTRA.md")
 

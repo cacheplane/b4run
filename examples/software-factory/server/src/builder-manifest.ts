@@ -82,6 +82,13 @@ export const BuilderManifestSchema = z
     workOrderId: z.string().regex(CATALOG_ID),
     taskId: z.string().regex(CATALOG_ID),
     targetId: z.string().regex(CATALOG_ID),
+    /**
+     * Not modelled key by key, unlike the drafter's: a builder workspace carries
+     * `baseline: "git"` and environment links (the drafter's has neither), and the
+     * framework's `verifyCapturedWorkspaceDefinition` already parses the whole definition
+     * with a strict shape (unknown keys refused) and checks every byte against the digest.
+     * A second model here could only drift from that one.
+     */
     workspace: z.unknown(),
   })
   .strict()

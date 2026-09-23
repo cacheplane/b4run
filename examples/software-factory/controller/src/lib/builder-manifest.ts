@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto"
-import { existsSync, rmSync } from "node:fs"
-import { mkdir, writeFile } from "node:fs/promises"
+import { rmSync } from "node:fs"
+import { mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { captureWorkspaceDefinition } from "@b4run/workspace/node"
 import { z } from "zod"
+import { writeFileAtomic } from "./storage/atomic-file.js"
 import { captureDirectory } from "./targets/archive.js"
 import {
   appRoot as defaultAppRoot,
@@ -95,6 +96,13 @@ export const BuilderManifestSchema = z
     workOrderId: z.string().regex(CATALOG_ID),
     taskId: z.string().regex(CATALOG_ID),
     targetId: z.string().regex(CATALOG_ID),
+    /**
+     * Not modelled key by key, unlike the drafter's: a builder workspace carries
+     * `baseline: "git"` and environment links (the drafter's has neither), and the
+     * framework's `verifyCapturedWorkspaceDefinition` already parses the whole definition
+     * with a strict shape (unknown keys refused) and checks every byte against the digest.
+     * A second model here could only drift from that one.
+     */
     workspace: z.unknown(),
   })
   .strict()
@@ -134,7 +142,7 @@ export async function writeBuilderTarget(target: Target, dir: string): Promise<s
   })
   await mkdir(dir, { recursive: true })
   const path = builderTargetPath(dir, target.id)
-  await writeFile(path, `${JSON.stringify(file, null, 2)}\n`)
+  await writeFileAtomic(path, `${JSON.stringify(file, null, 2)}\n`)
   return path
 }
 
@@ -194,17 +202,6 @@ export async function writeBuilderManifest(
   })
   await mkdir(dir, { recursive: true })
   const path = builderManifestPath(dir, workOrderId)
-  await writeFile(path, `${JSON.stringify(manifest)}\n`)
+  await writeFileAtomic(path, `${JSON.stringify(manifest)}\n`)
   return { path, sourceDigest: workspace.source.digest }
-}
-
-/**
- * Remove `<dir>/<workOrderId>.json`. True when a file went, false when there was none: the
- * caller journals only a removal that happened.
- */
-export function removeBuilderManifestFile(dir: string, workOrderId: string): boolean {
-  const path = builderManifestPath(dir, workOrderId)
-  if (!existsSync(path)) return false
-  rmSync(path, { force: true })
-  return true
 }

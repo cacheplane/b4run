@@ -21,7 +21,7 @@ export interface ControllerContext {
   /**
    * The builder worker for the row's target: `row.targetId` for a generated task, the
    * catalog task's target for a shipped one. Throws `NoWorkerForTargetError` when the map
-   * has no entry (and no wildcard) for it.
+   * has no entry for it.
    */
   workerFor(row: WorkOrderRow): TargetWorker
   /** The drafter. Throws `DrafterUnconfiguredError` when none is configured. */

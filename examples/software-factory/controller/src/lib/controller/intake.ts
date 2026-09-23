@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync } from "node:fs"
+import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import type { BlockedReason } from "../domain/states.js"
 import type { WorkOrderRow } from "../domain/work-order.js"
@@ -10,6 +10,7 @@ import { loadPolicy } from "../verification/policy.js"
 import { classifyDone, type StreamFrame } from "../worker/wire.js"
 import { WorkspaceRootMissingError } from "../worker/workspace-reader.js"
 import type { ControllerContext } from "./context.js"
+import { removeJournalledManifest } from "./manifest-files.js"
 import { reconcileWorkOrder } from "./reconcile.js"
 import { consumeTurn } from "./turns.js"
 import type { DrafterWorker } from "./workers.js"
@@ -369,32 +370,13 @@ async function proveDraft(
 }
 
 /**
- * Remove the work order's drafter manifest (`<manifestDir>/<id>.json`), the file `intake`
- * wrote for the drafter's resolver. The resolver reads it once, when the thread's first run
- * is admitted, so it is dead weight (some 20 MiB on this repository) from then on; it is
- * removed when the row leaves the intake states for good (a block, an approval, a settled
- * cancel) and kept across a redraft, which reuses the admitted thread. A removal that fails
- * is journalled and never fails the command that asked for it: the manifest is not evidence,
- * and a stale one costs disk, not correctness. Nothing to remove (no drafter configured, or
- * the file already gone) is not a failure.
+ * Remove the work order's drafter manifest, the file `intake` wrote for the drafter's
+ * resolver, at the path the journal recorded (see `removeJournalledManifest`). It is removed
+ * when the row leaves the intake states for good (a block, an approval, a settled cancel)
+ * and kept across a redraft, which reuses the admitted thread.
  */
 export function removeDrafterManifest(ctx: ControllerContext, id: string): void {
-  let dir: string
-  try {
-    dir = ctx.drafter().manifestDir
-  } catch {
-    return
-  }
-  const path = join(dir, `${id}.json`)
-  try {
-    // Already gone (removed at the block, then asked again by the cancel that followed) is
-    // nothing to journal: the line says a file was removed, and it was not.
-    if (!existsSync(path)) return
-    rmSync(path, { force: true })
-    ctx.recordEvent(id, "drafter_manifest_removed", { path })
-  } catch (error) {
-    ctx.recordEvent(id, "drafter_manifest_remove_failed", { path, error: String(error) })
-  }
+  removeJournalledManifest(ctx, id, "drafter")
 }
 
 /**

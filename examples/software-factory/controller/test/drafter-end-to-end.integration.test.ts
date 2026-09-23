@@ -16,6 +16,7 @@ import {
   createThreadWorkspaceReader,
   type WorkspaceReader,
 } from "../src/lib/worker/workspace-reader.ts"
+import { writeTargetFile } from "./builder-target-file.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
 import { createFakeWorkspaceReader } from "./fake-workspace-reader.ts"
 import { ORACLE_DRAFT } from "./intake-fixtures.ts"
@@ -154,6 +155,7 @@ async function bootController(
     {
       FACTORY_WORKER_URL: builder.baseUrl,
       FACTORY_BUILDER_APP_ROOT: join(dir, "builder"),
+      FACTORY_BUILDER_TARGET: writeTargetFile(join(dir, "targets"), "cli-flags"),
       FACTORY_STATE_DIR: join(dir, "state"),
       FACTORY_DRAFTER_URL: drafter.url,
       FACTORY_DRAFTER_APP_ROOT: drafterRoot,

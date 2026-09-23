@@ -495,7 +495,10 @@ same way (§4.1's as-landed note): `dispatch` writes the manifest into
 fetched into a shallow checkout, now runs before the key, so its refusal is unspent. The
 manifest is removed (`builder_manifest_removed`, failures journalled and never fatal, outside
 any transaction) when the row leaves `dispatched`/`running` for anything but a cancel, by a
-settled cancel of a builder thread, and when thread creation fails or the thread is orphaned.
+settled cancel of a builder thread, and when thread creation fails or the thread is orphaned
+(those two only while the row holds no thread or this command's own). The worker map has no
+wildcard: the legacy pair is keyed by the target in `FACTORY_BUILDER_TARGET`, so a work order
+no builder serves is refused before its key is spent.
 
 ### 6.5 What the controller does with the draft
 

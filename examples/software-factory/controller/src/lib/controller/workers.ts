@@ -1,9 +1,4 @@
-import {
-  ANY_TARGET,
-  type DrafterEndpoint,
-  type FactoryConfig,
-  type WorkerEndpoint,
-} from "../config.js"
+import type { DrafterEndpoint, FactoryConfig, WorkerEndpoint } from "../config.js"
 import type { WorkerClient } from "../worker/client.js"
 import type { WorkspaceReader } from "../worker/workspace-reader.js"
 
@@ -41,12 +36,12 @@ export interface DrafterWorker {
 }
 
 export interface WorkerMap {
-  /** The worker for `targetId`: its own entry, else the wildcard, else none. */
+  /** The worker for `targetId`: its own entry, or none. */
   forTarget(targetId: string): TargetWorker | undefined
   readonly drafter?: DrafterWorker
 }
 
-/** A target no worker entry (and no wildcard) covers: the row cannot be dispatched. */
+/** A target no worker entry covers: the row cannot be dispatched. */
 export class NoWorkerForTargetError extends Error {
   constructor(readonly targetId: string) {
     super(`no worker for target ${targetId}`)
@@ -87,8 +82,7 @@ function memoized<K, V>(make: (key: K) => V): (key: K) => V {
 
 /**
  * The map from the configuration. Everything is built lazily and once: one client per
- * distinct URL (two targets served by one process share a connection), one reader per
- * worker entry (a wildcard entry is one entry, whose reader resolves the provider per task),
+ * distinct URL, one reader per worker entry (whose provider is resolved per task),
  * and the drafter's client and reader on first use. Nothing is opened at boot — a worker
  * that is down must not decide whether the controller starts.
  */
@@ -97,13 +91,12 @@ export function createWorkerMap(
   deps: WorkerMapDependencies,
 ): WorkerMap {
   const client = memoized(deps.createClient)
-  /** The entry a target resolves to, under the key it has in `config.workers`: its own, else the wildcard's. */
+  /** The entry for a target: its own, or none. */
   const resolve = (targetId: string): { key: string; entry: WorkerEndpoint } | undefined => {
-    const key = config.workers[targetId] !== undefined ? targetId : ANY_TARGET
-    const entry = config.workers[key]
-    return entry === undefined ? undefined : { key, entry }
+    const entry = Object.hasOwn(config.workers, targetId) ? config.workers[targetId] : undefined
+    return entry === undefined ? undefined : { key: targetId, entry }
   }
-  /** One reader per entry, keyed by the entry's key, not the target asked for. */
+  /** One reader per entry. */
   const readerFor = memoized((key: string) =>
     deps.createBuilderReader(config.workers[key] as WorkerEndpoint),
   )

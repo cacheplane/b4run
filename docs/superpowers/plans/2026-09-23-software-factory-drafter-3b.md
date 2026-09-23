@@ -121,7 +121,7 @@ catalog), journals `builder_manifest_written`, and on failure refuses with
 never fatal) happens in `transition` when the row leaves `dispatched`/`running` for anything
 but `cancel_requested` (deferred past an outer transaction like the drafter's), in
 `finishCancel` for a builder thread, and on a failed `createThread` or an orphaned thread.
-The CLI keeps `builder-manifest --task --out` with `--work-order` (default: the task id).
+The CLI keeps `builder-manifest --task --out` with `--work-order` (default: the task id). **Review fixes.** The wildcard is gone: the legacy pair requires `FACTORY_BUILDER_TARGET` (the file the builder boots from) and is keyed by its `target.id`, `FACTORY_WORKERS` keys must be target ids, one URL serves one target, and no two entries (nor an entry and the drafter) share an app root, so a work order of a target no builder serves is the unspent `no worker for target` refusal rather than a thread burned at admission. `options.tasks` (a test seam) still resolves to the placeholder `*`, which only a fake map serves. Both manifests are written atomically (temp sibling + `rename`, `storage/atomic-file.ts`) and removed at the path the journal recorded (`controller/manifest-files.ts`); the failed-`createThread` and orphaned-thread paths of `dispatch` and `intake` remove only while the row holds no thread or their own, else journal `*_manifest_kept`. Unit tests with a fake builder boot with `noopBuilderManifestWriter`.
 Tests: `S/test/builder-config.test.ts` (two work orders → two digests; wrong target, unknown,
 malformed, stale-prompt and tampered manifests refused; missing target file and missing
 directory are boot errors; fixed system prompt); `C/test/builder-manifest.test.ts` (both
@@ -176,6 +176,9 @@ fixtures changed by one string each, regenerated through the contracts test's ow
 - One `probeThread(ctx, worker, row)` shared by `reconcileRun` and `reconcileIntake` (the `getThread` → state re-read → `pendingInterrupts` → state re-read prefix they duplicate).
 - Lift `targetOf`, `workerFor`, `drafter`, `holdsIntakeThread`, `workerOfThread` and `journalledIntakeThreadId` out of `factory.ts` (1,500 lines) into `controller/worker-of-row.ts`.
 - ~~The builder-manifest equivalent of Task 4's Step 3b~~: landed in Task 6.
+- One `manifestLifecycle(role)` helper shared by the drafter and the builder: today they share only the removal (`controller/manifest-files.ts`: `removeJournalledManifest`, `removeOwnManifest`), while the write-before-thread, the `*_manifest_failed` refusal and the state-exit trigger are written out twice in `factory.ts`.
+- A `serveApp` scaffold shared by `C/test/served-builder.ts` and the drafter lanes (`drafter-resolver`, `drafter-end-to-end`): each serves a private copy with `serveRuntime`, one aimock, env set before boot and restored after, and `POST /threads` with `{ factoryWorkOrderId }`.
+- The builder's target file is not a turbo `inputs` entry: its path is whatever `FACTORY_BUILDER_TARGET` says at run time (in CI, under `$RUNNER_TEMP`), which a static input glob cannot name. Only the variable is in the task's `env`, so a changed file at the same path does not invalidate a cached `check`/`build`; the one place those run with a target file (CI's sandbox-docker step) does not use the turbo cache for them.
 - Orphan `workspace_sources` rows (framework, §9).
 - A drafter gate: `denyPending` per worker is in Task 4; deny-on-block stays a follow-up.
 - `cli-flags` cannot be re-pinned past the controller move without per-pin paths; devkit is the per-pin target.

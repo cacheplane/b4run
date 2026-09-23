@@ -166,8 +166,8 @@ reader carries no exec backend and no write operation, so a mutation cannot be e
   ownership; the process holding those two things is the boundary. In this example the builder
   is the sibling `server` package, which is what `FACTORY_BUILDER_APP_ROOT` names.
 - **What rests on a fake elsewhere.** Layer 1 scripts the worker, the reader and the
-  verifier. The end-to-end lane keeps only the Agent Protocol worker fake — pointed at the
-  thread whose workspace the controller reads — and the builder-side test scripts the model,
+  verifier. The end-to-end lanes dispatch through the controller to the real builder, served
+  in-process, and script only its model; the builder-side test scripts the model,
   as layer 2 does; the route, tools, permission config and container there are real.
 - **What the inspection options are.** They are not cosmetic: `WorkspaceInspectionOptions`
   supplies `excludeRootDirectories` and `expectedRootSymlinks` for every read, derived from
@@ -213,8 +213,33 @@ controller will leave its manifests in:
     OPENAI_API_KEY=... \
       pnpm --filter @b4-example/software-factory-server dev --port 4100
 
-A second target is a second builder process, with its own target file, manifest directory
-and port.
+A second target is a second builder process, with its own target file, manifest directory,
+port **and app root**. The app root is where the process keeps its installation store
+(`.b4/workspaces`, one per process), so two processes over one package directory would each
+take the other's threads for their own: give each builder its own copy of the `server`
+package (what the Docker lanes' `isolatedApp` does), and the controller refuses a worker map
+in which two builders, or a builder and the drafter, share one. For `cli-flags` and
+`devkit`, say:
+
+    for t in cli-flags devkit; do
+      rsync -a --exclude node_modules --exclude .b4 --exclude .factory \
+        examples/software-factory/server/ /tmp/builder-$t/
+      ln -s $PWD/examples/software-factory/server/node_modules /tmp/builder-$t/node_modules
+    done
+    pnpm --filter @b4-example/software-factory-controller \
+      factory builder-target --target devkit --out /tmp/factory-builder
+    # terminal 1a
+    cd /tmp/builder-cli-flags && FACTORY_BUILDER_TARGET=/tmp/factory-builder/cli-flags.target.json \
+      FACTORY_BUILDER_MANIFEST_DIR=/tmp/builder-manifests/cli-flags \
+      OPENAI_API_KEY=... pnpm exec b4 dev --port 4100
+    # terminal 1b
+    cd /tmp/builder-devkit && FACTORY_BUILDER_TARGET=/tmp/factory-builder/devkit.target.json \
+      FACTORY_BUILDER_MANIFEST_DIR=/tmp/builder-manifests/devkit \
+      OPENAI_API_KEY=... pnpm exec b4 dev --port 4101
+
+Each copy shares only the package's dependencies, through the `node_modules` symlink, and
+starts with no installation store of its own. The controller's
+`FACTORY_WORKERS` then names both, with each process's manifest directory (step 4).
 
 **3. Start the drafter** (terminal 2), told where the controller will leave its manifests.
 It reads the repository through the capture in each manifest, never through the filesystem,
@@ -231,11 +256,14 @@ and a drafter that parks on a permission prompt is a turn nobody answers.
 **4. Start the controller** (terminal 3). It needs a *worker map* — which builder process
 serves which target — its own state directory, and the drafter pair: the drafter's URL and
 its *app root*, the package whose installation store the controller reads `draft/` from. For
-one builder process, the legacy pair `FACTORY_WORKER_URL` + `FACTORY_BUILDER_APP_ROOT` (with
-`FACTORY_BUILDER_MANIFEST_DIR`, the directory that builder was started with) is that map:
+one builder process, the legacy pair `FACTORY_WORKER_URL` + `FACTORY_BUILDER_APP_ROOT` is that
+map, with `FACTORY_BUILDER_TARGET` (the same target file that builder booted from, which is
+how the controller knows the one target it serves) and `FACTORY_BUILDER_MANIFEST_DIR` (the
+directory it was started with):
 
     FACTORY_WORKER_URL=http://127.0.0.1:4100 \
     FACTORY_BUILDER_APP_ROOT=$PWD/examples/software-factory/server \
+    FACTORY_BUILDER_TARGET=/tmp/factory-builder/cli-flags.target.json \
     FACTORY_BUILDER_MANIFEST_DIR=/tmp/builder-manifests \
     FACTORY_DRAFTER_URL=http://127.0.0.1:4200 \
     FACTORY_DRAFTER_APP_ROOT=$PWD/examples/software-factory/drafter \
@@ -243,14 +271,29 @@ one builder process, the legacy pair `FACTORY_WORKER_URL` + `FACTORY_BUILDER_APP
     FACTORY_STATE_DIR=$PWD/.factory \
       pnpm --filter @b4-example/software-factory-controller dev --port 4300
 
-The legacy pair is the `*` entry every target resolves to, but the builder behind it still
-serves only the target its file names: a work order of any other target is refused by the
-builder's resolver, by name. With one builder process per target, `FACTORY_WORKERS` replaces
-the pair: a JSON object from target id (or `*` for every target without an entry of its own)
-to `{ "url", "appRoot", "route"?, "manifestDir"? }`, where `manifestDir` (default
-`<appRoot>/.factory/manifests`) is that process's `FACTORY_BUILDER_MANIFEST_DIR`. The two
-forms are exclusive; setting both (or `FACTORY_BUILDER_MANIFEST_DIR` beside the map) is
-refused by name. The controller creates each manifest directory at boot; `dispatch` writes
+The legacy pair is one entry, keyed by the id in that target file: a work order of any
+other target has no worker, and `dispatch` refuses it (`no worker for target <id>`) before
+spending its key or a thread. With one builder process per target, `FACTORY_WORKERS` replaces
+the pair: a JSON object from target id to `{ "url", "appRoot", "route"?, "manifestDir"? }`,
+where `manifestDir` (default `<appRoot>/.factory/manifests`) is that process's
+`FACTORY_BUILDER_MANIFEST_DIR`. For the two builders above:
+
+    FACTORY_WORKERS='{
+      "cli-flags": { "url": "http://127.0.0.1:4100", "appRoot": "/tmp/builder-cli-flags",
+                     "manifestDir": "/tmp/builder-manifests/cli-flags" },
+      "devkit":    { "url": "http://127.0.0.1:4101", "appRoot": "/tmp/builder-devkit",
+                     "manifestDir": "/tmp/builder-manifests/devkit" }
+    }' \
+    FACTORY_DRAFTER_URL=http://127.0.0.1:4200 \
+    FACTORY_DRAFTER_APP_ROOT=$PWD/examples/software-factory/drafter \
+    FACTORY_DRAFTER_MANIFEST_DIR=/tmp/drafter-manifests \
+    FACTORY_STATE_DIR=$PWD/.factory \
+      pnpm --filter @b4-example/software-factory-controller dev --port 4300
+
+There is no wildcard entry: a key is a target id, one URL serves one target, and no two
+entries (nor an entry and the drafter) share an app root; each is refused by name. The two
+forms are exclusive; setting both (or `FACTORY_BUILDER_TARGET` or
+`FACTORY_BUILDER_MANIFEST_DIR` beside the map) is refused by name. The controller creates each manifest directory at boot; `dispatch` writes
 the work order's manifest there before it creates the thread, and removes it once the row
 leaves `dispatched`/`running` (the resolver reads it once, at the thread's first admission;
 verification reads the workspace through the reader) or a cancel has settled the thread. Without the
@@ -350,9 +393,10 @@ The controller app reads:
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `FACTORY_WORKERS` | one of the two | The worker map: JSON from target id (or `*`) to `{ "url", "appRoot", "route"?, "manifestDir"? }`, one builder process per target; `manifestDir` defaults to `<appRoot>/.factory/manifests`. Exclusive with the pair below |
-| `FACTORY_WORKER_URL` | one of the two | The legacy pair, with `FACTORY_BUILDER_APP_ROOT`: one builder for every target, i.e. the `*` entry. `http(s)` only |
+| `FACTORY_WORKERS` | one of the two | The worker map: JSON from target id to `{ "url", "appRoot", "route"?, "manifestDir"? }`, one builder process (URL and app root of its own) per target; `manifestDir` defaults to `<appRoot>/.factory/manifests`. Exclusive with the pair below |
+| `FACTORY_WORKER_URL` | one of the two | The legacy pair, with `FACTORY_BUILDER_APP_ROOT` and `FACTORY_BUILDER_TARGET`: one builder, for the one target its target file names. `http(s)` only |
 | `FACTORY_BUILDER_APP_ROOT` | with `FACTORY_WORKER_URL` | The BUILDER package's root, so the workspace reader can address its installation store |
+| `FACTORY_BUILDER_TARGET` | with `FACTORY_WORKER_URL` | The target file that builder boots from (`factory builder-target`); the controller keys the entry by its `target.id`. Missing or unreadable is a boot error naming it |
 | `FACTORY_WORKER_ROUTE` | no | Default `/build#agent`; only with the legacy pair |
 | `FACTORY_BUILDER_MANIFEST_DIR` | no | Default `<builder app root>/.factory/manifests`; must be the directory the builder process was started with. Only with the legacy pair |
 | `FACTORY_STATE_DIR` | yes | Holds `registry.sqlite`, `artifacts/` and `exports/` |

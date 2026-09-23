@@ -13,7 +13,7 @@ import {
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
-import { fakeWorkerMap } from "./fake-worker-map.ts"
+import { fakeWorkerMap, noopBuilderManifestWriter } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader } from "./fake-workspace-reader.ts"
 
 const dirs: string[] = []
@@ -159,6 +159,7 @@ describe("the controller over a partly unprepared catalog", () => {
           reader: createFakeWorkspaceReader({}),
         },
       }),
+      writeBuilderManifest: noopBuilderManifestWriter,
       exportDir: join(dir, "out"),
       artifactsDir: join(dir, "artifacts"),
       verifier: createFakeVerifier({ verdict: "pass" }),
@@ -192,16 +193,12 @@ describe("the controller over a partly unprepared catalog", () => {
           reader: createFakeWorkspaceReader({}),
         },
       }),
+      writeBuilderManifest: noopBuilderManifestWriter,
       exportDir: join(dir, "out"),
       artifactsDir: join(dir, "artifacts"),
       verifier: createFakeVerifier({ verdict: "pass" }),
       captureBaseline: async () => ({ digest: "a".repeat(64), files: new Map() }),
       promptCatalog: { tasksDir, targetsDir, repositoryRoot: root },
-      // The fixture task lives only in `promptCatalog`; the manifest is not this test's.
-      writeBuilderManifest: async ({ dir: target, workOrderId }) => ({
-        path: join(target, `${workOrderId}.json`),
-        sourceDigest: "e".repeat(64),
-      }),
     })
     const { id } = await factory.create({ taskId: "served" })
     // The target loses its image between create and dispatch: an upgrade, or a re-prepare.
