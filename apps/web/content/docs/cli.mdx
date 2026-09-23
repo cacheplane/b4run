@@ -38,7 +38,7 @@ The output is a `B4.run app is valid: N routes discovered.` line followed by a p
 
 When a route, tool, or config module fails to load with the ESM error `does not provide an export named X`, B4.run prints the offending package with a likely cause and fix, in place of the raw `SyntaxError`. There are two usual causes:
 
-- **An older `@langchain/core` got hoisted.** Run `npm ls @langchain/core` to find the duplicate, then upgrade or dedupe so the installed version satisfies B4.run's peer range (`^1.1.47`).
+- **An older `@langchain/core` got hoisted.** Run `npm ls @langchain/core` to find the duplicate, then upgrade or dedupe so the installed version satisfies B4.run's peer range (`^1.2.12`).
 - **A CommonJS dependency imported with named bindings.** Under B4.run's ESM resolver a CommonJS package only has a default export, so `import { thing } from "x"` fails. Use a default import and destructure instead:
 
   ```ts

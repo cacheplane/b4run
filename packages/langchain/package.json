@@ -58,10 +58,12 @@
     "@b4run/workspace": "workspace:*",
     "@langchain/langgraph": "^1.4.17",
     "@langchain/openai": "^1.5.13",
-    "gpt-tokenizer": "^3.4.0"
+    "gpt-tokenizer": "^3.4.0",
+    "langchain": "^1.5.12",
+    "zod": "^4.4.3"
   },
   "peerDependencies": {
-    "@langchain/core": "^1.1.47",
+    "@langchain/core": "^1.2.12",
     "@langchain/langgraph-checkpoint": "^1.1.5",
     "@langchain/anthropic": "^1.5.11",
     "@langchain/google-genai": "^2.3.2",
@@ -110,7 +112,6 @@
     "@langchain/openai": "1.5.13",
     "@langchain/openrouter": "^0.4.13",
     "@langchain/xai": "^1.4.13",
-    "@types/node": "26.1.2",
-    "zod": "4.4.3"
+    "@types/node": "26.1.2"
   }
 }

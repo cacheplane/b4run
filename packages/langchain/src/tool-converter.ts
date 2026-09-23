@@ -32,7 +32,7 @@ interface B4ToolDefinition {
     },
   ) => Promise<unknown> | unknown
   readonly schema?: unknown
-  /** End the run on this tool's result; see the core `B4ToolDefinition`. */
+  /** End the run on this tool's successful result; see the core `B4ToolDefinition`. */
   readonly returnDirect?: boolean
 }
 
@@ -57,8 +57,10 @@ export function convertToolToLangChain(
     name: tool.name,
     description: tool.description ?? "",
     schema,
-    // LangGraph's prebuilt agent ends the run on this tool's result instead
-    // of routing back to the model; see `B4ToolDefinition.returnDirect`.
+    // A prebuilt agent that reads the flag ends the run on this tool's result
+    // instead of routing back to the model. B4's own agent routes clear it and
+    // end only on success (`endsOnReturnDirect`); a raw LangChain runnable
+    // handed these tools keeps LangChain's behavior.
     ...(tool.returnDirect === true ? { returnDirect: true } : {}),
     func: async (input, runManager, config) => {
       const liveConfig = runManager

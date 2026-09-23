@@ -2,17 +2,19 @@ import type { PromptFragment, StreamTransformer } from "@b4run/core"
 import { readRuntimeEnv } from "@b4run/core"
 import type { B4Agent, RetryConfig } from "@b4run/sdk"
 import { isB4Agent } from "@b4run/sdk"
-import { type BaseMessageLike, HumanMessage } from "@langchain/core/messages"
+import { type BaseMessageLike, HumanMessage, SystemMessage } from "@langchain/core/messages"
 import { Command } from "@langchain/langgraph"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import { type CanonicalJsonStream, createCanonicalJsonStream } from "./canonical-json-stream.js"
 import { createChatModel, type JsonSchemaResponseFormat } from "./chat-model-factory.js"
+import { trackCheckpointWrites } from "./checkpoint-writes.js"
 import { readLogicalToolCallId } from "./logical-tool-call-id.js"
 import { resolveProvider } from "./model-provider-resolver.js"
 import { isRetryableError, withRetry } from "./retry.js"
-import { materializeStateSchema, type ResolvedStateField } from "./state-adapter.js"
+import { materializeAgentStateSchema, type ResolvedStateField } from "./state-adapter.js"
 import { convertSubagentTaskToLangChain, type SubagentResolver } from "./subagent-tool-bridge.js"
-import { buildSummarizationHook, type ResolvedSummarizationConfig } from "./summarization/index.js"
+import type { ResolvedSummarizationConfig } from "./summarization/index.js"
+import { composeSystemPrompt } from "./system-prompt.js"
 import { convertToolToLangChain, type OffloadFn } from "./tool-converter.js"
 
 export interface B4ToolDefinition {
@@ -26,6 +28,8 @@ export interface B4ToolDefinition {
     },
   ) => Promise<unknown> | unknown
   readonly schema?: unknown
+  /** End the run on this tool's successful result; see the core `B4ToolDefinition`. */
+  readonly returnDirect?: boolean
 }
 
 interface AgentLike {
@@ -47,7 +51,7 @@ function assertAgentLike(entry: unknown): asserts entry is AgentLike {
  * Compiled-graph cache, keyed by BOTH the agent descriptor and the checkpointer
  * instance the graph was compiled against.
  *
- * `createReactAgent` EMBEDS the checkpointer in the graph it returns, so a cache
+ * `createAgent` EMBEDS the checkpointer in the graph it returns, so a cache
  * keyed on the descriptor alone hands request N+1 a graph wired to request N's
  * checkpointer. On node that is invisible (one boot-resolved checkpointer lives
  * for the process). On an edge runtime it is the whole bug the per-request store
@@ -86,14 +90,7 @@ export async function composePromptMessages(
   promptFragments: readonly PromptFragment[],
   state: Record<string, unknown>,
 ): Promise<BaseMessageLike[]> {
-  const rendered = (
-    await Promise.all(
-      promptFragments
-        .filter((f) => f.placement === "after_user_prompt")
-        .map((f) => (f.renderAsync ? f.renderAsync(state) : f.render(state))),
-    )
-  ).filter((s) => s.length > 0)
-  const composed = [systemPrompt, ...rendered].join("\n\n")
+  const composed = await composeSystemPrompt(systemPrompt, promptFragments, state)
   const messages = Array.isArray(state.messages) ? (state.messages as BaseMessageLike[]) : []
   return [{ role: "system", content: composed }, ...messages]
 }
@@ -136,19 +133,27 @@ async function materializeAgent(
     if (cached) return cached
   }
 
-  const { createReactAgent } = await import("@langchain/langgraph/prebuilt")
+  const [{ createAgent }, { createB4AgentMiddleware }] = await Promise.all([
+    import("langchain"),
+    import("./agent-middleware.js"),
+  ])
 
-  const langchainTools = tools.map((tool) =>
-    tool.name === "task" && opts.subagentResolver
-      ? convertSubagentTaskToLangChain(tool, opts.subagentResolver)
-      : convertToolToLangChain(
-          tool,
-          opts.middlewareContext,
-          opts.offload,
-          opts.routeParamNames ?? [],
-          opts.streamTransformers ?? [],
-        ),
-  )
+  const langchainTools = tools.map((tool) => {
+    if (tool.name === "task" && opts.subagentResolver) {
+      return convertSubagentTaskToLangChain(tool, opts.subagentResolver)
+    }
+    const converted = convertToolToLangChain(
+      tool,
+      opts.middlewareContext,
+      opts.offload,
+      opts.routeParamNames ?? [],
+      opts.streamTransformers ?? [],
+    )
+    // `createAgent` ends the run on a flagged tool's result by name, error or
+    // not; B4's loop-entry middleware routes these instead (`endsOnReturnDirect`).
+    converted.returnDirect = false
+    return converted
+  })
 
   const provider = resolveProvider({
     model: descriptor.model,
@@ -161,21 +166,6 @@ async function materializeAgent(
     ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
   })
 
-  const fragments = opts.promptFragments ?? []
-  const agentOptions: Record<string, unknown> = {
-    llm,
-    tools: langchainTools,
-    version: "v2",
-    // Function-form prompt re-renders fragments on every model turn so they
-    // can reflect live state (e.g., the current todos list).
-    prompt:
-      fragments.length > 0
-        ? (state: Record<string, unknown>) =>
-            composePromptMessages(descriptor.systemPrompt, fragments, state)
-        : descriptor.systemPrompt,
-    ...(checkpointer ? { checkpointer } : {}),
-  }
-
   const runningSummaryField: ResolvedStateField = {
     name: "runningSummary",
     reducer: "replace",
@@ -185,16 +175,39 @@ async function materializeAgent(
     ? [...(opts.stateFields ?? []).filter((f) => f.name !== "runningSummary"), runningSummaryField]
     : (opts.stateFields ?? [])
 
-  if (effectiveStateFields.length > 0) {
-    agentOptions.stateSchema = materializeStateSchema(effectiveStateFields)
+  const middleware = createB4AgentMiddleware({
+    systemPrompt: descriptor.systemPrompt,
+    // Fragments re-render on every model turn so they can reflect live state
+    // (e.g., the current todos list).
+    promptFragments: opts.promptFragments ?? [],
+    stateFieldNames: effectiveStateFields.map((f) => f.name),
+    ...(opts.summarization ? { summarization: opts.summarization } : {}),
+    returnDirectToolNames: new Set(
+      tools.filter((tool) => tool.returnDirect === true).map((tool) => tool.name),
+    ),
+  })
+
+  const agentOptions: Record<string, unknown> = {
+    model: llm,
+    tools: langchainTools,
+    // One graph task per tool call (the default, pinned): parallel calls run,
+    // checkpoint and interrupt independently.
+    version: "v2",
+    // A SystemMessage, not a string: `createAgent` turns a string prompt into
+    // a text content block, which changes the provider payload from the plain
+    // string system message routes have always sent.
+    systemPrompt: new SystemMessage(descriptor.systemPrompt),
+    middleware,
+    ...(effectiveStateFields.length > 0
+      ? { stateSchema: materializeAgentStateSchema(effectiveStateFields) }
+      : {}),
+    // Tracked so a failed turn can drain the writes it already issued before
+    // the failure propagates; see `trackCheckpointWrites`.
+    ...(checkpointer ? { checkpointer: trackCheckpointWrites(checkpointer).saver } : {}),
   }
 
-  if (opts.summarization) {
-    agentOptions.preModelHook = buildSummarizationHook(opts.summarization)
-  }
-
-  // biome-ignore lint/suspicious/noExplicitAny: dynamically-built options don't satisfy strict StateDefinition type
-  const compiled = createReactAgent(agentOptions as any)
+  // biome-ignore lint/suspicious/noExplicitAny: dynamically-built options don't satisfy createAgent's inferred generics
+  const compiled = createAgent(agentOptions as any)
 
   if (cacheKey) {
     let byCheckpointer = materializedAgents.get(descriptor)
@@ -1203,7 +1216,10 @@ export async function* streamAgent(options: AgentOptions): AsyncGenerator<AgentS
     )
     const retryConfig = options.entry.retry
     const runnableInput = isCommandInput ? options.input : { messages }
-    yield* streamFromRunnable(materializedAgent, runnableInput, config, retryConfig)
+    const checkpointWrites = trackCheckpointWrites(options.checkpointer)
+    yield* streamFromRunnable(materializedAgent, runnableInput, config, retryConfig, () =>
+      checkpointWrites.settled(),
+    )
     return
   }
 
@@ -1276,6 +1292,8 @@ async function* streamFromRunnable(
   input: unknown,
   config: Record<string, unknown>,
   retryConfig?: RetryConfig,
+  /** Awaited before a failure propagates, so the turn has stopped writing. */
+  drainWrites?: () => Promise<void>,
 ): AsyncGenerator<AgentStreamChunk> {
   const streamable = runnable as AgentLike & {
     streamEvents?: (
@@ -1379,6 +1397,7 @@ async function* streamFromRunnable(
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error))
         if (hasYielded || !isRetryableError(error) || attempt === maxStreamAttempts - 1) {
+          await drainWrites?.()
           throw err
         }
         const delay = Math.min(1000 * 2 ** attempt + Math.random() * 500, 10_000)

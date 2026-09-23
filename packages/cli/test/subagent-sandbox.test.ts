@@ -12,7 +12,7 @@ const tempDirs: string[] = []
 
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { force: true, recursive: true })))
-  vi.doUnmock("@langchain/langgraph/prebuilt")
+  vi.doUnmock("langchain")
   vi.doUnmock("@langchain/openai")
 })
 
@@ -39,10 +39,13 @@ describe("subagent sandbox preparation", () => {
         workspaceRoot: "/workspace",
       }),
     )
-    const createReactAgent = vi.fn((_options: unknown) => ({
+    const createAgent = vi.fn((_options: unknown) => ({
       invoke: vi.fn(async () => ({ messages: [new AIMessage("Child complete.")] })),
     }))
-    vi.doMock("@langchain/langgraph/prebuilt", () => ({ createReactAgent }))
+    vi.doMock("langchain", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("langchain")>()),
+      createAgent,
+    }))
     vi.doMock("@langchain/openai", () => ({ ChatOpenAI: class {} }))
 
     await materializeResolvedRouteGraph({
@@ -54,13 +57,13 @@ describe("subagent sandbox preparation", () => {
       sandboxThreadId: "sandbox-root",
     })
 
-    expect(createReactAgent).toHaveBeenCalledTimes(1)
-    const task = findTaskTool(createReactAgent.mock.calls[0]?.[0])
+    expect(createAgent).toHaveBeenCalledTimes(1)
+    const task = findTaskTool(createAgent.mock.calls[0]?.[0])
 
     await invokeTask(task, "sandbox-first")
     await invokeTask(task, "sandbox-second")
 
-    expect(createReactAgent).toHaveBeenCalledTimes(3)
+    expect(createAgent).toHaveBeenCalledTimes(3)
     expect(getForThread).toHaveBeenCalledTimes(3)
     for (const call of getForThread.mock.calls) {
       // Admission now always hands the manager a third, lazy admission
