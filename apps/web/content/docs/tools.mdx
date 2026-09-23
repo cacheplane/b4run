@@ -241,7 +241,7 @@ Inside an `agent` route, you do not call tools yourself. `b4 build` wires the ro
 To inspect the exact shape B4.run emits in your app, run `b4 typegen` and open `.b4/b4.generated.d.ts`.
 
 <Callout type="warn" title="Don't edit these files">
-  `.b4/b4.generated.d.ts` and the per-route `tools.json` files under `.b4/routes/` are regenerated on every `b4 typegen` and by the dev server on save. Your edits will be wiped.
+  `.b4/b4.generated.d.ts` and the per-route `tools.json` files under `.b4/routes/` are regenerated on every `b4 typegen`, by the dev server on save, and before `b4 run` and `b4 test` execute routes in-process and `b4 build` emits artifacts. Your edits will be wiped.
 </Callout>
 
 To regenerate them manually, run:

@@ -2,14 +2,14 @@
   "version": 2,
   "routes": {
     "/": {
-      "lastModified": "2026-09-23T02:34:46.632Z",
+      "lastModified": "2026-09-23T02:38:22.087Z",
       "sourceDigest": "4f149ac79e465ff2683e5ef72a06691f584763195583e05961b54595aac1c927",
-      "recordDigest": "c722bb124bce975019d1577ae8bc3cadd20007a2d72445457b49f6615eb6d920"
+      "recordDigest": "84b5ef938b7a383fb5a27511bd80ecc6a2ffe7348c4f2f80aa1d9c823aca1d06"
     },
     "/blog": {
-      "lastModified": "2026-09-22T19:17:28.383Z",
-      "sourceDigest": "20f3ace66a4d131811723aa43cd6fe895c665437151632086410e2fc90659dfc",
-      "recordDigest": "e34b0bc828d1dd9d5920eb453ee09bad98e5ab190e5d5f45584e0dd889690025"
+      "lastModified": "2026-09-23T01:08:16.403Z",
+      "sourceDigest": "c4539a3553eeee190d5bb9b28c414acd64c88e6a50065c49c52269fe763dd248",
+      "recordDigest": "b3044162e067be2ac8bed813db13cbb1a066558947c2c3425c4f7fe3c88f770c"
     },
     "/blog/tags/agents": {
       "lastModified": "2026-09-22T19:17:28.383Z",
@@ -17,9 +17,9 @@
       "recordDigest": "3789a117a45f97f60b75c3f041ed0743165b1463573c977a6529c83ca2d011f6"
     },
     "/blog/tags/philosophy": {
-      "lastModified": "2026-09-22T19:17:28.383Z",
-      "sourceDigest": "20f3ace66a4d131811723aa43cd6fe895c665437151632086410e2fc90659dfc",
-      "recordDigest": "ad91e1e95a8e8ba3fb4709ad9c9d5b7942fcae6bcf4df87d2e4cac0beeecddd6"
+      "lastModified": "2026-09-23T01:08:16.403Z",
+      "sourceDigest": "c4539a3553eeee190d5bb9b28c414acd64c88e6a50065c49c52269fe763dd248",
+      "recordDigest": "ac067aae90659d6afab63d545d6b9701be8ef8774e8e3ee239cedc01cc9d92db"
     },
     "/blog/tags/typescript": {
       "lastModified": "2026-09-22T19:04:43.100Z",
@@ -127,14 +127,14 @@
       "recordDigest": "586ff2b00a6edbfe2c493e937f1c53f95a831c4abc92e385ac58f83d63998885"
     },
     "/docs/blueprints": {
-      "lastModified": "2026-09-22T19:04:43.100Z",
-      "sourceDigest": "734b89c91af578ad0d4841df4a29725cfd01d802c6090d6a1422e3b1153ae14d",
-      "recordDigest": "bfe850912980a805d581c9d1ba9366f0c22d5399e8289d58c7f6724ab1a3162a"
+      "lastModified": "2026-09-23T02:38:22.087Z",
+      "sourceDigest": "16a65510fa1951a4648fc9960f9e0a7d0a7789133f1284f982e225378690755f",
+      "recordDigest": "fcb38cf9a5911bca2fc479db12d4eb21218790e1f8e080f92c698e2c4fc58d26"
     },
     "/docs/cli": {
-      "lastModified": "2026-09-22T19:04:43.100Z",
-      "sourceDigest": "69518f58251786385eae22422fe36b9a77e8dfde64fe7a17a228ea58f331dc7f",
-      "recordDigest": "6062a9d836f5cd5321e4c0f41bc9623bb26ddbb670ca027f2f664789437c7359"
+      "lastModified": "2026-09-23T01:07:50.129Z",
+      "sourceDigest": "23cad04383d4d43930b1ad208200ae2032a7a88cff689859492682897f324eb6",
+      "recordDigest": "9c6475abd922888e39a89df021ff43101f603b94bbeaddd6808102a6befe8121"
     },
     "/docs/configuration": {
       "lastModified": "2026-09-22T19:04:43.100Z",
@@ -197,9 +197,9 @@
       "recordDigest": "bf448a4a13305d2d0903ec071f1a5bf993315ce3987b5876204234538c5fb5bb"
     },
     "/docs/evals": {
-      "lastModified": "2026-09-22T19:04:43.100Z",
-      "sourceDigest": "9d9959ad14c7a3de286440c24af9c81c3011404b0bcabe121f2f4c31b6db399f",
-      "recordDigest": "3ee75f2027f892bfc0d338699aa4b0be8c3863e07dedca046d4442f59300de16"
+      "lastModified": "2026-09-23T01:08:16.403Z",
+      "sourceDigest": "e12f0f59545875b20dad6d78aecff587ee6d7795372d39b397657b6248806a7c",
+      "recordDigest": "498922fc038360176300932579798101897d61f9fa1a0b405e66dcfd85545fa8"
     },
     "/docs/faq": {
       "lastModified": "2026-09-22T19:04:43.100Z",
@@ -377,9 +377,9 @@
       "recordDigest": "d37ca40e84fef6fb1c3f8082db98166a0d9ae1cc1d41a1f5f59489f057751a7e"
     },
     "/docs/testing-agents": {
-      "lastModified": "2026-09-22T19:04:43.100Z",
-      "sourceDigest": "a387c88a1c8fafe1206022a38dbebc7a633c566ba1616b2a55d789e7628f4a23",
-      "recordDigest": "4ef03d07e338741dbea5b5c5152419790c6121e2162c56c5ba0148d36c4889eb"
+      "lastModified": "2026-09-23T01:08:16.403Z",
+      "sourceDigest": "306bfa5ed7afbd0647a6e38930ebaca30ef2e2730100fcadcdd8dda5074e10a6",
+      "recordDigest": "0ff94bae2acb7f798726494e5c0944cde93d3879905e7b3a8605a457639bd5c4"
     },
     "/docs/testing-agents/fixtures": {
       "lastModified": "2026-09-22T19:04:43.100Z",
@@ -392,9 +392,9 @@
       "recordDigest": "c2be28ec5d21630bfc4eef0aad2c7c195a3e9ffc5eef9313b14671ede1632d2c"
     },
     "/docs/tools": {
-      "lastModified": "2026-09-22T19:04:43.100Z",
-      "sourceDigest": "5d5728bd3f0219d10d7271b390c9e969c0f23d3d330ae9d63cf2fed97ab9d5be",
-      "recordDigest": "afebbe94554d74ab39e359088bc7948b8904079a9192e90a79ef15a6d60f6065"
+      "lastModified": "2026-09-23T01:07:50.129Z",
+      "sourceDigest": "12239e7276f185fca41c8452c6ec91ebf04b8d81139808bec6e699c1eac639f4",
+      "recordDigest": "7be983ae28111c5f306f6f721998c8ec265f53f31db26584caa16849f88f55fb"
     },
     "/docs/upgrading": {
       "lastModified": "2026-09-22T19:04:43.100Z",

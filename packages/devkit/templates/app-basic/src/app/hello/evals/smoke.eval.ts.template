@@ -2,12 +2,12 @@ import { contains, defineEval } from "@b4run/evals"
 import { script } from "@b4run/testing"
 
 export default defineEval({
-  name: "greets the tenant",
+  name: "greets by name",
   dataset: [
     {
-      name: "hello",
-      input: "Say hello",
-      fixtures: script().user("Say hello").replies("Hello from Acme!"),
+      name: "ada",
+      input: "Say hello to Ada",
+      fixtures: script().user("Say hello to Ada").replies("Hello, Ada!"),
     },
   ],
   scorers: [contains("Hello", { threshold: 1 })],

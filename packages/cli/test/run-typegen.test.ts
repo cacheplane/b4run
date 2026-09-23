@@ -174,6 +174,19 @@ describe("runTypegen", () => {
     expect(toolsJson.greet.parameters.properties.name.type).toBe("string")
   })
 
+  test("removes a stale tools.json when a route no longer has analyzable tools", async () => {
+    const { appRoot, routeDir } = await setupApp()
+    await runTypegen({ appRoot, manifest: await discoverRoutes({ appRoot }) })
+    const toolsJsonPath = join(appRoot, ".b4", "routes", "hello-tenant", "tools.json")
+    expect(existsSync(toolsJsonPath)).toBe(true)
+
+    await rm(join(routeDir, "tools"), { force: true, recursive: true })
+    const result = await runTypegen({ appRoot, manifest: await discoverRoutes({ appRoot }) })
+
+    expect(result.toolSchemaCount).toBe(0)
+    expect(existsSync(toolsJsonPath)).toBe(false)
+  })
+
   test("skips state.json when no state.ts", async () => {
     const { appRoot } = await setupApp({ withState: false })
     const manifest = await discoverRoutes({ appRoot })

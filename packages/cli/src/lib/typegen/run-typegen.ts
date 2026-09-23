@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, statSync } from "node:fs"
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, rm, writeFile } from "node:fs/promises"
 import { join, relative, sep } from "node:path"
 import type {
   ExtractedToolSchema,
@@ -204,6 +204,11 @@ export async function runTypegen(options: {
     if (schemas.length > 0) {
       toolSchemaCount += schemas.length
       await writeToolSchemas(b4Dir, route.id, schemas)
+    } else {
+      // No analyzable tools left: drop a manifest from an earlier run, or the
+      // runtime would keep injecting a schema for a tool that has since
+      // changed shape (it injects by tool name).
+      await rm(join(b4Dir, "routes", routeIdToSlug(route.id), "tools.json"), { force: true })
     }
 
     // Discover state

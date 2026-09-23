@@ -84,6 +84,51 @@ export default scenarios("/research").scenario("mocked search passes", (s) =>
     expect(JSON.stringify(aimock.getRequests())).toContain("mock-result:B4.run")
   }, 30_000)
 
+  test("binds a fresh tool schema for a tool added without running b4 typegen", async () => {
+    const userInput = "what time is it in Tokyo?"
+    const aimock = await startAimock(script().user(userInput).replies("It is noon.").build())
+    const appRoot = await createFixtureApp({
+      "src/app/clock/index.ts": `import { agent } from "@b4run/sdk"
+
+export default agent({
+  model: "gpt-5-mini",
+  systemPrompt: "Tell the time.",
+})
+`,
+      "src/app/clock/run.test.ts": `import { scenarios } from ${JSON.stringify(SDK_TESTING_URL)}
+
+export default scenarios("/clock").scenario("tells the time", (s) =>
+  s.input({ messages: [{ role: "user", content: ${JSON.stringify(userInput)} }] }).expectPassed(),
+)
+`,
+      "src/app/clock/tools/getLocalTime.ts": `/** Get the current local time in an IANA time zone. */
+export default async (input: { readonly timeZone: string }) => ({ timeZone: input.timeZone })
+`,
+      // A stale manifest from an earlier typegen, when the tool took \`timezone\`.
+      ".b4/routes/clock/tools.json": `${JSON.stringify({
+        getLocalTime: {
+          parameters: { type: "object", properties: { timezone: { type: "string" } } },
+        },
+      })}\n`,
+    })
+
+    const result = await invoke(["test", "--cwd", appRoot], appRoot)
+
+    expect(result.stderr).toBe("")
+    expect(result.stdout).toContain("PASS tells the time")
+    expect(result.exitCode).toBe(0)
+    const tools = aimock.getRequests()[0]?.body?.tools as
+      | ReadonlyArray<{
+          readonly function?: {
+            readonly name?: string
+            readonly parameters?: { readonly properties?: Record<string, unknown> }
+          }
+        }>
+      | undefined
+    const getLocalTime = tools?.find((tool) => tool.function?.name === "getLocalTime")
+    expect(Object.keys(getLocalTime?.function?.parameters?.properties ?? {})).toEqual(["timeZone"])
+  }, 30_000)
+
   test("does not propagate a parent mock to a same-name subagent tool", async () => {
     const parentInput = "delegate the lookup"
     const childInput = "look up the B4.run record"

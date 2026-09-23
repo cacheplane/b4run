@@ -174,9 +174,12 @@ compiles the TypeScript project. That scaffold does not define `npm start`; use
 
 ### Current source (unreleased 0.8.22)
 
-The current checked-in research template is a two-package workspace with a
-server and the B4.run Workbench. These commands apply to a scaffold generated
-from current repository source, not the published `@latest` package:
+Current repository source scaffolds the smaller `basic` template, a single
+`/hello` agent, by default. Its research template is a two-package workspace
+with a server and the B4.run Workbench, selected with `--template research`
+(`npm create b4-app@latest my-agent -- --template research`). These commands
+apply to a research scaffold generated from current repository source, not the
+published `@latest` package:
 
 ```bash
 npm install
