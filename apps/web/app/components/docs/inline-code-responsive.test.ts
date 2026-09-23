@@ -3,7 +3,10 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
-const CSS = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../globals.css"), "utf8")
+const CSS = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "../../styles/prose.css"),
+  "utf8",
+)
 
 describe("responsive inline code", () => {
   it("never forces inline code onto one line", () => {
@@ -14,7 +17,10 @@ describe("responsive inline code", () => {
   })
 
   it("wraps inline code below 48rem while preserving block-code behavior", () => {
-    const mediaRule = /@media\s*\(max-width:\s*47\.999rem\)\s*{([\s\S]*?)\n}/.exec(CSS)?.[1]
+    // prose.css has several 47.999rem media blocks; take the one about inline code.
+    const mediaRule = [...CSS.matchAll(/@media\s*\(max-width:\s*47\.999rem\)\s*{([\s\S]*?)\n}/g)]
+      .map((m) => m[1])
+      .find((body) => body?.includes(".mdx-inline-code"))
 
     expect(mediaRule).toMatch(
       /\.mdx-inline-code\s*{[^}]*white-space:\s*normal;[^}]*overflow-wrap:\s*anywhere;/s,

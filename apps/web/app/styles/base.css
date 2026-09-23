@@ -1,0 +1,92 @@
+/* apps/web/app/styles/base.css — document-level rules on the tokens. */
+html {
+  color-scheme: light;
+  scroll-padding-top: var(--header-h);
+}
+
+@layer base {
+  body {
+    @apply bg-page text-ink font-sans antialiased;
+    margin: 0;
+    min-height: 100vh;
+  }
+}
+
+::selection {
+  background: var(--color-relay-tint);
+  color: var(--color-ink);
+}
+
+/* One focus ring for the whole site. Controls on the dark panel restate
+   --color-focus (see prose.css [data-code-frame]). */
+:focus-visible {
+  outline: var(--ring-width) solid var(--color-focus);
+  outline-offset: 3px;
+}
+
+/* The skip link focuses the main landmark programmatically; it is a target,
+   not a control, so it gets no focus ring. */
+main#content:focus {
+  outline: none;
+}
+
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+p,
+li {
+  text-wrap: pretty;
+}
+
+/* Docs pages have their own sidebar and prev/next links, so they skip the
+   site footer. Keyed off an attribute app/docs/layout.tsx renders on the
+   server, so the server HTML and the hydrated tree always agree (a
+   usePathname() check dropped the footer only on the client and threw a
+   hydration error on /docs/* 404s, which render without the docs layout). */
+body:has([data-docs-layout]) [data-site-footer] {
+  display: none;
+}
+
+/* First focusable element on every page (app/layout.tsx). */
+.skip-link {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 100;
+  padding: 0.625rem 1rem;
+  background: var(--color-ink);
+  color: var(--color-page);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--color-relay);
+  text-underline-offset: 4px;
+  transform: translateY(calc(-100% - 1rem));
+}
+.skip-link:focus {
+  transform: none;
+  outline-color: var(--color-relay);
+}
+
+@media print {
+  header,
+  footer,
+  aside,
+  [data-page-actions],
+  [data-mobile-docs-toc],
+  button {
+    display: none !important;
+  }
+  [data-code-frame],
+  pre {
+    background: transparent !important;
+    color: black !important;
+    border: 1px solid black;
+  }
+  a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 0.85em;
+  }
+}
