@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 
 /**
  * Every input of the prepared image: the recipe, the context allowlist, and each
@@ -26,6 +27,9 @@ export function preparedImageTag(root: string): string {
   }
   return `b4-code-fixer:${hash.digest("hex").slice(0, 32)}`
 }
+
+/** This app's prepared image; `sandbox:prepare` builds exactly this tag. */
+export const sandboxImage = preparedImageTag(fileURLToPath(new URL("../../", import.meta.url)))
 
 /** The recipe's single base image, which must be pinned by digest. */
 export function baseImage(dockerfile: string): string {
