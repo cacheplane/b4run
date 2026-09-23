@@ -200,6 +200,17 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
         { url: entry.url.replace(/\/$/, ""), appRoot: entry.appRoot, route: entry.route },
       ]),
     )
+    // One process has one installation store: two entries at one URL naming different app
+    // roots would read one of the two threads' workspaces from a store that never held it.
+    const byUrl = new Map<string, [string, WorkerEndpoint]>()
+    for (const [id, entry] of Object.entries(workers)) {
+      const seen = byUrl.get(entry.url)
+      if (seen !== undefined && seen[1].appRoot !== entry.appRoot)
+        throw invalid(
+          `FACTORY_WORKERS: workers ${seen[0]} and ${id} share ${entry.url} but name different app roots (${seen[1].appRoot}, ${entry.appRoot})`,
+        )
+      byUrl.set(entry.url, [id, entry])
+    }
   } else {
     if (e.FACTORY_WORKER_URL === undefined && e.FACTORY_BUILDER_APP_ROOT === undefined)
       throw invalid("FACTORY_WORKERS or FACTORY_WORKER_URL is required")

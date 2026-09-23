@@ -110,6 +110,30 @@ describe("the worker map", () => {
     ).toThrow(/FACTORY_WORKERS: devkit/)
   })
 
+  it("refuses two entries at one URL that name different app roots", () => {
+    expect(() =>
+      loadConfig({
+        ...mapped,
+        FACTORY_WORKERS: JSON.stringify({
+          devkit: { url: "http://127.0.0.1:4101", appRoot: "/srv/a" },
+          cli: { url: "http://127.0.0.1:4101/", appRoot: "/srv/b" },
+        }),
+      }),
+    ).toThrow(
+      "FACTORY_WORKERS: workers devkit and cli share http://127.0.0.1:4101 but name different app roots (/srv/a, /srv/b)",
+    )
+    // The same root at one URL is one process serving two targets: fine.
+    expect(() =>
+      loadConfig({
+        ...mapped,
+        FACTORY_WORKERS: JSON.stringify({
+          devkit: { url: "http://127.0.0.1:4101", appRoot: "/srv/a" },
+          cli: { url: "http://127.0.0.1:4101", appRoot: "/srv/a" },
+        }),
+      }),
+    ).not.toThrow()
+  })
+
   it("refuses the map beside any legacy knob, naming the one that was set", () => {
     expect(() => loadConfig({ ...base, FACTORY_WORKERS: workers })).toThrow(
       "FACTORY_WORKERS is set; unset FACTORY_WORKER_URL and FACTORY_BUILDER_APP_ROOT",

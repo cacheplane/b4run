@@ -301,7 +301,7 @@ esac
         number: 778,
         bodyDigest: "0".repeat(64),
       },
-      pin: "a".repeat(40),
+      pin: served.pin,
       issue: { title: "spawnProcess leaks its deadline timer", body: "B" },
     })
     const id = (created.body as { row: { id: string } }).row.id
@@ -373,7 +373,7 @@ esac
         number: 778,
         bodyDigest: "0".repeat(64),
       },
-      pin: "a".repeat(40),
+      pin: served.pin,
       issue: { title: "T", body: "B" },
     })
     const id = (created.body as { row: { id: string } }).row.id
@@ -401,7 +401,7 @@ esac
         number: 778,
         bodyDigest: "0".repeat(64),
       },
-      pin: "a".repeat(40),
+      pin: served.pin,
       issue: { title: "T", body: "B" },
     })
     const id = (created.body as { row: { id: string } }).row.id

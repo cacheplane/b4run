@@ -39,7 +39,13 @@ import { createEvidenceStore, type EvidenceStore } from "../registry/evidence.js
 import { createWorkOrderStore, type WorkOrderPatch } from "../registry/work-orders.js"
 import { BundlePayloadSchema } from "../review/bundle.js"
 import { type ArtifactStore, createArtifactStore } from "../storage/artifacts.js"
-import { type CatalogOptions, isShippedTask, loadTask, repositoryRoot } from "../targets/catalog.js"
+import {
+  type CatalogOptions,
+  ensurePin,
+  isShippedTask,
+  loadTask,
+  repositoryRoot,
+} from "../targets/catalog.js"
 import { loadPolicy } from "../verification/policy.js"
 import type { Verifier } from "../verification/verifier.js"
 import type { CancelResult, WorkerClient } from "../worker/client.js"
@@ -458,20 +464,21 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     const row = mustGet(id)
     if (row.workerThreadId) {
       const threadId = row.workerThreadId
-      // Which worker holds the thread is the row's to say; a row whose worker is no longer
+      // Which worker holds the thread is the row's to say. A row whose worker is no longer
       // configured (the drafter removed, a target's entry dropped) has nowhere to send the
-      // cancel, and stays `cancel_requested` for the operator to fix the map and reconcile.
-      let worker: WorkerClient
+      // cancel and nothing to deny: the cancel is the operator's escape for a worker that is
+      // gone for good, so it settles the row with the fact journalled, rather than hold it
+      // in `cancel_requested` for a map that may never return.
+      let worker: WorkerClient | undefined
       try {
         worker = workerOfThread(row).client
       } catch (error) {
         recordEvent(id, "worker_unavailable", { phase: "cancel", error: String(error) })
-        return mustGet(id)
       }
       const intakeThread = holdsIntakeThread(row)
-      const liveness = await threadLiveness(id, worker, threadId)
+      const liveness = worker === undefined ? "missing" : await threadLiveness(id, worker, threadId)
       let result: CancelResult | null = null
-      if (liveness === "live" || liveness === "unknown") {
+      if (worker !== undefined && (liveness === "live" || liveness === "unknown")) {
         try {
           result = await worker.cancel(threadId)
         } catch (error) {
@@ -720,6 +727,27 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       // nothing can run the turn or read what it wrote.
       if (options.workers.drafter === undefined) return unspent(DRAFTER_UNCONFIGURED)
       const drafterWorker = options.workers.drafter
+      // A retry after a rejection redrafts on the thread the first intake made: the drafter
+      // keeps its `draft/`, and the row already names it.
+      // A crashed `intake` journals `intake_thread_created` before `intake_started` reaches
+      // the row (the same window `dispatch` leaves): a rerun adopts that thread rather than
+      // leaving it idle on the worker and making a second one.
+      let threadId = row.workerThreadId ?? journalledIntakeThreadId(id)
+      // The pin is the one transient precondition of the manifest write below: a commit the
+      // repository does not hold yet is fetched here, and a fetch that fails is refused
+      // UNSPENT, so the same call after the network (or the operator) mends it is not the
+      // replay of this refusal. The write itself, under the key, then fails only on disk.
+      let repository: string
+      try {
+        repository = options.promptCatalog?.repositoryRoot ?? repositoryRoot()
+        if (!threadId && row.pin !== null)
+          ensurePin(repository, id, row.pin, { label: `Work order ${id}'s draft` })
+      } catch (error) {
+        recordEvent(id, "pin_unavailable", { pin: row.pin, error: String(error) })
+        return unspent(
+          `pin ${row.pin} is not in the repository and could not be fetched: ${String(error)}`,
+        )
+      }
       const key = operationKey ?? `intake:${id}:${row.revision}`
       const begun = commands.begin(key, id, { command: "intake", args: {} }, iso())
       if (begun.status === "done") return begun.outcome
@@ -727,12 +755,6 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       const refuse = (message: string) =>
         finish(key, { ok: false, state: mustGet(id).state, message })
       if (row.state !== "received") return refuse(`Cannot intake from ${row.state}`)
-      // A retry after a rejection redrafts on the thread the first intake made: the drafter
-      // keeps its `draft/`, and the row already names it.
-      // A crashed `intake` journals `intake_thread_created` before `intake_started` reaches
-      // the row (the same window `dispatch` leaves): a rerun adopts that thread rather than
-      // leaving it idle on the worker and making a second one.
-      let threadId = row.workerThreadId ?? journalledIntakeThreadId(id)
       let created = false
       if (!threadId) {
         // The manifest first: the drafter's resolver reads it when the thread's first run is
@@ -744,7 +766,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           const written = await (options.writeDrafterManifest ?? writeDrafterManifestOnDisk)({
             workOrderId: id,
             pin: row.pin,
-            repositoryRoot: options.promptCatalog?.repositoryRoot ?? repositoryRoot(),
+            repositoryRoot: repository,
             dir: drafterWorker.manifestDir,
             signal: abort.signal,
           })

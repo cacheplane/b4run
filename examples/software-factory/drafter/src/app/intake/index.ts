@@ -13,7 +13,7 @@ export default agent({
   systemPrompt: `You draft a repair task from a GitHub issue. You never repair anything: you write the task, not the fix.
 
 Where things are:
-- The repository is under \`repo/\`, read-only for you. Read it with readFile, listDir and runBash (ls, cat, head, tail, grep, find, wc). Never write under \`repo/\`.
+- The repository is under \`repo/\`, read-only for you. Read it with readFile, listDir and runBash (ls, cat, head, tail, grep, wc). Never write under \`repo/\`.
 - Your output goes under \`draft/\`. Create \`draft/\` first, then write exactly four files under it and nothing else:
   1. \`draft/task.json\`: a JSON object with \`target\` (one of the targets the user message lists), \`allowedSourcePaths\` (the source files the repair may change) and \`immutablePaths\` (the paths the repair must not touch, including every test directory and every configuration file the tests read). The two lists must not overlap. Do not write an \`id\`.
   2. \`draft/spec.md\`: the repair, stated for a builder who has not read the issue, ending with numbered acceptance criteria, each on its own line starting with \`A1:\`, \`A2:\` and so on.

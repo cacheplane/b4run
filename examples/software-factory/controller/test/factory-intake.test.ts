@@ -21,6 +21,7 @@ import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fak
 import { fakeWorkerMap } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
 import { BAD_DRAFTS, GOOD_DRAFT } from "./intake-fixtures.ts"
+import { createEmptyRepo, repositoryHead } from "./temp-repo.ts"
 
 let dir: string
 let generated: string
@@ -40,7 +41,12 @@ const ORIGIN: IssueOrigin = {
   number: 778,
   bodyDigest: "0".repeat(64),
 }
-const PIN = "a".repeat(40)
+/**
+ * The pin every issue here names: a commit this repository holds (`intake` checks the pin
+ * is one the controller can find before it writes a manifest, and an invented sha would
+ * send it fetching).
+ */
+const PIN = repositoryHead().pin
 const ISSUE = {
   title: "spawnProcess leaks its deadline timer",
   body: "A spawn that fails asynchronously leaves the deadline running.",
@@ -144,6 +150,8 @@ async function boot(
 }
 afterEach(async () => {
   resetCatalogForTests()
+  delete process.env.FACTORY_REPO_ROOT
+  delete process.env.FACTORY_NO_FETCH
   await factory?.close()
   await fake?.close()
   await builder?.close()
@@ -444,6 +452,43 @@ describe("intake", () => {
       types.indexOf("thread_orphaned:"),
     )
     expect(factory.show(id)).toMatchObject({ state: "cancelled", workerThreadId: null })
+  })
+
+  it("refuses a pin the repository cannot reach without spending the key, and proceeds once it can", async () => {
+    await boot()
+    const { id } = await createIssue()
+    // The controller's repository does not hold the pin and may not fetch: the one transient
+    // precondition of the manifest write, refused before the key.
+    const empty = createEmptyRepo(join(dir, "empty-"))
+    process.env.FACTORY_REPO_ROOT = empty
+    process.env.FACTORY_NO_FETCH = "1"
+    expect(await factory.intake(id)).toEqual({
+      ok: false,
+      state: "received",
+      message: expect.stringMatching(
+        new RegExp(
+          `^pin ${PIN} is not in the repository and could not be fetched: .*FACTORY_NO_FETCH=1`,
+        ),
+      ),
+    })
+    expect(manifestWrites).toEqual([])
+    expect(threadPosts()).toHaveLength(0)
+    expect(factory.events(id).at(-1)).toMatchObject({
+      type: "pin_unavailable",
+      payload: { pin: PIN },
+    })
+    // The pin becomes reachable (here: the controller's repository is the one that holds
+    // it again): the SAME call, under the default key, is not a replayed refusal.
+    delete process.env.FACTORY_REPO_ROOT
+    delete process.env.FACTORY_NO_FETCH
+    expect(await factory.intake(id)).toEqual({
+      ok: true,
+      state: "intake_running",
+      message: "Intake started",
+    })
+    expect(manifestWrites).toEqual([{ workOrderId: id, pin: PIN, dir: manifestDir() }])
+    reader.set((factory.show(id) as WorkOrderRow).workerThreadId as string, GOOD_DRAFT)
+    expect((await factory.settleIntake(id, 20_000)).state).toBe("awaiting_intake_approval")
   })
 
   it("refuses the intake, key spent, when the drafter manifest cannot be written", async () => {
@@ -915,6 +960,30 @@ describe("the intake gate", () => {
     // Nothing was drafted: no read, no proof.
     expect(reader.reads).toEqual([])
     expect(verifier.calls).toEqual([])
+  })
+
+  it("settles a cancel as cancelled, journalled, when the row's worker has left the map", async () => {
+    await boot({ run: "hang" })
+    const { id } = await intake()
+    await factory.waitFor(id, () => eventSeen(id, "intake_run_started"))
+    await factory.close()
+    // The drafter pair unset under a draft in flight: the boot walk cannot reach the thread
+    // and says so; the row waits.
+    await bootFactory({ withDrafter: false })
+    expect(factory.show(id)?.state).toBe("intake_running")
+    expect(factory.events(id).at(-1)).toMatchObject({
+      type: "reconcile_failed",
+      payload: { error: expect.stringMatching(/intake is not configured/) },
+    })
+    // The operator's escape: nothing to cancel on, nothing to deny, and the row settles.
+    expect(await factory.cancel(id)).toEqual({ ok: true, state: "cancelled", message: "Cancelled" })
+    expect(factory.events(id).find((e) => e.type === "worker_unavailable")?.payload).toMatchObject({
+      phase: "cancel",
+      error: expect.stringMatching(/intake is not configured/),
+    })
+    expect(cancels()).toHaveLength(0)
+    expect(resumes()).toHaveLength(0)
+    expect(factory.show(id)).toMatchObject({ state: "cancelled" })
   })
 
   it("denies a prompt the drafter parked on, on the drafter's route, whether by deny or by cancel", async () => {

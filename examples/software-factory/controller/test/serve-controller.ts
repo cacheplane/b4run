@@ -6,6 +6,7 @@ import type { ControllerRuntimeOverrides } from "../src/lib/runtime.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
+import { repositoryHead } from "./temp-repo.ts"
 
 /** What the target is deemed to hold before the builder runs. */
 const BASELINE = new Map([
@@ -47,6 +48,8 @@ export interface ServedController {
   readonly drafter: FakeWorker
   readonly workspace: FakeWorkspaceReader
   readonly stateDir: string
+  /** A commit the served controller's repository holds: the pin an issue work order may name. */
+  readonly pin: string
   /** POST /threads/<threadId>/runs/wait with a route and input; returns status and parsed body. */
   run(threadId: string, route: string, input: unknown): Promise<{ status: number; body: unknown }>
   /** POST /threads/<threadId>/cancel; returns the status. */
@@ -103,6 +106,9 @@ export async function serveController(
   process.env.FACTORY_BUILDER_APP_ROOT = join(dir, "builder")
   process.env.FACTORY_DRAFTER_URL = drafter.baseUrl
   process.env.FACTORY_DRAFTER_APP_ROOT = join(dir, "drafter")
+  // A commit the served controller's repository (this one) holds, so `intake`'s pin check
+  // passes without a fetch.
+  const repo = repositoryHead()
   for (const [key, value] of Object.entries(env)) process.env[key] = value
   // One scripted reader, keyed by thread id, serves both stages: the builder's repair under
   // its thread, and whatever `draft/` a test scripts under the drafter's.
@@ -147,6 +153,7 @@ export async function serveController(
     drafter,
     workspace,
     stateDir,
+    pin: repo.pin,
     run,
     cancel: async (threadId) =>
       (

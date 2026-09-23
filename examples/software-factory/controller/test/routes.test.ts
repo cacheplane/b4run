@@ -91,14 +91,14 @@ describe("controller routes", () => {
     }
     const created = await served.run("create-5", "/work-orders/create#workflow", {
       origin,
-      pin: "a".repeat(40),
+      pin: served.pin,
       issue: { title: "T", body: "B" },
     })
     expect(created.status).toBe(200)
     expect(created.body).toMatchObject({
       ok: true,
       state: "received",
-      row: { origin, pin: "a".repeat(40) },
+      row: { origin, pin: served.pin },
     })
     const { row } = created.body as { row: { id: string; taskId: string } }
     expect(row.taskId).toBe(row.id)
@@ -107,7 +107,7 @@ describe("controller routes", () => {
     const mixed = await served.run("create-6", "/work-orders/create#workflow", {
       taskId: "cli-flags",
       origin,
-      pin: "a".repeat(40),
+      pin: served.pin,
       issue: { title: "T", body: "B" },
     })
     expect(mixed.body).toMatchObject({ ok: false, refusal: "invalid_input" })
@@ -169,7 +169,7 @@ describe("controller routes", () => {
         number: 778,
         bodyDigest: "0".repeat(64),
       },
-      pin: "a".repeat(40),
+      pin: served.pin,
       issue: { title: "spawnProcess leaks its deadline timer", body: "B" },
     })
     const { id } = (created.body as { row: { id: string } }).row

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { DRAFTER_UNCONFIGURED } from "../src/lib/controller/workers.ts"
 import { createControllerRuntime } from "../src/lib/runtime.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
+import { repositoryHead } from "./temp-repo.ts"
 
 let dir: string
 let fake: FakeWorker
@@ -36,8 +37,10 @@ describe("controller runtime", () => {
     dir = mkdtempSync(join(tmpdir(), "factory-runtime-"))
     fake = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only" })
     const workers = JSON.stringify({
-      devkit: { url: fake.baseUrl, appRoot: join(dir, "devkit-builder") },
-      "cli-flags": { url: fake.baseUrl, appRoot: join(dir, "cli-builder"), route: "/fix#agent" },
+      // One fake serves both entries, so both name its one app root: a process has one
+      // installation store, and entries sharing a URL must agree on it.
+      devkit: { url: fake.baseUrl, appRoot: join(dir, "builder") },
+      "cli-flags": { url: fake.baseUrl, appRoot: join(dir, "builder"), route: "/fix#agent" },
     })
     const runtime = createControllerRuntime({
       FACTORY_STATE_DIR: join(dir, "state"),
@@ -68,6 +71,7 @@ describe("controller runtime", () => {
     dir = mkdtempSync(join(tmpdir(), "factory-runtime-"))
     fake = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only" })
     drafter = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only" })
+    const repo = repositoryHead()
     const env = {
       FACTORY_WORKER_URL: fake.baseUrl,
       FACTORY_STATE_DIR: join(dir, "state"),
@@ -80,7 +84,7 @@ describe("controller runtime", () => {
         number: 778,
         bodyDigest: "0".repeat(64),
       },
-      pin: "a".repeat(40),
+      pin: repo.pin,
       issue: { title: "t", body: "b" },
     }
     const without = createControllerRuntime(env)

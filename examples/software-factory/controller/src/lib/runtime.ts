@@ -170,6 +170,10 @@ function namingDrafterAppRoot(reader: WorkspaceReader, appRoot: string): Workspa
       try {
         return await reader.read(target, signal)
       } catch (error) {
+        // Matched by text: the framework throws a plain `Error` here
+        // (`openWorkspaceInstallationReader` in
+        // `packages/sqlite-storage/src/workspace/installation.ts`, "No workspace installation
+        // under <appRoot>"), with no class or code to test for.
         if (error instanceof Error && /No workspace installation/.test(error.message)) {
           throw new Error(
             `FACTORY_DRAFTER_APP_ROOT has no workspace installation: has the drafter app booted under ${appRoot}? (${error.message})`,

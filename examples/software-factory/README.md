@@ -304,6 +304,10 @@ prepare one. A draft that parks in
 row's `taskDigest`, `approve-intake` recomputes the directory's digest at call time and refuses
 if either differs, so what the person read is what the builder and the verifier are given.
 `reject-intake --note` journals the note and, attempts permitting, waits for the redraft.
+A refusal `intake` records under its operation key (the thread could not be created, the
+manifest could not be written) is replayed to every later call at the same revision: retry
+with `--key <fresh>`. A pin the repository does not hold and cannot fetch is refused before
+the key is spent, so that call simply works once the pin is reachable.
 Unlike `awaiting_approval`, `awaiting_intake_approval` has no expiry: the draft waits as long
 as it takes, and waiting on a person is not active time.
 The review bundle later freezes the origin (issue and body digest), the pin, the approved task
@@ -355,6 +359,13 @@ The builder app reads `FACTORY_BUILDER_MANIFEST` (required: the manifest path) a
 `FACTORY_DRAFTER_IMAGE` (default: the pinned digest in `drafter/src/drafter-image.ts`) and
 `FACTORY_DRAFTER_MODEL` (default `gpt-5-mini`). The CLI reads `FACTORY_CONTROLLER_URL` for
 writes and `FACTORY_STATE_DIR` for reads; `builder-manifest` needs neither.
+
+A work order whose worker has left the map — the drafter pair unset while a draft is in
+flight, a target's entry removed while its build runs — waits where it is, journalling
+`worker_unavailable` (and `reconcile_failed`) until the map is restored and the controller
+reconciles. `cancel` is the operator's escape when the worker is gone for good: with nowhere
+to send the cancel and nothing to deny, it settles the row as `cancelled` with the fact
+journalled.
 
 Unknown keys are stripped rather than rejected, so an old service file keeps starting. Rung 0's
 `FACTORY_WORKER_OUTBOX` and `FACTORY_RECEIPT_WAIT_MS` name nothing now — the trust transfer
