@@ -26,7 +26,7 @@ export function CodePanel({
         <span>{code.path}</span>
         {code.url && (
           <a href={code.url} target="_blank" rel="noopener noreferrer">
-            {code.linkLabel ?? "Full source"} ↗
+            {code.linkLabel ?? "Full source"}
           </a>
         )}
       </div>

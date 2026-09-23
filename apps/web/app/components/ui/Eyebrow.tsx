@@ -6,7 +6,8 @@ interface EyebrowProps {
   readonly children: ReactNode
   /** muted on paper (default), olive for a highlighted label, panel on the dark panel. */
   readonly tone?: Tone
-  readonly className?: string
+  /** Optional; `string | undefined` so a CSS-module lookup can be passed straight through. */
+  readonly className?: string | undefined
 }
 
 /** The one eyebrow: JetBrains Mono 12px, uppercase, 0.07em (ui.css). */

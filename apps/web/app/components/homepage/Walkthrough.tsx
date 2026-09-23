@@ -1,5 +1,6 @@
 "use client"
 import { useState } from "react"
+import { Eyebrow } from "../ui/Eyebrow"
 import { CodePanel } from "./CodePanel"
 import styles from "./homepage.module.css"
 import type { WalkthroughProps } from "./types"
@@ -95,7 +96,9 @@ export function Walkthrough(props: WalkthroughProps) {
           )}
         </div>
         <div className={styles.agentSource} data-source={file}>
-          <p className={styles.eyebrow}>Agent source</p>
+          <Eyebrow tone="panel" className={styles.eyebrow}>
+            Agent source
+          </Eyebrow>
           <fieldset className={styles.fileTabs} aria-label="Agent source files">
             {files.map((key, i) => (
               <button

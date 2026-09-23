@@ -1,4 +1,5 @@
 import type { ReactNode } from "react"
+import { Eyebrow } from "../ui/Eyebrow"
 import { CodePanel } from "./CodePanel"
 import styles from "./homepage.module.css"
 import type { NarrativeKey } from "./narrative-source"
@@ -23,10 +24,10 @@ function Chapter({
   return (
     <section className={styles.chapter} id={id} aria-labelledby={`${id}-title`}>
       <div className={styles.chapterCopy}>
-        <p className={styles.eyebrow}>
+        <Eyebrow className={styles.eyebrow}>
           <span className={styles.chapterNumber}>{number}</span>
           {label}
-        </p>
+        </Eyebrow>
         <h2 id={`${id}-title`}>{title}</h2>
         {children}
       </div>
@@ -48,7 +49,7 @@ export function Narrative({ code }: { code: Record<NarrativeKey, DisplayCode> })
       >
         <p>Choose a model and a task. B4 runs the tool-call loop.</p>
         <a className={styles.textLink} href="/docs/agents">
-          Agents ↗
+          Agents
         </a>
       </Chapter>
       <Chapter
@@ -66,7 +67,7 @@ export function Narrative({ code }: { code: Record<NarrativeKey, DisplayCode> })
       >
         <p>Declare the files. B4 manages their lifecycle in an isolated Docker workspace.</p>
         <a className={styles.textLink} href="/docs/sandbox">
-          Workspaces + sandboxes ↗
+          Workspaces + sandboxes
         </a>
       </Chapter>
       <Chapter
@@ -80,7 +81,7 @@ export function Narrative({ code }: { code: Record<NarrativeKey, DisplayCode> })
           Export a function. B4 derives its schema from your types and supplies <code>ctx</code>.
         </p>
         <a className={styles.textLink} href="/docs/tools">
-          Tools ↗
+          Tools
         </a>
       </Chapter>
       <Chapter
@@ -100,7 +101,7 @@ export function Narrative({ code }: { code: Record<NarrativeKey, DisplayCode> })
       >
         <p>A plan seeds the checklist. Skills provide reusable instructions.</p>
         <a className={styles.textLink} href="/docs/skills">
-          Plans + skills ↗
+          Plans + skills
         </a>
       </Chapter>
       <Chapter
@@ -112,7 +113,7 @@ export function Narrative({ code }: { code: Record<NarrativeKey, DisplayCode> })
       >
         <p>Test the patch in a fresh workspace. Require every named check to pass.</p>
         <a className={styles.textLink} href="/docs/evals">
-          Evaluate the workflow ↗
+          Evaluate the workflow
         </a>
       </Chapter>
       <Chapter
@@ -130,7 +131,7 @@ export function Narrative({ code }: { code: Record<NarrativeKey, DisplayCode> })
       >
         <p>B4 pauses before export. You approve the exact patch, and the tool checks it again.</p>
         <a className={styles.textLink} href="/docs/permissions">
-          Approval ↗
+          Approval
         </a>
       </Chapter>
       <ExecutionFlow />

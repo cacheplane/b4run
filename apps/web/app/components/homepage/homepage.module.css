@@ -1,13 +1,7 @@
 .home {
-  --paper: #f5f4f0;
-  --ink: #111;
-  --relay: #b4ce37;
-  --quiet: #595b53;
-  --rule: #d6d6cc;
-  --dark: #17181b;
-  background: var(--paper);
-  color: var(--ink);
-  font-family: var(--font-inter), Arial, sans-serif;
+  background: var(--color-page);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
   padding: 0 40px 72px;
 }
 .container {
@@ -20,21 +14,11 @@
 .home a {
   color: inherit;
 }
-.home :focus-visible {
-  outline: 3px solid #667811;
-  outline-offset: 4px;
-}
 .hero {
   padding: 64px 0 44px;
   position: relative;
 }
 .eyebrow {
-  font:
-    12px / 1.6 var(--font-jetbrains-mono),
-    monospace;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--quiet);
   margin: 0;
 }
 .hero h1 {
@@ -59,14 +43,14 @@
   width: 108px;
   height: 108px;
   border-radius: 50%;
-  background: var(--relay);
+  background: var(--color-relay);
 }
 .sectionHeading {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 24px;
-  border-top: 1px solid var(--rule);
+  border-top: 1px solid var(--color-rule);
   padding: 22px 0;
 }
 .sectionHeading h2 {
@@ -77,27 +61,27 @@
 }
 .sectionHeading p {
   font:
-    12px / 1.7 var(--font-jetbrains-mono),
+    12px / 1.7 var(--font-mono),
     monospace;
   text-align: right;
-  color: var(--quiet);
+  color: var(--color-ink-muted);
   margin: 0;
 }
 .steps {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  border: 1px solid var(--ink);
+  border: 1px solid var(--color-ink);
   margin-bottom: 18px;
 }
 .steps button {
   background: transparent;
   border: 0;
-  border-right: 1px solid var(--ink);
+  border-right: 1px solid var(--color-ink);
   padding: 16px;
   display: flex;
   gap: 14px;
   align-items: center;
-  color: var(--quiet);
+  color: var(--color-ink-muted);
   font-size: 14px;
   min-height: 48px;
   cursor: pointer;
@@ -106,12 +90,12 @@
   border-right: 0;
 }
 .steps button[aria-pressed="true"] {
-  color: var(--ink);
-  background: var(--relay);
+  color: var(--color-ink);
+  background: var(--color-relay);
 }
 .steps :where(button) > span {
   font:
-    12px var(--font-jetbrains-mono),
+    12px var(--font-mono),
     monospace;
 }
 .walkthroughGrid {
@@ -121,13 +105,14 @@
   align-items: start;
 }
 .agentSource {
+  --color-focus: var(--color-panel-accent);
   grid-column: 1;
   grid-row: 1;
-  background: var(--dark);
+  background: var(--color-panel);
   min-width: 0;
 }
 .agentSource > .eyebrow {
-  color: #c3c6bb;
+  color: var(--color-panel-muted);
   margin: 0;
   padding: 16px 18px 0;
 }
@@ -136,16 +121,16 @@
   grid-row: 1;
   min-width: 0;
   padding: 28px;
-  border: 1px solid var(--rule);
-  background: #eeeee7;
+  border: 1px solid var(--color-rule);
+  background: var(--color-surface);
 }
 .proofLabel {
   font:
-    11px / 1.6 var(--font-jetbrains-mono),
+    11px / 1.6 var(--font-mono),
     monospace;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--quiet);
+  color: var(--color-ink-muted);
   margin: 0;
 }
 .proof h3 {
@@ -158,7 +143,7 @@
 .brief {
   font-size: 14px;
   line-height: 1.7;
-  color: var(--quiet);
+  color: var(--color-ink-muted);
   margin: 0 0 22px;
 }
 .receipt,
@@ -166,15 +151,15 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font:
-    12px / 1.9 var(--font-jetbrains-mono),
+    12px / 1.9 var(--font-mono),
     monospace;
   padding: 18px;
-  background: var(--paper);
+  background: var(--color-page);
   margin: 0 0 22px;
-  border-left: 3px solid #667811;
+  border-left: 3px solid var(--color-olive);
 }
 .failure {
-  border-left-color: #95492f;
+  border-left-color: var(--color-danger);
 }
 .checks {
   list-style: none;
@@ -190,10 +175,10 @@
   gap: 12px;
 }
 .checks li > span {
-  color: #424d18;
+  color: var(--color-relay-ink);
 }
 .approval {
-  border-top: 1px solid var(--rule);
+  border-top: 1px solid var(--color-rule);
   padding-top: 18px;
   font-size: 13px;
   line-height: 1.8;
@@ -203,33 +188,34 @@
   font-weight: 600;
 }
 .approval > span {
-  color: var(--quiet);
+  color: var(--color-ink-muted);
 }
 .fileTabs {
   display: flex;
   flex-wrap: wrap;
-  border-bottom: 1px solid #41433d;
+  border-bottom: 1px solid var(--color-panel-rule);
   padding: 0 8px;
 }
 .fileTabs button {
   border: 0;
   border-bottom: 2px solid transparent;
   background: transparent;
-  color: #b6b8ae;
+  color: var(--color-panel-dim);
   padding: 14px 12px;
   font:
-    12px / 1.6 var(--font-jetbrains-mono),
+    12px / 1.6 var(--font-mono),
     monospace;
   min-height: 48px;
   cursor: pointer;
 }
 .fileTabs button[aria-pressed="true"] {
-  border-bottom-color: var(--relay);
-  color: #e5efb9;
+  border-bottom-color: var(--color-panel-accent);
+  color: var(--color-panel-ink);
 }
 .codePanel {
-  background: #17181b;
-  color: #f5f4f0;
+  --color-focus: var(--color-panel-accent);
+  background: var(--color-panel);
+  color: var(--color-panel-ink);
   min-width: 0;
 }
 .codeHeading {
@@ -239,10 +225,10 @@
   padding: 2px 18px;
   align-items: center;
   font:
-    11px / 1.6 var(--font-jetbrains-mono),
+    11px / 1.6 var(--font-mono),
     monospace;
-  border-bottom: 1px solid #41433d;
-  color: #c3c6bb;
+  border-bottom: 1px solid var(--color-panel-rule);
+  color: var(--color-panel-muted);
 }
 .codeHeading > span {
   display: flex;
@@ -262,11 +248,11 @@
   margin: 0;
   padding: 18px 12px 20px;
   font:
-    13px / 1.9 var(--font-jetbrains-mono),
+    13px / 1.9 var(--font-mono),
     monospace;
   overflow-x: auto;
   background: transparent;
-  color: #f5f4f0;
+  color: var(--color-panel-ink);
   tab-size: 2;
 }
 .code code {
@@ -283,21 +269,21 @@
   min-width: 36px;
   padding-right: 12px;
   text-align: right;
-  color: #96998e;
+  color: var(--color-panel-dim);
   user-select: none;
 }
 .highlightLine {
-  background: #31391c;
-  border-left-color: #b4ce37;
+  background: color-mix(in srgb, var(--color-panel-accent) 15%, transparent);
+  border-left-color: var(--color-panel-accent);
 }
 .fold {
   display: block;
-  background: #26282c;
-  color: #dce4c1;
-  border: 1px solid #565a4d;
+  background: var(--color-panel-strip);
+  color: var(--color-panel-ink);
+  border: 1px solid var(--color-panel-rule);
   padding: 9px 12px;
   font:
-    11px / 1.6 var(--font-jetbrains-mono),
+    11px / 1.6 var(--font-mono),
     monospace;
   cursor: pointer;
   margin: 16px 18px 0;
@@ -306,22 +292,22 @@
 .foldMarker {
   border-left: 2px solid transparent;
   display: block;
-  color: #b6b8ae;
+  color: var(--color-panel-dim);
   font-style: italic;
 }
 .codeFooter {
-  border-top: 1px solid #41433d;
+  border-top: 1px solid var(--color-panel-rule);
   padding: 12px 18px;
   display: flex;
   gap: 14px;
   align-items: center;
   font-size: 11px;
-  color: #c3c6bb;
+  color: var(--color-panel-muted);
 }
 .codeFooter button {
-  color: #e5efb9;
+  color: var(--color-panel-ink);
   background: transparent;
-  border: 1px solid #565a4d;
+  border: 1px solid var(--color-panel-rule);
   padding: 8px 10px;
   min-height: 44px;
   white-space: nowrap;
@@ -337,7 +323,7 @@
 .lower p {
   font-size: 13px;
   line-height: 1.7;
-  color: var(--quiet);
+  color: var(--color-ink-muted);
   margin: 0;
   max-width: 520px;
 }
@@ -349,8 +335,9 @@
   margin: 0;
 }
 .takeaway {
-  background: var(--dark);
-  color: var(--paper);
+  --color-focus: var(--color-panel-accent);
+  background: var(--color-panel);
+  color: var(--color-page);
   display: grid;
   grid-template-columns: 1fr 1.15fr;
   gap: 40px;
@@ -358,14 +345,14 @@
   padding: 40px;
 }
 .takeaway .eyebrow {
-  color: #c3c6bb;
+  color: var(--color-panel-muted);
   margin-bottom: 18px;
 }
 .takeaway h2 + p {
   margin: 16px 0 12px;
 }
 .takeaway p {
-  color: #c3c6bb;
+  color: var(--color-panel-muted);
   font-size: 14px;
   line-height: 1.7;
 }
@@ -479,7 +466,7 @@
   gap: 48px;
   align-items: start;
   padding: 56px 0;
-  border-bottom: 1px solid var(--rule);
+  border-bottom: 1px solid var(--color-rule);
   scroll-margin-top: 100px;
 }
 .chapterCopy h2 {
@@ -492,11 +479,11 @@
 .chapterCopy > p:not(.eyebrow) {
   font-size: 15px;
   line-height: 1.8;
-  color: var(--quiet);
+  color: var(--color-ink-muted);
   margin: 0 0 18px;
 }
 .chapterCopy p code {
-  color: var(--ink);
+  color: var(--color-ink);
   font-size: 0.85em;
   overflow-wrap: anywhere;
 }
@@ -507,8 +494,8 @@
   width: 30px;
   height: 30px;
   margin-right: 12px;
-  color: var(--ink);
-  background: var(--relay);
+  color: var(--color-ink);
+  background: var(--color-relay);
 }
 .chapterCode {
   min-width: 0;
@@ -529,16 +516,16 @@
 .codeCaption {
   font-size: 12px;
   padding: 18px 0 12px;
-  color: var(--quiet);
+  color: var(--color-ink-muted);
 }
 .skillNote {
-  background: #e8ecd9;
+  background: var(--color-relay-tint);
   padding: 22px;
   margin-top: 18px;
 }
 .skillNote > span {
   font:
-    12px / 1.6 var(--font-jetbrains-mono),
+    12px / 1.6 var(--font-mono),
     monospace;
   overflow-wrap: anywhere;
 }
@@ -546,10 +533,10 @@
   font-size: 14px;
   line-height: 1.7;
   margin: 10px 0 0;
-  color: #454a37;
+  color: var(--color-relay-ink);
 }
 .recording {
-  border: 1px solid var(--rule);
+  border: 1px solid var(--color-rule);
   padding: 24px;
   margin-top: 48px;
 }
@@ -581,9 +568,9 @@
 }
 .recording > summary > span:last-child {
   font:
-    12px / 32px var(--font-jetbrains-mono),
+    12px / 32px var(--font-mono),
     monospace;
-  color: var(--quiet);
+  color: var(--color-ink-muted);
 }
 .recording > summary > span:last-child > span {
   margin-left: 14px;
@@ -638,8 +625,8 @@
   display: grid;
   grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.6fr);
   gap: 48px;
-  border-top: 1px solid var(--ink);
-  border-bottom: 1px solid var(--rule);
+  border-top: 1px solid var(--color-ink);
+  border-bottom: 1px solid var(--color-rule);
   padding: 36px 0 44px;
   align-items: start;
 }
@@ -654,24 +641,24 @@
 .overviewCopy > p:not(.eyebrow) {
   font-size: 15px;
   line-height: 1.7;
-  color: var(--quiet);
+  color: var(--color-ink-muted);
   max-width: 280px;
 }
 .overviewHint {
   margin-top: 28px;
 }
 .projectTree {
-  background: #eeeee7;
-  border: 1px solid var(--rule);
+  background: var(--color-surface);
+  border: 1px solid var(--color-rule);
   padding: 18px 24px;
   min-width: 0;
 }
 .treeRoot {
   font:
-    13px / 1.8 var(--font-jetbrains-mono),
+    13px / 1.8 var(--font-mono),
     monospace;
   padding-bottom: 12px;
-  border-bottom: 1px solid var(--rule);
+  border-bottom: 1px solid var(--color-rule);
 }
 /* Pull rows out by their own inline padding so row text aligns with the
    root and caption while the hover band still extends past it. */
@@ -690,28 +677,28 @@
   min-height: 36px;
 }
 .projectTree a:hover {
-  background: #e0e7c7;
+  background: var(--color-relay-tint);
 }
 .projectTree code {
   font:
-    13px / 1.6 var(--font-jetbrains-mono),
+    13px / 1.6 var(--font-mono),
     monospace;
 }
 .projectTree a > span {
-  color: var(--quiet);
+  color: var(--color-ink-muted);
   font-size: 12px;
   text-align: right;
 }
 .projectTree .treeChild {
   margin-left: 26px;
-  border-left: 1px solid #b9bdae;
+  border-left: 1px solid var(--color-rule);
   padding-left: 20px;
 }
 .projectTree > p {
   margin: 0;
-  border-top: 1px solid var(--rule);
+  border-top: 1px solid var(--color-rule);
   padding-top: 14px;
-  color: var(--quiet);
+  color: var(--color-ink-muted);
   font-size: 12px;
   line-height: 1.7;
 }
@@ -724,14 +711,14 @@
   list-style: none;
   padding: 0;
   margin: 30px 0 24px;
-  border: 1px solid var(--rule);
+  border: 1px solid var(--color-rule);
 }
 .executionFlow li {
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 20px 16px;
-  border-right: 1px solid var(--rule);
+  border-right: 1px solid var(--color-rule);
   position: relative;
 }
 .executionFlow li:last-child {
@@ -744,8 +731,8 @@
   top: 20px;
   /* Same line box as .flowNumber (12px / 1.6) so the arrow centers on it. */
   line-height: 19.2px;
-  background: var(--paper);
-  color: #627410; /* 4.74:1 on --paper; #667811 was 4.48:1 */
+  background: var(--color-page);
+  color: var(--color-olive);
   z-index: 1;
 }
 .executionFlow li > strong {
@@ -755,13 +742,13 @@
 .executionFlow li > span:last-child {
   font-size: 12px;
   line-height: 1.6;
-  color: var(--quiet);
+  color: var(--color-ink-muted);
 }
 .flowNumber {
   font:
-    12px / 1.6 var(--font-jetbrains-mono),
+    12px / 1.6 var(--font-mono),
     monospace;
-  color: #627410; /* 4.74:1 on --paper; #667811 was 4.48:1 */
+  color: var(--color-olive);
 }
 .ownership {
   display: flex;
@@ -772,10 +759,10 @@
   margin: 0;
   font-size: 13px;
   line-height: 1.8;
-  color: var(--quiet);
+  color: var(--color-ink-muted);
 }
 .ownership strong {
-  color: var(--ink);
+  color: var(--color-ink);
   font-weight: 600;
 }
 @media (max-width: 760px) {
@@ -811,7 +798,7 @@
     grid-template-columns: 1fr 1fr;
   }
   .executionFlow li {
-    border-bottom: 1px solid var(--rule);
+    border-bottom: 1px solid var(--color-rule);
   }
   .executionFlow li:nth-child(even) {
     border-right: 0;
