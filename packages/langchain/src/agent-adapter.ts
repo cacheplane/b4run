@@ -1397,7 +1397,12 @@ async function* streamFromRunnable(
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error))
         if (hasYielded || !isRetryableError(error) || attempt === maxStreamAttempts - 1) {
-          await drainWrites?.()
+          // Not on cancellation: a cancelled turn's settle already waits for
+          // the abandoned route to unwind, and the writes chained behind a
+          // still-running tool would hold the turn open until it finishes.
+          if (!(invocationConfig.signal as AbortSignal | undefined)?.aborted) {
+            await drainWrites?.()
+          }
           throw err
         }
         const delay = Math.min(1000 * 2 ** attempt + Math.random() * 500, 10_000)
