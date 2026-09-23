@@ -507,6 +507,21 @@ function assertPage(path, parsed) {
   }
 }
 
+export function docsOgImageUrl(path) {
+  return `${productionOrigin}/og${path}`
+}
+
+async function assertOgPng(response) {
+  if (response.status !== 200) throw new Error(`returned HTTP ${response.status}`)
+  if (!response.headers.get("content-type")?.toLowerCase().startsWith("image/png")) {
+    throw new Error(`returned unexpected content type: ${response.headers.get("content-type")}`)
+  }
+  const dimensions = readPngDimensions(Buffer.from(await response.arrayBuffer()))
+  if (!isDeepStrictEqual(dimensions, { height: 630, width: 1200 })) {
+    throw new Error(`dimensions are ${dimensions.width}x${dimensions.height}; expected 1200x630`)
+  }
+}
+
 function localUrl(productionUrl, baseUrl) {
   const requested = new URL(productionUrl)
   if (requested.origin !== productionOrigin) {
@@ -604,6 +619,7 @@ export async function auditBuiltSeo({ asOf, baseUrl }) {
     lastmodDates: 0,
     llms: 0,
     llmsDocs: 0,
+    docsOgImages: 0,
     ogImages: 0,
     ogNegative404s: 0,
     posts: inventory.visiblePosts.length,
@@ -736,17 +752,7 @@ export async function auditBuiltSeo({ asOf, baseUrl }) {
   }
   for (const imageUrl of [...new Set(imageUrls)]) {
     try {
-      const response = await fetchResponse(localUrl(imageUrl, baseUrl))
-      if (response.status !== 200) throw new Error(`returned HTTP ${response.status}`)
-      if (!response.headers.get("content-type")?.toLowerCase().startsWith("image/png")) {
-        throw new Error(`returned unexpected content type: ${response.headers.get("content-type")}`)
-      }
-      const dimensions = readPngDimensions(Buffer.from(await response.arrayBuffer()))
-      if (!isDeepStrictEqual(dimensions, { height: 630, width: 1200 })) {
-        throw new Error(
-          `dimensions are ${dimensions.width}x${dimensions.height}; expected 1200x630`,
-        )
-      }
+      await assertOgPng(await fetchResponse(localUrl(imageUrl, baseUrl)))
       summary.ogImages += 1
     } catch (error) {
       failures.push(
@@ -755,10 +761,44 @@ export async function auditBuiltSeo({ asOf, baseUrl }) {
     }
   }
 
+  // Every docs page carries its own prerendered card, named by its path.
+  const docsPaths = new Set(inventory.docs.map((doc) => doc.path))
+  const docsImageUrls = []
+  for (const result of pageResults) {
+    if (!docsPaths.has(result.path) || result.parsed === undefined) continue
+    const expected = docsOgImageUrl(result.path)
+    const images = result.parsed.openGraphImages
+    if (images.length !== 1 || images[0] !== expected) {
+      failures.push(`${result.path}: expected og:image ${expected}; found ${images.join(", ")}`)
+      continue
+    }
+    const article = result.parsed.jsonLdEntities.find((entity) => entity["@type"] === "TechArticle")
+    if (article?.image !== expected) {
+      failures.push(`${result.path}: TechArticle image must be ${expected}`)
+    }
+    docsImageUrls.push(expected)
+  }
+  if (docsImageUrls.length !== inventory.docs.length) {
+    failures.push(
+      `docs OG image inventory must contain exactly ${inventory.docs.length} URLs; found ${docsImageUrls.length}`,
+    )
+  }
+  await mapLimit(docsImageUrls, 10, async (imageUrl) => {
+    try {
+      await assertOgPng(await fetchResponse(localUrl(imageUrl, baseUrl)))
+      summary.docsOgImages += 1
+    } catch (error) {
+      failures.push(
+        `docs OG image ${imageUrl}: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  })
+
   const draft = inventory.hiddenPosts.find((post) => post.draft)
   const negativePaths = [
     `/blog/${draft?.slug ?? "draft-seo-audit-fixture"}/opengraph-image`,
     "/blog/__seo-audit-unknown__/opengraph-image",
+    "/og/docs/__seo-audit-unknown__",
   ]
   for (const path of negativePaths) {
     try {
@@ -786,7 +826,7 @@ function printResult(options, result) {
     `sitemap=${result.summary.sitemap} lastmodDates=${result.summary.lastmodDates} html=${result.summary.html} jsonLdEntities=${result.summary.jsonLd}`,
   )
   console.log(
-    `robotsGroups=${result.summary.robotsGroups} llms=${result.summary.llms} llmsDocs=${result.summary.llmsDocs} ogImages=${result.summary.ogImages} og404s=${result.summary.ogNegative404s}`,
+    `robotsGroups=${result.summary.robotsGroups} llms=${result.summary.llms} llmsDocs=${result.summary.llmsDocs} ogImages=${result.summary.ogImages} docsOgImages=${result.summary.docsOgImages} og404s=${result.summary.ogNegative404s}`,
   )
   console.log(`failures=${result.failures.length}`)
   for (const failure of result.failures) console.error(`FAIL ${failure}`)

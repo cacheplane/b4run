@@ -9,7 +9,7 @@ import {
 import type { DocsPageHref } from "../components/docs/nav"
 import { STATIC_LASTMOD } from "./lastmod"
 import { DOCS_SEO_PAGES, requireValidLastModified, STATIC_SEO_PAGES } from "./registry"
-import { SOCIAL_CARD, SOCIAL_IMAGE, SOCIAL_SITE_NAME } from "./social"
+import { docsSocialImage, SOCIAL_CARD, SOCIAL_IMAGE, SOCIAL_SITE_NAME } from "./social"
 import type {
   BlogPostingSeoPage,
   CollectionPageSeoPage,
@@ -129,7 +129,9 @@ export function toMetadata(page: SeoPage | undefined): Metadata {
       ? [page.socialImage]
       : page.kind === "BlogPosting"
         ? undefined
-        : [SOCIAL_IMAGE]
+        : page.kind === "TechArticle"
+          ? [docsSocialImage(page)]
+          : [SOCIAL_IMAGE]
   const articleFields =
     page.kind === "BlogPosting"
       ? { publishedTime: page.datePublished, authors: [page.author.name] }

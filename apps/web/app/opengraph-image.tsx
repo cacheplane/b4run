@@ -1,7 +1,15 @@
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import { ImageResponse } from "next/og"
+import { webContentRoot } from "../lib/content-root"
 import { COLOR } from "../lib/design-tokens"
 
-export const runtime = "edge"
+// Node, not edge: the image has no params, so Next prerenders it at build and
+// the CDN serves the PNG instead of running a function per request.
+const font = readFileSync(
+  join(webContentRoot(), "..", "public", "brand", "identity", "fonts", "Inter-600.ttf"),
+)
+
 export const size = { width: 1200, height: 630 }
 export const contentType = "image/png"
 export const alt = "B4.run: Ridiculous speed. Readable code."
@@ -10,10 +18,7 @@ export const alt = "B4.run: Ridiculous speed. Readable code."
 const wordmark =
   "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9Ii01IC01IDUyMiAxMTUiIHJvbGU9ImltZyIgYXJpYS1sYWJlbD0iYjQucnVuIj4KPHRpdGxlPmI0LnJ1biAvIEQyLjIgLyB3b3JkbWFyazwvdGl0bGU+CjxkZXNjPlNlbGVjdGVkIEQyLjIgd29ya2luZyBpZGVudGl0eS4gQ3VzdG9tIG5hdGl2ZSB2ZWN0b3IgZ2VvbWV0cnk7IHRyYW5zcGFyZW50IGJhY2tncm91bmQ7IG5vIGZvbnQgZGVwZW5kZW5jaWVzLjwvZGVzYz4KPGcgaWQ9ImxldHRlci1iIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgwLjAwMDAgMCkiIGZpbGw9IiMxMTExMTEiPgo8cGF0aCBkPSJNMCA0UTAgMCA0IDBIMjNWMzVDMzAgMjYgNDAgMjMgNTEgMjNDNzUgMjMgODkgNDAgODkgNjRDODkgODkgNzMgMTAzIDQ5IDEwM0MzNiAxMDMgMjggOTkgMjIgOTJWMTAwSDBaIE0yMiA2NEMyMiA4MCAzMSA4OSA0NiA4OUM2MSA4OSA2OSA3OCA2OSA2NEM2OSA0OCA2MCAzOCA0NiAzOEMzMSAzOCAyMiA0OCAyMiA2NFoiIGZpbGwtcnVsZT0iZXZlbm9kZCIgLz4KPC9nPgo8ZyBpZD0ibnVtZXJhbC00IiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgxMDUgMCkiIGZpbGw9IiMxMTExMTEiPgo8cGF0aCBkPSJNMTkgMTJINDBMMjAgNTlINjFWMEg4MlY1OUg5NFY3OUg4MlYxMDBINjFWNzlIMFY1OVoiIGZpbGwtcnVsZT0iZXZlbm9kZCIgLz4KPC9nPgo8ZyBpZD0iZG9tYWluLWRvdCIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMjE2IDApIiBmaWxsPSIjMTExMTExIj4KPGNpcmNsZSBjeD0iMTciIGN5PSI4MyIgcj0iMTciIC8+CjwvZz4KPGcgaWQ9ImxldHRlci1yIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgyNjkgMCkiIGZpbGw9IiMxMTExMTEiPgo8cGF0aCBkPSJNMCAyNUgyMUwyMiA0MEMyOCAyNyAzOSAyMSA1NSAyNUw1MSA0NUMzMiA0MiAyNCA1MiAyNCA2OVYxMDBIMFoiIGZpbGwtcnVsZT0iZXZlbm9kZCIgLz4KPC9nPgo8ZyBpZD0ibGV0dGVyLXUiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDMzNiAwKSIgZmlsbD0iIzExMTExMSI+CjxwYXRoIGQ9Ik0wIDI1SDI0VjcwQzI0IDgyIDI4IDg4IDM4IDg4QzQ5IDg4IDU1IDgxIDU1IDY5VjI1SDc5VjEwMEg1OEw1NiA5MEM0OSAxMDAgNDEgMTA1IDI4IDEwNUM5IDEwNSAwIDkzIDAgNzNaIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIC8+CjwvZz4KPGcgaWQ9ImxldHRlci1uIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg0MzAgMCkiIGZpbGw9IiMxMTExMTEiPgo8cGF0aCBkPSJNMCAyNUgyMUwyMyAzN0MzMCAyNyA0MCAyMiA1MyAyMkM3MyAyMiA4MiAzNSA4MiA1NFYxMDBINThWNThDNTggNDUgNTQgMzkgNDQgMzlDMzIgMzkgMjQgNDggMjQgNjNWMTAwSDBaIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIC8+CjwvZz4KPC9zdmc+"
 
-export default async function OG() {
-  const font = await fetch(
-    new URL("../public/brand/identity/fonts/Inter-600.ttf", import.meta.url),
-  ).then((response) => response.arrayBuffer())
+export default function OG() {
   return new ImageResponse(
     <div
       style={{

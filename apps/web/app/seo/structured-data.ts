@@ -1,3 +1,4 @@
+import { docsSocialImagePath } from "./social"
 import type {
   BlogPostingSeoPage,
   CollectionPageSeoPage,
@@ -23,6 +24,7 @@ interface TechArticleJsonLd {
   readonly description: string
   readonly url: string
   readonly dateModified: string
+  readonly image: string
   readonly author: EntityReference
   readonly publisher: EntityReference
   readonly isPartOf: EntityReference
@@ -137,6 +139,7 @@ export function techArticleJsonLd(page: TechArticleSeoPage): TechArticleJsonLd {
     description: page.description,
     url: page.canonical,
     dateModified: page.lastModified,
+    image: new URL(docsSocialImagePath(page.path), SITE_URL).href,
     // The docs are written and published by the project, not one person.
     author: { "@id": ORGANIZATION_ID },
     publisher: { "@id": ORGANIZATION_ID },

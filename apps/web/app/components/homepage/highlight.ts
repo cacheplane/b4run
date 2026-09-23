@@ -1,6 +1,7 @@
 import "server-only"
 import { type BundledLanguage, createHighlighter } from "shiki"
 import { COLOR } from "../../../lib/design-tokens"
+import { syntaxClassesFor } from "../../../lib/shiki-classes"
 import { PAPER_RELAY_THEME } from "../../../lib/shiki-theme"
 import { curatedEvidenceUrl, evidence, type SourceKey } from "./evidence"
 import type { DisplayCode, WalkthroughProps } from "./types"
@@ -35,10 +36,13 @@ export async function highlightCode(
     lines: tokens.map(
       (line) =>
         line
-          .map(
-            (token) =>
-              `<span style="color:${token.color ?? COLOR["panel-ink"]}">${escapeHtml(token.content)}</span>`,
-          )
+          .map((token) => {
+            // Colour only, as before; app/styles/syntax.css holds the classes.
+            const style = `color:${token.color ?? COLOR["panel-ink"]}`
+            const classes = syntaxClassesFor(style)
+            const attribute = classes ? `class="${classes.join(" ")}"` : `style="${style}"`
+            return `<span ${attribute}>${escapeHtml(token.content)}</span>`
+          })
           .join("") || " ",
     ),
   }

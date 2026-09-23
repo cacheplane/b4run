@@ -41,9 +41,16 @@ export const PUBLIC_ASSET_SOURCES = [
 const nextConfig: NextConfig = {
   experimental: { useTypeScriptCli: true },
   reactStrictMode: true,
+  // OG image modules read these at load; trace them in case a route renders on demand.
   outputFileTracingIncludes: {
     "/blog/*": [
       "./public/brand/identity/fonts/Inter-600.ttf",
+      "./public/brand/identity/logos/wordmark-ink.svg",
+    ],
+    "/opengraph-image": ["./public/brand/identity/fonts/Inter-600.ttf"],
+    "/og/docs/*": [
+      "./public/brand/identity/fonts/Inter-600.ttf",
+      "./public/brand/identity/fonts/Inter-400.ttf",
       "./public/brand/identity/logos/wordmark-ink.svg",
     ],
   },
