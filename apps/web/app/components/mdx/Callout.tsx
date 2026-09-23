@@ -9,39 +9,19 @@ interface Props {
   readonly children: ReactNode
 }
 
-const STYLES: Record<CalloutType, { border: string; icon: string; glyph: string }> = {
-  info: {
-    border: "border-accent-saas/40",
-    icon: "text-accent-saas",
-    glyph: "\u24D8", // ⓘ
-  },
-  tip: {
-    border: "border-accent-green/40",
-    icon: "text-accent-green",
-    glyph: "\u2728", // ✨
-  },
-  warn: {
-    border: "border-yellow-500/40",
-    icon: "text-yellow-500",
-    glyph: "\u26A0", // ⚠
-  },
-  danger: {
-    border: "border-red-500/40",
-    icon: "text-red-500",
-    glyph: "\u2716", // ✖
-  },
+const GLYPH: Record<CalloutType, string> = {
+  info: "ⓘ", // ⓘ
+  tip: "✨", // ✨
+  warn: "⚠", // ⚠
+  danger: "✖", // ✖
 }
 
+/** Colours and borders come from ui.css [data-callout-type]. */
 export function Callout({ type = "info", title, children }: Props) {
-  const s = STYLES[type]
   return (
-    <aside
-      data-callout-type={type}
-      className={`my-6 p-4 bg-surface border rounded-lg flex gap-3 items-start ${s.border}`}
-      role="note"
-    >
-      <span className={`text-base mt-0.5 shrink-0 ${s.icon}`} aria-hidden>
-        {s.glyph}
+    <aside data-callout-type={type} className="my-6 flex gap-3 items-start" role="note">
+      <span className="text-base mt-0.5 shrink-0" aria-hidden>
+        {GLYPH[type]}
       </span>
       <div className="flex-1 min-w-0">
         <DocsCalloutLabel type={type} />

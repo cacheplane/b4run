@@ -11,45 +11,7 @@ import {
   useRef,
   useState,
 } from "react"
-
-function CopyIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      role="img"
-    >
-      <title>Copy</title>
-      <rect x="5" y="5" width="9" height="9" rx="1.5" />
-      <path d="M11 5V3.5A1.5 1.5 0 009.5 2h-6A1.5 1.5 0 002 3.5v6A1.5 1.5 0 003.5 11H5" />
-    </svg>
-  )
-}
-
-function CheckIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      role="img"
-    >
-      <title>Copied</title>
-      <path d="M3 8.5l3.5 3.5L13 5" />
-    </svg>
-  )
-}
+import { Icon } from "../ui/Icon"
 
 interface PreProps extends HTMLAttributes<HTMLPreElement> {
   readonly children?: ReactNode
@@ -110,11 +72,7 @@ export function Pre({ children, className, ...rest }: PreProps) {
 
   if (headless) {
     return (
-      <pre
-        ref={ref}
-        className={`overflow-x-auto pl-3 pr-4 py-3 text-[13px] leading-[1.55] font-mono ${className ?? ""}`}
-        {...rest}
-      >
+      <pre ref={ref} className={`overflow-x-auto pl-3 pr-4 py-3 ${className ?? ""}`} {...rest}>
         {children}
       </pre>
     )
@@ -123,19 +81,12 @@ export function Pre({ children, className, ...rest }: PreProps) {
   const label = tabLabel(language, title)
 
   return (
-    <div
-      data-code-frame
-      className="relative my-6 rounded-lg border border-divider bg-surface overflow-hidden"
-    >
+    <div data-code-frame className="relative my-6 overflow-hidden">
       <CodeHeaderRow
         left={<TabPill label={label} active />}
         right={<CopyButton onCopy={copy} copied={copied} />}
       />
-      <pre
-        ref={ref}
-        className={`overflow-x-auto pl-3 pr-4 py-3 text-[13px] leading-[1.55] font-mono ${className ?? ""}`}
-        {...rest}
-      >
+      <pre ref={ref} className={`overflow-x-auto pl-3 pr-4 py-3 ${className ?? ""}`} {...rest}>
         {children}
       </pre>
     </div>
@@ -154,10 +105,7 @@ export function CodeHeaderRow({
   readonly right: ReactNode
 }) {
   return (
-    <div
-      data-code-header
-      className="flex items-end justify-between pl-[18px] pr-3 pt-2 border-b border-divider bg-surface/60"
-    >
+    <div data-code-header className="flex items-end justify-between pl-[18px] pr-3 pt-2">
       {/* Tabs wrap onto a second row rather than scroll: a scrolling strip
           is a keyboard-unreachable scroll region (axe scrollable-region-focusable). */}
       <div className="flex min-w-0 flex-wrap items-end gap-1">{left}</div>
@@ -191,14 +139,12 @@ export function TabPill({
   readonly onClick?: () => void
 }) {
   const isButton = typeof onClick === "function"
-  const baseClasses = `relative px-2 py-1.5 text-left font-mono text-xs transition-colors ${
-    active ? "text-ink" : "text-ink-dim hover:text-ink"
-  }`
+  const baseClasses = "relative px-2 py-1.5 text-left font-mono text-xs transition-colors"
   const underline = active ? (
     <span
       aria-hidden
       data-code-active-marker
-      className="absolute left-1 right-1 -bottom-px h-[2px] rounded-full bg-accent-saas"
+      className="absolute left-1 right-1 -bottom-px h-[2px]"
     />
   ) : null
 
@@ -237,13 +183,14 @@ export function CopyButton({
       type="button"
       onClick={onCopy}
       aria-label={copied ? "Copied" : "Copy code"}
-      className={`p-1.5 rounded border transition-colors ${
+      data-copied={copied}
+      className={`p-1.5 border transition-colors ${
         copied
-          ? "border-accent-saas/40 text-accent-saas bg-accent-saas/10"
-          : "border-divider text-ink-dim hover:text-ink hover:border-text-muted"
+          ? "border-panel-accent text-panel-accent"
+          : "border-panel-rule text-panel-dim hover:text-panel-ink hover:border-panel-muted"
       }`}
     >
-      {copied ? <CheckIcon /> : <CopyIcon />}
+      {copied ? <Icon name="check" /> : <Icon name="copy" />}
     </button>
   )
 }
@@ -320,11 +267,7 @@ export function RehypeFigure({
   const label = tabLabel(preLanguage, title)
 
   return (
-    <figure
-      data-code-frame
-      {...rest}
-      className="relative my-6 rounded-lg border border-divider bg-surface overflow-hidden"
-    >
+    <figure data-code-frame {...rest} className="relative my-6 overflow-hidden">
       <RehypeFigureHeader label={label} preChild={preChild} />
       <HeadlessPreContext.Provider value={true}>{preChild}</HeadlessPreContext.Provider>
     </figure>
