@@ -15,12 +15,12 @@ The tests and evals use recorded fixtures and run offline. Live runs need a real
 First, scaffold the app and install its dependencies:
 
 ```bash
-npm create b4-app@latest my-research
+npm create b4-app@latest my-research -- --template research
 cd my-research
 npm install
 ```
 
-The research template is the default, so we don't pass `--template`. You need Node.js 24 or later and npm 11.
+The `--template research` flag picks the research template instead of the default. You need Node.js 24 or later and npm 11.
 
 ## Look at the agents
 

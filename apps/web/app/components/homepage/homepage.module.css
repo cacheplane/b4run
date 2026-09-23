@@ -75,9 +75,11 @@
   position: relative;
   z-index: 1;
 }
-.command {
+/* One line at every width, so the font swap cannot change the hero's height. */
+.home .command {
   max-width: 100%;
-  overflow-wrap: anywhere;
+  font-size: 13px;
+  white-space: nowrap;
 }
 .dot {
   position: absolute;

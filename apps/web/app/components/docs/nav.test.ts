@@ -684,7 +684,8 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
       match[1] ? [match[1]] : [],
     )
 
-    expect(source).toContain("--template basic")
+    expect(source).toContain("npm create b4-app@latest my-agent\n")
+    expect(source).not.toContain("--template")
     expect(source).not.toContain("## 5. Ship it")
     expect(source).not.toContain("docker run -p 8000:8000")
     expect(cardTitles).toEqual(["Build a Research Assistant", "Tools", "Routes"])

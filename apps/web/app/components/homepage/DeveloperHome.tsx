@@ -7,7 +7,7 @@ import { Narrative } from "./Narrative"
 import { exampleFileUrl, exampleUrl, prepareNarrative } from "./narrative-source"
 import { Walkthrough } from "./Walkthrough"
 
-const createCommand = "npm create b4-app@latest my-agent -- --template basic"
+const createCommand = "npm create b4-app@latest my-agent"
 
 export async function DeveloperHome() {
   const [prepared, narrative, firstAgent] = await Promise.all([
