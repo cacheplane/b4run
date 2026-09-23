@@ -97,8 +97,8 @@ The success log reports route, tool-schema, and stateful-route counts. `b4 build
 
 Tool input types are compiled with the app's own `tsconfig.json` (nearest to the app root, honoring `extends`, `paths`, and `baseUrl`). When a declared input type resolves to `any` (for example, an import through a path alias the tsconfig does not declare), the command fails and names the tool file and the unresolved type instead of writing an empty schema.
 
-<Callout type="info" title="Run automatically by b4 dev">
-  `b4 dev` runs `typegen` before every child (re)start, so edits to tool signatures or state schemas are picked up on the automatic restart. You only need to run it yourself after a fresh clone, before CI, or after a tool signature change while the dev server isn't running.
+<Callout type="info" title="Run automatically by b4 dev, run, test, and build">
+  `b4 dev` runs `typegen` before every child (re)start, so edits to tool signatures or state schemas are picked up on the automatic restart. `b4 run` and `b4 test` run it before executing routes in-process, and `b4 build` runs it before emitting artifacts, so a new or changed tool is bound with its current input schema. Run it yourself after a fresh clone, before CI, or to refresh editor types for `ctx.tools` while the dev server isn't running.
 </Callout>
 
 ## `b4 build`
@@ -159,6 +159,8 @@ Flags:
 
 The route argument can be the parameterized id (e.g. `/research`) or the relative route entry file path (e.g. `src/app/research/index.ts`). Dynamic segment values come from the JSON input. When `--url` is set, `b4 run` POSTs to `/threads/<t-cli-uuid>/runs/wait` with `{ route: "<routeId>#<kind>", input }`.
 
+Without `--url`, `b4 run` regenerates the `.b4/` typegen output first, so a tool you just added or changed is bound with its current input schema. You don't need to run `b4 typegen` first. If regeneration fails, for example because a tool's input type cannot be resolved, `b4 run` prints a warning on stderr and still runs the route with the schemas already on disk.
+
 <Callout type="tip" title="Quote the path">
   Route paths containing `(`, `)`, `[`, or `]` should be quoted in shell so they aren't expanded.
 </Callout>
@@ -175,7 +177,7 @@ b4 test src/app/(public)/hello
 Flags:
 - `--cwd <path>`: operate on a different app root.
 
-The optional positional `[path]` argument narrows the discovered scenario set to a subdirectory. To target a live dev server, add `.server(url)` to that scenario's builder chain inside `run.test.ts` (there is no command-level `--url` flag on `b4 test`). Exits non-zero on any failure with a diff per mismatched scenario. See [Testing](/docs/testing) for scenario authoring.
+The optional positional `[path]` argument narrows the discovered scenario set to a subdirectory. To target a live dev server, add `.server(url)` to that scenario's builder chain inside `run.test.ts` (there is no command-level `--url` flag on `b4 test`). Before running in-process scenarios, `b4 test` regenerates the `.b4/` typegen output the same way `b4 run` does. Exits non-zero on any failure with a diff per mismatched scenario. See [Testing](/docs/testing) for scenario authoring.
 
 ## `b4 eval`
 
