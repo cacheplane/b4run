@@ -8,7 +8,7 @@ import { BuilderManifestSchema } from "../src/lib/builder-manifest.ts"
 import { openRegistryReader } from "../src/lib/registry/reader.ts"
 import { tasksDir } from "../src/lib/targets/catalog.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
-import { GOOD_DRAFT } from "./intake-fixtures.ts"
+import { BAD_DRAFTS, GOOD_DRAFT } from "./intake-fixtures.ts"
 import { FIRST_THREAD, type ServedController, serveController } from "./serve-controller.ts"
 
 const run = promisify(execFile)
@@ -126,6 +126,8 @@ describe("cli", () => {
     expect(evidence.candidate).not.toBeNull()
     expect(evidence.bundle).not.toBeNull()
     expect(evidence.receipt).not.toBeNull()
+    // A catalog work order had no intake, and the evidence says so rather than omitting it.
+    expect(evidence.oracleReceipt).toBeNull()
 
     const { json: reconciled } = await cli("reconcile")
     expect(reconciled).toMatchObject({ ok: true })
@@ -350,6 +352,80 @@ esac
     )
     expect(approved).toMatchObject({ ok: true, state: "received" })
     expect(approved.row.taskDigest).toBe(shown.taskDigest)
+    // The proof the approved draft was parked on is evidence an approver can read: the
+    // receipt of the SECOND attempt, the one whose draft was approved.
+    const { json: evidence } = await cli("evidence", id)
+    expect(evidence.oracleReceipt).toMatchObject({ verdict: "fail", workOrderId: id })
+    const { json: events } = await cli("events", id)
+    const proofs = events.filter((e: { type: string }) => e.type === "oracle_receipt")
+    expect(proofs).toHaveLength(2)
+    expect(evidence.oracleReceipt.id).toBe(proofs[1].payload.receiptId)
+  }, 90_000)
+
+  it("exits non-zero when an intake settles blocked", async () => {
+    const { cli, spawn } = await boot(
+      {},
+      { verifier: createFakeVerifier({ independent: "fail" }) },
+      { FACTORY_INTAKE_TASK: "devkit-spawn-deadline" },
+    )
+    if (!served) throw new Error("no controller")
+    // A draft naming a package with no prepared target blocks at once: no redraft can
+    // prepare one, so this is the one refusal that never spends a second attempt.
+    served.workspace.set(FIRST_THREAD, BAD_DRAFTS.badTarget as Record<string, string>)
+    const created = await served.run("create-cli-blocked", "/work-orders/create#workflow", {
+      origin: {
+        kind: "issue",
+        repository: "cacheplane/b4run",
+        number: 778,
+        bodyDigest: "0".repeat(64),
+      },
+      pin: "a".repeat(40),
+      issue: { title: "T", body: "B" },
+    })
+    const id = (created.body as { row: { id: string } }).row.id
+    const { stdout } = await failing(spawn("intake", id).promise)
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: false,
+      state: "blocked",
+      message: "Intake settled in blocked (no_target_for_package)",
+      row: { state: "blocked", blockedReason: "no_target_for_package", intakeAttempts: 1 },
+    })
+    const { json: shown } = await cli("show", id)
+    expect(shown.state).toBe("blocked")
+  }, 90_000)
+
+  it("exits non-zero when a rejection exhausts the drafter's attempts", async () => {
+    const { cli, spawn } = await boot(
+      {},
+      { verifier: createFakeVerifier({ independent: "fail" }) },
+      { FACTORY_INTAKE_TASK: "devkit-spawn-deadline" },
+    )
+    if (!served) throw new Error("no controller")
+    // Two good drafts, two rejections: the default of two attempts is spent by the redraft,
+    // so the second rejection has nothing left to start and the work order blocks.
+    served.workspace.queue(FIRST_THREAD, [GOOD_DRAFT, GOOD_DRAFT])
+    const created = await served.run("create-cli-exhausted", "/work-orders/create#workflow", {
+      origin: {
+        kind: "issue",
+        repository: "cacheplane/b4run",
+        number: 778,
+        bodyDigest: "0".repeat(64),
+      },
+      pin: "a".repeat(40),
+      issue: { title: "T", body: "B" },
+    })
+    const id = (created.body as { row: { id: string } }).row.id
+    const { json: parked } = await cli("intake", id)
+    expect(parked).toMatchObject({ ok: true, state: "awaiting_intake_approval" })
+    const { json: redrafted } = await cli("reject-intake", id, "--note", "again")
+    expect(redrafted).toMatchObject({ ok: true, row: { intakeAttempts: 2 } })
+    const { stdout } = await failing(spawn("reject-intake", id, "--note", "still no").promise)
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: false,
+      state: "blocked",
+      message: "Intake rejected; no drafter attempts remain, the work order is blocked",
+      row: { state: "blocked", blockedReason: "intake_attempts_exhausted" },
+    })
   }, 90_000)
 
   it("writes a builder manifest without a controller, a registry or a Factory", async () => {

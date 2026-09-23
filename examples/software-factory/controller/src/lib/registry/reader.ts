@@ -8,6 +8,7 @@ import type {
   Receipt,
   WorkOrderRow,
 } from "../domain/work-order.js"
+import { provenOracleReceiptId } from "../intake/oracle.js"
 import { RegistryOutdatedError, RegistryVersionError, SCHEMA_VERSION } from "./db.js"
 import { createEvidenceStore } from "./evidence.js"
 import { createWorkOrderStore } from "./work-orders.js"
@@ -20,6 +21,8 @@ export interface RegistryReader {
     candidate: Candidate | null
     receipt: Receipt | null
     bundle: Bundle | null
+    /** The receipt of the oracle proof the approved draft was parked on; null without intake. */
+    oracleReceipt: Receipt | null
   }
   /** Exposed for tests that prove the connection cannot write. */
   readonly db: DatabaseSync
@@ -78,7 +81,9 @@ export function openRegistryReader(path: string): RegistryReader {
       const candidate = row.candidateDigest ? evidence.candidate(row.candidateDigest) : null
       const bundle = row.bundleDigest ? evidence.bundle(row.bundleDigest) : null
       const receipt = bundle ? evidence.receipt(bundle.receiptId) : null
-      return { candidate, receipt, bundle }
+      const oracleId = provenOracleReceiptId(store.events(id))
+      const oracleReceipt = oracleId ? evidence.receipt(oracleId) : null
+      return { candidate, receipt, bundle, oracleReceipt }
     },
     // Idempotent: the CLI closes a reader per poll and again in a `finally`, and a second
     // `db.close()` is a throw from node:sqlite, not a no-op.

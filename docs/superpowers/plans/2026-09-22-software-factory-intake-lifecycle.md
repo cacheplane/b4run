@@ -698,6 +698,18 @@ git commit -m "feat(software-factory): intake routes, CLI, the bundle's origin a
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
+**As landed.** `show` prints the row only (the draft's directory is `<state>/tasks/<id>/`,
+inspected on disk). `evidence` now includes `oracleReceipt`, the receipt of the last PROVEN
+`oracle_receipt` in the journal, on the factory and the read-only reader alike. The nine
+routes are discovered by `b4 check` and asserted by the route tests, not by a count. The
+awaiting routes (`dispatch`, `intake`, `reject-intake`) share one settle helper
+(`src/lib/routes/settle.ts`). The after-freeze tamper test lives in `factory-intake.test`,
+beside the intake fixtures, and edits `issue.md` (the one file only the task digest covers).
+The bundle payload's four new keys are required, so a bundle frozen before this change fails
+to parse at approve: such a work order must be denied and created again (documented in the
+README). The Docker lane's generated copy of `cli-flags` keeps the shipped visible suite (a
+node-test suite needs ≥1 assertion), which `independentOnly` mode never runs anyway.
+
 ---
 
 ## Self-review against §6

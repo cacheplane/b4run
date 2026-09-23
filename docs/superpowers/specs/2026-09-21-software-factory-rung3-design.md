@@ -422,7 +422,9 @@ It does not repair anything.
 **As landed (3a).** The drafter is the builder process's own route, `FACTORY_INTAKE_ROUTE`
 (default `/intake#agent`), and its thread runs in the workspace of the catalog task
 `FACTORY_INTAKE_TASK`, not in a wide capture: the drafter app, its image and the capture are
-3b. The draft omits `id` and `visible` — the controller fills the work order's id and a
+3b. The route is configurable and exercised only by the test fake; the builder app ships no
+`/intake` route, so `factory intake` against the real builder ends `blocked
+(intake_run_failed)` until 3b implements it. The draft omits `id` and `visible` — the controller fills the work order's id and a
 `vitest` regression guard over the target's whole suite — and carries exactly one check file,
 the one `checks.json` names. A generated task needs no `reference.patch` (optional in the
 catalog now). Acceptance ids are the `A<n>:` lines of `spec.md`, and the independent check's

@@ -57,7 +57,12 @@ describe("registry reader", () => {
       expect(reader.show(row.id)?.state).toBe("received")
       expect(reader.list().map((r) => r.id)).toEqual([row.id])
       expect(reader.events(row.id).map((e) => e.type)).toContain("created")
-      expect(reader.evidence(row.id)).toEqual({ candidate: null, receipt: null, bundle: null })
+      expect(reader.evidence(row.id)).toEqual({
+        candidate: null,
+        receipt: null,
+        bundle: null,
+        oracleReceipt: null,
+      })
       expect(reader.show("nope")).toBeNull()
       expect(() => reader.evidence("nope")).toThrow(/Unknown work order/)
       expect(() => reader.db.exec("DELETE FROM work_orders")).toThrow(/readonly|read-only/i)

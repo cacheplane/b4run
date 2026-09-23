@@ -1,4 +1,4 @@
-import type { Receipt, Verdict } from "../domain/work-order.js"
+import type { FactoryEvent, Receipt, Verdict } from "../domain/work-order.js"
 import type { Verifier } from "../verification/verifier.js"
 
 export interface ProveOracleInput {
@@ -35,6 +35,23 @@ export type OracleProof =
  * caller can journal why. Rejects when the harness itself could not run, and when the receipt
  * names bytes other than the baseline it was asked to grade: a receipt is never guessed.
  */
+/**
+ * The receipt of the proof the current draft was parked on: the LAST `oracle_receipt` the
+ * journal holds with `proven: true`, since a refused draft's proof is journalled too and the
+ * approved task is the latest proven one. Null with none (a catalog work order had no intake).
+ * Read from the journal rather than the row because the row records the digest the proof was
+ * for, not the receipt it earned.
+ */
+export function provenOracleReceiptId(events: readonly FactoryEvent[]): string | null {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i] as FactoryEvent
+    if (event.type !== "oracle_receipt" || event.payload.proven !== true) continue
+    const receiptId = event.payload.receiptId
+    return typeof receiptId === "string" && receiptId.length > 0 ? receiptId : null
+  }
+  return null
+}
+
 export async function proveOracle(input: ProveOracleInput): Promise<OracleProof> {
   const receipt = await input.verifier.verify(
     {

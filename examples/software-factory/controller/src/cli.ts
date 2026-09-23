@@ -115,7 +115,9 @@ function tailEvents(id: string, after: number): number {
 /**
  * What an intake (or the redraft a rejection starts) may treat as success: the draft is
  * parked for a person. Everything else — `blocked` for any of the intake reasons, `cancelled`,
- * `cancel_requested`, "did not settle" — owes the operator work.
+ * `cancel_requested`, "did not settle" — owes the operator work. The route already decides
+ * this (its `ok` is exactly this test); the set documents the truth table beside
+ * `DISPATCH_SUCCESS` so the exit code is read off one place.
  */
 const INTAKE_SUCCESS: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>([
   "awaiting_intake_approval",

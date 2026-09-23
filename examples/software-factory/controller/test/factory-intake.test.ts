@@ -540,7 +540,8 @@ describe("the intake gate", () => {
 
     // Approving the export consents to the issue text, the approved task and the candidate
     // together (spec §6.6), and names the receipt that proved the check fails on the baseline.
-    const bundle = factory.evidence(id).bundle
+    const { bundle, oracleReceipt } = factory.evidence(id)
+    expect(oracleReceipt).toMatchObject({ id: oracle, verdict: "fail" })
     expect(bundle?.payload).toMatchObject({
       origin: ORIGIN,
       pin: PIN,

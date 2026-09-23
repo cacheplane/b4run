@@ -114,7 +114,9 @@ manifest states them outright.
 **Intake is scripted, not real, in this sub-project.** The drafter turn runs in the builder
 process on the route `FACTORY_INTAKE_ROUTE`, in the workspace of `FACTORY_INTAKE_TASK`; the
 drafter with its own app, image and wide read-only capture of the repository is the next
-sub-project. The work order's pin is recorded on the row and in the bundle but not honoured:
+sub-project. The route is configurable and exercised only by the test fake: the builder app
+does not implement it yet, so `factory intake` against the real builder ends
+`blocked (intake_run_failed)` until the drafter lands. The work order's pin is recorded on the row and in the bundle but not honoured:
 the oracle proof and verification run in the target's prepared image, at the pin that image
 was prepared from. And intake threads accumulate on the worker, one per work order, since
 nothing sweeps a parked or blocked work order's drafter thread yet.
@@ -244,15 +246,20 @@ validates the draft, fits it to a prepared target, materialises it as a task dir
 `<FACTORY_STATE_DIR>/tasks/<id>/` (the four files plus `issue.md`), and then **proves the
 oracle**: it runs only the drafted check, with no candidate changes, against the unpatched
 baseline in the target's image, and the check must FAIL there. A check that passes on the
-defect would pass on anything, so that draft is refused. A refused draft (invalid, unfit, or
-not an oracle) starts another drafter turn on the same thread with the refusal quoted; the
-attempts default to 2, and the last refusal blocks the work order. A draft that parks in
+defect would pass on anything, so that draft is refused. An invalid draft or one that is not
+an oracle starts another drafter turn on the same thread with the refusal quoted; the
+attempts default to 2, and the last refusal blocks the work order. A draft naming a package
+with no prepared target blocks immediately (`no_target_for_package`), since no redraft can
+prepare one. A draft that parks in
 `awaiting_intake_approval` is read on disk and approved **by digest**: `show` prints the
 row's `taskDigest`, `approve-intake` recomputes the directory's digest at call time and refuses
 if either differs, so what the person read is what the builder and the verifier are given.
 `reject-intake --note` journals the note and, attempts permitting, waits for the redraft.
 The review bundle later freezes the origin (issue and body digest), the pin, the approved task
 digest and the oracle receipt id, so approving the export consents to all of them together.
+A bundle frozen before these fields existed no longer parses, and there is no re-freeze from
+`awaiting_approval`: a work order parked there across this change must be `deny`-ed and
+created again.
 
 **Exit codes.** A refused command and a runtime conflict (a second command while one is in
 flight, a cancelled dispatch) both exit 1 with the body printed; everything else that

@@ -25,6 +25,7 @@ import {
 } from "../domain/work-order.js"
 import { digestGeneratedTask } from "../intake/generated-task.js"
 import { issueText } from "../intake/issue.js"
+import { provenOracleReceiptId } from "../intake/oracle.js"
 import { promptFor } from "../prompts.js"
 import { type CommandLog, createCommandLog } from "../registry/commands.js"
 import { openRegistry } from "../registry/db.js"
@@ -146,6 +147,8 @@ export interface Factory {
     candidate: Candidate | null
     receipt: Receipt | null
     bundle: Bundle | null
+    /** The receipt that proved the approved draft's check fails on the baseline; null without intake. */
+    oracleReceipt: Receipt | null
   }
   waitFor(
     id: string,
@@ -886,7 +889,10 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       const parsed = BundlePayloadSchema.safeParse(bundle.payload)
       if (!parsed.success) {
         recordEvent(id, "bundle_unreadable", { error: String(parsed.error) })
-        return refuse("Frozen bundle payload could not be read; freeze a new bundle")
+        // No re-freeze exists from `awaiting_approval`: the way forward is a new work order.
+        return refuse(
+          "Frozen bundle payload could not be read; deny it and create a new work order",
+        )
       }
       const frozen = parsed.data
       /** A refusal, not a throw: an exception here would strand this command's key. */
@@ -922,9 +928,12 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       // Neither the origin nor the pin can move once the row exists, so these two are
       // consistency assertions: a bundle naming another issue or another pin than the row
       // is a bundle for some other work order, whatever its digest says.
-      if (canon(frozen.origin) !== canon(row.origin))
-        return invalidated("Origin", canon(frozen.origin), canon(row.origin))
+      const frozenOrigin = canon(frozen.origin)
+      const rowOrigin = canon(row.origin)
+      if (frozenOrigin !== rowOrigin) return invalidated("Origin", frozenOrigin, rowOrigin)
       if (frozen.pin !== row.pin) return invalidated("Pin", String(frozen.pin), String(row.pin))
+      if (frozen.taskDigest !== row.taskDigest)
+        return invalidated("Task digest", String(frozen.taskDigest), String(row.taskDigest))
       // The generated task is re-read from disk, as the baseline is re-captured: consent
       // named the task the person approved at intake, and a file edited under the directory
       // since the freeze (a loosened check, a widened allow-list) is not that task even when
@@ -1206,7 +1215,9 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       const candidate = row.candidateDigest ? evidenceStore.candidate(row.candidateDigest) : null
       const bundle = row.bundleDigest ? evidenceStore.bundle(row.bundleDigest) : null
       const receipt = bundle ? evidenceStore.receipt(bundle.receiptId) : null
-      return { candidate, receipt, bundle }
+      const oracleId = provenOracleReceiptId(store.events(id))
+      const oracleReceipt = oracleId ? evidenceStore.receipt(oracleId) : null
+      return { candidate, receipt, bundle, oracleReceipt }
     },
 
     async waitFor(id, predicate, timeoutMs = 10_000) {

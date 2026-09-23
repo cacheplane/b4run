@@ -370,7 +370,10 @@ describe("approve enforces what the frozen bundle asserts", () => {
     db.close()
     expect(
       await factory.approve(row.id, { revision: row.revision, bundleDigest: row.bundleDigest }),
-    ).toMatchObject({ ok: false, message: expect.stringMatching(/could not be read/) })
+    ).toMatchObject({
+      ok: false,
+      message: expect.stringMatching(/could not be read; deny it and create a new work order/),
+    })
     expect(readdirSync(out())).toEqual([])
   })
 })

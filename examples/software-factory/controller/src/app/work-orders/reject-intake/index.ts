@@ -1,7 +1,7 @@
 import type { RuntimeContext } from "@b4run/sdk"
 import { RejectIntakeInput } from "../../../lib/routes/input.js"
 import { command } from "../../../lib/routes/outcome.js"
-import { settleIntakeOutcome } from "../../../lib/routes/settle-intake.js"
+import { intakeSettle, settleOutcome } from "../../../lib/routes/settle.js"
 import { controllerRuntime } from "../../../lib/runtime.js"
 
 /**
@@ -22,13 +22,18 @@ export async function workflow(input: unknown, ctx: RuntimeContext) {
         note,
         ...(operationKey ? { operationKey } : {}),
       })
-      if (!outcome.ok || outcome.state !== "intake_running")
+      if (!outcome.ok) return { ...outcome, row: factory.show(id) }
+      // The factory calls an exhausted rejection a success (the rejection was recorded); for
+      // a script the row is `blocked`, which is not a draft to approve, so `ok` is false and
+      // the message says why rather than keeping the factory's wording.
+      if (outcome.state !== "intake_running")
         return {
           ...outcome,
-          ok: outcome.ok && outcome.state === "awaiting_intake_approval",
+          ok: false,
+          message: "Intake rejected; no drafter attempts remain, the work order is blocked",
           row: factory.show(id),
         }
-      return settleIntakeOutcome(factory, id, ctx.signal, "Redraft")
+      return settleOutcome(factory, id, ctx.signal, intakeSettle(id, "Redraft"))
     },
   )
 }

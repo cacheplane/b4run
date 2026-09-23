@@ -1,7 +1,7 @@
 import type { RuntimeContext } from "@b4run/sdk"
 import { IdInput } from "../../../lib/routes/input.js"
 import { command } from "../../../lib/routes/outcome.js"
-import { settleIntakeOutcome } from "../../../lib/routes/settle-intake.js"
+import { intakeSettle, settleOutcome } from "../../../lib/routes/settle.js"
 import { controllerRuntime } from "../../../lib/runtime.js"
 
 /**
@@ -22,7 +22,7 @@ export async function workflow(input: unknown, ctx: RuntimeContext) {
       await factory.reconcileWorkOrder(id)
       const outcome = await factory.intake(id, operationKey)
       if (!outcome.ok) return { ...outcome, row: factory.show(id) }
-      return settleIntakeOutcome(factory, id, ctx.signal, "Intake")
+      return settleOutcome(factory, id, ctx.signal, intakeSettle(id, "Intake"))
     },
   )
 }
