@@ -1,3 +1,4 @@
+import { statSync } from "node:fs"
 import { type FactoryConfig, loadConfig } from "./config.js"
 import { createFactory, type Factory, type FactoryOptions } from "./controller/factory.js"
 import { createArtifactStore } from "./storage/artifacts.js"
@@ -11,7 +12,7 @@ import {
 import { captureTargetBaseline } from "./verification/baseline.js"
 import { createDockerVerifier } from "./verification/docker-verifier.js"
 import { createHttpWorkerClient } from "./worker/client.js"
-import { createThreadWorkspaceReader } from "./worker/workspace-reader.js"
+import { createThreadWorkspaceReader, type WorkspaceReader } from "./worker/workspace-reader.js"
 
 /**
  * The collaborators a test may replace. Everything else the runtime builds is real: only
@@ -60,6 +61,15 @@ export function createControllerRuntime(
     // below — the prompt, the verifier, the baseline, the workspace reader — then finds a
     // generated task. The search path is process-wide, like the runtime itself.
     configureCatalog({ generatedTasksDir: config.generatedTasksDir })
+    // The drafter app root is what every drafter thread is resolved through: a path that is
+    // not a directory is refused at boot, not after a drafter turn has been spent on it. Only
+    // the directory is checked — its `.b4/workspaces` store does not exist until the drafter
+    // app has booted, and starting the controller first is a valid order.
+    if (config.drafterAppRoot !== undefined && !isDirectory(config.drafterAppRoot)) {
+      return Promise.reject(
+        new Error(`FACTORY_DRAFTER_APP_ROOT is not a directory (${config.drafterAppRoot})`),
+      )
+    }
     return createFactory({
       registryPath: config.registryPath,
       worker: createHttpWorkerClient(config.workerUrl),
@@ -84,12 +94,15 @@ export function createControllerRuntime(
       // never walked. Only when a drafter app root is configured; otherwise `intake` refuses.
       ...(config.drafterAppRoot !== undefined
         ? {
-            drafterReader: createThreadWorkspaceReader(
-              {
-                providerFor: () => drafterSandboxProvider(config.drafterImage),
-                appRoot: config.drafterAppRoot,
-              },
-              () => ({ ...drafterInspectionOptions(), root: "draft" }),
+            drafterReader: namingDrafterAppRoot(
+              createThreadWorkspaceReader(
+                {
+                  providerFor: () => drafterSandboxProvider(config.drafterImage),
+                  appRoot: config.drafterAppRoot,
+                },
+                () => ({ ...drafterInspectionOptions(), root: "draft" }),
+              ),
+              config.drafterAppRoot,
             ),
           }
         : {}),
@@ -103,6 +116,37 @@ export function createControllerRuntime(
       opening = undefined
       throw error
     })
+  }
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+/**
+ * A drafter app root that exists but holds no installation store is the one read failure
+ * whose cause is the operator's configuration (the drafter app never booted there, or it is
+ * the wrong directory), not the thread's: the journal line names the variable to fix.
+ */
+function namingDrafterAppRoot(reader: WorkspaceReader, appRoot: string): WorkspaceReader {
+  return {
+    async read(target, signal) {
+      try {
+        return await reader.read(target, signal)
+      } catch (error) {
+        if (error instanceof Error && /No workspace installation/.test(error.message)) {
+          throw new Error(
+            `FACTORY_DRAFTER_APP_ROOT has no workspace installation: has the drafter app booted under ${appRoot}? (${error.message})`,
+            { cause: error },
+          )
+        }
+        throw error
+      }
+    },
   }
 }
 

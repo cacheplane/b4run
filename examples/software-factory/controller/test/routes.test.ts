@@ -154,13 +154,12 @@ describe("controller routes", () => {
     dir = mkdtempSync(join(tmpdir(), "factory-routes-"))
     // The intake fakes: a verifier whose independent check FAILS on the baseline (the oracle
     // proof), a reader that hands the drafter's `draft/` back twice (the second is the redraft
-    // after the rejection), and a drafter app root so `intake` is configured (the reader is
-    // the fake, so the root is never opened).
+    // after the rejection). The served controller always has a drafter app root, so `intake`
+    // is configured; the reader is the fake, so the root is never opened.
     served = await serveController(
       dir,
       {},
       { verifier: createFakeVerifier({ independent: "fail" }) },
-      { FACTORY_DRAFTER_APP_ROOT: "/nonexistent/drafter" },
     )
     served.workspace.queue(FIRST_THREAD, [GOOD_DRAFT, GOOD_DRAFT])
     const created = await served.run("create-8", "/work-orders/create#workflow", {

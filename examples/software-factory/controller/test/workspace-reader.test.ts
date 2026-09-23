@@ -309,15 +309,20 @@ describe("the re-rooted read", () => {
     )
     expect(failure).toBeInstanceOf(WorkspaceRootMissingError)
     expect((failure as WorkspaceRootMissingError).root).toBe("draft")
+    expect((failure as WorkspaceRootMissingError).kind).toBe("absent")
     expect(touched.some((path) => path.includes("/repo"))).toBe(false)
   })
 
   it("reports a root that is a file, not a directory, the same way", async () => {
     const { source } = await drafterThread({ draft: "not a directory\n" })
     const reader = createThreadWorkspaceReader(source, () => options("draft"))
-    await expect(reader.read({ threadId: "t-1" }, AbortSignal.timeout(5_000))).rejects.toThrow(
-      WorkspaceRootMissingError,
-    )
+    await expect(
+      reader.read({ threadId: "t-1" }, AbortSignal.timeout(5_000)),
+    ).rejects.toMatchObject({
+      name: "WorkspaceRootMissingError",
+      kind: "not_directory",
+      root: "draft",
+    })
   })
 
   it("reads a nested root and prefixes with the whole of it", async () => {

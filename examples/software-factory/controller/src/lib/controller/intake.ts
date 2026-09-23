@@ -258,7 +258,9 @@ async function proveDraft(
       await refuse(
         ctx,
         id,
-        `${DRAFT_ROOT} is missing: the drafter wrote nothing under it`,
+        error.kind === "absent"
+          ? `${DRAFT_ROOT} is missing: the drafter wrote nothing under it`
+          : `${DRAFT_ROOT} is not a directory: the drafter must write files under it`,
         "intake_invalid",
       )
       return

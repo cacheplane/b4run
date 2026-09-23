@@ -55,7 +55,8 @@ export interface WorkspaceReadOptions {
    * build output); paths under them are dropped from the observed set, because the assembly
    * rule rejects any path the baseline lacks and build output is not a candidate. Inspection
    * cannot exclude nested directories, so this is a reader-side filter, the same prefixes the
-   * verifier's tamper comparison skips.
+   * verifier's tamper comparison skips. Matched against the keys inspection produces, which
+   * are relative to `root` when one is set (not to the workspace root).
    */
   readonly ignorePrefixes?: readonly string[]
   /**
@@ -80,17 +81,21 @@ export interface WorkspaceReadOptions {
 export type WorkspaceInspectionOptions = (taskId: string | undefined) => WorkspaceReadOptions
 
 /**
- * The read reached the thread's workspace and found nothing at `root`: either no entry, or
- * one that is not a directory. Distinct from a read that failed, so a caller can tell "the
- * drafter wrote nothing under `draft/`" (its fault, an attempt spent) from "the controller
- * could not look" (nobody's verdict).
+ * The read reached the thread's workspace and found no directory at `root`: `absent` when
+ * no entry of that name exists, `not_directory` when one does but is a file or a link.
+ * Distinct from a read that failed, so a caller can tell "the drafter wrote nothing under
+ * `draft/`" (its fault, an attempt spent) from "the controller could not look" (nobody's
+ * verdict), and can say which of the two the drafter did.
  */
 export class WorkspaceRootMissingError extends Error {
   constructor(
     readonly root: string,
     threadId: string,
+    readonly kind: "absent" | "not_directory",
   ) {
-    super(`Workspace root ${JSON.stringify(root)} is missing on thread ${JSON.stringify(threadId)}`)
+    super(
+      `Workspace root ${JSON.stringify(root)} is ${kind === "absent" ? "missing" : "not a directory"} on thread ${JSON.stringify(threadId)}`,
+    )
     this.name = "WorkspaceRootMissingError"
   }
 }
@@ -137,11 +142,13 @@ async function requireDirectory(
   let current = reader.workspaceRoot.replace(/\/$/, "")
   for (const segment of segments) {
     const names = await reader.filesystem.listDir(current, ctx)
-    if (!names.includes(segment)) throw new WorkspaceRootMissingError(root, reader.threadId)
+    if (!names.includes(segment))
+      throw new WorkspaceRootMissingError(root, reader.threadId, "absent")
     current = `${current}/${segment}`
   }
   const metadata = await reader.filesystem.lstat(current, ctx)
-  if (metadata.kind !== "directory") throw new WorkspaceRootMissingError(root, reader.threadId)
+  if (metadata.kind !== "directory")
+    throw new WorkspaceRootMissingError(root, reader.threadId, "not_directory")
   return current
 }
 
@@ -192,7 +199,8 @@ export function createThreadWorkspaceReader(
       // derived is a refusal that costs no container and no store lookup.
       const options = optionsFor(target.taskId)
       // Likewise a malformed root: refused before a store lookup or a container.
-      const segments = options.root === undefined ? undefined : rootSegments(options.root)
+      const root = options.root
+      const segments = root === undefined ? undefined : rootSegments(root)
       const inspection = await withManagedWorkspaceReader(
         {
           appRoot: source.appRoot,
@@ -207,9 +215,9 @@ export function createThreadWorkspaceReader(
         // filesystem at a nested `workspaceRoot`: its walk starts there and never leaves it.
         async (reader) => {
           const workspaceRoot =
-            segments === undefined
+            root === undefined || segments === undefined
               ? reader.workspaceRoot
-              : await requireDirectory(reader, segments, options.root as string, signal)
+              : await requireDirectory(reader, segments, root, signal)
           return inspectWorkspace(
             { filesystem: reader.filesystem, workspaceRoot },
             {
@@ -225,7 +233,7 @@ export function createThreadWorkspaceReader(
       )
       const ignored = options.ignorePrefixes ?? []
       // Re-prefixed exactly once: inspection's keys are relative to the nested root.
-      const rootPrefix = options.root === undefined ? "" : `${options.root}/`
+      const rootPrefix = root === undefined ? "" : `${root}/`
       return new Map(
         Object.entries(inspection.files)
           .filter(([path]) => !ignored.some((prefix) => path.startsWith(prefix)))

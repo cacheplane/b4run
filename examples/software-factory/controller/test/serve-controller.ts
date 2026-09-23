@@ -27,7 +27,12 @@ const REPAIRED: Readonly<Record<string, string>> = {
 export const FIRST_THREAD = "factory-routes-thread"
 
 /** The environment `controllerRuntime()` reads, restored when the helper closes. */
-const FACTORY_ENV = ["FACTORY_WORKER_URL", "FACTORY_STATE_DIR", "FACTORY_BUILDER_APP_ROOT"] as const
+const FACTORY_ENV = [
+  "FACTORY_WORKER_URL",
+  "FACTORY_STATE_DIR",
+  "FACTORY_BUILDER_APP_ROOT",
+  "FACTORY_DRAFTER_APP_ROOT",
+] as const
 
 const appRoot = fileURLToPath(new URL("../", import.meta.url))
 
@@ -64,6 +69,9 @@ export async function serveController(
 ): Promise<ServedController> {
   const stateDir = join(dir, "state")
   mkdirSync(join(dir, "builder"), { recursive: true })
+  // A real directory, because the runtime checks that at boot; never opened, because the
+  // drafter reader below is the fake.
+  mkdirSync(join(dir, "drafter"), { recursive: true })
   const touchedEnv = [...FACTORY_ENV, ...Object.keys(env)]
   const previousEnv = Object.fromEntries(touchedEnv.map((key) => [key, process.env[key]]))
   const fake = await createFakeWorker({
@@ -75,6 +83,7 @@ export async function serveController(
   process.env.FACTORY_WORKER_URL = fake.baseUrl
   process.env.FACTORY_STATE_DIR = stateDir
   process.env.FACTORY_BUILDER_APP_ROOT = join(dir, "builder")
+  process.env.FACTORY_DRAFTER_APP_ROOT = join(dir, "drafter")
   for (const [key, value] of Object.entries(env)) process.env[key] = value
   const workspace = createFakeWorkspaceReader({ [FIRST_THREAD]: REPAIRED })
   // This helper imports `../src/lib/runtime.ts` while the route modules the served app loads

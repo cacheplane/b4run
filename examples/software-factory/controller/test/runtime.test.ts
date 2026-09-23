@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
@@ -58,8 +58,13 @@ describe("controller runtime", () => {
     // The legacy task variable configures nothing any more: parsed, but not what intake reads.
     const legacy = createControllerRuntime({ ...env, FACTORY_INTAKE_TASK: "devkit-spawn-deadline" })
     const stillUnconfigured = await legacy.factory()
-    expect(await stillUnconfigured.intake(id)).toMatchObject({ ok: false })
+    expect(await stillUnconfigured.intake(id)).toEqual({
+      ok: false,
+      state: "received",
+      message: "intake is not configured: set FACTORY_DRAFTER_APP_ROOT",
+    })
     await legacy.dispose()
+    mkdirSync(join(dir, "drafter"), { recursive: true })
     const configured = createControllerRuntime({
       ...env,
       FACTORY_DRAFTER_APP_ROOT: join(dir, "drafter"),
@@ -70,10 +75,40 @@ describe("controller runtime", () => {
       state: "intake_running",
       message: "Intake started",
     })
-    // The real drafter reader finds no installation under the app root: a failed run, and
-    // the row is blocked rather than left running when the runtime is disposed.
+    // The real drafter reader finds no installation under the app root (the drafter app has
+    // not booted there): a failed run naming the variable to fix, and the row is blocked
+    // rather than left running when the runtime is disposed.
     expect((await factory.settleIntake(id, 20_000)).blockedReason).toBe("intake_run_failed")
+    const unreadable = factory.events(id).find((e) => e.type === "workspace_unreadable")
+    expect(String(unreadable?.payload.error)).toMatch(
+      /FACTORY_DRAFTER_APP_ROOT has no workspace installation/,
+    )
     await configured.dispose()
+  })
+
+  it("refuses a drafter app root that is not a directory at boot", async () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-runtime-"))
+    fake = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only" })
+    const env = {
+      FACTORY_WORKER_URL: fake.baseUrl,
+      FACTORY_STATE_DIR: join(dir, "state"),
+      FACTORY_BUILDER_APP_ROOT: join(dir, "builder"),
+    }
+    const absent = createControllerRuntime({
+      ...env,
+      FACTORY_DRAFTER_APP_ROOT: join(dir, "no-such-drafter"),
+    })
+    await expect(absent.factory()).rejects.toThrow(
+      `FACTORY_DRAFTER_APP_ROOT is not a directory (${join(dir, "no-such-drafter")})`,
+    )
+    await absent.dispose()
+    const file = join(dir, "drafter-file")
+    writeFileSync(file, "")
+    const notDirectory = createControllerRuntime({ ...env, FACTORY_DRAFTER_APP_ROOT: file })
+    await expect(notDirectory.factory()).rejects.toThrow(
+      /FACTORY_DRAFTER_APP_ROOT is not a directory/,
+    )
+    await notDirectory.dispose()
   })
 
   it("retries a failed open on the next call", async () => {

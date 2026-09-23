@@ -427,7 +427,7 @@ describe("the drafter thread's draft/", () => {
   /** A drafter reader whose thread has no `draft/` at all: the reader reports the root missing. */
   const noDraft: WorkspaceReader = {
     async read(target) {
-      throw new WorkspaceRootMissingError("draft", target.threadId)
+      throw new WorkspaceRootMissingError("draft", target.threadId, "absent")
     },
   }
 
@@ -460,6 +460,25 @@ describe("the drafter thread's draft/", () => {
     expect(promptOf(1)).toContain("draft/ is missing")
     // The builder's reader was never consulted for the drafter thread.
     expect(reader.reads).toEqual([])
+  })
+
+  it("refuses a draft/ that is a file, not a directory, with its own reason", async () => {
+    await bootWorker()
+    const fileNotDirectory: WorkspaceReader = {
+      async read(target) {
+        throw new WorkspaceRootMissingError("draft", target.threadId, "not_directory")
+      },
+    }
+    await bootFactory({ drafterReader: fileNotDirectory })
+    const { id } = await createIssue()
+    expect(await factory.intake(id)).toMatchObject({ ok: true })
+    const row = await factory.settleIntake(id, 20_000)
+    expect(row).toMatchObject({ state: "blocked", blockedReason: "intake_attempts_exhausted" })
+    expect(refusals(id)[0]?.payload).toMatchObject({
+      blockedReason: "intake_invalid",
+      reason: "draft/ is not a directory: the drafter must write files under it",
+    })
+    expect(promptOf(1)).toContain("draft/ is not a directory")
   })
 
   it("keeps every other read failure a failed run, not a spent attempt", async () => {

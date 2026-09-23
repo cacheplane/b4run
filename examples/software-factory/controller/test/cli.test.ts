@@ -291,11 +291,7 @@ esac
   }, 90_000)
 
   it("drives the intake gate: intake tails and parks, reject-intake redrafts, approve-intake needs the digest", async () => {
-    const { cli, spawn } = await boot(
-      {},
-      { verifier: createFakeVerifier({ independent: "fail" }) },
-      { FACTORY_DRAFTER_APP_ROOT: "/nonexistent/drafter" },
-    )
+    const { cli, spawn } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
     if (!served) throw new Error("no controller")
     served.workspace.queue(FIRST_THREAD, [GOOD_DRAFT, GOOD_DRAFT])
     const created = await served.run("create-cli-issue", "/work-orders/create#workflow", {
@@ -365,11 +361,7 @@ esac
   }, 90_000)
 
   it("exits non-zero when an intake settles blocked", async () => {
-    const { cli, spawn } = await boot(
-      {},
-      { verifier: createFakeVerifier({ independent: "fail" }) },
-      { FACTORY_DRAFTER_APP_ROOT: "/nonexistent/drafter" },
-    )
+    const { cli, spawn } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
     if (!served) throw new Error("no controller")
     // A draft naming a package with no prepared target blocks at once: no redraft can
     // prepare one, so this is the one refusal that never spends a second attempt.
@@ -397,11 +389,7 @@ esac
   }, 90_000)
 
   it("exits non-zero when a rejection exhausts the drafter's attempts", async () => {
-    const { cli, spawn } = await boot(
-      {},
-      { verifier: createFakeVerifier({ independent: "fail" }) },
-      { FACTORY_DRAFTER_APP_ROOT: "/nonexistent/drafter" },
-    )
+    const { cli, spawn } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
     if (!served) throw new Error("no controller")
     // Two good drafts, two rejections: the default of two attempts is spent by the redraft,
     // so the second rejection has nothing left to start and the work order blocks.
