@@ -2,7 +2,7 @@
 
 ## Use this when
 
-Most apps only need the `b4` command to develop, test, build, and serve. Import the package root to embed the Node server. Use `/fetch` when an edge adapter supplies the generated modules and the durable stores its routes need. The adapter may also pass a constructed configuration; without one, runtime defaults apply. `/runtime` is low-level tooling. `/workspace` is the managed-workspace lifecycle without the command program, for a host process that owns its own executions. `/testing` is a deprecated compatibility alias.
+Most apps only need the `b4` command to develop, test, build, and serve. Import the package root to embed the Node server. Use `/fetch` when an edge adapter supplies the generated modules and the durable stores its routes need. The adapter may also pass a constructed configuration. Without one, runtime defaults apply. `/runtime` is low-level tooling. `/workspace` is the managed-workspace lifecycle without the command program, for a host process that owns its own executions. `/testing` is a deprecated compatibility alias.
 
 ## Install and import
 
@@ -220,7 +220,7 @@ serveRuntime uses an explicit port first, then a numeric PORT value, then 8000. 
 
 ### Runtime ownership
 
-The `/fetch` handler has no filesystem fallback for its module map or its required stores, so an edge host must inject them. The host may also pass a constructed configuration; without one, runtime defaults apply.
+The `/fetch` handler has no filesystem fallback for its module map or its required stores, so an edge host must inject them. The host may also pass a constructed configuration. Without one, runtime defaults apply.
 
 #### Behavior contract `cli.fetch.request-store-lifecycle`
 {/* api-behavior-authorities: [{"kind":"source-ast","file":"packages/cli/src/lib/dev/runtime-fetch-core.ts","selector":"CLOSE_DRAIN_DEADLINE_MS"},{"kind":"test-assertion","file":"packages/cli/test/request-stores.test.ts","testNames":["builds and disposes stores once per request, never reusing them"]},{"kind":"test-assertion","file":"packages/cli/test/request-stores.test.ts","testNames":["disposes only AFTER an SSE body finishes, not when fetch resolves"]},{"kind":"test-assertion","file":"packages/cli/test/request-stores.test.ts","testNames":["close() does not return while a store disposal is still in flight"]},{"kind":"test-assertion","file":"packages/cli/test/runtime-fetch-parity.test.ts","testNames":["close() with an entirely unread SSE body warns after the drain deadline and proceeds"]}] */}
@@ -240,18 +240,23 @@ instead of duplicating provider lifecycle code.
 ### Reading a managed workspace
 
 `withManagedWorkspaceReader({ appRoot, provider, threadId, signal }, operation)`
-reads the workspace of a thread whose app declares `sandbox.workspace`. Such
-threads never reach `SandboxProvider.acquire`, so `withWorkspaceReader` cannot
-address them by thread id. The helper opens the worker's installation store
-under `appRoot` read-only, without taking the worker's owner lock, resolves the
-thread's published `ReadyWorkspace`, and calls
-`provider.workspaces.openWorkspaceReader` with it. It refuses, with the reason,
-when the provider has no managed capability or no read capability, when the
-installation does not exist, when the thread has no association, when the
-workspace is not published yet (`retryable`), is deleted (`lost`), or is past
-its retention deadline (`expired`). There is no fallback to provider storage.
-`openManagedWorkspaceReader` is the same resolution without the scoped close.
-This is addressing, not authorization: gate access to the calling process.
+reads the workspace of a thread whose app declares `sandbox.workspace`. Those
+threads never reach `SandboxProvider.acquire`, so `withWorkspaceReader` can't
+address them by thread id.
+
+The helper opens the worker's installation store under `appRoot` read-only,
+without taking the worker's owner lock. It resolves the thread's published
+`ReadyWorkspace` and passes it to `provider.workspaces.openWorkspaceReader`.
+It refuses, with the reason, when:
+
+- the provider has no managed or read capability,
+- the installation or the thread's association is missing, or
+- the workspace isn't published yet (`retryable`), is deleted (`lost`), or is
+  past its retention deadline (`expired`).
+
+It never falls back to provider storage. `openManagedWorkspaceReader` does the
+same resolution without the scoped close. Both only address a workspace, so
+gate access in the calling process.
 
 ## Examples and related guides
 

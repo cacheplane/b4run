@@ -1,9 +1,13 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { describe, expect, it, vi } from "vitest"
 
+import { WEB_CONTENT_ROOT_ENV } from "../../../lib/content-root"
 import { collectPostTags, loadPostsFromDir, type Post, selectVisiblePosts } from "./post-index"
+
+const FIXTURE_CONTENT_ROOT = fileURLToPath(new URL("./__fixtures__/content", import.meta.url))
 
 function withFixture(files: Record<string, string>, run: (dir: string) => void) {
   const dir = join(tmpdir(), `blog-fixture-${Date.now()}-${Math.random().toString(36).slice(2)}`)
@@ -164,13 +168,22 @@ Scheduled body.
   it("exposes authored posts independently of the production route cache", async () => {
     vi.resetModules()
     vi.stubEnv("NODE_ENV", "production")
+    // A synthetic content root keeps a real draft and a scheduled post in play
+    // without shipping either in the production blog folder.
+    vi.stubEnv(WEB_CONTENT_ROOT_ENV, FIXTURE_CONTENT_ROOT)
 
     try {
       const { getAllPosts, getAuthoredPosts } = await import("./post-index")
       const authored = getAuthoredPosts()
       const production = getAllPosts()
 
+      expect(authored.map((post) => post.slug)).toEqual([
+        "fixture-scheduled-post",
+        "fixture-draft-post",
+        "fixture-published-post",
+      ])
       expect(authored.some((post) => post.draft)).toBe(true)
+      expect(production.map((post) => post.slug)).toEqual(["fixture-published-post"])
       expect(production.every((post) => !post.draft)).toBe(true)
       expect(authored.length).toBeGreaterThan(production.length)
     } finally {

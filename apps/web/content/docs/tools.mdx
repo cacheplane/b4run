@@ -1,26 +1,27 @@
 # Tools
 
-Tools are the units of work a route's entry can invoke. They live in a route's `tools/` directory (or the shared `src/tools/`), and B4.run discovers them automatically. B4.run **infers their input and output types from TypeScript source**, so tools don't need Zod schemas. (Route state in `state.ts` does use Zod. See [State](/docs/state).)
+A tool is a function a route can call. Tools live in a route's `tools/` directory (or the shared `src/tools/`), and B4.run finds them for you. B4.run **infers each tool's input and output types from the TypeScript source**, so you don't write Zod schemas for tools. (Route state in `state.ts` does use Zod. See [State](/docs/state).)
 
 ## A minimal tool
 
-Here is a tool that greets a tenant:
+A tool is one file with a default-exported function. The JSDoc comment above the export becomes the description the model reads when it decides whether to call the tool:
 
 ```ts title="src/app/(public)/hello/[tenant]/tools/greet.ts"
+/** Greet the tenant organization by name. */
 export default async (input: { readonly tenant: string }) => {
   return { greeting: `Hello, ${input.tenant}!` }
 }
 ```
 
-That's it. B4.run extracts the input and output types at build time with the TypeScript compiler API and writes them into `.b4/b4.generated.d.ts`. The tool is available as `ctx.tools.greet` inside a `workflow`, or a callable `graph` function that receives B4.run's `RuntimeContext`. `b4 build` wires it into generated `agent` deployment entries. A precompiled raw LangGraph object works differently (see [Invoking a tool](#invoking-a-tool)).
+That's it. At build time, B4.run reads the input and output types with the TypeScript compiler API and writes them to `.b4/b4.generated.d.ts`. In an `agent` route, `b4 build` wires the tool in for the model to call. In a `workflow`, or a callable `graph` function that receives B4.run's `RuntimeContext`, you call it as `ctx.tools.greet`. A precompiled raw LangGraph object works differently (see [Invoking a tool](#invoking-a-tool)).
 
 <Callout type="info" title="No registration needed">
-  Every `.ts` file in a route's `tools/` directory is automatically discovered. Add a file, save, and the type appears in `ctx.tools` on the next `b4 typegen` or `b4 dev` reload.
+  B4.run discovers every `.ts` file in a route's `tools/` directory. Add a file, save it, and the type appears in `ctx.tools` on the next `b4 typegen` or `b4 dev` reload.
 </Callout>
 
 ## Shared tools
 
-Tools resolve from two locations. Each route gets its own `tools/` directory for tools that belong to that route, and there's a shared `src/tools/` directory for tools reused across routes:
+Tools come from two places. Each route has its own `tools/` directory, and the shared `src/tools/` directory holds tools that several routes use:
 
 ```text
 src/
@@ -34,9 +35,11 @@ src/
             └── escalate.ts
 ```
 
-Both sets are merged for agent-route materialization and for the typed `ctx.tools` given to workflow or callable-graph functions. When the same tool name exists in both, **the route-local tool shadows the shared one**. In the tree above, `/support` sees its own `escalate` and the shared `lookupOrder`. Put a tool in `src/tools/` when more than one route needs it. Keep it in the route's `tools/` when it's specific to that route or overrides a shared one.
+B4.run merges both sets, for agent routes and for the typed `ctx.tools` that workflow and callable-graph functions get. When both define the same tool name, **the route-local tool wins**. In the tree above, `/support` sees its own `escalate` and the shared `lookupOrder`.
 
-Here is how discovery works for top-level agents and subagents:
+Put a tool in `src/tools/` when more than one route needs it. Keep it in the route's `tools/` when only that route uses it, or when it overrides a shared tool.
+
+Top-level agents and subagents see different sets:
 
 | Tool source | Top-level agent route | Subagent route |
 |---|---|---|
@@ -47,25 +50,27 @@ Here is how discovery works for top-level agents and subagents:
 
 ## Scoping a route's tools
 
-By default a top route's agent sees every public tool available to it: its own `tools/*.ts`, the shared `src/tools/`, and capability tools such as `writeFile`, `runBash`, `writeTodos`, `readSkill`, and `remember`/`recall`. You can narrow that set per route by passing `tools: { allow, deny }` to `agent()`:
+A top-level agent sees every tool available to it by default: its own `tools/*.ts`, the shared `src/tools/`, and capability tools such as `writeFile`, `runBash`, `writeTodos`, `readSkill`, and `remember`/`recall`. To narrow that set for one route, pass `tools: { allow, deny }` to `agent()`:
 
-- **`deny`** revokes a tool, so it is never offered to the model.
-- **`allow`** grants a withheld capability tool back into the set.
+- **`deny`** removes a tool, so the model never sees it.
+- **`allow`** adds a withheld capability tool back.
 - **`deny` wins** when a name appears in both.
-- Omitting `tools` entirely keeps the route's default set shown above.
+- Leave out `tools` to keep the default set above.
+
+Here's a route that gets everything except the shell:
 
 ```ts title="src/app/research/index.ts"
 // src/app/research/index.ts: top route, everything except shell
 export default agent({ model: "gpt-5", systemPrompt: "…", tools: { deny: ["runBash"] } })
 ```
 
-B4.run enforces scope at composition time. A withheld tool is never wired into the generated entry, so the model cannot call it. `b4 check` validates the names you reference, and an unknown tool name (absent from the route's available set) is a build-time error.
+B4.run applies the scope when it composes the route. A withheld tool never makes it into the generated entry, so the model can't call it. `b4 check` validates the names you list, and a name that isn't in the route's available set is a build-time error.
 
 ### Subagents and capability tools
 
-A subagent keeps its authored tools: shared `src/tools/*` plus its own route-local `tools/*.ts`. It does not inherit the parent route's local tools. Capability tools such as `writeFile`, `runBash`, `writeTodos`, and `remember`/`recall` are withheld unless you name them in `allow`.
+A subagent gets the shared `src/tools/*` plus its own route-local `tools/*.ts`. The parent's local tools stay with the parent. Capability tools such as `writeFile`, `runBash`, `writeTodos`, and `remember`/`recall` are withheld unless you name them in `allow`.
 
-Shared authored tools reach children by default, so deny any sensitive one a child should not receive:
+Since shared tools reach children by default, deny any sensitive one a child shouldn't have:
 
 ```ts title="src/app/research/subagents/researcher/index.ts"
 // deployProd is authored in src/tools/, so deny it explicitly for this child.
@@ -78,17 +83,17 @@ export default agent({
 
 ### The internal task mechanism
 
-`task` is the model-facing mechanism B4.run contributes when a route has at least one dispatchable child. It is internal and is not part of public tool scoping. A nested subagent with its own dispatchable child receives `task` independently, without adding it to `tools.allow`.
+B4.run adds a `task` tool when a route has at least one child it can dispatch to. `task` is internal, so tool scoping doesn't apply to it. A nested subagent with its own child gets `task` too, without any entry in `tools.allow`.
 
-Do not reference `task` in `tools.allow`, `tools.deny`, `tools.approve`, or `tools.constrain`. Every form is invalid and reports `B4_E1004` during `b4 check` and route preparation. Parent-owned [`delegation`](/docs/subagents#delegation-policy) is the sole policy boundary for dispatch.
+Leave `task` out of `tools.allow`, `tools.deny`, `tools.approve`, and `tools.constrain`. Any of those reports `B4_E1004` during `b4 check` and route preparation. To control dispatch, use the parent's [`delegation`](/docs/subagents#delegation-policy) policy.
 
 <Callout type="warn" title="This scopes the surface, not execution">
-  Tool scoping controls which tools the model can *call*. It does not constrain what an allowed tool may *do* once invoked. A granted `writeFile` can still write anywhere its implementation permits. For that, see the [execution sandbox](/docs/sandbox).
+  Tool scoping controls which tools the model can *call*. What an allowed tool *does* once it runs is up to its implementation, so a granted `writeFile` can write anywhere its code permits. To limit that, use the [execution sandbox](/docs/sandbox).
 </Callout>
 
 ### Requiring approval per call
 
-`approve` is the third `tools` knob. Any tool named in `approve` (an authored route tool or a capability tool) requires a human-in-the-loop prompt before each call:
+`approve` is the third `tools` option. A tool named in `approve` (your own or a capability tool) asks a person before each call:
 
 ```ts title="src/app/ops/index.ts"
 export default agent({
@@ -98,21 +103,21 @@ export default agent({
 })
 ```
 
-The prompt shows the call's arguments (a display-only JSON preview), but the decision itself is name-level:
+The prompt shows the call's arguments as a JSON preview, but the decision applies to the tool name:
 
-- **Once**: this call runs, and the next call to the same tool prompts again.
-- **Always**: adds the exact tool name to the configured permissions store, so future calls proceed without prompting. The default Node store is `.b4/permissions.json`. Custom stores, including Postgres, may persist it elsewhere.
-- **Deny**: the call is blocked, and the model receives the denial reason as the tool result.
+- **Once**: this call runs. The next call to the same tool asks again.
+- **Always**: saves the tool name to the permissions store, so later calls run without asking. The default Node store is `.b4/permissions.json`. Custom stores, such as Postgres, save it elsewhere.
+- **Deny**: blocks the call. The model gets the denial reason as the tool result.
 
 See [Permissions](/docs/permissions#per-tool-approval) for the full interrupt payload and resume flow.
 
 <Callout type="info" title="Don't list workspace tools in approve">
-  `runBash`, `readFile`, `writeFile`, and `listDir` already have their own pattern-aware allow/deny gates (see [Permissions](/docs/permissions)). Adding them to `approve` would double-prompt, and `b4 check` warns if you do.
+  `runBash`, `readFile`, `writeFile`, and `listDir` already have their own pattern-based allow/deny gates (see [Permissions](/docs/permissions)). Adding them to `approve` would prompt twice, and `b4 check` warns if you do.
 </Callout>
 
 ### Constraining arguments
 
-`constrain` is the fourth scoping knob: a predicate per tool, run at call time against the model's arguments. It returns `true` (allow), a string (deny, returned to the model as the tool result), or `{ approve: true }` (escalate to the [approval prompt](/docs/permissions#per-tool-approval)):
+`constrain` is the fourth option. It's a function per tool that checks the model's arguments on each call. Return `true` to allow the call, a string to deny it (the model gets the string as the tool result), or `{ approve: true }` to ask a person through the [approval prompt](/docs/permissions#per-tool-approval):
 
 ```ts title="src/app/ops/index.ts"
 export default agent({
@@ -131,11 +136,13 @@ export default agent({
 })
 ```
 
-The predicate receives the parsed `args` and a read-only `ctx` (`{ toolName, routeId, threadId?, signal, params? }`), and it may be async. A predicate that throws, or returns anything other than the three shapes above, **fails closed** (the call is denied). `b4 check` validates only the tool names, not predicate bodies. Don't list a tool in both `approve` and `constrain`. `constrain` wins (it can escalate via `{ approve }`) and `b4 check` warns.
+The function receives the parsed `args` and a read-only `ctx` (`{ toolName, routeId, threadId?, signal, params? }`), and it can be async. If it throws or returns anything else, the call **fails closed** and is denied. `b4 check` validates the tool names but not the function bodies.
+
+Don't list a tool in both `approve` and `constrain`. `constrain` wins (it can escalate with `{ approve }`), and `b4 check` warns.
 
 ## The runtime signature
 
-The full runtime signature accepted by tool discovery is `(input, ctx) => ...`, where `ctx` is `B4ToolContext` from `@b4run/sdk`. It carries `signal`, `threadId?`, `middleware?` and `fs`:
+A tool's full signature is `(input, ctx) => ...`, where `ctx` is a `B4ToolContext` from `@b4run/sdk`. It carries `signal`, `threadId?`, `middleware?` and `fs`:
 
 ```ts title="src/app/(public)/hello/[tenant]/tools/greet.ts"
 import type { B4ToolContext } from "@b4run/sdk"
@@ -155,13 +162,13 @@ export default async (
 }
 ```
 
-The second parameter is optional. I recommend it for any tool that does network I/O, runs long, needs middleware-derived context, or reads or writes workspace files. See [Middleware](/docs/middleware) for how `defineMiddleware` and `allow(context)` populate `ctx.middleware`, and [Workspace Filesystem](/docs/workspace) for `ctx.fs`.
+The second parameter is optional. Add it when a tool calls the network, runs a long time, needs middleware context, or reads and writes workspace files. See [Middleware](/docs/middleware) for how `defineMiddleware` and `allow(context)` fill in `ctx.middleware`, and [Workspace Filesystem](/docs/workspace) for `ctx.fs`.
 
-`ctx.threadId` is the readonly conversation identity the runtime supplies when available. It is separate from model-supplied tool arguments and may be absent outside a threaded invocation, so tools that need it should handle that case. A thread ID is not an authenticated user, an authorization decision or a globally scoped sandbox resource name. Keep your application's access checks and provider isolation policy.
+`ctx.threadId` is the current thread's ID. The runtime sets it (the model can't), and it's absent outside a thread, so handle that case. Of course, a thread ID only identifies a thread. It says nothing about who the user is or what they may access, so keep your own access checks and sandbox isolation.
 
 ## Tool descriptions
 
-The description the LLM sees for an `agent`-route tool comes from a JSDoc comment directly above the default export:
+In an `agent` route, the model reads each tool's description to decide when to call it. The description comes from the JSDoc comment directly above the default export:
 
 ```ts title="src/app/(public)/hello/[tenant]/tools/greet.ts"
 /** Greet the tenant organization by name. */
@@ -170,7 +177,7 @@ export default async (input: { readonly tenant: string }) => {
 }
 ```
 
-`b4 typegen` extracts the comment into the route's `tools.json` manifest. To set it programmatically, export a `description` string constant. It takes priority over the JSDoc comment:
+`b4 typegen` copies the comment into the route's `tools.json` manifest. To set it in code, export a `description` string. It takes priority over the JSDoc comment:
 
 ```ts title="src/app/(public)/hello/[tenant]/tools/greet.ts"
 export const description = "Greet the tenant organization by name."
@@ -180,7 +187,7 @@ export default async (input: { readonly tenant: string }) => {
 }
 ```
 
-Tools without a description still work, but the LLM only sees the tool name. I recommend writing the one-liner.
+A tool without a description still works, but the model only sees its name. I recommend writing the one-liner.
 
 ## Ending the run from a tool
 
@@ -200,7 +207,7 @@ The run's final state then carries no closing assistant message: the last messag
 
 ## Invoking a tool
 
-Inside a `workflow`, tools are invoked through `ctx.tools.<name>(...)`:
+In a `workflow`, call a tool through `ctx.tools.<name>(...)`:
 
 ```ts title="src/app/(public)/hello/[tenant]/index.ts"
 // workflow form
@@ -220,30 +227,30 @@ export async function workflow(
 
 `ctx.tools.greet` has full IntelliSense for its input and return shapes.
 
-A callable `graph` function may explicitly accept the same B4.run `RuntimeContext` and use `ctx.tools`. A precompiled raw LangGraph object is different: its `.invoke()` treats the second argument as LangGraph `RunnableConfig`, not B4.run's typed `RuntimeContext`. That graph keeps the tools its implementation already owns or imports.
+A callable `graph` function can accept the same B4.run `RuntimeContext` and use `ctx.tools`. A precompiled raw LangGraph object works differently. Its `.invoke()` treats the second argument as a LangGraph `RunnableConfig`, so it never sees `ctx.tools`. That graph uses the tools its code already owns or imports.
 
-Inside an `agent` route, you do not call tools yourself. `b4 build` wires the route's tools into the generated LangGraph entry, and the LLM invokes them as needed.
+In an `agent` route, the model calls the tools. `b4 build` wires the route's tools into the generated LangGraph entry.
 
 ## Input and output rules
 
 <Steps>
   <Step title="Use a typed, object-shaped input">
-    B4.run's compiler pass extracts serializable input shapes written inline, declared as local aliases or interfaces, or imported from another module. Keep the root input object-shaped so B4.run can emit the model-facing tool schema.
+    B4.run reads input types written inline, declared as local aliases or interfaces, or imported from another module. Keep the root input an object so B4.run can build the tool schema the model sees.
 
-    Imports resolve with your app's own `tsconfig.json` (the nearest one above the app root, including its `extends` chain, `paths`, and `baseUrl`), so an input type that lives behind a path alias such as `@acme/contracts` derives the same schema as a relative import. If a declared input type cannot be resolved (the alias is missing from `tsconfig.json`, or the module has no such export), `b4 typegen` fails and names the tool file and the type. It does not emit a schema with no properties. A tool that genuinely takes no input can omit the parameter or declare it as `{}`.
+    Imports resolve through your app's `tsconfig.json` (the nearest one above the app root, with its `extends` chain, `paths`, and `baseUrl`). So an input type behind a path alias such as `@acme/contracts` gets the same schema as a relative import. If B4.run can't resolve a declared input type (the alias is missing from `tsconfig.json`, or the module has no such export), `b4 typegen` fails and names the tool file and the type. A tool that takes no input can omit the parameter or declare it as `{}`.
 
     ```ts
     export default async (input: { readonly tenant: string; readonly limit?: number }) => { ... }
     ```
   </Step>
   <Step title="Mark fields readonly">
-    `readonly` is preserved through type generation. Use it on every field, since tool inputs are pure data.
+    Type generation keeps `readonly`. Use it on every field, since tool inputs are plain data.
   </Step>
   <Step title="Keep inputs and outputs JSON-serializable">
-    B4.run serializes through the runtime boundary, so classes, Dates, Maps and functions do not survive. Use primitives, plain objects and arrays.
+    B4.run serializes tool inputs and outputs, so classes, Dates, Maps and functions get lost. Use primitives, plain objects and arrays.
   </Step>
   <Step title="Return serializable data">
-    Output types may be inferred or annotated inline, declared as local aliases or interfaces, or imported from another module. Use serializable primitives, arrays and plain objects.
+    Output types can be inferred, annotated inline, declared as local aliases or interfaces, or imported from another module. Stick to primitives, arrays and plain objects.
   </Step>
 </Steps>
 
@@ -251,13 +258,13 @@ Inside an `agent` route, you do not call tools yourself. `b4 build` wires the ro
 
 `b4 typegen` writes two artifacts:
 
-- **`.b4/b4.generated.d.ts`**: the ambient type module behind `import type { RouteTools } from "b4:routes"`. It holds a `RouteTools<P>` lookup keyed by each discovered route pathname, with concrete tool signatures inferred from source.
-- **`.b4/routes/<routeSlug>/tools.json`**: per-route tool-schema manifests that `b4 build` reads when emitting LangGraph entries.
+- **`.b4/b4.generated.d.ts`**: the type module behind `import type { RouteTools } from "b4:routes"`. It maps each route pathname to that route's tool signatures, inferred from source.
+- **`.b4/routes/<routeSlug>/tools.json`**: one tool-schema manifest per route. `b4 build` reads these when it writes the LangGraph entries.
 
-To inspect the exact shape B4.run emits in your app, run `b4 typegen` and open `.b4/b4.generated.d.ts`.
+To see what B4.run generates for your app, run `b4 typegen` and open `.b4/b4.generated.d.ts`.
 
 <Callout type="warn" title="Don't edit these files">
-  `.b4/b4.generated.d.ts` and the per-route `tools.json` files under `.b4/routes/` are regenerated on every `b4 typegen`, by the dev server on save, and before `b4 run` and `b4 test` execute routes in-process and `b4 build` emits artifacts. Your edits will be wiped.
+  B4.run regenerates `.b4/b4.generated.d.ts` and the `tools.json` files under `.b4/routes/` on every `b4 typegen`, when the dev server sees a save, before `b4 run` and `b4 test` run routes, and when `b4 build` writes its output. Your edits will be wiped.
 </Callout>
 
 To regenerate them manually, run:
@@ -271,8 +278,8 @@ b4 typegen
 - **External API wrappers**: one tool per endpoint. The input mirrors the endpoint's parameters, and the output is the parsed response.
 - **Database reads**: the input holds the filters, and the output is the records. Keep queries cheap.
 - **LLM calls**: the input is the prompt variables, and the output is the parsed model response. Leave orchestration to the route entry.
-- **Pure transformations**: shape-to-shape mapping with no side effects. These are easy to test.
-- **Wrapping an existing LangChain tool**: instantiate the community tool at module scope, then expose it through a plain function with a typed input. B4.run tools are plain functions (not `tool()` wrappers), so B4.run can infer the types from the signature:
+- **Pure transformations**: map one shape to another with no side effects. These are easy to test.
+- **Wrapping an existing LangChain tool**: create the community tool at module scope, then expose it through a plain function with a typed input. B4.run tools are plain functions (rather than `tool()` wrappers), which is how B4.run infers the types from the signature:
 
 ```ts title="src/app/(public)/research/tools/search.ts"
 import { TavilySearch } from "@langchain/tavily"
@@ -286,7 +293,7 @@ export default async (input: { readonly query: string }) => {
 }
 ```
 
-The example wraps the community tool's loosely typed output in a plain object to give it a concrete, serializable return shape. Outputs that are already serializable don't need the wrapper.
+The wrapper turns the community tool's loosely typed output into a plain object with a concrete return type. If the output is already serializable, you can skip it.
 
 ## Related
 

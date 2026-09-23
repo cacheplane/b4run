@@ -8,10 +8,34 @@ type ImageModule = typeof import("./opengraph-image")
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
 const CURRENT_PRODUCTION_SLUGS = [
   "what-is-a-software-factory",
+  "build-a-code-fixing-agent-you-can-read",
+  "b4-0-8-framework-around-the-agent",
+  "b4-at-the-edge",
   "eve-validates-the-shape",
+  "b4-0-4-release",
   "app-router-for-ai-agents",
   "why-we-built-b4",
 ] as const
+// Production content ships no drafts, so a synthetic draft from the test
+// fixtures folder (which the production loader never reads) is merged into the
+// authored posts. It is dated before every boundary below, so only its draft
+// flag can hide it.
+const FIXTURE_DRAFT_SLUG = "fixture-draft-post"
+const FIXTURE_DRAFT_DATE = "2026-05-05"
+
+vi.mock("../../components/blog/post-index", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../components/blog/post-index")>()
+  const fixtureDir = fileURLToPath(
+    new URL("../../components/blog/__fixtures__/content/blog", import.meta.url),
+  )
+  const fixtureDrafts = actual
+    .loadPostsFromDir(fixtureDir, { includeDrafts: true })
+    .filter((post) => post.draft)
+  const authored = [...actual.getAuthoredPosts(), ...fixtureDrafts].sort((left, right) =>
+    left.date < right.date ? 1 : left.date > right.date ? -1 : 0,
+  )
+  return { ...actual, getAuthoredPosts: () => authored }
+})
 
 const nativeFetch = globalThis.fetch
 const remoteUrls: string[] = []
@@ -41,6 +65,15 @@ afterAll(() => {
 })
 
 describe("blog Open Graph images", () => {
+  it("merges the synthetic draft fixture into the authored posts", async () => {
+    const { getAuthoredPosts } = await import("../../components/blog/post-index")
+    const drafts = getAuthoredPosts().filter((post) => post.draft)
+
+    expect(drafts.map(({ slug, date }) => ({ slug, date }))).toEqual([
+      { slug: FIXTURE_DRAFT_SLUG, date: FIXTURE_DRAFT_DATE },
+    ])
+  })
+
   it("enumerates every current production-visible post and no drafts", () => {
     expect(imageModule.generateImageParams()).toEqual(
       CURRENT_PRODUCTION_SLUGS.map((slug) => ({ slug })),
@@ -68,7 +101,15 @@ describe("blog Open Graph images", () => {
     expect(generateForDate("2026-06-19").map(({ slug }) => slug)).toContain(
       "eve-validates-the-shape",
     )
-    expect(generateForDate("2026-08-26").map(({ slug }) => slug)).not.toContain("b4-0-4-release")
+    for (const date of [FIXTURE_DRAFT_DATE, "2026-08-26", "9999-12-31"]) {
+      expect(generateForDate(date).map(({ slug }) => slug)).not.toContain(FIXTURE_DRAFT_SLUG)
+    }
+    expect(generateForDate("2026-09-14").map(({ slug }) => slug)).not.toContain(
+      "build-a-code-fixing-agent-you-can-read",
+    )
+    expect(generateForDate("2026-09-15").map(({ slug }) => slug)).toContain(
+      "build-a-code-fixing-agent-you-can-read",
+    )
   })
 
   it("derives image params from visibility without depending on tags", () => {
@@ -120,7 +161,7 @@ describe("blog Open Graph images", () => {
   })
 
   it.each([
-    ["draft", "b4-0-4-release"],
+    ["draft", FIXTURE_DRAFT_SLUG],
     ["unknown", "not-a-b4-blog-post"],
   ])("rejects a %s slug with real 404 semantics", async (_kind, slug) => {
     await expect(imageModule.default({ params: Promise.resolve({ slug }) })).rejects.toMatchObject({

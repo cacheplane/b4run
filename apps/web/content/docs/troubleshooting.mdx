@@ -1,6 +1,6 @@
 # Troubleshooting
 
-This page lists the problems people hit most often, by what you see. Each entry gives the cause, the fix and a link to the page with the details. When an error carries a `B4_Exxxx` code, the CLI prints it with a docs link, and [Error Codes](/docs/errors) lists every code.
+Let's go through the problems people hit most often, listed by what you see. Each entry gives the cause, the fix and a link to the page with the details. When an error carries a `B4_Exxxx` code, the CLI prints it with a docs link, and [Error Codes](/docs/errors) lists every code.
 
 A good first step for almost any problem is `b4 verify`. It checks the app, its routes, generated types, dependencies and your runtime in one call:
 
@@ -44,13 +44,13 @@ You see `Route entry <path> has no recognisable export` followed by `[B4_E1007]`
 
 Every directory under the app directory that has an `index.ts` is a route. That file must have a default export of `agent(...)`, or export exactly one of `agent`, `workflow`, `graph` or `chain`. If the message says the file was loaded as CommonJS, a nested `package.json` is missing `"type": "module"`.
 
-Fix the export, or add `"type": "module"` to the `package.json` the message names. If the directory is not a route, prefix its name with `_` so discovery skips it. See [CLI Reference](/docs/cli#b4-check).
+Fix the export, or add `"type": "module"` to the `package.json` the message names. If the directory isn't a route, prefix its name with `_` so discovery skips it. See [CLI Reference](/docs/cli#b4-check).
 
 ## `b4 check` finds fewer routes than you expect
 
 You see `B4.run app is valid: 0 routes discovered.` or a route is missing from the list.
 
-Discovery only looks inside the app directory. That is `src/app` unless `appDir` in `b4.config.ts` says otherwise. It only treats a directory as a route when it contains a file named `index.ts`, and it skips any directory whose name starts with `_`.
+Discovery only looks inside the app directory. That's `src/app` unless `appDir` in `b4.config.ts` says otherwise. It only treats a directory as a route when it contains a file named `index.ts`, and it skips any directory whose name starts with `_`.
 
 Check the route list and the paths it resolved:
 
@@ -126,9 +126,9 @@ See [Execution Sandbox](/docs/sandbox#quickstart).
 
 The run pauses on a permission prompt, and nothing happens after you answer it.
 
-The run stays parked until a `POST /threads/:thread_id/resume` request answers every pending interrupt on the root thread. The body must be exactly `{ resume, route }`, with one entry per pending `interruptId`. A partial, stale, duplicate or extra set returns `409`, and a second resume while one is in flight returns `409` with `resume_in_progress`.
+The run stays parked until a `POST /threads/:thread_id/resume` request answers every pending interrupt on the root thread. The body must be `{ resume, route }` and nothing else, with one entry per pending `interruptId`. A partial, stale, duplicate or extra set returns `409`, and a second resume while one is in flight returns `409` with `resume_in_progress`.
 
-List what is still pending, then answer all of it in one request:
+List what's still pending, then answer all of it in one request:
 
 ```bash
 curl -sS "$BASE_URL/threads/$THREAD_ID/pending_interrupts"

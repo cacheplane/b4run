@@ -1,10 +1,10 @@
 # Upgrading
 
-B4.run is pre-1.0 and the API is still moving. I recommend you pin a version, read what changed and upgrade on purpose instead of floating on a range. This page covers the workflow plus the breaking changes that need action. The full list of changes lives on GitHub.
+B4.run is pre-1.0 and the API is still moving. So pin a version, read what changed, and upgrade on purpose. This page covers the upgrade workflow and the changes that need action, labeled with the version each one landed in. The full list of changes lives on GitHub.
 
 ## Fixed-group versioning
 
-Every publishable B4.run package (`@b4run/cli`, `@b4run/core`, `@b4run/sdk`, the other `@b4run/*` packages and `create-b4-app`) is released together under one version number, using [Changesets](https://github.com/changesets/changesets)' fixed-group mode. If `@b4run/cli` is at `0.8.12`, so is every other package in that release. There is no compatibility matrix to check. Install matching versions and you're done.
+Every publishable B4.run package (`@b4run/cli`, `@b4run/core`, `@b4run/sdk`, the other `@b4run/*` packages and `create-b4-app`) is released together under one version number, using [Changesets](https://github.com/changesets/changesets)' fixed-group mode. If `@b4run/cli` is at `0.10.0`, so is every other package in that release. You don't need a compatibility matrix. Install matching versions and you're done.
 
 The two Helm charts (`b4-sandbox-infra`, `b4-app`) track the same version through their `appVersion` field, but they're published separately as OCI artifacts. See [Kubernetes](/docs/deployment/kubernetes) for how to pull a specific chart version.
 
@@ -12,11 +12,11 @@ The two Helm charts (`b4-sandbox-infra`, `b4-app`) track the same version throug
 
 Each release is built from the changeset entries merged since the previous one. A changeset is a short Markdown file that says what changed and why. You can read them in two places:
 
-- **GitHub Releases:** [github.com/cacheplane/b4run/releases](https://github.com/cacheplane/b4run/releases) lists every published version with its changeset entries rolled up into release notes. This is the fastest way to scan what changed between two versions.
+- **GitHub Releases:** [github.com/cacheplane/b4run/releases](https://github.com/cacheplane/b4run/releases) lists every published version with its changeset entries rolled up into release notes. It's the fastest way to scan what changed between two versions.
 - **Per-package `CHANGELOG.md`:** each package under `packages/*/CHANGELOG.md` has its own changelog, generated from the same entries but scoped to that package.
 
 <Callout type="info" title="Read the entries between your current and target version">
-  Before bumping `@b4run/cli` (and its siblings) to a new version, skim the GitHub release notes for every version between the one you're on and the one you're moving to, not only the latest. A changeset entry that looks unrelated to your app (a sandbox hardening default, a memory recall tuning change) can still change runtime behavior you depend on.
+  Skim every version between the one you're on and your target, not only the latest. An entry that looks unrelated to your app (a sandbox hardening default, a memory recall tuning change) can still change runtime behavior you depend on.
 </Callout>
 
 ## Upgrade workflow
@@ -42,37 +42,52 @@ Each release is built from the changeset entries merged since the previous one. 
     b4 test
     ```
 
-    `b4 verify` runs five phases:
-
-    1. app discovery and config validation
-    2. route discovery
-    3. tool type extraction and typegen rendering
-    4. advisory checks for missing dependencies and provider environment variables
-    5. runtime readiness for Node plus any configured sandbox provider
-
-    `b4 test` re-runs your scenario coverage against the new version. See [CLI](/docs/cli) and [Testing](/docs/testing).
+    `b4 verify` checks config, routes, typegen, dependencies, and runtime readiness. `b4 test` re-runs your scenarios against the new version. See [CLI](/docs/cli) and [Testing](/docs/testing).
   </Step>
 </Steps>
 
-## Node 24 is the minimum
-
-B4.run packages declare `node >=24.0.0`, and `create-b4-app` refuses to scaffold on older releases. Before upgrading dependencies, move local version-manager files, CI runners and custom container bases to Node 24 or later, reinstall with that runtime and run `b4 verify`. Node 24 also supplies the npm and unflagged `node:sqlite` versions the scaffold expects.
-
-## Node-only imports moved to `/node`
-
-If your tooling imports filesystem or process-backed helpers, change the import specifier. The symbols stay the same:
-
-- From `@b4run/core/node`: `discoverRoutes`, `findB4App`, `assertB4RoutesDir`, `extractToolSchemasForRoute`, `extractToolTypesForRoute`, and `registerTsxLoader`.
-- From `@b4run/permissions/node`: `createPermissionsStore`.
-- From `@b4run/workspace/node`: `localFilesystem` and `localExec`.
-
-For example, change `import { discoverRoutes } from "@b4run/core"` to `import { discoverRoutes } from "@b4run/core/node"`. Runtime-agnostic contracts and helpers stay on each package's main entry.
-
 ## Pinning
 
-Pin exact versions (no `^` or `~` ranges) for `@b4run/*` packages until the project reaches 1.0. A floating range lets an unreviewed bump land in CI or production before anyone reads the notes.
+Pin `@b4run/*` packages to a single version (no `^` or `~` ranges) until the project reaches 1.0. A floating range lets an unreviewed bump land in CI or production before anyone reads the notes.
 
-## The `vercel` target's function is now `b4.func`
+## Changes by version
+
+Newest first. Each change names the release it landed in, and the two that need no action say so.
+
+### The app root must declare `"type": "module"`
+
+Landed in **0.8.35**.
+
+`b4 check`, `dev`, `build`, `verify`, `routes`, and `typegen` now fail with
+`B4_E1006` when the app root's `package.json` lacks `"type": "module"`,
+where they used to run. Add the field:
+
+```json
+{
+  "type": "module"
+}
+```
+
+Apps scaffolded by `create-b4-app` already have it. An app that never set it
+was in one of two states, and both are fixed by the same line:
+
+- **Routes exported with `export default agent(...)` were silently dropped.**
+  `b4 check` reported `0 routes discovered` and exited 0, because the route
+  modules were compiled as CommonJS and their default export arrived wrapped in
+  the ESM/CommonJS interop object.
+- **Routes exported as `export const workflow` (or `graph`/`chain`) appeared to
+  work.** Node's CommonJS lexer hoists those into named exports, so discovery
+  found them. But `b4.config.ts` was loaded through the same interop wrapper,
+  so every setting on it was silently ignored and the defaults applied.
+
+A route `index.ts` that exports nothing B4.run recognises is now also an error
+(`B4_E1007`) naming the file. Before, discovery silently skipped the directory.
+If such a directory isn't a route, prefix its name with `_` to keep it out of
+route discovery.
+
+### The `vercel` target's function is now `b4.func`
+
+Landed in **0.8.35**.
 
 `b4 build` with the `vercel` target publishes its runtime function at
 `functions/b4.func/` and routes `/(.*)` to `/b4`. It was `functions/index.func/`
@@ -84,13 +99,13 @@ where it shadows a static `index.html`. That hazard comes with the name in every
 build, so we moved the name off the root. An app that adds a frontend later
 doesn't have to rename its function.
 
-Nothing inside the function changes, and nothing that goes through the CLI
-notices. What breaks is anything that reads the published tree by path:
+The function itself is the same, and anything that goes through the CLI keeps
+working. What breaks is anything that reads the published tree by path:
 
-- a deploy script that copies or inspects `functions/index.func`
-- an external assembler that composes the tree after the build
-- CI that imports the built entry for a smoke check
-- a hand-written `config.json`, or an assertion, naming the `/index` route
+- A deploy script that copies or inspects `functions/index.func`.
+- An external assembler that composes the tree after the build.
+- CI that imports the built entry for a smoke check.
+- A hand-written `config.json`, or an assertion, naming the `/index` route.
 
 **Migrating depends on whether you ship static assets.** Without static assets, you can pin the old name:
 
@@ -116,12 +131,40 @@ export default config({
 ```
 
 An app that ships a frontend with the runtime must move to the new path. An
-explicit `index` shadows the static root exactly as the old default did, so
+explicit `index` shadows the static root just as the old default did, so
 allowing it would bring back the original bug where it does the most damage.
 Either way, `functionName` accepts one path segment of letters,
 digits, `_` or `-`, and `b4 check` rejects anything else before the build writes.
 
-## `toolOutput` is now gated off the `hono` target
+### Docker and Kubernetes sandboxes now require a `scope`
+
+Landed in **0.8.32**. Action required if you use the Docker or Kubernetes sandbox provider.
+
+Both providers now take a required `scope`: a stable application and environment identifier such as `my-app-production`. Every container, volume, Pod, PVC and NetworkPolicy name is a hash of the scope and the thread ID, which prevents collisions the old thread-name normalization allowed:
+
+```ts
+provider: dockerSandbox({ scope: "my-app-production", image: "node:24-slim" }),
+```
+
+Resource names changed, so existing sandboxes aren't reattached, migrated or deleted. Export any data you need before you upgrade, then clean up the old resources yourself. Scope isn't authorization: your application still decides who can use a thread. See [Execution Sandbox](/docs/sandbox#application-scope).
+
+### Skills, `plan.md`, and route `memory.md` now work on edge targets
+
+Landed in **0.8.30**. No action required.
+
+The `hono` and `vercel` targets used to fail the build when a route shipped
+skills, and `plan.md` and `memory.md` silently did nothing there. `b4 build`
+now bundles all three into `modules.edge.mjs` and serves them from the
+manifest at request time. An app that removed its skills to pass the gate can
+restore them. Files over the build's per-marker cap fail the build with
+`B4_E1005` by name (`b4 check` applies the same limits). The cap is 32 KiB for
+`SKILL.md` (a build-only cap) and `memory.md`, and 64 KiB for `plan.md`. The
+last two match the runtime limits. See [Skills, `plan.md`, and route `memory.md` are
+bundled](/docs/deployment/edge#skills-planmd-and-route-memorymd-are-bundled).
+
+### `toolOutput` is now gated off the `hono` target
+
+Landed in **0.8.22**, first published in **0.8.24**.
 
 If your app configures `toolOutput` **and** names `"hono"` in `build.targets`,
 `b4 build` and `b4 check` now fail with `B4_E1005` where they used to pass.
@@ -130,30 +173,20 @@ offloading](/docs/context-management) spills oversized tool results to a file
 under `workspace/` and hands the model a pointer to it. An edge runtime has no
 filesystem to spill to, so the feature never worked on that target. It slipped
 through because it was the only gated feature whose config is plain JSON. The
-other gated keys are live objects that get stripped at the build boundary, while
-`toolOutput` was inlined into the bundle and then ignored at runtime. A green
-build with a worker that silently never offloads is worse than a failed build.
+other gated keys are live objects that the build strips. `toolOutput` was
+inlined into the bundle and then ignored at runtime. A green build with a worker
+that silently never offloads is worse than a failed build.
 
-You have two options: remove `toolOutput` from `b4.config.ts`, or drop `"hono"`
+You have two options. Remove `toolOutput` from `b4.config.ts`, or drop `"hono"`
 from `build.targets` and deploy with the `node` target, which serves offloading
-normally. An empty `toolOutput: {}` expresses no intent and is not gated.
+normally. An empty `toolOutput: {}` expresses no intent, so the gate lets it through.
 
 **Node deployments are unaffected.** The gate is specific to the `hono` build
-target, and the matching runtime check (below) cannot fire on Node at all.
+target, and the matching runtime check (below) can't fire on Node at all.
 
-## Skills, `plan.md`, and route `memory.md` now work on edge targets
+### Gated features now fail loudly at request time, not just at build time
 
-The `hono` and `vercel` targets used to fail the build when a route shipped
-skills, and `plan.md` and `memory.md` silently did nothing there. `b4 build`
-now bundles all three into `modules.edge.mjs` and serves them from the
-manifest at request time. An app that removed its skills to pass the gate can
-restore them. Nothing else changes. Files over the build's per-marker cap fail
-the build with `B4_E1005` by name (`b4 check` applies the same limits). The cap
-is 32 KiB for `SKILL.md` (a build-only cap) and `memory.md`, and 64 KiB for
-`plan.md`. The last two match the runtime limits. See [Skills, `plan.md`, and route `memory.md` are
-bundled](/docs/deployment/edge#skills-planmd-and-route-memorymd-are-bundled).
-
-## Gated features now fail loudly at request time, not just at build time
+Landed in **0.8.22**, first published in **0.8.24**.
 
 `sandbox` and `toolOutput` used to be read and then
 quietly do nothing on a runtime with no filesystem. Both now raise
@@ -162,22 +195,24 @@ introduced it. A manifest that records skills but bundles no bodies for them is
 reported the same way. See [What the edge cannot
 serve](/docs/deployment/edge#what-the-edge-cannot-serve).
 
-This closes a gap the build gate could not. Composing an entry by hand over
+This closes a gap the build gate couldn't. Composing an entry by hand over
 `@b4run/cli/fetch` is a supported way to deploy, and such an app never runs the
 `hono` target, so it never meets the build gate.
 
-**No Node app can hit this, whatever it configures.** The check short-circuits
+**Node apps are safe here, whatever they configure.** The check short-circuits
 before it reads a single config key whenever the runtime supplied filesystem
-fallbacks, and every Node entry point supplies them unconditionally. An absent
-sandbox on Node still degrades as documented. Only edge deployments can hit the
-check, and for them the affected config was already doing nothing.
+fallbacks, and every Node entry point always supplies them. An absent
+sandbox on Node still degrades as documented. On the edge, the affected config
+was already doing nothing.
 
-## `@b4run/postgres-storage` now requires a `pool` on its main entry
+### `@b4run/postgres-storage` now requires a `pool` on its main entry
+
+Landed in **0.8.21**.
 
 `connectionString` has moved to a new `@b4run/postgres-storage/node` subpath.
-In `0.8.19` the main entry accepted either and built its own `pg` pool from a
-connection string. It no longer does. It now imports `pg` for **types only**, so
-the package links on a runtime with no TCP sockets. That is what makes the
+Through `0.8.19` the main entry accepted either and built its own `pg` pool from a
+connection string. Now it imports `pg` for **types only**, so the package links
+on a runtime with no TCP sockets. That's what makes the
 [`hono` edge target](/docs/deployment/edge) possible.
 
 `connectionString` is gone from the main entry's option type, so passing it
@@ -212,14 +247,28 @@ postgresCheckpointer({ pool })
 </Callout>
 
 The `/node` entry re-exports everything the main entry does, so option 1 is
-usually one line. Pool ownership is unchanged in both shapes: `close()` ends a
+usually one line. Pool ownership works the same in both shapes. `close()` ends a
 pool the store built, and an injected pool is left alone (`ownsPool`, defaulting
-to `false`). This shipped as a **patch** even though it breaks. Under
-[fixed-group versioning](#fixed-group-versioning) a minor bump would move every
-`@b4run/*` package to `1.0.0`, and one entry-point split doesn't warrant that.
-It is also why we recommend pinning exact versions and reading the notes.
+to `false`).
 
-## `kind: "reflection"` is now accepted
+This shipped as a **patch** even though it breaks, which is one more reason to
+[pin a version](#pinning) and read the notes.
+
+### Node-only imports moved to `/node`
+
+Landed in **0.8.17**.
+
+If your tooling imports filesystem or process-backed helpers, change the import specifier. The symbols stay the same:
+
+- From `@b4run/core/node`: `discoverRoutes`, `findB4App`, `assertB4RoutesDir`, `extractToolSchemasForRoute`, `extractToolTypesForRoute`, and `registerTsxLoader`.
+- From `@b4run/permissions/node`: `createPermissionsStore`.
+- From `@b4run/workspace/node`: `localFilesystem` and `localExec`.
+
+For example, change `import { discoverRoutes } from "@b4run/core"` to `import { discoverRoutes } from "@b4run/core/node"`. Runtime-agnostic contracts and helpers stay on each package's main entry.
+
+### `kind: "reflection"` is now accepted
+
+Landed in **0.8.17**.
 
 [Memory distillation](/docs/memory/distillation) wired the `reflection` kind.
 `defineMemory({ kind: "reflection" })` and the generated `remember` tool now
@@ -231,40 +280,19 @@ default.
 
 `procedural` remains the one typed-but-unwired kind and still throws.
 
-**No action required.** This change is additive. Adopt it only if you want a
-reflection collection or want to run the distillation commands.
+**No action required.** This change is additive.
 
-## MemoryStore now requires `browse` and `stats`
+### Node 24 is the minimum
 
-The `MemoryStore` contract gained two required methods to power the
-[Inspector](/docs/inspector)'s Memory panel. If you implement a custom store for
-`config.memory.store`, add both:
+Landed in **0.8.16**.
 
-- `browse(q?)`: cross-namespace/status listing, returning
-  `{ records, total }` with `records` ordered `updated_at DESC, id ASC` and
-  `total` counting all matches (ignoring `limit`/`offset`). The optional query
-  narrows by `namespacePrefix`, `status`, `kind`, and `sourceType`.
-- `stats(opts?)`: aggregate counts: `{ total, byStatus, byKind, byNamespace, bySourceType }`,
-  optionally scoped to a `namespacePrefix`.
+B4.run packages declare `node >=24.0.0`, and `create-b4-app` refuses to scaffold on older releases. Before upgrading dependencies, move local version-manager files, CI runners and custom container bases to Node 24 or later. Then reinstall with that runtime and run `b4 verify`. Node 24 also supplies the npm and unflagged `node:sqlite` versions the scaffold expects.
 
-The built-in SQLite and pgvector stores already implement both, and the
-`runMemoryStoreConformance` kit in `@b4run/testing` covers them. Run it
-against a custom store to verify the contract.
+### MemoryStore now requires `prune`
 
-Two related behavior changes in the same release:
+Landed in **0.8.15**.
 
-- The config-facing store type is now the **full** `MemoryStore` contract
-  (`delete` and `listCandidates` included) instead of the narrower
-  capability-facing surface. A custom store that already satisfied the CLI's
-  `b4 memory` commands is unaffected.
-- `b4 memory approve` (and the Inspector's Approve) now **reconciles
-  supersession**: approving a candidate that contradicts an active record with
-  the same identity key supersedes the old record instead of leaving two active
-  rows. Approving an identical duplicate dedupes it.
-
-## MemoryStore now requires `prune`
-
-[Episodic memory](/docs/memory/episodes#episodic-memory) added a required retention
+[Episodic memory](/docs/memory/episodes) added a required retention
 method to the `MemoryStore` contract. If you implement a custom store for
 `config.memory.store`, add it:
 
@@ -288,43 +316,44 @@ The runtime episode recorder calls `prune` lazily after each write, and
 
 Two related behavior changes in the same release:
 
-- `search` and `browse` accept **`since`/`until`** (ISO instants; `since`
-  inclusive, `until` exclusive) comparing against `effectiveAt` with a
+- `search` and `browse` accept **`since`/`until`** (ISO instants, with `since`
+  inclusive and `until` exclusive), comparing against `effectiveAt` with a
   `createdAt` fallback.
 - When a query supplies **`now`**, `search` and `browse` must **exclude
   expired rows** (`expiresAt <= now`). Queries without `now` are unchanged.
 
-The built-in SQLite and pgvector stores already implement all of this, and the
-`runMemoryStoreConformance` kit in `@b4run/testing` covers it. Run the kit
+The built-in stores implement all of this, and `runMemoryStoreConformance`
+checks a custom one.
+
+### MemoryStore now requires `browse` and `stats`
+
+Landed in **0.8.14**.
+
+The `MemoryStore` contract gained two required methods to power the
+[Inspector](/docs/inspector)'s Memory panel. If you implement a custom store for
+`config.memory.store`, add both:
+
+- `browse(q?)`: cross-namespace/status listing, returning
+  `{ records, total }` with `records` ordered `updated_at DESC, id ASC` and
+  `total` counting all matches (ignoring `limit`/`offset`). The optional query
+  narrows by `namespacePrefix`, `status`, `kind`, and `sourceType`.
+- `stats(opts?)`: aggregate counts: `{ total, byStatus, byKind, byNamespace, bySourceType }`,
+  optionally scoped to a `namespacePrefix`.
+
+The built-in SQLite and pgvector stores already implement both, and the
+`runMemoryStoreConformance` kit in `@b4run/testing` covers them. Run it
 against a custom store to verify the contract.
 
-## The app root must declare `"type": "module"`
+Two related behavior changes in the same release:
 
-`b4 check`, `dev`, `build`, `verify`, `routes`, and `typegen` now fail with
-`B4_E1006` when the app root's `package.json` does not set `"type": "module"`,
-where they used to run. Add the field:
-
-```json
-{
-  "type": "module"
-}
-```
-
-Apps scaffolded by `create-b4-app` already have it. An app that never set it
-was in one of two states, and both are fixed by the same line:
-
-- **Routes exported with `export default agent(...)` were silently dropped.**
-  `b4 check` reported `0 routes discovered` and exited 0, because the route
-  modules were compiled as CommonJS and their default export arrived wrapped in
-  the ESM/CommonJS interop object.
-- **Routes exported as `export const workflow` (or `graph`/`chain`) appeared to
-  work.** Node's CommonJS lexer hoists those into named exports, so discovery
-  found them. But `b4.config.ts` was loaded through the same interop wrapper,
-  so every setting on it was silently ignored and the defaults applied.
-
-A route `index.ts` that exports nothing B4.run recognises is now also an error
-(`B4_E1007`) naming the file, instead of a directory that is silently skipped. If such a directory is not a route, prefix its name with `_` to keep
-it out of route discovery.
+- The config-facing store type is now the **full** `MemoryStore` contract
+  (`delete` and `listCandidates` included), where it used to be the narrower
+  capability-facing surface. A custom store that already satisfied the CLI's
+  `b4 memory` commands is unaffected.
+- `b4 memory approve` (and the Inspector's Approve) now **reconciles
+  supersession**: approving a candidate that contradicts an active record with
+  the same identity key supersedes the old record, so you no longer get two active
+  rows. Approving an identical duplicate dedupes it.
 
 ## Related
 

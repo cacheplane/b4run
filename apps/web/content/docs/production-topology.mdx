@@ -1,75 +1,80 @@
 # Production Topology
 
-Start with one B4.run process and add infrastructure only for a measured requirement. Shared persistence, replica coordination, streaming behavior, readiness, and shutdown are separate design decisions.
+Start with one B4.run process, and add infrastructure only when you've measured a need for it. Shared persistence, replica coordination, streaming, readiness and shutdown are separate design decisions.
 
 ## Start with one process
 
-The smallest production shape is the Node runtime with a durable local disk. One process owns the HTTP listener and its in-memory run registry; default SQLite files hold checkpoints and thread metadata, while the default permission store uses a local file.
+The smallest production shape is the Node runtime on a durable local disk. One process runs the HTTP listener and its in-memory run registry. Default SQLite files hold checkpoints and thread metadata, and the default permission store is a local file.
 
-Bind the service to a private interface or put it behind an authenticated edge, persist the app's `.b4/` and `workspace/` data, and arrange signal-driven shutdown. This topology avoids cross-replica races because every run for the service reaches the same process.
+Bind the service to a private interface or put it behind an authenticated edge. Persist the app's `.b4/` and `workspace/` data, and arrange signal-driven shutdown. With one process there are no cross-replica races, because every run for the service reaches the same process.
 
 ## Where state lives
 
-| State | Placement | Replica implication |
-|---|---|---|
-| Active-run gate, abort controllers, cancellation registry, resume claims, and the in-session thread-to-route map | process-local memory in one runtime handler | Another process cannot observe, serialize, or cancel this process's active run |
-| Checkpoints, thread metadata, and runtime permission grants | Local SQLite/file stores by default; configurable shared durable stores | Shared records survive replacement compute, but they do not coordinate active execution |
-| Typed long-term memory | Separate local SQLite store or configured shared memory backend | Namespace and retention are application-owned; it is not part of the three runtime Postgres stores |
-| `workspace/` files | Local filesystem backend by default | Ephemeral or replica-local disks diverge unless the application supplies durable shared behavior |
-| Sandbox workspace | Provider-managed per-thread volume | Release and destroy semantics depend on the provider; route requests must reach the intended volume |
-| Middleware context and per-request stores | One request/run lifetime | Never use them as cross-request or cross-replica state |
+- **Active-run gate, abort controllers, cancellation registry, resume claims and the in-session thread-to-route map** are process-local memory in one runtime handler. No other process can see, serialize or cancel its active run.
+- **Checkpoints, thread metadata and runtime permission grants** use local SQLite and file stores by default, or configurable shared durable stores. Shared records survive replacement compute, but they don't coordinate active execution.
+- **Typed long-term memory** uses its own local SQLite store or a shared memory backend, outside the three runtime Postgres stores. Your app decides its namespace and retention.
+- **`workspace/` files** use the local filesystem backend by default. Ephemeral or replica-local disks drift apart unless your app supplies durable shared storage.
+- **Sandbox workspaces** are provider-managed per-thread volumes. Release and destroy behavior depends on the provider, and route requests must reach the intended volume.
+- **Middleware context and per-request stores** last for one request or run. Never use them as cross-request or cross-replica state.
 
-See [Persistence and Tenancy](/docs/persistence) for the data lifecycle matrix.
+See [Persistence and Tenancy](/docs/persistence) for each store's lifecycle.
 
 ## Move to ephemeral compute
 
-Before replacing local disk with ephemeral instances, move checkpoints, thread metadata, and permission decisions to Postgres with the three `@b4run/postgres-storage` adapters. Choose a separate backend for long-term memory. Decide explicitly whether workspace files and sandbox volumes must survive process or pod replacement.
+Before you swap local disk for ephemeral instances, move checkpoints, thread metadata and permission decisions to Postgres with the three `@b4run/postgres-storage` adapters. Choose a separate backend for long-term memory. Then decide whether workspace files and sandbox volumes must survive process or pod replacement.
 
-Use one application-owned pool where the host permits it, handle idle pool errors, and close the runtime handler before ending the pool. An edge runtime may instead require request-scoped pools; follow the generated Hono store lifetime rather than reusing request-bound sockets across invocations.
+Where the host allows it, use one pool that your app creates and closes. Handle idle pool errors, and close the runtime handler before you end the pool. An edge runtime may need request-scoped pools instead. There, follow the generated Hono store lifetime and never reuse request-bound sockets across invocations.
 
 ## Add replicas safely
 
-Replicas need both shared persistence **and** guaranteed thread-aware routing or serialization. B4.run has no distributed run coordinator: each handler's one-run-per-thread gate and cancellation registry are process-local.
+Replicas need shared persistence **and** guaranteed thread-aware routing or serialization. B4.run has no distributed run coordinator. Each handler's one-run-per-thread gate and cancellation registry are process-local.
 
-For Agent Protocol routes, the thread id is present in paths such as `/threads/:thread_id/runs/stream` and `/threads/:thread_id/cancel`. Route all operations for an active thread (including cancellation) to the instance that owns its run, or place a distributed coordinator in front of execution. A persisted `busy` status is metadata, not a safe lock.
+For Agent Protocol routes, the thread id is in the path, as in `/threads/:thread_id/runs/stream` and `/threads/:thread_id/cancel`. Route every operation for an active thread (cancellation included) to the instance running it, or put a distributed coordinator in front of execution. A persisted `busy` status is metadata. It's not a safe lock.
 
-AG-UI sends its `threadId` in the request body to `/agui/:routeId`. An ordinary path-only load balancer cannot derive thread affinity from that body automatically. Use a gateway that understands the request, a trusted affinity token established before dispatch, or another serialization design you can test under concurrent requests.
+AG-UI sends its `threadId` in the request body to `/agui/:routeId`, so a plain path-based load balancer can't derive thread affinity from it. Use a gateway that understands the request, a trusted affinity token set before dispatch, or another serialization design you can test under concurrent requests.
 
 ## Streaming and proxy behavior
 
-Agent Protocol execution outlives its viewer. If the client disconnects from `/runs/stream` or abandons `/runs/wait`, the run continues until it completes, is explicitly cancelled, or the runtime shuts down. Route cancellation to the owning process.
+Agent Protocol runs outlive their viewer. If the client disconnects from `/runs/stream` or abandons `/runs/wait`, the run keeps going until it completes, is cancelled, or the runtime shuts down. Route cancellation to the owning process.
 
-AG-UI is ephemeral. Disconnecting or cancelling its response aborts the request's run. Configure proxies to pass server-sent events without buffering, preserve heartbeat traffic, and allow timeouts long enough for expected turns. Test disconnects at the browser, proxy and runtime, not only with a direct local request.
+AG-UI is ephemeral. Disconnecting or cancelling its response aborts the request's run. Configure proxies to pass server-sent events through unbuffered, keep heartbeat traffic, and allow timeouts long enough for your turns. Test disconnects at the browser, the proxy and the runtime, as well as with a direct local request.
 
 ## Health and readiness
 
-The runtime serves two probes on every target (Node, Hono, Vercel), and they answer different questions:
+The runtime serves two probes on every target (Node, Hono, Vercel). They answer different questions:
 
-- `GET /healthz` is **liveness**: the process is up and serving HTTP. It touches no store and never calls a per-request store factory, so a deployment with `DATABASE_URL` unset or a database that is unreachable still answers `200 {"status":"ready"}`. That does not prove that Postgres, model providers, sandbox infrastructure, or every configured backend can serve a turn.
-- `GET /readyz` is **readiness**: the request's durable stores (threads, checkpointer, permissions) each answer a real query against their schema, running lazy migrations on the way. It answers `200 {"status":"ready","checks":{...}}` when every store answers, or `503 {"status":"not_ready","checks":{...}}` naming each failing dependency: `requestStores` when the per-request factory itself threw (for example `DATABASE_URL` missing on Vercel), otherwise the store by name. Failure messages have connection-string credentials redacted and the cause is logged to stderr once per distinct failure.
+- `GET /healthz` is **liveness**: the process is up and serving HTTP. It touches no store and never calls a per-request store factory. A deployment with `DATABASE_URL` unset, or with an unreachable database, still answers `200 {"status":"ready"}`. So a passing `/healthz` does not prove that Postgres, model providers, sandbox infrastructure or any other configured backend can serve a turn.
+- `GET /readyz` is **readiness**: the request's durable stores (threads, checkpointer, permissions) each run a real query against their schema, running lazy migrations on the way. It answers `200 {"status":"ready","checks":{...}}` when every store answers, or `503 {"status":"not_ready","checks":{...}}` naming each failing dependency: `requestStores` when the per-request factory itself threw (for example, `DATABASE_URL` is missing on Vercel), otherwise the store's name. Connection-string credentials are redacted from failure messages, and the cause is logged to stderr once per distinct failure.
 
-`/readyz` does not probe the model provider, the sandbox provider, or the memory store. Add an application-owned check for anything beyond the durable stores your rollout requires.
+`/readyz` skips the model provider, the sandbox provider and the memory store. If your rollout depends on anything beyond the durable stores, add your own check for it.
 
-Unlike every other endpoint, whose failures answer with an opaque message, `/readyz` reports the real cause so the probe can name the dependency. Credentials are stripped from connection strings, but hostnames, ports, database names and driver error codes do appear in the body. Neither probe is gated by middleware or thread access, so keep both behind the same outer access controls as the rest of the service.
+Every other endpoint answers failures with an opaque message. `/readyz` reports the real cause so the probe can name the dependency. Credentials are stripped from connection strings, but hostnames, ports, database names and driver error codes do appear in the body. Middleware and thread access gate neither probe, so keep both behind the same outer access controls as the rest of the service.
 
 ## Shutdown and rollouts
 
-When invoked, the runtime handler's `close()` stops accepting requests, aborts shutdown-aware work, and waits up to 30 seconds for response bodies, active runs, and request-store disposal before proceeding. It then releases active sandboxes while keeping provider volumes according to provider semantics. Work that ignores cancellation can outlive the bounded drain.
+The runtime handler's `close()` stops accepting requests and aborts shutdown-aware work. Then it waits up to 30 seconds for response bodies, active runs and request-store disposal. After that it releases active sandboxes, keeping provider volumes as the provider defines. Work that ignores cancellation can outlive this bounded drain.
 
-Injected stores and pools remain application-owned. Await `close()` before closing those resources so in-flight routes do not write through a pool that has already ended.
+Injected stores and pools stay yours to close. Await `close()` first, so in-flight routes don't write through a pool that has already ended.
 
-`b4 start` opts into SIGINT/SIGTERM handling. `serveRuntime` defaults signal installation off, and the generated Node `server.mjs` calls it without that option, so the generated server does not currently install signal handlers. Use `b4 start` or provide a host entry that receives platform signals, invokes and awaits `close()`, and exits according to your supervisor's contract.
+`b4 start` opts into SIGINT/SIGTERM handling. `serveRuntime` leaves signal installation off by default, and the generated Node `server.mjs` calls it without that option. So the generated server does not currently install signal handlers. Use `b4 start`, or write a host entry that receives platform signals, awaits `close()`, and exits the way your supervisor expects.
 
 ## Kubernetes implications
 
-An HPA adds or removes replicas; a PodDisruptionBudget limits simultaneous voluntary disruption. Both can improve availability, but neither serializes a thread, routes cancellation, drains a B4.run handler, or makes local disk shared.
+An HPA adds or removes replicas. A PodDisruptionBudget limits how many pods voluntary disruption takes down at once. Both can improve availability, but neither one serializes a thread, routes cancellation, drains a B4.run handler or shares local disk.
 
-For Kubernetes, combine an application-level readiness probe, a termination grace period longer than the chosen drain budget, a signal-aware entry point, and verified thread-affinity or coordination. Exercise rolling updates with a live Agent Protocol stream, an AG-UI disconnect, a cancel request, and a pod replacement while shared stores remain available.
+On Kubernetes, combine:
+
+- an application-level readiness probe
+- a termination grace period longer than your drain budget
+- a signal-aware entry point
+- verified thread affinity or coordination
+
+Then exercise rolling updates with a live Agent Protocol stream, an AG-UI disconnect, a cancel request and a pod replacement while the shared stores stay available.
 
 ## Related
 
 <RelatedCards items={[
-  { href: "/docs/persistence", title: "Persistence and Tenancy", subtitle: "where each data class lives and who owns deletion" },
+  { href: "/docs/persistence", title: "Persistence and Tenancy", subtitle: "where each data class lives and who handles deletion" },
   { href: "/docs/security-architecture", title: "Security Architecture", subtitle: "protect every exposed runtime surface" },
   { href: "/docs/deployment", title: "Deployment Options", subtitle: "current build targets and artifacts" },
   { href: "/docs/embedding", title: "Embed the Runtime", subtitle: "own handler and shutdown lifetimes" },

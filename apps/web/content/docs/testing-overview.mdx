@@ -1,6 +1,6 @@
 # Testing Overview
 
-B4.run gives you three ways to test an app. Scenario tests check what a route returns. The agent test harness checks what an agent does, turn by turn, against a replayed model. Evals score an agent over a whole dataset and fail CI when quality drops. This page helps you pick one. Each section links to the page with the details.
+B4.run gives you three ways to test an app. Scenario tests check what a route returns. The agent test harness checks what an agent does, turn by turn, against a replayed model. Evals score an agent over a whole dataset and fail CI when quality drops. Let's figure out which one you need.
 
 ## Which one should I use?
 
@@ -14,7 +14,7 @@ Here is how the three compare:
 | **Files** | `src/app/<route>/run.test.ts` | Any vitest test file, such as `test/agent.test.ts` | `src/app/<route>/evals/*.eval.ts` |
 | **Typical use** | Route input and output, workflow logic, mocked application tools | Tool calls, final messages, interrupts and state for an agent route | A quality bar across many cases that survives prompt and model changes |
 
-I recommend starting with scenario tests for workflow, graph and chain routes. Use the harness for agent routes, because it keeps the model deterministic. Add evals once you care about a score across a dataset rather than a single pass or fail.
+For workflow, graph and chain routes, start with scenario tests. Use the harness for agent routes, because it keeps the model deterministic. Add evals once you care about a score across a dataset rather than a single pass or fail.
 
 ## Scenario tests
 
@@ -37,7 +37,7 @@ Then run every scenario in the app:
 b4 test
 ```
 
-Scenarios run in-process by default. Add `.server(url)` to send one through a running dev server when you need to exercise middleware or the HTTP boundary. See [Scenario Testing](/docs/testing).
+Scenarios run in-process by default. Add `.server(url)` to send one through a running dev server when you need to exercise middleware or the HTTP layer. See [Scenario Testing](/docs/testing).
 
 ## Agent test harness
 

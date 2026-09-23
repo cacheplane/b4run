@@ -292,7 +292,7 @@ serializeNamespace emits dimensions in a stable order, escapes reserved delimite
 
 Call `validateBrowseQuery(query, { maxLimit: BROWSE_MAX_LIMIT })` at that boundary. Stores do not enforce the 1,000-row ceiling.
 
-SQLite stores memory rows (including content, data, source, and tags) as plaintext. A namespace organizes records; it is not a security boundary. Protect the database file and its path with application and infrastructure access controls.
+SQLite stores memory rows (including content, data, source, and tags) as plaintext. A namespace organizes records. It is not a security boundary. Protect the database file and its path with application and infrastructure access controls.
 
 #### Behavior contract `memory.browse.pure-subpath`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/memory/test/browse-contract.test.ts","testNames":["reaches nothing outside the pure browse sources"]}] */}
@@ -304,7 +304,7 @@ The /browse entry reaches only the pure browse modules and no external package, 
 
 #### Approval caveats
 
-`approveWithReconcile()` uses a non-transactional read-classify-write sequence and scans at most 10,000 active rows. Semantic memory reconciles; episodic and reflection memory append.
+`approveWithReconcile()` uses a non-transactional read-classify-write sequence and scans at most 10,000 active rows. Semantic memory reconciles. Episodic and reflection memory append.
 
 ## Examples and related guides
 

@@ -1,8 +1,8 @@
 # Dev Server
 
-`b4 dev` starts B4.run's HTTP runtime, watches your app, regenerates types, and
-replaces the child runtime when source files change. If you are building a
-client, see the protocol guides linked below.
+`b4 dev` runs your app locally. It starts B4.run's HTTP runtime, watches your
+files, regenerates types, and restarts the runtime when source files change.
+If you're building a client, see the protocol guides linked below.
 
 ## Starting the server
 
@@ -10,55 +10,56 @@ client, see the protocol guides linked below.
 b4 dev
 ```
 
-The server binds an ephemeral localhost port and prints a URL such as
-`B4.run dev ready at http://127.0.0.1:43127`. Pass `--port` when another process
-needs a predictable address:
+The server picks a free localhost port and prints a URL such as
+`B4.run dev ready at http://127.0.0.1:43127`. Pass `--port` when you need a
+fixed address:
 
 ```bash
 b4 dev --port 3001
 ```
 
-The bind address is always `127.0.0.1`.
+The server always listens on `127.0.0.1`.
 
 ## Invoking a route
 
-With the server running, invoke a route from another terminal:
+With the server running, call a route from another terminal:
 
 ```bash
 echo '{"messages":[{"role":"user","content":"Hello"}]}' |
   b4 run '/research' --url http://127.0.0.1:3001
 ```
 
-`b4 run` resolves the route to its `<routeId>#<kind>` assistant id, creates a
-thread id for the call, sends the input through Agent Protocol, and prints the
+`b4 run` looks up the route's `<routeId>#<kind>` assistant id, creates a
+thread for the call, sends the input through Agent Protocol, and prints the
 final state.
 
 ## Restart cycle
 
-When an app file changes, B4.run regenerates types and then launches the
-replacement runtime. Ignored paths such as `.b4/`, `workspace/` and lockfiles do
-not trigger a restart. For changes that do, the restart log names the reason.
+When an app file changes, B4.run regenerates types and then starts a new
+runtime. Changes under ignored paths such as `.b4/`, `workspace/` and lockfiles
+are skipped. For everything else, the restart log names the reason.
 
-The parent owns the app root, watcher, session, selected port, and stable URL across restarts.
-The child owns the HTTP listener and route graph. Each restart stops that child
-and its listener, then starts a fresh child on the same port. There is no
-in-process HMR, and the parent never holds the listener.
+`b4 dev` runs two processes, a parent and a child:
+
+- The parent owns the app root, watcher, session, selected port, and stable URL across restarts.
+- The child owns the HTTP listener and route graph.
+
+Each restart stops the child and its listener, then starts a fresh child on the
+same port. The parent never holds the listener.
 
 The replacement child reloads the app and `b4.config.ts`, including store and
-runtime configuration. Configuration edits take effect on that restart. The
-parent does not keep the old configuration.
+runtime configuration. Configuration edits take effect on that restart.
 
-The default SQLite threads store and checkpointer preserve persisted threads and
-checkpoints across child restarts. Configured durable stores preserve data when
-the replacement child reconnects. An in-memory store does not survive the
-restart. In-flight work gets a short shutdown grace window before the old child
-can be force-killed.
+The default SQLite thread store and checkpointer keep your threads and
+checkpoints across restarts. Other durable stores preserve data too, once the
+new child reconnects. An in-memory store starts empty after each restart.
+Running work gets a short grace period before the old child is killed.
 
 ## Logging
 
-The ready line shows the current URL, and each restart line shows the changed
-file category. Set `B4_DEV_SHUTDOWN_TIMEOUT_MS` to change the grace
-window used while stopping a child runtime.
+The ready line shows the current URL, and each restart line shows what kind of
+file changed. Set `B4_DEV_SHUTDOWN_TIMEOUT_MS` to change the grace period for
+stopping the old child.
 
 ## AG-UI endpoint
 
@@ -66,18 +67,18 @@ Browser clients use the separate [AG-UI endpoint and lifecycle](/docs/ag-ui).
 
 ## Tracing
 
-See [Observability](/docs/observability) for environment variables, trace setup,
-and interrupt-related trace behavior.
+See [Observability](/docs/observability) for the environment variables, trace
+setup, and how interrupts show up in traces.
 
 ## Middleware
 
-See [Middleware](/docs/middleware) for execution-route behavior and
+See [Middleware](/docs/middleware) for how middleware gates route runs, and
 [Security Architecture](/docs/security-architecture) for the management routes
-that require service-wide outer authentication.
+that need authentication in front of the whole service.
 
-[Thread access](/docs/thread-access) is a second in-runtime gate. It checks the
-thread instead of the route, and it covers every thread endpoint, including the
-ones middleware never sees. When both apply, a request must pass both.
+[Thread access](/docs/thread-access) is a second gate inside the runtime. It
+checks the thread rather than the route, and it covers every thread endpoint,
+including the ones middleware never sees. A request must pass both.
 
 ## Related
 

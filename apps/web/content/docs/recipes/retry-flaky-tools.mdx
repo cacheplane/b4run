@@ -1,8 +1,6 @@
 # Retry Transient Model Calls
 
-Learn how to make an agent route retry transient model and provider failures:
-
-## The code
+Providers fail now and then with rate limits and 503s. Let's make an agent route retry those, give a flaky tool its own retry loop, and turn retry off where failing fast matters:
 
 <CodeGroup>
 ```ts title="src/app/(public)/summarize/[doc]/index.ts"
@@ -56,7 +54,8 @@ export default agent({
 - **Only transient model/provider errors retry.** Rate limits (`429`), server errors (`500`/`502`/`503`), network timeouts, and OpenAI `overloaded`/`server_error` are retried. Invalid API keys, missing models, and schema validation errors fail immediately.
 - **Backoff is exponential with jitter, capped at 10s.** For non-stream fallback, `delay = min(baseDelay * 2^n + jitter, 10s)`. A lower `baseDelay` makes the first retry faster.
 - **`maxAttempts: 1` disables retry.** If you omit `retry`, the default is `3`.
-- **Streaming routes only retry before the first event.** Once an event has streamed, the response is committed. Agent retry covers transient model/provider failures before that point. If you need tool retry, write it in the tool, as in the example above.
+- **Streaming routes only retry before the first event.** Once an event has streamed, the response is committed.
+- **Tool retry lives in the tool.** Agent retry covers model and provider calls. For a tool, write the loop yourself, as `fetch-doc.ts` does above.
 
 ## Related
 

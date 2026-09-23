@@ -1,8 +1,8 @@
 # Memory
 
-B4.run has three memory mechanisms. Pick one by who owns the data and how the agent reads it. Route state and checkpoints preserve workflow execution, but they are not a fourth memory mechanism.
+Memory lets an agent use what it learned in earlier threads. B4.run has three memory mechanisms, and you pick one by who writes the data and how the agent reads it. (Route state and checkpoints preserve workflow execution. They're not a fourth memory mechanism.)
 
-| Mechanism | Scope and shape | Best for | Owner |
+| Mechanism | Scope and shape | Best for | Written by |
 |---|---|---|---|
 | `workspace/AGENTS.md` | App-wide Markdown, re-read each model turn | Stable instructions and facts shared by consuming agent routes | You or an agent with [`writeFile`](/docs/workspace) |
 | Route `memory.md` | Route-local Markdown, re-read each model turn | Versioned prompt facts for one route | Application developer |
@@ -35,7 +35,7 @@ From this typed collection, continue with the guide for your task:
 
 ## Workspace profile (`AGENTS.md`)
 
-If `workspace/AGENTS.md` exists and has content, B4.run injects it under `# Memory` on every model turn. Every consuming agent route and subagent that uses the same app root shares it. Raw graph, workflow, and chain routes do not consume it.
+If `workspace/AGENTS.md` exists and has content, B4.run injects it under `# Memory` on every model turn. Every agent route and subagent that uses the same app root shares it. Raw graph, workflow, and chain routes skip it.
 
 ```md title="workspace/AGENTS.md"
 # Workspace Memory
@@ -45,7 +45,7 @@ If `workspace/AGENTS.md` exists and has content, B4.run injects it under `# Memo
 - Escalate billing exceptions to the finance queue.
 ```
 
-With the default local app root, this file is a shared host prompt source. A per-thread sandbox does not isolate it. Use separate app roots or trust domains for tenants, constrain untrusted writes, and review seeded content.
+With the default local app root, every thread reads the same file on the host, even with a per-thread sandbox. Use separate app roots or trust domains for tenants, constrain untrusted writes, and review seeded content.
 
 ### Updating it
 
@@ -68,11 +68,13 @@ src/app/research/
 - Prefer primary sources; flag anything you could not verify.
 ```
 
-B4.run trims the file and injects it under `# Route Memory`, after `workspace/AGENTS.md`, on every model turn. You opt in by creating the file. There is no import or registration call. The file is a versioned prompt fragment rather than a store, and the agent does not write to it. Empty files contribute nothing. Files larger than 32 KiB are skipped and produce a prompt note.
+B4.run trims the file and injects it under `# Route Memory`, after `workspace/AGENTS.md`, on every model turn. Creating the file is the whole opt-in. You don't import or register anything.
+
+The file is a versioned prompt fragment that only you edit. The agent reads it and never writes to it. Empty files contribute nothing. Files larger than 32 KiB are skipped and produce a prompt note.
 
 ## Related
 
 <RelatedCards items={[
-  { href: "/docs/workspace", title: "Workspace Filesystem", subtitle: "file tools and backend boundaries" },
-  { href: "/docs/persistence", title: "Persistence and Tenancy", subtitle: "store and ownership boundaries" },
+  { href: "/docs/workspace", title: "Workspace Filesystem", subtitle: "file tools and backends" },
+  { href: "/docs/persistence", title: "Persistence and Tenancy", subtitle: "stores and tenant ownership" },
 ]} />

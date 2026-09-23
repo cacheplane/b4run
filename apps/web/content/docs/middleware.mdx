@@ -1,6 +1,6 @@
 # Middleware
 
-Middleware is one global function that runs before each route-execution request. Use it for authentication, request shaping and per-request context. It either allows the request or rejects it.
+Middleware is one global handler that runs before each route-execution request. Use it for authentication, request shaping and per-request context. The handler either allows the request or rejects it. With the object form, an optional [`after` hook](#validating-the-final-assistant-message) can also check or replace an AG-UI run's final assistant message before the client sees it.
 
 ## File location
 
@@ -61,16 +61,16 @@ Every middleware receives this argument. All values are pre-parsed:
 
 The body keeps the protocol envelope. Agent Protocol requests contain `input`
 or `resume`. AG-UI requests contain fields such as `state`, `context`, and
-`forwardedProps`. Middleware can read extra AG-UI fields, but that does not make
-them supported runtime options. Protocol validation and authorization still run
+`forwardedProps`. Middleware can read extra AG-UI fields, but they're still
+unsupported as runtime options. Protocol validation and authorization still run
 in their usual order, so a malformed request can be rejected before middleware
 runs.
 
 Use this snapshot to validate application context or reject a request. Return
 validated values through `allow(context)` to make them available to tools.
-Editing `req.body` does not change the request's execution input or resume
-decision. The snapshot lives for one request only, and its contents do not
-establish caller identity or authorization.
+Editing `req.body` leaves the request's execution input and resume decision
+unchanged. The snapshot lives for one request only. Its contents are client
+input, so they can't establish caller identity or authorization.
 
 ### `reject(status, body?)`
 
@@ -113,7 +113,7 @@ export default async (
 ```
 </CodeGroup>
 
-Context is per-request. Nothing is shared between requests. The `middleware` field is `undefined` if no middleware is defined, or if the middleware called `allow()` without arguments.
+Context is per-request, so nothing is shared between requests. The `middleware` field is `undefined` if no middleware is defined, or if the middleware called `allow()` without arguments.
 
 ## Lifecycle hooks
 
@@ -157,13 +157,13 @@ it, `dispose` releases it.
   for the connection.
 - **Concurrent first requests share one in-flight call.** `handle` never runs
   before `setup` has completed successfully.
-- **A rejection does not poison the process.** The request that awaited it gets
+- **A rejection leaves the process healthy.** The request that awaited it gets
   the same opaque `500` as a throwing handler. The cause is logged to stderr
   once per distinct message, and the memo is cleared so the next request runs
   `setup` again.
 - `ctx.appRoot` is the absolute path of the app the runtime booted for. There is
   no shutdown `AbortSignal` on the context. The fetch core creates signals per
-  request, because a signal shared across requests is not safe on every host.
+  request, because a signal shared across requests isn't safe on every host.
 
 ### `dispose()`
 
@@ -172,7 +172,7 @@ it, `dispose` releases it.
 - Runs when there is no `setup`, or after a `setup` that completed
   successfully. It is **not** invoked when `setup` never ran or only failed,
   so it never has to guard against a resource that was never opened.
-- A rejection is logged to stderr and does not wedge shutdown.
+- A rejection is logged to stderr, and shutdown carries on.
 
 ### Which targets call `dispose`
 
@@ -185,7 +185,7 @@ it, `dispose` releases it.
 
 ## Validating the final assistant message
 
-`handle` runs before the route executes, so it cannot check the model's
+`handle` runs before the route executes, so it can't check the model's
 *output*. Checking it inside a tool costs an extra model turn, and the model can
 skip the tool. Instead, the object form's `after` hook runs on the model's final
 assistant message, with the context `handle` allowed, before the client sees
@@ -233,8 +233,8 @@ It returns one of three things:
 - **`reject(status, body?)`**: the run ends with a `RUN_ERROR` event instead
   of the final message and `RUN_FINISHED`. The event's `message` is the body
   when it is a string, or its `message` / `error` field when it is an object.
-  Its `code` is `"middleware_rejected"`. The HTTP `status` cannot change the
-  response, because it is already streaming with a `200`. The status is only
+  Its `code` is `"middleware_rejected"`. The HTTP `status` can't change the
+  response, because it's already streaming with a `200`. The status is only
   useful in your own logs.
 
 A hook that throws also ends the run with a `RUN_ERROR` carrying the error's
@@ -243,8 +243,8 @@ message.
 ### What the client sees
 
 The runtime streams assistant text token by token, and B4 only knows which
-message is final once the run is over. No AG-UI client understands a retraction
-event, so B4.run keeps the AG-UI contract unchanged and adds latency instead:
+message is final once the run is over. AG-UI has no retraction event, so B4.run
+keeps the AG-UI event stream as it is and accepts some latency:
 
 - With `after` defined, text that may turn out to be the final message is
   **buffered on the server** and delivered whole, immediately before
@@ -252,25 +252,25 @@ event, so B4.run keeps the AG-UI contract unchanged and adds latency instead:
   `TEXT_MESSAGE_START` / `TEXT_MESSAGE_CONTENT` / `TEXT_MESSAGE_END` frames for
   it, just all at once.
 - Text the model produces **before a tool call still streams live**. The tool
-  call proves it was not the final message, so B4 releases it as soon as the
+  call proves it wasn't the final message, so B4 releases it as soon as the
   tool call arrives. Tool frames and capability events (plans, subagent
   activity) are never held, so they can reach the client ahead of text the
   model produced just before them.
 - A run that parks on a human-in-the-loop interrupt does **not** run the hook.
   Its final message belongs to the resume that completes it, and the hook runs
   there.
-- Without `after`, the run stream is not wrapped, so an app that only defines
-  `handle` emits the same events as before.
+- Without `after`, B4.run leaves the run stream unwrapped, so an app that only
+  defines `handle` emits the same events as before.
 
 `after` runs behind the same lazy `setup` as `handle`, and only after `handle`
 has allowed the request, so it can use a resource `setup` opened. Only the
 AG-UI endpoint calls it. The Agent Protocol run endpoints
-(`/threads/:id/runs/*`) end with the graph's output instead of a framed
+(`/threads/:id/runs/*`) end with the graph's output, not a framed
 assistant message, so they skip it.
 
 ## Single-function model
 
-B4.run middleware is a single global function. There is no stack of layered middlewares. To branch by route, use normal control flow inside the function:
+B4.run middleware is one global handler. There's no stack of layered middlewares. To branch by route, use normal control flow inside the function:
 
 ```ts
 export default defineMiddleware(async (req) => {
@@ -306,7 +306,7 @@ The endpoints middleware does **not** see are `/healthz` (a liveness probe),
 `GET /threads/:id/state`, `POST /threads/:id/cancel`, and the memory-candidate
 endpoints. Every thread endpoint in that list is covered by the thread-access
 policy. The two probes and the memory-candidate endpoints have no gate of either
-kind, so put an outer boundary around them.
+kind, so put outer authentication in front of them.
 
 Two of the five resolve their route identity from the thread itself, so their
 thread-access check runs **before** middleware and answers first: `/resume` and
@@ -315,23 +315,22 @@ thread-access check runs **before** middleware and answers first: `/resume` and
 [the run endpoints and middleware](/docs/thread-access#the-run-endpoints-and-middleware).
 
 <Callout type="warn" title="Middleware can now see a GET">
-`GET /threads/:id/pending_interrupts` returns the human-in-the-loop prompts parked on a thread, so it is gated like a run. It is the first gated endpoint whose `req.method` is not `"POST"`. Middleware that branches on `req.method === "POST"`, or that reads `req.params` to decide access, falls through on it. See [the endpoint reference](/docs/dev-server/agent-protocol#recovering-prompts-without-a-live-stream) for how its route identity is resolved.
+`GET /threads/:id/pending_interrupts` returns the human-in-the-loop prompts parked on a thread, so it's gated like a run. It's the first gated endpoint whose `req.method` isn't `"POST"`. Middleware that branches on `req.method === "POST"`, or that reads `req.params` to decide access, falls through on it. See [the endpoint reference](/docs/dev-server/agent-protocol#recovering-prompts-without-a-live-stream) for how its route identity is resolved.
 </Callout>
 
-Middleware also runs on Windows. Earlier versions silently failed to load it
-there, so if you develop on Windows, expect a middleware file that was
-previously inert to start gating requests.
+Middleware also runs on Windows now. If you develop on Windows, a middleware
+file that used to be inert there will start gating requests.
 
-The `langsmith` build target is different: its generated graph entries do not include B4.run HTTP middleware. Put equivalent authentication at the LangSmith/platform boundary when you deploy those entries.
+The `langsmith` build target is different. Its generated graph entries don't include B4.run HTTP middleware, so put equivalent authentication in the LangSmith platform when you deploy them.
 
 <Callout type="warn" title="Middleware is execution-only">
-  Do not use this hook as blanket service authentication. Create/read/delete, state, cancellation, health, and memory-candidate routes bypass it. Thread authorization is a [separate file on a separate axis](/docs/thread-access) and covers the thread endpoints; health and memory-candidate routes are covered by neither. Put an outer boundary around the complete runtime surface as described in [Security Architecture](/docs/security-architecture).
+  This hook can't serve as blanket service authentication, because create/read/delete, state, cancellation, health, and memory-candidate routes bypass it. Thread authorization is a [separate file on a separate axis](/docs/thread-access) that covers the thread endpoints. Health and memory-candidate routes are covered by neither. Put outer authentication around the complete runtime surface as described in [Security Architecture](/docs/security-architecture).
 </Callout>
 
 ## When middleware fails to load
 
 Middleware is an authorization gate, so B4.run refuses to start without it. A
-middleware file that is present but cannot be loaded fails the boot with
+middleware file that is present but can't be loaded fails the boot with
 `B4_E3004`, naming the file and the underlying cause:
 
 ```
@@ -344,7 +343,7 @@ middleware.
 
 This covers a middleware file that throws during import (a missing environment
 variable, an ESM/CJS interop break, a syntax error or an unresolved dependency).
-It also covers a file B4.run cannot probe, such as one inside a directory it
+It also covers a file B4.run can't probe, such as one inside a directory it
 lacks permission to read. Existence is decided before the import,
 so a permission error is never mistaken for "this app has no middleware".
 
@@ -353,9 +352,9 @@ A few things to note:
 - **An app with no middleware file is unaffected.** All four candidates are
   absent, so the boot proceeds with every request allowed.
 - **The first existing candidate is the only candidate.** If `src/middleware.ts`
-  exists but fails to import, B4.run does not quietly fall back to a
+  exists but fails to import, B4.run won't quietly fall back to a
   `middleware.ts` at the app root.
-- **A file that exports no middleware function is not fatal.** It is ignored,
+- **A file that exports no middleware function is not fatal.** It's ignored,
   with a warning on stderr naming the file, because the built manifest binds the
   same way and dev must not diverge from it.
 
@@ -368,7 +367,7 @@ reaches an ungated server.
 
 If a middleware function loads fine and then throws *while handling a request*,
 or its `setup` hook rejects, that request gets HTTP `500`. The server keeps
-running, and the next request retries a failed `setup`. I recommend an explicit
+running, and the next request retries a failed `setup`. Prefer an explicit
 `reject(status, body?)` over throwing, because it gives users a meaningful
 response.
 

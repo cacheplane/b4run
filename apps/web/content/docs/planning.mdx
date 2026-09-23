@@ -1,7 +1,7 @@
 # Planning
 
-Planning gives an agent route a visible todo list. You seed it from a file, the model updates it, B4.run stores it in route state, and clients receive it over the stream.
-Use planning when a route does multi-step work and you want to inspect the plan instead of guessing at the model's hidden reasoning.
+Planning gives an agent route a todo list you can see. You seed it from a file, the model updates it, B4.run keeps it in route state, and clients get it over the stream.
+Use planning when a route does work in several steps and you want to see the model's plan.
 
 ## Quick start
 
@@ -41,11 +41,11 @@ The parser reads markdown checklist lines:
 - [X] also completed
 ```
 
-The parser ignores other markdown and empty checklist items. Seed items can start as `pending` or `completed`, and runtime updates can also use `in_progress`.
+The parser skips other markdown and empty checklist items. Seed items start as `pending` or `completed`, and the model can also set `in_progress` later.
 
-If `plan.md` exists but is empty, the route still opts into planning and starts with an empty todo list.
+An empty `plan.md` still turns on planning, with an empty todo list.
 
-B4.run skips seed loading for files larger than 64 KiB. The capability still exists, but the initial todo list is empty.
+B4.run ignores the seed items in a file larger than 64 KiB. Planning still works, but the list starts empty.
 
 ## The `writeTodos` tool
 
@@ -68,7 +68,7 @@ Each todo has:
 
 `writeTodos` replaces the whole list, so the agent passes every item each time.
 
-The tool updates runtime state only. It does not write changes back to `plan.md`, which is only the seed.
+The tool updates the run's state. `plan.md` is only the starting list and stays as you wrote it.
 
 The tool returns the new todos and updates the route state:
 
@@ -79,17 +79,16 @@ The tool returns the new todos and updates the route state:
 }
 ```
 
-The LangChain bridge turns that into a state update so later model turns see the new list.
+B4.run's LangChain adapter turns that into a state update, so the next model turn sees the new list.
 
 ## State and prompts
 
-Planning contributes a `todos` state field with a `replace` reducer.
+Planning adds a `todos` state field with a `replace` reducer. Two names are taken:
 
-Do not also declare a `todos` field in `state.ts`. B4.run treats that as a capability conflict and fails route preparation with a message telling you to remove either the state field or the planning marker file.
+- Don't declare your own `todos` field in `state.ts`. The route fails to load, with an error telling you to remove the field or `plan.md`.
+- Don't create a tool named `writeTodos`. A tool of yours with the same name as a capability tool is a conflict.
 
-Do not create a route-local tool named `writeTodos`. B4.run treats user tools and capability tools with the same name as a conflict.
-
-The planning prompt fragment is re-rendered with the current state. If there are todos, the model sees:
+B4.run rebuilds the planning prompt from the current state on each turn. If there are todos, the model sees:
 
 ```text
 # Planning
@@ -103,7 +102,7 @@ Current plan:
 - [pending] Write the final response
 ```
 
-That prompt is what keeps the plan visible between tool calls.
+That prompt keeps the plan in front of the model between tool calls.
 
 ## Streaming
 
@@ -121,25 +120,25 @@ When `runs/stream` sees a `writeTodos` tool result, B4.run emits:
 }
 ```
 
-`tool_call_id` is the model's tool-call id for the `writeTodos` call that produced the update (the same id that call's tool events carry). It is omitted when the model supplied no tool-call id.
+`tool_call_id` is the model's id for the `writeTodos` call behind the update (the same id that call's tool events carry). It's left out when the model didn't supply one.
 
-If a subagent emits a planning event, the parent stream forwards it with a `subagent.` prefix, such as `subagent.plan_update`.
+When a subagent sends a planning event, the parent stream forwards it with a `subagent.` prefix, as `subagent.plan_update`.
 
 Use `/threads/:id/runs/wait` when you only need the final output. Use `/threads/:id/runs/stream` when a UI should show progress.
 
 ## Generated types
 
-`b4 typegen` includes `writeTodos` in the generated route tool types when the route directory contains `plan.md`.
+When a route directory has a `plan.md`, `b4 typegen` adds `writeTodos` to that route's generated tool types.
 
-That makes the tool visible to route-aware TypeScript surfaces, but B4.run only applies planning to `agent()` routes at runtime. The contributed `todos` field is runtime state, and generated route state types still come from `state.ts`.
+B4.run only runs planning in `agent()` routes, though. The `todos` field exists at runtime only, and the generated route state types still come from `state.ts`.
 
 ## Under the hood
 
 Planning is implemented by `createPlanningMarker()`.
 
-During agent route preparation, B4.run detects `plan.md` and reads the seed todos. Then it contributes the `writeTodos` tool, the `todos` state field and a stream transformer that watches tool results.
+When B4.run prepares an agent route, it finds `plan.md` and reads the seed todos. Then it adds the `writeTodos` tool, the `todos` state field, and a stream transformer that watches tool results.
 
-The stream transformer accepts both direct `{ todos }` outputs and LangGraph Command-shaped outputs where the update is stored at `update.todos`.
+The transformer handles both plain `{ todos }` outputs and LangGraph Command outputs that keep the update in `update.todos`.
 
 ## Related
 

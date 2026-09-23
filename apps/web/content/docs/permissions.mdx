@@ -25,7 +25,7 @@ export default {
 
 `allow` and `deny` each map a gate key (`bash`, `readFile`, `memory`, and so on) to an array of pattern strings. For example, the research scaffold allows safe read-only commands and denies destructive ones. It leaves the network-fetch script off the allow list, so the first run shows a prompt.
 
-Static entries stay in `b4.config.ts`. They are evaluated alongside runtime decisions and are not copied or seeded into the runtime permission store. Only an `always` decision adds an allow entry to that store. The default Node store persists runtime entries in `.b4/permissions.json`. Custom stores and the Postgres store persist them in their own backend.
+Static entries stay in `b4.config.ts`. The runtime evaluates them alongside its own decisions but keeps them out of the runtime permission store. Only an `always` decision adds an allow entry to that store. The default Node store persists runtime entries in `.b4/permissions.json`. Custom stores and the Postgres store persist them in their own backend.
 
 ## How matching works
 
@@ -37,13 +37,13 @@ For every `runBash` call the runtime runs this sequence:
 
 Matching depends on the gate:
 
-| Gate | Stored key and `suggestedPattern` granularity | Matching |
-|---|---|---|
-| Bash command | `bash`; the first two command tokens, such as `node scripts/fetch-source.mjs` | Prefix |
-| Filesystem path | The operation (`readFile`, `writeFile`, or `listDir`); canonical parent directory with a trailing slash | Prefix |
-| Memory write | `memory`; workspace-and-route namespace with a trailing `|` | Prefix |
-| Authored or capability tool approval | Reserved `tool`; tool name | Exact |
-| Subagent approval | Reserved `subagent`; serialized parent route id and parent-local child name | Exact |
+| Gate | Stored key | `suggestedPattern` granularity | Matching |
+|---|---|---|---|
+| Bash command | `bash` | The first two command tokens, such as `node scripts/fetch-source.mjs` | Prefix |
+| Filesystem path | The operation (`readFile`, `writeFile`, or `listDir`) | Canonical parent directory with a trailing slash | Prefix |
+| Memory write | `memory` | Workspace-and-route namespace with a trailing pipe character | Prefix |
+| Authored or capability tool approval | Reserved `tool` | Tool name | Exact |
+| Subagent approval | Reserved `subagent` | Serialized parent route id and parent-local child name | Exact |
 
 Thus `"ls"` covers `ls`, `ls -la`, and `ls workspace/corpus`. Use longer bash, path, and memory prefixes to be more specific. Reserved `tool` and `subagent` entries never prefix-match.
 
@@ -51,7 +51,7 @@ Thus `"ls"` covers `ls`, `ls -la`, and `ls workspace/corpus`. Use longer bash, p
 
 | Mode | Unknown command behavior |
 |---|---|
-| `interactive` (default) | Run pauses; an interrupt is sent to the client for human decision |
+| `interactive` (default) | Run pauses and sends the client an interrupt for a human decision |
 | `non-interactive` | Unknown commands are denied immediately (fail-closed) |
 | `bypass` | All commands are allowed without checking (dev/test only) |
 
@@ -93,11 +93,11 @@ data: {
 }
 ```
 
-`detail.argsPreview` is a display-only JSON preview of the call's arguments (truncated around 500 characters). The human sees it, but it is never matched against or persisted. `detail.suggestedPattern` is always the tool name itself.
+`detail.argsPreview` is a display-only JSON preview of the call's arguments (truncated around 500 characters). The human sees it, but it's never matched against or persisted. `detail.suggestedPattern` is always the tool name itself.
 
 ### Decisions are name-level
 
-Resuming a `kind: "tool"` interrupt uses the same `once` / `always` / `deny` decisions as the other gates, but they apply to the tool name instead of a pattern:
+Resuming a `kind: "tool"` interrupt uses the same `once` / `always` / `deny` decisions as the other gates, but they apply to the tool name, not a pattern:
 
 | Decision | Effect |
 |---|---|
@@ -125,13 +125,13 @@ export default {
 
 `runBash`, `readFile`, `writeFile` and `listDir` keep their own pattern-aware allow/deny gates. Putting them in `approve` is redundant and would double-prompt. `b4 check` warns when a route's `approve` list:
 
-- names one of these internally-gated tools (redundant, since they are already gated),
+- names one of these internally-gated tools (redundant, since they're already gated),
 - overlaps with `deny` (a dead entry, since deny wins), or
 - approves a capability tool on a subagent that the subagent hasn't also granted itself via `allow` (a no-op until allow-listed).
 
 ## Subagent approval
 
-A parent route can require approval before dispatching a direct child with `delegation`. Omitting `delegation` allows dispatch by default. `default: "deny"` creates an allowlist, and `default: "approve"` requires review for every child that does not have an explicit rule:
+A parent route can require approval before dispatching a direct child with `delegation`. Omitting `delegation` allows dispatch by default. `default: "deny"` creates an allowlist, and `default: "approve"` requires review for every child without an explicit rule:
 
 ```ts title="src/app/support/index.ts"
 export default agent({
@@ -169,9 +169,9 @@ data: {
 }
 ```
 
-The input preview is bounded, display-only text. Approval persistence uses the exact parent route id and parent-local registration name serialized in `suggestedPattern`; it does not use the target route id or input. Therefore `always` approves only that exact edge. The same child name under another parent, another name under the same parent, and a nested child dispatch each require their own decision.
+The input preview is bounded, display-only text. Approval persistence keys on the parent route id and parent-local registration name serialized in `suggestedPattern`. The target route id and the input play no part. So `always` approves only that one edge. The same child name under another parent, another name under the same parent, and a nested child dispatch each require their own decision.
 
-Pre-approve that exact registration under the reserved `subagent` key:
+Pre-approve that registration under the reserved `subagent` key:
 
 ```ts title="b4.config.ts"
 export default {
@@ -181,7 +181,7 @@ export default {
 }
 ```
 
-The `subagent` key uses exact matching, like the reserved `tool` key. Explicit deny entries win. In `non-interactive` mode, an unapproved dispatch fails closed. `bypass` skips the approval gate but does not override static or constraint denial.
+The `subagent` key uses exact matching, like the reserved `tool` key. Explicit deny entries win. In `non-interactive` mode, an unapproved dispatch fails closed. `bypass` skips the approval gate, but static and constraint denials still apply.
 
 `task` is internal and is invalid in every tool-policy field: `tools.allow`, `tools.deny`, `tools.approve` and `tools.constrain`. Configure dispatch only through `delegation`. `b4 check` and route preparation report `B4_E1004` for any `tools.*.task` reference.
 
@@ -193,15 +193,15 @@ Routes with [long-term memory](/docs/memory/long-term) can gate belief *changes*
 - **Always:** persists the route's namespace prefix under the `memory` key, so all future overwrites in the route proceed silently.
 - **Deny:** the old memory stays active, and the agent is told which memory was kept.
 
-Unlike bash/path/tool gates, `ask` **allows through** when no human can answer (non-interactive mode). Headless, `ask` ≡ `auto`. It helps a human supervise; it is not a security boundary. Explicit `deny` entries are honored in every mode except `bypass`.
+Unlike bash/path/tool gates, `ask` **allows through** when no human can answer (non-interactive mode). Headless, `ask` behaves like `auto`. It helps a human supervise, so don't rely on it as a security control. Explicit `deny` entries are honored in every mode except `bypass`.
 
-Hand-authored patterns should keep the trailing `|` terminator: `"workspace=app|route=/a|"` cannot collide with `route=/ab`.
+Hand-authored patterns should keep the trailing `|` terminator: `"workspace=app|route=/a|"` can't collide with `route=/ab`.
 
 ## The interrupt payload
 
 When a command or path is "unknown" in interactive mode, the agent run pauses and the runtime emits an SSE event. The `kind` field tells you which gate fired.
 
-**`kind: "command"`**: a `runBash` command was not on the allow list:
+**`kind: "command"`**: a `runBash` command wasn't on the allow list:
 
 ```
 event: interrupt
@@ -241,7 +241,7 @@ Send a `POST /threads/:thread_id/resume` request with a `resume` entry for every
 | Decision | Effect |
 |---|---|
 | `once` | Allow this operation for this invocation only |
-| `always` | Allow and add the gate's exact `suggestedPattern` to the configured permissions store |
+| `always` | Allow and add the gate's `suggestedPattern` to the configured permissions store |
 | `deny` | Reject the operation without persisting a decision. The run continues with an error result |
 
 The ordinary HTTP endpoint accepts one strict envelope:
@@ -263,13 +263,13 @@ The ordinary HTTP endpoint accepts one strict envelope:
 }
 ```
 
-`resume` may contain one or many entries, but it must address the complete current pending set exactly once. A `resolved` entry requires a `payload` of `once`, `always`, or `deny`. A `cancelled` entry omits `payload` and maps to denial. The top-level object requires exactly `resume` and `route`. Entries also reject unknown or mixed fields.
+`resume` may contain one or many entries, but it must address the complete current pending set exactly once. A `resolved` entry requires a `payload` of `once`, `always`, or `deny`. A `cancelled` entry omits `payload` and maps to denial. The top-level object takes `resume` and `route` and nothing else. Entries also reject unknown or mixed fields.
 
 Nested child interrupts use the same endpoint and the root parent's `thread_id`. B4.run maps each public `interruptId` to the correct nested checkpoint, so clients never resume a child route or thread separately.
 
-The former scalar resume body is removed and is not parsed as a compatibility form.
+The old scalar resume body is gone, and B4.run won't parse it as a compatibility form.
 
-Here is the full sequence using curl (start the server with `b4 dev --port 2024`):
+Let's walk through the full sequence with curl (start the server with `b4 dev --port 2024`):
 
 ```sh
 # 1. Create a thread

@@ -84,7 +84,7 @@ The store rejects invalid dimensions at construction: 1–2000 use vector cosine
 
 Initialization is memoized per store instance. `CREATE IF NOT EXISTS` does not migrate an existing vector dimension or HNSW tuning, so treat those as schema decisions.
 
-Both `queryEmbedding` and `embedderId` are required to activate hybrid retrieval. Keyword and vector candidates are fused in application code. `schema` and `tablePrefix` organize tables; they are not tenant authorization boundaries. Both are interpolated unquoted, so both must be lowercase identifiers matching `IDENTIFIER_PATTERN`; a mixed-case value is rejected at construction rather than silently folded to lowercase by Postgres. Stored memory is plaintext unless your database and infrastructure provide encryption.
+Both `queryEmbedding` and `embedderId` are required to activate hybrid retrieval. Keyword and vector candidates are fused in application code. `schema` and `tablePrefix` organize tables, but they are not tenant authorization boundaries. Both are interpolated unquoted, so both must be lowercase identifiers matching `IDENTIFIER_PATTERN`. A mixed-case value is rejected at construction rather than silently folded to lowercase by Postgres. Stored memory is plaintext unless your database and infrastructure provide encryption.
 
 ## Examples and related guides
 

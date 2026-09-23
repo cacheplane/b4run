@@ -8,14 +8,14 @@ source: official
 
 # Add pgvector retrieval to your B4.run app
 
-You are an AI coding agent adding a pgvector-backed retrieval tool to a B4.run app. It adds a tool the agent can call to search a Postgres `vector` column by semantic similarity. It does NOT create or migrate the database, choose an embedding model for you, or ingest documents — it wires the search path against an existing table.
+You are an AI coding agent adding a pgvector-backed retrieval tool to a B4.run app. It adds a tool the agent can call to search a Postgres `vector` column by semantic similarity. It does NOT create or migrate the database, choose an embedding model for you, or ingest documents. It wires the search path against an existing table.
 
 ## Prerequisites
 
 Before proceeding, confirm both of the following are true:
 
-1. **Existing Postgres database with pgvector** — the `pgvector` extension is enabled (`CREATE EXTENSION IF NOT EXISTS vector;`) and there is a table containing text chunks and an `embedding vector(N)` column (where `N` matches your embedding model's output dimension, e.g. `1536` for `text-embedding-3-small`).
-2. **Embeddings model** — the app already uses an embeddings provider (reuse it), or you will add `@langchain/openai` for OpenAI embeddings.
+1. **Existing Postgres database with pgvector**: the `pgvector` extension is enabled (`CREATE EXTENSION IF NOT EXISTS vector;`) and there is a table containing text chunks and an `embedding vector(N)` column (where `N` matches your embedding model's output dimension, e.g. `1536` for `text-embedding-3-small`).
+2. **Embeddings model**: the app already uses an embeddings provider (reuse it), or you will add `@langchain/openai` for OpenAI embeddings.
 
 If either prerequisite is missing, stop and tell the user what needs to be set up before continuing.
 
@@ -23,18 +23,18 @@ If either prerequisite is missing, stop and tell the user what needs to be set u
 
 Run these checks before writing any code:
 
-1. **Package manager** — detect from lockfile: `pnpm-lock.yaml` → pnpm, `yarn.lock` → yarn, `package-lock.json` → npm.
-2. **App directory** — read `b4.config.ts` and find the `appDir` field (defaults to `src/app`). Note which routes exist under it; identify the route that needs retrieval.
-3. **AGENTS.md** — read it if present for project-specific conventions (naming, style, preferred imports).
-4. **Existing install check** — look for `src/app/<route>/tools/search_documents.ts` (or `src/tools/search_documents.ts` for a shared tool). If the file exists and its first line is `// b4-blueprint: pgvector@1`, skip to [Updating an existing install](#updating-an-existing-install).
-5. **Env conventions** — check for `.env` and `.env.example` to learn how the project names and documents secrets.
+1. **Package manager**: detect from lockfile: `pnpm-lock.yaml` → pnpm, `yarn.lock` → yarn, `package-lock.json` → npm.
+2. **App directory**: read `b4.config.ts` and find the `appDir` field (defaults to `src/app`). Note which routes exist under it; identify the route that needs retrieval.
+3. **AGENTS.md**: read it if present for project-specific conventions (naming, style, preferred imports).
+4. **Existing install check**: look for `src/app/<route>/tools/search_documents.ts` (or `src/tools/search_documents.ts` for a shared tool). If the file exists and its first line is `// b4-blueprint: pgvector@1`, skip to [Updating an existing install](#updating-an-existing-install).
+5. **Env conventions**: check for `.env` and `.env.example` to learn how the project names and documents secrets.
 
 ## Install dependencies
 
 You need two packages:
 
-- **`pg`** — the `node-postgres` client used to query Postgres.
-- **An embeddings client** — reuse the project's existing LangChain embeddings package if one is already in `package.json` (e.g. `@langchain/openai`, `@langchain/google-genai`). Only add `@langchain/openai` if no embeddings package is present.
+- **`pg`**: the `node-postgres` client used to query Postgres.
+- **An embeddings client**: reuse the project's existing LangChain embeddings package if one is already in `package.json` (e.g. `@langchain/openai`, `@langchain/google-genai`). Only add `@langchain/openai` if no embeddings package is present.
 
 Check `package.json` before installing to avoid duplicates. Install only what is missing.
 
@@ -63,7 +63,7 @@ Place the file in the `tools/` directory of the route that needs retrieval. For 
 src/app/<route>/tools/search_documents.ts
 ```
 
-Write the following file. Read the inline comments — you must adapt the table name, column names, and embedding dimension to match the real schema before saving.
+Write the following file. Read the inline comments: you must adapt the table name, column names, and embedding dimension to match the real schema before saving.
 
 ```ts
 // b4-blueprint: pgvector@1
@@ -124,7 +124,7 @@ export default async (input: { readonly query: string; readonly limit?: number }
 
 ## Wire it into a route
 
-No manual registration is needed. B4.run discovers every `.ts` file in a route's `tools/` directory automatically. Placing the file there is sufficient — on the next `b4 typegen` run, `search_documents` appears in the generated route tool types, and an `agent` route's model can call it directly.
+No manual registration is needed. B4.run discovers every `.ts` file in a route's `tools/` directory automatically. Placing the file there is sufficient. On the next `b4 typegen` run, `search_documents` appears in the generated route tool types, and an `agent` route's model can call it directly.
 
 Run typegen to refresh the generated declarations:
 
@@ -141,7 +141,7 @@ If this is a shared tool placed in `src/tools/`, B4.run discovers it for every r
 Add the following variables to `.env` (never commit this file):
 
 ```
-# Postgres connection string — required by search_documents tool
+# Postgres connection string, required by search_documents tool
 DATABASE_URL=postgres://user:password@host:5432/dbname
 
 # Required only if using OpenAI embeddings
@@ -159,11 +159,11 @@ If the project uses a different env-loading convention (e.g. a vault, an `env.ts
 
 ## Verify
 
-1. **Types resolve** — run `b4 typegen` and confirm it exits cleanly. Open `.b4/b4.generated.d.ts` and check that `search_documents` appears under the route's tool types.
+1. **Types resolve**: run `b4 typegen` and confirm it exits cleanly. Open `.b4/b4.generated.d.ts` and check that `search_documents` appears under the route's tool types.
 
-2. **Dev server starts** — run `b4 dev`. If `DATABASE_URL` is not set, the `Pool` constructor will throw on first use (not at startup), so the server should start cleanly.
+2. **Dev server starts**: run `b4 dev`. If `DATABASE_URL` is not set, the `Pool` constructor will throw on first use (not at startup), so the server should start cleanly.
 
-3. **Sample run** — invoke the route with a query that should match documents in your table:
+3. **Sample run**: invoke the route with a query that should match documents in your table:
 
    ```bash
    echo '{"messages":[{"role":"user","content":"find documents about machine learning"}]}' \
@@ -172,13 +172,13 @@ If the project uses a different env-loading convention (e.g. a vault, an `env.ts
 
    Confirm that the model calls `search_documents`, rows come back with `text` and `score` fields, and scores are between 0 and 1.
 
-4. **SQL sanity check** — if no rows come back, verify the table and column names in the query match your actual schema (`\d your_table` in `psql`), and confirm the embedding dimension in the model config matches the vector column dimension.
+4. **SQL sanity check**: if no rows come back, verify the table and column names in the query match your actual schema (`\d your_table` in `psql`), and confirm the embedding dimension in the model config matches the vector column dimension.
 
 ## Updating an existing install
 
 If `search_documents.ts` already exists with the `// b4-blueprint: pgvector@1` marker on its first line:
 
 1. Compare the existing file against the tool template in [Create the tool](#create-the-tool).
-2. Apply relevant changes from this guide (e.g. the `score` normalisation formula, the Pool pattern, the `::vector` cast) while **preserving the user's customisations** — table name, column names, embedding model, and any additional query filters they have added.
+2. Apply relevant changes from this guide (e.g. the `score` normalisation formula, the Pool pattern, the `::vector` cast) while **preserving the user's customisations**: table name, column names, embedding model, and any additional query filters they have added.
 3. Do not change the marker line; it must remain `// b4-blueprint: pgvector@1` as the first line of the file.
 4. Run `b4 typegen` after updating to confirm types still resolve cleanly.
