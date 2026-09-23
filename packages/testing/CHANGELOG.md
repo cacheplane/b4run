@@ -1,5 +1,19 @@
 # @dawn-ai/testing
 
+## 1.0.0
+
+### Patch Changes
+
+- a30db23: LangChain dependencies move to their current releases: `@langchain/core` 1.2.12, `@langchain/langgraph` 1.4.17, `@langchain/langgraph-checkpoint` 1.1.5, `@langchain/openai` 1.5.13, `@langchain/anthropic` 1.5.11, `@langchain/google-genai` 2.3.2, `@langchain/xai` 1.4.13 and `@langchain/openrouter` 0.4.13, with the peer ranges raised to match. The lockfile is deduplicated so that every workspace package resolves the same single copy of `@langchain/langgraph` and `@langchain/core`.
+- Updated dependencies [a30db23]
+- Updated dependencies [0093dea]
+- Updated dependencies [54aa602]
+  - @b4run/cli@1.0.0
+  - @b4run/core@1.0.0
+  - @b4run/memory@1.0.0
+  - @b4run/sdk@1.0.0
+  - @b4run/workspace@1.0.0
+
 ## 0.10.0
 
 ### Patch Changes

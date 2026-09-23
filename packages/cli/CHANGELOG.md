@@ -1,5 +1,28 @@
 # @dawn-ai/cli
 
+## 1.0.0
+
+### Minor Changes
+
+- 54aa602: A tool module can export `returnDirect = true` to end the run on its result instead of handing control back to the model for another turn. LangGraph's prebuilt agent already routes such a tool straight to the end of the graph; B4 now reads the export during tool discovery, carries it on the tool definition, and sets it on the LangChain tool. The run's last message is then the tool result: no closing assistant message is produced, the AG-UI stream ends after `TOOL_CALL_RESULT`, and a middleware `after` hook sees an empty final message. A non-boolean export is a discovery error.
+
+### Patch Changes
+
+- a30db23: LangChain dependencies move to their current releases: `@langchain/core` 1.2.12, `@langchain/langgraph` 1.4.17, `@langchain/langgraph-checkpoint` 1.1.5, `@langchain/openai` 1.5.13, `@langchain/anthropic` 1.5.11, `@langchain/google-genai` 2.3.2, `@langchain/xai` 1.4.13 and `@langchain/openrouter` 0.4.13, with the peer ranges raised to match. The lockfile is deduplicated so that every workspace package resolves the same single copy of `@langchain/langgraph` and `@langchain/core`.
+- 0093dea: `b4 run` and `b4 test` now regenerate `.b4/` tool schemas before executing routes in-process, so a tool added or changed since the last `b4 typegen` is bound with its current input schema instead of a stale or permissive one. A typegen failure is reported on stderr and the route still runs. `b4 typegen` also removes a route's stale `tools.json` once the route has no analyzable tools left.
+- Updated dependencies [18961bb]
+- Updated dependencies [a30db23]
+- Updated dependencies [54aa602]
+  - @b4run/langchain@1.0.0
+  - @b4run/core@1.0.0
+  - @b4run/sqlite-storage@1.0.0
+  - @b4run/memory@1.0.0
+  - @b4run/ag-ui@1.0.0
+  - @b4run/langgraph@1.0.0
+  - @b4run/permissions@1.0.0
+  - @b4run/sdk@1.0.0
+  - @b4run/workspace@1.0.0
+
 ## 0.10.0
 
 ### Minor Changes
