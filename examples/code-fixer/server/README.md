@@ -117,9 +117,8 @@ publication checks belong to the repository's
 ## Install through the blueprint
 
 `b4 add code-fixer` provides the installation instructions for your coding agent.
-The published blueprint remains pinned to its qualified B4 0.8.32 source.
-This checkout introduces a shared workspace API that must be released and
-qualified before that installation pin advances. Use this checkout's built
-packages while contributing; do not combine this source with older published B4
-packages. Maintainers verify a copied app against packed packages with
-`pnpm code-fixer:consumer --packed`.
+The published blueprint installs this app from source commit
+`bfaf0c2b3030eebb572703c8f70f0e063593b1fa` with published B4 0.10.0 packages.
+Use this checkout's built packages while contributing. Do not combine this source
+with older published B4 packages. Maintainers verify a copied app against packed
+packages with `pnpm code-fixer:consumer --packed`.
