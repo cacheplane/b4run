@@ -582,7 +582,8 @@ function toStaticDocsSeoPage(entry: DocsSeoEntry): StaticDocsSeoPage {
     canonical: `https://b4.run${entry.path}`,
     kind: "TechArticle",
     routeKind: "docs",
-    breadcrumbs: breadcrumbsFor(entry.path),
+    // Structured data starts at the site root; the visible trail starts at Docs.
+    breadcrumbs: [{ label: "Home", href: "/" }, ...breadcrumbsFor(entry.path)],
     lastModified: requireValidLastModified(STATIC_LASTMOD, entry.path),
   }
 }

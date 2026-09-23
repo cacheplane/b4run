@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { CopyStatus, useCopyFeedback } from "../copy-feedback"
 import { Icon } from "./Icon"
 
 interface CopyCommandProps {
@@ -10,36 +10,31 @@ interface CopyCommandProps {
   readonly className?: string
 }
 
+/**
+ * The `$ command` chip. The whole chip is the copy button (the icon alone was
+ * a 21px target); the result shows beneath it, out of flow, and is announced.
+ * Presentation lives in ui.css under `[data-ui="copy-command"]`.
+ */
 export function CopyCommand({ command, variant = "light", className }: CopyCommandProps) {
-  const [copied, setCopied] = useState(false)
-  const resetTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-
-  useEffect(() => () => clearTimeout(resetTimer.current), [])
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(command)
-      setCopied(true)
-      clearTimeout(resetTimer.current)
-      resetTimer.current = setTimeout(() => setCopied(false), 1800)
-    } catch {
-      // clipboard unavailable — silent no-op
-    }
-  }
+  const { state, copy } = useCopyFeedback()
+  const copied = state === "copied"
 
   return (
-    <div data-ui="copy-command" data-variant={variant} {...(className ? { className } : {})}>
-      <span>
-        <span>$</span> {command}
-      </span>
+    <span data-ui="copy-command" data-variant={variant} {...(className ? { className } : {})}>
       <button
         type="button"
-        onClick={handleCopy}
+        onClick={() => void copy(command)}
         data-copied={copied}
-        aria-label={copied ? "Copied" : `Copy command: ${command}`}
+        aria-label={`Copy command: ${command}`}
       >
-        <Icon name={copied ? "check" : "copy"} />
+        <span>
+          <span>$</span> {command}
+        </span>
+        <span aria-hidden>
+          <Icon name={copied ? "check" : "copy"} />
+        </span>
       </button>
-    </div>
+      <CopyStatus state={state} />
+    </span>
   )
 }

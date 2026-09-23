@@ -169,6 +169,8 @@ export async function reconcileWorkOrder(
     case "dispatched":
     case "running":
       return reconcileRun(ctx, row, attempt, options)
+    case "intake_running":
+      return reconcileIntake(ctx, row, attempt, options)
     case "verifying":
       return reconcileVerifying(ctx, row)
     case "exporting":
@@ -180,6 +182,9 @@ export async function reconcileWorkOrder(
     // recorded in the registry, and there is nothing parked on the worker to go missing. The
     // row is already everything the operator needs to decide, and `approve` re-verifies before
     // it writes, so a restart is not an event in its life at all.
+    // `awaiting_intake_approval` has none for the same reason: the generated task is on disk
+    // under the row's digest, the drafter thread is idle with nothing parked, and
+    // `approveIntake` recomputes the digest from disk before it moves the row.
     default:
       return
   }
@@ -271,6 +276,108 @@ async function reconcileRun(
   // a candidate is the verifying phase's judgement, not this rule's.
   ctx.transition(id, "turn_ended_with_workspace", {}, { reconciled: true, status: thread.status })
   reverify(ctx, id)
+}
+
+/**
+ * The intake rule: a drafter turn that was in flight when the factory stopped, or whose
+ * stream a tracked run lost. The same shape as `reconcileRun`, with the intake observer and
+ * `finishIntake` in place of the run observer and the verifying phase: a busy thread is
+ * reattached once, an idle one has left a `draft/` for the controller to read and prove,
+ * and a thread that is missing or parked on a prompt cannot finish, so the row blocks as
+ * `intake_run_failed` (an unrecoverable turn, not a spent drafter attempt).
+ */
+async function reconcileIntake(
+  ctx: ControllerContext,
+  row: WorkOrderRow,
+  attempt: number,
+  options: ReconcileOptions = {},
+): Promise<void> {
+  const id = row.id
+  // The same guard as `reconcileRun`: a live observer owns this run, and a second one would
+  // evict it from the runs map. Only the tracked run handing on its own stream comes through.
+  if (!options.fromTrackedRun && ctx.isTracked(id)) {
+    ctx.recordEvent(id, "reconcile_skipped", {
+      threadId: row.workerThreadId,
+      attempt,
+      reason: "observer_live",
+    })
+    return
+  }
+  const isIntake = () => ctx.mustGet(id).state === "intake_running"
+  const fail = (reason: string, patch: Record<string, unknown> = {}) =>
+    ctx.transition(
+      id,
+      "intake_blocked",
+      { blockedReason: "intake_run_failed" },
+      { reconciled: true, reason, ...patch },
+    )
+  if (!row.workerThreadId) {
+    fail("no thread recorded")
+    return
+  }
+  const threadId = row.workerThreadId
+  const thread = await ctx.worker.getThread(threadId)
+  // Every worker call is an await: a cancel may have moved the row meanwhile.
+  if (!isIntake()) return
+  if (!thread) {
+    fail("thread not found on worker")
+    return
+  }
+  const pending = await ctx.worker.pendingInterrupts(threadId)
+  if (!isIntake()) return
+  if (pending.length > 0) {
+    // The drafter route has no gate: a parked prompt is a turn that cannot finish.
+    ctx.transition(
+      id,
+      "intake_blocked",
+      { interruptId: pending[0]?.interruptId ?? null, blockedReason: "intake_run_failed" },
+      {
+        reconciled: true,
+        reason: "the drafter is parked on an unexpected prompt",
+        interruptIds: pending.map((p) => p.interruptId),
+        kinds: pending.map((p) => p.kind),
+      },
+    )
+    return
+  }
+  if (thread.status === "busy") {
+    if (attempt > 0) {
+      // Already reattached once this cycle and the turn is still live with nothing parked.
+      ctx.recordEvent(id, "intake_still_live", { threadId, attempt })
+      return
+    }
+    let frames: AsyncIterable<StreamFrame>
+    try {
+      frames = await ctx.worker.reattach(threadId, ctx.signal)
+    } catch (error) {
+      ctx.recordEvent(id, "reattach_failed", { threadId, error: String(error) })
+      return
+    }
+    ctx.recordEvent(id, "reattached", { threadId, phase: "intake" })
+    // The reattached observer carries this pass's number; the pass it opens when the stream
+    // ends is the one that increments it, and that pass finishes the intake once idle.
+    ctx.track(id, ctx.observeIntakeTurn(id, frames, { reconcileAttempt: attempt }))
+    return
+  }
+  // The turn is over with nothing parked: whatever it left under `draft/` is now the
+  // controller's to read and prove. Tracked, not awaited, for the reason `reverify` gives:
+  // the proof is container work with a deadline of its own, and a boot walk that waited on
+  // it would have nothing listening meanwhile.
+  ctx.recordEvent(id, "reconciled", {
+    resolution: "finish_intake",
+    state: row.state,
+    status: thread.status,
+  })
+  // No post-condition check after the phase, unlike `reverify`'s `settleUndecided`: the
+  // phase decides on every path but its own aborts, and a row it left in `intake_running`
+  // is one a closing factory aborted (`intake_aborted`, for the next boot to finish) or one
+  // a retry inside the phase reattached a new observer to. Blocking either would be wrong.
+  ctx.track(
+    id,
+    ctx.finishIntake(id).catch((error) => {
+      ctx.recordEvent(id, "reconcile_failed", { phase: "intake", error: String(error) })
+    }),
+  )
 }
 
 /**

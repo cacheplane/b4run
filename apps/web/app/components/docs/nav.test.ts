@@ -473,9 +473,20 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
 
   it("derives breadcrumbs and siblings from the registered order", () => {
     expect(breadcrumbsFor("/docs/ag-ui")).toEqual([
-      { label: "Home", href: "/" },
       { label: "Docs", href: "/docs/getting-started" },
+      { label: "Integrate" },
       { label: "AG-UI and Web Clients" },
+    ])
+    expect(breadcrumbsFor("/docs/tools")).toEqual([
+      { label: "Docs", href: "/docs/getting-started" },
+      { label: "Build" },
+      { label: "Tools" },
+    ])
+    // The first page keeps the Docs crumb and does not link to itself.
+    expect(breadcrumbsFor("/docs/getting-started")).toEqual([
+      { label: "Docs" },
+      { label: "Get Started" },
+      { label: "Getting Started" },
     ])
     expect(siblingsFor("/docs/dev-server/agent-protocol").prev?.href).toBe("/docs/dev-server")
     expect(siblingsFor("/docs/dev-server/agent-protocol").next?.href).toBe("/docs/middleware")
@@ -487,8 +498,8 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
   it("gives hidden API leaves a linked API hub and no journey siblings", () => {
     for (const leaf of API_REFERENCE_PAGES) {
       expect(breadcrumbsFor(leaf.href)).toEqual([
-        { label: "Home", href: "/" },
         { label: "Docs", href: "/docs/getting-started" },
+        { label: "Reference" },
         { label: "API Reference", href: "/docs/api" },
         { label: leaf.label },
       ])
@@ -496,20 +507,27 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
     }
   })
 
-  it("uses a real-link trail with the current route as the final crumb for all 75 pages", () => {
+  it("uses a Docs / section / page trail with the current route as the final crumb for all 75 pages", () => {
+    const sectionLabels = new Set<string>(DOCS_NAV.map((section) => section.label))
     for (const page of ALL_DOCS_PAGES) {
       const crumbs = breadcrumbsFor(page.href)
       const finalCrumb = crumbs.at(-1)
 
-      expect(crumbs[0], `${page.href} Home crumb`).toEqual({ label: "Home", href: "/" })
+      expect(crumbs[0], `${page.href} Docs crumb`).toEqual(
+        page.href === "/docs/getting-started"
+          ? { label: "Docs" }
+          : { label: "Docs", href: "/docs/getting-started" },
+      )
+      expect(crumbs[1]?.href, `${page.href} section crumb`).toBeUndefined()
+      expect(sectionLabels.has(crumbs[1]?.label ?? ""), `${page.href} section crumb`).toBe(true)
       expect(finalCrumb, `${page.href} final crumb`).toEqual({ label: page.label })
+      // Every ancestor except the section label is a real route.
       expect(
-        crumbs.slice(0, -1).every((crumb) => typeof crumb.href === "string"),
+        crumbs.slice(2, -1).every((crumb) => typeof crumb.href === "string"),
         `${page.href} linked ancestors`,
       ).toBe(true)
-      expect(new Set(crumbs.flatMap((crumb) => (crumb.href ? [crumb.href] : []))).size).toBe(
-        crumbs.length - 1,
-      )
+      const linked = crumbs.flatMap((crumb) => (crumb.href ? [crumb.href] : []))
+      expect(new Set(linked).size).toBe(linked.length)
       expect(crumbs.flatMap((crumb) => (crumb.href ? [crumb.href] : []))).not.toContain(page.href)
     }
   })

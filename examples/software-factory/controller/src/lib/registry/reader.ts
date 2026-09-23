@@ -8,7 +8,8 @@ import type {
   Receipt,
   WorkOrderRow,
 } from "../domain/work-order.js"
-import { RegistryVersionError, SCHEMA_VERSION } from "./db.js"
+import { oracleReceiptIdFor } from "../intake/oracle.js"
+import { RegistryOutdatedError, RegistryVersionError, SCHEMA_VERSION } from "./db.js"
 import { createEvidenceStore } from "./evidence.js"
 import { createWorkOrderStore } from "./work-orders.js"
 
@@ -20,6 +21,8 @@ export interface RegistryReader {
     candidate: Candidate | null
     receipt: Receipt | null
     bundle: Bundle | null
+    /** The receipt of the oracle proof the approved draft was parked on; null without intake. */
+    oracleReceipt: Receipt | null
   }
   /** Exposed for tests that prove the connection cannot write. */
   readonly db: DatabaseSync
@@ -45,15 +48,20 @@ export function openRegistryReader(path: string): RegistryReader {
   // The same refusal `openRegistry` makes, for the same reason: a registry written by a
   // newer factory has columns and meanings this build does not know, and reading it anyway
   // would report a work order it cannot actually describe. The reader cannot migrate —
-  // it is read-only — so the only answer is to say so.
+  // it is read-only — so the only answer is to say so. The same holds the other way: an
+  // older registry lacks columns the row schema requires, and reading it would surface as
+  // a validation error on a row that is fine, not a registry that is behind.
   try {
     const version =
       (db.prepare("SELECT max(version) AS v FROM schema_version").get() as { v: number | null })
         .v ?? 0
     if (version > SCHEMA_VERSION) throw new RegistryVersionError(version)
+    if (version < SCHEMA_VERSION) throw new RegistryOutdatedError(version)
   } catch (error) {
     db.close()
-    throw error instanceof RegistryVersionError ? error : openFailure(path, error)
+    throw error instanceof RegistryVersionError || error instanceof RegistryOutdatedError
+      ? error
+      : openFailure(path, error)
   }
   const store = createWorkOrderStore(db)
   const evidence = createEvidenceStore(db)
@@ -73,7 +81,9 @@ export function openRegistryReader(path: string): RegistryReader {
       const candidate = row.candidateDigest ? evidence.candidate(row.candidateDigest) : null
       const bundle = row.bundleDigest ? evidence.bundle(row.bundleDigest) : null
       const receipt = bundle ? evidence.receipt(bundle.receiptId) : null
-      return { candidate, receipt, bundle }
+      const oracleId = oracleReceiptIdFor(store.events(id), row.taskDigest)
+      const oracleReceipt = oracleId ? evidence.receipt(oracleId) : null
+      return { candidate, receipt, bundle, oracleReceipt }
     },
     // Idempotent: the CLI closes a reader per poll and again in a `finally`, and a second
     // `db.close()` is a throw from node:sqlite, not a no-op.

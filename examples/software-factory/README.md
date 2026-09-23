@@ -111,6 +111,16 @@ limits and permission allow-list. That is a stronger control point than the cata
 replaced — a key only selected among the target definitions in the repository, while a
 manifest states them outright.
 
+**Intake is scripted, not real, in this sub-project.** The drafter turn runs in the builder
+process on the route `FACTORY_INTAKE_ROUTE`, in the workspace of `FACTORY_INTAKE_TASK`; the
+drafter with its own app, image and wide read-only capture of the repository is the next
+sub-project. The route is configurable and exercised only by the test fake: the builder app
+does not implement it yet, so `factory intake` against the real builder ends
+`blocked (intake_run_failed)` until the drafter lands. The work order's pin is recorded on the row and in the bundle but not honoured:
+the oracle proof and verification run in the target's prepared image, at the pin that image
+was prepared from. And intake threads accumulate on the worker, one per work order, since
+nothing sweeps a parked or blocked work order's drafter thread yet.
+
 **`examples/code-fixer` is untouched by this rung.** The factory borrows its fixture image and
 nothing else; rung 0 drove code-fixer as its worker, and rung 1 does not.
 
@@ -206,6 +216,10 @@ The CLI's write commands are requests to the running controller
     alias factory='pnpm --filter @b4-example/software-factory-controller factory'
 
     factory create --task cli-flags
+    factory create --issue 778 [--repo owner/name]         # from a GitHub issue, pinned to origin/main
+    factory intake <id>                                    # issue work orders only; awaits the draft
+    ls $FACTORY_STATE_DIR/tasks/<id>/                      # task.json spec.md checks.json checks/ issue.md
+    factory approve-intake <id> --revision <n> --digest <sha256>   # or: factory reject-intake <id> --note "..."
     factory dispatch <id>                                  # awaits; journal events on stderr
     factory show <id>
     factory events <id>
@@ -223,12 +237,40 @@ bundle: what an approver is actually being asked to consent to. `factory cancel 
 both variables: it interrupts a live dispatch through the runtime, falls back to the `cancel`
 route for a work order that is not mid-run, and reads the row back.
 
+**Intake.** A work order created with `--issue` has no task yet: `factory intake <id>` runs a
+drafter turn on the builder process and waits for it, as `dispatch` does. The drafter must
+write exactly four files under `draft/` — `task.json` (the target, the allowed and immutable
+paths), `spec.md` (the repair, with acceptance criteria as `A<n>:` lines), `checks.json` (the
+independent suite) and the one check file it names — and repairs nothing. The controller
+validates the draft, fits it to a prepared target, materialises it as a task directory under
+`<FACTORY_STATE_DIR>/tasks/<id>/` (the four files plus `issue.md`), and then **proves the
+oracle**: it runs only the drafted check, with no candidate changes, against the unpatched
+baseline in the target's image, and the check must FAIL there. A check that passes on the
+defect would pass on anything, so that draft is refused. An invalid draft or one that is not
+an oracle starts another drafter turn on the same thread with the refusal quoted; the
+attempts default to 2, and the last refusal blocks the work order. A draft naming a package
+with no prepared target blocks immediately (`no_target_for_package`), since no redraft can
+prepare one. A draft that parks in
+`awaiting_intake_approval` is read on disk and approved **by digest**: `show` prints the
+row's `taskDigest`, `approve-intake` recomputes the directory's digest at call time and refuses
+if either differs, so what the person read is what the builder and the verifier are given.
+`reject-intake --note` journals the note and, attempts permitting, waits for the redraft.
+Unlike `awaiting_approval`, `awaiting_intake_approval` has no expiry: the draft waits as long
+as it takes, and waiting on a person is not active time.
+The review bundle later freezes the origin (issue and body digest), the pin, the approved task
+digest and the oracle receipt id, so approving the export consents to all of them together.
+A bundle frozen before these fields existed no longer parses, and there is no re-freeze from
+`awaiting_approval`: a work order parked there across this change must be `deny`-ed and
+created again.
+
 **Exit codes.** A refused command and a runtime conflict (a second command while one is in
 flight, a cancelled dispatch) both exit 1 with the body printed; everything else that
 succeeded exits 0. A `dispatch` exits 0 only when the work order settles in
 `awaiting_approval` or `exported` — `blocked`, `failed`, `cancelled`, `denied`,
 `cancel_requested` and "did not settle" all exit 1, so a script cannot mistake an unfinished
-work order for a shipped one.
+work order for a shipped one. Likewise `intake` and `reject-intake` exit 0 only when the work
+order settles in `awaiting_intake_approval` (a `blocked` draft, a cancel, and "did not settle"
+exit 1), and `approve-intake` exits 0 only when the approval was accepted.
 
 ### Environment
 
@@ -246,6 +288,13 @@ The controller app reads:
 | `FACTORY_MAX_ACTIVE_MS` | no | Default 1200000; waiting on a person is not active time |
 | `FACTORY_MAX_CHANGED_BYTES` | no | Default 1048576; exceeding it is a `scope_violation`, never a truncation |
 | `FACTORY_REPO_ROOT` | no | The repository the targets pin into; default `git rev-parse --show-toplevel` from the package. Set by the Docker-lane tests, which copy the app outside the repository. |
+| `FACTORY_INTAKE_ROUTE` | no | Default `/intake#agent`: the route the drafter turn runs on |
+| `FACTORY_INTAKE_TASK` | for `intake` | The catalog task whose workspace the drafter runs in. Required because in this sub-project the drafter turn runs in the builder process, whose workspace is fixed by its manifest task; without it `intake` refuses before spending anything |
+
+The CLI's `create --issue` reads `FACTORY_GH` (default `gh`: the executable that answers
+`issue view`), `FACTORY_REPOSITORY` (the `owner/name` to read from, else `--repo`, else the
+checkout's `origin` remote) and `FACTORY_NO_FETCH` (`1` skips the `git fetch origin main`
+before the pin is resolved from the checkout named by `FACTORY_REPO_ROOT`).
 
 The builder app reads `FACTORY_BUILDER_MANIFEST` (required: the manifest path) and
 `FACTORY_BUILDER_MODEL` (default `gpt-5-mini`). The CLI reads `FACTORY_CONTROLLER_URL` for

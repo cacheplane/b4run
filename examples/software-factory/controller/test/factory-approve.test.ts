@@ -58,6 +58,7 @@ async function boot(
   const reader = createFakeWorkspaceReader({})
   factory = await createFactory({
     registryPath: join(dir, "registry.sqlite"),
+    generatedTasksDir: join(dir, "tasks"),
     worker: createHttpWorkerClient(fake.baseUrl),
     workerRoute: "/build#agent",
     exportDir: out(),
@@ -369,7 +370,10 @@ describe("approve enforces what the frozen bundle asserts", () => {
     db.close()
     expect(
       await factory.approve(row.id, { revision: row.revision, bundleDigest: row.bundleDigest }),
-    ).toMatchObject({ ok: false, message: expect.stringMatching(/could not be read/) })
+    ).toMatchObject({
+      ok: false,
+      message: expect.stringMatching(/could not be read; deny it and create a new work order/),
+    })
     expect(readdirSync(out())).toEqual([])
   })
 })

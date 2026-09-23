@@ -4,7 +4,10 @@ import { expect, it, vi } from "vitest"
 import { HeaderInner } from "../HeaderInner"
 
 const location = vi.hoisted(() => ({ pathname: "/" }))
-vi.mock("next/navigation", () => ({ usePathname: () => location.pathname }))
+vi.mock("next/navigation", () => ({
+  usePathname: () => location.pathname,
+  useRouter: () => ({ push: vi.fn() }),
+}))
 it("renders the same header, with the install command, on every page", () => {
   const render = (pathname: string) => {
     location.pathname = pathname
@@ -20,7 +23,7 @@ it("renders the same header, with the install command, on every page", () => {
   const strip = (html: string) =>
     html
       .split("<dialog")[0]
-      ?.replace(/<button[^>]*data-mobile-docs-search[\s\S]*?<\/button>/, "")
+      ?.replace(/<button[^>]*data-header-docs-search[\s\S]*?<\/button>/, "")
       .replace(/text-ink(-muted hover:text-ink)? transition-colors/g, "")
       .replace(/ data-layout="[a-z]+"/, "")
   expect(strip(render("/docs/getting-started"))).toBe(strip(home))
@@ -40,7 +43,7 @@ it("aligns the header with each page's column", () => {
   expect(layout("/docs/getting-started")).toBe("reading")
 })
 
-it("labels the main nav and adds a mobile docs-search button only on docs pages", () => {
+it("labels the main nav and offers docs search on every page", () => {
   const render = (pathname: string) => {
     location.pathname = pathname
     return renderToString(<HeaderInner repoUrl="https://github.com/cacheplane/b4run" />)
@@ -50,8 +53,14 @@ it("labels the main nav and adds a mobile docs-search button only on docs pages"
   expect(docs).toMatch(
     /<button(?=[^>]*data-mobile-docs-search)(?=[^>]*aria-label="Search docs")(?=[^>]*md:hidden)(?=[^>]*data-ui="icon-button")/,
   )
-  expect(render("/")).not.toContain("data-mobile-docs-search")
-  expect(render("/blog")).not.toContain("data-mobile-docs-search")
+  for (const pathname of ["/", "/blog"]) {
+    const html = render(pathname)
+    expect(html).toContain("data-mobile-docs-search")
+    // Pages without the docs sidebar get the desktop search button instead.
+    expect(html).toMatch(/<button(?=[^>]*data-header-docs-search)(?=[^>]*aria-haspopup="dialog")/)
+    expect(html).toContain("data-docs-search-dialog")
+  }
+  expect(docs).not.toContain("data-header-docs-search")
 })
 
 it("suppresses the ↗ on the desktop GitHub icon link", () => {

@@ -1,29 +1,28 @@
 "use client"
 
-import { useCallback, useEffect, useId, useRef, useState } from "react"
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react"
+import { CopyStatus, useCopyFeedback } from "../copy-feedback"
+import { Icon } from "../ui/Icon"
 import { pageUrl, sourceSlug } from "./page-actions"
 
 interface PageActionsProps {
   readonly slug: string
-  readonly promptSlug?: string
+  /** The page's coding-agent prompt, when it has one. */
   readonly promptBody?: string
 }
 
 const GITHUB_EDIT_BASE = "https://github.com/cacheplane/b4run/edit/main/apps/web/content/docs"
 
-type Feedback = "idle" | "copying" | "copied" | "error"
-
 function aiPrompt(slug: string): string {
   return `Read this B4.run docs page and help me apply it to my project: ${pageUrl(slug)}`
-}
-
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    return false
-  }
 }
 
 function DotsIcon() {
@@ -32,39 +31,6 @@ function DotsIcon() {
       <circle cx="3" cy="8" r="1.4" fill="currentColor" />
       <circle cx="8" cy="8" r="1.4" fill="currentColor" />
       <circle cx="13" cy="8" r="1.4" fill="currentColor" />
-    </svg>
-  )
-}
-
-function CheckIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="3"
-      aria-hidden="true"
-    >
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  )
-}
-
-function ClipboardIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      aria-hidden="true"
-    >
-      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
     </svg>
   )
 }
@@ -127,191 +93,254 @@ function PencilIcon() {
   )
 }
 
-interface MenuItem {
+interface MenuItemBase {
   readonly key: string
-  readonly icon: React.ReactNode
+  readonly icon: ReactNode
   readonly title: string
   readonly subtitle: string
-  readonly onSelect: () => void | Promise<void>
-  readonly external?: boolean
 }
 
-export function PageActions({ slug, promptSlug, promptBody }: PageActionsProps) {
+type MenuItem =
+  | (MenuItemBase & { readonly kind: "action"; readonly onSelect: () => void })
+  | (MenuItemBase & { readonly kind: "link"; readonly href: string })
+
+const STATUS_MESSAGES = {
+  page: { idle: "", copied: "Page copied", error: "Copy failed" },
+  prompt: { idle: "", copied: "Prompt copied", error: "Copy failed" },
+} as const
+
+async function pageMarkdown(slug: string): Promise<string> {
+  const response = await fetch(`/api/markdown/${sourceSlug(slug)}`)
+  if (!response.ok) throw new Error(String(response.status))
+  return response.text()
+}
+
+/**
+ * The same actions on every docs page: a "Copy page" button, and a menu
+ * button (APG menu-button pattern: focus moves into the menu, arrow keys move
+ * between items, Escape returns focus to the button) for the agent prompt,
+ * AI assistants, and editing on GitHub.
+ */
+export function PageActions({ slug, promptBody }: PageActionsProps) {
   const [open, setOpen] = useState(false)
-  const [primaryFeedback, setPrimaryFeedback] = useState<Feedback>("idle")
-  const [activeItem, setActiveItem] = useState<string | null>(null)
+  const [copied, setCopied] = useState<keyof typeof STATUS_MESSAGES>("page")
+  const { state, copy } = useCopyFeedback()
   const containerRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  // Which item to focus when the menu opens: first (click, Enter, ArrowDown) or last (ArrowUp).
+  const focusOnOpen = useRef<"first" | "last">("first")
   const menuId = useId()
+  const triggerId = useId()
 
-  const hasPrompt = Boolean(promptSlug && promptBody)
-
-  const flashItem = useCallback((key: string) => {
-    setActiveItem(key)
-    setTimeout(() => setActiveItem((cur) => (cur === key ? null : cur)), 1600)
-  }, [])
-
-  const handleCopyPrompt = useCallback(async () => {
-    if (!promptBody) return
-    setPrimaryFeedback("copying")
-    const ok = await copyText(promptBody)
-    setPrimaryFeedback(ok ? "copied" : "error")
-    setTimeout(() => setPrimaryFeedback("idle"), 2000)
-  }, [promptBody])
-
-  const handleCopyMarkdown = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/markdown/${sourceSlug(slug)}`)
-      if (!res.ok) throw new Error(String(res.status))
-      const text = await res.text()
-      await copyText(text)
-      flashItem("markdown")
-    } catch {
-      flashItem("markdown-error")
-    }
-  }, [slug, flashItem])
-
-  const handleCopyPromptFromMenu = useCallback(async () => {
-    if (!promptBody) return
-    await copyText(promptBody)
-    flashItem("prompt")
-  }, [promptBody, flashItem])
-
-  const openChatGPT = useCallback(() => {
-    const url = `https://chatgpt.com/?hints=search&q=${encodeURIComponent(aiPrompt(slug))}`
-    window.open(url, "_blank", "noopener,noreferrer")
-  }, [slug])
-
-  const openGitHub = useCallback(() => {
-    window.open(`${GITHUB_EDIT_BASE}/${sourceSlug(slug)}.mdx`, "_blank", "noopener,noreferrer")
-  }, [slug])
-
-  // Build the menu items. On mobile, "Copy prompt" appears at the top of the menu when a prompt exists.
-  const baseItems: MenuItem[] = [
+  const items: MenuItem[] = [
+    ...(promptBody
+      ? [
+          {
+            kind: "action" as const,
+            key: "prompt",
+            icon: <Icon name="copy" />,
+            title: "Copy agent prompt",
+            subtitle: "Instructions to paste into your coding agent",
+            onSelect: () => {
+              setCopied("prompt")
+              void copy(promptBody)
+            },
+          },
+        ]
+      : []),
     {
-      key: "markdown",
-      icon: <PageIcon />,
-      title: "Copy page as Markdown",
-      subtitle: "Raw MDX for pasting into an LLM",
-      onSelect: handleCopyMarkdown,
-    },
-    {
+      kind: "link",
       key: "chatgpt",
       icon: <ChatBubbleIcon />,
       title: "Open in ChatGPT",
-      subtitle: "Send this page to ChatGPT",
-      onSelect: openChatGPT,
-      external: true,
+      subtitle: "Ask ChatGPT about this page",
+      href: `https://chatgpt.com/?hints=search&q=${encodeURIComponent(aiPrompt(slug))}`,
     },
     {
+      kind: "link",
+      key: "claude",
+      icon: <ChatBubbleIcon />,
+      title: "Open in Claude",
+      subtitle: "Ask Claude about this page",
+      href: `https://claude.ai/new?q=${encodeURIComponent(aiPrompt(slug))}`,
+    },
+    {
+      kind: "link",
       key: "github",
       icon: <PencilIcon />,
       title: "Edit on GitHub",
-      subtitle: "Suggest changes via pull request",
-      onSelect: openGitHub,
-      external: true,
+      subtitle: "Suggest changes in a pull request",
+      href: `${GITHUB_EDIT_BASE}/${sourceSlug(slug)}.mdx`,
     },
   ]
 
-  const mobilePromptItem: MenuItem | null = hasPrompt
-    ? {
-        key: "prompt",
-        icon: <ClipboardIcon />,
-        title: "Copy prompt",
-        subtitle: "Paste into your coding agent",
-        onSelect: handleCopyPromptFromMenu,
-      }
-    : null
+  const menuItems = () => [
+    ...(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []),
+  ]
 
-  // Outside click + Escape
+  const closeMenu = useCallback((returnFocus: boolean) => {
+    setOpen(false)
+    if (returnFocus) triggerRef.current?.focus()
+  }, [])
+
+  // Move focus into the menu when it opens.
   useEffect(() => {
     if (!open) return
-    function onClick(e: MouseEvent) {
-      if (!containerRef.current) return
-      if (!containerRef.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false)
-    }
-    document.addEventListener("mousedown", onClick)
-    document.addEventListener("keydown", onKey)
-    return () => {
-      document.removeEventListener("mousedown", onClick)
-      document.removeEventListener("keydown", onKey)
-    }
+    const all = [...(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
+    const target = focusOnOpen.current === "last" ? all.at(-1) : all[0]
+    target?.focus()
   }, [open])
 
+  // Close on a click outside.
+  useEffect(() => {
+    if (!open) return
+    function onPointerDown(e: MouseEvent) {
+      if (!containerRef.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", onPointerDown)
+    return () => document.removeEventListener("mousedown", onPointerDown)
+  }, [open])
+
+  const onTriggerKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault()
+      focusOnOpen.current = event.key === "ArrowUp" ? "last" : "first"
+      setOpen(true)
+    }
+  }
+
+  const onMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const all = menuItems()
+    const index = all.indexOf(document.activeElement as HTMLElement)
+    const focusAt = (i: number) => all[(i + all.length) % all.length]?.focus()
+    switch (event.key) {
+      case "ArrowDown":
+        event.preventDefault()
+        focusAt(index + 1)
+        break
+      case "ArrowUp":
+        event.preventDefault()
+        focusAt(index - 1)
+        break
+      case "Home":
+        event.preventDefault()
+        focusAt(0)
+        break
+      case "End":
+        event.preventDefault()
+        focusAt(all.length - 1)
+        break
+      case "Escape":
+        event.preventDefault()
+        closeMenu(true)
+        break
+      case "Tab":
+        // Let focus leave naturally; the menu goes with it.
+        setOpen(false)
+        break
+    }
+  }
+
+  const itemClass =
+    "w-full text-left px-3 py-2 flex items-start gap-3 no-underline hover:bg-relay-tint focus:bg-relay-tint transition-colors"
+
   function renderItem(item: MenuItem) {
-    const flashed = activeItem === item.key
+    const body = (
+      <>
+        <span className="mt-0.5 text-ink-muted shrink-0">{item.icon}</span>
+        <span className="flex-1 min-w-0">
+          <span className="block text-sm font-medium text-ink">
+            {item.title}
+            {item.kind === "link" ? <span className="sr-only"> (opens in a new tab)</span> : null}
+          </span>
+          <span className="block text-xs text-ink-muted leading-snug">{item.subtitle}</span>
+        </span>
+      </>
+    )
+    if (item.kind === "link") {
+      return (
+        <a
+          key={item.key}
+          role="menuitem"
+          tabIndex={-1}
+          href={item.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={() => closeMenu(false)}
+          className={itemClass}
+        >
+          {body}
+        </a>
+      )
+    }
     return (
       <button
         key={item.key}
         type="button"
         role="menuitem"
-        onClick={async () => {
-          await item.onSelect()
-          if (item.external) setOpen(false)
+        tabIndex={-1}
+        onClick={() => {
+          item.onSelect()
+          closeMenu(true)
         }}
-        className="w-full text-left px-3 py-2 flex items-start gap-3 hover:bg-relay-tint focus:bg-relay-tint transition-colors"
+        className={itemClass}
       >
-        <span className="mt-0.5 text-ink-muted shrink-0">{item.icon}</span>
-        <span className="flex-1 min-w-0">
-          <span className="block text-sm font-medium text-ink">
-            {flashed ? "Copied" : item.title}
-          </span>
-          <span className="block text-xs text-ink-muted leading-snug">{item.subtitle}</span>
-        </span>
+        {body}
       </button>
     )
   }
 
   return (
     <div data-page-actions ref={containerRef} className="relative flex items-center gap-2">
-      {hasPrompt && (
-        <button
-          type="button"
-          onClick={handleCopyPrompt}
-          data-ui="button"
-          data-variant="secondary"
-          data-size="sm"
-          className="hidden md:inline-flex"
-          aria-label={primaryFeedback === "copied" ? "Prompt copied" : "Copy prompt to clipboard"}
-        >
-          {primaryFeedback === "copied" ? (
-            <>
-              <CheckIcon />
-              Copied
-            </>
-          ) : (
-            <>
-              <ClipboardIcon />
-              Copy prompt
-            </>
-          )}
-        </button>
-      )}
-
+      <CopyStatus
+        state={state}
+        messages={STATUS_MESSAGES[copied]}
+        // Out of flow, so the result never shifts the buttons.
+        className="absolute right-0 top-full mt-1 text-xs text-ink-muted whitespace-nowrap"
+      />
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        data-copy-page
+        onClick={() => {
+          setCopied("page")
+          void copy(pageMarkdown(slug))
+        }}
+        title="Copy this page as Markdown, for pasting into an LLM"
+        className="inline-flex shrink-0 h-11 md:h-7 items-center gap-2 px-3 border border-rule-strong text-xs text-ink-muted hover:text-ink hover:border-ink transition-colors"
+      >
+        {state === "copied" && copied === "page" ? <Icon name="check" /> : <PageIcon />}
+        Copy page
+      </button>
+
+      <button
+        ref={triggerRef}
+        id={triggerId}
+        type="button"
+        onClick={() => {
+          focusOnOpen.current = "first"
+          setOpen((o) => !o)
+        }}
+        onKeyDown={onTriggerKeyDown}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={menuId}
-        aria-label="Page actions"
-        className="inline-flex items-center justify-center h-7 w-7 border border-rule-strong text-ink-muted hover:text-ink hover:border-ink transition-colors"
+        aria-label="More page actions"
+        className="inline-flex shrink-0 items-center justify-center h-11 w-11 md:h-7 md:w-7 border border-rule-strong text-ink-muted hover:text-ink hover:border-ink transition-colors"
       >
         <DotsIcon />
       </button>
 
       {open && (
         <div
+          ref={menuRef}
           id={menuId}
           role="menu"
-          className="absolute right-0 top-full mt-2 w-72 z-30 py-1 focus:outline-none"
+          aria-labelledby={triggerId}
+          onKeyDown={onMenuKeyDown}
+          className="absolute right-0 top-full mt-2 w-72 z-30 py-1"
         >
-          {mobilePromptItem && <div className="md:hidden">{renderItem(mobilePromptItem)}</div>}
-          {baseItems.map(renderItem)}
+          {items.map(renderItem)}
         </div>
       )}
     </div>

@@ -160,7 +160,7 @@ describe("primitives", () => {
 
   it("CopyCommand renders the light variant by default and the dark one on request", () => {
     const light = renderToStaticMarkup(<CopyCommand command="npm create b4-app@latest" />)
-    expect(light).toMatch(/^<div data-ui="copy-command" data-variant="light"/)
+    expect(light).toMatch(/^<span data-ui="copy-command" data-variant="light"/)
     expect(light).toContain("<span>$</span> npm create b4-app@latest")
     expect(light).toContain('aria-label="Copy command: npm create b4-app@latest"')
     expect(renderToStaticMarkup(<CopyCommand command="x" variant="dark" />)).toContain(

@@ -1,7 +1,7 @@
 import { type FactoryConfig, loadConfig } from "./config.js"
 import { createFactory, type Factory, type FactoryOptions } from "./controller/factory.js"
 import { createArtifactStore } from "./storage/artifacts.js"
-import { loadTask } from "./targets/catalog.js"
+import { configureCatalog, loadTask, resetCatalogForTests } from "./targets/catalog.js"
 import { builderSandboxProvider, targetInspectionOptions } from "./targets/workspace.js"
 import { captureTargetBaseline } from "./verification/baseline.js"
 import { createDockerVerifier } from "./verification/docker-verifier.js"
@@ -40,33 +40,7 @@ export function createControllerRuntime(
     config,
     factory() {
       if (disposed) return Promise.reject(new Error("Controller runtime is disposed"))
-      opening ??= createFactory({
-        registryPath: config.registryPath,
-        worker: createHttpWorkerClient(config.workerUrl),
-        workerRoute: config.workerRoute,
-        exportDir: config.exportDir,
-        artifactsDir: config.artifactsDir,
-        approvalTtlMs: config.approvalTtlMs,
-        maxActiveMs: config.maxActiveMs,
-        maxChangedBytes: config.maxChangedBytes,
-        verifier: createDockerVerifier(createArtifactStore(config.artifactsDir)),
-        workspaceReader: createThreadWorkspaceReader(
-          {
-            providerFor: (taskId) => builderSandboxProvider(loadTask(taskId).target),
-            appRoot: config.builderAppRoot,
-          },
-          (taskId) => targetInspectionOptions(loadTask(taskId)),
-        ),
-        captureBaseline: captureTargetBaseline,
-        // Defined keys only: an explicit `{ verifier: undefined }` must not erase a required
-        // collaborator, which a plain spread would do.
-        ...definedOnly(overrides),
-        log: (event, payload) => process.stderr.write(`${JSON.stringify({ event, ...payload })}\n`),
-      }).catch((error) => {
-        // A failed open is retried by the next caller, like middleware setup itself.
-        opening = undefined
-        throw error
-      })
+      opening ??= openFactory()
       return opening
     },
     async dispose() {
@@ -74,6 +48,56 @@ export function createControllerRuntime(
       const factory = await opening?.catch(() => undefined)
       await factory?.close()
     },
+  }
+
+  function openFactory(): Promise<Factory> {
+    // Once per runtime, before the factory and its collaborators exist: every `loadTask(id)`
+    // below — the prompt, the verifier, the baseline, the workspace reader — then finds a
+    // generated task. The search path is process-wide, like the runtime itself.
+    configureCatalog({ generatedTasksDir: config.generatedTasksDir })
+    // The intake task is what every drafter workspace is read through: an id the catalog
+    // cannot serve is refused at boot, not after a drafter turn has been spent on it.
+    if (config.intakeTaskId !== undefined) {
+      try {
+        loadTask(config.intakeTaskId)
+      } catch (error) {
+        return Promise.reject(
+          new Error(
+            `FACTORY_INTAKE_TASK names a task the catalog cannot load (${config.intakeTaskId}): ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        )
+      }
+    }
+    return createFactory({
+      registryPath: config.registryPath,
+      worker: createHttpWorkerClient(config.workerUrl),
+      workerRoute: config.workerRoute,
+      exportDir: config.exportDir,
+      artifactsDir: config.artifactsDir,
+      generatedTasksDir: config.generatedTasksDir,
+      intakeRoute: config.intakeRoute,
+      ...(config.intakeTaskId !== undefined ? { intakeTaskId: config.intakeTaskId } : {}),
+      approvalTtlMs: config.approvalTtlMs,
+      maxActiveMs: config.maxActiveMs,
+      maxChangedBytes: config.maxChangedBytes,
+      verifier: createDockerVerifier(createArtifactStore(config.artifactsDir)),
+      workspaceReader: createThreadWorkspaceReader(
+        {
+          providerFor: (taskId) => builderSandboxProvider(loadTask(taskId).target),
+          appRoot: config.builderAppRoot,
+        },
+        (taskId) => targetInspectionOptions(loadTask(taskId)),
+      ),
+      captureBaseline: captureTargetBaseline,
+      // Defined keys only: an explicit `{ verifier: undefined }` must not erase a required
+      // collaborator, which a plain spread would do.
+      ...definedOnly(overrides),
+      log: (event, payload) => process.stderr.write(`${JSON.stringify({ event, ...payload })}\n`),
+    }).catch((error) => {
+      // A failed open is retried by the next caller, like middleware setup itself.
+      opening = undefined
+      throw error
+    })
   }
 }
 
@@ -103,4 +127,5 @@ export async function resetControllerRuntimeForTests(
   await shared?.dispose()
   shared = undefined
   sharedOverrides = overrides
+  resetCatalogForTests()
 }

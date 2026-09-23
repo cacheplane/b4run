@@ -66,3 +66,29 @@ describe("rung 1 configuration", () => {
     )
   })
 })
+
+describe("intake configuration", () => {
+  it("defaults the intake route and leaves the intake task unset", () => {
+    const config = loadConfig(base)
+    expect(config.intakeRoute).toBe("/intake#agent")
+    expect(config.intakeTaskId).toBeUndefined()
+    // Absent, not present-and-undefined: the runtime spreads this into FactoryOptions under
+    // exactOptionalPropertyTypes, so an explicit undefined would be a type error there.
+    expect(Object.keys(config)).not.toContain("intakeTaskId")
+  })
+
+  it("takes an explicit intake route and intake task", () => {
+    const config = loadConfig({
+      ...base,
+      FACTORY_INTAKE_ROUTE: "/draft#agent",
+      FACTORY_INTAKE_TASK: "devkit-spawn-deadline",
+    })
+    expect(config.intakeRoute).toBe("/draft#agent")
+    expect(config.intakeTaskId).toBe("devkit-spawn-deadline")
+  })
+
+  it("rejects a blank intake route or task", () => {
+    expect(() => loadConfig({ ...base, FACTORY_INTAKE_ROUTE: "" })).toThrow(/FACTORY_INTAKE_ROUTE/)
+    expect(() => loadConfig({ ...base, FACTORY_INTAKE_TASK: "" })).toThrow(/FACTORY_INTAKE_TASK/)
+  })
+})

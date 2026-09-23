@@ -23,7 +23,7 @@ function hasCanonicalSegments(segments: readonly string[]): boolean {
  * no `.`/`..`/empty segment, and no backslash. Downstream code compares paths by string
  * equality, so two spellings of the same path would silently fail that comparison.
  */
-const relativePath = z
+export const relativePath = z
   .string()
   .min(1)
   .refine(
@@ -155,18 +155,47 @@ export function repositoryRoot(): string {
   }
 }
 
+/**
+ * A catalog id is a plain directory name: no slash, no leading dot, nothing a path could
+ * smuggle. `taskDirectory` joins it under a root, and this rule is what keeps it under one.
+ */
+const CATALOG_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+export function isCatalogId(id: string): boolean {
+  return CATALOG_ID.test(id)
+}
+
 /** Ids present in `dir`, sorted: each is a directory, not a code change. */
 function readIds(dir: string, label: string): string[] {
+  const ids = readIdsIfPresent(dir)
+  if (ids === null) throw new Error(`No ${label} catalog at ${dir}`)
+  return ids
+}
+
+/**
+ * As `readIds`, but null when `dir` does not exist: a catalog that may not exist yet. A
+ * directory whose name is not a catalog id is not listed: `taskDirectory` would refuse it.
+ */
+function readIdsIfPresent(dir: string): string[] | null {
   try {
     return readdirSync(dir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
+      .filter((entry) => entry.isDirectory() && isCatalogId(entry.name))
       .map((entry) => entry.name)
       .sort()
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT")
-      throw new Error(`No ${label} catalog at ${dir}`)
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null
     throw error
   }
+}
+
+/**
+ * Is `id` a task of the SHIPPED catalog (`dir`, the operator-prepared one), as opposed to a
+ * generated task the search path can also resolve? `create --task` is answered by this and
+ * not by `loadTask`: a generated directory left on disk by a refused or unapproved draft
+ * would otherwise be creatable as a catalog work order, with no task digest for the gate to
+ * bind, and the intake gate would be bypassed.
+ */
+export function isShippedTask(id: string, dir = tasksDir): boolean {
+  return isCatalogId(id) && existsSync(join(dir, id, "task.json"))
 }
 
 /** Target ids present on disk, sorted. A new target is a directory, not a code change. */
@@ -272,8 +301,13 @@ function nodeTestSuite<F extends z.ZodType<string>>(file: F) {
     .strict()
 }
 
+/**
+ * A vitest suite may name no assertions: an empty list means "the target's whole suite must
+ * pass", which is what a generated task's visible suite carries as its regression guard. A
+ * node-test suite still needs names, because the verifier greps the suite's events for them.
+ */
 const VitestSuiteSchema = z
-  .object({ runner: z.literal("vitest"), assertions: z.array(z.string().min(1)).min(1) })
+  .object({ runner: z.literal("vitest"), assertions: z.array(z.string().min(1)).min(0) })
   .strict()
 const VisibleNodeTestSuiteSchema = nodeTestSuite(visibleSuiteFile)
 const IndependentSuiteSchema = nodeTestSuite(independentSuiteFile)
@@ -302,7 +336,12 @@ const allowedSourcePath = relativePath
   .refine((p) => !/\.test\.[a-z]+$/.test(p), "a test file cannot be an allowed source path")
   .refine((p) => !covers(["checks"], p), "a check cannot be an allowed source path")
 
-export const TaskSchema = z
+/**
+ * The manifest's shape alone, before the disjointness rule below. Exported so an intake
+ * draft, which carries every field but `id`, can derive its own schema (zod refuses
+ * `.omit()` on a refined object); a filled manifest is then re-parsed with `TaskSchema`.
+ */
+export const TaskFieldsSchema = z
   .object({
     id: z.string().min(1),
     target: z.string().min(1),
@@ -310,10 +349,11 @@ export const TaskSchema = z
     immutablePaths: z.array(relativePath),
   })
   .strict()
-  .refine(
-    (m) => m.allowedSourcePaths.every((p) => m.immutablePaths.every((e) => !overlaps(p, e))),
-    "allowed and immutable paths must be disjoint",
-  )
+
+export const TaskSchema = TaskFieldsSchema.refine(
+  (m) => m.allowedSourcePaths.every((p) => m.immutablePaths.every((e) => !overlaps(p, e))),
+  "allowed and immutable paths must be disjoint",
+)
 export type TaskManifest = z.infer<typeof TaskSchema>
 
 export interface Task {
@@ -326,12 +366,58 @@ export interface Task {
   readonly specText: string
   /** Null when the pinned bytes are already the defective baseline. */
   readonly defectPatch: string | null
-  readonly referencePatch: string
+  /** Null for a generated task: nothing proves it is repairable until a builder does. */
+  readonly referencePatch: string | null
 }
 
-/** Task ids present on disk, sorted. A new task is a directory, not a code change. */
-export function loadTaskIds(dir = tasksDir): string[] {
-  return readIds(dir, "task")
+/**
+ * Where tasks are looked up: the shipped catalog first, then the directory the controller
+ * writes generated tasks into. Process-wide state, configured by the runtime from the state
+ * directory (one runtime per process is the runtime's own contract); every `loadTask(id)`
+ * call site then resolves a generated task with no signature change. A shipped id shadows
+ * a generated one, so a generated task can never impersonate a task an operator prepared
+ * by hand.
+ */
+let generatedTasksDir: string | undefined
+export function configureCatalog(options: { readonly generatedTasksDir?: string }): void {
+  generatedTasksDir = options.generatedTasksDir
+}
+export function resetCatalogForTests(): void {
+  generatedTasksDir = undefined
+}
+/** An explicit `tasksDir` is looked up alone; otherwise the search path, shipped first. */
+function taskRoots(options: CatalogOptions): readonly [string, ...string[]] {
+  if (options.tasksDir) return [options.tasksDir]
+  return generatedTasksDir ? [tasksDir, generatedTasksDir] : [tasksDir]
+}
+
+/**
+ * Task ids present on disk, sorted within each root: the shipped catalog's first, then the
+ * generated ones not already named by a shipped task. A new task is a directory, not a code
+ * change. The shipped catalog must exist (`No task catalog`); the generated directory is
+ * absent until the first draft lands, which is not an error. A generated directory counts
+ * only once it holds `task.json`: an intake in flight has a directory before it has a task,
+ * and what is listed must be what `loadTask` can find.
+ */
+export function loadTaskIds(dir?: string): string[] {
+  const [first, ...rest]: readonly [string, ...string[]] = dir ? [dir] : taskRoots({})
+  const ids = readIds(first, "task")
+  for (const root of rest)
+    for (const id of readIdsIfPresent(root) ?? [])
+      if (!ids.includes(id) && existsSync(join(root, id, "task.json"))) ids.push(id)
+  return ids
+}
+
+/**
+ * The first root on the search path that holds `id`'s manifest. An id that is not a plain
+ * directory name is unknown before the filesystem is touched: `../x` must never resolve
+ * to a task.json outside every root, whatever id that file declares.
+ */
+function taskDirectory(id: string, options: CatalogOptions): string {
+  if (!isCatalogId(id)) throw new Error(`Unknown task: ${id}`)
+  for (const root of taskRoots(options))
+    if (existsSync(join(root, id, "task.json"))) return join(root, id)
+  throw new Error(`Unknown task: ${id}`)
 }
 
 /**
@@ -368,10 +454,13 @@ function parseTaskFile<T>(schema: z.ZodType<T>, raw: unknown, id: string, file: 
   return result.data
 }
 
-/** `defect.patch` is optional: its absence means the pinned bytes are already defective. */
-function readDefectPatch(directory: string): string | null {
+/**
+ * A patch that may be absent: `defect.patch` when the pinned bytes are already defective,
+ * `reference.patch` for a generated task nothing has repaired yet.
+ */
+function readOptionalPatch(directory: string, name: string): string | null {
   try {
-    return readFileSync(join(directory, "defect.patch"), "utf8")
+    return readFileSync(join(directory, name), "utf8")
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null
     throw error
@@ -379,9 +468,7 @@ function readDefectPatch(directory: string): string | null {
 }
 
 export function loadTask(id: string, options: CatalogOptions = {}): Task {
-  const dir = options.tasksDir ?? tasksDir
-  if (!loadTaskIds(dir).includes(id)) throw new Error(`Unknown task: ${id}`)
-  const directory = join(dir, id)
+  const directory = taskDirectory(id, options)
   const manifest = parseTaskFile(
     TaskSchema,
     JSON.parse(readFileSync(join(directory, "task.json"), "utf8")),
@@ -402,8 +489,6 @@ export function loadTask(id: string, options: CatalogOptions = {}): Task {
     throw new Error(`Task ${id} names a missing check: ${checks.independent.file}`)
   const specPath = join(directory, "spec.md")
   if (!existsSync(specPath)) throw new Error(`Task ${id} is missing spec.md`)
-  const referencePath = join(directory, "reference.patch")
-  if (!existsSync(referencePath)) throw new Error(`Task ${id} is missing reference.patch`)
   return {
     id,
     directory,
@@ -411,7 +496,7 @@ export function loadTask(id: string, options: CatalogOptions = {}): Task {
     manifest,
     checks,
     specText: readFileSync(specPath, "utf8"),
-    defectPatch: readDefectPatch(directory),
-    referencePatch: readFileSync(referencePath, "utf8"),
+    defectPatch: readOptionalPatch(directory, "defect.patch"),
+    referencePatch: readOptionalPatch(directory, "reference.patch"),
   }
 }

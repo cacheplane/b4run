@@ -1,8 +1,13 @@
+import { gzipSync } from "node:zlib"
 import { describe, expect, it } from "vitest"
 import { API_REFERENCE_PAGES } from "./api-reference-pages"
-import { filterDocsSearchResults, flattenDocsSearchIndex } from "./docs-search-results"
+import {
+  filterDocsSearchResults,
+  flattenDocsSearchIndex,
+  queryVariants,
+} from "./docs-search-results"
 import { ALL_DOCS_PAGES, DOCS_NAV } from "./nav"
-import { DOCS_INDEX, parsePublicExportAliases } from "./search-index"
+import { DOCS_INDEX, extractSearchDocument, parsePublicExportAliases } from "./search-index"
 
 const FINAL_PR2_API_HREFS = [
   "/docs/api/permissions",
@@ -100,16 +105,20 @@ describe("documentation search index", () => {
         title: "First page",
         section: "Reference",
         headings: [],
+        sections: [],
         aliases: ["sharedAlias"],
         canonicalAliases: [],
+        aliasSurfaces: {},
       },
       {
         href: "/docs/mental-model",
         title: "sharedAlias guide",
         section: "Reference",
         headings: [],
+        sections: [],
         aliases: ["sharedAlias"],
         canonicalAliases: [],
+        aliasSurfaces: {},
       },
     ])
     expect(filterDocsSearchResults("sharedAlias", results).map(({ href }) => href)).toEqual([
@@ -209,6 +218,7 @@ describe("documentation search index", () => {
     ).toEqual({
       aliases: ["owned", "forwarded"],
       canonicalAliases: ["owned"],
+      aliasSurfaces: { owned: "@b4run/example", forwarded: "@b4run/example" },
     })
   })
 
@@ -275,6 +285,126 @@ describe("documentation search index", () => {
       parsePublicExportAliases(source, "/docs/api/generated-routes", [
         { heading: "b4:routes", firstHeader: "Generated export" },
       ]),
-    ).toEqual({ aliases: ["B4RoutePath"], canonicalAliases: ["B4RoutePath"] })
+    ).toEqual({
+      aliases: ["B4RoutePath"],
+      canonicalAliases: ["B4RoutePath"],
+      aliasSurfaces: { B4RoutePath: "b4:routes" },
+    })
+  })
+
+  it("indexes each section's first paragraph and code-only identifiers", () => {
+    const { headings, sections } = extractSearchDocument(`# Title
+
+Intro with \`inline code\` and a [link](/docs/tools).
+
+Second intro paragraph is indexed up to the cap.
+
+<Callout
+  prompt={\`hidden prompt text\`}
+/>
+
+## Configure **it**
+
+First paragraph of the section.
+| a | b |
+
+\`\`\`ts
+const store = createPermissionsStore({ mode })
+\`\`\`
+
+#### Deeper heading
+
+Deeper text is part of the H2 section.
+`)
+    expect(headings.map(({ text, anchor }) => ({ text, anchor }))).toEqual([
+      { text: "Title", anchor: "title" },
+      { text: "Configure it", anchor: "configure-it" },
+    ])
+    expect(sections).toEqual([
+      {
+        anchor: null,
+        text: "Intro with inline code and a link. Second intro paragraph is indexed up to the cap.",
+        terms: [],
+      },
+      {
+        anchor: "configure-it",
+        text: "First paragraph of the section. a b Deeper heading Deeper text is part of the H2 section.",
+        terms: ["createPermissionsStore"],
+      },
+    ])
+  })
+
+  it.each([
+    ["retries", 5],
+    ["jitter", 1],
+    ["useAgent", 1],
+    ["transient model failures", 1],
+  ])("finds body-text matches for %s", (query, atLeast) => {
+    const results = flattenDocsSearchIndex(DOCS_INDEX)
+    const matches = filterDocsSearchResults(query, results)
+    expect(matches.length).toBeGreaterThanOrEqual(atLeast)
+  })
+
+  it("finds a code identifier that only appears inside code blocks", () => {
+    const results = flattenDocsSearchIndex(DOCS_INDEX)
+    const codeOnly = DOCS_INDEX.flatMap((entry) => entry.sections.flatMap(({ terms }) => terms))
+    const term = codeOnly.find(
+      (candidate) =>
+        !DOCS_INDEX.some((entry) =>
+          [entry.title, ...entry.aliases, ...entry.headings.map(({ text }) => text)].some((value) =>
+            value.toLowerCase().includes(candidate.toLowerCase()),
+          ),
+        ),
+    )
+    expect(term).toBeDefined()
+    const [first] = filterDocsSearchResults(term ?? "", results)
+    expect(first?.match).toEqual({ kind: "code", term })
+  })
+
+  it("names the export and package surface an API page matched through", () => {
+    const results = flattenDocsSearchIndex(DOCS_INDEX)
+    const [first] = filterDocsSearchResults("defineMemory", results)
+    expect(first?.href).toBe("/docs/api/sdk")
+    expect(first?.match).toEqual({ kind: "alias", alias: "defineMemory", surface: "@b4run/sdk" })
+  })
+
+  it("keeps a body snippet around the match for text-only hits", () => {
+    const results = flattenDocsSearchIndex(DOCS_INDEX)
+    const hit = filterDocsSearchResults("jitter", results).find(
+      ({ match }) => match?.kind === "text",
+    )
+    expect(hit?.match).toMatchObject({ kind: "text", match: "jitter" })
+  })
+
+  it("never shows Markdown syntax in heading text", () => {
+    for (const entry of DOCS_INDEX) {
+      for (const heading of entry.headings) {
+        expect(heading.text, `${entry.href}#${heading.anchor}`).not.toMatch(/^#|\]\(|\*\*|`/)
+      }
+    }
+  })
+
+  it("stays small enough to fetch on first open", () => {
+    // Guard against indexing whole sections by accident: the lazily fetched
+    // index was ~100 KB gzipped when body text was added.
+    expect(gzipSync(JSON.stringify(DOCS_INDEX)).length).toBeLessThan(125_000)
+  })
+})
+
+describe("query variants", () => {
+  it.each([
+    ["retries", ["retry"]],
+    ["streaming", ["stream"]],
+    ["patches", ["patch"]],
+    ["tools", ["tool"]],
+    ["access", []],
+    ["two words", []],
+  ])("stems %s", (query, expected) => {
+    expect(queryVariants(query)).toEqual(expected)
+  })
+
+  it("ranks the Retry guide first for the plural", () => {
+    const results = flattenDocsSearchIndex(DOCS_INDEX)
+    expect(filterDocsSearchResults("retries", results)[0]?.href).toBe("/docs/retry")
   })
 })

@@ -31,6 +31,7 @@ import {
   breadcrumbJsonLd,
   collectionPageJsonLd,
   siteJsonLd,
+  structuredBreadcrumbs,
   techArticleJsonLd,
 } from "./structured-data"
 
@@ -696,18 +697,23 @@ describe("static SEO pages", () => {
       const visibleBreadcrumbs = breadcrumbsFor(href)
       const visibleMarkup = renderToStaticMarkup(createElement(DocsBreadcrumb, { href }))
       const visibleLabels = [...visibleMarkup.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/g)].map(
-        (match) => match[1]?.match(/<(?:a [^>]*|span class="text-ink-muted")>([^<]+)</)?.[1] ?? "",
+        (match) =>
+          match[1]?.match(/<(?:a [^>]*|span class="text-ink-muted"[^>]*)>([^<]+)</)?.[1] ?? "",
       )
       const breadcrumbItems = breadcrumbJsonLd(page).itemListElement
 
-      expect(page.breadcrumbs, `${href} shared visible trail`).toEqual(visibleBreadcrumbs)
+      expect(page.breadcrumbs, `${href} shared visible trail`).toEqual([
+        { label: "Home", href: "/" },
+        ...visibleBreadcrumbs,
+      ])
       expect(visibleLabels, `${href} rendered visible labels`).toEqual(
         visibleBreadcrumbs.map(({ label: crumbLabel }) => crumbLabel),
       )
       expect(
         breadcrumbItems.map(({ name }) => name),
         `${href} JSON-LD labels and order`,
-      ).toEqual(visibleBreadcrumbs.map(({ label: crumbLabel }) => crumbLabel))
+      ).toEqual(structuredBreadcrumbs(page.breadcrumbs).map(({ label: crumbLabel }) => crumbLabel))
+      expect(breadcrumbItems.length, `${href} at least two items`).toBeGreaterThanOrEqual(2)
       expect(breadcrumbItems.at(-1), `${href} current-page crumb`).toEqual({
         "@type": "ListItem",
         position: breadcrumbItems.length,

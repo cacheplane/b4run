@@ -3,15 +3,26 @@ import { setTimeout as sleep } from "node:timers/promises"
 import { parseArgs } from "node:util"
 import { writeBuilderManifest } from "./lib/builder-manifest.js"
 import { type ControllerClient, ControllerHttpError, createControllerClient } from "./lib/client.js"
+import { generatedTasksDirFor } from "./lib/config.js"
 import type { WorkOrderState } from "./lib/domain/states.js"
 import type { WorkOrderRow } from "./lib/domain/work-order.js"
+import {
+  execFileExec,
+  fetchIssue,
+  repositoryFromRemoteUrl,
+  resolvePin,
+} from "./lib/intake/issue.js"
 import { openRegistryReader } from "./lib/registry/reader.js"
 import type { RouteOutcome } from "./lib/routes/outcome.js"
-import { loadTask } from "./lib/targets/catalog.js"
+import { configureCatalog, loadTask, repositoryRoot } from "./lib/targets/catalog.js"
 
 const USAGE = `factory <command> [options]
 
   create    --task <id> [--key <operationKey>]
+  create    --issue <n> [--repo <owner/name>] [--key <operationKey>]
+  intake          <workOrderId> [--key <operationKey>]
+  approve-intake  <workOrderId> --revision <n> --digest <sha256> [--key <operationKey>]
+  reject-intake   <workOrderId> --note "<text>" [--key <operationKey>]
   dispatch  <workOrderId> [--key <operationKey>]
   approve   <workOrderId> --revision <n> --bundle <sha256> [--key <operationKey>]
   deny      <workOrderId> [--key <operationKey>]
@@ -29,8 +40,18 @@ controller at all: they open <FACTORY_STATE_DIR>/registry.sqlite read-only. The 
 both: it asks the controller to stop the run and then reads the row back.
 builder-manifest needs neither.
 
+create --issue reads the issue through gh (FACTORY_GH names the executable; default gh) and pins
+the work order to origin/main of the target checkout (FACTORY_REPO_ROOT; FACTORY_NO_FETCH=1 skips
+the fetch). The repository is --repo, else FACTORY_REPOSITORY, else the checkout's origin remote.
+
+intake runs the drafter turn and the oracle proof and waits for them, like dispatch. The draft
+it parks is a task directory under <FACTORY_STATE_DIR>/tasks/<workOrderId>/ (task.json, spec.md,
+checks.json, checks/, issue.md): read it, then approve-intake with the revision and the taskDigest
+that show prints, or reject-intake with a note the next drafter turn quotes.
+
 Output is JSON on stdout; diagnostics go to stderr. Exit code 1 when a command is refused,
-and when a dispatch settles somewhere that still owes the operator work.`
+when a dispatch settles somewhere that still owes the operator work, and when an intake or a
+reject-intake settles anywhere but awaiting_intake_approval.`
 
 function print(value: unknown) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
@@ -91,8 +112,25 @@ function tailEvents(id: string, after: number): number {
   return last
 }
 
-/** Dispatch, tailing the journal to stderr while the request is in flight. */
-async function dispatch(id: string, key: string | undefined): Promise<RouteOutcome> {
+/**
+ * What an intake (or the redraft a rejection starts) may treat as success: the draft is
+ * parked for a person. Everything else — `blocked` for any of the intake reasons, `cancelled`,
+ * `cancel_requested`, "did not settle" — owes the operator work. The route already decides
+ * this (its `ok` is exactly this test); the set documents the truth table beside
+ * `DISPATCH_SUCCESS` so the exit code is read off one place.
+ */
+const INTAKE_SUCCESS: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>([
+  "awaiting_intake_approval",
+])
+
+/**
+ * Send a request that awaits a run (`dispatch`, `intake`, `reject-intake`), tailing the
+ * journal to stderr while it is in flight.
+ */
+async function awaiting(
+  id: string,
+  request: (controller: ControllerClient) => Promise<RouteOutcome>,
+): Promise<RouteOutcome> {
   let seq = 0
   // Aborted the moment the request resolves, so a dispatch that finishes in 200 ms does not
   // hold the process for the rest of a 500 ms tick.
@@ -105,7 +143,7 @@ async function dispatch(id: string, key: string | undefined): Promise<RouteOutco
     }
   })()
   try {
-    return await client().dispatch(id, key)
+    return await request(client())
   } finally {
     stop.abort()
     await tail
@@ -169,15 +207,51 @@ async function cancel(id: string, key: string | undefined): Promise<number> {
   return outcome.ok ? 0 : 1
 }
 
+/**
+ * What `create --issue` sends: the issue as gh reports it now, and main's tip as the pin. Both
+ * are read before the controller is asked, so a refused create costs nothing on the controller.
+ */
+async function issueCreateInput(issueArg: string, repo: string | undefined) {
+  const number = Number(issueArg)
+  if (!/^\d+$/.test(issueArg) || !Number.isInteger(number) || number <= 0)
+    throw new Error(`--issue must be a positive integer, got ${JSON.stringify(issueArg)}`)
+  const root = repositoryRoot()
+  const repository = repo ?? process.env.FACTORY_REPOSITORY ?? (await repositoryFromOrigin(root))
+  if (!repository) throw new Error("cannot determine the repository; pass --repo <owner/name>")
+  const gh = process.env.FACTORY_GH ?? "gh"
+  const fetch = process.env.FACTORY_NO_FETCH !== "1"
+  const issue = await fetchIssue({ repository, number, gh })
+  const pin = await resolvePin({ repositoryRoot: root, fetch })
+  return {
+    origin: { kind: "issue" as const, repository, number, bodyDigest: issue.bodyDigest },
+    pin,
+    issue: { title: issue.title, body: issue.body },
+  }
+}
+
+/** `owner/name` from the checkout's origin remote, or null when there is none or it is not GitHub. */
+async function repositoryFromOrigin(root: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileExec("git", ["-C", root, "remote", "get-url", "origin"])
+    return repositoryFromRemoteUrl(stdout)
+  } catch {
+    return null
+  }
+}
+
 async function main(argv: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
     options: {
       task: { type: "string" },
+      issue: { type: "string" },
+      repo: { type: "string" },
       key: { type: "string" },
       revision: { type: "string" },
       bundle: { type: "string" },
+      digest: { type: "string" },
+      note: { type: "string" },
       out: { type: "string" },
       help: { type: "boolean", default: false },
     },
@@ -200,24 +274,63 @@ async function main(argv: string[]): Promise<number> {
   if (command === "builder-manifest") {
     if (!values.task) throw new Error("builder-manifest requires --task")
     if (!values.out) throw new Error("builder-manifest requires --out")
+    // Read directly rather than through the full config: this command needs no worker or
+    // builder root, only the state directory's generated tasks, and only when there is one.
+    const stateDir = process.env.FACTORY_STATE_DIR
+    if (stateDir) configureCatalog({ generatedTasksDir: generatedTasksDirFor(stateDir) })
     print({ path: await writeBuilderManifest(loadTask(values.task), values.out) })
     return 0
   }
   try {
     switch (command) {
       case "create": {
-        if (!values.task) throw new Error("create requires --task")
-        const outcome = await client().create({
-          taskId: values.task,
+        if (values.task && values.issue) throw new Error("create takes --task or --issue, not both")
+        const key = values.key ? { operationKey: values.key } : {}
+        const input = values.task
+          ? { taskId: values.task }
+          : values.issue
+            ? await issueCreateInput(values.issue, values.repo)
+            : null
+        if (!input) throw new Error("create requires --task or --issue")
+        const outcome = await client().create({ ...input, ...key })
+        print(outcome)
+        return outcome.ok ? 0 : 1
+      }
+      case "dispatch": {
+        const id = needId()
+        const outcome = await awaiting(id, (controller) => controller.dispatch(id, values.key))
+        print(outcome)
+        return outcome.ok && outcome.row && DISPATCH_SUCCESS.has(outcome.row.state) ? 0 : 1
+      }
+      case "intake": {
+        const id = needId()
+        const outcome = await awaiting(id, (controller) => controller.intake(id, values.key))
+        print(outcome)
+        return outcome.ok && outcome.row && INTAKE_SUCCESS.has(outcome.row.state) ? 0 : 1
+      }
+      case "approve-intake": {
+        if (!values.revision || !values.digest)
+          throw new Error("approve-intake requires --revision and --digest")
+        const outcome = await client().approveIntake(needId(), {
+          revision: Number(values.revision),
+          taskDigest: values.digest,
           ...(values.key ? { operationKey: values.key } : {}),
         })
         print(outcome)
         return outcome.ok ? 0 : 1
       }
-      case "dispatch": {
-        const outcome = await dispatch(needId(), values.key)
+      case "reject-intake": {
+        const id = needId()
+        const note = values.note
+        if (!note) throw new Error("reject-intake requires --note")
+        const outcome = await awaiting(id, (controller) =>
+          controller.rejectIntake(id, {
+            note,
+            ...(values.key ? { operationKey: values.key } : {}),
+          }),
+        )
         print(outcome)
-        return outcome.ok && outcome.row && DISPATCH_SUCCESS.has(outcome.row.state) ? 0 : 1
+        return outcome.ok && outcome.row && INTAKE_SUCCESS.has(outcome.row.state) ? 0 : 1
       }
       case "approve": {
         if (!values.revision || !values.bundle)

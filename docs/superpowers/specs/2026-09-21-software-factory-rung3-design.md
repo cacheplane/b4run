@@ -341,6 +341,18 @@ client metadata.
 
 ## 6. Intake: an issue becomes a task
 
+> **Decisions of 2026-09-22, before execution.** Sub-project 3 is two plans. **3a** builds the
+> intake lifecycle in the controller and proves it with the scripted fakes: states, registry,
+> `create --issue`, generated tasks, draft validation and fit, the oracle proof, the two gate
+> routes, reconcile rules. **3b** builds the drafter for real: its own app and fixed image (a
+> third process, because a builder process serves one target and intake runs before a target
+> is chosen), the wide read-only capture staged under the drafter's root, the re-rooted
+> `draft/` read, a per-target worker map in the controller's config, the builder's per-thread
+> resolver keyed by the work order, and per-pin images with `target:prepare --pin` and an
+> `image_unprepared` block. TypeSafe AI's Jev was researched as an intake aid and deferred to
+> a later phase: it cannot run in the network-denied drafter, and as a controller-side gate a
+> planted fact in its state moves its verdict; see the research report of 2026-09-22.
+
 ### 6.1 Lifecycle
 
 Intake is a prefix on the existing lifecycle, not a fork.
@@ -357,7 +369,8 @@ received ──intake_started──▶ intake_running ──intake_drafted──
 ```
 
 New states: `intake_running`, `awaiting_intake_approval`. New blocked reasons:
-`intake_invalid`, `oracle_did_not_fail`, `intake_attempts_exhausted`, `no_target_for_package`.
+`intake_invalid`, `oracle_did_not_fail`, `intake_attempts_exhausted`, `no_target_for_package`,
+and `intake_run_failed` (the drafter turn ended without a draft or its stream was lost).
 `awaiting_intake_approval` is not active time. A catalog-task work order skips intake
 entirely: `create --task` lands in `received` as today.
 
@@ -381,6 +394,15 @@ own credentials (`gh issue view --json`), resolves `origin/main` to a commit, an
 state, records `bodyDigest` on the row, and journals `created`. No standing credential is
 held by the controller. Idempotent on the operation key like every create.
 
+**As landed.** The CLI validates the issue number, reads the issue and resolves the pin
+BEFORE the controller is asked, so a refused create spends no operation key. The fetch is a
+plain `git fetch origin <branch>`, never `--depth=1`, which would turn the operator's full
+clone (shared by every linked worktree) into a shallow one. `bodyDigest` is over the raw
+body, so an edit is never hidden; only `issue.md` is normalised to LF, since a web-authored
+GitHub body arrives CRLF. `issue.md`
+is written only when absent, so a replayed key rewrites nothing and a crash between the row
+insert and the write is repaired by the replay.
+
 ### 6.4 The intake route
 
 `examples/software-factory/server/src/app/intake/index.ts` is an `agent` route beside
@@ -398,6 +420,17 @@ Its prompt asks for exactly four files under `draft/` and nothing else:
 
 It does not repair anything.
 
+**As landed (3a).** The drafter is the builder process's own route, `FACTORY_INTAKE_ROUTE`
+(default `/intake#agent`), and its thread runs in the workspace of the catalog task
+`FACTORY_INTAKE_TASK`, not in a wide capture: the drafter app, its image and the capture are
+3b. The route is configurable and exercised only by the test fake; the builder app ships no
+`/intake` route, so `factory intake` against the real builder ends `blocked
+(intake_run_failed)` until 3b implements it. The draft omits `id` and `visible` — the controller fills the work order's id and a
+`vitest` regression guard over the target's whole suite — and carries exactly one check file,
+the one `checks.json` names. A generated task needs no `reference.patch` (optional in the
+catalog now). Acceptance ids are the `A<n>:` lines of `spec.md`, and the independent check's
+assertion names must start with those ids and be set-equal to them.
+
 ### 6.5 What the controller does with the draft
 
 `src/lib/controller/intake.ts`, mirroring `verify.ts`:
@@ -412,6 +445,13 @@ It does not repair anything.
 5. **Prove the oracle.** Capture the baseline for the generated task and run **only the
    independent suite** against it in a verifier container. Verdict not `fail`:
    `oracle_did_not_fail`. This is the one change to `Verifier.verify`: a `suites` option.
+
+   **As landed.** `Verifier.verify` gains `mode: "independentOnly"` (default `full`). In that
+   mode a tamper is reported under check id `tamper` (full mode keeps `visible` and
+   `independent`), so that only a genuine failing assertion under id `independent` proves an
+   oracle. A build failure, a tamper or a deadline is `proven: false` with `checkId` naming
+   the deciding check, and the proof refuses a receipt whose `candidateDigest` is not the
+   baseline it asked for.
 6. Transition to `awaiting_intake_approval` with `targetId` and `taskDigest`.
 
 A failure at 2, 3 or 5 with attempts remaining journals the reason and starts another intake
@@ -429,6 +469,16 @@ Approve transitions to `received` and the rung 2 lifecycle proceeds; `dispatch` 
 builder thread with `{ factoryWorkOrderId }` and the builder's resolver (§5) reads the
 generated task. The review bundle gains `origin`, `pin` and `taskDigest`, so approving the
 export consents to the issue text, the approved task and the candidate together.
+
+**As landed.** `approve-intake` recomputes the directory's digest at call time and its default
+operation key carries that disk digest alongside the caller's, so a refusal over an edited
+file does not replay to the call after the file is restored. The approved task is bound until
+dispatch: `intake` refuses a `received` row that already holds a task digest, and `dispatch`
+re-reads the directory and refuses a digest that no longer matches. The bundle also carries
+`oracleReceiptId`, the receipt of the proof the approved draft was parked on (the journal's
+last `oracle_receipt`), and `approve` compares the origin, the pin and the task on disk
+against the frozen ones with the same `bundle_invalidated` refusal as the policy and the
+baseline. `reject-intake` awaits the redraft it starts, so the caller sees where it settled.
 
 ### 6.7 Targets
 
@@ -459,17 +509,18 @@ rather than a silent rebuild inside the controller.
 ## 7. Sub-projects and order
 
 Each is its own spec-or-plan, PR and proof. 1 and 2 are independent and may run in parallel
-worktrees. 3 needs both. 4 needs 3. 5 is rung 4.
+worktrees. 3a needs both; 3b needs 3a. 4 needs 3b. 5 is rung 4.
 
 | # | Sub-project | Depends on | Proof |
 |---|---|---|---|
 | 1 | Per-thread workspace resolver in `@b4run/workspace` + `@b4run/cli` (§5) | — | §5.5 |
 | 2 | Controller ported to a b4 app of `workflow` routes (§4) | — | §4.3 |
-| 3 | Intake stage, generated tasks, oracle proof, the two gate routes, `create --issue`, builder reads its task per thread (§6) | 1, 2 | §6.8 scripted lanes |
-| 4 | First live issue, operator-pulled, local export | 3, a model key, prepared targets | The work order's own evidence |
+| 3a | Intake lifecycle with a scripted drafter (§6) | 1, 2 | §6.8's scripted lanes |
+| 3b | The drafter for real (§6) | 3a | A two-thread run of the builder app plus one intake turn against the wide capture, Docker lane |
+| 4 | First live issue, operator-pulled, local export | 3b, a model key, prepared targets | The work order's own evidence |
 | 5 | Draft pull request delivery through an outbox (rung 4) | 4 | Its own spec |
 
-This spec is the design for 1, 2 and 3. Each gets its own implementation plan under
+This spec is the design for 1, 2, 3a and 3b. Each gets its own implementation plan under
 `docs/superpowers/plans/`. Sub-project 1 is the first plan to write.
 
 ---
@@ -527,6 +578,21 @@ a preparable target, and which a test can fail on:
 - **`review` is red repo-wide** while the Anthropic credits are exhausted. Every PR in this
   rung will need a deliberate decision to land without the advisory review, as the last six
   did. The release process is being handled in a separate thread.
+- **Intake threads are never swept (3a).** Each work order's drafter thread stays on the
+  worker after the draft parks or the intake blocks; a redraft reuses it, nothing removes it.
+  Follow-up: a sweep of the threads of terminal and approved work orders.
+- **A drafter that parks on a gate is a failed run, and the gate stays parked (3a).** The
+  intake turn rules block an interrupt as `intake_run_failed` and leave the prompt pending
+  on the thread; only a `cancel` denies it (`denyPending`), and the drafter needs no gate
+  today. Follow-up: deny on block, or a `denyPending` route, before a real drafter can ask.
+- **The 3a inspection constraint.** The drafter thread's workspace is read through
+  `FACTORY_INTAKE_TASK`'s provider and inspection options, so the drafter can only run in
+  exactly that builder's static workspace; a drafter with its own app removes the constraint
+  (3b).
+- **3a runs verification in the target's prepared image, not at the work order's pin.** The
+  pin is recorded on the row and in the bundle; 3b honours it with per-pin images. Until then
+  a work order created against a newer `origin/main` is verified in the environment the target
+  was last prepared at, and the bundle says both.
 
 ---
 

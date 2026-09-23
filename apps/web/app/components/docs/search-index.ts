@@ -1,9 +1,10 @@
 // Server-side index builder. Reads every MDX doc page at module init, extracts
-// H1/H2/H3 headings via regex, and exports a flat searchable index.
+// H1/H2/H3 headings and each section's prose, and exports a flat searchable
+// index.
 //
 // This module is intentionally server-only (uses node:fs). The resulting
-// `DOCS_INDEX` value is serializable and can be passed to client components
-// via props.
+// `DOCS_INDEX` is served as the static `/search-index.json` route and fetched
+// by the search dialog the first time it opens, so no page carries it inline.
 
 import { readFileSync } from "node:fs"
 import path from "node:path"
@@ -21,13 +22,28 @@ export interface DocsSearchHeading {
   readonly anchor: string
 }
 
+/**
+ * The prose of one section: the page intro (`anchor: null`) or everything under
+ * an H2/H3 up to the next H2/H3. Deeper headings fold into their parent.
+ */
+export interface DocsSearchSection {
+  readonly anchor: string | null
+  /** Plain text with Markdown, JSX, and code fences removed. */
+  readonly text: string
+  /** Identifiers that appear only in the section's code blocks. */
+  readonly terms: readonly string[]
+}
+
 export interface DocsSearchEntry {
   readonly href: string
   readonly title: string
   readonly section: string
   readonly headings: readonly DocsSearchHeading[]
+  readonly sections: readonly DocsSearchSection[]
   readonly aliases: readonly string[]
   readonly canonicalAliases: readonly string[]
+  /** Export alias → the package surface whose table lists it (API pages). */
+  readonly aliasSurfaces: Readonly<Record<string, string>>
 }
 
 function packageSurface(packageName: string, subpath: string): string {
@@ -37,6 +53,7 @@ function packageSurface(packageName: string, subpath: string): string {
 interface PublicExportAliases {
   readonly aliases: readonly string[]
   readonly canonicalAliases: readonly string[]
+  readonly aliasSurfaces: Readonly<Record<string, string>>
 }
 
 function maskSearchMdx(source: string): string {
@@ -152,6 +169,7 @@ export function parsePublicExportAliases(
   const sectionChildren = children.slice(start + 1, sectionEnd)
   const aliases: string[] = []
   const canonicalAliases: string[] = []
+  const aliasSurfaces: Record<string, string> = {}
   const surfaceHeadingIndexes = new Map<string, number[]>()
   for (const [index, node] of sectionChildren.entries()) {
     const surface = exactCodeHeading(node)
@@ -211,7 +229,10 @@ export function parsePublicExportAliases(
       if (!row?.[1] || !row[2]) {
         throw new Error(`${href} Public exports rows require an exact code-formatted Export cell`)
       }
-      if (!aliases.includes(row[1])) aliases.push(row[1])
+      if (!aliases.includes(row[1])) {
+        aliases.push(row[1])
+        aliasSurfaces[row[1]] = spec.heading
+      }
       const linkedOwners = urlsIn(rowNode).flatMap((url) => {
         const owner = /^(\/docs\/api\/[^#?]+)(?:[#?].*)?$/.exec(url)?.[1]
         return owner ? [owner] : []
@@ -242,7 +263,7 @@ export function parsePublicExportAliases(
       throw new Error(`${href} has an ownership table for unregistered surface ${heading}`)
     }
   }
-  return { aliases, canonicalAliases }
+  return { aliases, canonicalAliases, aliasSurfaces }
 }
 
 function ownershipTablesByHref(): ReadonlyMap<string, readonly OwnershipTableSpec[]> {
@@ -313,28 +334,115 @@ function registryAliasesByHref(): ReadonlyMap<string, readonly string[]> {
   return new Map([...aliases].map(([href, values]) => [href, [...values]]))
 }
 
-function extractHeadings(mdx: string): readonly DocsSearchHeading[] {
-  const out: DocsSearchHeading[] = []
+// Each section contributes its leading prose (its first paragraph, and what
+// follows it up to the cap), so the lazily fetched index stays small — the
+// whole docs set is ~0.8 MB of MDX.
+const SECTION_TEXT_LIMIT = 320
+const SECTION_TERMS_LIMIT = 40
+
+/** Markdown/MDX prose line → plain text; returns "" for non-prose lines. */
+function proseText(line: string): string {
+  const trimmed = line.trim()
+  if (/^(import|export)\s/.test(trimmed)) return ""
+  if (/^\|?[\s:|-]+\|?$/.test(trimmed) && trimmed.includes("-")) return ""
+  return trimmed
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, " ")
+    .replace(/<\/?[A-Za-z][^>]*>/g, " ")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\*\*|__/g, "")
+    .replace(/^(?:[-*+]|\d+\.|>)\s+/, "")
+    .replace(/\|/g, " ")
+    .replace(/&[a-z]+;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+// Code-only identifiers worth finding: camelCase, PascalCase, dotted, or
+// hyphenated names — not ordinary words, which the prose already carries.
+const CODE_TERM = /[A-Za-z_$][\w$]*(?:[.-][A-Za-z_$][\w$]*)*/g
+function codeTerms(line: string): string[] {
+  return (line.match(CODE_TERM) ?? []).filter(
+    (term) => term.length >= 4 && /[a-z][A-Z]|^[A-Z][a-z]+[A-Z]|[.-]/.test(term),
+  )
+}
+
+interface ExtractedDocument {
+  readonly headings: readonly DocsSearchHeading[]
+  readonly sections: readonly DocsSearchSection[]
+}
+
+export function extractSearchDocument(mdx: string): ExtractedDocument {
+  const headings: DocsSearchHeading[] = []
+  const sections: { anchor: string | null; text: string[]; length: number; terms: Set<string> }[] =
+    [{ anchor: null, text: [], length: 0, terms: new Set() }]
   // The same slugger `rehype-slug` runs, one instance per document, fed every
   // heading level in document order — that shared state (its duplicate-suffix
   // counter) is what keeps these anchors identical to the ids in the built page.
   const slugger = new GithubSlugger()
   let inFence = false
+  // A JSX element whose opening tag spans lines (e.g. a prop holding a long
+  // template string) is not prose; skip until its tag closes.
+  let inJsxTag = false
   for (const line of mdx.split("\n")) {
     const trimmed = line.trim()
+    const current = sections[sections.length - 1] as (typeof sections)[number]
     if (trimmed.startsWith("```")) {
       inFence = !inFence
       continue
     }
-    if (inFence) continue
+    if (inFence) {
+      for (const term of codeTerms(line)) current.terms.add(term)
+      continue
+    }
+    if (inJsxTag) {
+      if (/\/?>\s*$/.test(trimmed)) inJsxTag = false
+      continue
+    }
+    if (/^<[A-Za-z]/.test(trimmed) && !/>/.test(trimmed)) {
+      inJsxTag = true
+      continue
+    }
     const match = /^(#{1,6})\s+(.+)$/.exec(trimmed)
-    if (!match?.[1] || !match[2]) continue
-    const level = match[1].length
-    const text = match[2].trim().replace(/`([^`]+)`/g, "$1")
-    const anchor = slugger.slug(text)
-    if (level <= 3) out.push({ text, level: level as 1 | 2 | 3, anchor })
+    if (match?.[1] && match[2]) {
+      const level = match[1].length
+      const text = match[2].trim().replace(/`([^`]+)`/g, "$1")
+      const anchor = slugger.slug(text)
+      // The anchor is slugged from the same text rehype-slug sees; only the
+      // displayed text drops remaining Markdown (links, emphasis).
+      if (level <= 3) headings.push({ text: proseText(text), level: level as 1 | 2 | 3, anchor })
+      if (level === 2 || level === 3) {
+        sections.push({ anchor, text: [], length: 0, terms: new Set() })
+      } else if (level > 3 && current.length <= SECTION_TEXT_LIMIT) {
+        current.text.push(text)
+        current.length += text.length + 1
+      }
+      continue
+    }
+    if (current.length > SECTION_TEXT_LIMIT) continue
+    const prose = proseText(line)
+    if (prose) {
+      current.text.push(prose)
+      current.length += prose.length + 1
+    }
   }
-  return out
+  return {
+    headings,
+    sections: sections.flatMap(({ anchor, text, terms }) => {
+      const joined = text.join(" ")
+      const body =
+        joined.length > SECTION_TEXT_LIMIT
+          ? `${joined.slice(0, SECTION_TEXT_LIMIT).replace(/\s+\S*$/, "")}…`
+          : joined
+      const prose = body.toLowerCase()
+      const codeOnly = [...terms]
+        .filter((term) => !prose.includes(term.toLowerCase()))
+        .slice(0, SECTION_TERMS_LIMIT)
+      if (!body && codeOnly.length === 0) return []
+      return [{ anchor, text: body, terms: codeOnly }]
+    }),
+  }
 }
 
 function slugFromHref(href: string): string {
@@ -360,18 +468,20 @@ function buildEntry(
 ): DocsSearchEntry {
   const slug = slugFromHref(item.href)
   const mdx = readMdx(slug)
-  const headings = extractHeadings(mdx)
+  const { headings, sections } = extractSearchDocument(mdx)
   const h1 = headings.find((h) => h.level === 1)
   const exportAliases = item.href.startsWith("/docs/api/")
     ? parsePublicExportAliases(mdx, item.href, expectedOwnershipTables)
-    : { aliases: [], canonicalAliases: [] }
+    : { aliases: [], canonicalAliases: [], aliasSurfaces: {} }
   return {
     href: item.href,
     title: h1?.text ?? item.label,
     section,
     headings,
+    sections,
     aliases: [...new Set([...registryAliases, ...exportAliases.aliases])],
     canonicalAliases: exportAliases.canonicalAliases,
+    aliasSurfaces: exportAliases.aliasSurfaces,
   }
 }
 

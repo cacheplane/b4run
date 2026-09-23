@@ -6,6 +6,8 @@ import {
   DeliverySchema,
   type FactoryEvent,
   FactoryEventSchema,
+  type Origin,
+  OriginSchema,
   type WorkOrderRow,
   WorkOrderRowSchema,
 } from "../domain/work-order.js"
@@ -20,7 +22,11 @@ export class StaleRevisionError extends Error {
   }
 }
 
-/** Fields a command may change. Identity, limits and timestamps are fixed at insert. */
+/**
+ * Fields a command may change. Identity, limits, origin, pin and timestamps are fixed at
+ * insert: `origin` and `pin` are what the work order is, not where it got to, and
+ * `maxIntakeAttempts` is the cap set at create.
+ */
 export type WorkOrderPatch = Partial<
   Pick<
     WorkOrderRow,
@@ -34,6 +40,9 @@ export type WorkOrderPatch = Partial<
     | "activeMs"
     | "activeStartedAt"
     | "awaitingSince"
+    | "targetId"
+    | "taskDigest"
+    | "intakeAttempts"
   >
 >
 
@@ -65,7 +74,11 @@ export interface WorkOrderStore {
   transaction<T>(fn: () => T): T
 }
 
-const COLUMNS: Readonly<Record<keyof WorkOrderRow, string>> = {
+/**
+ * The scalar columns. `origin` is an object and is split over ORIGIN_COLUMNS instead, so it
+ * is the one row field with no entry here.
+ */
+const COLUMNS: Readonly<Record<Exclude<keyof WorkOrderRow, "origin">, string>> = {
   id: "id",
   revision: "revision",
   state: "state",
@@ -82,13 +95,44 @@ const COLUMNS: Readonly<Record<keyof WorkOrderRow, string>> = {
   activeMs: "active_ms",
   activeStartedAt: "active_started_at",
   awaitingSince: "awaiting_since",
+  pin: "pin",
+  targetId: "target_id",
+  taskDigest: "task_digest",
+  intakeAttempts: "intake_attempts",
+  maxIntakeAttempts: "max_intake_attempts",
   createdAt: "created_at",
   updatedAt: "updated_at",
 }
 
+const ORIGIN_COLUMNS = [
+  "origin_kind",
+  "origin_repository",
+  "origin_number",
+  "origin_body_digest",
+] as const
+
 type SqlValue = string | number | null
 
-function toSql(key: keyof WorkOrderRow, value: unknown): SqlValue {
+function originToSql(origin: Origin): [string, string | null, number | null, string | null] {
+  return origin.kind === "catalog"
+    ? ["catalog", null, null, null]
+    : ["issue", origin.repository, origin.number, origin.bodyDigest]
+}
+
+function originFromSql(record: Record<string, unknown>): Origin {
+  const kind = record.origin_kind
+  if (kind === "catalog") return { kind: "catalog" }
+  // Anything else is a corrupt row, not a catalog one: a default here would read it as fine.
+  if (kind !== "issue") throw new Error(`Unknown origin_kind ${String(kind)}`)
+  return OriginSchema.parse({
+    kind: "issue",
+    repository: record.origin_repository,
+    number: record.origin_number,
+    bodyDigest: record.origin_body_digest,
+  })
+}
+
+function toSql(key: keyof typeof COLUMNS, value: unknown): SqlValue {
   if (value === null || value === undefined) return null
   if (typeof value === "number" || typeof value === "string") return value
   throw new TypeError(`Unsupported value for ${key}`)
@@ -96,9 +140,10 @@ function toSql(key: keyof WorkOrderRow, value: unknown): SqlValue {
 
 function fromSql(record: Record<string, unknown>): WorkOrderRow {
   const raw: Record<string, unknown> = {}
-  for (const [key, column] of Object.entries(COLUMNS) as [keyof WorkOrderRow, string][]) {
+  for (const [key, column] of Object.entries(COLUMNS) as [keyof typeof COLUMNS, string][]) {
     raw[key] = record[column] ?? null
   }
+  raw.origin = originFromSql(record)
   return WorkOrderRowSchema.parse(raw)
 }
 
@@ -119,8 +164,9 @@ const depthOf = (db: DatabaseSync): { depth: number } => {
 
 export function createWorkOrderStore(db: DatabaseSync): WorkOrderStore {
   const open = depthOf(db)
-  const keys = Object.keys(COLUMNS) as (keyof WorkOrderRow)[]
-  const insertSql = `INSERT INTO work_orders (${keys.map((k) => COLUMNS[k]).join(", ")}) VALUES (${keys
+  const keys = Object.keys(COLUMNS) as (keyof typeof COLUMNS)[]
+  const columns = [...keys.map((k) => COLUMNS[k]), ...ORIGIN_COLUMNS]
+  const insertSql = `INSERT INTO work_orders (${columns.join(", ")}) VALUES (${columns
     .map(() => "?")
     .join(", ")})`
 
@@ -134,7 +180,7 @@ export function createWorkOrderStore(db: DatabaseSync): WorkOrderStore {
   return {
     insert(row) {
       WorkOrderRowSchema.parse(row)
-      db.prepare(insertSql).run(...keys.map((k) => toSql(k, row[k])))
+      db.prepare(insertSql).run(...keys.map((k) => toSql(k, row[k])), ...originToSql(row.origin))
     },
     get,
     list() {

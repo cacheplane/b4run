@@ -8,6 +8,7 @@ import type { Verifier } from "../verification/verifier.js"
 import type { WorkerClient } from "../worker/client.js"
 import type { StreamFrame } from "../worker/wire.js"
 import type { WorkspaceReader } from "../worker/workspace-reader.js"
+import type { ObserveIntakeOptions } from "./intake.js"
 import type { ObserveRunOptions } from "./run-observer.js"
 
 /** What reconciliation and the run observer need from the factory. Kept narrow on purpose. */
@@ -20,6 +21,16 @@ export interface ControllerContext {
   readonly workspaceReader: WorkspaceReader
   readonly worker: WorkerClient
   readonly workerRoute: string
+  /** The route the drafter turn runs on. */
+  readonly intakeRoute: string
+  /**
+   * The catalog task whose provider and inspection options read the drafter thread's
+   * workspace (3a: the drafter runs in the builder process, whose workspace is fixed by its
+   * manifest task). Undefined when intake is not configured; the `intake` command refuses.
+   */
+  readonly intakeTaskId: string | undefined
+  /** Where issue work orders keep `issue.md` and where intake materialises the drafted task. */
+  readonly generatedTasksDir: string
   readonly exportDir: string
   readonly maxChangedBytes: number
   readonly signal: AbortSignal
@@ -30,6 +41,8 @@ export interface ControllerContext {
    * work order's verifier would otherwise run to its own deadline.
    */
   verificationSignal(id: string): AbortSignal
+  /** The same, for the intake phase: aborted when the row leaves `intake_running`. */
+  intakeSignal(id: string): AbortSignal
   now(): number
   iso(): string
   mustGet(id: string): WorkOrderRow
@@ -57,6 +70,14 @@ export interface ControllerContext {
   }>
   /** Run the verifying phase for a work order whose turn has ended. */
   runVerification(id: string): Promise<void>
+  /** Observe a drafter turn to its end, applying the intake turn rules. */
+  observeIntakeTurn(
+    id: string,
+    frames: AsyncIterable<StreamFrame>,
+    options?: ObserveIntakeOptions,
+  ): Promise<void>
+  /** Read, parse, materialise and prove the draft of a work order whose drafter turn has ended. */
+  finishIntake(id: string): Promise<void>
   /** Resolve every pending interrupt on the work order's thread with `deny`. */
   denyPending(id: string): Promise<void>
   /** Cancel the worker if needed, deny any pending gate, and apply the terminal cancel row. */

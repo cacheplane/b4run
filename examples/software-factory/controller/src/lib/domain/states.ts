@@ -1,5 +1,7 @@
 export const STATES = [
   "received",
+  "intake_running",
+  "awaiting_intake_approval",
   "dispatched",
   "running",
   "verifying",
@@ -23,6 +25,7 @@ export const TERMINAL_STATES: ReadonlySet<WorkOrderState> = new Set<WorkOrderSta
 
 /** States that count toward the active-time budget. Waiting on a person is not active time. */
 export const ACTIVE_STATES: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>([
+  "intake_running",
   "dispatched",
   "running",
   "verifying",
@@ -45,6 +48,17 @@ export const BLOCKED_REASONS = [
   "verification_inconclusive",
   "export_unconfirmed",
   "budget_exhausted",
+  // The drafter's task failed the task schema, or names a package the target does not
+  // contain: it cannot be proved against anything.
+  "intake_invalid",
+  // The drafted check passed, or was inconclusive, on the unpatched baseline. A check that
+  // does not fail before the fix cannot be evidence that the fix worked.
+  "oracle_did_not_fail",
+  "intake_attempts_exhausted",
+  // The draft names a package with no prepared target; there is nothing to pin it to.
+  "no_target_for_package",
+  // The drafter turn ended without a draft, or the stream was lost past its retries.
+  "intake_run_failed",
 ] as const
 export type BlockedReason = (typeof BLOCKED_REASONS)[number]
 
@@ -70,6 +84,12 @@ export const TRANSITION_EVENTS = [
   "run_ended_after_cancel",
   "run_ended_after_budget",
   "budget_exhausted",
+  "intake_started",
+  "intake_drafted",
+  "intake_retry",
+  "intake_blocked",
+  "approve_intake",
+  "reject_intake",
 ] as const
 export type TransitionEvent = (typeof TRANSITION_EVENTS)[number]
 
@@ -101,11 +121,20 @@ const TABLE: Readonly<Record<TransitionEvent, Row>> = {
   run_ended_after_cancel: { cancel_requested: "cancelled" },
   run_ended_after_budget: { cancel_requested: "blocked" },
   budget_exhausted: {
+    intake_running: "cancel_requested",
     dispatched: "cancel_requested",
     running: "cancel_requested",
     verifying: "cancel_requested",
     exporting: "cancel_requested",
   },
+  // The intake prefix: an issue becomes a task the controller has proved as an oracle and a
+  // person has approved, and only then does the lifecycle above begin from `received`.
+  intake_started: { received: "intake_running" },
+  intake_drafted: { intake_running: "awaiting_intake_approval" },
+  intake_retry: { intake_running: "intake_running" },
+  intake_blocked: { intake_running: "blocked", awaiting_intake_approval: "blocked" },
+  approve_intake: { awaiting_intake_approval: "received" },
+  reject_intake: { awaiting_intake_approval: "intake_running" },
 }
 
 export class IllegalTransitionError extends Error {

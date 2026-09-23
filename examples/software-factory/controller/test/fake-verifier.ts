@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto"
 import type { Verdict } from "../src/lib/domain/work-order.ts"
-import { suiteChecks } from "../src/lib/verification/receipt.ts"
+import { independentOnlyChecks, suiteChecks } from "../src/lib/verification/receipt.ts"
 import { type Verifier, type VerifyInput, worstVerdict } from "../src/lib/verification/verifier.ts"
 
 export interface FakeVerifierScript {
@@ -20,8 +20,10 @@ export interface FakeVerifierScript {
 }
 
 export interface FakeVerifier extends Verifier {
-  /** Candidate digests this verifier was asked to verify, in order. */
+  /** Candidate digests this verifier was asked to verify, in order: a convenience over `calls`. */
   readonly verified: string[]
+  /** Every input this verifier was handed, in order, so a test can see the mode and changes. */
+  readonly calls: VerifyInput[]
   script: FakeVerifierScript
 }
 
@@ -34,37 +36,48 @@ export interface FakeVerifier extends Verifier {
  */
 export function createFakeVerifier(script: FakeVerifierScript): FakeVerifier {
   const verified: string[] = []
+  const calls: VerifyInput[] = []
   const fake: FakeVerifier = {
     verified,
+    calls,
     script,
     async verify(input: VerifyInput) {
       verified.push(input.candidateDigest)
+      calls.push(input)
       if (fake.script.throws) throw new Error(fake.script.throws)
       const visible = fake.script.visible ?? fake.script.verdict ?? "pass"
       const independent = fake.script.independent ?? fake.script.verdict ?? "pass"
+      // In `independentOnly` mode the visible verdict never ran, so it must not be folded in.
+      const independentOnly = input.mode === "independentOnly"
+      const verdict =
+        fake.script.verdict ??
+        (independentOnly ? independent : worstVerdict([visible, independent]))
+      const independentEvidence = {
+        verdict: independent,
+        acceptanceIds: ["independent"],
+        outputDigest: outputDigest(input.candidateDigest, "independent", independent),
+      }
       return {
         id: fake.script.receiptId ?? `rc-${randomUUID()}`,
         workOrderId: input.workOrderId,
         candidateDigest: input.candidateDigest,
-        verifierIdentity: `fake:${fake.script.verdict ?? worstVerdict([visible, independent])}`,
+        verifierIdentity: `fake:${verdict}`,
         policyDigest: input.policyDigest,
         environmentIdentity: fake.script.environmentIdentity ?? "fake:none",
-        verdict: fake.script.verdict ?? worstVerdict([visible, independent]),
-        // Built by the real verifier's own helper, so the fake cannot be weaker than the
+        verdict,
+        // Built by the real verifier's own helpers, so the fake cannot be weaker than the
         // thing it stands in for: distinct evidence ids per check, which is what
         // `freezeBundle` requires and what an empty evidence array used to hide.
-        checks: suiteChecks({
-          visible: {
-            verdict: visible,
-            acceptanceIds: ["visible"],
-            outputDigest: outputDigest(input.candidateDigest, "visible", visible),
-          },
-          independent: {
-            verdict: independent,
-            acceptanceIds: ["independent"],
-            outputDigest: outputDigest(input.candidateDigest, "independent", independent),
-          },
-        }),
+        checks: independentOnly
+          ? independentOnlyChecks(independentEvidence)
+          : suiteChecks({
+              visible: {
+                verdict: visible,
+                acceptanceIds: ["visible"],
+                outputDigest: outputDigest(input.candidateDigest, "visible", visible),
+              },
+              independent: independentEvidence,
+            }),
         issuedAt: new Date().toISOString(),
       }
     },

@@ -3,7 +3,8 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { BrandLogo } from "./BrandLogo"
-import { openDocsSearch } from "./docs/docs-search-events"
+import { DocsSearch, SearchShortcutHint } from "./docs/DocsSearch"
+import { loadDocsSearchIndex, openDocsSearch } from "./docs/docs-search-events"
 import homepageStyles from "./homepage/header.module.css"
 import { MobileMenu } from "./MobileMenu"
 import { CopyCommand } from "./ui/CopyCommand"
@@ -32,18 +33,43 @@ function isReadingLayout(pathname: string): boolean {
   return pathname.startsWith("/docs") || /^\/blog\/(?!tags(\/|$))[^/]+\/?$/.test(pathname)
 }
 
+const preloadSearch = () => void loadDocsSearchIndex().catch(() => {})
+
 function MobileDocsSearchButton() {
   return (
     <button
       type="button"
       onClick={openDocsSearch}
+      onPointerEnter={preloadSearch}
+      onFocus={preloadSearch}
       aria-label="Search docs"
       aria-haspopup="dialog"
+      aria-keyshortcuts="Meta+K Control+K /"
       data-mobile-docs-search
       data-ui="icon-button"
       className="md:hidden"
     >
       <Icon name="search" size="md" />
+    </button>
+  )
+}
+
+/** Desktop header search, for pages without the docs sidebar's search field. */
+function HeaderSearchButton() {
+  return (
+    <button
+      type="button"
+      onClick={openDocsSearch}
+      onPointerEnter={preloadSearch}
+      onFocus={preloadSearch}
+      aria-haspopup="dialog"
+      aria-keyshortcuts="Meta+K Control+K /"
+      data-header-docs-search
+      className="inline-flex items-center gap-2 border border-rule-strong px-2.5 py-1.5 text-ink-muted hover:text-ink hover:border-ink transition-colors"
+    >
+      <Icon name="search" />
+      Search docs
+      <SearchShortcutHint />
     </button>
   )
 }
@@ -73,6 +99,7 @@ export function HeaderInner({ repoUrl }: HeaderInnerProps) {
           <Link href="/blog" className={linkClass(pathname.startsWith("/blog"))}>
             Blog
           </Link>
+          {pathname.startsWith("/docs") ? null : <HeaderSearchButton />}
           <SiteLink
             href={repoUrl}
             aria-label="GitHub"
@@ -84,10 +111,13 @@ export function HeaderInner({ repoUrl }: HeaderInnerProps) {
           <CopyCommand command="npm create b4-app@latest my-agent" />
         </nav>
         <div className="flex items-center gap-1 md:hidden">
-          {pathname.startsWith("/docs") ? <MobileDocsSearchButton /> : null}
+          <MobileDocsSearchButton />
           <MobileMenu />
         </div>
       </div>
+      {/* One search dialog for the whole site: Cmd/Ctrl-K and "/" work on
+          every page, and every trigger above opens this instance. */}
+      <DocsSearch />
     </header>
   )
 }

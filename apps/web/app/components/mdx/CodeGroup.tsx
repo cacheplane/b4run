@@ -107,16 +107,8 @@ export function CodeGroup({ children }: CodeGroupProps) {
 
   const [active, setActive] = useState(0)
   const ref = useRef<HTMLDivElement>(null)
-  const [copied, setCopied] = useState(false)
 
   if (blocks.length === 0) return null
-
-  const copy = async () => {
-    const text = ref.current?.textContent ?? ""
-    await navigator.clipboard.writeText(text)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
 
   const current = blocks[active] ?? blocks[0]
   if (!current) return null
@@ -136,7 +128,7 @@ export function CodeGroup({ children }: CodeGroupProps) {
             ))}
           </div>
         }
-        right={<CopyButton onCopy={copy} copied={copied} />}
+        right={<CopyButton getText={() => ref.current?.textContent ?? ""} />}
       />
       <div ref={ref}>
         <HeadlessPreContext.Provider value={true}>{current.pre}</HeadlessPreContext.Provider>

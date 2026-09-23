@@ -58,6 +58,7 @@ async function bootWorker(options: Omit<FakeWorkerOptions, "outboxDir"> = {}) {
 async function bootFactory(overrides: Partial<FactoryOptions> = {}) {
   factory = await createFactory({
     registryPath: registryPath(),
+    generatedTasksDir: join(dir, "tasks"),
     worker: createHttpWorkerClient(fake.baseUrl),
     workerRoute: "/build#agent",
     exportDir: out(),

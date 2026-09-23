@@ -40,6 +40,7 @@ async function boot(
   const reader = createFakeWorkspaceReader({})
   factory = await createFactory({
     registryPath: join(dir, "registry.sqlite"),
+    generatedTasksDir: join(dir, "tasks"),
     worker: createHttpWorkerClient(fake.baseUrl),
     workerRoute: "/build#agent",
     exportDir: join(dir, "out"),
@@ -195,7 +196,12 @@ describe("the verifying phase", () => {
     expect(factory.events(id).map((e) => e.type)).toContain("workspace_unreadable")
     // Nothing was assembled and nothing was verified: the controller never saw any bytes.
     expect(row.candidateDigest).toBeNull()
-    expect(factory.evidence(id)).toEqual({ candidate: null, receipt: null, bundle: null })
+    expect(factory.evidence(id)).toEqual({
+      candidate: null,
+      receipt: null,
+      bundle: null,
+      oracleReceipt: null,
+    })
   })
 
   it("blocks when the controller cannot capture its own baseline", async () => {
@@ -211,7 +217,12 @@ describe("the verifying phase", () => {
     expect(factory.events(id).map((e) => e.type)).toContain("baseline_unavailable")
     expect(row.candidateDigest).toBeNull()
     expect(verifier.verified).toEqual([])
-    expect(factory.evidence(id)).toEqual({ candidate: null, receipt: null, bundle: null })
+    expect(factory.evidence(id)).toEqual({
+      candidate: null,
+      receipt: null,
+      bundle: null,
+      oracleReceipt: null,
+    })
   })
 
   it("blocks rather than stranding the row when the phase throws where nothing expects it", async () => {
@@ -233,7 +244,12 @@ describe("the verifying phase", () => {
     expect(types).not.toContain("run_observer_error")
     // The candidate was never stored, and the verifier was never asked about bytes the
     // controller could not keep.
-    expect(factory.evidence(id)).toEqual({ candidate: null, receipt: null, bundle: null })
+    expect(factory.evidence(id)).toEqual({
+      candidate: null,
+      receipt: null,
+      bundle: null,
+      oracleReceipt: null,
+    })
     expect(verifier.verified).toEqual([])
   })
 

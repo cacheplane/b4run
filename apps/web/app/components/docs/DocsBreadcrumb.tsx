@@ -13,11 +13,19 @@ export function DocsBreadcrumb({ href }: Props) {
         {crumbs.map((c, i) => (
           <li key={c.href ?? c.label} className="flex items-center gap-2">
             {c.href ? (
-              <Link href={c.href} className="hover:text-ink transition-colors">
+              <Link
+                href={c.href}
+                className="inline-flex min-h-11 items-center md:min-h-0 hover:text-ink transition-colors"
+              >
                 {c.label}
               </Link>
             ) : (
-              <span className="text-ink-muted">{c.label}</span>
+              <span
+                className="text-ink-muted"
+                {...(i === crumbs.length - 1 ? { "aria-current": "page" as const } : {})}
+              >
+                {c.label}
+              </span>
             )}
             {i < crumbs.length - 1 && <span aria-hidden>/</span>}
           </li>

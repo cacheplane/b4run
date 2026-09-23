@@ -26,3 +26,16 @@ describe("MDX heading overrides", () => {
     expect(html).toMatch(new RegExp(`^<${tag}[ >]`))
   })
 })
+
+describe("heading self-links", () => {
+  it.each(["h2", "h3"])("adds a labelled copy-link to <%s> without changing its id", (tag) => {
+    const html = render(tag)
+    expect(html).toMatch(new RegExp(`^<${tag} id="a-heading-slug"`))
+    expect(html).toMatch(/<a href="#a-heading-slug"[^>]*>[\s\S]*Copy link to section: A heading/)
+    expect(html).toContain('role="status"')
+  })
+
+  it.each(["h1", "h4"])("leaves <%s> without a self-link", (tag) => {
+    expect(render(tag)).not.toContain("data-heading-anchor")
+  })
+})

@@ -228,6 +228,8 @@ The larger inline `AgentOptions` shape used by `executeAgent` and `streamAgent` 
 
 Materialized graphs are cached by descriptor plus checkpointer. Sandbox-bound tools, subagents, stream transformers, and explicit bypass requests skip reuse. A checkpointer is mandatory at runtime; `threadId` is also required for an interrupted run to resume. Generated edge assembly must seed its static provider importer before model construction.
 
+### Behavior contracts
+
 #### Behavior contract `langchain.provider.explicit`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/langchain/test/model-provider-resolver.test.ts","testNames":["explicit provider bypasses inference"]}] */}
 An explicit model provider bypasses provider inference.

@@ -52,6 +52,14 @@
   [data-code-active-marker] {
     background: var(--color-panel-accent);
   }
+  /* Edge fades on a horizontally scrolling <pre> (CodeBlock's ScrollFade);
+     --code-fade-bg is the measured background under the code. */
+  [data-code-fade="start"] {
+    background: linear-gradient(to right, var(--code-fade-bg, var(--color-panel)), transparent);
+  }
+  [data-code-fade="end"] {
+    background: linear-gradient(to left, var(--code-fade-bg, var(--color-panel)), transparent);
+  }
   pre {
     font-family: var(--font-mono);
     font-size: var(--text-code);
@@ -218,57 +226,99 @@
     font-weight: 500;
   }
 
-  /* The `$ command` chip in the header, mobile menu, homepage and blog CTA. */
+  /* The `$ command` chip in the header, mobile menu, homepage and blog CTA.
+     The wrapper positions the result; the whole chip is the copy button
+     (44px tall below md), with the icon in a trailing span. */
   [data-ui="copy-command"] {
+    position: relative;
+    display: inline-flex;
+  }
+  [data-ui="copy-command"] > button {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
+    min-height: 2.75rem;
     padding: 0.5rem 0.5rem 0.5rem 1rem;
     font-family: var(--font-mono);
     font-size: var(--text-code);
     line-height: 1.4;
+    text-align: left;
     color: var(--color-ink-muted);
     background: var(--color-surface);
     border: 1px solid var(--color-rule);
+    cursor: pointer;
+    transition: border-color 120ms ease;
   }
-  [data-ui="copy-command"] > span > span {
+  @media (min-width: 48rem) {
+    [data-ui="copy-command"] > button {
+      min-height: 0;
+    }
+  }
+  [data-ui="copy-command"] > button:hover {
+    border-color: var(--color-rule-strong);
+  }
+  [data-ui="copy-command"] > button > span:first-child > span {
     color: var(--color-olive);
   }
-  [data-ui="copy-command"] > button {
+  [data-ui="copy-command"] > button > span:last-child {
     display: inline-flex;
     padding: 0.25rem;
     margin-left: 0.25rem;
     color: var(--color-ink-muted);
-    background: transparent;
-    border: 0;
-    cursor: pointer;
     transition:
       color 120ms ease,
       background-color 120ms ease;
   }
-  [data-ui="copy-command"] > button:hover {
+  [data-ui="copy-command"] > button:hover > span:last-child {
     color: var(--color-ink);
     background: var(--color-relay-tint);
   }
-  [data-ui="copy-command"] > button[data-copied="true"] {
+  [data-ui="copy-command"] > button[data-copied="true"] > span:last-child {
     color: var(--color-olive);
   }
+  /* The copy result, beneath the chip and out of flow. */
+  [data-ui="copy-command"] > [role="status"]:not(.sr-only) {
+    position: absolute;
+    right: 0;
+    top: 100%;
+    z-index: 10;
+    margin-top: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    white-space: nowrap;
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    color: var(--color-ink-muted);
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
+  }
+  [data-ui="copy-command"] > [role="status"][data-copy-status="error"] {
+    color: var(--color-danger);
+  }
   [data-ui="copy-command"][data-variant="dark"] {
+    --color-focus: var(--color-panel-accent);
+  }
+  [data-ui="copy-command"][data-variant="dark"] > button,
+  [data-ui="copy-command"][data-variant="dark"] > [role="status"]:not(.sr-only) {
     color: var(--color-panel-muted);
     background: var(--color-panel-strip);
     border-color: var(--color-panel-rule);
-    --color-focus: var(--color-panel-accent);
-  }
-  [data-ui="copy-command"][data-variant="dark"] > span > span,
-  [data-ui="copy-command"][data-variant="dark"] > button[data-copied="true"] {
-    color: var(--color-panel-accent);
-  }
-  [data-ui="copy-command"][data-variant="dark"] > button {
-    color: var(--color-panel-muted);
   }
   [data-ui="copy-command"][data-variant="dark"] > button:hover {
+    border-color: var(--color-panel-muted);
+  }
+  [data-ui="copy-command"][data-variant="dark"] > button > span:first-child > span,
+  [data-ui="copy-command"][data-variant="dark"] > button[data-copied="true"] > span:last-child {
+    color: var(--color-panel-accent);
+  }
+  [data-ui="copy-command"][data-variant="dark"] > button > span:last-child {
+    color: var(--color-panel-muted);
+  }
+  [data-ui="copy-command"][data-variant="dark"] > button:hover > span:last-child {
     color: var(--color-panel-ink);
     background: var(--color-panel-rule);
+  }
+  [data-ui="copy-command"][data-variant="dark"] > [role="status"][data-copy-status="error"] {
+    color: var(--color-danger-tint);
   }
 
   /* An anchor card needs block; a <div data-ui="card"> may carry flex/grid

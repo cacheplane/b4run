@@ -1,13 +1,15 @@
 import { execFile } from "node:child_process"
-import { mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { chmodSync, cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
 import { afterEach, describe, expect, it } from "vitest"
 import { BuilderManifestSchema } from "../src/lib/builder-manifest.ts"
 import { openRegistryReader } from "../src/lib/registry/reader.ts"
+import { tasksDir } from "../src/lib/targets/catalog.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
-import { type ServedController, serveController } from "./serve-controller.ts"
+import { BAD_DRAFTS, GOOD_DRAFT } from "./intake-fixtures.ts"
+import { FIRST_THREAD, type ServedController, serveController } from "./serve-controller.ts"
 
 const run = promisify(execFile)
 // Resolved from the package's own node_modules rather than relying on `pnpm` being on PATH
@@ -124,6 +126,8 @@ describe("cli", () => {
     expect(evidence.candidate).not.toBeNull()
     expect(evidence.bundle).not.toBeNull()
     expect(evidence.receipt).not.toBeNull()
+    // A catalog work order had no intake, and the evidence says so rather than omitting it.
+    expect(evidence.oracleReceipt).toBeNull()
 
     const { json: reconciled } = await cli("reconcile")
     expect(reconciled).toMatchObject({ ok: true })
@@ -209,6 +213,229 @@ describe("cli", () => {
     expect(failed.stderr).toContain("FACTORY_CONTROLLER_URL")
   }, 90_000)
 
+  /** A `gh` that answers `issue view` with a fixed issue and refuses everything else. */
+  function stubGh(issue: { title: string; body: string; url: string }): string {
+    const path = join(dir, "gh")
+    writeFileSync(
+      path,
+      `#!/bin/sh
+case "$1 $2" in
+  "issue view") printf '%s\\n' '${JSON.stringify(issue)}' ;;
+  *) echo "unexpected gh $*" >&2; exit 1 ;;
+esac
+`,
+    )
+    chmodSync(path, 0o755)
+    return path
+  }
+
+  /** A repository whose `origin` is itself, so a shallow fetch of main works offline. */
+  async function localRepo(): Promise<{ root: string; head: string }> {
+    const root = join(dir, "repo")
+    const git = (...args: string[]) =>
+      run("git", ["-C", root, ...args], {
+        env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" },
+      })
+    await run("git", ["init", "-b", "main", root])
+    writeFileSync(join(root, "README.md"), "target\n")
+    await git("-c", "user.name=t", "-c", "user.email=t@t", "add", "README.md")
+    await git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init")
+    await git("remote", "add", "origin", root)
+    const { stdout } = await git("rev-parse", "HEAD")
+    return { root, head: stdout.trim() }
+  }
+
+  it("creates from an issue through a stubbed gh and a local target repository", async () => {
+    const { cli, env } = await boot()
+    const gh = stubGh({ title: "Fix the flag", body: "Body\n", url: "https://github.com/x/778" })
+    const { root, head } = await localRepo()
+    const issueEnv = { ...env, FACTORY_GH: gh, FACTORY_REPO_ROOT: root }
+    const { stdout } = await run(
+      process.execPath,
+      [tsxBin, cliEntry, "create", "--issue", "778", "--repo", "cacheplane/b4run"],
+      { env: issueEnv, cwd: packageRoot },
+    )
+    const created = JSON.parse(stdout)
+    expect(created).toMatchObject({ ok: true, state: "received" })
+    expect(created.row.origin).toMatchObject({
+      kind: "issue",
+      repository: "cacheplane/b4run",
+      number: 778,
+    })
+    expect(created.row.origin.bodyDigest).toMatch(/^[a-f0-9]{64}$/)
+    expect(created.row.pin).toBe(head)
+    expect(
+      readFileSync(join(served?.stateDir ?? "", "tasks", created.row.id, "issue.md"), "utf8"),
+    ).toBe("# Fix the flag (cacheplane/b4run#778)\n\nBody\n")
+    const { json: shown } = await cli("show", created.row.id)
+    expect(shown.pin).toBe(head)
+
+    const both = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "create", "--task", "cli-flags", "--issue", "778"], {
+        env: issueEnv,
+        cwd: packageRoot,
+      }),
+    )
+    expect(both.stderr).toContain("not both")
+    const neither = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "create"], { env: issueEnv, cwd: packageRoot }),
+    )
+    expect(neither.stderr).toContain("--task or --issue")
+    const notANumber = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "create", "--issue", "seven"], {
+        env: issueEnv,
+        cwd: packageRoot,
+      }),
+    )
+    expect(notANumber.stderr).toContain("positive integer")
+  }, 90_000)
+
+  it("drives the intake gate: intake tails and parks, reject-intake redrafts, approve-intake needs the digest", async () => {
+    const { cli, spawn } = await boot(
+      {},
+      { verifier: createFakeVerifier({ independent: "fail" }) },
+      { FACTORY_INTAKE_TASK: "devkit-spawn-deadline" },
+    )
+    if (!served) throw new Error("no controller")
+    served.workspace.queue(FIRST_THREAD, [GOOD_DRAFT, GOOD_DRAFT])
+    const created = await served.run("create-cli-issue", "/work-orders/create#workflow", {
+      origin: {
+        kind: "issue",
+        repository: "cacheplane/b4run",
+        number: 778,
+        bodyDigest: "0".repeat(64),
+      },
+      pin: "a".repeat(40),
+      issue: { title: "spawnProcess leaks its deadline timer", body: "B" },
+    })
+    const id = (created.body as { row: { id: string } }).row.id
+
+    const { json: parked, stderr } = await cli("intake", id)
+    expect(parked).toMatchObject({ ok: true, state: "awaiting_intake_approval" })
+    expect(parked.row.state).toBe("awaiting_intake_approval")
+    expect(parked.row.taskDigest).toMatch(/^[a-f0-9]{64}$/)
+    // Tailed like a dispatch: the drafter's turn is watched through the registry.
+    expect(stderr).toContain('"type":"transition"')
+    expect(stderr).toContain("intake_drafted")
+
+    const noNote = await failing(spawn("reject-intake", id).promise)
+    expect(noNote.stderr).toContain("--note")
+    const wrongDigest = await failing(
+      spawn(
+        "approve-intake",
+        id,
+        "--revision",
+        String(parked.row.revision),
+        "--digest",
+        "b".repeat(64),
+      ).promise,
+    )
+    expect(JSON.parse(wrongDigest.stdout)).toMatchObject({
+      ok: false,
+      message: "Task digest does not match the work order's",
+    })
+
+    const { json: redrafted } = await cli("reject-intake", id, "--note", "name the timer")
+    expect(redrafted).toMatchObject({ ok: true, state: "awaiting_intake_approval" })
+    expect(redrafted.row.intakeAttempts).toBe(2)
+    // The redraft's own digest, not the rejected one's: the rejection cleared it.
+    expect(redrafted.row.taskDigest).toMatch(/^[a-f0-9]{64}$/)
+
+    // The digest an operator approves is the one `show` prints, not one from an earlier run.
+    const { json: shown } = await cli("show", id)
+    expect(shown.state).toBe("awaiting_intake_approval")
+    const { json: approved } = await cli(
+      "approve-intake",
+      id,
+      "--revision",
+      String(shown.revision),
+      "--digest",
+      shown.taskDigest,
+    )
+    expect(approved).toMatchObject({ ok: true, state: "received" })
+    expect(approved.row.taskDigest).toBe(shown.taskDigest)
+    // The proof the approved draft was parked on is evidence an approver can read: the
+    // receipt of the SECOND attempt, the one whose draft was approved.
+    const { json: evidence } = await cli("evidence", id)
+    expect(evidence.oracleReceipt).toMatchObject({ verdict: "fail", workOrderId: id })
+    const { json: events } = await cli("events", id)
+    const proofs = events.filter((e: { type: string }) => e.type === "oracle_receipt")
+    expect(proofs).toHaveLength(2)
+    expect(evidence.oracleReceipt.id).toBe(proofs[1].payload.receiptId)
+  }, 90_000)
+
+  it("exits non-zero when an intake settles blocked", async () => {
+    const { cli, spawn } = await boot(
+      {},
+      { verifier: createFakeVerifier({ independent: "fail" }) },
+      { FACTORY_INTAKE_TASK: "devkit-spawn-deadline" },
+    )
+    if (!served) throw new Error("no controller")
+    // A draft naming a package with no prepared target blocks at once: no redraft can
+    // prepare one, so this is the one refusal that never spends a second attempt.
+    served.workspace.set(FIRST_THREAD, BAD_DRAFTS.badTarget as Record<string, string>)
+    const created = await served.run("create-cli-blocked", "/work-orders/create#workflow", {
+      origin: {
+        kind: "issue",
+        repository: "cacheplane/b4run",
+        number: 778,
+        bodyDigest: "0".repeat(64),
+      },
+      pin: "a".repeat(40),
+      issue: { title: "T", body: "B" },
+    })
+    const id = (created.body as { row: { id: string } }).row.id
+    const { stdout } = await failing(spawn("intake", id).promise)
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: false,
+      state: "blocked",
+      message: "Intake settled in blocked (no_target_for_package)",
+      row: { state: "blocked", blockedReason: "no_target_for_package", intakeAttempts: 1 },
+    })
+    const { json: shown } = await cli("show", id)
+    expect(shown.state).toBe("blocked")
+  }, 90_000)
+
+  it("exits non-zero when a rejection exhausts the drafter's attempts", async () => {
+    const { cli, spawn } = await boot(
+      {},
+      { verifier: createFakeVerifier({ independent: "fail" }) },
+      { FACTORY_INTAKE_TASK: "devkit-spawn-deadline" },
+    )
+    if (!served) throw new Error("no controller")
+    // Two good drafts, two rejections: the default of two attempts is spent by the redraft,
+    // so the second rejection has nothing left to start and the work order blocks.
+    served.workspace.queue(FIRST_THREAD, [GOOD_DRAFT, GOOD_DRAFT])
+    const created = await served.run("create-cli-exhausted", "/work-orders/create#workflow", {
+      origin: {
+        kind: "issue",
+        repository: "cacheplane/b4run",
+        number: 778,
+        bodyDigest: "0".repeat(64),
+      },
+      pin: "a".repeat(40),
+      issue: { title: "T", body: "B" },
+    })
+    const id = (created.body as { row: { id: string } }).row.id
+    const { json: parked } = await cli("intake", id)
+    expect(parked).toMatchObject({ ok: true, state: "awaiting_intake_approval" })
+    const { json: redrafted } = await cli("reject-intake", id, "--note", "again")
+    expect(redrafted).toMatchObject({ ok: true, row: { intakeAttempts: 2 } })
+    const { stdout } = await failing(spawn("reject-intake", id, "--note", "still no").promise)
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: false,
+      state: "blocked",
+      message: "Intake rejected; no drafter attempts remain, the work order is blocked",
+      row: { state: "blocked", blockedReason: "intake_attempts_exhausted" },
+    })
+    // A rejected draft is nobody's: `show` carries no digest and no target for it, and the
+    // evidence shows no oracle proof for a draft that is not the row's.
+    const { json: shown } = await cli("show", id)
+    expect(shown).toMatchObject({ state: "blocked", taskDigest: null, targetId: null })
+    const { json: evidence } = await cli("evidence", id)
+    expect(evidence.oracleReceipt).toBeNull()
+  }, 90_000)
+
   it("writes a builder manifest without a controller, a registry or a Factory", async () => {
     dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
     // Deliberately neither variable: a command that still needed one would fail here.
@@ -224,5 +451,30 @@ describe("cli", () => {
     const manifest = BuilderManifestSchema.parse(JSON.parse(readFileSync(path, "utf8")))
     expect(manifest.taskId).toBe("cli-flags")
     expect(manifest.target.policy.network.mode).toBe("deny")
+  }, 60_000)
+
+  it("writes a builder manifest for a task generated under FACTORY_STATE_DIR", async () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
+    const { FACTORY_CONTROLLER_URL, FACTORY_WORKER_URL, ...rest } = process.env
+    // A generated task: the shipped one copied under a work-order id, minus reference.patch.
+    const generated = join(dir, "state", "tasks", "wo-0123456789abcdef")
+    cpSync(join(tasksDir, "cli-flags"), generated, { recursive: true })
+    rmSync(join(generated, "reference.patch"))
+    const manifest = JSON.parse(readFileSync(join(generated, "task.json"), "utf8"))
+    writeFileSync(
+      join(generated, "task.json"),
+      JSON.stringify({ ...manifest, id: "wo-0123456789abcdef" }),
+    )
+    const out = join(dir, "manifests")
+    const { stdout } = await run(
+      process.execPath,
+      [tsxBin, cliEntry, "builder-manifest", "--task", "wo-0123456789abcdef", "--out", out],
+      { env: { ...rest, FACTORY_STATE_DIR: join(dir, "state") }, cwd: packageRoot },
+    )
+    const { path } = JSON.parse(stdout)
+    expect(path).toBe(join(out, "wo-0123456789abcdef.json"))
+    expect(BuilderManifestSchema.parse(JSON.parse(readFileSync(path, "utf8"))).taskId).toBe(
+      "wo-0123456789abcdef",
+    )
   }, 60_000)
 })
