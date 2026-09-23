@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import { intakePrompt } from "../src/lib/prompts.ts"
 import { loadTarget, loadTargetIds } from "../src/lib/targets/catalog.ts"
@@ -24,6 +25,29 @@ describe("intakePrompt", () => {
     }
     expect(prompt).toMatch(/[Dd]o not repair/)
     expect(prompt).not.toContain("Previous attempt")
+  })
+
+  it("places the repository under repo/ and every path relative to the target's root", () => {
+    const prompt = intakePrompt({ issueText: ISSUE })
+    expect(prompt).toContain("The repository is under `repo/`")
+    // Each target with its root, so the drafter can find the package under `repo/`.
+    for (const id of loadTargetIds())
+      expect(prompt).toContain(`- \`${id}\` (root: \`${loadTarget(id).root}\`)`)
+    // The one sentence the drafter's own system prompt states the same way: paths in the
+    // manifest and imports in the check are relative to the target's root, not to `repo/`
+    // and not to the repository's root.
+    const sentence =
+      "Every path in `task.json` and every import in the check file is relative to the chosen target's root, not to `repo/` and not to the repository's root."
+    expect(prompt).toContain(sentence)
+    expect(prompt).not.toMatch(/repository-relative/)
+    expect(prompt).not.toMatch(/repository-root-relative/)
+    const drafter = readFileSync(
+      new URL("../../drafter/src/app/intake/index.ts", import.meta.url),
+      "utf8",
+    )
+    expect(drafter).toContain(
+      "relative to the target's root, not to \\`repo/\\` and not to the repository's root",
+    )
   })
 
   it("quotes the previous attempt's refusal when a note is given", () => {

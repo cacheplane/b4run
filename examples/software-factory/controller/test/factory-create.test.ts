@@ -14,6 +14,7 @@ import {
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
+import { fakeWorkerMap } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader } from "./fake-workspace-reader.ts"
 
 let dir: string
@@ -29,12 +30,15 @@ async function boot() {
   factory = await createFactory({
     registryPath: join(dir, "registry.sqlite"),
     generatedTasksDir,
-    worker: createHttpWorkerClient(fake.baseUrl),
-    workerRoute: "/build#agent",
+    workers: fakeWorkerMap({
+      builder: {
+        client: createHttpWorkerClient(fake.baseUrl),
+        reader: createFakeWorkspaceReader({}),
+      },
+    }),
     exportDir: join(dir, "out"),
     artifactsDir: join(dir, "artifacts"),
     verifier: createFakeVerifier({ verdict: "pass" }),
-    workspaceReader: createFakeWorkspaceReader({}),
     captureBaseline: async () => ({ digest: "a".repeat(64), files: new Map() }),
   })
 }

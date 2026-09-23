@@ -31,6 +31,7 @@ export type WorkOrderPatch = Partial<
   Pick<
     WorkOrderRow,
     | "state"
+    | "workerRoute"
     | "workerThreadId"
     | "interruptId"
     | "candidateDigest"

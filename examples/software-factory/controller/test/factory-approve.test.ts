@@ -8,6 +8,7 @@ import type { WorkOrderRow } from "../src/lib/domain/work-order.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier, type FakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
+import { fakeWorkerMap } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
 
 let dir: string
@@ -59,12 +60,12 @@ async function boot(
   factory = await createFactory({
     registryPath: join(dir, "registry.sqlite"),
     generatedTasksDir: join(dir, "tasks"),
-    worker: createHttpWorkerClient(fake.baseUrl),
-    workerRoute: "/build#agent",
+    workers: fakeWorkerMap({
+      builder: { client: createHttpWorkerClient(fake.baseUrl), reader },
+    }),
     exportDir: out(),
     artifactsDir: join(dir, "artifacts"),
     verifier,
-    workspaceReader: reader,
     captureBaseline: captureRepairable,
     approvalTtlMs: 60_000,
     now: () => nowMs,

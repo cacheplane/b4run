@@ -15,6 +15,7 @@ import { loadPolicy } from "../src/lib/verification/policy.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createThreadWorkspaceReader } from "../src/lib/worker/workspace-reader.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
+import { fakeWorkerMap } from "./fake-worker-map.ts"
 import { isolatedBuilder } from "./isolated-builder.ts"
 import { applyReference } from "./reference-repair.ts"
 
@@ -158,15 +159,18 @@ it(
     factory = await createFactory({
       registryPath: join(dir, "registry.sqlite"),
       generatedTasksDir: join(dir, "tasks"),
-      worker: createHttpWorkerClient(worker.baseUrl),
-      workerRoute: "/build#agent",
+      workers: fakeWorkerMap({
+        builder: {
+          client: createHttpWorkerClient(worker.baseUrl),
+          reader: createThreadWorkspaceReader(
+            { providerFor: () => builderSandboxProvider(task.target), appRoot },
+            () => targetInspectionOptions(task),
+          ),
+        },
+      }),
       exportDir,
       artifactsDir: join(dir, "artifacts"),
       verifier: createDockerVerifier(createArtifactStore(join(dir, "artifacts"))),
-      workspaceReader: createThreadWorkspaceReader(
-        { providerFor: () => builderSandboxProvider(task.target), appRoot },
-        () => targetInspectionOptions(task),
-      ),
       captureBaseline: captureTargetBaseline,
       // The active clock starts at dispatch, which is after the builder's turn, so none of
       // the turn above is charged to it. Four times the target's own deadline is headroom for

@@ -93,21 +93,20 @@ export async function observeRun(
 
 /**
  * Resolve every pending interrupt on the work order's thread with `deny`. The resume goes
- * out on the builder route, which is the wrong route for a drafter thread — and a drafter
- * thread can be parked: `intake_unexpected_interrupt` blocks the row precisely because it
- * parked, and the deny or cancel that follows lands here. Tolerated in 3a because the
- * outcome is a deny either way; a drafter route that gains a gate of its own must resume on
- * `ctx.intakeRoute` (a Task 8 / 3b follow-up).
+ * out to the worker holding the thread, on that worker's route: a drafter thread can be
+ * parked too (`intake_unexpected_interrupt` blocks the row precisely because it parked),
+ * and its denial resumes on the drafter's route, not the builder's.
  */
 export async function denyPending(ctx: ControllerContext, id: string): Promise<void> {
   const row = ctx.mustGet(id)
   if (!row.workerThreadId) return
-  const pending = await ctx.worker.pendingInterrupts(row.workerThreadId)
+  const worker = ctx.workerOfThread(row)
+  const pending = await worker.client.pendingInterrupts(row.workerThreadId)
   if (pending.length === 0) return
   ctx.recordEvent(id, "pending_denied", { interruptIds: pending.map((p) => p.interruptId) })
-  const frames = await ctx.worker.resume(
+  const frames = await worker.client.resume(
     row.workerThreadId,
-    ctx.workerRoute,
+    worker.route,
     pending.map((p) => ({ interruptId: p.interruptId, payload: "deny" as const })),
     ctx.signal,
   )

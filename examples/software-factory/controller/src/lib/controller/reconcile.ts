@@ -226,7 +226,10 @@ async function reconcileRun(
     return
   }
   const threadId = row.workerThreadId
-  const thread = await ctx.worker.getThread(threadId)
+  // The target's builder holds a run-state row's thread. A target with no worker any more
+  // throws here, into `safeReconcile`'s journal: the row keeps its state for the operator.
+  const worker = ctx.workerFor(row).client
+  const thread = await worker.getThread(threadId)
   // Every worker call is an await: a cancel may have moved the row meanwhile, and none of
   // the moves below is legal from where it left it.
   if (!isRunState(ctx.mustGet(id).state)) return
@@ -235,7 +238,7 @@ async function reconcileRun(
     fail("thread not found on worker")
     return
   }
-  const pending = await ctx.worker.pendingInterrupts(threadId)
+  const pending = await worker.pendingInterrupts(threadId)
   if (!isRunState(ctx.mustGet(id).state)) return
   if (pending.length > 0) {
     // Rung 1's builder route has no gate to park on, so any prompt is an unexpected one —
@@ -260,7 +263,7 @@ async function reconcileRun(
     }
     let frames: AsyncIterable<StreamFrame>
     try {
-      frames = await ctx.worker.reattach(threadId, ctx.signal)
+      frames = await worker.reattach(threadId, ctx.signal)
     } catch (error) {
       ctx.recordEvent(id, "reattach_failed", { threadId, error: String(error) })
       return
@@ -316,14 +319,17 @@ async function reconcileIntake(
     return
   }
   const threadId = row.workerThreadId
-  const thread = await ctx.worker.getThread(threadId)
+  // The drafter holds an `intake_running` row's thread; no drafter configured throws into
+  // `safeReconcile`'s journal, and the row waits for the operator.
+  const worker = ctx.drafter().client
+  const thread = await worker.getThread(threadId)
   // Every worker call is an await: a cancel may have moved the row meanwhile.
   if (!isIntake()) return
   if (!thread) {
     fail("thread not found on worker")
     return
   }
-  const pending = await ctx.worker.pendingInterrupts(threadId)
+  const pending = await worker.pendingInterrupts(threadId)
   if (!isIntake()) return
   if (pending.length > 0) {
     // The drafter route has no gate: a parked prompt is a turn that cannot finish.
@@ -348,7 +354,7 @@ async function reconcileIntake(
     }
     let frames: AsyncIterable<StreamFrame>
     try {
-      frames = await ctx.worker.reattach(threadId, ctx.signal)
+      frames = await worker.reattach(threadId, ctx.signal)
     } catch (error) {
       ctx.recordEvent(id, "reattach_failed", { threadId, error: String(error) })
       return

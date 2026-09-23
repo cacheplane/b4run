@@ -14,6 +14,7 @@ import { createDockerVerifier } from "../src/lib/verification/docker-verifier.ts
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createThreadWorkspaceReader } from "../src/lib/worker/workspace-reader.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
+import { fakeWorkerMap } from "./fake-worker-map.ts"
 import { isolatedBuilder } from "./isolated-builder.ts"
 import { applyReference } from "./reference-repair.ts"
 
@@ -136,15 +137,18 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
   factory = await createFactory({
     registryPath: join(dir, "registry.sqlite"),
     generatedTasksDir: join(dir, "tasks"),
-    worker: createHttpWorkerClient(worker.baseUrl),
-    workerRoute: "/build#agent",
+    workers: fakeWorkerMap({
+      builder: {
+        client: createHttpWorkerClient(worker.baseUrl),
+        reader: createThreadWorkspaceReader(
+          { providerFor: () => builderSandboxProvider(task.target), appRoot },
+          () => targetInspectionOptions(task),
+        ),
+      },
+    }),
     exportDir,
     artifactsDir: join(dir, "artifacts"),
     verifier: createDockerVerifier(createArtifactStore(join(dir, "artifacts"))),
-    workspaceReader: createThreadWorkspaceReader(
-      { providerFor: () => builderSandboxProvider(task.target), appRoot },
-      () => targetInspectionOptions(task),
-    ),
     captureBaseline: captureTargetBaseline,
   })
   const { id } = await factory.create({ taskId: "cli-flags" })
