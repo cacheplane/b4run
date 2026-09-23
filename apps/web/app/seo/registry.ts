@@ -46,7 +46,7 @@ export const DOCS_SEO_ENTRIES = [
     path: "/docs/getting-started",
     title: "Getting Started",
     description:
-      "Build a typed B4.run research agent with file-system routes, generated types, local tools, offline tests, and production build targets.",
+      "Build your first B4.run agent: scaffold the basic template, write a typed tool, run it with a real model, and test it offline.",
     sourcePath: "apps/web/content/docs/getting-started.mdx",
   },
   {
@@ -426,6 +426,13 @@ export const DOCS_SEO_ENTRIES = [
     description:
       "Dispatch work to a B4.run subagent with the generated task tool, or call a separate Agent Protocol service over HTTP when crossing deployments.",
     sourcePath: "apps/web/content/docs/recipes/dispatch-from-route.mdx",
+  },
+  {
+    path: "/docs/recipes/research-assistant",
+    title: "Build a Research Assistant",
+    description:
+      "Build a B4.run deep-research assistant with a coordinator agent, a researcher subagent, planning, memory, offline tests and the Workbench UI.",
+    sourcePath: "apps/web/content/docs/recipes/research-assistant.mdx",
   },
   {
     path: "/docs/recipes/research-web-ui",

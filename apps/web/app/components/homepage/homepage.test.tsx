@@ -5,9 +5,8 @@ import { renderToString } from "react-dom/server"
 import { afterEach, expect, it, vi } from "vitest"
 import { CodePanel } from "./CodePanel"
 import { DeveloperHome } from "./DeveloperHome"
-import { sourceUrl } from "./evidence"
 import { prepareHomepage } from "./highlight"
-import { prepareNarrative } from "./narrative-source"
+import { exampleUrl, narrativeSource, prepareNarrative } from "./narrative-source"
 import { Walkthrough } from "./Walkthrough"
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -19,13 +18,46 @@ afterEach(async () => {
 })
 const prepared = await prepareHomepage()
 
+it("opens with the install command and a first agent from the basic template", async () => {
+  const container = document.createElement("div")
+  container.innerHTML = renderToString(await DeveloperHome())
+  const hero = container.querySelector('[aria-labelledby="home-title"]')
+  expect(hero?.textContent).toContain("npm create b4-app@latest my-agent -- --template basic")
+  expect(hero?.querySelector('a[href="/docs/getting-started"]')?.textContent).toBe("Get started →")
+  const first = container.querySelector("#first-agent")
+  expect(first?.textContent).toContain("src/app/hello/index.ts")
+  expect(first?.textContent).toContain("src/app/hello/tools/greet.ts")
+  const order = ["first-agent", "blueprint", "project", "run-title"].map((id) =>
+    [...container.querySelectorAll("[id]")].findIndex((node) => node.id === id),
+  )
+  expect(order).toEqual([...order].sort((a, b) => a - b))
+})
+
+it("marks only off-site links with ↗, opens them in a new tab, and pins example links", async () => {
+  const container = document.createElement("div")
+  container.innerHTML = renderToString(await DeveloperHome())
+  for (const link of container.querySelectorAll<HTMLAnchorElement>("a[href]")) {
+    const href = link.getAttribute("href") ?? ""
+    if (href.startsWith("http")) {
+      expect(link.getAttribute("target"), href).toBe("_blank")
+      expect(link.getAttribute("rel"), href).toContain("noopener")
+    } else {
+      expect(link.textContent, href).not.toContain("↗")
+    }
+    expect(href).not.toContain("docs/superpowers")
+    if (href.includes("examples/code-fixer")) expect(href).toContain(narrativeSource.sourceCommit)
+  }
+  expect(container.querySelector(`a[href="${exampleUrl}"]`)).not.toBeNull()
+  expect(container.querySelector("details")).toBeNull()
+})
+
 it("ends with the install command and the code-fixer guide", async () => {
   const container = document.createElement("div")
   container.innerHTML = renderToString(await DeveloperHome())
   expect(container.textContent).toContain("Agent source")
-  expect(container.querySelector(`a[href="${sourceUrl("README.md")}"]`)).not.toBeNull()
   const takeaway = container.querySelector('[aria-labelledby="run-title"]')
-  expect(takeaway?.textContent).toContain("npm create b4-app@latest my-agent")
+  expect(takeaway?.textContent).toContain("npm create b4-app@latest my-agent -- --template basic")
+  expect(takeaway?.querySelector('a[href="/docs/getting-started"]')).not.toBeNull()
   expect(takeaway?.textContent).toContain("b4 add code-fixer")
   expect(container.textContent).not.toMatch(/Qualified|0\.8\.32|Historical defect|earlier versions/)
   expect(container.textContent).not.toContain("run:agent")

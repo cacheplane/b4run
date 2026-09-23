@@ -132,6 +132,7 @@ const FOUNDATION_DOCS_NAV = [
       { label: "Stream Output", href: "/docs/recipes/stream-output" },
       { label: "Retry Transient Model Calls", href: "/docs/recipes/retry-flaky-tools" },
       { label: "Dispatch from a Route", href: "/docs/recipes/dispatch-from-route" },
+      { label: "Build a Research Assistant", href: "/docs/recipes/research-assistant" },
       { label: "Research Assistant Web UI", href: "/docs/recipes/research-web-ui" },
       { label: "Blueprints", href: "/docs/blueprints" },
     ],
@@ -430,19 +431,19 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
     expect(DOCS_NAV).toEqual(FOUNDATION_DOCS_NAV)
   })
 
-  it("pins the exact 62-page reading order", () => {
+  it("pins the exact 63-page reading order", () => {
     const expectedPages = (FOUNDATION_DOCS_NAV as readonly DocsNavSection[]).flatMap(
       (section) => section.items,
     )
 
-    expect(expectedPages).toHaveLength(62)
+    expect(expectedPages).toHaveLength(63)
     expect(DOCS_PAGES).toEqual(expectedPages)
   })
 
   it("adds sixteen hidden API leaves immediately after the hub", () => {
-    expect(DOCS_NAV.reduce((count, section) => count + section.items.length, 0)).toBe(62)
-    expect(DOCS_PAGES).toHaveLength(62)
-    expect(ALL_DOCS_PAGES).toHaveLength(78)
+    expect(DOCS_NAV.reduce((count, section) => count + section.items.length, 0)).toBe(63)
+    expect(DOCS_PAGES).toHaveLength(63)
+    expect(ALL_DOCS_PAGES).toHaveLength(79)
 
     const hubIndex = ALL_DOCS_PAGES.findIndex(({ href }) => href === "/docs/api")
     expect(ALL_DOCS_PAGES.slice(hubIndex + 1, hubIndex + 17)).toEqual(API_REFERENCE_PAGES)
@@ -683,16 +684,22 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
       match[1] ? [match[1]] : [],
     )
 
-    expect(source).toContain("[Deployment Options](/docs/deployment)")
-    expect(source).toContain("[Node and Docker](/docs/deployment/node)")
+    expect(source).toContain("--template basic")
     expect(source).not.toContain("## 5. Ship it")
     expect(source).not.toContain("docker run -p 8000:8000")
-    expect(cardTitles).toEqual(["Mental Model", "Add a Tool", "Deployment Options"])
+    expect(cardTitles).toEqual(["Build a Research Assistant", "Tools", "Routes"])
+  })
+
+  it("keeps the research recipe on the shipping journey", () => {
+    const source = readFileSync(join(CONTENT_ROOT, "recipes/research-assistant.mdx"), "utf8")
+    expect(source).toContain("[Deployment Options](/docs/deployment)")
+    expect(source).toContain("[Node and Docker](/docs/deployment/node)")
   })
 
   it("groups Recipes Overview around build, integrate, test, and deploy tasks", () => {
     const source = readFileSync(join(CONTENT_ROOT, "recipes/index.mdx"), "utf8")
     const recipeLabels = [
+      "Build a Research Assistant",
       "Add a Tool",
       "Typed State",
       "Retry Transient Model Calls",

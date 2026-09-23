@@ -1,0 +1,202 @@
+# Build a Research Assistant
+
+Learn how to build a deep-research assistant with subagents, planning, memory and a web UI.
+
+This recipe starts from the research template. It picks up where [Getting Started](/docs/getting-started) leaves off. If you haven't built the hello agent yet, start there.
+
+## What will we build?
+
+We'll build a research assistant at `/research`. It plans sub-questions, sends a researcher subagent after each one, searches a local corpus and writes a cited report. A browser client, the B4.run Workbench, sits in front of it.
+
+The tests and evals use recorded fixtures and run offline. Live runs need a real model and an OpenAI API key.
+
+## Create the app
+
+First, scaffold the app and install its dependencies:
+
+```bash
+npm create b4-app@latest my-research
+cd my-research
+npm install
+```
+
+The research template is the default, so we don't pass `--template`. You need Node.js 24 or later and npm 11.
+
+## Look at the agents
+
+The app is an npm workspace with two packages. `server/` is the B4.run app, and `web/` is the Workbench. The root `npm install` installs both.
+
+The research route lives in `server/src/app/research/`. Let's look at the coordinator, its subagent and the app config:
+
+<CodeGroup>
+```ts title="server/src/app/research/index.ts"
+import { agent } from "@b4run/sdk"
+
+export default agent({
+  model: "gpt-5-mini",
+  // Deep research fans out: plan → dispatch a researcher per sub-question → many
+  // corpus tool calls → synthesize. That legitimately exceeds LangGraph's default
+  // 25 super-steps, so raise the ceiling for this coordinator.
+  recursionLimit: 100,
+  description:
+    "A deep-research assistant: plans sub-questions, dispatches researchers, and writes a cited report.",
+  systemPrompt: `You are a deep-research coordinator. Given a question:
+
+1. Start by checking durable context with \`recall({ query: "<the user's topic and preferences>" })\`.
+2. Plan the sub-questions to investigate and record them in your todos.
+3. For each sub-question, dispatch a specialist with \`task({ subagent: "researcher", input: "<sub-question>" })\`.
+4. You may also \`searchCorpus({ query })\` and \`readDoc({ path })\` directly for quick lookups.
+5. When the corpus lacks coverage, you may run \`runBash({ command: "node scripts/fetch-source.mjs <topic>" })\` — the human must approve it.
+6. Synthesize the findings into a cited report and save it with \`writeFile({ path: "reports/<slug>.md", content: "<report>" })\`.
+7. When the user gives a durable preference or you verify a reusable finding, call \`remember({ data, content })\` so it can be reviewed and recalled later.
+
+Cite every claim with its source path in square brackets, e.g. [corpus/agent-architectures.md]. Keep the final answer concise.`,
+})
+```
+
+```ts title="server/src/app/research/subagents/researcher/index.ts"
+import { agent } from "@b4run/sdk"
+
+export default agent({
+  model: "gpt-5-mini",
+  description:
+    "Researches one sub-question against the bundled corpus and returns a focused, cited answer.",
+  systemPrompt: `You are a research specialist. Answer the single sub-question you are given using the corpus.
+
+- Use \`searchCorpus({ query })\` to find candidate documents, then \`readDoc({ path })\` to read the most relevant ones in full.
+- Return a focused, factual answer. Cite each claim with its source path in square brackets, e.g. [corpus/agent-architectures.md].
+- If the corpus does not cover the question, say so plainly.`,
+})
+```
+
+```ts title="server/b4.config.ts"
+import { config } from "@b4run/cli"
+
+export default config({
+  appDir: "src/app",
+  permissions: {
+    allow: { bash: ["ls", "cat", "head", "wc"] },
+    deny: { bash: ["rm -rf", "sudo", "chmod 777", "curl", "wget"] },
+  },
+  toolOutput: {
+    offloadThresholdChars: 1500,
+    previewLines: 10,
+  },
+  memory: {
+    writes: "candidate",
+  },
+})
+```
+</CodeGroup>
+
+The coordinator plans the work and hands each sub-question to the `researcher` subagent. Both agents can call the shared tools in `server/src/tools/`. The config sets the shell permissions, spills large tool output to files and makes new memories wait for review. Threads persist to SQLite by default, so they survive a restart.
+
+A few more files shape the agent:
+
+```
+server/src/app/research/
+  plan.md                       # seeds each thread's todo list
+  memory.md                     # route-specific prompt guidance
+  memory.ts                     # typed cross-session memory
+  subagents/researcher/         # the specialist subagent
+  skills/cite-sources/          # loaded on demand: citation rules
+  skills/synthesize-findings/   # loaded on demand: report structure
+  evals/research-quality.eval.ts
+server/src/tools/
+  searchCorpus.ts               # keyword search over the corpus
+  readDoc.ts                    # reads one document in full
+server/workspace/
+  AGENTS.md                     # prompt guidance injected every turn
+  corpus/                       # the documents the agent searches
+```
+
+- `plan.md` turns on [planning](/docs/planning). Its checklist seeds each thread's todos.
+- `workspace/AGENTS.md` and the route's `memory.md` add persistent prompt guidance.
+- `memory.ts` defines typed [memory](/docs/memory) records that the agent reads with `recall` and writes with `remember`.
+- The agent loads [skills](/docs/skills) under `skills/` by name when it needs them.
+
+## Verify and test
+
+Run these from the workspace root. Each script delegates to the package that owns it:
+
+```bash
+npm run typegen
+npm run check
+npm run typecheck
+```
+
+`typegen` writes `server/.b4/b4.generated.d.ts`. `check` validates routes, tools and configuration without writing files:
+
+```
+B4.run app is valid: 2 routes discovered.
+- /research (agent)
+- /research/subagents/researcher (agent)
+```
+
+Next, run both packages' tests:
+
+```bash
+npm test
+```
+
+The server tests replay recorded model responses. They cover corpus search and citations, memory recall and approval, subagent dispatch, tool-output offloading and the permission gate. The web tests cover the Workbench. Neither needs an API key.
+
+Then run the quality eval:
+
+```bash
+npm run eval
+```
+
+The eval asks research questions against the corpus. Its scorers require a corpus search, source citations and a passing quality grade from a model judge. Recorded fixtures cover the agent and the judge, so the eval runs without an API key.
+
+## Run it live
+
+These fixture-backed runs prove the app works offline. To answer a new question, we need a real model.
+
+Copy the server's environment example, add your API key, run the preflight and start the dev server:
+
+```bash
+cp server/.env.example server/.env
+# Add your OPENAI_API_KEY to server/.env
+npm run verify
+npm run dev:server
+```
+
+`verify` checks the app, its types, its dependencies, Node and the provider environment. The dev server listens on `http://127.0.0.1:3002` and serves Agent Protocol and AG-UI.
+
+In a second terminal, send the agent a question:
+
+```bash
+cd server
+echo '{"messages":[{"role":"user","content":"What are common agent architectures?"}]}' | npx b4 run /research --url http://127.0.0.1:3002
+```
+
+The report lands in `server/workspace/reports/`. Thread state is saved to `server/.b4/checkpoints.sqlite`, so threads survive dev-server restarts.
+
+## See it in a UI
+
+The Workbench is a chat UI over the same agent. Leave the server running and start it in another terminal:
+
+```bash
+npm run dev:web
+```
+
+Open [http://localhost:3010](http://localhost:3010) and ask a research question. You'll see the plan and researcher cards update as the agent works, tool cards, permission prompts and a panel for reviewing memory. The Workbench talks to B4.run over [AG-UI](/docs/ag-ui) and holds no model credentials. Those stay in `server/.env`.
+
+To build your own client, follow [Research Assistant Web UI](/docs/recipes/research-web-ui).
+
+The scaffold also installs the [Inspector](/docs/inspector). Open it in a third terminal to review the records the agent saves with `remember`:
+
+```bash
+npx b4 inspect --cwd server
+```
+
+When you're ready to ship, compare [Deployment Options](/docs/deployment) and follow [Node and Docker](/docs/deployment/node) for the default self-hosted path.
+
+## Related
+
+<RelatedCards items={[
+  { href: "/docs/subagents", title: "Subagents", subtitle: "hand work to a specialist" },
+  { href: "/docs/planning", title: "Planning", subtitle: "seed and track a todo list" },
+  { href: "/docs/memory", title: "Memory", subtitle: "remember across threads" },
+]} />

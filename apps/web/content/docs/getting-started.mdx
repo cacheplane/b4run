@@ -1,234 +1,120 @@
 # Getting Started
 
-Learn how to build a typed AI agent with B4.run.
-In B4.run, each agent is a folder of files. B4.run discovers your routes and tools from the file system and generates the tool schemas from your TypeScript types, so you don't register anything by hand.
+Learn how to build your first agent with B4.run.
 
-By the end of this guide you'll have a deep-research assistant at `/research` that plans sub-questions, searches a local corpus and writes cited reports. Live runs use a real model and API key. The included tests and evals use recorded fixtures and run offline.
+In B4.run, an agent is a folder. The folder is the route, and the files in its `tools/` folder are the functions the agent can call. B4.run reads your TypeScript types and writes the tool schemas for you.
 
 <CopyPromptButton variant="docs" label="Copy agent prompt" promptSlug="scaffold" />
 
 Prefer to build with a coding agent? Copy the prompt above and paste it into Claude Code, Cursor or your agent of choice.
 
-## 1. Install
+## What will we build?
+
+We'll start with a small agent that greets people by name. Then we'll give it a second tool that tells the time in any city. It takes about five minutes.
+
+You need Node.js 24 or later and npm 11. The last step calls a real model, so you also need an OpenAI API key.
+
+## Create the app
 
 First, scaffold the app and install its dependencies:
 
 ```bash
-npm create b4-app@latest my-agent
+npm create b4-app@latest my-agent -- --template basic
 cd my-agent
 npm install
 ```
 
-You need Node.js 24 or later and npm 11.
+## Look at the agent
 
-If you'd rather start from a minimal greeter, pass `--template basic`:
-
-```bash
-npm create b4-app@latest my-app -- --template basic
-```
-
-## 2. What you got
-
-The scaffold is a complete deep-research assistant in a two-package npm workspace. `server/` is the B4.run app, and `web/` is the B4.run Workbench, a browser client in front of it. The root `npm install` installs both. Here are the important files:
-
-```
-package.json                          # workspace root: "workspaces": ["server", "web"]
-server/                               # the B4.run app
-  src/
-    app/research/
-      index.ts                        # research coordinator agent
-      state.ts                        # route state shape
-      plan.md                         # seeds the thread's planning todos
-      memory.md                       # route-specific persistent prompt guidance
-      memory.ts                       # typed cross-session research memory
-      subagents/
-        researcher/index.ts           # specialist dispatched per sub-question
-      skills/
-        cite-sources/SKILL.md         # loaded on demand: citation rules
-        synthesize-findings/SKILL.md  # loaded on demand: report structure
-      evals/
-        research-quality.eval.ts      # quality eval with scorers and a gate
-    tools/
-      searchCorpus.ts                 # shared keyword search over the corpus
-      readDoc.ts                      # shared full-document reader
-  test/
-    research.test.ts                  # main offline harness suite
-    sandbox-docker.test.ts            # optional gated Docker sandbox smoke test
-  workspace/
-    AGENTS.md                         # persistent prompt guidance injected every turn
-    corpus/                           # bundled documents the agent searches
-    scripts/
-      fetch-source.mjs                # network fetch script called via runBash
-  AGENTS.md                           # contributor guidance for coding agents
-  b4.config.ts                      # app config: permissions, tool-output offloading
-  .env.example                        # provider environment template
-web/                                  # the B4.run Workbench (Next.js + CopilotKit)
-  app/
-    page.tsx                          # the CopilotKit provider tree and thread state
-    components/                       # thread rail, transcript, composer, activity cards
-    api/copilotkit/route.ts           # registers an AG-UI agent on the B4.run endpoint
-    api/b4/[...path]/route.ts       # allowlisted same-origin proxy to the server
-    theme.css                         # the whole palette, as CSS variables
-```
-
-The route entry (`index.ts`) is a research coordinator. It recalls durable context, plans sub-questions, dispatches the `researcher` subagent for each one and writes a cited report. Both agents can use the shared tools under `server/src/tools/`. `b4 typegen` generates their types from the function signatures, and `b4 check` validates the app without writing files.
-
-Let's look at the two agents and the app config:
+The agent lives in `src/app/hello/`. Let's look at the two files that matter:
 
 <CodeGroup>
-```ts title="server/src/app/research/index.ts"
+```ts title="src/app/hello/index.ts"
 import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "gpt-5-mini",
-  recursionLimit: 100,
-  description:
-    "A deep-research assistant: plans sub-questions, dispatches researchers, and writes a cited report.",
-  systemPrompt: `You are a deep-research coordinator. Given a question:
-
-1. Start by checking durable context with \`recall({ query: "<the user's topic and preferences>" })\`.
-2. Plan the sub-questions to investigate and record them in your todos.
-3. For each sub-question, dispatch a specialist with \`task({ subagent: "researcher", input: "<sub-question>" })\`.
-4. You may also \`searchCorpus({ query })\` and \`readDoc({ path })\` directly for quick lookups.
-5. When the corpus lacks coverage, you may run \`runBash({ command: "node scripts/fetch-source.mjs <topic>" })\` — the human must approve it.
-6. Synthesize the findings into a cited report and save it with \`writeFile({ path: "reports/<slug>.md", content: "<report>" })\`.
-7. When the user gives a durable preference or you verify a reusable finding, call \`remember({ data, content })\` so it can be reviewed and recalled later.
-
-Cite every claim with its source path in square brackets, e.g. [corpus/agent-architectures.md]. Keep the final answer concise.`,
+  systemPrompt: "You are a friendly assistant. Use greet to greet people by name.",
 })
 ```
 
-```ts title="server/src/app/research/subagents/researcher/index.ts"
-import { agent } from "@b4run/sdk"
-
-export default agent({
-  model: "gpt-5-mini",
-  description: "Researches one sub-question against the bundled corpus and returns a focused, cited answer.",
-  systemPrompt: `You are a research specialist. Answer the single sub-question you are given using the corpus.
-
-- Use \`searchCorpus({ query })\` to find candidate documents, then \`readDoc({ path })\` to read the most relevant ones in full.
-- Return a focused, factual answer. Cite each claim with its source path in square brackets.
-- If the corpus does not cover the question, say so plainly.`,
-})
-```
-
-```ts title="server/b4.config.ts"
-export default {
-  appDir: "src/app",
-  permissions: {
-    allow: { bash: ["ls", "cat", "head", "wc"] },
-    deny: { bash: ["rm -rf", "sudo", "chmod 777", "curl", "wget"] },
-  },
-  toolOutput: {
-    offloadThresholdChars: 1500,
-    previewLines: 10,
-  },
-  memory: {
-    writes: "candidate",
-  },
-  // Persistence (SQLite checkpointer + threads store) is on by default.
-  // Threads survive a restart.
+```ts title="src/app/hello/tools/greet.ts"
+/** Greet someone by name. */
+export default async (input: { readonly name: string }) => {
+  return { message: `Hello, ${input.name}!` }
 }
 ```
 </CodeGroup>
 
 A few things to note:
 
-- `plan.md` turns on [planning](/docs/planning), and its checklist items seed each thread's todos.
-- `workspace/AGENTS.md` and route-local `memory.md` add persistent prompt guidance.
-- `memory.ts` defines typed cross-session records that the agent reads and writes with `recall` and `remember`.
-- The agent loads [skills](/docs/skills) under `skills/` by name when it needs them.
+- The folder name is the route. This agent answers at `/hello`.
+- `index.ts` default-exports the agent. We choose a model and write a system prompt.
+- Each file in `tools/` is one tool. The file name is the tool name.
+- The comment above the function is the tool description the model reads.
+- The `input` type is the tool's schema. We never write a JSON schema by hand.
 
-## 3. Verify and test
+## Add a tool
 
-Run these from the workspace root. Each root script delegates to the package that owns it:
+Now, let's give the agent a second tool. Create `src/app/hello/tools/getLocalTime.ts`:
+
+```ts title="src/app/hello/tools/getLocalTime.ts"
+/** Get the current local time in an IANA time zone, such as "Asia/Tokyo". */
+export default async (input: { readonly timeZone: string }) => {
+  const time = new Date().toLocaleTimeString("en-US", { timeZone: input.timeZone })
+  return { timeZone: input.timeZone, time }
+}
+```
+
+That's it. We don't register the tool anywhere. The agent picks it up because it lives in the route's `tools/` folder.
+
+## Check the app
+
+Next, generate the types and check the app:
 
 ```bash
-npm run typegen
-npm run check
-npm run typecheck
+npx b4 typegen
+npx b4 check
 ```
 
-`typegen` writes `server/.b4/b4.generated.d.ts`. `check` validates route discovery, tool definitions and configuration without writing generated files. `typecheck` checks the TypeScript sources in both packages. The `check` output looks like this:
+`typegen` reads your tool signatures and writes the schemas and types to `.b4/`. Run it after you add or change a tool. `check` validates the routes, tools and configuration:
 
 ```
-B4.run app is valid: 2 routes discovered.
-- /research (agent)
-- /research/subagents/researcher (agent)
+B4.run app is valid: 1 routes discovered.
+- /hello (agent)
 ```
 
-Next, run both packages' test suites:
+## Run the agent
+
+Set your API key and send the agent a message:
+
+```bash
+export OPENAI_API_KEY=sk-...
+echo '{"messages":[{"role":"user","content":"Say hello to Ada and tell her the time in Tokyo."}]}' | npx b4 run /hello
+```
+
+`b4 run` prints the whole run as JSON. The messages show the model calling `greet` with `{ "name": "Ada" }` and `getLocalTime` with `{ "timeZone": "Asia/Tokyo" }`. The last message is the answer:
+
+```
+Hello, Ada! The time in Tokyo is 9:19:32 AM.
+```
+
+## Test it offline
+
+The scaffold includes a test in `test/agent.test.ts`. It replays a recorded model response, so it runs without an API key:
 
 ```bash
 npm test
 ```
 
-The server suite in `server/test/research.test.ts` replays fixture responses. It covers corpus search and citation, memory recall and candidate approval, subagent dispatch, tool-output offloading and the human-in-the-loop permission gate. The web suite runs the Workbench's Vitest unit tests over its proxy allowlist, thread source, transcript mapping and components. Neither needs an API key. To run the optional Docker sandbox smoke test, use `npm run test:sandbox:docker --workspace server`.
-
-Then run the quality eval:
-
-```bash
-npm run eval
-```
-
-The eval in `server/src/app/research/evals/research-quality.eval.ts` asks research questions against the corpus. Its scorers require corpus search, source citations and a passing model-graded quality verdict. Inline fixtures cover both the agent and the judge, so the eval runs without an API key.
-
-Of course, these fixture-backed runs only prove the app works offline. To see the agent answer a new question, you need a real model.
-
-## 4. Run it live
-
-The model credentials live in the server package. Copy its environment example, add a real API key, run the preflight and start the dev server:
-
-```bash
-cp server/.env.example server/.env
-# Add a real OPENAI_API_KEY to server/.env
-npm run verify
-npm run dev:server
-```
-
-The `verify` preflight checks app integrity, type declarations, dependencies, Node, the selected provider environment and configured infrastructure. The dev server listens on `http://127.0.0.1:3002` and exposes Agent Protocol and AG-UI. In another terminal, create a thread, capture its id and run the research agent on it:
-
-```bash
-THREAD_ID=$(curl -s -X POST http://127.0.0.1:3002/threads \
-  -H "Content-Type: application/json" \
-  -d '{}' | jq -r .thread_id)
-
-curl -s -X POST http://127.0.0.1:3002/threads/$THREAD_ID/runs/wait \
-  -H "Content-Type: application/json" \
-  -d '{
-    "route": "/research#agent",
-    "input": {
-      "messages": [{ "role": "user", "content": "What are common agent architectures?" }]
-    }
-  }' | jq .
-```
-
-The `#agent` suffix is required, because it selects the agent entry on the route. The report lands in `server/workspace/reports/`. Thread state checkpoints to `server/.b4/checkpoints.sqlite`, so threads survive dev-server restarts.
-
-## 5. See it in a UI
-
-The `web/` package is the B4.run Workbench, a chat UI over the same agent. Leave the server running and start the Workbench in a second terminal:
-
-```bash
-npm run dev:web
-```
-
-Open [http://localhost:3010](http://localhost:3010) and ask a research question. The Workbench has a thread rail, a streaming transcript with plan and researcher activity cards, generic tool cards, inline permission prompts and a memory-candidate review panel. It shows a connect screen until the server answers, and checks again every few seconds. It talks to B4.run over [AG-UI](/docs/ag-ui) and holds no model credentials of its own. Those stay in `server/.env`.
-
-B4.run ships the plan and researcher cards in [`@b4run/ag-ui/react`](/docs/ag-ui). The Workbench restyles them through that package's `classNames` prop and hands them to CopilotKit's `renderActivityMessages`. A client that wants B4.run's default look passes the packaged `b4ActivityRenderers` array instead. If you want to build your own client, the [Research assistant web UI](/docs/recipes/research-web-ui) recipe walks through that wiring.
-
-The scaffold also installs `@b4run/inspector`. Open the [Inspector](/docs/inspector) in a third terminal to review the records the agent writes with `remember`:
-
-```bash
-npx b4 inspect --cwd server
-```
-
-When you are ready to ship, compare [Deployment Options](/docs/deployment) and follow [Node and Docker](/docs/deployment/node) for the default self-hosted path.
+Tests like this one keep your agent working as you change it. See [Agent Test Harness](/docs/testing-agents) to write more.
 
 ## Where to go next
 
+When you want a dev server, run `npm run dev`. It serves your agents over [Agent Protocol](/docs/dev-server/agent-protocol) and [AG-UI](/docs/ag-ui), and it reloads as you edit.
+
 <RelatedCards items={[
-  { href: "/docs/mental-model", title: "Mental Model", subtitle: "understand the application model" },
-  { href: "/docs/recipes/add-a-tool", title: "Add a Tool", subtitle: "build the first feature" },
-  { href: "/docs/deployment", title: "Deployment Options", subtitle: "choose the production path" },
+  { href: "/docs/recipes/research-assistant", title: "Build a Research Assistant", subtitle: "subagents, planning, memory and a web UI" },
+  { href: "/docs/tools", title: "Tools", subtitle: "everything a tool can do" },
+  { href: "/docs/routes", title: "Routes", subtitle: "how folders become routes" },
 ]} />

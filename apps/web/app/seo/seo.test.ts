@@ -38,7 +38,7 @@ import {
 const seoDirectory = dirname(fileURLToPath(import.meta.url))
 const GETTING_STARTED_PATH = "/docs/getting-started"
 const GETTING_STARTED_DESCRIPTION =
-  "Build a typed B4.run research agent with file-system routes, generated types, local tools, offline tests, and production build targets."
+  "Build your first B4.run agent: scaffold the basic template, write a typed tool, run it with a real model, and test it offline."
 const BLOG_INDEX_DESCRIPTION =
   "Writing on the agent stack, type-safety, and the tools we're building."
 const PRODUCTION_AS_OF = "2026-08-26"
@@ -280,14 +280,14 @@ describe("production SEO inventory", () => {
     expect(before.map(({ path }) => path)).not.toContain("/blog/draft-inventory-post")
     expect(before.map(({ path }) => path)).not.toContain("/blog/tags/typescript")
     expect(before.map(({ path }) => path)).not.toContain("/blog/tags/patterns")
-    expect(before).toHaveLength(85)
+    expect(before).toHaveLength(86)
     expectNormalizedDescriptions(before)
     for (const pages of [publicationDate, after]) {
       expect(pages.map(({ path }) => path)).toContain("/blog/scheduled-inventory-post")
       expect(pages.map(({ path }) => path)).not.toContain("/blog/draft-inventory-post")
       expect(pages.map(({ path }) => path)).toContain("/blog/tags/typescript")
       expect(pages.map(({ path }) => path)).not.toContain("/blog/tags/patterns")
-      expect(pages).toHaveLength(87)
+      expect(pages).toHaveLength(88)
       expectNormalizedDescriptions(pages)
     }
   })
@@ -331,7 +331,7 @@ describe("production SEO inventory", () => {
     }
   })
 
-  it("builds one normalized route-kind union for the current 86 indexable routes", () => {
+  it("builds one normalized route-kind union for the current 87 indexable routes", () => {
     const buildSeoPageInventory = Reflect.get(seoResolvers, "buildSeoPageInventory")
     expect(buildSeoPageInventory).toBeTypeOf("function")
     if (typeof buildSeoPageInventory !== "function") return
@@ -352,17 +352,17 @@ describe("production SEO inventory", () => {
       "/blog/tags/agents",
       "/blog/tags/typescript",
     ])
-    expect(pages).toHaveLength(86)
+    expect(pages).toHaveLength(87)
     expect(pages.map(({ routeKind }) => routeKind)).toEqual([
       "home",
       "blog-index",
-      ...Array.from({ length: 78 }, () => "docs"),
+      ...Array.from({ length: 79 }, () => "docs"),
       ...Array.from({ length: 3 }, () => "blog-post"),
       ...Array.from({ length: 3 }, () => "blog-tag"),
     ])
   })
 
-  it("keeps all 86 production descriptions normalized and globally unique", () => {
+  it("keeps all 87 production descriptions normalized and globally unique", () => {
     const buildSeoPageInventory = Reflect.get(seoResolvers, "buildSeoPageInventory")
     expect(buildSeoPageInventory).toBeTypeOf("function")
     if (typeof buildSeoPageInventory !== "function") return
@@ -371,7 +371,7 @@ describe("production SEO inventory", () => {
       readonly path: string
       readonly description: string
     }[]
-    expect(pages).toHaveLength(86)
+    expect(pages).toHaveLength(87)
     expectNormalizedDescriptions(pages)
   })
 })
@@ -736,11 +736,11 @@ describe("static SEO pages", () => {
     expect(resolveStaticSeoPage("/docs/not-registered")).toBeUndefined()
   })
 
-  it("registers exactly the 78 authored docs routes without the redirect", () => {
+  it("registers exactly the 79 authored docs routes without the redirect", () => {
     const expectedHrefs = ALL_DOCS_PAGES.map(({ href }) => href).sort()
     const registeredHrefs = Object.keys(DOCS_SEO_PAGES).sort()
 
-    expect(expectedHrefs).toHaveLength(78)
+    expect(expectedHrefs).toHaveLength(79)
     expect(registeredHrefs).toEqual(expectedHrefs)
     expect(registeredHrefs).not.toContain("/docs")
   })
@@ -773,7 +773,7 @@ describe("static SEO pages", () => {
   it("uses one unique, normalized, query-answering description per docs route", () => {
     const descriptions = Object.values(DOCS_SEO_PAGES).map((page) => page.description)
 
-    expect(descriptions).toHaveLength(78)
+    expect(descriptions).toHaveLength(79)
     expect(new Set(descriptions).size).toBe(descriptions.length)
     for (const description of descriptions) {
       expect(description).toBe(description.trim())
