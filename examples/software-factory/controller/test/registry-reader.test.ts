@@ -1,10 +1,16 @@
-import { copyFileSync, mkdtempSync, rmSync } from "node:fs"
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { afterEach, describe, expect, it } from "vitest"
 import { createFactory, type Factory, type FactoryOptions } from "../src/lib/controller/factory.ts"
-import { openRegistry, RegistryVersionError, SCHEMA_VERSION } from "../src/lib/registry/db.ts"
+import {
+  MIGRATIONS,
+  openRegistry,
+  RegistryOutdatedError,
+  RegistryVersionError,
+  SCHEMA_VERSION,
+} from "../src/lib/registry/db.ts"
 import { openRegistryReader } from "../src/lib/registry/reader.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
@@ -20,6 +26,7 @@ let factory: Factory | undefined
 function factoryOptions(dir: string, registryPath: string): FactoryOptions {
   return {
     registryPath,
+    generatedTasksDir: join(dir, "tasks"),
     worker: createHttpWorkerClient(fake?.baseUrl ?? ""),
     workerRoute: "/build#agent",
     exportDir: join(dir, "out"),
@@ -50,7 +57,12 @@ describe("registry reader", () => {
       expect(reader.show(row.id)?.state).toBe("received")
       expect(reader.list().map((r) => r.id)).toEqual([row.id])
       expect(reader.events(row.id).map((e) => e.type)).toContain("created")
-      expect(reader.evidence(row.id)).toEqual({ candidate: null, receipt: null, bundle: null })
+      expect(reader.evidence(row.id)).toEqual({
+        candidate: null,
+        receipt: null,
+        bundle: null,
+        oracleReceipt: null,
+      })
       expect(reader.show("nope")).toBeNull()
       expect(() => reader.evidence("nope")).toThrow(/Unknown work order/)
       expect(() => reader.db.exec("DELETE FROM work_orders")).toThrow(/readonly|read-only/i)
@@ -78,6 +90,25 @@ describe("registry reader", () => {
     expect(() => openRegistryReader(newer)).toThrow(RegistryVersionError)
     // Reading the untouched original still works, so the refusal is about the version.
     openRegistryReader(registryPath).close()
+  })
+
+  it("refuses a registry the controller has not migrated yet, rather than misreading it", () => {
+    // A schema-3 file no writer has opened: the intake columns are absent, and a reader that
+    // went ahead would fail on the row, not on the registry. Only the controller migrates.
+    dir = mkdtempSync(join(tmpdir(), "factory-reader-"))
+    const registryPath = join(dir, "registry.sqlite")
+    mkdirSync(dir, { recursive: true })
+    const db = new DatabaseSync(registryPath)
+    db.exec("CREATE TABLE schema_version (version INTEGER PRIMARY KEY)")
+    for (const migration of MIGRATIONS.slice(0, 3)) {
+      db.exec(migration.up)
+      db.prepare("INSERT INTO schema_version(version) VALUES (?)").run(migration.version)
+    }
+    db.close()
+    expect(() => openRegistryReader(registryPath)).toThrow(RegistryOutdatedError)
+    expect(() => openRegistryReader(registryPath)).toThrow(
+      "Registry schema version 3 is older than this factory needs (4); start the controller, which migrates it",
+    )
   })
 
   it("names a database that is not a registry", () => {

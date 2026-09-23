@@ -1,17 +1,24 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { createFactory, type Factory } from "../src/lib/controller/factory.ts"
+import { createFactory, type Factory, type FactoryOptions } from "../src/lib/controller/factory.ts"
 import { ACTIVE_STATES } from "../src/lib/domain/states.ts"
 import { taskPrompt } from "../src/lib/prompts.ts"
-import { loadTask } from "../src/lib/targets/catalog.ts"
+import {
+  configureCatalog,
+  loadTask,
+  resetCatalogForTests,
+  tasksDir,
+} from "../src/lib/targets/catalog.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
 
 let dir: string
+/** Where a test's generated tasks live; created before `boot()` when the test needs that. */
+let generated: string | undefined
 let fake: FakeWorker
 let factory: Factory
 let reader: FakeWorkspaceReader
@@ -36,13 +43,17 @@ const repaired = () => ({
 /** A workspace identical to the baseline: the builder ran and changed nothing. */
 const untouched = () => ({ ...repaired(), "src/cli.ts": "broken\n" })
 
-async function boot(options: Omit<FakeWorkerOptions, "outboxDir"> = {}) {
+async function boot(
+  options: Omit<FakeWorkerOptions, "outboxDir"> = {},
+  overrides: Partial<FactoryOptions> = {},
+) {
   dir = mkdtempSync(join(tmpdir(), "factory-dispatch-"))
   mkdirSync(join(dir, "out"), { recursive: true })
   fake = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only", ...options })
   reader = createFakeWorkspaceReader({})
   factory = await createFactory({
     registryPath: join(dir, "registry.sqlite"),
+    generatedTasksDir: join(dir, "tasks"),
     worker: createHttpWorkerClient(fake.baseUrl),
     workerRoute: "/build#agent",
     exportDir: join(dir, "out"),
@@ -50,12 +61,16 @@ async function boot(options: Omit<FakeWorkerOptions, "outboxDir"> = {}) {
     verifier: createFakeVerifier({ verdict: "pass" }),
     workspaceReader: reader,
     captureBaseline: captureRepairable,
+    ...overrides,
   })
 }
 afterEach(async () => {
+  resetCatalogForTests()
   await factory?.close()
   await fake?.close()
   if (dir) rmSync(dir, { recursive: true, force: true })
+  if (generated) rmSync(generated, { recursive: true, force: true })
+  generated = undefined
   // Cleared so a boot() that throws cannot hand the next test the previous test's worker.
   dir = undefined as unknown as string
   fake = undefined as unknown as FakeWorker
@@ -180,6 +195,7 @@ describe("create and dispatch", () => {
     reader = createFakeWorkspaceReader({})
     factory = await createFactory({
       registryPath: join(dir, "registry.sqlite"),
+      generatedTasksDir: join(dir, "tasks"),
       worker: createHttpWorkerClient(fake.baseUrl),
       workerRoute: "/build#agent",
       exportDir: join(dir, "out"),
@@ -203,6 +219,7 @@ describe("create and dispatch", () => {
     // dispatch is the only way to reach the guard — which is exactly the upgrade case.
     const starved = await createFactory({
       registryPath: join(dir, "registry.sqlite"),
+      generatedTasksDir: join(dir, "tasks"),
       worker: createHttpWorkerClient(fake.baseUrl),
       workerRoute: "/build#agent",
       exportDir: join(dir, "out"),
@@ -253,5 +270,48 @@ describe("create and dispatch", () => {
     const row = await factory.create({ taskId: "cli-flags" })
     await factory.reconcileWorkOrder(row.id)
     expect(factory.show(row.id)?.state).toBe("received")
+  })
+})
+
+/**
+ * A generated task: a shipped task's directory copied under a work-order-shaped id, minus
+ * the reference patch nothing has proven yet.
+ */
+function materialiseGeneratedTask(id: string): string {
+  generated ??= mkdtempSync(join(tmpdir(), "factory-generated-"))
+  const generatedTasksDir = join(generated, "tasks")
+  cpSync(join(tasksDir, "cli-flags"), join(generatedTasksDir, id), { recursive: true })
+  rmSync(join(generatedTasksDir, id, "reference.patch"))
+  const manifest = JSON.parse(readFileSync(join(generatedTasksDir, id, "task.json"), "utf8"))
+  writeFileSync(join(generatedTasksDir, id, "task.json"), JSON.stringify({ ...manifest, id }))
+  return generatedTasksDir
+}
+
+describe("generated tasks", () => {
+  it("refuses to create a catalog work order over a generated task the search path resolves", async () => {
+    // A draft left on disk (refused, or never approved) is a task `loadTask` serves, and it
+    // would carry no digest for the gate to bind: the only way to a generated task is
+    // `createFromIssue` + `intake` + `approveIntake` (proved in factory-intake.test).
+    configureCatalog({ generatedTasksDir: materialiseGeneratedTask("wo-0123456789abcdef") })
+    await boot()
+    expect(loadTask("wo-0123456789abcdef").id).toBe("wo-0123456789abcdef")
+    await expect(factory.create({ taskId: "wo-0123456789abcdef" })).rejects.toThrow(/Unknown task/)
+    expect(factory.list()).toEqual([])
+  })
+
+  it("resolves a shipped task at the point of use, not at boot", async () => {
+    // The laziness the runtime relies on, expressed through the shipped catalog itself: the
+    // factory's prompt catalog names a tasks directory that is empty at boot, and a task
+    // that lands there afterwards is creatable the moment its directory does. (The same
+    // directory doubles as the search path's generated root, so dispatch resolves it too.)
+    generated = mkdtempSync(join(tmpdir(), "factory-generated-"))
+    const tasks = join(generated, "tasks")
+    configureCatalog({ generatedTasksDir: tasks })
+    await boot({}, { promptCatalog: { tasksDir: tasks } })
+    await expect(factory.create({ taskId: "wo-fedcba9876543210" })).rejects.toThrow(/Unknown task/)
+    materialiseGeneratedTask("wo-fedcba9876543210")
+    const created = await factory.create({ taskId: "wo-fedcba9876543210" })
+    expect(created.state).toBe("received")
+    expect(await factory.dispatch(created.id)).toMatchObject({ ok: true, state: "dispatched" })
   })
 })

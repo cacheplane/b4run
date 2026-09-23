@@ -496,6 +496,26 @@ describe("task catalog", () => {
     ).toBe(false)
   })
 
+  it("lets a vitest suite name no assertions (the whole suite must pass), a node-test suite not", () => {
+    const independent = { runner: "node-test", file: "checks/k.test.ts", assertions: ["A1: x"] }
+    expect(
+      ChecksSchema.safeParse({ visible: { runner: "vitest", assertions: [] }, independent })
+        .success,
+    ).toBe(true)
+    expect(
+      ChecksSchema.safeParse({
+        visible: { runner: "node-test", file: "test/b.test.ts", assertions: [] },
+        independent,
+      }).success,
+    ).toBe(false)
+    expect(
+      ChecksSchema.safeParse({
+        visible: { runner: "vitest", assertions: [] },
+        independent: { ...independent, assertions: [] },
+      }).success,
+    ).toBe(false)
+  })
+
   it("accepts a visible node-test suite anywhere outside checks/, monorepo paths included", () => {
     expect(
       ChecksSchema.safeParse({

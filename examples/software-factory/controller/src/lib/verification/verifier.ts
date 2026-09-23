@@ -1,11 +1,20 @@
 import type { Receipt, Verdict } from "../domain/work-order.js"
 
+/**
+ * Which sessions a verification runs. `full` (the default) grades the visible suite, then the
+ * independent suite. `independentOnly` grades the independent suite alone, which intake uses
+ * to prove a drafted check fails on the unpatched baseline.
+ */
+export type VerifyMode = "full" | "independentOnly"
+
 export interface VerifyInput {
   readonly workOrderId: string
   readonly taskId: string
   readonly candidateDigest: string
   readonly changes: Readonly<Record<string, string>>
   readonly policyDigest: string
+  /** Defaults to `full`. See {@link VerifyMode}. */
+  readonly mode?: VerifyMode
 }
 
 /**

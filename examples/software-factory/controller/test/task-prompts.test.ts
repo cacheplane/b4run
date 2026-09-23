@@ -1,11 +1,15 @@
 import { execFileSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { createFactory, type Factory } from "../src/lib/controller/factory.ts"
-import { taskPrompts } from "../src/lib/prompts.ts"
-import type { CatalogOptions } from "../src/lib/targets/catalog.ts"
+import { promptFor } from "../src/lib/prompts.ts"
+import {
+  type CatalogOptions,
+  configureCatalog,
+  resetCatalogForTests,
+} from "../src/lib/targets/catalog.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
@@ -15,6 +19,7 @@ const dirs: string[] = []
 let factory: Factory | undefined
 let worker: FakeWorker | undefined
 afterEach(async () => {
+  resetCatalogForTests()
   await factory?.close()
   factory = undefined
   await worker?.close()
@@ -112,43 +117,41 @@ function catalogs(pin: string): { targetsDir: string; tasksDir: string } {
   return { targetsDir, tasksDir }
 }
 
-describe("taskPrompts", () => {
-  it("omits and reports a task whose target is unprepared, rather than refusing to answer at all", () => {
+describe("promptFor", () => {
+  it("derives the prompt for a task the catalog can serve", () => {
     const { root, pin } = repo()
     const options: CatalogOptions = { ...catalogs(pin), repositoryRoot: root }
-    const unavailable: Array<[string, string]> = []
-    const prompts = taskPrompts((id, error) => unavailable.push([id, String(error)]), options)
-    expect(Object.keys(prompts)).toEqual(["served"])
-    expect(prompts.served).toMatch(/Run the tests with `npm test`\./)
-    expect(unavailable.map(([id]) => id)).toEqual(["unprepared"])
-    expect(unavailable[0]?.[1]).toMatch(/has not been prepared/)
+    expect(promptFor("served", options)).toMatch(/Run the tests with `npm test`\./)
   })
 
-  it("answers with nothing, and reports why, when there is no catalog at all", () => {
-    const unavailable: string[] = []
-    expect(
-      taskPrompts((id) => unavailable.push(id), {
-        tasksDir: join(temporary("factory-none-"), "x"),
-      }),
-    ).toEqual({})
-    expect(unavailable).toEqual(["(catalog)"])
+  it("throws for a task whose target is unprepared, naming why", () => {
+    const { root, pin } = repo()
+    const options: CatalogOptions = { ...catalogs(pin), repositoryRoot: root }
+    expect(() => promptFor("unprepared", options)).toThrow(/has not been prepared/)
   })
 
-  it("serves the shipped catalog without reporting anything unavailable", () => {
-    const unavailable: string[] = []
-    const prompts = taskPrompts((id) => unavailable.push(id))
-    expect(Object.keys(prompts)).toEqual(["cli-flags", "devkit-spawn-deadline"])
-    expect(unavailable).toEqual([])
+  it("throws when there is no catalog at all", () => {
+    expect(() => promptFor("served", { tasksDir: join(temporary("factory-none-"), "x") })).toThrow(
+      /Unknown task: served/,
+    )
+  })
+
+  it("serves every shipped task", () => {
+    for (const id of ["cli-flags", "devkit-spawn-deadline"])
+      expect(promptFor(id)).toMatch(/TASK\.md/)
   })
 })
 
 describe("the controller over a partly unprepared catalog", () => {
-  it("creates a work order for the task it can serve and refuses the one it cannot", async () => {
+  it("boots, creates a work order for the task it can serve and refuses the one it cannot", async () => {
     const { root, pin } = repo()
+    const { tasksDir, targetsDir } = catalogs(pin)
     const dir = temporary("factory-prompts-state-")
     worker = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only" })
+    const unavailable: Array<[string, string]> = []
     factory = await createFactory({
       registryPath: join(dir, "registry.sqlite"),
+      generatedTasksDir: join(dir, "tasks"),
       worker: createHttpWorkerClient(worker.baseUrl),
       workerRoute: "/build#agent",
       exportDir: join(dir, "out"),
@@ -156,13 +159,57 @@ describe("the controller over a partly unprepared catalog", () => {
       verifier: createFakeVerifier({ verdict: "pass" }),
       workspaceReader: createFakeWorkspaceReader({}),
       captureBaseline: async () => ({ digest: "a".repeat(64), files: new Map() }),
-      // The same table the factory builds for itself, over a catalog with one unprepared
-      // target: the boot itself is the assertion — it does not throw.
-      tasks: taskPrompts(undefined, { ...catalogs(pin), repositoryRoot: root }),
+      promptCatalog: { tasksDir, targetsDir, repositoryRoot: root },
+      log: (event, payload) => {
+        if (event === "task_unavailable")
+          unavailable.push([String(payload.id), String(payload.error)])
+      },
     })
+    // Nothing is loaded at boot: the unprepared sibling is only reported when it is named.
+    expect(unavailable).toEqual([])
     expect((await factory.create({ taskId: "served" })).id).toMatch(/\S/)
     await expect(factory.create({ taskId: "unprepared" })).rejects.toThrow(
       /Unknown task unprepared/,
     )
+    expect(unavailable).toEqual([["unprepared", expect.stringMatching(/has not been prepared/)]])
+  })
+
+  it("refuses, rather than throws, a dispatch whose task stopped loading after create", async () => {
+    const { root, pin } = repo()
+    const { tasksDir, targetsDir } = catalogs(pin)
+    const dir = temporary("factory-prompts-state-")
+    worker = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only" })
+    factory = await createFactory({
+      registryPath: join(dir, "registry.sqlite"),
+      generatedTasksDir: join(dir, "tasks"),
+      worker: createHttpWorkerClient(worker.baseUrl),
+      workerRoute: "/build#agent",
+      exportDir: join(dir, "out"),
+      artifactsDir: join(dir, "artifacts"),
+      verifier: createFakeVerifier({ verdict: "pass" }),
+      workspaceReader: createFakeWorkspaceReader({}),
+      captureBaseline: async () => ({ digest: "a".repeat(64), files: new Map() }),
+      promptCatalog: { tasksDir, targetsDir, repositoryRoot: root },
+    })
+    const { id } = await factory.create({ taskId: "served" })
+    // The target loses its image between create and dispatch: an upgrade, or a re-prepare.
+    const manifestPath = join(targetsDir, "ready", "target.json")
+    const { image: _image, ...unprepared } = JSON.parse(readFileSync(manifestPath, "utf8"))
+    writeFileSync(manifestPath, JSON.stringify(unprepared))
+    expect(await factory.dispatch(id)).toMatchObject({
+      ok: false,
+      state: "received",
+      message: expect.stringMatching(/^Unknown task served: .*has not been prepared/),
+    })
+    expect(factory.show(id)?.state).toBe("received")
+  })
+
+  it("resolves generated tasks through the configured search path when no catalog is given", () => {
+    const { pin } = repo()
+    const { tasksDir } = catalogs(pin)
+    configureCatalog({ generatedTasksDir: tasksDir })
+    // The shipped catalog has no `served`; the generated directory does, and its target is
+    // looked up in the SHIPPED targets directory, where `ready` does not exist.
+    expect(() => promptFor("served")).toThrow(/Unknown target: ready/)
   })
 })

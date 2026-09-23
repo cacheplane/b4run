@@ -30,8 +30,10 @@ describe("every shipped task", () => {
       })
       // The baseline the builder sees: the capture with the defect, as the factory makes it.
       const baseline = captureTarget(task, "test", { appRoot: scratch })
+      // A shipped task is repairable by construction: only a generated task may lack the patch.
+      expect(task.referencePatch, "a shipped task carries reference.patch").not.toBeNull()
       const reference = join(scratch, "reference.patch")
-      await writeFile(reference, task.referencePatch)
+      await writeFile(reference, task.referencePatch as string)
       expect(
         apply(reference, baseline.absolute, "--check").status,
         "reference applies to the baseline",

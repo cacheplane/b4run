@@ -48,6 +48,7 @@ async function boot(
   reader = createFakeWorkspaceReader({})
   factory = await createFactory({
     registryPath: join(dir, "registry.sqlite"),
+    generatedTasksDir: join(dir, "tasks"),
     worker: createHttpWorkerClient(fake.baseUrl),
     workerRoute: "/build#agent",
     exportDir: out(),
@@ -306,6 +307,7 @@ describe("cancel", () => {
     const replacement = await createFakeWorker({ outboxDir: join(dir, "unused") })
     const revived = await createFactory({
       registryPath: join(dir, "registry.sqlite"),
+      generatedTasksDir: join(dir, "tasks"),
       worker: createHttpWorkerClient(replacement.baseUrl),
       workerRoute: "/build#agent",
       exportDir: out(),

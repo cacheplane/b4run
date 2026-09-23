@@ -47,7 +47,13 @@ describe("transition table", () => {
   it("classifies states", () => {
     expect(isTerminal("failed")).toBe(true)
     expect(isTerminal("blocked")).toBe(false)
-    expect([...ACTIVE_STATES].sort()).toEqual(["dispatched", "exporting", "running", "verifying"])
+    expect([...ACTIVE_STATES].sort()).toEqual([
+      "dispatched",
+      "exporting",
+      "intake_running",
+      "running",
+      "verifying",
+    ])
   })
 
   it("fails the run from dispatched or running", () => {
@@ -138,5 +144,35 @@ describe("rung 1 lifecycle", () => {
   it("still blocks on an unexpected interrupt from the builder", () => {
     expect(nextState("running", "unexpected_interrupt")).toBe("blocked")
     expect(BLOCKED_REASONS).toContain("unexpected_interrupt")
+  })
+})
+
+describe("intake prefix", () => {
+  it("intake is a prefix on the lifecycle", () => {
+    expect(nextState("received", "intake_started")).toBe("intake_running")
+    expect(nextState("intake_running", "intake_drafted")).toBe("awaiting_intake_approval")
+    expect(nextState("intake_running", "intake_retry")).toBe("intake_running")
+    expect(nextState("intake_running", "intake_blocked")).toBe("blocked")
+    expect(nextState("awaiting_intake_approval", "approve_intake")).toBe("received")
+    expect(nextState("awaiting_intake_approval", "reject_intake")).toBe("intake_running")
+    expect(nextState("awaiting_intake_approval", "intake_blocked")).toBe("blocked")
+    expect(nextState("intake_running", "cancel")).toBe("cancel_requested")
+    expect(nextState("awaiting_intake_approval", "cancel")).toBe("cancel_requested")
+    expect(nextState("intake_running", "budget_exhausted")).toBe("cancel_requested")
+    expect(ACTIVE_STATES.has("intake_running")).toBe(true)
+    expect(ACTIVE_STATES.has("awaiting_intake_approval")).toBe(false)
+    expect(() => nextState("received", "intake_drafted")).toThrow()
+    expect(() => nextState("dispatched", "approve_intake")).toThrow()
+  })
+
+  it("names the ways intake can block", () => {
+    for (const reason of [
+      "intake_invalid",
+      "oracle_did_not_fail",
+      "intake_attempts_exhausted",
+      "no_target_for_package",
+      "intake_run_failed",
+    ])
+      expect(BLOCKED_REASONS).toContain(reason)
   })
 })

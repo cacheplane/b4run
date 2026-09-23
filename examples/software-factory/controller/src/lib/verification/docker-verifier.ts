@@ -16,11 +16,13 @@ export interface DockerVerifierOptions {
  * The real verifier. Its containers are not the builder's: a different sandbox scope and
  * freshly captured workspaces of its own.
  *
- * Each suite is graded in a container that only it ran in — two full sessions, each with its
- * own capture, build and workspace snapshots. The oracle is therefore graded where the visible
- * suite's test code has never run, which is the RFC's separate-trusted-process recommendation
- * applied to the one place the dogfood found it mattered. {@link gradeSuite} carries the
- * reasoning, including what this does and does not remove from the independent session.
+ * Each suite is graded in a container that only it ran in — two full sessions in `full` mode,
+ * one in `independentOnly`, each with its own capture, build and workspace snapshots. The
+ * oracle is therefore graded where the visible suite's test code has never run, which is the
+ * RFC's separate-trusted-process recommendation applied to the one place the dogfood found it
+ * mattered. {@link gradeSuite} carries the reasoning, including what this does and does not
+ * remove from the independent session. Intake's independent-only session is its own container
+ * too, and intake passes no changes, so the same reasoning holds there.
  *
  * Within a session the workspace is snapshotted before and after the suite. Any persistent
  * change the suite made is a rejection, which is what catches a candidate that repairs itself
@@ -91,13 +93,19 @@ export function createDockerVerifier(
       const session = (kind: SuiteKind) =>
         gradeSuite({ task, kind, changes: input.changes, provider, signal: bounded })
 
-      let visible: SuiteSession
+      const mode = input.mode ?? "full"
+      let visible: SuiteSession | null = null
       let independent: SuiteSession | null = null
       try {
-        visible = await session("visible")
-        // A failed build or a tamper is already the whole verdict: the second container would
-        // cost a capture, a start and a build to report a receipt that is already decided.
-        if (visible.build.ok && !visible.tampered) independent = await session("independent")
+        if (mode === "independentOnly") {
+          independent = await session("independent")
+        } else {
+          visible = await session("visible")
+          // A failed build or a tamper is already the whole verdict: the second container
+          // would cost a capture, a start and a build to report a receipt that is already
+          // decided.
+          if (visible.build.ok && !visible.tampered) independent = await session("independent")
+        }
       } catch (error) {
         // Our own deadline fired: a fact about the harness, not the candidate. That is what
         // `inconclusive` means, so it is a receipt and not a rejection. A caller cancel is
@@ -110,6 +118,7 @@ export function createDockerVerifier(
         assembleReceipt({
           visible,
           independent,
+          mode,
           acceptanceIds: {
             visible: task.checks.visible.assertions,
             independent: task.checks.independent.assertions,

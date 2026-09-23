@@ -28,6 +28,24 @@ describe("controller runtime", () => {
     await expect(runtime.factory()).rejects.toThrow(/disposed/)
   })
 
+  it("refuses an intake task the catalog cannot load at boot, and accepts one it can", async () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-runtime-"))
+    fake = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only" })
+    const env = {
+      FACTORY_WORKER_URL: fake.baseUrl,
+      FACTORY_STATE_DIR: join(dir, "state"),
+      FACTORY_BUILDER_APP_ROOT: join(dir, "builder"),
+    }
+    const unknown = createControllerRuntime({ ...env, FACTORY_INTAKE_TASK: "no-such-task" })
+    await expect(unknown.factory()).rejects.toThrow(
+      /FACTORY_INTAKE_TASK names a task the catalog cannot load \(no-such-task\)/,
+    )
+    await unknown.dispose()
+    const known = createControllerRuntime({ ...env, FACTORY_INTAKE_TASK: "devkit-spawn-deadline" })
+    await expect(known.factory()).resolves.toBeDefined()
+    await known.dispose()
+  })
+
   it("retries a failed open on the next call", async () => {
     dir = mkdtempSync(join(tmpdir(), "factory-runtime-"))
     fake = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only" })

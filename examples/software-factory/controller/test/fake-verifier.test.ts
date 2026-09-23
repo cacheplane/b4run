@@ -45,4 +45,30 @@ describe("fake verifier", () => {
     await verifier.verify(input, AbortSignal.timeout(1_000))
     expect(verifier.verified).toEqual([input.candidateDigest])
   })
+
+  it("records every input it was handed, in full", async () => {
+    const verifier = createFakeVerifier({ verdict: "pass" })
+    await verifier.verify(input, AbortSignal.timeout(1_000))
+    expect(verifier.calls).toEqual([input])
+  })
+
+  it("issues a single independent check in independentOnly mode, with no visible verdict folded in", async () => {
+    // Intake's oracle proof: the independent suite alone. A visible "fail" that leaked into
+    // the receipt verdict would let the fake prove an oracle the real verifier never graded.
+    const verifier = createFakeVerifier({ visible: "fail", independent: "pass" })
+    const receipt = await verifier.verify(
+      { ...input, mode: "independentOnly" },
+      AbortSignal.timeout(1_000),
+    )
+    expect(receipt.checks.map((c) => `${c.id}:${c.verdict}`)).toEqual(["independent:pass"])
+    expect(receipt.verdict).toBe("pass")
+    expect(receipt.checks[0]?.evidence[0]?.id).toBe("independent/output")
+  })
+
+  it("issues two checks when the mode is omitted, as before", async () => {
+    const verifier = createFakeVerifier({ visible: "fail", independent: "pass" })
+    const receipt = await verifier.verify(input, AbortSignal.timeout(1_000))
+    expect(receipt.checks.map((c) => c.id)).toEqual(["visible", "independent"])
+    expect(receipt.verdict).toBe("fail")
+  })
 })

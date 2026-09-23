@@ -35,7 +35,17 @@ const EnvSchema = z.object({
   FACTORY_MAX_ACTIVE_MS: positiveInt("FACTORY_MAX_ACTIVE_MS"),
   FACTORY_MAX_CHANGED_BYTES: positiveInt("FACTORY_MAX_CHANGED_BYTES"),
   FACTORY_BUILDER_APP_ROOT: z.string({ message: "FACTORY_BUILDER_APP_ROOT is required" }).min(1),
+  FACTORY_INTAKE_ROUTE: z.string().min(1).default("/intake#agent"),
+  FACTORY_INTAKE_TASK: z.string().min(1).optional(),
 })
+
+/**
+ * Where a controller with state directory `stateDir` writes generated tasks. Shared with the
+ * CLI, which reads the state directory without loading the rest of the configuration.
+ */
+export function generatedTasksDirFor(stateDir: string): string {
+  return join(stateDir, "tasks")
+}
 
 export interface FactoryConfig {
   readonly workerUrl: string
@@ -46,11 +56,32 @@ export interface FactoryConfig {
   readonly exportDir: string
   /** Content-addressed evidence store for candidate bytes and check output. */
   readonly artifactsDir: string
+  /**
+   * Where the controller writes tasks drafted from issues, in the shipped catalog's shape.
+   * Always under the state directory: the catalog search path is a fact about this
+   * controller's state, not an operator knob.
+   */
+  readonly generatedTasksDir: string
   readonly approvalTtlMs: number
   readonly maxActiveMs: number
   readonly maxChangedBytes: number
   /** The BUILDER app's root: where its installation store (`.b4/workspaces`) lives. */
   readonly builderAppRoot: string
+  /** The route the drafter turn runs on. */
+  readonly intakeRoute: string
+  /**
+   * The catalog task whose workspace the drafter turn runs in. In 3a the drafter runs in the
+   * BUILDER process, whose workspace is fixed by its manifest task, so the controller reads
+   * the intake thread's workspace with that task's provider and inspection options. Absent,
+   * the `intake` command refuses.
+   *
+   * The 3a constraint this encodes: the intake thread's workspace must be exactly the
+   * builder's static workspace for that task — its `environmentLinks` are the reader's
+   * required root symlinks, so a drafter workspace shaped any other way is unreadable — and
+   * the read walks the whole tree to keep `draft/*`. Both change in 3b, when the drafter gets
+   * a workspace and inspection options of its own.
+   */
+  readonly intakeTaskId?: string
 }
 
 export function loadConfig(env: Readonly<Record<string, string | undefined>>): FactoryConfig {
@@ -67,9 +98,12 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
     registryPath: join(e.FACTORY_STATE_DIR, "registry.sqlite"),
     exportDir: e.FACTORY_EXPORT_DIR ?? join(e.FACTORY_STATE_DIR, "exports"),
     artifactsDir: e.FACTORY_ARTIFACTS_DIR ?? join(e.FACTORY_STATE_DIR, "artifacts"),
+    generatedTasksDir: generatedTasksDirFor(e.FACTORY_STATE_DIR),
     approvalTtlMs: e.FACTORY_APPROVAL_TTL_MS ?? 900_000,
     maxActiveMs: e.FACTORY_MAX_ACTIVE_MS ?? 1_200_000,
     maxChangedBytes: e.FACTORY_MAX_CHANGED_BYTES ?? 1024 * 1024,
     builderAppRoot: e.FACTORY_BUILDER_APP_ROOT,
+    intakeRoute: e.FACTORY_INTAKE_ROUTE,
+    ...(e.FACTORY_INTAKE_TASK !== undefined ? { intakeTaskId: e.FACTORY_INTAKE_TASK } : {}),
   }
 }

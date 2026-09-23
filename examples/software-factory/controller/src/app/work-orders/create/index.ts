@@ -1,4 +1,4 @@
-import { CreateInput } from "../../../lib/routes/input.js"
+import { createInputSchema } from "../../../lib/routes/input.js"
 import { command } from "../../../lib/routes/outcome.js"
 import { controllerRuntime } from "../../../lib/runtime.js"
 
@@ -8,11 +8,20 @@ import { controllerRuntime } from "../../../lib/runtime.js"
  */
 export async function workflow(input: unknown) {
   return command(
-    CreateInput,
+    createInputSchema(input),
     input,
     () => controllerRuntime().factory(),
-    async ({ taskId, operationKey }, factory) => {
-      const row = await factory.create({ taskId, ...(operationKey ? { operationKey } : {}) })
+    async (input, factory) => {
+      const key = input.operationKey ? { operationKey: input.operationKey } : {}
+      const row =
+        "taskId" in input
+          ? await factory.create({ taskId: input.taskId, ...key })
+          : await factory.createFromIssue({
+              origin: input.origin,
+              pin: input.pin,
+              issue: input.issue,
+              ...key,
+            })
       return { ok: true, state: row.state, message: "Created", row }
     },
   )

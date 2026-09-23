@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { bundleDigest } from "../domain/digest.js"
-import type { Bundle, Receipt } from "../domain/work-order.js"
-import { DIGEST_PATTERN } from "../domain/work-order.js"
+import type { Bundle, Origin, Receipt } from "../domain/work-order.js"
+import { COMMIT_PATTERN, DIGEST_PATTERN, OriginSchema } from "../domain/work-order.js"
 
 /**
  * What the frozen payload asserts, as a shape something can read back.
@@ -27,6 +27,15 @@ export const BundlePayloadSchema = z.object({
   // receipts for the same claim are two bundles, each naming the receipt it was earned by.
   receiptId: z.string().min(1),
   frozenAt: z.string().min(1),
+  // Where the work order came from and what it was drafted into: approving the export
+  // consents to the issue text (its digest is in the origin), the approved generated task
+  // and the candidate together. All four are stated for a catalog work order too (`null`),
+  // so their absence is digested rather than merely omitted.
+  origin: OriginSchema,
+  pin: z.string().regex(COMMIT_PATTERN).nullable(),
+  taskDigest: z.string().regex(DIGEST_PATTERN).nullable(),
+  /** The receipt that proved the drafted check fails on the unpatched baseline. */
+  oracleReceiptId: z.string().min(1).nullable(),
 })
 export type BundlePayload = z.infer<typeof BundlePayloadSchema>
 
@@ -40,6 +49,10 @@ export interface FreezeBundleInput {
   readonly receipt: Receipt
   readonly destinationId: string
   readonly frozenAt: string
+  readonly origin: Origin
+  readonly pin: string | null
+  readonly taskDigest: string | null
+  readonly oracleReceiptId: string | null
 }
 
 /**
@@ -80,6 +93,10 @@ export function freezeBundle(input: FreezeBundleInput): Bundle {
     destinationId: input.destinationId,
     receiptId: input.receipt.id,
     frozenAt: input.frozenAt,
+    origin: input.origin,
+    pin: input.pin,
+    taskDigest: input.taskDigest,
+    oracleReceiptId: input.oracleReceiptId,
   }
 
   return {

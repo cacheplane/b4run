@@ -114,10 +114,22 @@ describe("freezeBundle", () => {
     receipt,
     destinationId: "/out",
     frozenAt: "2026-09-18T00:00:01.000Z",
+    origin: { kind: "catalog" as const },
+    pin: null,
+    taskDigest: null,
+    oracleReceiptId: null,
   }
 
   it("freezes a bundle whose digest covers every input", () => {
     const bundle = freezeBundle(base)
+    // A catalog work order: no pin, no generated task, no oracle proof, and the payload
+    // says so rather than omitting the fields, so the digest covers their absence too.
+    expect(bundle.payload).toMatchObject({
+      origin: { kind: "catalog" },
+      pin: null,
+      taskDigest: null,
+      oracleReceiptId: null,
+    })
     expect(bundle.digest).toMatch(/^[a-f0-9]{64}$/)
     expect(bundle.candidateDigest).toBe(receipt.candidateDigest)
     expect(bundle.receiptId).toBe("rc-1")
@@ -163,6 +175,39 @@ describe("freezeBundle", () => {
     const later = freezeBundle({ ...base, frozenAt: "2026-09-18T00:00:02.000Z" })
     expect(later.digest).not.toBe(one.digest)
     expect(later.payload.frozenAt).toBe("2026-09-18T00:00:02.000Z")
+  })
+
+  it("moves the digest when the origin, the pin, the generated task or the oracle proof moves", () => {
+    // Approving the export consents to the issue text, the approved task and the candidate
+    // together (spec §6.6): each of the four must move the digest on its own.
+    const one = freezeBundle(base)
+    const origin = {
+      kind: "issue" as const,
+      repository: "cacheplane/b4run",
+      number: 778,
+      bodyDigest: "1".repeat(64),
+    }
+    const issue = freezeBundle({
+      ...base,
+      origin,
+      pin: "a".repeat(40),
+      taskDigest: "2".repeat(64),
+      oracleReceiptId: "rc-oracle",
+    })
+    expect(issue.digest).not.toBe(one.digest)
+    expect(issue.payload).toMatchObject({
+      origin,
+      pin: "a".repeat(40),
+      taskDigest: "2".repeat(64),
+      oracleReceiptId: "rc-oracle",
+    })
+    expect(freezeBundle({ ...base, origin }).digest).not.toBe(one.digest)
+    expect(freezeBundle({ ...base, pin: "a".repeat(40) }).digest).not.toBe(one.digest)
+    expect(freezeBundle({ ...base, taskDigest: "2".repeat(64) }).digest).not.toBe(one.digest)
+    expect(freezeBundle({ ...base, oracleReceiptId: "rc-oracle" }).digest).not.toBe(one.digest)
+    expect(
+      freezeBundle({ ...base, origin: { ...origin, bodyDigest: "3".repeat(64) } }).digest,
+    ).not.toBe(freezeBundle({ ...base, origin }).digest)
   })
 
   it("refuses to freeze anything but a passing receipt", () => {
@@ -253,6 +298,10 @@ describe("freezing a receipt shaped as the real verifier emits one", () => {
       receipt: real,
       destinationId: "/out",
       frozenAt: "2026-09-18T00:00:01.000Z",
+      origin: { kind: "catalog" },
+      pin: null,
+      taskDigest: null,
+      oracleReceiptId: null,
     })
 
     expect(bundle.payload.evidence).toEqual([
