@@ -68,4 +68,30 @@ describe("tool discovery error messages", () => {
     const tools = await discover()
     expect(tools.map((t) => t.name)).toEqual(["runner"])
   })
+
+  it("reads a boolean returnDirect export onto the definition", async () => {
+    writeTool(
+      "render.ts",
+      `export const returnDirect = true
+       export default async (input: { text: string }) => ({ rendered: true })`,
+    )
+    const tools = await discover()
+    expect(tools.map((t) => [t.name, t.returnDirect])).toEqual([["render", true]])
+  })
+
+  it("leaves returnDirect absent when a tool does not export it", async () => {
+    writeTool("greet.ts", `export default async (input: { name: string }) => input.name`)
+    const tools = await discover()
+    expect(tools[0]).not.toHaveProperty("returnDirect")
+  })
+
+  it("rejects a returnDirect export that is not a boolean", async () => {
+    writeTool(
+      "render.ts",
+      `export const returnDirect = "yes"
+       export default async () => ({ rendered: true })`,
+    )
+    await expect(discover()).rejects.toThrow(/returnDirect must be a boolean \(got a string\)/)
+    await expect(discover()).rejects.toThrow(/b4\.run\/docs\/tools/)
+  })
 })

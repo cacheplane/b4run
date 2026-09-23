@@ -15,10 +15,14 @@ const inter = Inter({
   display: "swap",
 })
 
+// A metric-adjusted fallback is Arial, which is proportional. A real monospace
+// fallback has the same advance width, so the swap does not move text.
 const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
   variable: "--font-jetbrains-mono",
   display: "swap",
+  adjustFontFallback: false,
+  fallback: ["ui-monospace", "SFMono-Regular", "Menlo", "Consolas", "monospace"],
 })
 
 export const metadata: Metadata = {

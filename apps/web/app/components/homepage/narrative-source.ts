@@ -4,6 +4,10 @@ import data from "./narrative-source.json"
 import type { DisplayCode } from "./types"
 
 export const narrativeSource = data
+/** The code-fixer example at the revision the homepage shows. */
+export const exampleUrl = `https://github.com/cacheplane/b4run/tree/${data.sourceCommit}/examples/code-fixer`
+export const exampleFileUrl = (path: string) =>
+  `https://github.com/cacheplane/b4run/blob/${data.sourceCommit}/examples/code-fixer/${path}`
 export type NarrativeKey = keyof typeof data.snippets
 
 export async function prepareNarrative(): Promise<Record<NarrativeKey, DisplayCode>> {

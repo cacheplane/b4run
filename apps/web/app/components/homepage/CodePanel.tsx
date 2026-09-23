@@ -21,7 +21,7 @@ export function CodePanel({
     }
   }
   return (
-    <section className={styles.codePanel} aria-label={code.path}>
+    <section className={styles.codePanel} aria-label={code.label ?? code.path}>
       <div className={styles.codeHeading}>
         <span>{code.path}</span>
         {code.url && (

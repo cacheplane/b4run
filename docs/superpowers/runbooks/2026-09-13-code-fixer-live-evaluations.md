@@ -138,3 +138,37 @@ Final recordings (local ignored evidence, source and verdict included):
 
 The known credential and local host path were checked absent from exported
 recordings. Each recording remains pinned to its own clean source commit.
+
+## Homepage re-recording: v0.10.0 example
+
+The homepage walkthrough recording predated the example restructure (#670), so
+its agent, configuration, and plan no longer matched the example. This batch
+re-recorded the current example for the homepage.
+
+- Batch: `batch-d1a45c11-c8f7-4652-b452-a61f52c6e8ae`
+- Agent commit: `d6a2dc01ebf4f605fc089131557f735f2a6ccf4e` (clean). Its
+  `examples/code-fixer` and `test/code-fixer` trees equal v0.10.0
+  (`bfaf0c2b3030eebb572703c8f70f0e063593b1fa`) and main at the time.
+- Model: `gpt-5`. Fixture: `cli-flags` only, through the same `runAttempt` as
+  `pnpm code-fixer:live`. Sandbox image `b4-code-fixer:fixture-v1`
+  (`sha256:0141987aed6b…`), reused locally without a base pull.
+- Budget: at most six attempts, stopping at the first full-workflow pass.
+
+| Attempt | Duration (s) | Visible checks | Independent checks | Runtime export gate | Full workflow |
+|---|---:|---|---|---|---|
+| cli-flags 1 | 374.150 | Pass | Pass | Reached | Pass |
+
+The first attempt reproduced the failure with `npm test --silent`, added
+`.allowUnknownOption(true)` to the `memory` command in `src/cli.ts`, re-ran the
+visible suite, exercised the preservation requirements with Node diagnostics,
+and paused at the `exportForReview` approval gate. No patch was approved or
+exported. One attempt is not a reliability sample.
+
+| Recording | Attempt ID | SHA-256 |
+|---|---|---|
+| `cli-flags-v0.10-gpt5.json` | `de4487ee-d4c9-443b-be34-70afcafcb203` | `cbfc5455b732051b53a93399c6e3f7c926271e543f8e17ace1d03303b2a99c13` |
+
+`apps/web/scripts/export-homepage-evidence.mjs` is pinned to this recording and
+requires each published source file and the fixture's `src/cli.ts` to equal
+v0.10.0, so the walkthrough links to the same revision as the narrative. The
+credential and local host paths were checked absent from the recording.
