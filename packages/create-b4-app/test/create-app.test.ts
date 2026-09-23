@@ -136,7 +136,7 @@ describe("create-b4-app", () => {
 
     const scaffoldResult = await runCommand(
       "pnpm",
-      ["exec", "create-b4-app", targetDir, "--dist-tag", "next"],
+      ["exec", "create-b4-app", targetDir, "--template", "research", "--dist-tag", "next"],
       installDir,
     )
     expect(scaffoldResult.code).toBe(0)
@@ -234,7 +234,9 @@ describe("create-b4-app", () => {
         "  npx b4 inspect --cwd server  # memory Inspector (browser UI), in a third terminal",
       ].join("\n"),
     )
+    expect(scaffoldResult.stdout).toContain("✔ Created hello-b4 (research template)")
     expect(scaffoldResult.stdout).toContain("See README.md for the full tour")
+    expect(scaffoldResult.stdout).not.toContain("--template research")
     expect(scaffoldResult.stdout).not.toContain("docs/recipes/research-web-ui")
     expect(scaffoldResult.stdout).not.toContain("npm run check")
     expect(scaffoldResult.stdout).not.toContain("npm test")
@@ -247,7 +249,9 @@ describe("create-b4-app", () => {
     const targetLiteral = `'${targetDir.replaceAll("'", "'\\''")}'`
     const stdoutWrite = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
 
-    const exitCode = await withMockedPlatform("linux", () => run([targetDir, "--mode", "internal"]))
+    const exitCode = await withMockedPlatform("linux", () =>
+      run([targetDir, "--mode", "internal", "--template", "research"]),
+    )
     const stdout = stdoutWrite.mock.calls.map(([chunk]) => String(chunk)).join("")
 
     expect(exitCode).toBe(0)
@@ -280,7 +284,9 @@ describe("create-b4-app", () => {
     const targetLiteral = `'${targetDir.replaceAll("'", "''")}'`
     const stdoutWrite = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
 
-    const exitCode = await withMockedPlatform("win32", () => run([targetDir, "--mode", "internal"]))
+    const exitCode = await withMockedPlatform("win32", () =>
+      run([targetDir, "--mode", "internal", "--template", "research"]),
+    )
     const stdout = stdoutWrite.mock.calls.map(([chunk]) => String(chunk)).join("")
 
     expect(exitCode).toBe(0)
@@ -331,7 +337,7 @@ describe("create-b4-app", () => {
 
     const targetDir = join(tempRoot, "hello-b4")
 
-    const exitCode = await run([targetDir, "--mode", "internal"])
+    const exitCode = await run([targetDir, "--mode", "internal", "--template", "research"])
 
     expect(exitCode).toBe(0)
 
@@ -378,13 +384,13 @@ describe("create-b4-app", () => {
     await assertExists(join(targetDir, "web/package.json"))
   })
 
-  test("scaffolds the basic tree when --template basic is passed", async () => {
+  test("scaffolds the basic tree by default when --template is omitted", async () => {
     const tempRoot = await createTrackedTempDir("create-b4-app-internal-", tempDirs)
 
     const targetDir = join(tempRoot, "hello-b4")
     const stdoutWrite = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
 
-    const exitCode = await run([targetDir, "--mode", "internal", "--template", "basic"])
+    const exitCode = await run([targetDir, "--mode", "internal"])
     const stdout = stdoutWrite.mock.calls.map(([chunk]) => String(chunk)).join("")
 
     expect(exitCode).toBe(0)
@@ -399,8 +405,12 @@ describe("create-b4-app", () => {
         "Run it live (needs an OpenAI key):",
         "  export OPENAI_API_KEY=sk-...",
         "  npm run dev       # B4.run dev server on http://127.0.0.1:3000",
+        "",
+        "Want the full deep-research assistant with a web UI instead?",
+        "  npm create b4-app@latest <new-directory> -- --template research",
       ].join("\n"),
     )
+    expect(stdout).toContain("✔ Created hello-b4 (basic template)")
     expect(stdout).toContain(
       "See AGENTS.md for the app's conventions, or https://b4.run/docs/getting-started",
     )
@@ -459,7 +469,7 @@ describe("create-b4-app", () => {
     const targetDir = join(tempRoot, "hello-b4")
     const repoRoot = resolve(import.meta.dirname, "../../..")
 
-    const exitCode = await run([targetDir, "--mode", "internal"])
+    const exitCode = await run([targetDir, "--mode", "internal", "--template", "research"])
 
     expect(exitCode).toBe(0)
 

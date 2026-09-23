@@ -240,13 +240,13 @@ See [Fixtures and Recording](/docs/testing-agents/fixtures).
 
 ## Your scaffolded app already has a test
 
-`create-b4-app` generates `server/test/research.test.ts` that imports `@b4run/testing` and covers the default `/research#agent` route. Run it right after scaffolding, from the workspace root:
+The default `basic` template generates `test/agent.test.ts`, which imports `@b4run/testing` and replays one scripted greeting against the `/hello#agent` route. The research template (`npm create b4-app@latest my-agent -- --template research`) generates `server/test/research.test.ts`, which covers its `/research#agent` route. In either app, run the suite right after scaffolding from the app root:
 
 ```bash
 npm test
 ```
 
-The generated suite starts by verifying the corpus search and citation path:
+The generated research suite starts by verifying the corpus search and citation path:
 
 ```ts title="server/test/research.test.ts"
 import { fileURLToPath } from "node:url"

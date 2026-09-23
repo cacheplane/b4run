@@ -80,6 +80,9 @@ function printNextSteps(options: CliOptions): void {
     "Run it live (needs an OpenAI key):",
     isWindows ? "  $env:OPENAI_API_KEY = 'sk-...'" : "  export OPENAI_API_KEY=sk-...",
     "  npm run dev       # B4.run dev server on http://127.0.0.1:3000",
+    "",
+    "Want the full deep-research assistant with a web UI instead?",
+    "  npm create b4-app@latest <new-directory> -- --template research",
   ]
   const lines = [
     "",
@@ -148,7 +151,7 @@ async function assertInternalModeWorkspace(mode: CliOptions["mode"]): Promise<vo
 function parseArgs(argv: readonly string[]): CliOptions {
   const args = [...argv]
   let targetDir: string | undefined
-  let template = "research"
+  let template = "basic"
   let mode: CliOptions["mode"] = "external"
   let distTag = "latest"
 
@@ -206,7 +209,7 @@ function parseArgs(argv: readonly string[]): CliOptions {
 
   if (!targetDir) {
     throw new Error(
-      "Usage: create-b4-app <target-directory> [--template basic] [--mode external|internal] [--dist-tag latest]",
+      "Usage: create-b4-app <target-directory> [--template basic|research] [--mode external|internal] [--dist-tag latest]",
     )
   }
 

@@ -419,7 +419,14 @@ function createCommandAdapter({ repoRoot, parentEnvironment }) {
       assertCommandSucceeded(
         await run(
           "node",
-          [join(repoRoot, "packages/create-b4-app/dist/bin.js"), appRoot, "--mode", "internal"],
+          [
+            join(repoRoot, "packages/create-b4-app/dist/bin.js"),
+            appRoot,
+            "--mode",
+            "internal",
+            "--template",
+            "research",
+          ],
           { cwd: repoRoot, env: environment, signal },
         ),
         "internal scaffold",

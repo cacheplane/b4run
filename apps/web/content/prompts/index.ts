@@ -7,20 +7,21 @@ export interface PromptEntry {
   readonly body: string
 }
 
-const SCAFFOLD = `Help me scaffold a new B4.run app from the default research starter. B4.run is a TypeScript-first meta-framework for building graph-based AI agents with file-system routing, shared and route-local tools, and inferred types.
+const SCAFFOLD = `Help me scaffold a new B4.run app from the research starter. B4.run is a TypeScript-first meta-framework for building graph-based AI agents with file-system routing, shared and route-local tools, and inferred types.
 
 1. Run the scaffold:
    \`\`\`
-   npm create b4-app@latest my-agent
+   npm create b4-app@latest my-agent -- --template research
    cd my-agent
    npm install
    \`\`\`
+   Without \`--template research\`, the command scaffolds the default \`basic\` template: one package with a single \`/hello\` agent and one typed \`greet\` tool.
 
 2. Walk me through the generated project structure. Explain:
    - The two-package npm workspace: \`server/\` is the B4.run app and \`web/\` is the B4.run Workbench browser client. Every path below is relative to \`server/\`, and the root \`package.json\` scripts delegate into whichever package owns them.
    - How routes are directories containing an \`index.ts\` that exports exactly one of: default \`agent(...)\`, named \`workflow\` (async function), named \`graph\` (LangGraph graph), or named \`chain\` (LangChain LCEL Runnable).
    - \`state.ts\` — the optional Zod route state schema.
-   - \`src/tools/*.ts\` — shared tools available across routes. The default research scaffold puts \`searchCorpus\` and \`readDoc\` here.
+   - \`src/tools/*.ts\` — shared tools available across routes. The research scaffold puts \`searchCorpus\` and \`readDoc\` here.
    - \`src/app/<route>/tools/*.ts\` — optional route-local tools. They are visible only to that route and shadow same-named shared tools.
    - \`plan.md\` — route-local planning seed that adds todo state and \`writeTodos\`.
    - \`subagents/<name>/index.ts\` — immediate child agent routes exposed through \`task({ subagent, input })\`; children receive shared tools and their own local tools, not the parent's local tools.
@@ -29,7 +30,7 @@ const SCAFFOLD = `Help me scaffold a new B4.run app from the default research st
    - \`workspace/\` — corpus, reports, and scripts; \`workspace/AGENTS.md\` is app-level prompt guidance shared by consuming agent routes and subagents.
    - Optional \`sandbox\` config — routes workspace filesystem and shell calls through a provider such as the Docker reference implementation.
    - Route groups like \`(public)\` — excluded from pathname when a template uses them.
-   - Dynamic segments like \`[tenant]\` — preserved in the route id; provide values in JSON input when invoking the route. The optional \`--template basic\` scaffold uses \`/hello/[tenant]\`.
+   - Dynamic segments like \`[tenant]\` — preserved in the route id; provide values in JSON input when invoking the route.
    - \`.b4/b4.generated.d.ts\` — auto-generated ambient types from the TypeScript compiler API.
 
 3. Start with type generation, validation, typechecking, the offline deterministic agent harness tests, and the replay-backed eval. These need no model-provider key:
@@ -75,7 +76,7 @@ Reference: https://b4.run/llms.txt
 const ADD_A_TOOL = `Help me add a new tool to an existing B4.run app. B4.run discovers shared tools in \`src/tools/*.ts\` and route-local tools in \`src/app/<route>/tools/*.ts\`; their types are generated from TypeScript — no Zod schemas or manual type wiring.
 
 1. Choose the tool's scope before creating it:
-   - Put tools reused by multiple routes in \`src/tools/\`. This is where the default research scaffold keeps \`searchCorpus\` and \`readDoc\`.
+   - Put tools reused by multiple routes in \`src/tools/\`. This is where the research scaffold keeps \`searchCorpus\` and \`readDoc\`.
    - Put a route-specific tool in \`src/app/<route>/tools/\`. A route-local tool is available only to that route and shadows a shared tool with the same name.
 
 2. Add a TypeScript file with a default export that is an async function. This shared example is the default for the research scaffold:
@@ -168,7 +169,7 @@ Reference: https://b4.run/llms.txt
 
 const WRITE_A_TEST = `Help me write tests for a B4.run route. Pick the right style for the route kind:
 
-1. For an agent route like the default \`/research#agent\`, write a Vitest test with \`createAgentHarness\`, \`script()\` fixtures, and agent matchers:
+1. For an agent route like the research scaffold's \`/research#agent\`, write a Vitest test with \`createAgentHarness\`, \`script()\` fixtures, and agent matchers:
 
    \`\`\`ts
    import { fileURLToPath } from "node:url"

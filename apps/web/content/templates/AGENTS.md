@@ -4,7 +4,7 @@ This project uses **B4.run**, a TypeScript-first meta-framework for building gra
 
 ## Project Shape
 
-- **`b4.config.ts`** at the B4.run app root. Every path below is relative to that root — the project root in a single-package app, and the `server/` package in an app scaffolded from the default research template. Supported keys include:
+- **`b4.config.ts`** at the B4.run app root. Every path below is relative to that root — the project root in a single-package app such as the default basic scaffold, and the `server/` package in an app scaffolded from the research template. Supported keys include:
   - `appDir` — route directory root; defaults to `src/app`.
   - `backends` — custom filesystem and exec backends for workspace tools.
   - `permissions` — mode plus allow/deny maps for tool and workspace gates.
@@ -36,8 +36,9 @@ This project uses **B4.run**, a TypeScript-first meta-framework for building gra
 
 Examples:
 
-- Default research scaffold: `src/app/research/index.ts` → route id `/research`; agent route key `/research#agent`.
-- Optional basic scaffold (`pnpm create b4-app my-app -- --template basic`): `src/app/(public)/hello/[tenant]/index.ts` → route id `/hello/[tenant]`; callers pass `tenant` in JSON input.
+- Default basic scaffold: `src/app/hello/index.ts` → route id `/hello`; agent route key `/hello#agent`.
+- Research scaffold (`npm create b4-app@latest my-app -- --template research`): `src/app/research/index.ts` → route id `/research`; agent route key `/research#agent`.
+- Route group plus dynamic segment: `src/app/(public)/hello/[tenant]/index.ts` → route id `/hello/[tenant]`; callers pass `tenant` in JSON input.
 
 ## Defining an Agent Route
 
@@ -145,7 +146,8 @@ The `RouteTools<"/research">` lookup uses the route's pathname as the key — th
 - `b4 test [path]` — run colocated scenario tests.
 - `b4 typegen` — regenerate `.b4/b4.generated.d.ts` and per-route `tools.json` / `state.json`.
 - `b4 verify` — full integrity check across app, routes, typegen, deps. Preferred CI gate.
-- `echo '{"messages":[{"role":"user","content":"What are common agent architectures?"}]}' | b4 run /research` — execute the default scaffold route.
+- `echo '{"messages":[{"role":"user","content":"Say hello to Ada"}]}' | b4 run /hello` — execute the default basic scaffold route.
+- `echo '{"messages":[{"role":"user","content":"What are common agent architectures?"}]}' | b4 run /research` — execute the research scaffold route.
 
 ## Agent Protocol
 
