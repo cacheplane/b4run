@@ -106,6 +106,62 @@ describe("parseDraft", () => {
     expect(reason("missingTask")).toMatch(/draft\/task\.json is missing/)
   })
 
+  it("fills the target's runner configuration into immutablePaths, after the drafter's own", () => {
+    const task = JSON.parse(GOOD_DRAFT["draft/task.json"] ?? "") as {
+      immutablePaths: string[]
+    }
+    const runnerConfig = [
+      "packages/devkit/package.json",
+      "packages/devkit/vitest.config.ts",
+      "packages/devkit/tsconfig.json",
+      "packages/devkit/tsconfig.test.json",
+      "packages/config-typescript",
+    ]
+    // The drafter lists none of the runner configuration, and one path it is covered by twice.
+    const own = task.immutablePaths.filter((path) => !runnerConfig.includes(path))
+    const draft = {
+      ...GOOD_DRAFT,
+      "draft/task.json": JSON.stringify({
+        ...task,
+        immutablePaths: [...own, "packages/devkit/tsconfig.json"],
+      }),
+    }
+    const parsed = parseDraft(files(draft), { workOrderId: WO, pin: PIN })
+    if (!parsed.ok) throw new Error(parsed.reason)
+    expect(parsed.manifest.immutablePaths).toEqual([
+      ...own,
+      "packages/devkit/tsconfig.json",
+      "packages/devkit/package.json",
+      "packages/devkit/vitest.config.ts",
+      "packages/devkit/tsconfig.test.json",
+      "packages/config-typescript",
+    ])
+  })
+
+  it("refuses a draft whose allowed path is the runner configuration, naming every such path", () => {
+    const task = JSON.parse(GOOD_DRAFT["draft/task.json"] ?? "") as Record<string, unknown>
+    const draft = {
+      ...GOOD_DRAFT,
+      "draft/task.json": JSON.stringify({
+        ...task,
+        allowedSourcePaths: [
+          "packages/devkit/src/testing/process.ts",
+          "packages/devkit/vitest.config.ts",
+          "packages/devkit/package.json",
+        ],
+        immutablePaths: ["packages/devkit/test"],
+      }),
+    }
+    const parsed = parseDraft(files(draft), { workOrderId: WO, pin: PIN })
+    expect(parsed.ok).toBe(false)
+    if (parsed.ok) return
+    expect(parsed.blockedReason).toBe("intake_invalid")
+    expect(parsed.reason).toMatch(/draft\/task\.json does not fit target devkit/)
+    expect(parsed.reason).toContain("(2 problems)")
+    expect(parsed.reason).toContain("may edit packages/devkit/vitest.config.ts")
+    expect(parsed.reason).toContain("may edit packages/devkit/package.json")
+  })
+
   it("refuses an independent assertion without an A<n>: prefix", () => {
     const checks = JSON.parse(GOOD_DRAFT["draft/checks.json"] ?? "")
     checks.independent.assertions = [...checks.independent.assertions, "a bare name"]

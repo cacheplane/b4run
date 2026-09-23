@@ -1261,6 +1261,54 @@ describe("intake reconciliation", () => {
     expect(runPosts()).toHaveLength(1)
   })
 
+  /** The live run's window: the drafter was killed mid-turn and came back reading `busy`. */
+  async function staleBusyIntake(): Promise<{ id: string; threadId: string }> {
+    await bootWorker()
+    await bootFactory()
+    const { id } = await createIssue()
+    await crash()
+    const created = await fetch(`${fake.baseUrl}/threads`, { method: "POST" })
+    const { thread_id: threadId } = (await created.json()) as { thread_id: string }
+    fake.markStaleBusy(threadId)
+    forceRow(id, { state: "intake_running", workerThreadId: threadId })
+    return { id, threadId }
+  }
+
+  it("finishes an intake whose thread reads busy with no run behind it", async () => {
+    const { id, threadId } = await staleBusyIntake()
+    reader.set(threadId, GOOD_DRAFT)
+    await bootFactory()
+    const row = await factory.settleIntake(id, 20_000)
+    expect(row).toMatchObject({ state: "awaiting_intake_approval", intakeAttempts: 1 })
+    const types = factory.events(id).map((e) => e.type)
+    expect(types).toContain("reattach_not_live")
+    expect(types).not.toContain("reattached")
+    expect(types).not.toContain("intake_still_live")
+    expect(factory.events(id).find((e) => e.type === "reconciled")?.payload).toMatchObject({
+      resolution: "finish_intake",
+      status: "busy",
+    })
+    // One reattach, answered `live: false`; never a new turn.
+    expect(
+      fake.requests.filter((r) => r.method === "GET" && r.path.endsWith("/runs/stream")),
+    ).toHaveLength(1)
+    expect(runPosts()).toHaveLength(0)
+  })
+
+  it("refuses the missing draft a stale busy intake left, spending an attempt", async () => {
+    const { id, threadId } = await staleBusyIntake()
+    // The killed turn wrote nothing; the redraft the refusal starts writes the draft.
+    reader.queue(threadId, [{}, GOOD_DRAFT])
+    await bootFactory()
+    const row = await factory.settleIntake(id, 20_000)
+    expect(row).toMatchObject({ state: "awaiting_intake_approval", intakeAttempts: 2 })
+    expect(refusals(id)).toHaveLength(1)
+    expect(refusals(id)[0]?.payload).toMatchObject({ blockedReason: "intake_invalid", attempt: 1 })
+    expect(String(refusals(id)[0]?.payload.reason)).toContain("draft/task.json is missing")
+    expect(factory.events(id).map((e) => e.type)).not.toContain("intake_still_live")
+    expect(runPosts()).toHaveLength(1)
+  })
+
   it("leaves an intake a closing factory aborted for the next boot, not blocked", async () => {
     await bootWorker()
     await bootFactory()

@@ -536,6 +536,33 @@ describe("task catalog", () => {
     ).toThrow(/runner configuration/)
   })
 
+  it("lists every problem a task has with its target in one refusal", () => {
+    const checks = ChecksSchema.parse({
+      visible: { runner: "node-test", file: "test/v.test.ts", assertions: ["v"] },
+      independent: { runner: "node-test", file: "checks/i.test.ts", assertions: ["A1: i"] },
+    })
+    const attempt = () =>
+      assertTaskFitsTarget(
+        "k",
+        { id: "k", target: "t", allowedSourcePaths: ["config/base.json"], immutablePaths: [] },
+        checks,
+        { runnerConfig: ["config", "package.json"] },
+      )
+    expect(attempt).toThrow(/Task k does not fit its target \(4 problems\)/)
+    let message = ""
+    try {
+      attempt()
+    } catch (error) {
+      message = String(error)
+    }
+    expect(message).toContain(
+      "may edit config/base.json, which reaches the target's runner configuration (config)",
+    )
+    expect(message).toContain("runner configuration config must be immutable")
+    expect(message).toContain("runner configuration package.json must be immutable")
+    expect(message).toContain("visible suite test/v.test.ts must be immutable")
+  })
+
   it("refuses a task that leaves a runner configuration file mutable, and accepts one covered by an immutable directory", () => {
     const { root, pin } = repo()
     expect(() =>

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import type { BlockedReason } from "../domain/states.js"
-import type { WorkOrderRow } from "../domain/work-order.js"
+import type { Receipt, WorkOrderRow } from "../domain/work-order.js"
 import { DRAFT_ROOT, parseDraft } from "../intake/draft.js"
 import { writeGeneratedTask } from "../intake/generated-task.js"
 import { proveOracle } from "../intake/oracle.js"
@@ -367,10 +367,11 @@ async function proveDraft(
   if (!isIntake(ctx.mustGet(id).state)) return
 
   if (!proof.proven) {
+    const why = await inconclusiveReason(ctx, proof.receipt, proof.checkId)
     await refuse(
       ctx,
       id,
-      `the drafted check did not fail on the unpatched baseline: ${proof.verdict} (${proof.checkId ?? "no check ran"})`,
+      `the drafted check did not fail on the unpatched baseline: ${proof.verdict} (${proof.checkId ?? "no check ran"})${why ? `: ${why}` : ""}`,
       "oracle_did_not_fail",
     )
     return
@@ -436,4 +437,26 @@ async function refuse(
   }
   ctx.transition(id, "intake_retry", { intakeAttempts: attempt }, { reason, attempt })
   await runIntake(ctx, id, { note: reason })
+}
+
+/**
+ * The first line of an `inconclusive:` explanation the verifier put at the head of the
+ * deciding check's evidence (a check that could not load, or failed other than by a named
+ * assertion), so the redraft is told what to mend. Best effort: an evidence store that cannot
+ * be read leaves the refusal as it was.
+ */
+async function inconclusiveReason(
+  ctx: ControllerContext,
+  receipt: Receipt,
+  checkId: string | null,
+): Promise<string | null> {
+  const check = receipt.checks.find((c) => c.id === checkId)
+  const digest = check?.verdict === "inconclusive" ? check.evidence[0]?.digest : undefined
+  if (digest === undefined) return null
+  try {
+    const first = (await ctx.artifacts.read(digest)).split("\n", 1)[0] ?? ""
+    return first.startsWith("inconclusive: ") ? first.slice("inconclusive: ".length) : null
+  } catch {
+    return null
+  }
 }

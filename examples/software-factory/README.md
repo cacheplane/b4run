@@ -375,6 +375,22 @@ The CLI's write commands are requests to the running controller
 right answer, so the fix's own test grades what the factory produces without the drafter or the
 builder being able to see it.
 
+**The model key.** `OPENAI_API_KEY` must be in the environment of the builder and drafter
+processes (steps 2 and 3), not the controller's or this terminal's. Both boot without it and
+fail only at their first model call, as a failed turn. To load the one variable from the
+repository's gitignored `.env` without printing it, in a way every shell runs (bash process
+substitution, `source <(...)`, is silently ignored by macOS's bash 3.2):
+
+    export OPENAI_API_KEY="$(sed -n 's/^OPENAI_API_KEY=//p' .env)"
+
+**After a restart.** The controller reconciles on its first request, not when the process
+starts (b4 has no boot hook), so after restarting it run `factory reconcile` before anything
+else. A work order interrupted mid-intake is reconciled then: a drafter thread that is idle,
+or that the restarted drafter still calls `busy` with no run behind it (a reattach answers
+`live: false`; the runtime persists `busy` across a crash), has its turn treated as ended, and
+its `draft/` is read and proved like any other: a missing or partial draft is refused and
+spends an attempt. A builder thread in the same state is judged as a turn that ended.
+
 `dispatch` returns when the work order has stopped moving — including through the controller's
 own `verifying` phase, which is not the builder's — and tails the journal to stderr while it
 waits. If it reaches `awaiting_approval`, approve with the revision and the **bundle digest**
@@ -402,14 +418,19 @@ and the drafter could edit its copy of the repository. That is safe because noth
 the copy back — the controller reads the thread **re-rooted at `draft/`** (a read of a
 different root, not a filter over the whole tree), the network is denied, and the capture
 is the thread's own; a write under `repo/` changes what the drafter sees and nothing else.
+The drafter's `immutablePaths` need not restate the target's runner configuration: the
+controller fills it in after the drafter's own entries, as it fills the id and the pin, and
+refuses only a draft whose allowed paths reach it (every such path named in one refusal).
 The manifest lives until the work order leaves intake for good (a block, an approval, a
 settled cancel): a redraft reuses the admitted thread and needs no manifest, and one is
 some 20 MiB on this repository, so it is removed rather than kept. The controller validates
 the draft, fits it to a prepared target, materialises it as a task directory under
 `<FACTORY_STATE_DIR>/tasks/<id>/` (the four files plus `issue.md`), and then **proves the
 oracle**: it runs only the drafted check, with no candidate changes, against the unpatched
-baseline in the target's image, and the check must FAIL there. A check that passes on the
-defect would pass on anything, so that draft is refused. An invalid draft or one that is not
+baseline in the target's image, and the check must FAIL there, by a named `A<n>` assertion
+failing by assertion (`ERR_ASSERTION`). A check that passes on the defect would pass on
+anything, and one that cannot load (a wrong import, a syntax error) or fails only by a throw
+or in a test it does not name proves nothing (`inconclusive`), so either draft is refused. An invalid draft or one that is not
 an oracle starts another drafter turn on the same thread with the refusal quoted; the
 attempts default to 2, and the last refusal blocks the work order. A draft naming a package
 with no prepared target blocks immediately (`no_target_for_package`), since no redraft can

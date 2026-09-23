@@ -1,4 +1,5 @@
 import type { Receipt, Verdict } from "../domain/work-order.js"
+import { ASSERTION_FAILURE, type SuiteEvent } from "./checks-runner.js"
 import type { SuiteKind, SuiteSession } from "./grade-suite.js"
 import { type VerifyMode, worstVerdict } from "./verifier.js"
 
@@ -128,18 +129,50 @@ function independentOnlyPlan(
   const result = independent.result
   if (!result)
     throw new Error("a suite did not run and neither a build failure nor a tamper was recorded")
+  const unproven = result.verdict === "fail" ? unprovenFailure(result.events, acceptanceIds) : null
+  const verdict: Verdict = unproven ? "inconclusive" : result.verdict
   return {
-    verdict: result.verdict,
+    verdict,
     checks: [
       {
         id: "independent",
         acceptanceIds: [...acceptanceIds],
-        verdict: result.verdict,
-        evidence: result.output,
+        verdict,
+        evidence: unproven ? `${unproven}\n${result.output}` : result.output,
       },
     ],
   }
 }
+
+/**
+ * Why a failing independent-only run proves nothing, or null when it does. `independentOnly`
+ * is the oracle proof, and a `fail` there is read as "the check fails on the defect", so it
+ * must be a named assertion failing by assertion (`ERR_ASSERTION`), and nothing else failing:
+ * - a file that cannot load (a missing module, a syntax error, a top-level throw) reports one
+ *   failure named after the file, with no cause, and no named test runs at all;
+ * - a failure under any other name is a test the check does not name;
+ * - a named test that fails by a throw (`TypeError`, a missing export) has not asserted
+ *   anything about the behaviour: it is how a placeholder or a wrong import fails.
+ * The live run's first drafted check failed on `ERR_MODULE_NOT_FOUND` and was read as an
+ * oracle. Full-mode grading is untouched: there a failure of any kind rejects the candidate.
+ */
+function unprovenFailure(
+  events: readonly SuiteEvent[],
+  assertions: readonly string[],
+): string | null {
+  const failed = events.filter((event) => event.type === "test:fail")
+  const unnamed = failed.filter((event) => !assertions.includes(event.name))
+  if (unnamed.length > 0)
+    return `inconclusive: failures outside the named assertions prove nothing (the file may not have loaded): ${unnamed.map(describeFailure).join(", ")}`
+  if (!failed.some((event) => event.failure === ASSERTION_FAILURE))
+    return failed.length === 0
+      ? "inconclusive: the suite failed but no named assertion ran and failed"
+      : `inconclusive: no named assertion failed by assertion (${ASSERTION_FAILURE}): ${failed.map(describeFailure).join(", ")}`
+  return null
+}
+
+const describeFailure = (event: SuiteEvent): string =>
+  `${JSON.stringify(event.name)} (${event.failure ?? "no cause"})`
 
 /**
  * The receipt a tampering candidate gets: one check, named for the session it happened in

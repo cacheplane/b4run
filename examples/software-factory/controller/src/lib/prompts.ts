@@ -4,6 +4,7 @@ import {
   loadTarget,
   loadTargetIds,
   loadTask,
+  type Target,
   type Task,
 } from "./targets/catalog.js"
 
@@ -60,7 +61,39 @@ export function promptFor(id: string, options: CatalogOptions = {}): string {
 }
 
 /**
- * The targets prepared AT `pin` a draft may name, one line each with the target's root. A
+ * One target as a drafter must read it: its root, what a path under that root looks like
+ * (from the target's own capture, so the example is a directory that exists), where the
+ * build writes the artifact a check imports, and that the runner configuration is not the
+ * drafter's to list. The live run's drafter read a root of `.` as the package and wrote
+ * `src/...` paths; the example is what makes the root unambiguous.
+ */
+export function targetLine(
+  target: Pick<Target, "id" | "root" | "capture" | "commands" | "snapshotIgnore">,
+): string {
+  const pkg = target.commands.cwd === "." ? "" : `${target.commands.cwd}/`
+  const includes = target.capture.include
+  const source =
+    includes.find((path) => path === `${pkg}src`) ??
+    includes.find((path) => path === "src" || path.endsWith("/src")) ??
+    includes[0]
+  const facts: string[] = []
+  if (target.root === ".") {
+    const wrong = pkg !== "" && source?.startsWith(pkg) ? source.slice(pkg.length) : null
+    facts.push(
+      `the repository root: paths start at the repository root and look like \`${source}/...\`${wrong ? `, never \`${wrong}/...\`` : ""}`,
+    )
+  } else facts.push(`paths start inside that directory and look like \`${source}/...\``)
+  const built = target.snapshotIgnore.find((prefix) => prefix === `${pkg}dist/`)
+  if (built && target.commands.build.length > 0)
+    facts.push(
+      `the build writes \`${built}\`, and the check imports the built artifact by that path`,
+    )
+  facts.push("its runner configuration is fixed by the factory")
+  return `- \`${target.id}\` (root: \`${target.root}\`, ${facts.join("; ")})`
+}
+
+/**
+ * The targets prepared AT `pin` a draft may name, one line each (`targetLine`). A
  * target the catalog cannot load there (no image at the pin: nobody has run
  * `target:prepare <id> --pin <pin>` on this machine) is left out rather than listed:
  * `parseDraft` would refuse a draft naming it, so offering it would only be offering a
@@ -74,14 +107,21 @@ export function preparedTargets(
   const lines: string[] = []
   for (const id of loadTargetIds(catalog.targetsDir)) {
     try {
-      const target = loadTarget(id, { ...catalog, pin })
-      lines.push(`- \`${id}\` (root: \`${target.root}\`)`)
+      lines.push(targetLine(loadTarget(id, { ...catalog, pin })))
     } catch {
       // Unprepared at this pin: not something this work order's draft can name.
     }
   }
   return lines
 }
+
+/**
+ * How a path is spelled, stated the same way here and in the drafter's system prompt. A root
+ * of `.` is said outright to be the repository root: the live run's drafter, told paths were
+ * "not relative to the repository's root", wrote them relative to the package instead.
+ */
+export const ROOT_RULE =
+  "Every path in `task.json` and every import in the check file is relative to the chosen target's root, not to `repo/`. A root of `.` is the repository root: paths then start there (`packages/<name>/...`), never at the package."
 
 /**
  * The drafter's single turn (spec §6.4): what varies from one work order to the next. The
@@ -107,7 +147,7 @@ export function intakePrompt(input: {
       `The repository is under \`repo/\`, checked out at ${input.pin}. Available targets, those prepared at that commit (choose the one whose package the issue is about), each with its root inside the repository:`,
       ...(targets.length > 0 ? targets : ["- (none prepared)"]),
       "",
-      "Every path in `task.json` and every import in the check file is relative to the chosen target's root, not to `repo/` and not to the repository's root.",
+      ROOT_RULE,
       "",
       "When the four files are written, stop and say so.",
     ].join("\n"),

@@ -31,7 +31,10 @@ export type OracleProof =
  * failure: a check that could not run proves nothing, and a check that passes on the defect
  * would pass on anything. A `fail` under any other check id is not a failing assertion
  * either: a tamper (`tamper`) or a build failure (`build`) proves nothing about the defect,
- * whatever the receipt's own verdict says. The not-proven arm names the deciding check so the
+ * whatever the receipt's own verdict says. Nor is every failing suite: the verifier grades an
+ * independent-only run `inconclusive` unless a named assertion failed by assertion and
+ * nothing unnamed failed (`receipt.ts`), so a check that cannot load (a missing module, a
+ * syntax error) or fails only by a throw never reaches this rule as a `fail`. The not-proven arm names the deciding check so the
  * caller can journal why. Rejects when the harness itself could not run, and when the receipt
  * names bytes other than the baseline it was asked to grade: a receipt is never guessed.
  */

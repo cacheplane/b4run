@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { intakePrompt, preparedTargets } from "../src/lib/prompts.ts"
+import { intakePrompt, preparedTargets, ROOT_RULE, targetLine } from "../src/lib/prompts.ts"
 import { loadTarget, loadTargetIds, targetsDir } from "../src/lib/targets/catalog.ts"
 import { shippedPin } from "./temp-repo.ts"
 
@@ -55,19 +55,44 @@ describe("intakePrompt", () => {
     // Each target with its root, so the drafter can find the package under `repo/`.
     for (const id of loadTargetIds())
       expect(intakePrompt({ pin: shippedPin(id), issueText: ISSUE })).toContain(
-        `- \`${id}\` (root: \`${loadTarget(id).root}\`)`,
+        `- \`${id}\` (root: \`${loadTarget(id).root}\`, `,
       )
-    // The one sentence the drafter's own system prompt states the same way: paths in the
-    // manifest and imports in the check are relative to the target's root, not to `repo/`
-    // and not to the repository's root.
-    const sentence =
-      "Every path in `task.json` and every import in the check file is relative to the chosen target's root, not to `repo/` and not to the repository's root."
-    expect(prompt).toContain(sentence)
+    // The one rule the drafter's own system prompt states the same way: paths are relative
+    // to the target's root, and a root of `.` is the repository root, never the package.
+    expect(prompt).toContain(ROOT_RULE)
+    expect(ROOT_RULE).toContain("A root of `.` is the repository root")
+    expect(prompt).not.toContain("not to the repository's root")
     expect(prompt).not.toMatch(/repository-relative/)
     expect(prompt).not.toMatch(/repository-root-relative/)
-    expect(drafterSystemPrompt()).toContain(
-      "relative to the target's root, not to \\`repo/\\` and not to the repository's root",
+    const drafter = drafterSystemPrompt()
+    expect(drafter).toContain("relative to the target's root, not to \\`repo/\\`")
+    expect(drafter).toContain(
+      "A root of \\`.\\` is the repository root: paths then start there (\\`packages/<name>/...\\`), never at the package",
     )
+    expect(drafter).not.toContain("not to the repository's root")
+  })
+
+  it("renders each target with a concrete path, its built artifact and its fixed runner configuration", () => {
+    const cli = targetLine(loadTarget("cli"))
+    expect(cli).toBe(
+      "- `cli` (root: `.`, the repository root: paths start at the repository root and look like `packages/cli/src/...`, never `src/...`; the build writes `packages/cli/dist/`, and the check imports the built artifact by that path; its runner configuration is fixed by the factory)",
+    )
+    expect(intakePrompt({ pin: shippedPin("cli"), issueText: ISSUE })).toContain(cli)
+    // A root inside the repository: paths start in it, and a target with no build names no
+    // artifact.
+    expect(targetLine(loadTarget("cli-flags"))).toBe(
+      `- \`cli-flags\` (root: \`${loadTarget("cli-flags").root}\`, paths start inside that directory and look like \`src/...\`; its runner configuration is fixed by the factory)`,
+    )
+  })
+
+  it("tells the drafter the check's contract: built artifact from the target root, a real path, real assertions", () => {
+    const drafter = drafterSystemPrompt()
+    expect(drafter).toContain("runs from the target's root after the target's build")
+    expect(drafter).toContain("\\`packages/<name>/dist/...\\`")
+    expect(drafter).toContain("through a real code path")
+    expect(drafter).toContain("never \\`assert.ok(true)\\`")
+    // The runner configuration is the factory's, not the drafter's to restate.
+    expect(drafter).toContain("fixed by the factory, which adds it to \\`immutablePaths\\` itself")
   })
 
   it("quotes the previous attempt's refusal when a note is given", () => {
@@ -94,7 +119,10 @@ describe("intakePrompt", () => {
           ),
         )
       }
-      expect(preparedTargets(PIN, { targetsDir: dir })).toEqual(["- `devkit` (root: `.`)"])
+      expect(preparedTargets(PIN, { targetsDir: dir })).toEqual([targetLine(loadTarget("devkit"))])
+      expect(preparedTargets(PIN, { targetsDir: dir })[0]).toContain(
+        "look like `packages/devkit/src/...`",
+      )
       const elsewhere = "1".repeat(40)
       expect(preparedTargets(elsewhere, { targetsDir: dir })).toEqual([])
       const prompt = intakePrompt({

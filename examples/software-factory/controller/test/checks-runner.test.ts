@@ -1,3 +1,7 @@
+import { execFile } from "node:child_process"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
   gradeNodeTestEvents,
@@ -174,6 +178,75 @@ describe("gradeNodeTestEvents", () => {
 
   it("is inconclusive when no assertions were expected", () => {
     expect(gradeNodeTestEvents(0, [ev("test:pass", "x")], []).verdict).toBe("inconclusive")
+  })
+
+  it("carries what a failure was, and nothing when the runner gave none", () => {
+    const graded = gradeNodeTestEvents(
+      1,
+      [
+        { ...ev("test:fail", "x"), failure: "ERR_ASSERTION" },
+        { ...ev("test:fail", "checks/y.test.ts"), failure: null },
+      ],
+      ["x"],
+    )
+    expect(graded.events).toEqual([
+      { type: "test:fail", name: "x", failure: "ERR_ASSERTION" },
+      { type: "test:fail", name: "checks/y.test.ts" },
+    ])
+  })
+})
+
+/**
+ * The runner program itself, run by the host's node in a scratch directory rather than in a
+ * container: what node:test reports for a file that cannot load, and for an assertion and a
+ * throw, is the event shape the oracle proof grades, so it is pinned against node itself.
+ */
+describe("runNodeTestSuite against node:test", () => {
+  const localHandle = (cwd: string) =>
+    ({
+      workspaceRoot: cwd,
+      exec: {
+        runCommand: (request: { command: string }) =>
+          new Promise((resolve) => {
+            const command = request.command.replace("/usr/local/bin/node", process.execPath)
+            execFile("/bin/sh", ["-c", command], { cwd }, (error, stdout, stderr) =>
+              resolve({ stdout, stderr, exitCode: error ? Number(error.code ?? 1) : 0 }),
+            )
+          }),
+      },
+    }) as unknown as Parameters<typeof runNodeTestSuite>[0]
+  const target = { commands: { cwd: ".", build: [], test: ["x"], nodeTestExecArgv: [] } } as never
+
+  it("reports a file that cannot load under the file's name with no cause, and an assertion as ERR_ASSERTION", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "factory-node-test-"))
+    try {
+      mkdirSync(join(cwd, "checks"))
+      writeFileSync(
+        join(cwd, "checks", "missing.test.mjs"),
+        "import '../dist/nowhere.js'\nimport test from 'node:test'\ntest('A1: x', () => {})\n",
+      )
+      writeFileSync(
+        join(cwd, "checks", "asserts.test.mjs"),
+        "import test from 'node:test'\nimport assert from 'node:assert'\ntest('A1: x', () => assert.equal(1, 2))\ntest('A2: y', () => { throw new TypeError('no') })\n",
+      )
+      const run = (file: string, assertions: string[]) =>
+        runNodeTestSuite(
+          localHandle(cwd),
+          target,
+          { runner: "node-test", file, assertions },
+          AbortSignal.timeout(30_000),
+        )
+      const missing = await run("checks/missing.test.mjs", ["A1: x"])
+      expect(missing.verdict).toBe("fail")
+      expect(missing.events).toEqual([{ type: "test:fail", name: "checks/missing.test.mjs" }])
+      const asserts = await run("checks/asserts.test.mjs", ["A1: x", "A2: y"])
+      expect(asserts.events).toEqual([
+        { type: "test:fail", name: "A1: x", failure: "ERR_ASSERTION" },
+        { type: "test:fail", name: "A2: y", failure: "TypeError" },
+      ])
+    } finally {
+      rmSync(cwd, { recursive: true, force: true })
+    }
   })
 })
 

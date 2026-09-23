@@ -5,11 +5,13 @@ import {
   type Checks,
   ChecksSchema,
   commitSha,
+  covers,
   ImageUnpreparedError,
   isCatalogId,
   loadTarget,
   prepareCommand,
   relativePath,
+  requiredImmutablePaths,
   TaskFieldsSchema,
   type TaskManifest,
   TaskSchema,
@@ -151,7 +153,8 @@ function strayFile(
 /**
  * Turn what a drafter wrote under `draft/` into a task the catalog can load, or refuse it with
  * a reason that names the offending file. The controller fills what the drafter must not
- * decide: the id and the pin (the work order's) and the visible suite (the regression guard).
+ * decide: the id and the pin (the work order's), the visible suite (the regression guard),
+ * and the target's runner configuration among the immutable paths.
  * Every rule `loadTask` would apply later is applied here, so a materialised task is always
  * loadable, at the work order's pin. `catalog` is where the target is looked up (the shipped
  * catalog by default); its own `pin`, if any, is ignored for the work order's.
@@ -194,7 +197,7 @@ export function parseDraft(
   })
   if (!filled.success)
     return invalid(`${DRAFT_ROOT}task.json is invalid: ${describeIssues(filled.error)}`)
-  const manifest = filled.data
+  const drafted = filled.data
 
   // Before checks.json on purpose: an unknown target is the least fixable defect, so its
   // refusal (`no_target_for_package`) wins on precedence over anything a redraft could mend;
@@ -202,7 +205,7 @@ export function parseDraft(
   // operator's to mend, never the drafter's.
   let target: ReturnType<typeof loadTarget>
   try {
-    target = loadTarget(manifest.target, { ...input.catalog, pin })
+    target = loadTarget(drafted.target, { ...input.catalog, pin })
   } catch (error) {
     if (error instanceof ImageUnpreparedError)
       return {
@@ -213,14 +216,14 @@ export function parseDraft(
     if (error instanceof UnknownTargetError)
       return {
         ok: false,
-        reason: `${DRAFT_ROOT}task.json names target ${JSON.stringify(manifest.target)}: ${error.message}`,
+        reason: `${DRAFT_ROOT}task.json names target ${JSON.stringify(drafted.target)}: ${error.message}`,
         blockedReason: "no_target_for_package",
       }
     // Anything else is the controller's own trouble, not the draft's: a manifest it could
     // not read or parse (a prepare mid-write, a bad edit), or a pin it could not fetch.
     return {
       ok: false,
-      reason: `target ${JSON.stringify(manifest.target)} could not be loaded at ${pin}: ${error instanceof Error ? error.message : String(error)}`,
+      reason: `target ${JSON.stringify(drafted.target)} could not be loaded at ${pin}: ${error instanceof Error ? error.message : String(error)}`,
       blockedReason: "intake_run_failed",
     }
   }
@@ -231,6 +234,13 @@ export function parseDraft(
   if (!draftChecks.success)
     return invalid(`${DRAFT_ROOT}checks.json is invalid: ${describeIssues(draftChecks.error)}`)
   const checks: Checks = { visible: REGRESSION_GUARD, independent: draftChecks.data.independent }
+  // The target's runner configuration is controller-owned policy, like the id and the pin: it
+  // is filled in, after the drafter's own entries, rather than asked of a drafter that cannot
+  // know it. What stays a refusal is an allowed path that reaches it.
+  const immutablePaths = [...drafted.immutablePaths]
+  for (const path of requiredImmutablePaths(checks, target))
+    if (!covers(immutablePaths, path)) immutablePaths.push(path)
+  const manifest: TaskManifest = { ...drafted, immutablePaths }
   try {
     assertTaskFitsTarget(workOrderId, manifest, checks, target)
   } catch (error) {

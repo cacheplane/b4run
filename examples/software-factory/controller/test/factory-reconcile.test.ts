@@ -586,6 +586,26 @@ describe("reconciliation", () => {
     expect(factory.show(id)?.state).toBe("running")
   })
 
+  it("judges a builder turn whose thread reads busy with no run behind it as ended", async () => {
+    await bootWorker({ run: "hang" })
+    await bootFactory()
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id)
+    const running = await factory.waitFor(id, (r) => r.state === "running")
+    const threadId = running.workerThreadId as string
+    await crash()
+    // A builder killed mid-turn and restarted: the thread still reads busy, no run behind it.
+    fake.markStaleBusy(threadId)
+    reader.set(threadId, repaired())
+    await bootFactory()
+    const row = await factory.waitFor(id, (r) => r.state === "awaiting_approval", 20_000)
+    expect(row.workerThreadId).toBe(threadId)
+    const types = factory.events(id).map((e) => e.type)
+    expect(types).toContain("reattach_not_live")
+    expect(types).not.toContain("run_still_live")
+    expect(factory.events(id).at(-1)?.type).not.toBe("reattached")
+  })
+
   it("does not reattach to a run a live observer already owns", async () => {
     await bootWorker({ run: "hang" })
     await bootFactory()

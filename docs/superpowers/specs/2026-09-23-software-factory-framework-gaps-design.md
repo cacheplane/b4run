@@ -395,3 +395,58 @@ Appended as the live replay of #714 runs.
    package list by hand (now checked at prepare), and the base-image pull wedged twice on
    Docker Desktop. Each of these is evidence for item 5: the generator, not the operator,
    should produce the image recipe from the lockfile.
+7. **A restarted runtime keeps a crashed thread `busy` forever.** The drafter was killed
+   (`kill -9`) mid-turn on work order `wo-d0da5fc9a2ac402f`, thread `t-db391b07`, and started
+   again. The runtime had persisted the thread's status as `busy`, and nothing on restart
+   corrects it: there is no run in memory behind it, so a reattach (`GET .../runs/stream`)
+   answers a first `state` frame with `live: false`, a `retry` and `done { output: null }`,
+   and ends. The controller's reconcile treated `busy` as a live run, reattached, saw the
+   stream end, and on the bounded second pass journalled `intake_still_live`; every later
+   pass would do the same (journal, 22:12:26: `reattached`, `intake_turn_ended
+   {reattached:true}`, `intake_still_live {attempt:1}`). The work order was cancelled by hand
+   at 22:18. Fixed in the controller: a reattach whose first frame says `live: false` (or that
+   ends with no frame) is a turn that ended (`reattach_not_live`), so intake reads and proves
+   `draft/` (a missing or partial draft is refused and spends an attempt) and a builder turn
+   goes to verification. The framework fix: on startup the runtime should mark every thread
+   whose persisted status is `busy` and that has no in-memory run as `idle` (or `interrupted`,
+   if a checkpoint shows the turn did not finish), so `GET /threads/:id` stops lying and every
+   client does not need this rule.
+8. **Another process on the host killed the workers.** Mid-run, the drafter and builder
+   processes were killed by another process on the same host, outside the factory; nothing
+   in the factory observed it until a request failed. Four long-lived processes on a
+   developer's host, each a `b4 dev` found by port, are fragile by
+   construction. Items 2 and 3 (the workspace handed over and read over the Agent Protocol)
+   are what let the workers run somewhere the host's other processes cannot reach, and a
+   supervisor that owns and restarts them (with finding 7's startup rule) would contain the
+   rest.
+9. **Active time accrued while the processes were down.** `wo-d0da5fc9a2ac402f` recorded
+   `activeMs` 903,588: the whole span from `intake_started` (22:03:12) to the cancel
+   (22:18:16), including the time the drafter was down and the six minutes the row then sat
+   in `intake_still_live`. The budget ticker counts wall clock in an active state, so the
+   outage was counted as work. A budget meant to bound model and container time should pause while the worker
+   is unreachable (or reconcile the interval out on restart); otherwise an outage can exhaust
+   a work order that did nothing.
+10. **`create --issue` stages nothing until `intake`.** Recorded because it was checked, not
+    because it is wrong: the wide capture and the manifest are written by `intake`, so a
+    created work order costs a row and nothing else, and a stale one is free to leave.
+11. **One drafter turn cost about 1.45M input tokens.** One live drafter turn made 28 model calls for about 1.45M input and 19k output tokens. The
+    input grew to about 80k tokens a call once the drafter had read
+    `packages/cli/src/lib/dev/runtime-fetch-core.ts` (about 2,600 lines) whole: every later
+    call carried it again. A framework item: context management for large files in agent
+    tools, e.g. `readFile` with line ranges and a size cap that returns an outline instead,
+    grep-first guidance in the built-in tool descriptions, and eviction of tool output the
+    turn no longer needs.
+12. **A draft learned the target's runner configuration one refusal at a time.** On
+    `wo-60fd3ddf2eaf28ad` the first draft was refused for `.npmrc` (runner configuration not
+    immutable) and the redraft for `pnpm-workspace.yaml`, which spent both attempts on policy
+    the drafter could not know. Fixed in the controller: the runner configuration is filled
+    into `immutablePaths` like the id and the pin, and `assertTaskFitsTarget` now lists every
+    problem in one refusal. The prompt also names each target's root with a concrete path
+    (`cli`: a root of `.` means `packages/cli/src/...`), because the drafter had read the old
+    wording ("not relative to the repository's root") as "relative to the package".
+13. **A drafted check that could not load was read as a failing oracle.** The oracle proof
+    took any `independent: fail` as proof, and node:test reports a file that fails to load
+    (a wrong `dist/` import, `ERR_MODULE_NOT_FOUND`) as one failing test named after the file.
+    Fixed in the verifier's independent-only grading (rung 3 spec §6.5, as landed): a
+    failure proves the oracle only when a named assertion failed by assertion and nothing
+    unnamed failed; anything else is `inconclusive`, and the refusal quotes why.

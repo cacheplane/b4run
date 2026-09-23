@@ -91,6 +91,17 @@ describe("the intake route", () => {
     expect(prompt).toMatch(/pass(es)? (once|when) .*fixed/i)
     expect(prompt).toMatch(/built artifact/)
     expect(prompt).toMatch(/no (test in the repository|repository test)/i)
+    // A root of `.` is the repository root, never the package: the live run's drafter wrote
+    // package-relative paths.
+    expect(prompt).toContain("A root of `.` is the repository root")
+    expect(prompt).toMatch(/never at the package/)
+    // The check runs after the build, from the target root, against dist, through real code.
+    expect(prompt).toMatch(/runs from the target's root after the target's build/)
+    expect(prompt).toContain("`packages/<name>/dist/...`")
+    expect(prompt).toMatch(/real code path/)
+    expect(prompt).toContain("never `assert.ok(true)`")
+    // The runner configuration is the factory's to fill, never the drafter's to allow.
+    expect(prompt).toMatch(/runner configuration .* fixed by the factory/)
   })
 })
 

@@ -7,6 +7,14 @@ import type { Suite, Target } from "../targets/catalog.js"
 export interface SuiteEvent {
   readonly type: string
   readonly name: string
+  /**
+   * On a `test:fail`, what failed: the error's `code` or, without one, its name, read from
+   * the failure's `cause` (`ERR_ASSERTION` for a failing `node:assert`, `TypeError` for a
+   * throw, `ERR_MODULE_NOT_FOUND` for a missing import). Absent when the runner gave none,
+   * which is what a file that fails to load reports: node:test names that failure after the
+   * file itself, with no cause.
+   */
+  readonly failure?: string
 }
 
 export interface SuiteResult {
@@ -21,6 +29,8 @@ export interface RawEvent {
   readonly name: string
   readonly skip: boolean
   readonly todo: boolean
+  /** See {@link SuiteEvent.failure}; null or absent when the runner gave none. */
+  readonly failure?: string | null
 }
 
 /**
@@ -54,9 +64,18 @@ export function gradeNodeTestEvents(
   const sawFailure = events.some((event) => event.type === "test:fail")
   return {
     verdict: passed ? "pass" : sawFailure ? "fail" : "inconclusive",
-    events: events.map((event) => ({ type: event.type, name: event.name })),
+    events: events.map((event) => ({
+      type: event.type,
+      name: event.name,
+      ...(typeof event.failure === "string" && event.failure.length > 0
+        ? { failure: event.failure }
+        : {}),
+    })),
   }
 }
+
+/** A failing `node:assert` assertion, as {@link SuiteEvent.failure} spells it. */
+export const ASSERTION_FAILURE = "ERR_ASSERTION"
 
 const VitestAssertionResultSchema = z.object({
   fullName: z.string(),
@@ -218,8 +237,11 @@ const { run } = require('node:test')
   const events = []
   let output = ''
   for await (const event of run({ files: [${JSON.stringify(suite.file)}], execArgv: ${JSON.stringify([...target.commands.nodeTestExecArgv])}, concurrency: 1 })) {
-    if (event.type === 'test:pass' || event.type === 'test:fail')
-      events.push({ type: event.type, name: event.data.name, skip: !!event.data.skip, todo: !!event.data.todo })
+    if (event.type === 'test:pass' || event.type === 'test:fail') {
+      const cause = event.type === 'test:fail' ? event.data.details?.error?.cause : undefined
+      const failure = cause && typeof cause === 'object' ? (typeof cause.code === 'string' ? cause.code : typeof cause.name === 'string' ? cause.name : null) : null
+      events.push({ type: event.type, name: event.data.name, skip: !!event.data.skip, todo: !!event.data.todo, failure })
+    }
     if (event.type === 'test:stdout' || event.type === 'test:stderr') output += event.data.message
   }
   process.stdout.write(JSON.stringify({ events, output }))

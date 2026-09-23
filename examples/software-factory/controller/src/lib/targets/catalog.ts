@@ -540,11 +540,28 @@ function taskDirectory(id: string, options: CatalogOptions): string {
 }
 
 /**
- * Does `manifest` fit `target`: no allowed path may reach the runner configuration, every
- * runner configuration path is kept immutable, and a node-test visible suite is itself kept
- * immutable. A vitest visible suite runs inside the target's own test command rather than as
- * a file the builder could edit directly, so keeping the directory that holds it immutable
- * is the task author's job instead (the devkit task lists `packages/devkit/test`).
+ * The paths `target` and `checks` require every task on them to keep immutable: the target's
+ * runner configuration, then a node-test visible suite's file. Controller-owned policy, like
+ * a generated task's id and pin: intake fills them into a draft's `immutablePaths` rather
+ * than asking a drafter to restate them. A vitest visible suite runs inside the target's own
+ * test command rather than as a file the builder could edit directly, so keeping the
+ * directory that holds it immutable is the task author's job instead (the devkit task lists
+ * `packages/devkit/test`).
+ */
+export function requiredImmutablePaths(
+  checks: Checks,
+  target: Pick<Target, "runnerConfig">,
+): string[] {
+  return checks.visible.runner === "node-test"
+    ? [...target.runnerConfig, checks.visible.file]
+    : [...target.runnerConfig]
+}
+
+/**
+ * Does `manifest` fit `target`: no allowed path may reach the runner configuration, and every
+ * path {@link requiredImmutablePaths} names is kept immutable. Every problem is collected and
+ * reported in one error, so a refusal names each offending path at once rather than one per
+ * attempt.
  */
 export function assertTaskFitsTarget(
   id: string,
@@ -552,17 +569,27 @@ export function assertTaskFitsTarget(
   checks: Checks,
   target: Pick<Target, "runnerConfig">,
 ): void {
-  for (const path of manifest.allowedSourcePaths)
-    if (target.runnerConfig.some((entry) => overlaps(path, entry)))
-      throw new Error(`Task ${id} may edit ${path}, which is the target's runner configuration`)
+  const problems: string[] = []
+  for (const path of manifest.allowedSourcePaths) {
+    const reached = target.runnerConfig.filter((entry) => overlaps(path, entry))
+    if (reached.length > 0)
+      problems.push(
+        `may edit ${path}, which reaches the target's runner configuration (${reached.join(", ")})`,
+      )
+  }
   for (const path of target.runnerConfig)
     if (!covers(manifest.immutablePaths, path))
-      throw new Error(`Task ${id}: runner configuration ${path} must be immutable`)
+      problems.push(`runner configuration ${path} must be immutable`)
   if (
     checks.visible.runner === "node-test" &&
     !covers(manifest.immutablePaths, checks.visible.file)
   )
-    throw new Error(`Task ${id}: visible suite ${checks.visible.file} must be immutable`)
+    problems.push(`visible suite ${checks.visible.file} must be immutable`)
+  if (problems.length === 1) throw new Error(`Task ${id}: ${problems[0]}`)
+  if (problems.length > 1)
+    throw new Error(
+      `Task ${id} does not fit its target (${problems.length} problems): ${problems.join("; ")}`,
+    )
 }
 
 /** Parse `raw` against `schema`, rethrowing a schema failure with task-scoped context. */

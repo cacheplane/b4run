@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import type { SuiteEvent } from "../src/lib/verification/checks-runner.ts"
 import type { SuiteSession } from "../src/lib/verification/grade-suite.ts"
 import {
   assembleReceipt,
@@ -19,7 +20,14 @@ const broken = { ok: false, output: "error TS2322: no\n" }
 const suite = (
   verdict: "pass" | "fail" | "inconclusive",
   output: string,
-): SuiteSession["result"] => ({ verdict, output, events: [] })
+  events: readonly SuiteEvent[] = [],
+): SuiteSession["result"] => ({ verdict, output, events })
+/** A named assertion failing by assertion: what an oracle's failure must be. */
+const assertionFailed = (name = "A1"): SuiteEvent => ({
+  type: "test:fail",
+  name,
+  failure: "ERR_ASSERTION",
+})
 
 const session = (over: Partial<SuiteSession> = {}): SuiteSession => ({
   build: ok,
@@ -150,7 +158,7 @@ describe("assembleReceipt in independentOnly mode", () => {
     assembleReceipt({ visible, independent, acceptanceIds, mode: "independentOnly" })
 
   it("reports the one independent check, carrying its verdict and acceptance ids", () => {
-    const decided = alone(session({ result: suite("fail", "A1 failed\n") }))
+    const decided = alone(session({ result: suite("fail", "A1 failed\n", [assertionFailed()]) }))
     expect(decided.verdict).toBe("fail")
     expect(summary(decided)).toEqual(["independent:fail"])
     expect(decided.checks.map((c) => c.acceptanceIds)).toEqual([["A1"]])
@@ -204,8 +212,64 @@ describe("assembleReceipt in independentOnly mode", () => {
     ).toThrow(/visible/)
   })
 
+  it("grades a check that failed to load as inconclusive: it proves nothing", () => {
+    // What node:test reports for a missing module, a syntax error or a top-level throw: one
+    // failure named after the file, with no cause, and no named test at all.
+    const decided = alone(
+      session({
+        result: suite("fail", "Cannot find module\n", [
+          { type: "test:fail", name: "checks/runs-wait.test.ts" },
+        ]),
+      }),
+    )
+    expect(decided.verdict).toBe("inconclusive")
+    expect(summary(decided)).toEqual(["independent:inconclusive"])
+    expect(decided.checks[0]?.evidence).toMatch(
+      /^inconclusive: failures outside the named assertions prove nothing \(the file may not have loaded\): "checks\/runs-wait\.test\.ts" \(no cause\)\n/,
+    )
+    expect(decided.checks[0]?.evidence).toContain("Cannot find module")
+  })
+
+  it("grades a failure only an unnamed test reports as inconclusive, even beside a named one", () => {
+    const extra = { type: "test:fail", name: "setup", failure: "ERR_ASSERTION" }
+    expect(alone(session({ result: suite("fail", "", [extra]) })).verdict).toBe("inconclusive")
+    const both = alone(session({ result: suite("fail", "", [assertionFailed(), extra]) }))
+    expect(both.verdict).toBe("inconclusive")
+    expect(both.checks[0]?.evidence).toContain('"setup" (ERR_ASSERTION)')
+  })
+
+  it("grades a named test that failed by a throw, not an assertion, as inconclusive", () => {
+    const threw = { type: "test:fail", name: "A1", failure: "TypeError" }
+    const decided = alone(session({ result: suite("fail", "", [threw]) }))
+    expect(decided.verdict).toBe("inconclusive")
+    expect(decided.checks[0]?.evidence).toMatch(
+      /^inconclusive: no named assertion failed by assertion \(ERR_ASSERTION\): "A1" \(TypeError\)/,
+    )
+    // With no events at all a failure is still not a named assertion failing.
+    expect(alone(session({ result: suite("fail", "") })).verdict).toBe("inconclusive")
+  })
+
+  it("proves a named assertion failing by assertion, beside named tests that threw", () => {
+    const decided = alone(
+      session({
+        result: suite("fail", "", [
+          assertionFailed(),
+          { type: "test:fail", name: "A1", failure: "TypeError" },
+        ]),
+      }),
+    )
+    expect(summary(decided)).toEqual(["independent:fail"])
+    expect(decided.checks[0]?.evidence).toBe("")
+  })
+
+  it("leaves full-mode grading alone: a failure there needs no named assertion", () => {
+    const decided = plan(session(), session({ result: suite("fail", "boom\n") }))
+    expect(decided.verdict).toBe("fail")
+    expect(summary(decided)).toEqual(["visible:pass", "independent:fail"])
+  })
+
   it("agrees with independentOnlyChecks about the shape freezeBundle accepts", () => {
-    const decided = alone(session({ result: suite("fail", "A1 failed\n") }))
+    const decided = alone(session({ result: suite("fail", "A1 failed\n", [assertionFailed()]) }))
     const frozen = independentOnlyChecks({
       verdict: "fail",
       acceptanceIds: acceptanceIds.independent,
