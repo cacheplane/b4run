@@ -26,7 +26,6 @@ const SCAFFOLD = `Help me build my first B4.run agent. B4.run is the TypeScript 
 
 4. Validate the app. None of these need a model-provider key, because the test and the eval replay recorded model responses:
    \`\`\`
-   npx b4 typegen
    npx b4 check
    npm test
    npm run eval
