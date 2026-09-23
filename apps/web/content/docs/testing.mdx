@@ -170,8 +170,8 @@ Two cross-cutting features shape what scenarios assert:
 Run `b4 verify` first (it covers app, routes, typegen, and deps in one call), then `b4 test`:
 
 ```yaml
-- run: pnpm exec b4 verify
-- run: pnpm exec b4 test
+- run: npx b4 verify
+- run: npx b4 test
 ```
 
 `b4 verify` runs typegen and check, plus the deps check (missing packages, missing env vars) that bare `b4 check && b4 typegen` skips. Typegen also refreshes `.b4/scenarios.generated.d.ts`, which powers route and application-tool completion in `run.test.ts`. `b4 test` exits non-zero on any failure and outputs a diff per mismatched scenario.

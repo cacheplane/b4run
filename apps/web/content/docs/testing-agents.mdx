@@ -9,7 +9,7 @@ Locally, you can opt into live mode to probe model behaviour, with looser assert
 Install the harness and vitest as dev dependencies:
 
 ```bash
-pnpm add -D @b4run/testing vitest
+npm install -D @b4run/testing vitest
 ```
 
 ## First test
@@ -232,7 +232,7 @@ Each factory has its own option and result types. There's no `mode` option on `c
 You don't need any extra setup. aimock runs on a random port and stops when the harness closes. Just guard that fixture files are committed:
 
 ```yaml title=".github/workflows/ci.yml"
-- run: pnpm exec vitest --run
+- run: npx vitest --run
 - run: test -z "$(git status --porcelain -- test/fixtures/)"   # tracked and untracked drift
 ```
 

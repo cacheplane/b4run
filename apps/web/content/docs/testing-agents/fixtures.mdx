@@ -174,7 +174,7 @@ Construct and close the live harness inside the skipped test, so importing the m
 CI should only replay fixtures. Keep record and live mode local. Commit every fixture a test loads, keep recording scripts out of the test command, and fail when a fixture update is tracked or untracked:
 
 ```yaml title=".github/workflows/ci.yml"
-- run: pnpm exec vitest --run
+- run: npx vitest --run
 - run: test -z "$(git status --porcelain -- test/fixtures/)"
 ```
 

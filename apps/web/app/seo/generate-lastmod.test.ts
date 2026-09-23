@@ -194,6 +194,162 @@ describe("generate-seo-lastmod", () => {
     expect(generatedTimestamp).toBeLessThanOrEqual(finishedAt)
   })
 
+  it("regenerates every Git-dated entry identically from the same commit", () => {
+    // Determinism: the dates come from commits, not the clock, so two fresh
+    // runs agree on every route whose sources are committed. Routes with
+    // uncommitted edits fall back to the generation time and are excluded.
+    const directory = mkdtempSync(join(tmpdir(), "b4-lastmod-"))
+    temporaryDirectories.push(directory)
+    const first = join(directory, "first.json")
+    const second = join(directory, "second.json")
+    const startedAt = Date.now()
+
+    expect(runGenerator("--output", first).status).toBe(0)
+    expect(runGenerator("--output", second).status).toBe(0)
+
+    const firstRoutes = JSON.parse(readFileSync(first, "utf8")).routes
+    const secondRoutes = JSON.parse(readFileSync(second, "utf8")).routes
+    const dated = Object.keys(firstRoutes).filter(
+      (route) => Date.parse(firstRoutes[route].lastModified) < startedAt,
+    )
+
+    expect(dated.length).toBeGreaterThan(0)
+    for (const route of dated) expect(secondRoutes[route], route).toEqual(firstRoutes[route])
+  })
+
+  describe("Git-derived dates", () => {
+    const gitEnvironment = {
+      ...process.env,
+      GIT_AUTHOR_NAME: "Test",
+      GIT_AUTHOR_EMAIL: "test@example.com",
+      GIT_COMMITTER_NAME: "Test",
+      GIT_COMMITTER_EMAIL: "test@example.com",
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_CONFIG_GLOBAL: "/dev/null",
+    }
+    const git = (cwd: string, args: string[], committerDate?: string) => {
+      const result = spawnSync("git", args, {
+        cwd,
+        encoding: "utf8",
+        env: committerDate
+          ? {
+              ...gitEnvironment,
+              GIT_COMMITTER_DATE: committerDate,
+              GIT_AUTHOR_DATE: committerDate,
+            }
+          : gitEnvironment,
+      })
+      expect(result.status, result.stderr).toBe(0)
+      return result.stdout
+    }
+    const commit = (cwd: string, file: string, content: string, committerDate: string) => {
+      writeFileSync(join(cwd, file), content)
+      git(cwd, ["add", "--", file])
+      git(cwd, ["commit", "-q", "-m", `edit ${file}`], committerDate)
+    }
+    const historyOf = (directory: string, paths: string[]) => {
+      const history = generatorModule.readGitHistory(directory, paths)
+      if (history === undefined) throw new Error(`no Git history for ${directory}`)
+      return history
+    }
+    const repository = () => {
+      const directory = mkdtempSync(join(tmpdir(), "b4-lastmod-git-"))
+      temporaryDirectories.push(directory)
+      git(directory, ["init", "-q", "-b", "main"])
+      commit(directory, "a.mdx", "a1", "2026-01-02T03:04:05-07:00")
+      commit(directory, "b.mdx", "b1", "2026-02-01T00:00:00Z")
+      commit(directory, "a.mdx", "a2", "2026-03-04T05:06:07+02:00")
+      return directory
+    }
+
+    it("dates each file by the committer date of its newest commit, in UTC", () => {
+      const history = historyOf(repository(), ["a.mdx", "b.mdx"])
+
+      expect(history.dates.get("a.mdx")).toBe("2026-03-04T03:06:07.000Z")
+      expect(history.dates.get("b.mdx")).toBe("2026-02-01T00:00:00.000Z")
+      expect(generatorModule.committedLastModified(["a.mdx", "b.mdx"], history)).toBe(
+        "2026-03-04T03:06:07.000Z",
+      )
+      expect(generatorModule.committedLastModified(["b.mdx"], history)).toBe(
+        "2026-02-01T00:00:00.000Z",
+      )
+    })
+
+    it("is deterministic for the same commit", () => {
+      const directory = repository()
+
+      expect(generatorModule.readGitHistory(directory, ["a.mdx", "b.mdx"])).toEqual(
+        generatorModule.readGitHistory(directory, ["b.mdx", "a.mdx"]),
+      )
+    })
+
+    it("declines to date a route with uncommitted or untracked sources", () => {
+      const directory = repository()
+      writeFileSync(join(directory, "b.mdx"), "b2 (uncommitted)")
+      writeFileSync(join(directory, "c.mdx"), "new page")
+      const history = historyOf(directory, ["a.mdx", "b.mdx", "c.mdx"])
+
+      expect(generatorModule.committedLastModified(["a.mdx"], history)).toBe(
+        "2026-03-04T03:06:07.000Z",
+      )
+      expect(generatorModule.committedLastModified(["a.mdx", "b.mdx"], history)).toBeUndefined()
+      expect(generatorModule.committedLastModified(["c.mdx"], history)).toBeUndefined()
+    })
+
+    it("declines to date anything a shallow clone's boundary commit claims", () => {
+      // A depth-1 clone reports its only commit as adding every file, which
+      // would date every page to the tip. The fallback must win instead.
+      const source = repository()
+      const directory = mkdtempSync(join(tmpdir(), "b4-lastmod-shallow-"))
+      temporaryDirectories.push(directory)
+      const clone = join(directory, "clone")
+      git(directory, ["clone", "-q", "--depth", "1", `file://${source}`, clone])
+      expect(git(clone, ["rev-parse", "--is-shallow-repository"]).trim()).toBe("true")
+
+      const history = historyOf(clone, ["a.mdx", "b.mdx"])
+
+      expect(history.dates.get("a.mdx")).toBeUndefined()
+      expect(generatorModule.committedLastModified(["a.mdx"], history)).toBeUndefined()
+      expect(generatorModule.committedLastModified(["b.mdx"], history)).toBeUndefined()
+    })
+
+    it("trusts a real commit newer than a shallow boundary", () => {
+      const log = [
+        "\x1eaaaa 1700000000",
+        "a.mdx",
+        "",
+        "\x1ebbbb 1600000000",
+        "a.mdx",
+        "b.mdx",
+      ].join("\n")
+      const dates = generatorModule.commitDatesFromLog(log, new Set(["bbbb"]))
+
+      expect(dates.get("a.mdx")).toBe(new Date(1_700_000_000_000).toISOString())
+      expect(dates.get("b.mdx")).toBeUndefined()
+    })
+
+    it("returns no history when Git is unavailable", () => {
+      const directory = mkdtempSync(join(tmpdir(), "b4-lastmod-nogit-"))
+      temporaryDirectories.push(directory)
+
+      expect(generatorModule.readGitHistory(directory, ["a.mdx"])).toBeUndefined()
+    })
+
+    it("dates a blog listing no earlier than its newest post's publication day", () => {
+      const history = {
+        dates: new Map([["post.mdx", "2026-05-01T12:00:00.000Z"]]),
+        dirty: new Set<string>(),
+      }
+
+      expect(
+        generatorModule.committedLastModified(["post.mdx"], history, "2026-05-10T00:00:00.000Z"),
+      ).toBe("2026-05-10T00:00:00.000Z")
+      expect(
+        generatorModule.committedLastModified(["post.mdx"], history, "2026-04-01T00:00:00.000Z"),
+      ).toBe("2026-05-01T12:00:00.000Z")
+    })
+  })
+
   it("normalizes Windows-style relative paths before deriving manifest keys", () => {
     expect(generatorModule.normalizeRelativePath("content\\docs\\api\\sdk.mdx")).toBe(
       "content/docs/api/sdk.mdx",

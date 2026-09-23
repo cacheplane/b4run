@@ -39,11 +39,11 @@ You need two packages:
 Check `package.json` before installing to avoid duplicates. Install only what is missing.
 
 ```bash
-# pnpm (detected from pnpm-lock.yaml)
-pnpm add pg @langchain/openai
+# npm (detected from package-lock.json)
+npm install pg @langchain/openai
 
-# npm equivalent
-# npm install pg @langchain/openai
+# pnpm equivalent
+# pnpm add pg @langchain/openai
 
 # yarn equivalent
 # yarn add pg @langchain/openai
@@ -52,7 +52,7 @@ pnpm add pg @langchain/openai
 If TypeScript types for `pg` are not already present, add the dev dependency:
 
 ```bash
-pnpm add -D @types/pg
+npm install -D @types/pg
 ```
 
 ## Create the tool

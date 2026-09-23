@@ -202,8 +202,13 @@ substitute for the other or optional release cleanup.
   see `CONTRIBUTING.md`'s "Build before running anything against `dist/`".
 - **The SEO lastmod manifest regenerates on main, not in your PR.**
   `apps/web/app/seo/lastmod.generated.json` records when each route's content
-  last changed, and it stays committed because it is the only store of that
-  history and is imported statically by the sitemap. Do NOT run
+  last changed: the committer date (UTC) of the newest commit touching the
+  route's sources, so the same commit always yields the same manifest. Where
+  Git cannot say (uncommitted edits, or a shallow clone, whose boundary commit
+  looks like it touched every file) the generator keeps the recorded value, or
+  stamps the current time for changed content. It stays committed because
+  deploy and CI checkouts are shallow and it is imported statically by the
+  sitemap. Do NOT run
   `pnpm --dir apps/web seo:lastmod` for an ordinary content edit — the
   `SEO lastmod` workflow regenerates and commits it after your change reaches
   main, and a PR that regenerates it conflicts with every other docs PR inside

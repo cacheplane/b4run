@@ -39,8 +39,8 @@ The emitted `.b4/build/server.mjs` imports `@b4run/cli` when the container start
 Use the project's package manager to move or add the existing compatible B4.run version, for example:
 
 ```bash
-pnpm add @b4run/cli
-# npm install --save @b4run/cli
+npm install --save @b4run/cli
+# pnpm add @b4run/cli
 # yarn add @b4run/cli
 ```
 
@@ -85,12 +85,12 @@ Naming `build.targets` replaces the default target list. `['node']` asks B4.run 
 From the app root, run the current verification workflow and regenerate a clean build:
 
 ```bash
-pnpm exec b4 verify
-pnpm exec b4 test
-pnpm exec b4 build --clean
+npx b4 verify
+npx b4 test
+npx b4 build --clean
 ```
 
-Use `npx b4 ...` or `yarn b4 ...` equivalents when that is the project's package manager. Fix failures before building an image.
+Use `pnpm exec b4 ...` or `yarn b4 ...` equivalents when that is the project's package manager. Fix failures before building an image.
 
 The Node target emits:
 

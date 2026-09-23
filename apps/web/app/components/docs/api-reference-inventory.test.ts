@@ -2141,7 +2141,7 @@ describe("package API reference pages", { timeout: 30_000 }, () => {
 
   it("installs Vitest before showing the Sandbox testing subpath import", () => {
     const content = foundationalContent("sandbox")
-    const install = content.indexOf("pnpm add -D vitest")
+    const install = content.indexOf("npm install -D vitest")
     const testingImport = content.indexOf('from "@b4run/sandbox/testing"')
     expect(install).toBeGreaterThan(-1)
     expect(testingImport).toBeGreaterThan(install)

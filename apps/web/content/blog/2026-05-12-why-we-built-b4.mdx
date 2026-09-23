@@ -168,15 +168,15 @@ Children can live under the route's `subagents/` directory or be registered in t
 For a small example, pick the basic template, which is now the default. The larger research application needs `--template research`:
 
 ```bash
-pnpm create b4-app my-agents --template basic
+npm create b4-app@latest my-agents -- --template basic
 cd my-agents
-pnpm install
+npm install
 ```
 
 Use Node.js 24 or later. Follow the generated project's environment instructions to configure your model provider key, then start the development server:
 
 ```bash
-pnpm dev
+npm run dev
 ```
 
 The [Getting Started guide](/docs/getting-started) walks through the starter and its first run. If you already have a LangGraph.js application, the [migration guide](/docs/migrating-from-langgraph) maps its existing pieces to B4.run's conventions.

@@ -9,14 +9,14 @@ Most apps only need the `b4` command to develop, test, build, and serve. Import 
 For command-only use, install the CLI as a dev dependency:
 
 ```bash
-pnpm add -D @b4run/cli
-pnpm exec b4 dev
+npm install -D @b4run/cli
+npx b4 dev
 ```
 
 Install it as a runtime dependency when production code or a generated server imports it:
 
 ```bash
-pnpm add @b4run/cli
+npm install @b4run/cli
 ```
 
 ```ts

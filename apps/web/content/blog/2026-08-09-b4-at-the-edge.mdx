@@ -139,7 +139,7 @@ The tested connection path uses a local Postgres database behind a local WebSock
 
 Some agent features depend on a filesystem, shell, container or object that can't be serialized into an edge build.
 
-The capability check reports `B4_E1005` for unsupported configurations. The edge work described here rejects:
+The capability check reports `B4_E1005` for unsupported configurations. As of 0.8.21, the edge work described here rejected:
 
 - Execution sandboxes.
 - Filesystem or shell backends.
@@ -148,11 +148,11 @@ The capability check reports `B4_E1005` for unsupported configurations. The edge
 - Typed long-term memory declared in `memory.ts`.
 - Custom live instances of checkpointer, thread, permission or memory stores.
 
-The current target also rejects tool-output offloading, a restriction added after the 0.8.21 work. Use the [current capability list](/docs/deployment/edge#fit-check-and-evidence-boundary) when assessing a new application.
+**Update (September 2026):** As of 0.8.30, route skills, `plan.md` and route `memory.md` work on edge targets. `b4 build` bundles them into the edge manifest, so skills no longer fail the check. A later release also rejects tool-output offloading. See [Edge and Hono](/docs/deployment/edge#what-the-edge-cannot-serve) for the current list.
 
 The check reports all detected violations together and points to the configuration or file involved. That beats finding a missing feature during a request.
 
-The check has limits. Route marker files such as `plan.md` and `memory.md` may stay in the tree, but their filesystem readers are inactive here. So a passing build check doesn't mean file-backed planning or memory works at the edge.
+In 0.8.21 the check had limits. Route marker files such as `plan.md` and `memory.md` could stay in the tree, but their filesystem readers were inactive. So a passing build check didn't mean file-backed planning or memory worked at the edge. The 0.8.30 bundling closed that gap.
 
 For an agent that edits files or runs commands, the [Node and Docker target](/docs/deployment/node) is a more direct starting point.
 
@@ -193,9 +193,9 @@ Follow the [edge deployment guide](/docs/deployment/edge) to install matching cu
 With the target selected, check and build the application:
 
 ```bash
-pnpm exec b4 check
-pnpm exec b4 build --clean
-pnpm exec wrangler dev --local
+npx b4 check
+npx b4 build --clean
+npx wrangler dev --local
 ```
 
 Send more than one request. Continue a conversation, exercise each tool and check that state survives between requests. A successful health response alone won't tell you whether the application works.
