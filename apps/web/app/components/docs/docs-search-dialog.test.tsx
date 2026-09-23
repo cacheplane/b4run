@@ -16,7 +16,7 @@ const INDEX: readonly DocsSearchEntry[] = [
   {
     href: "/docs/retry",
     title: "Retry",
-    section: "Operate",
+    section: "Agent Capabilities",
     headings: [{ text: "Backoff", level: 2, anchor: "backoff" }],
     sections: [
       { anchor: null, text: "Retries transient model failures.", terms: [] },

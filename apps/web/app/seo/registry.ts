@@ -99,6 +99,20 @@ export const DOCS_SEO_ENTRIES = [
     sourcePath: "apps/web/content/docs/workspace.mdx",
   },
   {
+    path: "/docs/middleware",
+    title: "Middleware",
+    description:
+      "Gate B4.run route execution with one global middleware, pass request context to tools, understand endpoint coverage, and handle load failures.",
+    sourcePath: "apps/web/content/docs/middleware.mdx",
+  },
+  {
+    path: "/docs/dev-server",
+    title: "Dev Server",
+    description:
+      "Run and operate B4.run's local dev server, including stable ports, route invocation, child-process restarts, logging, and protocol links.",
+    sourcePath: "apps/web/content/docs/dev-server.mdx",
+  },
+  {
     path: "/docs/planning",
     title: "Planning",
     description:
@@ -132,6 +146,13 @@ export const DOCS_SEO_ENTRIES = [
     description:
       "Configure route-level reasoning effort for OpenAI-backed agent routes, supported values, pass-through behavior, exclusions, and subagent budgets.",
     sourcePath: "apps/web/content/docs/reasoning-effort.mdx",
+  },
+  {
+    path: "/docs/retry",
+    title: "Retry",
+    description:
+      "Configure per-agent retries and exponential backoff for transient LLM failures, with non-retryable errors, streaming limits, and abort behavior.",
+    sourcePath: "apps/web/content/docs/retry.mdx",
   },
   {
     path: "/docs/memory",
@@ -176,25 +197,11 @@ export const DOCS_SEO_ENTRIES = [
     sourcePath: "apps/web/content/docs/memory/browse.mdx",
   },
   {
-    path: "/docs/dev-server",
-    title: "Dev Server",
-    description:
-      "Run and operate B4.run's local dev server, including stable ports, route invocation, child-process restarts, logging, and protocol links.",
-    sourcePath: "apps/web/content/docs/dev-server.mdx",
-  },
-  {
     path: "/docs/dev-server/agent-protocol",
     title: "Agent Protocol",
     description:
       "Use B4.run's Agent Protocol for durable threads, checkpointed runs, SSE streaming, interrupts, resume, cancellation, and memory review.",
     sourcePath: "apps/web/content/docs/dev-server/agent-protocol.mdx",
-  },
-  {
-    path: "/docs/middleware",
-    title: "Middleware",
-    description:
-      "Gate B4.run route execution with one global middleware, pass request context to tools, understand endpoint coverage, and handle load failures.",
-    sourcePath: "apps/web/content/docs/middleware.mdx",
   },
   {
     path: "/docs/ag-ui",
@@ -209,13 +216,6 @@ export const DOCS_SEO_ENTRIES = [
     description:
       "Embed B4.run with serveRuntime or a fetch handler while owning authentication, store lifetimes, rooted routes, streaming, and shutdown.",
     sourcePath: "apps/web/content/docs/embedding.mdx",
-  },
-  {
-    path: "/docs/blueprints",
-    title: "Blueprints",
-    description:
-      "Learn how to list, apply, self-host, and author B4.run blueprints as agent-facing Markdown guides for wiring external integrations.",
-    sourcePath: "apps/web/content/docs/blueprints.mdx",
   },
   {
     path: "/docs/testing",
@@ -246,60 +246,11 @@ export const DOCS_SEO_ENTRIES = [
     sourcePath: "apps/web/content/docs/evals.mdx",
   },
   {
-    path: "/docs/persistence",
-    title: "Persistence and Tenancy",
-    description:
-      "Plan B4.run persistence and tenant ownership across checkpoints, threads, permissions, long-term memory, workspaces, sandboxes, and replicas.",
-    sourcePath: "apps/web/content/docs/persistence.mdx",
-  },
-  {
-    path: "/docs/production-topology",
-    title: "Production Topology",
-    description:
-      "Plan B4.run production topology from single-process storage through shared persistence, replica coordination, streaming, readiness, and shutdown.",
-    sourcePath: "apps/web/content/docs/production-topology.mdx",
-  },
-  {
-    path: "/docs/retry",
-    title: "Retry",
-    description:
-      "Configure per-agent retries and exponential backoff for transient LLM failures, with non-retryable errors, streaming limits, and abort behavior.",
-    sourcePath: "apps/web/content/docs/retry.mdx",
-  },
-  {
-    path: "/docs/observability",
-    title: "Observability",
-    description:
-      "Enable LangSmith tracing for B4.run runs, inspect nested model, tool, and subagent traces, and stream live runtime events over SSE.",
-    sourcePath: "apps/web/content/docs/observability.mdx",
-  },
-  {
-    path: "/docs/inspector",
-    title: "Inspector",
-    description:
-      "Inspect B4.run memory in a local browser UI with ranked search, filters, live refresh, timelines, candidate approval, rejection, and deletion.",
-    sourcePath: "apps/web/content/docs/inspector.mdx",
-  },
-  {
-    path: "/docs/upgrading",
-    title: "Upgrading",
-    description:
-      "Upgrade B4.run by pinning package versions, reading intervening release notes, updating Node and imports, regenerating types, and verifying behavior.",
-    sourcePath: "apps/web/content/docs/upgrading.mdx",
-  },
-  {
     path: "/docs/security-architecture",
     title: "Security Architecture",
     description:
       "Secure a B4.run runtime with outer authentication and tenant authorization, then layer thread access, tool scope, permissions, and sandbox controls.",
     sourcePath: "apps/web/content/docs/security-architecture.mdx",
-  },
-  {
-    path: "/docs/access-control",
-    title: "Access Control",
-    description:
-      "Learn how B4.run combines tool scoping, permission gates, execution sandboxes, and guarded subagent delegation for route access control.",
-    sourcePath: "apps/web/content/docs/access-control.mdx",
   },
   {
     path: "/docs/thread-access",
@@ -309,11 +260,32 @@ export const DOCS_SEO_ENTRIES = [
     sourcePath: "apps/web/content/docs/thread-access.mdx",
   },
   {
+    path: "/docs/access-control",
+    title: "Access Control",
+    description:
+      "Learn how B4.run combines tool scoping, permission gates, execution sandboxes, and guarded subagent delegation for route access control.",
+    sourcePath: "apps/web/content/docs/access-control.mdx",
+  },
+  {
     path: "/docs/permissions",
     title: "Permissions",
     description:
       "Configure B4.run's human-in-the-loop gates for commands, paths, tools, subagents, and memory writes, including modes and resume decisions.",
     sourcePath: "apps/web/content/docs/permissions.mdx",
+  },
+  {
+    path: "/docs/sandbox",
+    title: "Execution Sandbox",
+    description:
+      "Configure per-thread execution sandboxes for workspace files, shell, network, environment, resources, lifecycle, providers, and testing.",
+    sourcePath: "apps/web/content/docs/sandbox.mdx",
+  },
+  {
+    path: "/docs/sandbox/kubernetes",
+    title: "Kubernetes Sandbox",
+    description:
+      "Configure Pod-backed per-thread B4.run sandboxes with Helm infrastructure, RBAC, persistent workspaces, network policy, resource controls, and reaping.",
+    sourcePath: "apps/web/content/docs/sandbox/kubernetes.mdx",
   },
   {
     path: "/docs/deployment",
@@ -337,11 +309,11 @@ export const DOCS_SEO_ENTRIES = [
     sourcePath: "apps/web/content/docs/deployment/kubernetes.mdx",
   },
   {
-    path: "/docs/deployment/langsmith",
-    title: "LangSmith",
+    path: "/docs/deployment/vercel",
+    title: "Vercel",
     description:
-      "Build B4.run graph entries for LangSmith, choose assistant IDs, review missing HTTP surfaces, and resolve the Node version mismatch.",
-    sourcePath: "apps/web/content/docs/deployment/langsmith.mdx",
+      "Deploy B4.run to Vercel's Node 24 Fluid runtime: enable the target, read the Build Output tree, reconcile vercel.json, wire Neon, and deploy prebuilt.",
+    sourcePath: "apps/web/content/docs/deployment/vercel.mdx",
   },
   {
     path: "/docs/deployment/edge",
@@ -351,25 +323,46 @@ export const DOCS_SEO_ENTRIES = [
     sourcePath: "apps/web/content/docs/deployment/edge.mdx",
   },
   {
-    path: "/docs/deployment/vercel",
-    title: "Vercel",
+    path: "/docs/deployment/langsmith",
+    title: "LangSmith",
     description:
-      "Deploy B4.run to Vercel's Node 24 Fluid runtime: enable the target, read the Build Output tree, reconcile vercel.json, wire Neon, and deploy prebuilt.",
-    sourcePath: "apps/web/content/docs/deployment/vercel.mdx",
+      "Build B4.run graph entries for LangSmith, choose assistant IDs, review missing HTTP surfaces, and resolve the Node version mismatch.",
+    sourcePath: "apps/web/content/docs/deployment/langsmith.mdx",
   },
   {
-    path: "/docs/sandbox",
-    title: "Execution Sandbox",
+    path: "/docs/persistence",
+    title: "Persistence and Tenancy",
     description:
-      "Configure per-thread execution sandboxes for workspace files, shell, network, environment, resources, lifecycle, providers, and testing.",
-    sourcePath: "apps/web/content/docs/sandbox.mdx",
+      "Plan B4.run persistence and tenant ownership across checkpoints, threads, permissions, long-term memory, workspaces, sandboxes, and replicas.",
+    sourcePath: "apps/web/content/docs/persistence.mdx",
   },
   {
-    path: "/docs/sandbox/kubernetes",
-    title: "Kubernetes Sandbox",
+    path: "/docs/production-topology",
+    title: "Production Topology",
     description:
-      "Configure Pod-backed per-thread B4.run sandboxes with Helm infrastructure, RBAC, persistent workspaces, network policy, resource controls, and reaping.",
-    sourcePath: "apps/web/content/docs/sandbox/kubernetes.mdx",
+      "Plan B4.run production topology from single-process storage through shared persistence, replica coordination, streaming, readiness, and shutdown.",
+    sourcePath: "apps/web/content/docs/production-topology.mdx",
+  },
+  {
+    path: "/docs/observability",
+    title: "Observability",
+    description:
+      "Enable LangSmith tracing for B4.run runs, inspect nested model, tool, and subagent traces, and stream live runtime events over SSE.",
+    sourcePath: "apps/web/content/docs/observability.mdx",
+  },
+  {
+    path: "/docs/inspector",
+    title: "Inspector",
+    description:
+      "Inspect B4.run memory in a local browser UI with ranked search, filters, live refresh, timelines, candidate approval, rejection, and deletion.",
+    sourcePath: "apps/web/content/docs/inspector.mdx",
+  },
+  {
+    path: "/docs/upgrading",
+    title: "Upgrading",
+    description:
+      "Upgrade B4.run by pinning package versions, reading intervening release notes, updating Node and imports, regenerating types, and verifying behavior.",
+    sourcePath: "apps/web/content/docs/upgrading.mdx",
   },
   {
     path: "/docs/recipes",
@@ -426,6 +419,13 @@ export const DOCS_SEO_ENTRIES = [
     description:
       "Connect the research demo to CopilotKit over AG-UI with thread hydration, inline activity cards, permission prompts, and memory-candidate review.",
     sourcePath: "apps/web/content/docs/recipes/research-web-ui.mdx",
+  },
+  {
+    path: "/docs/blueprints",
+    title: "Blueprints",
+    description:
+      "Learn how to list, apply, self-host, and author B4.run blueprints as agent-facing Markdown guides for wiring external integrations.",
+    sourcePath: "apps/web/content/docs/blueprints.mdx",
   },
   {
     path: "/docs/configuration",
