@@ -29,7 +29,7 @@ export interface CaptureTargetOptions {
 }
 
 /** Who a capture is for: each captures into its own directory, never sharing one. */
-export type CaptureRole = "builder" | "controller" | "verifier" | "reference" | "test"
+export type CaptureRole = "builder" | "controller" | "verifier" | "reference" | "test" | "drafter"
 
 const ROLE_PATTERN = /^[\w-]+$/
 const TASK_ID_PATTERN = /^[\w-]+$/
@@ -49,6 +49,94 @@ export function captureDirectory(taskId: string, role: CaptureRole, instance?: s
     throw new Error(`Invalid capture instance: ${instance}`)
   const name = instance === undefined ? taskId : `${taskId}.${instance}`
   return `.factory/captures/${role}/${name}`
+}
+
+/** The include list is passed on `git archive`'s command line; this is the ceiling it may add up to. */
+export const MAX_ARCHIVE_ARGV_BYTES = 512 * 1024
+
+/** The include list would not fit on a command line: thrown before git is invoked. */
+export class ArchiveArgumentsError extends Error {
+  override readonly name = "ArchiveArgumentsError"
+}
+
+export interface ArchiveTreeOptions {
+  /** A directory prefix inside `destination` (`repo/`) the archive is extracted under. */
+  readonly prefix?: string
+  /** Names the caller in error messages: `Task k`, `wide capture`. */
+  readonly label: string
+}
+
+/**
+ * `git archive` the paths `include` of `treeish` in `repo` and extract them into
+ * `destination` (which must already exist), under `options.prefix` when given. Synchronous:
+ * `b4.config.ts` needs the builder's copy at load time, and nothing here honours a signal.
+ *
+ * Archived from the object store, never the working tree, so uncommitted edits are
+ * invisible and two archives of one tree-ish are byte-identical; the tar carries each
+ * blob's mode, so an executable keeps its bit on disk. The tar itself lives INSIDE
+ * `destination` so a failure leaves nothing beside it (the caller removes `destination`).
+ *
+ * The include list goes on the command line, so its size is checked first: a list past
+ * {@link MAX_ARCHIVE_ARGV_BYTES} is refused by name rather than by the platform's `E2BIG`.
+ * `git archive` silently honours an in-tree `.gitattributes export-ignore`, so every
+ * included path is asserted present in the extracted tree afterwards.
+ */
+export function archiveTreeInto(
+  repo: string,
+  treeish: string,
+  include: readonly string[],
+  destination: string,
+  options: ArchiveTreeOptions,
+): void {
+  const { label } = options
+  const prefix = options.prefix ?? ""
+  let argvBytes = 0
+  for (const path of include) argvBytes += Buffer.byteLength(path) + 1
+  if (argvBytes > MAX_ARCHIVE_ARGV_BYTES)
+    throw new ArchiveArgumentsError(
+      `${label}: the include list of ${treeish} is ${argvBytes} bytes of arguments, over the ${MAX_ARCHIVE_ARGV_BYTES}-byte ceiling for one git archive command`,
+    )
+  const tar = join(destination, ".b4-archive.tar")
+  try {
+    execFileSync(
+      "git",
+      [
+        "-C",
+        repo,
+        "archive",
+        "--format=tar",
+        ...(prefix ? [`--prefix=${prefix}`] : []),
+        "-o",
+        tar,
+        treeish,
+        "--",
+        ...include,
+      ],
+      { stdio: ["ignore", "ignore", "pipe"], timeout: 120_000, encoding: "utf8" },
+    )
+  } catch (error) {
+    const stderr = (error as { stderr?: string }).stderr ?? String(error)
+    throw new Error(`${label}: git archive of ${treeish} failed: ${stderr}`, { cause: error })
+  }
+  try {
+    execFileSync("tar", ["-xf", tar, "-C", destination], {
+      stdio: ["ignore", "ignore", "pipe"],
+      timeout: 120_000,
+      encoding: "utf8",
+    })
+  } catch (error) {
+    const stderr = (error as { stderr?: string }).stderr ?? String(error)
+    throw new Error(`${label}: tar extraction of ${treeish} failed: ${stderr}`, {
+      cause: error,
+    })
+  } finally {
+    rmSync(tar, { force: true })
+  }
+  for (const path of include)
+    if (!existsSync(join(destination, prefix, path)))
+      throw new Error(
+        `${label}: include path ${path} is absent from the archive of ${treeish} extracted into ${destination} (a .gitattributes export-ignore at the pin is the likely cause)`,
+      )
 }
 
 /**
@@ -88,41 +176,7 @@ export function captureTarget(
   try {
     const { pin, root, capture } = task.target
     const treeish = root === "." ? pin : `${pin}:${root}`
-    // Scratch files live INSIDE the scratch directory so nothing survives beside the capture
-    // even on failure: the whole scratch directory is removed in the catch below.
-    const tar = join(scratch, ".b4-archive.tar")
-    try {
-      execFileSync(
-        "git",
-        ["-C", repo, "archive", "--format=tar", "-o", tar, treeish, "--", ...capture.include],
-        { stdio: ["ignore", "ignore", "pipe"], timeout: 60_000, encoding: "utf8" },
-      )
-    } catch (error) {
-      const stderr = (error as { stderr?: string }).stderr ?? String(error)
-      throw new Error(`Task ${task.id}: git archive of ${treeish} failed: ${stderr}`, {
-        cause: error,
-      })
-    }
-    try {
-      execFileSync("tar", ["-xf", tar, "-C", scratch], {
-        stdio: ["ignore", "ignore", "pipe"],
-        timeout: 60_000,
-        encoding: "utf8",
-      })
-    } catch (error) {
-      const stderr = (error as { stderr?: string }).stderr ?? String(error)
-      throw new Error(`Task ${task.id}: tar extraction of ${treeish} failed: ${stderr}`, {
-        cause: error,
-      })
-    } finally {
-      rmSync(tar, { force: true })
-    }
-
-    for (const path of capture.include)
-      if (!existsSync(join(scratch, path)))
-        throw new Error(
-          `Task ${task.id}: include path ${path} is absent from the archive of ${treeish}`,
-        )
+    archiveTreeInto(repo, treeish, capture.include, scratch, { label: `Task ${task.id}` })
 
     if (task.defectPatch !== null) {
       const patch = join(scratch, ".b4-defect.patch")

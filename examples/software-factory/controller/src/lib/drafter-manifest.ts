@@ -4,13 +4,15 @@ import { mkdir, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { captureWorkspaceDefinition } from "@b4run/workspace/node"
 import { z } from "zod"
+import { captureDirectory } from "./targets/archive.js"
 import { appRoot as defaultAppRoot, ensurePin, isCatalogId } from "./targets/catalog.js"
 import { stageWideCapture } from "./targets/wide-capture.js"
 
 /**
  * A work order's id is a catalog id: a plain directory name, no slash, no leading dot,
- * nothing a path could smuggle. Spelled out here (rather than imported) because it is part
- * of the schema text kept identical to the drafter's copy below.
+ * nothing a path could smuggle. Spelled out here rather than imported from `catalog.ts`
+ * because the schema below refers to it by name and the schema text is kept identical to
+ * the drafter's copy; the test that pins the schema text pins this regex's source too.
  */
 const CATALOG_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
@@ -77,26 +79,34 @@ export interface WrittenDrafterManifest {
 /**
  * Stage the wide capture at `pin`, capture it with the framework's own capture, and write
  * `<dir>/<workOrderId>.json`. The staging directory is per call
- * (`.factory/captures/drafter/<workOrderId>.<instance>`, the naming `captureDirectory`
- * uses) and removed once the capture has read the bytes into the definition, on failure
- * too: nothing of the repository is left under the controller beside the manifest itself.
- * `ensurePin` runs first so a shallow checkout fetches the pin before the listing.
+ * (`captureDirectory(workOrderId, "drafter", instance)`) and removed once the capture has
+ * read the bytes into the definition, on failure too: nothing of the repository is left
+ * under the controller beside the manifest itself. `ensurePin` runs first so a shallow
+ * checkout fetches the pin before the listing.
+ *
+ * The manifest is written compact, one line: it is machine-read only and, on this
+ * repository, some 20 MiB of base64 that a pretty-print would only make larger. It is
+ * per work order and lives until the drafter thread's first run admits it (Task 4 removes
+ * it when the work order leaves intake).
+ *
+ * `ensurePin` (which may fetch) and the staging are synchronous and not cancellable by
+ * `signal`; the signal is checked before them and honoured by the capture after them.
  */
 export async function writeDrafterManifest(
   options: WriteDrafterManifestOptions,
 ): Promise<WrittenDrafterManifest> {
-  const { workOrderId, pin, repositoryRoot, dir } = options
+  const { workOrderId, pin, repositoryRoot, dir, signal } = options
   if (!isCatalogId(workOrderId))
     throw new Error(`drafter manifest workOrderId must be a catalog id, got ${workOrderId}`)
+  signal?.throwIfAborted()
   const appRoot = options.appRoot ?? defaultAppRoot
-  ensurePin(repositoryRoot, "drafter", pin)
-  const instance = randomUUID()
-  const instanceDir = `.factory/captures/drafter/${workOrderId}.${instance}`
+  ensurePin(repositoryRoot, workOrderId, pin, { label: `Work order ${workOrderId}'s draft` })
+  const instanceDir = captureDirectory(workOrderId, "drafter", randomUUID())
   let workspace: Awaited<ReturnType<typeof captureWorkspaceDefinition>>
   try {
     const definition = stageWideCapture(repositoryRoot, pin, instanceDir, { appRoot })
     workspace = await captureWorkspaceDefinition(appRoot, definition, {
-      ...(options.signal !== undefined ? { signal: options.signal } : {}),
+      ...(signal !== undefined ? { signal } : {}),
     })
   } finally {
     rmSync(join(appRoot, instanceDir), { recursive: true, force: true })
@@ -111,6 +121,6 @@ export async function writeDrafterManifest(
   })
   await mkdir(dir, { recursive: true })
   const path = join(dir, `${workOrderId}.json`)
-  await writeFile(path, `${JSON.stringify(manifest, null, 2)}\n`)
+  await writeFile(path, `${JSON.stringify(manifest)}\n`)
   return { path, sourceDigest: manifest.workspace.source.digest }
 }

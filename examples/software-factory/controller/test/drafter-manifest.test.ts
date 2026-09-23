@@ -64,9 +64,9 @@ describe("writeDrafterManifest", () => {
     expect(result.path).toBe(join(dir, `${WORK_ORDER}.json`))
     expect(result.sourceDigest).toMatch(/^[a-f0-9]{64}$/)
     const text = readFileSync(result.path, "utf8")
-    expect(text.endsWith("\n")).toBe(true)
     const raw = JSON.parse(text)
-    expect(text).toBe(`${JSON.stringify(raw, null, 2)}\n`)
+    // Compact: machine-read only, and tens of MiB of base64 on the real repository.
+    expect(text).toBe(`${JSON.stringify(raw)}\n`)
     expect(raw).toMatchObject({ version: 1, workOrderId: WORK_ORDER })
     expect("baseline" in raw.workspace).toBe(false)
     // The drafter's OWN schema accepts what the controller wrote.
@@ -111,6 +111,26 @@ describe("writeDrafterManifest", () => {
     ).rejects.toThrow(/workOrderId/)
   })
 
+  it("with an already-aborted signal, writes nothing and leaves no staging behind", async () => {
+    const { root, pin } = repo()
+    const app = appRoot()
+    const dir = join(app, "m")
+    const controller = new AbortController()
+    controller.abort()
+    await expect(
+      writeDrafterManifest({
+        workOrderId: WORK_ORDER,
+        pin,
+        repositoryRoot: root,
+        dir,
+        appRoot: app,
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow()
+    expect(existsSync(join(dir, `${WORK_ORDER}.json`))).toBe(false)
+    expect(existsSync(join(app, ".factory"))).toBe(false)
+  })
+
   it("keeps the drafter's copy of the schema identical", () => {
     const here = readFileSync(new URL("../src/lib/drafter-manifest.ts", import.meta.url), "utf8")
     const there = readFileSync(
@@ -124,6 +144,10 @@ describe("writeDrafterManifest", () => {
       )
     expect(schema(here).length).toBeGreaterThan(0)
     expect(schema(there)).toBe(schema(here))
+    // The schema names CATALOG_ID, so the two regex sources must agree too.
+    const catalogId = (text: string) => text.match(/^const CATALOG_ID = (.*)$/m)?.[1]
+    expect(catalogId(here)).toBeDefined()
+    expect(catalogId(there)).toBe(catalogId(here))
     // And the controller's copy parses what it wrote, like the drafter's does.
     expect(DrafterManifestSchema).toBeDefined()
   })

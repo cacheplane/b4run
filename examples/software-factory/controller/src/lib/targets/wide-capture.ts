@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process"
-import { existsSync, mkdirSync, rmSync } from "node:fs"
+import { mkdirSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import type { WorkspaceDefinition } from "@b4run/workspace"
+import { archiveTreeInto } from "./archive.js"
 import { appRoot as defaultAppRoot } from "./catalog.js"
 
 /**
@@ -119,6 +120,32 @@ export interface StageWideCaptureOptions {
   readonly appRoot?: string
 }
 
+/** Every capture directory lives here; `stageWideCapture` removes nothing outside it. */
+export const CAPTURES_PREFIX = ".factory/captures/"
+
+/** `instanceDir` is not a directory `stageWideCapture` may own, so nothing was touched. */
+export class CaptureDirectoryError extends Error {
+  override readonly name = "CaptureDirectoryError"
+}
+
+/**
+ * Is `instanceDir` a canonical app-relative path under {@link CAPTURES_PREFIX}: forward
+ * slashes only, no leading slash, no empty, `.` or `..` segment, and at least one segment
+ * below the prefix? Checked before the `rmSync` that rebuilds it, because that removal is
+ * recursive and `instanceDir` comes from the caller: an empty string or `.` would name the
+ * app root itself.
+ */
+function assertCaptureDirectory(instanceDir: string): void {
+  const segments = instanceDir.split("/")
+  const canonical =
+    !instanceDir.includes("\\") &&
+    segments.every((segment) => segment.length > 0 && segment !== "." && segment !== "..")
+  if (!canonical || !instanceDir.startsWith(CAPTURES_PREFIX))
+    throw new CaptureDirectoryError(
+      `wide capture staging directory must be a canonical path under ${CAPTURES_PREFIX}, got ${JSON.stringify(instanceDir)}`,
+    )
+}
+
 /**
  * Archive the wide capture at `pin` under `<appRoot>/<instanceDir>/repo/` and describe it
  * as a workspace: the repository under {@link WIDE_CAPTURE_ROOT}, no environment links (the
@@ -126,16 +153,15 @@ export interface StageWideCaptureOptions {
  * for the drafter to diff against, and nothing it writes is read as a diff).
  *
  * `instanceDir` is app-relative and forward-slash, which is what the framework's capture
- * takes as `source.directory`; the caller owns it and removes it once the capture has read
- * the bytes into the definition (see `writeDrafterManifest`). The `git archive` mechanics
- * are `captureTarget`'s (`archive.ts`), generalised to an explicit file list and a prefix:
- * the archive is written from the object store, so the working tree is invisible, and the
- * tar carries each blob's mode, so an executable script keeps its bit on disk and the
- * framework records it. Every path is asserted present after extraction because
- * `git archive` silently honours an in-tree `export-ignore` attribute.
+ * takes as `source.directory`, and must lie under {@link CAPTURES_PREFIX} (see
+ * {@link assertCaptureDirectory}); `captureDirectory` in `archive.ts` is how a caller
+ * names one. The caller owns it and removes it once the capture has read the bytes into
+ * the definition (see `writeDrafterManifest`). The archive mechanics are
+ * {@link archiveTreeInto}'s, with the include as an explicit file list and `repo/` as the
+ * prefix, so an executable script keeps its bit on disk and the framework records it.
  *
- * The paths go on the command line: the wide capture is about 1,400 entries and 60 KiB of
- * arguments, far under the platform limits, and `git archive` takes no pathspec file.
+ * Synchronous throughout (`git ls-tree`, `git archive`, `tar`): nothing here is cancellable
+ * by a signal; a caller that holds one checks it before and after.
  */
 export function stageWideCapture(
   repositoryRoot: string,
@@ -143,53 +169,16 @@ export function stageWideCapture(
   instanceDir: string,
   options: StageWideCaptureOptions = {},
 ): WorkspaceDefinition {
+  assertCaptureDirectory(instanceDir)
   const include = wideCaptureInclude(repositoryRoot, pin)
   const absolute = join(options.appRoot ?? defaultAppRoot, instanceDir)
   rmSync(absolute, { recursive: true, force: true })
   mkdirSync(absolute, { recursive: true })
   try {
-    // The tar lives INSIDE the instance directory so a failure leaves nothing beside it.
-    const tar = join(absolute, ".b4-wide-archive.tar")
-    try {
-      execFileSync(
-        "git",
-        [
-          "-C",
-          repositoryRoot,
-          "archive",
-          "--format=tar",
-          `--prefix=${WIDE_CAPTURE_ROOT}/`,
-          "-o",
-          tar,
-          pin,
-          "--",
-          ...include,
-        ],
-        { stdio: ["ignore", "ignore", "pipe"], timeout: 120_000, encoding: "utf8" },
-      )
-    } catch (error) {
-      const stderr = (error as { stderr?: string }).stderr ?? String(error)
-      throw new Error(`git archive of the wide capture at ${pin} failed: ${stderr}`, {
-        cause: error,
-      })
-    }
-    try {
-      execFileSync("tar", ["-xf", tar, "-C", absolute], {
-        stdio: ["ignore", "ignore", "pipe"],
-        timeout: 120_000,
-        encoding: "utf8",
-      })
-    } catch (error) {
-      const stderr = (error as { stderr?: string }).stderr ?? String(error)
-      throw new Error(`tar extraction of the wide capture at ${pin} failed: ${stderr}`, {
-        cause: error,
-      })
-    } finally {
-      rmSync(tar, { force: true })
-    }
-    for (const path of include)
-      if (!existsSync(join(absolute, WIDE_CAPTURE_ROOT, path)))
-        throw new Error(`wide capture path ${path} is absent from the archive of ${pin}`)
+    archiveTreeInto(repositoryRoot, pin, include, absolute, {
+      prefix: `${WIDE_CAPTURE_ROOT}/`,
+      label: "wide capture",
+    })
   } catch (error) {
     rmSync(absolute, { recursive: true, force: true })
     throw error

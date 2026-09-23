@@ -225,15 +225,22 @@ export function loadTarget(id: string, options: CatalogOptions = {}): Target {
  * pin is the only source of truth for what the factory builds against. Fetching that one
  * commit by SHA (GitHub allows it for a reachable commit) keeps that honest without
  * requiring every job in the repository to deepen its checkout. `FACTORY_NO_FETCH=1` turns
- * a missing pin back into a hard error, for offline or determinism runs.
+ * a missing pin back into a hard error, for offline or determinism runs. `options.label`
+ * names the pinning thing in messages when it is not a target (`Target ${id}` otherwise).
  */
-export function ensurePin(repo: string, id: string, pin: string): void {
+export function ensurePin(
+  repo: string,
+  id: string,
+  pin: string,
+  options: { readonly label?: string } = {},
+): void {
   if (commitExists(repo, pin)) return
-  const missing = `Target ${id} pins ${pin}, which is not in the repository at ${repo}`
+  const label = options.label ?? `Target ${id}`
+  const missing = `${label} pins ${pin}, which is not in the repository at ${repo}`
   if (process.env.FACTORY_NO_FETCH === "1")
     throw new Error(`${missing} (FACTORY_NO_FETCH=1, not fetched)`)
   process.stderr.write(
-    `factory: pin ${pin.slice(0, 12)} for target ${id} is not in the local object store; fetching it from origin\n`,
+    `factory: pin ${pin.slice(0, 12)} for ${label} is not in the local object store; fetching it from origin\n`,
   )
   try {
     execFileSync("git", ["-C", repo, "fetch", "--depth=1", "origin", pin], {

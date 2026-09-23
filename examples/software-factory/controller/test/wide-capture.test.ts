@@ -6,6 +6,7 @@ import { captureWorkspaceDefinition } from "@b4run/workspace/node"
 import { afterEach, describe, expect, it } from "vitest"
 import { repositoryRoot } from "../src/lib/targets/catalog.ts"
 import {
+  CaptureDirectoryError,
   stageWideCapture,
   WIDE_CAPTURE_ROOT,
   wideCaptureInclude,
@@ -117,8 +118,8 @@ describe("wideCaptureInclude", () => {
   it("on the live HEAD, is a wide but bounded, portable, binary-free list", () => {
     const root = repositoryRoot()
     const include = wideCaptureInclude(root, git(root, "rev-parse", "HEAD"))
-    expect(include.length).toBeGreaterThan(1_000)
-    expect(include.length).toBeLessThan(3_000)
+    // No count bounds: turbo's inputs for this test do not include the repository, so a
+    // count assertion would be cache-blind. What is asserted holds by construction.
     expect(include).toEqual([...include].sort())
     expect(include).toContain("package.json")
     expect(include).toContain("packages/cli/src/index.ts")
@@ -177,6 +178,49 @@ describe("stageWideCapture", () => {
     const byPath = new Map(captured.source.files.map((f) => [f.path, f.executable]))
     expect(byPath.get("repo/scripts/run.sh")).toBe(true)
     expect(byPath.get("repo/scripts/check-docs.mjs")).toBe(false)
+  })
+
+  it("refuses a staging directory it may not own, before removing anything", () => {
+    const { root, pin } = repo()
+    const appRoot = mkdtempSync(join(tmpdir(), "factory-wide-app-"))
+    dirs.push(appRoot)
+    writeFileSync(join(appRoot, "keep.txt"), "still here\n")
+    mkdirSync(join(appRoot, ".factory", "captures"), { recursive: true })
+    writeFileSync(join(appRoot, ".factory", "captures", "keep.txt"), "still here\n")
+    for (const instanceDir of [
+      "",
+      ".",
+      "..",
+      "/tmp/x",
+      ".factory/captures",
+      ".factory/captures/",
+      ".factory/captures/../x",
+      ".factory/captures/drafter/./x",
+      ".factory/other/x",
+      "x/.factory/captures/x",
+      ".factory\\captures\\x",
+    ]) {
+      expect(() => stageWideCapture(root, pin, instanceDir, { appRoot })).toThrow(
+        CaptureDirectoryError,
+      )
+    }
+    expect(existsSync(join(appRoot, "keep.txt"))).toBe(true)
+    expect(existsSync(join(appRoot, ".factory", "captures", "keep.txt"))).toBe(true)
+  })
+
+  it("fails, naming export-ignore, and removes the staging when the archive drops a path", () => {
+    const { root } = repo()
+    writeFileSync(join(root, ".gitattributes"), "scripts/run.sh export-ignore\n")
+    git(root, "add", ".gitattributes")
+    git(root, "commit", "-q", "-m", "ignore one")
+    const pin = git(root, "rev-parse", "HEAD")
+    const appRoot = mkdtempSync(join(tmpdir(), "factory-wide-app-"))
+    dirs.push(appRoot)
+    const instanceDir = ".factory/captures/drafter/wo-1.ign"
+    expect(() => stageWideCapture(root, pin, instanceDir, { appRoot })).toThrow(
+      /scripts\/run\.sh is absent from the archive .*export-ignore/,
+    )
+    expect(existsSync(join(appRoot, instanceDir))).toBe(false)
   })
 
   it("the live HEAD's wide capture fits the framework's capture limits", {
