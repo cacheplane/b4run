@@ -349,6 +349,7 @@ The CLI's write commands are requests to the running controller
 
     factory create --task cli-flags
     factory create --issue 778 [--repo owner/name]         # from a GitHub issue, pinned to origin/main
+    factory create --issue 714 --pin <sha>                 # replay a fixed issue at the commit before its fix
     factory intake <id>                                    # issue work orders only; awaits the draft
     ls $FACTORY_STATE_DIR/tasks/<id>/                      # task.json spec.md checks.json checks/ issue.md
     factory approve-intake <id> --revision <n> --digest <sha256>   # or: factory reject-intake <id> --note "..."
@@ -360,6 +361,10 @@ The CLI's write commands are requests to the running controller
     factory approve <id> --revision <n> --bundle <sha256>   # or: factory deny <id>
     factory cancel <id>
     factory reconcile
+
+`--pin` is the replay mode: a fixed issue, pinned at the commit before its fix, has a known
+right answer, so the fix's own test grades what the factory produces without the drafter or the
+builder being able to see it.
 
 `dispatch` returns when the work order has stopped moving — including through the controller's
 own `verifying` phase, which is not the builder's — and tails the journal to stderr while it
@@ -455,7 +460,10 @@ The controller app reads:
 The CLI's `create --issue` reads `FACTORY_GH` (default `gh`: the executable that answers
 `issue view`), `FACTORY_REPOSITORY` (the `owner/name` to read from, else `--repo`, else the
 checkout's `origin` remote) and `FACTORY_NO_FETCH` (`1` skips the `git fetch origin main`
-before the pin is resolved from the checkout named by `FACTORY_REPO_ROOT`).
+before the pin is resolved from the checkout named by `FACTORY_REPO_ROOT`). With `--pin <sha>`
+there is no `origin/main` to fetch or read at all: the named commit is used, fetched from
+`origin` by sha only when the object store lacks it, and `FACTORY_NO_FETCH=1` refuses such a
+pin, naming it, instead of fetching.
 
 The builder app reads `FACTORY_BUILDER_TARGET` (required: the target file `factory
 builder-target` writes), `FACTORY_BUILDER_MANIFEST_DIR` (required: the manifest directory,

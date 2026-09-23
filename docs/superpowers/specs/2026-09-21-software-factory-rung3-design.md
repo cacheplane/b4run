@@ -423,6 +423,14 @@ GitHub body arrives CRLF. `issue.md`
 is written only when absent, so a replayed key rewrites nothing and a crash between the row
 insert and the write is repaired by the replay.
 
+**As landed (sub-project 4).** `create --issue <n> --pin <sha>` replays an issue at a named
+commit: `resolvePin` is skipped, so `origin/main` is neither fetched nor read. A full sha goes
+through `ensurePin` (label `Issue <n>'s replay pin`): fetched from `origin` by sha when the
+object store lacks it, refused by name under `FACTORY_NO_FETCH=1`. A short sha is accepted only
+when the checkout resolves it (`git rev-parse --verify <sha>^{commit}`), since a short sha
+cannot be fetched. `--pin` with `--task` is refused. The row and the journal record the pin like
+any other; the origin is still the issue, with no field saying the pin was chosen.
+
 ### 6.4 The intake route
 
 `examples/software-factory/server/src/app/intake/index.ts` is an `agent` route beside

@@ -290,6 +290,59 @@ esac
     expect(notANumber.stderr).toContain("positive integer")
   }, 90_000)
 
+  it("replays an issue at --pin without consulting origin/main", async () => {
+    const { env } = await boot()
+    const gh = stubGh({ title: "Fix the flag", body: "Body\n", url: "https://github.com/x/778" })
+    const { root, head: first } = await localRepo()
+    const git = (...args: string[]) =>
+      run("git", ["-C", root, ...args], {
+        env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" },
+      })
+    writeFileSync(join(root, "README.md"), "target, fixed\n")
+    await git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-am", "fix")
+    // An origin that answers nothing: a `git fetch origin main` (resolvePin) or any fetch at
+    // all would fail the create, so a pinned create that succeeds consulted neither.
+    await git("remote", "set-url", "origin", join(dir, "no-such-origin"))
+    const issueEnv = { ...env, FACTORY_GH: gh, FACTORY_REPO_ROOT: root }
+    const create = (...args: string[]) =>
+      run(
+        process.execPath,
+        [tsxBin, cliEntry, "create", "--issue", "778", "--repo", "cacheplane/b4run", ...args],
+        { env: issueEnv, cwd: packageRoot },
+      )
+
+    const created = JSON.parse((await create("--pin", first)).stdout)
+    expect(created).toMatchObject({ ok: true, state: "received" })
+    expect(created.row.pin).toBe(first)
+    expect(created.row.origin).toMatchObject({ kind: "issue", number: 778 })
+    // A short sha resolves in the checkout to the same commit.
+    const short = JSON.parse((await create("--pin", first.slice(0, 10), "--key", "short")).stdout)
+    expect(short.row.pin).toBe(first)
+    // Without --pin the same checkout cannot create: origin/main is what it would read.
+    const unpinned = await failing(create())
+    expect(unpinned.stderr).toContain("git fetch failed")
+
+    const absent = "0123456789abcdef0123456789abcdef01234567"
+    const refused = await failing(
+      run(
+        process.execPath,
+        [tsxBin, cliEntry, "create", "--issue", "778", "--repo", "x/y", "--pin", absent],
+        { env: { ...issueEnv, FACTORY_NO_FETCH: "1" }, cwd: packageRoot },
+      ),
+    )
+    expect(refused.stderr).toContain(`Issue 778's replay pin pins ${absent}`)
+    expect(refused.stderr).toContain("FACTORY_NO_FETCH=1")
+    const unknownShort = await failing(create("--pin", "0123456789"))
+    expect(unknownShort.stderr).toContain("pass the full 40-hex sha")
+    const withTask = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "create", "--task", "cli-flags", "--pin", first], {
+        env: issueEnv,
+        cwd: packageRoot,
+      }),
+    )
+    expect(withTask.stderr).toMatch(/--pin.*--issue.*--task/)
+  }, 90_000)
+
   it("drives the intake gate: intake tails and parks, reject-intake redrafts, approve-intake needs the digest", async () => {
     const { cli, spawn } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
     if (!served) throw new Error("no controller")

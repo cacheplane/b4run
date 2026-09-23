@@ -5,7 +5,7 @@ import { writeBuilderManifest, writeBuilderTarget } from "./lib/builder-manifest
 import { type ControllerClient, ControllerHttpError, createControllerClient } from "./lib/client.js"
 import { generatedTasksDirFor } from "./lib/config.js"
 import type { WorkOrderState } from "./lib/domain/states.js"
-import type { WorkOrderRow } from "./lib/domain/work-order.js"
+import { COMMIT_PATTERN, type WorkOrderRow } from "./lib/domain/work-order.js"
 import {
   execFileExec,
   fetchIssue,
@@ -14,12 +14,18 @@ import {
 } from "./lib/intake/issue.js"
 import { openRegistryReader } from "./lib/registry/reader.js"
 import type { RouteOutcome } from "./lib/routes/outcome.js"
-import { configureCatalog, loadTarget, loadTask, repositoryRoot } from "./lib/targets/catalog.js"
+import {
+  configureCatalog,
+  ensurePin,
+  loadTarget,
+  loadTask,
+  repositoryRoot,
+} from "./lib/targets/catalog.js"
 
 const USAGE = `factory <command> [options]
 
   create    --task <id> [--key <operationKey>]
-  create    --issue <n> [--repo <owner/name>] [--key <operationKey>]
+  create    --issue <n> [--repo <owner/name>] [--pin <sha>] [--key <operationKey>]
   intake          <workOrderId> [--key <operationKey>]
   approve-intake  <workOrderId> --revision <n> --digest <sha256> [--key <operationKey>]
   reject-intake   <workOrderId> --note "<text>" [--key <operationKey>]
@@ -51,6 +57,9 @@ target's manifest directory, and this command is for driving a builder without a
 create --issue reads the issue through gh (FACTORY_GH names the executable; default gh) and pins
 the work order to origin/main of the target checkout (FACTORY_REPO_ROOT; FACTORY_NO_FETCH=1 skips
 the fetch). The repository is --repo, else FACTORY_REPOSITORY, else the checkout's origin remote.
+create --issue --pin <sha> replays the issue at that commit instead: origin/main is neither
+fetched nor read. The pin is a full sha, or a short one the checkout resolves; a full sha not in
+the object store is fetched from origin by sha, unless FACTORY_NO_FETCH=1, which refuses it.
 
 intake runs the drafter turn and the oracle proof and waits for them, like dispatch. The draft
 it parks is a task directory under <FACTORY_STATE_DIR>/tasks/<workOrderId>/ (task.json, spec.md,
@@ -216,10 +225,15 @@ async function cancel(id: string, key: string | undefined): Promise<number> {
 }
 
 /**
- * What `create --issue` sends: the issue as gh reports it now, and main's tip as the pin. Both
- * are read before the controller is asked, so a refused create costs nothing on the controller.
+ * What `create --issue` sends: the issue as gh reports it now, and main's tip as the pin (or
+ * `--pin`, the replay mode). Both are read before the controller is asked, so a refused create
+ * costs nothing on the controller.
  */
-async function issueCreateInput(issueArg: string, repo: string | undefined) {
+async function issueCreateInput(
+  issueArg: string,
+  repo: string | undefined,
+  pinArg: string | undefined,
+) {
   const number = Number(issueArg)
   if (!/^\d+$/.test(issueArg) || !Number.isInteger(number) || number <= 0)
     throw new Error(`--issue must be a positive integer, got ${JSON.stringify(issueArg)}`)
@@ -228,13 +242,52 @@ async function issueCreateInput(issueArg: string, repo: string | undefined) {
   if (!repository) throw new Error("cannot determine the repository; pass --repo <owner/name>")
   const gh = process.env.FACTORY_GH ?? "gh"
   const fetch = process.env.FACTORY_NO_FETCH !== "1"
+  const replayPin = pinArg !== undefined ? await replayPinOf(root, pinArg) : undefined
   const issue = await fetchIssue({ repository, number, gh })
-  const pin = await resolvePin({ repositoryRoot: root, fetch })
+  let pin: string
+  if (replayPin !== undefined) {
+    // A replay: the commit is named, so origin/main is never consulted. A full sha missing from
+    // a shallow checkout is fetched by sha; FACTORY_NO_FETCH=1 refuses it instead, naming it.
+    ensurePin(root, `issue-${number}`, replayPin, { label: `Issue ${number}'s replay pin` })
+    pin = replayPin
+  } else {
+    pin = await resolvePin({ repositoryRoot: root, fetch })
+  }
   return {
     origin: { kind: "issue" as const, repository, number, bodyDigest: issue.bodyDigest },
     pin,
     issue: { title: issue.title, body: issue.body },
   }
+}
+
+/**
+ * The commit `--pin` names: a full sha as given (lowercased; `ensurePin` then finds or fetches
+ * it), or a short one resolved in the checkout with `git rev-parse --verify`. A short sha
+ * cannot be fetched by sha, so one the checkout does not know is refused, asking for the full.
+ */
+async function replayPinOf(root: string, pinArg: string): Promise<string> {
+  if (/^[0-9a-fA-F]{40}$/.test(pinArg)) return pinArg.toLowerCase()
+  if (!/^[0-9a-fA-F]{4,39}$/.test(pinArg))
+    throw new Error(`--pin must be a commit sha, got ${JSON.stringify(pinArg)}`)
+  let stdout: string
+  try {
+    ;({ stdout } = await execFileExec("git", [
+      "-C",
+      root,
+      "rev-parse",
+      "--verify",
+      "--quiet",
+      `${pinArg}^{commit}`,
+    ]))
+  } catch {
+    throw new Error(
+      `--pin ${pinArg} does not name a commit in ${root}; pass the full 40-hex sha, which is fetched from origin when it is missing`,
+    )
+  }
+  const sha = stdout.trim()
+  if (!COMMIT_PATTERN.test(sha))
+    throw new Error(`--pin ${pinArg} resolved to ${JSON.stringify(sha)}, not a commit`)
+  return sha
 }
 
 /** `owner/name` from the checkout's origin remote, or null when there is none or it is not GitHub. */
@@ -315,11 +368,17 @@ async function main(argv: string[]): Promise<number> {
     switch (command) {
       case "create": {
         if (values.task && values.issue) throw new Error("create takes --task or --issue, not both")
+        if (values.pin !== undefined && !values.issue)
+          throw new Error(
+            values.task
+              ? "create --pin replays an issue: it takes --issue, not --task (a catalog task's pin is its target's)"
+              : "create --pin requires --issue",
+          )
         const key = values.key ? { operationKey: values.key } : {}
         const input = values.task
           ? { taskId: values.task }
           : values.issue
-            ? await issueCreateInput(values.issue, values.repo)
+            ? await issueCreateInput(values.issue, values.repo, values.pin)
             : null
         if (!input) throw new Error("create requires --task or --issue")
         const outcome = await client().create({ ...input, ...key })
