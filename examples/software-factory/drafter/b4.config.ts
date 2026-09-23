@@ -39,8 +39,13 @@ export default config({
   },
   permissions: {
     // Nobody is watching a drafter turn: a command off the list is denied, never queued for
-    // a person. The list is read-only inspection; the four workspace tools are what write.
+    // a person. The list is a prefix match over the whole command line, so it bounds which
+    // commands may START a shell line, not what the shell can then do (`cat x; node -e ...`
+    // passes). It is not a security boundary and is not relied on as one: the real boundary
+    // is that the network is denied and the controller reads only the re-rooted `draft/`.
+    // `find` is left off because it carries `-exec` and `-delete`; `listDir` and `grep -r`
+    // cover the need.
     mode: "non-interactive",
-    allow: { bash: ["ls", "cat", "head", "tail", "grep", "find", "wc"] },
+    allow: { bash: ["ls", "cat", "head", "tail", "grep", "wc"] },
   },
 })

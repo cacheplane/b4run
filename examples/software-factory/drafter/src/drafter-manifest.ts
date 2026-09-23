@@ -102,7 +102,7 @@ export async function loadDrafterManifest(
     manifest = DrafterManifestSchema.parse(JSON.parse(text))
   } catch (error) {
     throw new Error(
-      `drafter manifest ${path} is invalid: ${error instanceof Error ? error.message : String(error)}`,
+      `drafter manifest ${path} is invalid: ${error instanceof z.ZodError ? z.prettifyError(error) : error instanceof Error ? error.message : String(error)}`,
       { cause: error },
     )
   }

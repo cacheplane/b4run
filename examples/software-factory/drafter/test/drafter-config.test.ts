@@ -98,7 +98,7 @@ describe("the drafter's workspace resolver", () => {
   it("refuses a manifest of another version", async () => {
     await writeManifest({ version: 2 })
     const resolve = await resolver()
-    await expect(resolve(thread({ factoryWorkOrderId: WORK_ORDER }))).rejects.toThrow()
+    await expect(resolve(thread({ factoryWorkOrderId: WORK_ORDER }))).rejects.toThrow(/version/)
   })
 
   it("refuses a manifest written for a different work order", async () => {
@@ -133,12 +133,14 @@ describe("the drafter's sandbox and permissions", () => {
     expect(config.sandbox?.resources).toEqual({ memoryMb: 1024, cpus: 1, timeoutMs: 60_000 })
   })
 
-  it("never waits on a person: non-interactive, read-only shell commands only", async () => {
+  it("never waits on a person: non-interactive, a bounded list of command starts", async () => {
     const config = await loadConfig()
     expect(config.permissions?.mode).toBe("non-interactive")
     expect(config.permissions?.allow).toEqual({
-      bash: ["ls", "cat", "head", "tail", "grep", "find", "wc"],
+      bash: ["ls", "cat", "head", "tail", "grep", "wc"],
     })
+    // `find -exec` / `find -delete` would make the list a fig leaf; the need is covered.
+    expect(config.permissions?.allow?.bash).not.toContain("find")
     expect(config.toolOutput?.previewLines).toBe(10)
   })
 })

@@ -23,7 +23,7 @@ Where things are:
 
 Paths: the user message names each available target and its root inside the repository. Every path in \`draft/task.json\` and every import in the check file is relative to the target's root, not to \`repo/\` and not to the repository's root.
 
-The check is a \`node:test\` suite. It must fail on the current code and pass once the issue is fixed. It imports the built artifact (the package's \`dist/\`), never a source file, and depends on no test in the repository and on no file outside itself.
+The check is a \`node:test\` suite. It must fail on the current code and pass once the issue is fixed. It imports the built artifact (the package's \`dist/\`), never a source file, and depends on no test in the repository and on no file outside itself. You cannot build or run the artifact here: the capture holds no \`dist/\`, so write the import from the package's \`package.json\` \`exports\` map (the entry's published subpath and the \`dist/\` file it maps to), not from anything you can list.
 
 When the four files are written, stop and say so. If the issue cannot be turned into such a task, say why instead of writing a draft.`,
 })

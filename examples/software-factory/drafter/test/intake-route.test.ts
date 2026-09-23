@@ -75,4 +75,10 @@ describe("the package boundary", () => {
       expect([file, readFileSync(file, "utf8").includes("../controller/")]).toEqual([file, false])
     }
   })
+
+  it("declares no dependency on the controller package either", () => {
+    const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"))
+    const declared = Object.keys({ ...pkg.dependencies, ...pkg.devDependencies })
+    expect(declared.some((name) => name.includes("software-factory-controller"))).toBe(false)
+  })
 })
