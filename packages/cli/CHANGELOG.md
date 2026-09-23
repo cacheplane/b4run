@@ -1,5 +1,20 @@
 # @dawn-ai/cli
 
+## 0.11.2
+
+### Patch Changes
+
+- Republishes the 0.11.1 changes, which never reached npm. The 0.11.1 release commit could not pass its required CI run, so no 0.11.1 packages were published. This release carries the same fixes: `@b4run/cli` exports `B4Config`, so `config()` in `b4.config.ts` typechecks under pnpm, and the basic template uses `config()` again.
+  - @b4run/ag-ui@0.11.2
+  - @b4run/core@0.11.2
+  - @b4run/langchain@0.11.2
+  - @b4run/langgraph@0.11.2
+  - @b4run/memory@0.11.2
+  - @b4run/permissions@0.11.2
+  - @b4run/sdk@0.11.2
+  - @b4run/sqlite-storage@0.11.2
+  - @b4run/workspace@0.11.2
+
 ## 0.11.1
 
 ### Patch Changes
