@@ -1,4 +1,4 @@
-import { CopyCommand } from "../CopyCommand"
+import { CopyCommand } from "../ui/CopyCommand"
 import { reportUrl, sourceUrl } from "./evidence"
 import { prepareHomepage } from "./highlight"
 import styles from "./homepage.module.css"

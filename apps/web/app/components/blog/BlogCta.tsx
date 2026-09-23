@@ -1,4 +1,4 @@
-import { CopyCommand } from "../CopyCommand"
+import { CopyCommand } from "../ui/CopyCommand"
 import styles from "./blog.module.css"
 
 export function BlogCta() {

@@ -3,9 +3,9 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect, useId, useRef, useState } from "react"
-import { CopyCommand } from "./CopyCommand"
 import { MobileDocsNav } from "./docs/MobileDocsNav"
 import headerStyles from "./homepage/header.module.css"
+import { CopyCommand } from "./ui/CopyCommand"
 
 interface SiteLink {
   readonly label: string

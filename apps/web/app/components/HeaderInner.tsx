@@ -3,10 +3,10 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { BrandLogo } from "./BrandLogo"
-import { CopyCommand } from "./CopyCommand"
 import { openDocsSearch } from "./docs/docs-search-events"
 import homepageStyles from "./homepage/header.module.css"
 import { MobileMenu } from "./MobileMenu"
+import { CopyCommand } from "./ui/CopyCommand"
 
 function GitHubIcon() {
   return (
