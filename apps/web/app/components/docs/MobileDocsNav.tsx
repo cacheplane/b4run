@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { Eyebrow } from "../ui/Eyebrow"
 import { DOCS_NAV } from "./nav"
 
 interface Props {
@@ -15,12 +16,8 @@ export function MobileDocsNav({ pathname, onNavigate }: Props) {
         const activeSection = section.items.some((item) => item.href === pathname)
         return (
           <details key={section.label} open={activeSection} className="group">
-            {/* A <p> is invalid inside <summary>, so the eyebrow is a span
-                carrying the attributes the Eyebrow component would. */}
             <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-ink-muted hover:bg-surface hover:text-ink">
-              <span data-ui="eyebrow" data-tone="muted">
-                {section.label}
-              </span>
+              <Eyebrow as="span">{section.label}</Eyebrow>
               <span aria-hidden className="text-xs transition-transform group-open:rotate-90">
                 ›
               </span>

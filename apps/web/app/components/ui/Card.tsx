@@ -4,7 +4,8 @@ import type { ReactNode } from "react"
 interface CardProps {
   readonly children: ReactNode
   readonly href?: string
-  readonly className?: string
+  /** Optional; `string | undefined` so a CSS-module lookup can be passed straight through. */
+  readonly className?: string | undefined
 }
 
 /** A bordered paper block; a link card when given an href (hover = relay tint). */

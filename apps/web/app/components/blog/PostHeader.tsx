@@ -1,7 +1,6 @@
 import Image from "next/image"
 import Link from "next/link"
 import { Eyebrow } from "../ui/Eyebrow"
-import styles from "./blog.module.css"
 import { AUTHORS, type Author, type Post } from "./post-index"
 
 function formatDate(iso: string): string {
@@ -35,19 +34,14 @@ export function PostHeader({ post }: { readonly post: Post }) {
       {/* Mobile-only: author byline + tags. Desktop sees these in the PostMeta left rail. */}
       <div className="md:hidden mt-5 flex items-center gap-3">
         <Image src={author.avatar} alt={author.name} width={28} height={28} />
-        <a
-          href={author.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-sm text-ink underline decoration-olive underline-offset-4"
-        >
+        <a href={author.url} target="_blank" rel="noopener noreferrer" className="text-sm">
           {author.name}
         </a>
       </div>
       {post.tags.length > 0 && (
         <div className="md:hidden mt-3 flex flex-wrap gap-1.5">
           {post.tags.map((tag) => (
-            <Link key={tag} href={`/blog/tags/${tag}`} className={styles.chip}>
+            <Link key={tag} href={`/blog/tags/${tag}`} data-ui="chip">
               {tag}
             </Link>
           ))}

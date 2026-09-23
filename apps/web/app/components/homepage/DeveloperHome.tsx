@@ -30,9 +30,9 @@ export async function DeveloperHome() {
         <details className={styles.recording}>
           <summary>
             <span>
-              <span className={styles.eyebrow} data-ui="eyebrow" data-tone="muted">
+              <Eyebrow as="span" className={styles.eyebrow}>
                 See it in action
-              </span>
+              </Eyebrow>
               <strong>Watch the recorded repair.</strong>
             </span>
             <span>

@@ -35,7 +35,7 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
       </h3>
     ),
     h4: ({ children, id }) => (
-      <h4 id={id} className="text-base font-semibold text-ink mt-6 mb-2">
+      <h4 id={id} className="text-base text-ink mt-6 mb-2">
         {children}
       </h4>
     ),

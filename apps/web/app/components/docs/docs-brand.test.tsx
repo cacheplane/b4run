@@ -22,7 +22,7 @@ async function render(node: React.ReactNode) {
   return container
 }
 
-describe("docs brand boundary", () => {
+describe("docs-only callout labels and the search portal", () => {
   it.each([
     ["info", "Info"],
     ["tip", "Tip"],
@@ -39,7 +39,7 @@ describe("docs brand boundary", () => {
     const elsewhere = await render(<Callout type={type}>Keep this body</Callout>)
     expect(elsewhere.textContent).not.toContain(label)
   })
-  it("keeps custom callout titles and scopes the actual search portal", async () => {
+  it("keeps custom callout titles and portals the search dialog to body", async () => {
     const container = await render(
       <DocsBrandProvider>
         <Callout title="Before you deploy">Body</Callout>

@@ -2,6 +2,9 @@
 
 import { Children, isValidElement, type ReactElement, type ReactNode, useState } from "react"
 
+// The active tab is styled by `[data-prose-tabs] [aria-selected="true"]` in ui.css.
+const INACTIVE_TAB = "text-ink-muted border-transparent hover:text-ink"
+
 interface TabsProps {
   readonly children: ReactNode
 }
@@ -34,7 +37,7 @@ export function Tabs({ children }: TabsProps) {
             aria-selected={active === i}
             onClick={() => setActive(i)}
             className={`px-4 py-2 text-xs font-mono transition-colors border-b-2 ${
-              active === i ? "" : "text-ink-muted border-transparent hover:text-ink"
+              active === i ? "" : INACTIVE_TAB
             }`}
           >
             {tab.props.label}

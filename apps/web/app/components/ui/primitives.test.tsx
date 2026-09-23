@@ -15,6 +15,15 @@ describe("primitives", () => {
     expect(renderToStaticMarkup(<Eyebrow tone="olive">Blog</Eyebrow>)).toContain(
       'data-tone="olive"',
     )
+    expect(renderToStaticMarkup(<Eyebrow tone="panel">Panel</Eyebrow>)).toBe(
+      '<p data-ui="eyebrow" data-tone="panel">Panel</p>',
+    )
+  })
+
+  it("Eyebrow renders a span when asked, for places a <p> is invalid", () => {
+    expect(renderToStaticMarkup(<Eyebrow as="span">On this page</Eyebrow>)).toBe(
+      '<span data-ui="eyebrow" data-tone="muted">On this page</span>',
+    )
   })
 
   it("Button is a <button> without href and an <a> with one", () => {

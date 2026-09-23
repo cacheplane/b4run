@@ -1,7 +1,6 @@
 import Image from "next/image"
 import Link from "next/link"
 import { Eyebrow } from "../ui/Eyebrow"
-import styles from "./blog.module.css"
 import { AUTHORS, type Author, type Post } from "./post-index"
 
 function formatDate(iso: string): string {
@@ -34,7 +33,7 @@ export function PostMeta({ post }: { readonly post: Post }) {
           <Eyebrow className="mb-2">Tags</Eyebrow>
           <div className="flex flex-wrap gap-1.5">
             {post.tags.map((tag) => (
-              <Link key={tag} href={`/blog/tags/${tag}`} className={styles.chip}>
+              <Link key={tag} href={`/blog/tags/${tag}`} data-ui="chip">
                 {tag}
               </Link>
             ))}

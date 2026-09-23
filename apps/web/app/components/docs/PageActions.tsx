@@ -253,7 +253,7 @@ export function PageActions({ slug, promptSlug, promptBody }: PageActionsProps) 
           await item.onSelect()
           if (item.external) setOpen(false)
         }}
-        className="w-full text-left px-3 py-2 flex items-start gap-3 hover:bg-relay-tint focus:bg-relay-tint focus:outline-none transition-colors"
+        className="w-full text-left px-3 py-2 flex items-start gap-3 hover:bg-relay-tint focus:bg-relay-tint transition-colors"
       >
         <span className="mt-0.5 text-ink-muted shrink-0">{item.icon}</span>
         <span className="flex-1 min-w-0">

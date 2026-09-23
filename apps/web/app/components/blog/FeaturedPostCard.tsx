@@ -1,4 +1,4 @@
-import Link from "next/link"
+import { Card } from "../ui/Card"
 import { Eyebrow } from "../ui/Eyebrow"
 import styles from "./blog.module.css"
 import { AUTHORS, type Author, type Post } from "./post-index"
@@ -19,7 +19,7 @@ export function FeaturedPostCard({ post }: { readonly post: Post }) {
     url: "https://github.com/blove",
   }
   return (
-    <Link
+    <Card
       href={`/blog/${encodeURIComponent(post.slug)}`}
       className={`${styles.card} ${styles.featured}`}
     >
@@ -29,6 +29,6 @@ export function FeaturedPostCard({ post }: { readonly post: Post }) {
       <div className="text-xs">
         {formatDate(post.date)} · {author.name}
       </div>
-    </Link>
+    </Card>
   )
 }

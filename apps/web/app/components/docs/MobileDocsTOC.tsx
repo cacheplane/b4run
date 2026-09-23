@@ -1,6 +1,7 @@
 "use client"
 
 import { useRef } from "react"
+import { Eyebrow } from "../ui/Eyebrow"
 import { useDocsHeadings } from "./use-docs-headings"
 
 /**
@@ -20,10 +21,7 @@ export function MobileDocsTOC() {
       className="group lg:hidden mb-6 border border-rule text-sm"
     >
       <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-3 text-ink-muted hover:text-ink [&::-webkit-details-marker]:hidden">
-        {/* A span, not Eyebrow: <p> is invalid inside <summary>. */}
-        <span data-ui="eyebrow" data-tone="muted">
-          On this page
-        </span>
+        <Eyebrow as="span">On this page</Eyebrow>
         <span aria-hidden className="text-xs transition-transform group-open:rotate-90">
           ›
         </span>

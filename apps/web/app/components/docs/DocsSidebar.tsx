@@ -32,7 +32,6 @@ export function DocsSidebar({ searchIndex }: Props) {
                   <li key={item.href}>
                     <Link
                       href={item.href}
-                      data-docs-nav-item
                       data-ui="nav-item"
                       aria-current={active ? "page" : undefined}
                       className="text-sm pl-[9px] pr-3 py-1.5"
