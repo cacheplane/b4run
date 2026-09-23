@@ -2,69 +2,69 @@
   "version": 2,
   "routes": {
     "/": {
-      "lastModified": "2026-09-23T04:01:21.729Z",
-      "sourceDigest": "bf517721670cfab2fca1f786224e873cf7db5c4ecbf1897e938ab0174f464c4e",
-      "recordDigest": "d994ff30c7a8d857aabac072eb8c60d9b218a1ea1280c0e359327d3553149773"
+      "lastModified": "2026-09-23T05:40:45.478Z",
+      "sourceDigest": "3e948b94ceceb0caa2f8d9ddc4c885f0d8c58c0893d20b031605ef22d95bae60",
+      "recordDigest": "8072030f4cd8e0b7f70a0c22093356ca4077436377f096bce922cbb6a127d8a0"
     },
     "/blog": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "e383ef17d01abd524fce232a04bbd3de1b72c4346d5582b721b0b56a1a1aa37f",
-      "recordDigest": "dc814cecc476004308bc4b6d88d77bb1a2094e481df122b7ea782b84300c3e8e"
+      "recordDigest": "32e03c956da2c4b156a0d219cf402b7fb547b209ef7d942e9ec7e7dd2dcbd82e"
     },
     "/blog/tags/agents": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "5cdd23178e32d95c565c3d8c505a126466acd04d43881401d6ec16cf6d1fa066",
-      "recordDigest": "8122a79958b605c167b7f2f24fe7ebe4c1c4b312b73598ee3e0ba5e86f1bebf8"
+      "recordDigest": "ccff7495b53a790bbf169757b260751a4747a0253497e06853c53d3dfa9b18d8"
     },
     "/blog/tags/patterns": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "2c8c746ba72d339e4f4dce2325fc47063c6b45a09e3dd2aa012cb99670ab8891",
-      "recordDigest": "40c3efdf300ee739a0136b62bdb3efec8ae32c4364ae1d4e8e557fc50ad45465"
+      "recordDigest": "bdb29db1d5a8b2f90bf693c9d1a2034f58f2234ac1410273f5a7f048fd89549a"
     },
     "/blog/tags/philosophy": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "3d0282a2e559676a39be7de9f83d0f4530117678940c27559c7ec3a3eb1b3682",
-      "recordDigest": "e56f46211a374bca2e0b2e8f9e52f0d743774f01d0a69a0b15bad8817cb8c077"
+      "recordDigest": "bdb0c376181216f738a158e369151b121a083093cadd2c9de056e45dcc657a8c"
     },
     "/blog/tags/releases": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "a400afb7b05e08004d05c0614d0b6260548ab7c26985c63e21f2e1f9e32aceca",
-      "recordDigest": "b115d21bd6f32ad9d47a33a4e0128ed6ad522402a3dfa35d1c5efa502b11b90b"
+      "recordDigest": "40dac4312ba7694c97ec6e97f89f2a31b3b51116f64f5f2a37857914a59f9afb"
     },
     "/blog/tags/typescript": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "7b586960ec31e4da07732d2c906b1420d8eb3e5f575610ef482165071b2ac1f8",
-      "recordDigest": "79f42b3d71ce7ab22d05722e8354f751006700876f901828b8beb5294e8270bc"
+      "recordDigest": "368797ea77da646b28ebc8c2e2d6e125d4f0ee2a816ebd1c75e15235dd22c927"
     },
     "/docs/access-control": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "01e8e2105c2969ffbc55f024dc96785a8b039ca45a2c14ffaf0510cabfac329c",
-      "recordDigest": "0c1ce858884b4a87d44265ed8f0838b98cbb42b599060e799ac7c047699416c2"
+      "recordDigest": "6a798c1559379c18a321249b074bf7c7690dbbb354d22ff350de2c7e39448145"
     },
     "/docs/ag-ui": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "96fc7b2ff85f62ead7e460e6bbe8f335c2fb765ff57677c54de24d369d06b017",
-      "recordDigest": "83040be796b1aee04fc027a857f6c112ad9ee1f01e314ef9a4fc24319b4842a0"
+      "recordDigest": "55c1ee358e6e7b97edacc349194798bf541f3efd3fdb87e22df96d731f4528c7"
     },
     "/docs/agents": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "655eee7423747cdbb43a936e4c34e5c681081bdad166a12cb23e511d79a5da1a",
-      "recordDigest": "967cb8934d4d5a98c513293e93a45ed6d82c93a8e23530f58e1733e19e5d68eb"
+      "recordDigest": "58d058a25aba46bafe5fb3bf6c0c0caa7884547f2f4c2d319767727adc030f15"
     },
     "/docs/api": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "fd8b9efe84edabbcd6de719d53292e94a1bb76efd65cbc0f91e7a549550bf429",
-      "recordDigest": "3eda1cbabc449739651a8fbbed1407d051910b5e2af08097d5550d3ea9fdef98"
+      "recordDigest": "24d30cfda5cc3ac403853ba44c6a7d2aead738160fcf94bd753c51619c38a10b"
     },
     "/docs/api/ag-ui": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "66f78df79bf9c9668882fc8ca854739d55a3d6b4e5954780c8769d5924dd428d",
-      "recordDigest": "05e27d9264fd6a133af0d40f97ceaa2b368829084ac71fd72ac90031bf18e9e7"
+      "recordDigest": "7125b259cbdbe9b2d15992203d47931e7394bd4fff5236e4bb5dd9ac02aa5f26"
     },
     "/docs/api/cli": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "7cfeb05dbf6b9b698b16b7f54b68a6acfa4eb7894d8e7362aef424e68645e677",
-      "recordDigest": "848d621707c38bac124fe0fd276c1cee114d10c1c4a82e8542216117d5a2771c"
+      "recordDigest": "e0e4e1fc49ce9d83933a9a545da13a8bee66d55befb9c3f26281e579c8722c65"
     },
     "/docs/api/core": {
       "lastModified": "2026-09-22T19:04:43.100Z",
@@ -72,364 +72,364 @@
       "recordDigest": "ccb9ce215e9f042f5724cc50c4e9cc6671aa621c304650a437be9ea87a56f2c7"
     },
     "/docs/api/evals": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "0e3707164769fb0067b6e0a608e02799b804c5e0907804463afd9087a419c782",
-      "recordDigest": "3654eae38875d5dcf02cbb355bf512ac163e45028c4404433d77e19b89b11763"
+      "recordDigest": "4d7baed3cd33253e6d318f27748bec0ff145fac9a2b5a88b42a4bcbc0a18ea85"
     },
     "/docs/api/generated-routes": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "7f1688210b570bec91459b08fa2593bd336b14c1754ce48f0255cc73ef9b8c05",
-      "recordDigest": "9887d62caa109868b8b19cbc6ba9b93fff181ef7b3310c62b871350bb21a7681"
+      "recordDigest": "c9063ee22256fdb15b7010b51b7a1059f8cc6acdced4bab4a80c4ebd9087dfaf"
     },
     "/docs/api/langchain": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "4d7240530814f96eab7097b92e5c13efcd79be1e2fc2bc0772e6fc67c6f65809",
-      "recordDigest": "a107dc9925d026ffd05a6c5de2861c81811a779ceb1944510860c4fb767e4b60"
+      "recordDigest": "23694520b03522fea3c88534c0663a53cb2df9d3386011a15bee86dbfb22b9dd"
     },
     "/docs/api/langgraph": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "ba6d13c0bdafc66b00ea03f29a395ed07b8b98989c85aed082ac0edfd0d02bd1",
-      "recordDigest": "3e18254905e124570450207207322e3b1af4772d0f557231cf19e031be16ac05"
+      "recordDigest": "1cc5f7f6486c4efc77207046d8588905e67a13a9b8d84367615f34a5588cd89f"
     },
     "/docs/api/memory": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "444860853dcc86fc4e0a78a4902cb16241facb85652d4b190fac1408c3014986",
-      "recordDigest": "6a8f8b127ab3cbb35e4044dd654b3f47c7320a7c0392cf7ea1c4f179c54cd0e5"
+      "recordDigest": "d11d5651866cbc9c577e03cb0bc6fdc80f2e7dc50edeb53e8dc73be2bdab0b0e"
     },
     "/docs/api/memory-pgvector": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "0a1e84fb9ec08481ab9cabee0006a5944f755e5f6e0ce4f52e93415e3d130e24",
-      "recordDigest": "37caf53e2a6d16b99a6e6d02eb9195fd415fc4c9fc5666f21d82394b15b931db"
+      "recordDigest": "251c72c906d7d88d986eaf369185d7950e84cb92ea05f239697fcbd509139dcc"
     },
     "/docs/api/permissions": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "916a153e3176a6a9559a3e9e9280a524207906ceb64423864cf6bd7aecbd5633",
-      "recordDigest": "7e0714158da4ad719f53d46508763062ee07d736dbcc052ec203d6336996d208"
+      "recordDigest": "d0625346194c6c75dbbe1a5e68c21501275287dc2affb2f7a9800a063fcf848a"
     },
     "/docs/api/postgres-storage": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "baefa63bbf0e1e1055a1e94cdc5f75c733cd1cd3c1aec44a803f238508541ec9",
-      "recordDigest": "cb6b5eb4f9c5cde0ccbe484fe81050d7e7999fc36b552f291199ceaaae5ecbd0"
+      "recordDigest": "d78952c66dbad2eeb24fbf2bf9096c72959a3666fc5838cfd284f8c935285a8d"
     },
     "/docs/api/sandbox": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "9cbaf17abd4a20c85b528429228f564a10b1d66af13cf912104915af5339af14",
-      "recordDigest": "d8c5185d30c1a6e8cb5ff8770e00447f7fc0726fc9b6d5bc9ab5713c0e3e904a"
+      "recordDigest": "edf7fc5fade9d86426ce8f1702b9af2bd37243b2474a3d9236ca1d97d25556f7"
     },
     "/docs/api/sdk": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "07978a49fd884de655f9f0802590a088a328ef68884bb4bcc67b8126a6b91d9c",
-      "recordDigest": "ef965bfc9891a5128b0f1aee73742e3642be338e0cebd0c6cd44c05935d44fba"
+      "recordDigest": "cf7d53a83e1322a62d4540cd5884e733afc42ff7a46112bb0132d91dd7d0e2ae"
     },
     "/docs/api/sqlite-storage": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "053690ab3df5fad7ba1b4bcabe76e467e535958f96d864a86079ab341b1f6815",
-      "recordDigest": "372db699ebddd148e8eadc270043d86bc72cbc12bf022fcd7566092eba13dde1"
+      "recordDigest": "b94c47ac8e970c207b0fd08f348fcd7cc97612f595e0ba113fc8f65d5c97c9f9"
     },
     "/docs/api/testing": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "8cfcfbffdb02f434697ef8cda207de0e9eb56bc7891764a424996732c31c2fe5",
-      "recordDigest": "7c9a4c39c7bf19cde0fcc7b690a74b233465fde61ed72aafbe8ef85e93ac4c40"
+      "recordDigest": "04b1046d8256f61f62c6104015d31923041408c3c5f24208cb6bcd638d781d6c"
     },
     "/docs/api/workspace": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "e8b74b823820621fea9697a14dac0de20cb500ab06d56ec043fec5b23da7e089",
-      "recordDigest": "fae7e0d74c640633ee9ef27e832f559a1f7a50703fc39ec5df89363c4b36dc3f"
+      "recordDigest": "dcc5b4df9366fa950a3737eb5c16fb7b407af3ade8a4ea387319e1b4e1487856"
     },
     "/docs/blueprints": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "0c90ae75dd3a19250bd698edd9b30f05f9cd91652dc5385dbf08ab27939f5cad",
-      "recordDigest": "61f37812c7f3cff4e4c79a3b1aa2fb0c76fb17d4c2f92c3166d6129d831d0314"
+      "recordDigest": "4d2d4009db51094b0bd9844c7f68e7385eaa68e2cf794af058211017b9c65f4b"
     },
     "/docs/cli": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "c332a6eb13988ce35395ca7fdd54ab2d0eca299746a2b0d78713c47fb4322af2",
-      "recordDigest": "9f778a2e897ad17a53699ef44a2f9e5bfdcf06cf6fa11805721a3f244ef13719"
+      "recordDigest": "75fb48b1788ffe7728df42b02d899ab648c82ceeb3ff166cf6c00b015a90f91b"
     },
     "/docs/configuration": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "5847832ae7594f1042653745142e9f2dde4233e98e498de527b935c6811a85f2",
-      "recordDigest": "ad2c5e4046af4b6aa3df75efdcca43a25ffc652ed159322e190d7c54b1c25bfd"
+      "recordDigest": "17190fb5978dcfd42f3f8e3e3269d14cd91d2c8dd921c966e1f8b7b1105763e4"
     },
     "/docs/context-management": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "e57666e1359ec8ad21bbdd189edf3c50ac70f2afeb262ab96e3e8579d34dd4a0",
-      "recordDigest": "e380b5e7bf4305e285a4c5f062d4b45e4c56a1a94b9ea1d9ecaae383033bca00"
+      "recordDigest": "5c31b572dd81a1afe1e390123d93d930f47714cc761bec38c2110dd59687d090"
     },
     "/docs/deployment": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "0b9fb98229227bf1399a4730cacc47ecf57775454ed5e466de525de58859c7b8",
-      "recordDigest": "5ed69e735f30aa7d0e28958b00501423647f074e20cf8b97dabbb4d199767cfa"
+      "recordDigest": "8495a6f2a7fbd8e6b7bc73f02fb3e64cfe181925a197a0d30d87da41a5463ed4"
     },
     "/docs/deployment/edge": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "29377070a0141b2fece81951eca5018a46e4046e21185bb4704b613300567a7f",
-      "recordDigest": "6dfb19cd19f55fb9d88307c7616fae12d14adf58f4c222f1bc038a77ea9e45c2"
+      "recordDigest": "7e7df0b5ab45faac1379bda944fdbb4e379a29cdddbfb041c2fc4ca1ba4dcbbb"
     },
     "/docs/deployment/kubernetes": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "47516e78a1c75a44f5b760126dee055cfe185a75f37a9a6be57b79692d565007",
-      "recordDigest": "d914349a3d2f0b2568fac437259d2033af2ddc3feb57a60016fb866fd2598602"
+      "recordDigest": "6d0e2df49c34188b68ef99bd85bd195ffbf836d57c5e3bb857675cf45c5f1511"
     },
     "/docs/deployment/langsmith": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "46ee1fad35bf0f7428ae34a25c040bca6dcf99b1de517c8cba542ace5d68f03a",
-      "recordDigest": "07b59f6ec221e89789a0cfd2c63fb8027a344f886626d6c7eb94a62e1c38a7ab"
+      "recordDigest": "2c8229916f5fbd2a8e290a7f39acc382ed011d5ffdc2d0fb6ed7ca03df4f1e73"
     },
     "/docs/deployment/node": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "7bf7a7f974262ee62fa74419bd65c5768b4e07d6c63f27052d0b6ed681fcc6d7",
-      "recordDigest": "afc78d25b919ccbb94b9430603ccc9cdb63103638cf1d6568ce8186dedb4b81f"
+      "recordDigest": "e532db8bef8a6b4902a6314a67201497950e438bd38c3324091902c0e510d74a"
     },
     "/docs/deployment/vercel": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "00a4bb2fe2822103730da5142aa3bc4332943ca5a7bdfb29e2112aaf69661c29",
-      "recordDigest": "10aa68422ba7aaf6d6827d053bf9bf9fcae579800c5c7d08b38d6ed6674a27c0"
+      "recordDigest": "d370ab942c6ef57da03c45bfbb730a7877f073c4224fa9384887b9b4e6a580c9"
     },
     "/docs/dev-server": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "8fc45af91af1e1b79e8d48f8cc214247fe054af581d80985983000f80a69da93",
-      "recordDigest": "10ae1361564892fa75272ad47056eb37873156f226e50986b35e111655d07905"
+      "recordDigest": "2b85eefef953af79a502c087228e14c6e9073333a9e72f3199c92041298fa815"
     },
     "/docs/dev-server/agent-protocol": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "598316f8dfce977bf57118fe9cab11bce952023e92c0175fac13575c03455e46",
-      "recordDigest": "c3341422e669289d67999ff7426f289cb11e1dc63107ed5c6e529c203115cd64"
+      "recordDigest": "cbb679721d81b3a2f1ad6d1d2ae0b1c5089cb807038ca5a1512298c3476fcaa6"
     },
     "/docs/embedding": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "45a9a118e7583aa9724248ae36811b5ea55c8465197b926d0090a68b16e2bd70",
-      "recordDigest": "0c63c527dfdb2948f6bf6dd23f7fc40493ef019ac35bca83497574663137f739"
+      "recordDigest": "ff46cefd4b5b75a2941a0075cce394b7621e1b5eb52347ed60bc48f5389a83dc"
     },
     "/docs/errors": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "1c7506b34f0da68ddb1601120e7d66499290ddcb35dd70fdac93775394a28de1",
-      "recordDigest": "1d0afa4dadc3adbba85f582657f4411ea0f91358ea7968d40dc2a224f849573a"
+      "recordDigest": "875785500b192bf0b1c2aae580db7f79b719dd9b4051c093317f5a42c14b8a5a"
     },
     "/docs/evals": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "788114d3840d72dca81f226a31e741b71af0f8c2190cc14046effe75ca24247f",
-      "recordDigest": "ec80c09f9db1b53db3fc6c669c64d4c7e4f3f1473c933eb21c38d2c92fa91189"
+      "recordDigest": "5ba2448aa486124f685e1554a1cb4da5bfbb7bb8d260523c00be002302ff26f2"
     },
     "/docs/faq": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "ba86eb752a854f73f7e8b4a552cab6784f4c6155bdea439bb73d5024dc316751",
-      "recordDigest": "d421070c4a7a3c7c129b75c270add2964716634b2f0f60ff4bfe1c79e4fcfbdf"
+      "recordDigest": "40a94ee5af8553537fa1425175273fe6464bf7e798bc8e3b8ee63ee8daa3b4cf"
     },
     "/docs/getting-started": {
-      "lastModified": "2026-09-23T04:01:21.729Z",
+      "lastModified": "2026-09-23T03:34:06.942Z",
       "sourceDigest": "6f75eea680274cdcebc60eae6463a02325513f478dcbd672894c3730e9644758",
-      "recordDigest": "64aaf2fd6bc1f55634fe3b221c9d16eba66a398f7d28c416d651f7d531a4e004"
+      "recordDigest": "3948eb7c2d277ecd45b4bcfe1c19e806eeea440bd7a7a56423adb677050fc233"
     },
     "/docs/inspector": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "41467a405d4f1eb861d2224d8d838b357272aef38ff4f10b151d48693e9b68ff",
-      "recordDigest": "967d5c4be24f35b2afeb25685ca8cecf341be06e5161cb5487c24c32748d65f3"
+      "recordDigest": "7d30b3bf2480e537a45ed4e07fe2ced8329babc1408611b8bf9c64c53e9f43a6"
     },
     "/docs/memory": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "5d58e9e73555d8d8e01d9fdbd846ef30e14c2953d0d69f7eab180f4994788908",
-      "recordDigest": "d1017e1e237d0329b488dd76d1825a25c671b223ddc09f4bab3b95b3abac39c7"
+      "recordDigest": "e7aa404688b8861fa359f2d4383aae174f37cf98f5a6eb129bd3d05cd3529ae1"
     },
     "/docs/memory/browse": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "a59747f363e06e369df206f6fdb1e63519051d1af7d7dd0ecb81e59d21700e3b",
-      "recordDigest": "ac50f462df2953a2fd3f3cb4aee0d351ac8a927e6e231f5b52aec487af5f4028"
+      "recordDigest": "baeb7271451f9e9fddf176eda542e9040706829145bc338c851ea22cdc9d93f5"
     },
     "/docs/memory/distillation": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "84d8f46aee9af9773a6e0f465cb7ed79316d46a05904534dbae84440da7ff83a",
-      "recordDigest": "7c8084c37aa000d312426f11befd6072c033528fbfaf2ece77cacad0786de715"
+      "recordDigest": "454277eb9c0f239f46b2ad1a40cd57da358de5837e04c741bce0bc4bead6d075"
     },
     "/docs/memory/episodes": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "e06353a2810b35150bd23cabfe452ae3710e72ebda86cd103f8c7b6a4aeb3c4f",
-      "recordDigest": "53fe78482616aa9ae3da13449b4afad7711eb71d1593aad6b20d33ecedfbace8"
+      "recordDigest": "7b6c85b265238a0326b70e4f327635dc4191aa695e6f4f9dbb2639bb74cf6716"
     },
     "/docs/memory/long-term": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "d3dd6e8f060486e4b2869df6b26e02615ca1021058c9597c28764f80e0873385",
-      "recordDigest": "2f62f5701991b6903a831679e98575952fd0eb7606ca620a9f7fc2a5b6b5fa50"
+      "recordDigest": "6dd48ac0b1110baa06d04c7e468537ada1473c575b1d2c8e80eafa5d8da09867"
     },
     "/docs/memory/retrieval": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "b7635b93a3a216c2a01a9e4b9de3ed95298e9b02394d2b4a83cc8b3225321018",
-      "recordDigest": "4085474bc0cdc03686f05f730760bbea54514345f04784bf568a57dea2f7bb52"
+      "recordDigest": "7347ee58208bce3bb0881e82e1f2fd7611a7759d4e30134c4d6fc667184c5336"
     },
     "/docs/mental-model": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "4517d365f8f92e27755eb5808e8628938050e20962f5a75ef5150665ba8527b1",
-      "recordDigest": "fbc011ac972f1fab09063229353922594db8fdb45f357c75c03c6528dba6b7d6"
+      "recordDigest": "6991a249161f99398b5e13d5494486517bc137a59e424b629f2423c53d29e0cb"
     },
     "/docs/middleware": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "1c45b7743b8b3d6066c5fac7dd98392c45edf7284447bcf07366e389548e1885",
-      "recordDigest": "fef150d8c822ab4b32fbfe851935219e3fab70637e63460b4d0321a03ce9dc78"
+      "recordDigest": "a049e5d06680fb52f1ff9fa735d427347d3cabb7922b864ff4f9f5d5f5354f0b"
     },
     "/docs/migrating-from-langgraph": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "31691422c8dfe4f7e950a8c6c48e27102646c99c9d4fe2ca1c1bc56d69acc798",
-      "recordDigest": "91b005b25b6caa20a0d9c9db42d72a20d949aacf0f7806520aff9a7579d744aa"
+      "recordDigest": "b4a78eb5932765530f0c7c58368e78da227613385dda6e88c962df9a2e377b7a"
     },
     "/docs/observability": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "afcc3ac9d6c39dfae3ae83c9665e77d4ba775e13b144f80d41a77a528dc60815",
-      "recordDigest": "25663594ef342ac97956df1577a2e0d9a93b79c8fc3f9ad6b7d6e73eb29ece48"
+      "recordDigest": "419b5b552645b45ba28542135c195253669b0714a6a5bb0ab26e51a677834848"
     },
     "/docs/permissions": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "085700326bdfb02436b14c580f41c8d60af520b410770ffca144f92533942dd1",
-      "recordDigest": "8033d68563e61c8befeda56901ffea9ed2d87830a5a598a25b29b44cf4450107"
+      "recordDigest": "de783455be589802b5b3c47ba343af9f5730f191cada48176ee67e3b3523d31e"
     },
     "/docs/persistence": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "bd383ae2e28fd6ab743f27f448bbe5ac831b895f82e81fe4f95d711a5a52a9d1",
-      "recordDigest": "7af09541f50b2ea5e162cd3c7fe04a7e1523e7821833c7a96c85323a338d6b57"
+      "recordDigest": "5e0f81e21533ab08726c5dc51989288ead3bdcd54aa0ae2dc3efedb46cdb7b4f"
     },
     "/docs/planning": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "d52e492b64afbf2ea5621b09f281e2cf84aca0a63260f78351b3118fcda0f1be",
-      "recordDigest": "036061869fdeabeb545e36e6b7b2a060e1e5be22c505039007ad892bece59a26"
+      "recordDigest": "825ab1905061abd8606ef258fc24cb3860cde9c5c3bc60289d19786e6b34d59a"
     },
     "/docs/production-topology": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "5f45f1524334b146395b32e8f7b617b21035f8754a1ad2fc320f5a9bcca636e6",
-      "recordDigest": "8d3731f26c469d308ecdbb7cb12bacf3886bcf623a26a1bccdf6703296df8604"
+      "recordDigest": "f585cc848470742d500db9d3dc0ccd67d150194b591fbb307ec18a9b5c1445ae"
     },
     "/docs/reasoning-effort": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "325e6c0e6286eaf78969d62e5bfc79fdfcb0c53419d0e058941be70cdf24599d",
-      "recordDigest": "b9a2af299257dcd969d163a587310dd1b10348a0fe1095a7fbe18e08ef977ca4"
+      "recordDigest": "5177e162a93d2fa7fe7dd9165043407dbe7a0e91c8b730bc933eb91b79b46697"
     },
     "/docs/recipes": {
-      "lastModified": "2026-09-23T04:01:21.729Z",
+      "lastModified": "2026-09-23T03:34:06.942Z",
       "sourceDigest": "004ab2ba2dfba3bf7dffb1bf77853f1de6f26018692707ffe631e9e82957edc1",
-      "recordDigest": "e09f542d52285c9fe2b294bc8a2cf5d319302caa3f69befd5c3cb669dba93518"
+      "recordDigest": "77e965e7f1e25c14504f698bbcaf04e85f5d6e9d96cc31cbbe0cdfd59a971fcf"
     },
     "/docs/recipes/add-a-tool": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "40c3d6a8f9b4929f9ae1ed2e480e1ff99a86f14a02e5cfd44c2ffbaf94daf21f",
-      "recordDigest": "76b27cb0854390ea0aaad4b49944a27a5059faee50651a5756f483831c1eb882"
+      "recordDigest": "41cc52519d914841bdd098461e475002db7f150d86a6aacf981312bc6b97e6e0"
     },
     "/docs/recipes/auth-middleware": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "b215c871e8dd7ef6146c2011fe01f37008ac6c8107ac2813b2d9e098c1b3d23b",
-      "recordDigest": "b92dbb7482e74f95f962dc41f22cd9be3c75cb6dfb900718a78d4e167d1903c9"
+      "recordDigest": "5346285dbddbc31652a83e7f874e0bc3cbc90ebe940620fa7d1fde0078cca602"
     },
     "/docs/recipes/dispatch-from-route": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "4577c39e3c5cd9f739c7c82013813066d03bfe80d18f932bbe53e65748795eed",
-      "recordDigest": "06569d36deda682d23aee9a6810e64532ae26eb97b68dc1bdcc8c8a7c9ac5b36"
+      "recordDigest": "bbf666d65d70af24936447a906c92172f7baf579264466844c51f127f7b6e1d0"
     },
     "/docs/recipes/research-assistant": {
-      "lastModified": "2026-09-23T04:01:21.729Z",
+      "lastModified": "2026-09-23T03:34:06.942Z",
       "sourceDigest": "b4647ecdfd45b92e2fd65bd39f8ae30cbdb70480376c5dd42b810d0caf72adf9",
-      "recordDigest": "57d3e59600632323727ecb31bc690cfe965daf3fd1d294c593eaa29a0a32e2e1"
+      "recordDigest": "7ee5a0a062402bdaff6bf17aac411510f334d8e9d399e8848e39936f3b1674cb"
     },
     "/docs/recipes/research-web-ui": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "25cca3f0e964dedbf5a0ac6bec384708251f922efadead057ed560de70a62798",
-      "recordDigest": "fd6193c7897c967363978a37ee90be7f71ec314b4b52ebbff45d51fc593baaf7"
+      "recordDigest": "a6d2fdc2486ba831d49f7d77e56086a0f61f9b4bebd12546b33343459553f9c6"
     },
     "/docs/recipes/retry-flaky-tools": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "7f91f52983bd79d07df57418d3afde9a6fb5d9e664753f77ce618e2a5a1161c6",
-      "recordDigest": "1d960e668492bd5707283478f58c0634548248a99015c040e680d6b8039a9572"
+      "recordDigest": "02d8b37c309b538da514312ca29d2a9186c9c323efc97e516f214c7c55f6924b"
     },
     "/docs/recipes/stream-output": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "b3d0e385406e6ae2afc11a78b442ca4fd0da44be1057d3512e6087fa0ac989c5",
-      "recordDigest": "f0c5518feb99d1ed88a2aeb47907028508cea5eb525f9c08f12684fb8fb1e866"
+      "recordDigest": "aa3b873216c78386f49ba28b4b70ee34aa2f3cbfc2a49c574e2ef2a145ff5ef5"
     },
     "/docs/recipes/typed-state": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "5605eedec1b74b9d584a0c5f58b3f1214b3e5379de6529d170e8d376fde93fd2",
-      "recordDigest": "ddae889670256d89e0cc21a85564237e296aa09364fa37edff16875e8db1a2c0"
+      "recordDigest": "c35b2d27006714f444c3defd2005a93315f3a05ff9dffe7532dae78dbf6772cd"
     },
     "/docs/retry": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "e5ce013e27a1d6854c6476741b2fdd0f8a5e40fa8ba8fb2d12a63a34aefa0bf4",
-      "recordDigest": "314e19c88bc52cf82dfc4c9318d900d7f21f50b8abc9dfd3cb06b45b6e57b1ee"
+      "recordDigest": "846e96a2d7834bc030ff6e6ffe23483d427868c2f360bfee1930dcf431bed1f0"
     },
     "/docs/routes": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "5385ddbb0ab282be944aaccc30d0ccf5e7ad98e791e7d2c93616a52d37302552",
-      "recordDigest": "c260da12bb7a281198a302cf9547f51f22424af3a577505f390e98d42dae0084"
+      "recordDigest": "7c5e677923343cc3eac98e509d704fcd32077ae7573918249c178a64fdade01b"
     },
     "/docs/sandbox": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "baf4d3e6c4f34a3d465322f1fe1a861aa6f20cc96c32e4ceeb0188832e881d18",
-      "recordDigest": "47183f1026d01ddc716dba28d52b68e84dc7b6ba24ccba3290c3199173fc4369"
+      "recordDigest": "a535706b1d0dd4db8a0432390095392876dbc8c88f51860611d5101b10a5b549"
     },
     "/docs/sandbox/kubernetes": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "75270722890a401def1cbb8c16e5b92206f40e8059ee9ec30f783573ce37453a",
-      "recordDigest": "415554e5abf17e34cc3e87d854c0ef8e6f7853ea4d4215a132daeef5538dc4bf"
+      "recordDigest": "135138301ec464e1ef5ff31b2dd676bb7e168d695d560d2817d51849b6f0a27b"
     },
     "/docs/security-architecture": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "df20e66433cdce30f7c6b69e821ffe241c7f73febd7977c5a9ce3e632db82937",
-      "recordDigest": "d8d050b85eb70326ae851ee47af107ebe4ab9538b24b0540db14308c52ed6f75"
+      "recordDigest": "44ab8a40b15ccf9de56c9a84010ed23059c83daa0700f76c70cfa14d38997076"
     },
     "/docs/skills": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "669f2d0504a8ccdf7d1a3cb75ca076065c2048e44d9561fee9447d890597c898",
-      "recordDigest": "5f1ffd73b6a78113e14c67c7d0aed08bda4ae3b0ea311e0d4c57945c071c9529"
+      "recordDigest": "586311cc6f3c8b3e521c35c4419d97a3ad43224712d0a058c7e2f53d8e776512"
     },
     "/docs/state": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "df6e3030d98bf9e0f127188b7e8e146895d1a5b040923ad1836fd4343c89bd93",
-      "recordDigest": "260dbb8b7d061383e5b5fafd184cb007cb73ec50858e304c34798cf3680c387d"
+      "recordDigest": "e4a6f0e4f39a84b7b08979e76b6c9f5b5fc4d01bb6638536406a6bd1de6eb091"
     },
     "/docs/subagents": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "43bf3f08e44778891c460d5098fae51c8cd5f70aec5a581ca740a5529f472258",
-      "recordDigest": "39c9b40c2ff359787dd95aec69c47ac14d4861613662138501e19a7373a597da"
+      "recordDigest": "d7d89a82c2a3c900822293871dcca8011a08600e926a071fb95ecbc4d3bcbdd1"
     },
     "/docs/testing": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "8e7e611453e8ae285f040a6c36bb041e3d77f40daeeedbc723f9083f8dd27da0",
-      "recordDigest": "ddc5368d4361673cebac2448886fdb5ba399dca6777bf1b9d09106d9d05bc1ca"
+      "recordDigest": "8e090d7fc614df2f9ed7097fbae3f8bb3238e8c12621b04b2e4d9c4077139cb8"
     },
     "/docs/testing-agents": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "bfda319d9a6a0c554fbe16a7d9c891b7997f9435c623afdb25e0fe5e8899cf2b",
-      "recordDigest": "b7de2fb4fc043145dde6cd7a76fd621cc27b4599933a00bd8f05e8e8458d4a36"
+      "recordDigest": "06b7ba87a8c79337fb7fce9549eca9a6735e5210a38197507f026db876f8dc4c"
     },
     "/docs/testing-agents/fixtures": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "8ee13fb5ef205e54c31b671487d0b72528b0b018ac7d95fc8795d374c4de51cd",
-      "recordDigest": "fcb2698597c7ea4062c6d1ed9d822626011824c9907259a9078dc6d328548d38"
+      "recordDigest": "d7239e610101e96e64498f76055619aad25fbfd6139953830dd684ef41525712"
     },
     "/docs/testing-overview": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "5c077b2db28ebdc9b39785d3a2f896c1084e028c526c228be793ad1d5cac239b",
-      "recordDigest": "8bd46e9b999df5dfd03fcaab5f1737346f3929fdfda2d3a13a7c1e6e7b2913bf"
+      "recordDigest": "65c1c5c11972e64534968f0244502ef263ad8c95796a6c6bbead1ea827226dd3"
     },
     "/docs/thread-access": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "689f968295012b28d7c23ae520548a011b74cd50d025ed1797341cd462b7db0b",
-      "recordDigest": "918653e72850f6f8b6326ab5e21899403d59c0e673c669c94baef97757b954b9"
+      "recordDigest": "ab2033fffff7f0e932aed5cda420265d7951b8a7072fcf48f80a0bcca9b1d28c"
     },
     "/docs/tools": {
-      "lastModified": "2026-09-23T04:01:21.729Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "5cfc65f07e02ef7dc9d39e8b1af5f75d3f27c683bace004f89bc6d50d612d14e",
-      "recordDigest": "7be816ff7704901d8dca74a4d33ba747bae3febddc8edfb4f0ed5f6dba7c4f6d"
+      "recordDigest": "19dcf321357113d94807bec920176a9d1da111acb8b47b3c3e58d5af20ae2adc"
     },
     "/docs/troubleshooting": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "7bf84ed7d38a06b020ffa99f7f5032797be8cfac4770204f716cadad9154a5eb",
-      "recordDigest": "22205d4c8a2568e6410176cbdde67ac6768ee3ce37e18472658fa282b1524857"
+      "recordDigest": "5ae2167b03a9f58b83653be85b9f80a1953885edca3ae13dca4064bd86bb400c"
     },
     "/docs/upgrading": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "7c9ff7f625df57622565881b1783c8c8b57766f9263a2df4dfdfd13ebac194fa",
-      "recordDigest": "cc352045ad8e185477037d5be480ac12415a3b3e68933ecd3f221ff1159c79b1"
+      "recordDigest": "8fb146b6b83524eabd328a60c3d978fa3046a2f3bf5606e991876e60c013b14c"
     },
     "/docs/workspace": {
-      "lastModified": "2026-09-23T03:59:28.434Z",
+      "lastModified": "2026-09-23T06:32:01.789Z",
       "sourceDigest": "6b63068371492725fd63c705a5d0cffc368ed359a87cb9fca997e72319c96623",
-      "recordDigest": "e38ca0a24e4428416ffdf135fd84864176501fc8983d0dd6e431c5d88f3ba092"
+      "recordDigest": "d16e8a01291c603abae42e32f1ac459c912533edcece78329653c645f4510d5b"
     }
   }
 }

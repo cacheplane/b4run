@@ -63,7 +63,7 @@ const CANONICAL_ROOT_HERO = `<p align="center">
   </picture>
 </p>
 
-<p align="center"><strong>The TypeScript framework for agents.</strong></p>
+<p align="center"><strong>An agent framework, the way I'd build it.</strong></p>
 
 # Ridiculous speed. Readable code.
 
