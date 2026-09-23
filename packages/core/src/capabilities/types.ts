@@ -353,6 +353,8 @@ export interface B4ToolDefinition {
    * End the run on this tool's result instead of handing control back to the
    * model for another turn. For an agent whose answer is what the tool
    * produced, this skips a model turn whose only job would be to say so.
+   * An error result ends the run too, so the model cannot retry a failed
+   * call: reserve this for tools that cannot usefully fail.
    */
   readonly returnDirect?: boolean
 }
