@@ -21,7 +21,7 @@ export function ReadingLayout({
       <aside
         aria-label={leftLabel}
         data-docs-nav-scroller
-        className="hidden md:block sticky self-start overflow-y-auto px-6 pt-12 pb-8 border-r border-divider top-[var(--header-h)] h-[calc(100vh-var(--header-h))]"
+        className="hidden md:block sticky self-start overflow-y-auto px-6 pt-12 pb-8 border-r border-rule top-[var(--header-h)] h-[calc(100vh-var(--header-h))]"
       >
         {left}
       </aside>
@@ -34,7 +34,7 @@ export function ReadingLayout({
       </main>
       <aside
         aria-label={rightLabel}
-        className="hidden lg:block sticky self-start overflow-y-auto px-6 pt-12 pb-8 border-l border-divider top-[var(--header-h)] h-[calc(100vh-var(--header-h))]"
+        className="hidden lg:block sticky self-start overflow-y-auto px-6 pt-12 pb-8 border-l border-rule top-[var(--header-h)] h-[calc(100vh-var(--header-h))]"
       >
         {right}
       </aside>

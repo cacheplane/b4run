@@ -1,5 +1,4 @@
 import Link from "next/link"
-import styles from "./blog.module.css"
 
 interface TagChipsProps {
   readonly tags: readonly string[]
@@ -19,8 +18,8 @@ export function TagChips({ tags, activeTag }: TagChipsProps) {
         <Link
           key={item.href}
           href={item.href}
+          data-ui="chip"
           aria-current={item.active ? "page" : undefined}
-          className={`${styles.chip} ${item.active ? styles.active : ""}`}
         >
           {item.label}
         </Link>

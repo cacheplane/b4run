@@ -1,33 +1,34 @@
 "use client"
 
-import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect, useId, useRef, useState } from "react"
-import { CopyCommand } from "./CopyCommand"
 import { MobileDocsNav } from "./docs/MobileDocsNav"
 import headerStyles from "./homepage/header.module.css"
+import { CopyCommand } from "./ui/CopyCommand"
+import { Eyebrow } from "./ui/Eyebrow"
+import { Icon } from "./ui/Icon"
+import { SiteLink } from "./ui/SiteLink"
 
-interface SiteLink {
+interface MenuLink {
   readonly label: string
   readonly href: string
-  readonly external?: boolean
   readonly download?: boolean
 }
 
-const SITE_LINKS: readonly SiteLink[] = [
+const SITE_LINKS: readonly MenuLink[] = [
   { label: "Docs", href: "/docs/getting-started" },
   { label: "Blog", href: "/blog" },
   { label: "Download brand kit", href: "/brand/b4-run-brand-assets.zip", download: true },
-  { label: "GitHub", href: "https://github.com/cacheplane/b4run", external: true },
+  { label: "GitHub", href: "https://github.com/cacheplane/b4run" },
 ]
 
 /**
  * Full-screen mobile menu. Visible only below the md breakpoint.
  *
  * Trigger: hamburger button in the header.
- * Overlay: cream-palette full-viewport sheet listing site links and (on
- *          a docs page) the Documentation nav. Primary action is the
- *          install command — same as the desktop nav.
+ * Overlay: paper full-viewport sheet listing site links and (on a docs page)
+ *          the Documentation nav. Primary action is the install command —
+ *          same as the desktop nav.
  * Close: × button, Esc, or tapping any link.
  */
 export function MobileMenu() {
@@ -94,17 +95,10 @@ export function MobileMenu() {
         aria-label="Open menu"
         aria-expanded={isOpen}
         aria-controls={menuId}
-        className="md:hidden inline-flex items-center justify-center w-11 h-11 rounded-md text-ink-muted hover:text-ink hover:bg-surface transition-colors"
+        data-ui="icon-button"
+        className="md:hidden"
       >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden role="img">
-          <title>Menu</title>
-          <path
-            d="M4 7h16M4 12h16M4 17h16"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinecap="round"
-          />
-        </svg>
+        <Icon name="menu" size="md" />
       </button>
 
       <dialog
@@ -121,56 +115,34 @@ export function MobileMenu() {
         <div className="h-full overflow-y-auto">
           {/* Header strip: same bar as the site header, so × replaces ☰ in place */}
           <div
-            className={`${headerStyles.bar} flex items-center justify-between border-b border-divider`}
+            className={`${headerStyles.bar} flex items-center justify-between border-b border-rule`}
           >
-            <span className="text-xs uppercase tracking-widest text-ink-dim font-mono">Menu</span>
+            <Eyebrow>Menu</Eyebrow>
             <button
               ref={closeRef}
               type="button"
               onClick={() => setIsOpen(false)}
               aria-label="Close menu"
-              className="inline-flex items-center justify-center w-11 h-11 rounded-md text-ink-muted hover:text-ink hover:bg-surface transition-colors"
+              data-ui="icon-button"
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden role="img">
-                <title>Close</title>
-                <path
-                  d="M6 6l12 12M6 18L18 6"
-                  stroke="currentColor"
-                  strokeWidth="1.75"
-                  strokeLinecap="round"
-                />
-              </svg>
+              <Icon name="close" size="md" />
             </button>
           </div>
 
           {/* Site section */}
           <div className={`${headerStyles.menuSection} px-6 py-6`}>
-            <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-dim mb-3">
-              Site
-            </p>
+            <Eyebrow className="mb-3">Site</Eyebrow>
             <ul className="flex flex-col gap-0.5">
               {SITE_LINKS.map((link) => (
                 <li key={link.label}>
-                  {link.external || link.download ? (
-                    <a
-                      href={link.href}
-                      target={link.external ? "_blank" : undefined}
-                      rel={link.external ? "noopener noreferrer" : undefined}
-                      download={link.download}
-                      onClick={() => setIsOpen(false)}
-                      className="block text-base px-3 py-2.5 rounded-md text-ink-muted hover:text-ink hover:bg-surface transition-colors"
-                    >
-                      {link.label} {link.external && <span aria-hidden>↗</span>}
-                    </a>
-                  ) : (
-                    <Link
-                      href={link.href}
-                      onClick={() => setIsOpen(false)}
-                      className="block text-base px-3 py-2.5 rounded-md text-ink-muted hover:text-ink hover:bg-surface transition-colors"
-                    >
-                      {link.label}
-                    </Link>
-                  )}
+                  <SiteLink
+                    href={link.href}
+                    {...(link.download ? { download: true } : {})}
+                    onClick={() => setIsOpen(false)}
+                    className="block text-base px-3 py-2.5 text-ink-muted hover:text-ink hover:bg-surface transition-colors"
+                  >
+                    {link.label}
+                  </SiteLink>
                 </li>
               ))}
             </ul>
@@ -181,10 +153,8 @@ export function MobileMenu() {
 
           {/* Documentation section — only on docs pages */}
           {isDocsPage && (
-            <div className={`${headerStyles.menuSection} px-6 pb-10 border-t border-divider pt-6`}>
-              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-dim mb-3">
-                Documentation
-              </p>
+            <div className={`${headerStyles.menuSection} px-6 pb-10 border-t border-rule pt-6`}>
+              <Eyebrow className="mb-3">Documentation</Eyebrow>
               <MobileDocsNav pathname={pathname} onNavigate={() => setIsOpen(false)} />
             </div>
           )}

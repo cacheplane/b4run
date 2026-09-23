@@ -1,4 +1,5 @@
-import { CopyCommand } from "../CopyCommand"
+import { CopyCommand } from "../ui/CopyCommand"
+import { Eyebrow } from "../ui/Eyebrow"
 import { FirstAgent } from "./FirstAgent"
 import { prepareFirstAgent } from "./first-agent-source"
 import { prepareHomepage } from "./highlight"
@@ -19,7 +20,7 @@ export async function DeveloperHome() {
     <main id="content" tabIndex={-1} className={styles.home}>
       <div className={styles.container}>
         <section className={styles.hero} aria-labelledby="home-title">
-          <p className={styles.eyebrow}>An agent framework, the way I'd build it.</p>
+          <Eyebrow className={styles.eyebrow}>An agent framework, the way I'd build it.</Eyebrow>
           <h1 id="home-title">
             Ridiculous speed.
             <br />
@@ -41,8 +42,8 @@ export async function DeveloperHome() {
         <FirstAgent code={firstAgent} />
         <div className={styles.recording}>
           <div className={styles.recordingHeader}>
-            <p className={styles.eyebrow}>See it in action</p>
-            <p className={styles.eyebrow}>6m 14s · edited highlights</p>
+            <Eyebrow className={styles.eyebrow}>See it in action</Eyebrow>
+            <Eyebrow className={styles.eyebrow}>6m 14s · edited highlights</Eyebrow>
           </div>
           <Walkthrough {...prepared.walkthrough} />
           <div className={styles.lower}>
@@ -52,17 +53,19 @@ export async function DeveloperHome() {
               target="_blank"
               rel="noopener noreferrer"
             >
-              Explore the example ↗
+              Explore the example
             </a>
           </div>
         </div>
         <Narrative code={narrative} />
         <section className={styles.takeaway} aria-labelledby="run-title">
           <div>
-            <p className={styles.eyebrow}>Get started</p>
+            <Eyebrow tone="panel" className={styles.eyebrow}>
+              Get started
+            </Eyebrow>
             <h2 id="run-title">Build your own agent.</h2>
             <p>Scaffold a new B4 app with one command:</p>
-            <CopyCommand command={createCommand} className={styles.command ?? ""} />
+            <CopyCommand command={createCommand} variant="dark" className={styles.command ?? ""} />
             <br />
             <a href="/docs/getting-started" className={styles.reportLink}>
               Getting Started →
@@ -84,7 +87,7 @@ export async function DeveloperHome() {
               target="_blank"
               rel="noopener noreferrer"
             >
-              Read the code walkthrough ↗
+              Read the code walkthrough
             </a>
           </div>
         </section>

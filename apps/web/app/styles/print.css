@@ -1,0 +1,25 @@
+/* Print: chrome and controls go, code prints as a bordered block, off-site
+   links show their URL. Imported last and written with :root :is(...) so the
+   rules outrank module classes and the @layer components rule files with no importance flag. */
+@media print {
+  :root
+    :is(
+      header,
+      footer,
+      aside:not([data-callout-type]),
+      [data-page-actions],
+      [data-mobile-docs-toc],
+      button
+    ) {
+    display: none;
+  }
+  :root :is([data-code-frame], pre) {
+    background: transparent;
+    color: black;
+    border: 1px solid black;
+  }
+  :root a[href^="http"]:not([data-no-arrow])::after {
+    content: " (" attr(href) ")";
+    font-size: 0.85em;
+  }
+}

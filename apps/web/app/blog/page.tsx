@@ -25,11 +25,9 @@ export default function BlogIndexPage() {
       <main id="content" tabIndex={-1}>
         <div className="max-w-[960px] mx-auto px-6 md:px-8 py-16">
           <div className="mb-2">
-            <Eyebrow tone="accent">Blog</Eyebrow>
+            <Eyebrow tone="olive">Blog</Eyebrow>
           </div>
-          <h1 className="text-4xl md:text-5xl font-semibold tracking-tight mb-3 text-ink">
-            Notes on B4.run
-          </h1>
+          <h1 className="text-h1 text-ink mb-3">Notes on B4.run</h1>
           <p className="text-lg text-ink-muted mb-8 max-w-[60ch]">
             Writing on the agent stack, type-safety, and the tools we're building.
           </p>

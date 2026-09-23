@@ -15,45 +15,7 @@ import {
   useState,
 } from "react"
 import { CopyStatus, useCopyFeedback } from "../copy-feedback"
-
-function CopyIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      role="img"
-    >
-      <title>Copy</title>
-      <rect x="5" y="5" width="9" height="9" rx="1.5" />
-      <path d="M11 5V3.5A1.5 1.5 0 009.5 2h-6A1.5 1.5 0 002 3.5v6A1.5 1.5 0 003.5 11H5" />
-    </svg>
-  )
-}
-
-function CheckIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      role="img"
-    >
-      <title>Copied</title>
-      <path d="M3 8.5l3.5 3.5L13 5" />
-    </svg>
-  )
-}
+import { Icon } from "../ui/Icon"
 
 interface PreProps extends HTMLAttributes<HTMLPreElement> {
   readonly children?: ReactNode
@@ -107,11 +69,7 @@ export function Pre({ children, className, ...rest }: PreProps) {
   if (headless) {
     return (
       <ScrollFade scrollerRef={ref}>
-        <pre
-          ref={ref}
-          className={`overflow-x-auto pl-3 pr-4 py-3 text-[13px] leading-[1.55] font-mono ${className ?? ""}`}
-          {...rest}
-        >
+        <pre ref={ref} className={`overflow-x-auto pl-3 pr-4 py-3 ${className ?? ""}`} {...rest}>
           {children}
         </pre>
       </ScrollFade>
@@ -121,20 +79,13 @@ export function Pre({ children, className, ...rest }: PreProps) {
   const label = tabLabel(language, title)
 
   return (
-    <div
-      data-code-frame
-      className="relative my-6 rounded-lg border border-divider bg-surface overflow-hidden"
-    >
+    <div data-code-frame className="relative my-6 overflow-hidden">
       <CodeHeaderRow
         left={<TabPill label={label} active />}
         right={<CopyButton getText={() => ref.current?.textContent ?? ""} />}
       />
       <ScrollFade scrollerRef={ref}>
-        <pre
-          ref={ref}
-          className={`overflow-x-auto pl-3 pr-4 py-3 text-[13px] leading-[1.55] font-mono ${className ?? ""}`}
-          {...rest}
-        >
+        <pre ref={ref} className={`overflow-x-auto pl-3 pr-4 py-3 ${className ?? ""}`} {...rest}>
           {children}
         </pre>
       </ScrollFade>
@@ -154,10 +105,7 @@ export function CodeHeaderRow({
   readonly right: ReactNode
 }) {
   return (
-    <div
-      data-code-header
-      className="flex items-end justify-between pl-[18px] pr-3 pt-2 border-b border-divider bg-surface/60"
-    >
+    <div data-code-header className="flex items-end justify-between pl-[18px] pr-3 pt-2">
       {/* Tabs wrap onto a second row rather than scroll: a scrolling strip
           is a keyboard-unreachable scroll region (axe scrollable-region-focusable). */}
       <div className="flex min-w-0 flex-wrap items-end gap-1">{left}</div>
@@ -191,14 +139,12 @@ export function TabPill({
   readonly onClick?: () => void
 }) {
   const isButton = typeof onClick === "function"
-  const baseClasses = `relative px-2 py-1.5 text-left font-mono text-xs transition-colors ${
-    active ? "text-ink" : "text-ink-dim hover:text-ink"
-  }`
+  const baseClasses = "relative px-2 py-1.5 text-left font-mono text-xs transition-colors"
   const underline = active ? (
     <span
       aria-hidden
       data-code-active-marker
-      className="absolute left-1 right-1 -bottom-px h-[2px] rounded-full bg-accent-saas"
+      className="absolute left-1 right-1 -bottom-px h-[2px]"
     />
   ) : null
 
@@ -235,18 +181,19 @@ export function CopyButton({ getText }: { readonly getText: () => string }) {
   const copied = state === "copied"
   return (
     <span className="inline-flex items-center gap-2">
-      <CopyStatus state={state} className="text-xs text-ink-dim" />
+      <CopyStatus state={state} className="text-xs text-ink-muted" />
       <button
         type="button"
         onClick={() => void copy(getText())}
         aria-label="Copy code"
-        className={`relative p-1.5 rounded border transition-colors after:absolute after:-inset-[9px] after:content-[''] ${
+        data-copied={copied}
+        className={`relative p-1.5 border transition-colors after:absolute after:-inset-[9px] after:content-[''] ${
           copied
-            ? "border-accent-saas/40 text-accent-saas bg-accent-saas/10"
-            : "border-divider text-ink-dim hover:text-ink hover:border-text-muted"
+            ? "border-panel-accent text-panel-accent"
+            : "border-panel-rule text-panel-dim hover:text-panel-ink hover:border-panel-muted"
         }`}
       >
-        {copied ? <CheckIcon /> : <CopyIcon />}
+        <Icon name={copied ? "check" : "copy"} />
       </button>
     </span>
   )
@@ -268,7 +215,8 @@ function ScrollFade({
   useEffect(() => {
     const scroller = scrollerRef.current
     if (!scroller) return
-    // Fade into whatever the code actually sits on (themes differ).
+    // Fade into whatever the code actually sits on: the panel inside a code
+    // frame, or a caller's own background.
     for (let el: HTMLElement | null = scroller; el; el = el.parentElement) {
       const color = getComputedStyle(el).backgroundColor
       if (color && color !== "transparent" && !/rgba\(.*,\s*0\)$/.test(color)) {
@@ -298,15 +246,18 @@ function ScrollFade({
       style={background ? ({ "--code-fade-bg": background } as CSSProperties) : undefined}
     >
       {children}
+      {/* The gradients live in ui.css ([data-code-fade]) on the panel token. */}
       <span
         aria-hidden
-        className={`pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-[var(--code-fade-bg,var(--color-surface))] to-transparent transition-opacity ${
+        data-code-fade="start"
+        className={`pointer-events-none absolute inset-y-0 left-0 w-6 transition-opacity ${
           edges.start ? "opacity-100" : "opacity-0"
         }`}
       />
       <span
         aria-hidden
-        className={`pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-[var(--code-fade-bg,var(--color-surface))] to-transparent transition-opacity ${
+        data-code-fade="end"
+        className={`pointer-events-none absolute inset-y-0 right-0 w-8 transition-opacity ${
           edges.end ? "opacity-100" : "opacity-0"
         }`}
       />
@@ -386,11 +337,7 @@ export function RehypeFigure({
   const label = tabLabel(preLanguage, title)
 
   return (
-    <figure
-      data-code-frame
-      {...rest}
-      className="relative my-6 rounded-lg border border-divider bg-surface overflow-hidden"
-    >
+    <figure data-code-frame {...rest} className="relative my-6 overflow-hidden">
       <RehypeFigureHeader label={label} preChild={preChild} />
       <HeadlessPreContext.Provider value={true}>{preChild}</HeadlessPreContext.Provider>
     </figure>

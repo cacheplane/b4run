@@ -82,7 +82,7 @@ export function CopyStatus({
       role="status"
       data-copy-status={state}
       className={`${hidden ? "sr-only" : ""} ${
-        state === "error" ? "text-red-700" : ""
+        state === "error" ? "text-danger" : ""
       } ${className ?? ""}`}
     >
       {messages[state]}

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef } from "react"
+import { Eyebrow } from "../ui/Eyebrow"
 import { IntentLink } from "./IntentLink"
 import { DOCS_NAV } from "./nav"
 
@@ -11,8 +12,9 @@ interface Props {
   readonly onNavigate?: () => void
 }
 
+// The focus ring is global (base.css); the marker is hidden so the › is the only glyph.
 const SUMMARY_CLASS =
-  "flex cursor-pointer list-none items-center justify-between rounded-md px-3 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-dim hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-divider-strong [&::-webkit-details-marker]:hidden"
+  "flex cursor-pointer list-none items-center justify-between px-3 text-ink-muted hover:bg-surface hover:text-ink transition-colors [&::-webkit-details-marker]:hidden"
 
 /** Scroll `item` into the middle third of its scrolling ancestor, if it is out of view. */
 function revealInScroller(item: HTMLElement) {
@@ -50,7 +52,7 @@ export function DocsNavGroups({ pathname, variant, onNavigate }: Props) {
         return (
           <details key={section.label} open={activeSection} className="group">
             <summary className={`${SUMMARY_CLASS} ${menu ? "min-h-11 py-2" : "py-1.5"}`}>
-              {section.label}
+              <Eyebrow as="span">{section.label}</Eyebrow>
               <span aria-hidden className="text-xs transition-transform group-open:rotate-90">
                 ›
               </span>
@@ -65,15 +67,8 @@ export function DocsNavGroups({ pathname, variant, onNavigate }: Props) {
                       {...(onNavigate ? { onClick: onNavigate } : {})}
                       {...(active ? { "aria-current": "page" as const } : {})}
                       {...(menu ? {} : { "data-docs-nav-item": "" })}
-                      className={`block rounded-md transition-colors ${
-                        menu ? "px-3 py-2 text-sm" : "text-sm pl-[9px] pr-3 py-1.5"
-                      } ${
-                        active
-                          ? menu
-                            ? "text-accent-saas bg-accent-saas-soft"
-                            : "text-accent-saas bg-accent-saas/15"
-                          : "text-ink-muted hover:text-ink hover:bg-surface"
-                      }`}
+                      data-ui="nav-item"
+                      className={menu ? "text-sm px-3 py-2" : "text-sm pl-[9px] pr-3 py-1.5"}
                     >
                       {item.label}
                     </IntentLink>

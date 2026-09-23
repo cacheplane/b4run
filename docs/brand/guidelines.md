@@ -70,6 +70,8 @@ replace the period, or attach a tagline to the master.
 
 Paper Relay is the default system. Tight Shift orange remains an archived
 alternative in the original kit; it is not a second interchangeable brand theme.
+The website's implementation of this palette — token names, primitives, and
+the test that pins them — is in [website-design-system.md](./website-design-system.md).
 
 | Role | Value | Use |
 | --- | --- | --- |

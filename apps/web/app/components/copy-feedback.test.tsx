@@ -2,8 +2,8 @@
 import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { CopyCommand } from "./CopyCommand"
 import { writeClipboard } from "./copy-feedback"
+import { CopyCommand } from "./ui/CopyCommand"
 
 const roots: ReturnType<typeof createRoot>[] = []
 afterEach(async () => {

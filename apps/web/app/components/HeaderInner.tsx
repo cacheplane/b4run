@@ -3,11 +3,14 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { BrandLogo } from "./BrandLogo"
-import { CopyCommand } from "./CopyCommand"
 import { DocsSearch, SearchShortcutHint } from "./docs/DocsSearch"
 import { loadDocsSearchIndex, openDocsSearch } from "./docs/docs-search-events"
 import homepageStyles from "./homepage/header.module.css"
 import { MobileMenu } from "./MobileMenu"
+import { Button } from "./ui/Button"
+import { CopyCommand } from "./ui/CopyCommand"
+import { Icon } from "./ui/Icon"
+import { SiteLink } from "./ui/SiteLink"
 
 function GitHubIcon() {
   return (
@@ -44,22 +47,10 @@ function MobileDocsSearchButton() {
       aria-haspopup="dialog"
       aria-keyshortcuts="Meta+K Control+K /"
       data-mobile-docs-search
-      className="md:hidden inline-flex items-center justify-center w-11 h-11 rounded-md text-ink-muted hover:text-ink hover:bg-surface transition-colors"
+      data-ui="icon-button"
+      className="md:hidden"
     >
-      <svg
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        aria-hidden="true"
-        focusable="false"
-      >
-        <circle cx="11" cy="11" r="7" />
-        <path d="m20 20-3.5-3.5" />
-      </svg>
+      <Icon name="search" size="md" />
     </button>
   )
 }
@@ -67,32 +58,20 @@ function MobileDocsSearchButton() {
 /** Desktop header search, for pages without the docs sidebar's search field. */
 function HeaderSearchButton() {
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="sm"
       onClick={openDocsSearch}
       onPointerEnter={preloadSearch}
       onFocus={preloadSearch}
       aria-haspopup="dialog"
       aria-keyshortcuts="Meta+K Control+K /"
       data-header-docs-search
-      className="inline-flex items-center gap-2 rounded-md border border-divider px-2.5 py-1.5 text-ink-muted hover:text-ink hover:border-text-muted transition-colors"
     >
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        aria-hidden="true"
-        focusable="false"
-      >
-        <circle cx="11" cy="11" r="8" />
-        <path d="m21 21-4.3-4.3" />
-      </svg>
+      <Icon name="search" />
       Search docs
       <SearchShortcutHint />
-    </button>
+    </Button>
   )
 }
 
@@ -104,6 +83,8 @@ export function HeaderInner({ repoUrl }: HeaderInnerProps) {
   const pathname = usePathname()
   const linkClass = (active: boolean) =>
     active ? "text-ink transition-colors" : "text-ink-muted hover:text-ink transition-colors"
+  const docsActive = pathname.startsWith("/docs")
+  const blogActive = pathname.startsWith("/blog")
 
   // Same header everywhere; only its column tracks the page layout underneath:
   // docs and blog posts are full-width reading layouts, everything else uses
@@ -115,22 +96,29 @@ export function HeaderInner({ repoUrl }: HeaderInnerProps) {
       <div className={`${homepageStyles.bar} flex justify-between items-center`}>
         <BrandLogo imageClassName="h-8" variant="dark" />
         <nav aria-label="Main" className="hidden md:flex items-center gap-6 text-sm">
-          <Link href="/docs/getting-started" className={linkClass(pathname.startsWith("/docs"))}>
+          <Link
+            href="/docs/getting-started"
+            className={linkClass(docsActive)}
+            {...(docsActive ? { "aria-current": "page" as const } : {})}
+          >
             Docs
           </Link>
-          <Link href="/blog" className={linkClass(pathname.startsWith("/blog"))}>
+          <Link
+            href="/blog"
+            className={linkClass(blogActive)}
+            {...(blogActive ? { "aria-current": "page" as const } : {})}
+          >
             Blog
           </Link>
-          {pathname.startsWith("/docs") ? null : <HeaderSearchButton />}
-          <a
+          {docsActive ? null : <HeaderSearchButton />}
+          <SiteLink
             href={repoUrl}
-            target="_blank"
-            rel="noopener noreferrer"
             aria-label="GitHub"
+            data-no-arrow
             className="inline-flex items-center gap-1.5 text-ink-muted hover:text-ink transition-colors"
           >
             <GitHubIcon />
-          </a>
+          </SiteLink>
           <CopyCommand command="npm create b4-app@latest my-agent" />
         </nav>
         <div className="flex items-center gap-1 md:hidden">

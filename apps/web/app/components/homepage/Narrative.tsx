@@ -1,4 +1,5 @@
 import type { ReactNode } from "react"
+import { Eyebrow } from "../ui/Eyebrow"
 import { CodePanel } from "./CodePanel"
 import styles from "./homepage.module.css"
 import type { NarrativeKey } from "./narrative-source"
@@ -23,10 +24,10 @@ function Chapter({
   return (
     <section className={styles.chapter} id={id} aria-labelledby={`${id}-title`}>
       <div className={styles.chapterCopy}>
-        <p className={styles.eyebrow}>
+        <Eyebrow className={styles.eyebrow}>
           <span className={styles.chapterNumber}>{number}</span>
           {label}
-        </p>
+        </Eyebrow>
         <h2 id={`${id}-title`}>{title}</h2>
         {children}
       </div>

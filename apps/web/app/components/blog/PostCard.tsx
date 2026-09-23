@@ -1,4 +1,4 @@
-import Link from "next/link"
+import { Card } from "../ui/Card"
 import { Eyebrow } from "../ui/Eyebrow"
 import styles from "./blog.module.css"
 import type { Post } from "./post-index"
@@ -15,7 +15,7 @@ function formatDate(iso: string): string {
 export function PostCard({ post }: { readonly post: Post }) {
   const isRelease = post.type === "release"
   return (
-    <Link href={`/blog/${encodeURIComponent(post.slug)}`} className={styles.card}>
+    <Card href={`/blog/${encodeURIComponent(post.slug)}`} className={styles.card}>
       {isRelease ? (
         <span className={styles.version}>v{post.version}</span>
       ) : (
@@ -23,7 +23,7 @@ export function PostCard({ post }: { readonly post: Post }) {
       )}
       <h3 className="text-lg font-semibold text-ink mt-2 mb-1 leading-snug">{post.title}</h3>
       <p className="text-sm text-ink-muted leading-relaxed mb-3">{post.description}</p>
-      <div className="text-xs text-ink-dim">{formatDate(post.date)}</div>
-    </Link>
+      <div className="text-xs text-ink-muted">{formatDate(post.date)}</div>
+    </Card>
   )
 }

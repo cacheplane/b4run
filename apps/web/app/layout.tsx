@@ -1,6 +1,7 @@
-import type { Metadata } from "next"
+import type { Metadata, Viewport } from "next"
 import { Inter, JetBrains_Mono } from "next/font/google"
 import type { ReactNode } from "react"
+import { COLOR } from "../lib/design-tokens"
 import { Footer } from "./components/Footer"
 import { Header } from "./components/Header"
 import { JsonLd } from "./seo/JsonLd"
@@ -51,20 +52,25 @@ export const metadata: Metadata = {
     title: "B4.run: the TypeScript meta-framework for LangGraph.js",
     description:
       "B4.run adds file-system routing, route-local tools, generated types, and HMR to your LangGraph.js stack. You keep the runtime and skip the boilerplate.",
-    // Image is provided by app/opengraph-image.tsx (1200×630, cream palette).
+    // Image is provided by app/opengraph-image.tsx (1200×630, on the paper tokens).
   },
   twitter: {
     card: SOCIAL_CARD,
     title: "B4.run: the TypeScript meta-framework for LangGraph.js",
     description:
       "B4.run adds file-system routing, route-local tools, generated types, and HMR to your LangGraph.js stack. You keep the runtime and skip the boilerplate.",
-    // Image is provided by app/twitter-image.tsx (re-exports opengraph-image).
+    // No twitter-image route: Twitter falls back to the Open Graph image above.
   },
   appleWebApp: {
     title: "B4.run",
     capable: true,
     statusBarStyle: "default",
   },
+}
+
+export const viewport: Viewport = {
+  themeColor: COLOR.page,
+  colorScheme: "light",
 }
 
 export default function RootLayout({ children }: { children: ReactNode }) {

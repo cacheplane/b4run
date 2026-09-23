@@ -25,6 +25,7 @@ it("renders the same header, with the install command, on every page", () => {
       .split("<dialog")[0]
       ?.replace(/<button[^>]*data-header-docs-search[\s\S]*?<\/button>/, "")
       .replace(/text-ink(-muted hover:text-ink)? transition-colors/g, "")
+      .replace(/ aria-current="page"/g, "")
       .replace(/ data-layout="[a-z]+"/, "")
   expect(strip(render("/docs/getting-started"))).toBe(strip(home))
   expect(strip(render("/blog"))).toBe(strip(home))
@@ -51,7 +52,7 @@ it("labels the main nav and offers docs search on every page", () => {
   const docs = render("/docs/tools")
   expect(docs).toContain('aria-label="Main"')
   expect(docs).toMatch(
-    /<button(?=[^>]*data-mobile-docs-search)(?=[^>]*aria-label="Search docs")(?=[^>]*md:hidden)(?=[^>]*w-11 h-11)/,
+    /<button(?=[^>]*data-mobile-docs-search)(?=[^>]*aria-label="Search docs")(?=[^>]*md:hidden)(?=[^>]*data-ui="icon-button")/,
   )
   for (const pathname of ["/", "/blog"]) {
     const html = render(pathname)
@@ -61,4 +62,12 @@ it("labels the main nav and offers docs search on every page", () => {
     expect(html).toContain("data-docs-search-dialog")
   }
   expect(docs).not.toContain("data-header-docs-search")
+})
+
+it("suppresses the ↗ on the desktop GitHub icon link", () => {
+  location.pathname = "/"
+  const html = renderToString(<HeaderInner repoUrl="https://github.com/cacheplane/b4run" />)
+  expect(html).toMatch(
+    /<a[^>]*data-no-arrow[^>]*aria-label="GitHub"|<a[^>]*aria-label="GitHub"[^>]*data-no-arrow/,
+  )
 })

@@ -10,6 +10,8 @@ import {
   useState,
 } from "react"
 import { CopyStatus, useCopyFeedback } from "../copy-feedback"
+import { Button } from "../ui/Button"
+import { Icon } from "../ui/Icon"
 import { pageUrl, sourceSlug } from "./page-actions"
 
 interface PageActionsProps {
@@ -30,39 +32,6 @@ function DotsIcon() {
       <circle cx="3" cy="8" r="1.4" fill="currentColor" />
       <circle cx="8" cy="8" r="1.4" fill="currentColor" />
       <circle cx="13" cy="8" r="1.4" fill="currentColor" />
-    </svg>
-  )
-}
-
-function CheckIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="3"
-      aria-hidden="true"
-    >
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  )
-}
-
-function ClipboardIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      aria-hidden="true"
-    >
-      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
     </svg>
   )
 }
@@ -171,7 +140,7 @@ export function PageActions({ slug, promptBody }: PageActionsProps) {
           {
             kind: "action" as const,
             key: "prompt",
-            icon: <ClipboardIcon />,
+            icon: <Icon name="copy" />,
             title: "Copy agent prompt",
             subtitle: "Instructions to paste into your coding agent",
             onSelect: () => {
@@ -275,18 +244,18 @@ export function PageActions({ slug, promptBody }: PageActionsProps) {
   }
 
   const itemClass =
-    "w-full text-left px-3 py-2 flex items-start gap-3 no-underline hover:bg-surface focus:bg-surface focus:outline-none transition-colors"
+    "w-full text-left px-3 py-2 flex items-start gap-3 no-underline hover:bg-relay-tint focus:bg-relay-tint transition-colors"
 
   function renderItem(item: MenuItem) {
     const body = (
       <>
-        <span className="mt-0.5 text-ink-dim shrink-0">{item.icon}</span>
+        <span className="mt-0.5 text-ink-muted shrink-0">{item.icon}</span>
         <span className="flex-1 min-w-0">
           <span className="block text-sm font-medium text-ink">
             {item.title}
             {item.kind === "link" ? <span className="sr-only"> (opens in a new tab)</span> : null}
           </span>
-          <span className="block text-xs text-ink-dim leading-snug">{item.subtitle}</span>
+          <span className="block text-xs text-ink-muted leading-snug">{item.subtitle}</span>
         </span>
       </>
     )
@@ -329,26 +298,28 @@ export function PageActions({ slug, promptBody }: PageActionsProps) {
         state={state}
         messages={STATUS_MESSAGES[copied]}
         // Out of flow, so the result never shifts the buttons.
-        className="absolute right-0 top-full mt-1 text-xs text-ink-dim whitespace-nowrap"
+        className="absolute right-0 top-full mt-1 text-xs text-ink-muted whitespace-nowrap"
       />
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="sm"
         data-copy-page
         onClick={() => {
           setCopied("page")
           void copy(pageMarkdown(slug))
         }}
         title="Copy this page as Markdown, for pasting into an LLM"
-        className="inline-flex shrink-0 h-11 md:h-7 items-center gap-2 px-3 border border-divider rounded-md text-xs text-ink-muted hover:text-ink hover:border-divider-strong transition-colors"
+        className="shrink-0 min-h-11 md:min-h-8"
       >
-        {state === "copied" && copied === "page" ? <CheckIcon /> : <PageIcon />}
+        {state === "copied" && copied === "page" ? <Icon name="check" /> : <PageIcon />}
         Copy page
-      </button>
+      </Button>
 
-      <button
+      <Button
+        variant="ghost"
+        size="icon"
         ref={triggerRef}
         id={triggerId}
-        type="button"
         onClick={() => {
           focusOnOpen.current = "first"
           setOpen((o) => !o)
@@ -358,10 +329,10 @@ export function PageActions({ slug, promptBody }: PageActionsProps) {
         aria-expanded={open}
         aria-controls={menuId}
         aria-label="More page actions"
-        className="inline-flex shrink-0 items-center justify-center h-11 w-11 md:h-7 md:w-7 rounded-md border border-divider text-ink-dim hover:text-ink hover:border-divider-strong transition-colors"
+        className="shrink-0 md:min-h-8 md:w-8"
       >
         <DotsIcon />
-      </button>
+      </Button>
 
       {open && (
         <div
@@ -370,7 +341,7 @@ export function PageActions({ slug, promptBody }: PageActionsProps) {
           role="menu"
           aria-labelledby={triggerId}
           onKeyDown={onMenuKeyDown}
-          className="absolute right-0 top-full mt-2 w-72 rounded-lg border border-divider bg-surface shadow-lg z-30 py-1 focus:outline-none"
+          className="absolute right-0 top-full mt-2 w-72 z-30 py-1"
         >
           {items.map(renderItem)}
         </div>

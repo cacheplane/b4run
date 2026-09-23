@@ -6,6 +6,8 @@
  * tests resolve the same list so they exercise the shipped pipeline instead of a
  * hand-maintained copy of it.
  */
+import { PAPER_RELAY_THEME } from "./shiki-theme"
+
 // Mutable on purpose: `@next/mdx` accepts a mutable `PluggableList`.
 export type MdxPluginSpec = [name: string, options: Record<string, unknown>]
 
@@ -22,7 +24,8 @@ export const MDX_REHYPE_PLUGINS: MdxPluginSpec[] = [
   [
     "rehype-pretty-code",
     {
-      theme: { light: "github-light", dark: "github-dark" },
+      // One theme everywhere: no dual light/dark colour spans per token.
+      theme: PAPER_RELAY_THEME,
       keepBackground: false,
       defaultLang: "plaintext",
     },

@@ -15,8 +15,11 @@ describe("MobileDocsNav", () => {
     expect(markup).toContain('<nav aria-label="Documentation"')
     expect(disclosures).toHaveLength(DOCS_NAV.length)
     expect(markup.match(/<summary/g)).toHaveLength(DOCS_NAV.length)
+    // Proxy check: the ring itself is global (base.css); this only guards against re-suppressing it here.
     for (const summary of markup.matchAll(/<summary class="([^"]+)"/g)) {
-      expect(summary[1]).toContain("focus-visible:ring-2")
+      // The global :focus-visible ring must not be suppressed.
+      expect(summary[1]).not.toContain("focus-visible:outline-none")
+      expect(summary[1]).not.toMatch(/rounded/)
     }
     expect(disclosures.filter(([, attributes]) => attributes?.includes("open"))).toHaveLength(1)
     expect(disclosures.find(([, attributes]) => attributes?.includes("open"))?.[2]).toContain(

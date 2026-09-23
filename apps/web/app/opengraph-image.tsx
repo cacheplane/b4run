@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og"
+import { COLOR } from "../lib/design-tokens"
 
 export const runtime = "edge"
 export const size = { width: 1200, height: 630 }
@@ -18,8 +19,8 @@ export default async function OG() {
       style={{
         width: "100%",
         height: "100%",
-        background: "#f5f4f0",
-        color: "#111111",
+        background: COLOR.page,
+        color: COLOR.ink,
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
@@ -30,7 +31,7 @@ export default async function OG() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         {/* biome-ignore lint/performance/noImgElement: ImageResponse renders the supplied SVG into a PNG. */}
         <img src={wordmark} width={190} height={42} alt="b4.run" />
-        <span style={{ fontSize: 20, color: "#595b53" }}>
+        <span style={{ fontSize: 20, color: COLOR["ink-muted"] }}>
           An agent framework, the way I'd build it.
         </span>
       </div>
@@ -52,7 +53,7 @@ export default async function OG() {
             width: 108,
             height: 108,
             borderRadius: "50%",
-            background: "#b4ce37",
+            background: COLOR.relay,
             display: "flex",
           }}
         />
@@ -60,14 +61,14 @@ export default async function OG() {
       <div
         style={{
           display: "flex",
-          borderTop: "1px solid #d6d6cc",
+          borderTop: `1px solid ${COLOR.rule}`,
           paddingTop: 24,
           justifyContent: "space-between",
           fontSize: 22,
         }}
       >
         <span>Write the agent in TypeScript. Ship code you can read.</span>
-        <span style={{ color: "#595b53" }}>b4.run</span>
+        <span style={{ color: COLOR["ink-muted"] }}>b4.run</span>
       </div>
     </div>,
     { ...size, fonts: [{ name: "Inter", data: font, weight: 600, style: "normal" }] },

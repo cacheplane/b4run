@@ -1,6 +1,6 @@
 .header {
-  background: #f5f4f0;
-  border-bottom-color: #d6d6cc;
+  background: var(--color-page);
+  border-bottom-color: var(--color-rule);
 }
 
 /* The header and footer share the homepage column: 1200px of content with
@@ -8,7 +8,7 @@
    71px + the 1px bottom border keeps the header exactly --header-h (72px). */
 .bar,
 .column {
-  max-width: 1280px;
+  max-width: var(--column-max);
   margin-inline: auto;
   padding-inline: 40px;
 }

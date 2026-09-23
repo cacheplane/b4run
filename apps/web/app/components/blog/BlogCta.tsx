@@ -1,4 +1,4 @@
-import { CopyCommand } from "../CopyCommand"
+import { CopyCommand } from "../ui/CopyCommand"
 import styles from "./blog.module.css"
 
 export function BlogCta() {
@@ -11,9 +11,9 @@ export function BlogCta() {
           patch.
         </p>
         <div className={styles.ctaLinks}>
-          <CopyCommand command="npm create b4-app@latest my-agent" />
+          <CopyCommand command="npm create b4-app@latest my-agent" variant="dark" />
           <a href="https://github.com/cacheplane/b4run/blob/main/examples/code-fixer/server/WALKTHROUGH.md">
-            Read the developer walkthrough ↗
+            Read the developer walkthrough
           </a>
         </div>
       </div>

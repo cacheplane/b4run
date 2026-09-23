@@ -11,6 +11,9 @@ import {
   useState,
   useSyncExternalStore,
 } from "react"
+import { Button } from "../ui/Button"
+import { Eyebrow } from "../ui/Eyebrow"
+import { Icon } from "../ui/Icon"
 import {
   isTypingTarget,
   loadDocsSearchIndex,
@@ -22,7 +25,6 @@ import {
   type DocsSearchResult,
   filterDocsSearchResults,
 } from "./docs-search-results"
-import "../../docs/docs-brand.css"
 
 type IndexState =
   | { readonly status: "idle" | "loading" | "error" }
@@ -53,32 +55,9 @@ export function SearchShortcutHint({ className }: { readonly className?: string 
   const apple = useIsApplePlatform()
   if (apple === null) return null
   return (
-    <kbd
-      aria-hidden
-      className={`font-mono text-[10px] text-ink-dim border border-divider rounded px-1.5 py-0.5 ${
-        className ?? ""
-      }`}
-    >
+    <kbd aria-hidden data-ui="kbd" {...(className ? { className } : {})}>
       {apple ? "⌘K" : "Ctrl K"}
     </kbd>
-  )
-}
-
-function SearchIcon({ size = 14 }: { readonly size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <circle cx="11" cy="11" r="8" />
-      <path d="m21 21-4.3-4.3" />
-    </svg>
   )
 }
 
@@ -87,22 +66,23 @@ const SHORTCUTS = "Meta+K Control+K /"
 /** The docs sidebar's full-width search field button. */
 export function DocsSearchTrigger() {
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="sm"
       onClick={openDocsSearch}
       onPointerEnter={() => void loadDocsSearchIndex().catch(() => {})}
       onFocus={() => void loadDocsSearchIndex().catch(() => {})}
       aria-haspopup="dialog"
       aria-keyshortcuts={SHORTCUTS}
       data-docs-search-trigger
-      className="w-full flex items-center justify-between gap-3 px-3 py-2 border border-divider rounded-md bg-surface/50 text-sm text-ink-dim hover:border-text-muted hover:text-ink-muted transition-colors mb-6"
+      className="w-full justify-between mb-6"
     >
       <span className="flex items-center gap-2">
-        <SearchIcon />
+        <Icon name="search" />
         Search docs
       </span>
       <SearchShortcutHint />
-    </button>
+    </Button>
   )
 }
 
@@ -110,7 +90,7 @@ function ResultBody({ hit }: { readonly hit: DocsSearchHit }) {
   const match = hit.match
   if (match?.kind === "alias") {
     return (
-      <span className="block text-xs text-ink-dim truncate" data-search-match="alias">
+      <span className="block text-xs text-ink-muted truncate" data-search-match="alias">
         <code className="font-mono text-ink-muted">{match.alias}</code>
         {match.surface ? <> in {match.surface}</> : null}
       </span>
@@ -118,16 +98,16 @@ function ResultBody({ hit }: { readonly hit: DocsSearchHit }) {
   }
   if (match?.kind === "code") {
     return (
-      <span className="block text-xs text-ink-dim truncate" data-search-match="code">
+      <span className="block text-xs text-ink-muted truncate" data-search-match="code">
         <code className="font-mono text-ink-muted">{match.term}</code> in code examples
       </span>
     )
   }
   if (match?.kind === "text") {
     return (
-      <span className="block text-xs text-ink-dim line-clamp-2" data-search-match="text">
+      <span className="block text-xs text-ink-muted line-clamp-2" data-search-match="text">
         {match.before}
-        <mark className="bg-accent-saas-soft text-ink rounded-sm">{match.match}</mark>
+        <mark className="bg-relay-tint text-ink">{match.match}</mark>
         {match.after}
       </span>
     )
@@ -306,17 +286,12 @@ export function DocsSearch() {
           close()
         }
       }}
-      className="fixed inset-0 z-50 m-0 h-dvh max-h-none w-full max-w-none items-start justify-center border-0 bg-ink/40 p-0 pt-[12vh] backdrop:bg-transparent open:flex"
+      className="fixed inset-0 z-50 m-0 h-dvh max-h-none w-full max-w-none items-start justify-center border-0 p-0 pt-[12vh] backdrop-blur-sm backdrop:bg-transparent open:flex"
     >
-      {/* The panel carries the docs palette on every page, not just in docs. */}
-      <div
-        data-docs-brand
-        className="w-full max-w-xl mx-4 bg-surface border border-divider rounded-xl shadow-2xl overflow-hidden"
-      >
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-divider">
-          <span className="text-ink-dim">
-            <SearchIcon size={16} />
-          </span>
+      {/* The scrim and the panel are styled by ui.css ([data-docs-search-dialog]). */}
+      <div className="w-full max-w-xl mx-4 overflow-hidden">
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-rule">
+          <Icon name="search" className="text-ink-muted" />
           <input
             ref={inputRef}
             type="text"
@@ -336,14 +311,9 @@ export function DocsSearch() {
             }}
             onKeyDown={onInputKey}
             placeholder="Search B4.run docs..."
-            className="flex-1 min-w-0 bg-transparent text-ink placeholder-text-muted focus:outline-none text-sm"
+            className="flex-1 min-w-0 bg-transparent text-ink placeholder:text-ink-muted text-sm"
           />
-          <button
-            type="button"
-            onClick={close}
-            aria-label="Close search"
-            className="text-xs text-ink-dim border border-divider rounded px-1.5 py-0.5 font-mono hover:text-ink"
-          >
+          <button type="button" onClick={close} aria-label="Close search" data-ui="kbd">
             ESC
           </button>
         </div>
@@ -352,7 +322,7 @@ export function DocsSearch() {
           {status}
         </p>
         {index.status === "ready" ? null : (
-          <p aria-hidden className="px-4 py-6 text-sm text-ink-dim text-center">
+          <p aria-hidden className="px-4 py-6 text-sm text-ink-muted text-center">
             {index.status === "error" ? status : "Loading search…"}
           </p>
         )}
@@ -361,14 +331,14 @@ export function DocsSearch() {
             <button
               type="button"
               onClick={load}
-              className="text-sm text-accent-saas underline underline-offset-2"
+              className="text-sm text-ink underline decoration-olive underline-offset-2"
             >
               Try again
             </button>
           </div>
         ) : null}
         {index.status === "ready" && trimmed && results.length === 0 ? (
-          <p aria-hidden className="px-4 py-6 text-sm text-ink-dim text-center">
+          <p aria-hidden className="px-4 py-6 text-sm text-ink-muted text-center">
             {status}
           </p>
         ) : null}
@@ -397,24 +367,16 @@ export function DocsSearch() {
                   if (!selected) setActive(i)
                 }}
                 onClick={() => navigate(hit.href)}
-                className={`cursor-pointer px-4 py-2.5 ${selected ? "bg-accent-saas/10" : ""}`}
+                className="cursor-pointer px-4 py-2.5"
               >
-                <span
-                  className={`block text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ${
-                    selected ? "text-accent-saas" : "text-ink-dim"
-                  }`}
-                >
+                <Eyebrow as="span" className="block whitespace-nowrap">
                   {hit.section}
-                </span>
-                <span
-                  className={`block text-sm font-semibold ${
-                    selected ? "text-accent-saas" : "text-ink"
-                  }`}
-                >
+                </Eyebrow>
+                <span className="block text-sm font-semibold text-ink">
                   {hit.heading ? hit.heading.text : hit.title}
                 </span>
                 {hit.heading ? (
-                  <span className="block text-xs text-ink-dim truncate">in {hit.title}</span>
+                  <span className="block text-xs text-ink-muted truncate">in {hit.title}</span>
                 ) : null}
                 <ResultBody hit={hit} />
               </div>

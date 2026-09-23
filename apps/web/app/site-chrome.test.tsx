@@ -43,8 +43,8 @@ describe("site footer", () => {
   })
 
   it("is hidden by CSS only where the docs layout renders its marker", () => {
-    expect(read("docs/layout.tsx")).toMatch(/<div data-docs-brand data-docs-layout>/)
-    expect(read("globals.css")).toMatch(
+    expect(read("docs/layout.tsx")).toMatch(/<div data-docs-layout>/)
+    expect(read("styles/base.css")).toMatch(
       /body:has\(\[data-docs-layout\]\) \[data-site-footer\] \{\s*display: none;/,
     )
   })
@@ -130,7 +130,7 @@ describe("keyboard-reachable scroll regions", () => {
       .parseFromString(html, "text/html")
       .querySelector("[data-code-header] > div")
     expect(strip?.className).toContain("flex-wrap")
-    expect(read("docs/docs-brand.css")).not.toMatch(/overflow-x: auto/)
+    expect(read("styles/prose.css")).not.toMatch(/\[data-code-header\][^{]*\{[^}]*overflow-x: auto/)
   })
 
   it("lets a long file-name tab break after each slash", () => {
@@ -139,10 +139,12 @@ describe("keyboard-reachable scroll regions", () => {
   })
 })
 
-describe("homepage contrast", () => {
-  it("uses the darkened olive for text (4.74:1 on paper, not 4.48:1)", () => {
+describe("homepage tokens", () => {
+  it("uses tokens for every colour, and the AA olive for accent text", () => {
     const css = read("components/homepage/homepage.module.css")
-    expect(css).not.toMatch(/(^|[^-])color: #667811/m)
-    expect(css.match(/color: #627410/g)).toHaveLength(2)
+    expect(css).not.toMatch(/#[0-9a-f]{3,6}\b/i)
+    // The two olive text uses (.flowNumber and the ::after arrow); the .receipt
+    // border also uses olive but is `border-left: … var(--color-olive)`.
+    expect(css.match(/(^|\s)color: var\(--color-olive\);/gm)).toHaveLength(2)
   })
 })

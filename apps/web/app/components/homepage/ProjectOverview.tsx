@@ -1,3 +1,4 @@
+import { Eyebrow } from "../ui/Eyebrow"
 import styles from "./homepage.module.css"
 
 const files = [
@@ -17,7 +18,7 @@ export function ProjectOverview() {
   return (
     <section id="project" className={styles.projectOverview} aria-labelledby="project-title">
       <div className={styles.overviewCopy}>
-        <p className={styles.eyebrow}>The whole application</p>
+        <Eyebrow className={styles.eyebrow}>The whole application</Eyebrow>
         <h2 id="project-title">This project is the whole agent.</h2>
         <p>The agent repairs a broken CLI, verifies the patch, and asks for your approval.</p>
         <p className={styles.overviewHint}>Follow the files.</p>
@@ -52,7 +53,7 @@ const steps = [
 export function ExecutionFlow() {
   return (
     <section id="workflow" className={styles.executionFlow} aria-labelledby="execution-title">
-      <p className={styles.eyebrow}>The pieces in motion</p>
+      <Eyebrow className={styles.eyebrow}>The pieces in motion</Eyebrow>
       <h2 id="execution-title">One request runs the whole workflow.</h2>
       <ol>
         {steps.map(([action, detail], index) => (
