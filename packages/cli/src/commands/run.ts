@@ -15,6 +15,7 @@ import {
   resolveRouteTarget,
 } from "../lib/runtime/resolve-route-target.js"
 import type { RuntimeExecutionResult } from "../lib/runtime/result.js"
+import { refreshTypegenForRun } from "../lib/typegen/refresh-typegen.js"
 
 interface RunOptions {
   readonly cwd?: string
@@ -50,6 +51,12 @@ export async function runRunCommand(
     }
 
     const target = resolvedTarget as ResolvedRouteTarget
+    if (!options.url) {
+      // The in-process runtime binds tool schemas from `.b4/`; regenerate
+      // them so a tool added or changed since the last `b4 typegen` is bound
+      // with its current input type, as `b4 dev` does on every restart.
+      await refreshTypegenForRun(target.appRoot, io)
+    }
     const normalizedResult = options.url
       ? await executeRouteServer({
           appRoot: target.appRoot,
