@@ -1,24 +1,12 @@
 import "server-only"
 import { type BundledLanguage, createHighlighter } from "shiki"
+import { PAPER_RELAY_THEME } from "../../../lib/shiki-theme"
 import { curatedEvidenceUrl, evidence, type SourceKey, sourceUrl } from "./evidence"
 import type { DisplayCode, WalkthroughProps } from "./types"
 
 const highlighter = createHighlighter({
   langs: ["typescript", "markdown", "diff", "json"],
-  themes: [
-    {
-      name: "paper-relay",
-      type: "dark",
-      colors: { "editor.background": "#17181b", "editor.foreground": "#f5f4f0" },
-      settings: [
-        { scope: ["keyword", "storage"], settings: { foreground: "#c5d985" } },
-        { scope: ["string"], settings: { foreground: "#e5cb9b" } },
-        { scope: ["comment"], settings: { foreground: "#a3aa99" } },
-        { scope: ["markup.inserted"], settings: { foreground: "#c5d985" } },
-        { scope: ["markup.deleted"], settings: { foreground: "#f0ae95" } },
-      ],
-    },
-  ],
+  themes: [PAPER_RELAY_THEME],
 })
 const escapeHtml = (text: string) =>
   text
