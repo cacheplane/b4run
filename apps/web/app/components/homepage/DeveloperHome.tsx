@@ -19,14 +19,14 @@ export async function DeveloperHome() {
     <main id="content" tabIndex={-1} className={styles.home}>
       <div className={styles.container}>
         <section className={styles.hero} aria-labelledby="home-title">
-          <p className={styles.eyebrow}>The TypeScript framework for agents.</p>
+          <p className={styles.eyebrow}>An agent framework, the way I'd build it.</p>
           <h1 id="home-title">
             Ridiculous speed.
             <br />
             Readable code.
           </h1>
           <p>
-            Write the agent, give it tools, and set its limits.
+            Write the agent in TypeScript, give it tools, and set its limits.
             <br />
             You ship code you can actually read.
           </p>

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
-<title id="title">B4.run — Ridiculous speed. Readable code.</title>
-<desc id="desc">The TypeScript framework for agents. Paper Relay repository social card.</desc>
+<title id="title">B4.run: Ridiculous speed. Readable code.</title>
+<desc id="desc">An agent framework, the way I'd build it. Paper Relay repository social card.</desc>
 <rect width="1280" height="640" fill="#f5f4f0"/>
 <svg x="72" y="56" width="194" height="43" viewBox="-5 -5 522 115">
 <title>b4.run / D2.2 / wordmark</title>
@@ -27,7 +27,7 @@
 <g font-family="Inter, sans-serif" font-weight="600" fill="#111111">
 <text x="72" y="270" font-size="88" letter-spacing="-4">Ridiculous speed.</text>
 <text x="72" y="365" font-size="88" letter-spacing="-4">Readable code.</text>
-<text x="72" y="556" font-size="24">The TypeScript framework for agents.</text>
+<text x="72" y="556" font-size="24">An agent framework, the way I'd build it.</text>
 <text x="1100" y="556" font-size="24">b4.run</text>
 </g>
 <circle cx="1124" cy="280" r="54" fill="#b4ce37"/>
