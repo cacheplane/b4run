@@ -7,6 +7,7 @@ import { DRAFTER_UNCONFIGURED } from "../src/lib/controller/workers.ts"
 import type { IssueOrigin, WorkOrderRow } from "../src/lib/domain/work-order.ts"
 import { digestGeneratedTask } from "../src/lib/intake/generated-task.ts"
 import { taskPrompt } from "../src/lib/prompts.ts"
+import { createCommandLog } from "../src/lib/registry/commands.ts"
 import { openRegistry } from "../src/lib/registry/db.ts"
 import { createWorkOrderStore, type WorkOrderPatch } from "../src/lib/registry/work-orders.ts"
 import { configureCatalog, loadTask, resetCatalogForTests } from "../src/lib/targets/catalog.ts"
@@ -389,6 +390,55 @@ describe("intake", () => {
     expect(types.indexOf("drafter_manifest_removed:")).toBeGreaterThan(
       types.indexOf("transition:intake_retry"),
     )
+  })
+
+  it("removes the manifest when the drafter thread cannot be created", async () => {
+    await boot()
+    const { id } = await createIssue()
+    await fake.close()
+    expect(await factory.intake(id)).toMatchObject({
+      ok: false,
+      state: "received",
+      message: expect.stringMatching(/^Thread creation failed/),
+    })
+    expect(manifestWrites).toHaveLength(1)
+    expect(existsSync(manifestPath(id))).toBe(false)
+    expect(eventTypes(id)).toEqual([
+      "created:",
+      "drafter_manifest_written:",
+      "drafter_manifest_removed:",
+    ])
+  })
+
+  it("removes the manifest when a cancel lands before the intake thread is committed", async () => {
+    await bootWorker()
+    // The cancel arrives in the window after the manifest is written and before the thread
+    // is committed to the row: the writer is the one seam inside that window.
+    await bootFactory({
+      writeDrafterManifest: async (options) => {
+        const written = await fakeManifestWriter(options)
+        expect(await factory.cancel(options.workOrderId)).toMatchObject({
+          ok: true,
+          state: "cancelled",
+        })
+        return written
+      },
+    })
+    const { id } = await createIssue()
+    expect(await factory.intake(id)).toEqual({
+      ok: false,
+      state: "cancelled",
+      message: "Work order changed state while starting intake",
+    })
+    // The thread was made, orphaned and cancelled on the drafter; the manifest went with it.
+    expect(threadPosts()).toHaveLength(1)
+    expect(eventTypes(id)).toContain("thread_orphaned:")
+    expect(existsSync(manifestPath(id))).toBe(false)
+    const types = eventTypes(id)
+    expect(types.indexOf("drafter_manifest_removed:")).toBeGreaterThan(
+      types.indexOf("thread_orphaned:"),
+    )
+    expect(factory.show(id)).toMatchObject({ state: "cancelled", workerThreadId: null })
   })
 
   it("refuses the intake, key spent, when the drafter manifest cannot be written", async () => {
@@ -886,6 +936,64 @@ describe("the intake gate", () => {
 })
 
 describe("intake reconciliation", () => {
+  it("adopts a builder thread a crashed dispatch journalled behind the lingering drafter thread", async () => {
+    await bootWorker()
+    await bootFactory()
+    const { id } = await intake()
+    const parked = await factory.settleIntake(id, 20_000)
+    const intakeThread = parked.workerThreadId as string
+    expect(
+      await factory.approveIntake(id, {
+        revision: parked.revision,
+        taskDigest: parked.taskDigest as string,
+      }),
+    ).toMatchObject({ ok: true, state: "received" })
+    await crash()
+    // The window a crashed dispatch leaves on an approved-draft row: the builder thread
+    // exists and is journalled, the command is open, and the row still holds the drafter's.
+    const created = await fetch(`${builder.baseUrl}/threads`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ metadata: { factoryWorkOrderId: id } }),
+    })
+    const builderThread = ((await created.json()) as { thread_id: string }).thread_id
+    expect(builderThread).not.toBe(intakeThread)
+    const registry = openRegistry(registryPath())
+    createWorkOrderStore(registry.db).appendEvent(
+      id,
+      "thread_created",
+      { threadId: builderThread },
+      new Date().toISOString(),
+    )
+    const commands = createCommandLog(registry.db)
+    commands.begin(
+      "dispatch-orphan",
+      id,
+      { command: "dispatch", args: {} },
+      new Date().toISOString(),
+    )
+    registry.close()
+    reader.set(builderThread, repaired())
+    verifier.script = { verdict: "pass" }
+    await bootFactory()
+    // No second builder thread: the journalled one is adopted, on the builder's route.
+    expect(builderThreadPosts()).toHaveLength(1)
+    expect(
+      factory.events(id).find((e) => e.payload.resolution === "thread_adopted")?.payload,
+    ).toMatchObject({ threadId: builderThread, operationKey: "dispatch-orphan" })
+    const row = await factory.settle(id, 20_000)
+    expect(row).toMatchObject({
+      state: "awaiting_approval",
+      workerThreadId: builderThread,
+      workerRoute: "/build#agent",
+    })
+    expect(await factory.dispatch(id, "dispatch-orphan")).toMatchObject({
+      ok: true,
+      state: "dispatched",
+      message: "Adopted thread after restart",
+    })
+  })
+
   it("finishes an intake whose turn ended while nobody watched", async () => {
     await bootWorker()
     await bootFactory()

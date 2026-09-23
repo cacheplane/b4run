@@ -728,6 +728,8 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
             factoryStage: "intake",
           })
         } catch (error) {
+          // No thread will ever be admitted with this manifest: the next intake writes its own.
+          removeDrafterManifest(ctx, id)
           return refuse(`Thread creation failed: ${String(error)}`)
         }
         created = true
@@ -753,6 +755,9 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           } catch (cancelError) {
             recordEvent(id, "worker_cancel_failed", { threadId, error: String(cancelError) })
           }
+          // The cancel that moved the row found no thread on it, so it removed nothing: the
+          // manifest written a moment ago is this path's to remove.
+          removeDrafterManifest(ctx, id)
         }
         return refuse("Work order changed state while starting intake")
       }

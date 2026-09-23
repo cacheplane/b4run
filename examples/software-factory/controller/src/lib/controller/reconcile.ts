@@ -32,7 +32,14 @@ export async function reconcileAll(ctx: ControllerContext): Promise<void> {
         continue
       }
       handled.add(row.id)
-      if (open.intent.command === "dispatch" && row.state === "received" && !row.workerThreadId) {
+      // A `received` row's thread, if any, is the lingering intake thread of an approved
+      // draft, so "no thread" is not the test for an uncommitted dispatch: the test is
+      // whether the thread `dispatch` journalled is one the row does not hold.
+      if (
+        open.intent.command === "dispatch" &&
+        row.state === "received" &&
+        (!row.workerThreadId || journalledThreadId(ctx, row.id) !== row.workerThreadId)
+      ) {
         await settleIncompleteDispatch(ctx, row.id, open.operationKey)
         continue
       }
@@ -76,9 +83,16 @@ async function settleIncompleteDispatch(
     return
   }
   // Adopting the orphan is the only way not to leak it: a second dispatch would create a
-  // second thread and leave this one running unobserved.
+  // second thread and leave this one running unobserved. The route is the target worker's,
+  // as `dispatch` would have recorded it.
   try {
-    ctx.transition(id, "dispatch_committed", { workerThreadId: threadId }, { reconciled: true })
+    const { route } = ctx.workerFor(ctx.mustGet(id))
+    ctx.transition(
+      id,
+      "dispatch_committed",
+      { workerThreadId: threadId, workerRoute: route },
+      { reconciled: true },
+    )
     // Journalled only once the row actually holds the thread: an adoption line above a
     // rolled-back transition would read as an adoption that never happened.
     ctx.recordEvent(id, "reconciled", { operationKey, resolution: "thread_adopted", threadId })
