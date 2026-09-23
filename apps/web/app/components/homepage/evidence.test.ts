@@ -1,15 +1,27 @@
 import { createHash } from "node:crypto"
 import { describe, expect, it } from "vitest"
 import { evidence, sourceExcerpt, validateEvidence } from "./evidence"
+import narrative from "./narrative-source.json"
 
 describe("published homepage evidence", () => {
   it("retains the selected live outcome and exact source", () => {
     expect(() => validateEvidence(evidence)).not.toThrow()
-    expect(evidence.id).toBe("90532f93-a8b9-43ff-9d94-b664a37af813")
-    expect(evidence.durationMs).toBe(113145)
+    expect(evidence.id).toBe("de4487ee-d4c9-443b-be34-70afcafcb203")
+    expect(evidence.durationMs).toBe(374150)
     expect(evidence.visible).toHaveLength(1)
     expect(evidence.independent).toHaveLength(3)
     expect(sourceExcerpt(evidence, "sandbox")).toContain('mode: "deny"')
+    expect(sourceExcerpt(evidence, "approval")).toContain('approve: ["exportForReview"]')
+  })
+
+  it("records the same example revision the narrative shows", () => {
+    expect(evidence.sourceCommit).toBe(narrative.sourceCommit)
+    for (const key of ["agent", "config", "plan"] as const) {
+      const shown = Object.values(narrative.sources).find(
+        (source) => source.path === evidence.sources[key].path,
+      )
+      expect(shown?.text, key).toBe(evidence.sources[key].text)
+    }
   })
 
   it.each(["mode", "dirty", "criteria", "checks", "source", "patch", "status", "snippet"])(

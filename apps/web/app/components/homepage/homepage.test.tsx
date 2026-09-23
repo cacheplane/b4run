@@ -67,7 +67,7 @@ it("ends with the install command and the code-fixer guide", async () => {
   expect(container.textContent).toContain("fix/tools/prepareReview.ts")
   const narrative = container.querySelector('[data-narrative="current-example"]')
   if (!narrative) throw new Error("Narrative is missing")
-  expect(narrative.textContent).not.toContain("1m 53s")
+  expect(narrative.textContent).not.toContain("6m 14s")
   expect([...narrative.querySelectorAll("h2")].map((heading) => heading.textContent)).toEqual([
     "This project is the whole agent.",
     "This code runs this agent.",
@@ -83,8 +83,18 @@ it("ends with the install command and the code-fixer guide", async () => {
   expect(tool?.textContent).toContain("await verifyChanges(")
   expect(tool?.textContent).toContain("renderReviewDiff(baseline, candidate.changes)")
   expect(narrative.querySelector("#tools [aria-expanded]")).toBeNull()
-  expect(container.textContent).toContain("1m 53s")
+  expect(container.textContent).toContain("6m 14s")
   expect(container.textContent).toContain("Awaiting your approval")
+})
+
+it("names every labelled region uniquely", async () => {
+  const container = document.createElement("div")
+  container.innerHTML = renderToString(await DeveloperHome())
+  const labels = [...container.querySelectorAll("section[aria-label]")].map((node) =>
+    node.getAttribute("aria-label"),
+  )
+  expect(labels).toContain("Recorded run · index.ts")
+  expect(new Set(labels).size).toBe(labels.length)
 })
 
 it("server renders actual source, checks, and pending approval", () => {
@@ -95,6 +105,13 @@ it("server renders actual source, checks, and pending approval", () => {
   for (const name of [...prepared.walkthrough.visible, ...prepared.walkthrough.independent])
     expect(html).toContain(name)
   expect(prepared.walkthrough.patch.url).toContain("/app/components/homepage/evidence.json")
+  for (const file of Object.values(prepared.walkthrough.files)) {
+    expect(file.url).toBe(
+      `https://github.com/cacheplane/b4run/blob/${narrativeSource.sourceCommit}/examples/code-fixer/server/${file.path}`,
+    )
+    expect(file.path).not.toContain("recorded")
+  }
+  expect(html).toContain('aria-label="Recorded run · index.ts"')
   expect(html).toContain("Awaiting your approval")
   expect(html).not.toContain("Patch exported")
 })

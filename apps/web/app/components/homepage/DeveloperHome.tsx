@@ -42,7 +42,7 @@ export async function DeveloperHome() {
         <div className={styles.recording}>
           <div className={styles.recordingHeader}>
             <p className={styles.eyebrow}>See it in action</p>
-            <p className={styles.eyebrow}>1m 53s · edited highlights</p>
+            <p className={styles.eyebrow}>6m 14s · edited highlights</p>
           </div>
           <Walkthrough {...prepared.walkthrough} />
           <div className={styles.lower}>

@@ -84,26 +84,28 @@ function recordedDiff(): string {
 }
 
 export async function prepareHomepage(): Promise<{ walkthrough: WalkthroughProps }> {
-  // The recording ran an earlier revision of the example, so these panels show
-  // the recorded source without linking to a different revision on GitHub.
-  const prepare = (key: SourceKey) => {
+  // The recorded source equals the example at the pinned revision (the exporter
+  // and evidence tests enforce it), so each panel links to that revision.
+  const prepare = async (key: SourceKey, tab: string) => {
     const source = evidence.sources[key]
-    return highlightCode(
+    const code = await highlightCode(
       source.text,
       key === "plan" ? "markdown" : "typescript",
-      `${source.path} · recorded`,
-      "",
+      source.path,
+      `https://github.com/cacheplane/b4run/blob/${evidence.sourceCommit}/examples/code-fixer/server/${source.path}`,
     )
+    // The narrative shows the same paths, so name these regions by their tab.
+    return { ...code, label: `Recorded run · ${tab}` }
   }
   const [agent, config, plan, patch] = await Promise.all([
-    prepare("agent"),
-    prepare("config"),
-    prepare("plan"),
+    prepare("agent", "index.ts"),
+    prepare("config", "b4.config.ts"),
+    prepare("plan", "plan.md"),
     highlightCode(recordedDiff(), "diff", "Recorded patch · src/cli.ts", curatedEvidenceUrl),
   ])
   return {
     walkthrough: {
-      files: { agent: { ...agent, fold: { start: 8, end: 19 } }, config, plan },
+      files: { agent: { ...agent, fold: { start: 8, end: 21 } }, config, plan },
       patch: { ...patch, linkLabel: "Run data" },
       command: evidence.command,
       failure: evidence.failure,
