@@ -391,6 +391,13 @@ or that the restarted drafter still calls `busy` with no run behind it (a reatta
 its `draft/` is read and proved like any other: a missing or partial draft is refused and
 spends an attempt. A builder thread in the same state is judged as a turn that ended.
 
+**Long waits.** `dispatch`, `intake` and `reject-intake` hold one HTTP request open for the
+whole run, and Node's fetch gives up waiting for response headers after 300 seconds while the
+work goes on in the controller. When the request ends that way (or the connection drops), the
+command says so on stderr and follows the row in the registry until it leaves its active
+state, for up to the row's active budget plus 10 minutes, then prints the row with the same
+exit codes. `FACTORY_STATE_DIR` must be set for that fallback.
+
 `dispatch` returns when the work order has stopped moving — including through the controller's
 own `verifying` phase, which is not the builder's — and tails the journal to stderr while it
 waits. If it reaches `awaiting_approval`, approve with the revision and the **bundle digest**

@@ -426,6 +426,67 @@ esac
     expect(evidence.oracleReceipt.id).toBe(proofs[1].payload.receiptId)
   }, 90_000)
 
+  it("follows the row when an awaiting dispatch's request times out while the work goes on", async () => {
+    // A builder turn slower than the request may wait: the injected timeout stands in for
+    // undici's 300 s headers timeout on `runs/wait`, which is what ended the live run's CLI.
+    const { env, stateDir } = await boot({ frameDelayMs: 1_500 })
+    const { stdout: createdOut } = await run(
+      process.execPath,
+      [tsxBin, cliEntry, "create", "--task", "cli-flags"],
+      { env, cwd: packageRoot },
+    )
+    const id = JSON.parse(createdOut).row.id as string
+    const { stdout, stderr } = await run(process.execPath, [tsxBin, cliEntry, "dispatch", id], {
+      env: { ...env, FACTORY_CLI_REQUEST_TIMEOUT_MS: "500" },
+      cwd: packageRoot,
+    })
+    expect(stderr).toContain("the request ended before its answer")
+    expect(stderr).toContain("following the row in the registry")
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: true,
+      state: "awaiting_approval",
+      message: "Settled as awaiting_approval (read from the registry after the request ended)",
+      row: { id, state: "awaiting_approval" },
+    })
+    expect(await pollState(stateDir, id, () => true)).toBe("awaiting_approval")
+  }, 90_000)
+
+  it("follows the row past a timed-out intake, with the intake's exit code", async () => {
+    const { env } = await boot(
+      {},
+      {
+        verifier: createFakeVerifier({ independent: "fail" }),
+        drafter: { frameDelayMs: 1_500, run: "edits_only" },
+      },
+    )
+    if (!served) throw new Error("no controller")
+    served.workspace.set(FIRST_DRAFTER_THREAD, BAD_DRAFTS.badTarget as Record<string, string>)
+    const created = await served.run("create-cli-timeout", "/work-orders/create#workflow", {
+      origin: {
+        kind: "issue",
+        repository: "cacheplane/b4run",
+        number: 778,
+        bodyDigest: "0".repeat(64),
+      },
+      pin: served.pin,
+      issue: { title: "T", body: "B" },
+    })
+    const id = (created.body as { row: { id: string } }).row.id
+    const { stdout, stderr } = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "intake", id], {
+        env: { ...env, FACTORY_CLI_REQUEST_TIMEOUT_MS: "500" },
+        cwd: packageRoot,
+      }),
+    )
+    expect(stderr).toContain("the request ended before its answer")
+    // Blocked is not intake's success, whichever way the answer arrived.
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: true,
+      state: "blocked",
+      row: { state: "blocked", blockedReason: "no_target_for_package" },
+    })
+  }, 90_000)
+
   it("exits non-zero when an intake settles blocked", async () => {
     const { cli, spawn } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
     if (!served) throw new Error("no controller")

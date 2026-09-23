@@ -68,6 +68,11 @@ it parks is a task directory under <FACTORY_STATE_DIR>/tasks/<workOrderId>/ (tas
 checks.json, checks/, issue.md): read it, then approve-intake with the revision and the taskDigest
 that show prints, or reject-intake with a note the next drafter turn quotes.
 
+dispatch, intake and reject-intake await the run. When the request itself ends first (an HTTP
+timeout on a long wait, a dropped connection), the command says so on stderr and follows the
+row in the registry (FACTORY_STATE_DIR) until it leaves its active state, for up to the row's
+active budget plus 10 minutes, then answers from the row with the same exit codes.
+
 Output is JSON on stdout; diagnostics go to stderr. Exit code 1 when a command is refused,
 when a dispatch settles somewhere that still owes the operator work, and when an intake or a
 reject-intake settles anywhere but awaiting_intake_approval.`
@@ -85,7 +90,27 @@ const registryPath = (): string => {
 const client = (): ControllerClient => {
   const url = process.env.FACTORY_CONTROLLER_URL
   if (!url) throw new Error("FACTORY_CONTROLLER_URL is required: this command asks a controller")
-  return createControllerClient(url)
+  return createControllerClient(url, requestFetch())
+}
+
+/**
+ * `fetch`, bounded per request by `FACTORY_CLI_REQUEST_TIMEOUT_MS` when it is set. Tests set
+ * it to stand in for undici's own headers timeout (300 s), which is what cut the live run's
+ * `intake` off mid-turn; nothing an operator runs sets it.
+ */
+function requestFetch(): typeof fetch {
+  const raw = process.env.FACTORY_CLI_REQUEST_TIMEOUT_MS
+  if (raw === undefined || raw === "") return fetch
+  const ms = Number(raw)
+  if (!Number.isInteger(ms) || ms <= 0)
+    throw new Error(`FACTORY_CLI_REQUEST_TIMEOUT_MS must be a positive integer, got ${raw}`)
+  return (input, init) => {
+    const timeout = AbortSignal.timeout(ms)
+    return fetch(input, {
+      ...init,
+      signal: init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout,
+    })
+  }
 }
 
 /** Open, read, close: a reader is a connection to someone else's registry, never held. */
@@ -142,13 +167,42 @@ const INTAKE_SUCCESS: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>([
   "awaiting_intake_approval",
 ])
 
+/** The states an awaited `intake` or `reject-intake` is still working in. */
+const INTAKE_ACTIVE: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>(["intake_running"])
+/** The states an awaited `dispatch` is still working in: the builder's turn and verification. */
+const DISPATCH_ACTIVE: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>([
+  "dispatched",
+  "running",
+  "verifying",
+])
+
+/** Beyond the row's own active budget, how long a fallen-back command keeps polling. */
+const POLL_GRACE_MS = 10 * 60_000
+
+/**
+ * The request failed in transport, not by the controller's answer: the connection ended or a
+ * timeout fired (undici's 300 s headers timeout on a long `runs/wait` is the case this exists
+ * for). A refused connection is not one: nothing reached the controller, so there is no work
+ * to wait for.
+ */
+function transportFailure(error: unknown): boolean {
+  if (error instanceof ControllerHttpError || !(error instanceof Error)) return false
+  const cause = (error as { cause?: { code?: unknown } }).cause
+  if (cause?.code === "ECONNREFUSED") return false
+  return error.name === "TimeoutError" || error.name === "AbortError" || error instanceof TypeError
+}
+
 /**
  * Send a request that awaits a run (`dispatch`, `intake`, `reject-intake`), tailing the
- * journal to stderr while it is in flight.
+ * journal to stderr while it is in flight. The run is the controller's, not this request's:
+ * when the request dies in transport while the work goes on, the command says so on stderr
+ * and follows the row in the read-only registry until it leaves `active`, within the row's
+ * own active budget plus {@link POLL_GRACE_MS}, then answers from the row as the route would.
  */
 async function awaiting(
   id: string,
   request: (controller: ControllerClient) => Promise<RouteOutcome>,
+  active: ReadonlySet<WorkOrderState>,
 ): Promise<RouteOutcome> {
   let seq = 0
   // Aborted the moment the request resolves, so a dispatch that finishes in 200 ms does not
@@ -163,6 +217,13 @@ async function awaiting(
   })()
   try {
     return await request(client())
+  } catch (error) {
+    if (!transportFailure(error)) throw error
+    const reason = error instanceof Error ? error.message : String(error)
+    process.stderr.write(
+      `factory: the request ended before its answer (${reason}); the work goes on in the controller, following the row in the registry\n`,
+    )
+    return await followRow(id, active)
   } finally {
     stop.abort()
     await tail
@@ -172,17 +233,47 @@ async function awaiting(
   }
 }
 
-/** Poll the read-only registry until `done` accepts the row, or the deadline passes. */
+/**
+ * Poll the read-only registry until `done` accepts the row, or the deadline passes. The
+ * deadline may be a function of the row, read afresh each poll (`followRow`'s is the row's
+ * own active budget).
+ */
 async function pollRow(
   id: string,
   done: (row: WorkOrderRow | null) => boolean,
-  timeoutMs: number,
+  timeoutMs: number | ((row: WorkOrderRow | null) => number),
+  intervalMs = 100,
 ): Promise<WorkOrderRow | null> {
-  const deadline = Date.now() + timeoutMs
+  const started = Date.now()
   for (;;) {
     const row = read((reader) => reader.show(id))
-    if (done(row) || Date.now() >= deadline) return row
-    await sleep(100)
+    const limit = typeof timeoutMs === "number" ? timeoutMs : timeoutMs(row)
+    if (done(row) || Date.now() - started >= limit) return row
+    await sleep(intervalMs)
+  }
+}
+
+/**
+ * The answer an awaiting command gives once its request is gone: the row, once it has left
+ * `active`. `ok` is whether it settled; the caller's exit code is read off the row's state
+ * exactly as it is off a route's answer.
+ */
+async function followRow(id: string, active: ReadonlySet<WorkOrderState>): Promise<RouteOutcome> {
+  const row = await pollRow(
+    id,
+    (r) => r !== null && !active.has(r.state),
+    (r) => (r?.maxActiveMs ?? 0) + POLL_GRACE_MS,
+    1_000,
+  )
+  if (!row) throw new Error(`Unknown work order ${id}`)
+  const settled = !active.has(row.state)
+  return {
+    ok: settled,
+    state: row.state,
+    message: settled
+      ? `Settled as ${row.state} (read from the registry after the request ended)`
+      : `Still ${row.state} after the row's active budget and ${POLL_GRACE_MS / 60_000} minutes more; run show`,
+    row,
   }
 }
 
@@ -404,13 +495,21 @@ async function main(argv: string[]): Promise<number> {
       }
       case "dispatch": {
         const id = needId()
-        const outcome = await awaiting(id, (controller) => controller.dispatch(id, values.key))
+        const outcome = await awaiting(
+          id,
+          (controller) => controller.dispatch(id, values.key),
+          DISPATCH_ACTIVE,
+        )
         print(outcome)
         return outcome.ok && outcome.row && DISPATCH_SUCCESS.has(outcome.row.state) ? 0 : 1
       }
       case "intake": {
         const id = needId()
-        const outcome = await awaiting(id, (controller) => controller.intake(id, values.key))
+        const outcome = await awaiting(
+          id,
+          (controller) => controller.intake(id, values.key),
+          INTAKE_ACTIVE,
+        )
         print(outcome)
         return outcome.ok && outcome.row && INTAKE_SUCCESS.has(outcome.row.state) ? 0 : 1
       }
@@ -429,11 +528,14 @@ async function main(argv: string[]): Promise<number> {
         const id = needId()
         const note = values.note
         if (!note) throw new Error("reject-intake requires --note")
-        const outcome = await awaiting(id, (controller) =>
-          controller.rejectIntake(id, {
-            note,
-            ...(values.key ? { operationKey: values.key } : {}),
-          }),
+        const outcome = await awaiting(
+          id,
+          (controller) =>
+            controller.rejectIntake(id, {
+              note,
+              ...(values.key ? { operationKey: values.key } : {}),
+            }),
+          INTAKE_ACTIVE,
         )
         print(outcome)
         return outcome.ok && outcome.row && INTAKE_SUCCESS.has(outcome.row.state) ? 0 : 1
