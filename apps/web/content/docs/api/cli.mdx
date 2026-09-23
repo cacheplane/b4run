@@ -41,6 +41,7 @@ import { createRuntimeFetchHandler } from "@b4run/cli/fetch"
 
 | Export | Responsibility |
 |---|---|
+| `B4Config` | Re-export the [`@b4run/core` configuration type](/docs/api/core#b4runcore), so an app that depends only on `@b4run/cli` can name it. |
 | `B4StaticModules` | Map generated route modules for runtime boot. |
 | `ServeRuntimeHandle` | Control an embedded server. |
 | `ServeRuntimeOptions` | Configure an embedded Node server. |
