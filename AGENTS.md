@@ -200,29 +200,28 @@ substitute for the other or optional release cleanup.
   a stale or skewed `dist/` (from a branch switch or a per-package filtered
   build) produces false negatives in ad-hoc scripts. Run `pnpm build` first;
   see `CONTRIBUTING.md`'s "Build before running anything against `dist/`".
-- **The SEO lastmod manifest regenerates on main, not in your PR.**
+- **Regenerate the SEO lastmod manifest in the PR that changes site content.**
   `apps/web/app/seo/lastmod.generated.json` records when each route's content
-  last changed: the committer date (UTC) of the newest commit touching the
-  route's sources, so the same commit always yields the same manifest. Where
-  Git cannot say (uncommitted edits, or a shallow clone, whose boundary commit
-  looks like it touched every file) the generator keeps the recorded value, or
-  stamps the current time for changed content. It stays committed because
-  deploy and CI checkouts are shallow and it is imported statically by the
-  sitemap. Do NOT run
-  `pnpm --dir apps/web seo:lastmod` for an ordinary content edit — the
-  `SEO lastmod` workflow regenerates and commits it after your change reaches
-  main, and a PR that regenerates it conflicts with every other docs PR inside
-  a generated file. The one case you must regenerate is adding or removing a
-  page: a route the manifest has never seen has no timestamp, and
-  `requireValidLastModified` throws during the build. That gate is a test, not
-  a CI step: the web suite's route-coverage case (`covers every route the site
-  renders`, in `apps/web/app/seo/generate-lastmod.test.ts`) reds
-  `source-validate` until you regenerate, and
-  `pnpm --dir apps/web seo:lastmod:routes` reproduces it locally. If the
-  manifest ever does conflict on a merge or rebase, it is marked `-merge` in
-  `.gitattributes`, so git leaves valid JSON on one side instead of writing
-  conflict markers into generated content — regenerate on top of that rather
-  than hand-editing it.
+  last changed. After committing a content change (docs, blog, homepage), run
+  `pnpm --dir apps/web seo:lastmod` and commit the result. Only your own
+  routes' entries change: a route whose source digest matches its recorded
+  entry keeps that entry verbatim, whatever Git history says, so the squash
+  merge that re-dates your commits does not move the date, and
+  `seo:lastmod:check` still passes on main. A changed or new route is dated by
+  the committer date (UTC) of the newest commit touching its sources — which
+  is why you commit the content first; with uncommitted sources, or in a
+  shallow clone, the generator stamps the current time instead. The file stays
+  committed because deploy and CI checkouts are shallow and the sitemap
+  imports it statically. There is no job on main that regenerates it. A
+  route the manifest has never seen has no timestamp and
+  `requireValidLastModified` throws during the build; the web suite's
+  route-coverage case (`covers every route the site renders`, in
+  `apps/web/app/seo/generate-lastmod.test.ts`) reds `source-validate` until
+  you regenerate, and `pnpm --dir apps/web seo:lastmod:routes` reproduces it
+  locally. If the manifest conflicts on a merge or rebase, it is marked
+  `-merge` in `.gitattributes`, so git leaves valid JSON on one side instead
+  of writing conflict markers — regenerate on top of that rather than
+  hand-editing it.
 - **Banned doc phrases.** `scripts/check-docs.mjs` greps `README.md`,
   `CONTRIBUTING.md`, `CONTRIBUTORS.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`,
   `apps/web/app`, `apps/web/content`, `docs/` (excluding

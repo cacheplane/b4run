@@ -2,10 +2,11 @@
 # apps/web/scripts/generate-seo-lastmod.mjs and committed so that a build with
 # no git history (Vercel's shallow clone) still has stable sitemap timestamps.
 #
-# `-merge` because a conflict here is never informative. Each route is dated
-# by the newest commit touching its sources, so two branches editing the same
-# docs page always overlap on that entry, and the right resolution is always
-# to regenerate rather than to pick a side. Without this, git writes conflict
+# `-merge` because a conflict here is never informative. Pull requests
+# regenerate the entries for the routes they change, so two branches editing
+# the same docs page overlap on that entry, and the right resolution is always
+# to regenerate rather than to pick a side (unchanged routes keep their
+# recorded entries, so only the pages you touched move). Without this, git writes conflict
 # markers into the JSON, which leaves it unparseable — so the generator cannot
 # run and the marker-ridden generated file has to be hand-edited first.
 #
