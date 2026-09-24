@@ -84,7 +84,8 @@ FACTORY_NO_FETCH=1; the whole file, with the reason, when the pin cannot be read
 receipt with its check output and the frozen bundle, and
 recomputes the bundle digest from the payload it printed. It refuses when what it printed does
 not digest to the row's, and for a draft when the oracle proof's output is not in the
-artifact store (--allow-missing-evidence approves without it, with a warning). Every line of
+artifact store, and for a bundle when the receipt's check output is not
+(--allow-missing-evidence approves without it, with a warning). Every line of
 file content is shown behind a "│ " gutter, with hidden characters escaped, so no file can
 fake a title or a digest line. At a terminal it then asks for at least the digest's first
 eight hex digits and sends the revision and the full digest it displayed. Without one, --approve --digest
@@ -601,7 +602,13 @@ async function buildReview(
     })
   // A generated task is loaded from the state directory, as the controller loads it.
   configureCatalog({ generatedTasksDir: generatedTasksDirFor(stateDir) })
-  return exportReview({ row, ...evidence, artifacts, base: pinDiffBase(row) })
+  return exportReview({
+    row,
+    ...evidence,
+    artifacts,
+    base: pinDiffBase(row),
+    allowMissingEvidence,
+  })
 }
 
 /** Send an export approval and follow it as `approve` does: re-verification outlives the request. */

@@ -884,7 +884,27 @@ esac
       return { id, bundle: dispatched.row.bundleDigest as string }
     }
     const first = await dispatchedOrder()
-    const wrong = await interactive(env, ["review", first.id], "zzzzzzzz")
+    // The fake verifier records check-output digests it never writes: an export whose receipt
+    // output is missing is not approvable as displayed unless the person says so explicitly.
+    const unseen = await failing(
+      spawn("review", first.id, "--approve", "--digest", first.bundle).promise,
+    )
+    expect(unseen.stderr).toContain("NOT IN THE ARTIFACT STORE")
+    expect(JSON.parse(unseen.stdout)).toMatchObject({
+      ok: false,
+      state: "awaiting_approval",
+      row: { id: first.id, bundleDigest: first.bundle },
+    })
+    expect(JSON.parse(unseen.stdout).message).toContain(
+      "The receipt's check output (visible/output, independent/output)",
+    )
+    expect(JSON.parse(unseen.stdout).message).toContain("--allow-missing-evidence")
+    const wrong = await interactive(
+      env,
+      ["review", first.id, "--allow-missing-evidence"],
+      "zzzzzzzz",
+    )
+    expect(wrong.stderr).toContain("!!! WARNING: The receipt's check output")
     expect(wrong.code).toBe(1)
     expect(JSON.parse(wrong.stdout).message).toContain("does not match")
     // The hunk around the changed line against the pin, not the whole file; the receipt; and
@@ -898,7 +918,7 @@ esac
     const emptyRepo = join(dir, "empty-repo")
     await run("git", ["init", "-q", emptyRepo])
     const fallback = await failing(
-      run(process.execPath, [tsxBin, cliEntry, "review", first.id], {
+      run(process.execPath, [tsxBin, cliEntry, "review", first.id, "--allow-missing-evidence"], {
         env: { ...env, FACTORY_REPO_ROOT: emptyRepo, FACTORY_NO_FETCH: "1" },
         cwd: packageRoot,
       }),
@@ -915,11 +935,16 @@ esac
     expect(wrong.stderr).toContain("--- Verification: receipt rc-")
     expect(wrong.stderr).toContain(`Bundle digest of the payload above: ${first.bundle}`)
     const notTheBundle = await failing(
-      spawn("review", first.id, "--approve", "--digest", "c".repeat(64)).promise,
+      spawn("review", first.id, "--approve", "--digest", "c".repeat(64), "--allow-missing-evidence")
+        .promise,
     )
     expect(JSON.parse(notTheBundle.stdout).message).toContain("not the bundle digest")
 
-    const approved = await interactive(env, ["review", first.id], first.bundle.slice(0, 8))
+    const approved = await interactive(
+      env,
+      ["review", first.id, "--allow-missing-evidence"],
+      first.bundle.slice(0, 8),
+    )
     expect(approved.code).toBe(0)
     expect(JSON.parse(approved.stdout)).toMatchObject({ ok: true, state: "exported" })
 

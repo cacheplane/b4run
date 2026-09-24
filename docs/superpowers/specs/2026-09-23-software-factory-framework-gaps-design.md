@@ -315,9 +315,10 @@ approval is refused; non-TTY without `--digest` refuses; the prefix must match.
 > takes no note, so the note is echoed in the output and not journalled; (3) review also
 > refuses, after displaying, when an evidence artifact does not hash to its name, a file is
 > not UTF-8, or the bundle names a different candidate or receipt than the one shown; an
-> artifact the store does not hold is shown as missing rather than refused (the fake verifier
-> records digests it never writes) — except the oracle proof's output on an intake, whose
-> absence refuses unless `--allow-missing-evidence` is passed (with a loud warning): the
+> evidence item the store does not hold (the oracle proof's output on an intake, the
+> receipt's check output on an export; the fake verifier records digests it never writes) is
+> shown as missing and refuses approval unless
+> `--allow-missing-evidence` is passed (with a loud warning): the
 > verifier identity is a free-form string, so there is no reliable marker of a verifier that
 > never writes its output, and a flag is the honest option; (4) every line of content is shown
 > behind a `│ ` gutter (runs of more than three blank lines collapsed into a count), and
@@ -335,8 +336,8 @@ approval is refused; non-TTY without `--digest` refuses; the prefix must match.
 > reject paths; the export review with the pin diff's hunk and the unreadable-pin fallback,
 > approval and deny), and unit tests in `operator-review.test.ts` for the gutter against a fake
 > title and digest line in `issue.md`, the blank-run collapse, the escapes (ESC, bidi, BOM, a
-> control character in a title), the missing-oracle-output refusal, the export's bundle-digest
-> mismatch refusal and `relativePath`'s refusal of control characters.
+> control character in a title), the missing-evidence refusals on both sides, the export's
+> bundle-digest mismatch refusal and `relativePath`'s refusal of control characters.
 
 ---
 

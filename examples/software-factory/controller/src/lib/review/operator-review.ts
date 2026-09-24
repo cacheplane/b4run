@@ -145,7 +145,7 @@ async function receiptBlock(
   receipt: Receipt,
   artifacts: ArtifactStore,
   problems: string[],
-  /** Collects each evidence item the store does not hold, as `<check>/<evidence id>`. */
+  /** Collects the id of each evidence item the store does not hold. */
   missing: string[],
 ): Promise<string> {
   const line = displayableLine
@@ -161,7 +161,7 @@ async function receiptBlock(
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         if (message.startsWith("Artifact not found")) {
-          missing.push(`${check.id}/${item.id}`)
+          missing.push(item.id)
           out += `  ${line(item.id)}: NOT IN THE ARTIFACT STORE (${item.digest})\n`
           continue
         }
@@ -173,6 +173,27 @@ async function receiptBlock(
     }
   }
   return `${out}\n`
+}
+
+/**
+ * Evidence the store does not hold was not shown, so it cannot have been read: a problem,
+ * unless the person passed `--allow-missing-evidence`, and then a warning said beside the
+ * prompt. Nothing in a receipt reliably marks a verifier that never writes its output (the
+ * identity is a free-form string), so this is the person's explicit choice, never inferred.
+ */
+function missingEvidence(
+  what: string,
+  missing: readonly string[],
+  allow: boolean | undefined,
+  into: { problems: string[]; warnings: string[] },
+): void {
+  if (missing.length === 0) return
+  const said = `${what} (${missing.join(", ")}) is not in the artifact store, so it was not shown`
+  if (allow === true) into.warnings.push(`${said}; approving without it (--allow-missing-evidence)`)
+  else
+    into.problems.push(
+      `${said}; restore it, or pass --allow-missing-evidence to approve without seeing it`,
+    )
 }
 
 /**
@@ -239,15 +260,10 @@ export async function intakeReview(input: {
       problems,
       missing,
     )
-    if (missing.length > 0) {
-      const what = `The oracle proof's output (${missing.join(", ")}) is not in the artifact store, so it was not shown`
-      if (input.allowMissingEvidence === true)
-        warnings.push(`${what}; approving without it (--allow-missing-evidence)`)
-      else
-        problems.push(
-          `${what}; restore it, or pass --allow-missing-evidence to approve without seeing it`,
-        )
-    }
+    missingEvidence("The oracle proof's output", missing, input.allowMissingEvidence, {
+      problems,
+      warnings,
+    })
   }
   text += `Task digest of the ${read.files.size} files above: ${read.digest}\n`
   if (row.taskDigest === null) problems.push("The work order has no task digest to approve")
@@ -326,9 +342,12 @@ export async function exportReview(input: {
   readonly artifacts: ArtifactStore
   /** What the candidate's files are diffed against; absent, each file is shown whole. */
   readonly base?: DiffBase
+  /** Approve even when the receipt's check output is not in the artifact store. */
+  readonly allowMissingEvidence?: boolean
 }): Promise<OperatorReview> {
   const { row, candidate, receipt, bundle } = input
   const problems: string[] = []
+  const warnings: string[] = []
   let text = `Export review of ${row.id} (${row.state}, revision ${row.revision})\n\n`
   if (candidate === null) {
     problems.push("The work order has no assembled candidate")
@@ -360,7 +379,12 @@ export async function exportReview(input: {
     problems.push("The work order has no receipt")
     text += "--- Receipt: none recorded\n\n"
   } else {
-    text += await receiptBlock("Verification", receipt, input.artifacts, problems, [])
+    const missing: string[] = []
+    text += await receiptBlock("Verification", receipt, input.artifacts, problems, missing)
+    missingEvidence("The receipt's check output", missing, input.allowMissingEvidence, {
+      problems,
+      warnings,
+    })
     if (candidate !== null && receipt.candidateDigest !== candidate.digest)
       problems.push(
         `Receipt ${receipt.id} is for candidate ${receipt.candidateDigest}, not this one`,
@@ -377,7 +401,7 @@ export async function exportReview(input: {
       label: "bundle digest",
       text,
       problems,
-      warnings: [],
+      warnings,
     }
   }
   const parsed = BundlePayloadSchema.safeParse(bundle.payload)
@@ -395,7 +419,7 @@ export async function exportReview(input: {
       label: "bundle digest",
       text,
       problems,
-      warnings: [],
+      warnings,
     }
   }
   const payload = parsed.data
@@ -417,6 +441,6 @@ export async function exportReview(input: {
     label: "bundle digest",
     text,
     problems,
-    warnings: [],
+    warnings,
   }
 }

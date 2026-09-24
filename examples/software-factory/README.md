@@ -417,10 +417,10 @@ one line saying how many, and characters a terminal would act on or not show (co
 escapes, bidirectional overrides, zero-width characters, a byte order mark, line separators,
 tag characters) are shown as `\u{…}` escapes, in titles too: no file, the third-party issue
 included, can fake a title, a digest line or hide a line. If the digest is not the row's, or a
-piece of evidence does not hash to its name, review refuses and sends nothing. For a draft it
-also refuses when the oracle proof's output is not in the artifact store, so a person cannot
-approve a proof they were not shown; `--allow-missing-evidence` approves anyway, with a
-warning (nothing in a receipt reliably marks a verifier that never writes its output, so this
+piece of evidence does not hash to its name, review refuses and sends nothing. It also refuses
+when evidence it should show is not in the artifact store (the oracle proof's output for a
+draft, the receipt's check output for a bundle), so a person cannot approve evidence they were
+not shown; `--allow-missing-evidence` approves anyway, with a loud warning (nothing in a receipt reliably marks a verifier that never writes its output, so this
 is a flag rather than a guess). At a terminal it then asks for the digest: at least its first
 eight hex digits, or all of it pasted, case-insensitive; anything else sends nothing. The display is on stderr, the outcome
 JSON on stdout. Without a terminal, `factory review <id> --approve --digest <sha256>` must name

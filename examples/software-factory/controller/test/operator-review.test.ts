@@ -148,7 +148,7 @@ describe("intakeReview", () => {
 })
 
 describe("exportReview", () => {
-  it("refuses a bundle whose payload does not digest to the row's", async () => {
+  it("refuses a bundle whose payload does not digest to the row's, or whose check output is missing", async () => {
     const receipt: Receipt = { ...(await oracle("ok\n")), id: "rc-pass", verdict: "pass" }
     receipt.checks[0] = { ...receipt.checks[0], verdict: "pass" } as Receipt["checks"][number]
     const bundle = freezeBundle({
@@ -190,6 +190,16 @@ describe("exportReview", () => {
     expect(tampered.problems.join("\n")).toContain(
       `The payload digests to ${bundle.digest}, but the work order froze ${"9".repeat(64)}`,
     )
+    // A receipt whose check output the store does not hold: refused unless explicitly allowed.
+    const row = rowOf({ state: "awaiting_approval", bundleDigest: bundle.digest })
+    rmSync(join(dir, "artifacts", `${receipt.checks[0]?.evidence[0]?.digest}.txt`))
+    const unseen = await exportReview({ ...input, row })
+    expect(unseen.problems.join("\n")).toContain(
+      "The receipt's check output (independent-output) is not in the artifact store",
+    )
+    const allowed = await exportReview({ ...input, row, allowMissingEvidence: true })
+    expect(allowed.problems).toEqual([])
+    expect(allowed.warnings.join("\n")).toContain("approving without it")
   })
 })
 
