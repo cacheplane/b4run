@@ -20,13 +20,16 @@ This example is three b4 apps that share no source:
 
 - **`controller/`** (`@b4-example/software-factory-controller`) — the controller *as a b4 app*.
   Its mutating commands are `workflow` routes: `/work-orders/create#workflow`,
-  `/work-orders/dispatch#workflow`, `/work-orders/approve#workflow`,
+  `/work-orders/dispatch#workflow`, `/work-orders/retry#workflow`, `/work-orders/approve#workflow`,
   `/work-orders/deny#workflow`, `/work-orders/cancel#workflow` and `/reconcile#workflow`.
   It holds the task and target catalog (`targets/`, `tasks/`, `fixtures/`,
   `scripts/prepare-target.ts`), the registry, the verifier, the workspace reader, every test,
   and the `factory` CLI.
 - **`server/`** (`@b4-example/software-factory-server`) — the builder: one bounded route that
-  edits files in a container, and nothing else.
+  edits files in a container, and nothing else. Its permissions are non-interactive: a command
+  off its list (the target's build and test invocations, `node `, and the drafter's read-only
+  `ls`, `cat`, `head`, `tail`, `grep`, `wc`, `sed -n`, `nl`) is a tool error the model reads,
+  never a prompt parked for a person nobody assigned.
 - **`drafter/`** (`@b4-example/software-factory-drafter`) — the drafter: one `intake` agent
   route with the four built-in workspace tools, run on the plain `node:24-slim` base image
   pinned by digest, with the network denied and permissions non-interactive. It reads a wide
@@ -110,6 +113,26 @@ repair inside a target: a spec with named acceptance ids, the defect and referen
 and the visible and independent checks. It lives under `tasks/<id>/`. Adding either is a
 directory and a prepared image, not a code change; the design is in
 [the rung 2 spec](../../docs/superpowers/specs/2026-09-19-software-factory-rung2-design.md).
+A target's `resources.verifierDeadlineMs` bounds one verification, and a work order's active
+budget (`FACTORY_MAX_ACTIVE_MS`, fixed on the row when it is created) covers everything active
+the work order does: the intake (drafter turns and oracle proofs), and each candidate attempt's
+builder turn and verification. Every `dispatch` and `retry` checks what is LEFT of it: a
+remainder below twice the target's verifier deadline (a verification, and as long again for the
+turn) is journalled (`budget_below_verifier_deadline`, also at `create` for a fresh row) and
+refused before a thread is spent. So size the budget as the intake plus
+`FACTORY_MAX_CANDIDATE_ATTEMPTS` × 2 × `verifierDeadlineMs`. The `cli` target verifies for up to
+an hour (3,600,000 ms), and the first live run's intake spent about 36 minutes over three
+drafter attempts, so with the default two candidate attempts its work orders need
+`FACTORY_MAX_ACTIVE_MS=18000000` (an hour of intake plus 2 × 2 × one hour) set on the controller
+before `create`. The approval's re-verification is not charged: it runs while the row waits in
+`awaiting_approval`, which is not active time.
+A target may carry `draftingNotes`: at most ten one-line facts about its own code that a
+drafter needs to write a check (how a fixture route exports its entry, how a run names its
+route, which helper the package's own tests drive it with). The intake prompt lists them under
+the target's line. They are facts true at the target's pin, never a solution, and they are not
+an image input: editing them changes no image tag or environment identity and needs no
+`target:prepare`. The `cli` target's notes are how attempt 4's check could have reached the
+behaviour instead of failing route discovery with `B4_E1007`.
 
 ## What it does not do
 
@@ -230,6 +253,8 @@ no registry (the manifests need no step: `dispatch` and `intake` write one per w
     pnpm --filter @b4-example/software-factory-controller \
       factory builder-target --target cli-flags --out /tmp/factory-builder
 
+The file also carries the builder's permission allow-list, derived from the target: rewrite
+it (and restart the builder) after upgrading the controller, or the builder keeps the old list.
 The file records the pin whose image the builder runs: the target's default pin, or
 `--pin <sha>` for another prepared one (`builder-target --target devkit --pin <sha>`; a pin
 with no image is refused, naming the prepare command). **One builder serves one pin at a
@@ -248,6 +273,15 @@ controller will leave its manifests in:
     FACTORY_BUILDER_MANIFEST_DIR=/tmp/builder-manifests \
     OPENAI_API_KEY=... \
       pnpm --filter @b4-example/software-factory-server dev --port 4100
+
+Do not set `B4_PERMISSIONS_MODE` in this process: it would override the builder app's
+`non-interactive` mode, and a builder that parks on a permission prompt blocks its work order
+as `unexpected_interrupt`, spending a candidate attempt on a question nobody answers. With the
+legacy worker pair (`FACTORY_BUILDER_TARGET`), the controller reads the same target file at its
+boot and `dispatch` refuses, before the key, a builder whose allow-list differs from what the
+controller would write today ("the builder's target file is stale"): rewrite the file with
+`factory builder-target`, restart the builder, then the controller. A `FACTORY_WORKERS` entry
+names no target file, so there the comparison is skipped.
 
 A second target is a second builder process, with its own target file, manifest directory,
 port **and app root**. The app root is where the process keeps its installation store
@@ -336,7 +370,10 @@ the work order's manifest there before it creates the thread, and removes it onc
 leaves `dispatched`/`running` (the resolver reads it once, at the thread's first admission;
 verification reads the workspace through the reader) or a cancel has settled the thread. Without the
 drafter pair the controller starts and every command works except `intake`, which refuses
-before spending anything.
+before spending anything. The controller keeps every file it writes at run time under
+`FACTORY_STATE_DIR` (the registry, evidence, generated tasks, and the captures it stages
+under `captures/` and `verifiers/`), so its own package directory stays read-only while it
+runs and `b4 dev` never restarts it mid-command.
 
 **5. Drive it** (terminal 4). Every command above and below runs from the repository root.
 The CLI's write commands are requests to the running controller
@@ -349,10 +386,12 @@ The CLI's write commands are requests to the running controller
 
     factory create --task cli-flags
     factory create --issue 778 [--repo owner/name]         # from a GitHub issue, pinned to origin/main
+    factory create --issue 714 --pin <sha>                 # replay a fixed issue at the commit before its fix
     factory intake <id>                                    # issue work orders only; awaits the draft
     ls $FACTORY_STATE_DIR/tasks/<id>/                      # task.json spec.md checks.json checks/ issue.md
     factory approve-intake <id> --revision <n> --digest <sha256>   # or: factory reject-intake <id> --note "..."
     factory dispatch <id>                                  # awaits; journal events on stderr
+    factory retry <id>                                     # a candidate failure, attempts permitting; then dispatch again
     factory show <id>
     factory events <id>
     factory evidence <id>
@@ -360,6 +399,38 @@ The CLI's write commands are requests to the running controller
     factory approve <id> --revision <n> --bundle <sha256>   # or: factory deny <id>
     factory cancel <id>
     factory reconcile
+
+`--pin` is the replay mode: a fixed issue, pinned at the commit before its fix, has a known
+right answer, so the fix's own test grades what the factory produces without the drafter or the
+builder being able to see it.
+
+**The model key.** `OPENAI_API_KEY` must be in the environment of the builder and drafter
+processes (steps 2 and 3), not the controller's or this terminal's. Both boot without it and
+fail only at their first model call, as a failed turn. To load the one variable from the
+repository's gitignored `.env` without printing it, in a way every shell runs (bash process
+substitution, `source <(...)`, is silently ignored by macOS's bash 3.2):
+
+    export OPENAI_API_KEY="$(sed -n 's/^OPENAI_API_KEY=//p' .env)"
+
+**After a restart.** The controller reconciles on its first request, not when the process
+starts (b4 has no boot hook), so after restarting it run `factory reconcile` before anything
+else. A work order interrupted mid-intake is reconciled then: a drafter thread that is idle,
+or that the restarted drafter still calls `busy` with no run behind it (a reattach answers
+`live: false`; the runtime persists `busy` across a crash), has its turn treated as ended, and
+its `draft/` is read and proved like any other: a missing or partial draft is refused and
+spends an attempt. A builder thread in the same state is judged as a turn that ended.
+
+**Long waits.** `dispatch`, `intake`, `reject-intake` and `approve` hold one HTTP request open
+for the whole run, and Node's fetch gives up waiting for response headers after 300 seconds
+while the work goes on in the controller. When the request ends that way (or the connection
+drops), the command says so on stderr and follows the row in the registry until it leaves its
+active state, for up to the row's active budget plus 10 minutes, then prints the row with the
+same exit codes. `approve` re-verifies with the row still `awaiting_approval` at its revision
+(about 20 minutes on the `cli` target), so it is followed by its journal instead: the
+`approve_started` line says the request arrived, `approve_refused` ends it as a refusal, and it
+exits 0 only when the row reads `exported`. Do not repeat a timed-out `approve`: the repeat is
+refused `run_in_flight` while the first still runs. `FACTORY_STATE_DIR` must be set for that
+fallback.
 
 `dispatch` returns when the work order has stopped moving — including through the controller's
 own `verifying` phase, which is not the builder's — and tails the journal to stderr while it
@@ -388,16 +459,36 @@ and the drafter could edit its copy of the repository. That is safe because noth
 the copy back — the controller reads the thread **re-rooted at `draft/`** (a read of a
 different root, not a filter over the whole tree), the network is denied, and the capture
 is the thread's own; a write under `repo/` changes what the drafter sees and nothing else.
+The drafter's `immutablePaths` need not restate the target's runner configuration: the
+controller fills it in after the drafter's own entries, as it fills the id and the pin, and
+refuses only a draft whose allowed paths reach it (every such path named in one refusal).
 The manifest lives until the work order leaves intake for good (a block, an approval, a
 settled cancel): a redraft reuses the admitted thread and needs no manifest, and one is
 some 20 MiB on this repository, so it is removed rather than kept. The controller validates
-the draft, fits it to a prepared target, materialises it as a task directory under
+the draft, reads its check statically (a **pre-check**, in milliseconds, before any container:
+the check must parse (skipped for a target whose checks run under a loader), import `test` or
+`it` from `node:test` at run time (not `import type`), load the build only through
+`join(process.cwd(), "packages/<name>/dist/...")` (or a variable holding `process.cwd()`), import
+neither the package under repair by name nor an absolute `/workspace/` path, use no relative
+specifier reaching outside `checks/`, and name top-level tests with exactly the `A<n>` ids
+`checks.json` lists; comments, assertion messages and a spawned argv are not read as imports; a draft
+that breaks any of these is refused as `intake_invalid`, every broken rule named with its line,
+and spends an attempt), fits it to a prepared target, materialises it as a task directory under
 `<FACTORY_STATE_DIR>/tasks/<id>/` (the four files plus `issue.md`), and then **proves the
 oracle**: it runs only the drafted check, with no candidate changes, against the unpatched
-baseline in the target's image, and the check must FAIL there. A check that passes on the
-defect would pass on anything, so that draft is refused. An invalid draft or one that is not
+baseline in the target's image, and the check must FAIL there, by a named `A<n>` assertion
+failing by assertion (`ERR_ASSERTION`). A check that passes on the defect would pass on
+anything, and one that cannot load (a wrong import, a syntax error) or fails only by a throw
+or in a test it does not name proves nothing (`inconclusive`), so either draft is refused. The
+refusal quotes each failure: which test, its error code and the first line of its message
+(`A1 failed with B4_E1007 ("Route entry ... has no recognisable export (found: default)."), not
+an assertion failure: ...`), or the first error line of a check file that failed to load. An
+invalid draft or one that is not
 an oracle starts another drafter turn on the same thread with the refusal quoted; the
-attempts default to 2, and the last refusal blocks the work order. A draft naming a package
+attempts default to 2 (`FACTORY_MAX_INTAKE_ATTEMPTS`, fixed on the row at create), and the
+last refusal blocks the work order. A blocked intake's generated task stays on disk beside the
+kept refused copy; it is inert, since only an approval by digest puts a task in front of a
+builder. A draft naming a package
 with no prepared target blocks immediately (`no_target_for_package`), since no redraft can
 prepare one, and so does a draft whose target has no image at the work order's pin
 (`image_unprepared`: the prompt lists only the targets prepared at that pin, and the task's
@@ -412,11 +503,40 @@ with `--key <fresh>`. A pin the repository does not hold and cannot fetch is ref
 the key is spent, so that call simply works once the pin is reachable.
 Unlike `awaiting_approval`, `awaiting_intake_approval` has no expiry: the draft waits as long
 as it takes, and waiting on a person is not active time.
+A new work order for an issue that earlier work orders drafted carries their `reject-intake`
+notes into its first drafter prompt, newest first (at most four, 1,500 characters each), as
+"Maintainer decisions from earlier reviews of this issue": a decision about the issue outlives
+the work order it was written on.
 The review bundle later freezes the origin (issue and body digest), the pin, the approved task
 digest and the oracle receipt id, so approving the export consents to all of them together.
 A bundle frozen before these fields existed no longer parses, and there is no re-freeze from
 `awaiting_approval`: a work order parked there across this change must be `deny`-ed and
 created again.
+
+**Retrying a candidate.** A work order blocked by a candidate failure (`unexpected_interrupt`,
+`scope_violation`, `encoding_violation`, `candidate_rejected`, `verification_failed`,
+`verification_inconclusive`) can be retried while it has candidate attempts left
+(`FACTORY_MAX_CANDIDATE_ATTEMPTS`, default 2, fixed on the row at create; each committed
+`dispatch` spends one, counted as `candidateAttempts`). `factory retry <id>` denies any prompt
+still parked on the old builder thread, cancels whatever run is left on it, journals
+`retry { attempt, previousBlockedReason }`, and returns the row to `received` with its thread,
+interrupt, candidate, bundle and reason cleared; it does not dispatch. `factory dispatch <id>`
+then writes a fresh manifest and starts a fresh builder thread from the same approved task (the
+task digest is re-checked, as on any dispatch). The active-time budget is the work order's and
+is not reset: `retry`, and any `dispatch` after the first, refuse before the key when what is
+left (`FACTORY_MAX_ACTIVE_MS` at create, less the active time already spent, intake included)
+is under twice the target's verifier deadline, naming the shortfall; the remedy is a new work
+order created under a larger `FACTORY_MAX_ACTIVE_MS`. A `retry --key` whose key already holds
+an outcome replays it. Every other block (an intake refusal, an exhausted budget, an unconfirmed export)
+is refused, and so is a retry with no attempts left: cancel it and create a new work order. A
+row created before the counter existed has it backfilled from its committed dispatches.
+
+**The elision guard.** Before a candidate is verified, the controller refuses one whose changed
+file carries an elision placeholder the baseline did not (`... (file truncated` anywhere; a line
+that is nothing but a placeholder such as `// rest of the file unchanged` or `(unchanged)`) or,
+from 1 KiB up, shrank below half its baseline. The work order blocks as
+`candidate_rejected` in seconds, with the file and line journalled on the `assembly_rejected`
+transition, instead of after a full verification; it is retryable.
 
 **Exit codes.** A refused command and a runtime conflict (a second command while one is in
 flight, a cancelled dispatch) both exit 1 with the body printed; everything else that
@@ -439,7 +559,7 @@ The controller app reads:
 | `FACTORY_BUILDER_TARGET` | with `FACTORY_WORKER_URL` | The target file that builder boots from (`factory builder-target`); the controller keys the entry by its `target.id` and takes the builder's pin from its `target.pin`. Missing or unreadable is a boot error naming it |
 | `FACTORY_WORKER_ROUTE` | no | Default `/build#agent`; only with the legacy pair |
 | `FACTORY_BUILDER_MANIFEST_DIR` | no | Default `<builder app root>/.factory/manifests`; must be the directory the builder process was started with. Only with the legacy pair |
-| `FACTORY_STATE_DIR` | yes | Holds `registry.sqlite`, `artifacts/` and `exports/` |
+| `FACTORY_STATE_DIR` | yes | Holds `registry.sqlite`, `artifacts/`, `exports/`, generated `tasks/`, and the `captures/` and `verifiers/` staging the controller removes after each use |
 | `FACTORY_DRAFTER_URL` | for `intake` | The drafter's Agent Protocol base URL, `http(s)` only. Set with `FACTORY_DRAFTER_APP_ROOT` or not at all |
 | `FACTORY_DRAFTER_APP_ROOT` | for `intake` | The DRAFTER package's root, so the controller can read a drafter thread's `draft/` through its installation store |
 | `FACTORY_DRAFTER_ROUTE` | no | Default `/intake#agent`; only with the drafter pair |
@@ -448,14 +568,21 @@ The controller app reads:
 | `FACTORY_EXPORT_DIR` | no | Default `<state>/exports`; also the bundle's destination identity |
 | `FACTORY_ARTIFACTS_DIR` | no | Default `<state>/artifacts`, the content-addressed evidence store |
 | `FACTORY_APPROVAL_TTL_MS` | no | Default 900000 |
-| `FACTORY_MAX_ACTIVE_MS` | no | Default 1200000; waiting on a person is not active time |
+| `FACTORY_MAX_ACTIVE_MS` | no | Default 1200000; waiting on a person is not active time. What remains of it must be at least twice the target's `verifierDeadlineMs` at every `dispatch` and `retry`, or they refuse: size it as intake + candidate attempts × 2 × the deadline (the `cli` target, two attempts: 18000000) |
 | `FACTORY_MAX_CHANGED_BYTES` | no | Default 1048576; exceeding it is a `scope_violation`, never a truncation |
+| `FACTORY_MAX_INTAKE_ATTEMPTS` | no | Default 2, a positive integer: the drafter turns an issue intake may spend before its last refusal blocks it. Fixed on the row at create, like `FACTORY_MAX_ACTIVE_MS` |
+| `FACTORY_MAX_CANDIDATE_ATTEMPTS` | no | Default 2, a positive integer: the builder dispatches a work order may spend, the first and one per `retry`. Fixed on the row at create |
 | `FACTORY_REPO_ROOT` | no | The repository the targets pin into and the wide capture is taken from; default `git rev-parse --show-toplevel` from the package. Set by the Docker-lane tests, which copy the app outside the repository. |
 
 The CLI's `create --issue` reads `FACTORY_GH` (default `gh`: the executable that answers
 `issue view`), `FACTORY_REPOSITORY` (the `owner/name` to read from, else `--repo`, else the
 checkout's `origin` remote) and `FACTORY_NO_FETCH` (`1` skips the `git fetch origin main`
-before the pin is resolved from the checkout named by `FACTORY_REPO_ROOT`).
+before the pin is resolved from the checkout named by `FACTORY_REPO_ROOT`). With `--pin <sha>`
+there is no `origin/main` to fetch or read at all: the named commit is used, fetched from
+`origin` by sha only when the object store lacks it, and `FACTORY_NO_FETCH=1` refuses such a
+pin, naming it, instead of fetching. `FACTORY_CLI_REQUEST_TIMEOUT_MS` and
+`FACTORY_CLI_ARRIVAL_WINDOW_MS` are test-only (they shorten the request timeout and the arrival
+window the long-wait fallback measures); an operator sets neither.
 
 The builder app reads `FACTORY_BUILDER_TARGET` (required: the target file `factory
 builder-target` writes), `FACTORY_BUILDER_MANIFEST_DIR` (required: the manifest directory,
@@ -467,7 +594,11 @@ which may be empty; its `check` and `build` scripts default it to `.factory/mani
 writes and `FACTORY_STATE_DIR` for reads; `builder-target` and `builder-manifest` need
 neither. `builder-manifest --task <id> --out <dir> [--work-order <id>]` writes one work
 order's manifest (named by the task id by default) for driving a builder without a
-controller.
+controller; it stages its capture under `FACTORY_STATE_DIR` when that is set (as the
+controller does) and otherwise under a temporary directory it removes, never under the
+controller package. `target:prepare` builds from a temporary archive and writes only the
+target's `target.json` (under `FACTORY_TARGETS_DIR` when set), so run it before a `b4 dev`
+controller starts or point it at another targets directory.
 
 A work order whose worker has left the map — the drafter pair unset while a draft is in
 flight, a target's entry removed while its build runs — waits where it is, journalling
@@ -532,4 +663,9 @@ an empty manifest directory — the only place either runs, since a target file 
 else — pulls the drafter's base image
 by the digest in `drafter/src/drafter-image.ts`, runs the drafter's `check` and `build`
 against an empty manifest directory, and then runs the controller's `test:sandbox`, which
-serves the drafter in both of its drafter lanes.
+serves the drafter in both of its drafter lanes. The `cli` target's lane
+(`target-cli.integration.test.ts`) is opt-in and skips there: it needs the `cli` image (2 GB)
+and runs about 70 minutes, so it runs by hand with
+`pnpm --filter @b4-example/software-factory-controller target:prepare cli` and then
+`pnpm --filter @b4-example/software-factory-controller test:sandbox:cli`
+(`FACTORY_TEST_CLI_TARGET=1`).

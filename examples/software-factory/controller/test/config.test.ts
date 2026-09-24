@@ -31,8 +31,10 @@ describe("loadConfig", () => {
         route: "/build#agent",
         // The builder's FACTORY_BUILDER_MANIFEST_DIR default, under its app root.
         manifestDir: "/tmp/builder/.factory/manifests",
-        // Read from the target file the builder boots from: the pin it runs at.
+        // Read from the target file the builder boots from: the pin it runs at, and the
+        // allow-lists it runs with, which `dispatch` compares with what it would write now.
         pin: shippedPin("cli-flags"),
+        permissions: JSON.parse(readFileSync(cliFlagsTarget, "utf8")).target.permissions,
       },
     })
   })
@@ -317,6 +319,26 @@ describe("rung 1 configuration", () => {
     })
     expect(Object.keys(stale)).not.toContain("intakeRoute")
     expect(Object.keys(stale)).not.toContain("intakeTaskId")
+  })
+
+  it("defaults intake attempts to 2, takes a positive integer, and refuses anything else", () => {
+    expect(loadConfig(base).maxIntakeAttempts).toBe(2)
+    expect(loadConfig({ ...base, FACTORY_MAX_INTAKE_ATTEMPTS: "4" }).maxIntakeAttempts).toBe(4)
+    for (const bad of ["0", "-1", "1.5", "two"])
+      expect(() => loadConfig({ ...base, FACTORY_MAX_INTAKE_ATTEMPTS: bad })).toThrow(
+        /FACTORY_MAX_INTAKE_ATTEMPTS/,
+      )
+  })
+
+  it("defaults candidate attempts to 2, takes a positive integer, and refuses anything else", () => {
+    expect(loadConfig(base).maxCandidateAttempts).toBe(2)
+    expect(loadConfig({ ...base, FACTORY_MAX_CANDIDATE_ATTEMPTS: "3" }).maxCandidateAttempts).toBe(
+      3,
+    )
+    for (const bad of ["0", "-1", "1.5", "two"])
+      expect(() => loadConfig({ ...base, FACTORY_MAX_CANDIDATE_ATTEMPTS: bad })).toThrow(
+        /FACTORY_MAX_CANDIDATE_ATTEMPTS/,
+      )
   })
 
   it("rejects a non-positive byte cap", () => {

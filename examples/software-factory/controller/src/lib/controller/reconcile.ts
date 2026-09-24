@@ -50,7 +50,8 @@ export async function reconcileAll(ctx: ControllerContext): Promise<void> {
       await safeReconcile(ctx, row.id)
       const final = ctx.mustGet(row.id)
       ctx.commands.complete(open.operationKey, {
-        ok: settledOk(final),
+        // A `retry` that committed its transition before the crash did what it was for.
+        ok: open.intent.command === "retry" ? final.state === "received" : settledOk(final),
         state: final.state,
         message: `Reconciled after restart; work order is ${final.state}`,
       })
@@ -145,9 +146,14 @@ function journal(
   }
 }
 
-/** The thread id `dispatch` journalled before it crashed, if it got that far. */
+/**
+ * The thread id `dispatch` journalled before it crashed, if it got that far. Only a thread
+ * created since the last `retry` counts: the one before it is the abandoned attempt's, and
+ * adopting it would hand the failed candidate's workspace to the new dispatch.
+ */
 function journalledThreadId(ctx: ControllerContext, id: string): string | null {
   for (const event of ctx.store.events(id).reverse()) {
+    if (event.type === "retry") return null
     if (event.type !== "thread_created") continue
     const threadId = event.payload.threadId
     if (typeof threadId === "string" && threadId.length > 0) return threadId
@@ -284,18 +290,27 @@ async function reconcileRun(
       ctx.recordEvent(id, "run_still_live", { threadId, attempt })
       return
     }
-    let frames: AsyncIterable<StreamFrame>
+    let reattached: Reattachment
     try {
-      frames = await worker.reattach(threadId, ctx.signal)
+      reattached = await reattachLive(worker.reattach(threadId, ctx.signal))
     } catch (error) {
       ctx.recordEvent(id, "reattach_failed", { threadId, error: String(error) })
       return
     }
-    ctx.recordEvent(id, "reattached", { threadId })
-    // The reattached observer carries this pass's number; the pass it opens when the stream
-    // ends is the one that increments it.
-    ctx.track(id, ctx.observeRun(id, frames, { reconcileAttempt: attempt }))
-    return
+    if (!isRunState(ctx.mustGet(id).state)) {
+      await reattached.close()
+      return
+    }
+    if (reattached.live) {
+      ctx.recordEvent(id, "reattached", { threadId })
+      // The reattached observer carries this pass's number; the pass it opens when the stream
+      // ends is the one that increments it.
+      ctx.track(id, ctx.observeRun(id, reattached.frames, { reconcileAttempt: attempt }))
+      return
+    }
+    // A thread the worker still calls busy, with no run behind it: see `reattachLive`. The
+    // turn is over, so it is judged as one that ended.
+    ctx.recordEvent(id, "reattach_not_live", { threadId, status: thread.status })
   }
   // The turn is over with nothing parked, so it left a workspace behind — exactly what the
   // end of a stream means when the controller is watching one. Whether that workspace holds
@@ -375,18 +390,27 @@ async function reconcileIntake(
       ctx.recordEvent(id, "intake_still_live", { threadId, attempt })
       return
     }
-    let frames: AsyncIterable<StreamFrame>
+    let reattached: Reattachment
     try {
-      frames = await worker.reattach(threadId, ctx.signal)
+      reattached = await reattachLive(worker.reattach(threadId, ctx.signal))
     } catch (error) {
       ctx.recordEvent(id, "reattach_failed", { threadId, error: String(error) })
       return
     }
-    ctx.recordEvent(id, "reattached", { threadId, phase: "intake" })
-    // The reattached observer carries this pass's number; the pass it opens when the stream
-    // ends is the one that increments it, and that pass finishes the intake once idle.
-    ctx.track(id, ctx.observeIntakeTurn(id, frames, { reconcileAttempt: attempt }))
-    return
+    if (!isIntake()) {
+      await reattached.close()
+      return
+    }
+    if (reattached.live) {
+      ctx.recordEvent(id, "reattached", { threadId, phase: "intake" })
+      // The reattached observer carries this pass's number; the pass it opens when the stream
+      // ends is the one that increments it, and that pass finishes the intake once idle.
+      ctx.track(id, ctx.observeIntakeTurn(id, reattached.frames, { reconcileAttempt: attempt }))
+      return
+    }
+    // A stale busy thread (see `reattachLive`): the turn is over, and its `draft/` is read
+    // like any ended turn's. A missing or partial draft is then refused, spending an attempt.
+    ctx.recordEvent(id, "reattach_not_live", { threadId, phase: "intake", status: thread.status })
   }
   // The turn is over with nothing parked: whatever it left under `draft/` is now the
   // controller's to read and prove. Tracked, not awaited, for the reason `reverify` gives:
@@ -407,6 +431,54 @@ async function reconcileIntake(
       ctx.recordEvent(id, "reconcile_failed", { phase: "intake", error: String(error) })
     }),
   )
+}
+
+/** A reattached stream, once its first frame has said whether a run is behind it. */
+type Reattachment = { readonly close: () => Promise<void> } & (
+  | { readonly live: true; readonly frames: AsyncIterable<StreamFrame> }
+  | { readonly live: false }
+)
+
+/**
+ * Open a reattachment and read its first frame. The runtime answers a reattach with a
+ * `state` frame first, and `live: false` there means no run is in memory behind the thread:
+ * the turn ended, or the worker died mid-turn and came back. The second case is why this
+ * exists. The runtime persists a thread's `busy` status across a crash (framework-gaps spec
+ * §9), so after a `kill -9` a thread reads `busy` forever with no run to finish it; waiting
+ * for one would leave the row `intake_still_live` (or `run_still_live`) on every pass. A
+ * stream that ends before any frame says the same. Otherwise the first frame is handed back
+ * in front of the rest, so the observer sees the stream exactly as the worker sent it.
+ */
+async function reattachLive(opening: Promise<AsyncIterable<StreamFrame>>): Promise<Reattachment> {
+  const iterator = (await opening)[Symbol.asyncIterator]()
+  const close = async () => {
+    try {
+      await iterator.return?.()
+    } catch {
+      // Closing a stream we are done with: nothing to report.
+    }
+  }
+  const first = await iterator.next()
+  if (first.done) return { live: false, close }
+  if (first.value.event === "state" && notLive(first.value.data)) {
+    await close()
+    return { live: false, close }
+  }
+  const head = first.value
+  async function* frames(): AsyncGenerator<StreamFrame> {
+    yield head
+    for (;;) {
+      const next = await iterator.next()
+      if (next.done) return
+      yield next.value
+    }
+  }
+  return { live: true, frames: frames(), close }
+}
+
+/** `live: false` exactly: a state frame that omits the field says nothing either way. */
+function notLive(data: unknown): boolean {
+  return typeof data === "object" && data !== null && (data as { live?: unknown }).live === false
 }
 
 /**

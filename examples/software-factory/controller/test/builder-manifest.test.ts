@@ -90,7 +90,7 @@ describe("builder manifest", () => {
     const task = loadTask("cli-flags")
     const written = await writeBuilderManifest(task, dir, {
       workOrderId: "wo-0123456789abcdef",
-      appRoot: app,
+      captureRoot: app,
     })
     // The resolver reads `<dir>/<metadata.factoryWorkOrderId>.json`, so the file name is the
     // work order's, not the task's: two work orders of one task are two manifests.
@@ -121,8 +121,8 @@ describe("builder manifest", () => {
     )
     expect(workspace.baseline).toBe("git")
     // The staging directory was the call's own, and is gone: nothing of the target is left
-    // under the app root beside the manifest.
-    expect(readdirSync(join(app, ".factory", "captures", "builder"))).toEqual([])
+    // under the capture root beside the manifest.
+    expect(readdirSync(join(app, "captures", "builder"))).toEqual([])
   })
 
   it("defaults the work order to the task, and two work orders of one task share the bytes", async () => {
@@ -130,9 +130,9 @@ describe("builder manifest", () => {
     const app = tempDir("factory-manifest-app-")
     const task = loadTask("cli-flags")
     const [first, second, third] = await Promise.all([
-      writeBuilderManifest(task, dir, { appRoot: app }),
-      writeBuilderManifest(task, dir, { workOrderId: "wo-a", appRoot: app }),
-      writeBuilderManifest(task, dir, { workOrderId: "wo-b", appRoot: app }),
+      writeBuilderManifest(task, dir, { captureRoot: app }),
+      writeBuilderManifest(task, dir, { workOrderId: "wo-a", captureRoot: app }),
+      writeBuilderManifest(task, dir, { workOrderId: "wo-b", captureRoot: app }),
     ])
     expect(first?.path).toBe(join(dir, "cli-flags.json"))
     expect(readdirSync(dir).sort()).toEqual(["cli-flags.json", "wo-a.json", "wo-b.json"])
@@ -144,7 +144,10 @@ describe("builder manifest", () => {
   it("refuses a work order id that is not a catalog id", async () => {
     const dir = tempDir("factory-manifest-")
     await expect(
-      writeBuilderManifest(loadTask("cli-flags"), dir, { workOrderId: "../escape" }),
+      writeBuilderManifest(loadTask("cli-flags"), dir, {
+        workOrderId: "../escape",
+        captureRoot: tempDir("factory-manifest-app-"),
+      }),
     ).rejects.toThrow(/catalog id/)
     expect(readdirSync(dir)).toEqual([])
   })
@@ -153,10 +156,10 @@ describe("builder manifest", () => {
     const dir = tempDir("factory-manifest-")
     const app = tempDir("factory-manifest-app-")
     const task = loadTask("cli-flags")
-    await writeBuilderManifest(task, dir, { workOrderId: "wo-a", appRoot: app })
+    await writeBuilderManifest(task, dir, { workOrderId: "wo-a", captureRoot: app })
     // A second write of the same work order (a redispatch) renames over the first: a
     // resolver reading at that moment sees one whole file or the other.
-    await writeBuilderManifest(task, dir, { workOrderId: "wo-a", appRoot: app })
+    await writeBuilderManifest(task, dir, { workOrderId: "wo-a", captureRoot: app })
     expect(readdirSync(dir)).toEqual(["wo-a.json"])
     expect(existsSync(join(dir, "wo-a.json"))).toBe(true)
   })

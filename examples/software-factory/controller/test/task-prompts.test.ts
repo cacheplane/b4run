@@ -4,12 +4,14 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { createFactory, type Factory } from "../src/lib/controller/factory.ts"
-import { promptFor } from "../src/lib/prompts.ts"
+import { promptFor, taskPrompt } from "../src/lib/prompts.ts"
 import {
   type CatalogOptions,
   configureCatalog,
+  loadTask,
   resetCatalogForTests,
 } from "../src/lib/targets/catalog.ts"
+import { READ_ONLY_BASH } from "../src/lib/targets/permissions.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
@@ -143,6 +145,55 @@ describe("promptFor", () => {
   })
 })
 
+describe("taskPrompt's rules", () => {
+  const rulesOf = (prompt: string) => prompt.slice(prompt.indexOf("\nRules:\n"))
+
+  it("tells the builder to edit with editFile and never rewrite a file with writeFile", () => {
+    const rules = rulesOf(taskPrompt(loadTask("devkit-spawn-deadline")))
+    expect(rules).toMatch(/Change an existing file with `editFile`/)
+    expect(rules).toMatch(/Never rewrite an existing file with `writeFile`/)
+    expect(rules).toMatch(/Your tools are readFile, listDir, editFile, writeFile and runBash\./)
+  })
+
+  it("tells it to read a large file in ranges, and names both ways", () => {
+    const rules = rulesOf(taskPrompt(loadTask("devkit-spawn-deadline")))
+    expect(rules).toMatch(/`readFile` with `startLine` and `endLine`/)
+    expect(rules).toMatch(/`grep -n`/)
+    expect(rules).toMatch(/`sed -n '<from>,<to>p'`/)
+  })
+
+  it("forbids elision text and says an elided file is refused", () => {
+    const rules = rulesOf(taskPrompt(loadTask("cli-flags")))
+    expect(rules).toMatch(/Never write placeholder or elision text/)
+    expect(rules).toContain("`(file truncated)`")
+    // Spread syntax is code, not elision: the rule names a line standing in for code.
+    expect(rules).toContain("a line such as `...` standing in for omitted code")
+    expect(rules).toMatch(/refused before it is tested/)
+  })
+
+  it("names the commands it may run, from the same list its permissions pre-approve", () => {
+    const task = loadTask("devkit-spawn-deadline")
+    const rules = rulesOf(taskPrompt(task))
+    expect(rules).toMatch(/Run the build and test commands above to confirm the repair/)
+    expect(rules).toContain("`node`")
+    for (const command of READ_ONLY_BASH) expect(rules).toContain(`\`${command}\``)
+    // The invocations are named once, above the rules, not listed twice.
+    const build = task.target.commands.build.join(" ")
+    expect(rules).not.toContain(build)
+    expect(rules).toMatch(/Any other command is refused with an error/)
+  })
+
+  it("speaks of the test command alone for a target with no build", () => {
+    const task = loadTask("cli-flags")
+    expect(task.target.commands.build).toEqual([])
+    const rules = rulesOf(taskPrompt(task))
+    expect(rules).toMatch(/Run the test command above to confirm/)
+    expect(rules).not.toMatch(/build and test/)
+    expect(taskPrompt(task)).toContain("When the repair is complete and the tests pass")
+    expect(taskPrompt(task)).not.toContain("the build and tests pass")
+  })
+})
+
 describe("the controller over a partly unprepared catalog", () => {
   it("boots, creates a work order for the task it can serve and refuses the one it cannot", async () => {
     const { root, pin } = repo()
@@ -153,6 +204,7 @@ describe("the controller over a partly unprepared catalog", () => {
     factory = await createFactory({
       registryPath: join(dir, "registry.sqlite"),
       generatedTasksDir: join(dir, "tasks"),
+      captureRoot: dir,
       workers: fakeWorkerMap({
         builder: {
           client: createHttpWorkerClient(worker.baseUrl),
@@ -187,6 +239,7 @@ describe("the controller over a partly unprepared catalog", () => {
     factory = await createFactory({
       registryPath: join(dir, "registry.sqlite"),
       generatedTasksDir: join(dir, "tasks"),
+      captureRoot: dir,
       workers: fakeWorkerMap({
         builder: {
           client: createHttpWorkerClient(worker.baseUrl),

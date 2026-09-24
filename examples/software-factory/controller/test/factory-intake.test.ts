@@ -10,7 +10,10 @@ import { taskPrompt } from "../src/lib/prompts.ts"
 import { createCommandLog } from "../src/lib/registry/commands.ts"
 import { openRegistry } from "../src/lib/registry/db.ts"
 import { createWorkOrderStore, type WorkOrderPatch } from "../src/lib/registry/work-orders.ts"
+import { createArtifactStore } from "../src/lib/storage/artifacts.ts"
 import { configureCatalog, loadTask, resetCatalogForTests } from "../src/lib/targets/catalog.ts"
+import { assembleReceipt, evidenceRef } from "../src/lib/verification/receipt.ts"
+import type { Verifier } from "../src/lib/verification/verifier.ts"
 import { createHttpWorkerClient, type WorkerClient } from "../src/lib/worker/client.ts"
 import {
   type WorkspaceReader,
@@ -121,6 +124,7 @@ async function bootFactory(overrides: BootOverrides = {}) {
   factory = await createFactory({
     registryPath: registryPath(),
     generatedTasksDir: generated,
+    captureRoot: dir,
     workers: fakeWorkerMap({
       // One reader serves both stages: the drafter's `draft/` and the builder's candidate are
       // scripted under their own thread ids, and the fake ignores the task and the root.
@@ -408,10 +412,48 @@ describe("intake", () => {
     const types = eventTypes(id)
     expect(types.indexOf("intake_refused:")).toBeLessThan(types.indexOf("transition:intake_retry"))
     expect(types.at(-1)).toBe("transition:intake_drafted")
+    // The refused draft is kept where the operator can read it after the retry overwrote
+    // the drafter's own `draft/`, beside the reason, and the journal says where.
+    const kept = join(generated, ".refused", id, "attempt-1")
+    expect(refusal?.payload).toMatchObject({
+      keptAt: kept,
+      keptFiles: ["checks.json", "checks/spawn-deadline.test.ts", "spec.md", "task.json"],
+    })
+    expect(readFileSync(join(kept, "spec.md"), "utf8")).toBe(
+      (BAD_DRAFTS.acceptanceMismatch as Draft)["draft/spec.md"],
+    )
+    expect(readFileSync(join(kept, "reason.txt"), "utf8")).toBe(`attempt 1: ${reason}\n`)
+    // Outside the task directory: the approved digest is over the task alone.
+    const row2 = factory.show(id) as WorkOrderRow
+    expect(digestGeneratedTask(join(generated, id))).toBe(row2.taskDigest)
+    expect(existsSync(join(generated, id, "refused"))).toBe(false)
     // The second turn is told what was wrong with the first.
     expect(promptOf(0)).not.toContain("Previous attempt was refused")
     expect(promptOf(1)).toContain("Previous attempt was refused")
     expect(promptOf(1)).toContain(reason)
+  })
+
+  it("keeps a refused draft's hostile keys inside its own directory", async () => {
+    await boot({}, { maxIntakeAttempts: 2 })
+    const hostile = { ...GOOD_DRAFT, "draft/../../escape.txt": "x", "draft/reason.txt": "forged" }
+    const { id } = await intake({ queue: [hostile, GOOD_DRAFT] })
+    expect(await factory.settleIntake(id, 20_000)).toMatchObject({
+      state: "awaiting_intake_approval",
+    })
+    const kept = join(generated, ".refused", id, "attempt-1")
+    expect(refusals(id)[0]?.payload.keptFiles).toEqual([
+      "checks.json",
+      "checks/spawn-deadline.test.ts",
+      "spec.md",
+      "task.json",
+    ])
+    expect(existsSync(join(generated, ".refused", "escape.txt"))).toBe(false)
+    expect(existsSync(join(generated, "escape.txt"))).toBe(false)
+    const reasonText = readFileSync(join(kept, "reason.txt"), "utf8")
+    expect(reasonText).toMatch(/^attempt 1: draft file .* is not a canonical relative path/)
+    expect(reasonText).toContain(
+      'Not copied (not a canonical path under draft/): "draft/../../escape.txt", "draft/reason.txt"',
+    )
   })
 
   it("blocks as attempts exhausted when the redraft is still invalid", async () => {
@@ -427,6 +469,20 @@ describe("intake", () => {
     expect(refusals(id)).toHaveLength(2)
     // The row says the attempts ran out; the journal says what the last one was refused for.
     expect(refusals(id)[1]?.payload).toMatchObject({ blockedReason: "intake_invalid", attempt: 2 })
+    // The blocking transition agrees with the row, and carries the last refusal beside it.
+    const blocked = factory
+      .events(id)
+      .find((e) => e.type === "transition" && e.payload.event === "intake_blocked")
+    expect(blocked?.payload).toMatchObject({
+      blockedReason: "intake_attempts_exhausted",
+      lastRefusal: "intake_invalid",
+      attempt: 2,
+    })
+    // Both attempts' drafts are kept, each with its own reason.
+    for (const attempt of [1, 2])
+      expect(
+        readFileSync(join(generated, ".refused", id, `attempt-${attempt}`, "reason.txt"), "utf8"),
+      ).toMatch(new RegExp(`^attempt ${attempt}: draft/spec\\.md states \\[A1, A2\\]`))
     expect(eventTypes(id).filter((t) => t === "transition:intake_retry")).toHaveLength(1)
     // The retry kept the manifest (the same thread redrafts); the block removed it: nothing
     // will admit that thread again.
@@ -614,11 +670,77 @@ describe("intake", () => {
     expect(verifier.calls).toHaveLength(2)
     expect(refusals(id)).toHaveLength(2)
     expect(refusals(id)[1]?.payload).toMatchObject({ blockedReason: "oracle_did_not_fail" })
+    const blocked = factory
+      .events(id)
+      .find((e) => e.type === "transition" && e.payload.event === "intake_blocked")
+    expect(blocked?.payload).toMatchObject({
+      blockedReason: "intake_attempts_exhausted",
+      lastRefusal: "oracle_did_not_fail",
+    })
+    // A draft the oracle did not prove is kept too: it parsed, so every file is there.
+    expect(readFileSync(join(generated, ".refused", id, "attempt-2", "checks.json"), "utf8")).toBe(
+      GOOD_DRAFT["draft/checks.json"],
+    )
     expect(String(refusals(id)[1]?.payload.reason)).toMatch(/did not fail.*pass \(independent\)/)
     const receipts = factory.events(id).filter((e) => e.type === "oracle_receipt")
     expect(receipts).toHaveLength(2)
     expect(receipts[0]?.payload).toMatchObject({ verdict: "pass", proven: false })
     expect(promptOf(1)).toContain("did not fail on the unpatched baseline")
+  })
+
+  it("quotes what the check failed with in the refusal and the redraft's prompt", async () => {
+    // Attempt 4: the check's fixture route had only a default export, so A1 failed with the
+    // runtime's B4_E1007 before reaching the behaviour. The receipt is the real verifier's
+    // own decision over those events, and its evidence lands in the factory's artifact store.
+    await bootWorker()
+    const artifacts = createArtifactStore(join(dir, "artifacts"))
+    const name = "A1: runs/wait answers 200"
+    const message =
+      "Route entry /tmp/fixture/src/app/noop/index.ts has no recognisable export (found: default)."
+    const realShaped: Verifier = {
+      async verify(input) {
+        const plan = assembleReceipt({
+          visible: null,
+          mode: "independentOnly",
+          acceptanceIds: { visible: [], independent: [name] },
+          independent: {
+            build: { ok: true, output: "" },
+            tampered: false,
+            result: {
+              verdict: "fail",
+              output: "stderr\n",
+              events: [{ type: "test:fail", name, failure: "B4_E1007", message }],
+            },
+          },
+        })
+        return {
+          id: `rc-${input.workOrderId}-${Math.random().toString(36).slice(2)}`,
+          workOrderId: input.workOrderId,
+          candidateDigest: input.candidateDigest,
+          verifierIdentity: "test:real-plan",
+          policyDigest: input.policyDigest,
+          environmentIdentity: "test:none",
+          issuedAt: new Date().toISOString(),
+          verdict: plan.verdict,
+          checks: await Promise.all(
+            plan.checks.map(async (check) => ({
+              id: check.id,
+              acceptanceIds: [...check.acceptanceIds],
+              verdict: check.verdict,
+              evidence: [evidenceRef(check.id, (await artifacts.put(check.evidence)).digest)],
+            })),
+          ),
+        }
+      },
+    }
+    await bootFactory({ verifier: realShaped, maxIntakeAttempts: 2 })
+    const { id } = await intake()
+    await factory.settleIntake(id, 20_000)
+    const quoted = `A1 failed with B4_E1007 (${JSON.stringify(message)}), not an assertion failure: the check must reach the behaviour and fail on an assert`
+    expect(String(refusals(id)[0]?.payload.reason)).toBe(
+      `the drafted check did not fail on the unpatched baseline: inconclusive (independent): ${quoted}`,
+    )
+    expect(promptOf(1)).toContain(quoted)
   })
 
   it("blocks as a failed run, not a spent attempt, when the harness cannot run", async () => {
@@ -736,6 +858,11 @@ describe("the drafter thread's draft/", () => {
     ])
     expect(refusals(id)[0]?.payload.reason).toBe(
       "draft/ is missing: the drafter wrote nothing under it",
+    )
+    // Nothing to copy, but the reason is still kept where an operator looks.
+    expect(refusals(id)[0]?.payload.keptFiles).toEqual([])
+    expect(readFileSync(join(generated, ".refused", id, "attempt-1", "reason.txt"), "utf8")).toBe(
+      "attempt 1: draft/ is missing: the drafter wrote nothing under it\n",
     )
     // Not a failed run: a reader that could not read is `intake_run_failed`; this one read
     // the thread and found nothing where the draft belongs.
@@ -952,7 +1079,9 @@ describe("the intake gate", () => {
       state: "awaiting_approval",
       message: expect.stringMatching(/Generated task changed/),
     })
-    expect(factory.events(id).at(-1)).toMatchObject({
+    // The invalidation, then the refusal line a following CLI reads.
+    expect(factory.events(id).at(-1)).toMatchObject({ type: "approve_refused" })
+    expect(factory.events(id).at(-2)).toMatchObject({
       type: "bundle_invalidated",
       payload: { field: "Generated task", frozen: taskDigest },
     })
@@ -1005,6 +1134,11 @@ describe("the intake gate", () => {
       blockedReason: "intake_attempts_exhausted",
       intakeAttempts: 2,
     })
+    expect(
+      factory
+        .events(id)
+        .find((e) => e.type === "transition" && e.payload.event === "intake_blocked")?.payload,
+    ).toMatchObject({ blockedReason: "intake_attempts_exhausted", lastRefusal: "intake_rejected" })
     expect(runPosts()).toHaveLength(2)
     // Blocked with no attempts left: nothing will redraft on that thread, and the manifest goes.
     expect(existsSync(manifestPath(id))).toBe(false)
@@ -1012,6 +1146,67 @@ describe("the intake gate", () => {
       ok: false,
       message: "Cannot reject intake from blocked",
     })
+  })
+
+  it("carries the notes that rejected earlier work orders of the same issue into a new intake", async () => {
+    await boot({}, { maxIntakeAttempts: 3 })
+    const { id } = await intake()
+    await factory.settleIntake(id, 20_000)
+    const older = "answer 200 with the JSON body null, not an empty body"
+    expect((await factory.rejectIntake(id, { note: older })).ok).toBe(true)
+    await factory.settleIntake(id, 20_000)
+    const newer = "A2 must not depend on a deleted fixture directory"
+    expect((await factory.rejectIntake(id, { note: newer })).ok).toBe(true)
+    await factory.settleIntake(id, 20_000)
+    expect(await factory.cancel(id)).toMatchObject({ ok: true, state: "cancelled" })
+    // The replacement work order starts with neither note on its own row.
+    const other = await factory.createFromIssue({
+      origin: { ...ORIGIN, number: 779 },
+      pin: PIN,
+      issue: ISSUE,
+    })
+    expect((await factory.intake(other.id)).ok).toBe(true)
+    await factory.settleIntake(other.id, 20_000)
+    const unrelated = promptOf(runPosts().length - 1)
+    expect(unrelated).not.toContain("Maintainer decisions")
+    await factory.cancel(other.id)
+    const second = await factory.createFromIssue({ origin: ORIGIN, pin: PIN, issue: ISSUE })
+    expect((await factory.intake(second.id)).ok).toBe(true)
+    await factory.settleIntake(second.id, 20_000)
+    const prompt = promptOf(runPosts().length - 1)
+    expect(prompt).toContain("## Maintainer decisions from earlier reviews of this issue")
+    expect(prompt).toContain(older)
+    expect(prompt).toContain(newer)
+    // Newest first, and not mistaken for a refusal of this work order's own draft.
+    expect(prompt.indexOf(newer)).toBeLessThan(prompt.indexOf(older))
+    expect(prompt).not.toContain("Previous attempt was refused")
+    expect(
+      factory.events(second.id).find((e) => e.type === "intake_decisions_carried")?.payload,
+    ).toEqual({ count: 2 })
+  })
+
+  it("keeps an operator's note in front of the drafter after a refusal replaces it as the note", async () => {
+    await boot({}, { maxIntakeAttempts: 3 })
+    const check = "draft/checks/spawn-deadline.test.ts"
+    const failsPrecheck = {
+      ...GOOD_DRAFT,
+      [check]: (GOOD_DRAFT[check] as string).replace('import test from "node:test"\n', ""),
+    }
+    const { id } = await intake({ queue: [GOOD_DRAFT, failsPrecheck, GOOD_DRAFT] })
+    await factory.settleIntake(id, 20_000)
+    const decision = "answer 200 with the JSON body null, never an empty body"
+    expect((await factory.rejectIntake(id, { note: decision })).ok).toBe(true)
+    const row = await factory.settleIntake(id, 20_000)
+    expect(row).toMatchObject({ state: "awaiting_intake_approval", intakeAttempts: 3 })
+    expect(runPosts()).toHaveLength(3)
+    // Turn 2 quotes the rejection as its note, and only there.
+    expect(promptOf(1)).toContain("Previous attempt was refused")
+    expect(promptOf(1)).toContain(decision)
+    expect(promptOf(1)).not.toContain("Maintainer decisions")
+    // Turn 3's note is the pre-check's refusal; the operator's decision is still in front of it.
+    expect(promptOf(2)).toContain("fails the static pre-check")
+    expect(promptOf(2)).toContain("## Maintainer decisions from earlier reviews of this issue")
+    expect(promptOf(2)).toContain(decision)
   })
 
   it("cancels a drafter turn in flight", async () => {
@@ -1257,6 +1452,54 @@ describe("intake reconciliation", () => {
     expect(reattaches).toHaveLength(1)
     expect(factory.events(id).filter((e) => e.type === "reattached")).toHaveLength(1)
     expect(factory.show(id)?.state).toBe("intake_running")
+    expect(runPosts()).toHaveLength(1)
+  })
+
+  /** The live run's window: the drafter was killed mid-turn and came back reading `busy`. */
+  async function staleBusyIntake(): Promise<{ id: string; threadId: string }> {
+    await bootWorker()
+    await bootFactory()
+    const { id } = await createIssue()
+    await crash()
+    const created = await fetch(`${fake.baseUrl}/threads`, { method: "POST" })
+    const { thread_id: threadId } = (await created.json()) as { thread_id: string }
+    fake.markStaleBusy(threadId)
+    forceRow(id, { state: "intake_running", workerThreadId: threadId })
+    return { id, threadId }
+  }
+
+  it("finishes an intake whose thread reads busy with no run behind it", async () => {
+    const { id, threadId } = await staleBusyIntake()
+    reader.set(threadId, GOOD_DRAFT)
+    await bootFactory()
+    const row = await factory.settleIntake(id, 20_000)
+    expect(row).toMatchObject({ state: "awaiting_intake_approval", intakeAttempts: 1 })
+    const types = factory.events(id).map((e) => e.type)
+    expect(types).toContain("reattach_not_live")
+    expect(types).not.toContain("reattached")
+    expect(types).not.toContain("intake_still_live")
+    expect(factory.events(id).find((e) => e.type === "reconciled")?.payload).toMatchObject({
+      resolution: "finish_intake",
+      status: "busy",
+    })
+    // One reattach, answered `live: false`; never a new turn.
+    expect(
+      fake.requests.filter((r) => r.method === "GET" && r.path.endsWith("/runs/stream")),
+    ).toHaveLength(1)
+    expect(runPosts()).toHaveLength(0)
+  })
+
+  it("refuses the missing draft a stale busy intake left, spending an attempt", async () => {
+    const { id, threadId } = await staleBusyIntake()
+    // The killed turn wrote nothing; the redraft the refusal starts writes the draft.
+    reader.queue(threadId, [{}, GOOD_DRAFT])
+    await bootFactory()
+    const row = await factory.settleIntake(id, 20_000)
+    expect(row).toMatchObject({ state: "awaiting_intake_approval", intakeAttempts: 2 })
+    expect(refusals(id)).toHaveLength(1)
+    expect(refusals(id)[0]?.payload).toMatchObject({ blockedReason: "intake_invalid", attempt: 1 })
+    expect(String(refusals(id)[0]?.payload.reason)).toContain("draft/task.json is missing")
+    expect(factory.events(id).map((e) => e.type)).not.toContain("intake_still_live")
     expect(runPosts()).toHaveLength(1)
   })
 

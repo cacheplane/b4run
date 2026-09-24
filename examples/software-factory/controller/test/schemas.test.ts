@@ -22,6 +22,7 @@ function validRow() {
     bundleDigest: null,
     blockedReason: null,
     failureReason: null,
+    candidateAttempts: 0,
     maxCandidateAttempts: 1,
     maxActiveMs: 1000,
     activeMs: 0,

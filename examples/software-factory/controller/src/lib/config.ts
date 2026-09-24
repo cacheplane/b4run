@@ -50,6 +50,13 @@ export interface WorkerEndpoint {
    * the target's default pin, resolved from the catalog where it is used.
    */
   readonly pin?: string
+  /**
+   * The permission allow-lists in the target file the builder booted from, as the controller
+   * read it at its own boot: known only for the legacy pair (`FACTORY_BUILDER_TARGET`), whose
+   * file the controller reads. `dispatch` compares them with what the controller would write
+   * today and refuses a builder still running an older list.
+   */
+  readonly permissions?: Readonly<Record<string, readonly string[]>>
 }
 
 /** The drafter: the one process that runs `/intake#agent` for every issue work order. */
@@ -150,6 +157,8 @@ const EnvSchema = z.object({
   FACTORY_APPROVAL_TTL_MS: positiveInt("FACTORY_APPROVAL_TTL_MS"),
   FACTORY_MAX_ACTIVE_MS: positiveInt("FACTORY_MAX_ACTIVE_MS"),
   FACTORY_MAX_CHANGED_BYTES: positiveInt("FACTORY_MAX_CHANGED_BYTES"),
+  FACTORY_MAX_INTAKE_ATTEMPTS: positiveInt("FACTORY_MAX_INTAKE_ATTEMPTS"),
+  FACTORY_MAX_CANDIDATE_ATTEMPTS: positiveInt("FACTORY_MAX_CANDIDATE_ATTEMPTS"),
   /** The drafter pair: set both or neither. */
   FACTORY_DRAFTER_URL: httpUrl("FACTORY_DRAFTER_URL").optional(),
   FACTORY_DRAFTER_APP_ROOT: z.string().min(1).optional(),
@@ -192,6 +201,16 @@ export interface FactoryConfig {
   readonly maxActiveMs: number
   readonly maxChangedBytes: number
   /**
+   * Drafter turns an issue intake may spend before it blocks: fixed on the row at create,
+   * like `maxActiveMs`, so a restart with another value leaves existing work orders alone.
+   */
+  readonly maxIntakeAttempts: number
+  /**
+   * Builder dispatches a work order may spend: the first, plus one per `retry` of a candidate
+   * failure. Fixed on the row at create, like `maxIntakeAttempts`.
+   */
+  readonly maxCandidateAttempts: number
+  /**
    * The drafter's sandbox image: with the fixed scope, the identity of the provider that
    * addresses a drafter thread's workspace. Must equal what the drafter app booted with
    * (`FACTORY_DRAFTER_IMAGE` on both, else the pinned default on both).
@@ -212,7 +231,11 @@ export function workerEndpointFor(
  * from, parsed with the same schema, so the controller routes to that builder exactly the
  * work orders its resolver will admit, and compares each task's pin with the one it runs at.
  */
-function builderTargetOf(path: string): { readonly id: string; readonly pin: string } {
+function builderTargetOf(path: string): {
+  readonly id: string
+  readonly pin: string
+  readonly permissions: Readonly<Record<string, readonly string[]>>
+} {
   let text: string
   try {
     text = readFileSync(path, "utf8")
@@ -220,8 +243,8 @@ function builderTargetOf(path: string): { readonly id: string; readonly pin: str
     throw new Error(`FACTORY_BUILDER_TARGET could not be read (${path}): ${String(error)}`)
   }
   try {
-    const { id, pin } = BuilderTargetSchema.parse(JSON.parse(text)).target
-    return { id, pin }
+    const { id, pin, permissions } = BuilderTargetSchema.parse(JSON.parse(text)).target
+    return { id, pin, permissions }
   } catch (error) {
     throw new Error(
       `FACTORY_BUILDER_TARGET is not a builder target file (${path}): ${error instanceof z.ZodError ? z.prettifyError(error) : String(error)}`,
@@ -306,7 +329,7 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
       throw invalid(
         "FACTORY_BUILDER_TARGET is required with FACTORY_WORKER_URL: the target file that builder boots from (`factory builder-target`), which names the one target it serves",
       )
-    let builderTarget: { readonly id: string; readonly pin: string }
+    let builderTarget: ReturnType<typeof builderTargetOf>
     try {
       builderTarget = builderTargetOf(e.FACTORY_BUILDER_TARGET)
     } catch (error) {
@@ -315,6 +338,7 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
     workers = {
       [builderTarget.id]: {
         pin: builderTarget.pin,
+        permissions: builderTarget.permissions,
         url: e.FACTORY_WORKER_URL.replace(/\/$/, ""),
         appRoot: e.FACTORY_BUILDER_APP_ROOT,
         route: e.FACTORY_WORKER_ROUTE,
@@ -368,6 +392,8 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
     approvalTtlMs: e.FACTORY_APPROVAL_TTL_MS ?? 900_000,
     maxActiveMs: e.FACTORY_MAX_ACTIVE_MS ?? 1_200_000,
     maxChangedBytes: e.FACTORY_MAX_CHANGED_BYTES ?? 1024 * 1024,
+    maxIntakeAttempts: e.FACTORY_MAX_INTAKE_ATTEMPTS ?? 2,
+    maxCandidateAttempts: e.FACTORY_MAX_CANDIDATE_ATTEMPTS ?? 2,
     drafterImage: e.FACTORY_DRAFTER_IMAGE,
   }
 }

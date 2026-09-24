@@ -137,6 +137,24 @@ const TargetObjectSchema = z
       .strict(),
     /** Files the test command reads to decide what to run; every task must keep them immutable. */
     runnerConfig: z.array(relativePath).min(1),
+    /**
+     * Short facts about the target's own code that a drafter needs to write a check and cannot
+     * be expected to know: how a fixture is shaped, which export a loader recognises, which
+     * helper the package's own tests drive it with. Rendered under the target's line in the
+     * intake prompt, one bullet each. Not an image input (`imageTag` and the environment
+     * identity never read them), so editing them needs no `target:prepare`. Facts, never a
+     * solution: every drafted task for the target sees them.
+     */
+    draftingNotes: z
+      .array(
+        z
+          .string()
+          .min(1)
+          .max(400)
+          .refine((note) => !/[\r\n]/.test(note), "a drafting note is one line"),
+      )
+      .max(10)
+      .optional(),
     resources: z
       .object({
         memoryMb: z.number().int().positive(),
@@ -326,7 +344,7 @@ export function ensurePin(
     `factory: pin ${pin.slice(0, 12)} for ${label} is not in the local object store; fetching it from origin\n`,
   )
   try {
-    execFileSync("git", ["-C", repo, "fetch", "--depth=1", "origin", pin], {
+    execFileSync("git", ["-C", repo, "fetch", ...pinFetchDepth(repo), "origin", pin], {
       stdio: ["ignore", "ignore", "inherit"],
       timeout: 120_000,
     })
@@ -335,6 +353,26 @@ export function ensurePin(
   }
   if (!commitExists(repo, pin))
     throw new Error(`${missing} (fetching it from origin also failed: the fetch did not add it)`)
+}
+
+/**
+ * `--depth=1` only for a checkout that is already shallow (CI's): there it fetches the one
+ * commit and nothing else. On a full clone the same flag would make the clone shallow
+ * (`.git/shallow`, shared by every linked worktree, truncating history for all of them), and
+ * a plain fetch of a full clone is already incremental. A probe that fails reads as full: the
+ * plain fetch is the one that cannot damage the clone.
+ */
+function pinFetchDepth(repo: string): string[] {
+  try {
+    const shallow = execFileSync("git", ["-C", repo, "rev-parse", "--is-shallow-repository"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 10_000,
+    }).trim()
+    return shallow === "true" ? ["--depth=1"] : []
+  } catch {
+    return []
+  }
 }
 
 function commitExists(repo: string, pin: string): boolean {
@@ -520,11 +558,28 @@ function taskDirectory(id: string, options: CatalogOptions): string {
 }
 
 /**
- * Does `manifest` fit `target`: no allowed path may reach the runner configuration, every
- * runner configuration path is kept immutable, and a node-test visible suite is itself kept
- * immutable. A vitest visible suite runs inside the target's own test command rather than as
- * a file the builder could edit directly, so keeping the directory that holds it immutable
- * is the task author's job instead (the devkit task lists `packages/devkit/test`).
+ * The paths `target` and `checks` require every task on them to keep immutable: the target's
+ * runner configuration, then a node-test visible suite's file. Controller-owned policy, like
+ * a generated task's id and pin: intake fills them into a draft's `immutablePaths` rather
+ * than asking a drafter to restate them. A vitest visible suite runs inside the target's own
+ * test command rather than as a file the builder could edit directly, so keeping the
+ * directory that holds it immutable is the task author's job instead (the devkit task lists
+ * `packages/devkit/test`).
+ */
+export function requiredImmutablePaths(
+  checks: Checks,
+  target: Pick<Target, "runnerConfig">,
+): string[] {
+  return checks.visible.runner === "node-test"
+    ? [...target.runnerConfig, checks.visible.file]
+    : [...target.runnerConfig]
+}
+
+/**
+ * Does `manifest` fit `target`: no allowed path may reach the runner configuration, and every
+ * path {@link requiredImmutablePaths} names is kept immutable. Every problem is collected and
+ * reported in one error, so a refusal names each offending path at once rather than one per
+ * attempt.
  */
 export function assertTaskFitsTarget(
   id: string,
@@ -532,17 +587,27 @@ export function assertTaskFitsTarget(
   checks: Checks,
   target: Pick<Target, "runnerConfig">,
 ): void {
-  for (const path of manifest.allowedSourcePaths)
-    if (target.runnerConfig.some((entry) => overlaps(path, entry)))
-      throw new Error(`Task ${id} may edit ${path}, which is the target's runner configuration`)
+  const problems: string[] = []
+  for (const path of manifest.allowedSourcePaths) {
+    const reached = target.runnerConfig.filter((entry) => overlaps(path, entry))
+    if (reached.length > 0)
+      problems.push(
+        `may edit ${path}, which reaches the target's runner configuration (${reached.join(", ")})`,
+      )
+  }
   for (const path of target.runnerConfig)
     if (!covers(manifest.immutablePaths, path))
-      throw new Error(`Task ${id}: runner configuration ${path} must be immutable`)
+      problems.push(`runner configuration ${path} must be immutable`)
   if (
     checks.visible.runner === "node-test" &&
     !covers(manifest.immutablePaths, checks.visible.file)
   )
-    throw new Error(`Task ${id}: visible suite ${checks.visible.file} must be immutable`)
+    problems.push(`visible suite ${checks.visible.file} must be immutable`)
+  if (problems.length === 1) throw new Error(`Task ${id}: ${problems[0]}`)
+  if (problems.length > 1)
+    throw new Error(
+      `Task ${id} does not fit its target (${problems.length} problems): ${problems.join("; ")}`,
+    )
 }
 
 /** Parse `raw` against `schema`, rethrowing a schema failure with task-scoped context. */

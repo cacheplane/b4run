@@ -15,6 +15,7 @@ import {
   IllegalTransitionError,
   isTerminal,
   nextState,
+  RETRYABLE_BLOCKED_REASONS,
   type TransitionEvent,
 } from "../domain/states.js"
 import {
@@ -52,6 +53,7 @@ import {
   prepareCommand,
   repositoryRoot,
 } from "../targets/catalog.js"
+import { builderPermissions } from "../targets/permissions.js"
 import { builderTarget } from "../targets/workspace.js"
 import { loadPolicy } from "../verification/policy.js"
 import type { Verifier } from "../verification/verifier.js"
@@ -97,6 +99,13 @@ export interface FactoryOptions {
    * to both.
    */
   readonly generatedTasksDir: string
+  /**
+   * Where the default manifest writers stage the captures they take (`captures/<role>/...`):
+   * the runtime's `FACTORY_STATE_DIR`. Never the controller's app root: `b4 dev` watches that
+   * directory and restarts the server on a write it does not ignore, which killed `intake`
+   * mid-command the first time the factory ran under it.
+   */
+  readonly captureRoot: string
   readonly verifier: Verifier
   /**
    * Writes the drafter manifest `intake` hands the drafter before it creates the thread: the
@@ -138,8 +147,19 @@ export interface FactoryOptions {
   readonly promptCatalog?: CatalogOptions
   readonly approvalTtlMs?: number
   readonly maxActiveMs?: number
+  /**
+   * Test seam: dispatch or retry a row whose remaining budget is below twice its target's verifier deadline
+   * (still journalled). For a test of budget exhaustion itself, whose tiny budget no real
+   * target's verification fits; never set by the runtime's configuration.
+   */
+  readonly allowBudgetBelowVerifierDeadline?: boolean
   /** Drafter turns an intake may spend before it blocks. Default 2. */
   readonly maxIntakeAttempts?: number
+  /**
+   * Builder dispatches a work order may spend: the first, and one per `retry`. Default 2.
+   * Fixed on the row at create (`FACTORY_MAX_CANDIDATE_ATTEMPTS`).
+   */
+  readonly maxCandidateAttempts?: number
   /** How long a cancel waits for the cancelled run's observer to settle. Default 10s. */
   readonly cancelSettleMs?: number
   readonly budgetTickMs?: number
@@ -180,6 +200,13 @@ export interface Factory {
   /** Journal the note and, attempts permitting, run another drafter turn with it quoted. */
   rejectIntake(id: string, input: { note: string; operationKey?: string }): Promise<CommandOutcome>
   dispatch(id: string, operationKey?: string): Promise<CommandOutcome>
+  /**
+   * Return a work order a candidate failure blocked (`RETRYABLE_BLOCKED_REASONS`) to
+   * `received`, where `dispatch` starts a fresh builder thread, while it has candidate
+   * attempts left. The old thread's pending prompt is denied and its run cancelled; the
+   * approved task digest stays bound, and `dispatch` re-checks it.
+   */
+  retry(id: string, operationKey?: string): Promise<CommandOutcome>
   approve(
     id: string,
     input: { revision: number; bundleDigest: string; operationKey?: string },
@@ -283,6 +310,53 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     return `builder for ${target} runs at ${builderPin}, whose environment (${what}) differs from ${taskPin}: prepare ${target} at ${taskPin} (\`${prepareCommand(target, taskPin)}\`), then restart its builder from \`factory builder-target --target ${target} --pin ${taskPin}\` and set that pin on its worker entry; or cancel`
   }
   /**
+   * A builder still running an allow-list older than the one the controller would write for
+   * its target today. The allow-list lives in the target file the builder booted from, so a
+   * change to `builderPermissions` (the read commands the first live dispatch lacked) reaches
+   * no builder until its file is rewritten and it restarts; until then its prompt names
+   * commands its permissions refuse. Known only
+   * when the controller read the builder's target file (the legacy pair); undefined when the
+   * lists agree or cannot be compared.
+   */
+  const stalePermissionsRefusal = (
+    id: string,
+    taskId: string,
+    worker: { readonly pin?: string; readonly permissions?: TargetWorker["permissions"] },
+  ): string | undefined => {
+    if (worker.permissions === undefined) return undefined
+    const catalog = options.promptCatalog ?? {}
+    const { pin: _pin, ...unpinned } = catalog
+    let expected: Record<string, readonly string[]>
+    try {
+      expected = {
+        ...builderPermissions(
+          builderTarget(loadTask(taskId, catalog).target.id, worker.pin, unpinned),
+        ),
+      }
+    } catch {
+      // The environment check above already resolved this; a failure here is its to report.
+      return undefined
+    }
+    const running = worker.permissions
+    const keys = [...new Set([...Object.keys(expected), ...Object.keys(running)])].sort()
+    // As sets: the order a list was written in admits nothing more or less.
+    const asSets = (lists: Readonly<Record<string, readonly string[]>>) =>
+      canon(Object.fromEntries(keys.map((key) => [key, [...new Set(lists[key] ?? [])].sort()])))
+    if (asSets(expected) === asSets(running)) return undefined
+    const missing = keys.flatMap((key) =>
+      (expected[key] ?? [])
+        .filter((entry) => !(running[key] ?? []).includes(entry))
+        .map((entry) => `${key}:${entry}`),
+    )
+    const extra = keys.flatMap((key) =>
+      (running[key] ?? [])
+        .filter((entry) => !(expected[key] ?? []).includes(entry))
+        .map((entry) => `${key}:${entry}`),
+    )
+    recordEvent(id, "builder_permissions_stale", { missing, extra })
+    return `the builder's target file is stale: its permissions differ from what this controller writes (missing ${missing.length ? missing.join(", ") : "nothing"}; extra ${extra.length ? extra.join(", ") : "nothing"}). Restart the builder from a fresh \`factory builder-target\`, and the controller after it, then dispatch again`
+  }
+  /**
    * The prompt for `taskId`, or the Error saying why the catalog cannot serve it. Resolved
    * at the point of use and never at boot: one unprepared sibling target must not decide
    * whether the controller boots, and a task generated after boot is dispatchable the moment
@@ -307,6 +381,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   ) =>
     writeBuilderManifestOnDisk(loadTask(input.taskId, options.promptCatalog ?? {}), input.dir, {
       workOrderId: input.workOrderId,
+      captureRoot: options.captureRoot,
       signal: input.signal,
     })
   const now = options.now ?? Date.now
@@ -390,6 +465,10 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       const row = mustGet(id)
       const to = nextState(row.state, event)
       const accounting: WorkOrderPatch = {}
+      // Every committed dispatch spends a candidate attempt, whoever commits it: `dispatch`
+      // itself, or reconciliation adopting the thread a crashed dispatch left behind. Counted
+      // here, inside the transaction, from the row it moves.
+      if (event === "dispatch_committed") accounting.candidateAttempts = row.candidateAttempts + 1
       const wasActive = ACTIVE_STATES.has(row.state)
       const willBeActive = ACTIVE_STATES.has(to)
       if (wasActive && !willBeActive) {
@@ -490,6 +569,59 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     if (row.targetId !== null) return row.targetId
     if (options.tasks) return "*"
     return loadTask(row.taskId, options.promptCatalog ?? {}).target.id
+  }
+  /**
+   * What is LEFT of the row's active budget against its target's verifier deadline, when it is
+   * short. The budget is fixed on the row at create (`FACTORY_MAX_ACTIVE_MS`), not reset by
+   * `retry`, and covers the intake, every builder turn and every verification, each of which
+   * may take up to the target's deadline: an attempt started on less than twice that deadline
+   * (the verification, and as long again for the turn) can run out mid-verification and fail a
+   * candidate for the factory's own slowness. A fresh row's remainder is its whole budget, so
+   * one rule serves `create`'s warning, every `dispatch` and `retry`. Undefined when enough is
+   * left, or when the task does not load (its own refusal says why).
+   */
+  function budgetShortfall(row: WorkOrderRow):
+    | {
+        maxActiveMs: number
+        activeMs: number
+        remainingMs: number
+        verifierDeadlineMs: number
+        targetId: string
+      }
+    | undefined {
+    if (options.tasks) return undefined
+    let target: { id: string; resources: { verifierDeadlineMs: number } }
+    try {
+      target = loadTask(row.taskId, options.promptCatalog ?? {}).target
+    } catch {
+      return undefined
+    }
+    const verifierDeadlineMs = target.resources.verifierDeadlineMs
+    const remainingMs = row.maxActiveMs - row.activeMs
+    if (remainingMs >= 2 * verifierDeadlineMs) return undefined
+    return {
+      maxActiveMs: row.maxActiveMs,
+      activeMs: row.activeMs,
+      remainingMs,
+      verifierDeadlineMs,
+      targetId: target.id,
+    }
+  }
+  function budgetMessage(
+    id: string,
+    shortfall: NonNullable<ReturnType<typeof budgetShortfall>>,
+  ): string {
+    return `Work order ${id} has ${Math.max(0, shortfall.remainingMs)} ms of its active budget left (${shortfall.activeMs} ms spent of ${shortfall.maxActiveMs} ms, FACTORY_MAX_ACTIVE_MS when it was created), below twice target ${shortfall.targetId}'s verifier deadline (${shortfall.verifierDeadlineMs} ms): the verification alone could exhaust it. Restart the controller with FACTORY_MAX_ACTIVE_MS=${shortfall.activeMs + 2 * shortfall.verifierDeadlineMs} or more (the README sizes it per target), cancel this work order and create it again`
+  }
+  /**
+   * The shortfall refusal for `phase`, journalled, or undefined when the budget suffices or the
+   * test seam waives it (still journalled). The one budget gate `dispatch` and `retry` share.
+   */
+  function budgetRefusal(id: string, row: WorkOrderRow, phase: string): string | undefined {
+    const shortfall = budgetShortfall(row)
+    if (shortfall === undefined) return undefined
+    recordEvent(id, "budget_below_verifier_deadline", { phase, ...shortfall })
+    return options.allowBudgetBelowVerifierDeadline ? undefined : budgetMessage(id, shortfall)
   }
   const workerFor = (row: WorkOrderRow): TargetWorker => {
     const targetId = targetOf(row)
@@ -658,7 +790,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     observeIntakeTurn: (id, frames, observeOptions) =>
       observeIntakeTurn(ctx, id, frames, observeOptions),
     finishIntake: (id) => finishIntake(ctx, id),
-    denyPending: (id) => denyPending(ctx, id),
+    denyPending: (id, denyOptions) => denyPending(ctx, id, denyOptions),
     finishCancel: (id, cause) => finishCancel(id, cause),
     settleRun,
     track,
@@ -709,6 +841,11 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     }
   }
 
+  /** The refusal for a row with no builder dispatch left to spend. */
+  function noAttemptsLeft(row: WorkOrderRow): string {
+    return `No candidate attempts remain: ${row.candidateAttempts} of ${row.maxCandidateAttempts} spent (FACTORY_MAX_CANDIDATE_ATTEMPTS when it was created); cancel it and create a new work order`
+  }
+
   /**
    * The insert both creates share. A caller-supplied operationKey is also the work-order
    * address: the same key always names the same id, which is what makes create idempotent
@@ -748,7 +885,8 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       bundleDigest: null,
       blockedReason: null,
       failureReason: null,
-      maxCandidateAttempts: 1,
+      candidateAttempts: 0,
+      maxCandidateAttempts: options.maxCandidateAttempts ?? 2,
       maxActiveMs: options.maxActiveMs ?? 1_200_000,
       activeMs: 0,
       activeStartedAt: null,
@@ -781,11 +919,21 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       if (!options.tasks && !isShippedTask(taskId, options.promptCatalog?.tasksDir))
         throw new UnknownTaskError(taskId)
       if (prompt(taskId) instanceof Error) throw new UnknownTaskError(taskId)
-      return insertWorkOrder(operationKey, { taskId }, () => ({
+      const row = insertWorkOrder(operationKey, { taskId }, () => ({
         taskId,
         origin: { kind: "catalog" },
         pin: null,
       }))
+      // A warning, not a refusal: the row is created (its budget cannot change after), and
+      // `dispatch` refuses it. Journalled once, so a replayed key adds nothing. A generated
+      // task has no target until its draft is approved; `dispatch` is its check.
+      const shortfall = budgetShortfall(row)
+      if (
+        shortfall !== undefined &&
+        !store.events(row.id).some((e) => e.type === "budget_below_verifier_deadline")
+      )
+        recordEvent(row.id, "budget_below_verifier_deadline", { phase: "create", ...shortfall })
+      return row
     },
 
     async createFromIssue({ origin, pin, issue, operationKey }) {
@@ -884,6 +1032,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
             pin: row.pin,
             repositoryRoot: repository,
             dir: drafterWorker.manifestDir,
+            captureRoot: options.captureRoot,
             signal: abort.signal,
           })
           recordEvent(id, "drafter_manifest_written", {
@@ -1014,7 +1163,12 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
               id,
               "intake_blocked",
               { blockedReason: "intake_attempts_exhausted", taskDigest: null, targetId: null },
-              { reason: note, operationKey: key },
+              {
+                reason: note,
+                blockedReason: "intake_attempts_exhausted",
+                lastRefusal: "intake_rejected",
+                operationKey: key,
+              },
             )
           return transition(
             id,
@@ -1117,6 +1271,14 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
               : `Unknown task ${row.taskId}: ${input.message}`,
           }
       }
+      // A budget the verification alone may exhaust is refused before a thread and a turn are
+      // spent, and before the key: the remedy (raise FACTORY_MAX_ACTIVE_MS, create again) is
+      // the operator's, and a target re-prepared with a shorter deadline dispatches this row.
+      // What counts is what is LEFT: the intake and any earlier attempt spent from it.
+      if (row.state === "received") {
+        const refusal = budgetRefusal(id, row, "dispatch")
+        if (refusal !== undefined) return { ok: false, state: row.state, message: refusal }
+      }
       // The builder process boots from its target file, at ONE pin (the file's). A task at
       // another pin is built in that pin's image and verified in its own: allowed and
       // journalled where the two environments agree, refused before the key where they do
@@ -1125,7 +1287,10 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       if (row.state === "received" && !options.tasks && targetId !== undefined) {
         const worker = options.workers.forTarget(targetId)
         const refusal =
-          worker === undefined ? undefined : builderEnvironmentRefusal(id, row.taskId, worker)
+          worker === undefined
+            ? undefined
+            : (builderEnvironmentRefusal(id, row.taskId, worker) ??
+              stalePermissionsRefusal(id, row.taskId, worker))
         if (refusal !== undefined) return { ok: false, state: row.state, message: refusal }
       }
       const key = operationKey ?? `dispatch:${id}:${row.revision}`
@@ -1137,6 +1302,15 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           ok: false,
           state: row.state,
           message: `Cannot dispatch from ${row.state}`,
+        })
+      // `retry` refuses past the cap, so only a row created with a cap it has already met
+      // (none today) reaches this; kept so the cap is the dispatch's to enforce, not the
+      // caller's to remember.
+      if (row.candidateAttempts >= row.maxCandidateAttempts)
+        return finish(key, {
+          ok: false,
+          state: row.state,
+          message: noAttemptsLeft(row),
         })
       // The pre-key lookup ran for every `received` row, and a row in any other state was
       // refused just above; resolved again only if a refactor ever lets one through unset.
@@ -1232,6 +1406,102 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       return outcome
     },
 
+    async retry(id, operationKey) {
+      // A caller's key that already holds an outcome is replayed before anything else: the
+      // pre-key refusals below read the row as it is NOW, and after a successful retry that
+      // row is `received`, which would answer the replay with a refusal it never earned.
+      if (operationKey !== undefined) {
+        const spent = commands.outcome(operationKey, id, { command: "retry", args: {} })
+        if (spent !== null) return spent
+      }
+      const row = mustGet(id)
+      const unspent = (message: string): CommandOutcome => ({
+        ok: false,
+        state: row.state,
+        message,
+      })
+      // Only a blocked row reaches the worker, and its refusals come BEFORE the key is spent:
+      // the attempt cap and the budget are refusals an operator reads and acts on, and the
+      // worker calls are not a function of the revision — an undelivered denial recorded
+      // under `retry:<id>:<revision>` would replay to the retry after the worker comes back.
+      // A denial that did land is idempotent: the next call finds nothing pending. Any other
+      // state is refused under the key below, like every other command's wrong-state refusal.
+      if (row.state === "blocked") {
+        if (row.blockedReason === null || !RETRYABLE_BLOCKED_REASONS.has(row.blockedReason))
+          return unspent(
+            `Cannot retry a work order blocked by ${row.blockedReason ?? "nothing"}: only a candidate failure is retried; cancel it instead`,
+          )
+        if (row.candidateAttempts >= row.maxCandidateAttempts) return unspent(noAttemptsLeft(row))
+        const refusal = budgetRefusal(id, row, "retry")
+        if (refusal !== undefined) return unspent(refusal)
+        if (row.workerThreadId !== null) {
+          // The old builder thread is abandoned, not reused: its workspace holds the failed
+          // candidate. A prompt still parked on it is denied, so no turn waits on an answer
+          // nobody will give, and whatever run is left on it is cancelled. The row's thread is
+          // the builder's (a retryable block is always the builder phase's), so the denial
+          // resumes on the builder's route.
+          try {
+            const worker = workerOfThread(row).client
+            await denyPending(ctx, id, { cancel: true })
+            const result = await worker.cancel(row.workerThreadId)
+            recordEvent(id, "worker_cancel", { result, phase: "retry" })
+          } catch (error) {
+            recordEvent(id, "retry_release_failed", {
+              threadId: row.workerThreadId,
+              error: String(error),
+            })
+            return unspent(`The old builder thread could not be released: ${String(error)}`)
+          }
+        }
+      }
+      const key = operationKey ?? `retry:${id}:${row.revision}`
+      const begun = commands.begin(key, id, { command: "retry", args: {} }, iso())
+      if (begun.status === "done") return begun.outcome
+      if (begun.status === "in_flight") throw new CommandInFlightError(key)
+      if (row.state !== "blocked")
+        return finish(key, {
+          ok: false,
+          state: row.state,
+          message: `Cannot retry from ${row.state}`,
+        })
+      let retried: WorkOrderRow
+      try {
+        retried = store.transaction(() => {
+          // The worker calls were awaits: re-read, so the row the transition moves is the
+          // row these checks passed.
+          const current = mustGet(id)
+          if (current.revision !== row.revision)
+            throw new IllegalTransitionError(current.state, "retry")
+          recordEvent(id, "retry", {
+            attempt: current.candidateAttempts + 1,
+            previousBlockedReason: current.blockedReason,
+            previousThreadId: current.workerThreadId,
+            operationKey: key,
+          })
+          return transition(id, "retry", {
+            workerThreadId: null,
+            interruptId: null,
+            candidateDigest: null,
+            bundleDigest: null,
+            blockedReason: null,
+            awaitingSince: null,
+          })
+        })
+      } catch (error) {
+        if (!(error instanceof IllegalTransitionError)) throw error
+        return finish(key, {
+          ok: false,
+          state: mustGet(id).state,
+          message: "Work order changed state while retrying",
+        })
+      }
+      return finish(key, {
+        ok: true,
+        state: retried.state,
+        message: `Retry ${retried.candidateAttempts + 1} of ${retried.maxCandidateAttempts} ready; dispatch it`,
+      })
+    },
+
     async approve(id, { revision, bundleDigest, operationKey }) {
       const row = mustGet(id)
       // The default key carries the bundle digest as well as the revision: two approvals of
@@ -1246,8 +1516,15 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       )
       if (begun.status === "done") return begun.outcome
       if (begun.status === "in_flight") throw new CommandInFlightError(key)
-      const refuse = (message: string) =>
-        finish(key, { ok: false, state: mustGet(id).state, message })
+      // Journalled as the command starts and as it is refused: the re-verification below holds
+      // the row in `awaiting_approval` at its revision for as long as a verification takes
+      // (about 20 minutes on the `cli` target), so these two lines are what a CLI whose request
+      // timed out reads to know the approval arrived, and that it was refused.
+      recordEvent(id, "approve_started", { bundleDigest, operationKey: key })
+      const refuse = (message: string) => {
+        recordEvent(id, "approve_refused", { message, operationKey: key })
+        return finish(key, { ok: false, state: mustGet(id).state, message })
+      }
       if (row.state !== "awaiting_approval") return refuse(`Cannot approve from ${row.state}`)
       if (row.revision !== revision)
         return refuse(`Stale revision ${revision}; work order is at ${row.revision}`)

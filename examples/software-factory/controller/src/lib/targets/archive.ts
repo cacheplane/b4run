@@ -1,20 +1,26 @@
 import { execFileSync, spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import {
-  appRoot as defaultAppRoot,
-  repositoryRoot as defaultRepositoryRoot,
-  type Task,
-} from "./catalog.js"
+import { repositoryRoot as defaultRepositoryRoot, type Task } from "./catalog.js"
 
 export interface CapturedTarget {
-  /** App-relative, forward-slash: what the framework's capture accepts. */
+  /**
+   * Relative to the capture root, forward-slash: what the framework's capture accepts as
+   * `source.directory` when it is handed that same root.
+   */
   readonly directory: string
   readonly absolute: string
 }
 
 export interface CaptureTargetOptions {
-  readonly appRoot?: string
+  /**
+   * The directory captures are staged under, and the root the framework's capture is then
+   * handed. The controller's is its `FACTORY_STATE_DIR`, NEVER its own app root: `b4 dev`
+   * watches the app root and restarts the server on any write there that it does not ignore,
+   * so a capture staged under it restarted the controller in the middle of the command that
+   * staged it.
+   */
+  readonly captureRoot: string
   readonly repositoryRoot?: string
   /**
    * Distinguishes concurrent captures of the same role and task from one another: without it,
@@ -22,7 +28,7 @@ export interface CaptureTargetOptions {
    * verification and again at approve, with no serialization between them) can rename a fresh
    * directory into place while the first capture's `captureWorkspaceSource` is still walking
    * it, which that walk sees as the source changing under it mid-read. When present, the
-   * capture lives at `.factory/captures/<role>/<taskId>.<instance>` instead of the shared,
+   * capture lives at `captures/<role>/<taskId>.<instance>` instead of the shared,
    * role-and-task-keyed directory.
    */
   readonly instance?: string
@@ -35,9 +41,12 @@ const ROLE_PATTERN = /^[\w-]+$/
 const TASK_ID_PATTERN = /^[\w-]+$/
 const INSTANCE_PATTERN = /^[\w-]+$/
 
+/** Every capture directory lives under this prefix of the capture root. */
+export const CAPTURES_PREFIX = "captures/"
+
 /**
- * The app-relative directory one capture lives at: `.factory/captures/<role>/<taskId>` or,
- * with an `instance`, `.factory/captures/<role>/<taskId>.<instance>`. The one place this
+ * The capture-root-relative directory one capture lives at: `captures/<role>/<taskId>` or,
+ * with an `instance`, `captures/<role>/<taskId>.<instance>`. The one place this
  * formula is written, so `captureTarget` and any caller that needs to name (rather than
  * create) a capture's directory — such as removing an instance directory a failed capture
  * left behind — cannot drift apart from it.
@@ -48,7 +57,7 @@ export function captureDirectory(taskId: string, role: CaptureRole, instance?: s
   if (instance !== undefined && !INSTANCE_PATTERN.test(instance))
     throw new Error(`Invalid capture instance: ${instance}`)
   const name = instance === undefined ? taskId : `${taskId}.${instance}`
-  return `.factory/captures/${role}/${name}`
+  return `${CAPTURES_PREFIX}${role}/${name}`
 }
 
 /** The include list is passed on `git archive`'s command line; this is the ceiling it may add up to. */
@@ -143,8 +152,9 @@ export function archiveTreeInto(
  * The baseline for a task: the target's pinned subtree with the task's defect applied.
  *
  * Archived from the repository's object store, never its working tree, so uncommitted edits
- * are invisible and two captures of one pin are byte-identical. Extracted under the app root
- * because the framework's capture takes an app-relative path, and per `role` because the
+ * are invisible and two captures of one pin are byte-identical. Extracted under
+ * `options.captureRoot` because the framework's capture takes a path relative to the root it
+ * is handed, and per `role` because the
  * builder's process and the controller's process each capture for themselves and must not
  * rebuild one directory under each other. Per `options.instance` too, when given, because one
  * role can itself have more than one capture in flight at once (see {@link CaptureTargetOptions}).
@@ -162,14 +172,13 @@ export function archiveTreeInto(
 export function captureTarget(
   task: Task,
   role: CaptureRole,
-  options: CaptureTargetOptions = {},
+  options: CaptureTargetOptions,
 ): CapturedTarget {
   const directory = captureDirectory(task.id, role, options.instance)
-  const appRoot = options.appRoot ?? defaultAppRoot
   const repo = options.repositoryRoot ?? defaultRepositoryRoot()
   const name = options.instance === undefined ? task.id : `${task.id}.${options.instance}`
-  const absolute = join(appRoot, directory)
-  const scratch = join(appRoot, ".factory", "captures", role, `.${name}.tmp-${process.pid}`)
+  const absolute = join(options.captureRoot, directory)
+  const scratch = join(options.captureRoot, CAPTURES_PREFIX, role, `.${name}.tmp-${process.pid}`)
   rmSync(scratch, { recursive: true, force: true })
   mkdirSync(scratch, { recursive: true })
 

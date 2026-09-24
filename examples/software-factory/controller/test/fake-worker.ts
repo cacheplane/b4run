@@ -74,6 +74,11 @@ export interface FakeWorker {
   behaviour: { run: RunBehaviour; resume: ResumeBehaviour }
   thread(id: string): Readonly<Thread> | undefined
   waitForRunStart(threadId: string): Promise<void>
+  /**
+   * What a worker restarted after a `kill -9` holds: the thread's persisted status still
+   * says `busy`, and no run is in memory behind it, so a reattach answers `live: false`.
+   */
+  markStaleBusy(threadId: string): void
   close(): Promise<void>
 }
 
@@ -360,8 +365,14 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
         live: thread.runActive,
         interrupts: thread.pending ? [thread.pending] : [],
       })
+      // No run behind the thread: the runtime's own answer is the state frame and a `done`
+      // with no output, and the stream ends.
+      if (!thread.runActive) {
+        sse.frame("done", { output: null })
+        return sse.end()
+      }
       // `reattach_ends_busy` ends the reattached stream although the run is still live.
-      if (!thread.runActive || behaviour.run === "reattach_ends_busy") return sse.end()
+      if (behaviour.run === "reattach_ends_busy") return sse.end()
       await new Promise<void>((resolve) => {
         thread.waiters.add((done) => {
           sse.frame("done", done)
@@ -429,6 +440,12 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
       const thread = threads.get(threadId)
       if (thread?.runActive) return Promise.resolve()
       return new Promise((resolve) => runStarted.set(threadId, resolve))
+    },
+    markStaleBusy(threadId) {
+      const thread = threads.get(threadId)
+      if (!thread) throw new Error(`no thread ${threadId}`)
+      thread.status = "busy"
+      thread.runActive = false
     },
     async close() {
       closing.abort()

@@ -80,6 +80,12 @@ export async function serveController(
   /** Replaces any of the injected collaborators, e.g. a verifier that fails. */
   overrides: ControllerRuntimeOverrides & {
     readonly drafter?: Omit<FakeWorkerOptions, "outboxDir">
+    /**
+     * Keep the runtime's REAL capture collaborators (the drafter's wide capture, the
+     * builder's manifest capture and the controller's baseline) instead of the stand-ins
+     * below: for a test about where the controller stages what it captures.
+     */
+    readonly realCaptures?: boolean
   } = {},
   /** Extra controller environment, e.g. a tiny FACTORY_MAX_ACTIVE_MS. Restored on close. */
   env: Readonly<Record<string, string>> = {},
@@ -91,7 +97,7 @@ export async function serveController(
   mkdirSync(join(dir, "drafter"), { recursive: true })
   const touchedEnv = [...FACTORY_ENV, ...Object.keys(env)]
   const previousEnv = Object.fromEntries(touchedEnv.map((key) => [key, process.env[key]]))
-  const { drafter: drafterOptions, ...runtimeOverrides } = overrides
+  const { drafter: drafterOptions, realCaptures = false, ...runtimeOverrides } = overrides
   const fake = await createFakeWorker({
     outboxDir: join(dir, "unused"),
     run: "edits_only",
@@ -131,23 +137,7 @@ export async function serveController(
     verifier: createFakeVerifier({ verdict: "pass" }),
     // The same fake for the drafter's thread: its `draft/` is scripted under FIRST_DRAFTER_THREAD.
     readers: { builder: workspace, drafter: workspace },
-    captureBaseline: async () => ({ digest: "a".repeat(64), files: BASELINE }),
-    // The pin of a served issue is no commit of any repository: the capture is stood in for,
-    // and the manifest is the file the real writer would leave.
-    writeDrafterManifest: async ({ dir: target, workOrderId, pin }) => {
-      mkdirSync(target, { recursive: true })
-      const path = join(target, `${workOrderId}.json`)
-      writeFileSync(path, `${JSON.stringify({ version: 1, workOrderId, pin })}\n`)
-      return { path, sourceDigest: "c".repeat(64) }
-    },
-    // The builder is a fake too, whose threads resolve nothing: the file stands in for the
-    // capture the real writer would take (and a drafted task's target's is not this lane's).
-    writeBuilderManifest: async ({ dir: target, workOrderId, taskId }) => {
-      mkdirSync(target, { recursive: true })
-      const path = join(target, `${workOrderId}.json`)
-      writeFileSync(path, `${JSON.stringify({ version: 1, workOrderId, taskId })}\n`)
-      return { path, sourceDigest: "d".repeat(64) }
-    },
+    ...(realCaptures ? {} : captureStandIns()),
     ...runtimeOverrides,
   })
   const handle: ServeRuntimeHandle = await serveRuntime({ appRoot, host: "127.0.0.1", port: 0 })
@@ -190,6 +180,33 @@ export async function serveController(
         if (previous === undefined) delete process.env[key]
         else process.env[key] = previous
       }
+    },
+  }
+}
+
+/**
+ * The capture collaborators a served controller uses unless a test asks for the real ones:
+ * each stands in for a capture of the repository at a pin, leaving the file the real writer
+ * would leave.
+ */
+function captureStandIns(): ControllerRuntimeOverrides {
+  return {
+    captureBaseline: async () => ({ digest: "a".repeat(64), files: BASELINE }),
+    // The pin of a served issue is no commit of any repository: the capture is stood in for,
+    // and the manifest is the file the real writer would leave.
+    writeDrafterManifest: async ({ dir: target, workOrderId, pin }) => {
+      mkdirSync(target, { recursive: true })
+      const path = join(target, `${workOrderId}.json`)
+      writeFileSync(path, `${JSON.stringify({ version: 1, workOrderId, pin })}\n`)
+      return { path, sourceDigest: "c".repeat(64) }
+    },
+    // The builder is a fake too, whose threads resolve nothing: the file stands in for the
+    // capture the real writer would take (and a drafted task's target's is not this lane's).
+    writeBuilderManifest: async ({ dir: target, workOrderId, taskId }) => {
+      mkdirSync(target, { recursive: true })
+      const path = join(target, `${workOrderId}.json`)
+      writeFileSync(path, `${JSON.stringify({ version: 1, workOrderId, taskId })}\n`)
+      return { path, sourceDigest: "d".repeat(64) }
     },
   }
 }

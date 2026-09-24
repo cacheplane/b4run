@@ -68,6 +68,53 @@ export function firstMissingPath(
   return paths.find((path) => !exists(path))
 }
 
+/**
+ * The workspace packages a target's Dockerfile says the capture holds: the words of its
+ * `CAPTURED="..."` assignment, or undefined when it declares none. The image cannot read the
+ * manifest, so a Dockerfile that relinks packages by name restates the capture's list.
+ */
+export function dockerfileCapturedPackages(dockerfile: string): string[] | undefined {
+  const match = /\bCAPTURED="([^"]*)"/.exec(dockerfile)
+  if (!match) return undefined
+  return (match[1] as string).split(/\s+/).filter((word) => word.length > 0)
+}
+
+/** The workspace packages (`packages/<p>`, under the target's root) its capture includes. */
+export function capturedPackages(manifest: Pick<TargetManifest, "capture">): string[] {
+  const packages = new Set<string>()
+  for (const path of manifest.capture.include) {
+    const match = /^packages\/([^/]+)(?:\/|$)/.exec(path)
+    if (match) packages.add(match[1] as string)
+  }
+  return [...packages].sort()
+}
+
+/**
+ * Why the Dockerfile's `CAPTURED` list disagrees with the capture, or undefined when it
+ * agrees or declares none. A package captured but not relinked resolves to the image's
+ * manifest-only copy (no `dist/`); one relinked but not captured is a link to nothing.
+ */
+export function capturedListMismatch(
+  manifest: Pick<TargetManifest, "id" | "capture">,
+  dockerfile: string,
+): string | undefined {
+  const declared = dockerfileCapturedPackages(dockerfile)
+  if (declared === undefined) return undefined
+  const captured = capturedPackages(manifest)
+  const declaredSet = new Set(declared)
+  const notRelinked = captured.filter((p) => !declaredSet.has(p))
+  const notCaptured = [...declaredSet].filter((p) => !captured.includes(p)).sort()
+  const repeated = declared.filter((p, i) => declared.indexOf(p) !== i)
+  if (notRelinked.length === 0 && notCaptured.length === 0 && repeated.length === 0)
+    return undefined
+  const parts = [
+    ...(notRelinked.length ? [`captured but not in CAPTURED: ${notRelinked.join(", ")}`] : []),
+    ...(notCaptured.length ? [`in CAPTURED but not captured: ${notCaptured.join(", ")}`] : []),
+    ...(repeated.length ? [`repeated in CAPTURED: ${repeated.join(", ")}`] : []),
+  ]
+  return `Target "${manifest.id}": its Dockerfile's CAPTURED list disagrees with capture.include (${parts.join("; ")})`
+}
+
 /** Does `path` (a file or a directory) exist in `repo` at `pin`? */
 export function pathExistsAtPin(repo: string, pin: string, path: string): boolean {
   try {

@@ -423,6 +423,14 @@ GitHub body arrives CRLF. `issue.md`
 is written only when absent, so a replayed key rewrites nothing and a crash between the row
 insert and the write is repaired by the replay.
 
+**As landed (sub-project 4).** `create --issue <n> --pin <sha>` replays an issue at a named
+commit: `resolvePin` is skipped, so `origin/main` is neither fetched nor read. A full sha goes
+through `ensurePin` (label `Issue <n>'s replay pin`): fetched from `origin` by sha when the
+object store lacks it, refused by name under `FACTORY_NO_FETCH=1`. A short sha is accepted only
+when the checkout resolves it (`git rev-parse --verify <sha>^{commit}`), since a short sha
+cannot be fetched. `--pin` with `--task` is refused. The row and the journal record the pin like
+any other; the origin is still the issue, with no field saying the pin was chosen.
+
 ### 6.4 The intake route
 
 `examples/software-factory/server/src/app/intake/index.ts` is an `agent` route beside
@@ -521,6 +529,23 @@ no builder serves is refused before its key is spent.
    oracle. A build failure, a tamper or a deadline is `proven: false` with `checkId` naming
    the deciding check, and the proof refuses a receipt whose `candidateDigest` is not the
    baseline it asked for.
+
+   **As landed, after the live run.** A failing independent suite is not yet a proof. In
+   `independentOnly` mode (`receipt.ts`, `independentOnlyPlan`) a `fail` stands only when at
+   least one named assertion failed by assertion and no failure is outside the named
+   assertions; otherwise the check is `inconclusive`, with the reason at the head of its
+   evidence, which the refusal quotes to the redraft. The runner now records what each
+   failure was (`SuiteEvent.failure`: the failure's `cause` code or name) and node:test's
+   shapes are pinned against node itself: a file that cannot load (a missing module, a syntax
+   error, a top-level throw) is one failure named after the file with no cause, and no named
+   test runs; a failing `node:assert` is `ERR_ASSERTION`; a throw is its error's name
+   (`TypeError`). So a load failure, a failure only in an unnamed test, and a named test that
+   fails only by a throw are all `inconclusive`, never a proven oracle. Full-mode grading is
+   unchanged: there any failure rejects the candidate. Step 3 changed with it: the target's
+   runner configuration (and a node-test visible suite) is controller-owned policy, filled
+   into the draft's `immutablePaths` after the drafter's own entries (`requiredImmutablePaths`),
+   and `assertTaskFitsTarget` reports every problem in one refusal; an allowed path that
+   reaches the runner configuration is still `intake_invalid`, naming each such path.
 6. Transition to `awaiting_intake_approval` with `targetId` and `taskDigest`.
 
 A failure at 2, 3 or 5 with attempts remaining journals the reason and starts another intake

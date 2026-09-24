@@ -81,6 +81,7 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
   factory = await createFactory({
     registryPath: join(dir, "registry.sqlite"),
     generatedTasksDir: join(dir, "tasks"),
+    captureRoot: dir,
     workers: fakeWorkerMap({
       builder: {
         client: createHttpWorkerClient(served.url),
@@ -91,8 +92,11 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
     }),
     exportDir,
     artifactsDir: join(dir, "artifacts"),
-    verifier: createDockerVerifier(createArtifactStore(join(dir, "artifacts"))),
-    captureBaseline: captureTargetBaseline,
+    verifier: createDockerVerifier(createArtifactStore(join(dir, "artifacts")), {
+      stagingRoot: dir,
+    }),
+    captureBaseline: (taskId, signal) =>
+      captureTargetBaseline(taskId, signal, { captureRoot: dir }),
   })
   const { id } = await factory.create({ taskId: "cli-flags" })
   expect(await factory.dispatch(id)).toMatchObject({ ok: true, state: "dispatched" })
@@ -166,7 +170,8 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
   // read for itself: one changed path, the one the builder is allowed to write.
   expect(evidence.candidate?.changedPaths).toEqual([source])
   expect(evidence.candidate?.baselineDigest).toBe(
-    (await captureTargetBaseline("cli-flags", AbortSignal.timeout(60_000))).digest,
+    (await captureTargetBaseline("cli-flags", AbortSignal.timeout(60_000), { captureRoot: dir }))
+      .digest,
   )
   expect(evidence.receipt?.verdict).toBe("pass")
   expect(evidence.receipt?.candidateDigest).toBe(evidence.candidate?.digest)

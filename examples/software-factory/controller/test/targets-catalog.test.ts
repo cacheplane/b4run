@@ -8,6 +8,7 @@ import {
   assertTaskFitsTarget,
   ChecksSchema,
   covers,
+  ensurePin,
   environmentIdentity,
   ImageUnpreparedError,
   imageTag,
@@ -97,12 +98,12 @@ function targetsDir(pin: string, overrides: Record<string, unknown> = {}): strin
 }
 
 /**
- * An origin with two commits and a `--depth 1` clone of it, which is the shape of a CI
+ * An origin with three commits and a `--depth 1` clone of it, which is the shape of a CI
  * checkout: the clone holds the tip and not the commit a target pins. `file://` (not a bare
  * path) is what makes the clone shallow, and `allowAnySHA1InWant` is what lets a fetch ask
  * for one commit by SHA, as GitHub's servers do.
  */
-function shallowClone(): { origin: string; clone: string; older: string } {
+function shallowClone(): { origin: string; clone: string; older: string; middle: string } {
   const origin = mkdtempSync(join(tmpdir(), "factory-origin-"))
   dirs.push(origin)
   const git = (...args: string[]) =>
@@ -117,13 +118,41 @@ function shallowClone(): { origin: string; clone: string; older: string } {
   const older = git("rev-parse", "HEAD")
   writeFileSync(join(origin, "a.txt"), "b\n")
   git("commit", "-q", "-a", "-m", "two")
+  const middle = git("rev-parse", "HEAD")
+  writeFileSync(join(origin, "a.txt"), "b2\n")
+  git("commit", "-q", "-a", "-m", "two and a half")
   const clone = mkdtempSync(join(tmpdir(), "factory-clone-"))
   dirs.push(clone)
   rmSync(clone, { recursive: true, force: true })
   execFileSync("git", ["clone", "-q", "--depth", "1", `file://${origin}`, clone], {
     encoding: "utf8",
   })
-  return { origin, clone, older }
+  return { origin, clone, older, middle }
+}
+
+/**
+ * A FULL clone of an origin that then gains a commit the clone lacks: the operator's
+ * checkout, behind origin. `ensurePin` of that commit must not make it shallow.
+ */
+function fullCloneBehind(): { clone: string; newer: string } {
+  const { origin } = shallowClone()
+  const clone = mkdtempSync(join(tmpdir(), "factory-full-clone-"))
+  dirs.push(clone)
+  rmSync(clone, { recursive: true, force: true })
+  execFileSync("git", ["clone", "-q", `file://${origin}`, clone], { encoding: "utf8" })
+  const git = (...args: string[]) =>
+    execFileSync("git", ["-C", origin, ...args], { encoding: "utf8" }).trim()
+  writeFileSync(join(origin, "a.txt"), "c\n")
+  git("commit", "-q", "-a", "-m", "three")
+  return { clone, newer: git("rev-parse", "HEAD") }
+}
+
+function isShallow(root: string): boolean {
+  return (
+    execFileSync("git", ["-C", root, "rev-parse", "--is-shallow-repository"], {
+      encoding: "utf8",
+    }).trim() === "true"
+  )
 }
 
 function holdsCommit(root: string, sha: string): boolean {
@@ -137,7 +166,7 @@ function holdsCommit(root: string, sha: string): boolean {
 
 describe("target catalog", () => {
   it("lists the targets shipped with the factory", () => {
-    expect(loadTargetIds()).toEqual(["cli-flags", "devkit"])
+    expect(loadTargetIds()).toEqual(["cli", "cli-flags", "devkit"])
   })
 
   it("loads a target whose pin the repository holds", () => {
@@ -168,6 +197,29 @@ describe("target catalog", () => {
     const target = loadTarget("t", { targetsDir: targetsDir(older), repositoryRoot: clone })
     expect(target.pin).toBe(older)
     expect(holdsCommit(clone, older)).toBe(true)
+  })
+
+  it("never makes a full clone shallow when it fetches a missing pin", () => {
+    const { clone, newer } = fullCloneBehind()
+    expect(isShallow(clone)).toBe(false)
+    expect(holdsCommit(clone, newer)).toBe(false)
+    ensurePin(clone, "t", newer)
+    expect(holdsCommit(clone, newer)).toBe(true)
+    expect(isShallow(clone)).toBe(false)
+    expect(existsSync(join(clone, ".git", "shallow"))).toBe(false)
+  })
+
+  it("fetches a missing pin into a shallow clone by sha, and it stays shallow", () => {
+    // The pin has a parent: `--depth=1` fetches it alone and marks it a shallow boundary, where
+    // a plain fetch would pull its whole history (the root commit) and leave no mark on it.
+    const { clone, older, middle } = shallowClone()
+    expect(isShallow(clone)).toBe(true)
+    ensurePin(clone, "t", middle)
+    expect(holdsCommit(clone, middle)).toBe(true)
+    expect(holdsCommit(clone, older)).toBe(false)
+    expect(isShallow(clone)).toBe(true)
+    const boundaries = readFileSync(join(clone, ".git", "shallow"), "utf8").split("\n")
+    expect(boundaries).toContain(middle)
   })
 
   it("refuses a missing pin without fetching when FACTORY_NO_FETCH is set", () => {
@@ -396,7 +448,7 @@ function tasksDirFor(
 
 describe("task catalog", () => {
   it("lists the tasks shipped with the factory", () => {
-    expect(loadTaskIds()).toEqual(["cli-flags", "devkit-spawn-deadline"])
+    expect(loadTaskIds()).toEqual(["cli-flags", "cli-runs-wait-undefined", "devkit-spawn-deadline"])
   })
 
   it("loads a task with its target, spec, checks and patches", () => {
@@ -482,6 +534,33 @@ describe("task catalog", () => {
         repositoryRoot: root,
       }),
     ).toThrow(/runner configuration/)
+  })
+
+  it("lists every problem a task has with its target in one refusal", () => {
+    const checks = ChecksSchema.parse({
+      visible: { runner: "node-test", file: "test/v.test.ts", assertions: ["v"] },
+      independent: { runner: "node-test", file: "checks/i.test.ts", assertions: ["A1: i"] },
+    })
+    const attempt = () =>
+      assertTaskFitsTarget(
+        "k",
+        { id: "k", target: "t", allowedSourcePaths: ["config/base.json"], immutablePaths: [] },
+        checks,
+        { runnerConfig: ["config", "package.json"] },
+      )
+    expect(attempt).toThrow(/Task k does not fit its target \(4 problems\)/)
+    let message = ""
+    try {
+      attempt()
+    } catch (error) {
+      message = String(error)
+    }
+    expect(message).toContain(
+      "may edit config/base.json, which reaches the target's runner configuration (config)",
+    )
+    expect(message).toContain("runner configuration config must be immutable")
+    expect(message).toContain("runner configuration package.json must be immutable")
+    expect(message).toContain("visible suite test/v.test.ts must be immutable")
   })
 
   it("refuses a task that leaves a runner configuration file mutable, and accepts one covered by an immutable directory", () => {

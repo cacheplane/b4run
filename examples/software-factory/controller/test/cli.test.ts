@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process"
 import { chmodSync, cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { createServer, type Server } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
@@ -157,7 +158,12 @@ describe("cli", () => {
     // The other end a dispatch can settle at without being refused: the run never finished,
     // the ticker spent its budget, and the row is `blocked`. A script must not read that as
     // a delivered change either.
-    const { cli, spawn } = await boot({ run: "hang" }, {}, { FACTORY_MAX_ACTIVE_MS: "1000" })
+    // A budget no real verification fits, so the dispatch refusal that guards it is waived.
+    const { cli, spawn } = await boot(
+      { run: "hang" },
+      { allowBudgetBelowVerifierDeadline: true },
+      { FACTORY_MAX_ACTIVE_MS: "1000" },
+    )
     const { json: created } = await cli("create", "--task", "cli-flags")
     const id = created.row.id as string
     const { stdout } = await failing(spawn("dispatch", id).promise)
@@ -290,6 +296,67 @@ esac
     expect(notANumber.stderr).toContain("positive integer")
   }, 90_000)
 
+  it("replays an issue at --pin without consulting origin/main", async () => {
+    const { env } = await boot()
+    const gh = stubGh({ title: "Fix the flag", body: "Body\n", url: "https://github.com/x/778" })
+    const { root, head: first } = await localRepo()
+    const git = (...args: string[]) =>
+      run("git", ["-C", root, ...args], {
+        env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" },
+      })
+    writeFileSync(join(root, "README.md"), "target, fixed\n")
+    await git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-am", "fix")
+    // An origin that answers nothing: a `git fetch origin main` (resolvePin) or any fetch at
+    // all would fail the create, so a pinned create that succeeds consulted neither.
+    await git("remote", "set-url", "origin", join(dir, "no-such-origin"))
+    const issueEnv = { ...env, FACTORY_GH: gh, FACTORY_REPO_ROOT: root }
+    const create = (...args: string[]) =>
+      run(
+        process.execPath,
+        [tsxBin, cliEntry, "create", "--issue", "778", "--repo", "cacheplane/b4run", ...args],
+        { env: issueEnv, cwd: packageRoot },
+      )
+
+    const created = JSON.parse((await create("--pin", first)).stdout)
+    expect(created).toMatchObject({ ok: true, state: "received" })
+    expect(created.row.pin).toBe(first)
+    expect(created.row.origin).toMatchObject({ kind: "issue", number: 778 })
+    // A short sha resolves in the checkout to the same commit.
+    const short = JSON.parse((await create("--pin", first.slice(0, 10), "--key", "short")).stdout)
+    expect(short.row.pin).toBe(first)
+    // Without --pin the same checkout cannot create: origin/main is what it would read.
+    const unpinned = await failing(create())
+    expect(unpinned.stderr).toContain("git fetch failed")
+
+    const absent = "0123456789abcdef0123456789abcdef01234567"
+    const refused = await failing(
+      run(
+        process.execPath,
+        [tsxBin, cliEntry, "create", "--issue", "778", "--repo", "x/y", "--pin", absent],
+        { env: { ...issueEnv, FACTORY_NO_FETCH: "1" }, cwd: packageRoot },
+      ),
+    )
+    expect(refused.stderr).toContain(`Issue 778 (replay) pins ${absent}`)
+    expect(refused.stderr).toContain("FACTORY_NO_FETCH=1")
+    const unknownShort = await failing(create("--pin", "0123456789"))
+    expect(unknownShort.stderr).toContain("pass the full 40-hex sha")
+    // A branch whose name is hex resolves (refs win over abbreviations) to wherever it points,
+    // which is not a commit the argument abbreviates: refused, not recorded as the pin.
+    const tip = (await git("rev-parse", "HEAD")).stdout.trim()
+    const hexName = tip.startsWith("cafe") ? "beef" : "cafe"
+    await git("branch", hexName, "HEAD")
+    const hexBranch = await failing(create("--pin", hexName, "--key", "hex-branch"))
+    expect(hexBranch.stderr).toContain(`--pin ${hexName} resolved to ${tip}`)
+    expect(hexBranch.stderr).toContain("pass the full 40-hex sha")
+    const withTask = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "create", "--task", "cli-flags", "--pin", first], {
+        env: issueEnv,
+        cwd: packageRoot,
+      }),
+    )
+    expect(withTask.stderr).toMatch(/--pin.*--issue.*--task/)
+  }, 90_000)
+
   it("drives the intake gate: intake tails and parks, reject-intake redrafts, approve-intake needs the digest", async () => {
     const { cli, spawn } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
     if (!served) throw new Error("no controller")
@@ -360,6 +427,135 @@ esac
     expect(evidence.oracleReceipt.id).toBe(proofs[1].payload.receiptId)
   }, 90_000)
 
+  it("follows the row when an awaiting dispatch's request times out while the work goes on", async () => {
+    // A builder turn slower than the request may wait: the injected timeout stands in for
+    // undici's 300 s headers timeout on `runs/wait`, which is what ended the live run's CLI.
+    const { env, stateDir } = await boot({ frameDelayMs: 1_500 })
+    const { stdout: createdOut } = await run(
+      process.execPath,
+      [tsxBin, cliEntry, "create", "--task", "cli-flags"],
+      { env, cwd: packageRoot },
+    )
+    const id = JSON.parse(createdOut).row.id as string
+    const { stdout, stderr } = await run(process.execPath, [tsxBin, cliEntry, "dispatch", id], {
+      env: { ...env, FACTORY_CLI_REQUEST_TIMEOUT_MS: "500" },
+      cwd: packageRoot,
+    })
+    expect(stderr).toContain("the request ended before its answer")
+    expect(stderr).toContain("following the row in the registry")
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: true,
+      state: "awaiting_approval",
+      message: "Settled as awaiting_approval (read from the registry after the request ended)",
+      row: { id, state: "awaiting_approval" },
+    })
+    expect(await pollState(stateDir, id, () => true)).toBe("awaiting_approval")
+  }, 90_000)
+
+  it("follows an approve past its request timeout: arrival and the export read from the registry", async () => {
+    // Approve re-verifies with the row still `awaiting_approval` at its revision (about 20
+    // minutes on the `cli` target), so the live run's CLI timed out and a repeat was refused
+    // `run_in_flight`. The journal says it arrived, and the row says it exported.
+    const verifier = createFakeVerifier({ verdict: "pass" })
+    const { cli, env } = await boot({}, { verifier })
+    const { json: created } = await cli("create", "--task", "cli-flags")
+    const id = created.row.id as string
+    const { json: dispatched } = await cli("dispatch", id)
+    expect(dispatched.row.state).toBe("awaiting_approval")
+    verifier.script = { verdict: "pass", delayMs: 2_000 }
+    const { stdout, stderr } = await run(
+      process.execPath,
+      [
+        tsxBin,
+        cliEntry,
+        "approve",
+        id,
+        "--revision",
+        String(dispatched.row.revision),
+        "--bundle",
+        dispatched.row.bundleDigest,
+      ],
+      { env: { ...env, FACTORY_CLI_REQUEST_TIMEOUT_MS: "500" }, cwd: packageRoot },
+    )
+    expect(stderr).toContain("the request ended before its answer")
+    expect(stderr).toContain('"type":"approve_started"')
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: true,
+      state: "exported",
+      message: "Settled as exported (read from the registry after the request ended)",
+    })
+  }, 90_000)
+
+  it("reports an approve refused after its request timed out, and exits non-zero", async () => {
+    const verifier = createFakeVerifier({ verdict: "pass" })
+    const { cli, env } = await boot({}, { verifier })
+    const { json: created } = await cli("create", "--task", "cli-flags")
+    const id = created.row.id as string
+    const { json: dispatched } = await cli("dispatch", id)
+    // The re-verification fails: the row stays `awaiting_approval`, an active state for the
+    // follow, and only the journal's refusal line ends it.
+    verifier.script = { verdict: "fail", delayMs: 2_000 }
+    const { stdout } = await failing(
+      run(
+        process.execPath,
+        [
+          tsxBin,
+          cliEntry,
+          "approve",
+          id,
+          "--revision",
+          String(dispatched.row.revision),
+          "--bundle",
+          dispatched.row.bundleDigest,
+        ],
+        { env: { ...env, FACTORY_CLI_REQUEST_TIMEOUT_MS: "500" }, cwd: packageRoot },
+      ),
+    )
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: false,
+      state: "awaiting_approval",
+      message:
+        "Refused (read from the registry after the request ended): Re-verification did not pass: fail",
+    })
+  }, 90_000)
+
+  it("follows the row past a timed-out intake, with the intake's exit code", async () => {
+    const { env } = await boot(
+      {},
+      {
+        verifier: createFakeVerifier({ independent: "fail" }),
+        drafter: { frameDelayMs: 1_500, run: "edits_only" },
+      },
+    )
+    if (!served) throw new Error("no controller")
+    served.workspace.set(FIRST_DRAFTER_THREAD, BAD_DRAFTS.badTarget as Record<string, string>)
+    const created = await served.run("create-cli-timeout", "/work-orders/create#workflow", {
+      origin: {
+        kind: "issue",
+        repository: "cacheplane/b4run",
+        number: 778,
+        bodyDigest: "0".repeat(64),
+      },
+      pin: served.pin,
+      issue: { title: "T", body: "B" },
+    })
+    const id = (created.body as { row: { id: string } }).row.id
+    const { stdout, stderr } = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "intake", id], {
+        env: { ...env, FACTORY_CLI_REQUEST_TIMEOUT_MS: "500" },
+        cwd: packageRoot,
+      }),
+    )
+    expect(stderr).toContain("the request ended before its answer")
+    // Blocked is not intake's success, whichever way the answer arrived: `ok` is the
+    // command's success set, as the route decides it, not "the row settled".
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: false,
+      state: "blocked",
+      row: { state: "blocked", blockedReason: "no_target_for_package" },
+    })
+  }, 90_000)
+
   it("exits non-zero when an intake settles blocked", async () => {
     const { cli, spawn } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
     if (!served) throw new Error("no controller")
@@ -422,6 +618,85 @@ esac
     expect(shown).toMatchObject({ state: "blocked", taskDigest: null, targetId: null })
     const { json: evidence } = await cli("evidence", id)
     expect(evidence.oracleReceipt).toBeNull()
+  }, 90_000)
+
+  /** Park a work order for approval through the real controller, and return its id. */
+  async function parkedIntake(cli: Awaited<ReturnType<typeof boot>>["cli"], key: string) {
+    if (!served) throw new Error("no controller")
+    served.workspace.set(FIRST_DRAFTER_THREAD, GOOD_DRAFT as Record<string, string>)
+    const created = await served.run(key, "/work-orders/create#workflow", {
+      origin: {
+        kind: "issue",
+        repository: "cacheplane/b4run",
+        number: 778,
+        bodyDigest: "0".repeat(64),
+      },
+      pin: served.pin,
+      issue: { title: "T", body: "B" },
+    })
+    const id = (created.body as { row: { id: string } }).row.id
+    const { json: parked } = await cli("intake", id)
+    expect(parked).toMatchObject({ ok: true, state: "awaiting_intake_approval" })
+    return { id, revision: parked.row.revision as number }
+  }
+
+  /** A TCP server that accepts each connection and drops it unread: the request never arrives. */
+  async function dropping(): Promise<{ url: string; server: Server }> {
+    const server = createServer((socket) => socket.destroy())
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+    const address = server.address()
+    if (address === null || typeof address === "string") throw new Error("no port")
+    return { url: `http://127.0.0.1:${address.port}`, server }
+  }
+
+  it("does not read a reject-intake that never reached the controller as settled", async () => {
+    // The review's false success: `reject-intake` starts from `awaiting_intake_approval`, its
+    // own success state, so a request lost in transport used to poll once, find the row
+    // there, and answer "Settled as awaiting_intake_approval", exit 0.
+    const { cli, env, stateDir } = await boot(
+      {},
+      { verifier: createFakeVerifier({ independent: "fail" }) },
+    )
+    const { id, revision } = await parkedIntake(cli, "create-cli-lost")
+    const { url, server } = await dropping()
+    try {
+      const { stdout, stderr } = await failing(
+        run(process.execPath, [tsxBin, cliEntry, "reject-intake", id, "--note", "redo"], {
+          env: { ...env, FACTORY_CONTROLLER_URL: url, FACTORY_CLI_ARRIVAL_WINDOW_MS: "1500" },
+          cwd: packageRoot,
+        }),
+      )
+      expect(stderr).toContain("the request ended before its answer")
+      expect(JSON.parse(stdout)).toMatchObject({
+        ok: false,
+        state: "awaiting_intake_approval",
+        row: { id, state: "awaiting_intake_approval", revision },
+      })
+      expect(JSON.parse(stdout).message).toMatch(/^The request did not reach the controller/)
+    } finally {
+      await new Promise((resolve) => server.close(resolve))
+    }
+    // Nothing moved: the draft is still parked at the revision the operator read.
+    expect(await pollState(stateDir, id, () => true)).toBe("awaiting_intake_approval")
+  }, 90_000)
+
+  it("does not poll after a refused connection: nothing was sent", async () => {
+    const { cli, env } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
+    const { id } = await parkedIntake(cli, "create-cli-refused")
+    // A port nobody listens on: bound, read, closed.
+    const { url, server } = await dropping()
+    await new Promise((resolve) => server.close(resolve))
+    const started = Date.now()
+    const { stderr } = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "reject-intake", id, "--note", "redo"], {
+        env: { ...env, FACTORY_CONTROLLER_URL: url },
+        cwd: packageRoot,
+      }),
+    )
+    expect(stderr).not.toContain("following the row")
+    expect(stderr).toMatch(/fetch failed/)
+    // Well inside the default arrival window: it never waited on the row.
+    expect(Date.now() - started).toBeLessThan(30_000)
   }, 90_000)
 
   it("writes a builder target and manifest without a controller, a registry or a Factory", async () => {

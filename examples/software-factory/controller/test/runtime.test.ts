@@ -39,6 +39,35 @@ describe("controller runtime", () => {
     await expect(runtime.factory()).rejects.toThrow(/disposed/)
   })
 
+  it("fixes FACTORY_MAX_INTAKE_ATTEMPTS and FACTORY_MAX_CANDIDATE_ATTEMPTS on the row at create", async () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-runtime-"))
+    fake = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only" })
+    const env = {
+      FACTORY_WORKER_URL: fake.baseUrl,
+      FACTORY_STATE_DIR: join(dir, "state"),
+      FACTORY_BUILDER_APP_ROOT: join(dir, "builder"),
+      FACTORY_BUILDER_TARGET: writeTargetFile(join(dir, "targets"), "cli-flags"),
+    }
+    const three = createControllerRuntime({
+      ...env,
+      FACTORY_MAX_INTAKE_ATTEMPTS: "3",
+      FACTORY_MAX_CANDIDATE_ATTEMPTS: "4",
+    })
+    const { id } = await (await three.factory()).create({ taskId: "cli-flags" })
+    expect((await three.factory()).show(id)?.maxIntakeAttempts).toBe(3)
+    expect((await three.factory()).show(id)?.maxCandidateAttempts).toBe(4)
+    await three.dispose()
+    // A restart with the default leaves the existing row's cap as it was created.
+    const again = createControllerRuntime(env)
+    const factory = await again.factory()
+    expect(factory.show(id)?.maxIntakeAttempts).toBe(3)
+    expect(factory.show(id)?.maxCandidateAttempts).toBe(4)
+    const { id: fresh } = await factory.create({ taskId: "cli-flags", operationKey: "second" })
+    expect(factory.show(fresh)?.maxIntakeAttempts).toBe(2)
+    expect(factory.show(fresh)?.maxCandidateAttempts).toBe(2)
+    await again.dispose()
+  })
+
   it("boots from FACTORY_WORKERS, and refuses the map beside the legacy pair", async () => {
     dir = mkdtempSync(join(tmpdir(), "factory-runtime-"))
     fake = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only" })

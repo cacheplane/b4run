@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import {
   existsSync,
   mkdirSync,
@@ -10,11 +11,12 @@ import {
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { acceptanceIdsOf, parseDraft } from "../src/lib/intake/draft.ts"
+import { acceptanceIdsOf, acceptanceMismatch, parseDraft } from "../src/lib/intake/draft.ts"
 import { digestGeneratedTask, writeGeneratedTask } from "../src/lib/intake/generated-task.ts"
 import {
   configureCatalog,
   loadTask,
+  repositoryRoot,
   resetCatalogForTests,
   targetsDir,
 } from "../src/lib/targets/catalog.ts"
@@ -78,6 +80,39 @@ describe("parseDraft", () => {
     ])
   })
 
+  it("refuses a check that fails the static pre-check as intake_invalid, before any proof", () => {
+    const check = "draft/checks/spawn-deadline.test.ts"
+    const source = (GOOD_DRAFT[check] as string).replace('import test from "node:test"\n', "")
+    const parsed = parseDraft(files({ ...GOOD_DRAFT, [check]: source }), {
+      workOrderId: WO,
+      pin: PIN,
+    })
+    expect(parsed).toMatchObject({ ok: false, blockedReason: "intake_invalid" })
+    if (parsed.ok) return
+    expect(parsed.reason).toMatch(
+      /^draft\/checks\/spawn-deadline\.test\.ts fails the static pre-check \(1 problem\): \[node-test-import\]/,
+    )
+  })
+
+  it("reads the package under repair's name at the pin, and refuses a check importing it", () => {
+    const check = "draft/checks/spawn-deadline.test.ts"
+    const name = JSON.parse(
+      execFileSync("git", ["-C", repositoryRoot(), "show", `${PIN}:packages/devkit/package.json`], {
+        encoding: "utf8",
+      }),
+    ).name as string
+    const source = (GOOD_DRAFT[check] as string).replace(
+      'import test from "node:test"',
+      `import test from "node:test"\nimport "${name}"`,
+    )
+    const parsed = parseDraft(files({ ...GOOD_DRAFT, [check]: source }), {
+      workOrderId: WO,
+      pin: PIN,
+    })
+    expect(parsed).toMatchObject({ ok: false, blockedReason: "intake_invalid" })
+    if (!parsed.ok) expect(parsed.reason).toContain("[own-package-import line")
+  })
+
   for (const [name, draft] of Object.entries(BAD_DRAFTS)) {
     it(`refuses ${name} with a reason naming the file`, () => {
       const parsed = parseDraft(files(draft), { workOrderId: WO, pin: PIN })
@@ -104,6 +139,86 @@ describe("parseDraft", () => {
     expect(reason("missingCheckFile")).toMatch(/draft\/checks\/other\.test\.ts/)
     expect(reason("emptySpec")).toMatch(/draft\/spec\.md is blank/)
     expect(reason("missingTask")).toMatch(/draft\/task\.json is missing/)
+  })
+
+  it("teaches the rule when the spec and the check disagree on acceptance ids", () => {
+    // The live run: scope stated as A2, which no test can assert, refused twice with only the
+    // mismatch named. The refusal now names the rule and where scope belongs.
+    const parsed = parseDraft(files(BAD_DRAFTS.acceptanceMismatch ?? {}), {
+      workOrderId: WO,
+      pin: PIN,
+    })
+    expect(parsed.ok).toBe(false)
+    if (parsed.ok) return
+    expect(parsed.reason).toBe(acceptanceMismatch(["A1", "A2"], ["A1"]))
+    expect(parsed.reason).toContain(
+      "draft/spec.md states [A1, A2] but the check asserts [A1] (the spec states [A2] that no assertion covers)",
+    )
+    expect(parsed.reason).toMatch(/every A<n> must be an observable behaviour/)
+    expect(parsed.reason).toContain("top-level test named 'A<n>: ...'")
+    expect(parsed.reason).toMatch(
+      /state scope .* in draft\/task\.json .*not as an acceptance criterion/,
+    )
+    // The other direction: an assertion naming an id the spec never states.
+    expect(acceptanceMismatch(["A1"], ["A1", "A3"])).toContain(
+      "does not state [A3] that an assertion names",
+    )
+  })
+
+  it("fills the target's runner configuration into immutablePaths, after the drafter's own", () => {
+    const task = JSON.parse(GOOD_DRAFT["draft/task.json"] ?? "") as {
+      immutablePaths: string[]
+    }
+    const runnerConfig = [
+      "packages/devkit/package.json",
+      "packages/devkit/vitest.config.ts",
+      "packages/devkit/tsconfig.json",
+      "packages/devkit/tsconfig.test.json",
+      "packages/config-typescript",
+    ]
+    // The drafter lists none of the runner configuration, and one path it is covered by twice.
+    const own = task.immutablePaths.filter((path) => !runnerConfig.includes(path))
+    const draft = {
+      ...GOOD_DRAFT,
+      "draft/task.json": JSON.stringify({
+        ...task,
+        immutablePaths: [...own, "packages/devkit/tsconfig.json"],
+      }),
+    }
+    const parsed = parseDraft(files(draft), { workOrderId: WO, pin: PIN })
+    if (!parsed.ok) throw new Error(parsed.reason)
+    expect(parsed.manifest.immutablePaths).toEqual([
+      ...own,
+      "packages/devkit/tsconfig.json",
+      "packages/devkit/package.json",
+      "packages/devkit/vitest.config.ts",
+      "packages/devkit/tsconfig.test.json",
+      "packages/config-typescript",
+    ])
+  })
+
+  it("refuses a draft whose allowed path is the runner configuration, naming every such path", () => {
+    const task = JSON.parse(GOOD_DRAFT["draft/task.json"] ?? "") as Record<string, unknown>
+    const draft = {
+      ...GOOD_DRAFT,
+      "draft/task.json": JSON.stringify({
+        ...task,
+        allowedSourcePaths: [
+          "packages/devkit/src/testing/process.ts",
+          "packages/devkit/vitest.config.ts",
+          "packages/devkit/package.json",
+        ],
+        immutablePaths: ["packages/devkit/test"],
+      }),
+    }
+    const parsed = parseDraft(files(draft), { workOrderId: WO, pin: PIN })
+    expect(parsed.ok).toBe(false)
+    if (parsed.ok) return
+    expect(parsed.blockedReason).toBe("intake_invalid")
+    expect(parsed.reason).toMatch(/draft\/task\.json does not fit target devkit/)
+    expect(parsed.reason).toContain("(2 problems)")
+    expect(parsed.reason).toContain("may edit packages/devkit/vitest.config.ts")
+    expect(parsed.reason).toContain("may edit packages/devkit/package.json")
   })
 
   it("refuses an independent assertion without an A<n>: prefix", () => {

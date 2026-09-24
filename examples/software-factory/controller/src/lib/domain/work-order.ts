@@ -42,6 +42,8 @@ export const WorkOrderRowSchema = z.object({
   bundleDigest: z.string().regex(DIGEST_PATTERN).nullable(),
   blockedReason: z.enum(BLOCKED_REASONS).nullable(),
   failureReason: z.enum(FAILURE_REASONS).nullable(),
+  /** Builder dispatches spent so far; `dispatch` spends one, `retry` needs one left. */
+  candidateAttempts: z.number().int().nonnegative(),
   maxCandidateAttempts: z.number().int().positive(),
   maxActiveMs: z.number().int().positive(),
   activeMs: z.number().int().nonnegative(),
@@ -81,6 +83,7 @@ export const COMMANDS = [
   "approve_intake",
   "reject_intake",
   "dispatch",
+  "retry",
   "approve",
   "deny",
   "cancel",

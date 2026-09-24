@@ -50,6 +50,7 @@ async function boot(
   factory = await createFactory({
     registryPath: join(dir, "registry.sqlite"),
     generatedTasksDir: join(dir, "tasks"),
+    captureRoot: dir,
     workers: fakeWorkerMap({
       builder: { client: createHttpWorkerClient(fake.baseUrl), reader },
     }),
@@ -310,6 +311,7 @@ describe("cancel", () => {
     const revived = await createFactory({
       registryPath: join(dir, "registry.sqlite"),
       generatedTasksDir: join(dir, "tasks"),
+      captureRoot: dir,
       workers: fakeWorkerMap({
         builder: { client: createHttpWorkerClient(replacement.baseUrl), reader },
       }),
@@ -364,7 +366,10 @@ describe("cancel", () => {
 
 describe("budget", () => {
   it("cancels an over-budget run and blocks it with budget_exhausted", async () => {
-    await boot({ run: "hang" }, { maxActiveMs: 1_000, budgetTickMs: 10 })
+    await boot(
+      { run: "hang" },
+      { maxActiveMs: 1_000, budgetTickMs: 10, allowBudgetBelowVerifierDeadline: true },
+    )
     const { id } = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(id)
     await factory.waitFor(id, (r) => r.state === "running")
@@ -379,7 +384,7 @@ describe("budget", () => {
   })
 
   it("does not count time spent awaiting approval", async () => {
-    await boot({}, { maxActiveMs: 1_000, budgetTickMs: 10 })
+    await boot({}, { maxActiveMs: 1_000, budgetTickMs: 10, allowBudgetBelowVerifierDeadline: true })
     const row = await awaiting()
     nowMs += 60_000
     await new Promise((resolve) => setTimeout(resolve, 50))

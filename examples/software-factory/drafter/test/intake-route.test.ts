@@ -87,10 +87,50 @@ describe("the intake route", () => {
     expect(prompt).toMatch(/not to `repo\/`/)
     // The check: node:test, fails now, passes when fixed, built artifact, no repository test.
     expect(prompt).toContain("`node:test`")
+    // The skeleton: the imports the controller's pre-check requires, the build loaded through
+    // the working directory, one named test, and cleanup that cannot throw.
+    expect(prompt).toContain('import { after, test } from "node:test"')
+    expect(prompt).toContain('import assert from "node:assert/strict"')
+    expect(prompt).toContain('import { join } from "node:path"')
+    expect(prompt).toContain('await import(join(process.cwd(), "packages/<name>/dist/<file>.js"))')
+    expect(prompt).toMatch(/^test\("A1: /m)
+    expect(prompt).toContain(".catch(() => {})")
     expect(prompt).toMatch(/fails? on the current code/i)
     expect(prompt).toMatch(/pass(es)? (once|when) .*fixed/i)
     expect(prompt).toMatch(/built artifact/)
     expect(prompt).toMatch(/no (test in the repository|repository test)/i)
+    // A root of `.` is the repository root, never the package: the live run's drafter wrote
+    // package-relative paths.
+    expect(prompt).toContain("A root of `.` is the repository root")
+    expect(prompt).toMatch(/never at the package/)
+    // The check runs after the build, from the target root, against dist, through real code.
+    expect(prompt).toMatch(/target's root as its working directory, after the target's build/)
+    expect(prompt).toContain("`packages/<name>/dist/...`")
+    expect(prompt).toMatch(/real code path/)
+    expect(prompt).toContain("never `assert.ok(true)`")
+    // ESM resolves a specifier against the importing file, so the artifact is loaded through
+    // process.cwd(), the way the shipped reference checks do: the review's ERR_MODULE_NOT_FOUND.
+    expect(prompt).toContain('await import(join(process.cwd(), "packages/<name>/dist/<file>.js"))')
+    expect(prompt).toMatch(/never a relative `import` specifier/)
+    // Graded shape: flat top-level tests, node:assert, a cleanup that cannot throw.
+    expect(prompt).toMatch(/Flat, top-level `test\("A<n>: \.\.\."/)
+    expect(prompt).toMatch(/No `describe`/)
+    expect(prompt).toContain("`node:assert/strict`")
+    expect(prompt).toMatch(/never chai or vitest `expect`/)
+    expect(prompt).toMatch(/Cleanup .* must not throw/)
+    // At least one fails now; a regression guard may pass; none is vacuous.
+    expect(prompt).toMatch(/at least one `A<n>` test fails on the current code/)
+    expect(prompt).toMatch(/none is vacuous/)
+    expect(prompt).not.toMatch(/Every `A<n>` test must assert something that fails/)
+    // Acceptance criteria are observable behaviour; scope is task.json's.
+    expect(prompt).toMatch(/acceptance criterion is an observable behaviour/)
+    expect(prompt).toMatch(/Scope is never an acceptance criterion/)
+    // Large files in ranges; no shell wrapper.
+    expect(prompt).toMatch(/Read large files in ranges/)
+    expect(prompt).toContain("`sed -n '120,200p' <file>`")
+    expect(prompt).toMatch(/never with `bash -lc` or `sh -c`/)
+    // The runner configuration is the factory's to fill, never the drafter's to allow.
+    expect(prompt).toMatch(/runner configuration .* fixed by the factory/)
   })
 })
 

@@ -1,11 +1,12 @@
-import { readFileSync } from "node:fs"
-import { join } from "node:path"
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { dirname, join } from "node:path"
 import type { BlockedReason } from "../domain/states.js"
-import type { WorkOrderRow } from "../domain/work-order.js"
+import type { Receipt, WorkOrderRow } from "../domain/work-order.js"
 import { DRAFT_ROOT, parseDraft } from "../intake/draft.js"
 import { writeGeneratedTask } from "../intake/generated-task.js"
 import { proveOracle } from "../intake/oracle.js"
 import { intakePrompt } from "../prompts.js"
+import { relativePath } from "../targets/catalog.js"
 import { loadPolicy } from "../verification/policy.js"
 import { classifyDone, type StreamFrame } from "../worker/wire.js"
 import { WorkspaceRootMissingError } from "../worker/workspace-reader.js"
@@ -52,6 +53,47 @@ function block(
 ): void {
   if (!isIntake(ctx.mustGet(id).state)) return
   ctx.transition(id, "intake_blocked", { blockedReason }, payload)
+}
+
+/** At most this many carried notes, each cut to `CARRIED_NOTE_CHARS`: a bounded prompt section. */
+export const CARRIED_DECISIONS = 4
+export const CARRIED_NOTE_CHARS = 1500
+
+/**
+ * The operator's `intake_rejected` notes on this issue (repository and number), from every work
+ * order of it including this one, newest first, bounded. The live rerun of issue 714 lost the
+ * operator's decision (200 with a JSON `null`, not an empty body) when a new work order
+ * replaced the one it was written on, and the next drafter asserted the rejected shape again.
+ * The row's own notes count too: a rejection reaches the next turn as its `note`, but the
+ * controller's refusal of THAT redraft becomes the note after it, and the operator's decision
+ * would be gone by the third attempt. Only `currentNote`, already quoted as the refusal, is
+ * left out.
+ */
+export function carriedDecisions(
+  ctx: ControllerContext,
+  row: WorkOrderRow,
+  currentNote?: string,
+): string[] {
+  if (row.origin.kind !== "issue") return []
+  const { repository, number } = row.origin
+  const notes: { at: string; seq: number; note: string }[] = []
+  for (const other of ctx.store.list()) {
+    if (other.origin.kind !== "issue") continue
+    if (other.origin.repository !== repository || other.origin.number !== number) continue
+    for (const event of ctx.store.events(other.id))
+      if (
+        event.type === "intake_rejected" &&
+        typeof event.payload.note === "string" &&
+        !(other.id === row.id && event.payload.note === currentNote)
+      )
+        notes.push({ at: event.at, seq: event.seq, note: event.payload.note })
+  }
+  return notes
+    .sort((a, b) => (a.at === b.at ? b.seq - a.seq : a.at < b.at ? 1 : -1))
+    .slice(0, CARRIED_DECISIONS)
+    .map(({ note }) =>
+      note.length > CARRIED_NOTE_CHARS ? `${note.slice(0, CARRIED_NOTE_CHARS)}…` : note,
+    )
 }
 
 /**
@@ -105,10 +147,14 @@ async function runDrafterTurn(
   // read is a refusal to start the turn, not a fault to leave the row stranded on.
   let prompt: string
   try {
+    const decisions = carriedDecisions(ctx, row, input.note)
+    if (decisions.length > 0)
+      ctx.recordEvent(id, "intake_decisions_carried", { count: decisions.length })
     prompt = intakePrompt({
       pin: row.pin,
       issueText: issue,
       ...(input.note !== undefined ? { note: input.note } : {}),
+      ...(decisions.length > 0 ? { decisions } : {}),
     })
   } catch (error) {
     ctx.recordEvent(id, "intake_prompt_failed", { error: String(error) })
@@ -275,6 +321,7 @@ async function proveDraft(
           ? `${DRAFT_ROOT} is missing: the drafter wrote nothing under it`
           : `${DRAFT_ROOT} is not a directory: the drafter must write files under it`,
         "intake_invalid",
+        new Map(),
       )
       return
     }
@@ -306,7 +353,7 @@ async function proveDraft(
       unavailable("target_unavailable", parsed.reason, "the draft's target could not be loaded")
       return
     }
-    await refuse(ctx, id, parsed.reason, parsed.blockedReason)
+    await refuse(ctx, id, parsed.reason, parsed.blockedReason, draft)
     return
   }
 
@@ -367,11 +414,13 @@ async function proveDraft(
   if (!isIntake(ctx.mustGet(id).state)) return
 
   if (!proof.proven) {
+    const why = await inconclusiveReason(ctx, proof.receipt, proof.checkId)
     await refuse(
       ctx,
       id,
-      `the drafted check did not fail on the unpatched baseline: ${proof.verdict} (${proof.checkId ?? "no check ran"})`,
+      `the drafted check did not fail on the unpatched baseline: ${proof.verdict} (${proof.checkId ?? "no check ran"})${why ? `: ${why}` : ""}`,
       "oracle_did_not_fail",
+      draft,
     )
     return
   }
@@ -399,41 +448,120 @@ export function removeDrafterManifest(ctx: ControllerContext, id: string): void 
 }
 
 /**
+ * Where a refused attempt's draft is kept: `<generatedTasksDir>/.refused/<id>/attempt-<n>/`.
+ * Not under the task directory itself (`<generatedTasksDir>/<id>/`): that directory is
+ * replaced wholesale by the next attempt's `writeGeneratedTask`, and digested wholesale by
+ * the approval gate, so a copy there would either be lost or change the digest a person
+ * approves. A dot name is not a catalog id, so the catalog never lists it as a task.
+ */
+export function refusedDraftDir(ctx: ControllerContext, id: string, attempt: number): string {
+  return join(ctx.generatedTasksDir, ".refused", id, `attempt-${attempt}`)
+}
+
+/**
+ * Copy what the controller read under `draft/` for a refused attempt, with the refusal as
+ * `reason.txt`, so an operator can read what the model produced after the retry overwrites
+ * the drafter's own `draft/`. The keys are drafter-controlled: only canonical relative paths
+ * are written (the rest are named in `reason.txt`), so none can land outside the directory.
+ * Best effort: a copy that cannot be written is journalled and the refusal proceeds.
+ */
+function keepRefusedDraft(
+  ctx: ControllerContext,
+  id: string,
+  attempt: number,
+  reason: string,
+  draft: ReadonlyMap<string, string>,
+): { readonly keptAt: string; readonly files: readonly string[] } | undefined {
+  const directory = refusedDraftDir(ctx, id, attempt)
+  try {
+    rmSync(directory, { recursive: true, force: true })
+    mkdirSync(directory, { recursive: true })
+    const files: string[] = []
+    const skipped: string[] = []
+    for (const [key, content] of draft) {
+      const path = key.startsWith(DRAFT_ROOT) ? key.slice(DRAFT_ROOT.length) : key
+      if (path === "reason.txt" || path.includes("\0") || !relativePath.safeParse(path).success) {
+        skipped.push(key)
+        continue
+      }
+      const absolute = join(directory, path)
+      mkdirSync(dirname(absolute), { recursive: true })
+      writeFileSync(absolute, content)
+      files.push(path)
+    }
+    const note = skipped.length
+      ? `\n\nNot copied (not a canonical path under ${DRAFT_ROOT}): ${skipped.map((k) => JSON.stringify(k)).join(", ")}`
+      : ""
+    writeFileSync(join(directory, "reason.txt"), `attempt ${attempt}: ${reason}${note}\n`)
+    return { keptAt: directory, files: files.sort() }
+  } catch (error) {
+    ctx.recordEvent(id, "refused_draft_unkept", { attempt, path: directory, error: String(error) })
+    return undefined
+  }
+}
+
+/**
  * A draft the controller will not take. The attempt is spent either way; a
  * `no_target_for_package` or an `image_unprepared` never retries (no redraft can prepare a
  * target, or an image at the pin), and the last
  * attempt blocks as `intake_attempts_exhausted` with the refusal in the journal. Otherwise
  * the row stays `intake_running` through `intake_retry` and another turn runs on the same
- * thread with the reason quoted.
+ * thread with the reason quoted. What was read is kept first (`keepRefusedDraft`), since the
+ * retry's turn rewrites the drafter's `draft/` in place.
  */
 async function refuse(
   ctx: ControllerContext,
   id: string,
   reason: string,
-  blockedReason:
-    | "intake_invalid"
-    | "no_target_for_package"
-    | "image_unprepared"
-    | "oracle_did_not_fail",
+  refusal: "intake_invalid" | "no_target_for_package" | "image_unprepared" | "oracle_did_not_fail",
+  draft: ReadonlyMap<string, string>,
 ): Promise<void> {
   const current = ctx.mustGet(id)
   if (!isIntake(current.state)) return
   const attempt = current.intakeAttempts + 1
-  ctx.recordEvent(id, "intake_refused", { reason, blockedReason, attempt })
+  const kept = keepRefusedDraft(ctx, id, attempt, reason, draft)
+  ctx.recordEvent(id, "intake_refused", {
+    reason,
+    blockedReason: refusal,
+    attempt,
+    ...(kept ? { keptAt: kept.keptAt, keptFiles: kept.files } : {}),
+  })
   const exhausted = attempt >= current.maxIntakeAttempts
-  const final = blockedReason === "no_target_for_package" || blockedReason === "image_unprepared"
+  const final = refusal === "no_target_for_package" || refusal === "image_unprepared"
   if (final || exhausted) {
+    // The row's reason and the transition's agree; the refusal that spent the last attempt
+    // rides beside it as `lastRefusal`, and each `intake_refused` above keeps its own.
+    const blockedReason = final ? refusal : "intake_attempts_exhausted"
     ctx.transition(
       id,
       "intake_blocked",
-      {
-        blockedReason: final ? blockedReason : "intake_attempts_exhausted",
-        intakeAttempts: attempt,
-      },
-      { reason, blockedReason, attempt },
+      { blockedReason, intakeAttempts: attempt },
+      { reason, blockedReason, lastRefusal: refusal, attempt },
     )
     return
   }
   ctx.transition(id, "intake_retry", { intakeAttempts: attempt }, { reason, attempt })
   await runIntake(ctx, id, { note: reason })
+}
+
+/**
+ * The first line of an `inconclusive:` explanation the verifier put at the head of the
+ * deciding check's evidence (a check that could not load, or failed other than by a named
+ * assertion), so the redraft is told what to mend. Best effort: an evidence store that cannot
+ * be read leaves the refusal as it was.
+ */
+async function inconclusiveReason(
+  ctx: ControllerContext,
+  receipt: Receipt,
+  checkId: string | null,
+): Promise<string | null> {
+  const check = receipt.checks.find((c) => c.id === checkId)
+  const digest = check?.verdict === "inconclusive" ? check.evidence[0]?.digest : undefined
+  if (digest === undefined) return null
+  try {
+    const first = (await ctx.artifacts.read(digest)).split("\n", 1)[0] ?? ""
+    return first.startsWith("inconclusive: ") ? first.slice("inconclusive: ".length) : null
+  } catch {
+    return null
+  }
 }

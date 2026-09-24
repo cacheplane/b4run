@@ -132,7 +132,7 @@ export function targetSandboxPolicy(target: Target): SandboxPolicy {
 export function targetWorkspace(
   task: Task,
   role: CaptureRole,
-  options: CaptureTargetOptions = {},
+  options: CaptureTargetOptions,
 ): WorkspaceDefinition {
   const captured = captureTarget(task, role, options)
   const include = capturedFiles(captured.absolute)

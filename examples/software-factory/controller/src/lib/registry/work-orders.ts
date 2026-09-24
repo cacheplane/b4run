@@ -25,7 +25,7 @@ export class StaleRevisionError extends Error {
 /**
  * Fields a command may change. Identity, limits, origin, pin and timestamps are fixed at
  * insert: `origin` and `pin` are what the work order is, not where it got to, and
- * `maxIntakeAttempts` is the cap set at create.
+ * `maxIntakeAttempts` and `maxCandidateAttempts` are the caps set at create.
  */
 export type WorkOrderPatch = Partial<
   Pick<
@@ -44,6 +44,7 @@ export type WorkOrderPatch = Partial<
     | "targetId"
     | "taskDigest"
     | "intakeAttempts"
+    | "candidateAttempts"
   >
 >
 
@@ -91,6 +92,7 @@ const COLUMNS: Readonly<Record<Exclude<keyof WorkOrderRow, "origin">, string>> =
   bundleDigest: "bundle_digest",
   blockedReason: "blocked_reason",
   failureReason: "failure_reason",
+  candidateAttempts: "candidate_attempts",
   maxCandidateAttempts: "max_candidate_attempts",
   maxActiveMs: "max_active_ms",
   activeMs: "active_ms",

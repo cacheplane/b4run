@@ -6,6 +6,7 @@
   "scripts": {
     "test": "vitest run",
     "test:sandbox": "vitest run --config vitest.sandbox.config.ts",
+    "test:sandbox:cli": "FACTORY_TEST_CLI_TARGET=1 vitest run --config vitest.sandbox.config.ts test/target-cli.integration.test.ts",
     "typecheck": "tsc -p . --noEmit",
     "lint": "biome check .",
     "factory": "tsx src/cli.ts",

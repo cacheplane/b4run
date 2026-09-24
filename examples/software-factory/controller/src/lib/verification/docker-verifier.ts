@@ -8,6 +8,11 @@ import { assembleReceipt, deadlinePlan, evidenceRef, type ReceiptPlan } from "./
 import type { Verifier, VerifyInput } from "./verifier.js"
 
 export interface DockerVerifierOptions {
+  /**
+   * Where each session stages its capture and workspace state (see
+   * `GradeSuiteInput.stagingRoot`): the controller's `FACTORY_STATE_DIR`, never its app root.
+   */
+  readonly stagingRoot: string
   /** Overrides the target's own deadline; only so a test can prove the deadline fires. */
   readonly deadlineMs?: number
 }
@@ -34,7 +39,7 @@ export interface DockerVerifierOptions {
  */
 export function createDockerVerifier(
   artifacts: ArtifactStore,
-  options: DockerVerifierOptions = {},
+  options: DockerVerifierOptions,
 ): Verifier {
   return {
     async verify(input: VerifyInput, signal: AbortSignal): Promise<Receipt> {
@@ -91,7 +96,14 @@ export function createDockerVerifier(
       const deadline = AbortSignal.timeout(deadlineMs)
       const bounded = AbortSignal.any([signal, deadline])
       const session = (kind: SuiteKind) =>
-        gradeSuite({ task, kind, changes: input.changes, provider, signal: bounded })
+        gradeSuite({
+          task,
+          kind,
+          changes: input.changes,
+          provider,
+          signal: bounded,
+          stagingRoot: options.stagingRoot,
+        })
 
       const mode = input.mode ?? "full"
       let visible: SuiteSession | null = null

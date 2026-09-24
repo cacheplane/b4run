@@ -101,6 +101,7 @@ it(
     factory = await createFactory({
       registryPath: join(dir, "registry.sqlite"),
       generatedTasksDir: join(dir, "tasks"),
+      captureRoot: dir,
       workers: fakeWorkerMap({
         builder: {
           client: createHttpWorkerClient(served.url),
@@ -111,8 +112,11 @@ it(
       }),
       exportDir,
       artifactsDir: join(dir, "artifacts"),
-      verifier: createDockerVerifier(createArtifactStore(join(dir, "artifacts"))),
-      captureBaseline: captureTargetBaseline,
+      verifier: createDockerVerifier(createArtifactStore(join(dir, "artifacts")), {
+        stagingRoot: dir,
+      }),
+      captureBaseline: (taskId, signal) =>
+        captureTargetBaseline(taskId, signal, { captureRoot: dir }),
       // The active clock runs from dispatch, and this lane's builder turn really builds and
       // tests inside its container before the verifier does. Four times the target's own
       // deadline is headroom for that turn and the TWO verifications (the receipt's, and the
@@ -192,7 +196,7 @@ it(
     // it read for itself: one changed path, the one the task permits.
     expect(evidence.candidate?.changedPaths).toEqual([source])
     expect(evidence.candidate?.baselineDigest).toBe(
-      (await captureTargetBaseline(TASK, AbortSignal.timeout(60_000))).digest,
+      (await captureTargetBaseline(TASK, AbortSignal.timeout(60_000), { captureRoot: dir })).digest,
     )
     expect(evidence.receipt?.verdict).toBe("pass")
     expect(evidence.receipt?.candidateDigest).toBe(evidence.candidate?.digest)

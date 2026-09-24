@@ -6,13 +6,7 @@ import { captureWorkspaceDefinition } from "@b4run/workspace/node"
 import { z } from "zod"
 import { writeFileAtomic } from "./storage/atomic-file.js"
 import { captureDirectory } from "./targets/archive.js"
-import {
-  appRoot as defaultAppRoot,
-  imageTag,
-  isCatalogId,
-  type Target,
-  type Task,
-} from "./targets/catalog.js"
+import { imageTag, isCatalogId, type Target, type Task } from "./targets/catalog.js"
 import { builderPermissions } from "./targets/permissions.js"
 import { builderSandboxScope, targetSandboxPolicy, targetWorkspace } from "./targets/workspace.js"
 
@@ -153,8 +147,11 @@ export async function writeBuilderTarget(target: Target, dir: string): Promise<s
 interface WriteBuilderManifestOptions {
   /** The file name and the id the builder's resolver is asked for; the task's id by default. */
   readonly workOrderId?: string
-  /** The app root the capture is staged under; the controller's own by default. */
-  readonly appRoot?: string
+  /**
+   * The capture root the staging directory lives under: the controller's `FACTORY_STATE_DIR`,
+   * never its app root, which `b4 dev` watches (see `CaptureTargetOptions.captureRoot`).
+   */
+  readonly captureRoot: string
   readonly signal?: AbortSignal
 }
 
@@ -177,22 +174,22 @@ export interface WrittenBuilderManifest {
 export async function writeBuilderManifest(
   task: Task,
   dir: string,
-  options: WriteBuilderManifestOptions = {},
+  options: WriteBuilderManifestOptions,
 ): Promise<WrittenBuilderManifest> {
   const workOrderId = options.workOrderId ?? task.id
   if (!isCatalogId(workOrderId))
     throw new Error(`builder manifest workOrderId must be a catalog id, got ${workOrderId}`)
   options.signal?.throwIfAborted()
-  const appRoot = options.appRoot ?? defaultAppRoot
+  const { captureRoot } = options
   const instance = randomUUID()
   let workspace: Awaited<ReturnType<typeof captureWorkspaceDefinition>>
   try {
-    const definition = targetWorkspace(task, "builder", { instance, appRoot })
-    workspace = await captureWorkspaceDefinition(appRoot, definition, {
+    const definition = targetWorkspace(task, "builder", { instance, captureRoot })
+    workspace = await captureWorkspaceDefinition(captureRoot, definition, {
       ...(options.signal !== undefined ? { signal: options.signal } : {}),
     })
   } finally {
-    rmSync(join(appRoot, captureDirectory(task.id, "builder", instance)), {
+    rmSync(join(captureRoot, captureDirectory(task.id, "builder", instance)), {
       recursive: true,
       force: true,
     })

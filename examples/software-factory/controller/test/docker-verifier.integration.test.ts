@@ -23,7 +23,7 @@ const verifierFor = async (deadlineMs?: number) => {
   directories.push(dir)
   return createDockerVerifier(
     createArtifactStore(join(dir, "artifacts")),
-    deadlineMs === undefined ? {} : { deadlineMs },
+    deadlineMs === undefined ? { stagingRoot: dir } : { stagingRoot: dir, deadlineMs },
   )
 }
 

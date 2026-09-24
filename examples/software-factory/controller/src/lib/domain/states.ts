@@ -62,8 +62,27 @@ export const BLOCKED_REASONS = [
   "image_unprepared",
   // The drafter turn ended without a draft, or the stream was lost past its retries.
   "intake_run_failed",
+  // The candidate's allowed file carries an elision placeholder (`... (file truncated)`) or
+  // shrank past half its baseline: the builder rewrote a file it had only partly read.
+  // Refused at assembly, before a verification that could only fail on it.
+  "candidate_rejected",
 ] as const
 export type BlockedReason = (typeof BLOCKED_REASONS)[number]
+
+/**
+ * The blocks a candidate failure leaves, which `retry` may return to `received` while the
+ * row has candidate attempts left. Every other block is not the candidate's: an intake block
+ * has no approved task to dispatch, an unconfirmed export or an exhausted budget is the
+ * controller's to settle, and none of them is mended by a fresh builder thread.
+ */
+export const RETRYABLE_BLOCKED_REASONS: ReadonlySet<BlockedReason> = new Set<BlockedReason>([
+  "unexpected_interrupt",
+  "scope_violation",
+  "encoding_violation",
+  "candidate_rejected",
+  "verification_failed",
+  "verification_inconclusive",
+])
 
 export const FAILURE_REASONS = ["route_error", "ended_without_candidate"] as const
 export type FailureReason = (typeof FAILURE_REASONS)[number]
@@ -93,6 +112,7 @@ export const TRANSITION_EVENTS = [
   "intake_blocked",
   "approve_intake",
   "reject_intake",
+  "retry",
 ] as const
 export type TransitionEvent = (typeof TRANSITION_EVENTS)[number]
 
@@ -138,6 +158,9 @@ const TABLE: Readonly<Record<TransitionEvent, Row>> = {
   intake_blocked: { intake_running: "blocked", awaiting_intake_approval: "blocked" },
   approve_intake: { awaiting_intake_approval: "received" },
   reject_intake: { awaiting_intake_approval: "intake_running" },
+  // A candidate failure, attempts permitting, back to where `dispatch` starts a fresh builder
+  // thread. The table cannot see the reason; `retry` refuses every block but a candidate's.
+  retry: { blocked: "received" },
 }
 
 export class IllegalTransitionError extends Error {

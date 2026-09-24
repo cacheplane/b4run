@@ -1,4 +1,5 @@
 import type { Receipt, Verdict } from "../domain/work-order.js"
+import { ASSERTION_FAILURE, type SuiteEvent } from "./checks-runner.js"
 import type { SuiteKind, SuiteSession } from "./grade-suite.js"
 import { type VerifyMode, worstVerdict } from "./verifier.js"
 
@@ -128,17 +129,80 @@ function independentOnlyPlan(
   const result = independent.result
   if (!result)
     throw new Error("a suite did not run and neither a build failure nor a tamper was recorded")
+  const unproven = result.verdict === "fail" ? unprovenFailure(result.events, acceptanceIds) : null
+  const verdict: Verdict = unproven ? "inconclusive" : result.verdict
   return {
-    verdict: result.verdict,
+    verdict,
     checks: [
       {
         id: "independent",
         acceptanceIds: [...acceptanceIds],
-        verdict: result.verdict,
-        evidence: result.output,
+        verdict,
+        evidence: unproven ? `${unproven}\n${result.output}` : result.output,
       },
     ],
   }
+}
+
+/**
+ * Why a failing independent-only run proves nothing, or null when it does. `independentOnly`
+ * is the oracle proof, and a `fail` there is read as "the check fails on the defect", so it
+ * must be a named assertion failing by assertion (`ERR_ASSERTION`), and nothing else failing:
+ * - a file that cannot load (a missing module, a syntax error, a top-level throw) reports one
+ *   failure named after the file, with no cause, and no named test runs at all;
+ * - a failure under any other name is a test the check does not name;
+ * - a named test that fails by a throw (`TypeError`, a missing export, a runtime error such as
+ *   `B4_E1007`) has not asserted anything about the behaviour: it is how a placeholder, a
+ *   wrong import or a fixture the runtime rejects fails;
+ * - a `todo` or `skip` test proves nothing whatever it reports: node:test runs a todo test
+ *   and reports its failure without failing the run, so it cannot be the failing assertion.
+ * The live run's first drafted check failed on `ERR_MODULE_NOT_FOUND` and was read as an
+ * oracle. Full-mode grading is untouched: there a failure of any kind rejects the candidate.
+ *
+ * The reason is ONE line (the intake reads the evidence's first line as the refusal reason,
+ * and the drafter's retry prompt quotes it) and says, per failure, what it failed with and
+ * the first line of its message: attempt 4's refusal named only `B4_E1007`, which read as if
+ * the assertion had failed and left the redraft to guess what the runtime rejected.
+ */
+function unprovenFailure(
+  events: readonly SuiteEvent[],
+  assertions: readonly string[],
+): string | null {
+  const failed = events.filter((event) => event.type === "test:fail")
+  const unnamed = failed.filter((event) => !assertions.includes(event.name))
+  if (unnamed.length > 0) return `inconclusive: ${unnamed.map(describeUnnamed).join("; ")}`
+  const proving = failed.filter((event) => !event.todo && !event.skip)
+  if (!proving.some((event) => event.failure === ASSERTION_FAILURE))
+    return failed.length === 0
+      ? "inconclusive: the suite failed but no named assertion ran and failed"
+      : `inconclusive: ${failed.map(describeNamed).join("; ")}`
+  return null
+}
+
+/** `A1` for a test named `A1: …`, else the whole name, quoted. */
+const label = (name: string): string =>
+  /^([A-Za-z][\w.-]*):\s/.exec(name)?.[1] ?? JSON.stringify(name)
+
+/** `with CODE ("message")`, or as much of it as the runner reported. */
+const failedWith = (event: SuiteEvent): string =>
+  `${event.failure ?? "no error code"}${event.message !== undefined ? ` (${JSON.stringify(event.message)})` : ""}`
+
+const marks = (event: SuiteEvent): string => (event.todo ? "todo" : event.skip ? "skip" : "")
+
+function describeUnnamed(event: SuiteEvent): string {
+  // No cause at all is how node:test reports a file that never loaded: the name is the file's.
+  if (event.failure === undefined)
+    return `the check file failed to load (${JSON.stringify(event.name)}): ${event.message ?? "no error message was reported"}; no named test ran, so it proves nothing`
+  return `${JSON.stringify(event.name)} failed with ${failedWith(event)}, but it is not a named assertion: failures outside the named assertions prove nothing`
+}
+
+function describeNamed(event: SuiteEvent): string {
+  const mark = marks(event)
+  if (mark !== "")
+    return `${label(event.name)} failed with ${failedWith(event)}, but it is marked ${mark}: a ${mark} test proves nothing`
+  if (event.failure === ASSERTION_FAILURE)
+    return `${label(event.name)} failed with ${failedWith(event)}`
+  return `${label(event.name)} failed with ${failedWith(event)}, not an assertion failure: the check must reach the behaviour and fail on an assert`
 }
 
 /**

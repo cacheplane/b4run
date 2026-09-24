@@ -23,9 +23,9 @@ export async function applyReference(id = "cli-flags"): Promise<string> {
   const allowed = task.manifest.allowedSourcePaths[0] as string
   // Only a shipped task has a reference repair; a generated one has nothing proven yet.
   if (task.referencePatch === null) throw new Error(`Task ${id} has no reference.patch`)
-  const appRoot = await mkdtemp(join(tmpdir(), "factory-reference-"))
+  const captureRoot = await mkdtemp(join(tmpdir(), "factory-reference-"))
   try {
-    const captured = captureTarget(task, "test", { appRoot })
+    const captured = captureTarget(task, "test", { captureRoot })
     const applied = spawnSync("git", ["apply", join(task.directory, "reference.patch")], {
       cwd: captured.absolute,
       encoding: "utf8",
@@ -34,6 +34,6 @@ export async function applyReference(id = "cli-flags"): Promise<string> {
     if (applied.status !== 0) throw new Error(`Historical patch failed: ${applied.stderr}`)
     return await readFile(join(captured.absolute, allowed), "utf8")
   } finally {
-    await rm(appRoot, { recursive: true, force: true })
+    await rm(captureRoot, { recursive: true, force: true })
   }
 }

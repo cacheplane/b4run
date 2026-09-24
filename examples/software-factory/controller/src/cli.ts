@@ -1,11 +1,13 @@
-import { join } from "node:path"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join, resolve } from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
 import { parseArgs } from "node:util"
 import { writeBuilderManifest, writeBuilderTarget } from "./lib/builder-manifest.js"
 import { type ControllerClient, ControllerHttpError, createControllerClient } from "./lib/client.js"
 import { generatedTasksDirFor } from "./lib/config.js"
 import type { WorkOrderState } from "./lib/domain/states.js"
-import type { WorkOrderRow } from "./lib/domain/work-order.js"
+import { COMMIT_PATTERN, type WorkOrderRow } from "./lib/domain/work-order.js"
 import {
   execFileExec,
   fetchIssue,
@@ -14,16 +16,23 @@ import {
 } from "./lib/intake/issue.js"
 import { openRegistryReader } from "./lib/registry/reader.js"
 import type { RouteOutcome } from "./lib/routes/outcome.js"
-import { configureCatalog, loadTarget, loadTask, repositoryRoot } from "./lib/targets/catalog.js"
+import {
+  configureCatalog,
+  ensurePin,
+  loadTarget,
+  loadTask,
+  repositoryRoot,
+} from "./lib/targets/catalog.js"
 
 const USAGE = `factory <command> [options]
 
   create    --task <id> [--key <operationKey>]
-  create    --issue <n> [--repo <owner/name>] [--key <operationKey>]
+  create    --issue <n> [--repo <owner/name>] [--pin <sha>] [--key <operationKey>]
   intake          <workOrderId> [--key <operationKey>]
   approve-intake  <workOrderId> --revision <n> --digest <sha256> [--key <operationKey>]
   reject-intake   <workOrderId> --note "<text>" [--key <operationKey>]
   dispatch  <workOrderId> [--key <operationKey>]
+  retry     <workOrderId> [--key <operationKey>]
   approve   <workOrderId> --revision <n> --bundle <sha256> [--key <operationKey>]
   deny      <workOrderId> [--key <operationKey>]
   cancel    <workOrderId> [--key <operationKey>]   (uses BOTH variables)
@@ -51,11 +60,31 @@ target's manifest directory, and this command is for driving a builder without a
 create --issue reads the issue through gh (FACTORY_GH names the executable; default gh) and pins
 the work order to origin/main of the target checkout (FACTORY_REPO_ROOT; FACTORY_NO_FETCH=1 skips
 the fetch). The repository is --repo, else FACTORY_REPOSITORY, else the checkout's origin remote.
+create --issue --pin <sha> replays the issue at that commit instead: origin/main is neither
+fetched nor read. The pin is a full sha, or a short one the checkout resolves; a full sha not in
+the object store is fetched from origin by sha, unless FACTORY_NO_FETCH=1, which refuses it.
 
 intake runs the drafter turn and the oracle proof and waits for them, like dispatch. The draft
 it parks is a task directory under <FACTORY_STATE_DIR>/tasks/<workOrderId>/ (task.json, spec.md,
 checks.json, checks/, issue.md): read it, then approve-intake with the revision and the taskDigest
 that show prints, or reject-intake with a note the next drafter turn quotes.
+
+dispatch, intake, reject-intake and approve await the run (approve's re-verification is a run
+too; its arrival and refusal are read from the journal). When the request itself ends first (an HTTP
+timeout on a long wait, a dropped connection), the command says so on stderr and follows the
+row in the registry (FACTORY_STATE_DIR) until it leaves its active state, for up to the row's
+active budget plus 10 minutes, then answers from the row with the same exit codes. The row is
+read before the request is sent: a row whose revision never moves past that reading within a
+minute is a request that did not reach the controller, and the command says so and exits 1.
+retry returns a work order a candidate failure blocked (unexpected_interrupt, scope_violation,
+encoding_violation, candidate_rejected, verification_failed, verification_inconclusive) to
+received, while it has candidate attempts left (FACTORY_MAX_CANDIDATE_ATTEMPTS, fixed at create,
+default 2): it denies and cancels whatever is left on the old builder thread and does not
+dispatch. dispatch again to start a fresh builder thread from the approved task.
+
+A draft intake refuses is kept for reading after the retry overwrites it: each refused
+attempt's draft/ files and its reason.txt, under
+<FACTORY_STATE_DIR>/tasks/.refused/<workOrderId>/attempt-<n>/ (journalled as keptAt).
 
 Output is JSON on stdout; diagnostics go to stderr. Exit code 1 when a command is refused,
 when a dispatch settles somewhere that still owes the operator work, and when an intake or a
@@ -74,7 +103,27 @@ const registryPath = (): string => {
 const client = (): ControllerClient => {
   const url = process.env.FACTORY_CONTROLLER_URL
   if (!url) throw new Error("FACTORY_CONTROLLER_URL is required: this command asks a controller")
-  return createControllerClient(url)
+  return createControllerClient(url, requestFetch())
+}
+
+/**
+ * `fetch`, bounded per request by `FACTORY_CLI_REQUEST_TIMEOUT_MS` when it is set. Tests set
+ * it to stand in for undici's own headers timeout (300 s), which is what cut the live run's
+ * `intake` off mid-turn; nothing an operator runs sets it.
+ */
+function requestFetch(): typeof fetch {
+  const raw = process.env.FACTORY_CLI_REQUEST_TIMEOUT_MS
+  if (raw === undefined || raw === "") return fetch
+  const ms = Number(raw)
+  if (!Number.isInteger(ms) || ms <= 0)
+    throw new Error(`FACTORY_CLI_REQUEST_TIMEOUT_MS must be a positive integer, got ${raw}`)
+  return (input, init) => {
+    const timeout = AbortSignal.timeout(ms)
+    return fetch(input, {
+      ...init,
+      signal: init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout,
+    })
+  }
 }
 
 /** Open, read, close: a reader is a connection to someone else's registry, never held. */
@@ -131,14 +180,111 @@ const INTAKE_SUCCESS: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>([
   "awaiting_intake_approval",
 ])
 
+/** The states an awaited `intake` or `reject-intake` is still working in. */
+const INTAKE_ACTIVE: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>(["intake_running"])
 /**
- * Send a request that awaits a run (`dispatch`, `intake`, `reject-intake`), tailing the
- * journal to stderr while it is in flight.
+ * An approval re-verifies with the row still in `awaiting_approval`, then exports from
+ * `exporting`; it has succeeded only when the row reads `exported`.
+ */
+const APPROVE_ACTIVE: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>([
+  "awaiting_approval",
+  "exporting",
+])
+const APPROVE_SUCCESS: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>(["exported"])
+/** The states an awaited `dispatch` is still working in: the builder's turn and verification. */
+const DISPATCH_ACTIVE: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>([
+  "dispatched",
+  "running",
+  "verifying",
+])
+
+/** Beyond the row's own active budget, how long a fallen-back command keeps polling. */
+const POLL_GRACE_MS = 10 * 60_000
+
+/**
+ * How long a fallen-back command waits for the row to move past what it read before sending.
+ * A request that reached the controller moves the row (every command's first transition
+ * bumps the revision) long before any transport timeout fires; one that never arrived leaves
+ * it where it was, which for `reject-intake` is its own success state. Tests shorten it with
+ * `FACTORY_CLI_ARRIVAL_WINDOW_MS`; nothing an operator runs sets it.
+ */
+function arrivalWindowMs(): number {
+  const raw = process.env.FACTORY_CLI_ARRIVAL_WINDOW_MS
+  if (raw === undefined || raw === "") return 60_000
+  const ms = Number(raw)
+  if (!Number.isInteger(ms) || ms <= 0)
+    throw new Error(`FACTORY_CLI_ARRIVAL_WINDOW_MS must be a positive integer, got ${raw}`)
+  return ms
+}
+
+/** The row as it was before the request was sent: what "the request moved it" is measured from. */
+interface RowMark {
+  readonly state: WorkOrderState
+  readonly revision: number
+  /** The last journal line's seq: an event after it was written by (or after) this request. */
+  readonly seq: number
+}
+
+/**
+ * How a command that does not move its row for a long time is followed. `approve` holds the
+ * row in `awaiting_approval` at its revision through the whole re-verification, so neither the
+ * revision nor the state says it arrived: its first journal line does, and a refusal is a
+ * journal line too, since the row it leaves is where it started.
+ */
+interface FollowEvents {
+  /** Written as the command starts: the request arrived. */
+  readonly arrived: string
+  /** Written when the command refuses: it is over, whatever the row's state. */
+  readonly refused: string
+}
+
+/** Connection errors that mean nothing was sent: there is no work to wait for. */
+const NEVER_SENT = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN"])
+
+/**
+ * The request failed in transport, not by the controller's answer: the connection ended or a
+ * timeout fired (undici's 300 s headers timeout on a long `runs/wait` is the case this exists
+ * for). A refused connection or an unresolvable host is not one: nothing reached the
+ * controller, so there is no work to wait for. Everything else MAY have reached it, and
+ * `followRow` decides from the row whether it did.
+ */
+function transportFailure(error: unknown): boolean {
+  if (error instanceof ControllerHttpError || !(error instanceof Error)) return false
+  const cause = (error as { cause?: { code?: unknown } }).cause
+  if (typeof cause?.code === "string" && NEVER_SENT.has(cause.code)) return false
+  return error.name === "TimeoutError" || error.name === "AbortError" || error instanceof TypeError
+}
+
+/** The row before the request, or undefined when the registry cannot say (no state dir yet). */
+function markRow(id: string): RowMark | undefined {
+  try {
+    return read((reader) => {
+      const row = reader.show(id)
+      const seq = reader.events(id).at(-1)?.seq ?? 0
+      return row ? { state: row.state, revision: row.revision, seq } : undefined
+    })
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Send a request that awaits a run (`dispatch`, `intake`, `reject-intake`, `approve`), tailing the
+ * journal to stderr while it is in flight. The run is the controller's, not this request's:
+ * when the request dies in transport while the work goes on, the command says so on stderr
+ * and follows the row in the read-only registry until it leaves `active`, within the row's
+ * own active budget plus {@link POLL_GRACE_MS}, then answers from the row as the route would.
  */
 async function awaiting(
   id: string,
   request: (controller: ControllerClient) => Promise<RouteOutcome>,
+  active: ReadonlySet<WorkOrderState>,
+  success: ReadonlySet<WorkOrderState>,
+  events?: FollowEvents,
 ): Promise<RouteOutcome> {
+  // Read before the request leaves: the only evidence, if the request dies in transport, of
+  // whether it ever reached the controller.
+  const before = markRow(id)
   let seq = 0
   // Aborted the moment the request resolves, so a dispatch that finishes in 200 ms does not
   // hold the process for the rest of a 500 ms tick.
@@ -152,6 +298,13 @@ async function awaiting(
   })()
   try {
     return await request(client())
+  } catch (error) {
+    if (!transportFailure(error)) throw error
+    const reason = error instanceof Error ? error.message : String(error)
+    process.stderr.write(
+      `factory: the request ended before its answer (${reason}); the work goes on in the controller, following the row in the registry\n`,
+    )
+    return await followRow(id, active, success, before, events)
   } finally {
     stop.abort()
     await tail
@@ -161,17 +314,90 @@ async function awaiting(
   }
 }
 
-/** Poll the read-only registry until `done` accepts the row, or the deadline passes. */
+/**
+ * Poll the read-only registry until `done` accepts the row, or the deadline passes. The
+ * deadline may be a function of the row, read afresh each poll (`followRow`'s is the row's
+ * own active budget).
+ */
 async function pollRow(
   id: string,
   done: (row: WorkOrderRow | null) => boolean,
-  timeoutMs: number,
+  timeoutMs: number | ((row: WorkOrderRow | null) => number),
+  intervalMs = 100,
 ): Promise<WorkOrderRow | null> {
-  const deadline = Date.now() + timeoutMs
+  const started = Date.now()
   for (;;) {
     const row = read((reader) => reader.show(id))
-    if (done(row) || Date.now() >= deadline) return row
-    await sleep(100)
+    const limit = typeof timeoutMs === "number" ? timeoutMs : timeoutMs(row)
+    if (done(row) || Date.now() - started >= limit) return row
+    await sleep(intervalMs)
+  }
+}
+
+/**
+ * The answer an awaiting command gives once its request is gone. The row must first show the
+ * request arrived: its revision moved past `before` (every command's first transition bumps
+ * it), or it entered `active`. A row that has not moved within the arrival window is a
+ * request that never reached the controller, however settled its state looks: `reject-intake`
+ * starts from `awaiting_intake_approval`, its own success state. Once it has moved, the row
+ * is followed until it leaves `active`, and `ok` is the command's own success set, exactly as
+ * the route decides it.
+ */
+async function followRow(
+  id: string,
+  active: ReadonlySet<WorkOrderState>,
+  success: ReadonlySet<WorkOrderState>,
+  before: RowMark | undefined,
+  events?: FollowEvents,
+): Promise<RouteOutcome> {
+  if (before === undefined)
+    return {
+      ok: false,
+      message:
+        "The request ended before its answer, and the row could not be read before it was sent, so whether it reached the controller is unknown; run show",
+    }
+  /** The first journal line of `type` after the mark, or undefined. */
+  const journalled = (type: string | undefined) =>
+    type === undefined
+      ? undefined
+      : read((reader) => reader.events(id)).find((e) => e.seq > before.seq && e.type === type)
+  const moved = (r: WorkOrderRow) =>
+    r.revision > before.revision ||
+    (!active.has(before.state) && active.has(r.state)) ||
+    journalled(events?.arrived) !== undefined
+  const arrival = arrivalWindowMs()
+  const arrived = await pollRow(id, (r) => r !== null && moved(r), arrival, 250)
+  if (!arrived) throw new Error(`Unknown work order ${id}`)
+  if (!moved(arrived))
+    return {
+      ok: false,
+      state: arrived.state,
+      message: `The request did not reach the controller: the row is still ${arrived.state} at revision ${arrived.revision} ${Math.round(arrival / 1_000)} s after it ended; nothing was done, run the command again`,
+      row: arrived,
+    }
+  const row = await pollRow(
+    id,
+    (r) => r !== null && (!active.has(r.state) || journalled(events?.refused) !== undefined),
+    (r) => (r?.maxActiveMs ?? 0) + POLL_GRACE_MS,
+    1_000,
+  )
+  if (!row) throw new Error(`Unknown work order ${id}`)
+  const refusal = journalled(events?.refused)
+  if (refusal !== undefined && active.has(row.state))
+    return {
+      ok: false,
+      state: row.state,
+      message: `Refused (read from the registry after the request ended): ${String(refusal.payload.message)}`,
+      row,
+    }
+  const settled = !active.has(row.state)
+  return {
+    ok: settled && success.has(row.state),
+    state: row.state,
+    message: settled
+      ? `Settled as ${row.state} (read from the registry after the request ended)`
+      : `Still ${row.state} after the row's active budget and ${POLL_GRACE_MS / 60_000} minutes more; run show`,
+    row,
   }
 }
 
@@ -216,10 +442,15 @@ async function cancel(id: string, key: string | undefined): Promise<number> {
 }
 
 /**
- * What `create --issue` sends: the issue as gh reports it now, and main's tip as the pin. Both
- * are read before the controller is asked, so a refused create costs nothing on the controller.
+ * What `create --issue` sends: the issue as gh reports it now, and main's tip as the pin (or
+ * `--pin`, the replay mode). Both are read before the controller is asked, so a refused create
+ * costs nothing on the controller.
  */
-async function issueCreateInput(issueArg: string, repo: string | undefined) {
+async function issueCreateInput(
+  issueArg: string,
+  repo: string | undefined,
+  pinArg: string | undefined,
+) {
   const number = Number(issueArg)
   if (!/^\d+$/.test(issueArg) || !Number.isInteger(number) || number <= 0)
     throw new Error(`--issue must be a positive integer, got ${JSON.stringify(issueArg)}`)
@@ -228,13 +459,58 @@ async function issueCreateInput(issueArg: string, repo: string | undefined) {
   if (!repository) throw new Error("cannot determine the repository; pass --repo <owner/name>")
   const gh = process.env.FACTORY_GH ?? "gh"
   const fetch = process.env.FACTORY_NO_FETCH !== "1"
+  const replayPin = pinArg !== undefined ? await replayPinOf(root, pinArg) : undefined
   const issue = await fetchIssue({ repository, number, gh })
-  const pin = await resolvePin({ repositoryRoot: root, fetch })
+  let pin: string
+  if (replayPin !== undefined) {
+    // A replay: the commit is named, so origin/main is never consulted. A full sha missing from
+    // a shallow checkout is fetched by sha; FACTORY_NO_FETCH=1 refuses it instead, naming it.
+    ensurePin(root, `issue-${number}`, replayPin, { label: `Issue ${number} (replay)` })
+    pin = replayPin
+  } else {
+    pin = await resolvePin({ repositoryRoot: root, fetch })
+  }
   return {
     origin: { kind: "issue" as const, repository, number, bodyDigest: issue.bodyDigest },
     pin,
     issue: { title: issue.title, body: issue.body },
   }
+}
+
+/**
+ * The commit `--pin` names: a full sha as given (lowercased; `ensurePin` then finds or fetches
+ * it), or a short one resolved in the checkout with `git rev-parse --verify`. A short sha
+ * cannot be fetched by sha, so one the checkout does not know is refused, asking for the full.
+ */
+async function replayPinOf(root: string, pinArg: string): Promise<string> {
+  if (/^[0-9a-fA-F]{40}$/.test(pinArg)) return pinArg.toLowerCase()
+  if (!/^[0-9a-fA-F]{4,39}$/.test(pinArg))
+    throw new Error(`--pin must be a commit sha, got ${JSON.stringify(pinArg)}`)
+  let stdout: string
+  try {
+    ;({ stdout } = await execFileExec("git", [
+      "-C",
+      root,
+      "rev-parse",
+      "--verify",
+      "--quiet",
+      `${pinArg}^{commit}`,
+    ]))
+  } catch {
+    throw new Error(
+      `--pin ${pinArg} does not name a commit in ${root}; pass the full 40-hex sha, which is fetched from origin when it is missing`,
+    )
+  }
+  const sha = stdout.trim()
+  if (!COMMIT_PATTERN.test(sha))
+    throw new Error(`--pin ${pinArg} resolved to ${JSON.stringify(sha)}, not a commit`)
+  // `rev-parse` prefers a ref to an abbreviated sha: a branch or tag whose name is hex (`cafe`)
+  // resolves to wherever it points. `--pin` names a commit, so the answer must extend it.
+  if (!sha.startsWith(pinArg.toLowerCase()))
+    throw new Error(
+      `--pin ${pinArg} resolved to ${sha}, which is not a commit it abbreviates (a branch or tag of that name?); pass the full 40-hex sha`,
+    )
+  return sha
 }
 
 /** `owner/name` from the checkout's origin remote, or null when there is none or it is not GitHub. */
@@ -303,23 +579,38 @@ async function main(argv: string[]): Promise<number> {
     const stateDir = process.env.FACTORY_STATE_DIR
     if (stateDir) configureCatalog({ generatedTasksDir: generatedTasksDirFor(stateDir) })
     const workOrder = values["work-order"]
-    const written = await writeBuilderManifest(
-      loadTask(values.task),
-      values.out,
-      workOrder !== undefined ? { workOrderId: workOrder } : {},
-    )
-    print({ path: written.path, sourceDigest: written.sourceDigest })
+    // The capture is staged under the state directory when there is one (where the controller
+    // stages its own), and otherwise under a temporary directory this command removes: never
+    // under the controller package, which a `b4 dev` controller watches and would restart on.
+    const captureRoot = stateDir
+      ? resolve(stateDir)
+      : mkdtempSync(join(tmpdir(), "factory-captures-"))
+    try {
+      const written = await writeBuilderManifest(loadTask(values.task), values.out, {
+        captureRoot,
+        ...(workOrder !== undefined ? { workOrderId: workOrder } : {}),
+      })
+      print({ path: written.path, sourceDigest: written.sourceDigest })
+    } finally {
+      if (!stateDir) rmSync(captureRoot, { recursive: true, force: true })
+    }
     return 0
   }
   try {
     switch (command) {
       case "create": {
         if (values.task && values.issue) throw new Error("create takes --task or --issue, not both")
+        if (values.pin !== undefined && !values.issue)
+          throw new Error(
+            values.task
+              ? "create --pin replays an issue: it takes --issue, not --task (a catalog task's pin is its target's)"
+              : "create --pin requires --issue",
+          )
         const key = values.key ? { operationKey: values.key } : {}
         const input = values.task
           ? { taskId: values.task }
           : values.issue
-            ? await issueCreateInput(values.issue, values.repo)
+            ? await issueCreateInput(values.issue, values.repo, values.pin)
             : null
         if (!input) throw new Error("create requires --task or --issue")
         const outcome = await client().create({ ...input, ...key })
@@ -328,13 +619,23 @@ async function main(argv: string[]): Promise<number> {
       }
       case "dispatch": {
         const id = needId()
-        const outcome = await awaiting(id, (controller) => controller.dispatch(id, values.key))
+        const outcome = await awaiting(
+          id,
+          (controller) => controller.dispatch(id, values.key),
+          DISPATCH_ACTIVE,
+          DISPATCH_SUCCESS,
+        )
         print(outcome)
         return outcome.ok && outcome.row && DISPATCH_SUCCESS.has(outcome.row.state) ? 0 : 1
       }
       case "intake": {
         const id = needId()
-        const outcome = await awaiting(id, (controller) => controller.intake(id, values.key))
+        const outcome = await awaiting(
+          id,
+          (controller) => controller.intake(id, values.key),
+          INTAKE_ACTIVE,
+          INTAKE_SUCCESS,
+        )
         print(outcome)
         return outcome.ok && outcome.row && INTAKE_SUCCESS.has(outcome.row.state) ? 0 : 1
       }
@@ -353,11 +654,15 @@ async function main(argv: string[]): Promise<number> {
         const id = needId()
         const note = values.note
         if (!note) throw new Error("reject-intake requires --note")
-        const outcome = await awaiting(id, (controller) =>
-          controller.rejectIntake(id, {
-            note,
-            ...(values.key ? { operationKey: values.key } : {}),
-          }),
+        const outcome = await awaiting(
+          id,
+          (controller) =>
+            controller.rejectIntake(id, {
+              note,
+              ...(values.key ? { operationKey: values.key } : {}),
+            }),
+          INTAKE_ACTIVE,
+          INTAKE_SUCCESS,
         )
         print(outcome)
         return outcome.ok && outcome.row && INTAKE_SUCCESS.has(outcome.row.state) ? 0 : 1
@@ -365,11 +670,26 @@ async function main(argv: string[]): Promise<number> {
       case "approve": {
         if (!values.revision || !values.bundle)
           throw new Error("approve requires --revision and --bundle")
-        const outcome = await client().approve(needId(), {
+        const id = needId()
+        const input = {
           revision: Number(values.revision),
           bundleDigest: values.bundle,
           ...(values.key ? { operationKey: values.key } : {}),
-        })
+        }
+        // Approve re-verifies before it exports (about 20 minutes on the `cli` target), past
+        // the HTTP request's own timeout: followed like dispatch, by its journal lines.
+        const outcome = await awaiting(
+          id,
+          (controller) => controller.approve(id, input),
+          APPROVE_ACTIVE,
+          APPROVE_SUCCESS,
+          { arrived: "approve_started", refused: "approve_refused" },
+        )
+        print(outcome)
+        return outcome.ok ? 0 : 1
+      }
+      case "retry": {
+        const outcome = await client().retry(needId(), values.key)
         print(outcome)
         return outcome.ok ? 0 : 1
       }

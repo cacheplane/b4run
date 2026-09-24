@@ -32,7 +32,7 @@ describe("openRegistry", () => {
       registry.db.prepare("PRAGMA table_info(work_orders)").all() as { name: string }[]
     ).map((c) => c.name)
     expect(columns).not.toContain("candidate_verified")
-    expect(SCHEMA_VERSION).toBe(4)
+    expect(SCHEMA_VERSION).toBe(5)
     registry.close()
   })
 
@@ -134,7 +134,7 @@ describe("migration 4", () => {
     const version = registry.db.prepare("SELECT max(version) AS v FROM schema_version").get() as {
       v: number
     }
-    expect(version.v).toBe(4)
+    expect(version.v).toBe(SCHEMA_VERSION)
     const expected = {
       origin: { kind: "catalog" },
       pin: null,
@@ -142,6 +142,7 @@ describe("migration 4", () => {
       taskDigest: null,
       intakeAttempts: 0,
       maxIntakeAttempts: 2,
+      candidateAttempts: 0,
     }
     const row = createWorkOrderStore(registry.db).get("wo-legacy")
     expect(row).toMatchObject(expected)
@@ -155,5 +156,56 @@ describe("migration 4", () => {
     } finally {
       reader.close()
     }
+  })
+})
+
+describe("migration 5", () => {
+  it("backfills candidate attempts from committed dispatches, and a reader waits for it", () => {
+    // A registry exactly as schema 4 left it, with one work order that dispatched (a committed
+    // transition, plus an orphaned thread that spent nothing) and one that never did.
+    const path = tempPath()
+    mkdirSync(dirname(path), { recursive: true })
+    const db = new DatabaseSync(path)
+    db.exec("CREATE TABLE schema_version (version INTEGER PRIMARY KEY)")
+    for (const migration of MIGRATIONS.slice(0, 4)) {
+      db.exec(migration.up)
+      db.prepare("INSERT INTO schema_version(version) VALUES (?)").run(migration.version)
+    }
+    const at = "2026-09-23T00:00:00.000Z"
+    const insert = db.prepare(
+      `INSERT INTO work_orders (id, revision, state, task_id, worker_route, max_candidate_attempts,
+         max_active_ms, active_ms, created_at, updated_at)
+       VALUES (?, 0, ?, 'cli-flags', '/build#agent', 1, 60000, 0, ?, ?)`,
+    )
+    insert.run("wo-spent", "blocked", at, at)
+    insert.run("wo-fresh", "received", at, at)
+    const event = db.prepare(
+      "INSERT INTO events (work_order_id, type, payload, at) VALUES (?, ?, ?, ?)",
+    )
+    event.run("wo-spent", "thread_created", JSON.stringify({ threadId: "t-orphan" }), at)
+    event.run("wo-spent", "thread_created", JSON.stringify({ threadId: "t-1" }), at)
+    event.run(
+      "wo-spent",
+      "transition",
+      JSON.stringify({ event: "dispatch_committed", from: "received", to: "dispatched" }),
+      at,
+    )
+    event.run(
+      "wo-fresh",
+      "transition",
+      JSON.stringify({ event: "intake_started", from: "received", to: "intake_running" }),
+      at,
+    )
+    db.close()
+
+    // Only a writer migrates: a reader of the schema-4 file says so rather than misread it.
+    expect(() => openRegistryReader(path)).toThrow(
+      "Registry schema version 4 is older than this factory needs (5); start the controller, which migrates it",
+    )
+    const registry = openRegistry(path)
+    const store = createWorkOrderStore(registry.db)
+    expect(store.get("wo-spent")?.candidateAttempts).toBe(1)
+    expect(store.get("wo-fresh")?.candidateAttempts).toBe(0)
+    registry.close()
   })
 })
