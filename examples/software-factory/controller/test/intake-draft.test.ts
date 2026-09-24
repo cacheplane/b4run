@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import {
   existsSync,
   mkdirSync,
@@ -15,6 +16,7 @@ import { digestGeneratedTask, writeGeneratedTask } from "../src/lib/intake/gener
 import {
   configureCatalog,
   loadTask,
+  repositoryRoot,
   resetCatalogForTests,
   targetsDir,
 } from "../src/lib/targets/catalog.ts"
@@ -90,6 +92,25 @@ describe("parseDraft", () => {
     expect(parsed.reason).toMatch(
       /^draft\/checks\/spawn-deadline\.test\.ts fails the static pre-check \(1 problem\): \[node-test-import\]/,
     )
+  })
+
+  it("reads the package under repair's name at the pin, and refuses a check importing it", () => {
+    const check = "draft/checks/spawn-deadline.test.ts"
+    const name = JSON.parse(
+      execFileSync("git", ["-C", repositoryRoot(), "show", `${PIN}:packages/devkit/package.json`], {
+        encoding: "utf8",
+      }),
+    ).name as string
+    const source = (GOOD_DRAFT[check] as string).replace(
+      'import test from "node:test"',
+      `import test from "node:test"\nimport "${name}"`,
+    )
+    const parsed = parseDraft(files({ ...GOOD_DRAFT, [check]: source }), {
+      workOrderId: WO,
+      pin: PIN,
+    })
+    expect(parsed).toMatchObject({ ok: false, blockedReason: "intake_invalid" })
+    if (!parsed.ok) expect(parsed.reason).toContain("[own-package-import line")
   })
 
   for (const [name, draft] of Object.entries(BAD_DRAFTS)) {

@@ -1079,7 +1079,9 @@ describe("the intake gate", () => {
       state: "awaiting_approval",
       message: expect.stringMatching(/Generated task changed/),
     })
-    expect(factory.events(id).at(-1)).toMatchObject({
+    // The invalidation, then the refusal line a following CLI reads.
+    expect(factory.events(id).at(-1)).toMatchObject({ type: "approve_refused" })
+    expect(factory.events(id).at(-2)).toMatchObject({
       type: "bundle_invalidated",
       payload: { field: "Generated task", frozen: taskDigest },
     })
@@ -1181,6 +1183,30 @@ describe("the intake gate", () => {
     expect(
       factory.events(second.id).find((e) => e.type === "intake_decisions_carried")?.payload,
     ).toEqual({ count: 2 })
+  })
+
+  it("keeps an operator's note in front of the drafter after a refusal replaces it as the note", async () => {
+    await boot({}, { maxIntakeAttempts: 3 })
+    const check = "draft/checks/spawn-deadline.test.ts"
+    const failsPrecheck = {
+      ...GOOD_DRAFT,
+      [check]: (GOOD_DRAFT[check] as string).replace('import test from "node:test"\n', ""),
+    }
+    const { id } = await intake({ queue: [GOOD_DRAFT, failsPrecheck, GOOD_DRAFT] })
+    await factory.settleIntake(id, 20_000)
+    const decision = "answer 200 with the JSON body null, never an empty body"
+    expect((await factory.rejectIntake(id, { note: decision })).ok).toBe(true)
+    const row = await factory.settleIntake(id, 20_000)
+    expect(row).toMatchObject({ state: "awaiting_intake_approval", intakeAttempts: 3 })
+    expect(runPosts()).toHaveLength(3)
+    // Turn 2 quotes the rejection as its note, and only there.
+    expect(promptOf(1)).toContain("Previous attempt was refused")
+    expect(promptOf(1)).toContain(decision)
+    expect(promptOf(1)).not.toContain("Maintainer decisions")
+    // Turn 3's note is the pre-check's refusal; the operator's decision is still in front of it.
+    expect(promptOf(2)).toContain("fails the static pre-check")
+    expect(promptOf(2)).toContain("## Maintainer decisions from earlier reviews of this issue")
+    expect(promptOf(2)).toContain(decision)
   })
 
   it("cancels a drafter turn in flight", async () => {

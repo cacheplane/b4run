@@ -143,6 +143,9 @@ describe("assembleCandidate", () => {
       "/* rest of file */",
       "...(truncated)",
       "  // (unchanged)",
+      "  // ...",
+      "...",
+      "    /* ... */",
     ])("refuses the placeholder %j", (placeholder) => {
       const lines = large.split("\n")
       expect(rejection([...lines.slice(0, 199), placeholder].join("\n"))?.rule).toBe("elided")
@@ -155,6 +158,9 @@ describe("assembleCandidate", () => {
       " *   • every candidate definitively absent      -> undefined (no gate; unchanged)",
       "const rest = [...items]",
       "  return { ...state, done: true }",
+      "    ...defaults,",
+      "  fn(...args)",
+      "  // ...and the rest is validated below",
     ])("does not refuse code or prose that merely mentions it: %j", (line) => {
       const lines = large.split("\n")
       expect(rejection([...lines.slice(0, 199), line].join("\n"))).toBeUndefined()

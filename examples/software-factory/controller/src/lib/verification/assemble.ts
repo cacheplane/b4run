@@ -48,7 +48,14 @@ export interface AssemblyPolicy {
 export const ELISION_ANYWHERE = /\.\.\.\s*\(\s*(?:file\s+)?truncated/i
 export const ELISION_LINE =
   /^\s*(?:\/\/|\/\*|#|\*)?\s*(?:\.\.\.\s*)?(?:\(?(?:file\s+)?truncated|(?:the\s+)?rest of (?:the\s+)?file(?:\s+unchanged)?|\(?unchanged\)?)[\s.)*/]*$/i
-const isElision = (line: string): boolean => ELISION_ANYWHERE.test(line) || ELISION_LINE.test(line)
+/**
+ * A line that is nothing but an ellipsis, optionally commented (`...`, `// ...`, `/* ... *\/`):
+ * what the builder's prompt calls "a line such as `...` standing in for omitted code". Spread
+ * syntax always carries its operand (`...items`), so it never matches.
+ */
+export const ELISION_BARE = /^\s*(?:\/\/|\/\*|#|\*)?\s*(?:\.\.\.|…)\s*(?:\*\/)?\s*$/
+const isElision = (line: string): boolean =>
+  ELISION_ANYWHERE.test(line) || ELISION_LINE.test(line) || ELISION_BARE.test(line)
 
 /**
  * A changed file smaller than this fraction of its baseline is a file the builder did not

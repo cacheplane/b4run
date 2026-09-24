@@ -60,21 +60,32 @@ export const CARRIED_DECISIONS = 4
 export const CARRIED_NOTE_CHARS = 1500
 
 /**
- * The `intake_rejected` notes other work orders of the same issue (repository and number)
- * journalled, newest first, bounded. The live rerun of issue 714 lost the operator's decision
- * (200 with a JSON `null`, not an empty body) when a new work order replaced the one it was
- * written on, and the next drafter asserted the rejected shape again. The row's own notes are
- * not here: its latest reaches the drafter as the refusal note.
+ * The operator's `intake_rejected` notes on this issue (repository and number), from every work
+ * order of it including this one, newest first, bounded. The live rerun of issue 714 lost the
+ * operator's decision (200 with a JSON `null`, not an empty body) when a new work order
+ * replaced the one it was written on, and the next drafter asserted the rejected shape again.
+ * The row's own notes count too: a rejection reaches the next turn as its `note`, but the
+ * controller's refusal of THAT redraft becomes the note after it, and the operator's decision
+ * would be gone by the third attempt. Only `currentNote`, already quoted as the refusal, is
+ * left out.
  */
-export function carriedDecisions(ctx: ControllerContext, row: WorkOrderRow): string[] {
+export function carriedDecisions(
+  ctx: ControllerContext,
+  row: WorkOrderRow,
+  currentNote?: string,
+): string[] {
   if (row.origin.kind !== "issue") return []
   const { repository, number } = row.origin
   const notes: { at: string; seq: number; note: string }[] = []
   for (const other of ctx.store.list()) {
-    if (other.id === row.id || other.origin.kind !== "issue") continue
+    if (other.origin.kind !== "issue") continue
     if (other.origin.repository !== repository || other.origin.number !== number) continue
     for (const event of ctx.store.events(other.id))
-      if (event.type === "intake_rejected" && typeof event.payload.note === "string")
+      if (
+        event.type === "intake_rejected" &&
+        typeof event.payload.note === "string" &&
+        !(other.id === row.id && event.payload.note === currentNote)
+      )
         notes.push({ at: event.at, seq: event.seq, note: event.payload.note })
   }
   return notes
@@ -136,7 +147,7 @@ async function runDrafterTurn(
   // read is a refusal to start the turn, not a fault to leave the row stranded on.
   let prompt: string
   try {
-    const decisions = carriedDecisions(ctx, row)
+    const decisions = carriedDecisions(ctx, row, input.note)
     if (decisions.length > 0)
       ctx.recordEvent(id, "intake_decisions_carried", { count: decisions.length })
     prompt = intakePrompt({

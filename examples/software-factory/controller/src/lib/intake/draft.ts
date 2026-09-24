@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { z } from "zod"
 import {
   assertTaskFitsTarget,
@@ -11,6 +12,7 @@ import {
   loadTarget,
   prepareCommand,
   relativePath,
+  repositoryRoot,
   requiredImmutablePaths,
   TaskFieldsSchema,
   type TaskManifest,
@@ -173,6 +175,26 @@ export function acceptanceMismatch(stated: readonly string[], checked: readonly 
 }
 
 /**
+ * The `name` in `<cwd>/package.json` at `pin`: the package under repair, which a check must
+ * not import by name. Undefined when it cannot be read (the pre-check then skips that rule):
+ * the pin was made present by `loadTarget`, so this is a local `git show`.
+ */
+function packageNameAt(root: string | undefined, pin: string, cwd: string): string | undefined {
+  try {
+    const path = cwd === "." ? "package.json" : `${cwd}/package.json`
+    const text = execFileSync("git", ["-C", root ?? repositoryRoot(), "show", `${pin}:${path}`], {
+      encoding: "utf8",
+      timeout: 10_000,
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+    const name = (JSON.parse(text) as { name?: unknown }).name
+    return typeof name === "string" && name.length > 0 ? name : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * Turn what a drafter wrote under `draft/` into a task the catalog can load, or refuse it with
  * a reason that names the offending file. The controller fills what the drafter must not
  * decide: the id and the pin (the work order's), the visible suite (the regression guard),
@@ -298,10 +320,14 @@ export function parseDraft(
 
   // Last, and before any container is started: the check's own text, read statically. What it
   // refuses would otherwise take a whole oracle proof (minutes) to find, one defect at a time.
+  const ownPackage = packageNameAt(input.catalog?.repositoryRoot, pin, target.commands.cwd)
   const violations = precheckDraftedCheck({
     source: draft.get(checks.independent.file) as string,
     file: checks.independent.file,
     assertions: checks.independent.assertions,
+    // A loader (`--import tsx`) accepts syntax node's own stripper does not.
+    skipSyntax: target.commands.nodeTestExecArgv.length > 0,
+    ...(ownPackage !== undefined ? { ownPackage } : {}),
   })
   if (violations.length > 0) return invalid(describePrecheck(checks.independent.file, violations))
 

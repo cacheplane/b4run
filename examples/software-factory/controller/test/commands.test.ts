@@ -17,6 +17,25 @@ describe("command log", () => {
     })
   })
 
+  it("refuses a key reused for another work order or another command, on begin and on outcome", () => {
+    const log = createCommandLog(openRegistry(":memory:").db)
+    log.begin("k1", "wo-1", intent, at)
+    // In flight: no outcome to replay, but the key is still wo-1's dispatch.
+    expect(log.outcome("k1", "wo-1", intent)).toBeNull()
+    log.complete("k1", { ok: true, state: "dispatched", message: "Dispatched" })
+    expect(log.outcome("k1", "wo-1", intent)).toEqual({
+      ok: true,
+      state: "dispatched",
+      message: "Dispatched",
+    })
+    expect(log.outcome("unused", "wo-1", intent)).toBeNull()
+    const retry = { command: "retry" as const, args: {} }
+    expect(() => log.outcome("k1", "wo-1", retry)).toThrow(/different intent/)
+    expect(() => log.begin("k1", "wo-1", retry, at)).toThrow(/different intent/)
+    expect(() => log.outcome("k1", "wo-2", intent)).toThrow(/already used for work order wo-1/)
+    expect(() => log.begin("k1", "wo-2", intent, at)).toThrow(/already used for work order wo-1/)
+  })
+
   it("lists open intents for reconciliation", () => {
     const log = createCommandLog(openRegistry(":memory:").db)
     log.begin("k1", "wo-1", intent, at)

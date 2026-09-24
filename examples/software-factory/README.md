@@ -114,11 +114,18 @@ and the visible and independent checks. It lives under `tasks/<id>/`. Adding eit
 directory and a prepared image, not a code change; the design is in
 [the rung 2 spec](../../docs/superpowers/specs/2026-09-19-software-factory-rung2-design.md).
 A target's `resources.verifierDeadlineMs` bounds one verification, and a work order's active
-budget (`FACTORY_MAX_ACTIVE_MS`, fixed on the row when it is created) covers the builder's turn
-and the verification together. A budget below twice the target's verifier deadline is
-journalled at `create` (`budget_below_verifier_deadline`) and refused at `dispatch`, before a
-thread is spent: the `cli` target verifies for up to an hour, so its work orders need
-`FACTORY_MAX_ACTIVE_MS=7200000` or more set on the controller before `create`.
+budget (`FACTORY_MAX_ACTIVE_MS`, fixed on the row when it is created) covers everything active
+the work order does: the intake (drafter turns and oracle proofs), and each candidate attempt's
+builder turn and verification. Every `dispatch` and `retry` checks what is LEFT of it: a
+remainder below twice the target's verifier deadline (a verification, and as long again for the
+turn) is journalled (`budget_below_verifier_deadline`, also at `create` for a fresh row) and
+refused before a thread is spent. So size the budget as the intake plus
+`FACTORY_MAX_CANDIDATE_ATTEMPTS` × 2 × `verifierDeadlineMs`. The `cli` target verifies for up to
+an hour (3,600,000 ms), and the first live run's intake spent about 36 minutes over three
+drafter attempts, so with the default two candidate attempts its work orders need
+`FACTORY_MAX_ACTIVE_MS=18000000` (an hour of intake plus 2 × 2 × one hour) set on the controller
+before `create`. The approval's re-verification is not charged: it runs while the row waits in
+`awaiting_approval`, which is not active time.
 A target may carry `draftingNotes`: at most ten one-line facts about its own code that a
 drafter needs to write a check (how a fixture route exports its entry, how a run names its
 route, which helper the package's own tests drive it with). The intake prompt lists them under
@@ -413,12 +420,17 @@ or that the restarted drafter still calls `busy` with no run behind it (a reatta
 its `draft/` is read and proved like any other: a missing or partial draft is refused and
 spends an attempt. A builder thread in the same state is judged as a turn that ended.
 
-**Long waits.** `dispatch`, `intake` and `reject-intake` hold one HTTP request open for the
-whole run, and Node's fetch gives up waiting for response headers after 300 seconds while the
-work goes on in the controller. When the request ends that way (or the connection drops), the
-command says so on stderr and follows the row in the registry until it leaves its active
-state, for up to the row's active budget plus 10 minutes, then prints the row with the same
-exit codes. `FACTORY_STATE_DIR` must be set for that fallback.
+**Long waits.** `dispatch`, `intake`, `reject-intake` and `approve` hold one HTTP request open
+for the whole run, and Node's fetch gives up waiting for response headers after 300 seconds
+while the work goes on in the controller. When the request ends that way (or the connection
+drops), the command says so on stderr and follows the row in the registry until it leaves its
+active state, for up to the row's active budget plus 10 minutes, then prints the row with the
+same exit codes. `approve` re-verifies with the row still `awaiting_approval` at its revision
+(about 20 minutes on the `cli` target), so it is followed by its journal instead: the
+`approve_started` line says the request arrived, `approve_refused` ends it as a refusal, and it
+exits 0 only when the row reads `exported`. Do not repeat a timed-out `approve`: the repeat is
+refused `run_in_flight` while the first still runs. `FACTORY_STATE_DIR` must be set for that
+fallback.
 
 `dispatch` returns when the work order has stopped moving — including through the controller's
 own `verifying` phase, which is not the builder's — and tails the journal to stderr while it
@@ -454,9 +466,12 @@ The manifest lives until the work order leaves intake for good (a block, an appr
 settled cancel): a redraft reuses the admitted thread and needs no manifest, and one is
 some 20 MiB on this repository, so it is removed rather than kept. The controller validates
 the draft, reads its check statically (a **pre-check**, in milliseconds, before any container:
-the check must parse, import `test` from `node:test`, load the build only through
-`join(process.cwd(), "packages/<name>/dist/...")`, use no relative specifier reaching outside
-`checks/`, and name top-level tests with exactly the `A<n>` ids `checks.json` lists; a draft
+the check must parse (skipped for a target whose checks run under a loader), import `test` or
+`it` from `node:test` at run time (not `import type`), load the build only through
+`join(process.cwd(), "packages/<name>/dist/...")` (or a variable holding `process.cwd()`), import
+neither the package under repair by name nor an absolute `/workspace/` path, use no relative
+specifier reaching outside `checks/`, and name top-level tests with exactly the `A<n>` ids
+`checks.json` lists; comments, assertion messages and a spawned argv are not read as imports; a draft
 that breaks any of these is refused as `intake_invalid`, every broken rule named with its line,
 and spends an attempt), fits it to a prepared target, materialises it as a task directory under
 `<FACTORY_STATE_DIR>/tasks/<id>/` (the four files plus `issue.md`), and then **proves the
@@ -553,7 +568,7 @@ The controller app reads:
 | `FACTORY_EXPORT_DIR` | no | Default `<state>/exports`; also the bundle's destination identity |
 | `FACTORY_ARTIFACTS_DIR` | no | Default `<state>/artifacts`, the content-addressed evidence store |
 | `FACTORY_APPROVAL_TTL_MS` | no | Default 900000 |
-| `FACTORY_MAX_ACTIVE_MS` | no | Default 1200000; waiting on a person is not active time. Must be at least twice the target's `verifierDeadlineMs` or `dispatch` refuses (the `cli` target: 7200000) |
+| `FACTORY_MAX_ACTIVE_MS` | no | Default 1200000; waiting on a person is not active time. What remains of it must be at least twice the target's `verifierDeadlineMs` at every `dispatch` and `retry`, or they refuse: size it as intake + candidate attempts × 2 × the deadline (the `cli` target, two attempts: 18000000) |
 | `FACTORY_MAX_CHANGED_BYTES` | no | Default 1048576; exceeding it is a `scope_violation`, never a truncation |
 | `FACTORY_MAX_INTAKE_ATTEMPTS` | no | Default 2, a positive integer: the drafter turns an issue intake may spend before its last refusal blocks it. Fixed on the row at create, like `FACTORY_MAX_ACTIVE_MS` |
 | `FACTORY_MAX_CANDIDATE_ATTEMPTS` | no | Default 2, a positive integer: the builder dispatches a work order may spend, the first and one per `retry`. Fixed on the row at create |
@@ -565,7 +580,9 @@ checkout's `origin` remote) and `FACTORY_NO_FETCH` (`1` skips the `git fetch ori
 before the pin is resolved from the checkout named by `FACTORY_REPO_ROOT`). With `--pin <sha>`
 there is no `origin/main` to fetch or read at all: the named commit is used, fetched from
 `origin` by sha only when the object store lacks it, and `FACTORY_NO_FETCH=1` refuses such a
-pin, naming it, instead of fetching.
+pin, naming it, instead of fetching. `FACTORY_CLI_REQUEST_TIMEOUT_MS` and
+`FACTORY_CLI_ARRIVAL_WINDOW_MS` are test-only (they shorten the request timeout and the arrival
+window the long-wait fallback measures); an operator sets neither.
 
 The builder app reads `FACTORY_BUILDER_TARGET` (required: the target file `factory
 builder-target` writes), `FACTORY_BUILDER_MANIFEST_DIR` (required: the manifest directory,

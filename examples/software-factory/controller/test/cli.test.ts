@@ -452,6 +452,73 @@ esac
     expect(await pollState(stateDir, id, () => true)).toBe("awaiting_approval")
   }, 90_000)
 
+  it("follows an approve past its request timeout: arrival and the export read from the registry", async () => {
+    // Approve re-verifies with the row still `awaiting_approval` at its revision (about 20
+    // minutes on the `cli` target), so the live run's CLI timed out and a repeat was refused
+    // `run_in_flight`. The journal says it arrived, and the row says it exported.
+    const verifier = createFakeVerifier({ verdict: "pass" })
+    const { cli, env } = await boot({}, { verifier })
+    const { json: created } = await cli("create", "--task", "cli-flags")
+    const id = created.row.id as string
+    const { json: dispatched } = await cli("dispatch", id)
+    expect(dispatched.row.state).toBe("awaiting_approval")
+    verifier.script = { verdict: "pass", delayMs: 2_000 }
+    const { stdout, stderr } = await run(
+      process.execPath,
+      [
+        tsxBin,
+        cliEntry,
+        "approve",
+        id,
+        "--revision",
+        String(dispatched.row.revision),
+        "--bundle",
+        dispatched.row.bundleDigest,
+      ],
+      { env: { ...env, FACTORY_CLI_REQUEST_TIMEOUT_MS: "500" }, cwd: packageRoot },
+    )
+    expect(stderr).toContain("the request ended before its answer")
+    expect(stderr).toContain('"type":"approve_started"')
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: true,
+      state: "exported",
+      message: "Settled as exported (read from the registry after the request ended)",
+    })
+  }, 90_000)
+
+  it("reports an approve refused after its request timed out, and exits non-zero", async () => {
+    const verifier = createFakeVerifier({ verdict: "pass" })
+    const { cli, env } = await boot({}, { verifier })
+    const { json: created } = await cli("create", "--task", "cli-flags")
+    const id = created.row.id as string
+    const { json: dispatched } = await cli("dispatch", id)
+    // The re-verification fails: the row stays `awaiting_approval`, an active state for the
+    // follow, and only the journal's refusal line ends it.
+    verifier.script = { verdict: "fail", delayMs: 2_000 }
+    const { stdout } = await failing(
+      run(
+        process.execPath,
+        [
+          tsxBin,
+          cliEntry,
+          "approve",
+          id,
+          "--revision",
+          String(dispatched.row.revision),
+          "--bundle",
+          dispatched.row.bundleDigest,
+        ],
+        { env: { ...env, FACTORY_CLI_REQUEST_TIMEOUT_MS: "500" }, cwd: packageRoot },
+      ),
+    )
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: false,
+      state: "awaiting_approval",
+      message:
+        "Refused (read from the registry after the request ended): Re-verification did not pass: fail",
+    })
+  }, 90_000)
+
   it("follows the row past a timed-out intake, with the intake's exit code", async () => {
     const { env } = await boot(
       {},

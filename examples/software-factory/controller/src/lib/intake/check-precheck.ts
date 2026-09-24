@@ -19,6 +19,8 @@ export type PrecheckRule =
   | "node-test-import"
   | "relative-import"
   | "cwd-artifact"
+  | "own-package-import"
+  | "absolute-path"
   | "test-names"
 
 export interface PrecheckViolation {
@@ -28,95 +30,195 @@ export interface PrecheckViolation {
   readonly detail: string
 }
 
+export interface PrecheckInput {
+  readonly source: string
+  /** The check's draft-relative path (`checks/<name>.test.ts`); relative specifiers resolve against it. */
+  readonly file: string
+  /** The independent suite's names from `checks.json`, whose `A<n>` ids the top-level tests must match. */
+  readonly assertions: readonly string[]
+  /**
+   * The target runs its checks under a loader (`nodeTestExecArgv`, e.g. `--import tsx`), which
+   * accepts syntax Node's own type stripper does not: the syntax rule is then not this
+   * reading's to judge.
+   */
+  readonly skipSyntax?: boolean
+  /**
+   * The package under repair, by its `package.json` name: a bare import of it resolves to the
+   * image's installed copy, never the workspace the build writes. Unknown: not checked.
+   */
+  readonly ownPackage?: string
+}
+
 const ACCEPTANCE_ID = /^(A\d+):/
+/** The type stripper's two syntax errors; anything else it throws is not the draft's fault. */
+const SYNTAX_ERRORS = new Set([
+  "ERR_INVALID_TYPESCRIPT_SYNTAX",
+  "ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX",
+])
 
 /** The 1-based line of `index` in `text`. */
 const lineAt = (text: string, index: number): number => text.slice(0, index).split("\n").length
 
-/**
- * `test` from `node:test`, in any of the forms that bind it: a named import (renamed or not),
- * the default export (which is `test`), or a namespace (`nt.test(...)`).
- */
-const NODE_TEST_IMPORT = [
-  /\bimport\s*(?:type\s+)?\{[^}]*\btest\b[^}]*\}\s*from\s*["']node:test["']/,
-  /\bimport\s+[A-Za-z_$][\w$]*\s*(?:,\s*\{[^}]*\})?\s*from\s*["']node:test["']/,
-  /\bimport\s*\*\s*as\s+[A-Za-z_$][\w$]*\s+from\s*["']node:test["']/,
-]
+/** A runtime (not type-only) binding of `test` or `it` inside an import's braces. */
+function bindsTest(braces: string): boolean {
+  return braces
+    .split(",")
+    .map((part) => part.trim())
+    .some((part) => /^(?:test|it)\b/.test(part))
+}
 
-/** A relative module specifier: static and dynamic imports, re-exports, `require`, `new URL`. */
-const RELATIVE_SPECIFIER =
-  /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bnew\s+URL\s*\(\s*)(["'`])(\.\.?\/[^"'`\n]*)\1/g
+/** Every import from `node:test`: its clause, and whether the whole import is type-only. */
+const NODE_TEST_IMPORT = /\bimport\s+(type\s+)?([^;"'`]*?)\s+from\s*["']node:test["']/g
 
+/** A static module specifier: `from "..."` (imports and re-exports) or a bare `import "..."`. */
+const STATIC_SPECIFIER = /(?:\bfrom\s*|\bimport\s+)(["'])([^"'\n]*)\1/g
+/** The calls that take a module or file location: their argument text is read balanced. */
+const LOCATION_CALL = /\b(?:import|require)\s*\(|\bnew\s+URL\s*\(/g
 /** A string literal naming a package's build output. */
-const BUILT_ARTIFACT = /(["'`])[^"'`\n]*\bpackages\/[^/"'`\n]+\/dist\/[^"'`\n]*\1/g
-/** The one way a check reaches the target root: through its working directory. */
-const THROUGH_CWD = /\b(?:join|resolve)\s*\(\s*process\.cwd\(\)\s*,/
+const BUILT_ARTIFACT = /(["'`])[^"'`\n]*\bpackages\/[^/"'`\n]+\/dist\/[^"'`\n]*\1/
+/** A variable holding the working directory, or a path joined onto it. */
+const CWD_VARIABLE =
+  /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:process\.cwd\(\)|(?:join|resolve)\s*\(\s*process\.cwd\(\))/g
+/** A string literal that is an absolute path inside the sandbox. */
+const ABSOLUTE_WORKSPACE = /(["'`])\/workspace\/[^"'`\n]*\1/
 
-/** A top-level `test(` (or `nt.test(`) and the name it is given, at the start of a line. */
+/** A top-level `test(`/`it(` (or `nt.test(`) and the name it is given, at the start of a line. */
 const TOP_LEVEL_TEST =
-  /^(?:await\s+)?(?:[A-Za-z_$][\w$]*\.)?test\s*\(\s*(["'`])((?:\\.|(?!\1)[^\\\n])*)\1/gm
+  /^(?:await\s+)?(?:[A-Za-z_$][\w$]*\.)?(?:test|it)\s*\(\s*(["'`])((?:\\.|(?!\1)[^\\\n])*)\1/gm
 
-/**
- * Every rule `source` breaks. `file` is the check's draft-relative path (`checks/<name>.test.ts`),
- * which a relative specifier is resolved against; `assertions` are the independent suite's
- * names from `checks.json`, whose `A<n>` ids the top-level tests must match.
- */
-export function precheckDraftedCheck(input: {
-  readonly source: string
-  readonly file: string
-  readonly assertions: readonly string[]
-}): PrecheckViolation[] {
+/** The argument text of the call whose `(` is at `open`, up to its balancing `)`. */
+function argumentsAt(source: string, open: number): string {
+  let depth = 0
+  for (let index = open; index < source.length; index += 1) {
+    const char = source[index]
+    if (char === "(") depth += 1
+    else if (char === ")") {
+      depth -= 1
+      if (depth === 0) return source.slice(open + 1, index)
+    }
+  }
+  return source.slice(open + 1)
+}
+
+/** Every rule `input.source` breaks, sorted by line. */
+export function precheckDraftedCheck(input: PrecheckInput): PrecheckViolation[] {
   const { source, file, assertions } = input
   const violations: PrecheckViolation[] = []
 
   // (d) It must parse. Node's own type stripper (the one that will run the check) parses
   // TypeScript and ESM; its error carries the line as `:<n>` at the top of its stack.
-  try {
-    stripTypeScriptTypes(source)
-  } catch (error) {
-    const stack = error instanceof Error ? (error.stack ?? "") : ""
-    const line = /^[^\n]*:(\d+)\n/.exec(stack)?.[1]
-    violations.push({
-      rule: "syntax",
-      ...(line !== undefined ? { line: Number(line) } : {}),
-      detail: `the check does not parse as TypeScript: ${error instanceof Error ? error.message : String(error)}`,
-    })
+  if (!input.skipSyntax) {
+    try {
+      stripTypeScriptTypes(source)
+    } catch (error) {
+      const code = (error as { code?: unknown }).code
+      if (typeof code !== "string" || !SYNTAX_ERRORS.has(code)) throw error
+      const stack = error instanceof Error ? (error.stack ?? "") : ""
+      const line = /^[^\n]*:(\d+)\n/.exec(stack)?.[1]
+      violations.push({
+        rule: "syntax",
+        ...(line !== undefined ? { line: Number(line) } : {}),
+        detail: `the check does not parse as TypeScript: ${error instanceof Error ? error.message : String(error)}`,
+      })
+    }
   }
 
-  // (a) `test` must come from `node:test`: the runner is node's, and there is no global.
-  if (!NODE_TEST_IMPORT.some((pattern) => pattern.test(source)))
+  // (a) `test` (or `it`) must come from `node:test` at run time: the runner is node's, and there
+  // is no global. A default import binds `test`, a namespace binds both; a type-only import
+  // binds nothing.
+  let binds = false
+  let typeOnly: number | undefined
+  for (const match of source.matchAll(NODE_TEST_IMPORT)) {
+    const clause = (match[2] as string).trim()
+    if (match[1] !== undefined) {
+      typeOnly ??= match.index
+      continue
+    }
+    const braces = /\{([^}]*)\}/.exec(clause)?.[1]
+    const outside = clause
+      .replace(/\{[^}]*\}/, "")
+      .replace(/,/g, "")
+      .trim()
+    if (outside.length > 0 || (braces !== undefined && bindsTest(braces))) binds = true
+  }
+  if (!binds)
     violations.push({
       rule: "node-test-import",
+      ...(typeOnly !== undefined ? { line: lineAt(source, typeOnly) } : {}),
       detail:
-        'the check never imports `test` from "node:test" (`import { test } from "node:test"`); node has no global `test`, so the file fails to load',
+        typeOnly !== undefined
+          ? '`import type` from "node:test" binds no runtime `test`; write `import { test } from "node:test"`'
+          : 'the check never imports `test` from "node:test" (`import { test } from "node:test"`); node has no global `test`, so the file fails to load',
     })
 
-  // (b) A relative specifier resolves against the check file, which the verifier stages under
-  // `checks/`: anything reaching outside it (the build, `repo/`) does not exist there.
-  const directory = posix.dirname(file)
-  for (const match of source.matchAll(RELATIVE_SPECIFIER)) {
-    const specifier = match[2] as string
-    const resolved = posix.normalize(posix.join(directory, specifier))
-    if (resolved === directory || resolved.startsWith(`${directory}/`)) continue
-    violations.push({
-      rule: "relative-import",
-      line: lineAt(source, match.index),
-      detail: `the relative specifier ${JSON.stringify(specifier)} resolves to ${JSON.stringify(resolved)}, outside ${directory}/ where the check runs; load the build with \`await import(join(process.cwd(), "packages/<name>/dist/<file>.js"))\``,
+  // The module locations the check names: static specifiers, and the argument text of every
+  // `import(`, `require(` and `new URL(`. Comments, assertion messages and a `spawnSync` argv
+  // are not locations, and are not read.
+  const locations: { index: number; specifier?: string; args?: string }[] = []
+  for (const match of source.matchAll(STATIC_SPECIFIER))
+    locations.push({ index: match.index, specifier: match[2] as string })
+  for (const match of source.matchAll(LOCATION_CALL)) {
+    const args = argumentsAt(source, match.index + match[0].length - 1)
+    const literal = /^\s*(["'`])([^"'`\n]*)\1\s*(?:,|$)/.exec(args)?.[2]
+    locations.push({
+      index: match.index,
+      args,
+      ...(literal !== undefined ? { specifier: literal } : {}),
     })
   }
+  const cwdNames = [...source.matchAll(CWD_VARIABLE)].map((m) => m[1] as string)
+  const throughCwd = (text: string) =>
+    /process\.cwd\(\)/.test(text) ||
+    cwdNames.some((name) =>
+      new RegExp(`(?<![\\w$])${name.replace(/\$/g, "\\$")}(?![\\w$])`).test(text),
+    )
 
-  // (c) The built artifact is reached through the working directory (the target root), and
-  // only that way: a path to `packages/<name>/dist/` on a line that does not join it onto
-  // `process.cwd()` is resolved against something else.
-  const lines = source.split("\n")
-  for (const match of source.matchAll(BUILT_ARTIFACT)) {
-    const line = lineAt(source, match.index)
-    if (THROUGH_CWD.test(lines[line - 1] ?? "")) continue
-    violations.push({
-      rule: "cwd-artifact",
-      line,
-      detail: `${match[0]} names the build output but is not joined onto process.cwd(); write \`join(process.cwd(), "packages/<name>/dist/<file>.js")\``,
-    })
+  const directory = posix.dirname(file)
+  for (const location of locations) {
+    const line = lineAt(source, location.index)
+    const specifier = location.specifier
+    // (b) A relative specifier resolves against the check file, which the verifier stages
+    // under `checks/`: anything reaching outside it (the build, `repo/`) does not exist there.
+    if (specifier !== undefined && /^\.\.?\//.test(specifier)) {
+      const resolved = posix.normalize(posix.join(directory, specifier))
+      if (resolved !== directory && !resolved.startsWith(`${directory}/`))
+        violations.push({
+          rule: "relative-import",
+          line,
+          detail: `the relative specifier ${JSON.stringify(specifier)} resolves to ${JSON.stringify(resolved)}, outside ${directory}/ where the check runs; load the build with \`await import(join(process.cwd(), "packages/<name>/dist/<file>.js"))\``,
+        })
+    }
+    // A bare import of the package under repair resolves to the image's installed copy, not
+    // the workspace its build writes.
+    if (
+      specifier !== undefined &&
+      input.ownPackage !== undefined &&
+      (specifier === input.ownPackage || specifier.startsWith(`${input.ownPackage}/`))
+    )
+      violations.push({
+        rule: "own-package-import",
+        line,
+        detail: `${JSON.stringify(specifier)} imports the package under repair by name, which resolves to the image's installed copy, not the build of the repair; load it with \`await import(join(process.cwd(), "packages/<name>/dist/<file>.js"))\``,
+      })
+    // An absolute sandbox path as a module location hard-codes where the verifier happens to
+    // stage the workspace. The same string as data (a CLI argument) is not a location.
+    const absolute = ABSOLUTE_WORKSPACE.exec(location.args ?? JSON.stringify(specifier ?? ""))
+    if (absolute !== null)
+      violations.push({
+        rule: "absolute-path",
+        line,
+        detail: `${absolute[0]} loads from an absolute path inside the sandbox; reach the target root through process.cwd()`,
+      })
+    // (c) The build output is reached through the working directory (the target root): a
+    // location naming `packages/<name>/dist/` that does not go through `process.cwd()` (or a
+    // variable holding it) is resolved against something else.
+    const text = location.args ?? JSON.stringify(specifier ?? "")
+    if (BUILT_ARTIFACT.test(text) && (location.args === undefined || !throughCwd(text)))
+      violations.push({
+        rule: "cwd-artifact",
+        line,
+        detail: `${(BUILT_ARTIFACT.exec(text) as RegExpExecArray)[0]} names the build output but is not joined onto process.cwd(); write \`join(process.cwd(), "packages/<name>/dist/<file>.js")\``,
+      })
   }
 
   // (e) The top-level tests are the assertions checks.json names, by acceptance id: the

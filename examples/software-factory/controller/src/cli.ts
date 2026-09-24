@@ -69,7 +69,8 @@ it parks is a task directory under <FACTORY_STATE_DIR>/tasks/<workOrderId>/ (tas
 checks.json, checks/, issue.md): read it, then approve-intake with the revision and the taskDigest
 that show prints, or reject-intake with a note the next drafter turn quotes.
 
-dispatch, intake and reject-intake await the run. When the request itself ends first (an HTTP
+dispatch, intake, reject-intake and approve await the run (approve's re-verification is a run
+too; its arrival and refusal are read from the journal). When the request itself ends first (an HTTP
 timeout on a long wait, a dropped connection), the command says so on stderr and follows the
 row in the registry (FACTORY_STATE_DIR) until it leaves its active state, for up to the row's
 active budget plus 10 minutes, then answers from the row with the same exit codes. The row is
@@ -181,6 +182,15 @@ const INTAKE_SUCCESS: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>([
 
 /** The states an awaited `intake` or `reject-intake` is still working in. */
 const INTAKE_ACTIVE: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>(["intake_running"])
+/**
+ * An approval re-verifies with the row still in `awaiting_approval`, then exports from
+ * `exporting`; it has succeeded only when the row reads `exported`.
+ */
+const APPROVE_ACTIVE: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>([
+  "awaiting_approval",
+  "exporting",
+])
+const APPROVE_SUCCESS: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>(["exported"])
 /** The states an awaited `dispatch` is still working in: the builder's turn and verification. */
 const DISPATCH_ACTIVE: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>([
   "dispatched",
@@ -211,6 +221,21 @@ function arrivalWindowMs(): number {
 interface RowMark {
   readonly state: WorkOrderState
   readonly revision: number
+  /** The last journal line's seq: an event after it was written by (or after) this request. */
+  readonly seq: number
+}
+
+/**
+ * How a command that does not move its row for a long time is followed. `approve` holds the
+ * row in `awaiting_approval` at its revision through the whole re-verification, so neither the
+ * revision nor the state says it arrived: its first journal line does, and a refusal is a
+ * journal line too, since the row it leaves is where it started.
+ */
+interface FollowEvents {
+  /** Written as the command starts: the request arrived. */
+  readonly arrived: string
+  /** Written when the command refuses: it is over, whatever the row's state. */
+  readonly refused: string
 }
 
 /** Connection errors that mean nothing was sent: there is no work to wait for. */
@@ -233,15 +258,18 @@ function transportFailure(error: unknown): boolean {
 /** The row before the request, or undefined when the registry cannot say (no state dir yet). */
 function markRow(id: string): RowMark | undefined {
   try {
-    const row = read((reader) => reader.show(id))
-    return row ? { state: row.state, revision: row.revision } : undefined
+    return read((reader) => {
+      const row = reader.show(id)
+      const seq = reader.events(id).at(-1)?.seq ?? 0
+      return row ? { state: row.state, revision: row.revision, seq } : undefined
+    })
   } catch {
     return undefined
   }
 }
 
 /**
- * Send a request that awaits a run (`dispatch`, `intake`, `reject-intake`), tailing the
+ * Send a request that awaits a run (`dispatch`, `intake`, `reject-intake`, `approve`), tailing the
  * journal to stderr while it is in flight. The run is the controller's, not this request's:
  * when the request dies in transport while the work goes on, the command says so on stderr
  * and follows the row in the read-only registry until it leaves `active`, within the row's
@@ -252,6 +280,7 @@ async function awaiting(
   request: (controller: ControllerClient) => Promise<RouteOutcome>,
   active: ReadonlySet<WorkOrderState>,
   success: ReadonlySet<WorkOrderState>,
+  events?: FollowEvents,
 ): Promise<RouteOutcome> {
   // Read before the request leaves: the only evidence, if the request dies in transport, of
   // whether it ever reached the controller.
@@ -275,7 +304,7 @@ async function awaiting(
     process.stderr.write(
       `factory: the request ended before its answer (${reason}); the work goes on in the controller, following the row in the registry\n`,
     )
-    return await followRow(id, active, success, before)
+    return await followRow(id, active, success, before, events)
   } finally {
     stop.abort()
     await tail
@@ -319,6 +348,7 @@ async function followRow(
   active: ReadonlySet<WorkOrderState>,
   success: ReadonlySet<WorkOrderState>,
   before: RowMark | undefined,
+  events?: FollowEvents,
 ): Promise<RouteOutcome> {
   if (before === undefined)
     return {
@@ -326,8 +356,15 @@ async function followRow(
       message:
         "The request ended before its answer, and the row could not be read before it was sent, so whether it reached the controller is unknown; run show",
     }
+  /** The first journal line of `type` after the mark, or undefined. */
+  const journalled = (type: string | undefined) =>
+    type === undefined
+      ? undefined
+      : read((reader) => reader.events(id)).find((e) => e.seq > before.seq && e.type === type)
   const moved = (r: WorkOrderRow) =>
-    r.revision > before.revision || (!active.has(before.state) && active.has(r.state))
+    r.revision > before.revision ||
+    (!active.has(before.state) && active.has(r.state)) ||
+    journalled(events?.arrived) !== undefined
   const arrival = arrivalWindowMs()
   const arrived = await pollRow(id, (r) => r !== null && moved(r), arrival, 250)
   if (!arrived) throw new Error(`Unknown work order ${id}`)
@@ -340,11 +377,19 @@ async function followRow(
     }
   const row = await pollRow(
     id,
-    (r) => r !== null && !active.has(r.state),
+    (r) => r !== null && (!active.has(r.state) || journalled(events?.refused) !== undefined),
     (r) => (r?.maxActiveMs ?? 0) + POLL_GRACE_MS,
     1_000,
   )
   if (!row) throw new Error(`Unknown work order ${id}`)
+  const refusal = journalled(events?.refused)
+  if (refusal !== undefined && active.has(row.state))
+    return {
+      ok: false,
+      state: row.state,
+      message: `Refused (read from the registry after the request ended): ${String(refusal.payload.message)}`,
+      row,
+    }
   const settled = !active.has(row.state)
   return {
     ok: settled && success.has(row.state),
@@ -625,11 +670,21 @@ async function main(argv: string[]): Promise<number> {
       case "approve": {
         if (!values.revision || !values.bundle)
           throw new Error("approve requires --revision and --bundle")
-        const outcome = await client().approve(needId(), {
+        const id = needId()
+        const input = {
           revision: Number(values.revision),
           bundleDigest: values.bundle,
           ...(values.key ? { operationKey: values.key } : {}),
-        })
+        }
+        // Approve re-verifies before it exports (about 20 minutes on the `cli` target), past
+        // the HTTP request's own timeout: followed like dispatch, by its journal lines.
+        const outcome = await awaiting(
+          id,
+          (controller) => controller.approve(id, input),
+          APPROVE_ACTIVE,
+          APPROVE_SUCCESS,
+          { arrived: "approve_started", refused: "approve_refused" },
+        )
         print(outcome)
         return outcome.ok ? 0 : 1
       }

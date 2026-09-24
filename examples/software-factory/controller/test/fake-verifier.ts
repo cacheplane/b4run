@@ -17,6 +17,8 @@ export interface FakeVerifierScript {
    * a re-verification report a different environment than the frozen bundle bound.
    */
   readonly environmentIdentity?: string
+  /** Milliseconds each verification takes: a slow harness, for a caller's timeout to fall in. */
+  readonly delayMs?: number
 }
 
 export interface FakeVerifier extends Verifier {
@@ -44,6 +46,7 @@ export function createFakeVerifier(script: FakeVerifierScript): FakeVerifier {
     async verify(input: VerifyInput) {
       verified.push(input.candidateDigest)
       calls.push(input)
+      if (fake.script.delayMs) await new Promise((r) => setTimeout(r, fake.script.delayMs))
       if (fake.script.throws) throw new Error(fake.script.throws)
       const visible = fake.script.visible ?? fake.script.verdict ?? "pass"
       const independent = fake.script.independent ?? fake.script.verdict ?? "pass"

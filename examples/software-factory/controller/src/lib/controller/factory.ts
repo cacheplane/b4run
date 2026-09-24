@@ -148,7 +148,7 @@ export interface FactoryOptions {
   readonly approvalTtlMs?: number
   readonly maxActiveMs?: number
   /**
-   * Test seam: dispatch a row whose budget is below twice its target's verifier deadline
+   * Test seam: dispatch or retry a row whose remaining budget is below twice its target's verifier deadline
    * (still journalled). For a test of budget exhaustion itself, whose tiny budget no real
    * target's verification fits; never set by the runtime's configuration.
    */
@@ -337,9 +337,12 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       // The environment check above already resolved this; a failure here is its to report.
       return undefined
     }
-    if (canon(expected) === canon(worker.permissions)) return undefined
     const running = worker.permissions
     const keys = [...new Set([...Object.keys(expected), ...Object.keys(running)])].sort()
+    // As sets: the order a list was written in admits nothing more or less.
+    const asSets = (lists: Readonly<Record<string, readonly string[]>>) =>
+      canon(Object.fromEntries(keys.map((key) => [key, [...new Set(lists[key] ?? [])].sort()])))
+    if (asSets(expected) === asSets(running)) return undefined
     const missing = keys.flatMap((key) =>
       (expected[key] ?? [])
         .filter((entry) => !(running[key] ?? []).includes(entry))
@@ -568,36 +571,16 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     return loadTask(row.taskId, options.promptCatalog ?? {}).target.id
   }
   /**
-   * The row's active budget against its target's verifier deadline, when the budget is short.
-   * The budget is fixed on the row at create (`FACTORY_MAX_ACTIVE_MS`) and covers the
-   * builder's turn AND the verification, which may take up to the target's deadline: a
-   * budget under twice that deadline (the verification, and as long again for the turn) can
-   * run out mid-verification and fail a candidate for the factory's own slowness. Undefined
-   * when the budget suffices, or when the task does not load (its own refusal says why).
+   * What is LEFT of the row's active budget against its target's verifier deadline, when it is
+   * short. The budget is fixed on the row at create (`FACTORY_MAX_ACTIVE_MS`), not reset by
+   * `retry`, and covers the intake, every builder turn and every verification, each of which
+   * may take up to the target's deadline: an attempt started on less than twice that deadline
+   * (the verification, and as long again for the turn) can run out mid-verification and fail a
+   * candidate for the factory's own slowness. A fresh row's remainder is its whole budget, so
+   * one rule serves `create`'s warning, every `dispatch` and `retry`. Undefined when enough is
+   * left, or when the task does not load (its own refusal says why).
    */
-  function budgetShortfall(
-    row: WorkOrderRow,
-  ): { maxActiveMs: number; verifierDeadlineMs: number; targetId: string } | undefined {
-    if (options.tasks) return undefined
-    let target: { id: string; resources: { verifierDeadlineMs: number } }
-    try {
-      target = loadTask(row.taskId, options.promptCatalog ?? {}).target
-    } catch {
-      return undefined
-    }
-    const verifierDeadlineMs = target.resources.verifierDeadlineMs
-    if (2 * verifierDeadlineMs <= row.maxActiveMs) return undefined
-    return { maxActiveMs: row.maxActiveMs, verifierDeadlineMs, targetId: target.id }
-  }
-  /**
-   * What is LEFT of the row's active budget against its target's verifier deadline, for a
-   * second or later candidate attempt. The budget is the work order's, fixed at create and not
-   * reset by `retry`: the intake and every earlier attempt have spent from it, and an attempt
-   * started on less than twice the verifier deadline can be cut off mid-verification. Checked
-   * by `retry` and by a `dispatch` after one; undefined when enough is left, or when the task
-   * does not load.
-   */
-  function remainingBudgetShortfall(row: WorkOrderRow):
+  function budgetShortfall(row: WorkOrderRow):
     | {
         maxActiveMs: number
         activeMs: number
@@ -624,11 +607,21 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       targetId: target.id,
     }
   }
-  function remainingBudgetMessage(
+  function budgetMessage(
     id: string,
-    shortfall: NonNullable<ReturnType<typeof remainingBudgetShortfall>>,
+    shortfall: NonNullable<ReturnType<typeof budgetShortfall>>,
   ): string {
-    return `Work order ${id} has ${Math.max(0, shortfall.remainingMs)} ms of its active budget left (${shortfall.activeMs} ms spent of ${shortfall.maxActiveMs} ms, FACTORY_MAX_ACTIVE_MS when it was created), below twice target ${shortfall.targetId}'s verifier deadline (${2 * shortfall.verifierDeadlineMs} ms): another attempt could be cut off mid-verification. Cancel it and create a new work order with a larger FACTORY_MAX_ACTIVE_MS`
+    return `Work order ${id} has ${Math.max(0, shortfall.remainingMs)} ms of its active budget left (${shortfall.activeMs} ms spent of ${shortfall.maxActiveMs} ms, FACTORY_MAX_ACTIVE_MS when it was created), below twice target ${shortfall.targetId}'s verifier deadline (${shortfall.verifierDeadlineMs} ms): the verification alone could exhaust it. Restart the controller with FACTORY_MAX_ACTIVE_MS=${shortfall.activeMs + 2 * shortfall.verifierDeadlineMs} or more (the README sizes it per target), cancel this work order and create it again`
+  }
+  /**
+   * The shortfall refusal for `phase`, journalled, or undefined when the budget suffices or the
+   * test seam waives it (still journalled). The one budget gate `dispatch` and `retry` share.
+   */
+  function budgetRefusal(id: string, row: WorkOrderRow, phase: string): string | undefined {
+    const shortfall = budgetShortfall(row)
+    if (shortfall === undefined) return undefined
+    recordEvent(id, "budget_below_verifier_deadline", { phase, ...shortfall })
+    return options.allowBudgetBelowVerifierDeadline ? undefined : budgetMessage(id, shortfall)
   }
   const workerFor = (row: WorkOrderRow): TargetWorker => {
     const targetId = targetOf(row)
@@ -1281,26 +1274,10 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       // A budget the verification alone may exhaust is refused before a thread and a turn are
       // spent, and before the key: the remedy (raise FACTORY_MAX_ACTIVE_MS, create again) is
       // the operator's, and a target re-prepared with a shorter deadline dispatches this row.
+      // What counts is what is LEFT: the intake and any earlier attempt spent from it.
       if (row.state === "received") {
-        const shortfall = budgetShortfall(row)
-        if (shortfall !== undefined) {
-          recordEvent(id, "budget_below_verifier_deadline", { phase: "dispatch", ...shortfall })
-          if (!options.allowBudgetBelowVerifierDeadline)
-            return {
-              ok: false,
-              state: row.state,
-              message: `Work order ${id}'s active budget (${shortfall.maxActiveMs} ms, FACTORY_MAX_ACTIVE_MS when it was created) is below twice target ${shortfall.targetId}'s verifier deadline (${shortfall.verifierDeadlineMs} ms): verification alone could exhaust it. Restart the controller with FACTORY_MAX_ACTIVE_MS=${2 * shortfall.verifierDeadlineMs} or more, cancel this work order and create it again`,
-            }
-        }
-      }
-      // A later attempt starts from what is left of the budget, not from all of it: refused
-      // before the key, like the shortfall above, when that is less than a verification needs.
-      if (row.state === "received" && row.candidateAttempts > 0) {
-        const shortfall = remainingBudgetShortfall(row)
-        if (shortfall !== undefined) {
-          recordEvent(id, "budget_below_verifier_deadline", { phase: "dispatch", ...shortfall })
-          return { ok: false, state: row.state, message: remainingBudgetMessage(id, shortfall) }
-        }
+        const refusal = budgetRefusal(id, row, "dispatch")
+        if (refusal !== undefined) return { ok: false, state: row.state, message: refusal }
       }
       // The builder process boots from its target file, at ONE pin (the file's). A task at
       // another pin is built in that pin's image and verified in its own: allowed and
@@ -1434,7 +1411,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       // pre-key refusals below read the row as it is NOW, and after a successful retry that
       // row is `received`, which would answer the replay with a refusal it never earned.
       if (operationKey !== undefined) {
-        const spent = commands.outcome(operationKey)
+        const spent = commands.outcome(operationKey, id, { command: "retry", args: {} })
         if (spent !== null) return spent
       }
       const row = mustGet(id)
@@ -1455,11 +1432,8 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
             `Cannot retry a work order blocked by ${row.blockedReason ?? "nothing"}: only a candidate failure is retried; cancel it instead`,
           )
         if (row.candidateAttempts >= row.maxCandidateAttempts) return unspent(noAttemptsLeft(row))
-        const shortfall = remainingBudgetShortfall(row)
-        if (shortfall !== undefined) {
-          recordEvent(id, "budget_below_verifier_deadline", { phase: "retry", ...shortfall })
-          return unspent(remainingBudgetMessage(id, shortfall))
-        }
+        const refusal = budgetRefusal(id, row, "retry")
+        if (refusal !== undefined) return unspent(refusal)
         if (row.workerThreadId !== null) {
           // The old builder thread is abandoned, not reused: its workspace holds the failed
           // candidate. A prompt still parked on it is denied, so no turn waits on an answer
@@ -1542,8 +1516,15 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       )
       if (begun.status === "done") return begun.outcome
       if (begun.status === "in_flight") throw new CommandInFlightError(key)
-      const refuse = (message: string) =>
-        finish(key, { ok: false, state: mustGet(id).state, message })
+      // Journalled as the command starts and as it is refused: the re-verification below holds
+      // the row in `awaiting_approval` at its revision for as long as a verification takes
+      // (about 20 minutes on the `cli` target), so these two lines are what a CLI whose request
+      // timed out reads to know the approval arrived, and that it was refused.
+      recordEvent(id, "approve_started", { bundleDigest, operationKey: key })
+      const refuse = (message: string) => {
+        recordEvent(id, "approve_refused", { message, operationKey: key })
+        return finish(key, { ok: false, state: mustGet(id).state, message })
+      }
       if (row.state !== "awaiting_approval") return refuse(`Cannot approve from ${row.state}`)
       if (row.revision !== revision)
         return refuse(`Stale revision ${revision}; work order is at ${row.revision}`)

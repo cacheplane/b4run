@@ -22,6 +22,7 @@ const rules = (violations: readonly { rule: PrecheckRule }[]) =>
 
 /** A check in the shape the drafter is taught: the one every rule admits. */
 const GOOD = `import assert from "node:assert/strict"
+import { spawnSync } from "node:child_process"
 import { join } from "node:path"
 import { test } from "node:test"
 
@@ -162,5 +163,91 @@ describe("the static pre-check", () => {
       })
       expect({ id, violations }).toEqual({ id, violations: [] })
     }
+  })
+
+  describe("what the rules do not read", () => {
+    const check = (
+      source: string,
+      extra: Partial<Parameters<typeof precheckDraftedCheck>[0]> = {},
+    ) => precheckDraftedCheck({ source, file: FILE, assertions: ["A1: x", "A2: y"], ...extra })
+
+    it("a dist path in a comment, an assertion message, or a spawned argv", () => {
+      const source = GOOD.replace(
+        "assert.ok(true)",
+        [
+          "// the build lives at packages/cli/dist/index.js",
+          'assert.ok(true, "see packages/cli/dist/index.js")',
+          'spawnSync(process.execPath, ["packages/cli/dist/bin.js"], { encoding: "utf8" })',
+        ].join("\n  "),
+      )
+      expect(check(source)).toEqual([])
+    })
+
+    it("a root variable holding the working directory", () => {
+      const source = GOOD.replace(
+        'await import(join(process.cwd(), "packages/cli/dist/index.js"))',
+        'await import(join(root, "packages/cli/dist/index.js"))',
+      ).replace("const { run }", "const root = process.cwd()\nconst { run }")
+      expect(check(source)).toEqual([])
+    })
+
+    it("`it` as well as `test`, named or through a namespace", () => {
+      const named = GOOD.replace(
+        'import { test } from "node:test"',
+        'import { it } from "node:test"',
+      ).replaceAll(/^test\(/gm, "it(")
+      expect(check(named)).toEqual([])
+      const namespaced = GOOD.replace(
+        'import { test } from "node:test"',
+        'import * as nt from "node:test"',
+      ).replaceAll(/^test\(/gm, "nt.it(")
+      expect(check(namespaced)).toEqual([])
+    })
+
+    it("syntax, when the target runs its checks under a loader", () => {
+      const broken = GOOD.replace("assert.ok(true)", "assert.ok(")
+      expect(rules(check(broken))).toContain("syntax")
+      expect(rules(check(broken, { skipSyntax: true }))).not.toContain("syntax")
+    })
+
+    it("rethrows what the stripper throws that is not a syntax error", () => {
+      expect(() => check(42 as unknown as string)).toThrow()
+    })
+  })
+
+  describe("the shapes that cannot load the repair", () => {
+    const check = (
+      source: string,
+      extra: Partial<Parameters<typeof precheckDraftedCheck>[0]> = {},
+    ) => precheckDraftedCheck({ source, file: FILE, assertions: ["A1: x", "A2: y"], ...extra })
+
+    it.each(['import type { test } from "node:test"', 'import { type test } from "node:test"'])(
+      "a type-only import of test: %s",
+      (line) => {
+        const violations = check(GOOD.replace('import { test } from "node:test"', line))
+        expect(rules(violations)).toEqual(["node-test-import"])
+      },
+    )
+
+    it.each(['import { run as r } from "@b4run/cli"', 'import "@b4run/cli/runtime"'])(
+      "a bare import of the package under repair: %s",
+      (line) => {
+        const source = GOOD.replace(
+          'import { join } from "node:path"',
+          `import { join } from "node:path"\n${line}`,
+        )
+        expect(rules(check(source, { ownPackage: "@b4run/cli" }))).toEqual(["own-package-import"])
+        // Another package of the repository is not the one under repair.
+        expect(check(source, { ownPackage: "@b4run/devkit" })).toEqual([])
+      },
+    )
+
+    it("an absolute /workspace/ location", () => {
+      const source = GOOD.replace(
+        'await import(join(process.cwd(), "packages/cli/dist/index.js"))',
+        'await import("/workspace/packages/cli/dist/index.js")',
+      )
+      expect(rules(check(source))).toEqual(["absolute-path", "cwd-artifact"])
+    })
   })
 })

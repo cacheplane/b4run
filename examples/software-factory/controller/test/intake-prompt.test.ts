@@ -260,7 +260,7 @@ describe("carried maintainer decisions", () => {
     )
   })
 
-  it("takes the same issue's notes from other work orders only, newest first, bounded", () => {
+  it("takes the same issue's operator notes, newest first, bounded, but not the current note", () => {
     const origin = {
       kind: "issue" as const,
       repository: "cacheplane/b4run",
@@ -294,12 +294,14 @@ describe("carried maintainer decisions", () => {
     const ctx = {
       store: { list: () => rows, events: (id: string) => events[id] ?? [] },
     } as unknown as ControllerContext
+    // The row's own operator note counts: a later refusal replaces it as the turn's `note`.
     const carried = carriedDecisions(ctx, rows[0] as WorkOrderRow)
     expect(carried).toHaveLength(CARRIED_DECISIONS)
-    expect(carried.slice(0, 2)).toEqual(["b3", "b2"])
-    expect(carried[2]).toBe(`${"x".repeat(CARRIED_NOTE_CHARS)}…`)
-    expect(carried[3]).toBe("b1")
-    expect(carried).not.toContain("own note")
+    expect(carried.slice(0, 3)).toEqual(["own note", "b3", "b2"])
+    expect(carried[3]).toBe(`${"x".repeat(CARRIED_NOTE_CHARS)}…`)
     expect(carried).not.toContain("another issue")
+    // Except while it IS the turn's note: quoted once, as the refusal, not twice.
+    const current = carriedDecisions(ctx, rows[0] as WorkOrderRow, "own note")
+    expect(current).toEqual(["b3", "b2", `${"x".repeat(CARRIED_NOTE_CHARS)}…`, "b1"])
   })
 })

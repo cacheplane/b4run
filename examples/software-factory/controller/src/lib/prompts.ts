@@ -188,9 +188,9 @@ export function intakePrompt(input: {
   readonly issueText: string
   readonly note?: string
   /**
-   * The maintainer's notes from rejecting earlier drafts of the SAME issue on other work
-   * orders, newest first (`carriedDecisions`): what a reviewer decided about the issue (which
-   * status an empty result answers with, say) outlives the work order it was written on.
+   * The maintainer's notes from rejecting earlier drafts of the SAME issue, on this work order
+   * or others, newest first (`carriedDecisions`): what a reviewer decided about the issue
+   * (which status an empty result answers with, say) outlives the draft it was written on.
    */
   readonly decisions?: readonly string[]
   /** Test-only: where the targets are looked up; the shipped catalog otherwise. */
@@ -215,7 +215,7 @@ export function intakePrompt(input: {
       [
         "## Maintainer decisions from earlier reviews of this issue",
         "",
-        "A person reviewing an earlier draft of this same issue rejected it with these notes, newest first. They are decisions about the issue, not about that draft: honour them.",
+        "A person reviewing an earlier draft of this same issue (on this work order or an earlier one) rejected it with these notes, newest first. They are decisions about the issue, not about that draft: honour them.",
         ...input.decisions.map((decision) => `\n> ${decision.replace(/\n/g, "\n> ")}`),
       ].join("\n"),
     )

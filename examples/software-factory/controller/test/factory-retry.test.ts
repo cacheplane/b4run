@@ -286,6 +286,16 @@ describe("retry", () => {
     expect((await factory.retry(id, "retry-2")).message).toBe("Cannot retry from received")
   })
 
+  it("does not replay another command's outcome under a reused key", async () => {
+    await boot({ run: "unexpected_interrupt" })
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id, "shared-key")
+    await factory.waitFor(id, (r) => settled(r.state), 20_000)
+    // The key holds dispatch's "Dispatched": a retry under it is refused, not answered with it.
+    await expect(factory.retry(id, "shared-key")).rejects.toThrow(/different intent/)
+    expect(factory.show(id)?.state).toBe("blocked")
+  })
+
   it("refuses a retry, and a later dispatch, when less than two verifications of budget is left", async () => {
     // cli-flags verifies within 300000 ms, so an attempt needs 600000 left.
     await boot({ run: "unexpected_interrupt" }, { maxActiveMs: 700_000 })
@@ -308,6 +318,36 @@ describe("retry", () => {
   })
 })
 
+describe("the remaining budget on a first dispatch", () => {
+  it("refuses a first dispatch whose intake already spent the margin a verification needs", async () => {
+    await boot({}, { maxActiveMs: 700_000 })
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    // An issue work order's intake spends active time before its first dispatch.
+    setColumns(id, { active_ms: 150_000 })
+    const refused = await factory.dispatch(id)
+    expect(refused).toMatchObject({ ok: false, state: "received" })
+    expect(refused.message).toContain("has 550000 ms of its active budget left")
+    expect(refused.message).toContain("FACTORY_MAX_ACTIVE_MS=750000")
+    expect(fake.requests.some((r) => r.path === "/threads")).toBe(false)
+  })
+
+  it("lets the test seam waive the gate on dispatch and retry alike, still journalled", async () => {
+    await boot(
+      { run: "unexpected_interrupt" },
+      { maxActiveMs: 700_000, allowBudgetBelowVerifierDeadline: true },
+    )
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    setColumns(id, { active_ms: 200_000 })
+    await dispatchAndSettle(id)
+    expect((await factory.retry(id)).ok).toBe(true)
+    const phases = factory
+      .events(id)
+      .filter((e) => e.type === "budget_below_verifier_deadline")
+      .map((e) => e.payload.phase)
+    expect(phases).toEqual(["dispatch", "retry"])
+  })
+})
+
 describe("a stale builder target file", () => {
   it("refuses dispatch, unspent, when the builder's allow-list is not the one the controller writes", async () => {
     await boot({}, {}, { bash: ["npm test", "node ", "cat", "ls", "head"] })
@@ -318,6 +358,13 @@ describe("a stale builder target file", () => {
     expect(refused.message).toContain("bash:sed -n")
     expect(refused.message).toContain("fresh `factory builder-target`")
     expect(fake.requests.some((r) => r.path === "/threads")).toBe(false)
+  })
+
+  it("compares the lists as sets: the same entries in another order are current", async () => {
+    const current = builderPermissions(loadTask("cli-flags").target)
+    await boot({}, {}, { ...current, bash: [...current.bash].reverse() })
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    expect((await dispatchAndSettle(id)).row.state).toBe("awaiting_approval")
   })
 
   it("dispatches when the builder's allow-list is current", async () => {
