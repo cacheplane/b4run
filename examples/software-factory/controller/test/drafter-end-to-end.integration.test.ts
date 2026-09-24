@@ -409,10 +409,19 @@ it("refuses a three-file draft by name, and the redraft's prompt carries the rea
   // The first refusal names the missing file and spends the first attempt; the retry ran a
   // second turn on the same thread; the second refusal is the last attempt.
   const refusals = factory.events(id).filter((e) => e.type === "intake_refused")
-  expect(refusals.map((e) => e.payload)).toEqual([
+  expect(refusals.map((e) => e.payload)).toMatchObject([
     { reason: "draft/checks.json is missing", blockedReason: "intake_invalid", attempt: 1 },
     { reason: "draft/checks.json is missing", blockedReason: "intake_invalid", attempt: 2 },
   ])
+  // Each refused draft is kept for the operator, under the state directory, with its files.
+  for (const [i, refusal] of refusals.entries()) {
+    expect(refusal.payload.keptAt).toMatch(new RegExp(`\\.refused/${id}/attempt-${i + 1}$`))
+    expect(refusal.payload.keptFiles).toEqual([
+      "checks/independent.test.ts",
+      "spec.md",
+      "task.json",
+    ])
+  }
   expect(eventTypes(factory, id).filter((t) => t === "intake_thread_created")).toHaveLength(1)
   expect(eventTypes(factory, id).filter((t) => t === "intake_run_started")).toHaveLength(2)
   expect(payload(factory, id, "draft_read")).toMatchObject({
