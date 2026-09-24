@@ -128,3 +128,17 @@ function readTree(directory: string): FileSet {
 export function digestGeneratedTask(directory: string): string {
   return digestFiles(readTree(directory))
 }
+
+/**
+ * Every file of a generated task directory, read once, and the digest of exactly those
+ * buffers: what `factory review` shows a person, so the digest it approves is of the bytes it
+ * displayed rather than of a second read that could differ. Same file set rule and the same
+ * digest as {@link digestGeneratedTask}, by construction.
+ */
+export function readGeneratedTask(directory: string): {
+  readonly files: ReadonlyMap<string, Buffer>
+  readonly digest: string
+} {
+  const files = readTree(directory)
+  return { files, digest: digestFiles(files) }
+}

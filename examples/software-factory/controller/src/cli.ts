@@ -1,13 +1,14 @@
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import { createInterface } from "node:readline"
 import { setTimeout as sleep } from "node:timers/promises"
 import { parseArgs } from "node:util"
 import { writeBuilderManifest, writeBuilderTarget } from "./lib/builder-manifest.js"
 import { type ControllerClient, ControllerHttpError, createControllerClient } from "./lib/client.js"
 import { generatedTasksDirFor } from "./lib/config.js"
 import type { WorkOrderState } from "./lib/domain/states.js"
-import { COMMIT_PATTERN, type WorkOrderRow } from "./lib/domain/work-order.js"
+import { COMMIT_PATTERN, DIGEST_PATTERN, type WorkOrderRow } from "./lib/domain/work-order.js"
 import {
   execFileExec,
   fetchIssue,
@@ -15,7 +16,9 @@ import {
   resolvePin,
 } from "./lib/intake/issue.js"
 import { openRegistryReader } from "./lib/registry/reader.js"
+import { exportReview, intakeReview, type OperatorReview } from "./lib/review/operator-review.js"
 import type { RouteOutcome } from "./lib/routes/outcome.js"
+import { createArtifactStore } from "./lib/storage/artifacts.js"
 import {
   configureCatalog,
   ensurePin,
@@ -29,6 +32,9 @@ const USAGE = `factory <command> [options]
   create    --task <id> [--key <operationKey>]
   create    --issue <n> [--repo <owner/name>] [--pin <sha>] [--key <operationKey>]
   intake          <workOrderId> [--key <operationKey>]
+  review    <workOrderId>                                   (asks for the digest's first 8 hex digits)
+  review    <workOrderId> --approve --digest <sha256> [--key <operationKey>]
+  review    <workOrderId> --reject --note "<text>" [--key <operationKey>]
   approve-intake  <workOrderId> --revision <n> --digest <sha256> [--key <operationKey>]
   reject-intake   <workOrderId> --note "<text>" [--key <operationKey>]
   dispatch  <workOrderId> [--key <operationKey>]
@@ -66,8 +72,19 @@ the object store is fetched from origin by sha, unless FACTORY_NO_FETCH=1, which
 
 intake runs the drafter turn and the oracle proof and waits for them, like dispatch. The draft
 it parks is a task directory under <FACTORY_STATE_DIR>/tasks/<workOrderId>/ (task.json, spec.md,
-checks.json, checks/, issue.md): read it, then approve-intake with the revision and the taskDigest
-that show prints, or reject-intake with a note the next drafter turn quotes.
+checks.json, checks/, issue.md).
+
+review shows what an approval covers and approves exactly that. For a draft parked in
+awaiting_intake_approval it prints every file of the task directory and the oracle proof's
+output, and digests the bytes it printed; for a bundle parked in awaiting_approval it prints
+the candidate's changed files, the receipt with its check output and the frozen bundle, and
+recomputes the bundle digest from the payload it printed. It refuses when what it printed does
+not digest to the row's. At a terminal it then asks for the digest's first eight hex digits
+and sends the revision and the full digest it displayed. Without one, --approve --digest
+<sha256> must name that digest in full. --reject --note is reject-intake for a draft and deny
+for a bundle (the deny route records no note; the note is echoed in the output). The display
+goes to stderr; stdout is the outcome's JSON, as for every command. approve-intake and approve
+remain the scripting contract underneath: the revision and the digest, with no display.
 
 dispatch, intake, reject-intake and approve await the run (approve's re-verification is a run
 too; its arrival and refusal are read from the journal). When the request itself ends first (an HTTP
@@ -523,6 +540,181 @@ async function repositoryFromOrigin(root: string): Promise<string | null> {
   }
 }
 
+/**
+ * Whether `review` may ask. A person at a terminal types the digest's prefix; anything else
+ * must name the digest with `--digest`. Tests set `FACTORY_CLI_INTERACTIVE=1` to answer on a
+ * pipe; nothing an operator runs sets it.
+ */
+function interactive(): boolean {
+  return process.env.FACTORY_CLI_INTERACTIVE === "1" || process.stdin.isTTY === true
+}
+
+/** One line from stdin after `question` on stderr, or null when stdin ends first. */
+async function ask(question: string): Promise<string | null> {
+  process.stderr.write(question)
+  const lines = createInterface({ input: process.stdin, terminal: false })
+  try {
+    return await new Promise<string | null>((resolve) => {
+      lines.once("line", resolve)
+      lines.once("close", () => resolve(null))
+    })
+  } finally {
+    lines.close()
+  }
+}
+
+/**
+ * Read everything a review shows from the registry (one read-only connection) and the state
+ * directory, and render it. The row is read once, here: the revision the approval is sent at
+ * is the one the display was built from.
+ */
+async function buildReview(id: string): Promise<OperatorReview | { row: WorkOrderRow }> {
+  const stateDir = process.env.FACTORY_STATE_DIR
+  if (!stateDir) throw new Error("FACTORY_STATE_DIR is required to read the registry")
+  const artifacts = createArtifactStore(
+    process.env.FACTORY_ARTIFACTS_DIR ?? join(stateDir, "artifacts"),
+  )
+  const { row, evidence } = read((reader) => {
+    const row = reader.show(id)
+    if (!row) throw new Error(`Unknown work order ${id}`)
+    const reviewable = row.state === "awaiting_intake_approval" || row.state === "awaiting_approval"
+    return { row, evidence: reviewable ? reader.evidence(id) : null }
+  })
+  if (evidence === null) return { row }
+  if (row.state === "awaiting_intake_approval")
+    return intakeReview({
+      row,
+      generatedTasksDir: generatedTasksDirFor(stateDir),
+      oracleReceipt: evidence.oracleReceipt,
+      artifacts,
+    })
+  return exportReview({ row, ...evidence, artifacts })
+}
+
+/** Send an export approval and follow it as `approve` does: re-verification outlives the request. */
+function approveExport(
+  id: string,
+  input: { revision: number; bundleDigest: string; operationKey?: string },
+): Promise<RouteOutcome> {
+  return awaiting(
+    id,
+    (controller) => controller.approve(id, input),
+    APPROVE_ACTIVE,
+    APPROVE_SUCCESS,
+    { arrived: "approve_started", refused: "approve_refused" },
+  )
+}
+
+/** Send a rejection of a parked draft and await the redraft, as `reject-intake` does. */
+function rejectDraft(id: string, note: string, key: string | undefined): Promise<RouteOutcome> {
+  return awaiting(
+    id,
+    (controller) => controller.rejectIntake(id, { note, ...(key ? { operationKey: key } : {}) }),
+    INTAKE_ACTIVE,
+    INTAKE_SUCCESS,
+  )
+}
+
+/**
+ * `factory review <id>`: show what the approval covers, digest exactly what was shown, and
+ * approve that digest at the revision the display was built from. The routes are unchanged:
+ * `approve-intake` still recomputes the task digest from disk at call time and `approve`
+ * still compares the frozen bundle, so a file edited after the display is refused there.
+ */
+async function review(
+  id: string,
+  options: {
+    readonly approve: boolean
+    readonly reject: boolean
+    readonly digest: string | undefined
+    readonly note: string | undefined
+    readonly key: string | undefined
+  },
+): Promise<number> {
+  const { approve, reject, digest, note, key } = options
+  if (approve && reject) throw new Error("review takes --approve or --reject, not both")
+  if (digest !== undefined && reject) throw new Error("review --reject takes --note, not --digest")
+  if (digest !== undefined && !DIGEST_PATTERN.test(digest))
+    throw new Error(
+      `review --digest must be a full lowercase sha256, got ${JSON.stringify(digest)}`,
+    )
+  if (note !== undefined && !reject) throw new Error("review --note goes with --reject")
+  if (reject && !note) throw new Error('review --reject requires --note "<text>"')
+  const refuse = (message: string, row?: WorkOrderRow) => {
+    print({ ok: false, ...(row ? { state: row.state } : {}), message, ...(row ? { row } : {}) })
+    return 1
+  }
+
+  if (reject && note) {
+    const row = read((reader) => reader.show(id))
+    if (!row) throw new Error(`Unknown work order ${id}`)
+    if (row.state === "awaiting_intake_approval") {
+      const outcome = await rejectDraft(id, note, key)
+      print(outcome)
+      return outcome.ok && outcome.row && INTAKE_SUCCESS.has(outcome.row.state) ? 0 : 1
+    }
+    if (row.state === "awaiting_approval") {
+      const outcome = await client().deny(id, key)
+      print({ ...outcome, note })
+      return outcome.ok ? 0 : 1
+    }
+    return refuse(nothingToReview(id, row), row)
+  }
+
+  const built = await buildReview(id)
+  if (!("digest" in built)) return refuse(nothingToReview(id, built.row), built.row)
+  process.stderr.write(`${built.text}\n`)
+  if (built.problems.length > 0)
+    return refuse(`Not approvable as displayed: ${built.problems.join("; ")}. Nothing was sent`)
+
+  if (digest !== undefined) {
+    if (digest !== built.digest)
+      return refuse(
+        `--digest ${digest} is not the ${built.label} review displayed (${built.digest}); nothing was sent`,
+      )
+  } else {
+    if (!interactive())
+      return refuse(
+        `There is no terminal to type the ${built.label}'s prefix into; pass --approve --digest <sha256> with the ${built.label} displayed above`,
+      )
+    const prefix = built.digest.slice(0, 8)
+    const answer = await ask(
+      `Approve ${built.kind === "intake" ? "this draft" : "this export"} at revision ${built.revision}? Type the first eight hex digits of the ${built.label} to approve (anything else sends nothing): `,
+    )
+    if (answer === null)
+      return refuse("No answer: stdin ended before one was typed; nothing was sent")
+    const typed = answer.trim().toLowerCase()
+    if (typed !== prefix)
+      return refuse(
+        typed === ""
+          ? "Nothing typed; nothing was sent"
+          : `The typed prefix ${JSON.stringify(typed)} does not match the ${built.label} displayed; nothing was sent`,
+      )
+  }
+
+  const operationKey = key ? { operationKey: key } : {}
+  if (built.kind === "intake") {
+    const outcome = await client().approveIntake(id, {
+      revision: built.revision,
+      taskDigest: built.digest,
+      ...operationKey,
+    })
+    print(outcome)
+    return outcome.ok ? 0 : 1
+  }
+  const outcome = await approveExport(id, {
+    revision: built.revision,
+    bundleDigest: built.digest,
+    ...operationKey,
+  })
+  print(outcome)
+  return outcome.ok ? 0 : 1
+}
+
+function nothingToReview(id: string, row: WorkOrderRow): string {
+  return `Nothing to review: ${id} is ${row.state}. review reads a draft parked in awaiting_intake_approval or a bundle parked in awaiting_approval`
+}
+
 async function main(argv: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args: argv,
@@ -540,6 +732,8 @@ async function main(argv: string[]): Promise<number> {
       target: { type: "string" },
       pin: { type: "string" },
       "work-order": { type: "string" },
+      approve: { type: "boolean", default: false },
+      reject: { type: "boolean", default: false },
       help: { type: "boolean", default: false },
     },
   })
@@ -654,16 +848,7 @@ async function main(argv: string[]): Promise<number> {
         const id = needId()
         const note = values.note
         if (!note) throw new Error("reject-intake requires --note")
-        const outcome = await awaiting(
-          id,
-          (controller) =>
-            controller.rejectIntake(id, {
-              note,
-              ...(values.key ? { operationKey: values.key } : {}),
-            }),
-          INTAKE_ACTIVE,
-          INTAKE_SUCCESS,
-        )
+        const outcome = await rejectDraft(id, note, values.key)
         print(outcome)
         return outcome.ok && outcome.row && INTAKE_SUCCESS.has(outcome.row.state) ? 0 : 1
       }
@@ -678,16 +863,18 @@ async function main(argv: string[]): Promise<number> {
         }
         // Approve re-verifies before it exports (about 20 minutes on the `cli` target), past
         // the HTTP request's own timeout: followed like dispatch, by its journal lines.
-        const outcome = await awaiting(
-          id,
-          (controller) => controller.approve(id, input),
-          APPROVE_ACTIVE,
-          APPROVE_SUCCESS,
-          { arrived: "approve_started", refused: "approve_refused" },
-        )
+        const outcome = await approveExport(id, input)
         print(outcome)
         return outcome.ok ? 0 : 1
       }
+      case "review":
+        return await review(needId(), {
+          approve: values.approve,
+          reject: values.reject,
+          digest: values.digest,
+          note: values.note,
+          key: values.key,
+        })
       case "retry": {
         const outcome = await client().retry(needId(), values.key)
         print(outcome)
