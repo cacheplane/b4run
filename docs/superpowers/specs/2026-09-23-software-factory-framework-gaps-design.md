@@ -292,6 +292,31 @@ approval is refused; non-TTY without `--digest` refuses; the prefix must match.
 
 **Size: S.**
 
+> **As landed:** `factory review` in `controller/src/cli.ts`, rendering in
+> `controller/src/lib/review/operator-review.ts`, with the routes unchanged. The task digest
+> reuses the gate's own function: `readGeneratedTask` (beside `digestGeneratedTask` in
+> `lib/intake/generated-task.ts`) reads the directory once and digests those buffers, and the
+> display is decoded from the same buffers, so the digest matches the route's by construction.
+> The intake display is every file the digest covers (`issue.md`, `spec.md`, `task.json`,
+> `checks.json`, the check file) plus the oracle receipt and each check's output from the
+> artifact store. The export display recomputes `bundleDigest` from the payload it printed and
+> cross-checks the candidate and receipt it printed against it. Deviations: (1) the export
+> shows the candidate's changed files **whole**, not a diff: the baseline is the controller's
+> own capture of the target, which the CLI does not take, so a unified diff would need a new
+> route or a second capture; (2) `review --reject --note` on an export is `deny`, whose route
+> takes no note, so the note is echoed in the output and not journalled; (3) review also
+> refuses, after displaying, when an evidence artifact does not hash to its name, a file is
+> not UTF-8, or the bundle names a different candidate or receipt than the one shown; an
+> artifact the store does not hold is shown as missing rather than refused (the fake verifier
+> records digests it never writes); (4) terminal control characters and bidi overrides are
+> shown as `\u{…}` escapes, so model-written text cannot hide lines from the reviewer; (5) the
+> display goes to stderr and the outcome JSON to stdout, keeping every command's stdout
+> contract; (6) `FACTORY_CLI_INTERACTIVE=1` is the test seam that lets the prompt answer on a
+> pipe, like the CLI's other test-only variables. Proof: three CLI tests in `cli.test.ts`
+> against `serve-controller.ts` (intake review with the raced edit, the pre-edit refusal, the
+> wrong prefix, non-TTY and wrong `--digest` refusals and nothing-to-review; the scripting and
+> reject paths; the export review, approval and deny).
+
 ---
 
 ## 7. Quickstart after

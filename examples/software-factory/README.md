@@ -388,17 +388,37 @@ The CLI's write commands are requests to the running controller
     factory create --issue 778 [--repo owner/name]         # from a GitHub issue, pinned to origin/main
     factory create --issue 714 --pin <sha>                 # replay a fixed issue at the commit before its fix
     factory intake <id>                                    # issue work orders only; awaits the draft
-    ls $FACTORY_STATE_DIR/tasks/<id>/                      # task.json spec.md checks.json checks/ issue.md
-    factory approve-intake <id> --revision <n> --digest <sha256>   # or: factory reject-intake <id> --note "..."
+    factory review <id>                                    # shows the draft and its proof; type the digest's first 8 hex digits
+    factory review <id> --reject --note "..."              # or send the draft back with a note
     factory dispatch <id>                                  # awaits; journal events on stderr
     factory retry <id>                                     # a candidate failure, attempts permitting; then dispatch again
     factory show <id>
     factory events <id>
     factory evidence <id>
     factory list
-    factory approve <id> --revision <n> --bundle <sha256>   # or: factory deny <id>
+    factory review <id>                                    # shows the candidate, receipt and bundle; type its first 8 hex digits
+    factory review <id> --reject --note "..."              # or deny it
     factory cancel <id>
     factory reconcile
+
+**Reviewing.** `factory review <id>` is how a person approves. For a draft parked in
+`awaiting_intake_approval` it prints every file of the generated task (`issue.md`, `spec.md`,
+`task.json`, `checks.json` and the check file) and the oracle proof's receipt with its check
+output; for a bundle parked in `awaiting_approval` it prints the candidate's changed files
+(whole, as the export writes them), the receipt with its check output, and the frozen bundle.
+Each file is read once, and the digest is computed from the bytes that were printed: the task
+digest over the task files, the bundle digest over the bundle payload. If that digest is not the
+row's, or a piece of evidence does not hash to its name, review refuses and sends nothing. At a
+terminal it then asks for the digest's first eight hex digits and sends the revision and the
+full digest it displayed; a wrong prefix sends nothing. The display is on stderr, the outcome
+JSON on stdout. Without a terminal, `factory review <id> --approve --digest <sha256>` must name
+the displayed digest in full. `--reject --note "..."` is `reject-intake` for a draft and `deny`
+for a bundle (the deny route records no note, so it is only echoed in the output). Any other
+state is refused as having nothing to review. Underneath, `approve-intake <id> --revision <n>
+--digest <sha256>`, `reject-intake`, `approve <id> --revision <n> --bundle <sha256>` and `deny`
+remain the scripting contract, unchanged, and the routes still check at call time: a task file
+edited after review displayed it is refused by `approve-intake`, which recomputes the digest
+from disk.
 
 `--pin` is the replay mode: a fixed issue, pinned at the commit before its fix, has a known
 right answer, so the fix's own test grades what the factory produces without the drafter or the
@@ -434,8 +454,8 @@ fallback.
 
 `dispatch` returns when the work order has stopped moving — including through the controller's
 own `verifying` phase, which is not the builder's — and tails the journal to stderr while it
-waits. If it reaches `awaiting_approval`, approve with the revision and the **bundle digest**
-it printed, or `deny`. `factory evidence <id>` prints the frozen candidate, receipt and
+waits. If it reaches `awaiting_approval`, `factory review <id>` it (or approve with the
+revision and the **bundle digest** it printed, or `deny`). `factory evidence <id>` prints the frozen candidate, receipt and
 bundle: what an approver is actually being asked to consent to. `factory cancel <id>` uses
 both variables: it interrupts a live dispatch through the runtime, falls back to the `cancel`
 route for a work order that is not mid-run, and reads the row back.
@@ -493,10 +513,12 @@ with no prepared target blocks immediately (`no_target_for_package`), since no r
 prepare one, and so does a draft whose target has no image at the work order's pin
 (`image_unprepared`: the prompt lists only the targets prepared at that pin, and the task's
 `pin` is the controller's to fill, never the draft's). A draft that parks in
-`awaiting_intake_approval` is read on disk and approved **by digest**: `show` prints the
-row's `taskDigest`, `approve-intake` recomputes the directory's digest at call time and refuses
-if either differs, so what the person read is what the builder and the verifier are given.
-`reject-intake --note` journals the note and, attempts permitting, waits for the redraft.
+`awaiting_intake_approval` is read and approved **by digest**: `factory review <id>` prints the
+task directory and digests what it printed, refusing if that is not the row's `taskDigest`, and
+`approve-intake` recomputes the directory's digest at call time and refuses if either differs,
+so what the person read is what the builder and the verifier are given.
+`review --reject --note` (or `reject-intake --note`) journals the note and, attempts
+permitting, waits for the redraft.
 A refusal `intake` records under its operation key (the thread could not be created, the
 manifest could not be written) is replayed to every later call at the same revision: retry
 with `--key <fresh>`. A pin the repository does not hold and cannot fetch is refused before
@@ -545,7 +567,10 @@ succeeded exits 0. A `dispatch` exits 0 only when the work order settles in
 `cancel_requested` and "did not settle" all exit 1, so a script cannot mistake an unfinished
 work order for a shipped one. Likewise `intake` and `reject-intake` exit 0 only when the work
 order settles in `awaiting_intake_approval` (a `blocked` draft, a cancel, and "did not settle"
-exit 1), and `approve-intake` exits 0 only when the approval was accepted.
+exit 1), and `approve-intake` exits 0 only when the approval was accepted. `review` exits 1
+when it refuses (nothing to review, a digest that is not the row's, a wrong prefix or
+`--digest`, no terminal and no `--digest`) and otherwise with the exit code of the command it
+sent.
 
 ### Environment
 
@@ -580,9 +605,11 @@ checkout's `origin` remote) and `FACTORY_NO_FETCH` (`1` skips the `git fetch ori
 before the pin is resolved from the checkout named by `FACTORY_REPO_ROOT`). With `--pin <sha>`
 there is no `origin/main` to fetch or read at all: the named commit is used, fetched from
 `origin` by sha only when the object store lacks it, and `FACTORY_NO_FETCH=1` refuses such a
-pin, naming it, instead of fetching. `FACTORY_CLI_REQUEST_TIMEOUT_MS` and
-`FACTORY_CLI_ARRIVAL_WINDOW_MS` are test-only (they shorten the request timeout and the arrival
-window the long-wait fallback measures); an operator sets neither.
+pin, naming it, instead of fetching. `FACTORY_CLI_REQUEST_TIMEOUT_MS`,
+`FACTORY_CLI_ARRIVAL_WINDOW_MS` and `FACTORY_CLI_INTERACTIVE` are test-only (they shorten the
+request timeout and the arrival window the long-wait fallback measures, and let `review` ask on
+a pipe as it would at a terminal); an operator sets none of them. `review` reads evidence from
+`FACTORY_ARTIFACTS_DIR` when it is set, as the controller does.
 
 The builder app reads `FACTORY_BUILDER_TARGET` (required: the target file `factory
 builder-target` writes), `FACTORY_BUILDER_MANIFEST_DIR` (required: the manifest directory,
