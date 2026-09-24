@@ -527,3 +527,16 @@ Appended as the live replay of #714 runs.
     row cannot be approved. Noted so nobody reads the directory as live. The attempt cap is
     now `FACTORY_MAX_INTAKE_ATTEMPTS` (default 2, fixed on the row at create), so an operator
     replaying an issue can grant a redraft more room without a code change.
+23. **The first proven oracle, and why the human gate is not ceremony.** Attempt 5 produced
+    an oracle the controller proved (its check failed on the unpatched pin by assertion), in
+    the second of three drafter attempts, after a refusal that quoted a load error. The
+    operator still rejected it: its A1 asserted an empty body and a content type matching
+    `/application\/.+json/`, which no response can satisfy, so every repair would have failed
+    it. The proof establishes "fails now", never "can pass". The rejection also decided the
+    question the issue left open (200 with JSON `null`, because B4's own client,
+    `normalizeServerResult`, reads an empty 200 body as a malformed payload), which is a
+    maintainer's decision the drafter could not make. Framework item: a satisfiability probe
+    for drafted checks (run the check against a trivially "fixed" stub where one can be
+    synthesised, or at least lint for contradictory assertions), and a way for the issue
+    author to record such decisions before intake.
+
