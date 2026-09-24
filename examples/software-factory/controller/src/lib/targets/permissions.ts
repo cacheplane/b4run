@@ -8,11 +8,22 @@ export interface BuilderPermissions {
 }
 
 /**
+ * The read-only commands a builder reads a workspace with: the drafter's list
+ * (`drafter/b4.config.ts`), kept equal by test. `sed -n` and `nl` are what read a large file
+ * in ranges; the first live run's builder reached for `sed -n '1,2400p'` after it had
+ * truncated a 3,644-line file it read whole, and parked on the permission prompt because the
+ * list stopped at `head`. `find` stays off because it carries `-exec` and `-delete`.
+ */
+export const READ_ONLY_BASH = ["ls", "cat", "head", "tail", "grep", "wc", "sed -n", "nl"] as const
+
+/**
  * What every builder needs beyond its target's own commands: a one-off script, and reading
  * around the workspace. `node ` keeps its trailing space because these are PREFIX matches
- * and a bare `node` would also admit `nodemon`.
+ * and a bare `node` would also admit `nodemon`. The list bounds which commands may START a
+ * shell line, not what the shell then does; it is not the builder's security boundary (the
+ * denied network and the controller's own assembly and verification are).
  */
-const FIXED_BASH = ["node ", "cat", "ls", "head"]
+const FIXED_BASH = ["node ", ...READ_ONLY_BASH]
 
 /**
  * The builder's pre-approved surface for one target.
@@ -21,8 +32,10 @@ const FIXED_BASH = ["node ", "cat", "ls", "head"]
  * the match is a prefix, so the full invocation still admits appended flags while a shorter
  * head would silently admit an entirely different command that happens to share it. Each
  * invocation is listed both at the workspace root and under the target's own `cwd`, because
- * the builder is told to run it from there while the scripted lanes run it from the root;
- * anything else surfaces as an interrupt, which is the point.
+ * the builder is told to run it from there while the scripted lanes run it from the root.
+ * Anything else is refused: the builder app runs its permissions `non-interactive`
+ * (`server/b4.config.ts`), so an unlisted command is a tool error the model reads and
+ * recovers from, not a prompt parked for a person nobody assigned.
  *
  * The dependency tree the image provides is readable, never writable.
  */

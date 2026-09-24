@@ -43,8 +43,14 @@ export default config({
     previewLines: 10,
   },
   permissions: {
-    // Derived by the controller from the target's own commands and environment links: only
-    // what this target needs, so anything else surfaces as an interrupt.
+    // Nobody answers a builder's prompt: the controller has no gate for it, and a parked
+    // command blocked the first live run's work order as `unexpected_interrupt` after its one
+    // attempt. A fixed property of the builder app, not of the target, so it is set here and
+    // not in the target file: a command off the list is a tool error the model reads and
+    // recovers from. The controller still blocks on any interrupt that does reach it.
+    mode: "non-interactive",
+    // Derived by the controller from the target's own commands and environment links, plus
+    // the read-only commands every builder reads with (`builderPermissions`).
     allow: { ...target.permissions },
   },
 })

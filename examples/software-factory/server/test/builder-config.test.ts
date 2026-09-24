@@ -88,7 +88,14 @@ describe("builder configuration", () => {
     expect(config.sandbox?.provider.name).toBe("docker")
   })
 
-  it("pre-approves exactly what the target allows, so an interrupt is a surprise", async () => {
+  it("refuses an unlisted command as a tool error instead of parking it for nobody", async () => {
+    // The first live run's builder parked on `sed -n` with no one to answer, and the
+    // controller blocked its only attempt. The mode is the builder app's, not the target's.
+    const config = await loadConfig()
+    expect(config.permissions?.mode).toBe("non-interactive")
+  })
+
+  it("pre-approves exactly what the target allows", async () => {
     const config = await loadConfig()
     expect(config.permissions?.allow).toEqual(target.target.permissions)
     const bash = config.permissions?.allow?.bash ?? []

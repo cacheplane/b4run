@@ -7,6 +7,7 @@ import {
   type Target,
   type Task,
 } from "./targets/catalog.js"
+import { builderPermissions } from "./targets/permissions.js"
 
 /**
  * One invocation as the builder must type it: from the workspace root when the target's
@@ -19,6 +20,36 @@ function invocation(task: Task, argv: readonly string[]): string {
 }
 
 /**
+ * How the builder works, stated once, here: the builder route's system prompt keeps only the
+ * non-negotiables (scope, no verdict, no weakened test) and points at this message for the
+ * rest. The first live run's builder read a 3,644-line file whole, wrote it back with
+ * `writeFile` truncated to 670 lines ending in `... (file truncated, unchanged)`, and then
+ * parked on `sed -n`, which its permissions did not list. Each rule answers one of those.
+ * `editFile` and `readFile`'s `startLine`/`endLine` are the workspace capability's own
+ * tools; the controller's assembly refuses an elided file whatever the prompt said.
+ */
+export function builderRules(task: Task): string[] {
+  const { commands } = task.target
+  const invocations = new Set(
+    [commands.build, commands.test]
+      .filter((argv) => argv.length > 0)
+      .flatMap((argv) => [argv.join(" "), invocation(task, argv)]),
+  )
+  const others = builderPermissions(task.target)
+    .bash.filter((prefix) => !invocations.has(prefix))
+    .map((prefix) => `\`${prefix.trimEnd()}\``)
+  const named = commands.build.length > 0 ? "the build and test commands" : "the test command"
+  return [
+    "Change an existing file with `editFile`, which replaces one exact span of its text with another. Never rewrite an existing file with `writeFile`: every file you may change already exists, and rewriting one whole loses whatever you did not reproduce.",
+    "Read a large file in ranges: `readFile` with `startLine` and `endLine`, or find the lines with `grep -n` and read around them with `sed -n '<from>,<to>p'`. Do not read a large file whole.",
+    "Never write placeholder or elision text into a file (`...`, `(file truncated)`, `rest of the file unchanged`): every line you write is the file's content. A changed file carrying such a line, or smaller than half its original size, is refused before it is tested.",
+    `Run ${named} above to confirm the repair before you stop.`,
+    `The commands you may run are ${named} above, exactly as written (appending flags is fine), and commands starting with ${others.join(", ")}. Any other command is refused with an error; do not retry it under another name or through \`bash -c\`.`,
+    "Your tools are readFile, listDir, editFile, writeFile and runBash.",
+  ]
+}
+
+/**
  * The builder's single turn, DERIVED from the target rather than restated per task. It edits
  * files and stops. It is not asked to verify or to deliver, because it has no way to do
  * either: verification and delivery are the controller's, and nothing the builder says is
@@ -26,7 +57,8 @@ function invocation(task: Task, argv: readonly string[]): string {
  *
  * The commands come from the target's own manifest — the same argv the verifier runs and the
  * same ones `b4.config.ts` pre-approves — so a target whose commands change cannot leave the
- * builder being told to run something its permissions no longer admit.
+ * builder being told to run something its permissions no longer admit. The rules that follow
+ * the instructions (`builderRules`) are the same for every task but name the target's list.
  */
 export function taskPrompt(task: Task): string {
   const { commands } = task.target
@@ -43,10 +75,10 @@ export function taskPrompt(task: Task): string {
   )
   sentences.push(
     "Do not edit any test or configuration.",
-    "When the repair is complete and the tests pass, stop and say so.",
-    "Use readFile, listDir, writeFile and runBash.",
+    "When the repair is complete and the build and tests pass, stop and say so.",
   )
-  return sentences.join(" ")
+  const rules = builderRules(task).map((rule) => `- ${rule}`)
+  return [sentences.join(" "), "", "Rules:", ...rules].join("\n")
 }
 
 /**
