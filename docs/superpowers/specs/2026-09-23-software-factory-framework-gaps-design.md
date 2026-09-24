@@ -316,15 +316,27 @@ approval is refused; non-TTY without `--digest` refuses; the prefix must match.
 > refuses, after displaying, when an evidence artifact does not hash to its name, a file is
 > not UTF-8, or the bundle names a different candidate or receipt than the one shown; an
 > artifact the store does not hold is shown as missing rather than refused (the fake verifier
-> records digests it never writes); (4) terminal control characters and bidi overrides are
-> shown as `\u{…}` escapes, so model-written text cannot hide lines from the reviewer; (5) the
+> records digests it never writes) — except the oracle proof's output on an intake, whose
+> absence refuses unless `--allow-missing-evidence` is passed (with a loud warning): the
+> verifier identity is a free-form string, so there is no reliable marker of a verifier that
+> never writes its output, and a flag is the honest option; (4) every line of content is shown
+> behind a `│ ` gutter (runs of more than three blank lines collapsed into a count), and
+> controls, bidi marks and overrides, zero-width characters, a byte order mark, line and
+> paragraph separators and tag characters are shown as `\u{…}` escapes in bodies and titles,
+> so neither model-written files nor the issue can fake a title or digest line or hide a line;
+> `relativePath` now also refuses control characters and line separators, so a drafter cannot
+> name a check file with one; the prompt takes at least eight hex digits of the digest, or all
+> of it pasted, and `--digest` without `--approve` is refused; (5) the
 > display goes to stderr and the outcome JSON to stdout, keeping every command's stdout
 > contract; (6) `FACTORY_CLI_INTERACTIVE=1` is the test seam that lets the prompt answer on a
 > pipe, like the CLI's other test-only variables. Proof: three CLI tests in `cli.test.ts`
 > against `serve-controller.ts` (intake review with the raced edit, the pre-edit refusal, the
 > wrong prefix, non-TTY and wrong `--digest` refusals and nothing-to-review; the scripting and
 > reject paths; the export review with the pin diff's hunk and the unreadable-pin fallback,
-> approval and deny).
+> approval and deny), and unit tests in `operator-review.test.ts` for the gutter against a fake
+> title and digest line in `issue.md`, the blank-run collapse, the escapes (ESC, bidi, BOM, a
+> control character in a title), the missing-oracle-output refusal, the export's bundle-digest
+> mismatch refusal and `relativePath`'s refusal of control characters.
 
 ---
 

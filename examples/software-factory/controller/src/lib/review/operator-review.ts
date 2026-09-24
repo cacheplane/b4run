@@ -14,6 +14,8 @@ import { BundlePayloadSchema } from "./bundle.js"
  */
 export interface OperatorReview {
   readonly kind: "intake" | "export"
+  /** The row the review was built from, once. */
+  readonly row: WorkOrderRow
   /** The row's revision when it was read: the approval is sent at this revision. */
   readonly revision: number
   /** The task digest (intake) or the bundle digest (export) of what `text` shows. */
@@ -27,6 +29,11 @@ export interface OperatorReview {
    * another. Non-empty means the review refuses after displaying.
    */
   readonly problems: readonly string[]
+  /**
+   * What the person is approving without having seen, allowed only by an explicit flag
+   * (`--allow-missing-evidence`): said loudly beside the prompt, never silently.
+   */
+  readonly warnings: readonly string[]
 }
 
 /**
@@ -49,27 +56,74 @@ export interface DiffBase {
 }
 
 /**
- * Characters a terminal would act on rather than show: C0 and C1 controls (an ANSI escape can
- * erase or recolour the lines around it) and the bidirectional overrides and isolates (which
- * reorder what is shown). A drafted `spec.md` is model output; the person must see every byte
- * of it, so these are shown as escapes. Newline and tab are left as they are.
+ * Characters a terminal would act on, or that show as nothing, rather than showing what they
+ * are: C0 and C1 controls (an ANSI escape can erase or recolour the lines around it), the
+ * bidirectional marks, overrides and isolates (which reorder what is shown), the zero-width
+ * characters and the byte order mark (invisible), the line and paragraph separators (a line
+ * break some terminals honour), and the tag characters (invisible text). Drafted files are
+ * model output and the issue is anyone's: the person must see every character, so these are
+ * shown as `\u{…}` escapes. Newline and tab are left as they are in a body; a title or any
+ * other one-line value escapes them too ({@link displayableLine}).
  */
-// biome-ignore lint/suspicious/noControlCharactersInRegex: matching the controls is the point
-const HIDDEN = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu
+const HIDDEN =
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: matching the controls is the point
+  /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060\u2066-\u2069\ufeff\u{e0000}-\u{e007f}]/gu
 
+const escapeChar = (c: string) => `\\u{${(c.codePointAt(0) ?? 0).toString(16).padStart(4, "0")}}`
+
+/** Text for a body: every hidden character escaped; newline and tab kept. */
 export function displayable(text: string): string {
-  return text.replace(
-    HIDDEN,
-    (c) => `\\u{${(c.codePointAt(0) ?? 0).toString(16).padStart(4, "0")}}`,
-  )
+  return text.replace(HIDDEN, escapeChar)
 }
 
-const utf8 = new TextDecoder("utf-8", { fatal: true })
+/** A value shown inside one line (a title, a path, an id, a reason): newline and tab escaped too. */
+export function displayableLine(text: string): string {
+  return displayable(text).replace(/[\t\n]/g, escapeChar)
+}
 
-/** A titled block of text, ending in exactly one newline, with a missing final newline said. */
+/**
+ * Fatal, so bytes that are not UTF-8 are said rather than replaced; `ignoreBOM`, so a byte
+ * order mark is kept and shown escaped rather than silently dropped from what is displayed.
+ */
+const utf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })
+
+/** The gutter every body line is shown behind: no content can start a line of the review. */
+const GUTTER = "│ "
+/** A run of blank lines longer than this is shown as one line saying how many. */
+const MAX_BLANK_RUN = 3
+
+/**
+ * A body behind the gutter. Every line of content, the empty ones included, starts with
+ * {@link GUTTER}, so a file cannot produce a `==>` title, a `Task digest` line or anything
+ * else the review itself writes; a long run of blank lines (which could push the rest of a
+ * file out of sight) is collapsed into one line that says how many there were.
+ */
+function guttered(body: string): string {
+  const lines = displayable(body).split("\n")
+  const missingNewline = lines.at(-1) !== ""
+  if (!missingNewline) lines.pop()
+  let out = ""
+  let blanks = 0
+  const flush = () => {
+    if (blanks > MAX_BLANK_RUN) out += `${GUTTER}… ${blanks} blank lines …\n`
+    else out += `${GUTTER}\n`.repeat(blanks)
+    blanks = 0
+  }
+  for (const line of lines) {
+    if (line.trim() === "") {
+      blanks++
+      continue
+    }
+    flush()
+    out += `${GUTTER}${line}\n`
+  }
+  flush()
+  return missingNewline ? `${out}(no newline at end of file)\n` : out
+}
+
+/** A titled block: the title escaped to one line, the body behind the gutter. */
 function block(title: string, body: string): string {
-  const shown = displayable(body)
-  return `==> ${title}\n${shown.endsWith("\n") ? shown : `${shown}\n(no newline at end of file)\n`}\n`
+  return `==> ${displayableLine(title)}\n${guttered(body)}\n`
 }
 
 /** The generated task's files in reading order: the issue, the spec, the task, the checks. */
@@ -84,19 +138,22 @@ function readingOrder(paths: Iterable<string>): string[] {
  * A receipt, and the output each of its checks recorded, read from the artifact store. The
  * store re-hashes every artifact against its name, so an output that was edited is reported
  * as a problem rather than shown as evidence. An output the store does not hold is shown as
- * missing (a fake verifier records digests it never wrote), not refused.
+ * missing and collected in `missing`: the caller decides whether that may be approved.
  */
 async function receiptBlock(
   title: string,
   receipt: Receipt,
   artifacts: ArtifactStore,
   problems: string[],
+  /** Collects each evidence item the store does not hold, as `<check>/<evidence id>`. */
+  missing: string[],
 ): Promise<string> {
-  let out = `--- ${title}: receipt ${receipt.id}, verdict ${receipt.verdict}\n`
-  out += `    verifier ${receipt.verifierIdentity}, environment ${receipt.environmentIdentity}, issued ${receipt.issuedAt}\n\n`
+  const line = displayableLine
+  let out = `--- ${title}: receipt ${line(receipt.id)}, verdict ${receipt.verdict}\n`
+  out += `    verifier ${line(receipt.verifierIdentity)}, environment ${line(receipt.environmentIdentity)}, issued ${line(receipt.issuedAt)}\n\n`
   for (const check of receipt.checks) {
     const ids = check.acceptanceIds.length > 0 ? ` (${check.acceptanceIds.join(", ")})` : ""
-    out += `  check ${check.id}${ids}: ${check.verdict}\n`
+    out += `  check ${line(check.id)}${line(ids)}: ${check.verdict}\n`
     for (const item of check.evidence) {
       let content: string
       try {
@@ -104,11 +161,12 @@ async function receiptBlock(
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         if (message.startsWith("Artifact not found")) {
-          out += `  ${item.id}: not in the artifact store (${item.digest})\n`
+          missing.push(`${check.id}/${item.id}`)
+          out += `  ${line(item.id)}: NOT IN THE ARTIFACT STORE (${item.digest})\n`
           continue
         }
         problems.push(`Evidence ${item.id} of receipt ${receipt.id} is unreadable: ${message}`)
-        out += `  ${item.id}: unreadable (${message})\n`
+        out += `  ${line(item.id)}: unreadable (${line(message)})\n`
         continue
       }
       out += block(`${item.id} (artifact ${item.digest})`, content)
@@ -127,12 +185,19 @@ export async function intakeReview(input: {
   readonly generatedTasksDir: string
   readonly oracleReceipt: Receipt | null
   readonly artifacts: ArtifactStore
+  /**
+   * Approve even when the oracle proof's output is not in the artifact store. Nothing in a
+   * receipt reliably marks a verifier that never writes its output (the identity is a
+   * free-form string), so a missing output refuses unless the person says so explicitly.
+   */
+  readonly allowMissingEvidence?: boolean
 }): Promise<OperatorReview> {
   const { row } = input
   const problems: string[] = []
+  const warnings: string[] = []
   const directory = join(input.generatedTasksDir, row.id)
   let text = `Intake review of ${row.id} (${row.state}, revision ${row.revision})\n`
-  text += `Generated task: ${directory}\n\n`
+  text += `Generated task: ${displayableLine(directory)}\n\n`
   let read: ReturnType<typeof readGeneratedTask>
   try {
     read = readGeneratedTask(directory)
@@ -140,11 +205,13 @@ export async function intakeReview(input: {
     const message = error instanceof Error ? error.message : String(error)
     return {
       kind: "intake",
+      row,
       revision: row.revision,
       digest: "",
       label: "task digest",
       text,
       problems: [`Generated task unreadable: ${message}`],
+      warnings,
     }
   }
   for (const path of readingOrder(read.files.keys())) {
@@ -155,7 +222,7 @@ export async function intakeReview(input: {
       content = utf8.decode(bytes)
     } catch {
       problems.push(`${path} is not valid UTF-8, so it cannot be shown as it is`)
-      text += `==> ${path}\n(${bytes.length} bytes, not valid UTF-8)\n\n`
+      text += `==> ${displayableLine(path)}\n(${bytes.length} bytes, not valid UTF-8)\n\n`
       continue
     }
     text += block(`${path} (${bytes.length} bytes)`, content)
@@ -164,12 +231,23 @@ export async function intakeReview(input: {
     problems.push("No oracle proof is recorded for this task digest")
     text += "--- Oracle proof: none recorded for this task digest\n\n"
   } else {
+    const missing: string[] = []
     text += await receiptBlock(
       "Oracle proof (the check run on the unpatched baseline)",
       input.oracleReceipt,
       input.artifacts,
       problems,
+      missing,
     )
+    if (missing.length > 0) {
+      const what = `The oracle proof's output (${missing.join(", ")}) is not in the artifact store, so it was not shown`
+      if (input.allowMissingEvidence === true)
+        warnings.push(`${what}; approving without it (--allow-missing-evidence)`)
+      else
+        problems.push(
+          `${what}; restore it, or pass --allow-missing-evidence to approve without seeing it`,
+        )
+    }
   }
   text += `Task digest of the ${read.files.size} files above: ${read.digest}\n`
   if (row.taskDigest === null) problems.push("The work order has no task digest to approve")
@@ -179,11 +257,13 @@ export async function intakeReview(input: {
     )
   return {
     kind: "intake",
+    row,
     revision: row.revision,
     digest: read.digest,
     label: "task digest",
     text,
     problems,
+    warnings,
   }
 }
 
@@ -213,7 +293,8 @@ function changedFile(path: string, content: string, base: DiffBase | undefined):
       )
     }
   }
-  if (before === content) return `==> ${path}\n(identical to ${base.label})\n\n`
+  if (before === content)
+    return `==> ${displayableLine(path)}\n(identical to ${displayableLine(base.label)})\n\n`
   const patch = createTwoFilesPatch(
     old.kind === "absent" ? "/dev/null" : `a/${path}`,
     `b/${path}`,
@@ -260,26 +341,26 @@ export async function exportReview(input: {
         string,
         unknown
       >
-      if (input.base?.note) text += `${input.base.note}\n\n`
+      if (input.base?.note) text += `${displayableLine(input.base.note)}\n\n`
       for (const path of Object.keys(changes).sort()) {
         const content = changes[path]
         if (typeof content === "string") text += changedFile(path, content, input.base)
         else {
           problems.push(`The candidate's entry for ${path} is not file content`)
-          text += `==> ${path}\n(not file content)\n\n`
+          text += `==> ${displayableLine(path)}\n(not file content)\n\n`
         }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       problems.push(`The candidate's bytes are unreadable: ${message}`)
-      text += `(candidate bytes unreadable: ${message})\n\n`
+      text += `(candidate bytes unreadable: ${displayableLine(message)})\n\n`
     }
   }
   if (receipt === null) {
     problems.push("The work order has no receipt")
     text += "--- Receipt: none recorded\n\n"
   } else {
-    text += await receiptBlock("Verification", receipt, input.artifacts, problems)
+    text += await receiptBlock("Verification", receipt, input.artifacts, problems, [])
     if (candidate !== null && receipt.candidateDigest !== candidate.digest)
       problems.push(
         `Receipt ${receipt.id} is for candidate ${receipt.candidateDigest}, not this one`,
@@ -290,11 +371,13 @@ export async function exportReview(input: {
     text += "--- Bundle: none frozen\n"
     return {
       kind: "export",
+      row,
       revision: row.revision,
       digest: "",
       label: "bundle digest",
       text,
       problems,
+      warnings: [],
     }
   }
   const parsed = BundlePayloadSchema.safeParse(bundle.payload)
@@ -306,11 +389,13 @@ export async function exportReview(input: {
     problems.push("The frozen bundle's payload does not parse; deny it and create a new work order")
     return {
       kind: "export",
+      row,
       revision: row.revision,
       digest: "",
       label: "bundle digest",
       text,
       problems,
+      warnings: [],
     }
   }
   const payload = parsed.data
@@ -324,5 +409,14 @@ export async function exportReview(input: {
     problems.push(`The bundle names candidate ${payload.candidateDigest}, not the one shown`)
   if (receipt !== null && payload.receiptId !== receipt.id)
     problems.push(`The bundle names receipt ${payload.receiptId}, not the one shown`)
-  return { kind: "export", revision: row.revision, digest, label: "bundle digest", text, problems }
+  return {
+    kind: "export",
+    row,
+    revision: row.revision,
+    digest,
+    label: "bundle digest",
+    text,
+    problems,
+    warnings: [],
+  }
 }

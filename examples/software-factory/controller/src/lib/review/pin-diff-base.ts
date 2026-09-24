@@ -11,9 +11,11 @@ const firstLine = (error: unknown): string =>
 /**
  * The export review's diff base: the target's files at the work order's pin (the target's own
  * pin for a catalog work order, which records none), read from the object store `create`
- * uses (`FACTORY_REPO_ROOT`, else this checkout). Nothing is fetched: a pin the store lacks
- * makes every file `unavailable`, with the reason, and the review shows it whole. Each path
- * is read once, when the review renders it.
+ * uses (`FACTORY_REPO_ROOT`, else this checkout). Loading the task's target ensures its pin as
+ * the catalog always does, as `create` does: a pin the store lacks is fetched from origin,
+ * unless `FACTORY_NO_FETCH=1`. A pin that still cannot be read makes every file `unavailable`,
+ * with the reason, and the review shows it whole. Each path is read once, when the review
+ * renders it.
  */
 export function pinDiffBase(row: WorkOrderRow): DiffBase {
   let repo: string
@@ -32,7 +34,7 @@ export function pinDiffBase(row: WorkOrderRow): DiffBase {
   }
   const label = `pin ${pin.slice(0, 12)}`
   if (!commitExists(repo, pin)) {
-    const reason = `${label} is not in the object store at ${repo} (review does not fetch)`
+    const reason = `${label} is not in the object store at ${repo}`
     return { label, read: () => ({ kind: "unavailable", reason }) }
   }
   const git = (...args: string[]): Buffer =>

@@ -33,8 +33,8 @@ const USAGE = `factory <command> [options]
   create    --task <id> [--key <operationKey>]
   create    --issue <n> [--repo <owner/name>] [--pin <sha>] [--key <operationKey>]
   intake          <workOrderId> [--key <operationKey>]
-  review    <workOrderId>                                   (asks for the digest's first 8 hex digits)
-  review    <workOrderId> --approve --digest <sha256> [--key <operationKey>]
+  review    <workOrderId> [--allow-missing-evidence]        (asks for at least the digest's first 8 hex digits)
+  review    <workOrderId> --approve --digest <sha256> [--allow-missing-evidence] [--key <operationKey>]
   review    <workOrderId> --reject --note "<text>" [--key <operationKey>]
   approve-intake  <workOrderId> --revision <n> --digest <sha256> [--key <operationKey>]
   reject-intake   <workOrderId> --note "<text>" [--key <operationKey>]
@@ -79,11 +79,15 @@ review shows what an approval covers and approves exactly that. For a draft park
 awaiting_intake_approval it prints every file of the task directory and the oracle proof's
 output, and digests the bytes it printed; for a bundle parked in awaiting_approval it prints
 a unified diff of each changed file against the work order's pin (read from the object store
-create uses, FACTORY_REPO_ROOT, never fetched; the whole file, with the reason, when the pin
-cannot be read), the receipt with its check output and the frozen bundle, and
+create uses, FACTORY_REPO_ROOT, and fetched from origin on a miss as create does unless
+FACTORY_NO_FETCH=1; the whole file, with the reason, when the pin cannot be read), the
+receipt with its check output and the frozen bundle, and
 recomputes the bundle digest from the payload it printed. It refuses when what it printed does
-not digest to the row's. At a terminal it then asks for the digest's first eight hex digits
-and sends the revision and the full digest it displayed. Without one, --approve --digest
+not digest to the row's, and for a draft when the oracle proof's output is not in the
+artifact store (--allow-missing-evidence approves without it, with a warning). Every line of
+file content is shown behind a "│ " gutter, with hidden characters escaped, so no file can
+fake a title or a digest line. At a terminal it then asks for at least the digest's first
+eight hex digits and sends the revision and the full digest it displayed. Without one, --approve --digest
 <sha256> must name that digest in full. --reject --note is reject-intake for a draft and deny
 for a bundle (the deny route records no note; the note is echoed in the output). The display
 goes to stderr; stdout is the outcome's JSON, as for every command. approve-intake and approve
@@ -571,7 +575,10 @@ async function ask(question: string): Promise<string | null> {
  * directory, and render it. The row is read once, here: the revision the approval is sent at
  * is the one the display was built from.
  */
-async function buildReview(id: string): Promise<OperatorReview | { row: WorkOrderRow }> {
+async function buildReview(
+  id: string,
+  allowMissingEvidence: boolean,
+): Promise<OperatorReview | { row: WorkOrderRow }> {
   const stateDir = process.env.FACTORY_STATE_DIR
   if (!stateDir) throw new Error("FACTORY_STATE_DIR is required to read the registry")
   const artifacts = createArtifactStore(
@@ -590,6 +597,7 @@ async function buildReview(id: string): Promise<OperatorReview | { row: WorkOrde
       generatedTasksDir: generatedTasksDirFor(stateDir),
       oracleReceipt: evidence.oracleReceipt,
       artifacts,
+      allowMissingEvidence,
     })
   // A generated task is loaded from the state directory, as the controller loads it.
   configureCatalog({ generatedTasksDir: generatedTasksDirFor(stateDir) })
@@ -634,11 +642,16 @@ async function review(
     readonly digest: string | undefined
     readonly note: string | undefined
     readonly key: string | undefined
+    readonly allowMissingEvidence: boolean
   },
 ): Promise<number> {
-  const { approve, reject, digest, note, key } = options
+  const { approve, reject, digest, note, key, allowMissingEvidence } = options
   if (approve && reject) throw new Error("review takes --approve or --reject, not both")
   if (digest !== undefined && reject) throw new Error("review --reject takes --note, not --digest")
+  // An approval is always asked for by name: a stray --digest is not one.
+  if (digest !== undefined && !approve) throw new Error("review --digest goes with --approve")
+  if (allowMissingEvidence && reject)
+    throw new Error("review --allow-missing-evidence goes with an approval, not --reject")
   if (digest !== undefined && !DIGEST_PATTERN.test(digest))
     throw new Error(
       `review --digest must be a full lowercase sha256, got ${JSON.stringify(digest)}`,
@@ -666,34 +679,42 @@ async function review(
     return refuse(nothingToReview(id, row), row)
   }
 
-  const built = await buildReview(id)
+  const built = await buildReview(id, allowMissingEvidence)
   if (!("digest" in built)) return refuse(nothingToReview(id, built.row), built.row)
   process.stderr.write(`${built.text}\n`)
   if (built.problems.length > 0)
-    return refuse(`Not approvable as displayed: ${built.problems.join("; ")}. Nothing was sent`)
+    return refuse(
+      `Not approvable as displayed: ${built.problems.join("; ")}. Nothing was sent`,
+      built.row,
+    )
+  for (const warning of built.warnings) process.stderr.write(`\n!!! WARNING: ${warning} !!!\n\n`)
 
   if (digest !== undefined) {
     if (digest !== built.digest)
       return refuse(
         `--digest ${digest} is not the ${built.label} review displayed (${built.digest}); nothing was sent`,
+        built.row,
       )
   } else {
     if (!interactive())
       return refuse(
         `There is no terminal to type the ${built.label}'s prefix into; pass --approve --digest <sha256> with the ${built.label} displayed above`,
+        built.row,
       )
-    const prefix = built.digest.slice(0, 8)
     const answer = await ask(
-      `Approve ${built.kind === "intake" ? "this draft" : "this export"} at revision ${built.revision}? Type the first eight hex digits of the ${built.label} to approve (anything else sends nothing): `,
+      `Approve ${built.kind === "intake" ? "this draft" : "this export"} at revision ${built.revision}? Type at least the first eight hex digits of the ${built.label} (or paste all of it) to approve; anything else sends nothing: `,
     )
     if (answer === null)
-      return refuse("No answer: stdin ended before one was typed; nothing was sent")
+      return refuse("No answer: stdin ended before one was typed; nothing was sent", built.row)
     const typed = answer.trim().toLowerCase()
-    if (typed !== prefix)
+    // At least eight hex digits, and a prefix of the digest displayed: pasting the whole digest
+    // works, and a short or mistyped answer sends nothing.
+    if (!(/^[0-9a-f]{8,64}$/.test(typed) && built.digest.startsWith(typed)))
       return refuse(
         typed === ""
           ? "Nothing typed; nothing was sent"
-          : `The typed prefix ${JSON.stringify(typed)} does not match the ${built.label} displayed; nothing was sent`,
+          : `The typed prefix ${JSON.stringify(typed)} does not match the ${built.label} displayed (at least eight hex digits of it are needed); nothing was sent`,
+        built.row,
       )
   }
 
@@ -739,6 +760,7 @@ async function main(argv: string[]): Promise<number> {
       "work-order": { type: "string" },
       approve: { type: "boolean", default: false },
       reject: { type: "boolean", default: false },
+      "allow-missing-evidence": { type: "boolean", default: false },
       help: { type: "boolean", default: false },
     },
   })
@@ -879,6 +901,7 @@ async function main(argv: string[]): Promise<number> {
           digest: values.digest,
           note: values.note,
           key: values.key,
+          allowMissingEvidence: values["allow-missing-evidence"],
         })
       case "retry": {
         const outcome = await client().retry(needId(), values.key)

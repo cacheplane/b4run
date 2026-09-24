@@ -697,18 +697,35 @@ esac
     const digest = row.taskDigest as string
     const taskDir = join(stateDir, "tasks", id)
 
+    // The fake verifier records output digests it never writes: the oracle proof's output is
+    // missing, and a review refuses to approve what it could not show unless told explicitly.
+    const unseen = await failing(spawn("review", id, "--approve", "--digest", digest).promise)
+    expect(unseen.stderr).toContain("NOT IN THE ARTIFACT STORE")
+    expect(JSON.parse(unseen.stdout)).toMatchObject({
+      ok: false,
+      state: "awaiting_intake_approval",
+      row: { id, taskDigest: digest },
+    })
+    expect(JSON.parse(unseen.stdout).message).toContain("--allow-missing-evidence")
+
     // Without a terminal and without --digest there is nothing to type the prefix into.
-    const noTty = await failing(spawn("review", id).promise)
+    const noTty = await failing(spawn("review", id, "--allow-missing-evidence").promise)
     expect(noTty.stderr).toContain("==> spec.md")
-    expect(JSON.parse(noTty.stdout)).toMatchObject({ ok: false })
+    expect(noTty.stderr).toContain("!!! WARNING: The oracle proof's output")
+    expect(JSON.parse(noTty.stdout)).toMatchObject({ ok: false, state: "awaiting_intake_approval" })
     expect(JSON.parse(noTty.stdout).message).toContain("--approve --digest")
-    const approveNoDigest = await failing(spawn("review", id, "--approve").promise)
+    const approveNoDigest = await failing(
+      spawn("review", id, "--approve", "--allow-missing-evidence").promise,
+    )
     expect(JSON.parse(approveNoDigest.stdout).message).toContain("--approve --digest")
+    // A --digest is an approval only when --approve asks for one.
+    const strayDigest = await failing(spawn("review", id, "--digest", digest).promise)
+    expect(strayDigest.stderr).toContain("--digest goes with --approve")
 
     // A prefix that is not the digest's sends nothing.
     const wrong = await interactive(
       env,
-      ["review", id],
+      ["review", id, "--allow-missing-evidence"],
       digest.startsWith("0") ? "11111111" : "00000000",
     )
     expect(wrong.code).toBe(1)
@@ -730,8 +747,11 @@ esac
     // digest of what it showed, and the route, recomputing from disk, refuses it.
     const specPath = join(taskDir, "spec.md")
     const original = readFileSync(specPath)
-    const raced = await interactive(env, ["review", id], digest.slice(0, 8), () =>
-      appendFileSync(specPath, "\nA2: also approve this\n"),
+    const raced = await interactive(
+      env,
+      ["review", id, "--allow-missing-evidence"],
+      digest.slice(0, 8),
+      () => appendFileSync(specPath, "\nA2: also approve this\n"),
     )
     expect(raced.code).toBe(1)
     expect(JSON.parse(raced.stdout)).toMatchObject({
@@ -740,22 +760,37 @@ esac
     })
     // Edited before the review: the digest of what is displayed is not the row's, so the
     // review refuses without asking and sends nothing.
-    const edited = await failing(spawn("review", id, "--approve", "--digest", digest).promise)
+    const edited = await failing(
+      spawn("review", id, "--approve", "--digest", digest, "--allow-missing-evidence").promise,
+    )
     expect(edited.stderr).toContain("also approve this")
     expect(JSON.parse(edited.stdout).message).toContain("changed after the draft was proved")
     writeFileSync(specPath, original)
 
     // Scripts: a --digest that is not the displayed one is refused before anything is sent.
     const scripted = await failing(
-      spawn("review", id, "--approve", "--digest", "b".repeat(64)).promise,
+      spawn("review", id, "--approve", "--digest", "b".repeat(64), "--allow-missing-evidence")
+        .promise,
     )
     expect(JSON.parse(scripted.stdout).message).toContain(
       `not the task digest review displayed (${digest})`,
     )
     expect(await pollState(stateDir, id, () => true)).toBe("awaiting_intake_approval")
 
-    // The prefix of the digest shown, over unchanged bytes: approved at the revision shown.
-    const approved = await interactive(env, ["review", id], digest.slice(0, 8))
+    // Seven digits are not enough, even when they are the digest's.
+    const short = await interactive(
+      env,
+      ["review", id, "--allow-missing-evidence"],
+      digest.slice(0, 7),
+    )
+    expect(short.code).toBe(1)
+    expect(JSON.parse(short.stdout).message).toContain("at least eight hex digits")
+    // The whole digest pasted, over unchanged bytes: approved at the revision shown.
+    const approved = await interactive(
+      env,
+      ["review", id, "--allow-missing-evidence"],
+      ` ${digest.toUpperCase()} `,
+    )
     expect(approved.code).toBe(0)
     expect(JSON.parse(approved.stdout)).toMatchObject({
       ok: true,
@@ -807,7 +842,14 @@ esac
 
     // --approve --digest is the scripting contract: the full digest, no prompt.
     const { json: shown } = await cli("show", id)
-    const { json: approved } = await cli("review", id, "--approve", "--digest", shown.taskDigest)
+    const { json: approved } = await cli(
+      "review",
+      id,
+      "--approve",
+      "--digest",
+      shown.taskDigest,
+      "--allow-missing-evidence",
+    )
     expect(approved).toMatchObject({ ok: true, state: "received" })
   }, 120_000)
 
