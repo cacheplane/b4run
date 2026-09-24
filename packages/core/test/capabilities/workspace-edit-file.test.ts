@@ -144,6 +144,78 @@ describe("editFile", () => {
     expect(readFileSync(path, "utf8")).toBe("one\r\nTWO\r\nthree\r\n")
   })
 
+  it("counts overlapping matches for uniqueness: aa in aaa is ambiguous", async () => {
+    const path = workspaceFile("a.txt", "aaa")
+    const editFile = await tool("editFile")
+    await expect(
+      editFile.run({ path: "a.txt", oldText: "aa", newText: "b" }, signal()),
+    ).rejects.toThrow("oldText occurs 2 times in a.txt")
+    expect(readFileSync(path, "utf8")).toBe("aaa")
+    // replaceAll is non-overlapping, left to right.
+    const result = await editFile.run(
+      { path: "a.txt", oldText: "aa", newText: "b", replaceAll: true },
+      signal(),
+    )
+    expect(result).toBe("replaced 1 occurrence in a.txt at line 1")
+    expect(readFileSync(path, "utf8")).toBe("ba")
+  })
+
+  it("refuses a non-UTF-8 file and leaves its bytes untouched", async () => {
+    const path = join(workspaceDir, "latin1.txt")
+    const bytes = Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a, 0x78, 0x0a]) // "café\nx\n" in Latin-1
+    writeFileSync(path, bytes)
+    await expect(
+      (await tool("editFile")).run({ path: "latin1.txt", oldText: "x", newText: "y" }, signal()),
+    ).rejects.toThrow(/latin1\.txt is not valid UTF-8/)
+    expect(readFileSync(path).equals(bytes)).toBe(true)
+  })
+
+  it("preserves a leading UTF-8 BOM", async () => {
+    const path = workspaceFile("bom.txt", "\uFEFFone\ntwo\n")
+    await (await tool("editFile")).run(
+      { path: "bom.txt", oldText: "two", newText: "TWO" },
+      signal(),
+    )
+    expect(readFileSync(path, "utf8")).toBe("\uFEFFone\nTWO\n")
+  })
+
+  it("returns no change without writing when newText equals oldText", async () => {
+    const backend = {
+      readFile: vi.fn(),
+      readBinaryFile: vi.fn().mockResolvedValue(new TextEncoder().encode("a\nb\n")),
+      writeFile: vi.fn(),
+      listDir: vi.fn(),
+      realPath: async (p: string) => p,
+    }
+    const editFile = await tool("editFile", { backends: { filesystem: backend } })
+    const result = await editFile.run({ path: "f.txt", oldText: "b", newText: "b" }, signal())
+    expect(result).toMatch(/^no change/)
+    expect(backend.writeFile).not.toHaveBeenCalled()
+    // Still validated: a missing oldText is an error, not "no change".
+    await expect(
+      editFile.run({ path: "f.txt", oldText: "q", newText: "q" }, signal()),
+    ).rejects.toThrow("oldText not found in f.txt")
+  })
+
+  it("hints at CRLF when the file uses CRLF and oldText has bare newlines", async () => {
+    workspaceFile("crlf.txt", "one\r\ntwo\r\n")
+    await expect(
+      (await tool("editFile")).run(
+        { path: "crlf.txt", oldText: "one\ntwo", newText: "x" },
+        signal(),
+      ),
+    ).rejects.toThrow(/not found in crlf\.txt \(the file uses CRLF line endings/)
+  })
+
+  it("accepts null for replaceAll", async () => {
+    const path = workspaceFile("a.txt", "x\n")
+    await (await tool("editFile")).run(
+      { path: "a.txt", oldText: "x", newText: "y", replaceAll: null },
+      signal(),
+    )
+    expect(readFileSync(path, "utf8")).toBe("y\n")
+  })
+
   it("keeps $ sequences in newText literal", async () => {
     const path = workspaceFile("a.txt", "price: X\n")
     await (await tool("editFile")).run(
@@ -167,7 +239,8 @@ describe("editFile", () => {
 
   it("reads and writes through the configured backend with jailed absolute paths", async () => {
     const backend = {
-      readFile: vi.fn().mockResolvedValue("a\nb\n"),
+      readFile: vi.fn(),
+      readBinaryFile: vi.fn().mockResolvedValue(new TextEncoder().encode("a\nb\n")),
       writeFile: vi.fn().mockResolvedValue({ bytesWritten: 4 }),
       listDir: vi.fn(),
       realPath: async (p: string) => p,
@@ -177,7 +250,8 @@ describe("editFile", () => {
     })
     await editFile.run({ path: "f.txt", oldText: "b", newText: "c" }, signal())
     const abs = join(workspaceDir, "f.txt")
-    expect(backend.readFile.mock.calls[0]?.[0]).toBe(abs)
+    expect(backend.readBinaryFile.mock.calls[0]?.[0]).toBe(abs)
+    expect(backend.readFile).not.toHaveBeenCalled()
     expect(backend.writeFile).toHaveBeenCalledOnce()
     expect(backend.writeFile.mock.calls[0]?.slice(0, 2)).toEqual([abs, "a\nc\n"])
   })
@@ -288,6 +362,26 @@ describe("readFile line ranges", () => {
       signal(),
     )
     expect(result).toBe("[crlf.txt lines 2-3 of 3]\nb\r\nc")
+  })
+
+  it("treats null range fields as absent", async () => {
+    workspaceFile("ten.txt", TEN)
+    const readFile = await tool("readFile")
+    expect(await readFile.run({ path: "ten.txt", startLine: null, endLine: null }, signal())).toBe(
+      TEN,
+    )
+    expect(await readFile.run({ path: "ten.txt", startLine: 9, endLine: null }, signal())).toBe(
+      "[ten.txt lines 9-10 of 10]\nline 9\nline 10",
+    )
+  })
+
+  it("refuses a range on an empty file, naming its zero length", async () => {
+    workspaceFile("empty.txt", "")
+    const readFile = await tool("readFile")
+    await expect(readFile.run({ path: "empty.txt", startLine: 1 }, signal())).rejects.toThrow(
+      "startLine 1 is past the end of empty.txt (0 lines)",
+    )
+    expect(await readFile.run({ path: "empty.txt" }, signal())).toBe("")
   })
 
   it("without a range, returns the file exactly as stored", async () => {

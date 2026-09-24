@@ -64,6 +64,21 @@ test("treats editFile as a known, internally-gated workspace tool", async () => 
   expect(result.warnings.join("\n")).toMatch(/\/research.*editFile.*already gated/s)
 })
 
+test("warns when approve names editFile that a writeFile deny withholds", async () => {
+  const result = await collectToolScopeIssues(manifest, {
+    loadScope: async () => ({ deny: ["writeFile"], approve: ["deployProd", "editFile"] }),
+    routeLocalToolNames: async () => ["deployProd"],
+  })
+  expect(result.errors).toEqual([])
+  expect(result.warnings.join("\n")).toMatch(/editFile.*denying writeFile also withholds/s)
+
+  const optedIn = await collectToolScopeIssues(manifest, {
+    loadScope: async () => ({ deny: ["writeFile"], allow: ["editFile"], approve: ["deployProd"] }),
+    routeLocalToolNames: async () => ["deployProd"],
+  })
+  expect(optedIn.warnings).toEqual([])
+})
+
 test("warns when approve intersects deny (dead entry)", async () => {
   const result = await collectToolScopeIssues(manifest, {
     loadScope: async () => ({ deny: ["deployProd"], approve: ["deployProd"] }),

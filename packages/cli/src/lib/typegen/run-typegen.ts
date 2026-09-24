@@ -44,7 +44,7 @@ const WORKSPACE_EXTRA_TOOLS: readonly ExtractedToolType[] = [
   {
     name: "readFile",
     description: "Read a UTF-8 file from the workspace, optionally a 1-based inclusive line range.",
-    inputType: `{ path: string; startLine?: number; endLine?: number }`,
+    inputType: `{ path: string; startLine?: number | null; endLine?: number | null }`,
     outputType: `string`,
   },
   {
@@ -56,7 +56,7 @@ const WORKSPACE_EXTRA_TOOLS: readonly ExtractedToolType[] = [
   {
     name: "editFile",
     description: "Replace an exact, unique span of text in a workspace file.",
-    inputType: `{ path: string; oldText: string; newText: string; replaceAll?: boolean }`,
+    inputType: `{ path: string; oldText: string; newText: string; replaceAll?: boolean | null }`,
     outputType: `string`,
   },
   {

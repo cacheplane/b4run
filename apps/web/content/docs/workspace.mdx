@@ -123,7 +123,7 @@ readFile({ path: "src/server.ts", startLine: 1200, endLine: 1260 })
 // → "[src/server.ts lines 1200-1260 of 3644]\n..."
 ```
 
-Without a range, `readFile` returns the file exactly as before, with no header. The tool's description tells the model to read large files in ranges and change them with `editFile`.
+Without a range, `readFile` returns the file exactly as before, with no header. The tool's description tells the model to read large files in ranges and change them with `editFile`. A range doesn't lift the read cap: B4.run still reads the whole file first, so a file over 256 KiB fails with or without a range.
 
 ### writeFile
 
@@ -138,14 +138,22 @@ writeFile({ path: "reports/summary.md", content: "# Summary\n\n..." })
 
 ### editFile
 
-Replaces an exact span of text in an existing file. `oldText` must match the file character for character, whitespace and line endings included, and must occur exactly once. Set `replaceAll: true` to replace every occurrence instead. The rest of the file is written back unchanged.
+Replaces an exact span of text in an existing file. `oldText` must match the file character for character, whitespace and line endings included, and must occur exactly once. Overlapping matches count, so `aa` occurs twice in `aaa`. Set `replaceAll: true` to replace every occurrence instead, matched left to right without overlap. The rest of the file is written back unchanged. If `newText` equals `oldText`, the call returns `no change` and writes nothing.
 
 ```
 editFile({ path: "src/config.ts", oldText: "retries: 3,", newText: "retries: 5," })
 // returns: "replaced 1 occurrence in src/config.ts at line 42"
 ```
 
-If `oldText` is missing, the call fails with `oldText not found in <path>`. If it occurs more than once without `replaceAll`, the call fails with the count and asks for more surrounding text. `editFile` reads and writes through the same permission gate as `readFile` and `writeFile`, so a path outside `workspace/` is gated as a read and as a write.
+If `oldText` is missing, the call fails with `oldText not found in <path>`, and says so when the file uses CRLF line endings but `oldText` has bare `\n`. If it occurs more than once without `replaceAll`, the call fails with the count and asks for more surrounding text. `editFile` reads and writes through the same permission gate as `readFile` and `writeFile`, so a path outside `workspace/` is gated as a read and as a write.
+
+A few limits:
+
+- **UTF-8 only.** `editFile` reads the file's bytes and refuses one that isn't valid UTF-8, leaving it unchanged, instead of rewriting it with replacement characters.
+- **The read cap applies.** A file over the 256 KiB cap can't be edited.
+- **Not atomic.** `editFile` reads the file and then writes it. A change another writer makes in between is overwritten.
+
+Denying `writeFile` in a route's [tool scope](/docs/tools#scoping-a-routes-tools) also withholds `editFile`.
 
 ### runBash
 

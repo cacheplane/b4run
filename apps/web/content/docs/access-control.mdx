@@ -20,6 +20,7 @@ Four independent controls decide what a running route can do: tool scoping, perm
 - `deny` revokes a tool so it's never wired into the generated entry.
 - `allow` grants back a capability tool withheld from a subagent, such as `readFile` or `runBash`.
 - `deny` wins when a name appears in both.
+- Denying `writeFile` also withholds `editFile`, unless `allow` names `editFile`. An `allow` that names `writeFile` doesn't grant `editFile`.
 
 B4.run enforces this at composition time, so the model has no way to call a denied tool. Here's a route that removes `runBash`:
 
@@ -69,6 +70,7 @@ import researcher from "./subagents/researcher/index.js"
 export default agent({
   model: "gpt-5",
   systemPrompt: "…",
+  // Denying writeFile also withholds editFile, so this route can't write files.
   tools: { deny: ["writeFile"], approve: ["deployProd"] },
   subagents: { researcher },
   delegation: {
