@@ -1,5 +1,13 @@
-import { execFile } from "node:child_process"
-import { chmodSync, cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { execFile, spawn as spawnChild } from "node:child_process"
+import {
+  appendFileSync,
+  chmodSync,
+  cpSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { createServer, type Server } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -10,7 +18,12 @@ import { openRegistryReader } from "../src/lib/registry/reader.ts"
 import { loadTask, tasksDir } from "../src/lib/targets/catalog.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { BAD_DRAFTS, GOOD_DRAFT } from "./intake-fixtures.ts"
-import { FIRST_DRAFTER_THREAD, type ServedController, serveController } from "./serve-controller.ts"
+import {
+  FIRST_DRAFTER_THREAD,
+  FIRST_THREAD,
+  type ServedController,
+  serveController,
+} from "./serve-controller.ts"
 
 const run = promisify(execFile)
 // Resolved from the package's own node_modules rather than relying on `pnpm` being on PATH
@@ -639,6 +652,313 @@ esac
     expect(parked).toMatchObject({ ok: true, state: "awaiting_intake_approval" })
     return { id, revision: parked.row.revision as number }
   }
+
+  /**
+   * `review` as a person runs it at a terminal: `FACTORY_CLI_INTERACTIVE=1` stands in for a
+   * TTY on stdin. The answer is typed only once the prompt is on stderr, after `beforeAnswer`
+   * (a file edited between display and approval, say) has run.
+   */
+  async function interactive(
+    env: NodeJS.ProcessEnv,
+    args: readonly string[],
+    answer: string,
+    beforeAnswer: () => void = () => undefined,
+  ): Promise<{ code: number | null; stdout: string; stderr: string }> {
+    const child = spawnChild(process.execPath, [tsxBin, cliEntry, ...args], {
+      env: { ...env, FACTORY_CLI_INTERACTIVE: "1" },
+      cwd: packageRoot,
+      stdio: ["pipe", "pipe", "pipe"],
+    })
+    let stdout = ""
+    let stderr = ""
+    let answered = false
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString()
+    })
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString()
+      if (!answered && stderr.includes("first eight hex digits")) {
+        answered = true
+        beforeAnswer()
+        child.stdin.write(`${answer}\n`)
+      }
+    })
+    const code = await new Promise<number | null>((resolve) => child.on("close", resolve))
+    return { code, stdout, stderr }
+  }
+
+  it("reviews an intake: shows the draft and its proof, and approves the digest of what it showed", async () => {
+    const { cli, spawn, env, stateDir } = await boot(
+      {},
+      { verifier: createFakeVerifier({ independent: "fail" }) },
+    )
+    const { id, revision } = await parkedIntake(cli, "create-cli-review")
+    const { json: row } = await cli("show", id)
+    const digest = row.taskDigest as string
+    const taskDir = join(stateDir, "tasks", id)
+
+    // The fake verifier records output digests it never writes: the oracle proof's output is
+    // missing, and a review refuses to approve what it could not show unless told explicitly.
+    const unseen = await failing(spawn("review", id, "--approve", "--digest", digest).promise)
+    expect(unseen.stderr).toContain("NOT IN THE ARTIFACT STORE")
+    expect(JSON.parse(unseen.stdout)).toMatchObject({
+      ok: false,
+      state: "awaiting_intake_approval",
+      row: { id, taskDigest: digest },
+    })
+    expect(JSON.parse(unseen.stdout).message).toContain("--allow-missing-evidence")
+
+    // Without a terminal and without --digest there is nothing to type the prefix into.
+    const noTty = await failing(spawn("review", id, "--allow-missing-evidence").promise)
+    expect(noTty.stderr).toContain("==> spec.md")
+    expect(noTty.stderr).toContain("!!! WARNING: The oracle proof's output")
+    expect(JSON.parse(noTty.stdout)).toMatchObject({ ok: false, state: "awaiting_intake_approval" })
+    expect(JSON.parse(noTty.stdout).message).toContain("--approve --digest")
+    const approveNoDigest = await failing(
+      spawn("review", id, "--approve", "--allow-missing-evidence").promise,
+    )
+    expect(JSON.parse(approveNoDigest.stdout).message).toContain("--approve --digest")
+    // A --digest is an approval only when --approve asks for one.
+    const strayDigest = await failing(spawn("review", id, "--digest", digest).promise)
+    expect(strayDigest.stderr).toContain("--digest goes with --approve")
+
+    // A prefix that is not the digest's sends nothing.
+    const wrong = await interactive(
+      env,
+      ["review", id, "--allow-missing-evidence"],
+      digest.startsWith("0") ? "11111111" : "00000000",
+    )
+    expect(wrong.code).toBe(1)
+    expect(JSON.parse(wrong.stdout)).toMatchObject({ ok: false })
+    expect(JSON.parse(wrong.stdout).message).toContain("does not match")
+    // Everything the approval covers was on the screen, and the digest of it.
+    for (const shown of [
+      "==> issue.md",
+      "==> spec.md",
+      "==> task.json",
+      "==> checks.json",
+      "==> checks/",
+    ])
+      expect(wrong.stderr).toContain(shown)
+    expect(wrong.stderr).toContain("Oracle proof")
+    expect(wrong.stderr).toContain(`Task digest of the 5 files above: ${digest}`)
+
+    // A file edited after it was displayed and before the prefix was typed: the CLI sends the
+    // digest of what it showed, and the route, recomputing from disk, refuses it.
+    const specPath = join(taskDir, "spec.md")
+    const original = readFileSync(specPath)
+    const raced = await interactive(
+      env,
+      ["review", id, "--allow-missing-evidence"],
+      digest.slice(0, 8),
+      () => appendFileSync(specPath, "\nA2: also approve this\n"),
+    )
+    expect(raced.code).toBe(1)
+    expect(JSON.parse(raced.stdout)).toMatchObject({
+      ok: false,
+      message: "Task digest does not match the generated task on disk",
+    })
+    // Edited before the review: the digest of what is displayed is not the row's, so the
+    // review refuses without asking and sends nothing.
+    const edited = await failing(
+      spawn("review", id, "--approve", "--digest", digest, "--allow-missing-evidence").promise,
+    )
+    expect(edited.stderr).toContain("also approve this")
+    expect(JSON.parse(edited.stdout).message).toContain("changed after the draft was proved")
+    writeFileSync(specPath, original)
+
+    // Scripts: a --digest that is not the displayed one is refused before anything is sent.
+    const scripted = await failing(
+      spawn("review", id, "--approve", "--digest", "b".repeat(64), "--allow-missing-evidence")
+        .promise,
+    )
+    expect(JSON.parse(scripted.stdout).message).toContain(
+      `not the task digest review displayed (${digest})`,
+    )
+    expect(await pollState(stateDir, id, () => true)).toBe("awaiting_intake_approval")
+
+    // Seven digits are not enough, even when they are the digest's.
+    const short = await interactive(
+      env,
+      ["review", id, "--allow-missing-evidence"],
+      digest.slice(0, 7),
+    )
+    expect(short.code).toBe(1)
+    expect(JSON.parse(short.stdout).message).toContain("at least eight hex digits")
+    // The whole digest pasted, over unchanged bytes: approved at the revision shown.
+    const approved = await interactive(
+      env,
+      ["review", id, "--allow-missing-evidence"],
+      ` ${digest.toUpperCase()} `,
+    )
+    expect(approved.code).toBe(0)
+    expect(JSON.parse(approved.stdout)).toMatchObject({
+      ok: true,
+      state: "received",
+      row: { taskDigest: digest },
+    })
+    const { json: events } = await cli("events", id)
+    expect(
+      events.find((e: { type: string }) => e.type === "intake_approved")?.payload.taskDigest,
+    ).toBe(digest)
+    expect(revision).toBe(row.revision)
+
+    // Nothing is parked for review any more: said so, not guessed at.
+    const nothing = await failing(spawn("review", id).promise)
+    expect(JSON.parse(nothing.stdout)).toMatchObject({ ok: false, state: "received" })
+    expect(JSON.parse(nothing.stdout).message).toMatch(/^Nothing to review: .* is received/)
+  }, 120_000)
+
+  it("reviews an intake for scripts, and rejects one with a note", async () => {
+    const { cli, spawn } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
+    if (!served) throw new Error("no controller")
+    served.workspace.queue(FIRST_DRAFTER_THREAD, [GOOD_DRAFT, GOOD_DRAFT])
+    const created = await served.run("create-cli-review-reject", "/work-orders/create#workflow", {
+      origin: {
+        kind: "issue",
+        repository: "cacheplane/b4run",
+        number: 778,
+        bodyDigest: "0".repeat(64),
+      },
+      pin: served.pin,
+      issue: { title: "T", body: "B" },
+    })
+    const id = (created.body as { row: { id: string } }).row.id
+    await cli("intake", id)
+
+    const noNote = await failing(spawn("review", id, "--reject").promise)
+    expect(noNote.stderr).toContain("--note")
+    const both = await failing(spawn("review", id, "--approve", "--reject", "--note", "x").promise)
+    expect(both.stderr).toContain("not both")
+
+    // --reject is reject-intake: the note is journalled and the redraft awaited.
+    const { json: redrafted } = await cli("review", id, "--reject", "--note", "name the timer")
+    expect(redrafted).toMatchObject({ ok: true, state: "awaiting_intake_approval" })
+    expect(redrafted.row.intakeAttempts).toBe(2)
+    const { json: events } = await cli("events", id)
+    expect(events.find((e: { type: string }) => e.type === "intake_rejected")?.payload.note).toBe(
+      "name the timer",
+    )
+
+    // --approve --digest is the scripting contract: the full digest, no prompt.
+    const { json: shown } = await cli("show", id)
+    const { json: approved } = await cli(
+      "review",
+      id,
+      "--approve",
+      "--digest",
+      shown.taskDigest,
+      "--allow-missing-evidence",
+    )
+    expect(approved).toMatchObject({ ok: true, state: "received" })
+  }, 120_000)
+
+  it("reviews an export: diffs the candidate against the pin, shows the receipt and the bundle, and approves or denies it", async () => {
+    const { cli, spawn, env } = await boot()
+    // The candidate is the target's file at its pin with one line changed: the review must
+    // show that hunk, not the file. `cli-flags` records no pin on the row; its target's is used.
+    const target = loadTask("cli-flags").target
+    const { stdout: pinned } = await run("git", [
+      "-C",
+      packageRoot,
+      "show",
+      `${target.pin}:${target.root}/src/cli.ts`,
+    ])
+    const lines = pinned.split("\n")
+    const last = lines.indexOf("await program.parseAsync(process.argv)")
+    expect(last).toBeGreaterThan(5)
+    const repaired = pinned.replace(
+      "await program.parseAsync(process.argv)",
+      'await program.parseAsync(process.argv, { from: "node" })',
+    )
+    served?.workspace.set(FIRST_THREAD, {
+      "src/cli.ts": repaired,
+      "test/cli.test.ts": "spec\n",
+      "TASK.md": "task\n",
+    })
+    const dispatchedOrder = async () => {
+      const { json: created } = await cli("create", "--task", "cli-flags")
+      const id = created.row.id as string
+      const { json: dispatched } = await cli("dispatch", id)
+      expect(dispatched.row.state).toBe("awaiting_approval")
+      return { id, bundle: dispatched.row.bundleDigest as string }
+    }
+    const first = await dispatchedOrder()
+    // The fake verifier records check-output digests it never writes: an export whose receipt
+    // output is missing is not approvable as displayed unless the person says so explicitly.
+    const unseen = await failing(
+      spawn("review", first.id, "--approve", "--digest", first.bundle).promise,
+    )
+    expect(unseen.stderr).toContain("NOT IN THE ARTIFACT STORE")
+    expect(JSON.parse(unseen.stdout)).toMatchObject({
+      ok: false,
+      state: "awaiting_approval",
+      row: { id: first.id, bundleDigest: first.bundle },
+    })
+    expect(JSON.parse(unseen.stdout).message).toContain(
+      "The receipt's check output (visible/output, independent/output)",
+    )
+    expect(JSON.parse(unseen.stdout).message).toContain("--allow-missing-evidence")
+    const wrong = await interactive(
+      env,
+      ["review", first.id, "--allow-missing-evidence"],
+      "zzzzzzzz",
+    )
+    expect(wrong.stderr).toContain("!!! WARNING: The receipt's check output")
+    expect(wrong.code).toBe(1)
+    expect(JSON.parse(wrong.stdout).message).toContain("does not match")
+    // The hunk around the changed line against the pin, not the whole file; the receipt; and
+    // the bundle with its digest.
+    expect(wrong.stderr).toContain(`==> src/cli.ts (diff against pin ${target.pin.slice(0, 12)})`)
+    expect(wrong.stderr).toContain(`@@ -${last - 2},4 +${last - 2},4 @@`)
+    expect(wrong.stderr).toContain("-await program.parseAsync(process.argv)\n")
+    expect(wrong.stderr).toContain('+await program.parseAsync(process.argv, { from: "node" })')
+    expect(wrong.stderr).not.toContain(lines[0])
+    // A pin the object store cannot read: the whole file, and the reason there is no diff.
+    const emptyRepo = join(dir, "empty-repo")
+    await run("git", ["init", "-q", emptyRepo])
+    const fallback = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "review", first.id, "--allow-missing-evidence"], {
+        env: { ...env, FACTORY_REPO_ROOT: emptyRepo, FACTORY_NO_FETCH: "1" },
+        cwd: packageRoot,
+      }),
+    )
+    expect(fallback.stderr).toContain(
+      "==> src/cli.ts (the whole file as the export writes it: no diff, because",
+    )
+    // The catalog loads the pin as `create` does; FACTORY_NO_FETCH=1 keeps it from fetching.
+    expect(fallback.stderr).toContain(
+      `pins ${target.pin}, which is not in the repository at ${emptyRepo} (FACTORY_NO_FETCH=1, not fetched)`,
+    )
+    expect(fallback.stderr).toContain(lines[0])
+    expect(fallback.stderr).toContain('await program.parseAsync(process.argv, { from: "node" })')
+    expect(wrong.stderr).toContain("--- Verification: receipt rc-")
+    expect(wrong.stderr).toContain(`Bundle digest of the payload above: ${first.bundle}`)
+    const notTheBundle = await failing(
+      spawn("review", first.id, "--approve", "--digest", "c".repeat(64), "--allow-missing-evidence")
+        .promise,
+    )
+    expect(JSON.parse(notTheBundle.stdout).message).toContain("not the bundle digest")
+
+    const approved = await interactive(
+      env,
+      ["review", first.id, "--allow-missing-evidence"],
+      first.bundle.slice(0, 8),
+    )
+    expect(approved.code).toBe(0)
+    expect(JSON.parse(approved.stdout)).toMatchObject({ ok: true, state: "exported" })
+
+    // --reject on an export is deny; the deny route takes no note, so the note is echoed.
+    // The fake builder names its second thread itself; the repair is scripted under it.
+    served?.workspace.set("fake-thread-1", {
+      "src/cli.ts": "export const fixed = true\n",
+      "test/cli.test.ts": "spec\n",
+      "TASK.md": "task\n",
+    })
+    const second = await dispatchedOrder()
+    const { json: denied } = await cli("review", second.id, "--reject", "--note", "wrong fix")
+    expect(denied).toMatchObject({ ok: true, state: "denied", note: "wrong fix" })
+  }, 120_000)
 
   /** A TCP server that accepts each connection and drops it unread: the request never arrives. */
   async function dropping(): Promise<{ url: string; server: Server }> {
