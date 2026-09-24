@@ -112,7 +112,7 @@ The prompt shows the call's arguments as a JSON preview, but the decision applie
 See [Permissions](/docs/permissions#per-tool-approval) for the full interrupt payload and resume flow.
 
 <Callout type="info" title="Don't list workspace tools in approve">
-  `runBash`, `readFile`, `writeFile`, and `listDir` already have their own pattern-based allow/deny gates (see [Permissions](/docs/permissions)). Adding them to `approve` would prompt twice, and `b4 check` warns if you do.
+  `runBash`, `readFile`, `writeFile`, `editFile`, and `listDir` already have their own pattern-based allow/deny gates (see [Permissions](/docs/permissions)). Adding them to `approve` would prompt twice, and `b4 check` warns if you do.
 </Callout>
 
 ### Constraining arguments

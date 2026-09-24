@@ -19,13 +19,128 @@ function workspaceRoot(appRoot: string): string {
   return pureJoin(appRoot, WORKSPACE_DIRNAME)
 }
 
-const READ_FILE_INPUT = z.object({ path: z.string().min(1) })
+const READ_FILE_INPUT = z.object({
+  path: z.string().min(1),
+  startLine: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe("First line to return, 1-based. Omit (with endLine) to read the whole file."),
+  endLine: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe("Last line to return, 1-based and inclusive. May exceed the file's length."),
+})
 const WRITE_FILE_INPUT = z.object({ path: z.string().min(1), content: z.string() })
+const EDIT_FILE_INPUT = z.object({
+  path: z.string().min(1),
+  oldText: z
+    .string()
+    .min(1)
+    .describe("Exact text to replace, including whitespace and line endings."),
+  newText: z.string().describe("Replacement text."),
+  replaceAll: z
+    .boolean()
+    .optional()
+    .describe("Replace every occurrence instead of requiring exactly one."),
+})
 const LIST_DIR_INPUT = z.object({ path: z.string().default(".") })
 const RUN_BASH_INPUT = z.object({ command: z.string().min(1) })
 
 function backendContext(workspaceRoot: string, signal: AbortSignal): BackendContext {
   return { signal, workspaceRoot }
+}
+
+/**
+ * Slice a whole-file read down to a 1-based inclusive line range, with a
+ * one-line header telling the model the file's length and where it is. Lines
+ * are split on "\n" only, so a CRLF file keeps its "\r" bytes. A trailing
+ * newline ends the last line rather than starting an empty one.
+ */
+function sliceLines(
+  path: string,
+  data: string,
+  startLine: number | undefined,
+  endLine: number | undefined,
+): string {
+  const lines = data.split("\n")
+  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop()
+  const total = lines.length
+  const start = startLine ?? 1
+  if (endLine !== undefined && start > endLine) {
+    throw new Error(`readFile: startLine (${start}) is greater than endLine (${endLine})`)
+  }
+  if (start > total) {
+    throw new Error(`readFile: startLine ${start} is past the end of ${path} (${total} lines)`)
+  }
+  const end = Math.min(endLine ?? total, total)
+  const header = `[${path} lines ${start}-${end} of ${total}]`
+  return `${header}\n${lines.slice(start - 1, end).join("\n")}`
+}
+
+/** 1-based line number of each character offset in `text`. */
+function lineNumbersAt(text: string, offsets: readonly number[]): number[] {
+  const result: number[] = []
+  let line = 1
+  let cursor = 0
+  for (const offset of offsets) {
+    for (; cursor < offset; cursor++) {
+      if (text.charCodeAt(cursor) === 10) line++
+    }
+    result.push(line)
+  }
+  return result
+}
+
+/**
+ * Replace `oldText` with `newText` in `content` by exact string match. Throws
+ * unless `oldText` occurs exactly once (or at least once with `replaceAll`).
+ * Occurrences are non-overlapping, counted left to right. Splicing by offset
+ * (rather than String.prototype.replace) keeps `$` sequences in `newText`
+ * literal.
+ */
+function applyEdit(
+  path: string,
+  content: string,
+  oldText: string,
+  newText: string,
+  replaceAll: boolean,
+): { readonly content: string; readonly lines: readonly number[] } {
+  if (oldText.length === 0) throw new Error(`editFile: oldText must not be empty`)
+  const offsets: number[] = []
+  for (
+    let at = content.indexOf(oldText);
+    at !== -1;
+    at = content.indexOf(oldText, at + oldText.length)
+  ) {
+    offsets.push(at)
+  }
+  if (offsets.length === 0) throw new Error(`oldText not found in ${path}`)
+  if (offsets.length > 1 && !replaceAll) {
+    throw new Error(
+      `oldText occurs ${offsets.length} times in ${path}; include more surrounding text or set replaceAll`,
+    )
+  }
+  let next = ""
+  let cursor = 0
+  for (const at of offsets) {
+    next += content.slice(cursor, at) + newText
+    cursor = at + oldText.length
+  }
+  next += content.slice(cursor)
+  return { content: next, lines: lineNumbersAt(content, offsets) }
+}
+
+function describeEdit(path: string, lines: readonly number[]): string {
+  const count = lines.length
+  const noun = count === 1 ? "occurrence" : "occurrences"
+  const shown = lines.slice(0, 20).join(", ")
+  const more = count > 20 ? `, and ${count - 20} more` : ""
+  const where = count === 1 ? `line ${shown}` : `lines ${shown}${more}`
+  return `replaced ${count} ${noun} in ${path} at ${where}`
 }
 
 interface OverridableTool extends B4ToolDefinition {
@@ -77,11 +192,14 @@ function buildWorkspaceTools(
   }
   const readFile: OverridableTool = {
     name: "readFile",
-    description: "Read a UTF-8 file from the workspace.",
+    description:
+      "Read a UTF-8 file from the workspace. Pass startLine/endLine (1-based, inclusive) to read part of a file; " +
+      "the result then begins with a `[<path> lines a-b of N]` header. Read large files (thousands of lines) in ranges, " +
+      "and change them with editFile instead of rewriting them with writeFile.",
     schema: READ_FILE_INPUT,
     overridable: true,
     run: async (input, ctx) => {
-      const { path } = READ_FILE_INPUT.parse(input)
+      const { path, startLine, endLine } = READ_FILE_INPUT.parse(input)
       const handle = handleFor(ctx.signal)
       // Same containment arithmetic as the path jail (workspace-fs.ts): an
       // absolute `path` discards the root, so a read that escapes the
@@ -103,18 +221,40 @@ function buildWorkspaceTools(
           /* touch is best-effort; never fail a read because of it */
         }
       }
-      return data
+      if (startLine === undefined && endLine === undefined) return data
+      return sliceLines(path, data, startLine, endLine)
     },
   }
   const writeFile: OverridableTool = {
     name: "writeFile",
-    description: "Write a UTF-8 file inside the workspace.",
+    description:
+      "Write a UTF-8 file inside the workspace, replacing its whole content. To change an existing file, " +
+      "prefer editFile: rewriting a large file in full risks truncating it.",
     schema: WRITE_FILE_INPUT,
     overridable: true,
     run: async (input, ctx) => {
       const { path, content } = WRITE_FILE_INPUT.parse(input)
       const result = await handleFor(ctx.signal).writeFile(path, content)
       return `wrote ${result.bytesWritten} bytes to ${path}`
+    },
+  }
+  const editFile: OverridableTool = {
+    name: "editFile",
+    description:
+      "Edit a UTF-8 file in the workspace by replacing oldText with newText. oldText must match the file exactly " +
+      "(whitespace and line endings included) and occur exactly once unless replaceAll is true; include enough " +
+      "surrounding lines to make it unique. Prefer this to writeFile for changing an existing file.",
+    schema: EDIT_FILE_INPUT,
+    overridable: true,
+    run: async (input, ctx) => {
+      const { path, oldText, newText, replaceAll } = EDIT_FILE_INPUT.parse(input)
+      // Both halves go through the same permission-gated handle as readFile
+      // and writeFile: the read is gated as a read, the write as a write.
+      const handle = handleFor(ctx.signal)
+      const current = await handle.readFile(path)
+      const edit = applyEdit(path, current, oldText, newText, replaceAll === true)
+      await handle.writeFile(path, edit.content)
+      return describeEdit(path, edit.lines)
     },
   }
   const listDir: OverridableTool = {
@@ -141,7 +281,7 @@ function buildWorkspaceTools(
       return resolveExec().runCommand({ command }, backendContext(workspaceRoot, ctx.signal))
     },
   }
-  return [readFile, writeFile, listDir, runBash]
+  return [readFile, writeFile, editFile, listDir, runBash]
 }
 
 export function createWorkspaceMarker(): CapabilityMarker {
@@ -172,7 +312,9 @@ export function createWorkspaceMarker(): CapabilityMarker {
         )
       }
 
-      return { tools: buildWorkspaceTools(root, resolveFs, resolveExec, permissions) }
+      return {
+        tools: buildWorkspaceTools(root, resolveFs, resolveExec, permissions),
+      }
     },
   }
 }

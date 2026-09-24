@@ -279,6 +279,12 @@ describe("runTypegen", () => {
 
     expect(content).toContain("readFile")
     expect(content).toContain("writeFile")
+    expect(content).toContain(
+      "readonly editFile: (input: { path: string; oldText: string; newText: string; replaceAll?: boolean }) => Promise<string>;",
+    )
+    expect(content).toContain(
+      "readonly readFile: (input: { path: string; startLine?: number; endLine?: number }) => Promise<string>;",
+    )
     expect(content).toContain("listDir")
     expect(content).toContain("runBash")
     expect(content).toContain("greet")

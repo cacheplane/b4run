@@ -4,7 +4,7 @@ description: Reminders about how B4.run's workspace tools behave and what the pa
 
 # Workspace conventions
 
-The four workspace tools (`listDir`, `readFile`, `writeFile`, `runBash`) all
+The five workspace tools (`listDir`, `readFile`, `writeFile`, `editFile`, `runBash`) all
 operate inside `<example>/workspace/`. Reads and writes outside that directory
 are rejected by the path-jail with a clear error.
 

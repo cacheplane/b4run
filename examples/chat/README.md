@@ -10,7 +10,7 @@
 
 - B4.run route discovery and the `tools/` convention
 - **Workspace capability** — when a route's working directory contains `workspace/`, B4.run
-  auto-contributes `readFile`/`writeFile`/`listDir`/`runBash` tools wired through pluggable
+  auto-contributes `readFile`/`writeFile`/`editFile`/`listDir`/`runBash` tools wired through pluggable
   backends. The filesystem and exec backends default to local node:fs / child_process; swap
   them in `b4.config.ts` for in-memory storage, remote sandboxes, etc.
 - `AGENTS.md` memory autoload — B4.run auto-injects `workspace/AGENTS.md` into the system prompt on every turn; the agent updates it via `writeFile`

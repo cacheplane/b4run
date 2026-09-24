@@ -18,7 +18,7 @@ export interface ToolScopeIssues {
 }
 
 /** Workspace tools with their own pattern-aware internal gates (bash/path). */
-const INTERNALLY_GATED = new Set(["runBash", "readFile", "writeFile", "listDir"])
+const INTERNALLY_GATED = new Set(["runBash", "readFile", "writeFile", "editFile", "listDir"])
 
 const BUILT_IN_TOOL_NAME_SET = new Set(BUILT_IN_TOOL_NAMES)
 

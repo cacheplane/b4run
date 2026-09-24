@@ -271,7 +271,7 @@ describe("markers read through MarkerFs", () => {
       const ctx = { ...makeCtx(workDir), workspaceRoot: "/workspace" }
       const contribution = await marker.load(routeDir, ctx)
       const names = (contribution.tools ?? []).map((t) => t.name).sort()
-      expect(names).toEqual(["listDir", "readFile", "runBash", "writeFile"])
+      expect(names).toEqual(["editFile", "listDir", "readFile", "runBash", "writeFile"])
     })
   })
 })
