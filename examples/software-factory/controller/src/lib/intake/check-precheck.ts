@@ -169,9 +169,7 @@ export function precheckDraftedCheck(input: PrecheckInput): PrecheckViolation[] 
   const cwdNames = [...source.matchAll(CWD_VARIABLE)].map((m) => m[1] as string)
   const throughCwd = (text: string) =>
     /process\.cwd\(\)/.test(text) ||
-    cwdNames.some((name) =>
-      new RegExp(`(?<![\\w$])${name.replace(/\$/g, "\\$")}(?![\\w$])`).test(text),
-    )
+    cwdNames.some((name) => new RegExp(`(?<![\\w$])${escapeRegExp(name)}(?![\\w$])`).test(text))
 
   const directory = posix.dirname(file)
   for (const location of locations) {
@@ -260,4 +258,9 @@ export function describePrecheck(file: string, violations: readonly PrecheckViol
   return `draft/${file} fails the static pre-check (${violations.length} ${violations.length === 1 ? "problem" : "problems"}): ${violations
     .map((v) => `[${v.rule}${v.line !== undefined ? ` line ${v.line}` : ""}] ${v.detail}`)
     .join("; ")}`
+}
+
+/** Every character a RegExp treats specially, escaped: a name is data, never pattern. */
+function escapeRegExp(text: string): string {
+  return text.replace(/[\\^$.*+?()[\]{}|/]/g, "\\$&")
 }

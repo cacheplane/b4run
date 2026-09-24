@@ -261,8 +261,11 @@ describe("runNodeTestSuite against node:test", () => {
       exec: {
         runCommand: (request: { command: string }) =>
           new Promise((resolve) => {
-            const command = request.command.replace("/usr/local/bin/node", process.execPath)
-            execFile("/bin/sh", ["-c", command], { cwd }, (error, stdout, stderr) =>
+            // The host's node reaches the shell as a variable the shell expands, never as text
+            // spliced into the command.
+            const command = request.command.replace("/usr/local/bin/node", '"$FACTORY_TEST_NODE"')
+            const env = { ...process.env, FACTORY_TEST_NODE: process.execPath }
+            execFile("/bin/sh", ["-c", command], { cwd, env }, (error, stdout, stderr) =>
               resolve({ stdout, stderr, exitCode: error ? Number(error.code ?? 1) : 0 }),
             )
           }),
