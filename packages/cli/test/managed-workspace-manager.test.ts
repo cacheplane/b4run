@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { DatabaseSync } from "node:sqlite"
 import { fakeSandbox } from "@b4run/sandbox/testing"
 import { openWorkspaceInstallation, type WorkspaceInstallation } from "@b4run/sqlite-storage"
 import type {
@@ -266,6 +267,67 @@ it("blocks cached backend use after the recorded retention deadline", async () =
   } finally {
     clock.mockRestore()
   }
+})
+
+it("verifies the stored source once per admitted session, not once per backend call", async () => {
+  const { manager, installation } = fixture()
+  const read = vi.spyOn(installation.sources, "get")
+  const signal = new AbortController().signal
+  const handle = await manager.getForThread("one", signal)
+  expect(read).toHaveBeenCalledTimes(1)
+  const ctx = { signal, workspaceRoot: handle.workspaceRoot }
+  for (let i = 0; i < 20; i++) {
+    await handle.filesystem.writeFile(`note-${i}.txt`, "x", ctx)
+    await handle.filesystem.readFile(`note-${i}.txt`, ctx)
+    await manager.getForThread("one", signal)
+  }
+  expect(read).toHaveBeenCalledTimes(1)
+  // A new session is a new admission: the stored bundle is read and verified again.
+  await manager.reapIdle()
+  await manager.getForThread("one", signal)
+  expect(read).toHaveBeenCalledTimes(2)
+})
+
+it("refuses a tampered stored source at the next admission", async () => {
+  const { manager, root } = fixture()
+  const signal = new AbortController().signal
+  const handle = await manager.getForThread("one", signal)
+  const db = new DatabaseSync(join(root, ".b4/workspaces/state.sqlite"))
+  try {
+    const row = db.prepare("SELECT digest, payload FROM workspace_sources").get() as {
+      digest: string
+      payload: string
+    }
+    const initial = Buffer.from("initial").toString("base64")
+    const forged = Buffer.from("hacked!").toString("base64")
+    expect(row.payload).toContain(initial)
+    db.prepare("UPDATE workspace_sources SET payload=? WHERE digest=?").run(
+      row.payload.replace(initial, forged),
+      row.digest,
+    )
+  } finally {
+    db.close()
+  }
+  // The live session keeps the bundle it was verified with, not the forged row.
+  expect(new TextDecoder().decode(manager.getWorkspace("one")?.readInitialFile("main.ts"))).toBe(
+    "initial",
+  )
+  await handle.filesystem.writeFile("still.txt", "ok", {
+    signal,
+    workspaceRoot: handle.workspaceRoot,
+  })
+  await manager.reapIdle()
+  await expect(manager.getForThread("one", signal)).rejects.toThrow(/digest mismatch/)
+  expect(manager.getWorkspace("one")).toBeUndefined()
+})
+
+it("reads initial files by path and still rejects unknown or invalid paths", async () => {
+  const { manager } = fixture()
+  await manager.getForThread("one", new AbortController().signal)
+  const workspace = manager.getWorkspace("one")
+  expect(new TextDecoder().decode(workspace?.readInitialFile("main.ts"))).toBe("initial")
+  expect(() => workspace?.readInitialFile("missing.ts")).toThrow(/Missing source file/)
+  expect(() => workspace?.readInitialFile("../main.ts")).toThrow()
 })
 
 function resolverFixture(
