@@ -15,6 +15,7 @@ import {
   IllegalTransitionError,
   isTerminal,
   nextState,
+  RETRYABLE_BLOCKED_REASONS,
   type TransitionEvent,
 } from "../domain/states.js"
 import {
@@ -153,6 +154,11 @@ export interface FactoryOptions {
   readonly allowBudgetBelowVerifierDeadline?: boolean
   /** Drafter turns an intake may spend before it blocks. Default 2. */
   readonly maxIntakeAttempts?: number
+  /**
+   * Builder dispatches a work order may spend: the first, and one per `retry`. Default 2.
+   * Fixed on the row at create (`FACTORY_MAX_CANDIDATE_ATTEMPTS`).
+   */
+  readonly maxCandidateAttempts?: number
   /** How long a cancel waits for the cancelled run's observer to settle. Default 10s. */
   readonly cancelSettleMs?: number
   readonly budgetTickMs?: number
@@ -193,6 +199,13 @@ export interface Factory {
   /** Journal the note and, attempts permitting, run another drafter turn with it quoted. */
   rejectIntake(id: string, input: { note: string; operationKey?: string }): Promise<CommandOutcome>
   dispatch(id: string, operationKey?: string): Promise<CommandOutcome>
+  /**
+   * Return a work order a candidate failure blocked (`RETRYABLE_BLOCKED_REASONS`) to
+   * `received`, where `dispatch` starts a fresh builder thread, while it has candidate
+   * attempts left. The old thread's pending prompt is denied and its run cancelled; the
+   * approved task digest stays bound, and `dispatch` re-checks it.
+   */
+  retry(id: string, operationKey?: string): Promise<CommandOutcome>
   approve(
     id: string,
     input: { revision: number; bundleDigest: string; operationKey?: string },
@@ -404,6 +417,10 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       const row = mustGet(id)
       const to = nextState(row.state, event)
       const accounting: WorkOrderPatch = {}
+      // Every committed dispatch spends a candidate attempt, whoever commits it: `dispatch`
+      // itself, or reconciliation adopting the thread a crashed dispatch left behind. Counted
+      // here, inside the transaction, from the row it moves.
+      if (event === "dispatch_committed") accounting.candidateAttempts = row.candidateAttempts + 1
       const wasActive = ACTIVE_STATES.has(row.state)
       const willBeActive = ACTIVE_STATES.has(to)
       if (wasActive && !willBeActive) {
@@ -694,7 +711,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     observeIntakeTurn: (id, frames, observeOptions) =>
       observeIntakeTurn(ctx, id, frames, observeOptions),
     finishIntake: (id) => finishIntake(ctx, id),
-    denyPending: (id) => denyPending(ctx, id),
+    denyPending: (id, denyOptions) => denyPending(ctx, id, denyOptions),
     finishCancel: (id, cause) => finishCancel(id, cause),
     settleRun,
     track,
@@ -745,6 +762,11 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     }
   }
 
+  /** The refusal for a row with no builder dispatch left to spend. */
+  function noAttemptsLeft(row: WorkOrderRow): string {
+    return `No candidate attempts remain: ${row.candidateAttempts} of ${row.maxCandidateAttempts} spent (FACTORY_MAX_CANDIDATE_ATTEMPTS when it was created); cancel it and create a new work order`
+  }
+
   /**
    * The insert both creates share. A caller-supplied operationKey is also the work-order
    * address: the same key always names the same id, which is what makes create idempotent
@@ -784,7 +806,8 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       bundleDigest: null,
       blockedReason: null,
       failureReason: null,
-      maxCandidateAttempts: 1,
+      candidateAttempts: 0,
+      maxCandidateAttempts: options.maxCandidateAttempts ?? 2,
       maxActiveMs: options.maxActiveMs ?? 1_200_000,
       activeMs: 0,
       activeStartedAt: null,
@@ -1205,6 +1228,15 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           state: row.state,
           message: `Cannot dispatch from ${row.state}`,
         })
+      // `retry` refuses past the cap, so only a row created with a cap it has already met
+      // (none today) reaches this; kept so the cap is the dispatch's to enforce, not the
+      // caller's to remember.
+      if (row.candidateAttempts >= row.maxCandidateAttempts)
+        return finish(key, {
+          ok: false,
+          state: row.state,
+          message: noAttemptsLeft(row),
+        })
       // The pre-key lookup ran for every `received` row, and a row in any other state was
       // refused just above; resolved again only if a refactor ever lets one through unset.
       input ??= prompt(row.taskId)
@@ -1297,6 +1329,86 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       const outcome = finish(key, { ok: true, state: dispatched.state, message: "Dispatched" })
       track(id, startRun(id, input))
       return outcome
+    },
+
+    async retry(id, operationKey) {
+      const row = mustGet(id)
+      // Every refusal, and the worker calls, come BEFORE the key is spent. The refusals are
+      // the row's own and repeat on their own; the worker calls are not a function of the
+      // revision, and an undelivered denial recorded under `retry:<id>:<revision>` would
+      // replay to the retry after the worker comes back. A denial that did land is
+      // idempotent: the next call finds nothing pending.
+      const unspent = (message: string): CommandOutcome => ({
+        ok: false,
+        state: row.state,
+        message,
+      })
+      if (row.state !== "blocked") return unspent(`Cannot retry from ${row.state}`)
+      if (row.blockedReason === null || !RETRYABLE_BLOCKED_REASONS.has(row.blockedReason))
+        return unspent(
+          `Cannot retry a work order blocked by ${row.blockedReason ?? "nothing"}: only a candidate failure is retried; cancel it instead`,
+        )
+      if (row.candidateAttempts >= row.maxCandidateAttempts) return unspent(noAttemptsLeft(row))
+      if (row.workerThreadId !== null) {
+        // The old builder thread is abandoned, not reused: its workspace holds the failed
+        // candidate. A prompt still parked on it is denied, so no turn waits on an answer
+        // nobody will give, and whatever run is left on it is cancelled. The row's thread is
+        // the builder's (a retryable block is always the builder phase's), so the denial
+        // resumes on the builder's route.
+        let worker: WorkerClient
+        try {
+          worker = workerOfThread(row).client
+          await denyPending(ctx, id, { cancel: true })
+          const result = await worker.cancel(row.workerThreadId)
+          recordEvent(id, "worker_cancel", { result, phase: "retry" })
+        } catch (error) {
+          recordEvent(id, "retry_release_failed", {
+            threadId: row.workerThreadId,
+            error: String(error),
+          })
+          return unspent(`The old builder thread could not be released: ${String(error)}`)
+        }
+      }
+      const key = operationKey ?? `retry:${id}:${row.revision}`
+      const begun = commands.begin(key, id, { command: "retry", args: {} }, iso())
+      if (begun.status === "done") return begun.outcome
+      if (begun.status === "in_flight") throw new CommandInFlightError(key)
+      let retried: WorkOrderRow
+      try {
+        retried = store.transaction(() => {
+          // The worker calls were awaits: re-read, so the row the transition moves is the
+          // row these checks passed.
+          const current = mustGet(id)
+          if (current.revision !== row.revision)
+            throw new IllegalTransitionError(current.state, "retry")
+          recordEvent(id, "retry", {
+            attempt: current.candidateAttempts + 1,
+            previousBlockedReason: current.blockedReason,
+            previousThreadId: current.workerThreadId,
+            operationKey: key,
+          })
+          return transition(id, "retry", {
+            workerThreadId: null,
+            interruptId: null,
+            candidateDigest: null,
+            bundleDigest: null,
+            blockedReason: null,
+            awaitingSince: null,
+          })
+        })
+      } catch (error) {
+        if (!(error instanceof IllegalTransitionError)) throw error
+        return finish(key, {
+          ok: false,
+          state: mustGet(id).state,
+          message: "Work order changed state while retrying",
+        })
+      }
+      return finish(key, {
+        ok: true,
+        state: retried.state,
+        message: `Retry ${retried.candidateAttempts + 1} of ${retried.maxCandidateAttempts} ready; dispatch it`,
+      })
     },
 
     async approve(id, { revision, bundleDigest, operationKey }) {

@@ -85,7 +85,7 @@ export interface ControllerContext {
   /** Read, parse, materialise and prove the draft of a work order whose drafter turn has ended. */
   finishIntake(id: string): Promise<void>
   /** Resolve every pending interrupt on the work order's thread with `deny`. */
-  denyPending(id: string): Promise<void>
+  denyPending(id: string, options?: { readonly cancel?: boolean }): Promise<void>
   /** Cancel the worker if needed, deny any pending gate, and apply the terminal cancel row. */
   finishCancel(id: string, cause: "operator" | "budget"): Promise<WorkOrderRow>
   /** Wait until the tracked background run for `id` (if any) has settled. */

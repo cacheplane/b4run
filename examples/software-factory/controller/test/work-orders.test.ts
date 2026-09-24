@@ -19,6 +19,7 @@ function freshRow(id = "wo-1"): WorkOrderRow {
     bundleDigest: null,
     blockedReason: null,
     failureReason: null,
+    candidateAttempts: 0,
     maxCandidateAttempts: 1,
     maxActiveMs: 60_000,
     activeMs: 0,

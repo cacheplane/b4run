@@ -550,4 +550,36 @@ Appended as the live replay of #714 runs.
     a mechanical probe. The receipt also records only stderr for the oracle run, not which
     named test failed with what message, so an approver cannot read the proof without
     re-running it: record per-test results in the receipt's evidence.
+25. **The builder destroyed the one file it may change, then parked.** Dispatch of
+    `wo-2a67180a359c7f85` (gpt-5-mini): the builder read the 3,644-line
+    `packages/cli/src/lib/dev/runtime-fetch-core.ts` whole, wrote it back with `writeFile`
+    truncated to 670 lines ending in `... (file truncated, unchanged)`, then ran
+    `sed -n '1,2400p' …`, which its allow-list (only the target's build and test invocations,
+    `node `, `cat`, `ls`, `head`) did not admit, so the turn parked on a permission prompt the
+    controller has no gate for: `blocked / unexpected_interrupt`, spending the row's one
+    candidate attempt and stranding an approved task. Four causes, four fixes. (a) **B4 has no
+    partial edit.** The workspace capability offered whole-file `writeFile` and whole-file
+    `readFile`, so any change to a large file is a rewrite of text the model must reproduce
+    exactly: framework item, landing as `editFile` (exact text replacement) and ranged
+    `readFile` (`startLine`/`endLine`) in the workspace capability; the builder's prompt now
+    names them, forbids rewriting an existing file with `writeFile`, forbids placeholder
+    text, and lists the commands it may run (`builderRules`, rendered under `Rules:` in the
+    task prompt). (b) **The builder asked a person nobody assigned.** Its permissions are now
+    `non-interactive` (`server/b4.config.ts`: a fixed property of the builder app, not of the
+    target file), so an unlisted command is a tool error the model reads, and its list gains
+    the drafter's read-only commands (`ls`, `cat`, `head`, `tail`, `grep`, `wc`, `sed -n`,
+    `nl`), kept equal to the drafter's by test. The controller still blocks on any interrupt
+    that reaches it. (c) **One attempt stranded the approval.** `FACTORY_MAX_CANDIDATE_ATTEMPTS`
+    (default 2, fixed on the row at create; registry migration 5 adds `candidateAttempts`,
+    backfilled from committed dispatches) and `factory retry <id>`: a row blocked by a
+    candidate failure goes back to `received` (the old thread's prompt denied and its run
+    cancelled; thread, interrupt, candidate, bundle and reason cleared; `retry { attempt,
+    previousBlockedReason }` journalled), and `dispatch` starts a fresh builder thread from
+    the same approved, re-checked task digest. (d) **The truncation would have cost a full
+    verification to discover.** The controller's assembly now refuses a changed file carrying
+    an elision placeholder its baseline did not, or (from 1 KiB) smaller than half its
+    baseline, as `blocked / candidate_rejected`, with the file and line journalled, in seconds
+    rather than after a verification whose snapshots alone take about 12 minutes a session on
+    this target (Task 2's trap 9). The stranded row was created with one attempt and has spent
+    it; it is not hand-edited, and the live run creates a new work order.
 

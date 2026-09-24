@@ -96,8 +96,17 @@ export async function observeRun(
  * out to the worker holding the thread, on that worker's route: a drafter thread can be
  * parked too (`intake_unexpected_interrupt` blocks the row precisely because it parked),
  * and its denial resumes on the drafter's route, not the builder's.
+ *
+ * A denial resumes the turn, and the model carries on from it. With `cancel`, the resumed
+ * run is cancelled as soon as its stream opens rather than awaited to its end: `retry`
+ * abandons the thread, and a turn nobody will read must not spend minutes on the worker
+ * first. A cancel the worker refuses throws, like an undelivered denial.
  */
-export async function denyPending(ctx: ControllerContext, id: string): Promise<void> {
+export async function denyPending(
+  ctx: ControllerContext,
+  id: string,
+  options: { readonly cancel?: boolean } = {},
+): Promise<void> {
   const row = ctx.mustGet(id)
   if (!row.workerThreadId) return
   const worker = ctx.workerOfThread(row)
@@ -110,5 +119,9 @@ export async function denyPending(ctx: ControllerContext, id: string): Promise<v
     pending.map((p) => ({ interruptId: p.interruptId, payload: "deny" as const })),
     ctx.signal,
   )
+  if (options.cancel) {
+    const result = await worker.client.cancel(row.workerThreadId)
+    ctx.recordEvent(id, "worker_cancel", { result, phase: "deny" })
+  }
   await consumeTurn(frames, {})
 }

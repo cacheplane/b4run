@@ -20,13 +20,16 @@ This example is three b4 apps that share no source:
 
 - **`controller/`** (`@b4-example/software-factory-controller`) — the controller *as a b4 app*.
   Its mutating commands are `workflow` routes: `/work-orders/create#workflow`,
-  `/work-orders/dispatch#workflow`, `/work-orders/approve#workflow`,
+  `/work-orders/dispatch#workflow`, `/work-orders/retry#workflow`, `/work-orders/approve#workflow`,
   `/work-orders/deny#workflow`, `/work-orders/cancel#workflow` and `/reconcile#workflow`.
   It holds the task and target catalog (`targets/`, `tasks/`, `fixtures/`,
   `scripts/prepare-target.ts`), the registry, the verifier, the workspace reader, every test,
   and the `factory` CLI.
 - **`server/`** (`@b4-example/software-factory-server`) — the builder: one bounded route that
-  edits files in a container, and nothing else.
+  edits files in a container, and nothing else. Its permissions are non-interactive: a command
+  off its list (the target's build and test invocations, `node `, and the drafter's read-only
+  `ls`, `cat`, `head`, `tail`, `grep`, `wc`, `sed -n`, `nl`) is a tool error the model reads,
+  never a prompt parked for a person nobody assigned.
 - **`drafter/`** (`@b4-example/software-factory-drafter`) — the drafter: one `intake` agent
   route with the four built-in workspace tools, run on the plain `node:24-slim` base image
   pinned by digest, with the network denied and permissions non-interactive. It reads a wide
@@ -243,6 +246,8 @@ no registry (the manifests need no step: `dispatch` and `intake` write one per w
     pnpm --filter @b4-example/software-factory-controller \
       factory builder-target --target cli-flags --out /tmp/factory-builder
 
+The file also carries the builder's permission allow-list, derived from the target: rewrite
+it (and restart the builder) after upgrading the controller, or the builder keeps the old list.
 The file records the pin whose image the builder runs: the target's default pin, or
 `--pin <sha>` for another prepared one (`builder-target --target devkit --pin <sha>`; a pin
 with no image is refused, naming the prepare command). **One builder serves one pin at a
@@ -370,6 +375,7 @@ The CLI's write commands are requests to the running controller
     ls $FACTORY_STATE_DIR/tasks/<id>/                      # task.json spec.md checks.json checks/ issue.md
     factory approve-intake <id> --revision <n> --digest <sha256>   # or: factory reject-intake <id> --note "..."
     factory dispatch <id>                                  # awaits; journal events on stderr
+    factory retry <id>                                     # a candidate failure, attempts permitting; then dispatch again
     factory show <id>
     factory events <id>
     factory evidence <id>
@@ -474,6 +480,26 @@ A bundle frozen before these fields existed no longer parses, and there is no re
 `awaiting_approval`: a work order parked there across this change must be `deny`-ed and
 created again.
 
+**Retrying a candidate.** A work order blocked by a candidate failure (`unexpected_interrupt`,
+`scope_violation`, `encoding_violation`, `candidate_rejected`, `verification_failed`,
+`verification_inconclusive`) can be retried while it has candidate attempts left
+(`FACTORY_MAX_CANDIDATE_ATTEMPTS`, default 2, fixed on the row at create; each committed
+`dispatch` spends one, counted as `candidateAttempts`). `factory retry <id>` denies any prompt
+still parked on the old builder thread, cancels whatever run is left on it, journals
+`retry { attempt, previousBlockedReason }`, and returns the row to `received` with its thread,
+interrupt, candidate, bundle and reason cleared; it does not dispatch. `factory dispatch <id>`
+then writes a fresh manifest and starts a fresh builder thread from the same approved task (the
+task digest is re-checked, as on any dispatch). The active-time budget is the work order's and
+is not reset. Every other block (an intake refusal, an exhausted budget, an unconfirmed export)
+is refused, and so is a retry with no attempts left: cancel it and create a new work order. A
+row created before the counter existed has it backfilled from its committed dispatches.
+
+**The elision guard.** Before a candidate is verified, the controller refuses one whose changed
+file carries an elision placeholder the baseline did not (`... (file truncated)`, `rest of the
+file`, `unchanged)`) or, from 1 KiB up, shrank below half its baseline. The work order blocks as
+`candidate_rejected` in seconds, with the file and line journalled on the `assembly_rejected`
+transition, instead of after a full verification; it is retryable.
+
 **Exit codes.** A refused command and a runtime conflict (a second command while one is in
 flight, a cancelled dispatch) both exit 1 with the body printed; everything else that
 succeeded exits 0. A `dispatch` exits 0 only when the work order settles in
@@ -507,6 +533,7 @@ The controller app reads:
 | `FACTORY_MAX_ACTIVE_MS` | no | Default 1200000; waiting on a person is not active time. Must be at least twice the target's `verifierDeadlineMs` or `dispatch` refuses (the `cli` target: 7200000) |
 | `FACTORY_MAX_CHANGED_BYTES` | no | Default 1048576; exceeding it is a `scope_violation`, never a truncation |
 | `FACTORY_MAX_INTAKE_ATTEMPTS` | no | Default 2, a positive integer: the drafter turns an issue intake may spend before its last refusal blocks it. Fixed on the row at create, like `FACTORY_MAX_ACTIVE_MS` |
+| `FACTORY_MAX_CANDIDATE_ATTEMPTS` | no | Default 2, a positive integer: the builder dispatches a work order may spend, the first and one per `retry`. Fixed on the row at create |
 | `FACTORY_REPO_ROOT` | no | The repository the targets pin into and the wide capture is taken from; default `git rev-parse --show-toplevel` from the package. Set by the Docker-lane tests, which copy the app outside the repository. |
 
 The CLI's `create --issue` reads `FACTORY_GH` (default `gh`: the executable that answers

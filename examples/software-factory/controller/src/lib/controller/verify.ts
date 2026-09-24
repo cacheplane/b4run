@@ -102,10 +102,18 @@ async function verifyCandidate(
     // what the spec's invariant table calls a `scope_violation`. Nothing here can be a
     // baseline mismatch: the controller diffs against its own captured baseline and never
     // reads a source digest the builder claims.
+    // `elided` and `shrunk` are neither: the path was allowed and the bytes representable,
+    // but the file is not whole, which `candidate_rejected` says in the journal's own words.
+    const blockedReason =
+      error.rule === "encoding"
+        ? "encoding_violation"
+        : error.rule === "elided" || error.rule === "shrunk"
+          ? "candidate_rejected"
+          : "scope_violation"
     ctx.transition(
       id,
       "assembly_rejected",
-      { blockedReason: error.rule === "encoding" ? "encoding_violation" : "scope_violation" },
+      { blockedReason },
       { rule: error.rule, detail: error.message },
     )
     return

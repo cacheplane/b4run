@@ -113,7 +113,7 @@ describe("registry reader", () => {
     db.close()
     expect(() => openRegistryReader(registryPath)).toThrow(RegistryOutdatedError)
     expect(() => openRegistryReader(registryPath)).toThrow(
-      "Registry schema version 3 is older than this factory needs (4); start the controller, which migrates it",
+      "Registry schema version 3 is older than this factory needs (5); start the controller, which migrates it",
     )
   })
 

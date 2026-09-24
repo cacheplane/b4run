@@ -50,7 +50,8 @@ export async function reconcileAll(ctx: ControllerContext): Promise<void> {
       await safeReconcile(ctx, row.id)
       const final = ctx.mustGet(row.id)
       ctx.commands.complete(open.operationKey, {
-        ok: settledOk(final),
+        // A `retry` that committed its transition before the crash did what it was for.
+        ok: open.intent.command === "retry" ? final.state === "received" : settledOk(final),
         state: final.state,
         message: `Reconciled after restart; work order is ${final.state}`,
       })
@@ -145,9 +146,14 @@ function journal(
   }
 }
 
-/** The thread id `dispatch` journalled before it crashed, if it got that far. */
+/**
+ * The thread id `dispatch` journalled before it crashed, if it got that far. Only a thread
+ * created since the last `retry` counts: the one before it is the abandoned attempt's, and
+ * adopting it would hand the failed candidate's workspace to the new dispatch.
+ */
 function journalledThreadId(ctx: ControllerContext, id: string): string | null {
   for (const event of ctx.store.events(id).reverse()) {
+    if (event.type === "retry") return null
     if (event.type !== "thread_created") continue
     const threadId = event.payload.threadId
     if (typeof threadId === "string" && threadId.length > 0) return threadId

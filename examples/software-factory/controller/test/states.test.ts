@@ -5,6 +5,7 @@ import {
   IllegalTransitionError,
   isTerminal,
   nextState,
+  RETRYABLE_BLOCKED_REASONS,
   STATES,
   TERMINAL_STATES,
   TRANSITION_EVENTS,
@@ -144,6 +145,28 @@ describe("rung 1 lifecycle", () => {
   it("still blocks on an unexpected interrupt from the builder", () => {
     expect(nextState("running", "unexpected_interrupt")).toBe("blocked")
     expect(BLOCKED_REASONS).toContain("unexpected_interrupt")
+  })
+})
+
+describe("retry", () => {
+  it("moves only a blocked row, back to received", () => {
+    expect(nextState("blocked", "retry")).toBe("received")
+    for (const from of STATES.filter((state) => state !== "blocked"))
+      expect(() => nextState(from, "retry")).toThrow(IllegalTransitionError)
+  })
+
+  it("retries only the blocks a candidate failure leaves", () => {
+    expect([...RETRYABLE_BLOCKED_REASONS].sort()).toEqual(
+      [
+        "candidate_rejected",
+        "encoding_violation",
+        "scope_violation",
+        "unexpected_interrupt",
+        "verification_failed",
+        "verification_inconclusive",
+      ].sort(),
+    )
+    for (const reason of RETRYABLE_BLOCKED_REASONS) expect(BLOCKED_REASONS).toContain(reason)
   })
 })
 

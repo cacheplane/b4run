@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 
-export const SCHEMA_VERSION = 4
+export const SCHEMA_VERSION = 5
 
 export interface Registry {
   readonly db: DatabaseSync
@@ -163,6 +163,23 @@ export const MIGRATIONS: readonly Migration[] = [
       ALTER TABLE work_orders ADD COLUMN task_digest TEXT;
       ALTER TABLE work_orders ADD COLUMN intake_attempts INTEGER NOT NULL DEFAULT 0;
       ALTER TABLE work_orders ADD COLUMN max_intake_attempts INTEGER NOT NULL DEFAULT 2;
+    `,
+  },
+  {
+    // Candidate retries (the first live run's builder spent its one attempt on a parked
+    // command and stranded an approved task). The counter is backfilled from the journal, not
+    // defaulted to 0: a row that has already dispatched has spent an attempt, and reading it as
+    // unspent would let `retry` exceed the cap the row was created with. A dispatch is counted
+    // by its committed transition, so an orphaned `thread_created` spends nothing.
+    version: 5,
+    up: `
+      ALTER TABLE work_orders ADD COLUMN candidate_attempts INTEGER NOT NULL DEFAULT 0;
+      UPDATE work_orders SET candidate_attempts = (
+        SELECT count(*) FROM events
+        WHERE events.work_order_id = work_orders.id
+          AND events.type = 'transition'
+          AND json_extract(events.payload, '$.event') = 'dispatch_committed'
+      );
     `,
   },
 ]

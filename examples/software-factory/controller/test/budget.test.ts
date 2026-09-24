@@ -17,6 +17,7 @@ function row(overrides: Partial<WorkOrderRow>): WorkOrderRow {
     bundleDigest: null,
     blockedReason: null,
     failureReason: null,
+    candidateAttempts: 0,
     maxCandidateAttempts: 1,
     maxActiveMs: 1_000,
     activeMs: 0,

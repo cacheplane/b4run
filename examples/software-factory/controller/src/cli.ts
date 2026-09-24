@@ -32,6 +32,7 @@ const USAGE = `factory <command> [options]
   approve-intake  <workOrderId> --revision <n> --digest <sha256> [--key <operationKey>]
   reject-intake   <workOrderId> --note "<text>" [--key <operationKey>]
   dispatch  <workOrderId> [--key <operationKey>]
+  retry     <workOrderId> [--key <operationKey>]
   approve   <workOrderId> --revision <n> --bundle <sha256> [--key <operationKey>]
   deny      <workOrderId> [--key <operationKey>]
   cancel    <workOrderId> [--key <operationKey>]   (uses BOTH variables)
@@ -74,6 +75,12 @@ row in the registry (FACTORY_STATE_DIR) until it leaves its active state, for up
 active budget plus 10 minutes, then answers from the row with the same exit codes. The row is
 read before the request is sent: a row whose revision never moves past that reading within a
 minute is a request that did not reach the controller, and the command says so and exits 1.
+retry returns a work order a candidate failure blocked (unexpected_interrupt, scope_violation,
+encoding_violation, candidate_rejected, verification_failed, verification_inconclusive) to
+received, while it has candidate attempts left (FACTORY_MAX_CANDIDATE_ATTEMPTS, fixed at create,
+default 2): it denies and cancels whatever is left on the old builder thread and does not
+dispatch. dispatch again to start a fresh builder thread from the approved task.
+
 A draft intake refuses is kept for reading after the retry overwrites it: each refused
 attempt's draft/ files and its reason.txt, under
 <FACTORY_STATE_DIR>/tasks/.refused/<workOrderId>/attempt-<n>/ (journalled as keptAt).
@@ -623,6 +630,11 @@ async function main(argv: string[]): Promise<number> {
           bundleDigest: values.bundle,
           ...(values.key ? { operationKey: values.key } : {}),
         })
+        print(outcome)
+        return outcome.ok ? 0 : 1
+      }
+      case "retry": {
+        const outcome = await client().retry(needId(), values.key)
         print(outcome)
         return outcome.ok ? 0 : 1
       }
