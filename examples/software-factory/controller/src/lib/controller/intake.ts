@@ -55,6 +55,36 @@ function block(
   ctx.transition(id, "intake_blocked", { blockedReason }, payload)
 }
 
+/** At most this many carried notes, each cut to `CARRIED_NOTE_CHARS`: a bounded prompt section. */
+export const CARRIED_DECISIONS = 4
+export const CARRIED_NOTE_CHARS = 1500
+
+/**
+ * The `intake_rejected` notes other work orders of the same issue (repository and number)
+ * journalled, newest first, bounded. The live rerun of issue 714 lost the operator's decision
+ * (200 with a JSON `null`, not an empty body) when a new work order replaced the one it was
+ * written on, and the next drafter asserted the rejected shape again. The row's own notes are
+ * not here: its latest reaches the drafter as the refusal note.
+ */
+export function carriedDecisions(ctx: ControllerContext, row: WorkOrderRow): string[] {
+  if (row.origin.kind !== "issue") return []
+  const { repository, number } = row.origin
+  const notes: { at: string; seq: number; note: string }[] = []
+  for (const other of ctx.store.list()) {
+    if (other.id === row.id || other.origin.kind !== "issue") continue
+    if (other.origin.repository !== repository || other.origin.number !== number) continue
+    for (const event of ctx.store.events(other.id))
+      if (event.type === "intake_rejected" && typeof event.payload.note === "string")
+        notes.push({ at: event.at, seq: event.seq, note: event.payload.note })
+  }
+  return notes
+    .sort((a, b) => (a.at === b.at ? b.seq - a.seq : a.at < b.at ? 1 : -1))
+    .slice(0, CARRIED_DECISIONS)
+    .map(({ note }) =>
+      note.length > CARRIED_NOTE_CHARS ? `${note.slice(0, CARRIED_NOTE_CHARS)}…` : note,
+    )
+}
+
 /**
  * One drafter attempt: the turn, then `finishIntake`. The row is already `intake_running`
  * with its intake thread recorded (the `intake` command and `reject_intake` do both before
@@ -106,10 +136,14 @@ async function runDrafterTurn(
   // read is a refusal to start the turn, not a fault to leave the row stranded on.
   let prompt: string
   try {
+    const decisions = carriedDecisions(ctx, row)
+    if (decisions.length > 0)
+      ctx.recordEvent(id, "intake_decisions_carried", { count: decisions.length })
     prompt = intakePrompt({
       pin: row.pin,
       issueText: issue,
       ...(input.note !== undefined ? { note: input.note } : {}),
+      ...(decisions.length > 0 ? { decisions } : {}),
     })
   } catch (error) {
     ctx.recordEvent(id, "intake_prompt_failed", { error: String(error) })

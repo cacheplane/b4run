@@ -87,6 +87,14 @@ describe("the intake route", () => {
     expect(prompt).toMatch(/not to `repo\/`/)
     // The check: node:test, fails now, passes when fixed, built artifact, no repository test.
     expect(prompt).toContain("`node:test`")
+    // The skeleton: the imports the controller's pre-check requires, the build loaded through
+    // the working directory, one named test, and cleanup that cannot throw.
+    expect(prompt).toContain('import { after, test } from "node:test"')
+    expect(prompt).toContain('import assert from "node:assert/strict"')
+    expect(prompt).toContain('import { join } from "node:path"')
+    expect(prompt).toContain('await import(join(process.cwd(), "packages/<name>/dist/<file>.js"))')
+    expect(prompt).toMatch(/^test\("A1: /m)
+    expect(prompt).toContain(".catch(() => {})")
     expect(prompt).toMatch(/fails? on the current code/i)
     expect(prompt).toMatch(/pass(es)? (once|when) .*fixed/i)
     expect(prompt).toMatch(/built artifact/)

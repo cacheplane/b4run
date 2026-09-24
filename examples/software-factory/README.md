@@ -267,6 +267,15 @@ controller will leave its manifests in:
     OPENAI_API_KEY=... \
       pnpm --filter @b4-example/software-factory-server dev --port 4100
 
+Do not set `B4_PERMISSIONS_MODE` in this process: it would override the builder app's
+`non-interactive` mode, and a builder that parks on a permission prompt blocks its work order
+as `unexpected_interrupt`, spending a candidate attempt on a question nobody answers. With the
+legacy worker pair (`FACTORY_BUILDER_TARGET`), the controller reads the same target file at its
+boot and `dispatch` refuses, before the key, a builder whose allow-list differs from what the
+controller would write today ("the builder's target file is stale"): rewrite the file with
+`factory builder-target`, restart the builder, then the controller. A `FACTORY_WORKERS` entry
+names no target file, so there the comparison is skipped.
+
 A second target is a second builder process, with its own target file, manifest directory,
 port **and app root**. The app root is where the process keeps its installation store
 (`.b4/workspaces`, one per process), so two processes over one package directory would each
@@ -444,7 +453,12 @@ refuses only a draft whose allowed paths reach it (every such path named in one 
 The manifest lives until the work order leaves intake for good (a block, an approval, a
 settled cancel): a redraft reuses the admitted thread and needs no manifest, and one is
 some 20 MiB on this repository, so it is removed rather than kept. The controller validates
-the draft, fits it to a prepared target, materialises it as a task directory under
+the draft, reads its check statically (a **pre-check**, in milliseconds, before any container:
+the check must parse, import `test` from `node:test`, load the build only through
+`join(process.cwd(), "packages/<name>/dist/...")`, use no relative specifier reaching outside
+`checks/`, and name top-level tests with exactly the `A<n>` ids `checks.json` lists; a draft
+that breaks any of these is refused as `intake_invalid`, every broken rule named with its line,
+and spends an attempt), fits it to a prepared target, materialises it as a task directory under
 `<FACTORY_STATE_DIR>/tasks/<id>/` (the four files plus `issue.md`), and then **proves the
 oracle**: it runs only the drafted check, with no candidate changes, against the unpatched
 baseline in the target's image, and the check must FAIL there, by a named `A<n>` assertion
@@ -474,6 +488,10 @@ with `--key <fresh>`. A pin the repository does not hold and cannot fetch is ref
 the key is spent, so that call simply works once the pin is reachable.
 Unlike `awaiting_approval`, `awaiting_intake_approval` has no expiry: the draft waits as long
 as it takes, and waiting on a person is not active time.
+A new work order for an issue that earlier work orders drafted carries their `reject-intake`
+notes into its first drafter prompt, newest first (at most four, 1,500 characters each), as
+"Maintainer decisions from earlier reviews of this issue": a decision about the issue outlives
+the work order it was written on.
 The review bundle later freezes the origin (issue and body digest), the pin, the approved task
 digest and the oracle receipt id, so approving the export consents to all of them together.
 A bundle frozen before these fields existed no longer parses, and there is no re-freeze from
@@ -490,13 +508,18 @@ still parked on the old builder thread, cancels whatever run is left on it, jour
 interrupt, candidate, bundle and reason cleared; it does not dispatch. `factory dispatch <id>`
 then writes a fresh manifest and starts a fresh builder thread from the same approved task (the
 task digest is re-checked, as on any dispatch). The active-time budget is the work order's and
-is not reset. Every other block (an intake refusal, an exhausted budget, an unconfirmed export)
+is not reset: `retry`, and any `dispatch` after the first, refuse before the key when what is
+left (`FACTORY_MAX_ACTIVE_MS` at create, less the active time already spent, intake included)
+is under twice the target's verifier deadline, naming the shortfall; the remedy is a new work
+order created under a larger `FACTORY_MAX_ACTIVE_MS`. A `retry --key` whose key already holds
+an outcome replays it. Every other block (an intake refusal, an exhausted budget, an unconfirmed export)
 is refused, and so is a retry with no attempts left: cancel it and create a new work order. A
 row created before the counter existed has it backfilled from its committed dispatches.
 
 **The elision guard.** Before a candidate is verified, the controller refuses one whose changed
-file carries an elision placeholder the baseline did not (`... (file truncated)`, `rest of the
-file`, `unchanged)`) or, from 1 KiB up, shrank below half its baseline. The work order blocks as
+file carries an elision placeholder the baseline did not (`... (file truncated` anywhere; a line
+that is nothing but a placeholder such as `// rest of the file unchanged` or `(unchanged)`) or,
+from 1 KiB up, shrank below half its baseline. The work order blocks as
 `candidate_rejected` in seconds, with the file and line journalled on the `assembly_rejected`
 transition, instead of after a full verification; it is retryable.
 

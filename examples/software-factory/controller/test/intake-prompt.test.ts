@@ -2,6 +2,13 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
+import type { ControllerContext } from "../src/lib/controller/context.ts"
+import {
+  CARRIED_DECISIONS,
+  CARRIED_NOTE_CHARS,
+  carriedDecisions,
+} from "../src/lib/controller/intake.ts"
+import type { FactoryEvent, WorkOrderRow } from "../src/lib/domain/work-order.ts"
 import {
   intakePrompt,
   preparedTargets,
@@ -232,5 +239,67 @@ describe("intakePrompt", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe("carried maintainer decisions", () => {
+  it("renders them after the issue, quoted, and renders nothing without them", () => {
+    const prompt = intakePrompt({
+      pin: PIN,
+      issueText: ISSUE,
+      decisions: ["newest\nline two", "older"],
+    })
+    const section = prompt.slice(
+      prompt.indexOf("## Maintainer decisions from earlier reviews of this issue"),
+    )
+    expect(prompt.indexOf("## The issue")).toBeLessThan(prompt.indexOf("## Maintainer decisions"))
+    expect(section).toContain("> newest\n> line two")
+    expect(section.indexOf("newest")).toBeLessThan(section.indexOf("older"))
+    expect(intakePrompt({ pin: PIN, issueText: ISSUE, decisions: [] })).not.toContain(
+      "Maintainer decisions",
+    )
+  })
+
+  it("takes the same issue's notes from other work orders only, newest first, bounded", () => {
+    const origin = {
+      kind: "issue" as const,
+      repository: "cacheplane/b4run",
+      number: 714,
+      bodyDigest: "0".repeat(64),
+    }
+    const row = (id: string, number = 714) =>
+      ({ id, origin: { ...origin, number } }) as WorkOrderRow
+    const rows = [row("wo-self"), row("wo-a"), row("wo-b"), row("wo-other", 778)]
+    let seq = 0
+    const rejected = (id: string, at: string, note: string): FactoryEvent => ({
+      seq: ++seq,
+      workOrderId: id,
+      type: "intake_rejected",
+      payload: { note, attempt: 1 },
+      at,
+    })
+    const events: Record<string, FactoryEvent[]> = {
+      "wo-self": [rejected("wo-self", "2026-09-23T09:00:00Z", "own note")],
+      "wo-a": [
+        rejected("wo-a", "2026-09-23T01:00:00Z", "a1"),
+        rejected("wo-a", "2026-09-23T03:00:00Z", "x".repeat(CARRIED_NOTE_CHARS + 50)),
+      ],
+      "wo-b": [
+        rejected("wo-b", "2026-09-23T02:00:00Z", "b1"),
+        rejected("wo-b", "2026-09-23T04:00:00Z", "b2"),
+        rejected("wo-b", "2026-09-23T05:00:00Z", "b3"),
+      ],
+      "wo-other": [rejected("wo-other", "2026-09-23T08:00:00Z", "another issue")],
+    }
+    const ctx = {
+      store: { list: () => rows, events: (id: string) => events[id] ?? [] },
+    } as unknown as ControllerContext
+    const carried = carriedDecisions(ctx, rows[0] as WorkOrderRow)
+    expect(carried).toHaveLength(CARRIED_DECISIONS)
+    expect(carried.slice(0, 2)).toEqual(["b3", "b2"])
+    expect(carried[2]).toBe(`${"x".repeat(CARRIED_NOTE_CHARS)}…`)
+    expect(carried[3]).toBe("b1")
+    expect(carried).not.toContain("own note")
+    expect(carried).not.toContain("another issue")
   })
 })

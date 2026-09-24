@@ -582,4 +582,30 @@ Appended as the live replay of #714 runs.
     rather than after a verification whose snapshots alone take about 12 minutes a session on
     this target (Task 2's trap 9). The stranded row was created with one attempt and has spent
     it; it is not hand-edited, and the live run creates a new work order.
+26. **One defect per ten-minute proof, and a decision that did not survive its work order.**
+    The rerun (`wo-c7cbe172b6017faf`) spent all three drafter attempts, each ending in an
+    oracle proof of about ten minutes, to surface one defect at a time. Attempt 1 was refused
+    for its spec (an `A4` no test asserted), attempt 2's check loaded the build through
+    `../repo/packages/cli/dist/...` and failed with `ERR_MODULE_NOT_FOUND`, and attempt 3's,
+    which loaded it correctly through `process.cwd()`, never imported `test` from `node:test`
+    (`ReferenceError: test is not defined`). The missing import and the relative path had been
+    in the file since attempt 1, readable in its text. And the drafter asserted "an empty body"
+    again, the shape the operator had rejected on the previous work order (finding 23: 200 with
+    a JSON `null`), because the rejection note lived on the old row. Three fixes. (a) A
+    **static pre-check** of the drafted check in `parseDraft`, before any container: it must
+    parse (Node's own type stripper), import `test` from `node:test`, reach the build only
+    through `join(process.cwd(), ...)`, use no relative specifier outside `checks/`, and name
+    its top-level tests with exactly the `A<n>` ids `checks.json` lists. Every broken rule is
+    named with its line in one `intake_invalid` refusal, which spends an attempt like any
+    draft verdict. On the three kept drafts it refuses attempts 1 and 2 for the missing
+    import, the relative path and the artifact not loaded through `process.cwd()` (the last two on line 5), and
+    attempt 3 for the import alone, in milliseconds each. (b) A **check skeleton** in the
+    drafter's system prompt (the imports, the build through `process.cwd()`, one named test,
+    cleanup that cannot throw), which a controller test runs through the pre-check so the two
+    cannot drift. (c) **Issue-level decisions carry over**: a new work order's intake prompt
+    quotes the `reject-intake` notes of earlier work orders of the same issue (repository and
+    number), newest first, at most four of 1,500 characters. Framework item: an issue's
+    review decisions belong to the issue (or a thread the maintainer owns), not to one run of
+    one agent; and a check contract a drafter must satisfy deserves a machine-readable
+    template the framework ships, not a prompt paragraph.
 

@@ -78,6 +78,20 @@ describe("parseDraft", () => {
     ])
   })
 
+  it("refuses a check that fails the static pre-check as intake_invalid, before any proof", () => {
+    const check = "draft/checks/spawn-deadline.test.ts"
+    const source = (GOOD_DRAFT[check] as string).replace('import test from "node:test"\n', "")
+    const parsed = parseDraft(files({ ...GOOD_DRAFT, [check]: source }), {
+      workOrderId: WO,
+      pin: PIN,
+    })
+    expect(parsed).toMatchObject({ ok: false, blockedReason: "intake_invalid" })
+    if (parsed.ok) return
+    expect(parsed.reason).toMatch(
+      /^draft\/checks\/spawn-deadline\.test\.ts fails the static pre-check \(1 problem\): \[node-test-import\]/,
+    )
+  })
+
   for (const [name, draft] of Object.entries(BAD_DRAFTS)) {
     it(`refuses ${name} with a reason naming the file`, () => {
       const parsed = parseDraft(files(draft), { workOrderId: WO, pin: PIN })

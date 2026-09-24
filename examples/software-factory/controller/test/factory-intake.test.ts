@@ -1146,6 +1146,43 @@ describe("the intake gate", () => {
     })
   })
 
+  it("carries the notes that rejected earlier work orders of the same issue into a new intake", async () => {
+    await boot({}, { maxIntakeAttempts: 3 })
+    const { id } = await intake()
+    await factory.settleIntake(id, 20_000)
+    const older = "answer 200 with the JSON body null, not an empty body"
+    expect((await factory.rejectIntake(id, { note: older })).ok).toBe(true)
+    await factory.settleIntake(id, 20_000)
+    const newer = "A2 must not depend on a deleted fixture directory"
+    expect((await factory.rejectIntake(id, { note: newer })).ok).toBe(true)
+    await factory.settleIntake(id, 20_000)
+    expect(await factory.cancel(id)).toMatchObject({ ok: true, state: "cancelled" })
+    // The replacement work order starts with neither note on its own row.
+    const other = await factory.createFromIssue({
+      origin: { ...ORIGIN, number: 779 },
+      pin: PIN,
+      issue: ISSUE,
+    })
+    expect((await factory.intake(other.id)).ok).toBe(true)
+    await factory.settleIntake(other.id, 20_000)
+    const unrelated = promptOf(runPosts().length - 1)
+    expect(unrelated).not.toContain("Maintainer decisions")
+    await factory.cancel(other.id)
+    const second = await factory.createFromIssue({ origin: ORIGIN, pin: PIN, issue: ISSUE })
+    expect((await factory.intake(second.id)).ok).toBe(true)
+    await factory.settleIntake(second.id, 20_000)
+    const prompt = promptOf(runPosts().length - 1)
+    expect(prompt).toContain("## Maintainer decisions from earlier reviews of this issue")
+    expect(prompt).toContain(older)
+    expect(prompt).toContain(newer)
+    // Newest first, and not mistaken for a refusal of this work order's own draft.
+    expect(prompt.indexOf(newer)).toBeLessThan(prompt.indexOf(older))
+    expect(prompt).not.toContain("Previous attempt was refused")
+    expect(
+      factory.events(second.id).find((e) => e.type === "intake_decisions_carried")?.payload,
+    ).toEqual({ count: 2 })
+  })
+
   it("cancels a drafter turn in flight", async () => {
     await boot({ run: "hang" })
     const { id, threadId } = await intake()

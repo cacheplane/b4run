@@ -1,0 +1,11 @@
+{
+  "independent": {
+    "runner": "node-test",
+    "file": "checks/runs-wait-undefined.test.ts",
+    "assertions": [
+      "A1: POST /threads/:id/runs/wait returns a 200 response with content-type application/json and an empty body when the route returns undefined.",
+      "A2: POST /threads/:id/runs/wait returns 200 and a JSON body for a route that returns an object (e.g. { ok: true }).",
+      "A3: When a route execution throws, POST /threads/:id/runs/wait returns 500 with a JSON body whose error.kind is \"execution_error\"."
+    ]
+  }
+}

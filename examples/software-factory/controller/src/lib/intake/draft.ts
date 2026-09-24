@@ -17,6 +17,7 @@ import {
   TaskSchema,
   UnknownTargetError,
 } from "../targets/catalog.js"
+import { describePrecheck, precheckDraftedCheck } from "./check-precheck.js"
 
 /** Where the drafter writes, relative to its workspace. Keys outside it are not the draft. */
 export const DRAFT_ROOT = "draft/"
@@ -294,6 +295,15 @@ export function parseDraft(
     )
   const stray = strayFile(draft, checks.independent.file)
   if (stray) return stray
+
+  // Last, and before any container is started: the check's own text, read statically. What it
+  // refuses would otherwise take a whole oracle proof (minutes) to find, one defect at a time.
+  const violations = precheckDraftedCheck({
+    source: draft.get(checks.independent.file) as string,
+    file: checks.independent.file,
+    assertions: checks.independent.assertions,
+  })
+  if (violations.length > 0) return invalid(describePrecheck(checks.independent.file, violations))
 
   return { ok: true, manifest, checks, specText, acceptanceIds, files: draft }
 }

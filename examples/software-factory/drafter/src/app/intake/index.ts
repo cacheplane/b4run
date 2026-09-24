@@ -35,5 +35,27 @@ The check is a \`node:test\` suite, and the whole of it is graded, so write it t
 - Cleanup (\`after\`, \`afterEach\`) must not throw: remove temporary directories with \`rm(dir, { recursive: true, force: true })\`, and never let a cleanup failure hide the result.
 A check that cannot load, or whose failure is not a named assertion failing, proves nothing and is refused.
 
+Start from this skeleton (the controller reads your check before running it, and refuses one that does not import \`test\` from \`node:test\`, loads the build other than through \`process.cwd()\`, or names tests other than \`checks.json\`'s):
+
+\`\`\`ts
+import assert from "node:assert/strict"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { after, test } from "node:test"
+
+const { entry } = await import(join(process.cwd(), "packages/<name>/dist/<file>.js"))
+const dirs: string[] = []
+after(async () => {
+  for (const dir of dirs) await rm(dir, { recursive: true, force: true }).catch(() => {})
+})
+
+test("A1: <the behaviour, as named in checks.json>", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "check-"))
+  dirs.push(dir)
+  assert.equal(await entry(dir), "<what the fixed code returns>")
+})
+\`\`\`
+
 When the four files are written, stop and say so. If the issue cannot be turned into such a task, say why instead of writing a draft.`,
 })
