@@ -157,6 +157,25 @@ export class ManagedWorkspaceManager {
           }),
         )
       }
+      // An admitted session already holds the bundle it was verified with, in memory
+      // and frozen. While the association still names that operation and digest, the
+      // stored bundle is not consulted again: re-reading and re-hashing it here cost
+      // one full bundle verification per filesystem call (see the benchmark in the
+      // manager tests). A new session re-reads and re-verifies it below.
+      const admitted = this.#sessions.get(threadId)
+      if (
+        admitted &&
+        record.state === "ready" &&
+        !this.#retired.has(threadId) &&
+        admitted.workspace.ready.reference.operationId === record.intent.operationId &&
+        admitted.workspace.source.digest === record.intent.sourceDigest
+      ) {
+        const expiresAt = record.ready?.provenance.retention.expiresAt
+        if (expiresAt && Date.parse(expiresAt) <= this.#now())
+          throw new WorkspaceLifecycleError("expired", "Workspace retention deadline has passed")
+        admitted.lastUsedAt = this.#now()
+        return this.#handle(threadId, admitted.session.handle)
+      }
       const source = installation.sources.get(record.intent.sourceDigest)
       if (!source) throw new WorkspaceLifecycleError("lost", "Workspace initial source is missing")
       verifyCapturedWorkspaceDefinition({
@@ -228,6 +247,10 @@ export class ManagedWorkspaceManager {
           "Provider returned a mismatched workspace session",
         )
       const operationId = record.intent.operationId
+      // The bundle was verified above; index it once rather than re-verifying the
+      // whole bundle for every file read. A miss (unknown or non-canonical path)
+      // falls through to readSourceFile for its validation and error.
+      let initialFiles: Map<string, string> | undefined
       const workspace = Object.freeze({
         ready,
         source,
@@ -236,7 +259,10 @@ export class ManagedWorkspaceManager {
           const current = installation.associations.get(threadId)
           if (current?.state !== "ready" || current.intent.operationId !== operationId)
             throw new Error("Workspace source is no longer admitted")
-          return readSourceFile(source, path)
+          initialFiles ??= new Map(source.files.map((file) => [file.path, file.base64]))
+          const base64 = typeof path === "string" ? initialFiles.get(path) : undefined
+          if (base64 === undefined) return readSourceFile(source, path)
+          return new Uint8Array(Buffer.from(base64, "base64"))
         },
       })
       const admittedSession = {
