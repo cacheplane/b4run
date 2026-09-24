@@ -1,4 +1,5 @@
 import { join } from "node:path"
+import { createTwoFilesPatch } from "diff"
 import { bundleDigest } from "../domain/digest.js"
 import type { Bundle, Candidate, Receipt, WorkOrderRow } from "../domain/work-order.js"
 import { readGeneratedTask } from "../intake/generated-task.js"
@@ -26,6 +27,25 @@ export interface OperatorReview {
    * another. Non-empty means the review refuses after displaying.
    */
   readonly problems: readonly string[]
+}
+
+/**
+ * The bytes a changed path had at the commit the candidate is diffed against, read once:
+ * `absent` when the commit has no such file (a file the candidate adds), `unavailable` when
+ * the commit itself cannot be read (not in the object store, no repository), with the reason.
+ */
+export type PinnedFile =
+  | { readonly kind: "bytes"; readonly bytes: Buffer }
+  | { readonly kind: "absent" }
+  | { readonly kind: "unavailable"; readonly reason: string }
+
+/** Where the export review's diff comes from: a label for the old side, and each path's bytes. */
+export interface DiffBase {
+  /** e.g. `pin 6a59e00aed46`; the old side's header in every hunk. */
+  readonly label: string
+  /** A line said once above the diffs, when the base is not exactly the builder's baseline. */
+  readonly note?: string
+  read(path: string): PinnedFile
 }
 
 /**
@@ -168,10 +188,54 @@ export async function intakeReview(input: {
 }
 
 /**
+ * One changed file as the reviewer reads it: a unified diff of the candidate's bytes (the ones
+ * the bundle digest covers, exactly as the export writes them) against the base's bytes for
+ * that path, read once. A file the base does not have is shown all-added. When the base cannot
+ * be read the whole file is shown, with a line saying why: a reviewer is never shown less than
+ * the change.
+ */
+function changedFile(path: string, content: string, base: DiffBase | undefined): string {
+  if (base === undefined) return block(`${path} (the whole file as the export writes it)`, content)
+  const old = base.read(path)
+  if (old.kind === "unavailable")
+    return block(
+      `${path} (the whole file as the export writes it: no diff, because ${old.reason})`,
+      content,
+    )
+  let before = ""
+  if (old.kind === "bytes") {
+    try {
+      before = utf8.decode(old.bytes)
+    } catch {
+      return block(
+        `${path} (the whole file as the export writes it: no diff, because the ${base.label} copy is not valid UTF-8)`,
+        content,
+      )
+    }
+  }
+  if (before === content) return `==> ${path}\n(identical to ${base.label})\n\n`
+  const patch = createTwoFilesPatch(
+    old.kind === "absent" ? "/dev/null" : `a/${path}`,
+    `b/${path}`,
+    before,
+    content,
+    base.label,
+    "candidate",
+    { context: 3 },
+  )
+  // The patch's own `Index`/`=====` preamble is dropped: the `==>` title names the file.
+  const body = patch.slice(patch.indexOf("--- "))
+  const kind =
+    old.kind === "absent" ? `new file, not in ${base.label}` : `diff against ${base.label}`
+  return block(`${path} (${kind})`, body)
+}
+
+/**
  * The review of a bundle parked in `awaiting_approval`: the candidate's changed files (the
  * bytes the export writes, read from the artifact store, which re-hashes them against the
- * candidate's record), the receipt with its check output, and the frozen bundle, whose digest
- * is recomputed from the payload shown.
+ * candidate's record), each as a diff against `base` when one is given, the receipt with its
+ * check output, and the frozen bundle, whose digest is recomputed from the payload shown. The
+ * diff is only the display: what is digested and approved is the bundle, as before.
  */
 export async function exportReview(input: {
   readonly row: WorkOrderRow
@@ -179,6 +243,8 @@ export async function exportReview(input: {
   readonly receipt: Receipt | null
   readonly bundle: Bundle | null
   readonly artifacts: ArtifactStore
+  /** What the candidate's files are diffed against; absent, each file is shown whole. */
+  readonly base?: DiffBase
 }): Promise<OperatorReview> {
   const { row, candidate, receipt, bundle } = input
   const problems: string[] = []
@@ -190,16 +256,14 @@ export async function exportReview(input: {
     text += `--- Candidate ${candidate.digest}: ${candidate.changedPaths.length} changed path(s), ${candidate.bytes} bytes\n`
     text += `    baseline ${candidate.baselineDigest}, artifact ${candidate.artifactDigest}\n\n`
     try {
-      // Whole files, not a diff: the baseline they replace is the controller's own capture of
-      // the target, which this process does not take.
       const changes = JSON.parse(await input.artifacts.read(candidate.artifactDigest)) as Record<
         string,
         unknown
       >
+      if (input.base?.note) text += `${input.base.note}\n\n`
       for (const path of Object.keys(changes).sort()) {
         const content = changes[path]
-        if (typeof content === "string")
-          text += block(`${path} (the whole file as the export writes it)`, content)
+        if (typeof content === "string") text += changedFile(path, content, input.base)
         else {
           problems.push(`The candidate's entry for ${path} is not file content`)
           text += `==> ${path}\n(not file content)\n\n`

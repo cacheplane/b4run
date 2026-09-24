@@ -396,7 +396,7 @@ The CLI's write commands are requests to the running controller
     factory events <id>
     factory evidence <id>
     factory list
-    factory review <id>                                    # shows the candidate, receipt and bundle; type its first 8 hex digits
+    factory review <id>                                    # diffs the candidate against the pin, shows receipt and bundle; type its first 8 hex digits
     factory review <id> --reject --note "..."              # or deny it
     factory cancel <id>
     factory reconcile
@@ -404,8 +404,12 @@ The CLI's write commands are requests to the running controller
 **Reviewing.** `factory review <id>` is how a person approves. For a draft parked in
 `awaiting_intake_approval` it prints every file of the generated task (`issue.md`, `spec.md`,
 `task.json`, `checks.json` and the check file) and the oracle proof's receipt with its check
-output; for a bundle parked in `awaiting_approval` it prints the candidate's changed files
-(whole, as the export writes them), the receipt with its check output, and the frozen bundle.
+output; for a bundle parked in `awaiting_approval` it prints a unified diff of each changed
+file against the work order's pin, the receipt with its check output, and the frozen bundle.
+The pin's files come from the object store `create` uses (`FACTORY_REPO_ROOT`, else this
+checkout; a missing pin is fetched as the catalog does, unless `FACTORY_NO_FETCH=1`). When the
+pin cannot be read the file is shown whole, with a line saying why. The diff is only the
+display: it is of the candidate bytes the bundle covers, and the digest is the bundle's.
 Each file is read once, and the digest is computed from the bytes that were printed: the task
 digest over the task files, the bundle digest over the bundle payload. If that digest is not the
 row's, or a piece of evidence does not hash to its name, review refuses and sends nothing. At a

@@ -300,10 +300,18 @@ approval is refused; non-TTY without `--digest` refuses; the prefix must match.
 > The intake display is every file the digest covers (`issue.md`, `spec.md`, `task.json`,
 > `checks.json`, the check file) plus the oracle receipt and each check's output from the
 > artifact store. The export display recomputes `bundleDigest` from the payload it printed and
-> cross-checks the candidate and receipt it printed against it. Deviations: (1) the export
-> shows the candidate's changed files **whole**, not a diff: the baseline is the controller's
-> own capture of the target, which the CLI does not take, so a unified diff would need a new
-> route or a second capture; (2) `review --reject --note` on an export is `deny`, whose route
+> cross-checks the candidate and receipt it printed against it. Each changed file is shown as
+> a unified diff (the example's existing `diff` dependency) of the candidate's bytes against
+> the target's file at the work order's pin (the target's pin for a catalog work order), read
+> once with `git ls-tree`/`git cat-file` from the object store `create` uses; a path the pin
+> lacks is shown all-added. The diff is display only: the digest and every refusal are still
+> over the bundle. Deviations: (1) the diff base is the pin, not the controller's captured
+> baseline, which the CLI does not take: for a catalog task with a `defect.patch` the diff
+> also shows the defect being undone, and the review says so above the diffs. Loading the
+> task's target ensures its pin as the catalog always does (fetched on a miss unless
+> `FACTORY_NO_FETCH=1`); a pin that still cannot be read falls back to the whole file, with a
+> line saying why. The candidate model has no deletions, so there is no deleted-file case;
+> (2) `review --reject --note` on an export is `deny`, whose route
 > takes no note, so the note is echoed in the output and not journalled; (3) review also
 > refuses, after displaying, when an evidence artifact does not hash to its name, a file is
 > not UTF-8, or the bundle names a different candidate or receipt than the one shown; an
@@ -315,7 +323,8 @@ approval is refused; non-TTY without `--digest` refuses; the prefix must match.
 > pipe, like the CLI's other test-only variables. Proof: three CLI tests in `cli.test.ts`
 > against `serve-controller.ts` (intake review with the raced edit, the pre-edit refusal, the
 > wrong prefix, non-TTY and wrong `--digest` refusals and nothing-to-review; the scripting and
-> reject paths; the export review, approval and deny).
+> reject paths; the export review with the pin diff's hunk and the unreadable-pin fallback,
+> approval and deny).
 
 ---
 

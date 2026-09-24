@@ -17,6 +17,7 @@ import {
 } from "./lib/intake/issue.js"
 import { openRegistryReader } from "./lib/registry/reader.js"
 import { exportReview, intakeReview, type OperatorReview } from "./lib/review/operator-review.js"
+import { pinDiffBase } from "./lib/review/pin-diff-base.js"
 import type { RouteOutcome } from "./lib/routes/outcome.js"
 import { createArtifactStore } from "./lib/storage/artifacts.js"
 import {
@@ -77,7 +78,9 @@ checks.json, checks/, issue.md).
 review shows what an approval covers and approves exactly that. For a draft parked in
 awaiting_intake_approval it prints every file of the task directory and the oracle proof's
 output, and digests the bytes it printed; for a bundle parked in awaiting_approval it prints
-the candidate's changed files, the receipt with its check output and the frozen bundle, and
+a unified diff of each changed file against the work order's pin (read from the object store
+create uses, FACTORY_REPO_ROOT, never fetched; the whole file, with the reason, when the pin
+cannot be read), the receipt with its check output and the frozen bundle, and
 recomputes the bundle digest from the payload it printed. It refuses when what it printed does
 not digest to the row's. At a terminal it then asks for the digest's first eight hex digits
 and sends the revision and the full digest it displayed. Without one, --approve --digest
@@ -588,7 +591,9 @@ async function buildReview(id: string): Promise<OperatorReview | { row: WorkOrde
       oracleReceipt: evidence.oracleReceipt,
       artifacts,
     })
-  return exportReview({ row, ...evidence, artifacts })
+  // A generated task is loaded from the state directory, as the controller loads it.
+  configureCatalog({ generatedTasksDir: generatedTasksDirFor(stateDir) })
+  return exportReview({ row, ...evidence, artifacts, base: pinDiffBase(row) })
 }
 
 /** Send an export approval and follow it as `approve` does: re-verification outlives the request. */

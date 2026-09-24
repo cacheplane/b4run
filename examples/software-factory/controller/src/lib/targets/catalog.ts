@@ -375,7 +375,7 @@ function pinFetchDepth(repo: string): string[] {
   }
 }
 
-function commitExists(repo: string, pin: string): boolean {
+export function commitExists(repo: string, pin: string): boolean {
   try {
     execFileSync("git", ["-C", repo, "cat-file", "-e", `${pin}^{commit}`], {
       stdio: "ignore",

@@ -18,7 +18,12 @@ import { openRegistryReader } from "../src/lib/registry/reader.ts"
 import { loadTask, tasksDir } from "../src/lib/targets/catalog.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { BAD_DRAFTS, GOOD_DRAFT } from "./intake-fixtures.ts"
-import { FIRST_DRAFTER_THREAD, type ServedController, serveController } from "./serve-controller.ts"
+import {
+  FIRST_DRAFTER_THREAD,
+  FIRST_THREAD,
+  type ServedController,
+  serveController,
+} from "./serve-controller.ts"
 
 const run = promisify(execFile)
 // Resolved from the package's own node_modules rather than relying on `pnpm` being on PATH
@@ -806,8 +811,29 @@ esac
     expect(approved).toMatchObject({ ok: true, state: "received" })
   }, 120_000)
 
-  it("reviews an export: shows the candidate, the receipt and the bundle, and approves or denies it", async () => {
+  it("reviews an export: diffs the candidate against the pin, shows the receipt and the bundle, and approves or denies it", async () => {
     const { cli, spawn, env } = await boot()
+    // The candidate is the target's file at its pin with one line changed: the review must
+    // show that hunk, not the file. `cli-flags` records no pin on the row; its target's is used.
+    const target = loadTask("cli-flags").target
+    const { stdout: pinned } = await run("git", [
+      "-C",
+      packageRoot,
+      "show",
+      `${target.pin}:${target.root}/src/cli.ts`,
+    ])
+    const lines = pinned.split("\n")
+    const last = lines.indexOf("await program.parseAsync(process.argv)")
+    expect(last).toBeGreaterThan(5)
+    const repaired = pinned.replace(
+      "await program.parseAsync(process.argv)",
+      'await program.parseAsync(process.argv, { from: "node" })',
+    )
+    served?.workspace.set(FIRST_THREAD, {
+      "src/cli.ts": repaired,
+      "test/cli.test.ts": "spec\n",
+      "TASK.md": "task\n",
+    })
     const dispatchedOrder = async () => {
       const { json: created } = await cli("create", "--task", "cli-flags")
       const id = created.row.id as string
@@ -819,9 +845,31 @@ esac
     const wrong = await interactive(env, ["review", first.id], "zzzzzzzz")
     expect(wrong.code).toBe(1)
     expect(JSON.parse(wrong.stdout).message).toContain("does not match")
-    // The repaired file as the export writes it, the receipt, and the bundle with its digest.
-    expect(wrong.stderr).toContain("==> src/cli.ts")
-    expect(wrong.stderr).toContain("export const fixed = true")
+    // The hunk around the changed line against the pin, not the whole file; the receipt; and
+    // the bundle with its digest.
+    expect(wrong.stderr).toContain(`==> src/cli.ts (diff against pin ${target.pin.slice(0, 12)})`)
+    expect(wrong.stderr).toContain(`@@ -${last - 2},4 +${last - 2},4 @@`)
+    expect(wrong.stderr).toContain("-await program.parseAsync(process.argv)\n")
+    expect(wrong.stderr).toContain('+await program.parseAsync(process.argv, { from: "node" })')
+    expect(wrong.stderr).not.toContain(lines[0])
+    // A pin the object store cannot read: the whole file, and the reason there is no diff.
+    const emptyRepo = join(dir, "empty-repo")
+    await run("git", ["init", "-q", emptyRepo])
+    const fallback = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "review", first.id], {
+        env: { ...env, FACTORY_REPO_ROOT: emptyRepo, FACTORY_NO_FETCH: "1" },
+        cwd: packageRoot,
+      }),
+    )
+    expect(fallback.stderr).toContain(
+      "==> src/cli.ts (the whole file as the export writes it: no diff, because",
+    )
+    // The catalog loads the pin as `create` does; FACTORY_NO_FETCH=1 keeps it from fetching.
+    expect(fallback.stderr).toContain(
+      `pins ${target.pin}, which is not in the repository at ${emptyRepo} (FACTORY_NO_FETCH=1, not fetched)`,
+    )
+    expect(fallback.stderr).toContain(lines[0])
+    expect(fallback.stderr).toContain('await program.parseAsync(process.argv, { from: "node" })')
     expect(wrong.stderr).toContain("--- Verification: receipt rc-")
     expect(wrong.stderr).toContain(`Bundle digest of the payload above: ${first.bundle}`)
     const notTheBundle = await failing(
