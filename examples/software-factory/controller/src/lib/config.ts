@@ -50,6 +50,13 @@ export interface WorkerEndpoint {
    * the target's default pin, resolved from the catalog where it is used.
    */
   readonly pin?: string
+  /**
+   * The permission allow-lists in the target file the builder booted from, as the controller
+   * read it at its own boot: known only for the legacy pair (`FACTORY_BUILDER_TARGET`), whose
+   * file the controller reads. `dispatch` compares them with what the controller would write
+   * today and refuses a builder still running an older list.
+   */
+  readonly permissions?: Readonly<Record<string, readonly string[]>>
 }
 
 /** The drafter: the one process that runs `/intake#agent` for every issue work order. */
@@ -224,7 +231,11 @@ export function workerEndpointFor(
  * from, parsed with the same schema, so the controller routes to that builder exactly the
  * work orders its resolver will admit, and compares each task's pin with the one it runs at.
  */
-function builderTargetOf(path: string): { readonly id: string; readonly pin: string } {
+function builderTargetOf(path: string): {
+  readonly id: string
+  readonly pin: string
+  readonly permissions: Readonly<Record<string, readonly string[]>>
+} {
   let text: string
   try {
     text = readFileSync(path, "utf8")
@@ -232,8 +243,8 @@ function builderTargetOf(path: string): { readonly id: string; readonly pin: str
     throw new Error(`FACTORY_BUILDER_TARGET could not be read (${path}): ${String(error)}`)
   }
   try {
-    const { id, pin } = BuilderTargetSchema.parse(JSON.parse(text)).target
-    return { id, pin }
+    const { id, pin, permissions } = BuilderTargetSchema.parse(JSON.parse(text)).target
+    return { id, pin, permissions }
   } catch (error) {
     throw new Error(
       `FACTORY_BUILDER_TARGET is not a builder target file (${path}): ${error instanceof z.ZodError ? z.prettifyError(error) : String(error)}`,
@@ -318,7 +329,7 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
       throw invalid(
         "FACTORY_BUILDER_TARGET is required with FACTORY_WORKER_URL: the target file that builder boots from (`factory builder-target`), which names the one target it serves",
       )
-    let builderTarget: { readonly id: string; readonly pin: string }
+    let builderTarget: ReturnType<typeof builderTargetOf>
     try {
       builderTarget = builderTargetOf(e.FACTORY_BUILDER_TARGET)
     } catch (error) {
@@ -327,6 +338,7 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
     workers = {
       [builderTarget.id]: {
         pin: builderTarget.pin,
+        permissions: builderTarget.permissions,
         url: e.FACTORY_WORKER_URL.replace(/\/$/, ""),
         appRoot: e.FACTORY_BUILDER_APP_ROOT,
         route: e.FACTORY_WORKER_ROUTE,

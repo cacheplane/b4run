@@ -37,11 +37,18 @@ export interface AssemblyPolicy {
 /**
  * A line a model writes in place of text it did not reproduce: `... (file truncated,
  * unchanged)`, `// rest of the file unchanged`, `(unchanged)`. The first live run's builder
- * wrote the first of these at line 670 of a 3,644-line file it had rewritten whole. Matched
- * only on lines the baseline does not already contain, so a file that legitimately says
- * "unchanged)" somewhere is not refused for it.
+ * wrote the first of these at line 670 of a 3,644-line file it had rewritten whole.
+ *
+ * Two shapes. `... (truncated` is refused wherever it appears. Anything else only when the
+ * line is essentially nothing BUT a placeholder, optionally commented: prose that happens to
+ * say "unchanged)" is code, and the `cli` target has two such comments
+ * (`execute-route-core.ts:1190`, `middleware-node.ts:104`). And only on lines the baseline
+ * does not already contain.
  */
-export const ELISION_PATTERN = /\.\.\. ?\((?:file )?truncated|rest of (?:the )?file|unchanged\)/i
+export const ELISION_ANYWHERE = /\.\.\.\s*\(\s*(?:file\s+)?truncated/i
+export const ELISION_LINE =
+  /^\s*(?:\/\/|\/\*|#|\*)?\s*(?:\.\.\.\s*)?(?:\(?(?:file\s+)?truncated|(?:the\s+)?rest of (?:the\s+)?file(?:\s+unchanged)?|\(?unchanged\)?)[\s.)*/]*$/i
+const isElision = (line: string): boolean => ELISION_ANYWHERE.test(line) || ELISION_LINE.test(line)
 
 /**
  * A changed file smaller than this fraction of its baseline is a file the builder did not
@@ -63,7 +70,7 @@ export function elisionIn(
   const baselineLines = new Set(before.split("\n"))
   const lines = after.split("\n")
   for (const [index, line] of lines.entries())
-    if (!baselineLines.has(line) && ELISION_PATTERN.test(line))
+    if (!baselineLines.has(line) && isElision(line))
       return {
         rule: "elided",
         detail: `line ${index + 1} is an elision placeholder: ${JSON.stringify(line.trim().slice(0, 120))}`,

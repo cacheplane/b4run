@@ -148,6 +148,26 @@ describe("assembleCandidate", () => {
       expect(rejection([...lines.slice(0, 199), placeholder].join("\n"))?.rule).toBe("elided")
     })
 
+    it.each([
+      // packages/cli/src/lib/runtime/execute-route-core.ts:1190
+      "      // per-request resolution (the testing harness path, unchanged).",
+      // packages/cli/src/lib/dev/middleware-node.ts:104
+      " *   • every candidate definitively absent      -> undefined (no gate; unchanged)",
+      "const rest = [...items]",
+      "  return { ...state, done: true }",
+    ])("does not refuse code or prose that merely mentions it: %j", (line) => {
+      const lines = large.split("\n")
+      expect(rejection([...lines.slice(0, 199), line].join("\n"))).toBeUndefined()
+    })
+
+    it("refuses `... (truncated` wherever it appears on a line", () => {
+      const lines = large.split("\n")
+      expect(
+        rejection([...lines.slice(0, 199), "export const x = 1 // ... (truncated here"].join("\n"))
+          ?.rule,
+      ).toBe("elided")
+    })
+
     it("does not refuse a placeholder-like line the baseline already had", () => {
       const before = `${large}\n// (unchanged)`
       expect(rejection(before.replace("value0 = 0", "value0 = 1"), before)).toBeUndefined()

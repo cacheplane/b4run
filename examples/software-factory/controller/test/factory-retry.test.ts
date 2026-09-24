@@ -4,6 +4,8 @@ import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { afterEach, describe, expect, it } from "vitest"
 import { createFactory, type Factory, type FactoryOptions } from "../src/lib/controller/factory.ts"
+import { loadTask } from "../src/lib/targets/catalog.ts"
+import { builderPermissions } from "../src/lib/targets/permissions.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier, type FakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
@@ -42,6 +44,7 @@ const repaired = (cli = REPAIRED) => ({
 async function boot(
   options: Omit<FakeWorkerOptions, "outboxDir"> = {},
   overrides: Partial<FactoryOptions> = {},
+  permissions?: Readonly<Record<string, readonly string[]>>,
 ) {
   dir = mkdtempSync(join(tmpdir(), "factory-retry-"))
   mkdirSync(join(dir, "out"), { recursive: true })
@@ -53,7 +56,13 @@ async function boot(
     registryPath: join(dir, "registry.sqlite"),
     generatedTasksDir: join(dir, "tasks"),
     captureRoot: dir,
-    workers: fakeWorkerMap({ builder: { client: createHttpWorkerClient(fake.baseUrl), reader } }),
+    workers: fakeWorkerMap({
+      builder: {
+        client: createHttpWorkerClient(fake.baseUrl),
+        reader,
+        ...(permissions !== undefined ? { permissions } : {}),
+      },
+    }),
     writeBuilderManifest: async (input) => {
       manifestsWritten.push(input.workOrderId)
       return noopBuilderManifestWriter(input)
@@ -89,6 +98,19 @@ async function dispatchAndSettle(id: string, files: Record<string, string> = rep
   const threadId = dispatched.workerThreadId as string
   reader.set(threadId, files)
   return { threadId, row: await factory.waitFor(id, (r) => settled(r.state), 20_000) }
+}
+
+/** Test-only writes to the registry, for rows no public path reaches cheaply. */
+function setColumns(id: string, columns: Record<string, string | number | null>) {
+  const db = new DatabaseSync(join(dir, "registry.sqlite"))
+  try {
+    const names = Object.keys(columns)
+    db.prepare(
+      `UPDATE work_orders SET ${names.map((n) => `${n} = ?`).join(", ")}, revision = revision + 1 WHERE id = ?`,
+    ).run(...names.map((n) => columns[n] ?? null), id)
+  } finally {
+    db.close()
+  }
 }
 
 /** Put a row where only another phase could have left it: a test-only write to the registry. */
@@ -250,14 +272,58 @@ describe("retry", () => {
     ).toBe(false)
   })
 
-  it("retries once per blocked revision, whatever the caller repeats", async () => {
+  it("replays a spent key's outcome instead of refusing from the row it left behind", async () => {
     await boot({ run: "unexpected_interrupt" })
     const { id } = await factory.create({ taskId: "cli-flags" })
     await dispatchAndSettle(id)
-    expect((await factory.retry(id, "retry-1")).ok).toBe(true)
-    // From `received` there is nothing to retry, and the refusal says so.
-    expect((await factory.retry(id, "retry-1")).message).toBe("Cannot retry from received")
+    const first = await factory.retry(id, "retry-1")
+    expect(first.ok).toBe(true)
+    // The row is `received` now; the same key still answers with what it did.
+    expect(await factory.retry(id, "retry-1")).toEqual(first)
     expect(factory.events(id).filter((e) => e.type === "retry")).toHaveLength(1)
+    // A fresh key from `received` is refused, and under that key.
+    expect((await factory.retry(id, "retry-2")).message).toBe("Cannot retry from received")
+    expect((await factory.retry(id, "retry-2")).message).toBe("Cannot retry from received")
+  })
+
+  it("refuses a retry, and a later dispatch, when less than two verifications of budget is left", async () => {
+    // cli-flags verifies within 300000 ms, so an attempt needs 600000 left.
+    await boot({ run: "unexpected_interrupt" }, { maxActiveMs: 700_000 })
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await dispatchAndSettle(id)
+    setColumns(id, { active_ms: 200_000 })
+    const refused = await factory.retry(id)
+    expect(refused).toMatchObject({ ok: false, state: "blocked" })
+    expect(refused.message).toContain("has 500000 ms of its active budget left")
+    expect(refused.message).toContain("FACTORY_MAX_ACTIVE_MS")
+    expect(fake.requests.some((r) => r.path.endsWith("/resume"))).toBe(false)
+    // A row that reached `received` with an attempt spent is held to the same rule.
+    setColumns(id, { state: "received", blocked_reason: null, worker_thread_id: null })
+    const dispatch = await factory.dispatch(id)
+    expect(dispatch).toMatchObject({ ok: false, state: "received" })
+    expect(dispatch.message).toContain("has 500000 ms of its active budget left")
+    expect(
+      factory.events(id).filter((e) => e.type === "budget_below_verifier_deadline"),
+    ).toHaveLength(2)
+  })
+})
+
+describe("a stale builder target file", () => {
+  it("refuses dispatch, unspent, when the builder's allow-list is not the one the controller writes", async () => {
+    await boot({}, {}, { bash: ["npm test", "node ", "cat", "ls", "head"] })
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    const refused = await factory.dispatch(id)
+    expect(refused).toMatchObject({ ok: false, state: "received" })
+    expect(refused.message).toContain("target file is stale")
+    expect(refused.message).toContain("bash:sed -n")
+    expect(refused.message).toContain("fresh `factory builder-target`")
+    expect(fake.requests.some((r) => r.path === "/threads")).toBe(false)
+  })
+
+  it("dispatches when the builder's allow-list is current", async () => {
+    await boot({}, {}, { ...builderPermissions(loadTask("cli-flags").target) })
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    expect((await dispatchAndSettle(id)).row.state).toBe("awaiting_approval")
   })
 })
 

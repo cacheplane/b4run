@@ -31,8 +31,10 @@ describe("loadConfig", () => {
         route: "/build#agent",
         // The builder's FACTORY_BUILDER_MANIFEST_DIR default, under its app root.
         manifestDir: "/tmp/builder/.factory/manifests",
-        // Read from the target file the builder boots from: the pin it runs at.
+        // Read from the target file the builder boots from: the pin it runs at, and the
+        // allow-lists it runs with, which `dispatch` compares with what it would write now.
         pin: shippedPin("cli-flags"),
+        permissions: JSON.parse(readFileSync(cliFlagsTarget, "utf8")).target.permissions,
       },
     })
   })

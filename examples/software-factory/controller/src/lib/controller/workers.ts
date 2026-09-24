@@ -28,6 +28,11 @@ export interface TargetWorker {
    * pin. `dispatch` compares each task's pin with it, and the reader addresses its image.
    */
   readonly pin?: string
+  /**
+   * The allow-lists of the target file the builder booted from, when the controller read that
+   * file (the legacy pair); absent otherwise. `dispatch` refuses a builder whose list is stale.
+   */
+  readonly permissions?: Readonly<Record<string, readonly string[]>>
 }
 
 /** The drafter as the controller talks to it. */
@@ -128,6 +133,7 @@ export function createWorkerMap(
       appRoot: entry.appRoot,
       manifestDir: entry.manifestDir,
       ...(entry.pin !== undefined ? { pin: entry.pin } : {}),
+      ...(entry.permissions !== undefined ? { permissions: entry.permissions } : {}),
     }
   }
   // A getter, not a spread over one: spreading would read it at boot.

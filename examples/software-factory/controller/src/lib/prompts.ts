@@ -42,7 +42,7 @@ export function builderRules(task: Task): string[] {
   return [
     "Change an existing file with `editFile`, which replaces one exact span of its text with another. Never rewrite an existing file with `writeFile`: every file you may change already exists, and rewriting one whole loses whatever you did not reproduce.",
     "Read a large file in ranges: `readFile` with `startLine` and `endLine`, or find the lines with `grep -n` and read around them with `sed -n '<from>,<to>p'`. Do not read a large file whole.",
-    "Never write placeholder or elision text into a file (`...`, `(file truncated)`, `rest of the file unchanged`): every line you write is the file's content. A changed file carrying such a line, or smaller than half its original size, is refused before it is tested.",
+    "Never write placeholder or elision text into a file (a line such as `...` standing in for omitted code, `(file truncated)`, `rest of the file unchanged`): every line you write is the file's content. A changed file carrying such a line, or smaller than half its original size, is refused before it is tested.",
     `Run ${named} above to confirm the repair before you stop.`,
     `The commands you may run are ${named} above, exactly as written (appending flags is fine), and commands starting with ${others.join(", ")}. Any other command is refused with an error; do not retry it under another name or through \`bash -c\`.`,
     "Your tools are readFile, listDir, editFile, writeFile and runBash.",
@@ -75,7 +75,7 @@ export function taskPrompt(task: Task): string {
   )
   sentences.push(
     "Do not edit any test or configuration.",
-    "When the repair is complete and the build and tests pass, stop and say so.",
+    `When the repair is complete and ${commands.build.length > 0 ? "the build and tests pass" : "the tests pass"}, stop and say so.`,
   )
   const rules = builderRules(task).map((rule) => `- ${rule}`)
   return [sentences.join(" "), "", "Rules:", ...rules].join("\n")
@@ -187,6 +187,12 @@ export function intakePrompt(input: {
   readonly pin: string
   readonly issueText: string
   readonly note?: string
+  /**
+   * The maintainer's notes from rejecting earlier drafts of the SAME issue on other work
+   * orders, newest first (`carriedDecisions`): what a reviewer decided about the issue (which
+   * status an empty result answers with, say) outlives the work order it was written on.
+   */
+  readonly decisions?: readonly string[]
   /** Test-only: where the targets are looked up; the shipped catalog otherwise. */
   readonly catalog?: Pick<CatalogOptions, "targetsDir" | "repositoryRoot">
 }): string {
@@ -204,6 +210,15 @@ export function intakePrompt(input: {
     ].join("\n"),
     ["## The issue", "", input.issueText.replace(/\n*$/, "")].join("\n"),
   ]
+  if (input.decisions !== undefined && input.decisions.length > 0)
+    sections.push(
+      [
+        "## Maintainer decisions from earlier reviews of this issue",
+        "",
+        "A person reviewing an earlier draft of this same issue rejected it with these notes, newest first. They are decisions about the issue, not about that draft: honour them.",
+        ...input.decisions.map((decision) => `\n> ${decision.replace(/\n/g, "\n> ")}`),
+      ].join("\n"),
+    )
   if (input.note !== undefined)
     sections.push(
       [

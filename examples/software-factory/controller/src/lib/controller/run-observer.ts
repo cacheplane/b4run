@@ -113,15 +113,32 @@ export async function denyPending(
   const pending = await worker.client.pendingInterrupts(row.workerThreadId)
   if (pending.length === 0) return
   ctx.recordEvent(id, "pending_denied", { interruptIds: pending.map((p) => p.interruptId) })
-  const frames = await worker.client.resume(
-    row.workerThreadId,
-    worker.route,
-    pending.map((p) => ({ interruptId: p.interruptId, payload: "deny" as const })),
-    ctx.signal,
-  )
-  if (options.cancel) {
+  if (!options.cancel) {
+    const frames = await worker.client.resume(
+      row.workerThreadId,
+      worker.route,
+      pending.map((p) => ({ interruptId: p.interruptId, payload: "deny" as const })),
+      ctx.signal,
+    )
+    await consumeTurn(frames, {})
+    return
+  }
+  // Abandoning the thread: the resumed stream is closed whatever happens, through its own
+  // signal, so a turn nobody will read holds no connection open. Only an `interrupted` run
+  // is drained, and that drain is the cancelled turn's last frames; `no_run_in_flight` (the
+  // run already ended, or has not been admitted yet) is not waited on at all.
+  const local = new AbortController()
+  try {
+    const frames = await worker.client.resume(
+      row.workerThreadId,
+      worker.route,
+      pending.map((p) => ({ interruptId: p.interruptId, payload: "deny" as const })),
+      AbortSignal.any([ctx.signal, local.signal]),
+    )
     const result = await worker.client.cancel(row.workerThreadId)
     ctx.recordEvent(id, "worker_cancel", { result, phase: "deny" })
+    if (result === "interrupted") await consumeTurn(frames, {})
+  } finally {
+    local.abort()
   }
-  await consumeTurn(frames, {})
 }

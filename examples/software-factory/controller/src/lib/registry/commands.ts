@@ -23,6 +23,12 @@ export interface CommandLog {
    * Throws if `operationKey` was already used with a different intent.
    */
   begin(operationKey: string, workOrderId: string, intent: CommandIntent, now: string): BeginResult
+  /**
+   * The recorded outcome under `operationKey`, or null when the key is unused or still in
+   * flight. Read-only: for a command whose pre-key refusals must not shadow a spent key's
+   * replay.
+   */
+  outcome(operationKey: string): CommandOutcome | null
   /** Record the outcome. Throws if the key is unknown or already has an outcome. */
   complete(operationKey: string, outcome: CommandOutcome): void
   /** Intents committed without an outcome, oldest first (ties broken by insertion order). */
@@ -58,6 +64,13 @@ export function createCommandLog(db: DatabaseSync): CommandLog {
         "INSERT INTO commands (operation_key, work_order_id, command, intent, outcome, at) VALUES (?, ?, ?, ?, NULL, ?)",
       ).run(operationKey, workOrderId, intent.command, JSON.stringify(intent), now)
       return { status: "new" }
+    },
+    outcome(operationKey) {
+      const existing = db
+        .prepare("SELECT outcome FROM commands WHERE operation_key = ?")
+        .get(operationKey) as { outcome: string | null } | undefined
+      if (existing?.outcome == null) return null
+      return CommandOutcomeSchema.parse(JSON.parse(existing.outcome))
     },
     complete(operationKey, outcome) {
       CommandOutcomeSchema.parse(outcome)

@@ -53,6 +53,7 @@ import {
   prepareCommand,
   repositoryRoot,
 } from "../targets/catalog.js"
+import { builderPermissions } from "../targets/permissions.js"
 import { builderTarget } from "../targets/workspace.js"
 import { loadPolicy } from "../verification/policy.js"
 import type { Verifier } from "../verification/verifier.js"
@@ -309,6 +310,50 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     return `builder for ${target} runs at ${builderPin}, whose environment (${what}) differs from ${taskPin}: prepare ${target} at ${taskPin} (\`${prepareCommand(target, taskPin)}\`), then restart its builder from \`factory builder-target --target ${target} --pin ${taskPin}\` and set that pin on its worker entry; or cancel`
   }
   /**
+   * A builder still running an allow-list older than the one the controller would write for
+   * its target today. The allow-list lives in the target file the builder booted from, so a
+   * change to `builderPermissions` (the read commands the first live dispatch lacked) reaches
+   * no builder until its file is rewritten and it restarts; until then its prompt names
+   * commands its permissions refuse. Known only
+   * when the controller read the builder's target file (the legacy pair); undefined when the
+   * lists agree or cannot be compared.
+   */
+  const stalePermissionsRefusal = (
+    id: string,
+    taskId: string,
+    worker: { readonly pin?: string; readonly permissions?: TargetWorker["permissions"] },
+  ): string | undefined => {
+    if (worker.permissions === undefined) return undefined
+    const catalog = options.promptCatalog ?? {}
+    const { pin: _pin, ...unpinned } = catalog
+    let expected: Record<string, readonly string[]>
+    try {
+      expected = {
+        ...builderPermissions(
+          builderTarget(loadTask(taskId, catalog).target.id, worker.pin, unpinned),
+        ),
+      }
+    } catch {
+      // The environment check above already resolved this; a failure here is its to report.
+      return undefined
+    }
+    if (canon(expected) === canon(worker.permissions)) return undefined
+    const running = worker.permissions
+    const keys = [...new Set([...Object.keys(expected), ...Object.keys(running)])].sort()
+    const missing = keys.flatMap((key) =>
+      (expected[key] ?? [])
+        .filter((entry) => !(running[key] ?? []).includes(entry))
+        .map((entry) => `${key}:${entry}`),
+    )
+    const extra = keys.flatMap((key) =>
+      (running[key] ?? [])
+        .filter((entry) => !(expected[key] ?? []).includes(entry))
+        .map((entry) => `${key}:${entry}`),
+    )
+    recordEvent(id, "builder_permissions_stale", { missing, extra })
+    return `the builder's target file is stale: its permissions differ from what this controller writes (missing ${missing.length ? missing.join(", ") : "nothing"}; extra ${extra.length ? extra.join(", ") : "nothing"}). Restart the builder from a fresh \`factory builder-target\`, and the controller after it, then dispatch again`
+  }
+  /**
    * The prompt for `taskId`, or the Error saying why the catalog cannot serve it. Resolved
    * at the point of use and never at boot: one unprepared sibling target must not decide
    * whether the controller boots, and a task generated after boot is dispatchable the moment
@@ -543,6 +588,47 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     const verifierDeadlineMs = target.resources.verifierDeadlineMs
     if (2 * verifierDeadlineMs <= row.maxActiveMs) return undefined
     return { maxActiveMs: row.maxActiveMs, verifierDeadlineMs, targetId: target.id }
+  }
+  /**
+   * What is LEFT of the row's active budget against its target's verifier deadline, for a
+   * second or later candidate attempt. The budget is the work order's, fixed at create and not
+   * reset by `retry`: the intake and every earlier attempt have spent from it, and an attempt
+   * started on less than twice the verifier deadline can be cut off mid-verification. Checked
+   * by `retry` and by a `dispatch` after one; undefined when enough is left, or when the task
+   * does not load.
+   */
+  function remainingBudgetShortfall(row: WorkOrderRow):
+    | {
+        maxActiveMs: number
+        activeMs: number
+        remainingMs: number
+        verifierDeadlineMs: number
+        targetId: string
+      }
+    | undefined {
+    if (options.tasks) return undefined
+    let target: { id: string; resources: { verifierDeadlineMs: number } }
+    try {
+      target = loadTask(row.taskId, options.promptCatalog ?? {}).target
+    } catch {
+      return undefined
+    }
+    const verifierDeadlineMs = target.resources.verifierDeadlineMs
+    const remainingMs = row.maxActiveMs - row.activeMs
+    if (remainingMs >= 2 * verifierDeadlineMs) return undefined
+    return {
+      maxActiveMs: row.maxActiveMs,
+      activeMs: row.activeMs,
+      remainingMs,
+      verifierDeadlineMs,
+      targetId: target.id,
+    }
+  }
+  function remainingBudgetMessage(
+    id: string,
+    shortfall: NonNullable<ReturnType<typeof remainingBudgetShortfall>>,
+  ): string {
+    return `Work order ${id} has ${Math.max(0, shortfall.remainingMs)} ms of its active budget left (${shortfall.activeMs} ms spent of ${shortfall.maxActiveMs} ms, FACTORY_MAX_ACTIVE_MS when it was created), below twice target ${shortfall.targetId}'s verifier deadline (${2 * shortfall.verifierDeadlineMs} ms): another attempt could be cut off mid-verification. Cancel it and create a new work order with a larger FACTORY_MAX_ACTIVE_MS`
   }
   const workerFor = (row: WorkOrderRow): TargetWorker => {
     const targetId = targetOf(row)
@@ -1207,6 +1293,15 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
             }
         }
       }
+      // A later attempt starts from what is left of the budget, not from all of it: refused
+      // before the key, like the shortfall above, when that is less than a verification needs.
+      if (row.state === "received" && row.candidateAttempts > 0) {
+        const shortfall = remainingBudgetShortfall(row)
+        if (shortfall !== undefined) {
+          recordEvent(id, "budget_below_verifier_deadline", { phase: "dispatch", ...shortfall })
+          return { ok: false, state: row.state, message: remainingBudgetMessage(id, shortfall) }
+        }
+      }
       // The builder process boots from its target file, at ONE pin (the file's). A task at
       // another pin is built in that pin's image and verified in its own: allowed and
       // journalled where the two environments agree, refused before the key where they do
@@ -1215,7 +1310,10 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       if (row.state === "received" && !options.tasks && targetId !== undefined) {
         const worker = options.workers.forTarget(targetId)
         const refusal =
-          worker === undefined ? undefined : builderEnvironmentRefusal(id, row.taskId, worker)
+          worker === undefined
+            ? undefined
+            : (builderEnvironmentRefusal(id, row.taskId, worker) ??
+              stalePermissionsRefusal(id, row.taskId, worker))
         if (refusal !== undefined) return { ok: false, state: row.state, message: refusal }
       }
       const key = operationKey ?? `dispatch:${id}:${row.revision}`
@@ -1332,47 +1430,66 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     },
 
     async retry(id, operationKey) {
+      // A caller's key that already holds an outcome is replayed before anything else: the
+      // pre-key refusals below read the row as it is NOW, and after a successful retry that
+      // row is `received`, which would answer the replay with a refusal it never earned.
+      if (operationKey !== undefined) {
+        const spent = commands.outcome(operationKey)
+        if (spent !== null) return spent
+      }
       const row = mustGet(id)
-      // Every refusal, and the worker calls, come BEFORE the key is spent. The refusals are
-      // the row's own and repeat on their own; the worker calls are not a function of the
-      // revision, and an undelivered denial recorded under `retry:<id>:<revision>` would
-      // replay to the retry after the worker comes back. A denial that did land is
-      // idempotent: the next call finds nothing pending.
       const unspent = (message: string): CommandOutcome => ({
         ok: false,
         state: row.state,
         message,
       })
-      if (row.state !== "blocked") return unspent(`Cannot retry from ${row.state}`)
-      if (row.blockedReason === null || !RETRYABLE_BLOCKED_REASONS.has(row.blockedReason))
-        return unspent(
-          `Cannot retry a work order blocked by ${row.blockedReason ?? "nothing"}: only a candidate failure is retried; cancel it instead`,
-        )
-      if (row.candidateAttempts >= row.maxCandidateAttempts) return unspent(noAttemptsLeft(row))
-      if (row.workerThreadId !== null) {
-        // The old builder thread is abandoned, not reused: its workspace holds the failed
-        // candidate. A prompt still parked on it is denied, so no turn waits on an answer
-        // nobody will give, and whatever run is left on it is cancelled. The row's thread is
-        // the builder's (a retryable block is always the builder phase's), so the denial
-        // resumes on the builder's route.
-        let worker: WorkerClient
-        try {
-          worker = workerOfThread(row).client
-          await denyPending(ctx, id, { cancel: true })
-          const result = await worker.cancel(row.workerThreadId)
-          recordEvent(id, "worker_cancel", { result, phase: "retry" })
-        } catch (error) {
-          recordEvent(id, "retry_release_failed", {
-            threadId: row.workerThreadId,
-            error: String(error),
-          })
-          return unspent(`The old builder thread could not be released: ${String(error)}`)
+      // Only a blocked row reaches the worker, and its refusals come BEFORE the key is spent:
+      // the attempt cap and the budget are refusals an operator reads and acts on, and the
+      // worker calls are not a function of the revision — an undelivered denial recorded
+      // under `retry:<id>:<revision>` would replay to the retry after the worker comes back.
+      // A denial that did land is idempotent: the next call finds nothing pending. Any other
+      // state is refused under the key below, like every other command's wrong-state refusal.
+      if (row.state === "blocked") {
+        if (row.blockedReason === null || !RETRYABLE_BLOCKED_REASONS.has(row.blockedReason))
+          return unspent(
+            `Cannot retry a work order blocked by ${row.blockedReason ?? "nothing"}: only a candidate failure is retried; cancel it instead`,
+          )
+        if (row.candidateAttempts >= row.maxCandidateAttempts) return unspent(noAttemptsLeft(row))
+        const shortfall = remainingBudgetShortfall(row)
+        if (shortfall !== undefined) {
+          recordEvent(id, "budget_below_verifier_deadline", { phase: "retry", ...shortfall })
+          return unspent(remainingBudgetMessage(id, shortfall))
+        }
+        if (row.workerThreadId !== null) {
+          // The old builder thread is abandoned, not reused: its workspace holds the failed
+          // candidate. A prompt still parked on it is denied, so no turn waits on an answer
+          // nobody will give, and whatever run is left on it is cancelled. The row's thread is
+          // the builder's (a retryable block is always the builder phase's), so the denial
+          // resumes on the builder's route.
+          try {
+            const worker = workerOfThread(row).client
+            await denyPending(ctx, id, { cancel: true })
+            const result = await worker.cancel(row.workerThreadId)
+            recordEvent(id, "worker_cancel", { result, phase: "retry" })
+          } catch (error) {
+            recordEvent(id, "retry_release_failed", {
+              threadId: row.workerThreadId,
+              error: String(error),
+            })
+            return unspent(`The old builder thread could not be released: ${String(error)}`)
+          }
         }
       }
       const key = operationKey ?? `retry:${id}:${row.revision}`
       const begun = commands.begin(key, id, { command: "retry", args: {} }, iso())
       if (begun.status === "done") return begun.outcome
       if (begun.status === "in_flight") throw new CommandInFlightError(key)
+      if (row.state !== "blocked")
+        return finish(key, {
+          ok: false,
+          state: row.state,
+          message: `Cannot retry from ${row.state}`,
+        })
       let retried: WorkOrderRow
       try {
         retried = store.transaction(() => {

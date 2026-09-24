@@ -166,6 +166,8 @@ describe("taskPrompt's rules", () => {
     const rules = rulesOf(taskPrompt(loadTask("cli-flags")))
     expect(rules).toMatch(/Never write placeholder or elision text/)
     expect(rules).toContain("`(file truncated)`")
+    // Spread syntax is code, not elision: the rule names a line standing in for code.
+    expect(rules).toContain("a line such as `...` standing in for omitted code")
     expect(rules).toMatch(/refused before it is tested/)
   })
 
@@ -187,6 +189,8 @@ describe("taskPrompt's rules", () => {
     const rules = rulesOf(taskPrompt(task))
     expect(rules).toMatch(/Run the test command above to confirm/)
     expect(rules).not.toMatch(/build and test/)
+    expect(taskPrompt(task)).toContain("When the repair is complete and the tests pass")
+    expect(taskPrompt(task)).not.toContain("the build and tests pass")
   })
 })
 

@@ -1,13 +1,18 @@
 import { mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import type { BuilderTarget } from "../src/lib/builder-manifest.ts"
+import { loadTarget } from "../src/lib/targets/catalog.ts"
+import { builderPermissions } from "../src/lib/targets/permissions.ts"
 import { shippedPin } from "./temp-repo.ts"
 
 /**
  * A builder target file for `targetId`, as `factory builder-target` writes it, without the
  * catalog: the controller's config reads only the id out of it, and a test should not need
  * the target prepared (or its pin fetched) to name one. The pin is the shipped target's
- * default, where the builder a lane serves really runs. Returns the file's path.
+ * default, where the builder a lane serves really runs. The permissions are what the
+ * controller would write for the target at that default pin, so `dispatch` does not refuse
+ * the file as stale; at any other pin (never dispatched against here) a placeholder list.
+ * Returns the file's path.
  */
 export function writeTargetFile(
   dir: string,
@@ -26,7 +31,10 @@ export function writeTargetFile(
         env: {},
         resources: { memoryMb: 1024, cpus: 1, timeoutMs: 60_000 },
       },
-      permissions: { bash: ["npm test"] },
+      permissions:
+        pin === shippedPin(targetId)
+          ? { ...builderPermissions(loadTarget(targetId)) }
+          : { bash: ["npm test"] },
     },
   }
   mkdirSync(dir, { recursive: true })
