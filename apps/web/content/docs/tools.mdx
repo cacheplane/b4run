@@ -55,6 +55,7 @@ A top-level agent sees every tool available to it by default: its own `tools/*.t
 - **`deny`** removes a tool, so the model never sees it.
 - **`allow`** adds a withheld capability tool back.
 - **`deny` wins** when a name appears in both.
+- **Denying `writeFile` also withholds `editFile`**, since both write files. Name `editFile` in `allow` to keep it: `deny: ["writeFile"], allow: ["editFile"]` lets the model change existing files but not create new ones. It doesn't work the other way: an `allow` list that names `writeFile` doesn't grant `editFile`, so list each tool you want.
 - Leave out `tools` to keep the default set above.
 
 Here's a route that gets everything except the shell:
@@ -112,7 +113,7 @@ The prompt shows the call's arguments as a JSON preview, but the decision applie
 See [Permissions](/docs/permissions#per-tool-approval) for the full interrupt payload and resume flow.
 
 <Callout type="info" title="Don't list workspace tools in approve">
-  `runBash`, `readFile`, `writeFile`, and `listDir` already have their own pattern-based allow/deny gates (see [Permissions](/docs/permissions)). Adding them to `approve` would prompt twice, and `b4 check` warns if you do.
+  `runBash`, `readFile`, `writeFile`, `editFile`, and `listDir` already have their own pattern-based allow/deny gates (see [Permissions](/docs/permissions)). Adding them to `approve` would prompt twice, and `b4 check` warns if you do.
 </Callout>
 
 ### Constraining arguments

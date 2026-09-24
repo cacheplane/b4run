@@ -1,6 +1,6 @@
 # Execution Sandbox
 
-The execution sandbox runs workspace tools in an isolated filesystem, shell and network, away from the app's local `workspace/` directory. Add a `sandbox` key to `b4.config.ts`, and B4.run routes `readFile`, `writeFile`, `listDir` and `runBash` through a `SandboxProvider`. B4.run ships a Docker reference implementation, and other providers can implement the same interface. The built-in providers hash an application scope with each logical thread ID to name their resources. Your application still authorizes thread access.
+The execution sandbox runs workspace tools in an isolated filesystem, shell and network, away from the app's local `workspace/` directory. Add a `sandbox` key to `b4.config.ts`, and B4.run routes `readFile`, `writeFile`, `editFile`, `listDir` and `runBash` through a `SandboxProvider`. B4.run ships a Docker reference implementation, and other providers can implement the same interface. The built-in providers hash an application scope with each logical thread ID to name their resources. Your application still authorizes thread access.
 
 The sandbox is the third of four [access controls](/docs/access-control), after [tool scoping](/docs/tools#scoping-a-routes-tools) and [permissions](/docs/permissions) and before [guarded delegation](/docs/subagents#delegation-policy). It limits what an allowed call can touch.
 

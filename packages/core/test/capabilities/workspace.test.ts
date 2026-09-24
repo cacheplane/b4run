@@ -84,10 +84,10 @@ describe("createWorkspaceMarker — load", () => {
     rmSync(appRoot, { recursive: true, force: true })
   })
 
-  it("contributes exactly four tools when workspace/ exists", async () => {
+  it("contributes exactly five tools when workspace/ exists", async () => {
     const contribution = await createWorkspaceMarker().load(routeDir, ctx(appRoot))
     const names = (contribution.tools ?? []).map((t) => t.name).sort()
-    expect(names).toEqual(["listDir", "readFile", "runBash", "writeFile"])
+    expect(names).toEqual(["editFile", "listDir", "readFile", "runBash", "writeFile"])
   })
 
   it("contributes no tools when workspace/ is absent", async () => {
@@ -207,7 +207,7 @@ describe("createWorkspaceMarker — load", () => {
     )
   })
 
-  it("marks all four tools as overridable", async () => {
+  it("marks all five tools as overridable", async () => {
     const contribution = await createWorkspaceMarker().load(routeDir, ctx(appRoot))
     for (const t of contribution.tools ?? []) {
       expect((t as unknown as { overridable?: boolean }).overridable).toBe(true)

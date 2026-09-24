@@ -971,7 +971,7 @@ async function prepareRouteExecutionForInvocation(
 
   // When a SandboxManager is configured and we have a stable thread id, resolve
   // the thread's sandbox handle and route the workspace filesystem/exec (and the
-  // workspace root) into it. All of readFile/writeFile/listDir/runBash redirect
+  // workspace root) into it. All of readFile/writeFile/editFile/listDir/runBash redirect
   // into the isolated env with no capability-logic change.
   let sandboxBackends: { filesystem: FilesystemBackend; exec: ExecBackend } | undefined
   let sandboxWorkspaceRoot: string | undefined

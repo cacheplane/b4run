@@ -20,6 +20,7 @@ Four independent controls decide what a running route can do: tool scoping, perm
 - `deny` revokes a tool so it's never wired into the generated entry.
 - `allow` grants back a capability tool withheld from a subagent, such as `readFile` or `runBash`.
 - `deny` wins when a name appears in both.
+- Denying `writeFile` also withholds `editFile`, unless `allow` names `editFile`. An `allow` that names `writeFile` doesn't grant `editFile`.
 
 B4.run enforces this at composition time, so the model has no way to call a denied tool. Here's a route that removes `runBash`:
 
@@ -37,7 +38,7 @@ Two more gates ride the same interrupt machinery. `tools: { approve: [...] }` re
 
 ## Execution sandbox
 
-Even a tool that's allowed and approved still runs somewhere. By default that's the local `workspace/` directory on the host. Add a `sandbox` key to `b4.config.ts` and every `readFile`, `writeFile`, `listDir` and `runBash` call for a thread runs in an isolated environment: filesystem, shell and (optionally) network. B4.run ships a Docker reference provider and a [Kubernetes provider](/docs/sandbox/kubernetes) behind the same `SandboxProvider` interface. See [Execution Sandbox](/docs/sandbox) for what any provider guarantees.
+Even a tool that's allowed and approved still runs somewhere. By default that's the local `workspace/` directory on the host. Add a `sandbox` key to `b4.config.ts` and every `readFile`, `writeFile`, `editFile`, `listDir` and `runBash` call for a thread runs in an isolated environment: filesystem, shell and (optionally) network. B4.run ships a Docker reference provider and a [Kubernetes provider](/docs/sandbox/kubernetes) behind the same `SandboxProvider` interface. See [Execution Sandbox](/docs/sandbox) for what any provider guarantees.
 
 ## Guarded delegation
 
@@ -69,6 +70,7 @@ import researcher from "./subagents/researcher/index.js"
 export default agent({
   model: "gpt-5",
   systemPrompt: "…",
+  // Denying writeFile also withholds editFile, so this route can't write files.
   tools: { deny: ["writeFile"], approve: ["deployProd"] },
   subagents: { researcher },
   delegation: {
@@ -80,7 +82,7 @@ export default agent({
 ```
 
 <Callout type="info" title="Each control answers a separate question">
-  Tool scoping without a sandbox still lets an allowed `runBash` touch the whole host filesystem. A sandbox redirects only the four built-in workspace tools. Authored tools such as `deployProd` still execute in the app process and need their own least-privilege and isolation design. Permissions without a sandbox still pause for approval, but an approved workspace call runs on the host. Guarded delegation controls whether a child receives input. After the child starts, its own tool scope, permissions and sandbox decide what it can do.
+  Tool scoping without a sandbox still lets an allowed `runBash` touch the whole host filesystem. A sandbox redirects only the five built-in workspace tools. Authored tools such as `deployProd` still execute in the app process and need their own least-privilege and isolation design. Permissions without a sandbox still pause for approval, but an approved workspace call runs on the host. Guarded delegation controls whether a child receives input. After the child starts, its own tool scope, permissions and sandbox decide what it can do.
 </Callout>
 
 ## Related

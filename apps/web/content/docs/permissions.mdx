@@ -40,7 +40,7 @@ Matching depends on the gate:
 | Gate | Stored key | `suggestedPattern` granularity | Matching |
 |---|---|---|---|
 | Bash command | `bash` | The first two command tokens, such as `node scripts/fetch-source.mjs` | Prefix |
-| Filesystem path | The operation (`readFile`, `writeFile`, or `listDir`) | Canonical parent directory with a trailing slash | Prefix |
+| Filesystem path | The operation (`readFile`, `writeFile`, or `listDir`; `editFile` is gated as a `readFile` and a `writeFile`) | Canonical parent directory with a trailing slash | Prefix |
 | Memory write | `memory` | Workspace-and-route namespace with a trailing pipe character | Prefix |
 | Authored or capability tool approval | Reserved `tool` | Tool name | Exact |
 | Subagent approval | Reserved `subagent` | Serialized parent route id and parent-local child name | Exact |
@@ -123,7 +123,7 @@ export default {
 
 ### Coexistence with the bash and path gates
 
-`runBash`, `readFile`, `writeFile` and `listDir` keep their own pattern-aware allow/deny gates. Putting them in `approve` is redundant and would double-prompt. `b4 check` warns when a route's `approve` list:
+`runBash`, `readFile`, `writeFile`, `editFile` and `listDir` keep their own pattern-aware allow/deny gates. Putting them in `approve` is redundant and would double-prompt. `b4 check` warns when a route's `approve` list:
 
 - names one of these internally-gated tools (redundant, since they're already gated),
 - overlaps with `deny` (a dead entry, since deny wins), or
@@ -301,6 +301,6 @@ In `@b4run/testing`, use `expectInterrupt` and `harness.resume` to drive the app
 ## Related
 
 <RelatedCards items={[
-  { href: "/docs/workspace", title: "Workspace Filesystem", subtitle: "the runBash tool and the four agent-facing workspace tools" },
+  { href: "/docs/workspace", title: "Workspace Filesystem", subtitle: "the runBash tool and the five agent-facing workspace tools" },
   { href: "/docs/configuration", title: "Configuration Reference", subtitle: "b4.config.ts reference including the full permissions block" },
 ]} />

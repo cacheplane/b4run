@@ -1,5 +1,5 @@
 import type { MemoryWritesMode, RouteManifest } from "@b4run/core"
-import { BUILT_IN_TOOL_NAMES } from "@b4run/core"
+import { BUILT_IN_TOOL_NAMES, impliedToolDenials } from "@b4run/core"
 import { isB4Agent } from "@b4run/sdk"
 
 import { type NormalizedRouteModule, normalizeRouteModule } from "./load-route-kind.js"
@@ -18,7 +18,7 @@ export interface ToolScopeIssues {
 }
 
 /** Workspace tools with their own pattern-aware internal gates (bash/path). */
-const INTERNALLY_GATED = new Set(["runBash", "readFile", "writeFile", "listDir"])
+const INTERNALLY_GATED = new Set(["runBash", "readFile", "writeFile", "editFile", "listDir"])
 
 const BUILT_IN_TOOL_NAME_SET = new Set(BUILT_IN_TOOL_NAMES)
 
@@ -86,6 +86,9 @@ export async function collectToolScopeIssues(
     }
     const deny = new Set(scope.deny ?? [])
     const allow = new Set(scope.allow ?? [])
+    // Denying writeFile also withholds editFile (see resolveToolScope in
+    // @b4run/core); an approve/constrain entry for the implied tool is dead.
+    const impliedDeny = new Set(impliedToolDenials(scope))
     const routeIsSubagent = isSubagentRoute(route.routeDir)
     for (const name of scope.approve ?? []) {
       if (name === "task") continue
@@ -98,6 +101,12 @@ export async function collectToolScopeIssues(
       if (deny.has(name)) {
         warnings.push(
           `⚠ ${route.pathname}: approve lists "${name}" but deny revokes it — deny wins; the approve entry is dead.`,
+        )
+      }
+      if (impliedDeny.has(name)) {
+        warnings.push(
+          `⚠ ${route.pathname}: approve lists "${name}", but denying writeFile also withholds "${name}" — ` +
+            `the approve entry is dead. Add "${name}" to allow to keep it while writeFile stays denied.`,
         )
       }
       if (opts?.memoryWrites === "ask" && name === "remember") {

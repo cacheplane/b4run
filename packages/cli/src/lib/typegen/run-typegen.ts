@@ -43,14 +43,20 @@ const SUBAGENTS_EXTRA_TOOL: ExtractedToolType = {
 const WORKSPACE_EXTRA_TOOLS: readonly ExtractedToolType[] = [
   {
     name: "readFile",
-    description: "Read a UTF-8 file from the workspace.",
-    inputType: `{ path: string }`,
+    description: "Read a UTF-8 file from the workspace, optionally a 1-based inclusive line range.",
+    inputType: `{ path: string; startLine?: number | null; endLine?: number | null }`,
     outputType: `string`,
   },
   {
     name: "writeFile",
-    description: "Write a UTF-8 file inside the workspace.",
+    description: "Write a UTF-8 file inside the workspace, replacing its whole content.",
     inputType: `{ path: string; content: string }`,
+    outputType: `string`,
+  },
+  {
+    name: "editFile",
+    description: "Replace an exact, unique span of text in a workspace file.",
+    inputType: `{ path: string; oldText: string; newText: string; replaceAll?: boolean | null }`,
     outputType: `string`,
   },
   {

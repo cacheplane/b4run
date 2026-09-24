@@ -106,7 +106,7 @@ export type {
   ResolvedSubagent,
 } from "./subagents/types.js"
 export type { ScopeInput, ToolOrigin } from "./tool-scope.js"
-export { resolveToolScope, toolOrigin } from "./tool-scope.js"
+export { impliedToolDenials, resolveToolScope, toolOrigin } from "./tool-scope.js"
 export {
   renderB4Types,
   renderRouteTypes,

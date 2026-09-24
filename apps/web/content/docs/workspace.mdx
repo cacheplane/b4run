@@ -1,11 +1,11 @@
 # Workspace Filesystem
 
-The `workspace/` directory at the app root is where a B4.run app keeps its files. Create it, and agent routes get four built-in tools: `listDir`, `readFile`, `writeFile` and `runBash`. There's nothing else to configure. Every file read and write goes through one permission gate, whether the model calls a tool or your code calls `ctx.fs`.
+The `workspace/` directory at the app root is where a B4.run app keeps its files. Create it, and agent routes get five built-in tools: `listDir`, `readFile`, `writeFile`, `editFile` and `runBash`. There's nothing else to configure. Every file read and write goes through one permission gate, whether the model calls a tool or your code calls `ctx.fs`.
 
 There are three layers:
 
 - **The backend** (`@b4run/workspace`): a plain object that reads, writes and lists files. `localFilesystem()` is the default, and you can swap in your own in `b4.config.ts`.
-- **The agent tools**: `readFile`, `writeFile`, `listDir` and `runBash`. B4.run adds them to agent routes when `workspace/` exists at the app root. The model calls them by name, and each call passes the permission gate before it reaches the backend.
+- **The agent tools**: `readFile`, `writeFile`, `editFile`, `listDir` and `runBash`. B4.run adds them to agent routes when `workspace/` exists at the app root. The model calls them by name, and each call passes the permission gate before it reaches the backend.
 - **`ctx.fs`**: the `WorkspaceFs` handle on `B4ToolContext` (route tools) and `RuntimeContext` (workflow and graph entries). It uses the same gate and backend, but your code calls it. It's always on the context. Reads throw `ENOENT` until `workspace/` exists.
 
 ## The pluggable backend
@@ -91,7 +91,7 @@ withFilesystemLogging({
   `withFilesystemLogging` does this correctly, so it's a good reference.
 </Callout>
 
-## The four agent-facing tools
+## The five agent-facing tools
 
 All paths are relative to `workspace/`. A path outside it goes through the permission gate (see [Permissions](#permissions) below).
 
@@ -116,6 +116,15 @@ readFile({ path: "corpus/intro.md" })
 
 Files in `workspace/tool-outputs/` (where offloaded tool results go) have no size limit, so the agent can read them back in full with the same `readFile` call.
 
+Pass `startLine` and `endLine` (1-based, inclusive) to read part of a file. `endLine` may run past the end of the file, and a `startLine` after `endLine` is an error. A ranged read starts with a header line giving the file's length, so the model knows where it is:
+
+```
+readFile({ path: "src/server.ts", startLine: 1200, endLine: 1260 })
+// → "[src/server.ts lines 1200-1260 of 3644]\n..."
+```
+
+Without a range, `readFile` returns the file exactly as before, with no header. The tool's description tells the model to read large files in ranges and change them with `editFile`. A range doesn't lift the read cap: B4.run still reads the whole file first, so a file over 256 KiB fails with or without a range.
+
 ### writeFile
 
 Writes a UTF-8 file. **It creates missing parent directories**, so `writeFile({ path: "reports/2024-q1.md", content: "..." })` works before `reports/` exists.
@@ -124,6 +133,27 @@ Writes a UTF-8 file. **It creates missing parent directories**, so `writeFile({ 
 writeFile({ path: "reports/summary.md", content: "# Summary\n\n..." })
 // returns: "wrote 1234 bytes to reports/summary.md"
 ```
+
+`writeFile` replaces the whole file. To change an existing file, use `editFile`: a model that rewrites a large file in full can drop or summarize the parts it didn't mean to change.
+
+### editFile
+
+Replaces an exact span of text in an existing file. `oldText` must match the file character for character, whitespace and line endings included, and must occur exactly once. Overlapping matches count, so `aa` occurs twice in `aaa`. Set `replaceAll: true` to replace every occurrence instead, matched left to right without overlap. The rest of the file is written back unchanged. If `newText` equals `oldText`, the call returns `no change` and writes nothing.
+
+```
+editFile({ path: "src/config.ts", oldText: "retries: 3,", newText: "retries: 5," })
+// returns: "replaced 1 occurrence in src/config.ts at line 42"
+```
+
+If `oldText` is missing, the call fails with `oldText not found in <path>`, and says so when the file uses CRLF line endings but `oldText` has bare `\n`. If it occurs more than once without `replaceAll`, the call fails with the count and asks for more surrounding text. `editFile` reads and writes through the same permission gate as `readFile` and `writeFile`, so a path outside `workspace/` is gated as a read and as a write.
+
+A few limits:
+
+- **UTF-8 only.** `editFile` reads the file's bytes and refuses one that isn't valid UTF-8, leaving it unchanged, instead of rewriting it with replacement characters.
+- **The read cap applies.** A file over the 256 KiB cap can't be edited.
+- **Not atomic.** `editFile` reads the file and then writes it. A change another writer makes in between is overwritten.
+
+Denying `writeFile` in a route's [tool scope](/docs/tools#scoping-a-routes-tools) also withholds `editFile`.
 
 ### runBash
 

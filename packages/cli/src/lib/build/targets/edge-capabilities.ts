@@ -164,7 +164,7 @@ export function collectEdgeCapabilityViolations(
   if (isDirectory(workspaceDir)) {
     violations.push({
       capability:
-        "workspace tooling (readFile / writeFile / listDir / runBash, tool-output offloading, workspace/AGENTS.md)",
+        "workspace tooling (readFile / writeFile / editFile / listDir / runBash, tool-output offloading, workspace/AGENTS.md)",
       source: `the ${appRelative(appRoot, workspaceDir)} directory`,
       reason:
         "these tools read and write real files and spawn real processes, and an edge runtime has neither a filesystem nor a shell — the tools would be offered to the model and then fail at the first call",

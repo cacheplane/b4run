@@ -5,9 +5,10 @@
  * capability markers under capabilities/built-in/.
  */
 export const BUILT_IN_TOOL_NAMES: readonly string[] = [
-  // workspace.ts — readFile, writeFile, listDir, runBash
+  // workspace.ts — readFile, writeFile, editFile, listDir, runBash
   "readFile",
   "writeFile",
+  "editFile",
   "listDir",
   "runBash",
   // subagents.ts — task

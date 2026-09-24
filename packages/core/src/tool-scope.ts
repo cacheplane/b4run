@@ -24,7 +24,41 @@ export interface ScopeInput {
  * REVOKES named tools, and deny wins. Unknown names in allow/deny/approve
  * (absent from the full available set) throw so authoring typos fail loud at
  * composition time.
+ *
+ * Implied denials: some tools can do what another tool does. `editFile`
+ * writes files just as `writeFile` does, so a scope that denies `writeFile`
+ * also withholds `editFile` — otherwise a route that denied writes before
+ * `editFile` existed would silently regain them. Naming the implied tool in
+ * `allow` opts back in (`deny: ["writeFile"], allow: ["editFile"]` edits
+ * existing files but cannot create new ones). The reverse never holds: an
+ * allow-list naming `writeFile` does NOT grant `editFile`; allow-lists stay
+ * explicit.
  */
+/** `deny` of the key also withholds each listed tool, unless `allow` names it. */
+const IMPLIED_TOOL_DENIALS: Readonly<Record<string, readonly string[]>> = {
+  writeFile: ["editFile"],
+}
+
+/** Tools withheld only because `deny` names a tool that implies them. */
+export function impliedToolDenials(
+  scope:
+    | {
+        readonly allow?: readonly string[] | undefined
+        readonly deny?: readonly string[] | undefined
+      }
+    | undefined,
+): readonly string[] {
+  const allow = new Set(scope?.allow ?? [])
+  const deny = new Set(scope?.deny ?? [])
+  const implied: string[] = []
+  for (const denied of deny) {
+    for (const name of IMPLIED_TOOL_DENIALS[denied] ?? []) {
+      if (!deny.has(name) && !allow.has(name) && !implied.includes(name)) implied.push(name)
+    }
+  }
+  return implied
+}
+
 export function resolveToolScope(
   tools: readonly ScopeInput[],
   scope: ToolScope | undefined,
@@ -52,5 +86,6 @@ export function resolveToolScope(
     if (inBase || allow.has(t.name)) keep.add(t.name)
   }
   for (const name of deny) keep.delete(name)
+  for (const name of impliedToolDenials(scope)) keep.delete(name)
   return keep
 }

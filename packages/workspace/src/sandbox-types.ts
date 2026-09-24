@@ -2,7 +2,7 @@
  * Execution-sandbox contract. A SandboxProvider yields, per conversation
  * thread, a SandboxHandle whose filesystem/exec backends implement the same
  * interfaces the workspace capability already consumes — so swapping them in
- * redirects all of readFile/writeFile/listDir/runBash into the isolated env
+ * redirects all of readFile/writeFile/editFile/listDir/runBash into the isolated env
  * with no change to the capability. See the execution-sandbox spec.
  */
 import type {
