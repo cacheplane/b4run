@@ -608,4 +608,20 @@ Appended as the live replay of #714 runs.
     review decisions belong to the issue (or a thread the maintainer owns), not to one run of
     one agent; and a check contract a drafter must satisfy deserves a machine-readable
     template the framework ships, not a prompt paragraph.
+27. **The factory repaired #714 end to end with real models, and the grade is 5 of 6.** Work
+    order `wo-90f2b7069971f7c5`: the drafter's first draft passed the pre-check and carried the
+    maintainer's decision; the operator rejected it once (an empty body still passed A1) and
+    approved the minimal redraft after a satisfiability probe; the builder read in ranges and
+    made one `editFile` at line 2632 (17 calls, 1 min 29 s); verification passed (visible 175
+    tests, independent A1 and A2); the bundle froze the origin, pin, task and both receipts. The
+    shipped reference test (b090ad42's `runs-wait-output.test.ts`) passes 5 of 6 on the
+    candidate; the failing case is serialization of circular or BigInt outputs, which the
+    maintainer's fix added beyond the issue's stated scope. The factory did what the issue asked
+    and nothing more: a drafted oracle can only be as complete as the issue it is drafted from.
+    Framework item: let an issue's intake draw on the maintainer's review (the carried notes
+    already do this for decisions) to widen the acceptance criteria before the builder starts.
+28. **One model call stalled for exactly 15 minutes** and returned corrupted tool arguments; the
+    turn recovered. B4 has no per-call timeout shorter than the provider client's default, so a
+    stalled stream costs a quarter hour of active budget. Framework item: a configurable model
+    call timeout with a retry.
 
