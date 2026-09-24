@@ -539,4 +539,15 @@ Appended as the live replay of #714 runs.
     for drafted checks (run the check against a trivially "fixed" stub where one can be
     synthesised, or at least lint for contradictory assertions), and a way for the issue
     author to record such decisions before intake.
+24. **The gate needed a satisfiability probe, done by hand.** For the final draft (attempt 3),
+    the operator applied the shipped fix (b090ad42) at the pin in a scratch worktree, built the
+    `cli` package, and ran the drafted check: A1 failed at the pin by assertion (`500` vs
+    `200`) and passed with the fix; A2 passed on both. That evidence, not a reading, decided
+    the approval, overruling a plausible-looking concern that A2 would fail a correct repair
+    (it runs against a deleted fixture directory, yet the stream endpoint still answers 200,
+    so A2 is a weak guard rather than a false failure). For a replay the reference fix makes
+    this probe free; for a live issue there is no reference, which is why finding 23 asks for
+    a mechanical probe. The receipt also records only stderr for the oracle run, not which
+    named test failed with what message, so an approver cannot read the proof without
+    re-running it: record per-test results in the receipt's evidence.
 
