@@ -258,6 +258,32 @@ it("leaves focus in the radio group when the visitor arrows onto a call that pau
   expect(document.activeElement).toBe(view.radio("bash"))
 })
 
+it("keeps focus in the tracer when a click that doesn't focus the radio hides the focused control", async () => {
+  // Safari and Firefox on macOS don't focus a radio when its label is clicked,
+  // so focus stays on whatever the visitor last used, which is about to go inert.
+  const view = await mount(true)
+  await view.pick("refund")
+  expect(view.focused()).toBe("Allow once")
+  await view.pick("read")
+  expect(view.board()).toBe("read")
+  expect(document.activeElement).toBe(view.radio("read"))
+
+  await view.pick("bash")
+  await view.press('[data-decision="deny"]')
+  expect(view.focused()).toBe("Ask again")
+  await view.pick("delete")
+  expect(document.activeElement).toBe(view.radio("delete"))
+
+  // The caption's docs link belongs to the call being replaced, too.
+  const link = view.container.querySelector<HTMLAnchorElement>(
+    '[data-scenario][data-active="true"] a',
+  )
+  link?.focus()
+  expect(document.activeElement).toBe(link)
+  await view.pick("delegate")
+  expect(document.activeElement).toBe(view.radio("delegate"))
+})
+
 it("with motion on, a quick pick or answer kills the running trace and the state is already final", async () => {
   const view = await mount(false)
   const timeline = vi.spyOn(gsap, "timeline")

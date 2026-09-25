@@ -17,8 +17,11 @@ import {
 import styles from "./gates.module.css"
 import type { GatesData } from "./prepare"
 
-/** Where focus goes once React has committed a change. */
-type FocusTarget = "decision" | "again" | null
+/**
+ * Where focus goes once React has committed a change: the new board's
+ * Allow once, its Ask again, or the checked radio.
+ */
+type FocusTarget = "decision" | "again" | "radio" | null
 
 interface Trace {
   readonly timeline: ReturnType<typeof gsap.timeline>
@@ -45,6 +48,7 @@ const FILE_IDS: readonly ConfigFileId[] = ["route", "config"]
 export function GateTracer({ files, whyLines }: GatesData) {
   const name = useId()
   const rootRef = useRef<HTMLDivElement>(null)
+  const callsRef = useRef<HTMLFieldSetElement>(null)
   const motionRef = useRef(false)
   const traceRef = useRef<Trace | null>(null)
   // Arrow keys move through a radio group and check as they go; they must not
@@ -105,16 +109,19 @@ export function GateTracer({ files, whyLines }: GatesData) {
     traceRef.current = trace
   }, [runs, active])
 
-  // Focus moves only after React commits, when the target is no longer inert.
-  useEffect(() => {
+  // Focus moves once React commits, when the target is no longer inert, and
+  // before paint.
+  useLayoutEffect(() => {
     if (focusTarget === null) return
     const selector =
       focusTarget === "decision"
         ? `[data-board="${active}"] [data-decision="once"]`
-        : `[data-board="${active}"] [data-action="again"]`
-    rootRef.current?.querySelector<HTMLButtonElement>(selector)?.focus()
+        : focusTarget === "again"
+          ? `[data-board="${active}"] [data-action="again"]`
+          : `input[type="radio"][value="${scenario}"]`
+    rootRef.current?.querySelector<HTMLElement>(selector)?.focus()
     setFocusTarget(null)
-  }, [focusTarget, active])
+  }, [focusTarget, active, scenario])
 
   function show(next: ScenarioId, answer: Decision | null, focus: FocusTarget) {
     const board = gateBoards.find((candidate) => candidate.id === boardFor(next, answer))
@@ -128,7 +135,16 @@ export function GateTracer({ files, whyLines }: GatesData) {
   function pick(next: ScenarioId) {
     const viaArrow = arrowRef.current
     arrowRef.current = false
-    show(next, null, pausesFor(next) && !viaArrow ? "decision" : null)
+    if (pausesFor(next) && !viaArrow) return show(next, null, "decision")
+    // Clicking a label doesn't focus its radio in Safari or Firefox on macOS,
+    // so focus can still be on a button or link in the board or caption this
+    // pick makes inert. Give it to the newly checked radio instead of <body>.
+    const focused = document.activeElement
+    const stranded =
+      focused !== null &&
+      rootRef.current?.contains(focused) === true &&
+      callsRef.current?.contains(focused) !== true
+    show(next, null, stranded ? "radio" : null)
   }
 
   function trackArrows(event: KeyboardEvent) {
@@ -137,7 +153,12 @@ export function GateTracer({ files, whyLines }: GatesData) {
 
   return (
     <div ref={rootRef} className={styles.tracer}>
-      <fieldset className={styles.calls} onKeyDown={trackArrows} onKeyUp={trackArrows}>
+      <fieldset
+        ref={callsRef}
+        className={styles.calls}
+        onKeyDown={trackArrows}
+        onKeyUp={trackArrows}
+      >
         <legend className={styles.legend}>Pick a call the support agent makes</legend>
         <div className={styles.callList}>
           {gateScenarios.map((candidate) => (
