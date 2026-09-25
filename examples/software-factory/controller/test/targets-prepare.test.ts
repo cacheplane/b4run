@@ -1,6 +1,5 @@
 import { execFileSync, spawn } from "node:child_process"
 import {
-  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -13,7 +12,14 @@ import {
 import { tmpdir } from "node:os"
 import { delimiter, join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { appRoot, repositoryRoot, TargetSchema, targetsDir } from "../src/lib/targets/catalog.ts"
+import {
+  appRoot,
+  loadTargetRecipe,
+  repositoryRoot,
+  TargetSchema,
+  targetsDir,
+} from "../src/lib/targets/catalog.ts"
+import { openImageRegistry } from "../src/lib/targets/images.ts"
 import {
   capturedListMismatch,
   capturedPackages,
@@ -22,9 +28,8 @@ import {
   parsePrepareArgs,
   pathExistsAtPin,
   pathsRequiredAtPin,
-  recordImage,
-  withImageAt,
 } from "../src/lib/targets/prepare.ts"
+import { fakeImageBuilder } from "./fake-image-builder.ts"
 
 const dirs: string[] = []
 afterEach(() => {
@@ -33,14 +38,6 @@ afterEach(() => {
 
 const PIN_A = "a".repeat(40)
 const PIN_B = "b".repeat(40)
-const image = (n: string) => ({
-  localId: `sha256:${n.repeat(64)}`,
-  platform: "linux/arm64",
-  baseManifestDigest: `sha256:${"b".repeat(64)}`,
-  dockerfileSha256: "c".repeat(64),
-  lockfileSha256: "d".repeat(64),
-  pnpmVersion: "10.33.0",
-})
 const manifest = TargetSchema.parse({
   id: "t",
   pin: PIN_A,
@@ -48,7 +45,6 @@ const manifest = TargetSchema.parse({
   capture: { include: ["src"] },
   snapshotIgnore: [],
   baseImage: `node:24-slim@sha256:${"e".repeat(64)}`,
-  images: { [PIN_A]: image("1") },
   imageContext: ["pkg/package.json", "pkg/package-lock.json"],
   lockfile: "pkg/package-lock.json",
   imageAssertResolves: [],
@@ -134,52 +130,6 @@ describe("the paths required at the pin", () => {
   })
 })
 
-describe("withImageAt", () => {
-  it("records the image at the pin, keeps every other pin's entry, and writes images last", () => {
-    const next = withImageAt(manifest, PIN_B, image("2"))
-    expect(next.images).toEqual({ [PIN_A]: image("1"), [PIN_B]: image("2") })
-    expect(Object.keys(next).at(-1)).toBe("images")
-    expect(withImageAt(manifest, PIN_A, image("3")).images).toEqual({ [PIN_A]: image("3") })
-    expect(TargetSchema.parse(next)).toEqual(next)
-  })
-})
-
-describe("recordImage", () => {
-  const identity = (json: string) => json
-
-  it("re-reads the manifest, keeps an entry recorded during the build, and renames into place", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "factory-record-"))
-    dirs.push(dir)
-    const path = join(dir, "target.json")
-    writeFileSync(path, JSON.stringify(manifest))
-    // Another prepare records PIN_B while this one builds (it read the manifest before).
-    const concurrent = withImageAt(manifest, PIN_B, image("2"))
-    writeFileSync(path, JSON.stringify(concurrent))
-    const pinC = "c".repeat(40)
-    await recordImage(path, pinC, image("3"), identity)
-    const after = TargetSchema.parse(JSON.parse(readFileSync(path, "utf8")))
-    expect(after.images).toEqual({ [PIN_A]: image("1"), [PIN_B]: image("2"), [pinC]: image("3") })
-    // Nothing left beside it: the bytes went through a temporary sibling and a rename.
-    expect(readdirSync(dir)).toEqual(["target.json"])
-  })
-
-  it("writes what the formatter returns, and leaves the manifest untouched when formatting fails", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "factory-record-"))
-    dirs.push(dir)
-    const path = join(dir, "target.json")
-    const before = JSON.stringify(manifest)
-    writeFileSync(path, before)
-    await expect(
-      recordImage(path, PIN_B, image("2"), () => {
-        throw new Error("formatter down")
-      }),
-    ).rejects.toThrow(/formatter down/)
-    expect(readFileSync(path, "utf8")).toBe(before)
-    await recordImage(path, PIN_B, image("2"), (json) => `${json.trimEnd()}\n`)
-    expect(readFileSync(path, "utf8").endsWith("}\n")).toBe(true)
-  })
-})
-
 /**
  * PATH without any directory holding a `docker` executable, plus `git`: whatever this test
  * spawns can never reach a build, whatever the script's order of checks becomes.
@@ -219,13 +169,10 @@ function run(
 }
 
 describe("prepare-target.ts at a pin its paths do not exist at", () => {
-  it("refuses cli-flags at HEAD by the path that moved, before any build, writing nothing", async () => {
-    // A COPY of the targets directory: the working tree is never the script's to write.
-    const copy = mkdtempSync(join(tmpdir(), "factory-prepare-targets-"))
-    dirs.push(copy)
-    cpSync(join(targetsDir, "cli-flags"), join(copy, "cli-flags"), { recursive: true })
-    const manifestPath = join(copy, "cli-flags", "target.json")
-    const before = readFileSync(manifestPath, "utf8")
+  it("refuses cli-flags at HEAD by the path that moved, before any build, recording nothing", async () => {
+    const stateDir = mkdtempSync(join(tmpdir(), "factory-prepare-state-"))
+    dirs.push(stateDir)
+    const shipped = readFileSync(join(targetsDir, "cli-flags", "target.json"), "utf8")
     const head = execFileSync("git", ["-C", repositoryRoot(), "rev-parse", "HEAD"], {
       encoding: "utf8",
     }).trim()
@@ -234,14 +181,42 @@ describe("prepare-target.ts at a pin its paths do not exist at", () => {
       {
         ...process.env,
         PATH: pathWithoutDocker(),
-        FACTORY_TARGETS_DIR: copy,
+        FACTORY_STATE_DIR: stateDir,
       },
     )
     expect(status).not.toBe(0)
     expect(stderr).toContain(
       `Target "cli-flags" names examples/software-factory/server/fixtures/cli-flags/project, which does not exist at ${head}: it cannot be prepared at that pin`,
     )
-    expect(readFileSync(manifestPath, "utf8")).toBe(before)
+    // Nothing recorded, and the target file untouched: the script never writes it any more.
+    const registry = openImageRegistry({
+      path: join(stateDir, "images.sqlite"),
+      builder: fakeImageBuilder(),
+    })
+    try {
+      expect(registry.recorded(loadTargetRecipe("cli-flags", { pin: head }))).toBeUndefined()
+    } finally {
+      registry.close()
+    }
+    expect(readFileSync(join(targetsDir, "cli-flags", "target.json"), "utf8")).toBe(shipped)
+  }, 90_000)
+
+  it("requires FACTORY_STATE_DIR and refuses FACTORY_TARGETS_DIR by name", async () => {
+    const env: NodeJS.ProcessEnv = { ...process.env, PATH: pathWithoutDocker() }
+    delete env.FACTORY_STATE_DIR
+    expect((await run(["scripts/prepare-target.ts", "devkit"], env)).stderr).toContain(
+      "FACTORY_STATE_DIR is required",
+    )
+    for (const name of ["FACTORY_TARGETS_DIR"])
+      expect(
+        (
+          await run(["scripts/prepare-target.ts", "devkit"], {
+            ...env,
+            FACTORY_STATE_DIR: "/tmp/x",
+            [name]: "1",
+          })
+        ).stderr,
+      ).toContain(`${name} is retired`)
   }, 90_000)
 })
 

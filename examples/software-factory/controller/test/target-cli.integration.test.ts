@@ -12,11 +12,12 @@ import { imageTag } from "../src/lib/targets/images.ts"
 import { createDockerVerifier } from "../src/lib/verification/docker-verifier.ts"
 import { gradeSuite } from "../src/lib/verification/grade-suite.ts"
 import { loadPolicy } from "../src/lib/verification/policy.ts"
+import { ensureLaneImage } from "./lane-images.ts"
 import { applyReference } from "./reference-repair.ts"
 
 /**
  * Layer 2 for the `cli` target at the #714 replay pin (765e6e16, the parent of the fix
- * b090ad42): the prepared image builds `@b4run/cli` and its nine workspace dependencies
+ * b090ad42): the image builds `@b4run/cli` and its nine workspace dependencies
  * offline and runs the scoped suite, and the grading harness discriminates. The shipped task's
  * independent check (a node:test port of the fix's reference test) fails at the pin and passes
  * with the reference fix; and the reference test ITSELF, the vitest file b090ad42 shipped, run
@@ -27,17 +28,18 @@ const TASK = "cli-runs-wait-undefined"
 const FIX = "b090ad42ffbf063d2540a80454ee480d1a0ebbf4"
 const REFERENCE_TEST = "packages/cli/test/runs-wait-output.test.ts"
 /**
- * Opt-in (`FACTORY_TEST_CLI_TARGET=1`, or `pnpm test:sandbox:cli`): the lane needs the `cli`
- * image prepared on this host (2 GB), and runs about 90 seconds for its six verifier
+ * Opt-in (`FACTORY_TEST_CLI_TARGET=1`, or `pnpm test:sandbox:cli`): the lane builds (or
+ * re-verifies) the `cli` image itself in its `beforeAll` (`ensureLaneImage`; 2 GB, and minutes
+ * cold), outside the lanes' global setup, and runs about 90 seconds for its six verifier
  * sessions. It ran about 70 minutes while every snapshot operation re-verified the whole
  * source bundle (#826), and 26 minutes while each snapshot made one `docker exec` per entry
- * (#827). The CI `sandbox-docker` job does not prepare the image.
+ * (#827). The CI `sandbox-docker` job does not run it.
  */
 const ENABLED = process.env.FACTORY_TEST_CLI_TARGET === "1"
-/** Stated rather than read from the target, so an unprepared checkout skips at collection. */
+/** Stated rather than read from the target, so a checkout without the lane skips at collection. */
 const DEADLINE_SLACK_MS = 3_600_000 + 60_000
 
-/** Resolved inside the gated block: loading the task needs the prepared image and the pin. */
+/** Resolved inside the gated block: loading the task needs the built image and the pin. */
 let task: Task
 let policy: ReturnType<typeof loadPolicy>
 let allowed: string
@@ -120,15 +122,16 @@ const gradeWithReferenceTest = async (changes: Record<string, string>) => {
   })
 }
 
-describe.skipIf(!ENABLED)("the cli target in its prepared image", () => {
-  beforeAll(() => {
+describe.skipIf(!ENABLED)("the cli target in its image", () => {
+  beforeAll(async () => {
+    await ensureLaneImage("cli")
     task = loadTask(TASK)
     policy = loadPolicy(TASK)
     allowed = task.manifest.allowedSourcePaths[0] as string
     budget = task.target.resources.verifierDeadlineMs
     // The per-case timeouts below are fixed at collection, before the task loads.
     expect(budget + 60_000).toBeLessThanOrEqual(DEADLINE_SLACK_MS)
-  })
+  }, 1_200_000)
 
   it(
     "builds, runs the scoped suite and admits the task: the reference repair passes both suites",

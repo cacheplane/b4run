@@ -2,21 +2,12 @@ import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { parseArgs } from "node:util"
-import { writeFileAtomic } from "../storage/atomic-file.js"
-import {
-  appRoot,
-  commitSha,
-  covers,
-  type Image,
-  type TargetManifest,
-  type TargetRecipe,
-  TargetSchema,
-} from "./catalog.js"
+import { commitSha, covers, type TargetManifest, type TargetRecipe } from "./catalog.js"
 
 /**
- * The pure parts of `scripts/prepare-target.ts`: what it was asked to prepare, which
- * repository paths must exist at the pin for the image to mean anything, and the manifest it
- * writes back. The script itself is Docker and git; these are what a unit test can reach.
+ * The pure parts of preparing an image: what `scripts/prepare-target.ts` was asked to prepare,
+ * and which repository paths must exist at the pin for the image to mean anything
+ * (`recipeProblem`). The build itself is `image-builder.ts`; these are what a unit test can reach.
  */
 
 interface PrepareArgs {
@@ -135,49 +126,6 @@ export function pathExistsAtPin(repo: string, pin: string, path: string): boolea
   } catch {
     return false
   }
-}
-
-/**
- * The manifest with `image` recorded at `pin`, every other pin's entry kept as it was, and
- * `images` written last whatever order the manifest on disk was in.
- */
-export function withImageAt(
-  manifest: TargetManifest,
-  pin: string,
-  image: Image,
-): TargetManifest & { readonly images: Record<string, Image> } {
-  const { images: previous, ...rest } = manifest
-  return { ...rest, images: { ...(previous ?? {}), [pin]: image } }
-}
-
-/** Format `json` as the checked-in manifests are (Biome, from the app's own configuration). */
-function formatManifest(json: string): string {
-  return execFileSync("npx", ["biome", "format", "--stdin-file-path=target.json"], {
-    cwd: appRoot,
-    input: json,
-    encoding: "utf8",
-    stdio: ["pipe", "pipe", "inherit"],
-    timeout: 60_000,
-  })
-}
-
-/**
- * Record `image` at `pin` in the manifest at `path`, safely against everything that happened
- * during the (long) build: the manifest is RE-READ now, so another prepare's entry written
- * meanwhile is kept, only `images[pin]` is replaced, and the formatted bytes are renamed into
- * place, so a controller reading the file concurrently sees the old manifest or the new one,
- * never a torn one. `format` is injectable so a test needs no Biome.
- */
-export async function recordImage(
-  path: string,
-  pin: string,
-  image: Image,
-  format: (json: string) => string = formatManifest,
-): Promise<TargetManifest> {
-  const current = TargetSchema.parse(JSON.parse(readFileSync(path, "utf8")))
-  const next = withImageAt(current, pin, image)
-  await writeFileAtomic(path, format(`${JSON.stringify(next, null, 2)}\n`))
-  return next
 }
 
 /**

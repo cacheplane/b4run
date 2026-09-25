@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process"
-import { cpSync, mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { appRoot, targetsDir } from "../src/lib/targets/catalog.ts"
+import type { Image } from "../src/lib/targets/catalog.ts"
+import { appRoot } from "../src/lib/targets/catalog.ts"
 
 /**
  * `Release 0.10.0 (#782)` on main: after the devkit target was introduced, with every devkit
@@ -10,33 +11,45 @@ import { appRoot, targetsDir } from "../src/lib/targets/catalog.ts"
  */
 export const SECOND_PIN = "bfaf0c2b3030eebb572703c8f70f0e063593b1fa"
 
+/** What `target:prepare` prints on stdout. */
+export interface PreparedImage extends Image {
+  readonly key: string
+  readonly tag: string
+  readonly pin: string
+  readonly built: boolean
+  readonly identity: string
+}
+
 /**
- * Prepare `devkit` at {@link SECOND_PIN} into a COPY of `targets/devkit`
- * (`FACTORY_TARGETS_DIR`), so the working tree is never written. The image stays, and the next
- * lane's build is served from Docker's layer cache. Requires Docker; `test:sandbox` only.
+ * Run `target:prepare devkit --pin SECOND_PIN` against a registry of its own (a fresh
+ * `FACTORY_STATE_DIR`), as an operator warming a pin would. The image stays on the daemon, so a
+ * later build of the same recipe is served from Docker's build cache. Requires Docker.
  */
 export function prepareDevkitSecondPin(): {
-  readonly targetsDir: string
+  readonly stateDir: string
+  readonly printed: PreparedImage
   cleanup(): void
 } {
-  const copy = mkdtempSync(join(tmpdir(), "factory-devkit-pin-targets-"))
+  const stateDir = mkdtempSync(join(tmpdir(), "factory-devkit-pin-state-"))
+  const cleanup = () => rmSync(stateDir, { recursive: true, force: true })
   try {
-    cpSync(join(targetsDir, "devkit"), join(copy, "devkit"), { recursive: true })
     const started = Date.now()
-    execFileSync(
+    const out = execFileSync(
       process.execPath,
       ["--import", "tsx", "scripts/prepare-target.ts", "devkit", "--pin", SECOND_PIN],
       {
         cwd: appRoot,
-        env: { ...process.env, FACTORY_TARGETS_DIR: copy },
-        stdio: ["ignore", "inherit", "inherit"],
+        env: { ...process.env, FACTORY_STATE_DIR: stateDir },
+        stdio: ["ignore", "pipe", "inherit"],
+        encoding: "utf8",
         timeout: 1_140_000,
+        maxBuffer: 16 * 1024 * 1024,
       },
     )
     process.stderr.write(`target:prepare devkit --pin ${SECOND_PIN}: ${Date.now() - started} ms\n`)
+    return { stateDir, printed: JSON.parse(out) as PreparedImage, cleanup }
   } catch (error) {
-    rmSync(copy, { recursive: true, force: true })
+    cleanup()
     throw error
   }
-  return { targetsDir: copy, cleanup: () => rmSync(copy, { recursive: true, force: true }) }
 }

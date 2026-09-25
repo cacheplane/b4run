@@ -51,23 +51,12 @@ function repo(): { root: string; pin: string } {
   return { root, pin: git("rev-parse", "HEAD") }
 }
 
-const image = {
-  localId: `sha256:${"a".repeat(64)}`,
-  platform: "linux/arm64",
-  baseManifestDigest: `sha256:${"b".repeat(64)}`,
-  dockerfileSha256: "c".repeat(64),
-  lockfileSha256: "d".repeat(64),
-  pnpmVersion: "10.33.0",
-}
-
-/** Two targets against one pin: `ready` is prepared, `raw` has no image yet. */
+/** Two targets against one pin, each with its recipe (no image is ever recorded in a target). */
 function catalogs(pin: string): { targetsDir: string; tasksDir: string } {
   const targetsDir = temporary("factory-prompts-targets-")
-  for (const [id, prepared] of [
-    ["ready", true],
-    ["raw", false],
-  ] as const) {
+  for (const id of ["ready", "raw"]) {
     mkdirSync(join(targetsDir, id))
+    writeFileSync(join(targetsDir, id, "Dockerfile"), "FROM scratch\n")
     writeFileSync(
       join(targetsDir, id, "target.json"),
       JSON.stringify({
@@ -77,7 +66,6 @@ function catalogs(pin: string): { targetsDir: string; tasksDir: string } {
         capture: { include: ["a.txt"] },
         snapshotIgnore: [],
         baseImage: `node:24-slim@sha256:${"e".repeat(64)}`,
-        ...(prepared ? { images: { [pin]: image } } : {}),
         imageContext: ["package.json"],
         lockfile: "pnpm-lock.yaml",
         imageAssertResolves: [],

@@ -10,12 +10,12 @@ import { createDockerVerifier } from "../src/lib/verification/docker-verifier.ts
 import { loadPolicy } from "../src/lib/verification/policy.ts"
 
 /**
- * The oracle proof against the real verifier, in the prepared `cli-flags` image. The shipped
+ * The oracle proof against the real verifier, in the `cli-flags` image. The shipped
  * `cli-flags` task stands in for a drafted one: copied under a generated-tasks directory as
  * a work order's task, minus the reference repair a draft never has. Its pinned bytes ARE the
  * defect, so its independent check must fail on the unpatched baseline — which is exactly
- * what makes a drafted check an oracle. Runs only under `test:sandbox` (Docker, after
- * `target:prepare cli-flags`), like its siblings.
+ * what makes a drafted check an oracle. Runs only under `test:sandbox` (Docker; the image is
+ * built or re-verified by the lanes' global setup, `lane-images.global.ts`), like its siblings.
  */
 let dir: string
 afterEach(() => {

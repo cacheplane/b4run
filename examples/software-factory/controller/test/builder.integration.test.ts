@@ -16,7 +16,8 @@ import { taskPrompt } from "../src/lib/prompts.ts"
 import { captureTarget } from "../src/lib/targets/archive.ts"
 import { loadTarget, loadTask } from "../src/lib/targets/catalog.ts"
 import { imageTag } from "../src/lib/targets/images.ts"
-import { prepareDevkitSecondPin, SECOND_PIN } from "./devkit-second-pin.ts"
+import { SECOND_PIN } from "./devkit-second-pin.ts"
+import { ensureLaneImage } from "./lane-images.ts"
 import { type ServedBuilder, serveBuilder, toolCallsSeen, toolResults } from "./served-builder.ts"
 import { expectOnlyTheTokenAdmitted } from "./worker-token-probe.ts"
 
@@ -288,7 +289,7 @@ function sessionOf(operationId: string): { Image: string; HostConfig: { Memory: 
 // ORDER-COUPLED like the tests above: reuses the file's served builder, the first test's
 // `wo-alpha` thread (`threads[0]`) and the one aimock journal.
 it("serves a cli-flags thread and devkit threads at two pins from one process", async () => {
-  const second = prepareDevkitSecondPin()
+  await ensureLaneImage("devkit", SECOND_PIN)
   const root = await mkdtemp(join(tmpdir(), "factory-builder-capture-"))
   try {
     const devkitTask = loadTask("devkit-spawn-deadline")
@@ -298,7 +299,7 @@ it("serves a cli-flags thread and devkit threads at two pins from one process", 
     })
     // The same capture at the second pin: only the target block changes, which is all the
     // image and the policy are drawn from. Captured as dispatch would, then re-pinned.
-    const atSecond = loadTarget("devkit", { targetsDir: second.targetsDir, pin: SECOND_PIN })
+    const atSecond = loadTarget("devkit", { pin: SECOND_PIN })
     const byWorkOrder: Record<string, CapturedBuilderHandoff> = {
       "wo-devkit": devkit,
       "wo-devkit-2": {
@@ -369,6 +370,5 @@ it("serves a cli-flags thread and devkit threads at two pins from one process", 
     }
   } finally {
     await rm(root, { recursive: true, force: true })
-    second.cleanup()
   }
 }, 1_500_000)

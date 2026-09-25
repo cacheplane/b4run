@@ -9,12 +9,10 @@ import type { ImageRegistry } from "./images.js"
 /** The package root, derived from this module rather than the working directory. */
 export const appRoot = fileURLToPath(new URL("../../../", import.meta.url))
 /**
- * The target catalog: `targets/` under the app, unless `FACTORY_TARGETS_DIR` names another
- * directory. The override exists so a lane can prepare a COPY of a target (the prepare
- * script writes the manifest it reads) without ever writing the working tree; it is read
- * once, at module load.
+ * The target catalog: always `targets/` under the app. Nothing writes it at run time (images
+ * live in the host's registry, never in `target.json`), so there is no copy to point it at.
  */
-export const targetsDir = process.env.FACTORY_TARGETS_DIR || join(appRoot, "targets")
+export const targetsDir = join(appRoot, "targets")
 export const tasksDir = join(appRoot, "tasks")
 
 const HEX_64 = /^[a-f0-9]{64}$/
@@ -113,19 +111,6 @@ export type Image = z.infer<typeof ImageSchema>
 /** A full lowercase commit sha: what a pin is, and what keys a target's images. */
 export const commitSha = z.string().regex(COMMIT, "pin must be a full lowercase commit sha")
 
-/**
- * The manifest as 3a wrote it carried one `image`, prepared at the manifest's `pin`. It is
- * read as that pin's entry of `images`; the prepare script writes only `images`. A manifest
- * carrying both is not migrated, so the strict schema refuses the leftover `image`.
- */
-function migrateSingleImage(raw: unknown): unknown {
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return raw
-  const record = raw as Record<string, unknown>
-  if (!("image" in record) || "images" in record) return raw
-  const { image, ...rest } = record
-  return typeof rest.pin === "string" ? { ...rest, images: { [rest.pin]: image } } : raw
-}
-
 const TargetObjectSchema = z
   .object({
     id: z.string().min(1),
@@ -141,11 +126,6 @@ const TargetObjectSchema = z
      * recipe (the registry's key) and of the image object (`baseManifestDigest`).
      */
     baseImage: z.string().regex(BASE_IMAGE, "baseImage must be <name>[:<tag>]@sha256:<64 hex>"),
-    /**
-     * One image per pin it was prepared at (`target:prepare <id> --pin <sha>`). Absent until
-     * the prepare script has run at least once; a pin with no entry is `image_unprepared`.
-     */
-    images: z.record(commitSha, ImageSchema).optional(),
     /** Repository paths copied into the image build context at the pin. */
     imageContext: z.array(relativePath).min(1),
     /** Repository path of the lockfile whose sha256 enters the image object. */
@@ -193,14 +173,30 @@ const TargetObjectSchema = z
       .strict(),
   })
   .strict()
-export const TargetSchema = z.preprocess(migrateSingleImage, TargetObjectSchema)
+/**
+ * `target.json` records no image: images are this host's, built when a work order first needs
+ * them and kept in the registry. A manifest still carrying 3a's `image` or 3b's `images` (a
+ * local `target:prepare` from before, an unrebased branch) is refused by name, so the fix
+ * is obvious rather than an "unrecognized key".
+ */
+export const TargetSchema = z.preprocess((raw, ctx) => {
+  if (typeof raw === "object" && raw !== null && !Array.isArray(raw))
+    for (const key of ["image", "images"])
+      if (Object.hasOwn(raw, key))
+        ctx.addIssue({
+          code: "custom",
+          path: [key],
+          message: `"${key}" is retired: images are built when a work order first needs them and recorded in <FACTORY_STATE_DIR>/images.sqlite, never in the target. Delete the key`,
+        })
+  return raw
+}, TargetObjectSchema)
 export type TargetManifest = z.infer<typeof TargetObjectSchema>
 
 /**
  * A target AT one pin, without its image: what the capture, the prompt, the fit checks and
  * the image recipe read. `pin` is the chosen pin (the work order's, or the manifest's default).
  */
-export interface TargetRecipe extends Omit<TargetManifest, "images"> {
+export interface TargetRecipe extends TargetManifest {
   readonly directory: string
 }
 
@@ -221,11 +217,6 @@ export interface CatalogOptions {
   readonly pin?: string
 }
 
-/** The one spelling of the command an operator runs to prepare `id` at `pin`. */
-export function prepareCommand(id: string, pin: string): string {
-  return `pnpm --filter @b4-example/software-factory-controller target:prepare ${id} --pin ${pin}`
-}
-
 /** No target directory of that id: the one catalog failure no operator action at a pin mends. */
 export class UnknownTargetError extends Error {
   constructor(readonly targetId: string) {
@@ -234,32 +225,30 @@ export class UnknownTargetError extends Error {
   }
 }
 
+/** `loadTarget` ran in a process that never configured an image registry (`configureImages`). */
+export class ImagesUnconfiguredError extends Error {
+  constructor() {
+    super(
+      "No image registry is configured: the controller runtime (or a test's setup file) calls configureImages before a target is loaded with its image",
+    )
+    this.name = "ImagesUnconfiguredError"
+  }
+}
+
 /**
- * The target exists, but has no image at the pin asked for: an operator prepares one with
- * `prepareCommand(id, pin)`. A work order at this pin is refused as `image_unprepared`, which
- * no redraft can mend.
+ * No image of the target's recipe at the pin is recorded on this host. Not an operator's to
+ * mend: the controller builds it when a work order first needs it (intake's fit step,
+ * `dispatch`); `target:prepare` can warm it by hand.
  */
-export class ImageUnpreparedError extends Error {
+export class ImageNotBuiltError extends Error {
   constructor(
     readonly targetId: string,
     readonly pin: string,
   ) {
     super(
-      `Target ${targetId} has no image prepared at ${pin}: run ${prepareCommand(targetId, pin)}`,
+      `Target ${targetId} has no image built at ${pin} on this host yet: the controller builds it when a work order first needs it (or warm it with pnpm --filter @b4-example/software-factory-controller target:prepare ${targetId} --pin ${pin})`,
     )
-    this.name = "ImageUnpreparedError"
-  }
-}
-
-/**
- * The target has no image at ANY pin: nobody has prepared it on this machine. A case of
- * `ImageUnpreparedError` (the same operator action mends it) with its own message.
- */
-export class TargetUnpreparedError extends ImageUnpreparedError {
-  constructor(targetId: string, pin: string) {
-    super(targetId, pin)
-    this.message = `Target ${targetId} has not been prepared: run ${prepareCommand(targetId, pin)}`
-    this.name = "TargetUnpreparedError"
+    this.name = "ImageNotBuiltError"
   }
 }
 
@@ -347,29 +336,21 @@ export function loadTargetRecipe(id: string, options: CatalogOptions = {}): Targ
   if (manifest.id !== id) throw new Error(`Target ${id} declares a different id: ${manifest.id}`)
   const pin = options.pin ?? manifest.pin
   ensurePin(options.repositoryRoot ?? repositoryRoot(), id, pin)
-  const { images: _images, ...recipe } = manifest
-  return { ...recipe, pin, directory }
+  return { ...manifest, pin, directory }
 }
 
+/**
+ * `id` at `options.pin` with the image this host recorded for its recipe there. Synchronous and
+ * Docker-free (a registry read): it runs in prompts, budget checks, policies and every
+ * `loadTask`. Only `ImageRegistry.ensure`, which the factory calls at a work order's first need,
+ * builds or re-verifies.
+ */
 export function loadTarget(id: string, options: CatalogOptions = {}): Target {
-  const dir = options.targetsDir ?? targetsDir
-  if (!loadTargetIds(dir).includes(id)) throw new UnknownTargetError(id)
-  const directory = join(dir, id)
-  const manifest = TargetSchema.parse(
-    JSON.parse(readFileSync(join(directory, "target.json"), "utf8")),
-  )
-  if (manifest.id !== id) throw new Error(`Target ${id} declares a different id: ${manifest.id}`)
-  const pin = options.pin ?? manifest.pin
-  if (!manifest.images || Object.keys(manifest.images).length === 0)
-    throw new TargetUnpreparedError(id, pin)
-  // Looked up before the pin is fetched: a pin with no image is refused without a network
-  // round trip, and is refused the same way whether or not the object store holds it.
-  const image = Object.hasOwn(manifest.images, pin) ? manifest.images[pin] : undefined
-  if (!image) throw new ImageUnpreparedError(id, pin)
-  const repo = options.repositoryRoot ?? repositoryRoot()
-  ensurePin(repo, id, pin)
-  const { images: _images, ...single } = manifest
-  return { ...single, pin, image, directory }
+  const recipe = loadTargetRecipe(id, options)
+  if (images === undefined) throw new ImagesUnconfiguredError()
+  const recorded = images.recorded(recipe)
+  if (recorded === undefined) throw new ImageNotBuiltError(recipe.id, recipe.pin)
+  return { ...recipe, image: recorded.image }
 }
 
 /**

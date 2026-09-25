@@ -44,8 +44,9 @@ import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
  * tools run over the capture the controller staged, not that a model could draft this
  * particular target from it.
  *
- * Requires Docker, the `cli-flags` target prepared (`target:prepare cli-flags`: the oracle
- * proof runs in its image) and the drafter's base image pulled by digest
+ * Requires Docker (the `cli-flags` image, which the oracle proof runs in, is built or
+ * re-verified by the lanes' global setup, `lane-images.global.ts`) and the drafter's base
+ * image pulled by digest
  * (`docker pull node:24-slim@sha256:…`, the literal in `drafter/src/drafter-image.ts`).
  * Runs only under `test:sandbox`.
  */
@@ -93,10 +94,10 @@ const cleanups: Array<() => Promise<void>> = []
 
 beforeAll(async () => {
   for (const key of ENV) previousEnv[key] = process.env[key]
-  // The work order's pin is the one the shipped targets are prepared at: the draft's target
-  // is looked up at the work order's pin (3b), and `cli-flags` has an image at that commit
-  // alone (its paths moved since, so it cannot be prepared at HEAD). `target:prepare` has
-  // made it present in a shallow checkout, and `intake` ensures it again before the capture.
+  // The work order's pin is the shipped `cli-flags` default pin: the draft's target is looked
+  // up at the work order's pin (3b), and `cli-flags` applies at that commit alone (its paths
+  // moved since, so it cannot be built at HEAD). The lanes' global setup built its image there
+  // (fetching the pin in a shallow checkout), and `intake` ensures the pin again before the capture.
   pin = shippedPin("cli-flags")
   // `non-interactive` is the drafter's own setting; an operator's process-wide override
   // would make a denied command a parked prompt nobody answers.

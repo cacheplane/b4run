@@ -21,10 +21,8 @@ export function recipeFixture(
   const directory = mkdtempSync(join(tmpdir(), "factory-recipe-"))
   dirs.push(directory)
   writeFileSync(join(directory, "Dockerfile"), dockerfile)
-  const parsed = TargetSchema.parse(
+  const shipped = TargetSchema.parse(
     JSON.parse(readFileSync(join(targetsDir, "devkit", "target.json"), "utf8")),
-  ) as Record<string, unknown>
-  // Task 7 removes `images` from the schema; until then the shipped manifest still carries it.
-  const { images: _images, ...shipped } = parsed
-  return { ...(shipped as Omit<TargetRecipe, "directory">), directory, ...overrides }
+  )
+  return { ...shipped, directory, ...overrides }
 }

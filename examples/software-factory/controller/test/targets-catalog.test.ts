@@ -1,5 +1,4 @@
 import { execFileSync } from "node:child_process"
-import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -10,7 +9,8 @@ import {
   covers,
   ensurePin,
   environmentIdentity,
-  ImageUnpreparedError,
+  ImageNotBuiltError,
+  ImagesUnconfiguredError,
   idTagFor,
   loadTarget,
   loadTargetIds,
@@ -21,14 +21,15 @@ import {
   overlaps,
   repositoryRoot,
   targetsDir as shippedTargetsDir,
+  type TargetRecipe,
   TargetSchema,
-  TargetUnpreparedError,
   TaskSchema,
   tagFor,
   tasksDir,
   UnknownTargetError,
 } from "../src/lib/targets/catalog.ts"
-import { imageTag, recipeKey } from "../src/lib/targets/images.ts"
+import { type ImageRegistry, imageTag, recipeKey } from "../src/lib/targets/images.ts"
+import { emptyImageRegistry, useImages } from "./static-images.ts"
 
 const dirs: string[] = []
 afterEach(() => {
@@ -69,7 +70,6 @@ function manifest(pin: string, overrides: Record<string, unknown> = {}) {
     capture: { include: ["a.txt"] },
     snapshotIgnore: [],
     baseImage: BASE_IMAGE,
-    images: { [pin]: image },
     imageContext: ["package.json"],
     lockfile: "pnpm-lock.yaml",
     imageAssertResolves: [],
@@ -189,7 +189,7 @@ describe("target catalog", () => {
 
   it("loads a target's recipe at a pin without its image", () => {
     const { root, first, second } = twoCommitRepo()
-    const dir = targetsDir(first, { images: undefined })
+    const dir = targetsDir(first)
     const recipe = loadTargetRecipe("t", { targetsDir: dir, repositoryRoot: root, pin: second })
     expect(recipe.pin).toBe(second)
     expect(recipe.directory).toBe(join(dir, "t"))
@@ -290,89 +290,118 @@ describe("target catalog", () => {
     ).toThrow(/fetching it from origin also failed/)
   })
 
-  it("refuses a target that has not been prepared", () => {
-    const { root, pin } = repo()
-    expect(() =>
-      loadTarget("t", { targetsDir: targetsDir(pin, { images: undefined }), repositoryRoot: root }),
-    ).toThrow(TargetUnpreparedError)
-    expect(() =>
-      loadTarget("t", { targetsDir: targetsDir(pin, { images: undefined }), repositoryRoot: root }),
-    ).toThrow(/not been prepared/)
-    expect(() =>
-      loadTarget("t", { targetsDir: targetsDir(pin, { images: {} }), repositoryRoot: root }),
-    ).toThrow(/not been prepared/)
-  })
+  /** A registry answering every recipe with `answer(recipe)`, recording the pins it was asked. */
+  function lookup(answer: (recipe: TargetRecipe) => typeof image | undefined) {
+    const asked: string[] = []
+    const registry: ImageRegistry = {
+      recorded(recipe) {
+        asked.push(recipe.pin)
+        const found = answer(recipe)
+        return found === undefined ? undefined : { key: "k", tag: "t", image: found }
+      },
+      async ensure() {
+        throw new Error("unused")
+      },
+      async present() {
+        return true
+      },
+      close() {},
+    }
+    return { registry, asked }
+  }
 
-  it("reads 3a's single image as the manifest pin's entry of images", () => {
-    const { root, pin } = repo()
-    const old = { ...manifest(pin), image }
-    delete (old as { images?: unknown }).images
-    expect(TargetSchema.parse(old).images).toEqual({ [pin]: image })
-    expect("image" in TargetSchema.parse(old)).toBe(false)
-    const dir = targetsDir(pin)
-    writeFileSync(join(dir, "t", "target.json"), JSON.stringify(old))
-    const target = loadTarget("t", { targetsDir: dir, repositoryRoot: root })
-    expect(target.pin).toBe(pin)
-    expect(target.image).toEqual(image)
-    // The loaded target is single-valued: one pin, one image, no map.
-    expect(target).not.toHaveProperty("images")
-    // Both shapes at once is not a migration: the leftover `image` is an unknown key.
-    expect(TargetSchema.safeParse({ ...manifest(pin), image }).success).toBe(false)
-  })
-
-  it("selects the image prepared at the pin asked for, and defaults to the manifest's pin", () => {
+  it("reads a target's image from the configured registry, at the pin asked for", () => {
     const { root, first, second } = twoCommitRepo()
+    const dir = targetsDir(first)
     const other = {
       ...image,
       localId: `sha256:${"9".repeat(64)}`,
       dockerfileSha256: "8".repeat(64),
     }
-    const dir = targetsDir(first, { images: { [first]: image, [second]: other } })
-    const byDefault = loadTarget("t", { targetsDir: dir, repositoryRoot: root })
-    expect(byDefault.pin).toBe(first)
-    expect(byDefault.image).toEqual(image)
-    const atSecond = loadTarget("t", { targetsDir: dir, repositoryRoot: root, pin: second })
-    expect(atSecond.pin).toBe(second)
-    expect(atSecond.image).toEqual(other)
-    expect(imageTag(atSecond)).toBe(
-      tagFor("t", second, recipeKey(atSecond, atSecond.image.platform)),
-    )
+    const { registry, asked } = lookup((recipe) => (recipe.pin === first ? image : other))
+    const restore = useImages(registry)
+    try {
+      expect(loadTarget("t", { targetsDir: dir, repositoryRoot: root }).image).toEqual(image)
+      const atSecond = loadTarget("t", { targetsDir: dir, repositoryRoot: root, pin: second })
+      expect(atSecond.image).toEqual(other)
+      expect(imageTag(atSecond)).toBe(
+        tagFor("t", second, recipeKey(atSecond, atSecond.image.platform)),
+      )
+      expect(asked).toEqual([first, second])
+    } finally {
+      restore()
+    }
   })
 
-  it("refuses a pin the target has no image at, distinctly and without fetching", () => {
-    const { root, first, second } = twoCommitRepo()
-    const dir = targetsDir(first)
-    let caught: unknown
+  it("names who builds an image the registry does not hold, and refuses to load without a registry", () => {
+    const { root, pin } = repo()
+    const dir = targetsDir(pin)
+    const restoreEmpty = useImages(emptyImageRegistry())
     try {
-      loadTarget("t", { targetsDir: dir, repositoryRoot: root, pin: second })
-    } catch (error) {
-      caught = error
-    }
-    expect(caught).toBeInstanceOf(ImageUnpreparedError)
-    expect(caught).toMatchObject({ targetId: "t", pin: second })
-    expect(String((caught as Error).message)).toBe(
-      `Target t has no image prepared at ${second}: run pnpm --filter @b4-example/software-factory-controller target:prepare t --pin ${second}`,
-    )
-    // A pin nothing holds is still image_unprepared, not a fetch: the image is looked up first.
-    const nowhere = "1".repeat(40)
-    const previous = process.env.FACTORY_NO_FETCH
-    process.env.FACTORY_NO_FETCH = "1"
-    try {
-      expect(() =>
-        loadTarget("t", { targetsDir: dir, repositoryRoot: root, pin: nowhere }),
-      ).toThrow(ImageUnpreparedError)
+      let caught: unknown
+      try {
+        loadTarget("t", { targetsDir: dir, repositoryRoot: root })
+      } catch (error) {
+        caught = error
+      }
+      expect(caught).toBeInstanceOf(ImageNotBuiltError)
+      expect(caught).toMatchObject({ targetId: "t", pin })
+      expect(String((caught as Error).message)).toBe(
+        `Target t has no image built at ${pin} on this host yet: the controller builds it when a work order first needs it (or warm it with pnpm --filter @b4-example/software-factory-controller target:prepare t --pin ${pin})`,
+      )
+      // The recipe loads regardless: nothing about it needs an image.
+      expect(loadTargetRecipe("t", { targetsDir: dir, repositoryRoot: root }).pin).toBe(pin)
     } finally {
-      if (previous === undefined) delete process.env.FACTORY_NO_FETCH
-      else process.env.FACTORY_NO_FETCH = previous
+      restoreEmpty()
+    }
+    const restoreNone = useImages(undefined as unknown as ImageRegistry)
+    try {
+      expect(() => loadTarget("t", { targetsDir: dir, repositoryRoot: root })).toThrow(
+        ImagesUnconfiguredError,
+      )
+    } finally {
+      restoreNone()
+    }
+  })
+
+  it("refuses a target.json that still records images, saying where they live now", () => {
+    const { pin } = repo()
+    for (const key of ["image", "images"]) {
+      const result = TargetSchema.safeParse({
+        ...manifest(pin),
+        [key]: key === "image" ? image : { [pin]: image },
+      })
+      expect(result.success).toBe(false)
+      // The one issue: a preprocess issue stops the parse before the strict shape's own.
+      expect(result.error?.issues.map((issue) => issue.message)).toEqual([
+        `"${key}" is retired: images are built when a work order first needs them and recorded in <FACTORY_STATE_DIR>/images.sqlite, never in the target. Delete the key`,
+      ])
     }
   })
 
   it("gives two pins with identical image inputs two environment identities", () => {
     const { root, first, second } = twoCommitRepo()
-    const dir = targetsDir(first, { images: { [first]: image, [second]: image } })
-    const a = loadTarget("t", { targetsDir: dir, repositoryRoot: root, pin: first })
-    const b = loadTarget("t", { targetsDir: dir, repositoryRoot: root, pin: second })
-    expect(environmentIdentity(a)).not.toBe(environmentIdentity(b))
+    const dir = targetsDir(first)
+    const restore = useImages(lookup(() => image).registry)
+    try {
+      const a = loadTarget("t", { targetsDir: dir, repositoryRoot: root, pin: first })
+      const b = loadTarget("t", { targetsDir: dir, repositoryRoot: root, pin: second })
+      expect(environmentIdentity(a)).not.toBe(environmentIdentity(b))
+    } finally {
+      restore()
+    }
+  })
+
+  it("loads a task without an image where the registry has none", () => {
+    const restore = useImages(emptyImageRegistry())
+    try {
+      const recipe = loadTaskRecipe("devkit-spawn-deadline")
+      expect(recipe.target.id).toBe("devkit")
+      expect(recipe.target).not.toHaveProperty("image")
+      expect(() => loadTask("devkit-spawn-deadline")).toThrow(ImageNotBuiltError)
+    } finally {
+      restore()
+    }
   })
 
   it("refuses an unknown target and an id that disagrees with its directory", () => {
@@ -448,17 +477,11 @@ describe("target catalog", () => {
           }),
         ).not.toThrow()
 
-        // Written in the per-pin shape: the migration is for manifests from before it.
+        // No image is recorded in the repository: images are this host's (plan D3).
         const raw = JSON.parse(readFileSync(join(directory, "target.json"), "utf8"))
         expect(raw).not.toHaveProperty("image")
-        // Only the DEFAULT pin's entry is checked, and it must exist: an entry for another pin
-        // is an operator's, prepared on some host from a commit (and possibly a Dockerfile)
-        // this checkout need not hold.
-        const image = parsed.images?.[parsed.pin]
-        expect(image, `${id} has an image at its default pin`).toBeDefined()
-        const dockerfile = readFileSync(join(directory, "Dockerfile"))
-        const sha256 = createHash("sha256").update(dockerfile).digest("hex")
-        expect(image?.dockerfileSha256).toBe(sha256)
+        expect(raw).not.toHaveProperty("images")
+        expect(existsSync(join(directory, "Dockerfile"))).toBe(true)
       })
     }
   })
@@ -502,10 +525,15 @@ describe("task catalog", () => {
   it("loads a task without its image, where loadTask needs one", () => {
     const { root, pin } = repo()
     // A target with no image at the pin: loadTask cannot load it, loadTaskRecipe can.
-    const targets = targetsDir(pin, { images: undefined })
+    const targets = targetsDir(pin)
     const tasks = tasksDirFor()
     const options = { targetsDir: targets, tasksDir: tasks, repositoryRoot: root }
-    expect(() => loadTask("k", options)).toThrow()
+    const restore = useImages(emptyImageRegistry())
+    try {
+      expect(() => loadTask("k", options)).toThrow(ImageNotBuiltError)
+    } finally {
+      restore()
+    }
     const recipe = loadTaskRecipe("k", options)
     expect(recipe.id).toBe("k")
     expect(recipe.target.id).toBe("t")

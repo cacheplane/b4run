@@ -1,187 +1,61 @@
-import { execFileSync } from "node:child_process"
-import { createHash } from "node:crypto"
-import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
 import { join } from "node:path"
-import {
-  covers,
-  ensurePin,
-  repositoryRoot,
-  TargetSchema,
-  targetsDir,
-} from "../src/lib/targets/catalog.js"
-import { recipeTag } from "../src/lib/targets/images.js"
-import {
-  capturedListMismatch,
-  firstMissingPath,
-  parsePrepareArgs,
-  pathExistsAtPin,
-  pathsRequiredAtPin,
-  recordImage,
-} from "../src/lib/targets/prepare.js"
+import { environmentIdentity, loadTargetRecipe } from "../src/lib/targets/catalog.js"
+import { dockerImageBuilder } from "../src/lib/targets/image-builder.js"
+import { ImagePrepareError, openImageRegistry } from "../src/lib/targets/images.js"
+import { parsePrepareArgs } from "../src/lib/targets/prepare.js"
 
 /**
- * Build a target's image at a pin and record the inputs that produced it under that pin.
+ * Warm this host's image registry: build (or re-verify) a target's image at a pin, exactly as
+ * the controller does the first time a work order needs it, into
+ * `<FACTORY_STATE_DIR>/images.sqlite`. Optional: nothing requires it. Writes nothing under the
+ * target; the image is recorded in the registry the controller reads, never in `target.json`.
  *
- * `prepare-target.ts <id> [--pin <sha>]`: the pin is the manifest's default unless `--pin`
- * names another; the image is recorded as `images[<pin>]`, every other pin's entry kept.
- * The build context is a git archive of the target's `imageContext` at the pin plus the
- * Dockerfile, never the working tree. The recorded image object (with the pin) is what
- * `environmentIdentity` digests: a local image id is host-specific, so the inputs travel
- * with it. `FACTORY_TARGETS_DIR` points it (and the catalog) at another targets directory,
- * so a lane can prepare a copy and never write the working tree.
+ * `prepare-target.ts <id> [--pin <sha>]`: the target's default pin unless `--pin` names another.
+ * Prints the recorded image as JSON on stdout; the build's output goes to stderr.
  */
+const RETIRED: Readonly<Record<string, string>> = {
+  FACTORY_TARGETS_DIR: "the script writes no target file, so there is no copy to point it at",
+}
+for (const [name, why] of Object.entries(RETIRED))
+  if (process.env[name] !== undefined) throw new Error(`${name} is retired: ${why}. Unset it`)
+const stateDir = process.env.FACTORY_STATE_DIR
+if (!stateDir)
+  throw new Error(
+    "FACTORY_STATE_DIR is required: the image is recorded in <FACTORY_STATE_DIR>/images.sqlite, the registry the controller with that state directory reads",
+  )
 const args = parsePrepareArgs(process.argv.slice(2))
-const { id } = args
-const directory = join(targetsDir, id)
-const manifestPath = join(directory, "target.json")
-const manifest = TargetSchema.parse(JSON.parse(readFileSync(manifestPath, "utf8")))
-const pin = args.pin ?? manifest.pin
-const repo = repositoryRoot()
-// This script parses the manifest itself (the pin may have no image yet, which `loadTarget`
-// refuses), so it must make the pin present the same way `loadTarget` does: a shallow
-// checkout has everything but the commit the archive below is taken from.
-ensurePin(repo, id, pin)
-// Every path the image is built from must exist at the pin: `git archive` of a missing path
-// fails with a message naming nothing useful, and a target whose files moved since (the
-// `cli-flags` fixture's historical paths) is refused here, by name, before any build.
-const missing = firstMissingPath(pathsRequiredAtPin(manifest), (path) =>
-  pathExistsAtPin(repo, pin, path),
-)
-if (missing !== undefined)
-  throw new Error(
-    `Target "${id}" names ${missing}, which does not exist at ${pin}: it cannot be prepared at that pin`,
-  )
-// A Dockerfile that relinks workspace packages by name restates the capture's package list;
-// the two must agree, or the image links a package to nothing or leaves one at its
-// manifest-only copy. Refused before the pull and the build, by name.
-const capturedMismatch = capturedListMismatch(
-  manifest,
-  readFileSync(join(directory, "Dockerfile"), "utf8"),
-)
-if (capturedMismatch !== undefined) throw new Error(capturedMismatch)
-// The lockfile hash only means something if the lockfile was in the build context: a hash
-// over a file the build never saw records an input that did not produce the image.
-if (!covers(manifest.imageContext, manifest.lockfile))
-  throw new Error(
-    `Target "${id}" records lockfile "${manifest.lockfile}", which its imageContext does not cover`,
-  )
-/** Captured stdout, trimmed: for values a trailing newline would corrupt, use `bytes`. */
-const sh = (cmd: string, args: string[], opts: { cwd?: string } = {}) =>
-  execFileSync(cmd, args, {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "inherit"],
-    ...opts,
-  }).trim()
-/** Captured stdout, exact: a file's sha256 must be over the bytes, not a trimmed copy. */
-const bytes = (cmd: string, args: string[]) =>
-  execFileSync(cmd, args, { stdio: ["ignore", "pipe", "inherit"], maxBuffer: 256 * 1024 * 1024 })
-const sha = (content: Buffer) => createHash("sha256").update(content).digest("hex")
-
-const platform =
-  process.arch === "arm64"
-    ? "linux/arm64"
-    : process.arch === "x64"
-      ? "linux/amd64"
-      : (() => {
-          throw new Error(`Unsupported host architecture ${process.arch}`)
-        })()
-// The pull refreshes the base tag before its digest is read. `FACTORY_SKIP_BASE_PULL=1` is for
-// a host whose registry path is unreachable; the recorded digest is then whatever
-// `node:24-slim` that host already holds, so it is an explicit opt-in and never a fallback.
-if (process.env.FACTORY_SKIP_BASE_PULL !== "1")
-  execFileSync("docker", ["pull", "--platform", platform, "node:24-slim"], { stdio: "inherit" })
-const baseRef = JSON.parse(sh("docker", ["image", "inspect", "node:24-slim"]))[0].RepoDigests[0]
-if (typeof baseRef !== "string" || !/^node@sha256:[a-f0-9]{64}$/.test(baseRef))
-  throw new Error("Missing base image digest")
-const baseManifestDigest = baseRef.slice("node@".length)
-
-const context = mkdtempSync(join(tmpdir(), `factory-prepare-${id}-`))
+const recipe = loadTargetRecipe(args.id, args.pin !== undefined ? { pin: args.pin } : {})
+const registry = openImageRegistry({
+  path: join(stateDir, "images.sqlite"),
+  builder: dockerImageBuilder(),
+})
+const interrupted = new AbortController()
+process.once("SIGINT", () => interrupted.abort(new Error("interrupted")))
 try {
-  const tar = join(context, "context.tar")
-  execFileSync("git", [
-    "-C",
-    repo,
-    "archive",
-    "--format=tar",
-    "-o",
-    tar,
-    pin,
-    "--",
-    ...manifest.imageContext,
-  ])
-  execFileSync("tar", ["-xf", tar, "-C", context])
-  rmSync(tar)
-  cpSync(join(directory, "Dockerfile"), join(context, "Dockerfile"))
-
-  const rootPackage = JSON.parse(sh("git", ["-C", repo, "show", `${pin}:package.json`]))
-  const pnpmVersion = String(rootPackage.packageManager ?? "").replace(/^pnpm@/, "")
-  if (!/^\d+\.\d+\.\d+$/.test(pnpmVersion)) throw new Error(`No pnpm version at ${pin}`)
-
-  const dockerfileSha256 = sha(readFileSync(join(directory, "Dockerfile")))
-  const lockfileSha256 = sha(bytes("git", ["-C", repo, "show", `${pin}:${manifest.lockfile}`]))
-  // The tag is the recipe's (see `recipeTag`), so it is computable before the build;
-  // `localId` is the only field of the image object the build supplies.
-  const provisional = {
-    localId: `sha256:${"0".repeat(64)}`,
-    platform,
-    baseManifestDigest,
-    dockerfileSha256,
-    lockfileSha256,
-    pnpmVersion,
-  }
-  const { images: _images, ...recipe } = manifest
-  const tag = recipeTag({ ...recipe, pin, directory }, platform)
-  execFileSync(
-    "docker",
-    [
-      "build",
-      "--platform",
-      platform,
-      "--build-arg",
-      `BASE_IMAGE=${baseRef}`,
-      "--build-arg",
-      `PLATFORM=${platform}`,
-      "--build-arg",
-      `PNPM_VERSION=${pnpmVersion}`,
-      "-t",
-      tag,
-      context,
-    ],
-    { stdio: "inherit" },
+  const ensured = await registry.ensure(recipe, {
+    signal: interrupted.signal,
+    onMissing: ({ localId }) =>
+      process.stderr.write(`recorded image ${localId} is gone from the daemon; rebuilding\n`),
+    onBuild: () => process.stderr.write(`building ${recipe.id} at ${recipe.pin}\n`),
+  })
+  if (ensured.build) process.stderr.write(ensured.build.log)
+  console.log(
+    JSON.stringify(
+      {
+        key: ensured.key,
+        tag: ensured.tag,
+        pin: recipe.pin,
+        built: ensured.build !== undefined,
+        identity: environmentIdentity({ image: ensured.image, pin: recipe.pin }),
+        ...ensured.image,
+      },
+      null,
+      2,
+    ),
   )
-  const localId = sh("docker", ["image", "inspect", tag, "--format", "{{.Id}}"])
-
-  // The install must have produced what the commands need: a frozen install can silently
-  // skip a platform-matched optional dependency, and the verifier would blame the builder.
-  const cwd =
-    manifest.commands.cwd === "."
-      ? `/opt/targets/${id}`
-      : `/opt/targets/${id}/${manifest.commands.cwd}`
-  for (const specifier of manifest.imageAssertResolves)
-    execFileSync(
-      "docker",
-      [
-        "run",
-        "--rm",
-        "--network",
-        "none",
-        "-w",
-        cwd,
-        tag,
-        "node",
-        "-e",
-        `require.resolve(${JSON.stringify(specifier)})`,
-      ],
-      { stdio: "inherit" },
-    )
-
-  const image = { ...provisional, localId }
-  // Re-read, merge only this pin's entry, format and rename into place: the build above took
-  // tens of seconds, during which another prepare may have recorded its own pin, and a live
-  // controller may be reading this manifest.
-  await recordImage(manifestPath, pin, image)
-  console.log(JSON.stringify({ tag, pin, ...image }, null, 2))
+} catch (error) {
+  if (error instanceof ImagePrepareError) process.stderr.write(error.log)
+  throw error
 } finally {
-  rmSync(context, { recursive: true, force: true })
+  registry.close()
 }

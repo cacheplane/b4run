@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process"
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -311,6 +312,35 @@ describe("parseDraft", () => {
     expect(parsed.reason).toMatch(
       /^draft\/task\.json names target cli-flags, which is not available at [0-9a-f]{40}: Target "cli-flags" names examples\/software-factory\/server\/fixtures\/cli-flags\/project, which does not exist at /,
     )
+  })
+
+  it("looks the target up in the catalog it is given, at the work order's pin", () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-draft-targets-"))
+    const shipped = JSON.parse(readFileSync(join(targetsDir, "devkit", "target.json"), "utf8"))
+    mkdirSync(join(dir, "devkit"))
+    copyFileSync(join(targetsDir, "devkit", "Dockerfile"), join(dir, "devkit", "Dockerfile"))
+    // The copy's capture names a path the pin does not hold: the draft is refused by the copy's
+    // recipe, which only a catalog honoured can do.
+    writeFileSync(
+      join(dir, "devkit", "target.json"),
+      JSON.stringify({
+        ...shipped,
+        capture: { include: [...shipped.capture.include, "packages/devkit/no-such-dir"] },
+      }),
+    )
+    const refused = parseDraft(files(GOOD_DRAFT), {
+      workOrderId: WO,
+      pin: PIN,
+      catalog: { targetsDir: dir },
+    })
+    expect(refused).toMatchObject({ ok: false, blockedReason: "no_target_for_package" })
+    writeFileSync(join(dir, "devkit", "target.json"), JSON.stringify(shipped))
+    const accepted = parseDraft(files(GOOD_DRAFT), {
+      workOrderId: WO,
+      pin: PIN,
+      catalog: { targetsDir: dir },
+    })
+    expect(accepted.ok).toBe(true)
   })
 
   it("blocks as intake_run_failed, not a verdict on the draft, when the catalog fails the controller", () => {

@@ -28,7 +28,7 @@ import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fak
 import { fakeBuilderHandoff, fakeWorkerMap } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
 import { BAD_DRAFTS, GOOD_DRAFT } from "./intake-fixtures.ts"
-import { createEmptyRepo, shippedPin } from "./temp-repo.ts"
+import { createEmptyRepo, repositoryHead, shippedPin } from "./temp-repo.ts"
 import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
 let dir: string
@@ -402,6 +402,20 @@ describe("intake", () => {
     expect(eventTypes(id)).not.toContain("transition:intake_retry")
     // The block is the last word: nothing was written for the drafter, so nothing is removed.
     expect(eventTypes(id).at(-1)).toBe("transition:intake_blocked")
+  })
+
+  it("offers and fits a target at a pin no image was built at", async () => {
+    await boot({}, { maxIntakeAttempts: 2 })
+    const head = repositoryHead().pin
+    expect(head).not.toBe(PIN)
+    const { id } = await factory.createFromIssue({ origin: ORIGIN, pin: head, issue: ISSUE })
+    expect(await factory.intake(id)).toMatchObject({ ok: true, state: "intake_running" })
+    const threadId = (factory.show(id) as WorkOrderRow).workerThreadId as string
+    reader.set(threadId, GOOD_DRAFT)
+    const row = await factory.settleIntake(id, 20_000)
+    expect(row).toMatchObject({ state: "awaiting_intake_approval", targetId: "devkit" })
+    expect(promptOf(0)).toContain("- `devkit`")
+    expect(refusals(id)).toHaveLength(0)
   })
 
   it("retries an invalid draft on the same thread with the refusal quoted, then parks", async () => {
