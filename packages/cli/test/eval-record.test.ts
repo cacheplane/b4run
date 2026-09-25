@@ -1,4 +1,7 @@
+import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { createServer } from "node:http"
+import type { AddressInfo } from "node:net"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -185,6 +188,50 @@ describe("b4 eval --record (integration)", () => {
       expect(lines2.join("\n")).toContain("PASS")
     } finally {
       await upstream.close()
+    }
+  }, 120_000)
+})
+
+describe("b4 eval --record (unreplayable recording)", () => {
+  it("refuses to write a tape whose recorded turn replay would reject", async () => {
+    // An upstream whose model answers with an empty assistant message — the
+    // recording aimock then refuses to load on replay (#778).
+    const upstream = createServer((req, res) => {
+      req.resume()
+      req.on("end", () => {
+        const chunk = (delta: object, finish: string | null) =>
+          `data: ${JSON.stringify({
+            id: "chatcmpl-empty",
+            object: "chat.completion.chunk",
+            created: 0,
+            model: "gpt-5-mini",
+            choices: [{ index: 0, delta, finish_reason: finish }],
+          })}\n\n`
+        res.writeHead(200, { "content-type": "text/event-stream" })
+        res.end(
+          `${chunk({ role: "assistant", content: "" }, null)}${chunk({}, "stop")}data: [DONE]\n\n`,
+        )
+      })
+    })
+    await new Promise<void>((done) => upstream.listen(0, "127.0.0.1", done))
+
+    try {
+      const { root, routeDir } = await makeNoFixturesEvalApp()
+      process.env.OPENAI_API_KEY = "test-placeholder"
+      process.env.B4_RECORD_UPSTREAM = `http://127.0.0.1:${(upstream.address() as AddressInfo).port}`
+
+      await expect(
+        runEvalCommand(
+          undefined,
+          { cwd: root, record: true },
+          { stdout: () => {}, stderr: () => {} },
+        ),
+      ).rejects.toThrow(
+        /Refused to record filter › open:[\s\S]*turn 0 of "Filter open items": content is empty string/,
+      )
+      expect(existsSync(join(routeDir, "evals", "filter.open.fixtures.json"))).toBe(false)
+    } finally {
+      await new Promise<void>((done) => upstream.close(() => done()))
     }
   }, 120_000)
 })

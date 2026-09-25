@@ -166,6 +166,8 @@ Recording snapshots only the agent run. Scorer model calls stay out of that sibl
 
 `--record` skips cases that already have inline `script()` fixtures (logging `skipped record (inline fixtures)`) and never overwrites them. The gate still applies during `--record`, and scores are checked against the threshold after all cases run. Fixture files are written per case before the verdict, so a gate failure never discards captured responses.
 
+A recording is checked against the same rules replay loads it with, so `--record` never writes a file that plain `b4 eval` would reject. The usual cause is a model turn that came back empty: the model refused, ran out of output tokens, or had nothing left to say after a tool did the work. In that case the command exits with code 2 and names the case and turn, and that case's file is not written. If the answer is a tool call, export [`returnDirect`](/docs/tools#ending-the-run-from-a-tool) from that tool so the run ends on its result.
+
 ```bash
 # Record real-model responses into sibling fixture files
 b4 eval --record
