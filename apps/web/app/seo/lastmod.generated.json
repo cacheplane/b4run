@@ -7,14 +7,14 @@
       "recordDigest": "9c4264cd4bfbeea309ca0bda39994d2ea9e5328504e0aab7aceb15f5f969d139"
     },
     "/blog": {
-      "lastModified": "2026-09-23T17:27:43.000Z",
-      "sourceDigest": "57f0491b63cf50b7263860e6b0c5f3f6fcefd04fcaab8c205d18273ec6b1ee12",
-      "recordDigest": "1cffcbde2bcf85b11bf07874df3fb97aa265e5bbca37f65a09f1616d241cab47"
+      "lastModified": "2026-09-25T19:33:48.000Z",
+      "sourceDigest": "c91254ad8bed893feb6155978bec4911ec24dee6325a1b45339ce9de71fd1e33",
+      "recordDigest": "6e834bfd08939cf89ad76682c6746174e7631856e7045c0ef954de3c8f02ace9"
     },
     "/blog/tags/agents": {
-      "lastModified": "2026-09-23T17:27:43.000Z",
-      "sourceDigest": "c87e395348baa5b521f1db5117499e8845be19d43a6ef335d56ac16eb2551a4c",
-      "recordDigest": "1b3391b28160ae9845c6d42ee8242fcad2a31db80fc4fddae970563da9f79d3c"
+      "lastModified": "2026-09-25T19:33:48.000Z",
+      "sourceDigest": "2bc2e72e4587482ba8ed0cdbd7055c4b08026802c98b1ee9e35bb69de829b7d9",
+      "recordDigest": "ab53951f8c6a302f427caf2d480c95f2f39d2fdb106a2e05edf7761c455db4dc"
     },
     "/blog/tags/patterns": {
       "lastModified": "2026-09-23T17:27:43.000Z",
@@ -22,19 +22,19 @@
       "recordDigest": "fe02e543fcfed6d62500a3a3eda921abe60aa7cfbec1d1be6d7c16814afb35cf"
     },
     "/blog/tags/philosophy": {
-      "lastModified": "2026-09-23T17:27:43.000Z",
-      "sourceDigest": "d8732445bbcaaff47ab729b22a0915186653b278e91ef33f81b8eed74548fcd4",
-      "recordDigest": "e3137524a37dacecc0f24ae97e4486adb40a06642ae3a52658c11fa86a209764"
+      "lastModified": "2026-09-25T19:33:48.000Z",
+      "sourceDigest": "950626b39ce109816807ef5cbc59d26e1a3408f33be1ef21d438e501a5dd992c",
+      "recordDigest": "1102b1428a29490c1deb947fdcce8c8011ba4b51d39884ba1acc55566a26d939"
     },
     "/blog/tags/releases": {
-      "lastModified": "2026-09-23T17:27:43.000Z",
-      "sourceDigest": "c958e91cdd894c6bf5ca6188f253303f0fd8ba6fbd0289e0288226e5f240b27b",
-      "recordDigest": "8f7ff9c3ec9d9e402c8ed671ea6a8ee240d8fd03f78445ae9b4e8486493c9bc6"
+      "lastModified": "2026-09-25T19:33:48.000Z",
+      "sourceDigest": "aa860253f670b6db06571dea6284b5409c42619ec9cc847dc55ca128db8271cd",
+      "recordDigest": "21061330b469213a3d18e8f8557b0c6d0da364105e67bcc0d18c07f60a2eedfc"
     },
     "/blog/tags/typescript": {
-      "lastModified": "2026-09-23T17:27:43.000Z",
-      "sourceDigest": "4fff0aee28bfc806056bf44874e30f35f9b64cec06332683682fabdbde0c44b1",
-      "recordDigest": "7dee9366eab82b67c78ddef326af6ec1160936eb58dca928801b51e498241436"
+      "lastModified": "2026-09-25T19:33:48.000Z",
+      "sourceDigest": "3753d7b064ad466acf93ea403336c2293d17732dd4e5ab7a8196d86e2594bd95",
+      "recordDigest": "9674f83ce21f70f4708b774776ea2d6c8a00129074714d9cb2b0403b88c8835c"
     },
     "/docs/access-control": {
       "lastModified": "2026-09-24T01:19:36.000Z",
@@ -132,9 +132,9 @@
       "recordDigest": "40a14ae65b439832bfafa2de679abdbc8bb04d0fd3cbf187f03bc86d5e25f9f6"
     },
     "/docs/api/workspace": {
-      "lastModified": "2026-09-25T09:33:24.000Z",
-      "sourceDigest": "81557946ca136095f47655e9cd83ede3616db0765e0006624e747e8101549bd3",
-      "recordDigest": "eeb504aa5a8d03634113b67c293a6f3f2d5c7df095cf1bb0522f0b9e83e7778b"
+      "lastModified": "2026-09-25T19:33:48.000Z",
+      "sourceDigest": "276a644158c1747eebfdba1ede2c3b64c8fdaacd3fa9832f23b1b6f9da16fbad",
+      "recordDigest": "292ebc4a939c14b381da1af65e22e97b55df9ecbe48323a8fbe6de457a9afdc7"
     },
     "/docs/blueprints": {
       "lastModified": "2026-09-23T17:16:40.000Z",
@@ -147,9 +147,9 @@
       "recordDigest": "199244be9c87e7c9161aaa0e75a87d9722ba129d7bd7497fd34ae2a4ceb0a4c9"
     },
     "/docs/configuration": {
-      "lastModified": "2026-09-25T09:33:24.000Z",
-      "sourceDigest": "dd6b12a822eb5af96e7ba74d13e1de4cbd9a88595120ea4d234ad9ac7b852a19",
-      "recordDigest": "a65f07d2a6c0c90baa267cb136989e2b141c349bef4bcfbca96ac33b81b29bb1"
+      "lastModified": "2026-09-25T19:38:05.000Z",
+      "sourceDigest": "831506124414364ee1f5ad5823148665636425ee7ef57b7e7241720930a4cca1",
+      "recordDigest": "293506b253d742330607a2a4b1bbdf85c53ee8d493351c82f8cd016d0bd2f243"
     },
     "/docs/context-management": {
       "lastModified": "2026-09-23T06:30:00.000Z",
@@ -357,9 +357,9 @@
       "recordDigest": "bbf0376d97dcd10e65d7f02f0cbc25584fd834af8750b0759b55558ec517c2c0"
     },
     "/docs/sandbox": {
-      "lastModified": "2026-09-25T09:33:24.000Z",
-      "sourceDigest": "8d39e9b464255a68b111bcbf9470bb92fd78f580050e0fb4200554a9de3fc6de",
-      "recordDigest": "fb3929fa6a4e768e55975960ba6e5a772f19c41f61ad334bf5d36132e3ae0bcb"
+      "lastModified": "2026-09-25T19:33:48.000Z",
+      "sourceDigest": "18bff7f0aa45d70bae349c6420ea58bcd8f48d52d84eef840c18d23c3070e75a",
+      "recordDigest": "41fb550974bd440a75b22c59b724bd9ab58a4af184efafb71434c2a86d850946"
     },
     "/docs/sandbox/kubernetes": {
       "lastModified": "2026-09-23T06:30:00.000Z",

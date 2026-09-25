@@ -18,7 +18,9 @@ import { SandboxManager } from "./sandbox-manager.js"
 import { stagedWorkspaceSettings, type WorkspaceProtocolSettings } from "./workspace-protocol.js"
 
 const DEFAULT_IDLE_MS = 600_000
-const DEFAULT_NETWORK: SandboxPolicy["network"] = { mode: "allow", denylist: ["169.254.169.254"] }
+// Plain allow: neither reference provider enforces an allow-mode denylist, so a
+// default one would only claim a block (e.g. of 169.254.169.254) that never happens.
+const DEFAULT_NETWORK: SandboxPolicy["network"] = { mode: "allow" }
 
 /** Build the per-server SandboxManager from b4.config.ts, or undefined if unconfigured. */
 export async function resolveSandboxManager(

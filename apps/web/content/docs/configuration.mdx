@@ -72,8 +72,9 @@ export default config({
 
   // sandbox: {
   //   provider: dockerSandbox({ scope: "my-app", image: "node:24-slim" }),
-  //   network: { mode: "allow", denylist: ["169.254.169.254"] },
-  //   // network: { mode: "deny", allowlist: ["api.openai.com"] },
+  //   network: { mode: "deny" },
+  //   // network: { mode: "deny", allowlist: ["10.0.0.0/8"] }, // Kubernetes CIDRs; Docker ignores it
+  //   // network: { mode: "allow" }, // open egress, cloud metadata endpoint included
   //   env: { NODE_ENV: "production" },
   //   resources: { memoryMb: 1024, cpus: 1, timeoutMs: 120_000, diskGb: 10 },
   //   security: {
@@ -392,7 +393,10 @@ sandbox?: {
 Default: no sandbox, so workspace operations run on the host backends. If you
 add a sandbox, `provider` is required. The manager then defaults to:
 
-- an allow-mode network policy that denies `169.254.169.254`,
+- an allow-mode network policy, `{ mode: "allow" }`, with open egress. The
+  reference Docker and Kubernetes providers do not enforce a `denylist`, so the
+  cloud metadata endpoint `169.254.169.254` stays reachable. See
+  [Network policy](/docs/sandbox#network-policy),
 - no host environment variables, and
 - releasing idle compute after `600_000` ms.
 

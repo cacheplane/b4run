@@ -121,7 +121,7 @@ For either framework, I'd test the same small scenario: start a conversation, st
 
 If an agent can run shell commands, look at where those commands execute. An approval rule decides whether an operation may proceed. A sandbox decides the environment it runs in.
 
-B4.run offers optional sandbox providers, including Docker and Kubernetes. Their network and filesystem behavior depends on the provider and its configuration. For example, Docker's deny-network mode and its best-effort allow-mode denylist give different controls. The [Sandbox guide](/docs/sandbox) documents those limits.
+B4.run offers optional sandbox providers, including Docker and Kubernetes. Their network and filesystem behavior depends on the provider and its configuration. For example, Docker's deny-network mode removes network access, while its allow mode leaves egress open and does not enforce a denylist. The [Sandbox guide](/docs/sandbox) documents those limits.
 
 Evaluate the environment your application will actually use. A container, a hosted sandbox and an approved command on the application host behave differently, even when the agent sees a similarly named tool.
 
