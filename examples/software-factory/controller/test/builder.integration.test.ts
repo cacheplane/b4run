@@ -14,7 +14,7 @@ import {
 } from "../src/lib/builder-handoff.ts"
 import { taskPrompt } from "../src/lib/prompts.ts"
 import { captureTarget } from "../src/lib/targets/archive.ts"
-import { loadTarget, loadTask } from "../src/lib/targets/catalog.ts"
+import { loadTarget, loadTargetRecipe, loadTask } from "../src/lib/targets/catalog.ts"
 import { imageTag } from "../src/lib/targets/images.ts"
 import { SECOND_PIN } from "./devkit-second-pin.ts"
 import { ensureLaneImage } from "./lane-images.ts"
@@ -374,6 +374,71 @@ it("serves a cli-flags thread and devkit threads at two pins from one process", 
         workOrderId,
         want.memoryMb * 1024 * 1024,
       ])
+    }
+
+    // A handoff admitted or refused: upload its source, create its thread, run one turn.
+    // `true` when the turn ran; otherwise the refusal's text, so each refusal is pinned to
+    // its own reason rather than to any failure at all.
+    const admitted = async (
+      workOrderId: string,
+      factoryBuilder: unknown,
+    ): Promise<true | string> => {
+      await builder.client.uploadSource(devkit.workspace.source)
+      try {
+        const threadId = await builder.client.createThread(
+          { factoryWorkOrderId: workOrderId, factoryBuilder },
+          stagedReferenceOf(devkit.workspace),
+        )
+        threads.push(threadId)
+        builder.aimock.addFixtures(
+          script().user(LIST).callsTool("listDir", { path: "." }).replies("Listed.").build(),
+        )
+        const turn = await builder.runTurn(threadId, LIST)
+        return turn.status === 200 ? true : turn.text
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error)
+      }
+    }
+    const tag = imageTag(devkitTask.target)
+    const base = loadTargetRecipe("devkit").baseImage
+    const baseId = execFileSync("docker", ["image", "inspect", "--format", "{{.Id}}", base], {
+      encoding: "utf8",
+    }).trim()
+    // Moved on a shared daemon, so put back in the `finally` below, whatever fails.
+    execFileSync("docker", ["tag", base, tag])
+    try {
+      // The recipe tag now names the base image; a thread handed the bound id runs the bound id.
+      const moved = { ...devkit.handoff, workOrderId: "wo-devkit-3" }
+      expect(await admitted("wo-devkit-3", moved)).toBe(true)
+      const record = openWorkspaceInstallationReader(builder.appRoot)
+      let operation: string
+      try {
+        operation = record.associations.get(threads.at(-1) as string)?.intent.operationId as string
+      } finally {
+        record.close()
+      }
+      expect(sessionOf(operation).Image).toBe(devkitTask.target.image.localId)
+      // The pre-version-4 shape (a tag in `image`) is refused by the schema at admission.
+      expect(
+        await admitted("wo-devkit-4", {
+          ...moved,
+          workOrderId: "wo-devkit-4",
+          version: 3,
+          target: { ...moved.target, image: tag },
+        }),
+      ).toContain("thread metadata factoryBuilder is invalid")
+      // An id the daemon holds but the factory did not build for this handoff is refused by
+      // its labels.
+      expect(
+        await admitted("wo-devkit-5", {
+          ...moved,
+          workOrderId: "wo-devkit-5",
+          target: { ...moved.target, image: baseId },
+        }),
+      ).toContain(`image ${baseId} carries no factory labels`)
+    } finally {
+      // Put the recipe tag back on the bound image, as the registry's next `ensure` would.
+      execFileSync("docker", ["tag", devkitTask.target.image.localId, tag])
     }
   } finally {
     await rm(root, { recursive: true, force: true })
