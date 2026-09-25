@@ -33,10 +33,10 @@ const FIX = "b090ad42ffbf063d2540a80454ee480d1a0ebbf4"
 const REFERENCE_TEST = "packages/cli/test/runs-wait-output.test.ts"
 /**
  * Opt-in (`FACTORY_TEST_CLI_TARGET=1`, or `pnpm test:sandbox:cli`): the lane needs the `cli`
- * image prepared on this host (2 GB), and runs about 26 minutes, six verifier sessions of
- * about 4 minutes each. It ran about 70 minutes while every snapshot operation re-verified the
- * whole source bundle; what remains is one `docker exec` per snapshot operation. The CI
- * `sandbox-docker` job prepares neither and has 30 minutes.
+ * image prepared on this host (2 GB), and runs about 90 seconds for its six verifier
+ * sessions. It ran about 70 minutes while every snapshot operation re-verified the whole
+ * source bundle (#826), and 26 minutes while each snapshot made one `docker exec` per entry
+ * (#827). The CI `sandbox-docker` job does not prepare the image.
  */
 const ENABLED = process.env.FACTORY_TEST_CLI_TARGET === "1"
 /** Stated rather than read from the target, so an unprepared checkout skips at collection. */
