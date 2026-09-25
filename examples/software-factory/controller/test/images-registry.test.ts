@@ -295,3 +295,54 @@ describe("builds in flight", () => {
     await until(() => builder.aborted === 1)
   })
 })
+
+describe("a registry that disagrees with the daemon", () => {
+  it("rebuilds an image the daemon no longer holds, and says so", async () => {
+    const builder = fakeImageBuilder()
+    const registry = open(builder)
+    const recipe = recipeFixture()
+    const first = await ensure(registry, recipe)
+    builder.daemon.delete(first.image.localId)
+    const missing: unknown[] = []
+    const second = await ensure(registry, recipe, { onMissing: (event) => missing.push(event) })
+    expect(missing).toEqual([{ key: first.key, localId: first.image.localId }])
+    expect(builder.requests).toHaveLength(2)
+    expect(second.build?.shared).toBe(false)
+    expect(second.image.localId).not.toBe(first.image.localId)
+    expect(registry.recorded(recipe)?.image.localId).toBe(second.image.localId)
+  })
+
+  it("points a moved tag back at the recorded image without rebuilding it", async () => {
+    const builder = fakeImageBuilder()
+    const registry = open(builder)
+    const recipe = recipeFixture()
+    const first = await ensure(registry, recipe)
+    // Someone tagged another image with the factory's tag.
+    builder.daemon.set(`sha256:${"9".repeat(64)}`, [])
+    await builder.tag(`sha256:${"9".repeat(64)}`, first.tag, AbortSignal.timeout(1_000))
+    expect(builder.daemon.get(first.image.localId)).toEqual([])
+    const again = await ensure(registry, recipe)
+    expect(again).toEqual({ key: first.key, tag: first.tag, image: first.image })
+    expect(builder.requests).toHaveLength(1)
+    expect(builder.daemon.get(first.image.localId)).toEqual([first.tag])
+  })
+
+  it("answers whether the daemon holds an image, by id", async () => {
+    const builder = fakeImageBuilder()
+    const registry = open(builder)
+    const first = await ensure(registry, recipeFixture())
+    const signal = AbortSignal.timeout(1_000)
+    expect(await registry.present(first.image.localId, signal)).toBe(true)
+    builder.daemon.delete(first.image.localId)
+    expect(await registry.present(first.image.localId, signal)).toBe(false)
+  })
+
+  it("answers `recorded` from the registry alone, never the daemon", async () => {
+    const builder = fakeImageBuilder()
+    const registry = open(builder)
+    const recipe = recipeFixture()
+    const first = await ensure(registry, recipe)
+    builder.daemon.clear()
+    expect(registry.recorded(recipe)?.image).toEqual(first.image)
+  })
+})

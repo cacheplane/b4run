@@ -390,6 +390,11 @@ export function openImageRegistry(options: ImageRegistryOptions): ImageRegistry 
     )
   }
 
+  /** Drop `key`'s record, but only if it still names `localId`: another writer may have replaced it. */
+  const forget = (key: string, localId: string) => {
+    db.prepare("DELETE FROM images WHERE key = ? AND local_id = ?").run(key, localId)
+  }
+
   /** One build, start to record. A failure of any kind is an `ImagePrepareError` with the log. */
   async function build(
     described: Described,
@@ -493,7 +498,19 @@ export function openImageRegistry(options: ImageRegistryOptions): ImageRegistry 
       signal.throwIfAborted()
       const described = describe(recipe)
       const image = read(described.key)
-      if (image !== undefined) return { key: described.key, tag: described.tag, image }
+      if (image !== undefined) {
+        // Re-verified on every need: an image pruned or removed since it was recorded is not
+        // this key's answer any more, and a tag another image took is pointed back so a
+        // dangling-image prune cannot remove the recorded one.
+        const found = await options.builder.inspect(image.localId, signal)
+        if (found !== null) {
+          if (!found.tags.includes(described.tag))
+            await options.builder.tag(image.localId, described.tag, signal)
+          return { key: described.key, tag: described.tag, image }
+        }
+        ensureOptions.onMissing?.({ key: described.key, localId: image.localId })
+        forget(described.key, image.localId)
+      }
       const joined = inflight.get(described.key)
       const flight = joined ?? startFlight(described, recipe)
       const shared = joined !== undefined
