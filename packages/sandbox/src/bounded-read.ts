@@ -1,3 +1,5 @@
+import { WorkspaceReadLimitError } from "@b4run/workspace"
+
 function q(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`
 }
@@ -24,7 +26,11 @@ export function decodeBoundedRead(
   }
   const bytes = framed.subarray(0, framed.length - footer[0].length)
   if (bytes.length > max)
-    throw new Error(`${operation} ${path}: content exceeds maxBytes (${max}).`)
+    throw new WorkspaceReadLimitError(
+      `${operation} ${path}: content exceeds maxBytes (${max}).`,
+      path,
+      max,
+    )
   return bytes
 }
 

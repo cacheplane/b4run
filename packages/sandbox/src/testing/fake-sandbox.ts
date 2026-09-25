@@ -1,12 +1,13 @@
-import type {
-  BackendContext,
-  ExecBackend,
-  FilesystemBackend,
-  OpenWorkspaceReaderInput,
-  ReadOnlyFilesystemBackend,
-  SandboxHandle,
-  SandboxProvider,
-  SandboxWorkspaceReader,
+import {
+  type BackendContext,
+  type ExecBackend,
+  type FilesystemBackend,
+  type OpenWorkspaceReaderInput,
+  type ReadOnlyFilesystemBackend,
+  type SandboxHandle,
+  type SandboxProvider,
+  type SandboxWorkspaceReader,
+  WorkspaceReadLimitError,
 } from "@b4run/workspace"
 
 type ExecFn = (
@@ -82,7 +83,11 @@ export function fakeSandbox(opts: { readonly exec?: ExecFn } = {}): SandboxProvi
         if (max !== undefined && max !== Number.POSITIVE_INFINITY) {
           const bytes = Buffer.from(entry.content, "utf8")
           if (bytes.byteLength > max) {
-            throw new Error(`readFile ${path}: content exceeds maxBytes (${max}).`)
+            throw new WorkspaceReadLimitError(
+              `readFile ${path}: content exceeds maxBytes (${max}).`,
+              path,
+              max,
+            )
           }
         }
         return entry.content
@@ -97,7 +102,11 @@ export function fakeSandbox(opts: { readonly exec?: ExecFn } = {}): SandboxProvi
         const bytes = new Uint8Array(Buffer.from(entry.content, "utf8"))
         const max = readOpts?.maxBytes
         if (max !== undefined && max !== Number.POSITIVE_INFINITY && bytes.byteLength > max) {
-          throw new Error(`readBinaryFile ${path}: content exceeds maxBytes (${max}).`)
+          throw new WorkspaceReadLimitError(
+            `readBinaryFile ${path}: content exceeds maxBytes (${max}).`,
+            path,
+            max,
+          )
         }
         return bytes
       },
