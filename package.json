@@ -70,7 +70,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.6",
     "@changesets/cli": "2.31.1",
-    "@copilotkit/aimock": "^1.37.4",
+    "@copilotkit/aimock": "^1.43.0",
     "@b4run/sdk": "workspace:*",
     "@playwright/test": "1.62.1",
     "@types/node": "26.1.2",
