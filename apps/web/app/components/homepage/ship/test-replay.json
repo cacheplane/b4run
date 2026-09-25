@@ -1,0 +1,28 @@
+{
+  "app": "my-agent",
+  "runs": [
+    {
+      "id": "test",
+      "command": "npm test -- --reporter=verbose",
+      "lines": [
+        "> test",
+        "> vitest run --reporter=verbose",
+        "",
+        " RUN  v4.1.11 my-agent",
+        "",
+        " ✓ test/agent.test.ts > greets by name",
+        "",
+        " Test Files  1 passed (1)",
+        "      Tests  1 passed (1)"
+      ]
+    },
+    {
+      "id": "eval",
+      "command": "npx b4 eval",
+      "lines": [
+        "PASS greets by name › ada mean=1.00 [contains(Hello)=1.00]",
+        "PASS greets by name mean=1.00"
+      ]
+    }
+  ]
+}
