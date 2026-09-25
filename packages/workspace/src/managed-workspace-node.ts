@@ -3,13 +3,14 @@ import type {
   CapturedWorkspaceDefinition,
   CreationStatus,
   ReadyWorkspace,
+  StagedWorkspaceReference,
   WorkspaceCreateIntent,
   WorkspaceDefinition,
   WorkspaceEnvironment,
   WorkspaceLifecycleErrorCode,
   WorkspaceProvenance,
 } from "./managed-workspace.js"
-import { verifySourceBundle } from "./source-bundle.js"
+import { type SourceBundle, verifySourceBundle } from "./source-bundle.js"
 import { captureWorkspaceSource, type WorkspaceSourceDefinition } from "./source-capture.js"
 import { checkPaths, entries, portablePath, record } from "./source-validation.js"
 
@@ -105,6 +106,70 @@ export function verifyCapturedWorkspaceDefinition(value: unknown): CapturedWorks
   paths(result)
   return result
 }
+/**
+ * A staged workspace reference, strictly: own keys only, a bare 64-hex digest,
+ * links checked and sorted, `baseline` only `"git"` (and then no link at `.git`).
+ * Says nothing about whether the source is held: see {@link stagedWorkspaceDefinition}.
+ */
+export function verifyStagedWorkspaceReference(value: unknown): StagedWorkspaceReference {
+  const input = shape(value, ["sourceDigest"], ["environmentLinks", "baseline"])
+  const environmentLinks = links("environmentLinks" in input ? input.environmentLinks : [], false)
+  const selectedBaseline = baseline(input)
+  if (selectedBaseline.baseline) checkPaths([...environmentLinks, { path: ".git" }])
+  return Object.freeze({
+    sourceDigest: digest(input.sourceDigest),
+    environmentLinks,
+    ...selectedBaseline,
+  })
+}
+
+/**
+ * The definition a staged reference names, over the source the worker holds:
+ * verified byte for byte (the bundle against its own digest, which must be the
+ * one named) and as a whole (no link colliding with a file or with `.git`).
+ */
+export function stagedWorkspaceDefinition(
+  reference: StagedWorkspaceReference,
+  source: SourceBundle,
+): CapturedWorkspaceDefinition {
+  const verified = verifyStagedWorkspaceReference(reference)
+  // Cheap refusal before any hashing: a bundle that claims another digest cannot match.
+  if (source?.digest !== verified.sourceDigest)
+    throw new Error(
+      `Staged workspace source ${String(source?.digest)} does not match its reference ${verified.sourceDigest}`,
+    )
+  // The one verification: every file hashed against the digest the bundle claims, which
+  // was just required to be the one named.
+  const definition = verifyCapturedWorkspaceDefinition({
+    version: 1,
+    source,
+    environmentLinks: verified.environmentLinks ?? [],
+    ...(verified.baseline ? { baseline: verified.baseline } : {}),
+  })
+  if (definition.source.digest !== verified.sourceDigest)
+    throw new Error("Staged workspace source does not match its reference")
+  return definition
+}
+
+/**
+ * Whether a staged reference's links and baseline fit beside a source's file paths,
+ * without the source's bytes: the same path rules `stagedWorkspaceDefinition` applies
+ * (no link over, under or case-colliding with a file; no `.git` under a git baseline),
+ * over paths recorded when the source was verified. Returns the verified reference.
+ */
+export function stagedWorkspaceFits(
+  reference: unknown,
+  filePaths: readonly string[],
+): StagedWorkspaceReference {
+  const verified = verifyStagedWorkspaceReference(reference)
+  checkPaths([
+    ...filePaths.map((path) => ({ path })),
+    ...(verified.environmentLinks ?? []),
+    ...(verified.baseline === "git" ? [{ path: ".git" }] : []),
+  ])
+  return verified
+}
+
 export async function captureWorkspaceDefinition(
   appRoot: string,
   definition: WorkspaceDefinition,

@@ -168,6 +168,17 @@ export interface WorkspaceResolverInput {
   readonly metadata: Readonly<Record<string, unknown>>
   /** Aborted when the admitting run is cancelled. Pass it to any I/O the resolver does. */
   readonly signal: AbortSignal
+  /**
+   * The workspace this thread was created with, when the app sets
+   * `sandbox.stagedWorkspaces` and the creator named one: the held source,
+   * verified against its digest, with the links and baseline named at create.
+   * Absent otherwise. Return it as the thread's workspace (from a
+   * `WorkspaceResolver`, or as `ThreadSandbox.workspace`) to serve exactly what
+   * the creator staged. Like `metadata`, it is the creator's choice: a resolver
+   * decides whether to accept it, and the app's thread-access policy decides who
+   * may create (`requestedWorkspace`).
+   */
+  readonly staged?: CapturedWorkspaceDefinition
 }
 
 /**
@@ -268,6 +279,26 @@ export interface SandboxConfig {
    * integer from 1,000 to 1,800,000 ms; default 120,000. Only with `workspaceRead`.
    */
   readonly workspaceReadTimeoutMs?: number
+  /**
+   * Accept a thread's workspace at creation: `PUT /workspace/sources/:digest`
+   * stages a `SourceBundle`, and `POST /threads` with `workspace` names it; the
+   * resolver receives it as `thread.staged`. `true`, or limits: `maxUploadBytes`
+   * (default and ceiling 96 MiB), `maxStagedBytes` (every uploaded source
+   * together; default 1 GiB, at most 16 GiB), `retentionMs` (how long an
+   * unreferenced upload is kept; default 24 hours, 60 seconds to 30 days), and
+   * `uploadTimeoutMs` (how long one upload body may take to arrive; default
+   * 120,000 ms, 1,000 to 1,800,000). Needs a resolver (`thread`, or a function
+   * `workspace`) and a thread-access policy: `b4 check`, `b4 build` and boot
+   * refuse it without one.
+   */
+  readonly stagedWorkspaces?:
+    | boolean
+    | {
+        readonly maxUploadBytes?: number
+        readonly retentionMs?: number
+        readonly maxStagedBytes?: number
+        readonly uploadTimeoutMs?: number
+      }
   readonly provider: SandboxProvider
   readonly network?: SandboxPolicy["network"]
   readonly env?: SandboxPolicy["env"]

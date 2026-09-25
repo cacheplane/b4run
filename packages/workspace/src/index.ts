@@ -20,6 +20,7 @@ export type {
   ManagedWorkspaceProvider,
   OpenManagedWorkspaceReaderInput,
   ReadyWorkspace,
+  StagedWorkspaceReference,
   WorkspaceCreateIntent,
   WorkspaceDefinition,
   WorkspaceDeletionTarget,

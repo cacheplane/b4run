@@ -364,6 +364,14 @@ sandbox?: {
   thread?: ThreadSandboxResolver
   workspaceRead?: "http"
   workspaceReadTimeoutMs?: number
+  stagedWorkspaces?:
+    | boolean
+    | {
+        maxUploadBytes?: number
+        retentionMs?: number
+        maxStagedBytes?: number
+        uploadTimeoutMs?: number
+      }
   provider: SandboxProvider
   network?:
     | { mode: "allow"; denylist?: readonly string[] }
@@ -399,6 +407,16 @@ and a thread-access policy; `b4 check`, `b4 build` and startup refuse it
 without one. `workspaceReadTimeoutMs` (1,000 to 1,800,000; default 120,000)
 bounds one read, open to close. Read [Reading a thread's workspace over
 HTTP](/docs/sandbox#reading-a-threads-workspace-over-http).
+
+`stagedWorkspaces` accepts a thread's workspace at creation: a creator uploads
+it at `PUT /workspace/sources/:digest` and names it in `POST /threads`, and the
+resolver receives it as `thread.staged`. It needs a resolver (`thread`, or a
+function `workspace`) and a thread-access policy; `b4 check`, `b4 build` and
+startup refuse it otherwise. `maxUploadBytes` (default and ceiling 96 MiB),
+`maxStagedBytes` (default 1 GiB, at most 16 GiB), `retentionMs` (60,000 ms
+to 30 days; default 24 hours) and `uploadTimeoutMs` (1,000 to 1,800,000 ms;
+default 120,000) bound it. Read [Handing a thread its workspace at
+creation](/docs/sandbox#handing-a-thread-its-workspace-at-creation).
 
 Each provider enforces resources and security in its own way. Docker's
 security fields default to hardened. `diskGb` applies to PVC-backed providers,

@@ -59,6 +59,7 @@ B4.run probes four paths, in order: `src/thread-access.ts`, `src/thread-access.j
 | `headers` | Lowercase keys, repeated headers joined with `", "`. |
 | `method`, `url` | The originating request's method, and its path plus query. |
 | `requestedMetadata` | Client-supplied metadata on a create, already stripped of B4.run's reserved key. `undefined` everywhere else. |
+| `requestedWorkspace` | The workspace the request stages or chooses: `{ sourceDigest }` on `workspace.source.put`, the whole reference `{ sourceDigest, environmentLinks?, baseline? }` plus `uploadedBy` on a `thread.create` that names one. `undefined` everywhere else, including the create's recheck. |
 | `resuming` | `true` when this request carries a resume credential and will continue a parked turn. Always a boolean. See below. |
 
 ### `resuming`: which requests continue a parked turn
@@ -107,6 +108,28 @@ Repeated headers arrive joined. `X-User-Id: victim` plus `X-User-Id: attacker` i
 ## Workspace endpoints
 
 `sandbox.workspaceRead: "http"` serves a read of a thread's workspace files as the `thread.workspace` operation, under `read`. B4.run refuses to boot the option without a policy. A policy that authorizes by owner already covers it; a service that reads every thread (a controller, a reviewer) is usually admitted by a credential in `headers`, compared in constant time.
+
+`sandbox.stagedWorkspaces` serves `PUT /workspace/sources/:digest` as the `workspace.source.put` operation, a `create` with no `threadId` and no `thread`, and accepts a `workspace` on `POST /threads`. Both carry `requestedWorkspace`: the upload its `{ sourceDigest }`, the create the whole reference it names. Enabling the option means reviewing your `create` handler: one written before it admits both unless it checks this field. One rule, `if (req.requestedWorkspace)`, decides who may stage and choose a workspace, and lets a caller create threads without choosing what they run on. B4.run refuses to boot the option without a policy.
+
+A stamp your policy returns on `workspace.source.put` is not a thread's: B4.run keeps it with the upload as its uploader, and a create that names that source carries every such stamp in `requestedWorkspace.uploadedBy`. Uploads are content-addressed, so two callers who upload the same bytes share one source and both appear. To keep one caller from choosing another's upload, stamp uploads with the caller and check it on create:
+
+```ts title="src/thread-access.ts"
+export default defineThreadAccess({
+  create: async (req) => {
+    const user = await principalOf(req.headers)
+    if (!user) return deny()
+    // The stamp on an upload is kept as its uploader, not as a thread's.
+    if (req.operation === "workspace.source.put") return permit({ ownerId: user.id })
+    const uploadedBy = req.requestedWorkspace?.uploadedBy
+    if (uploadedBy && !uploadedBy.some((uploader) => uploader.ownerId === user.id))
+      return deny({ status: 403 })
+    return permit({ ownerId: user.id, org: user.org })
+  },
+  fallback: owned,
+})
+```
+
+`principalOf` and `owned` are the ones from [the shape](#the-shape) above. B4.run compares uploaders by their JSON with keys sorted, so a stamp built in a different key order is the same uploader. A stamp that is not a JSON object of at most 16 KiB cannot be kept, and the upload is refused with `422 workspace_uploader_invalid` before its body is read.
 
 ## Denials
 

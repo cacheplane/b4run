@@ -8,6 +8,11 @@ import {
 } from "./association-store.js"
 import { makeWorkspaceSourceStore, type WorkspaceSourceStore } from "./source-store.js"
 import {
+  ensureWorkspaceStagedSourceSchema,
+  makeWorkspaceStagedSourceStore,
+  type WorkspaceStagedSourceStore,
+} from "./staged-source-store.js"
+import {
   ensureWorkspaceThreadSandboxSchema,
   makeWorkspaceThreadSandboxStore,
   type WorkspaceThreadSandboxStore,
@@ -19,6 +24,8 @@ export interface WorkspaceInstallation {
   readonly associations: WorkspaceAssociationStore
   /** Per-thread sandbox records (`sandbox.thread`). Written by `associations.create`. */
   readonly threadSandboxes: WorkspaceThreadSandboxStore
+  /** Uploaded sources and each thread's staged reference (`sandbox.stagedWorkspaces`). */
+  readonly staged: WorkspaceStagedSourceStore
   close(): void
 }
 /**
@@ -249,7 +256,9 @@ export function openWorkspaceInstallation(appRoot: string): WorkspaceInstallatio
     validateState(stateDb, id)
     // Additive: an installation from before per-thread sandboxes gains the tables here.
     ensureWorkspaceThreadSandboxSchema(stateDb)
+    ensureWorkspaceStagedSourceSchema(stateDb)
     const sources = makeWorkspaceSourceStore(stateDb)
+    const staged = makeWorkspaceStagedSourceStore(stateDb, sources)
     const sandboxes = makeWorkspaceThreadSandboxStore(stateDb)
     const associations = makeWorkspaceAssociationStore(stateDb, sources, sandboxes)
     if (metadata.phase === "initializing") {
@@ -314,6 +323,44 @@ export function openWorkspaceInstallation(appRoot: string): WorkspaceInstallatio
         addGrant(threadId, tool, pattern) {
           requireOpen()
           sandboxes.addGrant(threadId, tool, pattern)
+        },
+      },
+      staged: {
+        upload(bundle, now, maxStagedBytes, uploader) {
+          requireOpen()
+          return staged.upload(bundle, now, maxStagedBytes, uploader)
+        },
+        files(digest) {
+          requireOpen()
+          return staged.files(digest)
+        },
+        uploaders(digest) {
+          requireOpen()
+          return staged.uploaders(digest)
+        },
+        threads() {
+          requireOpen()
+          return staged.threads()
+        },
+        holds(digest) {
+          requireOpen()
+          return staged.holds(digest)
+        },
+        attach(threadId, reference) {
+          requireOpen()
+          staged.attach(threadId, reference)
+        },
+        get(threadId) {
+          requireOpen()
+          return staged.get(threadId)
+        },
+        detach(threadId) {
+          requireOpen()
+          staged.detach(threadId)
+        },
+        reclaim(uploadedBefore, referenced) {
+          requireOpen()
+          return staged.reclaim(uploadedBefore, referenced)
         },
       },
       close,

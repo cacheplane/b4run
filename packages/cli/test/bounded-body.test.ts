@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   payloadTooLarge,
+  RequestBodyTimeoutError,
   RequestBodyTooLargeError,
   readBoundedText,
 } from "../src/lib/dev/bounded-body.ts"
@@ -83,5 +84,40 @@ describe("readBoundedText", () => {
     expect(await response.json()).toMatchObject({
       error: { details: { code: "payload_too_large", maxBytes: 1024 } },
     })
+  })
+})
+
+describe("readBoundedText deadline", () => {
+  const stalling = () => {
+    let cancelled = false
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("partial"))
+      },
+      cancel() {
+        cancelled = true
+      },
+    })
+    return {
+      request: new Request("http://localhost/x", {
+        method: "PUT",
+        body,
+        duplex: "half",
+      } as RequestInit),
+      cancelled: () => cancelled,
+    }
+  }
+  it("refuses a body that does not finish in time, and cancels it", async () => {
+    const { request, cancelled } = stalling()
+    const error = await readBoundedText(request, 1024, { deadlineMs: 50 }).catch(
+      (caught: unknown) => caught,
+    )
+    expect(error).toBeInstanceOf(RequestBodyTimeoutError)
+    expect((error as RequestBodyTimeoutError).deadlineMs).toBe(50)
+    expect(cancelled()).toBe(true)
+  })
+  it("reads a body that finishes in time as before", async () => {
+    const request = new Request("http://localhost/x", { method: "PUT", body: "hello" })
+    expect(await readBoundedText(request, 1024, { deadlineMs: 5_000 })).toBe("hello")
   })
 })
