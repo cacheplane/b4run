@@ -430,22 +430,47 @@ function optionsFor(argv) {
 }
 
 /**
- * Routes the manifest covers but should not, or should cover but does not.
+ * Blog listings pick up a post only once its date arrives, so their sources
+ * can change on a publication day with no commit at all. Gating their digest
+ * would turn every open pull request red that day; a listing's date is
+ * instead refreshed by the next regeneration.
+ */
+function isDateDrivenRoute(route) {
+  return route === "/blog" || route.startsWith("/blog/tags/")
+}
+
+/**
+ * Routes the manifest covers but should not, should cover but does not, or
+ * recorded against content that has since changed.
  *
- * The cheap gate a pull request cannot skip. A stale timestamp only dates a
- * page wrong, but a route the manifest has never seen has no timestamp at
- * all, and `requireValidLastModified` throws on it — so adding or removing a
- * page without regenerating breaks the site build.
+ * The cheap gate a pull request cannot skip, and it needs no Git history, so
+ * it holds in a shallow CI checkout. A route the manifest has never seen has
+ * no timestamp at all, and `requireValidLastModified` throws on it — adding
+ * or removing a page without regenerating breaks the site build. A route
+ * whose content changed without a regeneration is not caught by the build,
+ * but nothing regenerates the manifest after merge, so it would stay misdated
+ * on main until some unrelated pull request happened to regenerate it.
  */
 export function routeCoverageDrift(asOf, existingContent) {
-  const expected = [...sourcesByRouteFor(asOf).keys()].sort(compareCodePoints)
-  const covered = [...existingManifestEntries(existingContent).keys()].sort(compareCodePoints)
+  const sourcesByRoute = sourcesByRouteFor(asOf)
+  const existingEntries = existingManifestEntries(existingContent)
+  const expected = [...sourcesByRoute.keys()].sort(compareCodePoints)
+  const covered = [...existingEntries.keys()].sort(compareCodePoints)
   const coveredSet = new Set(covered)
   const expectedSet = new Set(expected)
 
   return {
     missing: expected.filter((route) => !coveredSet.has(route)),
     unexpected: covered.filter((route) => !expectedSet.has(route)),
+    changed: expected.filter((route) => {
+      const entry = existingEntries.get(route)
+      if (entry === undefined || isDateDrivenRoute(route)) return false
+      const digest = sourceDigest(sourcesByRoute.get(route))
+      return (
+        entry.sourceDigest !== digest ||
+        entry.recordDigest !== recordDigest(route, entry.lastModified, digest)
+      )
+    }),
   }
 }
 
@@ -459,11 +484,17 @@ function main(argv) {
   }
 
   if (checkRoutes) {
-    const { missing, unexpected } = routeCoverageDrift(asOf, existing)
-    if (missing.length > 0 || unexpected.length > 0) {
+    const { missing, unexpected, changed } = routeCoverageDrift(asOf, existing)
+    if (missing.length > 0 || unexpected.length > 0 || changed.length > 0) {
       if (missing.length > 0) console.error(`SEO manifest is missing routes: ${missing.join(", ")}`)
       if (unexpected.length > 0) {
         console.error(`SEO manifest covers removed routes: ${unexpected.join(", ")}`)
+      }
+      if (changed.length > 0) {
+        console.error(
+          `SEO manifest records routes whose content changed since it was recorded: ${changed.join(", ")}`,
+        )
+        console.error("Commit the content first, so each route is dated by its commit.")
       }
       console.error("Regenerate with pnpm --dir apps/web seo:lastmod")
       process.exitCode = 1
