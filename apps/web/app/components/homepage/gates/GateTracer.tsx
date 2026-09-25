@@ -136,14 +136,18 @@ export function GateTracer({ files, whyLines }: GatesData) {
     const viaArrow = arrowRef.current
     arrowRef.current = false
     if (pausesFor(next) && !viaArrow) return show(next, null, "decision")
-    // Clicking a label doesn't focus its radio in Safari or Firefox on macOS,
-    // so focus can still be on a button or link in the board or caption this
-    // pick makes inert. Give it to the newly checked radio instead of <body>.
+    // Clicking a label doesn't focus its radio in Safari or Firefox on macOS.
+    // Focus can still be on a button or link in the board or caption this
+    // pick makes inert, or WebKit has already moved it on mousedown to an
+    // ancestor (the page's <main tabindex="-1">, or <body>). Give it to the
+    // newly checked radio instead.
+    const root = rootRef.current
     const focused = document.activeElement
     const stranded =
-      focused !== null &&
-      rootRef.current?.contains(focused) === true &&
-      callsRef.current?.contains(focused) !== true
+      root !== null &&
+      (focused === null ||
+        ((root.contains(focused) || focused.contains(root)) &&
+          callsRef.current?.contains(focused) !== true))
     show(next, null, stranded ? "radio" : null)
   }
 
