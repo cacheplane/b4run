@@ -143,10 +143,8 @@ describe("homepage tokens", () => {
   it("uses tokens for every colour, and the AA olive for accent text", () => {
     const css = read("components/homepage/homepage.module.css")
     expect(css).not.toMatch(/#[0-9a-f]{3,6}\b/i)
-    // The three olive text uses (the hero's .runtime line, .flowNumber and the
-    // ::after arrow); the .receipt border also uses olive but is
-    // `border-left: … var(--color-olive)`.
-    expect(css.match(/(^|\s)color: var\(--color-olive\);/gm)).toHaveLength(3)
+    // The one olive text use: the hero's .runtime line.
+    expect(css.match(/(^|\s)color: var\(--color-olive\);/gm)).toHaveLength(1)
   })
 
   // jsdom has no layout, so this pins the rules that keep the one-column

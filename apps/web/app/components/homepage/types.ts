@@ -10,11 +10,3 @@ export interface DisplayCode {
   /** Accessible region name when `path` alone would repeat another panel's. */
   readonly label?: string
 }
-export interface WalkthroughProps {
-  readonly files: Readonly<Record<"agent" | "config" | "plan", DisplayCode>>
-  readonly patch: DisplayCode
-  readonly command: string
-  readonly failure: string
-  readonly visible: readonly string[]
-  readonly independent: readonly string[]
-}
