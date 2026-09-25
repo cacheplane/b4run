@@ -1,17 +1,15 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { mkdir, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { type ServeRuntimeHandle, serveRuntime } from "@b4run/cli"
 import { type Aimock, createAimock } from "@b4run/testing"
-import { writeBuilderTarget } from "../src/lib/builder-manifest.ts"
-import type { Target } from "../src/lib/targets/catalog.ts"
 import { isolatedBuilder } from "./isolated-builder.ts"
 
 /**
- * The real builder app (`../../server/`), served by `serveRuntime` from a private copy, for
- * ONE target: the process's target file is written with the controller's own
- * `writeBuilderTarget` and its manifest directory is the copy's `.factory/manifests`, where a
- * test (or the controller's `dispatch`) writes one manifest per work order. The model is one
+ * The real builder app (`../../server/`), served by `serveRuntime` from a private copy: one
+ * builder for every target and pin, as in production. It boots with no target file; its
+ * manifest directory is the copy's `.factory/manifests`, where a test (or the controller's
+ * `dispatch`) writes one manifest per work order, carrying that thread's workspace, image,
+ * policy and permissions. The model is one
  * aimock for the whole server; a test scripts it with `aimock.addFixtures`.
  *
  * A thread is created through `POST /threads` with `{ factoryWorkOrderId }` — the one fact
@@ -35,14 +33,13 @@ export interface ServedBuilder {
 
 /** What the served builder reads from the process: restored by `close`. */
 const ENV = [
-  "FACTORY_BUILDER_TARGET",
   "FACTORY_BUILDER_MANIFEST_DIR",
   "OPENAI_BASE_URL",
   "OPENAI_API_KEY",
   "B4_PERMISSIONS_MODE",
 ] as const
 
-export async function serveBuilder(target: Target): Promise<ServedBuilder> {
+export async function serveBuilder(): Promise<ServedBuilder> {
   const previous: Partial<Record<(typeof ENV)[number], string | undefined>> = {}
   for (const key of ENV) previous[key] = process.env[key]
   const restore = () => {
@@ -53,7 +50,6 @@ export async function serveBuilder(target: Target): Promise<ServedBuilder> {
     }
   }
   const appRoot = await isolatedBuilder()
-  const targetDir = await mkdtemp(join(tmpdir(), "factory-builder-target-"))
   const manifestDir = join(appRoot, ".factory", "manifests")
   let aimock: Aimock | undefined
   let server: ServeRuntimeHandle | undefined
@@ -62,8 +58,7 @@ export async function serveBuilder(target: Target): Promise<ServedBuilder> {
     aimock = await createAimock({ fixtures: [] })
     // Read by `b4.config.ts` at module load and by the model layer when the route first
     // builds its model: set before the app boots in this process. The builder's permissions
-    // are its own interactive list; an operator's process-wide override is not this lane's.
-    process.env.FACTORY_BUILDER_TARGET = await writeBuilderTarget(target, targetDir)
+    // mode is its own; an operator's process-wide override is not this lane's.
     process.env.FACTORY_BUILDER_MANIFEST_DIR = manifestDir
     process.env.OPENAI_BASE_URL = aimock.baseUrl
     process.env.OPENAI_API_KEY = "test"
@@ -73,7 +68,6 @@ export async function serveBuilder(target: Target): Promise<ServedBuilder> {
     await server?.close()
     await aimock?.close()
     await rm(appRoot, { recursive: true, force: true })
-    await rm(targetDir, { recursive: true, force: true })
     restore()
     throw error
   }
@@ -118,7 +112,6 @@ export async function serveBuilder(target: Target): Promise<ServedBuilder> {
         await served.close()
         await model.close()
         await rm(appRoot, { recursive: true, force: true })
-        await rm(targetDir, { recursive: true, force: true })
         restore()
       }
     },

@@ -19,9 +19,8 @@ export interface ControllerContext {
   readonly artifacts: ArtifactStore
   readonly verifier: Verifier
   /**
-   * The builder worker for the row's target: `row.targetId` for a generated task, the
-   * catalog task's target for a shipped one. Throws `NoWorkerForTargetError` when the map
-   * has no entry for it.
+   * The builder worker for the row's target (`row.targetId` for a generated task, the
+   * catalog task's target for a shipped one): the one builder, which serves every target.
    */
   workerFor(row: WorkOrderRow): TargetWorker
   /** The drafter. Throws `DrafterUnconfiguredError` when none is configured. */

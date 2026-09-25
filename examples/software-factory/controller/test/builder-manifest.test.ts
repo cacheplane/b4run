@@ -3,19 +3,11 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { verifyCapturedWorkspaceDefinition } from "@b4run/workspace/node"
 import { afterEach, describe, expect, it } from "vitest"
-import {
-  BuilderManifestSchema as TheBuildersManifestSchema,
-  BuilderTargetSchema as TheBuildersTargetSchema,
-} from "../../server/src/builder-manifest.ts"
-import {
-  BuilderManifestSchema,
-  BuilderTargetSchema,
-  writeBuilderManifest,
-  writeBuilderTarget,
-} from "../src/lib/builder-manifest.ts"
+import { BuilderManifestSchema as TheBuildersManifestSchema } from "../../server/src/builder-manifest.ts"
+import { BuilderManifestSchema, writeBuilderManifest } from "../src/lib/builder-manifest.ts"
 import { imageTag, loadTask } from "../src/lib/targets/catalog.ts"
 import { builderPermissions } from "../src/lib/targets/permissions.ts"
-import { builderSandboxScope, targetSandboxPolicy } from "../src/lib/targets/workspace.ts"
+import { targetSandboxPolicy } from "../src/lib/targets/workspace.ts"
 
 const dirs: string[] = []
 afterEach(() => {
@@ -26,62 +18,6 @@ const tempDir = (prefix: string) => {
   dirs.push(dir)
   return dir
 }
-
-describe("builder target", () => {
-  it("writes the per-process half of the builder's config, as data", async () => {
-    const dir = tempDir("factory-target-")
-    const task = loadTask("cli-flags")
-    const path = await writeBuilderTarget(task.target, dir)
-    expect(path).toBe(join(dir, `${task.target.id}.target.json`))
-    const file = BuilderTargetSchema.parse(JSON.parse(readFileSync(path, "utf8")))
-    expect(file.target.id).toBe(task.target.id)
-    // `builderSandboxProvider` passes dockerSandbox exactly `scope` and `image` and nothing
-    // else, so those two fields are the whole provider the builder must reconstruct. Asserted
-    // against the same constructors the controller uses, so a third option added there
-    // without a field here fails rather than silently changing the builder's SandboxConfig.
-    expect(file.target.scope).toBe(builderSandboxScope)
-    expect(file.target.image).toBe(imageTag(task.target))
-    // The pin the image was prepared at: what the controller compares each task's pin with.
-    expect(file.target.pin).toBe(task.target.pin)
-    expect(file.target.policy).toEqual(targetSandboxPolicy(task.target))
-    expect(file.target.permissions).toEqual(builderPermissions(task.target))
-    // The builder's own copy of the schema accepts it: it is the file the builder boots from.
-    expect(TheBuildersTargetSchema.parse(file)).toEqual(file)
-  })
-
-  it("refuses a drifted policy key rather than dropping it", async () => {
-    const dir = tempDir("factory-target-")
-    const path = await writeBuilderTarget(loadTask("cli-flags").target, dir)
-    const good = JSON.parse(readFileSync(path, "utf8"))
-    expect(good.target.policy.network.mode).toBe("deny")
-
-    // A typo one level down. Without `.strict()` both of these parse, `network` (or its
-    // `mode`) is absent from what reaches `b4.config.ts`, and the builder runs under the
-    // provider's DEFAULT network instead of the denial the controller wrote: a fail-open on
-    // a misspelling. Each must be an error instead.
-    const drifted = (mutate: (policy: Record<string, unknown>) => void) => {
-      const file = JSON.parse(JSON.stringify(good))
-      mutate(file.target.policy)
-      return () => BuilderTargetSchema.parse(file)
-    }
-    expect(
-      drifted((policy) => {
-        policy.netwrok = policy.network
-        delete policy.network
-      }),
-    ).toThrow()
-    expect(
-      drifted((policy) => ((policy.network as Record<string, unknown>) = { modee: "deny" })),
-    ).toThrow()
-    // And an extra key BESIDE a correct one, which is the drift a new option would cause.
-    expect(drifted((policy) => (policy.security = { runAsNonRoot: false }))).toThrow()
-    // The union is discriminated on `mode` alone: an allowlist the builder was never meant
-    // to be handed is refused rather than silently honoured.
-    expect(
-      drifted((policy) => ((policy.network as Record<string, unknown>).allowlist = ["npmjs.org"])),
-    ).toThrow()
-  })
-})
 
 describe("builder manifest", () => {
   it("is named by the work order and carries the workspace, the task and the target, no prompt", async () => {
@@ -98,12 +34,23 @@ describe("builder manifest", () => {
     const raw = JSON.parse(readFileSync(written.path, "utf8"))
     // The prompt is the run's user message; the manifest does not carry a second copy.
     expect(Object.keys(raw).sort()).toEqual([
+      "target",
       "targetId",
       "taskId",
       "version",
       "workOrderId",
       "workspace",
     ])
+    // The manifest carries the target whole: the image the task is verified in, the pin it was
+    // prepared at, the sandbox policy and the allow-list, which the builder records as the
+    // thread's sandbox at its first admission.
+    expect(raw.version).toBe(2)
+    expect(raw.target).toEqual({
+      image: imageTag(task.target),
+      pin: task.target.pin,
+      policy: targetSandboxPolicy(task.target),
+      permissions: builderPermissions(task.target),
+    })
     const manifest = BuilderManifestSchema.parse(raw)
     expect(TheBuildersManifestSchema.parse(raw)).toEqual(manifest)
     expect(manifest).toMatchObject({
@@ -165,6 +112,76 @@ describe("builder manifest", () => {
   })
 })
 
+describe("the manifest's target block", () => {
+  const good = () => ({
+    version: 2,
+    workOrderId: "wo-a",
+    taskId: "cli-flags",
+    targetId: "cli-flags",
+    target: {
+      image: "b4-factory-cli-flags:6a59e00aed46-0123456789ab",
+      pin: `6a59e00aed46${"0".repeat(28)}`,
+      policy: {
+        network: { mode: "deny" },
+        env: {},
+        resources: { memoryMb: 1024, cpus: 1, timeoutMs: 60_000 },
+      },
+      permissions: { bash: ["npm test"] } as Record<string, string[]>,
+    },
+    workspace: {},
+  })
+  type Manifest = ReturnType<typeof good>
+  const withTarget = (m: Manifest, target: Record<string, unknown>) => ({
+    ...m,
+    target: { ...m.target, ...target },
+  })
+  const withPolicy = (m: Manifest, policy: Record<string, unknown>) =>
+    withTarget(m, { policy: { ...m.target.policy, ...policy } })
+
+  it("parses what the controller writes", () => {
+    expect(() => BuilderManifestSchema.parse(good())).not.toThrow()
+    expect(() => TheBuildersManifestSchema.parse(good())).not.toThrow()
+  })
+  it.each([
+    ["an open network", (m: Manifest) => withPolicy(m, { network: { mode: "allow" } })],
+    [
+      "a network list",
+      (m: Manifest) => withPolicy(m, { network: { mode: "deny", allowlist: ["10.0.0.0/8"] } }),
+    ],
+    [
+      "an image that is not the factory's",
+      (m: Manifest) => withTarget(m, { image: "alpine:latest" }),
+    ],
+    [
+      "a factory-named image under a floating tag",
+      (m: Manifest) => withTarget(m, { image: "b4-factory-cli-flags:latest" }),
+    ],
+    ["a security key", (m: Manifest) => withPolicy(m, { security: {} })],
+    [
+      "a disk size",
+      (m: Manifest) => withPolicy(m, { resources: { ...m.target.policy.resources, diskGb: 10 } }),
+    ],
+    ["an empty pattern", (m: Manifest) => withTarget(m, { permissions: { bash: [""] } })],
+    [
+      "a whitespace-only pattern",
+      (m: Manifest) => withTarget(m, { permissions: { bash: ["  "] } }),
+    ],
+    ["an unknown target key", (m: Manifest) => withTarget(m, { scope: "elsewhere" })],
+    ["version 1", (m: Manifest) => ({ ...m, version: 1 })],
+    [
+      "another target's image",
+      (m: Manifest) => withTarget(m, { image: "b4-factory-devkit:6a59e00aed46-0123456789ab" }),
+    ],
+    [
+      "its own target's image at another pin",
+      (m: Manifest) => withTarget(m, { image: "b4-factory-cli-flags:bfaf0c2b3030-0123456789ab" }),
+    ],
+  ])("refuses %s", (_name, edit) => {
+    expect(() => BuilderManifestSchema.parse(edit(good()))).toThrow()
+    expect(() => TheBuildersManifestSchema.parse(edit(good()))).toThrow()
+  })
+})
+
 describe("the builder's copy of the schemas", () => {
   it("is identical, both schemas and the catalog-id rule they name", () => {
     const here = readFileSync(new URL("../src/lib/builder-manifest.ts", import.meta.url), "utf8")
@@ -174,15 +191,18 @@ describe("the builder's copy of the schemas", () => {
     )
     const schemas = (text: string) =>
       text.slice(
-        text.indexOf("export const BuilderTargetSchema"),
+        text.indexOf("export const BuilderManifestSchema"),
         text.indexOf("export type BuilderManifest ="),
       )
     const block = schemas(here)
-    expect(block).toContain("export const BuilderTargetSchema")
     expect(block).toContain("export const BuilderManifestSchema")
+    expect(block).toContain("target: z")
     expect(schemas(there)).toBe(block)
-    const catalogId = (text: string) => text.match(/^const CATALOG_ID = (.*)$/m)?.[1]
-    expect(catalogId(here)).toBeDefined()
-    expect(catalogId(there)).toBe(catalogId(here))
+    const rule = (text: string, name: string) =>
+      text.match(new RegExp(`^const ${name} = (.*)$`, "m"))?.[1]
+    for (const name of ["CATALOG_ID", "FACTORY_IMAGE"]) {
+      expect(rule(here, name)).toBeDefined()
+      expect(rule(there, name)).toBe(rule(here, name))
+    }
   })
 })

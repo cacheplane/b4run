@@ -7,7 +7,7 @@ export type ManifestRole = "drafter" | "builder"
 /**
  * Remove the manifest the journal says this work order's `role` manifest was last written to
  * (`<role>_manifest_written.path`). The journal, not the worker map, is the authority: the
- * map can have changed since the write (a worker entry removed, a directory reconfigured),
+ * configuration can have changed since the write (a manifest directory reconfigured),
  * and recomputing the path from it would miss the file, or throw and say nothing. The
  * resolver reads a manifest once, when the thread's first run is admitted, so it is dead
  * weight from then on. A removal that fails is journalled (`<role>_manifest_remove_failed`)

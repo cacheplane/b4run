@@ -70,8 +70,8 @@ async function verifyCandidate(
   }
   let observed: ReadonlyMap<string, string>
   try {
-    // The target's builder holds the thread; a target with no worker any more is a read
-    // the controller cannot make, which is what `inconclusive` means.
+    // The one builder holds the thread; a read the controller cannot make (no installation,
+    // no record, a workspace gone) is what `inconclusive` means.
     observed = await ctx.workerFor(row).reader.read({ threadId, taskId: row.taskId }, signal)
   } catch (error) {
     unreadable("workspace_unreadable", error)

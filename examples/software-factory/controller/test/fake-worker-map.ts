@@ -4,7 +4,10 @@ import type { WorkerClient } from "../src/lib/worker/client.ts"
 import type { WorkspaceReader } from "../src/lib/worker/workspace-reader.ts"
 
 export interface FakeWorkerMapOptions {
-  /** The one builder every target resolves to. Absent: no target has a worker. */
+  /**
+   * The one builder every target resolves to. Absent: asking for it throws, as a map that
+   * cannot serve a row would.
+   */
   readonly builder?: {
     readonly client: WorkerClient
     readonly reader: WorkspaceReader
@@ -16,10 +19,6 @@ export interface FakeWorkerMapOptions {
      * the file names a directory of its own.
      */
     readonly manifestDir?: string
-    /** The pin the builder runs at; the target's default when absent. */
-    readonly pin?: string
-    /** The allow-lists of the target file it booted from; unknown when absent. */
-    readonly permissions?: Readonly<Record<string, readonly string[]>>
   }
   /** The drafter. Absent: intake is not configured. */
   readonly drafter?: {
@@ -31,9 +30,9 @@ export interface FakeWorkerMapOptions {
 }
 
 /**
- * A worker map over one or two fake workers: the builder matches every target (the shape
- * the legacy single-worker pair gives), and the drafter is a second process — or the same
- * fake, for a test that only needs both roles served.
+ * A worker map over one or two fake workers: the builder matches every target (the shape the
+ * one builder gives), and the drafter is a second process — or the same fake, for a test that
+ * only needs both roles served.
  */
 export function fakeWorkerMap(options: FakeWorkerMapOptions): WorkerMap {
   const builder: TargetWorker | undefined = options.builder
@@ -43,10 +42,6 @@ export function fakeWorkerMap(options: FakeWorkerMapOptions): WorkerMap {
         route: options.builder.route ?? "/build#agent",
         appRoot: options.builder.appRoot ?? "/unused/builder",
         manifestDir: options.builder.manifestDir ?? "/unused/builder-manifests",
-        ...(options.builder.pin !== undefined ? { pin: options.builder.pin } : {}),
-        ...(options.builder.permissions !== undefined
-          ? { permissions: options.builder.permissions }
-          : {}),
       }
     : undefined
   const drafter: DrafterWorker | undefined = options.drafter
@@ -58,7 +53,11 @@ export function fakeWorkerMap(options: FakeWorkerMapOptions): WorkerMap {
       }
     : undefined
   return {
-    forTarget: () => builder,
+    forTarget: (targetId) => {
+      if (builder === undefined)
+        throw new Error(`no worker for target ${targetId} in this fake map`)
+      return builder
+    },
     ...(drafter !== undefined ? { drafter } : {}),
   }
 }

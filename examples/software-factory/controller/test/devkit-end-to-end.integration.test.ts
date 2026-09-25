@@ -77,9 +77,9 @@ it(
     // them is this lane's fault and not the candidate's.
     const repaired = await applyReference(TASK)
 
-    // The builder, served for THIS target: its target file carries the devkit image, policy
-    // and permissions; its manifest directory starts empty, for `dispatch` to write into.
-    builder = await serveBuilder(task.target)
+    // The one builder, which serves every target: the manifest `dispatch` writes carries the
+    // devkit image, policy and permissions; its manifest directory starts empty.
+    builder = await serveBuilder()
     const served = builder
     const input = taskPrompt(task)
     served.aimock.addFixtures(
@@ -95,7 +95,7 @@ it(
     )
     const reader = () =>
       createThreadWorkspaceReader(
-        { providerFor: () => builderSandboxProvider(task.target), appRoot: served.appRoot },
+        { providerFor: () => builderSandboxProvider(), appRoot: served.appRoot },
         () => targetInspectionOptions(task),
       )
     factory = await createFactory({

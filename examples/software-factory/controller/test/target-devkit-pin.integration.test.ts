@@ -1,11 +1,9 @@
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import {
-  appRoot,
   environmentIdentity,
   ImageUnpreparedError,
   imageTag,
@@ -14,48 +12,31 @@ import {
   TargetSchema,
   targetsDir,
 } from "../src/lib/targets/catalog.ts"
+import { prepareDevkitSecondPin, SECOND_PIN } from "./devkit-second-pin.ts"
 
 /**
  * A target prepared at a SECOND pin: `target:prepare devkit --pin <sha>` builds an image
  * from that commit's tree and records it beside the default pin's, and `loadTarget` at that
- * pin selects it. The second pin is `Release 0.10.0 (#782)` on main, after the devkit target
- * was introduced and with every devkit path the target names present; in a shallow checkout
- * `ensurePin` fetches it by sha.
- *
- * The prepare runs over a COPY of `targets/devkit` (`FACTORY_TARGETS_DIR`), so the working
- * tree is never written; the image stays, and the next run's build is served from Docker's
- * layer cache.
+ * pin selects it. The preparation is `prepareDevkitSecondPin` (shared with the builder lane),
+ * over a copy of `targets/devkit`, so the working tree is never written.
  *
  * Requires Docker. Runs only under `test:sandbox`.
  */
-const SECOND_PIN = "bfaf0c2b3030eebb572703c8f70f0e063593b1fa"
-const copy = mkdtempSync(join(tmpdir(), "factory-devkit-pin-targets-"))
-const manifestPath = join(copy, "devkit", "target.json")
 const shippedPath = join(targetsDir, "devkit", "target.json")
 let original: string
-let prepareMs = 0
+let prepared: ReturnType<typeof prepareDevkitSecondPin> | undefined
+let copy: string
+let manifestPath: string
 
 beforeAll(() => {
-  cpSync(join(targetsDir, "devkit"), join(copy, "devkit"), { recursive: true })
-  original = readFileSync(manifestPath, "utf8")
-  const started = Date.now()
-  execFileSync(
-    process.execPath,
-    ["--import", "tsx", "scripts/prepare-target.ts", "devkit", "--pin", SECOND_PIN],
-    {
-      cwd: appRoot,
-      env: { ...process.env, FACTORY_TARGETS_DIR: copy },
-      stdio: ["ignore", "inherit", "inherit"],
-      timeout: 1_140_000,
-    },
-  )
-  prepareMs = Date.now() - started
-  process.stderr.write(`target:prepare devkit --pin ${SECOND_PIN}: ${prepareMs} ms\n`)
+  // The copy starts equal to the shipped file.
+  original = readFileSync(shippedPath, "utf8")
+  prepared = prepareDevkitSecondPin()
+  copy = prepared.targetsDir
+  manifestPath = join(copy, "devkit", "target.json")
 }, 1_200_000)
 
-afterAll(() => {
-  rmSync(copy, { recursive: true, force: true })
-})
+afterAll(() => prepared?.cleanup())
 
 describe("a target prepared at a second pin", () => {
   it("records the image beside the default pin's and loads it at that pin", () => {

@@ -14,7 +14,6 @@ import {
   createThreadWorkspaceReader,
   type WorkspaceReader,
 } from "../src/lib/worker/workspace-reader.ts"
-import { writeTargetFile } from "./builder-target-file.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
 import { createFakeWorkspaceReader } from "./fake-workspace-reader.ts"
 import { ORACLE_DRAFT } from "./intake-fixtures.ts"
@@ -137,7 +136,7 @@ afterEach(async () => {
 })
 
 /**
- * The controller as deployed: the legacy pair for one builder (the fake, which nothing here
+ * The controller as deployed: the builder pair for the one builder (the fake, which nothing here
  * dispatches to) and the drafter pair pointing at the served drafter, with its manifest
  * directory. Everything the runtime builds is real except the builder's reader (no builder
  * thread exists to read) and, when a test gives one, the drafter's.
@@ -152,7 +151,6 @@ async function bootController(
     {
       FACTORY_WORKER_URL: builder.baseUrl,
       FACTORY_BUILDER_APP_ROOT: join(dir, "builder"),
-      FACTORY_BUILDER_TARGET: writeTargetFile(join(dir, "targets"), "cli-flags"),
       FACTORY_STATE_DIR: join(dir, "state"),
       FACTORY_DRAFTER_URL: drafter.url,
       FACTORY_DRAFTER_APP_ROOT: drafterRoot,

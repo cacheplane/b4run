@@ -255,7 +255,7 @@ async function reconcileRun(
     return
   }
   const threadId = row.workerThreadId
-  // The target's builder holds a run-state row's thread. A target with no worker any more
+  // The one builder holds a run-state row's thread. A worker map that cannot serve the row
   // throws here, into `safeReconcile`'s journal: the row keeps its state for the operator.
   const worker = ctx.workerFor(row).client
   const thread = await worker.getThread(threadId)

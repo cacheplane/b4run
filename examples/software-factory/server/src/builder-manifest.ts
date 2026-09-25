@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { z } from "zod"
@@ -13,46 +12,55 @@ import { z } from "zod"
 const CATALOG_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
 /**
- * The builder's two inputs, as data. Deliberately a SECOND copy of the controller's schemas
- * rather than an import: the two packages share no source, and the controller's own
+ * A tag in the factory's shape: `b4-factory-<target>:<pin[:12]>-<dockerfile[:12]>`, the tag
+ * `imageTag` writes and the verifier runs, with the target and the pin prefix captured. The
+ * builder's provider allows no other shape, and the manifest schema requires the captured
+ * target and pin prefix to be the manifest's own `targetId` and `pin`. That bounds a manifest
+ * to an image present on the daemon under a tag naming its own target and pin; it does not
+ * prove the image is the one `target:prepare` built (anyone who can tag an image on the
+ * daemon can already run anything as root there).
+ */
+const FACTORY_IMAGE = /^b4-factory-([A-Za-z0-9][A-Za-z0-9._-]*):([0-9a-f]{12})-[0-9a-f]{12}$/
+
+/**
+ * The builder's one input per thread, as data. Deliberately a SECOND copy of the controller's
+ * schema rather than an import: the two packages share no source, and the controller's own
  * `builder-manifest.test.ts` asserts the two schema texts are identical.
  *
- * The TARGET file is per process: the provider (scope and image), the sandbox policy and the
- * permissions are one per app in the framework, so one builder process serves one target and
- * reads them once, at boot. The MANIFEST is per work order: the only thing a thread can vary
- * is its workspace, and the controller writes `<dir>/<workOrderId>.json` before it creates the
- * thread.
+ * The MANIFEST is per work order: the controller writes `<dir>/<workOrderId>.json` before it
+ * creates the thread, and the builder's `sandbox.thread` resolver hands its workspace, image,
+ * policy and permissions to the framework, which records them at the thread's first admission.
+ * One builder process serves every target at every pin.
  */
-export const BuilderTargetSchema = z
+/**
+ * One work order's builder thread, whole: the workspace the controller captured (the target's
+ * pinned subtree with the task's defect applied), and what the retired per-process target file
+ * carried: the image the task is verified in, the pin it was prepared at, the sandbox policy
+ * and the permission allow-list. The builder hands the target block to the framework as the
+ * thread's sandbox, recorded at the thread's first admission. No prompt: the task's prompt is
+ * the run's user message, which the controller sends with the run.
+ *
+ * Strict throughout, and narrower than the framework: a key this schema does not model is a
+ * refusal at admission, never a silent drop to a broader default (a misspelled `netwrok` would
+ * otherwise leave the thread under the app's network rather than the one the controller
+ * wrote). The network is `deny` only (the builder app denies it too, and a thread may not open
+ * what its app denies), with no `allowlist` or `denylist`; the image must be one the factory
+ * prepared; a pattern that is empty or only whitespace, which names nothing, is refused.
+ */
+export const BuilderManifestSchema = z
   .object({
-    version: z.literal(1),
+    version: z.literal(2),
+    workOrderId: z.string().regex(CATALOG_ID),
+    taskId: z.string().regex(CATALOG_ID),
+    targetId: z.string().regex(CATALOG_ID),
     target: z
       .object({
-        id: z.string().regex(CATALOG_ID),
-        /** The two options `dockerSandbox` receives, and the whole of the provider's identity. */
-        scope: z.string().min(1),
-        image: z.string().min(1),
-        /** The commit that image was prepared at; the controller compares each task's pin with it. */
+        image: z.string().regex(FACTORY_IMAGE),
+        /** The commit that image was prepared at. */
         pin: z.string().regex(/^[a-f0-9]{40}$/),
-        /**
-         * The sandbox policy, modelled key by key and `.strict()` throughout rather than as an
-         * opaque record. A misspelled `netwrok` or `modee` would otherwise parse, drop out of
-         * the spread into `b4.config.ts`, and leave the builder running under the provider's
-         * DEFAULT network instead of the denial the controller intended: a fail-open on a
-         * typo. Strict parsing makes that a startup error instead.
-         *
-         * `network` is a discriminated union of the one key the controller emits, so a policy
-         * carrying an `allowlist` or a `denylist` is refused rather than quietly honoured:
-         * widening what the builder may be told costs an edit to both copies of this schema.
-         * The framework's own `SandboxPolicy` is wider on purpose; this is the subset one
-         * untrusted builder is allowed to be configured with.
-         */
         policy: z
           .object({
-            network: z.discriminatedUnion("mode", [
-              z.object({ mode: z.literal("deny") }).strict(),
-              z.object({ mode: z.literal("allow") }).strict(),
-            ]),
+            network: z.object({ mode: z.literal("deny") }).strict(),
             env: z.record(z.string(), z.string()),
             resources: z
               .object({
@@ -63,27 +71,10 @@ export const BuilderTargetSchema = z
               .strict(),
           })
           .strict(),
-        /** Keyed by tool name, so the key set is open; the values are always patterns. */
-        permissions: z.record(z.string(), z.array(z.string())),
+        /** Keyed by tool name, so the key set is open; the values are always patterns naming something. */
+        permissions: z.record(z.string(), z.array(z.string().regex(/\S/))),
       })
       .strict(),
-  })
-  .strict()
-export type BuilderTarget = z.infer<typeof BuilderTargetSchema>
-
-/**
- * One work order's workspace: the target's pinned subtree with the task's defect applied,
- * captured by the controller. No prompt: the task's prompt is the run's user message, which
- * the controller sends with the run. `targetId` is what lets a builder refuse a work order
- * routed to the wrong process; `workspace` is left to `verifyCapturedWorkspaceDefinition`,
- * which checks it byte for byte against its own digest.
- */
-export const BuilderManifestSchema = z
-  .object({
-    version: z.literal(1),
-    workOrderId: z.string().regex(CATALOG_ID),
-    taskId: z.string().regex(CATALOG_ID),
-    targetId: z.string().regex(CATALOG_ID),
     /**
      * Not modelled key by key, unlike the drafter's: a builder workspace carries
      * `baseline: "git"` and environment links (the drafter's has neither), and the
@@ -94,7 +85,21 @@ export const BuilderManifestSchema = z
     workspace: z.unknown(),
   })
   .strict()
+  .superRefine((manifest, ctx) => {
+    // The tag's target and pin segments must be this manifest's own: a work order may not
+    // run in another target's image, or in its own target's image at another pin.
+    const [, target, pin] = FACTORY_IMAGE.exec(manifest.target.image) ?? []
+    if (target !== manifest.targetId || pin !== manifest.target.pin.slice(0, 12))
+      ctx.addIssue({
+        code: "custom",
+        path: ["target", "image"],
+        message: `image ${manifest.target.image} is not target ${manifest.targetId} at pin ${manifest.target.pin}: a factory tag names b4-factory-${manifest.targetId}:${manifest.target.pin.slice(0, 12)}-<dockerfile>`,
+      })
+  })
 export type BuilderManifest = z.infer<typeof BuilderManifestSchema>
+
+/** Whether `reference` is an image the factory prepared: the builder's `dockerSandbox({ images })`. */
+export const isFactoryImage = (reference: string): boolean => FACTORY_IMAGE.test(reference)
 
 const describe = (error: unknown) =>
   error instanceof z.ZodError
@@ -104,20 +109,15 @@ const describe = (error: unknown) =>
       : String(error)
 
 /**
- * The target this builder process serves, from `FACTORY_BUILDER_TARGET`. Read once, at boot:
- * the provider, the policy and the permissions it carries cannot vary per thread.
+ * Refuse, by name, a variable an older builder read. `FACTORY_BUILDER_TARGET` chose the
+ * process's image, policy and permissions; each work order's manifest does now, and an
+ * operator still setting it must not believe it does anything.
  */
-export function loadBuilderTarget(env: NodeJS.ProcessEnv = process.env): BuilderTarget {
-  const path = env.FACTORY_BUILDER_TARGET
-  if (!path)
+export function refuseRetiredVariables(env: NodeJS.ProcessEnv = process.env): void {
+  if (env.FACTORY_BUILDER_TARGET !== undefined)
     throw new Error(
-      "FACTORY_BUILDER_TARGET is required: the controller writes it with `factory builder-target`",
+      "FACTORY_BUILDER_TARGET is retired: the builder boots with no target file; each work order's manifest carries its target's image, policy and permissions. Unset it",
     )
-  try {
-    return BuilderTargetSchema.parse(JSON.parse(readFileSync(path, "utf8")))
-  } catch (error) {
-    throw new Error(`builder target ${path} is invalid: ${describe(error)}`, { cause: error })
-  }
 }
 
 /**
@@ -148,14 +148,12 @@ export function workOrderIdOf(metadata: Readonly<Record<string, unknown>>): stri
 }
 
 /**
- * `<dir>/<workOrderId>.json`, parsed, for a builder serving `targetId`. A manifest for another
- * target is refused: the work order was routed to the wrong builder process, whose image,
- * policy and permissions are not the ones its task was captured for.
+ * `<dir>/<workOrderId>.json`, parsed. Any target's: the builder serves every target, and the
+ * manifest itself names the image, policy and permissions its task was captured for.
  */
 export async function loadBuilderManifest(
   dir: string,
   workOrderId: string,
-  targetId: string,
   options: { readonly signal?: AbortSignal } = {},
 ): Promise<BuilderManifest> {
   // Re-checked here so the join is safe whatever the caller validated.
@@ -179,10 +177,6 @@ export async function loadBuilderManifest(
   if (manifest.workOrderId !== workOrderId)
     throw new Error(
       `builder manifest ${path} names workOrderId ${manifest.workOrderId}, not ${workOrderId}`,
-    )
-  if (manifest.targetId !== targetId)
-    throw new Error(
-      `builder manifest ${path} is for target ${manifest.targetId}, but this builder serves ${targetId}`,
     )
   return manifest
 }

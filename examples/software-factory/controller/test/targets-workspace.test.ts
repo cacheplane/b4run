@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
+import { isFactoryImage } from "../src/lib/builder-manifest.ts"
 import { imageTag, type Task } from "../src/lib/targets/catalog.ts"
 import {
   builderSandboxProvider,
@@ -170,12 +171,20 @@ describe("targetSandboxPolicy", () => {
 })
 
 describe("builderSandboxProvider", () => {
-  it("is a docker provider on the target's derived image tag and the builder scope", () => {
-    const t = task("0".repeat(40))
-    const provider = builderSandboxProvider(t.target)
+  it("gives the reader a provider with no default image that allows only factory images", async () => {
+    const provider = builderSandboxProvider()
     expect(provider.name).toBe("docker")
-    expect(imageTag(t.target)).toMatch(/^b4-factory-t:[a-f0-9]{12}-[a-f0-9]{12}$/)
     expect(builderSandboxScope).toBe("software-factory-builder")
+    // A managed workspace's image is in its record, so the reader needs only the scope; the
+    // provider still resolves an image a thread names, bounded as the builder's is.
+    const resolveImage = provider.workspaces?.resolveImageEnvironment
+    expect(resolveImage).toBeTypeOf("function")
+    // Refused by the `images` predicate before any daemon is asked.
+    await expect(
+      resolveImage?.call(provider.workspaces, "alpine:latest", new AbortController().signal),
+    ).rejects.toThrow()
+    // Every tag the factory writes is one the predicate allows.
+    expect(isFactoryImage(imageTag(task("0".repeat(40)).target))).toBe(true)
   })
 })
 

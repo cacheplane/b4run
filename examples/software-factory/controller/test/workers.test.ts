@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest"
-import {
-  createWorkerMap,
-  DrafterUnconfiguredError,
-  NoWorkerForTargetError,
-} from "../src/lib/controller/workers.ts"
+import { createWorkerMap, DrafterUnconfiguredError } from "../src/lib/controller/workers.ts"
 import type { WorkerClient } from "../src/lib/worker/client.ts"
 import type { WorkspaceReader } from "../src/lib/worker/workspace-reader.ts"
 
@@ -35,68 +31,39 @@ const A = {
   route: "/build#agent",
   manifestDir: "/srv/a/.factory/manifests",
 }
-const B = {
-  url: "http://b:4100",
-  appRoot: "/srv/b",
-  route: "/repair#agent",
-  manifestDir: "/srv/b/manifests",
-}
 
 describe("createWorkerMap", () => {
-  it("makes one client per URL and one reader per entry, lazily", () => {
+  it("serves every target from the one builder: one client and one reader, lazily", () => {
     const d = deps()
-    const map = createWorkerMap(
-      { workers: { devkit: A, cli: { ...B, url: A.url }, testing: B } },
-      d,
-    )
+    const map = createWorkerMap({ builder: A }, d)
     // Nothing is made at boot: a worker that is down must not decide whether the controller starts.
     expect(d.made).toEqual({ clients: [], builders: [], drafters: [] })
     const devkit = map.forTarget("devkit")
     const cli = map.forTarget("cli")
-    const testing = map.forTarget("testing")
     expect(devkit).toMatchObject({
       route: "/build#agent",
       appRoot: "/srv/a",
       manifestDir: "/srv/a/.factory/manifests",
     })
-    // Each entry carries the manifest directory its process reads: where `dispatch` writes.
-    expect(cli).toMatchObject({
-      route: "/repair#agent",
-      appRoot: "/srv/b",
-      manifestDir: "/srv/b/manifests",
-    })
-    // `devkit` and `cli` are served by one process: one client between them, two readers
-    // (each entry's installation store is its own).
-    expect(devkit?.client).toBe(cli?.client)
-    expect(testing?.client).not.toBe(devkit?.client)
-    expect(d.made.clients).toEqual([A.url, B.url])
-    expect(d.made.builders).toEqual(["/srv/a", "/srv/b", "/srv/b"])
-    // Asked twice, made once.
-    expect(map.forTarget("devkit")?.reader).toBe(devkit?.reader)
-    expect(d.made.builders).toHaveLength(3)
-    expect(map.forTarget("unknown")).toBeUndefined()
-  })
-
-  it("serves a target from its own entry only: there is no wildcard", () => {
-    const d = deps()
-    const map = createWorkerMap({ workers: { cli: B } }, d)
-    expect(map.forTarget("cli")?.appRoot).toBe("/srv/b")
-    // Not even an entry literally keyed `*`, nor an inherited property name.
-    expect(createWorkerMap({ workers: { "*": A } }, d).forTarget("devkit")).toBeUndefined()
-    expect(map.forTarget("constructor")).toBeUndefined()
-    expect(d.made.builders).toEqual(["/srv/b"])
+    // Any target, at any pin: each work order's manifest carries its own image, policy and
+    // permissions, so the builder is the same for all of them.
+    expect(map.forTarget("a-target-nobody-configured")).toMatchObject({ appRoot: "/srv/a" })
+    expect(cli?.client).toBe(devkit?.client)
+    expect(cli?.reader).toBe(devkit?.reader)
+    expect(d.made.clients).toEqual([A.url])
+    expect(d.made.builders).toEqual(["/srv/a"])
   })
 
   it("has no drafter unless configured, and builds it once when it is", () => {
     const d = deps()
-    expect(createWorkerMap({ workers: { devkit: A } }, d).drafter).toBeUndefined()
+    expect(createWorkerMap({ builder: A }, d).drafter).toBeUndefined()
     const drafterEntry = {
       url: "http://drafter:4200",
       appRoot: "/srv/drafter",
       route: "/intake#agent",
       manifestDir: "/srv/drafter/.factory/manifests",
     }
-    const map = createWorkerMap({ workers: { devkit: A }, drafter: drafterEntry }, d)
+    const map = createWorkerMap({ builder: A, drafter: drafterEntry }, d)
     expect(d.made.drafters).toEqual([])
     const drafter = map.drafter
     expect(drafter).toMatchObject({
@@ -107,15 +74,11 @@ describe("createWorkerMap", () => {
     expect(d.made.drafters).toEqual(["/srv/drafter"])
     expect(d.made.clients).toEqual(["http://drafter:4200"])
     // A drafter at the builder's URL shares the builder's client.
-    const shared = createWorkerMap(
-      { workers: { devkit: A }, drafter: { ...drafterEntry, url: A.url } },
-      d,
-    )
+    const shared = createWorkerMap({ builder: A, drafter: { ...drafterEntry, url: A.url } }, d)
     expect(shared.drafter?.client).toBe(shared.forTarget("devkit")?.client)
   })
 
-  it("names the target, and the variables, in its errors", () => {
-    expect(new NoWorkerForTargetError("testing").message).toBe("no worker for target testing")
+  it("names the variables in its errors", () => {
     expect(new DrafterUnconfiguredError().message).toBe(
       "intake is not configured: set FACTORY_DRAFTER_URL and FACTORY_DRAFTER_APP_ROOT",
     )

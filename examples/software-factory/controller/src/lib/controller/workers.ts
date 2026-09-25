@@ -3,12 +3,11 @@ import type { WorkerClient } from "../worker/client.js"
 import type { WorkspaceReader } from "../worker/workspace-reader.js"
 
 /**
- * The worker map (spec §6.4, plan Task 4): one builder worker per target and one drafter,
- * each a process of its own with its own Agent Protocol endpoint, its own app root (where
- * its installation store lives) and its own route. A work order's thread lives on exactly
- * one of them, and which one is a fact about the row — its target, and which phase parked
- * the thread — that `ControllerContext.workerFor`, `drafter` and `workerOfThread` decide.
- * Nothing here knows a row; this is only the table.
+ * The worker map: one builder worker for every target and pin, and one drafter, each a process
+ * of its own with its own Agent Protocol endpoint, its own app root (where its installation
+ * store lives) and its own route. A work order's thread lives on exactly one of them, and which
+ * one is a fact about the row (which phase parked the thread) that `ControllerContext.workerFor`,
+ * `drafter` and `workerOfThread` decide. Nothing here knows a row; this is only the table.
  */
 
 /** A builder worker as the controller talks to it. */
@@ -20,19 +19,10 @@ export interface TargetWorker {
   readonly appRoot: string
   /**
    * Where `dispatch` writes the work order's manifest before it creates the thread: the
-   * builder process's `FACTORY_BUILDER_MANIFEST_DIR`.
+   * builder process's `FACTORY_BUILDER_MANIFEST_DIR`. The manifest carries the thread's
+   * workspace, image, policy and permissions.
    */
   readonly manifestDir: string
-  /**
-   * The pin the builder process runs at (its target file's). Absent: the target's default
-   * pin. `dispatch` compares each task's pin with it, and the reader addresses its image.
-   */
-  readonly pin?: string
-  /**
-   * The allow-lists of the target file the builder booted from, when the controller read that
-   * file (the legacy pair); absent otherwise. `dispatch` refuses a builder whose list is stale.
-   */
-  readonly permissions?: Readonly<Record<string, readonly string[]>>
 }
 
 /** The drafter as the controller talks to it. */
@@ -46,17 +36,9 @@ export interface DrafterWorker {
 }
 
 export interface WorkerMap {
-  /** The worker for `targetId`: its own entry, or none. */
-  forTarget(targetId: string): TargetWorker | undefined
+  /** The worker for `targetId`: the one builder, which serves every target at every pin. */
+  forTarget(targetId: string): TargetWorker
   readonly drafter?: DrafterWorker
-}
-
-/** A target no worker entry covers: the row cannot be dispatched. */
-export class NoWorkerForTargetError extends Error {
-  constructor(readonly targetId: string) {
-    super(`no worker for target ${targetId}`)
-    this.name = "NoWorkerForTargetError"
-  }
 }
 
 export const DRAFTER_UNCONFIGURED =
@@ -92,24 +74,17 @@ function memoized<K, V>(make: (key: K) => V): (key: K) => V {
 
 /**
  * The map from the configuration. Everything is built lazily and once: one client per
- * distinct URL, one reader per worker entry (whose provider is resolved per task),
+ * distinct URL, one reader for the builder (whose provider is the same for every thread),
  * and the drafter's client and reader on first use. Nothing is opened at boot — a worker
  * that is down must not decide whether the controller starts.
  */
 export function createWorkerMap(
-  config: Pick<FactoryConfig, "workers" | "drafter">,
+  config: Pick<FactoryConfig, "builder" | "drafter">,
   deps: WorkerMapDependencies,
 ): WorkerMap {
   const client = memoized(deps.createClient)
-  /** The entry for a target: its own, or none. */
-  const resolve = (targetId: string): { key: string; entry: WorkerEndpoint } | undefined => {
-    const entry = Object.hasOwn(config.workers, targetId) ? config.workers[targetId] : undefined
-    return entry === undefined ? undefined : { key: targetId, entry }
-  }
-  /** One reader per entry. */
-  const readerFor = memoized((key: string) =>
-    deps.createBuilderReader(config.workers[key] as WorkerEndpoint),
-  )
+  /** One reader for the one builder: the provider it needs is the same for every thread. */
+  const reader = memoized((entry: WorkerEndpoint) => deps.createBuilderReader(entry))
   const drafterEntry = config.drafter
   const drafter =
     drafterEntry === undefined
@@ -122,20 +97,14 @@ export function createWorkerMap(
             manifestDir: entry.manifestDir,
           }),
         )
-  const forTarget = (targetId: string): TargetWorker | undefined => {
-    const resolved = resolve(targetId)
-    if (resolved === undefined) return undefined
-    const { key, entry } = resolved
-    return {
-      client: client(entry.url),
-      route: entry.route,
-      reader: readerFor(key),
-      appRoot: entry.appRoot,
-      manifestDir: entry.manifestDir,
-      ...(entry.pin !== undefined ? { pin: entry.pin } : {}),
-      ...(entry.permissions !== undefined ? { permissions: entry.permissions } : {}),
-    }
-  }
+  /** Every target's work orders go to the one builder, at any pin. */
+  const forTarget = (_targetId: string): TargetWorker => ({
+    client: client(config.builder.url),
+    route: config.builder.route,
+    reader: reader(config.builder),
+    appRoot: config.builder.appRoot,
+    manifestDir: config.builder.manifestDir,
+  })
   // A getter, not a spread over one: spreading would read it at boot.
   if (drafter !== undefined && drafterEntry !== undefined)
     return {
