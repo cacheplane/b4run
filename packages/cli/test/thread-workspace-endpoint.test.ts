@@ -276,6 +276,39 @@ it("refuses a root with `..` by name, and names an absent root", async () => {
   })
 })
 
+it("refuses a root that is a symlink by name, and never reads through it", async () => {
+  const f = await fixture()
+  const threadId = await f.createThread()
+  await f.run(threadId, "/edit#workflow", { path: "draft/task.json", text: "{}" })
+  const open = f.physical.workspaces.openWorkspaceReader?.bind(f.physical.workspaces)
+  if (!open) throw new Error("the fixture reads")
+  const touched: string[] = []
+  f.physical.workspaces.openWorkspaceReader = async (input) => {
+    const reader = await open(input)
+    const lstat = reader.filesystem.lstat.bind(reader.filesystem)
+    return {
+      ...reader,
+      filesystem: {
+        ...reader.filesystem,
+        lstat: async (path: string, ctx: Parameters<typeof lstat>[1]) => {
+          touched.push(path)
+          return path === "/workspace/draft"
+            ? { kind: "symlink" as const, size: 4, executable: false, target: "/etc" }
+            : lstat(path, ctx)
+        },
+      },
+    }
+  }
+  const response = await f.inspect(threadId, { root: "draft" })
+  expect(response.status).toBe(422)
+  const body = (await response.json()) as { error: { message: string } }
+  expect(body).toMatchObject({
+    error: { details: { code: "workspace_root_missing", root: "draft", kind: "not_directory" } },
+  })
+  expect(body.error.message).toContain('"draft" is a symlink')
+  expect(touched.filter((path) => path.startsWith("/workspace/draft/"))).toEqual([])
+})
+
 it("is not served unless the app opts in, and never tells an unauthorized caller which", async () => {
   const off = await fixture({ workspaceRead: false })
   const threadId = await off.createThread()
