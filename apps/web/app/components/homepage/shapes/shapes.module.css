@@ -1,0 +1,155 @@
+/* "You keep the graph" (#route-shapes). Paper Relay tokens only (tokens.css). */
+.section {
+  padding: 56px 0;
+  border-bottom: 1px solid var(--color-rule);
+}
+.intro {
+  max-width: 640px;
+  margin-bottom: 32px;
+}
+.eyebrow {
+  margin: 0;
+}
+.intro h2 {
+  font-size: clamp(30px, 3.5vw, 43px);
+  font-weight: 500;
+  line-height: 1.08;
+  letter-spacing: -0.045em;
+  margin: 24px 0 16px;
+}
+.intro p:not([data-ui="eyebrow"]) {
+  font-size: 15px;
+  line-height: 1.8;
+  color: var(--color-ink-muted);
+  margin: 0;
+}
+
+/* The segmented control: native radios, one 44px cell each. Every cell
+   overlaps its right and bottom neighbours by 1px, so borders never double,
+   whether the cells sit in one row or wrap to two; the padding gives the
+   last cell's overlap back. */
+.options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  min-inline-size: 0;
+  margin: 0 0 16px;
+  padding: 0 1px 1px 0;
+  border: 0;
+}
+.legend {
+  margin-bottom: 8px;
+  padding: 0;
+  font:
+    12px / 1.6 var(--font-mono),
+    monospace;
+  color: var(--color-ink-muted);
+}
+.option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  margin: 0 -1px -1px 0;
+  padding: 0 16px;
+  border: 1px solid var(--color-rule-strong);
+  font:
+    13px / 1.4 var(--font-mono),
+    monospace;
+  color: var(--color-ink);
+  cursor: pointer;
+}
+.option input {
+  margin: 0;
+  accent-color: var(--color-ink);
+}
+/* The chosen shape: tint and an ink border as well as the filled radio. */
+.option:has(input:checked) {
+  position: relative;
+  z-index: 1;
+  border-color: var(--color-ink);
+  background: var(--color-relay-tint);
+}
+
+.panel {
+  container-type: inline-size;
+  background: var(--color-panel);
+  color: var(--color-panel-ink);
+  /* The global focus ring is tuned for paper; on the panel it uses the accent. */
+  --color-focus: var(--color-panel-accent);
+}
+.path {
+  margin: 0;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-panel-rule);
+  background: var(--color-panel-strip);
+  font:
+    12px / 1.6 var(--font-mono),
+    monospace;
+  color: var(--color-panel-muted);
+}
+/* Every variant sits in the same grid cell: the tallest sets the height, so
+   switching never shifts the page. Only the active one is visible. */
+.stage {
+  display: grid;
+}
+.stage > * {
+  grid-area: 1 / 1;
+}
+.stage > :not([data-active="true"]) {
+  visibility: hidden;
+}
+.code {
+  margin: 0;
+  padding: 16px;
+  font:
+    13px / 1.7 var(--font-mono),
+    monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 2;
+}
+.code code {
+  font: inherit;
+}
+.line {
+  display: block;
+  min-height: 1lh;
+}
+.strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 12px 16px;
+  border-top: 1px solid var(--color-panel-rule);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--color-panel-muted);
+}
+.strip code {
+  font:
+    12px / 1.6 var(--font-mono),
+    monospace;
+  color: var(--color-panel-ink);
+}
+.strip a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  text-underline-offset: 5px;
+}
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 24px;
+  margin: 16px 0 0;
+}
+.links a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: 14px;
+  text-underline-offset: 5px;
+}

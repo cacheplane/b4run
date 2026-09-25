@@ -36,9 +36,14 @@
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
+    "@b4run/cli": "workspace:*",
     "@b4run/config-typescript": "workspace:*",
     "@b4run/core": "workspace:*",
+    "@b4run/permissions": "workspace:*",
+    "@b4run/sandbox": "workspace:*",
     "@b4run/sdk": "workspace:*",
+    "@langchain/core": "1.2.12",
+    "@langchain/langgraph": "1.4.17",
     "@types/mdx": "^2.0.14",
     "@types/node": "26.1.2",
     "@types/react": "19.2.18",
