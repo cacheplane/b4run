@@ -200,24 +200,58 @@ describe("the builder's workspace at dispatch", () => {
     expect(factory.show(id)?.state).toBe("received")
   })
 
-  it("cancels its own thread when a cancel orphaned it mid-create, with nothing to remove", async () => {
+  /** A dispatch whose thread a cancel orphans while the worker is making it. */
+  async function orphanedDispatch(
+    beforeDispatch: () => void = () => {},
+  ): Promise<{ rowId: string; threadId: string }> {
     let rowId = ""
     await boot({}, {}, (client) => ({
       ...client,
-      createThread: async (metadata, workspace) => {
+      createThread: async (metadata, workspace, signal) => {
         // The cancel lands while the worker is making the thread: the row cannot take it.
         await factory.cancel(rowId)
-        return client.createThread(metadata, workspace)
+        return client.createThread(metadata, workspace, signal)
       },
     }))
     rowId = (await factory.create({ taskId: "cli-flags" })).id
+    beforeDispatch()
     expect(await factory.dispatch(rowId)).toMatchObject({
       ok: false,
       message: "Work order changed state while dispatching",
     })
     expect(factory.show(rowId)?.state).toBe("cancelled")
-    expect(types(rowId)).toContain("thread_orphaned")
+    const threadId = event(rowId, "thread_orphaned")?.payload.threadId as string
+    expect(threadId).toMatch(/^fake-thread-/)
+    return { rowId, threadId }
+  }
+
+  it("cancels and deletes its own thread when a cancel orphaned it mid-create", async () => {
+    // Deleted, not only cancelled: an undeleted thread keeps its staged source referenced, and
+    // referenced sources are never reclaimed, so orphans would fill the builder's quota.
+    const { rowId, threadId } = await orphanedDispatch()
+    const deletes = fake.requests.filter((r) => r.method === "DELETE")
+    expect(deletes).toEqual([
+      expect.objectContaining({
+        path: `/threads/${threadId}`,
+        authorization: `Bearer ${TEST_WORKER_TOKEN}`,
+      }),
+    ])
+    expect(fake.thread(threadId)).toBeUndefined()
+    expect(event(rowId, "thread_deleted")?.payload).toEqual({ threadId, result: "deleted" })
+    expect(types(rowId).indexOf("thread_deleted")).toBeGreaterThan(
+      types(rowId).indexOf("thread_orphaned"),
+    )
     expect(types(rowId).filter((t) => t.includes("manifest"))).toEqual([])
+  })
+
+  it("journals a delete the builder refused, and answers the dispatch all the same", async () => {
+    // Best-effort: the thread is the builder's either way; the journal says it is left.
+    const { rowId, threadId } = await orphanedDispatch(() => fake.failNext("DELETE", 500))
+    expect(event(rowId, "thread_delete_failed")?.payload).toMatchObject({
+      threadId,
+      error: expect.stringContaining("500"),
+    })
+    expect(types(rowId)).not.toContain("thread_deleted")
   })
 })
 

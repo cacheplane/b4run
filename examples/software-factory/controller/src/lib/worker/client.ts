@@ -20,7 +20,7 @@ export interface Resolution {
 
 export type CancelResult = "interrupted" | "no_run_in_flight" | "thread_not_found"
 
-/** The eight Agent Protocol calls the controller uses. Nothing else is reachable through this type. */
+/** The nine Agent Protocol calls the controller uses. Nothing else is reachable through this type. */
 export interface WorkerClient {
   /**
    * Stage a workspace's files on the worker (`PUT /workspace/sources/:digest`),
@@ -52,6 +52,12 @@ export interface WorkerClient {
   ): Promise<AsyncIterable<StreamFrame>>
   cancel(threadId: string): Promise<CancelResult>
   getThread(threadId: string): Promise<{ threadId: string; status: string } | null>
+  /**
+   * `DELETE /threads/:id`: the thread, its workspace and its staged reference. Idempotent: the
+   * worker answers 204 for a thread it no longer has (404 is read the same way). A thread
+   * with a turn in flight is refused (409 `run_in_flight`), as any other error is thrown.
+   */
+  deleteThread(threadId: string): Promise<"deleted" | "not_found">
 }
 
 /** A non-2xx HTTP response from the worker. Transport failures (fetch rejecting) propagate as the underlying error, not this type. */
@@ -252,6 +258,12 @@ export function createHttpWorkerClient(
       if (error.status === 404) return "thread_not_found"
       if (error.status === 409 && error.code === "no_run_in_flight") return "no_run_in_flight"
       throw error
+    },
+    async deleteThread(threadId) {
+      const response = await send(threadPath(threadId), { method: "DELETE" })
+      if (response.status === 404) return "not_found"
+      if (!response.ok) throw await toError(response)
+      return "deleted"
     },
     async getThread(threadId) {
       const response = await send(threadPath(threadId), { method: "GET" })

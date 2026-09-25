@@ -392,6 +392,16 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
       )
     }
 
+    // As the runtime answers: 204 whether or not the thread was there, 409 while a turn runs.
+    if (req.method === "DELETE" && parts[0] === "threads" && parts[1] && parts.length === 2) {
+      const doomed = threads.get(parts[1])
+      if (doomed?.runActive || doomed?.resumeActive)
+        return json(res, 409, errorBody("Run in flight", "run_in_flight"))
+      threads.delete(parts[1])
+      res.writeHead(204)
+      return res.end()
+    }
+
     const thread = parts[0] === "threads" && parts[1] ? threads.get(parts[1]) : undefined
     if (!thread) return json(res, 404, errorBody("Thread not found", "thread_not_found"))
     const tail = parts.slice(2).join("/")

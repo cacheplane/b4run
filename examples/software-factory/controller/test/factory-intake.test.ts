@@ -589,10 +589,51 @@ describe("intake", () => {
       state: "cancelled",
       message: "Work order changed state while starting intake",
     })
-    // The thread was made, orphaned and cancelled on the drafter.
+    // The thread was made, orphaned, cancelled and deleted on the drafter: undeleted, it would
+    // keep its staged capture referenced, and so unreclaimable, for good.
     expect(threadPosts()).toHaveLength(1)
     expect(eventTypes(id)).toContain("thread_orphaned:")
+    const threadId = factory.events(id).find((e) => e.type === "thread_orphaned")?.payload
+      .threadId as string
+    expect(fake.requests.filter((r) => r.method === "DELETE")).toEqual([
+      expect.objectContaining({
+        path: `/threads/${threadId}`,
+        authorization: `Bearer ${TEST_WORKER_TOKEN}`,
+      }),
+    ])
+    expect(fake.thread(threadId)).toBeUndefined()
+    expect(factory.events(id).find((e) => e.type === "thread_deleted")?.payload).toEqual({
+      threadId,
+      result: "deleted",
+    })
     expect(factory.show(id)).toMatchObject({ state: "cancelled", workerThreadId: null })
+  })
+
+  it("deletes the intake thread a crashed intake journalled but never committed, when the row is cancelled", async () => {
+    // The crash window: the drafter made the thread and intake journalled it, but the row never
+    // took it. A rerun of `intake` would adopt it; a cancel abandons it, so the cancel deletes
+    // it (idempotently: the worker answers 204 for a thread it no longer has).
+    await boot()
+    const { id } = await createIssue()
+    await crash()
+    const created = await fetch(`${fake.baseUrl}/threads`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${TEST_WORKER_TOKEN}` },
+      body: JSON.stringify({ metadata: { factoryWorkOrderId: id } }),
+    })
+    const threadId = ((await created.json()) as { thread_id: string }).thread_id
+    journalHandoff(id, threadId)
+    await bootFactory()
+    expect(factory.show(id)).toMatchObject({ state: "received", workerThreadId: null })
+    expect(await factory.cancel(id)).toMatchObject({ ok: true, state: "cancelled" })
+    expect(fake.requests.filter((r) => r.method === "DELETE").map((r) => r.path)).toEqual([
+      `/threads/${threadId}`,
+    ])
+    expect(fake.thread(threadId)).toBeUndefined()
+    expect(factory.events(id).find((e) => e.type === "thread_deleted")?.payload).toEqual({
+      threadId,
+      result: "deleted",
+    })
   })
 
   it("refuses a pin the repository cannot reach without spending the key, and proceeds once it can", async () => {

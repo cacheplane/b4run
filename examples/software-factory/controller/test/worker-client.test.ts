@@ -194,6 +194,35 @@ describe("http worker client", () => {
     }
   })
 
+  it("deletes a thread idempotently, and throws on a thread with a turn in flight", async () => {
+    const threadId = await client.createThread({})
+    expect(await client.deleteThread(threadId)).toBe("deleted")
+    expect(await client.getThread(threadId)).toBeNull()
+    // The runtime answers 204 again for a thread it no longer has.
+    expect(await client.deleteThread(threadId)).toBe("deleted")
+    const answering = (status: number) =>
+      createHttpWorkerClient("http://worker", {
+        token: TEST_WORKER_TOKEN,
+        fetch: (async () =>
+          status === 409
+            ? Response.json(
+                { error: { message: "busy", details: { code: "run_in_flight" } } },
+                { status },
+              )
+            : new Response(null, { status })) as typeof fetch,
+      })
+    expect(await answering(404).deleteThread("t")).toBe("not_found")
+    await expect(answering(409).deleteThread("t")).rejects.toMatchObject({
+      status: 409,
+      code: "run_in_flight",
+    })
+    const deletes = fake.requests.filter((r) => r.method === "DELETE")
+    expect(deletes.map((r) => r.authorization)).toEqual([
+      `Bearer ${TEST_WORKER_TOKEN}`,
+      `Bearer ${TEST_WORKER_TOKEN}`,
+    ])
+  })
+
   it("never retries a refusal that is not the worker being busy", async () => {
     const bundle = createSourceBundle([
       { path: "c.txt", bytes: new TextEncoder().encode("c"), executable: false },

@@ -494,6 +494,27 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     holdsIntakeThread(row) ? drafter() : workerFor(row)
 
   /**
+   * Delete a worker thread this controller has abandoned: one no row holds and nothing will
+   * read again. A thread left on the worker keeps its staged source referenced, and a worker
+   * never reclaims a referenced source, so abandoned threads would fill its staged quota until
+   * every upload is refused (507). Best-effort and journalled either way (`thread_deleted`, or
+   * `thread_delete_failed` for an operator), never failing the command that abandons it;
+   * idempotent, since the worker answers a thread it no longer has as deleted.
+   *
+   * Not covered: a thread the worker made whose id never reached the controller (the create
+   * answered after a crash, or its response was lost). The worker chooses thread ids, so
+   * there is no id to delete; that thread is the worker's to expire.
+   */
+  async function abandonThread(id: string, worker: WorkerClient, threadId: string): Promise<void> {
+    try {
+      const result = await worker.deleteThread(threadId)
+      recordEvent(id, "thread_deleted", { threadId, result })
+    } catch (error) {
+      recordEvent(id, "thread_delete_failed", { threadId, error: String(error) })
+    }
+  }
+
+  /**
    * Is there a turn on `threadId` for the cancel to interrupt, and is the thread there at
    * all? The worker is the authority, not the controller's in-memory `runs` map: after a
    * restart that map is empty, and while a run is draining its last frames the map still
@@ -528,6 +549,21 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
    */
   async function finishCancel(id: string, cause: "operator" | "budget"): Promise<WorkOrderRow> {
     const row = mustGet(id)
+    // An intake that crashed after the drafter made its thread and before the row took it
+    // journalled the thread for a rerun to adopt. Cancelling the row abandons it instead.
+    const uncommittedIntake = row.workerThreadId === null ? journalledIntakeThreadId(id) : null
+    if (uncommittedIntake !== null) {
+      let client: WorkerClient | undefined
+      try {
+        client = drafter().client
+      } catch (error) {
+        recordEvent(id, "thread_delete_failed", {
+          threadId: uncommittedIntake,
+          error: String(error),
+        })
+      }
+      if (client !== undefined) await abandonThread(id, client, uncommittedIntake)
+    }
     if (row.workerThreadId) {
       const threadId = row.workerThreadId
       // Which worker holds the thread is the row's to say. A row whose worker is no longer
@@ -896,6 +932,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           } catch (cancelError) {
             recordEvent(id, "worker_cancel_failed", { threadId, error: String(cancelError) })
           }
+          await abandonThread(id, drafterWorker.client, threadId)
         }
         return refuse("Work order changed state while starting intake")
       }
@@ -1165,6 +1202,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         } catch (cancelError) {
           recordEvent(id, "worker_cancel_failed", { threadId, error: String(cancelError) })
         }
+        await abandonThread(id, worker.client, threadId)
         return finish(key, {
           ok: false,
           state: mustGet(id).state,

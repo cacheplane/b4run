@@ -382,8 +382,14 @@ the worker's port, and nothing is written for a worker to read (the workers refu
 `config_ignored` line at boot, so an environment shared with the drafter still starts.
 `dispatch` journals `builder_source_staged { sourceDigest, status }` before it creates the
 thread (`intake`, `drafter_source_staged`), and that digest is the one every later read of the
-thread must be answered with. Nothing is left behind to remove: an upload whose thread was
-never created is reclaimed by the worker once it is older than its retention window. Without the
+thread must be answered with. An upload whose thread was never created is reclaimed by the
+worker once it is older than its retention window. A thread the controller abandons (a cancel
+that lands while the thread is being created, or a cancel of a work order whose crashed
+`intake` made a thread the row never took) is cancelled and then deleted on the worker
+(`thread_deleted`, or `thread_delete_failed` for an operator to finish), because a thread
+keeps its staged source referenced and a referenced source is never reclaimed. A thread whose
+id never reached the controller (the create answered after a crash) cannot be deleted by it:
+the worker chooses thread ids. Settled work orders' threads are kept, as before. Without the
 drafter the controller starts and every command works except `intake`, which refuses
 before spending anything. The controller keeps every file it writes at run time under
 `FACTORY_STATE_DIR` (the registry, evidence, generated tasks, and the captures it stages
