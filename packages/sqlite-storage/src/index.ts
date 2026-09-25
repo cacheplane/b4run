@@ -19,3 +19,4 @@ export {
   type WorkspaceInstallationReader,
 } from "./workspace/installation.js"
 export type { WorkspaceSourceStore } from "./workspace/source-store.js"
+export type { WorkspaceThreadSandboxStore } from "./workspace/thread-sandbox-store.js"
