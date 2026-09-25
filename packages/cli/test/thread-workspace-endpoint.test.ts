@@ -14,6 +14,7 @@ import {
 } from "../src/lib/dev/runtime-fetch-handler.ts"
 import { isCanonicalRoot } from "../src/lib/dev/thread-workspace-http.ts"
 import { withManagedWorkspaceReader } from "../src/lib/runtime/managed-workspace-reader.ts"
+import { readThreadWorkspace } from "../src/lib/runtime/read-thread-workspace.ts"
 import { managedProviderFixture } from "./support/managed-provider.ts"
 
 const TOKEN = "Bearer endpoint-test-token"
@@ -341,4 +342,25 @@ it("filters ignorePrefixes, and refuses unknown options, limits over the caps an
   expect((await f.inspect(threadId, { rot: "draft" })).status).toBe(400)
   expect((await f.inspect(threadId, { maxTotalBytes: 64 * 1024 * 1024 })).status).toBe(400)
   expect((await f.inspect(threadId, "x".repeat(65 * 1024))).status).toBe(413)
+})
+
+it("round-trips through readThreadWorkspace", async () => {
+  const f = await fixture()
+  const threadId = await f.createThread()
+  await f.run(threadId, "/edit#workflow", { path: "draft/task.json", text: "{}" })
+  const installation = openWorkspaceInstallationReader(f.appRoot)
+  const sourceDigest = installation.associations.get(threadId)?.intent.sourceDigest as string
+  installation.close()
+  const read = await readThreadWorkspace(
+    "http://localhost",
+    threadId,
+    { root: "draft" },
+    {
+      headers: { authorization: TOKEN },
+      expectedSourceDigest: sourceDigest,
+      fetch: ((input: string | URL | Request, init?: RequestInit) =>
+        f.handler.fetch(new Request(input, init))) as typeof fetch,
+    },
+  )
+  expect(read.inspection.files).toEqual({ "task.json": "{}" })
 })
