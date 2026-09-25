@@ -5,16 +5,21 @@ import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { fakeSandbox } from "@b4run/sandbox/testing"
 import { openWorkspaceInstallation, type WorkspaceInstallation } from "@b4run/sqlite-storage"
-import type {
-  CapturedWorkspaceDefinition,
-  ManagedWorkspaceProvider,
-  ReadyWorkspace,
-  SandboxHandle,
-  WorkspaceCreateIntent,
+import {
+  type CapturedWorkspaceDefinition,
+  type ManagedWorkspaceProvider,
+  type ReadyWorkspace,
+  type SandboxHandle,
+  type SandboxPolicy,
+  type WorkspaceCreateIntent,
+  WorkspaceLifecycleError,
 } from "@b4run/workspace"
 import { createSourceBundle } from "@b4run/workspace/node"
 import { afterEach, expect, it, vi } from "vitest"
-import { ManagedWorkspaceManager } from "../src/lib/runtime/managed-workspace-manager.ts"
+import {
+  ManagedWorkspaceManager,
+  type ResolvedThreadSandbox,
+} from "../src/lib/runtime/managed-workspace-manager.ts"
 
 const roots: string[] = []
 const managers: ManagedWorkspaceManager[] = []
@@ -523,4 +528,261 @@ it("refuses to construct with neither a definition nor a resolver", () => {
       }),
   ).toThrow(/definition or a resolver/i)
   installation.close()
+})
+
+function threadFixture(
+  resolveThread: (thread: {
+    readonly threadId: string
+    readonly metadata: Readonly<Record<string, unknown>>
+    readonly signal: AbortSignal
+  }) => Promise<ResolvedThreadSandbox>,
+  options: {
+    readonly root?: string
+    readonly refuse?: (image: string) => boolean
+    readonly imageSupport?: boolean
+    readonly appPolicy?: SandboxPolicy
+  } = {},
+) {
+  const root = options.root ?? mkdtempSync(join(tmpdir(), "b4-managed-thread-"))
+  if (options.root === undefined) roots.push(root)
+  const installation = openWorkspaceInstallation(root)
+  const physical = new Map<string, ReadyWorkspace>()
+  const calls: string[] = []
+  const base = makeProvider(installation, physical, calls)
+  const policies = new Map<string, SandboxPolicy>()
+  const provider: ManagedWorkspaceProvider = {
+    ...base,
+    async reconnect(workspace, policy, signal) {
+      policies.set(workspace.reference.threadId, policy)
+      return base.reconnect(workspace, policy, signal)
+    },
+    ...(options.imageSupport === false
+      ? {}
+      : {
+          async resolveImageEnvironment(image: string) {
+            calls.push(`image:${image}`)
+            if (options.refuse?.(image))
+              throw new WorkspaceLifecycleError("unsupported", `Image ${image} is not allowed`)
+            return {
+              binding: { provider: "fake", scope: "scope", account: "service" },
+              identity: `snapshot@${image}`,
+            }
+          },
+        }),
+  }
+  const manager = new ManagedWorkspaceManager({
+    installation,
+    provider,
+    policy: options.appPolicy ?? { network: { mode: "deny" }, resources: { memoryMb: 1024 } },
+    idleTimeoutMs: 0,
+    resolveThread,
+  })
+  managers.push(manager)
+  return { manager, installation, calls, policies, root }
+}
+
+const captured = (text: string): CapturedWorkspaceDefinition => ({
+  version: 1,
+  source: bundle(text),
+  environmentLinks: [],
+})
+
+it("gives two threads their own image and policy, and reconnects each under its own", async () => {
+  const { manager, installation, policies } = threadFixture(async (thread) =>
+    thread.metadata.target === "b"
+      ? {
+          definition: captured("b"),
+          image: "factory:b",
+          policy: { resources: { memoryMb: 4096, cpus: 4 } },
+        }
+      : { definition: captured("a"), image: "factory:a", policy: { env: { TARGET: "a" } } },
+  )
+  const signal = new AbortController().signal
+  await manager.getForThread("one", signal, { metadata: async () => ({ target: "a" }) })
+  await manager.getForThread("two", signal, { metadata: async () => ({ target: "b" }) })
+  expect(installation.associations.get("one")?.intent.environment.identity).toBe(
+    "snapshot@factory:a",
+  )
+  expect(installation.associations.get("two")?.intent.environment.identity).toBe(
+    "snapshot@factory:b",
+  )
+  expect(policies.get("one")).toEqual({
+    network: { mode: "deny" },
+    env: { TARGET: "a" },
+    resources: { memoryMb: 1024 },
+  })
+  expect(policies.get("two")).toEqual({
+    network: { mode: "deny" },
+    resources: { memoryMb: 4096, cpus: 4 },
+  })
+  expect(installation.threadSandboxes.get("one")).toEqual({
+    version: 1,
+    image: "factory:a",
+    policy: { env: { TARGET: "a" } },
+  })
+})
+
+it("re-admits after a restart from the record, never calling the resolver again", async () => {
+  let resolved = 0
+  const first = threadFixture(async () => {
+    resolved += 1
+    return {
+      definition: captured("a"),
+      image: "factory:a",
+      policy: { resources: { memoryMb: 2048 } },
+    }
+  })
+  const signal = new AbortController().signal
+  await first.manager.getForThread("one", signal)
+  await first.manager.releaseAll()
+  const second = threadFixture(
+    async () => {
+      throw new Error("the resolver must not run on re-admission")
+    },
+    { root: first.root },
+  )
+  await second.manager.getForThread("one", signal)
+  expect(resolved).toBe(1)
+  expect(second.policies.get("one")).toEqual({
+    network: { mode: "deny" },
+    resources: { memoryMb: 2048 },
+  })
+  expect(second.calls).toEqual(["reconnect"])
+})
+
+it("refuses an image the provider does not allow before creating anything", async () => {
+  const { manager, installation, calls } = threadFixture(
+    async () => ({ definition: captured("a"), image: "evil:latest" }),
+    { refuse: (image) => image.startsWith("evil") },
+  )
+  await expect(manager.getForThread("one", new AbortController().signal)).rejects.toMatchObject({
+    code: "unsupported",
+  })
+  expect(calls).toEqual(["image:evil:latest"])
+  expect(installation.associations.get("one")).toBeUndefined()
+  expect(installation.threadSandboxes.get("one")).toBeUndefined()
+  expect(installation.sources.get(bundle("a").digest)).toBeUndefined()
+})
+
+it("refuses a per-thread image on a provider that cannot select one", async () => {
+  const { manager, installation, calls } = threadFixture(
+    async () => ({ definition: captured("a"), image: "factory:a" }),
+    { imageSupport: false },
+  )
+  await expect(manager.getForThread("one", new AbortController().signal)).rejects.toThrow(
+    /cannot run a per-thread image/,
+  )
+  expect(calls).toEqual([])
+  expect(installation.associations.get("one")).toBeUndefined()
+})
+
+it("refuses a thread policy that opens the network the app denies, before any provider call", async () => {
+  const { manager, installation, calls } = threadFixture(async () => ({
+    definition: captured("a"),
+    policy: { network: { mode: "allow" } },
+  }))
+  await expect(manager.getForThread("one", new AbortController().signal)).rejects.toThrow(
+    /may not open the network/,
+  )
+  expect(calls).toEqual([])
+  expect(installation.associations.get("one")).toBeUndefined()
+})
+
+it("keeps the app's policy for a thread whose resolver set none", async () => {
+  const { manager, policies, calls } = threadFixture(async () => ({
+    definition: captured("a"),
+  }))
+  await manager.getForThread("one", new AbortController().signal)
+  expect(policies.get("one")).toEqual({ network: { mode: "deny" }, resources: { memoryMb: 1024 } })
+  expect(calls).toEqual(["inspect", "create", "reconnect"])
+})
+
+it("resolves a thread's sandbox once when two first admissions overlap", async () => {
+  let resolved = 0
+  const { manager } = threadFixture(async () => {
+    resolved += 1
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    return { definition: captured("a"), image: "factory:a" }
+  })
+  const signal = new AbortController().signal
+  await Promise.all([manager.getForThread("one", signal), manager.getForThread("one", signal)])
+  expect(resolved).toBe(1)
+})
+
+it("records every thread it admits, { version: 1 } when the resolver chose nothing", async () => {
+  const { manager, installation } = threadFixture(async () => ({ definition: captured("a") }))
+  await manager.getForThread("one", new AbortController().signal)
+  expect(installation.threadSandboxes.get("one")).toEqual({ version: 1 })
+})
+
+it("refuses a thread admitted before the app resolved sandboxes per thread", async () => {
+  // The app ran with a static workspace, then switched to sandbox.thread: its old thread has an
+  // association and no sandbox record, and must not run under the app's defaults silently.
+  const root = mkdtempSync(join(tmpdir(), "b4-managed-thread-"))
+  roots.push(root)
+  const before = fixture(root)
+  await before.manager.getForThread("one", new AbortController().signal)
+  await before.manager.releaseAll()
+  let resolved = 0
+  const after = threadFixture(
+    async () => {
+      resolved += 1
+      return { definition: captured("a") }
+    },
+    { root },
+  )
+  await expect(
+    after.manager.getForThread("one", new AbortController().signal),
+  ).rejects.toMatchObject({
+    code: "conflict",
+    message: expect.stringMatching(/thread one has no sandbox record/i),
+  })
+  expect(resolved).toBe(0)
+  expect(after.calls).toEqual([])
+})
+
+it("refuses a thread whose record was lost with its table", async () => {
+  const first = threadFixture(async () => ({ definition: captured("a"), image: "factory:a" }))
+  await first.manager.getForThread("one", new AbortController().signal)
+  await first.manager.releaseAll()
+  const db = new DatabaseSync(join(first.root, ".b4", "workspaces", "state.sqlite"))
+  db.exec("DROP TABLE workspace_thread_sandboxes; DROP TABLE workspace_thread_sandbox_schema")
+  db.close()
+  // Reopening recreates the tables empty (the upgrade path); admission is what refuses.
+  const second = threadFixture(async () => ({ definition: captured("a") }), { root: first.root })
+  await expect(
+    second.manager.getForThread("one", new AbortController().signal),
+  ).rejects.toMatchObject({
+    code: "conflict",
+  })
+  expect(second.calls).toEqual([])
+})
+
+it("refuses a thread resolver beside a workspace definition or resolver", () => {
+  const root = mkdtempSync(join(tmpdir(), "b4-managed-thread-"))
+  roots.push(root)
+  const installation = openWorkspaceInstallation(root)
+  try {
+    const provider = makeProvider(installation, new Map(), [])
+    const common = {
+      installation,
+      provider,
+      policy: { network: { mode: "deny" as const } },
+      idleTimeoutMs: 0,
+    }
+    const resolveThread = async () => ({ definition: captured("a") })
+    expect(
+      () => new ManagedWorkspaceManager({ ...common, resolveThread, definition: captured("a") }),
+    ).toThrow(/exclusive/)
+    expect(
+      () =>
+        new ManagedWorkspaceManager({
+          ...common,
+          resolveThread,
+          captureDefinition: async () => captured("a"),
+        }),
+    ).toThrow(/exclusive/)
+  } finally {
+    installation.close()
+  }
 })
