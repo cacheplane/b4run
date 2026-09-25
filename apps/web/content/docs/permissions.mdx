@@ -292,7 +292,19 @@ curl -X POST http://127.0.0.1:2024/threads/$THREAD/resume \
 # The response streams the continuation as SSE
 ```
 
-Only `"always"` persists. It adds the allow entry to the configured permissions store (`.b4/permissions.json` with the default Node store). On later runs the command matches the allow list and proceeds without prompting.
+Only `"always"` persists. It adds the allow entry to the configured permissions store (`.b4/permissions.json` with the default Node store), or, for a thread with [its own permissions](#per-thread-permissions), to that thread's record. On later runs the command matches the allow list and proceeds without prompting.
+
+## Per-thread permissions
+
+An app whose `sandbox.thread` resolver returns `permissions` gives that thread its own lists:
+
+- The thread's `allow` replaces the app's `permissions.allow` for that thread. The app's allow-list, and grants other threads saved to `.b4/permissions.json`, don't apply to it.
+- Denials add up: the thread's `deny` and the app's denials both apply, and a denial wins over any allow.
+- The mode is the app's. In `bypass` mode nothing is checked, as for any thread.
+- An **Always** decision in such a thread is saved to that thread's record in the workspace installation, never to `.b4/permissions.json` or a configured `permissions.store`. It applies to later turns of that thread and to its subagents, not to other threads. Deleting the thread deletes its grants.
+- An empty pattern (`""`) is refused, because it would allow every candidate.
+
+A thread whose resolver returns no `permissions` uses the app's store unchanged.
 
 ## Testing
 

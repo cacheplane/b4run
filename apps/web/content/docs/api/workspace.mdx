@@ -38,10 +38,11 @@ The root's emitted subpath graph has no runtime package or Node built-in depende
 | `CapturedWorkspaceDefinition` | Hold a verified source bundle and canonical creation options. |
 | `WorkspaceResolver` | Decide one thread's initial workspace from its id and client metadata, once, at first admission. |
 | `WorkspaceResolverInput` | What a resolver is told: the thread id, its stored client metadata with the reserved key stripped, and the admitting run's abort signal. |
-| `ThreadSandboxResolver` | Decide one thread's workspace, image and policy from its id and client metadata, once, at first admission. |
-| `ThreadSandbox` | Declare one thread's workspace, an optional provider-interpreted image, and optional policy overrides. |
+| `ThreadSandboxResolver` | Decide one thread's workspace, image, policy and permissions from its id and client metadata, once, at first admission. |
+| `ThreadSandbox` | Declare one thread's workspace, an optional provider-interpreted image, optional policy overrides, and optional permission lists. |
 | `ThreadSandboxPolicy` | Name the network, environment and resource fields a thread may set for itself. |
-| `ThreadSandboxRecord` | Hold the image reference and policy B4.run recorded for a thread at its first admission. |
+| `ThreadSandboxPermissions` | Describe one thread's own allow and deny lists. |
+| `ThreadSandboxRecord` | Hold the image reference, policy and permission lists B4.run recorded for a thread at its first admission. |
 | `WorkspaceEnvironment` | Bind an immutable environment identity to provider, account, and scope. |
 | `WorkspaceCreateIntent` | Persist an operation identity and complete creation digest before provider mutation. |
 | `WorkspaceReference` | Identify provider resources without credentials or executable configuration. |
@@ -107,6 +108,7 @@ The `/node` entry owns the exports below. Its types are also exported from the d
 | `verifyImageReference` | Validate an image reference a thread names; flag-like references are refused. |
 | `verifyThreadSandbox` | Validate what a thread-sandbox resolver returned, refusing unknown keys by name. |
 | `verifyThreadSandboxPolicy` | Validate and normalize a thread's policy overrides. |
+| `verifyThreadSandboxPermissions` | Validate and normalize a thread's permission lists; empty patterns are refused. |
 | `verifyThreadSandboxRecord` | Validate and normalize a stored thread-sandbox record. |
 | `MAX_THREAD_SANDBOX_RECORD_BYTES` | Bound a thread-sandbox record's stored size; a larger record is refused at first admission. |
 | `threadSandboxRecordBytes` | Measure a verified thread-sandbox record as it is stored. |
@@ -434,7 +436,7 @@ export interface SandboxConfig {
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `readonly workspace` | `WorkspaceDefinition \| WorkspaceResolver` | no | Declare the initial managed workspace: one definition for every thread, or a resolver that decides per thread at first admission. |
-| `readonly thread` | `ThreadSandboxResolver` | no | Decide each thread's workspace, image and policy once, at first admission; exclusive with `workspace`. |
+| `readonly thread` | `ThreadSandboxResolver` | no | Decide each thread's workspace, image, policy and permissions once, at first admission; exclusive with `workspace`. |
 | `readonly provider` | `SandboxProvider` | yes | Supply the sandbox provider. |
 | `readonly network` | `SandboxPolicy["network"]` | no | Set the default network policy. |
 | `readonly env` | `SandboxPolicy["env"]` | no | Set the default explicit environment. |
@@ -619,7 +621,10 @@ The provider's `resolveImageEnvironment` turns the image into the identity recor
 the creation intent, and B4.run writes the image reference and the policy to a
 per-thread record in the same transaction as the association. Every reconnect runs the
 thread's recorded policy over the app's; nothing is re-resolved. A provider without
-`resolveImageEnvironment` refuses a thread that names an image.
+`resolveImageEnvironment` refuses a thread that names an image. When the resolver
+returns `permissions`, they go in the same record, and the thread's permission gates
+use them in place of the app's allow-list; its "Always" grants are kept beside the
+record and deleted with it (see [Per-thread permissions](/docs/permissions#per-thread-permissions)).
 
 ## Examples and related guides
 

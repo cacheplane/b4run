@@ -43,6 +43,9 @@ The root keeps Node filesystem APIs out of its import graph. The `/node` store r
 | `PermissionRequest` | Describe the discriminated interrupt payload. |
 | `PermissionsFile` | Describe config and runtime permission maps. |
 | `PermissionsStore` | Define permission loading, matching, and persistence. |
+| `createThreadPermissionsStore` | Build one thread's store over the app's: the app's mode and denials, the thread's allow-list, grants kept in the thread's record. |
+| `ThreadPermissions` | Describe one thread's allow and deny lists. |
+| `ThreadPermissionGrants` | List and add one thread's recorded "Always" grants. |
 | `SubagentDetail` | Describe a subagent dispatch request. |
 | `ToolDetail` | Describe an arbitrary tool request. |
 
