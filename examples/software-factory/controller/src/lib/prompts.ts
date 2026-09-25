@@ -3,10 +3,10 @@ import {
   type CatalogOptions,
   loadTargetIds,
   loadTargetRecipe,
-  loadTask,
+  loadTaskRecipe,
   repositoryRoot,
   type TargetRecipe,
-  type Task,
+  type TaskRecipe,
 } from "./targets/catalog.js"
 import { builderPermissions } from "./targets/permissions.js"
 import { recipeProblem } from "./targets/prepare.js"
@@ -15,7 +15,7 @@ import { recipeProblem } from "./targets/prepare.js"
  * One invocation as the builder must type it: from the workspace root when the target's
  * commands run there, and prefixed with the target's own `cwd` when they do not.
  */
-function invocation(task: Task, argv: readonly string[]): string {
+function invocation(task: TaskRecipe, argv: readonly string[]): string {
   const { cwd } = task.target.commands
   const joined = argv.join(" ")
   return cwd === "." ? joined : `cd ${cwd} && ${joined}`
@@ -30,7 +30,7 @@ function invocation(task: Task, argv: readonly string[]): string {
  * `editFile` and `readFile`'s `startLine`/`endLine` are the workspace capability's own
  * tools; the controller's assembly refuses an elided file whatever the prompt said.
  */
-export function builderRules(task: Task): string[] {
+export function builderRules(task: TaskRecipe): string[] {
   const { commands } = task.target
   const invocations = new Set(
     [commands.build, commands.test]
@@ -62,7 +62,7 @@ export function builderRules(task: Task): string[] {
  * builder being told to run something its permissions no longer admit. The rules that follow
  * the instructions (`builderRules`) are the same for every task but name the target's list.
  */
-export function taskPrompt(task: Task): string {
+export function taskPrompt(task: TaskRecipe): string {
   const { commands } = task.target
   const sentences = ["Read TASK.md."]
   if (commands.cwd !== ".") sentences.push(`The package under repair is at \`${commands.cwd}\`.`)
@@ -91,7 +91,7 @@ export function taskPrompt(task: Task): string {
  * one work order, and never decides whether the controller boots.
  */
 export function promptFor(id: string, options: CatalogOptions = {}): string {
-  return taskPrompt(loadTask(id, options))
+  return taskPrompt(loadTaskRecipe(id, options))
 }
 
 /**

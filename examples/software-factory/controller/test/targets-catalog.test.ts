@@ -17,6 +17,7 @@ import {
   loadTargetRecipe,
   loadTask,
   loadTaskIds,
+  loadTaskRecipe,
   overlaps,
   repositoryRoot,
   targetsDir as shippedTargetsDir,
@@ -498,6 +499,22 @@ function tasksDirFor(
 }
 
 describe("task catalog", () => {
+  it("loads a task without its image, where loadTask needs one", () => {
+    const { root, pin } = repo()
+    // A target with no image at the pin: loadTask cannot load it, loadTaskRecipe can.
+    const targets = targetsDir(pin, { images: undefined })
+    const tasks = tasksDirFor()
+    const options = { targetsDir: targets, tasksDir: tasks, repositoryRoot: root }
+    expect(() => loadTask("k", options)).toThrow()
+    const recipe = loadTaskRecipe("k", options)
+    expect(recipe.id).toBe("k")
+    expect(recipe.target.id).toBe("t")
+    expect(recipe.target.pin).toBe(pin)
+    expect(recipe.target).not.toHaveProperty("image")
+    expect(recipe.checks.independent.file).toBe("checks/k.test.ts")
+    expect(recipe.specText).toContain("A1:")
+  })
+
   it("lists the tasks shipped with the factory", () => {
     expect(loadTaskIds()).toEqual(["cli-flags", "cli-runs-wait-undefined", "devkit-spawn-deadline"])
   })

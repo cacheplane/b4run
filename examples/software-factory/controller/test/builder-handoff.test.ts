@@ -14,8 +14,8 @@ import {
   captureBuilderHandoff,
   stagedReferenceOf,
 } from "../src/lib/builder-handoff.ts"
-import { loadTask } from "../src/lib/targets/catalog.ts"
-import { imageTag } from "../src/lib/targets/images.ts"
+import { loadTask, loadTaskRecipe } from "../src/lib/targets/catalog.ts"
+import { recipeTag } from "../src/lib/targets/images.ts"
 import { builderPermissions } from "../src/lib/targets/permissions.ts"
 import { targetSandboxPolicy } from "../src/lib/targets/workspace.ts"
 
@@ -30,9 +30,17 @@ const tempDir = (prefix: string) => {
 }
 
 describe("captureBuilderHandoff", () => {
+  it("names the tag it is given: the one the work order bound", async () => {
+    const { handoff } = await captureBuilderHandoff(loadTaskRecipe("cli-flags"), {
+      captureRoot: tempDir("factory-handoff-app-"),
+      tag: `b4-factory-cli-flags:${loadTaskRecipe("cli-flags").target.pin.slice(0, 12)}-0123456789ab`,
+    })
+    expect(handoff.target.image).toMatch(/-0123456789ab$/)
+  })
+
   it("carries the work order, the task, the target and the reference its workspace is staged under, no prompt", async () => {
     const app = tempDir("factory-handoff-app-")
-    const task = loadTask("cli-flags")
+    const task = loadTaskRecipe("cli-flags")
     const { handoff, workspace } = await captureBuilderHandoff(task, {
       workOrderId: "wo-0123456789abcdef",
       captureRoot: app,
@@ -49,7 +57,7 @@ describe("captureBuilderHandoff", () => {
     ])
     expect(handoff.version).toBe(3)
     expect(handoff.target).toEqual({
-      image: imageTag(task.target),
+      image: recipeTag(task.target),
       pin: task.target.pin,
       policy: targetSandboxPolicy(task.target),
       permissions: builderPermissions(task.target),

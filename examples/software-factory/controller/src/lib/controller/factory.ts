@@ -49,7 +49,7 @@ import {
   type CatalogOptions,
   ensurePin,
   isShippedTask,
-  loadTask,
+  loadTaskRecipe,
   repositoryRoot,
 } from "../targets/catalog.js"
 import { loadPolicy } from "../verification/policy.js"
@@ -116,6 +116,8 @@ export interface FactoryOptions {
     readonly taskId: string
     readonly workOrderId: string
     readonly signal: AbortSignal
+    /** The work order's bound tag (`image_bound`); this host's recipe tag when absent. */
+    readonly tag?: string
   }) => Promise<CapturedBuilderHandoff>
   /** The controller's own baseline for a task. Injected so tests need no container. */
   captureBaseline(
@@ -275,10 +277,11 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   const captureBuilderHandoffFromCatalog: NonNullable<FactoryOptions["captureBuilderHandoff"]> = (
     input,
   ) =>
-    captureBuilderHandoffOfTask(loadTask(input.taskId, options.promptCatalog ?? {}), {
+    captureBuilderHandoffOfTask(loadTaskRecipe(input.taskId, options.promptCatalog ?? {}), {
       workOrderId: input.workOrderId,
       captureRoot: options.captureRoot,
       signal: input.signal,
+      ...(input.tag !== undefined ? { tag: input.tag } : {}),
     })
   const now = options.now ?? Date.now
   const iso = () => new Date(now()).toISOString()
@@ -399,7 +402,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   function targetOf(row: WorkOrderRow): string {
     if (row.targetId !== null) return row.targetId
     if (options.tasks) return "*"
-    return loadTask(row.taskId, options.promptCatalog ?? {}).target.id
+    return loadTaskRecipe(row.taskId, options.promptCatalog ?? {}).target.id
   }
   /**
    * What is LEFT of the row's active budget against its target's verifier deadline, when it is
@@ -423,7 +426,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     if (options.tasks) return undefined
     let target: { id: string; resources: { verifierDeadlineMs: number } }
     try {
-      target = loadTask(row.taskId, options.promptCatalog ?? {}).target
+      target = loadTaskRecipe(row.taskId, options.promptCatalog ?? {}).target
     } catch {
       return undefined
     }

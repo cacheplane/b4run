@@ -12,7 +12,7 @@ import {
   configureCatalog,
   configuredImages,
   configureImages,
-  loadTask,
+  loadTaskRecipe,
   resetCatalogForTests,
 } from "./targets/catalog.js"
 import { dockerImageBuilder } from "./targets/image-builder.js"
@@ -169,7 +169,7 @@ export function createControllerRuntime(
   function builderReader(entry: WorkerEndpoint): WorkspaceReader {
     return createHttpThreadWorkspaceReader(
       { url: entry.url, token: config.workerToken },
-      (taskId) => targetInspectionOptions(loadTask(requireTaskId(taskId))),
+      (taskId) => targetInspectionOptions(loadTaskRecipe(requireTaskId(taskId))),
     )
   }
 

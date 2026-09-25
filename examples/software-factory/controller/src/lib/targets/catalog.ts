@@ -572,6 +572,16 @@ export interface Task {
 }
 
 /**
+ * A task with its target at the task's pin, without the target's image: what everything that
+ * never reads the image loads (the CLI, the review's pin diff, prompts, budgets, the builder's
+ * inspection options, the baseline capture). Loads whether or not this host has built the
+ * image, and with no image registry configured at all.
+ */
+export interface TaskRecipe extends Omit<Task, "target"> {
+  readonly target: TargetRecipe
+}
+
+/**
  * Where tasks are looked up: the shipped catalog first, then the directory the controller
  * writes generated tasks into. Process-wide state, configured by the runtime from the state
  * directory (one runtime per process is the runtime's own contract); every `loadTask(id)`
@@ -708,7 +718,7 @@ function readOptionalPatch(directory: string, name: string): string | null {
   }
 }
 
-export function loadTask(id: string, options: CatalogOptions = {}): Task {
+export function loadTaskRecipe(id: string, options: CatalogOptions = {}): TaskRecipe {
   const directory = taskDirectory(id, options)
   const manifest = parseTaskFile(
     TaskSchema,
@@ -717,7 +727,7 @@ export function loadTask(id: string, options: CatalogOptions = {}): Task {
     "task.json",
   )
   if (manifest.id !== id) throw new Error(`Task ${id} declares a different id: ${manifest.id}`)
-  const target = loadTarget(
+  const target = loadTargetRecipe(
     manifest.target,
     manifest.pin !== undefined ? { ...options, pin: manifest.pin } : options,
   )
@@ -742,5 +752,14 @@ export function loadTask(id: string, options: CatalogOptions = {}): Task {
     specText: readFileSync(specPath, "utf8"),
     defectPatch: readOptionalPatch(directory, "defect.patch"),
     referencePatch: readOptionalPatch(directory, "reference.patch"),
+  }
+}
+
+/** `loadTaskRecipe` with the target's image: for the few callers that run or digest it. */
+export function loadTask(id: string, options: CatalogOptions = {}): Task {
+  const recipe = loadTaskRecipe(id, options)
+  return {
+    ...recipe,
+    target: loadTarget(recipe.target.id, { ...options, pin: recipe.target.pin }),
   }
 }

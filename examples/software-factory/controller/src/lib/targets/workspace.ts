@@ -2,7 +2,7 @@ import { readdirSync } from "node:fs"
 import type { SandboxPolicy, WorkspaceDefinition } from "@b4run/workspace"
 import type { WorkspaceReadOptions } from "../worker/workspace-reader.js"
 import { type CaptureRole, type CaptureTargetOptions, captureTarget } from "./archive.js"
-import type { Target, Task } from "./catalog.js"
+import type { TargetRecipe, TaskRecipe } from "./catalog.js"
 
 /**
  * Every regular file under `absolute`, relative to it, forward-slash, sorted.
@@ -53,7 +53,7 @@ export function drafterInspectionOptions(): WorkspaceReadOptions {
 }
 
 /** Denied network, and the target's measured CPU, memory and per-command ceiling. */
-export function targetSandboxPolicy(target: Target): SandboxPolicy {
+export function targetSandboxPolicy(target: TargetRecipe): SandboxPolicy {
   return {
     network: { mode: "deny" },
     env: { npm_config_cache: "/tmp/npm-cache", npm_config_update_notifier: "false" },
@@ -73,7 +73,7 @@ export function targetSandboxPolicy(target: Target): SandboxPolicy {
  * ran in.
  */
 export function targetWorkspace(
-  task: Task,
+  task: TaskRecipe,
   role: CaptureRole,
   options: CaptureTargetOptions,
 ): WorkspaceDefinition {
@@ -119,7 +119,7 @@ export function targetWorkspace(
  * directory the independent oracle reads. A target whose build output is large must still raise the reader's
  * limits rather than expect exclusion — the filter is applied after the walk.
  */
-export function targetInspectionOptions(task: Task): WorkspaceReadOptions {
+export function targetInspectionOptions(task: TaskRecipe): WorkspaceReadOptions {
   const expectedRootSymlinks: Record<string, string> = {}
   for (const link of task.target.environmentLinks) expectedRootSymlinks[link.path] = link.target
   return {

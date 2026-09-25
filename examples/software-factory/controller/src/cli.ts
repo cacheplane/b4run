@@ -20,7 +20,12 @@ import { exportReview, intakeReview, type OperatorReview } from "./lib/review/op
 import { pinDiffBase } from "./lib/review/pin-diff-base.js"
 import type { RouteOutcome } from "./lib/routes/outcome.js"
 import { createArtifactStore } from "./lib/storage/artifacts.js"
-import { configureCatalog, ensurePin, loadTask, repositoryRoot } from "./lib/targets/catalog.js"
+import {
+  configureCatalog,
+  ensurePin,
+  loadTaskRecipe,
+  repositoryRoot,
+} from "./lib/targets/catalog.js"
 
 const USAGE = `factory <command> [options]
 
@@ -795,7 +800,7 @@ async function main(argv: string[]): Promise<number> {
       ? resolve(stateDir)
       : mkdtempSync(join(tmpdir(), "factory-captures-"))
     try {
-      const { handoff, workspace } = await captureBuilderHandoff(loadTask(values.task), {
+      const { handoff, workspace } = await captureBuilderHandoff(loadTaskRecipe(values.task), {
         captureRoot,
         ...(workOrder !== undefined ? { workOrderId: workOrder } : {}),
       })

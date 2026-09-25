@@ -5,8 +5,8 @@ import type { CapturedWorkspaceDefinition, StagedWorkspaceReference } from "@b4r
 import { captureWorkspaceDefinition } from "@b4run/workspace/node"
 import { z } from "zod"
 import { captureDirectory } from "./targets/archive.js"
-import { isCatalogId, type Task } from "./targets/catalog.js"
-import { imageTag } from "./targets/images.js"
+import { isCatalogId, type TaskRecipe } from "./targets/catalog.js"
+import { recipeTag } from "./targets/images.js"
 import { builderPermissions } from "./targets/permissions.js"
 import { targetSandboxPolicy, targetWorkspace } from "./targets/workspace.js"
 
@@ -137,6 +137,12 @@ export interface CaptureBuilderHandoffOptions {
    */
   readonly captureRoot: string
   readonly signal?: AbortSignal
+  /**
+   * The image tag the handoff names: the work order's bound tag (`image_bound`). This host's
+   * recipe tag for the task when absent (`recipeTag`), which is what `factory builder-handoff`
+   * writes for a lane with no controller.
+   */
+  readonly tag?: string
 }
 
 export interface CapturedBuilderHandoff {
@@ -154,7 +160,7 @@ export interface CapturedBuilderHandoff {
  * each other's) archive directory.
  */
 export async function captureBuilderHandoff(
-  task: Task,
+  task: TaskRecipe,
   options: CaptureBuilderHandoffOptions,
 ): Promise<CapturedBuilderHandoff> {
   const workOrderId = options.workOrderId ?? task.id
@@ -184,7 +190,7 @@ export async function captureBuilderHandoff(
     targetId: task.target.id,
     workspace: stagedReferenceOf(workspace),
     target: {
-      image: imageTag(task.target),
+      image: options.tag ?? recipeTag(task.target),
       pin: task.target.pin,
       policy: targetSandboxPolicy(task.target),
       permissions: builderPermissions(task.target),
