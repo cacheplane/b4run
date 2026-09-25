@@ -13,6 +13,13 @@ import { z } from "zod"
 const CATALOG_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
 /**
+ * An image the factory prepared: `b4-factory-<target>:<pin[:12]>-<dockerfile[:12]>`, the tag
+ * `imageTag` writes and the verifier runs. The builder's provider allows no other image, so a
+ * manifest can choose among the factory's own images and nothing else.
+ */
+const FACTORY_IMAGE = /^b4-factory-[A-Za-z0-9][A-Za-z0-9._-]*:[0-9a-f]{12}-[0-9a-f]{12}$/
+
+/**
  * The builder's two inputs, as data. Deliberately a SECOND copy of the controller's schemas
  * rather than an import: the two packages share no source, and the controller's own
  * `builder-manifest.test.ts` asserts the two schema texts are identical.
@@ -72,18 +79,48 @@ export const BuilderTargetSchema = z
 export type BuilderTarget = z.infer<typeof BuilderTargetSchema>
 
 /**
- * One work order's workspace: the target's pinned subtree with the task's defect applied,
- * captured by the controller. No prompt: the task's prompt is the run's user message, which
- * the controller sends with the run. `targetId` is what lets a builder refuse a work order
- * routed to the wrong process; `workspace` is left to `verifyCapturedWorkspaceDefinition`,
- * which checks it byte for byte against its own digest.
+ * One work order's builder thread, whole: the workspace the controller captured (the target's
+ * pinned subtree with the task's defect applied), and what the retired per-process target file
+ * carried: the image the task is verified in, the pin it was prepared at, the sandbox policy
+ * and the permission allow-list. The builder hands the target block to the framework as the
+ * thread's sandbox, recorded at the thread's first admission. No prompt: the task's prompt is
+ * the run's user message, which the controller sends with the run.
+ *
+ * Strict throughout, and narrower than the framework: a key this schema does not model is a
+ * refusal at admission, never a silent drop to a broader default (a misspelled `netwrok` would
+ * otherwise leave the thread under the app's network rather than the one the controller
+ * wrote). The network is `deny` only (the builder app denies it too, and a thread may not open
+ * what its app denies), with no `allowlist` or `denylist`; the image must be one the factory
+ * prepared; a pattern that is empty or only whitespace, which names nothing, is refused.
  */
 export const BuilderManifestSchema = z
   .object({
-    version: z.literal(1),
+    version: z.literal(2),
     workOrderId: z.string().regex(CATALOG_ID),
     taskId: z.string().regex(CATALOG_ID),
     targetId: z.string().regex(CATALOG_ID),
+    target: z
+      .object({
+        image: z.string().regex(FACTORY_IMAGE),
+        /** The commit that image was prepared at. */
+        pin: z.string().regex(/^[a-f0-9]{40}$/),
+        policy: z
+          .object({
+            network: z.object({ mode: z.literal("deny") }).strict(),
+            env: z.record(z.string(), z.string()),
+            resources: z
+              .object({
+                memoryMb: z.number().int().positive(),
+                cpus: z.number().positive(),
+                timeoutMs: z.number().int().positive(),
+              })
+              .strict(),
+          })
+          .strict(),
+        /** Keyed by tool name, so the key set is open; the values are always patterns naming something. */
+        permissions: z.record(z.string(), z.array(z.string().regex(/\S/))),
+      })
+      .strict(),
     /**
      * Not modelled key by key, unlike the drafter's: a builder workspace carries
      * `baseline: "git"` and environment links (the drafter's has neither), and the
@@ -95,6 +132,9 @@ export const BuilderManifestSchema = z
   })
   .strict()
 export type BuilderManifest = z.infer<typeof BuilderManifestSchema>
+
+/** Whether `reference` is an image the factory prepared: the builder's `dockerSandbox({ images })`. */
+export const isFactoryImage = (reference: string): boolean => FACTORY_IMAGE.test(reference)
 
 const describe = (error: unknown) =>
   error instanceof z.ZodError

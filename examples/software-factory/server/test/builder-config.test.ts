@@ -38,11 +38,25 @@ const target: BuilderTarget = {
   },
 }
 
-const manifest = (workOrderId: string, text: string): BuilderManifest => ({
-  version: 1,
+const manifest = (
+  workOrderId: string,
+  text: string,
+  image = "b4-factory-fixture-target:deadbeefcafe-0123456789ab",
+): BuilderManifest => ({
+  version: 2,
   workOrderId,
   taskId: "fixture-task",
   targetId: "fixture-target",
+  target: {
+    image,
+    pin: "d".repeat(40),
+    policy: {
+      network: { mode: "deny" },
+      env: { npm_config_cache: "/tmp/npm-cache" },
+      resources: { memoryMb: 2048, cpus: 2, timeoutMs: 120_000 },
+    },
+    permissions: { bash: ["npm test", "node ", "cat"], readFile: ["/deps"], listDir: ["/deps"] },
+  },
   workspace: { version: 1, source: bundle(text), environmentLinks: [] },
 })
 
@@ -171,7 +185,7 @@ describe("the builder's workspace resolver", () => {
     // The prompt is the run's user message now; a manifest carrying one is from an older
     // controller and is refused rather than half-honoured.
     writeManifest({ ...manifest("wo-alpha", "x\n"), prompt: "Read TASK.md." }, "wo-alpha")
-    writeManifest({ ...manifest("wo-beta", "x\n"), version: 2 }, "wo-beta")
+    writeManifest({ ...manifest("wo-beta", "x\n"), version: 1 }, "wo-beta")
     const resolve = await resolver()
     await expect(resolve(thread({ factoryWorkOrderId: "wo-alpha" }))).rejects.toThrow(/prompt/)
     await expect(resolve(thread({ factoryWorkOrderId: "wo-beta" }))).rejects.toThrow(/version/)
