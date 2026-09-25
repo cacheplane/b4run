@@ -57,6 +57,7 @@ describe("the type-to-schema playground shows what the framework extracts", () =
   })
 
   it("reproduces schema-variants.json exactly when the extraction runs again", async () => {
-    expect(await extractSchemaVariants()).toEqual(recorded)
+    // Compare as text: the panel prints keys in order, so order is part of the pin.
+    expect(JSON.stringify(await extractSchemaVariants(), null, 2)).toBe(JSON.stringify(recorded, null, 2))
   }, 60_000)
 })
