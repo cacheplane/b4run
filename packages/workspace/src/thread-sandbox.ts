@@ -94,9 +94,14 @@ function network(value: unknown): SandboxPolicy["network"] {
 
 function env(value: unknown): Readonly<Record<string, string>> {
   const e = plainObject(value, "policy.env")
-  if (Reflect.ownKeys(e).some((key) => typeof key !== "string"))
+  // Every own key, not only enumerable ones: a non-enumerable variable is refused, never dropped.
+  const keys = Reflect.ownKeys(e)
+  if (keys.some((key) => typeof key !== "string"))
     throw new Error("policy.env names must be strings")
-  const names = Object.keys(e).sort()
+  const names = (keys as string[]).sort()
+  for (const name of names)
+    if (!Object.getOwnPropertyDescriptor(e, name)?.enumerable)
+      throw new Error(`policy.env.${name} must be an enumerable property`)
   if (names.length > 256) throw new Error("policy.env has more than 256 variables")
   const out: Record<string, string> = {}
   for (const name of names) {

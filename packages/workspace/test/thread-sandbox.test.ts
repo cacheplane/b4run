@@ -132,6 +132,15 @@ describe("own properties only", () => {
       verifyThreadSandboxPolicy(JSON.parse('{"env":{"__proto__":"x","A":"1"}}')),
     ).toThrow(/__proto__.*not a valid variable name/)
   })
+  it("refuses a non-enumerable or symbol-named env variable rather than dropping it", () => {
+    const hidden = Object.defineProperty({ A: "1" }, "B", { value: "2", enumerable: false })
+    expect(() => verifyThreadSandboxPolicy({ env: hidden })).toThrow(
+      /policy.env.B must be an enumerable/,
+    )
+    expect(() => verifyThreadSandboxPolicy({ env: { A: "1", [Symbol("S")]: "2" } })).toThrow(
+      /names must be strings/,
+    )
+  })
   it("refuses an accessor, which could answer the check and the copy differently", () => {
     let reads = 0
     const network = {
