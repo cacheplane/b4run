@@ -4,7 +4,12 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { proveOracle } from "../src/lib/intake/oracle.ts"
 import { createArtifactStore } from "../src/lib/storage/artifacts.ts"
-import { configureCatalog, resetCatalogForTests, tasksDir } from "../src/lib/targets/catalog.ts"
+import {
+  configureCatalog,
+  loadTask,
+  resetCatalogForTests,
+  tasksDir,
+} from "../src/lib/targets/catalog.ts"
 import { captureTargetBaseline } from "../src/lib/verification/baseline.ts"
 import { createDockerVerifier } from "../src/lib/verification/docker-verifier.ts"
 import { loadPolicy } from "../src/lib/verification/policy.ts"
@@ -38,7 +43,8 @@ function materialise(generated: string, id: string): string {
 }
 
 const prove = async (id: string) => {
-  const policy = loadPolicy(id)
+  const image = loadTask(id).target.image
+  const policy = loadPolicy(id, image)
   const signal = AbortSignal.timeout(280_000)
   const baseline = await captureTargetBaseline(id, signal, { captureRoot: dir })
   return proveOracle({
@@ -49,6 +55,7 @@ const prove = async (id: string) => {
     taskId: id,
     policyDigest: policy.policyDigest,
     baselineDigest: baseline.digest,
+    image,
     signal,
   })
 }

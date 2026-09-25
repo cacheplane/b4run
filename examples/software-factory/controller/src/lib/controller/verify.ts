@@ -5,6 +5,7 @@ import { AssemblyRejectedError, assembleCandidate } from "../verification/assemb
 import { loadPolicy } from "../verification/policy.js"
 import { workspaceReadFailure } from "../worker/workspace-reader.js"
 import type { ControllerContext } from "./context.js"
+import { boundImageOf } from "./images.js"
 import { handedSourceDigest } from "./source-digest.js"
 
 /**
@@ -43,7 +44,25 @@ async function verifyCandidate(
   signal: AbortSignal,
 ): Promise<void> {
   const threadId = row.workerThreadId as string
-  const policy = loadPolicy(row.taskId)
+  // The image the work order bound: the verdict is earned in it or not at all, and the policy
+  // digests it. A row with no binding (dispatched before images were bound) is not verified
+  // in whatever the registry names now.
+  const bound = boundImageOf(ctx.store.events(id))
+  if (bound === undefined) {
+    ctx.recordEvent(id, "image_unbound", { phase: "verify" })
+    if (ctx.mustGet(id).state === "verifying")
+      ctx.transition(id, "receipt_inconclusive", { blockedReason: "verification_inconclusive" })
+    return
+  }
+  let policy: ReturnType<typeof loadPolicy>
+  try {
+    policy = loadPolicy(row.taskId, bound.image)
+  } catch (error) {
+    ctx.recordEvent(id, "policy_unavailable", { phase: "verify", error: String(error) })
+    if (ctx.mustGet(id).state === "verifying")
+      ctx.transition(id, "receipt_inconclusive", { blockedReason: "verification_inconclusive" })
+    return
+  }
 
   /**
    * A read the controller could not make is not a verdict about the candidate: it is the
@@ -174,6 +193,7 @@ async function verifyCandidate(
         candidateDigest: candidate.digest,
         changes: candidate.changes,
         policyDigest: policy.policyDigest,
+        image: bound.image,
       },
       signal,
     )

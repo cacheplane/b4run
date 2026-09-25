@@ -10,7 +10,7 @@ import { loadPolicy } from "../src/lib/verification/policy.ts"
 import { applyReference } from "./reference-repair.ts"
 
 const task = loadTask("cli-flags")
-const policy = loadPolicy("cli-flags")
+const policy = loadPolicy("cli-flags", task.target.image)
 const allowed = task.manifest.allowedSourcePaths[0] as string
 
 const directories: string[] = []
@@ -38,6 +38,7 @@ describe("the real verifier", () => {
         candidateDigest: "a".repeat(64),
         changes: { [allowed]: await applyReference() },
         policyDigest: policy.policyDigest,
+        image: task.target.image,
       },
       AbortSignal.timeout(280_000),
     )
@@ -79,6 +80,7 @@ describe("the real verifier", () => {
         candidateDigest: "b".repeat(64),
         changes: { [allowed]: shallowRepair() },
         policyDigest: policy.policyDigest,
+        image: task.target.image,
       },
       AbortSignal.timeout(280_000),
     )
@@ -95,6 +97,7 @@ describe("the real verifier", () => {
         candidateDigest: "c".repeat(64),
         changes: { [allowed]: selfModifying() },
         policyDigest: policy.policyDigest,
+        image: task.target.image,
       },
       AbortSignal.timeout(280_000),
     )
@@ -113,6 +116,7 @@ describe("the real verifier", () => {
         candidateDigest: "d".repeat(64),
         changes: { [allowed]: await applyReference() },
         policyDigest: policy.policyDigest,
+        image: task.target.image,
       },
       AbortSignal.timeout(280_000),
     )
@@ -131,6 +135,7 @@ describe("the real verifier", () => {
           candidateDigest: "e".repeat(64),
           changes: { [allowed]: await applyReference() },
           policyDigest: policy.policyDigest,
+          image: task.target.image,
         },
         controller.signal,
       ),

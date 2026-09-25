@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { createFactory, type Factory } from "../src/lib/controller/factory.ts"
+import { boundImageOf } from "../src/lib/controller/images.ts"
 import type { WorkOrderRow } from "../src/lib/domain/work-order.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier, type FakeVerifier } from "./fake-verifier.ts"
@@ -112,13 +113,19 @@ const resumes = () => fake.requests.filter((r) => r.path.endsWith("/resume"))
 
 describe("approve", () => {
   it("exports exactly the approved bytes, named by the bundle digest", async () => {
-    const { reader } = await boot()
+    const { reader, verifier } = await boot()
     const row = await awaiting(reader)
+    const verifiedBefore = verifier.calls.length
     const outcome = await factory.approve(row.id, {
       revision: row.revision,
       bundleDigest: row.bundleDigest,
     })
     expect(outcome).toMatchObject({ ok: true, state: "exported" })
+    // The re-verification ran in the image the work order bound, by the binding's object.
+    expect(verifier.calls).toHaveLength(verifiedBefore + 1)
+    const bound = boundImageOf(factory.events(row.id))
+    expect(bound).toBeDefined()
+    expect(verifier.calls.at(-1)?.image).toEqual(bound?.image)
     expect(readdirSync(out())).toEqual([`${row.bundleDigest}.json`])
     const written = JSON.parse(readFileSync(join(out(), `${row.bundleDigest}.json`), "utf8"))
     expect(written.changes).toEqual({ "src/cli.ts": REPAIRED })

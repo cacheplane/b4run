@@ -396,8 +396,9 @@ async function proveDraft(
     target: parsed.manifest.target,
     files: generated.files,
   })
-  // The catalog search path now resolves `id`: the policy is the generated task's own.
-  const policy = loadPolicy(id)
+  // The catalog search path now resolves `id`: the policy is the generated task's own, in the
+  // image the fit step bound.
+  const policy = loadPolicy(id, image.bound.image)
 
   let baseline: Awaited<ReturnType<typeof ctx.captureBaseline>>
   try {
@@ -416,6 +417,7 @@ async function proveDraft(
       taskId: id,
       policyDigest: policy.policyDigest,
       baselineDigest: baseline.digest,
+      image: image.bound.image,
       signal,
     })
   } catch (error) {

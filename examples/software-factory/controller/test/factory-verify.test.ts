@@ -4,6 +4,9 @@ import { join } from "node:path"
 import { ThreadWorkspaceReadError } from "@b4run/cli/workspace"
 import { afterEach, describe, expect, it } from "vitest"
 import { createFactory, type Factory } from "../src/lib/controller/factory.ts"
+import { boundImageOf } from "../src/lib/controller/images.ts"
+import { openRegistry } from "../src/lib/registry/db.ts"
+import { createWorkOrderStore, type WorkOrderPatch } from "../src/lib/registry/work-orders.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
@@ -41,6 +44,16 @@ async function boot(
   fake = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only" })
   const verifier = createFakeVerifier(script)
   const reader = createFakeWorkspaceReader({})
+  await open(verifier, reader, captureBaseline)
+  return { verifier, reader }
+}
+
+/** Open the factory over `dir`'s registry: a boot, or a restart after `factory.close()`. */
+async function open(
+  verifier: ReturnType<typeof createFakeVerifier>,
+  reader: ReturnType<typeof createFakeWorkspaceReader>,
+  captureBaseline: CaptureBaseline = captureRepairable,
+) {
   factory = await createFactory({
     registryPath: join(dir, "registry.sqlite"),
     generatedTasksDir: join(dir, "tasks"),
@@ -57,7 +70,16 @@ async function boot(
     verifier,
     captureBaseline,
   })
-  return { verifier, reader }
+}
+
+/** Rewrite the row directly, the way a crash mid-phase (or an older controller) would leave it. */
+function forceRow(id: string, patch: WorkOrderPatch): void {
+  const registry = openRegistry(join(dir, "registry.sqlite"))
+  const rows = createWorkOrderStore(registry.db)
+  const row = rows.get(id)
+  if (!row) throw new Error(`no work order ${id}`)
+  rows.update(id, row.revision, patch, new Date().toISOString())
+  registry.close()
 }
 
 /** What the builder is deemed to have left behind: a repair and two untouched files. */
@@ -75,7 +97,8 @@ afterEach(async () => {
 
 describe("the verifying phase", () => {
   it("reaches awaiting_approval with a bundle when the receipt passes", async () => {
-    const { reader } = await boot({ verdict: "pass" })
+    const booted = await boot({ verdict: "pass" })
+    const { reader } = booted
     const { id } = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(id)
     const dispatched = await factory.waitFor(id, (r) => r.workerThreadId !== null)
@@ -89,6 +112,10 @@ describe("the verifying phase", () => {
     expect(row.candidateDigest).toMatch(/^[a-f0-9]{64}$/)
     expect(row.bundleDigest).toMatch(/^[a-f0-9]{64}$/)
     expect(row.awaitingSince).not.toBeNull()
+    // The verdict was earned in the image dispatch bound, by that binding's object.
+    const { verifier } = booted
+    expect(verifier.calls.at(-1)?.image).toEqual(boundImageOf(factory.events(id))?.image)
+    expect(verifier.calls.at(-1)?.image).toBeDefined()
     const types = factory.events(id).map((e) => e.type)
     expect(types).toContain("candidate_assembled")
     expect(types).toContain("receipt_issued")
@@ -290,6 +317,25 @@ describe("the verifying phase", () => {
     expect(reader.reads).toEqual([])
     expect(row.candidateDigest).toBeNull()
     expect(verifier.calls).toHaveLength(0)
+  })
+
+  it("blocks a verifying row with no bound image, and verifies it in no other image", async () => {
+    const { verifier, reader } = await boot({ verdict: "pass" })
+    // Created, never dispatched: nothing bound an image. A row in `verifying` without one is
+    // what a controller from before images were bound would leave after a restart.
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.close()
+    reader.set("thread-unbound", repaired())
+    forceRow(id, { state: "verifying", workerThreadId: "thread-unbound" })
+    await open(verifier, reader)
+    const row = await factory.waitFor(id, (r) => r.state === "blocked", 20_000)
+    expect(row.blockedReason).toBe("verification_inconclusive")
+    const events = factory.events(id)
+    expect(events.filter((e) => e.type === "image_unbound")).toHaveLength(1)
+    expect(events.find((e) => e.type === "image_unbound")?.payload).toEqual({ phase: "verify" })
+    expect(boundImageOf(events)).toBeUndefined()
+    expect(verifier.calls).toHaveLength(0)
+    expect(reader.reads).toEqual([])
   })
 
   it("blocks when the controller cannot capture its own baseline", async () => {

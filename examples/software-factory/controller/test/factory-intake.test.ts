@@ -353,6 +353,10 @@ describe("intake", () => {
       workOrderId: id,
       candidateDigest: "a".repeat(64),
     })
+    // In the image the fit step bound, by that binding's object.
+    const bound = factory.events(id).find((e) => e.type === "image_bound")?.payload
+    expect(bound?.image).toBeDefined()
+    expect(verifier.calls[0]?.image).toEqual(bound?.image)
     expect(reader.reads).toEqual([threadId])
     // The read named the source intake handed the thread: the worker must answer with it.
     expect(reader.targets).toEqual([{ threadId, sourceDigest: DRAFT_SOURCE.digest }])

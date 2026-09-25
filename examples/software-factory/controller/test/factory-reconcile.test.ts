@@ -14,6 +14,8 @@ import { createCommandLog } from "../src/lib/registry/commands.ts"
 import { openRegistry } from "../src/lib/registry/db.ts"
 import { createWorkOrderStore, type WorkOrderPatch } from "../src/lib/registry/work-orders.ts"
 import { createArtifactStore } from "../src/lib/storage/artifacts.ts"
+import { loadTask } from "../src/lib/targets/catalog.ts"
+import { imageTag, recipeKey } from "../src/lib/targets/images.ts"
 import type { Verifier } from "../src/lib/verification/verifier.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
@@ -364,7 +366,21 @@ describe("reconciliation", () => {
       { command: "dispatch", args: {} },
       now(),
     )
-    // As dispatch journals it: the staged source's digest, then the thread that names it.
+    // As dispatch journals it: the image it bound, the staged source's digest, then the thread
+    // that names it.
+    const target = loadTask("cli-flags").target
+    createWorkOrderStore(registry.db).appendEvent(
+      id,
+      "image_bound",
+      {
+        targetId: target.id,
+        pin: target.pin,
+        key: recipeKey(target, target.image.platform),
+        tag: imageTag(target),
+        image: target.image,
+      },
+      now(),
+    )
     createWorkOrderStore(registry.db).appendEvent(
       id,
       "builder_source_staged",

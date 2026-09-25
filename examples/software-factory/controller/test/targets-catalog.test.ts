@@ -364,6 +364,17 @@ describe("target catalog", () => {
     }
   })
 
+  it("loads a target with the image it is given, without asking the registry", () => {
+    const { root, pin } = repo()
+    const restore = useImages(emptyImageRegistry())
+    try {
+      const target = loadTarget("t", { targetsDir: targetsDir(pin), repositoryRoot: root, image })
+      expect(target.image).toEqual(image)
+    } finally {
+      restore()
+    }
+  })
+
   it("refuses a target.json that still records images, saying where they live now", () => {
     const { pin } = repo()
     for (const key of ["image", "images"]) {

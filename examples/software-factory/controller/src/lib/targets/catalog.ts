@@ -215,6 +215,11 @@ export interface CatalogOptions {
   readonly repositoryRoot?: string
   /** The pin to load the target at; the manifest's own `pin` when absent. */
   readonly pin?: string
+  /**
+   * The image to load the target with, instead of the registry's record: a work order's
+   * binding (`image_bound`), which is authoritative for everything that runs or digests it.
+   */
+  readonly image?: Image
 }
 
 /** No target directory of that id: the one catalog failure no operator action at a pin mends. */
@@ -340,13 +345,14 @@ export function loadTargetRecipe(id: string, options: CatalogOptions = {}): Targ
 }
 
 /**
- * `id` at `options.pin` with the image this host recorded for its recipe there. Synchronous and
- * Docker-free (a registry read): it runs in prompts, budget checks, policies and every
- * `loadTask`. Only `ImageRegistry.ensure`, which the factory calls at a work order's first need,
- * builds or re-verifies.
+ * `id` at `options.pin` with `options.image` (a work order's binding) or, without one, the image
+ * this host recorded for its recipe there. Synchronous and Docker-free (a registry read): it
+ * runs in prompts, budget checks, policies and every `loadTask`. Only `ImageRegistry.ensure`,
+ * which the factory calls at a work order's first need, builds or re-verifies.
  */
 export function loadTarget(id: string, options: CatalogOptions = {}): Target {
   const recipe = loadTargetRecipe(id, options)
+  if (options.image !== undefined) return { ...recipe, image: options.image }
   if (images === undefined) throw new ImagesUnconfiguredError()
   const recorded = images.recorded(recipe)
   if (recorded === undefined) throw new ImageNotBuiltError(recipe.id, recipe.pin)

@@ -59,7 +59,7 @@ import type { CancelResult, WorkerClient } from "../worker/client.js"
 import type { InterruptFrame, StreamFrame } from "../worker/wire.js"
 import { type BudgetTicker, startBudgetTicker } from "./budget.js"
 import type { ControllerContext } from "./context.js"
-import { type BoundImage, prepareWorkOrderImage } from "./images.js"
+import { type BoundImage, boundImageOf, prepareWorkOrderImage } from "./images.js"
 import { finishIntake, observeIntakeTurn, runIntake } from "./intake.js"
 import { reconcileAll, reconcileWorkOrder } from "./reconcile.js"
 import { denyPending, observeRun } from "./run-observer.js"
@@ -1477,11 +1477,18 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         recordEvent(id, "candidate_unreadable", { error: String(error) })
         return refuse(`Approved bytes could not be read: ${String(error)}`)
       }
+      // The image the work order bound (D5): the policy digests it and the re-verification
+      // runs in it, by id, whatever the registry records for the key since.
+      const bound = boundImageOf(store.events(id))
+      if (bound === undefined) {
+        recordEvent(id, "image_unbound", { phase: "export" })
+        return refuse("The work order has no bound image to re-verify in")
+      }
       // A policy that will not load is a refusal, not an escape: an exception here would
       // leave this command's key in flight and need a restart to reconcile.
       let policy: ReturnType<typeof loadPolicy>
       try {
-        policy = loadPolicy(row.taskId)
+        policy = loadPolicy(row.taskId, bound.image)
       } catch (error) {
         recordEvent(id, "policy_unavailable", { phase: "export", error: String(error) })
         return refuse(`Verification policy could not be loaded: ${String(error)}`)
@@ -1570,6 +1577,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
             candidateDigest: candidate.digest,
             changes,
             policyDigest: policy.policyDigest,
+            image: bound.image,
           },
           abort.signal,
         )

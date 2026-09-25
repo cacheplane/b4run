@@ -61,6 +61,7 @@ const verify = async (changes: Record<string, string>, id: string) => {
       candidateDigest: "a".repeat(64),
       changes,
       policyDigest: policy.policyDigest,
+      image: task.target.image,
     },
     // The target's own deadline plus slack, so the verifier reports its own timeout.
     AbortSignal.timeout(budget + 30_000),
@@ -126,7 +127,7 @@ describe.skipIf(!ENABLED)("the cli target in its image", () => {
   beforeAll(async () => {
     await ensureLaneImage("cli")
     task = loadTask(TASK)
-    policy = loadPolicy(TASK)
+    policy = loadPolicy(TASK, task.target.image)
     allowed = task.manifest.allowedSourcePaths[0] as string
     budget = task.target.resources.verifierDeadlineMs
     // The per-case timeouts below are fixed at collection, before the task loads.

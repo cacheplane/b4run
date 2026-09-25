@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto"
 import { type PolicyEnvironment, policyDigest, specificationDigest } from "../domain/digest.js"
-import { type Checks, environmentIdentity, loadTask, type Task } from "../targets/catalog.js"
+import {
+  type Checks,
+  environmentIdentity,
+  type Image,
+  loadTask,
+  type Task,
+} from "../targets/catalog.js"
 
 export interface VerificationPolicy {
   readonly taskId: string
@@ -29,9 +35,12 @@ export function policyEnvironment(task: Task): PolicyEnvironment {
   }
 }
 
-/** The completion policy, derived from catalog data the controller owns. */
-export function loadPolicy(taskId: string): VerificationPolicy {
-  const task = loadTask(taskId)
+/**
+ * The completion policy, derived from catalog data the controller owns, in `image`: the work
+ * order's binding (`image_bound`), which the policy's environment identity digests.
+ */
+export function loadPolicy(taskId: string, image: Image): VerificationPolicy {
+  const task = loadTask(taskId, { image })
   const acceptanceIds = [...task.checks.visible.assertions, ...task.checks.independent.assertions]
   const environment = policyEnvironment(task)
   return {
