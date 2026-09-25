@@ -2,7 +2,7 @@
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { renderToString } from "react-dom/server"
-import { afterEach, expect, it } from "vitest"
+import { afterEach, expect, it, vi } from "vitest"
 import { FULL, gsap, REDUCE } from "../motion/gsap"
 import { type MediaStub, stubMatchMedia } from "../motion/media-stub"
 import { prepareRouteShapes } from "./prepare"
@@ -15,6 +15,7 @@ let media: MediaStub | undefined
 afterEach(async () => {
   await act(async () => root?.unmount())
   root = undefined
+  vi.restoreAllMocks()
   media?.restore()
   media = undefined
 })
@@ -105,8 +106,16 @@ it("switches the shape at once, announces it, and keeps the others inert", async
 
 it("fades the new shape in with motion on, and a quick second pick replaces the fade", async () => {
   const view = await mount(false)
+  const fromTo = vi.spyOn(gsap, "fromTo")
   await view.pick("workflow")
-  expect(view.fading().length).toBeGreaterThan(0)
+  // Assert the fade started, not that it is still running: a slow act() flush
+  // under load can outlast its 200ms.
+  expect(fromTo).toHaveBeenCalledTimes(1)
+  const [targets, , to] = fromTo.mock.calls[0] ?? []
+  expect(
+    [...(targets as NodeListOf<Element>)].map((node) => node.getAttribute("data-shape")),
+  ).toEqual(["workflow", "workflow"])
+  expect((to as gsap.TweenVars).duration).toBeGreaterThan(0)
   await view.pick("chain")
   // The semantic state is final at once, whatever the fade is doing.
   expect(view.checked()).toBe("chain")
