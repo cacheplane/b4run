@@ -58,12 +58,12 @@
     },
     "@b4-example/software-factory-server#build": {
       "dependsOn": ["^build"],
-      "env": ["FACTORY_BUILDER_TARGET", "FACTORY_BUILDER_MANIFEST_DIR"],
+      "env": ["FACTORY_BUILDER_LANE", "FACTORY_BUILDER_MANIFEST_DIR"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**", ".b4/build/**", ".b4/b4.generated.d.ts"]
     },
     "@b4-example/software-factory-server#check": {
       "dependsOn": ["^check"],
-      "env": ["FACTORY_BUILDER_TARGET", "FACTORY_BUILDER_MANIFEST_DIR"]
+      "env": ["FACTORY_BUILDER_LANE", "FACTORY_BUILDER_MANIFEST_DIR"]
     },
     "@b4-example/software-factory-drafter#build": {
       "dependsOn": ["^build"],

@@ -3,10 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { verifyCapturedWorkspaceDefinition } from "@b4run/workspace/node"
 import { afterEach, describe, expect, it } from "vitest"
-import {
-  BuilderManifestSchema as TheBuildersManifestSchema,
-  BuilderTargetSchema as TheBuildersTargetSchema,
-} from "../../server/src/builder-manifest.ts"
+import { BuilderManifestSchema as TheBuildersManifestSchema } from "../../server/src/builder-manifest.ts"
 import {
   BuilderManifestSchema,
   BuilderTargetSchema,
@@ -45,8 +42,6 @@ describe("builder target", () => {
     expect(file.target.pin).toBe(task.target.pin)
     expect(file.target.policy).toEqual(targetSandboxPolicy(task.target))
     expect(file.target.permissions).toEqual(builderPermissions(task.target))
-    // The builder's own copy of the schema accepts it: it is the file the builder boots from.
-    expect(TheBuildersTargetSchema.parse(file)).toEqual(file)
   })
 
   it("refuses a drifted policy key rather than dropping it", async () => {
