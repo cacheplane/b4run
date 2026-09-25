@@ -3184,6 +3184,7 @@ const expectedB4ConfigSchemaPaths = [
   "sandbox.stagedWorkspaces.maxStagedBytes",
   "sandbox.stagedWorkspaces.maxUploadBytes",
   "sandbox.stagedWorkspaces.retentionMs",
+  "sandbox.stagedWorkspaces.uploadTimeoutMs",
   "sandbox.resources",
   "sandbox.resources.cpus",
   "sandbox.resources.diskGb",

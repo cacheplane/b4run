@@ -110,7 +110,8 @@ The `/node` entry owns the exports below. Its types are also exported from the d
 | `captureWorkspaceDefinition` | Capture declared source and validate creation options. |
 | `verifyCapturedWorkspaceDefinition` | Validate and freeze a captured definition. |
 | `verifyStagedWorkspaceReference` | Validate and normalize a staged workspace reference: a bare digest, checked and sorted links, and only a `"git"` baseline. |
-| `stagedWorkspaceDefinition` | Build the captured definition a staged reference names over the held source, refusing a source that is not the one named. |
+| `stagedWorkspaceDefinition` | Build the captured definition a staged reference names over the held source, verifying it once and refusing a source that is not the one named. |
+| `stagedWorkspaceFits` | Check a staged reference's links and baseline against a source's recorded file paths, without its bytes. |
 | `createWorkspaceIntent` | Create a canonical immutable intent bound to operation and environment. |
 | `verifyWorkspaceIntent` | Validate the persisted intent and digest. |
 | `verifyReadyWorkspace` | Verify provider readiness against its persisted intent. |
@@ -448,6 +449,7 @@ export interface SandboxConfig {
         readonly maxUploadBytes?: number
         readonly retentionMs?: number
         readonly maxStagedBytes?: number
+        readonly uploadTimeoutMs?: number
       }
   readonly provider: SandboxProvider
   readonly network?: SandboxPolicy["network"]
@@ -465,7 +467,7 @@ export interface SandboxConfig {
 | `readonly thread` | `ThreadSandboxResolver` | no | Decide each thread's workspace, image, policy and permissions once, at first admission; exclusive with `workspace`. |
 | `readonly workspaceRead` | `"http"` | no | Serve `POST /threads/:thread_id/workspace/inspect`, a read-only inventory of a thread's managed workspace behind the thread-access policy; refused without a policy. |
 | `readonly workspaceReadTimeoutMs` | `number` | no | Bound one workspace read, open to close, before it is abandoned with `504 workspace_read_timeout`; 1,000 to 1,800,000 ms, default 120,000. |
-| `readonly stagedWorkspaces` | `\| boolean \| { readonly maxUploadBytes?: number; readonly retentionMs?: number; readonly maxStagedBytes?: number }` | no | Accept a thread's workspace at creation (`PUT /workspace/sources/:digest`, then `workspace` on `POST /threads`), handed to the resolver as `thread.staged`; needs a resolver and a thread-access policy. |
+| `readonly stagedWorkspaces` | `\| boolean \| { readonly maxUploadBytes?: number; readonly retentionMs?: number; readonly maxStagedBytes?: number; readonly uploadTimeoutMs?: number }` | no | Accept a thread's workspace at creation (`PUT /workspace/sources/:digest`, then `workspace` on `POST /threads`), handed to the resolver as `thread.staged`; needs a resolver and a thread-access policy. |
 | `readonly provider` | `SandboxProvider` | yes | Supply the sandbox provider. |
 | `readonly network` | `SandboxPolicy["network"]` | no | Set the default network policy. |
 | `readonly env` | `SandboxPolicy["env"]` | no | Set the default explicit environment. |

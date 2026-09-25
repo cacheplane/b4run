@@ -284,12 +284,12 @@ export interface SandboxConfig {
    * stages a `SourceBundle`, and `POST /threads` with `workspace` names it; the
    * resolver receives it as `thread.staged`. `true`, or limits: `maxUploadBytes`
    * (default and ceiling 96 MiB), `maxStagedBytes` (every uploaded source
-   * together; default 1 GiB, at most 16 GiB) and `retentionMs` (how long an
-   * unreferenced upload is kept; default 24 hours, 60 seconds to 30 days) and
+   * together; default 1 GiB, at most 16 GiB), `retentionMs` (how long an
+   * unreferenced upload is kept; default 24 hours, 60 seconds to 30 days), and
    * `uploadTimeoutMs` (how long one upload body may take to arrive; default
-   * 120,000 ms, 1,000 to 1,800,000). Needs
-   * a resolver (`thread`, or a function `workspace`) and a thread-access policy:
-   * `b4 check`, `b4 build` and boot refuse it without one.
+   * 120,000 ms, 1,000 to 1,800,000). Needs a resolver (`thread`, or a function
+   * `workspace`) and a thread-access policy: `b4 check`, `b4 build` and boot
+   * refuse it without one.
    */
   readonly stagedWorkspaces?:
     | boolean

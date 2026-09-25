@@ -42,7 +42,7 @@ The package uses Node's `node:sqlite` `DatabaseSync` and LangGraph checkpoint co
 | `openWorkspaceInstallationReader` | Open a read-only view of an installation another process owns, without its admission lock. |
 | `WorkspaceInstallationReader` | Hold installation identity, read-only association lookups, and close. |
 | `WorkspaceSourceStore` | Persist and retrieve verified source bundles. |
-| `WorkspaceStagedSourceStore` | Keep uploaded sources and each thread's staged reference, and reclaim sources nothing references. |
+| `WorkspaceStagedSourceStore` | Keep uploaded sources with their file paths and uploaders, and each thread's staged reference, and reclaim sources nothing references. |
 | `WorkspaceStagedSourceError` | Refuse a staging request by code: `not_held`, `already_staged`, or `quota_exceeded`. |
 | `WorkspaceAssociation` | Describe creating, ready, deleting, or deleted state with its revision. |
 | `WorkspaceAssociationStore` | Insert source-backed intents, with an optional thread sandbox record in the same transaction, and transition associations by revision. |
@@ -161,10 +161,11 @@ thread's published `ReadyWorkspace` for `@b4run/cli/workspace`'s
 `withManagedWorkspaceReader`.
 
 `WorkspaceInstallation.staged` serves `sandbox.stagedWorkspaces`. An upload is
-kept in the same content store, keyed by its own digest; a re-upload of held
-bytes rewrites nothing and refreshes its upload time. A thread's staged
-reference is recorded in the same database, refused for a source that is not
-held. `reclaim` deletes every source no association, staged thread or caller
+kept in the same content store, keyed by its own digest, with its file paths,
+size and uploaders; a re-upload rewrites nothing and refreshes its upload time.
+Only an uploaded source is stageable: a source an admission stored is not, even
+though its bytes are in the same table. A thread's staged reference is recorded
+in the same database, refused for a source that was not uploaded. `reclaim` deletes every source no association, staged thread or caller
 reference names, uploads only once older than the retention window, in one
 transaction. The read-only reader neither needs nor creates these tables.
 Cleanup errors retain deletion state so a later attempt can finish it.
