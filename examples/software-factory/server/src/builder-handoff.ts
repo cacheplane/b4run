@@ -119,6 +119,12 @@ const describe = (error: unknown) =>
  * `FACTORY_BUILDER_MANIFEST_DIR` was where the controller wrote each work order's manifest;
  * the controller stages the workspace over the Agent Protocol now. An operator still setting
  * either must not believe it does anything.
+ *
+ * Under `turbo run` (the root `pnpm check` and `pnpm build`) this refusal does not fire:
+ * turbo 2 runs tasks in strict env mode and `turbo.json` lists neither retired variable, so it
+ * is stripped before the task starts (as `FACTORY_WORKER_TOKEN` is: `turbo.json` passes no
+ * variable through to this app's tasks). It fires wherever the variable reaches the process:
+ * `pnpm --filter <this app> check|build|dev`, `b4 start`, a served runtime.
  */
 export function refuseRetiredVariables(env: NodeJS.ProcessEnv = process.env): void {
   if (env.FACTORY_BUILDER_TARGET !== undefined)
