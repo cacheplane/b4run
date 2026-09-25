@@ -16,7 +16,7 @@ afterEach(async () => {
   vi.restoreAllMocks()
 })
 
-it("opens with the install command, then the folder tour of the agent it creates", async () => {
+it("opens with the install command, then the folder tour, the guardrails and the route shapes", async () => {
   const container = document.createElement("div")
   container.innerHTML = renderToString(await DeveloperHome())
   const hero = container.querySelector('[aria-labelledby="home-title"]')
@@ -25,7 +25,11 @@ it("opens with the install command, then the folder tour of the agent it creates
   const first = container.querySelector("#first-agent")
   expect(first?.textContent).toContain("src/app/hello/index.ts")
   expect(first?.textContent).toContain("src/app/hello/tools/greet.ts")
-  const order = ["home-title", "first-agent", "run-title"].map((id) =>
+  expect(container.querySelector("#guardrails h2")?.textContent).toBe(
+    "Four checks decide what a call can do.",
+  )
+  expect(container.querySelector("#route-shapes h2")?.textContent).toBe("Pick the shape per route.")
+  const order = ["home-title", "first-agent", "guardrails", "route-shapes", "run-title"].map((id) =>
     [...container.querySelectorAll("[id]")].findIndex((node) => node.id === id),
   )
   expect(order.every((index) => index >= 0)).toBe(true)
