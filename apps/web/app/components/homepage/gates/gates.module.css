@@ -1,0 +1,261 @@
+/* "Guardrails" (#guardrails): the four-gate call tracer. Paper Relay tokens
+   only (tokens.css). */
+.section {
+  padding: 56px 0;
+  border-bottom: 1px solid var(--color-rule);
+}
+.intro {
+  max-width: 640px;
+  margin-bottom: 32px;
+}
+.eyebrow {
+  margin: 0;
+}
+.intro h2 {
+  font-size: clamp(30px, 3.5vw, 43px);
+  font-weight: 500;
+  line-height: 1.08;
+  letter-spacing: -0.045em;
+  margin: 24px 0 16px;
+}
+.intro p:not([data-ui="eyebrow"]) {
+  font-size: 15px;
+  line-height: 1.8;
+  color: var(--color-ink-muted);
+  margin: 0;
+}
+
+.tracer {
+  container-type: inline-size;
+}
+
+/* The calls: native radios, one 44px cell each, wrapping on narrow screens. */
+.calls {
+  min-inline-size: 0;
+  margin: 0 0 16px;
+  padding: 0;
+  border: 0;
+}
+.legend {
+  margin-bottom: 8px;
+  padding: 0;
+  font:
+    12px / 1.6 var(--font-mono),
+    monospace;
+  color: var(--color-ink-muted);
+}
+.callList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.call {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  max-width: 100%;
+  padding: 0 12px;
+  border: 1px solid var(--color-rule-strong);
+  font:
+    12px / 1.4 var(--font-mono),
+    monospace;
+  color: var(--color-ink);
+  cursor: pointer;
+}
+.call code {
+  font: inherit;
+  overflow-wrap: anywhere;
+}
+.call input {
+  flex: none;
+  margin: 0;
+  accent-color: var(--color-ink);
+}
+/* The chosen call: tint and an ink border as well as the filled radio. */
+.call:has(input:checked) {
+  border-color: var(--color-ink);
+  background: var(--color-relay-tint);
+}
+
+/* Every board (and file, and caption) sits in the same grid cell: the tallest
+   sets the height, so picking a call never shifts the page. */
+.stage {
+  display: grid;
+}
+.stage > * {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+.stage > :not([data-active="true"]) {
+  visibility: hidden;
+}
+
+.board {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+.gates {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.gate {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--color-rule-strong);
+  background: var(--color-page);
+}
+/* A check that didn't act is drawn dashed, not only in a quieter colour. */
+.gate[data-state="skipped"],
+.gate[data-state="unreached"] {
+  border-style: dashed;
+}
+.gateName {
+  font:
+    12px / 1.5 var(--font-mono),
+    monospace;
+  color: var(--color-ink-muted);
+}
+.gateState {
+  justify-self: start;
+  padding: 2px 8px;
+  font:
+    500 13px / 1.5 var(--font-mono),
+    monospace;
+  color: var(--color-ink-muted);
+}
+.gate[data-state="passed"] .gateState,
+.gate[data-state="contained"] .gateState {
+  background: var(--color-ok-tint);
+  color: var(--color-ok);
+}
+.gate[data-state="waiting"] .gateState {
+  background: var(--color-warn-tint);
+  color: var(--color-warn);
+}
+.gate[data-state="stopped"] .gateState {
+  background: var(--color-danger-tint);
+  color: var(--color-danger);
+}
+.gateNote {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--color-ink-muted);
+}
+.result {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--color-ink);
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.actions button {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--color-ink);
+  background: var(--color-page);
+  color: var(--color-ink);
+  font: 500 14px / 1.4 var(--font-sans);
+  cursor: pointer;
+}
+.actions button:hover {
+  background: var(--color-surface);
+}
+
+/* The config: the file that explains the current call, with those lines marked. */
+.panel {
+  margin-top: 16px;
+  background: var(--color-panel);
+  color: var(--color-panel-ink);
+  /* The global focus ring is tuned for paper; on the panel it uses the accent. */
+  --color-focus: var(--color-panel-accent);
+}
+.path {
+  margin: 0;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-panel-rule);
+  background: var(--color-panel-strip);
+  font:
+    12px / 1.6 var(--font-mono),
+    monospace;
+  color: var(--color-panel-muted);
+}
+.code {
+  margin: 0;
+  padding: 12px 16px 12px 0;
+  font:
+    12px / 1.7 var(--font-mono),
+    monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 2;
+}
+.code code {
+  font: inherit;
+}
+/* Gutter and code in two columns, so a wrapped line stays right of the gutter. */
+.line {
+  display: grid;
+  grid-template-columns: 3ch minmax(0, 1fr);
+  min-height: 1lh;
+}
+.gutter {
+  text-align: center;
+  color: var(--color-panel-accent);
+}
+/* A marked line: a faint tint (every code colour stays at 4.5:1 or more on it,
+   see gate-scenarios.test.ts) and the › in the gutter. */
+.line[data-why="true"] {
+  background-color: color-mix(in srgb, var(--color-relay-tint) 14%, var(--color-panel));
+}
+.explain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 12px;
+  margin: 0;
+  padding: 8px 16px;
+  border-top: 1px solid var(--color-panel-rule);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--color-panel-muted);
+}
+.explain a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--color-panel-ink);
+  text-underline-offset: 5px;
+}
+.links {
+  margin: 16px 0 0;
+}
+.links a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: 14px;
+  text-underline-offset: 5px;
+}
+
+@container (min-width: 560px) {
+  .gates {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@container (min-width: 900px) {
+  .gates {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
