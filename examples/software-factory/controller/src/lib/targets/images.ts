@@ -371,8 +371,11 @@ export interface ImageRegistryReader {
 
 /**
  * The registry, read-only: what a command that must not create, migrate or write a host's
- * registry opens (`factory builder-handoff`). Refuses a path with no registry, one written by a
- * newer factory, and one no factory has finished creating.
+ * registry opens (`factory builder-handoff`). It creates no registry and writes nothing to it;
+ * SQLite may leave `-wal`/`-shm` files beside a quiescent WAL registry, which is SQLite's own
+ * bookkeeping, not a write to the registry. Refuses a path with no registry, one written by a
+ * newer factory, and one no factory has finished creating (no schema version), which it leaves
+ * as it found it.
  */
 export function openImageRegistryReader(
   path: string,

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs"
+import { existsSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
@@ -150,12 +150,24 @@ describe("the image registry", () => {
     )
   })
 
-  it("is read, read-only, by a reader that never creates or migrates", async () => {
+  it("refuses a file no factory finished creating, and leaves it as it found it", () => {
+    const path = join(dir, "images.sqlite")
+    new DatabaseSync(path).close()
+    expect(() => openImageRegistryReader(path)).toThrow(/records no schema version/)
+    // Never migrated: the reader created no table or index in it.
+    const after = new DatabaseSync(path)
+    const objects = after.prepare("SELECT name FROM sqlite_master").all()
+    after.close()
+    expect(objects).toEqual([])
+  })
+
+  it("creates no registry and writes nothing to it; SQLite may leave -wal/-shm beside a quiescent WAL registry", async () => {
     const builder = fakeImageBuilder()
     const recipe = recipeFixture()
     expect(() => openImageRegistryReader(join(dir, "absent.sqlite"))).toThrow(
       /no image registry at/,
     )
+    expect(existsSync(join(dir, "absent.sqlite"))).toBe(false)
     const ensured = await ensure(open(builder), recipe)
     const reader = openImageRegistryReader(join(dir, "images.sqlite"), "linux/arm64")
     try {
@@ -168,6 +180,12 @@ describe("the image registry", () => {
     } finally {
       reader.close()
     }
+    // The registry's contents are what the writer left: the reader wrote nothing to it.
+    expect(open(builder).recorded(recipe)).toEqual({
+      key: ensured.key,
+      tag: ensured.tag,
+      image: ensured.image,
+    })
   })
 })
 
