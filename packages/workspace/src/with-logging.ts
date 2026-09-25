@@ -64,6 +64,21 @@ export function withFilesystemLogging(opts: LoggingOptions = {}): FilesystemMidd
     if (next.touchFile) wrapped.touchFile = next.touchFile
     if (next.mkdir) wrapped.mkdir = next.mkdir
 
+    // Batch reads log each path, like the single-call forms, never the bytes.
+    const { walkTree, readBinaryFiles } = next
+    if (walkTree) {
+      wrapped.walkTree = async (path, ctx, walkOpts) => {
+        emit(opts, "walkTree", [path])
+        return walkTree.call(next, path, ctx, walkOpts)
+      }
+    }
+    if (readBinaryFiles) {
+      wrapped.readBinaryFiles = async (requests, ctx) => {
+        for (const request of requests) emit(opts, "readBinaryFile", [request.path])
+        return readBinaryFiles.call(next, requests, ctx)
+      }
+    }
+
     return wrapped
   }
 }

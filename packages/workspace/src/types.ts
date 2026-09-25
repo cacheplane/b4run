@@ -90,6 +90,48 @@ export interface FilesystemBackend {
 
   /** Create a directory (recursive). Optional — offloading uses it to ensure the tool-outputs/ dir exists. */
   mkdir?(path: string, ctx: BackendContext): Promise<void>
+
+  /**
+   * Walk a directory tree in one backend round trip: every entry below `path`
+   * (not `path` itself), with the metadata `lstat` would report, without
+   * following symlinks. `path` is an already-resolved absolute directory
+   * inside `ctx.workspaceRoot`.
+   *
+   * `opts.prune` names entries directly below `path` that are reported but
+   * whose subtrees are not walked. A walk that finds more than
+   * `opts.maxEntries` entries throws; it never returns a truncated tree.
+   *
+   * Optional, and only a batch form of `listDir` plus `lstat`: backends where
+   * each call is a round trip (a container exec, a remote API) implement it so
+   * a whole-tree inspection costs one call instead of one per entry.
+   */
+  walkTree?(
+    path: string,
+    ctx: BackendContext,
+    opts: { readonly maxEntries: number; readonly prune?: readonly string[] },
+  ): Promise<readonly WalkedEntry[]>
+
+  /**
+   * `readBinaryFile` for many files in as few round trips as the backend can
+   * manage. Results are in request order. Each request's `maxBytes` has the
+   * same meaning as `readBinaryFile`'s: a file larger than it throws. Paths are
+   * already-resolved absolute paths inside `ctx.workspaceRoot`. Optional.
+   */
+  readBinaryFiles?(
+    requests: readonly { readonly path: string; readonly maxBytes: number }[],
+    ctx: BackendContext,
+  ): Promise<readonly Uint8Array[]>
+}
+
+/** One entry of a {@link FilesystemBackend.walkTree} result. */
+export interface WalkedEntry {
+  /** `/`-separated path relative to the walked directory, e.g. `src/index.ts`. */
+  readonly path: string
+  readonly kind: "file" | "directory" | "symlink" | "other"
+  readonly size: number
+  readonly executable: boolean
+  /** The unnormalized link text, for a symlink. */
+  readonly target?: string
 }
 
 export interface ExecBackend {

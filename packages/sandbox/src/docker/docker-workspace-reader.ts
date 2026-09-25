@@ -54,8 +54,8 @@ function readOnly(
   threadId: string,
   isClosed: () => boolean,
 ): ReadOnlyFilesystemBackend {
-  const { lstat, readFile, readBinaryFile, listDir, statFile } = backend
-  if (!lstat || !readBinaryFile || !statFile) {
+  const { lstat, readFile, readBinaryFile, listDir, statFile, walkTree, readBinaryFiles } = backend
+  if (!lstat || !readBinaryFile || !statFile || !walkTree || !readBinaryFiles) {
     throw new Error("Docker filesystem backend is missing a read capability")
   }
   const live =
@@ -70,6 +70,8 @@ function readOnly(
     readBinaryFile: live(readBinaryFile.bind(backend)),
     listDir: live(listDir.bind(backend)),
     statFile: live(statFile.bind(backend)),
+    walkTree: live(walkTree.bind(backend)),
+    readBinaryFiles: live(readBinaryFiles.bind(backend)),
   })
 }
 

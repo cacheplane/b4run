@@ -43,6 +43,7 @@ export type {
   ExecMiddleware,
   FilesystemBackend,
   FilesystemMiddleware,
+  WalkedEntry,
 } from "./types.js"
 export { type LoggingOptions, withExecLogging, withFilesystemLogging } from "./with-logging.js"
 export { scopedWorkspaceReader, withWorkspaceReader } from "./with-workspace-reader.js"

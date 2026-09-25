@@ -1295,6 +1295,7 @@ const EXPECTED_API_REQUIRED_CONTRACT_KEYS = [
   "@b4run/workspace#.:BackendContext",
   "@b4run/workspace#.:ExecBackend",
   "@b4run/workspace#.:FilesystemBackend",
+  "@b4run/workspace#.:WalkedEntry",
   "@b4run/workspace#.:SandboxConfig",
   "@b4run/workspace#.:SandboxHandle",
   "@b4run/workspace#.:SandboxPolicy",
