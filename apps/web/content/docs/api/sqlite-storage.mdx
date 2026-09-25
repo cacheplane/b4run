@@ -38,12 +38,13 @@ The package uses Node's `node:sqlite` `DatabaseSync` and LangGraph checkpoint co
 | `ThreadsStoreOptions` | Select the thread database path. |
 | `createThreadsStore` | Open, migrate, and return a thread store. |
 | `openWorkspaceInstallation` | Own a local installation's durable source and association storage. |
-| `WorkspaceInstallation` | Hold installation identity, guarded stores, and close. |
+| `WorkspaceInstallation` | Hold installation identity, guarded stores, per-thread sandbox records, and close. |
 | `openWorkspaceInstallationReader` | Open a read-only view of an installation another process owns, without its admission lock. |
 | `WorkspaceInstallationReader` | Hold installation identity, read-only association lookups, and close. |
 | `WorkspaceSourceStore` | Persist and retrieve verified source bundles. |
 | `WorkspaceAssociation` | Describe creating, ready, deleting, or deleted state with its revision. |
-| `WorkspaceAssociationStore` | Insert source-backed intents and transition associations by revision. |
+| `WorkspaceAssociationStore` | Insert source-backed intents, with an optional thread sandbox record in the same transaction, and transition associations by revision. |
+| `WorkspaceThreadSandboxStore` | Read the sandbox record a thread's first admission wrote. |
 
 
 ## Key contracts

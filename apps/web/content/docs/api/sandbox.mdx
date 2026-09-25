@@ -35,7 +35,7 @@ The root uses Node APIs, Docker process execution, and the Kubernetes client. `/
 | `SandboxHandle` | Re-export the portable acquired-handle contract from Workspace. |
 | `SandboxPolicy` | Re-export portable network, environment, resource, and security intent from Workspace. |
 | `SandboxProvider` | Re-export the portable provider lifecycle contract from Workspace, including the optional workspace read capability. |
-| `DockerSandboxOptions` | Configure the Docker image and optional injected Docker seam. |
+| `DockerSandboxOptions` | Configure the default Docker image, the images a per-thread sandbox may name, and the optional injected Docker seam. |
 | `dockerSandbox` | Create the Docker provider. |
 | `KubeClient` | Describe the public Kubernetes client seam; helper request shapes remain implementation details. |
 | `KubePermission` | Describe one Kubernetes authorization check used by the public client seam. |

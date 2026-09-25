@@ -361,6 +361,7 @@ A prebuilt app sets
 ```ts
 sandbox?: {
   workspace?: WorkspaceDefinition
+  thread?: ThreadSandboxResolver
   provider: SandboxProvider
   network?:
     | { mode: "allow"; denylist?: readonly string[] }
@@ -384,6 +385,11 @@ add a sandbox, `provider` is required. The manager then defaults to:
 - an allow-mode network policy that denies `169.254.169.254`,
 - no host environment variables, and
 - releasing idle compute after `600_000` ms.
+
+`thread` decides each thread's workspace, image and policy once, when the thread
+is first admitted, and is exclusive with `workspace`. `b4 check`, `b4 build` and
+startup refuse any other key in the `sandbox` block. Read [Per-thread
+sandboxes](/docs/sandbox#per-thread-sandboxes) for what a thread may set.
 
 Each provider enforces resources and security in its own way. Docker's
 security fields default to hardened. `diskGb` applies to PVC-backed providers,

@@ -9,7 +9,7 @@
  * Pair `withWorkspace` with `@b4run/workspace`'s `withWorkspaceReader` to
  * capture a baseline here and read a worker thread's produced bytes there —
  * or, when the worker's threads are MANAGED workspaces (the app declares
- * `sandbox.workspace`), with `withManagedWorkspaceReader`, which resolves the
+ * `sandbox.workspace` or `sandbox.thread`), with `withManagedWorkspaceReader`, which resolves the
  * thread through the worker's installation store.
  */
 

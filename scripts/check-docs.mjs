@@ -3189,6 +3189,7 @@ const expectedB4ConfigSchemaPaths = [
   "sandbox.security.runAsNonRoot",
   "sandbox.security.runAsNonRoot.gid",
   "sandbox.security.runAsNonRoot.uid",
+  "sandbox.thread",
   "server",
   "server.cors",
   "server.cors.credentials",
