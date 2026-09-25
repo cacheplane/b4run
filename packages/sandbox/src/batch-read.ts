@@ -128,7 +128,8 @@ const READ_SCRIPT_BYTES = 96 * 1024
 /**
  * `readBinaryFile` for many paths, one sandbox command per batch. Each file is
  * the same bounded, status-framed read `readBinaryFile` performs, base64-encoded
- * and followed by a `#` line, a byte base64 never emits.
+ * and followed by a `#` line, a byte base64 never emits. `run` receives a whole
+ * POSIX sh script, and may pass it as `sh -c` argv or on `sh -s` stdin.
  */
 export async function readSandboxFiles(
   requests: readonly { readonly path: string; readonly maxBytes: number }[],
@@ -143,7 +144,9 @@ export async function readSandboxFiles(
     let scriptBytes = 0
     while (at < requests.length) {
       const request = requests[at] as (typeof requests)[number]
-      const line = `${boundedReadCommand(request.path, request.maxBytes)} | base64; printf '#\\n'\n`
+      // `</dev/null`: when a backend feeds this script to `sh` on stdin, no command in it
+      // may consume the rest of the script. The read's own `< path` still wins inside.
+      const line = `${boundedReadCommand(request.path, request.maxBytes)} </dev/null | base64; printf '#\\n'\n`
       // Bytes, not UTF-16 units: the kernel's argv cap counts bytes, and a non-ASCII
       // name costs up to three bytes per character.
       const lineBytes = Buffer.byteLength(line)
