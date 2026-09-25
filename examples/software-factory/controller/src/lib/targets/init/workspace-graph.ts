@@ -1,3 +1,4 @@
+import { posix } from "node:path"
 import { z } from "zod"
 import type { PinTree } from "./pin-tree.js"
 
@@ -10,6 +11,7 @@ const PackageManifestSchema = z.looseObject({
   dependencies: Dependencies,
   devDependencies: Dependencies,
   optionalDependencies: Dependencies,
+  peerDependencies: Dependencies,
 })
 export type PackageManifest = z.infer<typeof PackageManifestSchema>
 
@@ -33,14 +35,25 @@ export interface WorkspaceGraph {
   readonly packages: ReadonlyMap<string, WorkspacePackage>
 }
 
-export type DependencyKind = "dependencies" | "devDependencies" | "optionalDependencies"
-/** What a package's build compiles against: its runtime dependencies. */
-export const PROD: readonly DependencyKind[] = ["dependencies"]
-/** What `pnpm install --filter <pkg>...` installs: every kind, transitively (`--filter-prod` is the other). */
+export type DependencyKind =
+  | "dependencies"
+  | "devDependencies"
+  | "optionalDependencies"
+  | "peerDependencies"
+/**
+ * What a package's build compiles against: its runtime dependencies, and the workspace packages
+ * it names as peers (it imports them; pnpm links a workspace peer from the workspace).
+ */
+export const PROD: readonly DependencyKind[] = ["dependencies", "peerDependencies"]
+/**
+ * What `pnpm install --filter <pkg>...` installs: every kind, transitively (`--filter-prod` is
+ * the other). pnpm's workspace graph follows `peerDependencies` edges too.
+ */
 export const INSTALL: readonly DependencyKind[] = [
   "dependencies",
   "devDependencies",
   "optionalDependencies",
+  "peerDependencies",
 ]
 
 const byDir = (a: WorkspacePackage, b: WorkspacePackage) =>
@@ -72,34 +85,50 @@ export function workspaceGlobs(yaml: string): string[] {
   return globs
 }
 
+/** Directories pnpm's package search never enters. */
+const IGNORED = new Set(["node_modules", "bower_components"])
+
 /**
  * The package directories `glob` names at the pin. Literal segments and whole-segment `*` only:
- * the patterns this repository's workspace file uses. A negation, `**`, a partial wildcard or a
- * brace is refused, because expanding it wrongly would silently add or drop a package.
+ * the patterns this repository's workspace file uses. A negation, `**`, a partial wildcard, a
+ * brace or an extglob is refused, because expanding it wrongly would silently add or drop a
+ * package. `*` skips what pnpm's search skips (dot-directories, `node_modules`,
+ * `bower_components`); a symlink or a submodule where a package directory could be is refused
+ * by name, because pnpm would read a package there that the pin does not hold as a directory.
  */
 export function expandGlob(tree: PinTree, glob: string): string[] {
   const clean = glob.replace(/\/+$/, "")
   const segments = clean.split("/")
   if (
-    clean.startsWith("!") ||
     clean.startsWith("/") ||
-    /[?[\]{}]/.test(clean) ||
+    /[?[\]{}()|!+@]/.test(clean.replace(/@(?!\()/g, "")) ||
     segments.some((s) => s === "" || s === "." || s === ".." || (s.includes("*") && s !== "*"))
   )
     throw new Error(
       `pnpm-workspace.yaml glob ${JSON.stringify(glob)}: target:init reads literal segments and whole-segment * only`,
     )
+  const directory = (path: string): boolean => {
+    const kind = tree.kind(path)
+    if (kind === "link" || kind === "submodule")
+      throw new Error(
+        `pnpm-workspace.yaml glob ${JSON.stringify(glob)} reaches ${path}, which at ${tree.pin} is a ${kind === "link" ? "link (a symlink)" : "submodule"}: target:init reads package directories the pin holds as directories only`,
+      )
+    return kind === "dir"
+  }
   let found = [""]
   for (const segment of segments)
     found = found.flatMap((dir) =>
       segment === "*"
         ? tree
             .children(dir)
-            .filter((entry) => entry.kind === "dir")
+            .filter((entry) => !entry.name.startsWith(".") && !IGNORED.has(entry.name))
             .map((entry) => under(dir, entry.name))
-        : tree.kind(under(dir, segment)) === "dir"
-          ? [under(dir, segment)]
-          : [],
+            .filter((path) => tree.kind(path) !== "file" && directory(path))
+        : IGNORED.has(segment)
+          ? []
+          : directory(under(dir, segment))
+            ? [under(dir, segment)]
+            : [],
     )
   return found.filter((dir) => tree.kind(`${dir}/package.json`) === "file")
 }
@@ -156,9 +185,38 @@ export function workspaceDependencies(
   kinds: readonly DependencyKind[],
 ): WorkspacePackage[] {
   const found = new Map<string, WorkspacePackage>()
+  const refuse = (name: string, spec: string, why: string) =>
+    new Error(`${pkg.name} (${pkg.dir}) depends on ${name} as ${spec}, ${why}`)
   for (const kind of kinds)
     for (const [name, spec] of Object.entries(pkg.manifest[kind] ?? {})) {
+      const local = /^(link|file):(.+)$/.exec(spec)
+      if (local) {
+        const target = posix.normalize(
+          posix.join(pkg.dir, (local[2] as string).replace(/\/+$/, "")),
+        )
+        for (const other of graph.packages.values())
+          if (other.dir === target)
+            throw refuse(
+              name,
+              spec,
+              `which names the workspace package ${other.name} (${other.dir}) by directory: target:init reads workspace dependencies declared as workspace:<range> only`,
+            )
+        continue
+      }
       if (!spec.startsWith("workspace:")) continue
+      const range = spec.slice("workspace:".length)
+      if (/^(?:@[^/@]+\/)?[^/@]+@/.test(range))
+        throw refuse(
+          name,
+          spec,
+          "a workspace alias: target:init reads workspace:<range> dependencies named by the package's own name only",
+        )
+      if (/^[./]/.test(range))
+        throw refuse(
+          name,
+          spec,
+          "a workspace path: target:init reads workspace:<range> dependencies named by the package's own name only",
+        )
       const dep = graph.packages.get(name)
       if (!dep)
         throw new Error(
