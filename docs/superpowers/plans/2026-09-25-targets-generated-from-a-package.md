@@ -1,5 +1,7 @@
 # Targets Generated From a Package Implementation Plan
 
+> **Amended after review (2026-09-25).** An independent review found no Critical issues, nine Important ones and a list of minors; each is addressed in place, and "Review amendments (2026-09-25)" at the end lists each with where it landed. The largest changes: `measure` gives a fresh container after any file that wrote, hung or was killed, re-runs every non-pass once (a disagreement is `flaky`, listed and never excluded), never proposes resources below the target's own without `--allow-decrease`, and confirms its proposal with a run at exactly those values; a re-generation carries hand additions as supersets; `measure --write` also writes a committed `targets/<id>/measurement.md` (D2); two new decisions (D15, D16).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A person adds a target for a pnpm workspace package by running two deterministic commands and reviewing a diff, not by hand-deriving four path lists, a build order, a Dockerfile, a test scope and resources: `target:init <package>` writes `targets/<id>/target.json` and its `Dockerfile` from the package's manifests at a pin, and `target:measure <id>` runs the suite file by file in the target's own image and proposes the excludes (each with its failure output) and the resources.
@@ -18,35 +20,39 @@
 
 Brian decides these before PR 1 starts. Each has a recommendation; the tasks below implement the recommendation.
 
-**D1. Where the commands live.** *Recommend:* package scripts beside `target:prepare`: `pnpm --filter @b4-example/software-factory-controller target:init <package> [--pin <sha>] [--id <id>] [--write]` and `... target:measure <id> [--pin <sha>] [--write] [--runs <n>] [--file-timeout-ms <ms>] [--memory-mb <mb>] [--cpus <n>]`, thin scripts over `src/lib/targets/init/` and `src/lib/targets/measure/`. Not `factory target:init`: every `factory` command is a request to a running controller or a read of `registry.sqlite` (`controller/src/cli.ts:36-56`; `builder-handoff` is the one local exception, `:820-851`), and these need neither. `target:prepare` is the precedent for a target command that is a script (`controller/package.json:13`), and `measure` opens `<FACTORY_STATE_DIR>/images.sqlite` exactly as it does (`scripts/prepare-target.ts:21-31`).
+**D1. Where the commands live.** *Recommend:* package scripts beside `target:prepare`: `pnpm --filter @b4-example/software-factory-controller target:init <package> [--pin <sha>] [--id <id>] [--targets-dir <dir>] [--with-dev-builds] [--write]` and `... target:measure <id> [--pin <sha>] [--targets-dir <dir>] [--write] [--allow-decrease] [--runs <n>] [--file-timeout-ms <ms>] [--memory-mb <mb>] [--cpus <n>]`, thin scripts over `src/lib/targets/init/` and `src/lib/targets/measure/`. `--targets-dir` points both at a scratch catalog (a measurement nobody commits, Task 18) instead of the controller's `targets/`; it is an argument, not the retired `FACTORY_TARGETS_DIR` variable. Not `factory target:init`: every `factory` command is a request to a running controller or a read of `registry.sqlite` (`controller/src/cli.ts:36-56`; `builder-handoff` is the one local exception, `:820-851`), and these need neither. `target:prepare` is the precedent for a target command that is a script (`controller/package.json:13`), and `measure` opens `<FACTORY_STATE_DIR>/images.sqlite` exactly as it does (`scripts/prepare-target.ts:21-31`).
 
-**D2. What "the output is a diff" means.** *Recommend:* both commands compute the files they would write, print a unified diff of them against what is on disk (against `/dev/null` for a new target) on stdout, and write only with `--write`. The person's review is then `git diff` and a commit. `measure` needs the target's files on disk to build (the registry reads the Dockerfile and `target.json` from the targets directory, not from git: `targets/catalog.ts:334-345`, `targets/image-builder.ts:112`), so the flow is `init --write`, `measure`, `measure --write`, review, commit. `measure`'s evidence (each proposed exclude's failure output, the per-file table, the suite samples) goes to `<FACTORY_STATE_DIR>/measurements/<id>/<pin12>-<utc>/report.md`, whose path it prints; the person copies what matters into the commit message. *Not recommended:* a new `target.json` field recording each exclude's reason (a second list that must agree with the `--exclude` flags in `commands.test`, for a record the commit already carries); recorded as a follow-up.
+**D2. What "the output is a diff" means, and where each exclude's reason lives.** *Recommend (amended, the reviewer's alternative adopted):* both commands compute the files they would write, print a unified diff of them against what is on disk (against `/dev/null` for a new target) on stdout, and write only with `--write`. The person's review is `git diff` and a commit. `measure` needs the target's files on disk to build (the registry reads the Dockerfile and `target.json` from the targets directory, not from git: `targets/catalog.ts:334-345`, `targets/image-builder.ts:112`), so the flow is `init --write`, `measure`, `measure --write`, review, commit. `measure --write` writes two files: `target.json` (the test command and resources) and `targets/<id>/measurement.md`, committed beside it: each excluded file with its verdict class, its reason and the first error lines of its output, and each flaky file listed as not excluded; no timings, image ids or hosts, so a re-measurement that agrees rewrites it byte for byte. That puts the reason for hiding a test from both suites next to the oracle input it changes, where a reviewer of the next re-pin sees it, instead of in a commit message. The full evidence (every file's output, the samples, the resources table) goes to `<FACTORY_STATE_DIR>/measurements/<id>/<pin12>-<utc>/report.md`, whose path it prints. *Not recommended:* a `target.json` field for the reasons (a second list to keep in step with the `--exclude` flags, inside the file the recipe tools parse).
 
-**D3. Scope.** *Recommend:* pnpm workspace packages under `packages/` whose `test` script is a plain `vitest ...` invocation and whose built packages each compile with one `tsc -b <tsconfig>`. Everything else is refused by name, never guessed. Every pnpm workspace package in this repository tests with vitest (checked: `packages/*/package.json`, `examples/*/*/package.json` at `1da86aec`), so `node:test` has no pnpm consumer; `cli-flags` (an npm project fixture with a `package-lock.json`, `targets/cli-flags/target.json:4-15`) stays hand-written. Packages outside `packages/` are refused because the Dockerfile's `CAPTURED` check names packages by `packages/<dir>` (`targets/prepare.ts:83-90`).
+**D3. Scope.** *Recommend:* pnpm workspace packages under `packages/` whose `test` script is a plain `vitest` invocation using only `run`, `--run`, `--config <file>`, `--no-cache` and `--passWithNoTests` (every other token is refused by name: it might select other files), and whose built packages each compile with one `tsc -b <tsconfig>`. Everything else is refused by name, never guessed. Every pnpm workspace package in this repository tests with vitest (checked: `packages/*/package.json`, `examples/*/*/package.json` at `1da86aec`), so `node:test` has no pnpm consumer; `cli-flags` (an npm project fixture with a `package-lock.json`, `targets/cli-flags/target.json:4-15`) stays hand-written. Packages outside `packages/` are refused because the Dockerfile's `CAPTURED` check names packages by `packages/<dir>` (`targets/prepare.ts:83-90`).
 
 **D4. The closures.** *Recommend:*
-- **Build closure**: the target package and its workspace `dependencies`, transitively, minus config packages. Each is captured as `package.json`, the tsconfig its `build` script compiles plus the in-package files that tsconfig `extends`, and `src`. The target package additionally captures every `tsconfig*.json` in its directory, its vitest config, and its whole `test` directory.
+- **Build closure**: the target package and its workspace `dependencies`, transitively, minus config packages (plus, with `--with-dev-builds`, the target's workspace devDependencies that have builds and their runtime closures: D16). Each is captured as `package.json`, the tsconfig its `build` script compiles plus the in-package files that tsconfig `extends`, and `src`. The target package additionally captures every `tsconfig*.json` in its directory, its vitest config, and its whole `test` directory. `init` names, in a note, every package subdirectory the capture leaves out (with file counts: `cli`'s `bin/` and `scripts/`, `devkit`'s `templates/`) and every sibling package the vitest config reaches by a `../<dir>/` path that the capture omits (`cli`'s alias to `../sandbox/src`), so an omission is visible before a test trips on it.
 - **Install closure**: what `pnpm install --filter <pkg>...` installs: `dependencies`, `devDependencies` and `optionalDependencies`, transitively. Each member's `package.json` goes into `imageContext`. A member with a build of its own that is not in the build closure (the `cli` package's devDependency `@b4run/sandbox`) is installed, not captured; `init` says so in a note.
 - **Config packages**: install-closure members with no `build` script (`@b4run/config-typescript`). Captured, put into `imageContext` and into `runnerConfig` whole, because a `tsconfig` reads them by a relative `extends` path, which is what the hand-written targets do and why (the sandbox-image trap "siblings copied in full").
 - **Test scope**: the whole `test` directory. A person narrows it by hand when a package's suite is too large (the `cli` target's eight files were a cost decision made when a snapshot took 170 ms an operation; #826 and #829 made the whole-directory capture affordable). `init` carries a hand-narrowed scope on re-generation (D8).
 
-**D5. The build command.** *Recommend:* one `pnpm exec tsc -b` over every built package's own tsconfig (a sibling as `../<dir>`, or `../<dir>/<file>` when its build uses another file), in topological order with alphabetical ties, the target package last, with `--builders 1` when there is more than one project and the root's TypeScript is 7 or later. Not the spec's "`tsc -b` where project references exist, else a filtered `pnpm -r run build`": references are partial at the `cli` pin (its `tsconfig.build.json` references seven of nine; `sdk` and `workspace` are reached only through `node_modules`), and build scripts do more than compile (`cli`'s ends in `scripts/generate-docs.mjs`, which reads `apps/web`; `ag-ui`'s deletes and copies files around its `tsc -b`). TypeScript 7 builds unreferenced projects concurrently, hence `--builders 1` (the `cli` target's trap 4). No `--declarationMap false`: it shrank the snapshot when snapshots were slow, which #826/#829 fixed.
+**D5. The build command.** *Recommend:* one `pnpm exec tsc -b` over every built package's own tsconfig (a sibling as `../<dir>`, or `../<dir>/<file>` when its build uses another file), in topological order over runtime (`dependencies`) edges with alphabetical ties, the target package last, with `--builders 1` when there is more than one project and the root's TypeScript is 7 or later. Not the spec's "`tsc -b` where project references exist, else a filtered `pnpm -r run build`": references are partial at the `cli` pin (its `tsconfig.build.json` references seven of nine; `sdk` and `workspace` are reached only through `node_modules`), and build scripts do more than compile (`cli`'s ends in `scripts/generate-docs.mjs`, which reads `apps/web`; `ag-ui`'s deletes and copies files around its `tsc -b`). TypeScript 7 builds unreferenced projects concurrently, hence `--builders 1` (the `cli` target's trap 4). A `tsBuildInfoFile` outside a package's `outDir` is refused (`snapshotIgnore` holds directory prefixes, so it could not cover it), and each package whose build script does more than `tsc -b <file>` is named in a note (`cli`, `ag-ui`). No `--declarationMap false`: it shrank the snapshot when snapshots were slow, which #826/#829 fixed.
 
 **D6. Where the Dockerfile comes from.** *Recommend:* one template for every pnpm target (`src/lib/targets/init/dockerfile.ts`), the `cli` Dockerfile generalised: pnpm through npm (not corepack), `COPY packages packages` from a context that holds only `imageContext`, a hoisted `--filter <name>...` install with the `chmod` in the same layer, then one `RUN` that moves the root's TypeScript aside behind a `tsc` shim *only when a captured package nests its own* `typescript`, promotes nested dependencies over the root's against a reviewed `EXPECTED_PROMOTED` set, relinks every captured workspace package to `/workspace/packages/<dir>` by its real name (no `@b4run` assumption), then the `.vite-temp` link, `USER node`, `WORKDIR /workspace`. The `CAPTURED` list stays, so `recipeProblem`'s existing check (`targets/prepare.ts:97-116`) guards generated Dockerfiles too. The shipped `devkit` and `cli` Dockerfiles are not replaced in this plan (D14).
 
 **D7. The promotion set.** *Recommend:* keep it as a reviewed tripwire, learned by `measure`. Which nested dependencies pnpm's hoisted linker leaves under `packages/<p>/node_modules` is a function of the whole lockfile that only pnpm computes; reading the lockfile needs a YAML parser the example does not carry (and adding a dependency to an example re-keys the lockfile). So `init` writes `EXPECTED_PROMOTED=""` (or carries the existing Dockerfile's set, D8); the template prints the actual set on a marker line and fails when it differs; `measure`, on an `ImagePrepareError` whose log shows that failure, proposes the Dockerfile with the set the build printed, and stops. The person reviews it (a promotion replaces a root package every other package resolves, so it is worth a look) and runs `measure` again. *Consequence, recorded, not new:* the set is a fact about one lockfile, so a work order at a later pin whose lockfile nests differently fails its image build naming the set (`image_prepare_failed`), exactly as the hand-written `cli` Dockerfile does today; `measure --pin <that pin>` proposes the new set.
 
-**D8. What a re-generation keeps.** *Recommend:* when `targets/<id>/` exists and is the same package's target (`commands.cwd` equal; otherwise refuse and ask for `--id`), `init` carries `baseImage`, `resources`, `draftingNotes`, the test command's positional files and `--exclude` entries that still name files at the pin (the rest dropped with a note), and the Dockerfile's `EXPECTED_PROMOTED`. Everything else is regenerated. So re-running `init` on an unchanged target prints an empty diff, and a re-pin shows exactly what the new pin changes.
+**D8. What a re-generation keeps.** *Recommend (amended):* when `targets/<id>/` exists and is the same package's target (`commands.cwd` equal; otherwise refuse and ask for `--id`), `init` carries `baseImage`, `resources`, `draftingNotes`, the test command's positional files and `--exclude` entries that still name files at the pin, and the Dockerfile's `EXPECTED_PROMOTED`; and it keeps `imageAssertResolves`, `capture.include` and `runnerConfig` as *supersets*: every existing entry still present at the pin (for the capture, root files and entries under a package this generation captures) is kept beside the derived ones. A hand-added module assertion (`cli`'s `commander`) or capture entry survives, and a hand-added `runnerConfig` entry is never silently dropped, which would make a file the tasks kept immutable editable. A carried test scope keeps the carried capture of the test directory instead of widening it to the whole directory the command does not run. Whatever names nothing at the pin is dropped with a note. Everything else is regenerated. So re-running `init` on an unchanged target prints an empty diff (Task 9 proves it for both shipped targets but for `cli`'s build order), and a re-pin shows exactly what the new pin changes.
 
-**D9. Defaults for a new target.** *Recommend:* `baseImage` is the base every shipped target pins (`node:24-slim@sha256:0e0ff40c…`, asserted by `test/targets-catalog.test.ts:479-482`); resources are placeholders `{ memoryMb: 2048, cpus: 2, commandTimeoutMs: 600000, verifierDeadlineMs: 3600000 }` with a note saying `measure` replaces them; `--pin` defaults to `origin/main` through the existing `resolvePin` (fetch skipped under `FACTORY_NO_FETCH=1`), as `create --issue` pins; `--id` defaults to the package directory's name.
+**D9. Defaults for a new target.** *Recommend:* `baseImage` is the base every shipped target pins (`node:24-slim@sha256:0e0ff40c…`, asserted by `test/targets-catalog.test.ts:479-482`); resources are placeholders `{ memoryMb: 2048, cpus: 2, commandTimeoutMs: 600000, verifierDeadlineMs: 3600000 }` with a note while they are the placeholder values (detected by value, not by whether they were carried); `--pin` defaults to `origin/main` through the existing `resolvePin` (fetch skipped under `FACTORY_NO_FETCH=1`), as `create --issue` pins; `--id` defaults to the package directory's name.
 
 **D10. Fields `init` derives by rule, and the extras it does not guess.** *Recommend:* `imageAssertResolves` is `vitest`, `typescript` when there is a build, and `@types/node/package.json` when the root or the package depends on `@types/node` (exactly `devkit`'s, and the first three of `cli`'s; `cli`'s `commander` and `@langchain/langgraph` were hand-picked extras a person may add). `runnerConfig` is the root `package.json`, `pnpm-workspace.yaml` and `.npmrc` (what `pnpm exec` and the build read; the rule the `cli` target's review adopted, first-live-issue plan Task 2 review fix (d)), the target package's `package.json`, vitest config and `tsconfig*.json`, and the config packages. `commands.nodeTestExecArgv` is `[]` (Node 24 strips types; both pnpm targets already use `[]`). `snapshotIgnore` is each built package's `outDir`. `draftingNotes` are not generated: spec §9 finding 20 asks for them, but nothing deterministic can write "facts a drafter needs" from a test file, and §5 says no model; `init` carries existing notes (D8).
 
-**D11. How `measure` classifies a file.** *Recommend:* each file the target's vitest command lists (`vitest list --filesOnly`, run in the image with the command's own config and filters, so the file set is vitest's, not a guess) runs alone in one sandbox session with the network denied, a per-file timeout (`--file-timeout-ms`, default 180000) and a generous memory limit (`--memory-mb`, default 4096), the workspace snapshotted before and after with the verifier's own inspection options. A file is proposed for exclusion when it **fails** (non-zero exit, or killed), **hangs** (the sandbox's timeout, exit 124), or **writes**: it passes but changes the workspace, which the verifier refuses as tampering on every verification (`verification/grade-suite.ts:137-139`, `:170-177`), a class the spec does not name. After a hang the next file runs in a fresh container (a killed run can leave processes behind). The per-file run must report exactly the file it was given (vitest's positional argument is a substring filter); anything else is a harness error, never an exclude.
+**D11. How `measure` classifies a file.** *Recommend (amended):* each file the target's vitest command lists (`vitest list --filesOnly`, run in the image with the command's own config and filters, so the file set is vitest's, not a guess) runs alone in a sandbox session with the network denied, a per-file timeout (`--file-timeout-ms`, default 180000) and a generous memory limit (`--memory-mb`, default 4096), the workspace snapshotted before and after with the verifier's own inspection options. Verdicts: **pass**; **fail** (non-zero exit); **hang** (the sandbox's timeout, exit 124); **killed** (exit 137 with no report); **writes**: it passes but changes the workspace, which the verifier refuses as tampering on every verification (`verification/grade-suite.ts:137-139`, `:170-177`), a class the spec does not name. What a run changed is reported whatever the verdict, so a file that fails and writes shows both. The next file gets a fresh container after any file that changed the workspace, hung or was killed, so no file is measured in a workspace another dirtied. Every non-pass then runs once more, alone, in a fresh container: two non-passes keep the first verdict; a pass on the second run makes the file **flaky**, listed in the report and in `measurement.md` and never proposed for exclusion (a person decides). An `ENOENT` on a `/workspace/...` path that exists at the pin is named in the reason as a capture omission, and each file's per-test passed, failed and skipped counts are in the report. The per-file run must report exactly the file it was given (vitest's positional argument is a substring filter); anything else is a harness error, never an exclude.
 
-**D12. How `measure` proposes resources.** *Recommend:* the whole suite with the proposed excludes runs `--runs` times (default 3) in fresh containers, each timed from open to close, reading `memory.peak` last. Per-file sessions cannot measure memory: `memory.peak` is the container's lifetime peak, and vitest runs the files of one suite in parallel workers in one process. A suite that fails or writes as a whole when every file passed alone is reported with its output and gets no resource proposal. Then, from the highest sample of each: `memoryMb` = twice the peak rounded up to 256 MiB, at least 512 (reproduces `devkit`'s 768 from its measured 369 MiB); `cpus` = the value the sessions ran with (`--cpus`, else the target's); `commandTimeoutMs` = eight times the slower of build and suite, rounded up to 10 s, at least 60 s (the `cli` target's rule); `verifierDeadlineMs` = two sessions (visible and independent) at 2.5 times the slowest session, rounded up to a minute, at least 2 minutes. `memory.peak` includes page cache the kernel had no pressure to reclaim under a 4096 MB limit, so it errs high, which is the safe direction for a proposal a person reviews.
+**D12. How `measure` proposes resources.** *Recommend (amended):* the whole suite with the proposed excludes runs `--runs` times (default 3) in fresh containers, each timed from open to close, reading `memory.peak` last. Per-file sessions cannot measure memory: `memory.peak` is the container's lifetime peak, and vitest runs the files of one suite in parallel workers in one process. A suite that fails or writes as a whole when every file passed alone is reported with its output and gets no resource proposal. The *measured* resources, from the highest sample of each: `memoryMb` = twice the peak rounded up to 256 MiB, at least 512; `cpus` = the value the sessions ran with (`--cpus`, else the target's); `commandTimeoutMs` = eight times the slower of build and suite, rounded up to 10 s, at least 60 s (the `cli` target's rule); `verifierDeadlineMs` = two sessions (visible and independent) at 2.5 times the slowest session, rounded up to a minute, at least 2 minutes. The *proposed* resources are, field by field, the larger of the measured and the target's own, unless `--allow-decrease`: one host's measurement is not every host's (the prototype measured `devkit`'s `memory.peak` at 181 to 184 MiB where rung 2 measured 369, and so proposed 512 where 768 is committed). Placeholder resources are no prior. The proposal is then **tried**: one more whole-suite session at exactly the proposed memory, CPUs and per-command timeout, which must pass, write nothing, and fit twice within the proposed `verifierDeadlineMs`; otherwise `measure` refuses to propose. The report sets before, measured and proposed side by side.
 
-**D13. Where the proofs run.** *Recommend:* `init`'s reproduction of `devkit` and `cli` is a unit test against the two real pins (`source-validate` checks out full history, `.github/workflows/ci.yml:98`, and `test/targets-catalog.test.ts:471-498` already requires the shipped pins). The Docker proofs for `devkit` (the generated Dockerfile builds; `measure` proposes the committed nine excludes) run in `test:sandbox`, so CI's `sandbox-docker` job carries them, with `--runs 1` to stay inside its 30 minutes (`ci.yml:392`); record the lane's wall clock in each PR. The `cli` proofs (the generated Dockerfile learns the committed promotion set and builds; a full `measure` of 169 files) are opt-in under `FACTORY_TEST_CLI_TARGET=1` like the existing `cli` lane, run once by hand, results recorded in the spec's as-landed note.
+**D13. Where the proofs run.** *Recommend (amended):* `init`'s reproduction of `devkit` and `cli` is a unit test against the two real pins, whole-object with each difference applied (`source-validate` checks out full history, `.github/workflows/ci.yml:98`, and `test/targets-catalog.test.ts:471-498` already requires the shipped pins; `initTarget` also makes its pin present itself, so a lane never depends on the global setup having fetched it). The Docker proofs for `devkit` (the generated Dockerfile builds; `measure` proposes the committed nine excludes) run in `test:sandbox`, so CI's `sandbox-docker` job carries them, with `--runs 1` to stay inside its 30 minutes (`ci.yml:392`); record the lanes' wall clock in each PR. The generated `cli` Dockerfile's build (learning the committed promotion set, then building: the only exercise of the TypeScript shim and of relinks by name) is opt-in under `FACTORY_TEST_CLI_TARGET=1` like the existing `cli` lane, **run by hand before PR 1 merges**; a full `measure` of the generated `cli` target's 169 files is run by hand in PR 2, in a scratch catalog, results recorded in the spec's as-landed note.
+
+**D15. Excludes are per file, not per test.** *Recommend:* keep the file as the unit. vitest's `--exclude` takes files, and a file's tests share its module-level setup, so a per-test exclusion (`-t`/`--testNamePattern`, or `.skip` edits) would be a second mechanism with its own drift. The cost: a file with one failing test loses its passing ones too. The mitigation is visibility: the report gives each file's passed, failed and skipped counts (D11), so a reviewer sees what an exclude hides, and a person may narrow the scope by hand instead. Per-test exclusion is a follow-up.
+
+**D16. Built devDependencies that tests import.** *Recommend:* an opt-in `target:init --with-dev-builds`, off by default. The `cli` package's tests import `@b4run/sandbox` (a devDependency with a build) in 8 files, and its vitest config aliases `@b4run/sandbox/testing` to `../sandbox/src`; by default `sandbox` is installed, not captured, so those files fail and `measure` proposes excluding them (named as capture omissions or as import failures in the report). With the flag, each workspace devDependency of the target that has a build, and its runtime closure, is captured and built like a dependency (the target still compiled last). Off by default because it widens the capture and every verification's build for suites the hand-written targets chose not to run, and because it is a person's call which tests matter. A re-generation needs the flag again; without it, carried capture entries under an uncaptured package are dropped with a note.
 
 **D14. The shipped targets.** *Recommend:* not regenerated in this plan. A generated Dockerfile is a new recipe key, so every host rebuilds; the lanes and the shipped tasks are pinned to the current recipes; and the proof is that the generator *reproduces* them with explained differences, not that it replaces them. Regenerate each one the next time it is re-pinned (a follow-up). The `devkit` task already keeps the root manifests immutable (`tasks/devkit-spawn-deadline/task.json`), so the generated, wider `runnerConfig` would still fit it.
 
@@ -78,6 +84,8 @@ Each claim of spec §5's "Today", of the findings it cites, and of what item 4 c
 
 **Prototype run (2026-09-25, this host, not committed).** Every code block of Tasks 1-10 and 12-17 was extracted from this plan into the worktree as written, run, and removed again before this plan was committed. Typecheck clean; the PR 1 unit tests (47, including Task 9's reproduction of `devkit` and `cli` against the real pins) and the PR 2 unit tests (38) pass; one assertion was corrected (`--cpus -1` is refused by `parseArgs` itself as an ambiguous option, so the test uses `0`). Biome reports formatting only (Trap 3). The two `devkit` Docker lanes (Tasks 10 and 17) passed together in 77 s after the lane setup's own builds: the generated `devkit` Dockerfile built with an empty promotion set (nothing nests at `6a59e00a`), and `measure` listed 11 files, proposed exactly the committed nine excludes (each failing alone with `ENOENT … /workspace/packages/devkit/templates/…`), kept `process-artifacts` and `reporting`, and proposed `512/2/70000/120000` against the committed `768/2/60000/240000` (build 0.4 s, suite 7.5 s, session 10 s, `memory.peak` 181 MiB: half of rung 2's 369 MiB measurement, from which the formula gives the committed 768). Not run: the `cli` lanes and hand measurement (Task 18).
 
+**Prototype run after the review amendments (2026-09-25).** The amended code blocks were extracted and run the same way, then removed: typecheck clean, Biome lint clean, 93 unit tests pass (16 files, including the whole-object reproductions of both targets and their in-place regenerations). The `devkit` lanes passed again (92 s): nine excludes, each now also named as a capture omission of `templates/`; measured and proposed `512/2/70000/120000` (the generated target's resources are placeholders, so there is no prior to keep), confirmed by a session at those values (7.6 s suite, `memory.peak` 162 MiB). Against the committed target (prior `768/2/60000/240000`) the proposal would be `768/2/70000/240000`. The `cli` lanes were not run (the coordinator's instruction).
+
 ## Spec corrections
 
 1. **§5 "`factory target:init` / `factory target:measure`"**: the `factory` CLI is a controller client and a registry reader; these are package scripts beside `target:prepare` (D1).
@@ -96,8 +104,8 @@ Each claim of spec §5's "Today", of the findings it cites, and of what item 4 c
 
 ## PR split
 
-- **PR 1 — `target:init`** (`blove/targets-init`, Tasks 1-11). Pure except for one Docker lane: the pin tree, the workspace graph, build tsconfigs, the vitest command, the Dockerfile template (its shell step executed in a temporary directory, no Docker), `deriveTarget`, proposals (format, diff, write), `initTarget` with carry-over and the same checks `target:prepare` runs before a build, the script, the reproduction proof against the two real pins, a lane that builds the generated `devkit` Dockerfile, docs. Standalone: useful the day it merges, since a person can `init --write`, then `target:prepare`, then edit.
-- **PR 2 — `target:measure`** (`blove/targets-measure`, Tasks 12-19). Needs PR 1's template markers, vitest command parser and proposals. The workspace capture takes any task-shaped object, file classification, resource proposal, the report, `measureSuite` over an injected session (unit-tested with a fake), Docker sessions, `measureTarget` with promotion learning, the script, the `devkit` lane (the committed nine excludes), the opt-in `cli` lane (the committed promotion set), docs.
+- **PR 1 — `target:init`** (`blove/targets-init`, Tasks 1-11). Pure except for one Docker lane: the pin tree, the workspace graph, build tsconfigs, the vitest command, the Dockerfile template (its shell step executed in a temporary directory, no Docker), `deriveTarget`, proposals (format, diff, write), `initTarget` with carry-over and the same checks `target:prepare` runs before a build, the script, the reproduction proof against the two real pins, a lane that builds the generated `devkit` Dockerfile and an opt-in one for `cli` run by hand before merging, docs. Standalone: useful the day it merges, since a person can `init --write`, then `target:prepare`, then edit.
+- **PR 2 — `target:measure`** (`blove/targets-measure`, Tasks 12-19). Needs PR 1's template markers, vitest command parser and proposals. The workspace capture takes any task-shaped object, file classification (fresh containers, a second run for each non-pass, flaky, capture omissions), resource proposal (never below the target's own, confirmed at the proposed values), the report and `measurement.md`, `measureSuite` over an injected session (unit-tested with a fake), Docker sessions, `measureTarget` with promotion learning and a partial report on a stop, the script, the `devkit` lane (the committed nine excludes), a full measurement of the generated `cli` target by hand, docs.
 
 No changeset: examples only. No release-pinned script and no workflow file is touched (the new lanes are picked up by `test:sandbox`'s include glob; `test:sandbox:cli`'s file list is a package script).
 
@@ -118,14 +126,15 @@ All paths are relative to `examples/software-factory/controller/` unless they st
 | `scripts/target-init.ts` (new), `package.json` | 1 | the `target:init` script |
 | `test/pin-repo.ts` (new) | 1 | `pinRepo`, `cleanupPinRepos`, `json`, the `MINI` workspace fixture |
 | `test/target-init-*.test.ts` (new) | 1 | unit tests per module; `target-init-reproduces.test.ts` is spec §5's `init` proof |
-| `test/target-init.integration.test.ts` (new) | 1 | the generated `devkit` Dockerfile builds |
+| `test/target-init.integration.test.ts` (new), `package.json` | 1 | the generated `devkit` Dockerfile builds; the `cli` one (opt-in, `test:sandbox:cli`) learns its promotion set and builds |
 | `src/lib/targets/archive.ts`, `src/lib/targets/workspace.ts` | 2 | `WorkspaceTask`; `CaptureRole` gains `measure` |
-| `src/lib/targets/measure/classify.ts` (new) | 2 | `MeasureError`, `changedPaths`, `classifyFile`, `proposeResources`, `renderReport` |
+| `src/lib/targets/measure/classify.ts` (new) | 2 | `MeasureError`, `changedPaths`, `captureOmissions`, `classifyFile`, `settleFile`, `proposeResources`, `settleResources`, `renderReport`, `renderMeasurementRecord` |
 | `src/lib/targets/measure/session.ts` (new) | 2 | `MeasureSession`, `OpenSession`, `measureTask`, `dockerSessions` |
 | `src/lib/targets/measure/measure.ts` (new) | 2 | `measureSuite`, `measureTarget`, `parseMeasureArgs` |
-| `scripts/target-measure.ts` (new), `package.json` | 2 | the `target:measure` script; `test:sandbox:cli` gains the `cli` init lane |
+| `scripts/target-measure.ts` (new), `package.json` | 2 | the `target:measure` script |
+| `targets/<id>/measurement.md` (written by `measure --write`, per target) | later | each exclude's class and reason, committed with `target.json` (D2) |
 | `test/fake-measure-session.ts` (new), `test/target-measure-*.test.ts` (new) | 2 | fake sessions; unit tests |
-| `test/target-measure.integration.test.ts`, `test/target-init-cli.integration.test.ts` (new) | 2 | spec §5's `measure` proof on `devkit`; the opt-in `cli` promotion proof |
+| `test/target-measure.integration.test.ts` (new) | 2 | spec §5's `measure` proof on `devkit` |
 | `examples/software-factory/README.md`, the spec | 1, 2 | docs |
 
 ## Traps (read before starting)
@@ -136,7 +145,7 @@ All paths are relative to `examples/software-factory/controller/` unless they st
 4. **`exactOptionalPropertyTypes`.** Spread optional fields conditionally; never assign `undefined` to an optional key.
 5. **`init` reads the object store, never the working tree.** Every read goes through `PinTree`; a test edits the working tree after the commit and proves the read ignores it. `measure`, by contrast, reads the target files from disk on purpose (D2).
 6. **`git ls-tree` pathspecs.** The root's children are `git ls-tree <pin>` with no pathspec; a directory's are `git ls-tree <pin> -- <dir>/` (the trailing slash lists its contents, not the directory entry). Always `-z`: a path may contain a space.
-7. **Biome formats `target.json`.** Never write `JSON.stringify` output unformatted: `pnpm lint` fails on it. `formatManifest` pipes through `npx biome format --stdin-file-path=target.json` from the controller's root (the precedent #852 removed from `prepare.ts`).
+7. **Biome formats `target.json`.** Never write `JSON.stringify` output unformatted: `pnpm lint` fails on it. `formatManifest` pipes through the controller's own `node_modules/.bin/biome format --stdin-file-path=target.json` from the controller's root (the precedent #852 removed from `prepare.ts` used `npx`, which may resolve another Biome).
 8. **The reproduction tests need both real pins.** They are in the object store of a full clone and of CI's `source-validate` checkout. A shallow local clone must not be deepened with `--depth=1` (it makes a full clone shallow, spec §9 finding 3): `ensurePin` already fetches by sha.
 9. **BuildKit echoes the `RUN` line into the log.** The echoed promotion step contains both markers followed by `$actual` and `$expected`. `promotionMismatch` therefore matches only a marker followed by names to the end of the line, never a `$` or a quote (Task 5's test uses a real-shaped log).
 10. **vitest's positional argument is a filter.** `test/a.test.ts` also selects `test/x/test/a.test.ts`. A per-file run must report exactly the file it was given, or `measure` stops with a harness error (never an exclude). "No test files found" is the same error.
@@ -146,6 +155,7 @@ All paths are relative to `examples/software-factory/controller/` unless they st
 14. **No destructive Docker commands on this host.** No `prune`, `rm`, `rmi`: the daemon and the build cache are shared. The lanes build new recipe keys and delete nothing.
 15. **`fileParallelism: false` and the process-wide registry.** The lanes reach the run's registry through `configuredImages()`; `measureTarget` takes the registry as an argument and never reads the configured one itself.
 16. **CI's 30-minute `sandbox-docker` budget.** The `devkit` lanes run `--runs 1` and a 120 s file timeout; record each lane's wall clock in the PR description. If the job's time approaches the budget, stop and ask: moving a lane to opt-in is Brian's call, and raising `timeout-minutes` edits `ci.yml`, which also moves both audited workflow fixtures.
+17. **A measurement runs each non-pass twice and the suite `--runs` + 1 times.** `devkit`'s nine excludes cost nine extra sessions (about 3 s each); the generated `cli` target's may cost many more. Budget the hand measurement accordingly (Task 18).
 
 ---
 
@@ -593,14 +603,14 @@ describe("the workspace graph", () => {
   it("orders a build closure dependencies first, ties by directory", () => {
     const { graph } = graphOf(MINI)
     const app = resolvePackage(graph, "@m/app")
-    expect(dirs(topologicalOrder(graph, closure(graph, app, PROD)))).toEqual([
+    expect(dirs(topologicalOrder(graph, closure(graph, app, PROD), PROD))).toEqual([
       "packages/util",
       "packages/core",
       "packages/app",
     ])
     // Two packages with no edge between them come out in directory order.
     const both = [resolvePackage(graph, "@m/tooling"), resolvePackage(graph, "@m/config")]
-    expect(dirs(topologicalOrder(graph, both))).toEqual(["packages/config", "packages/tooling"])
+    expect(dirs(topologicalOrder(graph, both, PROD))).toEqual(["packages/config", "packages/tooling"])
   })
 
   it("refuses a workspace dependency no package is named, and a cycle", () => {
@@ -623,7 +633,7 @@ describe("the workspace graph", () => {
       }),
     })
     const app = resolvePackage(cyclic.graph, "@m/app")
-    expect(() => topologicalOrder(cyclic.graph, closure(cyclic.graph, app, PROD))).toThrow(
+    expect(() => topologicalOrder(cyclic.graph, closure(cyclic.graph, app, PROD), PROD)).toThrow(
       /dependency cycle: none of @m\/app, @m\/core, @m\/util can be built first/,
     )
   })
@@ -843,18 +853,20 @@ export function isConfigPackage(pkg: WorkspacePackage): boolean {
 }
 
 /**
- * `packages` with every package after the ones it depends on (any kind, among `packages`),
- * ties broken by directory, so the order is a function of the manifests alone.
+ * `packages` with every package after the ones it depends on through `kinds` (among
+ * `packages`), ties broken by directory, so the order is a function of the manifests alone.
+ * A build orders by runtime edges (`PROD`): a devDependency never orders a compile.
  */
 export function topologicalOrder(
   graph: WorkspaceGraph,
   packages: readonly WorkspacePackage[],
+  kinds: readonly DependencyKind[],
 ): WorkspacePackage[] {
   const members = new Set(packages.map((p) => p.name))
   const edges = new Map(
     packages.map((p) => [
       p.name,
-      workspaceDependencies(graph, p, INSTALL)
+      workspaceDependencies(graph, p, kinds)
         .map((d) => d.name)
         .filter((name) => members.has(name)),
     ]),
@@ -985,6 +997,15 @@ describe("a package's build configuration at the pin", () => {
       "packages/core/tsconfig.json": json({ compilerOptions: { outDir: "../../out" } }),
     })
     expect(() => buildConfig(outside.tree, outside.pkg("@m/core"))).toThrow(/outside the package/)
+    const info = at({
+      ...MINI,
+      "packages/core/tsconfig.json": json({
+        compilerOptions: { outDir: "lib", tsBuildInfoFile: "build.tsbuildinfo" },
+      }),
+    })
+    expect(() => buildConfig(info.tree, info.pkg("@m/core"))).toThrow(
+      /writes packages\/core\/build.tsbuildinfo, outside its outDir packages\/core\/lib/,
+    )
     const jsonc = at({ ...MINI, "packages/core/tsconfig.json": "{ // a comment\n}\n" })
     expect(() => buildConfig(jsonc.tree, jsonc.pkg("@m/core"))).toThrow(/is not plain JSON/)
     const bare = at({
@@ -1068,6 +1089,7 @@ export function buildConfig(tree: PinTree, pkg: WorkspacePackage): BuildConfig {
   const files: string[] = []
   const externalExtends: string[] = []
   let outDir: string | undefined
+  let buildInfo: string | undefined
   let current = posix.normalize(`${pkg.dir}/${tsconfig}`)
   for (let depth = 0; ; depth++) {
     if (depth === MAX_EXTENDS)
@@ -1075,7 +1097,10 @@ export function buildConfig(tree: PinTree, pkg: WorkspacePackage): BuildConfig {
     const text = tree.read(current)
     if (text === undefined)
       throw new Error(`${pkg.name}: ${current} does not exist at ${tree.pin}`)
-    let parsed: { extends?: unknown; compilerOptions?: { outDir?: unknown } }
+    let parsed: {
+      extends?: unknown
+      compilerOptions?: { outDir?: unknown; tsBuildInfoFile?: unknown }
+    }
     try {
       parsed = JSON.parse(text) as typeof parsed
     } catch (error) {
@@ -1087,6 +1112,9 @@ export function buildConfig(tree: PinTree, pkg: WorkspacePackage): BuildConfig {
     const own = parsed.compilerOptions?.outDir
     if (outDir === undefined && typeof own === "string")
       outDir = posix.normalize(posix.join(posix.dirname(current), own))
+    const info = parsed.compilerOptions?.tsBuildInfoFile
+    if (buildInfo === undefined && typeof info === "string")
+      buildInfo = posix.normalize(posix.join(posix.dirname(current), info))
     const parent = parsed.extends
     if (parent === undefined) break
     if (typeof parent !== "string" || !parent.startsWith("."))
@@ -1106,6 +1134,12 @@ export function buildConfig(tree: PinTree, pkg: WorkspacePackage): BuildConfig {
     )
   if (!outDir.startsWith(`${pkg.dir}/`))
     throw new Error(`${pkg.name}: its build writes ${outDir}, outside the package`)
+  // snapshotIgnore holds directory prefixes: a build-info file outside the outDir would read,
+  // after a builder's build, as a file the baseline lacks.
+  if (buildInfo !== undefined && !buildInfo.startsWith(`${outDir}/`))
+    throw new Error(
+      `${pkg.name}: its build writes ${buildInfo}, outside its outDir ${outDir}, where snapshotIgnore cannot cover it`,
+    )
   return { tsconfig, files, outDir: `${outDir}/`, externalExtends }
 }
 ```
@@ -1182,7 +1216,9 @@ describe("a package's test script as a target's test command", () => {
     expect(() => vitestTestArgv(pkg(undefined))).toThrow(/has no test script/)
     expect(() => vitestTestArgv(pkg("node --test test"))).toThrow(/vitest targets only/)
     expect(() => vitestTestArgv(pkg("vitest --run && echo done"))).toThrow(/is a shell line/)
-    expect(() => vitestTestArgv(pkg("vitest watch"))).toThrow(/runs vitest watch/)
+    expect(() => vitestTestArgv(pkg("vitest watch"))).toThrow(/passes "watch"/)
+    expect(() => vitestTestArgv(pkg("vitest --run --coverage"))).toThrow(/passes "--coverage"/)
+    expect(() => vitestTestArgv(pkg("vitest --run test/a.test.ts"))).toThrow(/passes "test\/a.test.ts"/)
   })
 })
 
@@ -1262,7 +1298,11 @@ export interface VitestCommand {
 }
 
 const SHELL = /[&|;<>$`"'\\()]/
-const SUBCOMMANDS = new Set(["watch", "dev", "bench", "list", "related", "init"])
+/**
+ * The only test-script flags read (plan D3): what this repository's packages pass. Anything
+ * else might select other files or change the run, and is refused rather than guessed at.
+ */
+const SCRIPT_FLAGS = new Set(["--run", "--no-cache", "--passWithNoTests"])
 /** Flags that take a value and would change which files run: refused rather than half-read. */
 const UNREAD = ["--project", "--root", "--dir", "-r"]
 
@@ -1278,13 +1318,25 @@ export function vitestTestArgv(pkg: {
     throw new Error(
       `${pkg.name}: its test script is a shell line (${script}); target:init takes a plain \`vitest ...\` invocation`,
     )
-  const [runner, ...args] = script.trim().split(/\s+/)
+  const [runner, ...words] = script.trim().split(/\s+/)
   if (runner !== "vitest")
     throw new Error(
       `${pkg.name}: its test script runs ${JSON.stringify(runner)}; target:init generates vitest targets only (every pnpm package in this repository tests with vitest)`,
     )
-  if (args[0] !== undefined && SUBCOMMANDS.has(args[0]))
-    throw new Error(`${pkg.name}: its test script runs vitest ${args[0]}, not a single run`)
+  const args: string[] = []
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i] as string
+    if ((i === 0 && word === "run") || SCRIPT_FLAGS.has(word) || word.startsWith("--config="))
+      args.push(word)
+    else if (word === "--config") {
+      const value = words[++i]
+      if (value === undefined) throw new Error(`${pkg.name}: its test script ends in --config`)
+      args.push(word, value)
+    } else
+      throw new Error(
+        `${pkg.name}: its test script passes ${JSON.stringify(word)}; target:init reads only run, --run, --config <file>, --no-cache and --passWithNoTests, and will not guess what anything else selects`,
+      )
+  }
   let runAt = args[0] === "run" ? 0 : args.indexOf("--run")
   if (runAt === -1) {
     args.unshift("--run")
@@ -1755,7 +1807,9 @@ import { afterEach, describe, expect, it } from "vitest"
 import {
   type CarriedFields,
   DEFAULT_BASE_IMAGE,
+  type DeriveOptions,
   deriveTarget,
+  isPlaceholderResources,
   PLACEHOLDER_RESOURCES,
 } from "../src/lib/targets/init/derive.ts"
 import { gitPinTree } from "../src/lib/targets/init/pin-tree.ts"
@@ -1769,12 +1823,16 @@ const derive = (
   ref = "@m/app",
   carried: CarriedFields = {},
   links: Readonly<Record<string, string>> = {},
+  extra: Partial<DeriveOptions> = {},
 ) => {
   const { root, pin } = pinRepo(files, links)
   const tree = gitPinTree(root, pin)
   const graph = readWorkspace(tree)
   const pkg = resolvePackage(graph, ref)
-  return { pin, ...deriveTarget(tree, graph, pkg, { id: pkg.dir.split("/").at(-1) as string, carried }) }
+  return {
+    pin,
+    ...deriveTarget(tree, graph, pkg, { id: pkg.dir.split("/").at(-1) as string, carried, ...extra }),
+  }
 }
 
 describe("deriveTarget", () => {
@@ -1850,12 +1908,15 @@ describe("deriveTarget", () => {
       expectedPromoted: [],
       npmrc: true,
     })
-    expect(notes).toContain(
-      "@m/tooling (packages/tooling) is installed, not captured: a test importing it resolves the image's manifest-only copy and fails, and target:measure proposes excluding that test",
-    )
-    expect(notes).toContain("resources are placeholders until target:measure proposes them")
-    expect(notes).toContain("no test is excluded yet: target:measure proposes the excludes")
-    expect(notes.find((n) => n.startsWith("capture: "))).toMatch(/^capture: 18 files, \d+ bytes$/)
+    expect(notes).toEqual([
+      "@m/tooling (packages/tooling) is installed, not captured: a test importing it resolves the image's manifest-only copy and fails, and target:measure proposes excluding that test (or pass --with-dev-builds)",
+      "@m/app's build script does more than compile (tsc -b tsconfig.build.json && node scripts/docs.mjs): the target runs only its `tsc -b tsconfig.build.json`",
+      expect.stringMatching(/^capture: 18 files, \d+ bytes$/),
+      "packages/app: not captured: scripts/ (1 file)",
+      "packages/util: not captured: test/ (1 file)",
+      "resources are placeholders until target:measure proposes them",
+      "no test is excluded: target:measure runs each file alone and proposes the excludes (none, if every file passes)",
+    ])
   })
 
   it("derives a single-project target without a build order flag or a vitest config", () => {
@@ -1893,7 +1954,19 @@ describe("deriveTarget", () => {
     expect(manifest.commands.build).toEqual(["pnpm", "exec", "tsc", "-b", "../util", "../core", "tsconfig.build.json"])
   })
 
-  it("carries what a person or a measurement decided, dropping files the pin no longer has", () => {
+  it("builds and captures devDependencies with builds only when asked, the target still compiled last", () => {
+    const { manifest, dockerfile, notes } = derive(MINI, "@m/app", {}, {}, { withDevBuilds: true })
+    expect(manifest.commands.build).toEqual([
+      "pnpm", "exec", "tsc", "-b", "--builders", "1", "../util", "../core", "../tooling", "tsconfig.build.json",
+    ])
+    expect(manifest.capture.include).toEqual(
+      expect.arrayContaining(["packages/tooling/package.json", "packages/tooling/src", "packages/tooling/tsconfig.json"]),
+    )
+    expect(dockerfile.captured.map((p) => p.dir)).toEqual(["app", "config", "core", "tooling", "util"])
+    expect(notes.some((note) => note.includes("is installed, not captured"))).toBe(false)
+  })
+
+  it("carries what a person or a measurement decided, as supersets, dropping what the pin no longer has", () => {
     const resources = { memoryMb: 768, cpus: 2, commandTimeoutMs: 60_000, verifierDeadlineMs: 240_000 }
     const baseImage = `node@sha256:${"e".repeat(64)}`
     const { manifest, dockerfile, notes } = derive(MINI, "@m/app", {
@@ -1903,25 +1976,53 @@ describe("deriveTarget", () => {
       scope: ["test/app.test.ts"],
       excludes: ["test/helpers/h.ts", "test/gone.test.ts"],
       expectedPromoted: ["zod"],
+      imageAssertResolves: ["commander", "vitest"],
+      captureInclude: [
+        "package.json",
+        "packages/app/test/app.test.ts",
+        "packages/app/scripts",
+        "packages/tooling/src",
+        "gone.txt",
+      ],
+      runnerConfig: ["packages/app/scripts/docs.mjs", "packages/app/gone.json"],
     })
     expect(manifest.baseImage).toBe(baseImage)
     expect(manifest.resources).toEqual(resources)
     expect(manifest.draftingNotes).toEqual(["A route is a directory."])
     expect(manifest.commands.test).toEqual([
-      "pnpm",
-      "exec",
-      "vitest",
-      "--run",
-      "--no-cache",
-      "--config",
-      "vitest.config.ts",
-      "test/app.test.ts",
-      "--exclude",
-      "test/helpers/h.ts",
+      "pnpm", "exec", "vitest", "--run", "--no-cache", "--config", "vitest.config.ts",
+      "test/app.test.ts", "--exclude", "test/helpers/h.ts",
     ])
+    expect(manifest.imageAssertResolves).toEqual(["vitest", "typescript", "@types/node/package.json", "commander"])
+    // A carried scope keeps the carried test capture instead of the whole directory.
+    expect(manifest.capture.include).toContain("packages/app/test/app.test.ts")
+    expect(manifest.capture.include).toContain("packages/app/scripts")
+    expect(manifest.capture.include).not.toContain("packages/app/test")
+    expect(manifest.capture.include).not.toContain("packages/tooling/src")
+    expect(manifest.runnerConfig).toContain("packages/app/scripts/docs.mjs")
     expect(dockerfile.expectedPromoted).toEqual(["zod"])
-    expect(notes).toContain("dropped test/gone.test.ts from the test command: no such file under packages/app at the pin")
-    expect(notes).not.toContain("resources are placeholders until target:measure proposes them")
+    expect(notes).toEqual(
+      expect.arrayContaining([
+        "dropped test/gone.test.ts from the test command: no such file under packages/app at the pin",
+        "dropped packages/tooling/src from capture.include: it belongs to no package this target captures",
+        "dropped gone.txt from capture.include: not at the pin",
+        "dropped packages/app/gone.json from runnerConfig: not at the pin",
+      ]),
+    )
+    expect(notes.some((note) => note.startsWith("resources are placeholders"))).toBe(false)
+    expect(isPlaceholderResources(PLACEHOLDER_RESOURCES)).toBe(true)
+    expect(isPlaceholderResources(resources)).toBe(false)
+  })
+
+  it("names a sibling package the vitest config reads that the capture omits", () => {
+    const { notes } = derive({
+      ...MINI,
+      "packages/app/vitest.config.ts": 'export default { resolve: { alias: { x: "../tooling/src/index.ts", y: "../core/src" } } }\n',
+    })
+    expect(notes).toContain(
+      "packages/app/vitest.config.ts reads ../tooling/ (packages/tooling), which the capture omits: a test that reaches it fails, and target:measure proposes excluding it",
+    )
+    expect(notes.some((note) => note.includes("reads ../core/"))).toBe(false)
   })
 
   it("refuses what it cannot generate, naming it", () => {
@@ -1982,7 +2083,7 @@ import type { TargetManifest } from "../catalog.js"
 import { parseVitestCommand, vitestTestArgv, withExcludes } from "../vitest-command.js"
 import type { DockerfileSpec } from "./dockerfile.js"
 import type { PinTree } from "./pin-tree.js"
-import { type BuildConfig, buildConfig, packageTsconfigs } from "./tsconfig.js"
+import { type BuildConfig, buildConfig, buildScriptTsconfig, packageTsconfigs } from "./tsconfig.js"
 import {
   closure,
   INSTALL,
@@ -1991,6 +2092,7 @@ import {
   topologicalOrder,
   type WorkspaceGraph,
   type WorkspacePackage,
+  workspaceDependencies,
 } from "./workspace-graph.js"
 
 /** The base every shipped target pins (`targets-catalog.test.ts`): the drafter's, by digest. */
@@ -2005,6 +2107,13 @@ export const PLACEHOLDER_RESOURCES: TargetManifest["resources"] = {
   verifierDeadlineMs: 3_600_000,
 }
 
+/** Are `resources` `init`'s placeholders, never measured? (Detected by value, not by origin.) */
+export function isPlaceholderResources(resources: TargetManifest["resources"]): boolean {
+  return (Object.keys(PLACEHOLDER_RESOURCES) as (keyof TargetManifest["resources"])[]).every(
+    (key) => resources[key] === PLACEHOLDER_RESOURCES[key],
+  )
+}
+
 /** What a re-generation keeps from the target already on disk (plan D8). */
 export interface CarriedFields {
   readonly baseImage?: string
@@ -2015,6 +2124,17 @@ export interface CarriedFields {
   /** The test command's `--exclude` entries: what a measurement proposed. */
   readonly excludes?: readonly string[]
   readonly expectedPromoted?: readonly string[]
+  /** Kept as supersets: a person's additions survive a re-generation (plan D8). */
+  readonly imageAssertResolves?: readonly string[]
+  readonly captureInclude?: readonly string[]
+  readonly runnerConfig?: readonly string[]
+}
+
+export interface DeriveOptions {
+  readonly id: string
+  readonly carried: CarriedFields
+  /** Build and capture the target's workspace devDependencies that have builds (plan D16). */
+  readonly withDevBuilds?: boolean
 }
 
 export interface DerivedTarget {
@@ -2060,12 +2180,16 @@ function portable(path: string): boolean {
 
 const sortPaths = (paths: Iterable<string>): string[] =>
   [...new Set(paths)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+/** `paths` without any entry another entry already covers (a file inside a captured directory). */
+const withoutCovered = (paths: readonly string[]): string[] =>
+  paths.filter((path) => !paths.some((other) => other !== path && path.startsWith(`${other}/`)))
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`
 
 export function deriveTarget(
   tree: PinTree,
   graph: WorkspaceGraph,
   pkg: WorkspacePackage,
-  options: { readonly id: string; readonly carried: CarriedFields },
+  options: DeriveOptions,
 ): DerivedTarget {
   const { id, carried } = options
   const notes: string[] = []
@@ -2078,14 +2202,24 @@ export function deriveTarget(
     if (tree.kind(file) !== "file") throw new Error(`${file} does not exist at ${tree.pin}`)
   const npmrc = tree.kind(".npmrc") === "file"
   const rootManifests = ["package.json", "pnpm-workspace.yaml", ...(npmrc ? [".npmrc"] : [])]
+  const atPin = (path: string) => tree.kind(path) !== undefined
 
-  // The three closures (plan D4).
+  // The closures (plan D4, D16).
   const installed = closure(graph, pkg, INSTALL)
   const configs = installed.filter((p) => p !== pkg && isConfigPackage(p))
-  const built = topologicalOrder(
-    graph,
-    closure(graph, pkg, PROD).filter((p) => !isConfigPackage(p)),
-  )
+  const roots = [
+    pkg,
+    ...(options.withDevBuilds
+      ? workspaceDependencies(graph, pkg, ["devDependencies"]).filter((p) => !isConfigPackage(p))
+      : []),
+  ]
+  const builtByName = new Map<string, WorkspacePackage>()
+  for (const root of roots)
+    for (const p of closure(graph, root, PROD)) if (!isConfigPackage(p)) builtByName.set(p.name, p)
+  // Runtime edges order the build (a devDependency edge never orders a compile); the target
+  // itself compiles last, from its own directory.
+  const ordered = topologicalOrder(graph, [...builtByName.values()], PROD)
+  const built = [...ordered.filter((p) => p !== pkg), ...ordered.filter((p) => p === pkg)]
   const captured = [...new Set([pkg, ...configs, ...built])].sort((a, b) =>
     a.dir < b.dir ? -1 : a.dir > b.dir ? 1 : 0,
   )
@@ -2097,17 +2231,23 @@ export function deriveTarget(
   for (const p of installed)
     if (!captured.includes(p))
       notes.push(
-        `${p.name} (${p.dir}) is installed, not captured: a test importing it resolves the image's manifest-only copy and fails, and target:measure proposes excluding that test`,
+        `${p.name} (${p.dir}) is installed, not captured: a test importing it resolves the image's manifest-only copy and fails, and target:measure proposes excluding that test (or pass --with-dev-builds)`,
       )
 
   // The build (plan D5).
   const builds = new Map<WorkspacePackage, BuildConfig>(built.map((p) => [p, buildConfig(tree, p)]))
-  for (const config of builds.values())
+  for (const [p, config] of builds) {
     for (const file of config.externalExtends)
       if (!configs.some((c) => file.startsWith(`${c.dir}/`)))
         throw new Error(
           `${config.files.at(-1)} extends ${file}, which no captured config package holds`,
         )
+    const script = (p.manifest.scripts?.build ?? "").trim()
+    if (script !== `tsc -b ${buildScriptTsconfig(p)}` && script !== `tsc --build ${buildScriptTsconfig(p)}`)
+      notes.push(
+        `${p.name}'s build script does more than compile (${script}): the target runs only its \`tsc -b ${config.tsconfig}\``,
+      )
+  }
   const typescript =
     graph.root.devDependencies?.typescript ?? pkg.manifest.devDependencies?.typescript ?? ""
   const typescriptMajor = Number(/(\d+)\./.exec(typescript)?.[1] ?? 0)
@@ -2135,7 +2275,9 @@ export function deriveTarget(
   if (command.config !== undefined) {
     runner = `${pkg.dir}/${command.config}`
     if (tree.kind(runner) !== "file")
-      throw new Error(`${pkg.name}: its test script names --config ${command.config}, which does not exist at ${tree.pin}`)
+      throw new Error(
+        `${pkg.name}: its test script names --config ${command.config}, which does not exist at ${tree.pin}`,
+      )
   } else {
     const found = VITEST_CONFIGS.find((name) => tree.kind(`${pkg.dir}/${name}`) === "file")
     runner = found === undefined ? undefined : `${pkg.dir}/${found}`
@@ -2144,12 +2286,12 @@ export function deriveTarget(
   for (const file of [...(carried.scope ?? []), ...(carried.excludes ?? [])])
     if (!present(file))
       notes.push(`dropped ${file} from the test command: no such file under ${pkg.dir} at the pin`)
-  const test = withExcludes(
-    { ...command, files: (carried.scope ?? []).filter(present) },
-    (carried.excludes ?? []).filter(present),
-  )
+  const scope = (carried.scope ?? []).filter(present)
+  const test = withExcludes({ ...command, files: scope }, (carried.excludes ?? []).filter(present))
 
-  // The capture.
+  // The capture. A carried scope keeps the carried capture of the test directory rather than
+  // widening it to the whole directory the command does not run (plan D8).
+  const scoped = scope.length > 0 && carried.captureInclude !== undefined
   const dir = (path: string) => (tree.kind(path) === "dir" ? [path] : [])
   const own = [
     `${pkg.dir}/package.json`,
@@ -2157,17 +2299,36 @@ export function deriveTarget(
     ...(builds.get(pkg)?.files ?? []),
     ...(runner === undefined ? [] : [runner]),
     ...dir(`${pkg.dir}/src`),
-    ...dir(`${pkg.dir}/test`),
+    ...(scoped ? [] : dir(`${pkg.dir}/test`)),
   ]
   const dependencies = built
     .filter((p) => p !== pkg)
-    .flatMap((p) => [`${p.dir}/package.json`, ...(builds.get(p) as BuildConfig).files, ...dir(`${p.dir}/src`)])
+    .flatMap((p) => [
+      `${p.dir}/package.json`,
+      ...(builds.get(p) as BuildConfig).files,
+      ...dir(`${p.dir}/src`),
+    ])
+  const carriedCapture = (carried.captureInclude ?? []).filter((path) => {
+    if (rootManifests.includes(path)) return false
+    const owner = captured.find((p) => path === p.dir || path.startsWith(`${p.dir}/`))
+    if (!atPin(path)) notes.push(`dropped ${path} from capture.include: not at the pin`)
+    else if (owner === undefined && path.includes("/"))
+      notes.push(
+        `dropped ${path} from capture.include: it belongs to no package this target captures`,
+      )
+    else return true
+    return false
+  })
   const include = [
     ...rootManifests,
-    ...sortPaths([...own, ...dependencies, ...configs.map((c) => c.dir)]),
+    ...withoutCovered(
+      sortPaths([...own, ...dependencies, ...configs.map((c) => c.dir), ...carriedCapture]),
+    ).filter((path) => !rootManifests.includes(path)),
   ]
   const files = include.flatMap((path) => tree.files(path))
-  const refused = files.filter((f) => !portable(f.path) || f.mode === "120000" || f.mode === "160000")
+  const refused = files.filter(
+    (f) => !portable(f.path) || f.mode === "120000" || f.mode === "160000",
+  )
   if (refused.length > 0)
     throw new Error(
       `target:init cannot capture ${refused.length} path(s) the workspace capture refuses (portable ASCII names only; no symlinks or submodules): ${refused
@@ -2177,17 +2338,51 @@ export function deriveTarget(
     )
   notes.push(`capture: ${files.length} files, ${files.reduce((sum, f) => sum + f.bytes, 0)} bytes`)
 
+  // What the capture leaves out, so an omission is visible before a test trips on it (I5).
+  const touches = (path: string) =>
+    include.some((e) => e === path || e.startsWith(`${path}/`) || path.startsWith(`${e}/`))
+  for (const p of captured.filter((c) => !configs.includes(c))) {
+    const omitted = tree
+      .children(p.dir)
+      .filter((entry) => entry.kind === "dir" && !touches(`${p.dir}/${entry.name}`))
+      .map((entry) => `${entry.name}/ (${plural(tree.files(`${p.dir}/${entry.name}`).length, "file")})`)
+    if (omitted.length > 0) notes.push(`${p.dir}: not captured: ${omitted.join(", ")}`)
+  }
+  if (runner !== undefined) {
+    const text = tree.read(runner) ?? ""
+    const siblings = new Set([...text.matchAll(/["'`]\.\.\/([A-Za-z0-9._-]+)\//g)].map((m) => m[1] as string))
+    for (const sibling of [...siblings].sort()) {
+      const path = `packages/${sibling}`
+      if (atPin(path) && !captured.some((p) => p.dir === path))
+        notes.push(
+          `${runner} reads ../${sibling}/ (${path}), which the capture omits: a test that reaches it fails, and target:measure proposes excluding it`,
+        )
+    }
+  }
+
   const typesNode = [
     graph.root.devDependencies,
     graph.root.dependencies,
     pkg.manifest.devDependencies,
     pkg.manifest.dependencies,
   ].some((deps) => deps?.["@types/node"] !== undefined)
-
-  if (carried.resources === undefined)
+  const derivedAsserts = [
+    "vitest",
+    ...(build.length > 0 ? ["typescript"] : []),
+    ...(typesNode ? ["@types/node/package.json"] : []),
+  ]
+  const resources = { ...(carried.resources ?? PLACEHOLDER_RESOURCES) }
+  if (isPlaceholderResources(resources))
     notes.push("resources are placeholders until target:measure proposes them")
-  if (carried.excludes === undefined)
-    notes.push("no test is excluded yet: target:measure proposes the excludes")
+  if (parseVitestCommand(test).excludes.length === 0)
+    notes.push(
+      "no test is excluded: target:measure runs each file alone and proposes the excludes (none, if every file passes)",
+    )
+  const carriedRunner = (carried.runnerConfig ?? []).filter((path) => {
+    if (atPin(path)) return true
+    notes.push(`dropped ${path} from runnerConfig: not at the pin`)
+    return false
+  })
 
   const manifest: TargetManifest = {
     id,
@@ -2207,11 +2402,7 @@ export function deriveTarget(
       ]),
     ],
     lockfile: "pnpm-lock.yaml",
-    imageAssertResolves: [
-      "vitest",
-      ...(build.length > 0 ? ["typescript"] : []),
-      ...(typesNode ? ["@types/node/package.json"] : []),
-    ],
+    imageAssertResolves: [...new Set([...derivedAsserts, ...(carried.imageAssertResolves ?? [])])],
     environmentLinks: [{ path: "node_modules", target: `/opt/targets/${id}/node_modules` }],
     commands: { cwd: pkg.dir, build, test, nodeTestExecArgv: [] },
     runnerConfig: [
@@ -2221,12 +2412,13 @@ export function deriveTarget(
         ...packageTsconfigs(tree, pkg),
         ...(runner === undefined ? [] : [runner]),
         ...configs.map((c) => c.dir),
-      ]),
+        ...carriedRunner,
+      ]).filter((path) => !rootManifests.includes(path)),
     ],
     ...(carried.draftingNotes !== undefined && carried.draftingNotes.length > 0
       ? { draftingNotes: [...carried.draftingNotes] }
       : {}),
-    resources: { ...(carried.resources ?? PLACEHOLDER_RESOURCES) },
+    resources,
   }
   return {
     manifest,
@@ -2358,12 +2550,22 @@ describe("initTarget", () => {
 })
 
 describe("target:init's arguments", () => {
-  it("takes a package, and optionally a full pin, an id and --write", () => {
-    expect(parseInitArgs(["@b4run/devkit"])).toEqual({ packageRef: "@b4run/devkit", write: false })
-    expect(parseInitArgs(["packages/cli", "--pin", "a".repeat(40), "--id", "cli2", "--write"])).toEqual({
+  it("takes a package, and optionally a full pin, an id, a catalog, --with-dev-builds and --write", () => {
+    expect(parseInitArgs(["@b4run/devkit"])).toEqual({
+      packageRef: "@b4run/devkit",
+      withDevBuilds: false,
+      write: false,
+    })
+    expect(
+      parseInitArgs([
+        "packages/cli", "--pin", "a".repeat(40), "--id", "cli2", "--targets-dir", "/tmp/t", "--with-dev-builds", "--write",
+      ]),
+    ).toEqual({
       packageRef: "packages/cli",
       pin: "a".repeat(40),
       id: "cli2",
+      targetsDir: "/tmp/t",
+      withDevBuilds: true,
       write: true,
     })
     expect(() => parseInitArgs([])).toThrow(/usage: target-init.ts/)
@@ -2385,7 +2587,7 @@ Expected: FAIL (modules not found).
 ```ts
 import { execFileSync } from "node:child_process"
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
-import { dirname, relative } from "node:path"
+import { dirname, join, relative } from "node:path"
 import { createTwoFilesPatch } from "diff"
 import { appRoot } from "./catalog.js"
 
@@ -2412,12 +2614,12 @@ export function readIfPresent(path: string): string | null {
 }
 
 /**
- * `json` formatted as the checked-in target files are: Biome with the controller's own
- * configuration, over stdin, so nothing is written to be formatted (the precedent #852 removed
- * from `prepare.ts`, when the script stopped writing target files).
+ * `json` formatted as the checked-in target files are: the controller's own Biome (never
+ * `npx`, which may resolve another version) with its own configuration, over stdin, so nothing
+ * is written to be formatted.
  */
 export function formatManifest(json: string): string {
-  return execFileSync("npx", ["biome", "format", "--stdin-file-path=target.json"], {
+  return execFileSync(join(appRoot, "node_modules", ".bin", "biome"), ["format", "--stdin-file-path=target.json"], {
     cwd: appRoot,
     input: json,
     encoding: "utf8",
@@ -2463,7 +2665,14 @@ export function writeProposal(files: readonly FileProposal[]): string[] {
 ```ts
 import { join } from "node:path"
 import { parseArgs } from "node:util"
-import { commitSha, covers, isCatalogId, type TargetManifest, TargetSchema } from "../catalog.js"
+import {
+  commitSha,
+  covers,
+  ensurePin,
+  isCatalogId,
+  type TargetManifest,
+  TargetSchema,
+} from "../catalog.js"
 import { capturedListMismatch, firstMissingPath, pathsRequiredAtPin } from "../prepare.js"
 import { type FileProposal, formatManifest, readIfPresent } from "../proposal.js"
 import { parseVitestCommand } from "../vitest-command.js"
@@ -2480,6 +2689,8 @@ export interface InitOptions {
   readonly pin: string
   readonly repositoryRoot: string
   readonly targetsDir: string
+  /** Build and capture the package's workspace devDependencies that have builds (plan D16). */
+  readonly withDevBuilds?: boolean
 }
 
 export interface InitResult {
@@ -2493,10 +2704,15 @@ export interface InitResult {
 /**
  * The target a package at a pin would have: `targets/<id>/target.json` and its `Dockerfile`,
  * as proposals against what is on disk. Deterministic: the manifests at the pin and what the
- * existing target carries (plan D8) decide every byte. The proposal is refused, before anything
- * is written, for anything `target:prepare` would refuse before a build.
+ * existing target carries (plan D8) decide every byte. The pin is made present first (fetched
+ * by sha on a miss, as every catalog read does), so a shallow checkout can generate. The
+ * proposal is refused, before anything is written, for anything `target:prepare` would refuse
+ * before a build.
  */
 export function initTarget(options: InitOptions): InitResult {
+  ensurePin(options.repositoryRoot, "target:init", options.pin, {
+    label: `target:init ${options.packageRef}`,
+  })
   const tree = gitPinTree(options.repositoryRoot, options.pin)
   const graph = readWorkspace(tree)
   const pkg = resolvePackage(graph, options.packageRef)
@@ -2509,7 +2725,11 @@ export function initTarget(options: InitOptions): InitResult {
   const beforeManifest = readIfPresent(manifestPath)
   const beforeDockerfile = readIfPresent(dockerfilePath)
   const carried = carriedFrom(beforeManifest, beforeDockerfile, pkg, id)
-  const derived = deriveTarget(tree, graph, pkg, { id, carried: carried.fields })
+  const derived = deriveTarget(tree, graph, pkg, {
+    id,
+    carried: carried.fields,
+    ...(options.withDevBuilds ? { withDevBuilds: true } : {}),
+  })
   const manifest: TargetManifest = TargetSchema.parse(derived.manifest)
   const dockerfile = renderDockerfile(derived.dockerfile)
   const problem = proposalProblem(manifest, dockerfile, tree)
@@ -2547,7 +2767,7 @@ function proposalProblem(
 /**
  * What the target already on disk decided and a re-generation keeps (plan D8). A target of
  * another package at this id is refused; one that does not parse carries nothing, and says so.
- * `deriveTarget` drops the scope and excludes that name no file at the pin, with a note.
+ * `deriveTarget` drops what names nothing at the pin, with a note each.
  */
 function carriedFrom(
   manifestText: string | null,
@@ -2588,7 +2808,7 @@ function carriedFrom(
     )
   }
   notes.push(
-    `carried from targets/${id}: baseImage, resources${existing.draftingNotes ? ", draftingNotes" : ""}, ${scope.length} scoped file(s), ${excludes.length} exclude(s)${promoted === undefined ? "" : ", EXPECTED_PROMOTED"}`,
+    `carried from targets/${id}: baseImage, resources${existing.draftingNotes ? ", draftingNotes" : ""}, ${scope.length} scoped file(s), ${excludes.length} exclude(s), imageAssertResolves, capture.include and runnerConfig as supersets${promoted === undefined ? "" : ", EXPECTED_PROMOTED"}`,
   )
   return {
     notes,
@@ -2599,6 +2819,9 @@ function carriedFrom(
       ...(existing.draftingNotes !== undefined ? { draftingNotes: existing.draftingNotes } : {}),
       scope,
       excludes,
+      imageAssertResolves: existing.imageAssertResolves,
+      captureInclude: existing.capture.include,
+      runnerConfig: existing.runnerConfig,
     },
   }
 }
@@ -2607,6 +2830,9 @@ export interface InitArgs {
   readonly packageRef: string
   readonly id?: string
   readonly pin?: string
+  /** The target catalog to propose into; the controller's `targets/` when absent. */
+  readonly targetsDir?: string
+  readonly withDevBuilds: boolean
   readonly write: boolean
 }
 
@@ -2616,6 +2842,8 @@ export function parseInitArgs(argv: readonly string[]): InitArgs {
     options: {
       pin: { type: "string" },
       id: { type: "string" },
+      "targets-dir": { type: "string" },
+      "with-dev-builds": { type: "boolean", default: false },
       write: { type: "boolean", default: false },
     },
     allowPositionals: true,
@@ -2624,15 +2852,17 @@ export function parseInitArgs(argv: readonly string[]): InitArgs {
   const [packageRef, ...extra] = positionals
   if (!packageRef || extra.length > 0)
     throw new Error(
-      "usage: target-init.ts <package name or directory> [--pin <sha>] [--id <id>] [--write]",
+      "usage: target-init.ts <package name or directory> [--pin <sha>] [--id <id>] [--targets-dir <dir>] [--with-dev-builds] [--write]",
     )
   if (values.pin !== undefined && !commitSha.safeParse(values.pin).success)
     throw new Error(`--pin must be a full lowercase commit sha, got ${JSON.stringify(values.pin)}`)
   return {
     packageRef,
+    withDevBuilds: values["with-dev-builds"],
     write: values.write,
     ...(values.pin !== undefined ? { pin: values.pin } : {}),
     ...(values.id !== undefined ? { id: values.id } : {}),
+    ...(values["targets-dir"] !== undefined ? { targetsDir: values["targets-dir"] } : {}),
   }
 }
 ```
@@ -2703,7 +2933,7 @@ Expected: FAIL (the script does not exist; `Cannot find module`).
 
 ```ts
 import { resolvePin } from "../src/lib/intake/issue.js"
-import { appRoot, ensurePin, repositoryRoot, targetsDir } from "../src/lib/targets/catalog.js"
+import { appRoot, repositoryRoot, targetsDir } from "../src/lib/targets/catalog.js"
 import { initTarget, parseInitArgs } from "../src/lib/targets/init/init.js"
 import { renderDiff, writeProposal } from "../src/lib/targets/proposal.js"
 
@@ -2711,26 +2941,28 @@ import { renderDiff, writeProposal } from "../src/lib/targets/proposal.js"
  * Generate a target for a pnpm workspace package: `targets/<id>/target.json` and its
  * `Dockerfile`, derived from the package's manifests at a pin read from the object store.
  *
- * `target-init.ts <package name or directory> [--pin <sha>] [--id <id>] [--write]`
+ * `target-init.ts <package name or directory> [--pin <sha>] [--id <id>] [--targets-dir <dir>]
+ * [--with-dev-builds] [--write]`
  *
  * Prints the proposal as a unified diff against what is on disk (stdout) and its notes
  * (stderr); writes only with --write. The pin defaults to origin/main, as `create --issue`
- * pins (FACTORY_NO_FETCH=1 reads the checkout's origin/main without fetching). A target is an
- * oracle input: the person reviews the diff and commits it; run target:measure before that.
+ * pins (FACTORY_NO_FETCH=1 reads the checkout's origin/main without fetching). --targets-dir
+ * proposes into another catalog (a scratch measurement) instead of the controller's. A target
+ * is an oracle input: the person reviews the diff and commits it; run target:measure first.
  */
 const args = parseInitArgs(process.argv.slice(2))
 const repo = repositoryRoot()
 const pin =
   args.pin ?? (await resolvePin({ repositoryRoot: repo, fetch: process.env.FACTORY_NO_FETCH !== "1" }))
-ensurePin(repo, "target:init", pin, { label: `target:init ${args.packageRef}` })
 const result = initTarget({
   packageRef: args.packageRef,
   pin,
   repositoryRoot: repo,
-  targetsDir,
+  targetsDir: args.targetsDir ?? targetsDir,
   ...(args.id !== undefined ? { id: args.id } : {}),
+  ...(args.withDevBuilds ? { withDevBuilds: true } : {}),
 })
-process.stdout.write(renderDiff(result.files, appRoot))
+process.stdout.write(renderDiff(result.files, args.targetsDir === undefined ? appRoot : args.targetsDir))
 process.stderr.write(`target:init: ${result.id} at ${pin}\n`)
 for (const note of result.notes) process.stderr.write(`target:init: ${note}\n`)
 if (args.write)
@@ -2789,6 +3021,9 @@ import { initTarget } from "../src/lib/targets/init/init.ts"
 import { dockerfileCapturedPackages } from "../src/lib/targets/prepare.ts"
 import { parseVitestCommand } from "../src/lib/targets/vitest-command.ts"
 
+/** Several hundred git reads and a Biome format per generation: over vitest's 10 s hook default. */
+const GENERATE_MS = 120_000
+
 const dirs: string[] = []
 afterAll(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
@@ -2798,10 +3033,10 @@ const committed = (id: string): TargetManifest =>
   TargetSchema.parse(JSON.parse(readFileSync(join(targetsDir, id, "target.json"), "utf8")))
 const committedDockerfile = (id: string) => readFileSync(join(targetsDir, id, "Dockerfile"), "utf8")
 
-/** `init` of `packageRef` at `pin` into an empty targets directory: nothing carried. */
-function generate(packageRef: string, pin: string) {
-  const dir = mkdtempSync(join(tmpdir(), "factory-init-repro-"))
-  dirs.push(dir)
+/** `init` of `packageRef` at `pin` into `into` (an empty directory unless given): nothing carried. */
+function generate(packageRef: string, pin: string, into?: string) {
+  const dir = into ?? mkdtempSync(join(tmpdir(), "factory-init-repro-"))
+  if (into === undefined) dirs.push(dir)
   const result = initTarget({ packageRef, pin, repositoryRoot: repositoryRoot(), targetsDir: dir })
   const [manifest, dockerfile] = result.files
   return {
@@ -2811,56 +3046,61 @@ function generate(packageRef: string, pin: string) {
   }
 }
 const sorted = (paths: readonly string[]) => [...paths].sort()
+/** Order-free lists sorted: init's order is canonical, a hand-written target's is not. */
+const normalise = (m: TargetManifest): TargetManifest => ({
+  ...m,
+  capture: { include: sorted(m.capture.include) },
+  imageContext: sorted(m.imageContext),
+  runnerConfig: sorted(m.runnerConfig),
+})
+
+const CLI_BUILD = [
+  "pnpm", "exec", "tsc", "-b", "--builders", "1",
+  "../ag-ui", "../sdk", "../langgraph", "../permissions", "../workspace",
+  "../sqlite-storage", "../core", "../langchain", "../memory", "tsconfig.build.json",
+]
 
 describe("target:init reproduces the hand-written devkit target", () => {
   const want = committed("devkit")
   let got: ReturnType<typeof generate>
   beforeAll(() => {
     got = generate("@b4run/devkit", want.pin)
-  })
+  }, GENERATE_MS)
 
-  it("derives every field a person wrote by hand from the manifests at the pin", () => {
-    const m = got.manifest
-    expect(m.id).toBe(want.id)
-    expect(m.pin).toBe(want.pin)
-    expect(m.root).toBe(want.root)
-    expect(m.snapshotIgnore).toEqual(want.snapshotIgnore)
-    expect(m.baseImage).toBe(want.baseImage)
-    expect(m.lockfile).toBe(want.lockfile)
-    expect(m.imageAssertResolves).toEqual(want.imageAssertResolves)
-    expect(m.environmentLinks).toEqual(want.environmentLinks)
-    expect(m.commands.cwd).toBe(want.commands.cwd)
-    expect(m.commands.build).toEqual(want.commands.build)
-    expect(m.commands.nodeTestExecArgv).toEqual(want.commands.nodeTestExecArgv)
-    // The same sets; init's order is canonical (root manifests, then sorted).
-    expect(sorted(m.capture.include)).toEqual(sorted(want.capture.include))
-    expect(sorted(m.imageContext)).toEqual(sorted(want.imageContext))
-  })
-
-  it("differs only in what a measurement or a later rule decides", () => {
-    const m = got.manifest
-    // 1. The nine excludes are target:measure's to propose (Task 17 proves it proposes them):
-    //    the committed command is init's command followed by exactly those nine.
+  it("is the committed target with exactly the named differences applied", () => {
     const committedCommand = parseVitestCommand(want.commands.test)
-    expect(m.commands.test).toEqual(committedCommand.base)
+    // 1. The nine excludes are target:measure's to propose (Task 17 proves it proposes them).
     expect(committedCommand.files).toEqual([])
     expect(committedCommand.excludes).toHaveLength(9)
-    // 2. runnerConfig gains the root manifests: the rule the cli target's review adopted
-    //    (pnpm exec and the build read them). The devkit task already keeps them immutable.
-    expect(sorted(m.runnerConfig)).toEqual(
-      sorted([...want.runnerConfig, "package.json", "pnpm-workspace.yaml", ".npmrc"]),
+    expect(normalise(got.manifest)).toEqual(
+      normalise({
+        ...want,
+        commands: { ...want.commands, test: [...committedCommand.base] },
+        // 2. runnerConfig gains the root manifests: the rule the cli target's review adopted.
+        //    The devkit task already keeps them immutable.
+        runnerConfig: [...want.runnerConfig, "package.json", "pnpm-workspace.yaml", ".npmrc"],
+        // 3. Resources are placeholders until target:measure proposes them.
+        resources: PLACEHOLDER_RESOURCES,
+      }),
     )
-    // 3. Resources are placeholders until target:measure proposes them.
-    expect(m.resources).toEqual(PLACEHOLDER_RESOURCES)
-    // 4. The Dockerfile is the one template, not devkit's hand-written one; it relinks both
-    //    captured packages and has nothing to promote until a build says otherwise.
+  })
+
+  it("writes the template Dockerfile, and names what the capture leaves out", () => {
+    // 4. The Dockerfile is the one template: both captured packages relinked, nothing to
+    //    promote until a build says otherwise.
     expect(got.dockerfile).not.toBe(committedDockerfile("devkit"))
     expect(dockerfileCapturedPackages(got.dockerfile)).toEqual(["config-typescript", "devkit"])
     expect(got.dockerfile).toContain("--filter @b4run/devkit... --ignore-scripts --config.node-linker=hoisted")
     expect(expectedPromotedOf(got.dockerfile)).toEqual([])
-    expect(m.draftingNotes).toBeUndefined()
-    expect(want.draftingNotes).toBeUndefined()
+    expect(got.notes).toContainEqual(expect.stringMatching(/^packages\/devkit: not captured: templates\/ \(\d+ files\)$/))
   })
+
+  it("carries everything decided when it regenerates the committed target in place", () => {
+    const again = generate("@b4run/devkit", want.pin, targetsDir)
+    expect(normalise(again.manifest)).toEqual(
+      normalise({ ...want, runnerConfig: [...want.runnerConfig, "package.json", "pnpm-workspace.yaml", ".npmrc"] }),
+    )
+  }, GENERATE_MS)
 })
 
 describe("target:init reproduces the hand-written cli target", () => {
@@ -2868,80 +3108,65 @@ describe("target:init reproduces the hand-written cli target", () => {
   let got: ReturnType<typeof generate>
   beforeAll(() => {
     got = generate("@b4run/cli", want.pin)
+  }, GENERATE_MS)
+
+  it("is the committed target with exactly the named differences applied", () => {
+    const scoped = want.capture.include.filter((path) => path.startsWith("packages/cli/test/"))
+    const committedCommand = parseVitestCommand(want.commands.test)
+    expect(scoped).toHaveLength(9)
+    expect(committedCommand.files).toHaveLength(8)
+    // Two hand-picked module assertions (commander checks the promotion), a build that
+    // disables declaration maps (a snapshot-cost mitigation #826 and #829 made unnecessary),
+    // and eight hand-verified drafting notes.
+    expect(want.imageAssertResolves.slice(3)).toEqual(["@langchain/langgraph", "commander"])
+    expect(want.commands.build).toContain("--declarationMap")
+    expect(want.draftingNotes).toHaveLength(8)
+    const { draftingNotes: _notes, ...undecided } = want
+    expect(normalise(got.manifest)).toEqual(
+      normalise({
+        ...undecided,
+        // 1. Scope: the whole test directory, not eight files and their helper (plan D4).
+        capture: {
+          include: [...want.capture.include.filter((path) => !scoped.includes(path)), "packages/cli/test"],
+        },
+        // 2. The derived module assertions only.
+        imageAssertResolves: want.imageAssertResolves.slice(0, 3),
+        // 3. The same ten projects in another topological order; the base test command.
+        commands: { ...want.commands, build: CLI_BUILD, test: [...committedCommand.base] },
+        // 4. Resources are placeholders until target:measure proposes them.
+        resources: PLACEHOLDER_RESOURCES,
+      }),
+    )
   })
 
-  it("derives the dependency closure, the image context, the runner configuration and the build outputs", () => {
-    const m = got.manifest
-    expect(m.id).toBe(want.id)
-    expect(m.pin).toBe(want.pin)
-    expect(m.snapshotIgnore).toEqual(want.snapshotIgnore)
-    expect(m.baseImage).toBe(want.baseImage)
-    expect(m.environmentLinks).toEqual(want.environmentLinks)
-    expect(m.commands.cwd).toBe(want.commands.cwd)
-    expect(m.commands.nodeTestExecArgv).toEqual(want.commands.nodeTestExecArgv)
-    expect(sorted(m.imageContext)).toEqual(sorted(want.imageContext))
-    expect(sorted(m.runnerConfig)).toEqual(sorted(want.runnerConfig))
+  it("relinks the same packages, learns its promotion set later, and names what it omits", () => {
     expect(dockerfileCapturedPackages(got.dockerfile)).toEqual(
       dockerfileCapturedPackages(committedDockerfile("cli")),
     )
-    expect(got.notes).toContain(
-      "@b4run/sandbox (packages/sandbox) is installed, not captured: a test importing it resolves the image's manifest-only copy and fails, and target:measure proposes excluding that test",
-    )
-  })
-
-  it("differs only where a person chose a scope, extras and a cost trade-off", () => {
-    const m = got.manifest
-    // 1. Scope: the hand-written target captures eight test files and the helper they import;
-    //    init captures the package's whole test directory (plan D4).
-    const scoped = want.capture.include.filter((path) => path.startsWith("packages/cli/test/"))
-    expect(scoped).toHaveLength(9)
-    expect(sorted(m.capture.include)).toEqual(
-      sorted([...want.capture.include.filter((path) => !scoped.includes(path)), "packages/cli/test"]),
-    )
-    const committedCommand = parseVitestCommand(want.commands.test)
-    expect(m.commands.test).toEqual(committedCommand.base)
-    expect(committedCommand.files).toHaveLength(8)
-    // 2. Two hand-picked extra module assertions (commander checks the promotion).
-    expect(want.imageAssertResolves).toEqual([...m.imageAssertResolves, "@langchain/langgraph", "commander"])
-    // 3. The same ten projects in another topological order, without --declarationMap false
-    //    (a snapshot-cost mitigation #826 and #829 made unnecessary).
-    expect(m.commands.build).toEqual([
-      "pnpm", "exec", "tsc", "-b", "--builders", "1",
-      "../ag-ui", "../sdk", "../langgraph", "../permissions", "../workspace",
-      "../sqlite-storage", "../core", "../langchain", "../memory", "tsconfig.build.json",
-    ])
-    const projects = (argv: readonly string[]) =>
-      sorted(argv.filter((arg) => arg.startsWith("../") || arg.endsWith(".json")))
-    expect(projects(m.commands.build)).toEqual(projects(want.commands.build))
-    expect(want.commands.build).toContain("--declarationMap")
-    // 4. What a measurement or a person decides: resources, the promotion set, drafting notes.
-    expect(m.resources).toEqual(PLACEHOLDER_RESOURCES)
     expect(expectedPromotedOf(got.dockerfile)).toEqual([])
     expect(expectedPromotedOf(committedDockerfile("cli"))).toEqual([
-      "@hono/node-server",
-      "commander",
-      "hono",
-      "typescript",
+      "@hono/node-server", "commander", "hono", "typescript",
     ])
-    expect(m.draftingNotes).toBeUndefined()
-    expect(want.draftingNotes).toHaveLength(8)
-  })
-
-  it("carries all of it when it regenerates the committed target in place", () => {
-    const result = initTarget({
-      packageRef: "@b4run/cli",
-      pin: want.pin,
-      repositoryRoot: repositoryRoot(),
-      targetsDir,
-    })
-    const again = TargetSchema.parse(JSON.parse(result.files[0]?.after ?? ""))
-    expect(again.commands.test).toEqual(want.commands.test)
-    expect(again.resources).toEqual(want.resources)
-    expect(again.draftingNotes).toEqual(want.draftingNotes)
-    expect(expectedPromotedOf(result.files[1]?.after ?? "")).toEqual(
-      expectedPromotedOf(committedDockerfile("cli")),
+    expect(got.notes).toContain(
+      "@b4run/sandbox (packages/sandbox) is installed, not captured: a test importing it resolves the image's manifest-only copy and fails, and target:measure proposes excluding that test (or pass --with-dev-builds)",
+    )
+    expect(got.notes).toContain(
+      "packages/cli/vitest.config.ts reads ../sandbox/ (packages/sandbox), which the capture omits: a test that reaches it fails, and target:measure proposes excluding it",
+    )
+    expect(got.notes).toContainEqual(
+      expect.stringMatching(/^packages\/cli: not captured: bin\/ \(\d+ files?\), scripts\/ \(\d+ files?\)$/),
     )
   })
+
+  it("carries everything decided when it regenerates the committed target in place", () => {
+    const again = generate("@b4run/cli", want.pin, targetsDir)
+    // Scope, capture, module assertions, runner configuration, resources, drafting notes and
+    // the promotion set all carried; only the build is regenerated.
+    expect(normalise(again.manifest)).toEqual(normalise({ ...want, commands: { ...want.commands, build: CLI_BUILD } }))
+    expect(again.manifest.imageAssertResolves).toEqual(want.imageAssertResolves)
+    expect(sorted(again.manifest.capture.include)).toEqual(sorted(want.capture.include))
+    expect(expectedPromotedOf(again.dockerfile)).toEqual(expectedPromotedOf(committedDockerfile("cli")))
+  }, GENERATE_MS)
 })
 ```
 
@@ -2959,10 +3184,13 @@ git commit -m "test(software-factory): target:init reproduces the devkit and cli
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-### Task 10: Docker lane: the generated `devkit` Dockerfile builds
+### Task 10: Docker lanes: the generated `devkit` Dockerfile builds; the `cli` one, by hand, before PR 1 merges
+
+`devkit` exercises neither the nested-TypeScript shim nor a relink by a name other than its own; only `cli` does (review I9). So the `cli` build is part of PR 1, opt-in like the `cli` target's own lane, and run once by hand before the PR merges.
 
 **Files:**
 - Test: `controller/test/target-init.integration.test.ts`
+- Modify: `controller/package.json` (`test:sandbox:cli`)
 
 - [ ] **Step 1: Write the lane**
 
@@ -2977,70 +3205,107 @@ import {
   configuredImages,
   loadTargetRecipe,
   repositoryRoot,
+  targetsDir,
 } from "../src/lib/targets/catalog.ts"
-import { promotionMismatch, withExpectedPromoted } from "../src/lib/targets/init/dockerfile.ts"
+import {
+  expectedPromotedOf,
+  promotionMismatch,
+  withExpectedPromoted,
+} from "../src/lib/targets/init/dockerfile.ts"
 import { initTarget } from "../src/lib/targets/init/init.ts"
 import { type EnsuredImage, ImagePrepareError } from "../src/lib/targets/images.ts"
 import { writeProposal } from "../src/lib/targets/proposal.ts"
 import { shippedPin } from "./temp-repo.ts"
 
+/**
+ * Generate `packageRef`'s target at `id`'s shipped pin into a scratch catalog and build it
+ * through the run's registry, learning the promotion set once if the first build names one
+ * (what a person does with target:measure's proposal). initTarget makes the pin present
+ * itself, so this holds on a shallow checkout whatever the global setup built first.
+ */
+async function buildGenerated(packageRef: string, id: string) {
+  const registry = configuredImages()
+  if (registry === undefined) throw new Error("the lane setup configured no image registry")
+  const targets = mkdtempSync(join(tmpdir(), `factory-init-lane-${id}-`))
+  try {
+    writeProposal(
+      initTarget({ packageRef, pin: shippedPin(id), repositoryRoot: repositoryRoot(), targetsDir: targets }).files,
+    )
+    const ensure = () =>
+      registry.ensure(loadTargetRecipe(id, { targetsDir: targets }), { signal: AbortSignal.timeout(2_400_000) })
+    let learned: string[] | undefined
+    let ensured: EnsuredImage
+    try {
+      ensured = await ensure()
+    } catch (error) {
+      learned = error instanceof ImagePrepareError ? promotionMismatch(error.log) : undefined
+      if (learned === undefined) throw error
+      process.stderr.write(`lane: the generated ${id} Dockerfile promotes [${learned.join(" ")}]\n`)
+      const path = join(targets, id, "Dockerfile")
+      writeFileSync(path, withExpectedPromoted(readFileSync(path, "utf8"), learned))
+      ensured = await ensure()
+    }
+    return { ensured, learned }
+  } finally {
+    rmSync(targets, { recursive: true, force: true })
+  }
+}
+
 describe("a devkit target generated by target:init", () => {
   it(
-    "builds through the registry, learning its promotion set when the build names one",
+    "builds through the registry",
     async () => {
-      const registry = configuredImages()
-      if (registry === undefined) throw new Error("the lane setup configured no image registry")
-      const targets = mkdtempSync(join(tmpdir(), "factory-init-lane-"))
-      try {
-        const result = initTarget({
-          packageRef: "@b4run/devkit",
-          pin: shippedPin("devkit"),
-          repositoryRoot: repositoryRoot(),
-          targetsDir: targets,
-        })
-        writeProposal(result.files)
-        const ensure = () =>
-          registry.ensure(loadTargetRecipe("devkit", { targetsDir: targets }), {
-            signal: AbortSignal.timeout(1_200_000),
-          })
-        let ensured: EnsuredImage
-        try {
-          ensured = await ensure()
-        } catch (error) {
-          const promoted = error instanceof ImagePrepareError ? promotionMismatch(error.log) : undefined
-          if (promoted === undefined) throw error
-          // What a person does with target:measure's proposal (PR 2): record it, apply it, build.
-          process.stderr.write(`lane: the generated devkit Dockerfile promotes [${promoted.join(" ")}]\n`)
-          const path = join(targets, "devkit", "Dockerfile")
-          writeFileSync(path, withExpectedPromoted(readFileSync(path, "utf8"), promoted))
-          ensured = await ensure()
-        }
-        expect(ensured.image.localId).toMatch(/^sha256:[0-9a-f]{64}$/)
-        expect(ensured.image.baseManifestDigest).toBe(
-          "sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6",
-        )
-        // The build ran the promotion step and every module assertion (vitest, typescript,
-        // @types/node) passed inside the image, or ensure would have thrown.
-        if (ensured.build !== undefined) expect(ensured.build.log).toMatch(/b4-factory promoted:[^\n$"]*$/m)
-      } finally {
-        rmSync(targets, { recursive: true, force: true })
-      }
+      const { ensured } = await buildGenerated("@b4run/devkit", "devkit")
+      expect(ensured.image.localId).toMatch(/^sha256:[0-9a-f]{64}$/)
+      expect(ensured.image.baseManifestDigest).toBe(
+        "sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6",
+      )
+      // The build ran the promotion step, and every module assertion passed in the image.
+      if (ensured.build !== undefined) expect(ensured.build.log).toMatch(/b4-factory promoted:[^\n$"]*$/m)
     },
-    2_460_000,
+    5_000_000,
+  )
+})
+
+/**
+ * The template's nested-typescript shim and its relinks by package name are exercised only by
+ * cli (plan I9). Opt-in like the cli target's own lane (a 2 GB image): `test:sandbox:cli`
+ * sets the variable, and PR 1 runs it once by hand before it merges.
+ */
+describe.skipIf(process.env.FACTORY_TEST_CLI_TARGET !== "1")("a cli target generated by target:init", () => {
+  it(
+    "learns the hand-written Dockerfile's promotion set from its first build, then builds",
+    async () => {
+      const { ensured, learned } = await buildGenerated("@b4run/cli", "cli")
+      expect(learned).toEqual(expectedPromotedOf(readFileSync(join(targetsDir, "cli", "Dockerfile"), "utf8")))
+      expect(ensured.image.localId).toMatch(/^sha256:[0-9a-f]{64}$/)
+    },
+    5_000_000,
   )
 })
 ```
 
-- [ ] **Step 2: Run the lane**
+In `controller/package.json`, `test:sandbox:cli` becomes:
+
+```json
+    "test:sandbox:cli": "FACTORY_TEST_CLI_TARGET=1 vitest run --config vitest.sandbox.config.ts test/target-cli.integration.test.ts test/target-init.integration.test.ts",
+```
+
+- [ ] **Step 2: Run the `devkit` lane**
 
 Run: `pnpm --filter @b4-example/software-factory-controller exec vitest run --config vitest.sandbox.config.ts test/target-init.integration.test.ts`
-Expected: PASS. Record in the PR description: the wall clock, and whether the build learned a promotion set (and which); that is a fact about `devkit` at `6a59e00a` the hand-written Dockerfile never checked.
+Expected: PASS, the `cli` case skipped. Record in the PR description the wall clock and whether the build learned a promotion set (the prototype: none at `6a59e00a`).
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Run the `cli` lane once, by hand, before PR 1 merges**
+
+Run: `FACTORY_TEST_CLI_TARGET=1 pnpm --filter @b4-example/software-factory-controller exec vitest run --config vitest.sandbox.config.ts test/target-init.integration.test.ts`
+Expected: PASS: the first build fails at the promotion check naming `@hono/node-server commander hono typescript` (the hand-written set), the second builds (the shim and the relinks by name in a real image). Record the wall clock and both builds' outcome in PR 1's description. If it fails anywhere else, the template is wrong for `cli`: fix it in PR 1, not later.
+
+- [ ] **Step 4: Commit**
 
 ```bash
-git add examples/software-factory/controller/test/target-init.integration.test.ts
-git commit -m "test(software-factory): the generated devkit Dockerfile builds through the registry
+git add examples/software-factory/controller/test/target-init.integration.test.ts examples/software-factory/controller/package.json
+git commit -m "test(software-factory): generated devkit and (opt-in) cli Dockerfiles build through the registry
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -3068,8 +3333,10 @@ build outputs. It prints a diff and writes only with `--write`. Resources are pl
 no test is excluded until `target:measure` proposes them. Re-running it on an existing target
 keeps what was decided there (base image, resources, drafting notes, the test command's scope
 and excludes, the Dockerfile's promotion set), so an unchanged target prints an empty diff.
-Only packages under `packages/` whose tests run with vitest are generated; `cli-flags` stays
-hand-written.
+Its notes name what the capture leaves out (package subdirectories, a sibling the vitest config
+reads) and each package installed but not captured; `--with-dev-builds` captures and builds the
+package's workspace devDependencies that have builds. Only packages under `packages/` whose
+tests run with vitest are generated; `cli-flags` stays hand-written.
 ```
 
 - [ ] **Step 2: Spec as-landed (PR 1)**
@@ -3117,6 +3384,7 @@ pnpm --filter @b4-example/software-factory-controller typecheck
 pnpm --filter @b4-example/software-factory-controller lint
 pnpm --filter @b4-example/software-factory-controller test
 pnpm --filter @b4-example/software-factory-controller exec vitest run --config vitest.sandbox.config.ts test/target-init.integration.test.ts
+FACTORY_TEST_CLI_TARGET=1 pnpm --filter @b4-example/software-factory-controller exec vitest run --config vitest.sandbox.config.ts test/target-init.integration.test.ts   # once, by hand (Task 10 Step 3)
 node scripts/check-docs.mjs
 ```
 
@@ -3295,26 +3563,34 @@ describe("the commands target:measure runs", () => {
 ```ts
 import { describe, expect, it } from "vitest"
 import {
+  captureOmissions,
   changedPaths,
   classifyFile,
+  errorLines,
   MeasureError,
   type Measurement,
   outputTail,
   proposeResources,
+  renderMeasurementRecord,
   renderReport,
+  settleFile,
+  settleResources,
   type VitestRun,
 } from "../src/lib/targets/measure/classify.ts"
 
 const MiB = 1024 * 1024
 const LIMITS = { fileTimeoutMs: 180_000, memoryMb: 4096 }
+const COUNTS = { passed: 3, failed: 0, skipped: 0 }
 const run = (overrides: Partial<VitestRun> = {}): VitestRun => ({
   exitCode: 0,
   output: "\u001b[32m✓\u001b[0m test/a.test.ts (3 tests)\n",
   timedOut: false,
-  files: [{ file: "test/a.test.ts", passed: true }],
+  files: [{ file: "test/a.test.ts", passed: true, tests: COUNTS }],
   ms: 1_234,
   ...overrides,
 })
+const failing = (output: string): VitestRun =>
+  run({ exitCode: 1, output, files: [{ file: "test/a.test.ts", passed: false, tests: { passed: 0, failed: 2, skipped: 1 } }] })
 
 describe("a file run alone", () => {
   it("passes when it passes and leaves the workspace as it found it", () => {
@@ -3324,35 +3600,68 @@ describe("a file run alone", () => {
       reason: "passes run alone",
       output: "",
       ms: 1_234,
+      changed: [],
+      tests: COUNTS,
+      omissions: [],
     })
   })
 
   it("is proposed for exclusion when it fails, hangs, is killed or writes, with its output", () => {
-    const failed = classifyFile(
-      "test/a.test.ts",
-      run({ exitCode: 1, files: [{ file: "test/a.test.ts", passed: false }], output: "ENOENT: templates/app-basic\n" }),
-      [],
-      LIMITS,
-    )
-    expect(failed).toMatchObject({ verdict: "fail", reason: "fails run alone (exit 1)", output: "ENOENT: templates/app-basic" })
+    expect(classifyFile("test/a.test.ts", failing("AssertionError: nope\n"), [], LIMITS)).toMatchObject({
+      verdict: "fail",
+      reason: "fails run alone (exit 1)",
+      output: "AssertionError: nope",
+      tests: { passed: 0, failed: 2, skipped: 1 },
+    })
     expect(classifyFile("test/a.test.ts", run({ exitCode: 124, timedOut: true, files: null }), [], LIMITS)).toMatchObject({
       verdict: "hang",
       reason: "did not finish within 180000 ms run alone",
     })
     expect(classifyFile("test/a.test.ts", run({ exitCode: 137, files: null }), [], LIMITS)).toMatchObject({
-      verdict: "fail",
+      verdict: "killed",
       reason: "was killed (exit 137; the session's memory limit was 4096 MB)",
     })
     const writes = classifyFile("test/a.test.ts", run(), ["packages/app/test/out.json"], LIMITS)
     expect(writes.verdict).toBe("writes")
-    expect(writes.reason).toContain("the verifier refuses as tampering: packages/app/test/out.json")
+    expect(writes.reason).toBe(
+      "passes, but changes the workspace, which the verifier refuses as tampering: packages/app/test/out.json",
+    )
+  })
+
+  it("reports what a failing file changed too, and names a capture omission", () => {
+    const output = "Error: ENOENT: no such file or directory, open '/workspace/packages/devkit/templates/app-basic/AGENTS.md'\n"
+    const result = classifyFile(
+      "test/a.test.ts",
+      failing(output),
+      ["packages/app/test/out.json"],
+      LIMITS,
+      (path) => path === "packages/devkit/templates/app-basic/AGENTS.md",
+    )
+    expect(result.verdict).toBe("fail")
+    expect(result.changed).toEqual(["packages/app/test/out.json"])
+    expect(result.omissions).toEqual(["packages/devkit/templates/app-basic/AGENTS.md"])
+    expect(result.reason).toBe(
+      "fails run alone (exit 1); it also changed the workspace: packages/app/test/out.json; capture omission: packages/devkit/templates/app-basic/AGENTS.md exist(s) at the pin but not in the capture",
+    )
+    expect(captureOmissions(output, () => false)).toEqual([])
+    expect(captureOmissions("ENOENT: open '/tmp/x'\n", () => true)).toEqual([])
   })
 
   it("is a harness error, never an exclude, when the run did not select exactly that file", () => {
     expect(() =>
-      classifyFile("test/a.test.ts", run({ files: [{ file: "test/x/test/a.test.ts", passed: true }, { file: "test/a.test.ts", passed: true }] }), [], LIMITS),
+      classifyFile(
+        "test/a.test.ts",
+        run({
+          files: [
+            { file: "test/x/test/a.test.ts", passed: true, tests: COUNTS },
+            { file: "test/a.test.ts", passed: true, tests: COUNTS },
+          ],
+        }),
+        [],
+        LIMITS,
+      ),
     ).toThrow(MeasureError)
-    expect(() => classifyFile("test/a.test.ts", run({ files: [] , exitCode: 1 }), [], LIMITS)).toThrow(
+    expect(() => classifyFile("test/a.test.ts", run({ files: [], exitCode: 1 }), [], LIMITS)).toThrow(
       /must select exactly this file/,
     )
     expect(() => classifyFile("test/a.test.ts", run({ files: null, exitCode: 2 }), [], LIMITS)).toThrow(
@@ -3360,17 +3669,36 @@ describe("a file run alone", () => {
     )
   })
 
-  it("keeps the tail of the output, without terminal escapes", () => {
+  it("settles two runs: a disagreement is flaky, never excluded", () => {
+    const first = classifyFile("test/a.test.ts", failing("Error: once\n"), [], LIMITS)
+    const pass = classifyFile("test/a.test.ts", run(), [], LIMITS)
+    expect(settleFile(first, pass)).toMatchObject({
+      verdict: "flaky",
+      reason: "fails run alone (exit 1) on its first run, but passed a second run in a fresh container: listed, not excluded",
+    })
+    expect(settleFile(first, first)).toMatchObject({
+      verdict: "fail",
+      reason: "fails run alone (exit 1) (a second run in a fresh container: fail)",
+    })
+    expect(settleFile(pass, first)).toBe(pass)
+  })
+
+  it("keeps the tail of the output, without terminal escapes, and its error lines without durations", () => {
     expect(outputTail("\u001b[31mred\u001b[0m\n")).toBe("red")
     expect(outputTail("x".repeat(5_000))).toBe(`…${"x".repeat(4_000)}`)
     expect(changedPaths({ a: "1", b: "2" }, { a: "1", b: "3", c: "4" })).toEqual(["b", "c"])
     expect(changedPaths({ a: "1" }, {})).toEqual(["a"])
+    expect(errorLines(" × a test 3ms\nError: ENOENT: no such file 12ms\nError: ENOENT: no such file 9ms\nTypeError: x\n")).toEqual([
+      "Error: ENOENT: no such file",
+      "TypeError: x",
+    ])
   })
 })
 
 describe("the resources a measured suite proposes", () => {
-  it("reproduces devkit's hand-measured resources from its hand measurement", () => {
-    // Rung 2's measurement: build 1.4 s, suite 8.9 s, memory.peak 369 MiB; a session of 40 s.
+  it("gives devkit's committed memory and verifier deadline from rung 2's measurement", () => {
+    // Rung 2: build 1.4 s, suite 8.9 s, memory.peak 369 MiB; a session of 40 s. The committed
+    // commandTimeoutMs (60000) is 6.7 times the suite, under this rule's eight times (80000).
     expect(
       proposeResources([{ buildMs: 1_400, suiteMs: 8_900, sessionMs: 40_000, memoryPeakBytes: 369 * MiB }], 2),
     ).toEqual({ memoryMb: 768, cpus: 2, commandTimeoutMs: 80_000, verifierDeadlineMs: 240_000 })
@@ -3394,31 +3722,71 @@ describe("the resources a measured suite proposes", () => {
     })
     expect(() => proposeResources([], 2)).toThrow(/no suite sample/)
   })
+
+  it("never proposes below the target's own resources unless asked", () => {
+    const measured = { memoryMb: 512, cpus: 2, commandTimeoutMs: 70_000, verifierDeadlineMs: 120_000 }
+    const prior = { memoryMb: 768, cpus: 2, commandTimeoutMs: 60_000, verifierDeadlineMs: 240_000 }
+    expect(settleResources(measured, prior, false)).toEqual({
+      memoryMb: 768,
+      cpus: 2,
+      commandTimeoutMs: 70_000,
+      verifierDeadlineMs: 240_000,
+    })
+    expect(settleResources(measured, prior, true)).toEqual(measured)
+    expect(settleResources(measured, undefined, false)).toEqual(measured)
+  })
 })
 
-describe("the measurement report", () => {
-  it("names every file, quotes each exclude's output in a fence it cannot close, and explains each number", () => {
-    const measurement: Measurement = {
-      files: [
-        { file: "test/a.test.ts", verdict: "pass", reason: "passes run alone", output: "", ms: 10 },
-        { file: "test/b.test.ts", verdict: "fail", reason: "fails run alone (exit 1)", output: "```\nboom", ms: 20 },
-      ],
-      excludes: ["test/b.test.ts"],
-      test: ["pnpm", "exec", "vitest", "--run", "--exclude", "test/b.test.ts"],
-      samples: [{ buildMs: 1_000, suiteMs: 2_000, sessionMs: 30_000, memoryPeakBytes: 300 * MiB }],
-      resources: { memoryMb: 768, cpus: 2, commandTimeoutMs: 60_000, verifierDeadlineMs: 180_000 },
-    }
+describe("what a measurement writes", () => {
+  const measurement: Measurement = {
+    files: [
+      { file: "test/a.test.ts", verdict: "pass", reason: "passes run alone", output: "", ms: 10, changed: [], omissions: [] },
+      { file: "test/b.test.ts", verdict: "fail", reason: "fails run alone (exit 1)", output: "```\nError: boom 4ms", ms: 20, changed: [], omissions: [] },
+      { file: "test/c.test.ts", verdict: "flaky", reason: "fails run alone (exit 1) on its first run, but passed a second run in a fresh container: listed, not excluded", output: "Error: once", ms: 30, changed: [], omissions: [] },
+    ],
+    excludes: ["test/b.test.ts"],
+    test: ["pnpm", "exec", "vitest", "--run", "--exclude", "test/b.test.ts"],
+    samples: [{ buildMs: 1_000, suiteMs: 2_000, sessionMs: 30_000, memoryPeakBytes: 300 * MiB }],
+    measured: { memoryMb: 768, cpus: 2, commandTimeoutMs: 60_000, verifierDeadlineMs: 180_000 },
+    prior: undefined,
+    resources: { memoryMb: 768, cpus: 2, commandTimeoutMs: 60_000, verifierDeadlineMs: 180_000 },
+    confirmation: { buildMs: 900, suiteMs: 2_100, sessionMs: 29_000, memoryPeakBytes: 310 * MiB },
+  }
+
+  it("a report that names every file, fences each output, and sets before, measured and proposed side by side", () => {
     const report = renderReport({
       target: { id: "app", pin: "a".repeat(40) },
       image: { localId: `sha256:${"b".repeat(64)}`, tag: "b4-factory-app:aaaaaaaaaaaa-cccccccccccc" },
       measurement,
       limits: LIMITS,
+      notes: ["measured at another pin"],
     })
     expect(report).toContain(`# target:measure app at ${"a".repeat(40)}`)
-    expect(report).toContain("## Files: 2, 1 pass, 1 proposed for exclusion")
-    expect(report).toContain("### `test/b.test.ts`: fail\n\nfails run alone (exit 1)\n\n````\n```\nboom\n````\n")
+    expect(report).toContain("> measured at another pin")
+    expect(report).toContain("## Files: 3, 1 pass, 1 proposed for exclusion, 1 flaky")
+    expect(report).toContain("### `test/b.test.ts`: fail\n\nfails run alone (exit 1)\n\n````\n```\nError: boom 4ms\n````\n")
     expect(report).toContain("| 1 | 1000 | 2000 | 30000 | 300 |")
-    expect(report).toContain("- memoryMb 768: twice the highest memory.peak")
+    expect(report).toContain("| at the proposed resources | 900 | 2100 | 29000 | 310 |")
+    expect(report).toContain("| memoryMb | (placeholder) | 768 | 768 |")
+  })
+
+  it("a committed record with each exclude's class and error lines, and no timing", () => {
+    expect(renderMeasurementRecord("app", measurement.files)).toBe(
+      [
+        "# Measured excludes: app",
+        "",
+        "Written by `target:measure --write` and reviewed with `target.json`. Each file below is excluded from the target's suite, and so from every verification of a task on this target. The measurement's `report.md` holds the full output.",
+        "",
+        "- `test/b.test.ts`: fail. fails run alone (exit 1)",
+        "  > Error: boom",
+        "",
+        "## Flaky: listed, not excluded",
+        "",
+        "- `test/c.test.ts`: flaky. fails run alone (exit 1) on its first run, but passed a second run in a fresh container: listed, not excluded",
+        "  > Error: once",
+        "",
+      ].join("\n"),
+    )
   })
 })
 ```
@@ -3462,15 +3830,13 @@ export function listArgv(command: VitestCommand): string[] {
 ```ts
 import type { TargetManifest, TargetRecipe } from "../catalog.js"
 
-/** Something about the harness or the target, not a verdict on a test file: `measure` stops. */
-export class MeasureError extends Error {
-  constructor(
-    message: string,
-    readonly output = "",
-  ) {
-    super(message)
-    this.name = "MeasureError"
-  }
+export type Resources = TargetManifest["resources"]
+
+/** One file's per-test counts from vitest's JSON report (`assertionResults`). */
+export interface TestCounts {
+  readonly passed: number
+  readonly failed: number
+  readonly skipped: number
 }
 
 /** One vitest run in a measurement session, as `MeasureSession.vitest` reports it. */
@@ -3481,11 +3847,18 @@ export interface VitestRun {
   /** The sandbox's per-command timeout fired (exit 124). */
   readonly timedOut: boolean
   /** The files the JSON report names, relative to the command directory; null with no report. */
-  readonly files: readonly { readonly file: string; readonly passed: boolean }[] | null
+  readonly files:
+    | readonly { readonly file: string; readonly passed: boolean; readonly tests: TestCounts }[]
+    | null
   readonly ms: number
 }
 
-export type FileVerdict = "pass" | "fail" | "hang" | "writes"
+/**
+ * `fail`, `hang`, `killed` and `writes` are proposed for exclusion; `flaky` (a non-pass whose
+ * second run, in a fresh container, disagreed) is listed and never proposed (plan D11).
+ */
+export type FileVerdict = "pass" | "fail" | "hang" | "killed" | "writes" | "flaky"
+export const EXCLUDED: ReadonlySet<FileVerdict> = new Set(["fail", "hang", "killed", "writes"])
 
 export interface FileMeasurement {
   readonly file: string
@@ -3494,6 +3867,12 @@ export interface FileMeasurement {
   /** The run's output tail: empty for a pass, the evidence a reviewer reads otherwise. */
   readonly output: string
   readonly ms: number
+  /** What the run changed in the workspace, whatever its verdict. */
+  readonly changed: readonly string[]
+  /** Per-test counts, when vitest reported them. */
+  readonly tests?: TestCounts
+  /** Paths the run could not find that exist at the pin: what the capture left out. */
+  readonly omissions: readonly string[]
 }
 
 export interface SuiteSample {
@@ -3510,7 +3889,13 @@ export interface Measurement {
   /** The proposed `commands.test`. */
   readonly test: readonly string[]
   readonly samples: readonly SuiteSample[]
-  readonly resources: TargetManifest["resources"]
+  /** From the samples alone (`proposeResources`). */
+  readonly measured: Resources
+  /** The target's resources before this measurement; undefined for placeholders. */
+  readonly prior: Resources | undefined
+  /** What is proposed: `settleResources(measured, prior, allowDecrease)`, confirmed by a run at these values. */
+  readonly resources: Resources
+  readonly confirmation: SuiteSample
 }
 
 export interface MeasureLimits {
@@ -3518,10 +3903,27 @@ export interface MeasureLimits {
   readonly memoryMb: number
 }
 
+/** Something about the harness or the target, not a verdict on a test file: `measure` stops. */
+export class MeasureError extends Error {
+  /** The files measured before the stop, when the per-file phase got that far. */
+  files: readonly FileMeasurement[] | undefined
+  /** A partial report of those files, which `measureTarget` renders for the script to write. */
+  report: string | undefined
+  constructor(
+    message: string,
+    readonly output = "",
+  ) {
+    super(message)
+    this.name = "MeasureError"
+  }
+}
+
 export const OUTPUT_LIMIT = 4_000
 const MiB = 1024 * 1024
 // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping terminal escapes is the point
 const ANSI = /\u001b\[[0-9;?]*[A-Za-z]/g
+/** The workspace root inside a target's container (every generated Dockerfile's WORKDIR). */
+const WORKSPACE = "/workspace/"
 
 /** The last `limit` characters of `text` without terminal escapes: where a failure explains itself. */
 export function outputTail(text: string, limit = OUTPUT_LIMIT): string {
@@ -3540,24 +3942,52 @@ export function changedPaths(
 }
 
 /**
- * What one file run alone says about it (plan D11). A run that did not select exactly `file`
- * (vitest's positional argument is a filter), or wrote no report without being killed or timed
- * out, is the harness's failure, not the file's: it throws.
+ * Workspace paths an `ENOENT` in `output` names that exist at the pin (`existsAtPin`, over
+ * repository paths): not a defect of the test but of the capture, said so to the reviewer.
+ */
+export function captureOmissions(output: string, existsAtPin: (path: string) => boolean): string[] {
+  const found = new Set<string>()
+  for (const match of output.replace(ANSI, "").matchAll(/ENOENT[^\n]*?'(\/[^'\n]+)'/g)) {
+    const absolute = match[1] as string
+    if (!absolute.startsWith(WORKSPACE)) continue
+    const path = absolute.slice(WORKSPACE.length)
+    if (existsAtPin(path)) found.add(path)
+  }
+  return [...found].sort()
+}
+
+const list = (paths: readonly string[]) =>
+  `${paths.slice(0, 10).join(", ")}${paths.length > 10 ? ` and ${paths.length - 10} more` : ""}`
+
+/**
+ * What one file run alone says about it. `changed` is reported whatever the verdict, so a file
+ * that fails AND writes shows both. A run that did not select exactly `file` (vitest's
+ * positional argument is a filter), or wrote no report without being killed or timed out, is
+ * the harness's failure, not the file's: it throws.
  */
 export function classifyFile(
   file: string,
   run: VitestRun,
   changed: readonly string[],
   limits: MeasureLimits,
+  existsAtPin: (path: string) => boolean = () => false,
 ): FileMeasurement {
-  const base = { file, ms: run.ms, output: outputTail(run.output) }
+  const omissions = captureOmissions(run.output, existsAtPin)
+  const also = [
+    ...(changed.length > 0 ? [`it also changed the workspace: ${list(changed)}`] : []),
+    ...(omissions.length > 0
+      ? [`capture omission: ${list(omissions)} exist(s) at the pin but not in the capture`]
+      : []),
+  ]
+  const because = (reason: string) => [reason, ...also].join("; ")
+  const base = { file, ms: run.ms, output: outputTail(run.output), changed: [...changed], omissions }
   if (run.timedOut)
-    return { ...base, verdict: "hang", reason: `did not finish within ${limits.fileTimeoutMs} ms run alone` }
+    return { ...base, verdict: "hang", reason: because(`did not finish within ${limits.fileTimeoutMs} ms run alone`) }
   if (run.files === null && run.exitCode === 137)
     return {
       ...base,
-      verdict: "fail",
-      reason: `was killed (exit 137; the session's memory limit was ${limits.memoryMb} MB)`,
+      verdict: "killed",
+      reason: because(`was killed (exit 137; the session's memory limit was ${limits.memoryMb} MB)`),
     }
   if (run.files === null)
     throw new MeasureError(
@@ -3570,26 +4000,41 @@ export function classifyFile(
       `The run of ${file} alone reported ${JSON.stringify(named)}: vitest's positional argument is a filter, and it must select exactly this file`,
       run.output,
     )
+  const tests = run.files[0]?.tests
+  const counted = { ...base, ...(tests !== undefined ? { tests } : {}) }
   if (run.exitCode !== 0 || run.files[0]?.passed !== true)
-    return { ...base, verdict: "fail", reason: `fails run alone (exit ${run.exitCode})` }
+    return { ...counted, verdict: "fail", reason: because(`fails run alone (exit ${run.exitCode})`) }
   if (changed.length > 0)
     return {
-      ...base,
+      ...counted,
       verdict: "writes",
-      reason: `passes, but changes the workspace, which the verifier refuses as tampering: ${changed
-        .slice(0, 10)
-        .join(", ")}${changed.length > 10 ? ` and ${changed.length - 10} more` : ""}`,
+      reason: [
+        `passes, but changes the workspace, which the verifier refuses as tampering: ${list(changed)}`,
+        ...also.slice(1),
+      ].join("; "),
     }
-  return { ...base, verdict: "pass", reason: "passes run alone", output: "" }
+  return { ...counted, verdict: "pass", reason: "passes run alone", output: "" }
+}
+
+/**
+ * A file's two runs, the second in a fresh container, as one verdict: a non-pass the second
+ * run contradicts is `flaky` (listed, never excluded); two non-passes keep the first verdict.
+ */
+export function settleFile(first: FileMeasurement, second: FileMeasurement): FileMeasurement {
+  if (first.verdict === "pass") return first
+  if (second.verdict === "pass")
+    return {
+      ...first,
+      verdict: "flaky",
+      reason: `${first.reason} on its first run, but passed a second run in a fresh container: listed, not excluded`,
+    }
+  return { ...first, reason: `${first.reason} (a second run in a fresh container: ${second.verdict})` }
 }
 
 const roundUp = (value: number, step: number) => Math.ceil(value / step) * step
 
 /** Resources from the worst of every whole-suite sample (plan D12). */
-export function proposeResources(
-  samples: readonly SuiteSample[],
-  cpus: number,
-): TargetManifest["resources"] {
+export function proposeResources(samples: readonly SuiteSample[], cpus: number): Resources {
   if (samples.length === 0) throw new Error("There is no suite sample to propose resources from")
   const peakMiB = Math.max(...samples.map((s) => s.memoryPeakBytes)) / MiB
   const slowest = Math.max(...samples.flatMap((s) => [s.buildMs, s.suiteMs]))
@@ -3602,49 +4047,119 @@ export function proposeResources(
   }
 }
 
+/**
+ * What is proposed (plan D12): never below the target's own resources unless the person asks
+ * (`allowDecrease`), because one host's measurement is not every host's (rung 2 measured 369
+ * MiB on devkit where the prototype measured 181). Placeholders are no prior (`prior` undefined).
+ */
+export function settleResources(
+  measured: Resources,
+  prior: Resources | undefined,
+  allowDecrease: boolean,
+): Resources {
+  if (prior === undefined || allowDecrease) return measured
+  return {
+    memoryMb: Math.max(measured.memoryMb, prior.memoryMb),
+    cpus: Math.max(measured.cpus, prior.cpus),
+    commandTimeoutMs: Math.max(measured.commandTimeoutMs, prior.commandTimeoutMs),
+    verifierDeadlineMs: Math.max(measured.verifierDeadlineMs, prior.verifierDeadlineMs),
+  }
+}
+
+/** The first lines of `output` that say what went wrong, without durations: for measurement.md. */
+export function errorLines(output: string, count = 3): string[] {
+  const lines = output
+    .replace(ANSI, "")
+    .split("\n")
+    .map((line) => line.trim().replace(/\s+\d+(?:\.\d+)?m?s$/, ""))
+    .filter((line) => /\b(?:\w*Error|ENOENT|EACCES|ECONNREFUSED|Command timed out)\b/.test(line))
+  return [...new Set(lines)].slice(0, count)
+}
+
+const fenceFor = (text: string) =>
+  "`".repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map((r) => r[0].length + 1)))
+
+/** The per-file part of a report: also what a stopped measurement writes (a partial report). */
+export function renderFiles(files: readonly FileMeasurement[]): string[] {
+  const passed = files.filter((f) => f.verdict === "pass").length
+  const excluded = files.filter((f) => EXCLUDED.has(f.verdict)).length
+  const lines = [
+    `## Files: ${files.length}, ${passed} pass, ${excluded} proposed for exclusion, ${files.filter((f) => f.verdict === "flaky").length} flaky`,
+    "",
+    ...files.map(
+      (f) =>
+        `- \`${f.file}\`: ${f.verdict} (${f.ms} ms${f.tests ? `; tests ${f.tests.passed} passed, ${f.tests.failed} failed, ${f.tests.skipped} skipped` : ""})`,
+    ),
+    "",
+  ]
+  for (const f of files.filter((f) => f.verdict !== "pass")) {
+    const fence = fenceFor(f.output)
+    lines.push(`### \`${f.file}\`: ${f.verdict}`, "", f.reason, "", fence, f.output, fence, "")
+  }
+  return lines
+}
+
 /** The evidence a person reads before accepting the proposal: `report.md`. */
 export function renderReport(input: {
   readonly target: Pick<TargetRecipe, "id" | "pin">
   readonly image: { readonly localId: string; readonly tag: string }
   readonly measurement: Measurement
   readonly limits: MeasureLimits
+  readonly notes?: readonly string[]
 }): string {
   const { target, image, measurement: m, limits } = input
-  const passed = m.files.filter((f) => f.verdict === "pass").length
+  const row = (name: keyof Resources) =>
+    `| ${name} | ${m.prior?.[name] ?? "(placeholder)"} | ${m.measured[name]} | ${m.resources[name]} |`
   const lines = [
     `# target:measure ${target.id} at ${target.pin}`,
     "",
-    `Image ${image.localId} (${image.tag}), the network denied. Each test file ran alone (${limits.fileTimeoutMs} ms, ${limits.memoryMb} MB); then the suite with the proposed excludes ran ${m.samples.length} time(s), each in a fresh container.`,
+    `Image ${image.localId} (${image.tag}), the network denied. Each test file ran alone (${limits.fileTimeoutMs} ms, ${limits.memoryMb} MB), and each non-pass once more in a fresh container; the suite with the proposed excludes then ran ${m.samples.length} time(s), each in a fresh container, and once more at the proposed resources.`,
     "",
-    `## Files: ${m.files.length}, ${passed} pass, ${m.excludes.length} proposed for exclusion`,
-    "",
-    ...m.files.map((f) => `- \`${f.file}\`: ${f.verdict} (${f.ms} ms)`),
-    "",
-  ]
-  for (const f of m.files.filter((f) => f.verdict !== "pass")) {
-    // A fence longer than any run of backticks in the output, so the output cannot close it.
-    const fence = "`".repeat(Math.max(3, ...[...f.output.matchAll(/`+/g)].map((r) => r[0].length + 1)))
-    lines.push(`### \`${f.file}\`: ${f.verdict}`, "", f.reason, "", fence, f.output, fence, "")
-  }
-  lines.push(
+    ...(input.notes ?? []).flatMap((note) => [`> ${note}`, ""]),
+    ...renderFiles(m.files),
     "## The suite with the proposed excludes",
     "",
     "| run | build ms | suite ms | session ms | memory.peak MiB |",
     "|---|---|---|---|---|",
-    ...m.samples.map(
+    ...[...m.samples, m.confirmation].map(
       (s, i) =>
-        `| ${i + 1} | ${s.buildMs} | ${s.suiteMs} | ${s.sessionMs} | ${Math.ceil(s.memoryPeakBytes / MiB)} |`,
+        `| ${i < m.samples.length ? i + 1 : "at the proposed resources"} | ${s.buildMs} | ${s.suiteMs} | ${s.sessionMs} | ${Math.ceil(s.memoryPeakBytes / MiB)} |`,
     ),
     "",
-    "## Proposed resources",
+    "## Resources",
     "",
-    `- memoryMb ${m.resources.memoryMb}: twice the highest memory.peak, rounded up to 256 MiB, at least 512 (memory.peak includes page cache, so it errs high)`,
-    `- cpus ${m.resources.cpus}: what the sessions ran with`,
-    `- commandTimeoutMs ${m.resources.commandTimeoutMs}: eight times the slower of the build and the suite, rounded up to 10 s, at least 60 s`,
-    `- verifierDeadlineMs ${m.resources.verifierDeadlineMs}: two sessions (visible and independent) at 2.5 times the slowest, rounded up to a minute, at least 2 minutes`,
+    "| field | before | measured | proposed |",
+    "|---|---|---|---|",
+    row("memoryMb"),
+    row("cpus"),
+    row("commandTimeoutMs"),
+    row("verifierDeadlineMs"),
     "",
-  )
+    "Measured: memoryMb is twice the highest memory.peak, rounded up to 256 MiB, at least 512 (memory.peak includes page cache, so it errs high); cpus is what the sessions ran with; commandTimeoutMs is eight times the slower of the build and the suite, rounded up to 10 s, at least 60 s; verifierDeadlineMs is two sessions (visible and independent) at 2.5 times the slowest, rounded up to a minute, at least 2 minutes. Proposed: never below before unless --allow-decrease, and confirmed by a whole-suite run at exactly these values.",
+    "",
+  ]
   return lines.join("\n")
+}
+
+/**
+ * `targets/<id>/measurement.md`: why each file is excluded, committed and reviewed with
+ * `target.json` (plan D2). Deterministic across hosts and runs: no timings, no image ids.
+ */
+export function renderMeasurementRecord(id: string, files: readonly FileMeasurement[]): string {
+  const excluded = files.filter((f) => EXCLUDED.has(f.verdict))
+  const flaky = files.filter((f) => f.verdict === "flaky")
+  const entry = (f: FileMeasurement) => [
+    `- \`${f.file}\`: ${f.verdict}. ${f.reason.replace(/ \(\d+ ms\)/g, "")}`,
+    ...errorLines(f.output).map((line) => `  > ${line}`),
+  ]
+  return `${[
+    `# Measured excludes: ${id}`,
+    "",
+    "Written by `target:measure --write` and reviewed with `target.json`. Each file below is excluded from the target's suite, and so from every verification of a task on this target. The measurement's `report.md` holds the full output.",
+    "",
+    ...(excluded.length === 0 ? ["No file is excluded: every file passed run alone."] : excluded.flatMap(entry)),
+    ...(flaky.length === 0 ? [] : ["", "## Flaky: listed, not excluded", "", ...flaky.flatMap(entry)]),
+  ].join("\n")}\n`
 }
 ```
 
@@ -3726,32 +4241,46 @@ export interface FakeFile {
   readonly ms?: number
   /** The files the run's report names; the file itself when absent. */
   readonly reports?: readonly string[]
+  /** Fails its first run only (exit 1), then passes. */
+  readonly flakyOnce?: boolean
 }
 
 export interface FakeScript {
   readonly files: Readonly<Record<string, FakeFile>>
   readonly build?: { readonly ok: boolean; readonly output?: string }
-  readonly suite?: { readonly exitCode?: number; readonly writes?: readonly string[]; readonly ms?: number }
+  readonly suite?: {
+    readonly exitCode?: number
+    readonly writes?: readonly string[]
+    readonly ms?: number
+    /** Killed (exit 137) in a session with less memory than this. */
+    readonly minMemoryMb?: number
+  }
   readonly peakBytes?: number
 }
 
+const COUNTS = { passed: 1, failed: 0, skipped: 0 }
+
 /**
  * Sessions over a scripted suite. A vitest argv naming exactly one of the script's files as a
- * positional (not after --exclude) is that file's run; anything else is the whole suite. Tests
- * with a scope therefore scope at least two files.
+ * positional (and no --exclude) is that file's run; anything else is the whole suite. Tests
+ * with a scope therefore scope at least two files. `sessionOf` records, per vitest run, the
+ * number of the session it ran in (1-based).
  */
 export function fakeSessions(script: FakeScript) {
   const opened: SessionLimits[] = []
   const commands: string[][] = []
+  const sessionOf: { readonly argv: readonly string[]; readonly session: number }[] = []
+  const calls = new Map<string, number>()
   const names = Object.keys(script.files).sort()
   const open: OpenSession = async (limits, use) => {
     opened.push(limits)
+    const session = opened.length
     let workspace: Record<string, string> = { "packages/app/src/index.ts": "v0" }
     let version = 0
     const write = (paths: readonly string[] = []) => {
       for (const path of paths) workspace = { ...workspace, [path]: `v${++version}` }
     }
-    const session: MeasureSession = {
+    const measure: MeasureSession = {
       build: async () => ({ ok: script.build?.ok ?? true, output: script.build?.output ?? "built", ms: 1_000 }),
       listFiles: async (argv) => {
         commands.push([...argv])
@@ -3759,31 +4288,41 @@ export function fakeSessions(script: FakeScript) {
       },
       vitest: async (argv): Promise<VitestRun> => {
         commands.push([...argv])
+        sessionOf.push({ argv: [...argv], session })
         const positional = argv.filter((arg, i) => names.includes(arg) && argv[i - 1] !== "--exclude")
         const file = positional.length === 1 && !argv.includes("--exclude") ? positional[0] : undefined
         if (file === undefined) {
           write(script.suite?.writes)
-          return { exitCode: script.suite?.exitCode ?? 0, output: "suite output", timedOut: false, files: [], ms: script.suite?.ms ?? 9_000 }
+          const killed = script.suite?.minMemoryMb !== undefined && limits.memoryMb < script.suite.minMemoryMb
+          return {
+            exitCode: killed ? 137 : (script.suite?.exitCode ?? 0),
+            output: "suite output",
+            timedOut: false,
+            files: [],
+            ms: script.suite?.ms ?? 9_000,
+          }
         }
         const scripted = script.files[file] as FakeFile
+        const call = (calls.get(file) ?? 0) + 1
+        calls.set(file, call)
         write(scripted.writes)
         if (scripted.timedOut)
           return { exitCode: 124, output: `${file} hung\nCommand timed out after 180s`, timedOut: true, files: null, ms: scripted.ms ?? 180_000 }
-        const exitCode = scripted.exitCode ?? 0
+        const exitCode = scripted.flakyOnce ? (call === 1 ? 1 : 0) : (scripted.exitCode ?? 0)
         return {
           exitCode,
-          output: `${file} output`,
+          output: `${file} output\nError: scripted`,
           timedOut: false,
-          files: (scripted.reports ?? [file]).map((name) => ({ file: name, passed: exitCode === 0 })),
+          files: (scripted.reports ?? [file]).map((name) => ({ file: name, passed: exitCode === 0, tests: COUNTS })),
           ms: scripted.ms ?? 2_000,
         }
       },
       snapshot: async () => ({ ...workspace }),
       memoryPeakBytes: async () => script.peakBytes ?? 400 * 1024 * 1024,
     }
-    return await use(session)
+    return await use(measure)
   }
-  return { open, opened, commands }
+  return { open, opened, commands, sessionOf }
 }
 ```
 
@@ -3793,20 +4332,25 @@ export function fakeSessions(script: FakeScript) {
 import { describe, expect, it } from "vitest"
 import type { TargetRecipe } from "../src/lib/targets/catalog.ts"
 import { MeasureError } from "../src/lib/targets/measure/classify.ts"
-import { measureSuite } from "../src/lib/targets/measure/measure.ts"
+import { type MeasureSuiteOptions, measureSuite } from "../src/lib/targets/measure/measure.ts"
 import { type FakeScript, fakeSessions } from "./fake-measure-session.ts"
 
 const BASE = ["pnpm", "exec", "vitest", "--run", "--no-cache", "--config", "vitest.config.ts"]
+const FILE_LIMITS = { memoryMb: 4096, cpus: 2, commandTimeoutMs: 180_000 }
 const recipe = (test: readonly string[] = BASE): Pick<TargetRecipe, "id" | "commands"> => ({
   id: "app",
   commands: { cwd: "packages/app", build: ["pnpm", "exec", "tsc", "-b", "tsconfig.json"], test: [...test], nodeTestExecArgv: [] },
 })
-/** A clock that advances 30 s per reading: every session lasts 30 s. */
+/** A clock that advances 30 s per reading: every sampled session lasts 30 s. */
 const clock = () => {
   let t = 0
   return () => (t += 30_000)
 }
-const measure = (script: FakeScript, test?: readonly string[], runs = 1) => {
+const measure = (
+  script: FakeScript,
+  test?: readonly string[],
+  extra: Partial<MeasureSuiteOptions> = {},
+) => {
   const fake = fakeSessions(script)
   return {
     fake,
@@ -3816,14 +4360,16 @@ const measure = (script: FakeScript, test?: readonly string[], runs = 1) => {
       fileTimeoutMs: 180_000,
       memoryMb: 4096,
       cpus: 2,
-      runs,
+      runs: 1,
+      allowDecrease: false,
       now: clock(),
+      ...extra,
     }),
   }
 }
 
 describe("measureSuite", () => {
-  it("runs each file alone, proposes an exclude for each that fails, hangs or writes, then samples the suite", async () => {
+  it("runs each file alone, re-runs each non-pass, proposes an exclude per fail, hang or write, then samples and confirms the suite", async () => {
     const { fake, result } = measure({
       files: {
         "test/a.test.ts": {},
@@ -3846,18 +4392,64 @@ describe("measureSuite", () => {
       "--exclude", "test/c.test.ts",
       "--exclude", "test/d.test.ts",
     ])
-    // Two file sessions (a fresh container after the hang) and one suite session.
+    // Two file sessions (fresh after the hang; d's write ends the second), three re-runs, one
+    // suite sample, one confirmation at the proposed resources.
     expect(fake.opened).toEqual([
-      { memoryMb: 4096, cpus: 2, commandTimeoutMs: 180_000 },
-      { memoryMb: 4096, cpus: 2, commandTimeoutMs: 180_000 },
-      { memoryMb: 4096, cpus: 2, commandTimeoutMs: 180_000 },
+      FILE_LIMITS, FILE_LIMITS, FILE_LIMITS, FILE_LIMITS, FILE_LIMITS, FILE_LIMITS,
+      { memoryMb: 1024, cpus: 2, commandTimeoutMs: 80_000 },
     ])
     expect(fake.commands[0]).toEqual([
       "pnpm", "exec", "vitest", "list", "--filesOnly", "--run", "--no-cache", "--config", "vitest.config.ts",
     ])
     expect(fake.commands.at(-1)).toEqual(m.test)
     expect(m.samples).toEqual([{ buildMs: 1_000, suiteMs: 9_000, sessionMs: 30_000, memoryPeakBytes: 400 * 1024 * 1024 }])
-    expect(m.resources).toEqual({ memoryMb: 1024, cpus: 2, commandTimeoutMs: 80_000, verifierDeadlineMs: 180_000 })
+    expect(m.measured).toEqual({ memoryMb: 1024, cpus: 2, commandTimeoutMs: 80_000, verifierDeadlineMs: 180_000 })
+    expect(m.resources).toEqual(m.measured)
+    expect(m.confirmation.sessionMs).toBe(30_000)
+  })
+
+  it("gives the next file a fresh container after a file that writes, and reports a failing file's writes", async () => {
+    const { fake, result } = measure({
+      files: {
+        "test/a.test.ts": { exitCode: 1, writes: ["packages/app/tmp.txt"] },
+        "test/b.test.ts": {},
+        "test/c.test.ts": {},
+      },
+    })
+    const m = await result
+    const sessionOf = (file: string) => fake.sessionOf.find((run) => run.argv.at(-1) === file)?.session
+    expect(sessionOf("test/a.test.ts")).toBe(1)
+    expect(sessionOf("test/b.test.ts")).toBe(2)
+    expect(sessionOf("test/c.test.ts")).toBe(2)
+    const a = m.files[0]
+    expect(a?.verdict).toBe("fail")
+    expect(a?.changed).toEqual(["packages/app/tmp.txt"])
+    expect(a?.reason).toContain("it also changed the workspace: packages/app/tmp.txt")
+  })
+
+  it("lists a file that fails once and then passes as flaky, and does not exclude it", async () => {
+    const { result } = measure({ files: { "test/a.test.ts": { flakyOnce: true }, "test/b.test.ts": {} } })
+    const m = await result
+    expect(m.files.map((f) => f.verdict)).toEqual(["flaky", "pass"])
+    expect(m.excludes).toEqual([])
+    expect(m.test).toEqual(BASE)
+  })
+
+  it("never proposes below the target's own resources unless asked, and confirms at what it proposes", async () => {
+    const prior = { memoryMb: 2048, cpus: 2, commandTimeoutMs: 120_000, verifierDeadlineMs: 3_600_000 }
+    const kept = measure({ files: { "test/a.test.ts": {} } }, BASE, { prior })
+    expect((await kept.result).resources).toEqual(prior)
+    expect(kept.fake.opened.at(-1)).toEqual({ memoryMb: 2048, cpus: 2, commandTimeoutMs: 120_000 })
+    const shrunk = measure({ files: { "test/a.test.ts": {} } }, BASE, { prior, allowDecrease: true })
+    expect((await shrunk.result).resources).toEqual({ memoryMb: 1024, cpus: 2, commandTimeoutMs: 80_000, verifierDeadlineMs: 180_000 })
+  })
+
+  it("refuses a proposal that does not hold when tried, keeping the files for a partial report", async () => {
+    const { result } = measure({ files: { "test/a.test.ts": {}, "test/b.test.ts": { exitCode: 1 } }, suite: { minMemoryMb: 2000 } })
+    const error = await result.catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(MeasureError)
+    expect((error as MeasureError).message).toMatch(/the proposed resources did not hold/)
+    expect((error as MeasureError).files?.map((f) => f.verdict)).toEqual(["pass", "fail"])
   })
 
   it("keeps a scope, and samples the suite as many times as asked, each in a fresh container", async () => {
@@ -3865,13 +4457,14 @@ describe("measureSuite", () => {
     const { fake, result } = measure(
       { files: { "test/a.test.ts": {}, "test/b.test.ts": { exitCode: 1 } } },
       [...BASE, ...scope],
-      3,
+      { runs: 3 },
     )
     const m = await result
     expect(fake.commands[0]?.slice(-2)).toEqual(scope)
     expect(m.test).toEqual([...BASE, ...scope, "--exclude", "test/b.test.ts"])
     expect(m.samples).toHaveLength(3)
-    expect(fake.opened).toHaveLength(4)
+    // One file session, b's re-run, three samples, one confirmation.
+    expect(fake.opened).toHaveLength(6)
   })
 
   it("stops, proposing nothing, when the harness or the target is at fault", async () => {
@@ -3883,7 +4476,7 @@ describe("measureSuite", () => {
     ).rejects.toThrow(/target's build fails in its own image/)
     await expect(
       measure({ files: { "test/a.test.ts": {} }, suite: { exitCode: 1 } }).result,
-    ).rejects.toThrow(/the suite with the proposed excludes failed \(exit 1\) on run 1/)
+    ).rejects.toThrow(/The suite with the proposed excludes failed \(exit 1\) on run 1/)
     await expect(
       measure({ files: { "test/a.test.ts": {} }, suite: { writes: ["packages/app/x"] } }).result,
     ).rejects.toThrow(/changed the workspace \(packages\/app\/x\)/)
@@ -3910,13 +4503,17 @@ import { listArgv, parseVitestCommand, perFileArgv, withExcludes } from "../vite
 import {
   changedPaths,
   classifyFile,
+  EXCLUDED,
   type FileMeasurement,
   MeasureError,
   type Measurement,
   proposeResources,
+  type Resources,
   type SuiteSample,
+  settleFile,
+  settleResources,
 } from "./classify.js"
-import type { MeasureSession, OpenSession } from "./session.js"
+import type { MeasureSession, OpenSession, SessionLimits } from "./session.js"
 
 export interface MeasureSuiteOptions {
   readonly recipe: Pick<TargetRecipe, "id" | "commands">
@@ -3925,6 +4522,12 @@ export interface MeasureSuiteOptions {
   readonly memoryMb: number
   readonly cpus: number
   readonly runs: number
+  /** The target's resources before this measurement; undefined when they are placeholders. */
+  readonly prior?: Resources
+  /** Propose below `prior` when the measurement says so (plan D12). */
+  readonly allowDecrease: boolean
+  /** Does a repository path exist at the measured pin? Names capture omissions (plan D11). */
+  readonly existsAtPin?: (path: string) => boolean
   readonly log?: (line: string) => void
   readonly now?: () => number
 }
@@ -3939,11 +4542,54 @@ async function buildOrThrow(session: MeasureSession) {
   return build
 }
 
+/** One file alone in `session`, snapshotted before and after with the verifier's options. */
+async function measureFile(
+  session: MeasureSession,
+  file: string,
+  argv: readonly string[],
+  options: MeasureSuiteOptions,
+): Promise<FileMeasurement> {
+  const before = await session.snapshot()
+  const run = await session.vitest(argv)
+  const after = await session.snapshot()
+  return classifyFile(file, run, changedPaths(before, after), options, options.existsAtPin)
+}
+
+/** The whole `test` in a fresh session at `limits`: a sample, or a stop with the suite's output. */
+async function sampleSuite(
+  open: OpenSession,
+  limits: SessionLimits,
+  test: readonly string[],
+  now: () => number,
+  what: string,
+): Promise<SuiteSample> {
+  const started = now()
+  const sample = await open(limits, async (session) => {
+    const build = await buildOrThrow(session)
+    const before = await session.snapshot()
+    const suite = await session.vitest(test)
+    const changed = changedPaths(before, await session.snapshot())
+    const failure = suite.timedOut
+      ? `did not finish within ${limits.commandTimeoutMs} ms`
+      : suite.exitCode !== 0
+        ? `failed (exit ${suite.exitCode})`
+        : changed.length > 0
+          ? `changed the workspace (${changed.slice(0, 10).join(", ")})`
+          : undefined
+    if (failure !== undefined)
+      throw new MeasureError(`The suite with the proposed excludes ${failure} ${what}`, suite.output)
+    return { buildMs: build.ms, suiteMs: suite.ms, memoryPeakBytes: await session.memoryPeakBytes() }
+  })
+  return { ...sample, sessionMs: Math.round(now() - started) }
+}
+
 /**
  * Every file the target's vitest command lists, run alone in the verifier's session shape and
- * classified (plan D11); then the whole suite with the proposed excludes, `runs` times, each in
- * a fresh container, for the resources (plan D12). Throws `MeasureError`, proposing nothing,
- * when the fault is the harness's or the target's rather than a file's.
+ * classified; each non-pass run once more in a fresh container (plan D11). Then the whole suite
+ * with the proposed excludes, `runs` times in fresh containers, for the measured resources, and
+ * once more at the resources proposed (plan D12). Throws `MeasureError`, proposing nothing,
+ * when the fault is the harness's or the target's rather than a file's; after the per-file
+ * phase the error carries the files measured, for a partial report.
  */
 export async function measureSuite(options: MeasureSuiteOptions): Promise<Measurement> {
   const { recipe, open } = options
@@ -3951,70 +4597,97 @@ export async function measureSuite(options: MeasureSuiteOptions): Promise<Measur
   const now = options.now ?? (() => performance.now())
   const command = parseVitestCommand(recipe.commands.test)
   const limits = { memoryMb: options.memoryMb, cpus: options.cpus, commandTimeoutMs: options.fileTimeoutMs }
+
+  // Phase 1: each file alone. A file that changed the workspace, hung or was killed leaves
+  // the container dirty or busy, so the next file gets a fresh one.
   const queue: { files: string[] | null } = { files: null }
-  const measured: FileMeasurement[] = []
+  const first: FileMeasurement[] = []
   while (queue.files === null || queue.files.length > 0) {
     await open(limits, async (session) => {
       await buildOrThrow(session)
       if (queue.files === null) {
         const listed = await session.listFiles(listArgv(command))
-        if (listed.length === 0)
-          throw new MeasureError(`vitest lists no test file for ${recipe.id}'s command`)
+        if (listed.length === 0) throw new MeasureError(`vitest lists no test file for ${recipe.id}'s command`)
         log(`${listed.length} test files`)
         queue.files = listed
       }
       const pending = queue.files
       for (let file = pending.shift(); file !== undefined; file = pending.shift()) {
-        const before = await session.snapshot()
-        const run = await session.vitest(perFileArgv(command, file))
-        const after = await session.snapshot()
-        const result = classifyFile(file, run, changedPaths(before, after), options)
-        measured.push(result)
+        const result = await measureFile(session, file, perFileArgv(command, file), options)
+        first.push(result)
         log(`${result.verdict.padEnd(6)} ${file} (${result.ms} ms)`)
-        // A killed run can leave processes behind: the next file gets a fresh container.
-        if (result.verdict === "hang") return
+        if (result.changed.length > 0 || result.verdict === "hang" || result.verdict === "killed") return
       }
     })
   }
 
-  const excludes = measured
-    .filter((m) => m.verdict !== "pass")
-    .map((m) => m.file)
-    .sort()
-  if (excludes.length === measured.length)
-    throw new MeasureError(
-      `no test file passes run alone (${measured.length} measured): there is no suite to propose resources for; read each file's output in the log above`,
+  const files: FileMeasurement[] = []
+  try {
+    // Phase 2: each non-pass once more, alone in a fresh container; a disagreement is flaky.
+    for (const result of first) {
+      if (result.verdict === "pass") {
+        files.push(result)
+        continue
+      }
+      const again = await open(limits, async (session) => {
+        await buildOrThrow(session)
+        return await measureFile(session, result.file, perFileArgv(command, result.file), options)
+      })
+      const settled = settleFile(result, again)
+      files.push(settled)
+      log(`${settled.verdict.padEnd(6)} ${result.file} (second run: ${again.verdict})`)
+    }
+
+    const excludes = files
+      .filter((m) => EXCLUDED.has(m.verdict))
+      .map((m) => m.file)
+      .sort()
+    if (excludes.length === files.length)
+      throw new MeasureError(
+        `no test file passes run alone (${files.length} measured): there is no suite to propose resources for; read each file's output in the report`,
+      )
+    const test = withExcludes(command, excludes)
+
+    // Phase 3: the suite, for the measured resources.
+    const passingMs = files.filter((m) => m.verdict === "pass").reduce((sum, m) => sum + m.ms, 0)
+    const suiteLimits = { ...limits, commandTimeoutMs: Math.max(options.fileTimeoutMs, 2 * passingMs) }
+    const samples: SuiteSample[] = []
+    for (let run = 1; run <= options.runs; run++) {
+      const sample = await sampleSuite(open, suiteLimits, test, now, `on run ${run}: no resources are proposed for a suite that does not pass`)
+      samples.push(sample)
+      log(`suite run ${run}: ${JSON.stringify(sample)}`)
+    }
+    const measured = proposeResources(samples, options.cpus)
+    const resources = settleResources(measured, options.prior, options.allowDecrease)
+
+    // Phase 4: the proposal, tried. A verification session must also fit twice in the deadline.
+    const confirmation = await sampleSuite(
+      open,
+      { memoryMb: resources.memoryMb, cpus: resources.cpus, commandTimeoutMs: resources.commandTimeoutMs },
+      test,
+      now,
+      `at the proposed resources ${JSON.stringify(resources)}: the proposed resources did not hold`,
     )
-  const test = withExcludes(command, excludes)
-  const passingMs = measured.filter((m) => m.verdict === "pass").reduce((sum, m) => sum + m.ms, 0)
-  const suiteLimits = { ...limits, commandTimeoutMs: Math.max(options.fileTimeoutMs, 2 * passingMs) }
-  const samples: SuiteSample[] = []
-  for (let run = 1; run <= options.runs; run++) {
-    const started = now()
-    const sample = await open(suiteLimits, async (session) => {
-      const build = await buildOrThrow(session)
-      const before = await session.snapshot()
-      const suite = await session.vitest(test)
-      const changed = changedPaths(before, await session.snapshot())
-      const failure = suite.timedOut
-        ? `did not finish within ${suiteLimits.commandTimeoutMs} ms`
-        : suite.exitCode !== 0
-          ? `failed (exit ${suite.exitCode})`
-          : changed.length > 0
-            ? `changed the workspace (${changed.slice(0, 10).join(", ")})`
-            : undefined
-      if (failure !== undefined)
-        throw new MeasureError(
-          `Every file passed run alone, but the suite with the proposed excludes ${failure} on run ${run}: no resources are proposed for a suite that does not pass`,
-          suite.output,
-        )
-      return { buildMs: build.ms, suiteMs: suite.ms, memoryPeakBytes: await session.memoryPeakBytes() }
-    })
-    const measuredSample = { ...sample, sessionMs: Math.round(now() - started) }
-    samples.push(measuredSample)
-    log(`suite run ${run}: ${JSON.stringify(measuredSample)}`)
+    if (2 * confirmation.sessionMs > resources.verifierDeadlineMs)
+      throw new MeasureError(
+        `A session at the proposed resources took ${confirmation.sessionMs} ms; two of them do not fit the proposed verifierDeadlineMs ${resources.verifierDeadlineMs}: the proposed resources did not hold`,
+      )
+    log(`confirmed at ${JSON.stringify(resources)}: ${JSON.stringify(confirmation)}`)
+    return {
+      files,
+      excludes,
+      test,
+      samples,
+      measured,
+      prior: options.prior,
+      resources,
+      confirmation,
+    }
+  } catch (error) {
+    // Settled where phase 2 reached, first runs after that.
+    if (error instanceof MeasureError) error.files = [...files, ...first.slice(files.length)]
+    throw error
   }
-  return { files: measured, excludes, test, samples, resources: proposeResources(samples, options.cpus) }
 }
 ```
 
@@ -4112,6 +4785,8 @@ export function dockerSessions(options: {
   readonly recipe: TargetRecipe
   readonly imageId: string
   readonly stagingRoot: string
+  /** The repository the capture is archived from: the one the recipe's pin was read in. */
+  readonly repositoryRoot: string
   readonly signal: AbortSignal
 }): OpenSession {
   const { recipe, stagingRoot, signal } = options
@@ -4128,7 +4803,11 @@ export function dockerSessions(options: {
           appRoot: stagingRoot,
           stateRoot,
           provider,
-          workspace: targetWorkspace(task, "measure", { instance, captureRoot: stagingRoot }),
+          workspace: targetWorkspace(task, "measure", {
+            instance,
+            captureRoot: stagingRoot,
+            repositoryRoot: options.repositoryRoot,
+          }),
           policy: {
             ...targetSandboxPolicy(recipe),
             resources: {
@@ -4191,7 +4870,11 @@ export function dockerSessions(options: {
                 result.report.trim() === ""
                   ? null
                   : (JSON.parse(result.report) as {
-                      readonly testResults?: readonly { readonly name: string; readonly status: string }[]
+                      readonly testResults?: readonly {
+                        readonly name: string
+                        readonly status: string
+                        readonly assertionResults?: readonly { readonly status: string }[]
+                      }[]
                     })
               return {
                 exitCode: result.exitCode,
@@ -4200,10 +4883,17 @@ export function dockerSessions(options: {
                 files:
                   report === null
                     ? null
-                    : (report.testResults ?? []).map((t) => ({
-                        file: relativeFile(t.name),
-                        passed: t.status === "passed",
-                      })),
+                    : (report.testResults ?? []).map((t) => {
+                        const statuses = (t.assertionResults ?? []).map((a) => a.status)
+                        const passed = statuses.filter((status) => status === "passed").length
+                        const failed = statuses.filter((status) => status === "failed").length
+                        return {
+                          file: relativeFile(t.name),
+                          passed: t.status === "passed",
+                          // skipped, pending and todo alike: tests that did not run
+                          tests: { passed, failed, skipped: statuses.length - passed - failed },
+                        }
+                      }),
                 ms: result.ms,
               }
             },
@@ -4266,6 +4956,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Modify: `controller/package.json` (scripts)
 - Test: `controller/test/target-measure.test.ts`
 
+`measureTarget` passes `measureSuite` the target's own resources as the prior (none when they are the placeholders), a pin reader for capture omissions, and `--allow-decrease`; it proposes `measurement.md` beside `target.json`, notes a `--pin` other than the target's default in the log and the report, and on a `MeasureError` after the per-file phase renders a partial report onto the error for the script to write.
+
 - [ ] **Step 1: Write the failing tests**
 
 `test/target-measure.test.ts`:
@@ -4279,6 +4971,7 @@ import { TargetSchema } from "../src/lib/targets/catalog.ts"
 import { type ImageRegistry, ImagePrepareError } from "../src/lib/targets/images.ts"
 import { EXPECTED_MARKER, expectedPromotedOf, PROMOTED_MARKER } from "../src/lib/targets/init/dockerfile.ts"
 import { initTarget } from "../src/lib/targets/init/init.ts"
+import { MeasureError } from "../src/lib/targets/measure/classify.ts"
 import { measureTarget, parseMeasureArgs } from "../src/lib/targets/measure/measure.ts"
 import { formatManifest, writeProposal } from "../src/lib/targets/proposal.ts"
 import { fakeSessions } from "./fake-measure-session.ts"
@@ -4308,6 +5001,7 @@ const registry = (ensure: ImageRegistry["ensure"]): ImageRegistry => ({
   present: async () => true,
   close: () => {},
 })
+const built = registry(async () => ({ key: "k".repeat(64), tag: "b4-factory-app:x-y", image: IMAGE }))
 /** MINI's `@m/app` generated into a temporary targets directory. */
 function generated() {
   const { root, pin } = pinRepo(MINI)
@@ -4315,16 +5009,21 @@ function generated() {
   writeProposal(initTarget({ packageRef: "@m/app", pin, repositoryRoot: root, targetsDir: targets }).files)
   return { root, pin, targets }
 }
-const options = (root: string, targets: string) => ({
-  id: "app",
-  targetsDir: targets,
-  repositoryRoot: root,
-  stagingRoot: temp(),
-  signal: AbortSignal.timeout(60_000),
-  fileTimeoutMs: 180_000,
-  memoryMb: 4096,
-  runs: 1,
-})
+const options = (root: string, targets: string) => {
+  let t = 0
+  return {
+    id: "app",
+    targetsDir: targets,
+    repositoryRoot: root,
+    stagingRoot: temp(),
+    signal: AbortSignal.timeout(60_000),
+    fileTimeoutMs: 180_000,
+    memoryMb: 4096,
+    runs: 1,
+    allowDecrease: false,
+    now: () => (t += 30_000),
+  }
+}
 
 describe("measureTarget", () => {
   it("proposes the promotion set a failed build printed, and writes nothing", async () => {
@@ -4357,42 +5056,76 @@ describe("measureTarget", () => {
     ).rejects.toThrow(ImagePrepareError)
   })
 
-  it("proposes the measured test command and resources, formatted, with a report", async () => {
+  it("proposes the measured test command and resources, formatted, with a record and a report", async () => {
     const { root, pin, targets } = generated()
     const fake = fakeSessions({ files: { "test/app.test.ts": {} } })
-    let t = 0
-    const outcome = await measureTarget({
-      ...options(root, targets),
-      registry: registry(async () => ({ key: "k".repeat(64), tag: "b4-factory-app:x-y", image: IMAGE })),
-      sessions: () => fake.open,
-      now: () => (t += 30_000),
-    })
+    const outcome = await measureTarget({ ...options(root, targets), registry: built, sessions: () => fake.open })
     if (outcome.kind !== "measured") throw new Error(`expected a measurement, got ${outcome.kind}`)
     const after = outcome.files[0]?.after ?? ""
     expect(formatManifest(after)).toBe(after)
     const proposed = TargetSchema.parse(JSON.parse(after))
     expect(proposed.commands.test).toEqual(["pnpm", "exec", "vitest", "--run", "--no-cache", "--config", "vitest.config.ts"])
+    // The placeholders are no prior: the measurement is proposed as it is.
     expect(proposed.resources).toEqual({ memoryMb: 1024, cpus: 2, commandTimeoutMs: 80_000, verifierDeadlineMs: 180_000 })
     expect(proposed.pin).toBe(pin)
+    expect(outcome.files[1]?.path).toBe(join(targets, "app", "measurement.md"))
+    expect(outcome.files[1]?.before).toBeNull()
+    expect(outcome.files[1]?.after).toContain("No file is excluded: every file passed run alone.")
     expect(outcome.report).toContain(`# target:measure app at ${pin}`)
+  })
+
+  it("keeps measured resources at or above the target's own", async () => {
+    const { root, targets } = generated()
+    const path = join(targets, "app", "target.json")
+    const current = TargetSchema.parse(JSON.parse(readFileSync(path, "utf8")))
+    const own = { memoryMb: 1536, cpus: 2, commandTimeoutMs: 60_000, verifierDeadlineMs: 240_000 }
+    writeProposal([
+      { path, before: null, after: formatManifest(`${JSON.stringify({ ...current, resources: own }, null, 2)}\n`) },
+    ])
+    const fake = fakeSessions({ files: { "test/app.test.ts": {} } })
+    const outcome = await measureTarget({ ...options(root, targets), registry: built, sessions: () => fake.open })
+    if (outcome.kind !== "measured") throw new Error(`expected a measurement, got ${outcome.kind}`)
+    expect(outcome.measurement.resources).toEqual({ memoryMb: 1536, cpus: 2, commandTimeoutMs: 80_000, verifierDeadlineMs: 240_000 })
+    expect(outcome.report).toContain("| memoryMb | 1536 | 1024 | 1536 |")
+  })
+
+  it("leaves a partial report on a stop after the per-file phase", async () => {
+    const { root, targets } = generated()
+    const fake = fakeSessions({ files: { "test/app.test.ts": {} }, suite: { exitCode: 1 } })
+    const error = await measureTarget({ ...options(root, targets), registry: built, sessions: () => fake.open }).catch(
+      (e: unknown) => e,
+    )
+    expect(error).toBeInstanceOf(MeasureError)
+    expect((error as MeasureError).report).toContain("- `test/app.test.ts`: pass")
   })
 })
 
 describe("target:measure's arguments", () => {
-  it("takes a target, and optionally a pin, --write and the measurement's limits", () => {
+  it("takes a target, and optionally a pin, a catalog, --write, --allow-decrease and the measurement's limits", () => {
     expect(parseMeasureArgs(["devkit"])).toEqual({
       id: "devkit",
       write: false,
+      allowDecrease: false,
       runs: 3,
       fileTimeoutMs: 180_000,
       memoryMb: 4096,
     })
     expect(
       parseMeasureArgs([
-        "cli", "--pin", "a".repeat(40), "--write", "--runs", "1",
+        "cli", "--pin", "a".repeat(40), "--targets-dir", "/tmp/t", "--write", "--allow-decrease", "--runs", "1",
         "--file-timeout-ms", "120000", "--memory-mb", "2048", "--cpus", "1.5",
       ]),
-    ).toEqual({ id: "cli", pin: "a".repeat(40), write: true, runs: 1, fileTimeoutMs: 120_000, memoryMb: 2048, cpus: 1.5 })
+    ).toEqual({
+      id: "cli",
+      pin: "a".repeat(40),
+      targetsDir: "/tmp/t",
+      write: true,
+      allowDecrease: true,
+      runs: 1,
+      fileTimeoutMs: 120_000,
+      memoryMb: 2048,
+      cpus: 1.5,
+    })
     expect(() => parseMeasureArgs([])).toThrow(/usage: target-measure.ts/)
     expect(() => parseMeasureArgs(["a", "--runs", "0"])).toThrow(/--runs must be a positive integer/)
     expect(() => parseMeasureArgs(["a", "--runs", "1.5"])).toThrow(/--runs must be a positive integer/)
@@ -4417,9 +5150,11 @@ import { join } from "node:path"
 import { parseArgs } from "node:util"
 import { commitSha, loadTargetRecipe, TargetSchema } from "../catalog.js"
 import { type EnsuredImage, type ImageRegistry, ImagePrepareError } from "../images.js"
+import { isPlaceholderResources } from "../init/derive.js"
 import { promotionMismatch, withExpectedPromoted } from "../init/dockerfile.js"
-import { type FileProposal, formatManifest } from "../proposal.js"
-import { renderReport } from "./classify.js"
+import { gitPinTree } from "../init/pin-tree.js"
+import { type FileProposal, formatManifest, readIfPresent } from "../proposal.js"
+import { renderFiles, renderMeasurementRecord, renderReport } from "./classify.js"
 import { dockerSessions } from "./session.js"
 
 export interface MeasureTargetOptions {
@@ -4438,6 +5173,8 @@ export interface MeasureTargetOptions {
   /** The target's own `resources.cpus` when absent. */
   readonly cpus?: number
   readonly runs: number
+  /** Propose resources below the target's own (plan D12). */
+  readonly allowDecrease: boolean
   readonly log?: (line: string) => void
   readonly now?: () => number
   /** Test seam: the sessions a measurement runs in. `dockerSessions` otherwise. */
@@ -4451,7 +5188,7 @@ export type MeasureOutcome =
       readonly image: EnsuredImage
       readonly measurement: Measurement
       readonly report: string
-      /** `target.json` with the measured test command and resources. */
+      /** `target.json` with the measured test command and resources, and `measurement.md`. */
       readonly files: readonly FileProposal[]
     }
   | {
@@ -4466,7 +5203,8 @@ export type MeasureOutcome =
 /**
  * Measure target `id` as it is on disk (so an uncommitted `target:init` output can be measured
  * before it is reviewed): build its image through the registry, then `measureSuite`. A build
- * that failed at the promotion check proposes the Dockerfile's set instead, and stops.
+ * that failed at the promotion check proposes the Dockerfile's set instead, and stops. A
+ * `MeasureError` after the per-file phase leaves a partial report on the error (`report`).
  */
 export async function measureTarget(options: MeasureTargetOptions): Promise<MeasureOutcome> {
   const log = options.log ?? (() => {})
@@ -4475,6 +5213,16 @@ export async function measureTarget(options: MeasureTargetOptions): Promise<Meas
     repositoryRoot: options.repositoryRoot,
     ...(options.pin !== undefined ? { pin: options.pin } : {}),
   })
+  const manifestPath = join(recipe.directory, "target.json")
+  const before = readFileSync(manifestPath, "utf8")
+  const current = TargetSchema.parse(JSON.parse(before))
+  const notes: string[] = []
+  if (recipe.pin !== current.pin) {
+    notes.push(
+      `Measured at ${recipe.pin}, not the target's default pin ${current.pin}; the proposal keeps the default pin.`,
+    )
+    log(notes[0] as string)
+  }
   let image: EnsuredImage
   try {
     image = await options.registry.ensure(recipe, {
@@ -4486,37 +5234,59 @@ export async function measureTarget(options: MeasureTargetOptions): Promise<Meas
     const promoted = promotionMismatch(error.log)
     if (promoted === undefined) throw error
     const path = join(recipe.directory, "Dockerfile")
-    const before = readFileSync(path, "utf8")
+    const dockerfile = readFileSync(path, "utf8")
     return {
       kind: "promotion",
       pin: recipe.pin,
       promoted,
       log: error.log,
-      files: [{ path, before, after: withExpectedPromoted(before, promoted) }],
+      files: [{ path, before: dockerfile, after: withExpectedPromoted(dockerfile, promoted) }],
     }
   }
+  const tree = gitPinTree(options.repositoryRoot, recipe.pin)
   const sessions =
     options.sessions ??
     ((r: TargetRecipe, imageId: string) =>
-      dockerSessions({ recipe: r, imageId, stagingRoot: options.stagingRoot, signal: options.signal }))
-  const measurement = await measureSuite({
-    recipe,
-    open: sessions(recipe, image.image.localId),
-    fileTimeoutMs: options.fileTimeoutMs,
-    memoryMb: options.memoryMb,
-    cpus: options.cpus ?? recipe.resources.cpus,
-    runs: options.runs,
-    log,
-    ...(options.now !== undefined ? { now: options.now } : {}),
-  })
-  const path = join(recipe.directory, "target.json")
-  const before = readFileSync(path, "utf8")
-  const current = TargetSchema.parse(JSON.parse(before))
+      dockerSessions({
+        recipe: r,
+        imageId,
+        stagingRoot: options.stagingRoot,
+        repositoryRoot: options.repositoryRoot,
+        signal: options.signal,
+      }))
+  let measurement: Measurement
+  try {
+    measurement = await measureSuite({
+      recipe,
+      open: sessions(recipe, image.image.localId),
+      fileTimeoutMs: options.fileTimeoutMs,
+      memoryMb: options.memoryMb,
+      cpus: options.cpus ?? recipe.resources.cpus,
+      runs: options.runs,
+      allowDecrease: options.allowDecrease,
+      ...(isPlaceholderResources(current.resources) ? {} : { prior: current.resources }),
+      existsAtPin: (path) => tree.kind(recipe.root === "." ? path : `${recipe.root}/${path}`) !== undefined,
+      log,
+      ...(options.now !== undefined ? { now: options.now } : {}),
+    })
+  } catch (error) {
+    if (error instanceof MeasureError && error.files !== undefined)
+      error.report = [
+        `# target:measure ${recipe.id} at ${recipe.pin}: stopped`,
+        "",
+        `> ${error.message}`,
+        "",
+        ...notes.flatMap((note) => [`> ${note}`, ""]),
+        ...renderFiles(error.files),
+      ].join("\n")
+    throw error
+  }
   const proposed = TargetSchema.parse({
     ...current,
     commands: { ...current.commands, test: [...measurement.test] },
     resources: measurement.resources,
   })
+  const recordPath = join(recipe.directory, "measurement.md")
   return {
     kind: "measured",
     pin: recipe.pin,
@@ -4527,15 +5297,26 @@ export async function measureTarget(options: MeasureTargetOptions): Promise<Meas
       image: { localId: image.image.localId, tag: image.tag },
       measurement,
       limits: options,
+      notes,
     }),
-    files: [{ path, before, after: formatManifest(`${JSON.stringify(proposed, null, 2)}\n`) }],
+    files: [
+      { path: manifestPath, before, after: formatManifest(`${JSON.stringify(proposed, null, 2)}\n`) },
+      {
+        path: recordPath,
+        before: readIfPresent(recordPath),
+        after: renderMeasurementRecord(recipe.id, measurement.files),
+      },
+    ],
   }
 }
 
 export interface MeasureArgs {
   readonly id: string
   readonly pin?: string
+  /** The target catalog to measure in; the controller's `targets/` when absent. */
+  readonly targetsDir?: string
   readonly write: boolean
+  readonly allowDecrease: boolean
   readonly runs: number
   readonly fileTimeoutMs: number
   readonly memoryMb: number
@@ -4547,7 +5328,9 @@ export function parseMeasureArgs(argv: readonly string[]): MeasureArgs {
     args: [...argv],
     options: {
       pin: { type: "string" },
+      "targets-dir": { type: "string" },
       write: { type: "boolean", default: false },
+      "allow-decrease": { type: "boolean", default: false },
       runs: { type: "string" },
       "file-timeout-ms": { type: "string" },
       "memory-mb": { type: "string" },
@@ -4559,7 +5342,7 @@ export function parseMeasureArgs(argv: readonly string[]): MeasureArgs {
   const [id, ...extra] = positionals
   if (!id || extra.length > 0)
     throw new Error(
-      "usage: target-measure.ts <target-id> [--pin <sha>] [--write] [--runs <n>] [--file-timeout-ms <ms>] [--memory-mb <mb>] [--cpus <n>]",
+      "usage: target-measure.ts <target-id> [--pin <sha>] [--targets-dir <dir>] [--write] [--allow-decrease] [--runs <n>] [--file-timeout-ms <ms>] [--memory-mb <mb>] [--cpus <n>]",
     )
   if (values.pin !== undefined && !commitSha.safeParse(values.pin).success)
     throw new Error(`--pin must be a full lowercase commit sha, got ${JSON.stringify(values.pin)}`)
@@ -4579,10 +5362,12 @@ export function parseMeasureArgs(argv: readonly string[]): MeasureArgs {
   return {
     id,
     write: values.write,
+    allowDecrease: values["allow-decrease"],
     runs: integer("runs", values.runs, 3),
     fileTimeoutMs: integer("file-timeout-ms", values["file-timeout-ms"], 180_000),
     memoryMb: integer("memory-mb", values["memory-mb"], 4096),
     ...(values.pin !== undefined ? { pin: values.pin } : {}),
+    ...(values["targets-dir"] !== undefined ? { targetsDir: values["targets-dir"] } : {}),
     ...(cpus !== undefined ? { cpus } : {}),
   }
 }
@@ -4603,15 +5388,17 @@ import { renderDiff, writeProposal } from "../src/lib/targets/proposal.js"
 /**
  * Measure a target in its own image and propose its excludes and resources.
  *
- * `target-measure.ts <id> [--pin <sha>] [--write] [--runs <n>] [--file-timeout-ms <ms>]
- * [--memory-mb <mb>] [--cpus <n>]`
+ * `target-measure.ts <id> [--pin <sha>] [--targets-dir <dir>] [--write] [--allow-decrease]
+ * [--runs <n>] [--file-timeout-ms <ms>] [--memory-mb <mb>] [--cpus <n>]`
  *
  * Builds (or re-verifies) the target's image through <FACTORY_STATE_DIR>/images.sqlite, as the
- * controller does; runs each test file alone with the network denied, then the proposed suite
- * --runs times in fresh containers. Prints the proposal as a diff (stdout), writes the evidence
- * to <FACTORY_STATE_DIR>/measurements/<id>/<pin12>-<utc>/report.md, and writes the target only
- * with --write. A build that fails at the Dockerfile's promotion check proposes the set it
- * printed instead; apply it (--write) and run this again.
+ * controller does; runs each test file alone with the network denied (each non-pass twice),
+ * then the proposed suite --runs times in fresh containers and once at the proposed resources.
+ * Prints the proposal (target.json and measurement.md) as a diff on stdout, writes the full
+ * evidence to <FACTORY_STATE_DIR>/measurements/<id>/<pin12>-<utc>/report.md (a partial one
+ * when it stops after the per-file phase), and writes the target only with --write. Resources
+ * never fall below the target's own without --allow-decrease. A build that fails at the
+ * Dockerfile's promotion check proposes the set it printed instead; apply it and run again.
  */
 const stateDir = process.env.FACTORY_STATE_DIR
 if (!stateDir)
@@ -4619,6 +5406,7 @@ if (!stateDir)
     "FACTORY_STATE_DIR is required: the image is built into <FACTORY_STATE_DIR>/images.sqlite, and the captures and the report are staged under it",
   )
 const args = parseMeasureArgs(process.argv.slice(2))
+const catalog = args.targetsDir ?? targetsDir
 const registry = openImageRegistry({
   path: join(stateDir, "images.sqlite"),
   builder: dockerImageBuilder(),
@@ -4626,10 +5414,16 @@ const registry = openImageRegistry({
 const interrupted = new AbortController()
 process.once("SIGINT", () => interrupted.abort(new Error("interrupted")))
 const log = (line: string) => process.stderr.write(`target:measure: ${line}\n`)
+const reportPath = (pin: string) => {
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z")
+  const path = join(stateDir, "measurements", args.id, `${pin.slice(0, 12)}-${stamp}`, "report.md")
+  mkdirSync(dirname(path), { recursive: true })
+  return path
+}
 try {
   const outcome = await measureTarget({
     id: args.id,
-    targetsDir,
+    targetsDir: catalog,
     repositoryRoot: repositoryRoot(),
     registry,
     stagingRoot: resolve(stateDir),
@@ -4637,11 +5431,12 @@ try {
     fileTimeoutMs: args.fileTimeoutMs,
     memoryMb: args.memoryMb,
     runs: args.runs,
+    allowDecrease: args.allowDecrease,
     log,
     ...(args.pin !== undefined ? { pin: args.pin } : {}),
     ...(args.cpus !== undefined ? { cpus: args.cpus } : {}),
   })
-  process.stdout.write(renderDiff(outcome.files, appRoot))
+  process.stdout.write(renderDiff(outcome.files, args.targetsDir === undefined ? appRoot : catalog))
   if (outcome.kind === "promotion") {
     log(
       `the build promoted [${outcome.promoted.join(" ")}] over the root's node_modules, which the Dockerfile does not declare: review the diff above (a promotion replaces a package every other package resolves)`,
@@ -4652,16 +5447,21 @@ try {
     } else log("--write applies it; then run target:measure again")
     process.exitCode = 1
   } else {
-    const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z")
-    const report = join(stateDir, "measurements", args.id, `${outcome.pin.slice(0, 12)}-${stamp}`, "report.md")
-    mkdirSync(dirname(report), { recursive: true })
+    const report = reportPath(outcome.pin)
     writeFileSync(report, outcome.report)
     log(`report: ${report}`)
     if (args.write) for (const path of writeProposal(outcome.files)) log(`wrote ${path}`)
     else log("nothing written; --write writes the proposal above, and git diff is the review")
   }
 } catch (error) {
-  if (error instanceof MeasureError && error.output !== "") process.stderr.write(`${error.output}\n`)
+  if (error instanceof MeasureError) {
+    if (error.output !== "") process.stderr.write(`${error.output}\n`)
+    if (error.report !== undefined) {
+      const report = reportPath(args.pin ?? "default-pin")
+      writeFileSync(report, error.report)
+      log(`stopped; partial report: ${report}`)
+    }
+  }
   if (error instanceof ImagePrepareError) process.stderr.write(error.log)
   throw error
 } finally {
@@ -4719,7 +5519,7 @@ import { shippedPin } from "./temp-repo.ts"
 
 describe("target:measure on a devkit target generated by target:init", () => {
   it(
-    "proposes exactly the committed nine excludes, each failing alone with its output",
+    "proposes exactly the committed nine excludes, each failing alone on the templates the capture omits",
     async () => {
       const registry = configuredImages()
       if (registry === undefined) throw new Error("the lane setup configured no image registry")
@@ -4727,6 +5527,7 @@ describe("target:measure on a devkit target generated by target:init", () => {
       const staging = mkdtempSync(join(tmpdir(), "factory-measure-staging-"))
       const started = Date.now()
       try {
+        // initTarget makes the pin present itself (plan I8).
         writeProposal(
           initTarget({
             packageRef: "@b4run/devkit",
@@ -4747,6 +5548,7 @@ describe("target:measure on a devkit target generated by target:init", () => {
             memoryMb: 2048,
             cpus: 2,
             runs: 1,
+            allowDecrease: false,
             log: (line) => process.stderr.write(`lane: ${line}\n`),
           })
         let outcome = await measure()
@@ -4769,13 +5571,15 @@ describe("target:measure on a devkit target generated by target:init", () => {
         ])
         for (const file of m.files.filter((f) => f.verdict !== "pass")) {
           expect(file.verdict, file.file).toBe("fail")
-          expect(file.output, file.file).not.toBe("")
+          expect(file.output, file.file).toMatch(/templates\//)
+          expect(file.omissions.length, file.file).toBeGreaterThan(0)
         }
+        expect(outcome.files[1]?.after.match(/^- `test\//gm)).toHaveLength(9)
         expect(m.resources.cpus).toBe(2)
         expect(m.resources.memoryMb).toBeGreaterThanOrEqual(512)
         expect(m.resources.memoryMb).toBeLessThanOrEqual(2048)
         process.stderr.write(
-          `lane: proposed ${JSON.stringify(m.resources)}; committed ${JSON.stringify(committed.resources)}; ${Math.round((Date.now() - started) / 1000)} s\n${outcome.report}\n`,
+          `lane: measured ${JSON.stringify(m.measured)}; proposed ${JSON.stringify(m.resources)}; committed ${JSON.stringify(committed.resources)}; ${Math.round((Date.now() - started) / 1000)} s\n${outcome.report}\n`,
         )
       } finally {
         rmSync(targets, { recursive: true, force: true })
@@ -4801,119 +5605,26 @@ git commit -m "test(software-factory): target:measure proposes devkit's committe
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-### Task 18: The opt-in `cli` proof, and a full measurement by hand
+### Task 18: A full measurement of the generated `cli` target, by hand
 
-**Files:**
-- Test: `controller/test/target-init-cli.integration.test.ts`
-- Modify: `controller/package.json` (`test:sandbox:cli`)
+No code: the `cli` template build moved into PR 1 (Task 10 Step 3), and `measureTarget`'s promotion path is unit-tested (Task 16). What remains is one measurement of the generated `cli` target (the whole test directory, where the committed target runs eight hand-picked files), recorded, in a scratch catalog so the real one is never written (review minor: `--targets-dir`).
 
-- [ ] **Step 1: Write the lane**
-
-`test/target-init-cli.integration.test.ts`:
-
-```ts
-import { mkdtempSync, readFileSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
-import { describe, expect, it } from "vitest"
-import {
-  configuredImages,
-  loadTargetRecipe,
-  repositoryRoot,
-  targetsDir,
-} from "../src/lib/targets/catalog.ts"
-import { expectedPromotedOf } from "../src/lib/targets/init/dockerfile.ts"
-import { initTarget } from "../src/lib/targets/init/init.ts"
-import { measureTarget } from "../src/lib/targets/measure/measure.ts"
-import { writeProposal } from "../src/lib/targets/proposal.ts"
-import { shippedPin } from "./temp-repo.ts"
-
-/**
- * Opt-in like the cli target's own lane (a 2 GB image): `test:sandbox:cli` sets the variable.
- * Spec §9 finding 6: the one part of the cli Dockerfile init cannot write is learned by a build.
- */
-describe.skipIf(process.env.FACTORY_TEST_CLI_TARGET !== "1")("a cli target generated by target:init", () => {
-  it(
-    "learns the hand-written Dockerfile's promotion set from its first build, then builds",
-    async () => {
-      const registry = configuredImages()
-      if (registry === undefined) throw new Error("the lane setup configured no image registry")
-      const targets = mkdtempSync(join(tmpdir(), "factory-init-cli-"))
-      const staging = mkdtempSync(join(tmpdir(), "factory-init-cli-staging-"))
-      try {
-        writeProposal(
-          initTarget({
-            packageRef: "@b4run/cli",
-            pin: shippedPin("cli"),
-            repositoryRoot: repositoryRoot(),
-            targetsDir: targets,
-          }).files,
-        )
-        const outcome = await measureTarget({
-          id: "cli",
-          targetsDir: targets,
-          repositoryRoot: repositoryRoot(),
-          registry,
-          stagingRoot: staging,
-          signal: AbortSignal.timeout(2_400_000),
-          fileTimeoutMs: 120_000,
-          memoryMb: 4096,
-          runs: 1,
-        })
-        if (outcome.kind !== "promotion") throw new Error("the first build of an empty promotion set passed")
-        expect(outcome.promoted).toEqual(
-          expectedPromotedOf(readFileSync(join(targetsDir, "cli", "Dockerfile"), "utf8")),
-        )
-        writeProposal(outcome.files)
-        const ensured = await registry.ensure(loadTargetRecipe("cli", { targetsDir: targets }), {
-          signal: AbortSignal.timeout(2_400_000),
-        })
-        expect(ensured.image.localId).toMatch(/^sha256:[0-9a-f]{64}$/)
-      } finally {
-        rmSync(targets, { recursive: true, force: true })
-        rmSync(staging, { recursive: true, force: true })
-      }
-    },
-    5_000_000,
-  )
-})
-```
-
-In `controller/package.json`, `test:sandbox:cli` becomes:
-
-```json
-    "test:sandbox:cli": "FACTORY_TEST_CLI_TARGET=1 vitest run --config vitest.sandbox.config.ts test/target-cli.integration.test.ts test/target-init-cli.integration.test.ts",
-```
-
-- [ ] **Step 2: Run the lane once, by hand**
-
-Run: `pnpm --filter @b4-example/software-factory-controller exec vitest run --config vitest.sandbox.config.ts test/target-init-cli.integration.test.ts` with `FACTORY_TEST_CLI_TARGET=1` in the environment.
-Expected: PASS. Without the variable it skips (as in CI's `test:sandbox`).
-
-- [ ] **Step 3: A full measurement of the generated `cli` target, by hand**
-
-The committed `cli` target runs eight hand-picked files; the generated one runs the whole directory. Measure it once and record the result, without touching the committed target: a fresh id carries nothing and is removed afterwards.
+- [ ] **Step 1: Measure in a scratch catalog**
 
 ```bash
-export FACTORY_STATE_DIR=/private/tmp/claude-501/factory-measure-cli   # any scratch directory
-mkdir -p "$FACTORY_STATE_DIR"
-pnpm --filter @b4-example/software-factory-controller target:init @b4run/cli --pin 765e6e16fec86bba0859d3f85edf7136f663f720 --id cli-full --write
-pnpm --filter @b4-example/software-factory-controller target:measure cli-full --runs 1 --write   # proposes the promotion set; exit 1
-pnpm --filter @b4-example/software-factory-controller target:measure cli-full --runs 1           # measures 169 files; prints the proposal
-git status --short examples/software-factory/controller/targets   # only targets/cli-full/ is new
-rm -r examples/software-factory/controller/targets/cli-full
+export FACTORY_STATE_DIR="$(mktemp -d)/factory-measure-cli"
+mkdir -p "$FACTORY_STATE_DIR/targets"
+pnpm --filter @b4-example/software-factory-controller target:init @b4run/cli --pin 765e6e16fec86bba0859d3f85edf7136f663f720 --targets-dir "$FACTORY_STATE_DIR/targets" --write
+pnpm --filter @b4-example/software-factory-controller target:measure cli --targets-dir "$FACTORY_STATE_DIR/targets" --runs 1 --write   # proposes the promotion set; exit 1
+pnpm --filter @b4-example/software-factory-controller target:measure cli --targets-dir "$FACTORY_STATE_DIR/targets" --runs 1           # measures 169 files; prints the proposal
+git status --short examples/software-factory/controller/targets   # expected: nothing
 ```
 
-Record in the PR description and in the spec's as-landed note (Task 19): the wall clock, how many of the 169 files pass alone, the excludes grouped by reason (the report's `### ` sections: which import `@b4run/sandbox` or `@b4run/testing`, which need the network, which write the workspace), the proposed resources beside the committed `1536/2/120000/3600000`, and whether the eight committed files are among those that pass.
+(`target:init` with no existing target in the scratch catalog carries nothing, so the whole test directory is captured. The image is `/opt/targets/cli`, the same recipe key as Task 10's `cli` lane when the promotion set matches, so a warm host reuses it.)
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 2: Record**
 
-```bash
-git add examples/software-factory/controller/test/target-init-cli.integration.test.ts examples/software-factory/controller/package.json
-git commit -m "test(software-factory): a generated cli target learns the hand-written promotion set (opt-in)
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-```
+In the PR description and in the spec's as-landed note (Task 19): the wall clock; how many of the 169 files pass alone and how many are flaky; the excludes grouped by the report's reasons (capture omissions naming `packages/sandbox` or `packages/testing`, the network, writes to the workspace); the measured and proposed resources beside the committed `1536/2/120000/3600000`; and whether the eight committed files are among those that pass. Nothing is committed in this task.
 
 ### Task 19: Docs for PR 2
 
@@ -4932,9 +5643,13 @@ controller uses (the target's files as they are on disk, so an uncommitted `targ
 can be measured), lists the test files the target's vitest command selects, runs each one alone
 in the verifier's session shape (network denied, the workspace snapshotted before and after),
 and proposes an exclude for each file that fails, hangs, or passes but changes the workspace
-(which every verification would refuse as tampering). It then runs the suite with those
-excludes (`--runs`, default 3) in fresh containers and proposes resources from cgroup
-`memory.peak` and the wall clock. The evidence for each proposed exclude, its output, is in
+(which every verification would refuse as tampering); each non-pass runs once more in a
+fresh container, and a file that then passes is listed as flaky, never excluded. It then runs
+the suite with those excludes (`--runs`, default 3) in fresh containers, proposes resources from
+cgroup `memory.peak` and the wall clock, never below the target's own without
+`--allow-decrease`, and tries the proposal once at exactly those values. `--write` writes
+`target.json` and `targets/<id>/measurement.md` (each exclude's class, reason and first error
+lines, committed with the target); the full evidence is in
 `<FACTORY_STATE_DIR>/measurements/<id>/<pin>-<time>/report.md`. When the build fails at the
 Dockerfile's promotion check (a nested dependency pnpm's hoisting left under a package), it
 proposes the set the build printed instead: review it, apply it with `--write`, and measure
@@ -4947,16 +5662,18 @@ Append to §5's as-landed note:
 
 ```markdown
 PR 2: `target:measure` builds through `ImageRegistry.ensure` (no separate build path), lists
-files with `vitest list --filesOnly`, classifies each file run alone as pass, fail, hang or
-writes (a third exclude class the verifier's tamper check makes necessary), then samples the
-whole proposed suite in fresh containers: per-file runs cannot measure memory, because
-`memory.peak` is per container and vitest runs a suite's files in parallel workers. Resources:
-twice the peak (256 MiB steps), eight times the slower of build and suite, two sessions at 2.5
-times the slowest. Proof: on a `devkit` target generated by `init`, `measure` proposes exactly
-the committed nine excludes (`test/target-measure.integration.test.ts`<: proposed resources
-..., committed 768/2/60000/240000; fill in from the lane>); a generated `cli` target learns the
-hand-written promotion set from its first build (`test/target-init-cli.integration.test.ts`,
-opt-in). A full measurement of the generated `cli` target by hand: <wall clock; N of 169 pass
+files with `vitest list --filesOnly`, classifies each file run alone as pass, fail, hang,
+killed or writes (a class the verifier's tamper check makes necessary), in a fresh container
+after any file that dirtied or wedged one, re-runs each non-pass once (a disagreement is
+flaky, never excluded), then samples the whole proposed suite in fresh containers: per-file
+runs cannot measure memory, because `memory.peak` is per container and vitest runs a suite's
+files in parallel workers. Resources: twice the peak (256 MiB steps), eight times the slower
+of build and suite, two sessions at 2.5 times the slowest; never below the target's own
+without `--allow-decrease`; confirmed by a run at the proposed values. Each exclude's reason is
+committed as `targets/<id>/measurement.md`. Proof: on a `devkit` target generated by `init`,
+`measure` proposes exactly the committed nine excludes, each named as a capture omission of
+`templates/` (`test/target-measure.integration.test.ts`<: measured and proposed resources
+..., committed 768/2/60000/240000; fill in from the lane>). A full measurement of the generated `cli` target by hand: <wall clock; N of 169 pass
 alone; excludes by reason; proposed resources beside 1536/2/120000/3600000>. Deferred:
 `draftingNotes` stay hand-written (§9 finding 20).
 ```
@@ -4997,12 +5714,19 @@ Push `blove/targets-measure` and open the PR only when Brian asks.
 |---|---|
 | `init` reads `package.json` files and `pnpm-workspace.yaml` at the pin from the object store | Task 1 ("never reads the working tree"); Task 2 |
 | capture, `imageContext`, build order derived from the manifests | Task 6 (every field of a fixture monorepo); Task 12 (the capture archives at the pin) |
-| `init` reproduces the committed `devkit` target, differences listed and explained | Task 9: every structural field equal; the differences asserted as exactly the nine excludes, the three root manifests in `runnerConfig`, placeholder resources, the template Dockerfile |
-| `init` reproduces the committed `cli` target, differences listed and explained | Task 9: closure, image context, runner configuration, build outputs and `CAPTURED` equal; differences asserted as the eight-file scope, two extra module assertions, the build's project order and `--declarationMap false`, resources, the promotion set, drafting notes; a regeneration in place carries all of them |
-| The generated Dockerfile works | Task 5 (its shell executed on a fixture: shim, promotion, double promotion, mismatch, relinks); Task 10 (the generated `devkit` Dockerfile builds in Docker); Task 18 (the generated `cli` Dockerfile builds once its set is learned) |
+| `init` reproduces the committed `devkit` target, differences listed and explained | Task 9: the whole target equal to the committed one with exactly these applied: the nine excludes, the three root manifests in `runnerConfig`, placeholder resources; the template Dockerfile |
+| `init` reproduces the committed `cli` target, differences listed and explained | Task 9: the whole target equal to the committed one with exactly these applied: the whole test directory for the eight-file scope, the derived module assertions without the two extras, the build's project order without `--declarationMap false`, the base test command, placeholder resources, no drafting notes; `CAPTURED` equal; a regeneration in place differs only in the build |
+| The generated Dockerfile works | Task 5 (its shell executed on a fixture: shim, promotion, double promotion, mismatch, relinks); Task 10 (the generated `devkit` Dockerfile builds in Docker; the generated `cli` one learns the committed promotion set and builds, by hand before PR 1 merges) |
 | `measure` runs per file in the prepared image with the network denied | Task 15 (`targetSandboxPolicy`'s denied network, the image by id); Task 17 |
 | proposes an exclude per failing or hanging file, with its reason | Task 13 (classification, the report's fenced output); Task 14 (orchestration, a fresh container after a hang); Task 17 (devkit: the committed nine, each failing with output) |
 | … and per file that writes the workspace (plan D11) | Task 13; Task 14 |
+| A file measured in a clean workspace; a failing file's writes reported (review I1) | Task 13 ("reports what a failing file changed too"); Task 14 ("gives the next file a fresh container after a file that writes") |
+| One flaky failure is not an exclude (review I3) | Task 13 (`settleFile`); Task 14 ("lists a file that fails once and then passes as flaky") |
+| Resources never shrink unasked, and are tried at the proposed values (review I2) | Task 13 (`settleResources`); Task 14 ("never proposes below …", "refuses a proposal that does not hold when tried"); Task 16 ("keeps measured resources at or above the target's own") |
+| Hand additions survive a re-generation (review I4) | Task 6 ("carries … as supersets"); Task 9 (both targets regenerated in place, whole-object) |
+| Omissions are visible (review I5) | Task 6 (subdirectory and sibling notes); Task 9 (`cli`'s `bin/`, `scripts/`, `../sandbox/`; `devkit`'s `templates/`); Task 13 (capture omissions, per-test counts); Task 17 (each of devkit's nine named) |
+| Each exclude's reason is committed (D2) | Task 13 (`renderMeasurementRecord`); Task 16 (`measurement.md` proposed); Task 17 (nine entries) |
+| The template works for cli before PR 1 ships (review I9) | Task 10 Step 3 |
 | resources from cgroup `memory.peak` and wall clock with headroom | Task 13 (the formula reproduces devkit's 768/80000/240000 from rung 2's measurement); Task 14 (samples in fresh containers); Task 15 (`memory.peak` read, refused rather than guessed) |
 | The output is a diff; nothing is written unasked | Task 7 (`renderDiff`, nothing on disk); Task 8 (the script writes nothing without `--write`); Task 16 (a promotion proposal writes nothing) |
 | No model is involved | No module in `targets/init/` or `targets/measure/` imports a model or a worker |
@@ -5012,7 +5736,8 @@ Push `blove/targets-measure` and open the PR only when Brian asks.
 
 - **Regenerate the shipped targets** (D14) when each is next re-pinned: `devkit` gains the root manifests in `runnerConfig` and the template Dockerfile; `cli` gains the whole test directory if the full measurement (Task 18) says it is affordable, or keeps its scope (carried).
 - **Drafting notes from a package's tests** (spec §9 finding 20). Nothing deterministic writes them; a model-drafted proposal reviewed like the rest of the target is its own item.
-- **A durable record of each exclude's reason** (D2): a `target.json` field, checked against the `--exclude` flags, if the commit message proves not to be enough.
+- **Per-test exclusion** (D15): `--testNamePattern` or reviewed `.skip`s, if a file whose one failing test hides many passing ones proves common in the reports' per-test counts.
+- **Carry `--with-dev-builds`** (D16) across a re-generation, if a target generated with it is re-pinned often enough that retyping the flag is a trap.
 - **Widen the workspace capture's path charset** in `@b4run/workspace` (`source-validation.ts:46-66`), so `devkit`'s `templates/` can be captured and its nine tests run; `measure` would then propose none of them.
 - **The promotion set at later pins** (D7): a work order at a pin whose lockfile nests differently fails its build naming the set. Deriving the set from the lockfile (a YAML parser in the example) or measuring at the work order's pin automatically would remove that step.
 - **Packages outside `packages/`** (D3): generalise `capturedPackages` and the Dockerfile's `CAPTURED` to workspace directories, if an `examples/*/*` package ever becomes a target.
@@ -5023,6 +5748,40 @@ Push `blove/targets-measure` and open the PR only when Brian asks.
 ## Self-review
 
 - **Spec coverage.** §5 Change: both commands exist, deterministic, as package scripts (D1; Spec corrections 1); `init` reads manifests and the workspace file at the pin from the object store (Tasks 1-2); capture, `imageContext` and build order from three closures (Tasks 2, 3, 6; corrections 2-4); `measure` per file with the network denied, excludes with reasons, resources from `memory.peak` and wall clock with headroom (Tasks 13-15; corrections 5-7); the output is a diff (Tasks 7, 8, 16). §5 Trust impact: the target stays a reviewed, committed file (nothing is written without `--write`, nothing is committed by a command); each exclude carries its failure output (the report); no model (Proof map). §5 Proof: Task 9 (both reproductions, each difference asserted) and Task 17 (`devkit`'s nine). §4 as landed: `measure` builds through `ImageRegistry.ensure` and records nothing in `target.json` beyond reviewed fields (Task 16). §7: the table row changes (Task 19). §8: item 5 after item 4 (done). §9 findings 1 (every hand-derived field of the `cli` target is now derived or measured, Task 9's list), 5 (session time measured; budgets deferred), 6 (the Dockerfile generated, the promotion set learned), 12 (runner configuration derived, complete by construction), 20 (deferred with the reason).
-- **Placeholder scan.** Every code step carries its code, and every run step its command and expected result. The two spec as-landed notes carry `<...>` slots for numbers only a run produces (the lanes' wall clock, a learned promotion set, the hand measurement); each slot names where its value comes from. Helpers used from existing files are named as the files name them: `shippedPin` (`test/temp-repo.ts`), `configuredImages`, `loadTargetRecipe`, `repositoryRoot`, `targetsDir`, `appRoot`, `ensurePin`, `commitSha`, `covers`, `isCatalogId`, `TargetSchema` (`catalog.ts`), `capturedListMismatch`, `dockerfileCapturedPackages`, `firstMissingPath`, `pathsRequiredAtPin` (`prepare.ts`), `resolvePin` (`intake/issue.ts`), `shellJoin` (`verification/checks-runner.ts`), `captureDirectory` (`archive.ts`), `targetWorkspace`, `targetInspectionOptions`, `targetSandboxPolicy` (`workspace.ts`), `ImagePrepareError`, `openImageRegistry`, `EnsuredImage`, `ImageRegistry` (`images.ts`), `dockerImageBuilder` (`image-builder.ts`).
-- **Type consistency.** `PinTree` (Task 1) is what `readWorkspace`, `expandGlob`, `buildConfig`, `packageTsconfigs` and `deriveTarget` read. `WorkspacePackage` (Task 2) is what `buildScriptTsconfig`, `buildConfig`, `vitestTestArgv` (structurally) and `deriveTarget` take. `VitestCommand` (Task 4) is produced by `parseVitestCommand` and consumed by `withExcludes` (Tasks 4, 6, 7), `perFileArgv` and `listArgv` (Task 13, used by Task 14). `CarriedFields` (Task 6) is what `carriedFrom` (Task 7) builds: `baseImage`, `resources`, `draftingNotes`, `scope`, `excludes`, `expectedPromoted`. `DockerfileSpec` (Task 5) is what `deriveTarget` returns and `renderDockerfile` takes. `FileProposal` (Task 7) is what `initTarget` and `measureTarget` return and `renderDiff`/`writeProposal` take. `VitestRun`, `FileMeasurement`, `SuiteSample`, `Measurement`, `MeasureLimits` live in `classify.ts` (Task 13); `MeasureSession`, `SessionLimits`, `OpenSession` in `session.ts` (Task 14), which Task 15 extends with `measureTask` and `dockerSessions`; `WorkspaceTask` (Task 12) is what `measureTask` returns. `measureSuite` passes its whole options object as `classifyFile`'s `MeasureLimits` and `renderReport`'s `limits` (both read only `fileTimeoutMs` and `memoryMb`).
+- **Placeholder scan.** Every code step carries its code, and every run step its command and expected result. The two spec as-landed notes carry `<...>` slots for numbers only a run produces (the lanes' wall clock, a learned promotion set, the hand measurement); each slot names where its value comes from. Helpers used from existing files are named as the files name them (`ensurePin` is now also called inside `initTarget`): `shippedPin` (`test/temp-repo.ts`), `configuredImages`, `loadTargetRecipe`, `repositoryRoot`, `targetsDir`, `appRoot`, `ensurePin`, `commitSha`, `covers`, `isCatalogId`, `TargetSchema` (`catalog.ts`), `capturedListMismatch`, `dockerfileCapturedPackages`, `firstMissingPath`, `pathsRequiredAtPin` (`prepare.ts`), `resolvePin` (`intake/issue.ts`), `shellJoin` (`verification/checks-runner.ts`), `captureDirectory` (`archive.ts`), `targetWorkspace`, `targetInspectionOptions`, `targetSandboxPolicy` (`workspace.ts`), `ImagePrepareError`, `openImageRegistry`, `EnsuredImage`, `ImageRegistry` (`images.ts`), `dockerImageBuilder` (`image-builder.ts`).
+- **Type consistency.** `PinTree` (Task 1) is what `readWorkspace`, `expandGlob`, `buildConfig`, `packageTsconfigs` and `deriveTarget` read. `WorkspacePackage` (Task 2) is what `buildScriptTsconfig`, `buildConfig`, `vitestTestArgv` (structurally) and `deriveTarget` take. `VitestCommand` (Task 4) is produced by `parseVitestCommand` and consumed by `withExcludes` (Tasks 4, 6, 7), `perFileArgv` and `listArgv` (Task 13, used by Task 14). `CarriedFields` (Task 6) is what `carriedFrom` (Task 7) builds: `baseImage`, `resources`, `draftingNotes`, `scope`, `excludes`, `expectedPromoted`, and the supersets `imageAssertResolves`, `captureInclude`, `runnerConfig`. `DockerfileSpec` (Task 5) is what `deriveTarget` returns and `renderDockerfile` takes. `FileProposal` (Task 7) is what `initTarget` and `measureTarget` return and `renderDiff`/`writeProposal` take. `VitestRun`, `FileMeasurement`, `SuiteSample`, `Measurement`, `MeasureLimits` live in `classify.ts` (Task 13); `MeasureSession`, `SessionLimits`, `OpenSession` in `session.ts` (Task 14), which Task 15 extends with `measureTask` and `dockerSessions`; `WorkspaceTask` (Task 12) is what `measureTask` returns. `measureSuite` passes its whole options object as `classifyFile`'s `MeasureLimits` and `measureTarget` passes its own as `renderReport`'s `limits` (both read only `fileTimeoutMs` and `memoryMb`). `FileMeasurement` carries `changed`, `omissions` and optional `tests` (`TestCounts`, from `VitestRun.files[].tests`); `Measurement` carries `measured`, `prior`, `resources` and `confirmation`; `MeasureError` carries `files` and `report` for a partial report. `topologicalOrder` takes the dependency kinds it orders by (`PROD` for a build).
+- **Review amendments.** Each of the review's nine Important findings and its minors is addressed in place and listed, with where, in "Review amendments (2026-09-25)" below; the amended code was prototyped again (the second prototype note).
 - **Checked against the pins.** The closures, build order, tsconfig chains, `outDir`s, the one config package and the root TypeScript version were computed from `git show` at `6a59e00a` and `765e6e16` while writing this plan (Today, rows 12-13); every captured path at both pins is portable and none is a symlink (`git ls-tree -r`: 487 files, 4.2 MB under the `cli` target's generated capture directories); no two workspace packages share a name and every matched `package.json` parses at either pin. Task 9's expected build order for `cli` is that computation's output.
+
+## Review amendments (2026-09-25)
+
+An independent review of this plan (at `211684688`) found no Critical issues, nine Important ones and several minors. Each is addressed in place; this list says where.
+
+1. **I1: one container across files let a write dirty the next file's workspace, and a failing file's writes were hidden.** `measureSuite` gives the next file a fresh container after any file that changed the workspace, hung or was killed (Task 14); `classifyFile` reports `changed` whatever the verdict, and a failing file's reason says what it also changed (Task 13). Tests: "reports what a failing file changed too" (Task 13), "gives the next file a fresh container after a file that writes" (Task 14, through the fake's `sessionOf`). D11 amended.
+2. **I2: resource proposals were never tried and could shrink.** The proposal is, field by field, the larger of the measured and the target's own resources unless `--allow-decrease` (`settleResources`, Task 13); placeholders are no prior (`isPlaceholderResources`, Task 6); one more whole-suite session at exactly the proposed memory, CPUs and timeout must pass, write nothing and fit twice in the proposed deadline, or `measure` refuses (Task 14); the report sets before, measured and proposed side by side (Task 13). Tests in Tasks 13, 14 and 16. D12 amended, with the prototype's own evidence (181 against 369 MiB).
+3. **I3: one flaky failure became an exclude.** Every non-pass runs once more, alone, in a fresh container; a pass makes it `flaky`, listed and never proposed (`settleFile`, Tasks 13-14); exit 137 with no report is its own verdict, `killed`. D11 amended.
+4. **I4: a re-generation dropped hand additions, and would widen a scoped capture.** `imageAssertResolves`, `capture.include` and `runnerConfig` are carried as supersets of existing entries still present at the pin (capture entries only when root-level or under a captured package); a carried scope keeps the carried capture of the test directory (Tasks 6-7). Task 9 regenerates both shipped targets in place and compares whole objects (`cli` differs only in its build's order, `devkit` only in the wider `runnerConfig`), asserting `imageAssertResolves` and `capture.include` explicitly. D8 amended.
+5. **I5: uncaptured directories were invisible.** `init` notes each captured package's subdirectories the capture omits, with file counts, and each sibling a vitest config reaches by `../<dir>/` that the capture omits (Task 6; asserted for `cli`'s `bin/`, `scripts/` and `../sandbox/` and `devkit`'s `templates/` in Task 9). `measure` records each file's passed, failed and skipped test counts from `assertionResults` (Task 15's session, Task 13's report) and names an `ENOENT` on a path that exists at the pin as a capture omission (`captureOmissions`, Task 13; Task 17 asserts it for all nine). D4 amended; D15 added.
+6. **I6: Task 9 compared named fields only.** It now compares the whole normalised target with the committed one, each named difference applied (Task 9).
+7. **I7: Task 9's `beforeAll` ran under vitest's 10 s hook default.** Every generation in Task 9 runs under `GENERATE_MS` (120 s).
+8. **I8: the lanes found the pins only because the global setup fetched them.** `initTarget` calls `ensurePin` itself (Task 7), so every caller, the lanes included, works on a shallow checkout; the script's own call is gone (Task 8).
+9. **I9: the template was proven only on devkit before PR 1 ships.** Task 10 gains the opt-in `cli` case (learns the committed promotion set, then builds: the TypeScript shim and relinks by name) and `test:sandbox:cli` runs it; Step 3 runs it by hand before PR 1 merges and records the result. The PR 2 lane that did this moved here; Task 18 is now the hand measurement only. D13 amended.
+
+Minors:
+
+- **Test-script tokens.** Only `run`, `--run`, `--config <file>`, `--no-cache` and `--passWithNoTests` are read; anything else is refused by name (Task 4; D3). The reviewer's list (`--config` and `run` only) would refuse `devkit`'s and most packages' `--run` and `--passWithNoTests`, which every hand-written target already runs; the three are named, not guessed.
+- **Build scripts that do more than compile** are named in a note (Task 6; D5).
+- **Build order by runtime edges**: `topologicalOrder` takes its dependency kinds, and a build orders by `PROD` (Task 2, Task 6; D5).
+- **Placeholder and exclude warnings by value**: `isPlaceholderResources` and an empty exclude list, not whether a field was carried (Task 6; D9).
+- **A partial report on a stop after the per-file phase**: `MeasureError.files` and `.report`, written by the script (Tasks 13, 14, 16).
+- **`measure --pin` other than the default** is said in the log and the report (Task 16).
+- **`dockerSessions` takes `repositoryRoot`** and archives the capture from it (Task 15).
+- **`formatManifest` runs the controller's own Biome** (`node_modules/.bin/biome`), not `npx` (Task 7).
+- **A `tsBuildInfoFile` outside the `outDir` is refused** (Task 3; D5): `snapshotIgnore` holds directory prefixes and cannot cover a file.
+- **Overclaiming test names**: Task 13's resource test is "gives devkit's committed memory and verifier deadline from rung 2's measurement", and its comment says the committed timeout is 6.7 times the suite, under the rule's eight.
+- **Task 17 asserts each excluded file's output names `templates/`** and that each is a named capture omission, and that `measurement.md` lists nine.
+- **Task 18 no longer writes into the real catalog**: both commands take `--targets-dir`, and the hand measurement uses a scratch catalog under `FACTORY_STATE_DIR` (Task 18; D1).
+
+Decisions: **D2** now recommends the reviewer's alternative, a committed `targets/<id>/measurement.md` (each exclude's class, reason and first error lines; no timings or ids); the report stays under the state directory. **D8, D11, D12** amended per I4, I1 and I3, and I2. **D15** (excludes per file, per-test counts as the mitigation) and **D16** (`--with-dev-builds`, opt-in) added.
+
+Nothing in the review was declined. One point was narrowed, not reversed: the test-script allow-list (first minor) keeps the three flags every hand-written target already uses.
