@@ -17,6 +17,7 @@ import { createWorkOrderStore, type WorkOrderPatch } from "../src/lib/registry/w
 import { createArtifactStore } from "../src/lib/storage/artifacts.ts"
 import {
   configureCatalog,
+  configuredImages,
   loadTargetRecipe,
   loadTask,
   resetCatalogForTests,
@@ -1127,6 +1128,40 @@ describe("the intake gate", () => {
     expect(verifier.calls[1]?.mode).toBeUndefined()
   })
 
+  it("re-checks the approved digest after the image step, however long it took", async () => {
+    await boot()
+    const { id } = await intake()
+    const parked = await factory.settleIntake(id, 20_000)
+    const taskDigest = parked.taskDigest as string
+    expect((await factory.approveIntake(id, { revision: parked.revision, taskDigest })).ok).toBe(
+      true,
+    )
+    const spec = join(generated, id, "spec.md")
+    // The generated task changes on disk while dispatch waits on its image.
+    const base = configuredImages() as ImageRegistry
+    const restore = useImages({
+      recorded: (recipe) => base.recorded(recipe),
+      ensure: (recipe, options) => base.ensure(recipe, options),
+      close: () => {},
+      async present() {
+        writeFileSync(spec, `${readFileSync(spec, "utf8")}\nA9: edited during the wait\n`)
+        return true
+      },
+    })
+    try {
+      expect(await factory.dispatch(id)).toEqual({
+        ok: false,
+        state: "received",
+        message: "Generated task on disk no longer matches the approved digest",
+      })
+      expect(eventsOf(id, "generated_task_changed").at(-1)?.payload).toMatchObject({
+        phase: "dispatch_after_image",
+      })
+      expect(threadPosts()).toHaveLength(1)
+    } finally {
+      restore()
+    }
+  })
   it("freezes the origin, the pin, the task digest and the oracle proof into the bundle, and approve re-checks the task on disk", async () => {
     await boot()
     const { id } = await intake()

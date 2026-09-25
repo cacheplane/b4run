@@ -5,17 +5,23 @@ import { afterEach, describe, expect, it } from "vitest"
 import { createFactory, type Factory, type FactoryOptions } from "../src/lib/controller/factory.ts"
 import { ACTIVE_STATES } from "../src/lib/domain/states.ts"
 import { taskPrompt } from "../src/lib/prompts.ts"
+import { openRegistry } from "../src/lib/registry/db.ts"
+import { createWorkOrderStore } from "../src/lib/registry/work-orders.ts"
 import {
   configureCatalog,
   loadTask,
+  loadTaskRecipe,
   resetCatalogForTests,
   tasksDir,
 } from "../src/lib/targets/catalog.ts"
+import { type ImageRegistry, openImageRegistry } from "../src/lib/targets/images.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
+import { fakeImageBuilder } from "./fake-image-builder.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
 import { fakeBuilderHandoff, fakeWorkerMap } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
+import { useImages } from "./static-images.ts"
 import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
 let dir: string
@@ -24,6 +30,8 @@ let generated: string | undefined
 let fake: FakeWorker
 let factory: Factory
 let reader: FakeWorkspaceReader
+/** The tag each builder handoff capture was asked to name (`(none)` when none was bound). */
+let handoffTags: string[] = []
 
 const REPAIRED = "export const fixed = true\n"
 
@@ -63,7 +71,10 @@ async function boot(
         reader,
       },
     }),
-    captureBuilderHandoff: fakeBuilderHandoff,
+    captureBuilderHandoff: async (input) => {
+      handoffTags.push(input.tag ?? "(none)")
+      return fakeBuilderHandoff(input)
+    },
     exportDir: join(dir, "out"),
     artifactsDir: join(dir, "artifacts"),
     verifier: createFakeVerifier({ verdict: "pass" }),
@@ -71,8 +82,47 @@ async function boot(
     ...overrides,
   })
 }
+
+/** Append one event to the journal directly, as an earlier phase (or a crash) left it. */
+function journal(id: string, type: string, payload: Record<string, unknown>): void {
+  const registry = openRegistry(join(dir, "registry.sqlite"))
+  createWorkOrderStore(registry.db).appendEvent(id, type, payload, new Date().toISOString())
+  registry.close()
+}
+
+/** A registry over a fake builder, configured process-wide for this test (the factory builds through it). */
+function fakeImages(): {
+  builder: ReturnType<typeof fakeImageBuilder>
+  registry: ImageRegistry
+  restore(): void
+} {
+  const builder = fakeImageBuilder()
+  const registry = openImageRegistry({
+    path: join(dir, "images.sqlite"),
+    builder,
+    platform: "linux/arm64",
+  })
+  const restore = useImages(registry)
+  return {
+    builder,
+    registry,
+    restore: () => {
+      restore()
+      registry.close()
+    },
+  }
+}
+const eventsOf = (id: string, type: string) => factory.events(id).filter((e) => e.type === type)
+async function until(condition: () => boolean, ms = 10_000): Promise<void> {
+  const started = Date.now()
+  while (!condition()) {
+    if (Date.now() - started > ms) throw new Error("condition never held")
+    await new Promise((r) => setTimeout(r, 10))
+  }
+}
 afterEach(async () => {
   resetCatalogForTests()
+  handoffTags = []
   await factory?.close()
   await fake?.close()
   if (dir) rmSync(dir, { recursive: true, force: true })
@@ -124,6 +174,7 @@ describe("create and dispatch", () => {
       .map((e) => `${e.type}:${String(e.payload.event ?? "")}`)
     expect(types).toEqual([
       "created:",
+      "image_bound:",
       "builder_source_staged:",
       "thread_created:",
       "transition:dispatch_committed",
@@ -366,5 +417,133 @@ describe("generated tasks", () => {
     const created = await factory.create({ taskId: "wo-fedcba9876543210" })
     expect(created.state).toBe("received")
     expect(await factory.dispatch(created.id)).toMatchObject({ ok: true, state: "dispatched" })
+  })
+})
+
+describe("the task's image at dispatch", () => {
+  it("builds it while the row waits in received, binds it, and hands the builder its tag", async () => {
+    await boot()
+    const images = fakeImages()
+    images.builder.hold()
+    try {
+      const { id } = await factory.create({ taskId: "cli-flags" })
+      const dispatching = factory.dispatch(id)
+      await until(() => eventsOf(id, "image_prepare_started").length === 1)
+      expect(factory.show(id)?.state).toBe("received")
+      images.builder.release()
+      expect(await dispatching).toEqual({ ok: true, state: "dispatched", message: "Dispatched" })
+      expect(images.builder.requests).toHaveLength(1)
+      const [bound] = eventsOf(id, "image_bound")
+      expect(bound?.payload).toMatchObject({ targetId: "cli-flags" })
+      const types = factory.events(id).map((e) => e.type)
+      expect(types.indexOf("image_bound")).toBeLessThan(types.indexOf("builder_source_staged"))
+      expect(handoffTags).toEqual([bound?.payload.tag])
+    } finally {
+      images.builder.release()
+      images.restore()
+    }
+  })
+
+  it("refuses a failed build before the key is spent, and builds again on the next dispatch", async () => {
+    await boot()
+    const images = fakeImages()
+    try {
+      const { id } = await factory.create({ taskId: "cli-flags" })
+      images.builder.failNext("docker build failed", "#7 ERROR: failed to solve\n")
+      const refused = await factory.dispatch(id)
+      expect(refused).toMatchObject({ ok: false, state: "received" })
+      expect(refused.message).toMatch(
+        /^the image of target cli-flags at [0-9a-f]{40} could not be built: .*docker build failed \(build log: artifact [0-9a-f]{64}\)$/,
+      )
+      expect(fake.requests.filter((r) => r.path === "/threads")).toHaveLength(0)
+      expect(await factory.dispatch(id)).toMatchObject({ ok: true, state: "dispatched" })
+      expect(images.builder.requests).toHaveLength(2)
+    } finally {
+      images.restore()
+    }
+  })
+
+  it("abandons the build when the work order is cancelled while it waits", async () => {
+    await boot()
+    const images = fakeImages()
+    images.builder.hold()
+    try {
+      const { id } = await factory.create({ taskId: "cli-flags" })
+      const dispatching = factory.dispatch(id)
+      await until(() => eventsOf(id, "image_prepare_started").length === 1)
+      expect((await factory.cancel(id)).ok).toBe(true)
+      expect(await dispatching).toMatchObject({ ok: false, state: "cancelled" })
+      await until(() => images.builder.aborted === 1)
+    } finally {
+      images.builder.release()
+      images.restore()
+    }
+  })
+
+  it("cancels the work order when the caller's signal aborts during the build", async () => {
+    await boot()
+    const images = fakeImages()
+    images.builder.hold()
+    try {
+      const { id } = await factory.create({ taskId: "cli-flags" })
+      const route = new AbortController()
+      const dispatching = factory.dispatch(id, undefined, { signal: route.signal })
+      await until(() => eventsOf(id, "image_prepare_started").length === 1)
+      route.abort(new Error("the runtime cancelled the dispatch run"))
+      expect(await dispatching).toMatchObject({ ok: false, state: "cancelled" })
+      await until(() => images.builder.aborted === 1)
+      const cancel = factory
+        .events(id)
+        .find((e) => e.type === "transition" && e.payload.event === "cancel")
+      expect(cancel?.payload.operationKey).toBe(`cancel:${id}:aborted-dispatch`)
+    } finally {
+      images.builder.release()
+      images.restore()
+    }
+  })
+
+  it("keeps a binding whose image the daemon holds, and refuses one it no longer holds", async () => {
+    await boot()
+    const images = fakeImages()
+    try {
+      const { id } = await factory.create({ taskId: "cli-flags" })
+      const recipe = loadTaskRecipe("cli-flags").target
+      const built = await images.registry.ensure(recipe, { signal: AbortSignal.timeout(5_000) })
+      // Bound earlier to an image a later build of the same key superseded, still on the daemon.
+      const earlier = { ...built.image, localId: `sha256:${"7".repeat(64)}` }
+      images.builder.daemon.set(earlier.localId, [])
+      journal(id, "image_bound", {
+        targetId: "cli-flags",
+        pin: recipe.pin,
+        key: built.key,
+        tag: built.tag,
+        image: earlier,
+      })
+      expect(await factory.dispatch(id)).toMatchObject({ ok: true, state: "dispatched" })
+      expect(images.builder.requests).toHaveLength(1)
+      expect(eventsOf(id, "image_bound")).toHaveLength(1)
+
+      const { id: other } = await factory.create({ taskId: "cli-flags", operationKey: "other" })
+      const gone = { ...built.image, localId: `sha256:${"6".repeat(64)}` }
+      journal(other, "image_bound", {
+        targetId: "cli-flags",
+        pin: recipe.pin,
+        key: built.key,
+        tag: built.tag,
+        image: gone,
+      })
+      const refused = await factory.dispatch(other)
+      expect(refused).toMatchObject({ ok: false, state: "received" })
+      expect(refused.message).toMatch(
+        /is bound to image sha256:6{64} .* no longer holds it: .* Cancel it and create a new work order$/,
+      )
+      expect(eventsOf(other, "image_changed")[0]?.payload).toEqual({
+        bound: gone.localId,
+        boundKey: built.key,
+        reason: "gone",
+      })
+    } finally {
+      images.restore()
+    }
   })
 })

@@ -20,7 +20,7 @@ export async function workflow(input: unknown, ctx: RuntimeContext) {
       // Load-bearing: a work order orphaned by a restart is re-tracked only here, and
       // without it `settle` would wait the whole budget on a row nothing is driving.
       await factory.reconcileWorkOrder(id)
-      const outcome = await factory.dispatch(id, operationKey)
+      const outcome = await factory.dispatch(id, operationKey, { signal: ctx.signal })
       if (!outcome.ok) return { ...outcome, row: factory.show(id) }
       return settleOutcome(factory, id, ctx.signal, {
         what: "Dispatch",

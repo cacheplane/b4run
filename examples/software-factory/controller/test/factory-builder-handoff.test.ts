@@ -196,7 +196,7 @@ describe("the builder's workspace at dispatch", () => {
       message: expect.stringContaining("Thread creation failed"),
     })
     // The upload stays on the builder, unnamed, until its retention window reclaims it.
-    expect(types(id)).toEqual(["created", "builder_source_staged"])
+    expect(types(id)).toEqual(["created", "image_bound", "builder_source_staged"])
     expect(factory.show(id)?.state).toBe("received")
   })
 
