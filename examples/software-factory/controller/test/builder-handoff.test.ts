@@ -5,8 +5,10 @@ import { createSourceBundle, verifyCapturedWorkspaceDefinition } from "@b4run/wo
 import { afterEach, describe, expect, it } from "vitest"
 import {
   builderHandoffOf,
+  isFactoryImageId,
   refuseRetiredVariables,
   stagedBuilderWorkspace,
+  FACTORY_LABELS as THE_BUILDERS_LABELS,
   BuilderHandoffSchema as TheBuildersHandoffSchema,
 } from "../../server/src/builder-handoff.ts"
 import {
@@ -14,7 +16,8 @@ import {
   captureBuilderHandoff,
   stagedReferenceOf,
 } from "../src/lib/builder-handoff.ts"
-import { loadTask, loadTaskRecipe } from "../src/lib/targets/catalog.ts"
+import { loadTask, loadTaskRecipe, type TaskRecipe } from "../src/lib/targets/catalog.ts"
+import { FACTORY_LABELS } from "../src/lib/targets/image-builder.ts"
 import { recipeTag } from "../src/lib/targets/images.ts"
 import { builderPermissions } from "../src/lib/targets/permissions.ts"
 import { targetSandboxPolicy } from "../src/lib/targets/workspace.ts"
@@ -29,13 +32,23 @@ const tempDir = (prefix: string) => {
   return dir
 }
 
+/** An image bound for `task`: an id, and this host's recipe tag for its target. */
+const boundTo = (task: TaskRecipe) => ({
+  localId: `sha256:${"3".repeat(64)}`,
+  tag: recipeTag(task.target),
+})
+
 describe("captureBuilderHandoff", () => {
-  it("names the tag it is given: the one the work order bound", async () => {
+  it("names the image it is given by id, and its tag: the one the work order bound", async () => {
     const { handoff } = await captureBuilderHandoff(loadTaskRecipe("cli-flags"), {
       captureRoot: tempDir("factory-handoff-app-"),
-      tag: `b4-factory-cli-flags:${loadTaskRecipe("cli-flags").target.pin.slice(0, 12)}-0123456789ab`,
+      image: {
+        localId: `sha256:${"2".repeat(64)}`,
+        tag: `b4-factory-cli-flags:${loadTaskRecipe("cli-flags").target.pin.slice(0, 12)}-0123456789ab`,
+      },
     })
-    expect(handoff.target.image).toMatch(/-0123456789ab$/)
+    expect(handoff.target.image).toBe(`sha256:${"2".repeat(64)}`)
+    expect(handoff.target.tag).toMatch(/-0123456789ab$/)
   })
 
   it("carries the work order, the task, the target and the reference its workspace is staged under, no prompt", async () => {
@@ -44,6 +57,7 @@ describe("captureBuilderHandoff", () => {
     const { handoff, workspace } = await captureBuilderHandoff(task, {
       workOrderId: "wo-0123456789abcdef",
       captureRoot: app,
+      image: { localId: `sha256:${"1".repeat(64)}`, tag: recipeTag(task.target) },
     })
     // The prompt is the run's user message; the handoff does not carry a second copy, and the
     // workspace's files travel as the upload, not in the handoff.
@@ -55,9 +69,10 @@ describe("captureBuilderHandoff", () => {
       "workOrderId",
       "workspace",
     ])
-    expect(handoff.version).toBe(3)
+    expect(handoff.version).toBe(4)
     expect(handoff.target).toEqual({
-      image: recipeTag(task.target),
+      image: `sha256:${"1".repeat(64)}`,
+      tag: recipeTag(task.target),
       pin: task.target.pin,
       policy: targetSandboxPolicy(task.target),
       permissions: builderPermissions(task.target),
@@ -91,9 +106,9 @@ describe("captureBuilderHandoff", () => {
     const app = tempDir("factory-handoff-app-")
     const task = loadTask("cli-flags")
     const [first, second, third] = await Promise.all([
-      captureBuilderHandoff(task, { captureRoot: app }),
-      captureBuilderHandoff(task, { workOrderId: "wo-a", captureRoot: app }),
-      captureBuilderHandoff(task, { workOrderId: "wo-b", captureRoot: app }),
+      captureBuilderHandoff(task, { captureRoot: app, image: boundTo(task) }),
+      captureBuilderHandoff(task, { workOrderId: "wo-a", captureRoot: app, image: boundTo(task) }),
+      captureBuilderHandoff(task, { workOrderId: "wo-b", captureRoot: app, image: boundTo(task) }),
     ])
     expect(first?.handoff.workOrderId).toBe("cli-flags")
     // Concurrent captures of one task each staged in their own directory, so each read the
@@ -108,6 +123,7 @@ describe("captureBuilderHandoff", () => {
       captureBuilderHandoff(loadTask("cli-flags"), {
         workOrderId: "../escape",
         captureRoot: tempDir("factory-handoff-app-"),
+        image: boundTo(loadTaskRecipe("cli-flags")),
       }),
     ).rejects.toThrow(/catalog id/)
   })
@@ -117,13 +133,14 @@ const DIGEST_SOURCE = createSourceBundle([
   { path: "a.ts", bytes: new TextEncoder().encode("a"), executable: false },
 ])
 const handoff = {
-  version: 3,
+  version: 4,
   workOrderId: "wo-1",
   taskId: "cli-flags",
   targetId: "cli-flags",
   workspace: { sourceDigest: DIGEST_SOURCE.digest, environmentLinks: [], baseline: "git" },
   target: {
-    image: `b4-factory-cli-flags:${"a".repeat(12)}-${"b".repeat(12)}`,
+    image: `sha256:${"0".repeat(64)}`,
+    tag: `b4-factory-cli-flags:${"a".repeat(12)}-${"b".repeat(12)}`,
     pin: "a".repeat(40),
     policy: {
       network: { mode: "deny" },
@@ -212,6 +229,26 @@ describe("the builder's handoff", () => {
     ).toThrow(/is not the one work order wo-1 names/)
   })
 
+  it("names an image only by id, and its tag only as its own target's at its own pin", () => {
+    const id = `sha256:${"a".repeat(64)}`
+    const parse = (target: Record<string, unknown>) =>
+      TheBuildersHandoffSchema.safeParse({ ...handoff, target: { ...handoff.target, ...target } })
+        .success
+    expect(parse({ image: id })).toBe(true)
+    for (const image of [
+      handoff.target.tag,
+      "alpine:latest",
+      `sha256:${"a".repeat(63)}`,
+      `b4-factory-t@sha256:${"a".repeat(64)}`,
+    ])
+      expect(parse({ image }), image).toBe(false)
+    expect(parse({ tag: `b4-factory-${handoff.targetId}:${"f".repeat(12)}-0123456789ab` })).toBe(
+      false,
+    )
+    expect(isFactoryImageId(id)).toBe(true)
+    expect(isFactoryImageId(handoff.target.tag)).toBe(false)
+  })
+
   it("refuses the retired variables by name", () => {
     expect(() => refuseRetiredVariables({ FACTORY_BUILDER_MANIFEST_DIR: "/m" })).toThrow(
       /FACTORY_BUILDER_MANIFEST_DIR is retired/,
@@ -225,13 +262,14 @@ describe("the builder's handoff", () => {
 
 describe("the handoff's target block", () => {
   const good = () => ({
-    version: 3,
+    version: 4,
     workOrderId: "wo-a",
     taskId: "cli-flags",
     targetId: "cli-flags",
     workspace: { sourceDigest: "c".repeat(64), environmentLinks: [], baseline: "git" },
     target: {
-      image: "b4-factory-cli-flags:6a59e00aed46-0123456789ab",
+      image: `sha256:${"e".repeat(64)}`,
+      tag: "b4-factory-cli-flags:6a59e00aed46-0123456789ab",
       pin: `6a59e00aed46${"0".repeat(28)}`,
       policy: {
         network: { mode: "deny" },
@@ -264,12 +302,17 @@ describe("the handoff's target block", () => {
       (m: Handoff) => withPolicy(m, { network: { mode: "deny", allowlist: ["10.0.0.0/8"] } }),
     ],
     [
-      "an image that is not the factory's",
+      "an image named by a reference, not an id",
       (m: Handoff) => withTarget(m, { image: "alpine:latest" }),
     ],
     [
-      "a factory-named image under a floating tag",
-      (m: Handoff) => withTarget(m, { image: "b4-factory-cli-flags:latest" }),
+      "an image named by its factory tag, not its id",
+      (m: Handoff) => withTarget(m, { image: m.target.tag }),
+    ],
+    ["no tag", (m: Handoff) => withTarget(m, { tag: undefined })],
+    [
+      "a factory-named tag that floats",
+      (m: Handoff) => withTarget(m, { tag: "b4-factory-cli-flags:latest" }),
     ],
     ["a security key", (m: Handoff) => withPolicy(m, { security: {} })],
     [
@@ -280,13 +323,14 @@ describe("the handoff's target block", () => {
     ["a whitespace-only pattern", (m: Handoff) => withTarget(m, { permissions: { bash: ["  "] } })],
     ["an unknown target key", (m: Handoff) => withTarget(m, { scope: "elsewhere" })],
     ["version 2, the manifest's", (m: Handoff) => ({ ...m, version: 2 })],
+    ["version 3, which named the image by tag", (m: Handoff) => ({ ...m, version: 3 })],
     [
-      "another target's image",
-      (m: Handoff) => withTarget(m, { image: "b4-factory-devkit:6a59e00aed46-0123456789ab" }),
+      "another target's tag",
+      (m: Handoff) => withTarget(m, { tag: "b4-factory-devkit:6a59e00aed46-0123456789ab" }),
     ],
     [
-      "its own target's image at another pin",
-      (m: Handoff) => withTarget(m, { image: "b4-factory-cli-flags:bfaf0c2b3030-0123456789ab" }),
+      "its own target's tag at another pin",
+      (m: Handoff) => withTarget(m, { tag: "b4-factory-cli-flags:bfaf0c2b3030-0123456789ab" }),
     ],
     ["no workspace", (m: Handoff) => ({ ...m, workspace: undefined })],
     ["a workspace digest that is not one", (m: Handoff) => withWorkspace(m, { sourceDigest: "x" })],
@@ -322,9 +366,16 @@ describe("the builder's copy of the schemas", () => {
     expect(schemas(there)).toBe(block)
     const rule = (text: string, name: string) =>
       text.match(new RegExp(`^const ${name} = (.*)$`, "m"))?.[1]
-    for (const name of ["CATALOG_ID", "FACTORY_IMAGE"]) {
+    for (const name of ["CATALOG_ID", "FACTORY_IMAGE", "IMAGE_ID"]) {
       expect(rule(here, name)).toBeDefined()
       expect(rule(there, name)).toBe(rule(here, name))
     }
+  })
+
+  it("checks the three labels the controller's image build writes, by the same names", () => {
+    // The builder refuses an image whose labels it cannot find: a rename on one side only
+    // would refuse every image the factory builds.
+    expect(Object.keys(FACTORY_LABELS).sort()).toEqual(["key", "pin", "target"])
+    expect(THE_BUILDERS_LABELS).toEqual(FACTORY_LABELS)
   })
 })

@@ -119,8 +119,12 @@ export interface FactoryOptions {
     readonly taskId: string
     readonly workOrderId: string
     readonly signal: AbortSignal
-    /** The work order's bound tag (`image_bound`); this host's recipe tag when absent. */
-    readonly tag?: string
+    /**
+     * The work order's bound image (`image_bound`): its id is what the builder runs, its tag
+     * what it is named. Absent only under the `tasks` test seam, which binds none; the
+     * catalog capture refuses without one.
+     */
+    readonly image?: { readonly localId: string; readonly tag: string }
   }) => Promise<CapturedBuilderHandoff>
   /** The controller's own baseline for a task. Injected so tests need no container. */
   captureBaseline(
@@ -285,15 +289,17 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
    * (`promptCatalog` when a test scopes one, the process-wide search path otherwise),
    * captured.
    */
-  const captureBuilderHandoffFromCatalog: NonNullable<FactoryOptions["captureBuilderHandoff"]> = (
-    input,
-  ) =>
-    captureBuilderHandoffOfTask(loadTaskRecipe(input.taskId, options.promptCatalog ?? {}), {
+  const captureBuilderHandoffFromCatalog: NonNullable<
+    FactoryOptions["captureBuilderHandoff"]
+  > = async (input) => {
+    if (input.image === undefined) throw new Error("dispatch bound no image")
+    return captureBuilderHandoffOfTask(loadTaskRecipe(input.taskId, options.promptCatalog ?? {}), {
       workOrderId: input.workOrderId,
       captureRoot: options.captureRoot,
       signal: input.signal,
-      ...(input.tag !== undefined ? { tag: input.tag } : {}),
+      image: input.image,
     })
+  }
   const now = options.now ?? Date.now
   const iso = () => new Date(now()).toISOString()
   const abort = new AbortController()
@@ -1005,7 +1011,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         taskId: row.taskId,
         workOrderId: id,
         signal: abort.signal,
-        ...(bound !== undefined ? { tag: bound.tag } : {}),
+        ...(bound !== undefined ? { image: { localId: bound.image.localId, tag: bound.tag } } : {}),
       })
       const status = await worker.client.uploadSource(captured.workspace.source, abort.signal)
       recordEvent(id, "builder_source_staged", {

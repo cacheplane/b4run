@@ -38,6 +38,8 @@ let factory: Factory
 let reader: FakeWorkspaceReader
 /** The tag each builder handoff capture was asked to name (`(none)` when none was bound). */
 let handoffTags: string[] = []
+/** The image id each builder handoff capture was asked to name (`(none)` when none was bound). */
+let handoffImages: string[] = []
 
 const REPAIRED = "export const fixed = true\n"
 
@@ -78,7 +80,8 @@ async function boot(
       },
     }),
     captureBuilderHandoff: async (input) => {
-      handoffTags.push(input.tag ?? "(none)")
+      handoffTags.push(input.image?.tag ?? "(none)")
+      handoffImages.push(input.image?.localId ?? "(none)")
       return fakeBuilderHandoff(input)
     },
     exportDir: join(dir, "out"),
@@ -129,6 +132,7 @@ async function until(condition: () => boolean, ms = 10_000): Promise<void> {
 afterEach(async () => {
   resetCatalogForTests()
   handoffTags = []
+  handoffImages = []
   await factory?.close()
   await fake?.close()
   if (dir) rmSync(dir, { recursive: true, force: true })
@@ -429,7 +433,7 @@ describe("generated tasks", () => {
 })
 
 describe("the task's image at dispatch", () => {
-  it("builds it while the row waits in received, binds it, and hands the builder its tag", async () => {
+  it("builds it while the row waits in received, binds it, and hands the builder its id and tag", async () => {
     await boot()
     const images = fakeImages()
     images.builder.hold()
@@ -446,6 +450,9 @@ describe("the task's image at dispatch", () => {
       const types = factory.events(id).map((e) => e.type)
       expect(types.indexOf("image_bound")).toBeLessThan(types.indexOf("builder_source_staged"))
       expect(handoffTags).toEqual([bound?.payload.tag])
+      const boundImage = (bound?.payload as { image?: { localId?: string } } | undefined)?.image
+      expect(boundImage?.localId).toMatch(/^sha256:[0-9a-f]{64}$/)
+      expect(handoffImages).toEqual([boundImage?.localId])
     } finally {
       images.builder.release()
       images.restore()
@@ -576,6 +583,9 @@ describe("the task's image at dispatch", () => {
       expect(await factory.dispatch(id)).toMatchObject({ ok: true, state: "dispatched" })
       expect(images.builder.requests).toHaveLength(1)
       expect(eventsOf(id, "image_bound")).toHaveLength(1)
+      // The builder runs the image this work order bound, not the newer one the registry records.
+      expect(handoffImages).toEqual([earlier.localId])
+      expect(handoffTags).toEqual([built.tag])
 
       const { id: other } = await factory.create({ taskId: "cli-flags", operationKey: "other" })
       const gone = { ...built.image, localId: `sha256:${"6".repeat(64)}` }
@@ -707,6 +717,7 @@ describe("the task's image at dispatch", () => {
       })
       expect(fake.requests.filter((r) => r.path === "/threads")).toHaveLength(0)
       expect(handoffTags).toEqual([])
+      expect(handoffImages).toEqual([])
       // Nothing spent: the key holds no outcome, so it is free for the dispatch after a fix.
       expect(factory.show(id)?.candidateAttempts).toBe(0)
     } finally {
