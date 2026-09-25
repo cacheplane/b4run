@@ -4,7 +4,12 @@ import type {
   ManagedWorkspaceManager,
   WorkspaceAdmissionContext,
 } from "./managed-workspace-manager.js"
-import { NO_WORKSPACE_PROTOCOL, type WorkspaceProtocolSettings } from "./workspace-protocol.js"
+import {
+  NO_WORKSPACE_PROTOCOL,
+  type ThreadWorkspaceInspectOutcome,
+  type ThreadWorkspaceInspectRequest,
+  type WorkspaceProtocolSettings,
+} from "./workspace-protocol.js"
 
 interface Entry {
   handle?: SandboxHandle
@@ -49,6 +54,17 @@ export class SandboxManager {
   /** Which workspace endpoints this app serves. Always off without managed workspaces. */
   get workspaceProtocol(): WorkspaceProtocolSettings {
     return this.#managed ? this.#protocol : NO_WORKSPACE_PROTOCOL
+  }
+
+  /** See `ManagedWorkspaceManager.inspectThread`. Only a managed app with `workspaceRead` serves it. */
+  async inspectThread(
+    threadId: string,
+    request: ThreadWorkspaceInspectRequest,
+    signal: AbortSignal,
+  ): Promise<ThreadWorkspaceInspectOutcome> {
+    if (!this.#managed || !this.#protocol.read)
+      throw new Error("Workspace reads are not served by this app (sandbox.workspaceRead)")
+    return this.#managed.inspectThread(threadId, request, signal)
   }
 
   async getForThread(

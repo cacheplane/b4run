@@ -3,11 +3,14 @@ import type { ThreadPermissionGrants } from "@b4run/permissions"
 import type { WorkspaceInstallation } from "@b4run/sqlite-storage"
 import {
   type CapturedWorkspaceDefinition,
+  inspectWorkspace,
+  isWorkspaceInspectionError,
   type ManagedWorkspaceProvider,
   type ReadyWorkspace,
   type SandboxHandle,
   type SandboxPolicy,
   type SourceBundle,
+  scopedWorkspaceReader,
   type ThreadSandboxPermissions,
   type ThreadSandboxPolicy,
   type ThreadSandboxRecord,
@@ -27,6 +30,10 @@ import {
   verifyThreadSandboxRecord,
 } from "@b4run/workspace/node"
 import { threadPolicy } from "./thread-policy.js"
+import type {
+  ThreadWorkspaceInspectOutcome,
+  ThreadWorkspaceInspectRequest,
+} from "./workspace-protocol.js"
 /** What admission tells the resolver about the thread. Metadata is loaded lazily: only a thread with no record needs it. */
 export interface WorkspaceAdmissionContext {
   /** Loads the thread's stored client metadata. Called only for a thread with no workspace record. */
@@ -86,6 +93,50 @@ function missingRecord(threadId: string): WorkspaceLifecycleError {
     "conflict",
     `Thread ${threadId} has no sandbox record: it was admitted before sandbox.thread was configured, or its record was lost. Delete the thread to resolve its sandbox again.`,
   )
+}
+
+/**
+ * A refusal of a workspace read, as the protocol names it; `undefined` for an
+ * error that is nobody's refusal (a backend failure, an unsupported provider),
+ * which the caller rethrows.
+ */
+export function inspectFailure(error: unknown): ThreadWorkspaceInspectOutcome | undefined {
+  if (isWorkspaceInspectionError(error)) {
+    const message = error.message
+    switch (error.code) {
+      case "root_missing":
+        return {
+          ok: false,
+          code: "workspace_root_missing",
+          message,
+          ...(error.detail.root !== undefined ? { root: error.detail.root } : {}),
+          ...(error.detail.kind !== undefined ? { kind: error.detail.kind } : {}),
+        }
+      case "changed":
+        return { ok: false, code: "workspace_changed", message }
+      case "refused":
+        return { ok: false, code: "workspace_inspection_refused", message }
+      case "invalid_options":
+        return { ok: false, code: "invalid_request", message }
+    }
+  }
+  if (error instanceof WorkspaceLifecycleError) {
+    const message = error.message
+    switch (error.code) {
+      case "lost":
+        return { ok: false, code: "workspace_lost", message }
+      case "expired":
+        return { ok: false, code: "workspace_expired", message }
+      case "conflict":
+        return { ok: false, code: "workspace_conflict", message }
+      case "retryable":
+      case "uncertain":
+        return { ok: false, code: "workspace_unavailable", message }
+      default:
+        return undefined
+    }
+  }
+  return undefined
 }
 
 /** B4 association/admission only; physical recovery belongs to the provider. */
@@ -483,6 +534,95 @@ export class ManagedWorkspaceManager {
     const record = this.#options.installation.associations.get(threadId)
     if (record?.state !== "ready") return undefined
     return this.#sessions.get(threadId)?.workspace
+  }
+  /**
+   * A bounded, read-only inventory of the thread's published workspace, through
+   * the provider's reader: a separate, networkless container that never touches
+   * the thread's session. The reader runs as the APP's `security.runAsNonRoot`,
+   * the identity the workspace was written under. `retain` makes a concurrent
+   * `destroyThread` refuse until the read ends. The caller excludes runs.
+   */
+  async inspectThread(
+    threadId: string,
+    request: ThreadWorkspaceInspectRequest,
+    signal: AbortSignal,
+  ): Promise<ThreadWorkspaceInspectOutcome> {
+    this.#assertOpen()
+    const { installation, provider, policy } = this.#options
+    const record = installation.associations.get(threadId)
+    if (!record)
+      return {
+        ok: false,
+        code: "workspace_not_found",
+        message: `Thread ${threadId} has no workspace yet: it has not run`,
+      }
+    if (record.intent.installationId !== installation.installationId)
+      return {
+        ok: false,
+        code: "workspace_conflict",
+        message: "Workspace installation identity mismatch",
+      }
+    if (record.state === "deleting" || record.state === "deleted")
+      return {
+        ok: false,
+        code: "workspace_lost",
+        message: `Thread ${threadId}'s workspace is deleted`,
+      }
+    if (record.state === "creating" || !record.ready)
+      return {
+        ok: false,
+        code: "workspace_not_ready",
+        message: `Thread ${threadId}'s workspace is not published yet`,
+      }
+    const open = provider.openWorkspaceReader
+    if (typeof open !== "function")
+      throw new WorkspaceLifecycleError(
+        "unsupported",
+        `Managed workspace provider "${provider.name}" cannot read a workspace`,
+      )
+    let release: (() => void) | undefined
+    try {
+      const ready = verifyReadyWorkspace(record.ready, record.intent)
+      const expiresAt = ready.provenance.retention.expiresAt
+      if (expiresAt && Date.parse(expiresAt) <= this.#now())
+        return {
+          ok: false,
+          code: "workspace_expired",
+          message: `Thread ${threadId}'s workspace passed its retention deadline`,
+        }
+      release = this.retain(threadId)
+      const runAsNonRoot = policy.security?.runAsNonRoot
+      const inspection = await scopedWorkspaceReader(
+        () =>
+          open.call(provider, {
+            workspace: ready,
+            signal,
+            ...(runAsNonRoot === undefined ? {} : { runAsNonRoot }),
+          }),
+        (reader) =>
+          inspectWorkspace(reader, {
+            signal,
+            maxEntries: request.maxEntries,
+            maxFileBytes: request.maxFileBytes,
+            maxTotalBytes: request.maxTotalBytes,
+            excludeRootDirectories: request.excludeRootDirectories,
+            expectedRootSymlinks: request.expectedRootSymlinks,
+            ...(request.root !== undefined ? { root: request.root } : {}),
+          }),
+      )
+      return {
+        ok: true,
+        sourceDigest: record.intent.sourceDigest,
+        intentDigest: record.intent.digest,
+        inspection,
+      }
+    } catch (error) {
+      const refusal = signal.aborted ? undefined : inspectFailure(error)
+      if (refusal) return refusal
+      throw error
+    } finally {
+      release?.()
+    }
   }
   async reapIdle(): Promise<void> {
     this.#assertOpen()
