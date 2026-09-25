@@ -99,7 +99,7 @@ export function DeployTargets({
   }
 
   return (
-    <div ref={rootRef} className={styles.targets}>
+    <div ref={rootRef}>
       <fieldset ref={optionsRef} className={styles.options}>
         <legend className={styles.legend}>Deploy target</legend>
         {deployTargets.map((target) => (

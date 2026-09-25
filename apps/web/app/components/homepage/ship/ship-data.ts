@@ -21,6 +21,12 @@ export const testReplay = replay as {
   readonly runs: readonly ReplayRun[]
 }
 
+/** Each run's short name, the command a visitor would type: the button label and the announcement. */
+export const REPLAY_LABEL: Readonly<Record<ReplayId, string>> = {
+  test: "npm test",
+  eval: "b4 eval",
+}
+
 /** The line a run ends on, for the announcement: vitest's test count, or the eval verdict. */
 export function replaySummary(run: ReplayRun): string {
   const summary =
@@ -36,7 +42,7 @@ export function replaySummary(run: ReplayRun): string {
  * same run again changes the wording, so the region's text always changes.
  */
 export function describeReplay(run: ReplayRun, again: boolean): string {
-  return `Replayed ${run.command}${again ? " again" : ""}. ${replaySummary(run)}.`
+  return `Replayed ${REPLAY_LABEL[run.id]}${again ? " again" : ""}. ${replaySummary(run)}.`
 }
 
 export type BuildId = "default" | BuildTargetName
@@ -139,10 +145,13 @@ export function writtenFiles(recording: BuildRecording): readonly string[] {
   })
 }
 
-/** What the live region says after the visitor picks a target. */
+/**
+ * What the live region says after the visitor picks a target. The files the
+ * build wrote are in the panel; leaving them out keeps each announcement short
+ * when a visitor arrows across the radios.
+ */
 export function describeTarget(target: DeployTarget): string {
-  const files = writtenFiles(buildFor(target.build))
-  return `Deploy target ${target.id}. ${target.summary} b4 build writes ${files.join(", ")}.`
+  return `Deploy target ${target.id}. ${target.summary}`
 }
 
 /** The section's own links, below both halves. */

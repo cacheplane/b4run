@@ -70,8 +70,10 @@
   color: var(--color-ink);
   cursor: pointer;
 }
-.controls button:hover {
-  background: var(--color-relay-tint);
+@media (hover: hover) {
+  .controls button:hover {
+    background: var(--color-relay-tint);
+  }
 }
 
 /* The terminal, and the deploy panels: the dark code panel. */
@@ -126,6 +128,7 @@
 }
 .prompt {
   color: var(--color-panel-accent);
+  user-select: none;
 }
 
 /* Deploy targets: the segmented control, as in "You keep the graph". Every
@@ -185,7 +188,6 @@
   visibility: hidden;
 }
 .panel {
-  container-type: inline-size;
   display: flex;
   flex-direction: column;
 }

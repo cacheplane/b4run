@@ -46,6 +46,10 @@ async function mount(node: React.ReactNode, reduce: boolean) {
     live: () => container.querySelector('[aria-live="polite"]')?.textContent,
     tweensOn: (selector: string) =>
       [...container.querySelectorAll(selector)].flatMap((node) => gsap.getTweensOf(node)),
+    inlineStyles: () =>
+      [...container.querySelectorAll("[style]")]
+        .map((node) => node.getAttribute("style"))
+        .filter((style) => style !== ""),
     styled: (selector: string) =>
       [...container.querySelectorAll<HTMLElement>(selector)].filter(
         (node) => node.style.opacity !== "" || node.style.transform !== "",
@@ -123,11 +127,11 @@ it("announces a replay once, at once, and words a repeat differently", async () 
   const view = await mount(<TestReplay />, true)
   expect(view.live()).toBe("")
   await view.press('[data-replay="test"]')
-  expect(view.live()).toBe("Replayed npm test -- --reporter=verbose. Tests 1 passed (1).")
+  expect(view.live()).toBe("Replayed npm test. Tests 1 passed (1).")
   await view.press('[data-replay="test"]')
-  expect(view.live()).toBe("Replayed npm test -- --reporter=verbose again. Tests 1 passed (1).")
+  expect(view.live()).toBe("Replayed npm test again. Tests 1 passed (1).")
   await view.press('[data-replay="eval"]')
-  expect(view.live()).toBe("Replayed npx b4 eval. PASS greets by name mean=1.00.")
+  expect(view.live()).toBe("Replayed b4 eval. PASS greets by name mean=1.00.")
   // Reduced motion: every line shows, and nothing moves.
   expect(view.tweensOn("[data-replay-line]")).toEqual([])
   expect(view.styled("[data-replay-line]")).toEqual([])
@@ -143,20 +147,38 @@ it("streams the lines in with motion on, and Skip or the next replay shows them 
   expect([...(targets as NodeListOf<Element>)]).toEqual([
     ...view.container.querySelectorAll('[data-run="test"] [data-replay-line]'),
   ])
-  expect(targets as NodeListOf<Element>).toHaveLength(testRun.lines.length)
+  // The `$ command` line streams in first, so a replay visibly starts over.
+  expect(targets as NodeListOf<Element>).toHaveLength(testRun.lines.length + 1)
+  expect((targets as NodeListOf<Element>)[0]?.textContent).toBe(`$ ${testRun.command}`)
   expect(from).toEqual({ opacity: 0 })
   expect((to as gsap.TweenVars).stagger).toBe(0.08)
   await view.press('[data-action="skip"]')
   expect(view.tweensOn('[data-run="test"] [data-replay-line]')).toEqual([])
   expect(view.styled('[data-run="test"] [data-replay-line]')).toEqual([])
-  expect(view.live()).toBe("Replayed npm test -- --reporter=verbose. Tests 1 passed (1).")
+  expect(view.live()).toBe("Replayed npm test. Tests 1 passed (1).")
 
   await view.press('[data-replay="test"]')
   await view.press('[data-replay="eval"]')
   expect(fromTo).toHaveBeenCalledTimes(3)
   expect(view.tweensOn('[data-run="test"] [data-replay-line]')).toEqual([])
   expect(view.styled('[data-run="test"] [data-replay-line]')).toEqual([])
-  expect(view.live()).toBe("Replayed npx b4 eval. PASS greets by name mean=1.00.")
+  expect(view.live()).toBe("Replayed b4 eval. PASS greets by name mean=1.00.")
+})
+
+it("stops a running replay when reduced motion switches on, and leaves nothing styled", async () => {
+  const view = await mount(<TestReplay />, false)
+  const fromTo = vi.spyOn(gsap, "fromTo")
+  await view.press('[data-replay="test"]')
+  expect(fromTo).toHaveBeenCalledTimes(1)
+  await act(async () => media?.change({ [REDUCE]: true, [FULL]: false }))
+  expect(view.tweensOn("[data-replay-line]")).toEqual([])
+  expect(view.styled("[data-replay-line]")).toEqual([])
+  // GSAP's clearProps may leave an empty style attribute; no declaration stays.
+  expect(view.inlineStyles()).toEqual([])
+  // Replays after the switch show every line at once.
+  await view.press('[data-replay="eval"]')
+  expect(fromTo).toHaveBeenCalledTimes(1)
+  expect(view.live()).toBe("Replayed b4 eval. PASS greets by name mean=1.00.")
 })
 
 it("puts focus on a replay button when a click leaves it on an ancestor", async () => {
@@ -218,4 +240,29 @@ it("gives focus to the checked radio when a click leaves it on an ancestor", asy
   view.q<HTMLInputElement>('input[value="langsmith"]').focus()
   await act(async () => view.q<HTMLInputElement>('input[value="node"]').click())
   expect(document.activeElement).toBe(view.q('input[value="langsmith"]'))
+})
+
+it("stops a running fade when reduced motion switches on, and leaves nothing styled", async () => {
+  const view = await mount(<DeployTargets code={code} />, false)
+  const fromTo = vi.spyOn(gsap, "fromTo")
+  await act(async () => view.q<HTMLInputElement>('input[value="langsmith"]').click())
+  expect(fromTo).toHaveBeenCalledTimes(1)
+  await act(async () => media?.change({ [REDUCE]: true, [FULL]: false }))
+  expect(view.tweensOn("[data-target]")).toEqual([])
+  expect(view.styled("[data-target]")).toEqual([])
+  // GSAP's clearProps may leave an empty style attribute; no declaration stays.
+  expect(view.inlineStyles()).toEqual([])
+  await act(async () => view.q<HTMLInputElement>('input[value="hono"]').click())
+  expect(fromTo).toHaveBeenCalledTimes(1)
+})
+
+it("moves focus from the old target's docs link to the newly checked radio", async () => {
+  const view = await mount(<DeployTargets code={code} />, true)
+  const link = view.q<HTMLAnchorElement>('[data-target="node"] a')
+  link.focus()
+  expect(document.activeElement).toBe(link)
+  // Arrowing is not possible from the link; pick another target as a click would.
+  await act(async () => view.q<HTMLInputElement>('input[value="vercel"]').click())
+  expect(view.q('[data-target="node"]').hasAttribute("inert")).toBe(true)
+  expect(document.activeElement).toBe(view.q('input[value="vercel"]'))
 })

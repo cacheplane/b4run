@@ -25,6 +25,7 @@ import {
   deployTargets,
   describeReplay,
   describeTarget,
+  REPLAY_LABEL,
   type ReplayId,
   replaySummary,
   SHIP_FIXTURES,
@@ -167,12 +168,15 @@ describe("the test replay is the scaffold's own npm test and b4 eval", () => {
 
   it("announces the command and how it ended, and words a repeat differently", () => {
     expect(replaySummary(runOf("test"))).toBe("Tests 1 passed (1)")
-    expect(describeReplay(runOf("test"), false)).toBe(
-      "Replayed npm test -- --reporter=verbose. Tests 1 passed (1).",
-    )
+    // The short label the button shows, not the command's flags.
+    expect(describeReplay(runOf("test"), false)).toBe("Replayed npm test. Tests 1 passed (1).")
+    expect(describeReplay(runOf("test"), true)).toBe("Replayed npm test again. Tests 1 passed (1).")
     expect(describeReplay(runOf("eval"), true)).toBe(
-      "Replayed npx b4 eval again. PASS greets by name mean=1.00.",
+      "Replayed b4 eval again. PASS greets by name mean=1.00.",
     )
+    for (const run of testReplay.runs) {
+      expect(run.command, run.id).toContain(REPLAY_LABEL[run.id].replace(/^b4 /, "npx b4 "))
+    }
   })
 })
 
@@ -315,12 +319,13 @@ describe("the deploy targets are the CLI's own, built for real", () => {
     }
   })
 
-  it("announces the target and the files its build writes", () => {
+  it("announces the target and its summary, not the files the panel lists", () => {
     const [first] = deployTargets
     if (!first) throw new Error("No targets")
     expect(describeTarget(first)).toBe(
-      "Deploy target node. The full B4 HTTP runtime as a Node server, with a Dockerfile. b4 build writes .b4/build/workspace.json, .b4/build/modules.mjs, .b4/build/server.mjs, Dockerfile.",
+      "Deploy target node. The full B4 HTTP runtime as a Node server, with a Dockerfile.",
     )
+    for (const target of deployTargets) expect(describeTarget(target)).not.toMatch(/wrote|\.mjs/)
   })
 
   it("links to docs headings that exist", () => {

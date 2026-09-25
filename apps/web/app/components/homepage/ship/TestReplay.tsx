@@ -2,7 +2,7 @@
 import { type MouseEvent, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { gsap, withMotion } from "../motion/gsap"
 import styles from "./ship.module.css"
-import { describeReplay, type ReplayId, testReplay } from "./ship-data"
+import { describeReplay, REPLAY_LABEL, type ReplayId, testReplay } from "./ship-data"
 
 type Stream = ReturnType<typeof gsap.fromTo>
 
@@ -27,14 +27,11 @@ function keepFocus(event: MouseEvent<HTMLButtonElement>) {
   if (focused === null || (focused !== button && focused.contains(button))) button.focus()
 }
 
-/** The button label for each run: the command a visitor would type. */
-const LABEL: Readonly<Record<ReplayId, string>> = { test: "npm test", eval: "b4 eval" }
-
 /**
  * The scaffold's recorded `npm test` and `b4 eval`. Every line is in the page
  * from the start, so the terminal is its final height and a screen reader can
  * read the whole log. Replaying sets the announcement at once and only fades
- * the lines in, about 80ms apart; Skip, the next replay, or reduced motion
+ * the lines in, the `$ command` line first, about 80ms apart; Skip, the next replay, or reduced motion
  * shows them all at once.
  */
 export function TestReplay() {
@@ -95,7 +92,7 @@ export function TestReplay() {
   }
 
   return (
-    <div ref={rootRef} className={styles.replay}>
+    <div ref={rootRef}>
       <div className={styles.controls}>
         {testReplay.runs.map((run) => (
           <button
@@ -107,7 +104,7 @@ export function TestReplay() {
               replay(run.id)
             }}
           >
-            <span aria-hidden="true">▶ </span>Replay {LABEL[run.id]}
+            <span aria-hidden="true">▶ </span>Replay {REPLAY_LABEL[run.id]}
           </button>
         ))}
         <button
@@ -132,7 +129,7 @@ export function TestReplay() {
           <code>
             {testReplay.runs.map((run) => (
               <span key={run.id} className={styles.run} data-run={run.id}>
-                <span className={styles.line}>
+                <span className={styles.line} data-replay-line="">
                   <span className={styles.prompt} aria-hidden="true">
                     ${" "}
                   </span>
