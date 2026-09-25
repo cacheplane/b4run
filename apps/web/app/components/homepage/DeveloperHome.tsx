@@ -1,5 +1,6 @@
 import { CopyCommand } from "../ui/CopyCommand"
 import { Eyebrow } from "../ui/Eyebrow"
+import { LastMile } from "./checklist/LastMile"
 import { Guardrails } from "./gates/Guardrails"
 import { prepareGates } from "./gates/prepare"
 import styles from "./homepage.module.css"
@@ -7,16 +8,19 @@ import { ScaffoldTerminal } from "./ScaffoldTerminal"
 import { scaffoldTree } from "./scaffold-tree"
 import { prepareRouteShapes } from "./shapes/prepare"
 import { RouteShapes } from "./shapes/RouteShapes"
+import { prepareDeployTargets } from "./ship/prepare"
+import { TestAndShip } from "./ship/TestAndShip"
 import { FolderTour } from "./tour/FolderTour"
 import { prepareFolderTour } from "./tour/prepare"
 
 const createCommand = scaffoldTree.command
 
 export async function DeveloperHome() {
-  const [tour, gates, shapes] = await Promise.all([
+  const [tour, gates, shapes, targets] = await Promise.all([
     prepareFolderTour(),
     prepareGates(),
     prepareRouteShapes(),
+    prepareDeployTargets(),
   ])
   return (
     <main id="content" tabIndex={-1} className={styles.home}>
@@ -50,6 +54,8 @@ export async function DeveloperHome() {
         <FolderTour {...tour} />
         <Guardrails {...gates} />
         <RouteShapes code={shapes} />
+        <TestAndShip code={targets} />
+        <LastMile />
         <section className={styles.takeaway} aria-labelledby="run-title">
           <div>
             <Eyebrow tone="panel" className={styles.eyebrow}>

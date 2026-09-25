@@ -16,7 +16,7 @@ afterEach(async () => {
   vi.restoreAllMocks()
 })
 
-it("opens with the install command, then the folder tour, the guardrails and the route shapes", async () => {
+it("opens with the install command, then the tour, guardrails, route shapes, shipping and the checklist", async () => {
   const container = document.createElement("div")
   container.innerHTML = renderToString(await DeveloperHome())
   const hero = container.querySelector('[aria-labelledby="home-title"]')
@@ -29,9 +29,21 @@ it("opens with the install command, then the folder tour, the guardrails and the
     "Four checks decide what a call can do.",
   )
   expect(container.querySelector("#route-shapes h2")?.textContent).toBe("Pick the shape per route.")
-  const order = ["home-title", "first-agent", "guardrails", "route-shapes", "run-title"].map((id) =>
-    [...container.querySelectorAll("[id]")].findIndex((node) => node.id === id),
+  expect(container.querySelector("#test-and-ship h2")?.textContent).toBe(
+    "Test it offline, then pick where it runs.",
   )
+  expect(container.querySelector("#last-mile h2")?.textContent).toBe(
+    "The parts you'd write next are already here.",
+  )
+  const order = [
+    "home-title",
+    "first-agent",
+    "guardrails",
+    "route-shapes",
+    "test-and-ship",
+    "last-mile",
+    "run-title",
+  ].map((id) => [...container.querySelectorAll("[id]")].findIndex((node) => node.id === id))
   expect(order.every((index) => index >= 0)).toBe(true)
   expect(order).toEqual([...order].sort((a, b) => a - b))
 })
