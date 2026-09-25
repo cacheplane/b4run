@@ -34,6 +34,24 @@ export function boundImageOf(events: readonly FactoryEvent[]): BoundImage | unde
   return undefined
 }
 
+/**
+ * The `image_changed` payload when `bound` names another target or pin than the task being
+ * graded, else null: an image bound for one target is never evidence about another's task.
+ */
+export function bindingMoved(
+  bound: BoundImage,
+  target: { readonly id: string; readonly pin: string },
+  phase: string,
+): Record<string, unknown> | null {
+  if (bound.targetId === target.id && bound.pin === target.pin) return null
+  return {
+    reason: "target_moved",
+    bound: { targetId: bound.targetId, pin: bound.pin },
+    task: { targetId: target.id, pin: target.pin },
+    phase,
+  }
+}
+
 /** The registry the factory builds through: the one `loadTarget` reads, never a second one. */
 export function requireImages(): ImageRegistry {
   const registry = configuredImages()

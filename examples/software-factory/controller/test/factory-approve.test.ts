@@ -6,11 +6,16 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { createFactory, type Factory } from "../src/lib/controller/factory.ts"
 import { boundImageOf } from "../src/lib/controller/images.ts"
 import type { WorkOrderRow } from "../src/lib/domain/work-order.ts"
+import { BundlePayloadSchema } from "../src/lib/review/bundle.ts"
+import type { ImageRegistry } from "../src/lib/targets/images.ts"
+import { ImageGoneError } from "../src/lib/verification/docker-verifier.ts"
+import { loadPolicy } from "../src/lib/verification/policy.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier, type FakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
 import { fakeBuilderHandoff, fakeWorkerMap } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
+import { staticImageRegistry, useImages } from "./static-images.ts"
 import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
 let dir: string
@@ -387,6 +392,153 @@ describe("approve enforces what the frozen bundle asserts", () => {
     ).toMatchObject({
       ok: false,
       message: expect.stringMatching(/could not be read; deny it and create a new work order/),
+    })
+    expect(readdirSync(out())).toEqual([])
+  })
+})
+
+/** Append a journal line the way a foreign writer (or a corrupted journal) would. */
+function journal(id: string, type: string, payload: unknown): void {
+  const db = new DatabaseSync(join(dir, "registry.sqlite"))
+  db.prepare("INSERT INTO events (work_order_id, type, payload, at) VALUES (?, ?, ?, ?)").run(
+    id,
+    type,
+    JSON.stringify(payload),
+    new Date(nowMs).toISOString(),
+  )
+  db.close()
+}
+
+describe("approve and the work order's bound image", () => {
+  it("re-verifies in the bound image, not in whatever the registry records since", async () => {
+    const { reader, verifier } = await boot()
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id)
+    const dispatched = await factory.waitFor(id, (r) => r.workerThreadId !== null)
+    const bound = boundImageOf(factory.events(id))
+    if (bound === undefined) throw new Error("dispatch bound no image")
+    // A later build of the key replaced the registry's record: it now names image B.
+    const inner = staticImageRegistry()
+    const other = `sha256:${"9".repeat(64)}`
+    expect(other).not.toBe(bound.image.localId)
+    const replaced = (recorded: ReturnType<ImageRegistry["recorded"]>) =>
+      recorded === undefined
+        ? undefined
+        : { ...recorded, image: { ...recorded.image, localId: other } }
+    const restore = useImages({
+      ...inner,
+      recorded: (recipe) => replaced(inner.recorded(recipe)),
+      ensure: async (recipe, options) => replaced(await inner.ensure(recipe, options)) as never,
+    })
+    try {
+      reader.set(dispatched.workerThreadId as string, repaired())
+      const row = await factory.waitFor(id, (r) => r.state === "awaiting_approval", 20_000)
+      // The verifying phase ran in A, and the frozen policy digests A, not B.
+      expect(verifier.calls.map((call) => call.image.localId)).toEqual([bound.image.localId])
+      const payload = BundlePayloadSchema.parse(factory.evidence(id).bundle?.payload)
+      expect(payload.policyDigest).toBe(loadPolicy("cli-flags", bound.image).policyDigest)
+      expect(payload.policyDigest).not.toBe(
+        loadPolicy("cli-flags", { ...bound.image, localId: other }).policyDigest,
+      )
+      const outcome = await factory.approve(id, {
+        revision: row.revision,
+        bundleDigest: row.bundleDigest as string,
+      })
+      expect(outcome).toMatchObject({ ok: true, state: "exported" })
+      // Approve's re-verification: in A too, by the binding.
+      expect(verifier.calls.map((call) => call.image.localId)).toEqual([
+        bound.image.localId,
+        bound.image.localId,
+      ])
+    } finally {
+      restore()
+    }
+  })
+
+  it("refuses, rather than stranding the operation key, a binding it cannot read", async () => {
+    const { reader, verifier } = await boot()
+    const row = await awaiting(reader)
+    const verifiedBefore = verifier.calls.length
+    journal(row.id, "image_bound", { targetId: "cli-flags" })
+    const input = {
+      revision: row.revision,
+      bundleDigest: row.bundleDigest,
+      operationKey: "approve-malformed-binding",
+    }
+    const outcome = await factory.approve(row.id, input)
+    expect(outcome).toMatchObject({ ok: false, state: "awaiting_approval" })
+    expect(outcome.message).toMatch(/^The work order's image binding could not be read: /)
+    const unbound = factory.events(row.id).filter((e) => e.type === "image_unbound")
+    expect(unbound).toHaveLength(1)
+    expect(unbound[0]?.payload).toMatchObject({ phase: "export", error: expect.any(String) })
+    expect(verifier.calls).toHaveLength(verifiedBefore)
+    // The key was completed: the same key replays the refusal, never CommandInFlightError.
+    expect(await factory.approve(row.id, input)).toEqual(outcome)
+    expect(readdirSync(out())).toEqual([])
+  })
+
+  it("refuses a work order with no bound image", async () => {
+    const { reader, verifier } = await boot()
+    const row = await awaiting(reader)
+    const verifiedBefore = verifier.calls.length
+    const db = new DatabaseSync(join(dir, "registry.sqlite"))
+    db.prepare("DELETE FROM events WHERE work_order_id = ? AND type = 'image_bound'").run(row.id)
+    db.close()
+    const outcome = await factory.approve(row.id, {
+      revision: row.revision,
+      bundleDigest: row.bundleDigest,
+    })
+    expect(outcome).toMatchObject({
+      ok: false,
+      message: "The work order has no bound image to re-verify in",
+    })
+    expect(factory.events(row.id).find((e) => e.type === "image_unbound")?.payload).toEqual({
+      phase: "export",
+    })
+    expect(verifier.calls).toHaveLength(verifiedBefore)
+    expect(readdirSync(out())).toEqual([])
+  })
+
+  it("refuses a binding for another target than the task's", async () => {
+    const { reader, verifier } = await boot()
+    const row = await awaiting(reader)
+    const verifiedBefore = verifier.calls.length
+    const bound = boundImageOf(factory.events(row.id))
+    if (bound === undefined) throw new Error("dispatch bound no image")
+    journal(row.id, "image_bound", { ...bound, targetId: "devkit" })
+    const outcome = await factory.approve(row.id, {
+      revision: row.revision,
+      bundleDigest: row.bundleDigest,
+    })
+    expect(outcome).toMatchObject({ ok: false, state: "awaiting_approval" })
+    expect(outcome.message).toMatch(/bound to target devkit/)
+    expect(factory.events(row.id).find((e) => e.type === "image_changed")?.payload).toEqual({
+      reason: "target_moved",
+      bound: { targetId: "devkit", pin: bound.pin },
+      task: { targetId: "cli-flags", pin: bound.pin },
+      phase: "export",
+    })
+    expect(verifier.calls).toHaveLength(verifiedBefore)
+  })
+
+  it("journals a bound image the daemon no longer holds as changed, and refuses", async () => {
+    const { reader, verifier } = await boot()
+    const row = await awaiting(reader)
+    const bound = boundImageOf(factory.events(row.id))
+    if (bound === undefined) throw new Error("dispatch bound no image")
+    verifier.verify = async () => {
+      throw new ImageGoneError("gone")
+    }
+    const outcome = await factory.approve(row.id, {
+      revision: row.revision,
+      bundleDigest: row.bundleDigest,
+    })
+    expect(outcome).toMatchObject({ ok: false, state: "awaiting_approval" })
+    expect(outcome.message).toMatch(/Re-verification could not run/)
+    expect(factory.events(row.id).find((e) => e.type === "image_changed")?.payload).toEqual({
+      reason: "gone",
+      bound: bound.image.localId,
+      phase: "export",
     })
     expect(readdirSync(out())).toEqual([])
   })

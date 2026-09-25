@@ -7,6 +7,7 @@ import { createFactory, type Factory } from "../src/lib/controller/factory.ts"
 import { boundImageOf } from "../src/lib/controller/images.ts"
 import { openRegistry } from "../src/lib/registry/db.ts"
 import { createWorkOrderStore, type WorkOrderPatch } from "../src/lib/registry/work-orders.ts"
+import { ImageGoneError } from "../src/lib/verification/docker-verifier.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
@@ -336,6 +337,26 @@ describe("the verifying phase", () => {
     expect(boundImageOf(events)).toBeUndefined()
     expect(verifier.calls).toHaveLength(0)
     expect(reader.reads).toEqual([])
+  })
+
+  it("journals a bound image the daemon no longer holds as changed, and settles inconclusive", async () => {
+    const { verifier, reader } = await boot({ verdict: "pass" })
+    verifier.verify = async () => {
+      throw new ImageGoneError("gone")
+    }
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id)
+    const dispatched = await factory.waitFor(id, (r) => r.workerThreadId !== null)
+    reader.set(dispatched.workerThreadId as string, repaired())
+    const row = await factory.waitFor(id, (r) => r.state === "blocked", 20_000)
+    expect(row.blockedReason).toBe("verification_inconclusive")
+    const events = factory.events(id)
+    expect(events.find((e) => e.type === "image_changed")?.payload).toEqual({
+      reason: "gone",
+      bound: boundImageOf(events)?.image.localId,
+      phase: "verify",
+    })
+    expect(events.map((e) => e.type)).toContain("verifier_unavailable")
   })
 
   it("blocks when the controller cannot capture its own baseline", async () => {

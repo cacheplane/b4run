@@ -2,10 +2,11 @@ import type { WorkOrderRow } from "../domain/work-order.js"
 import { oracleReceiptIdFor } from "../intake/oracle.js"
 import { freezeBundle } from "../review/bundle.js"
 import { AssemblyRejectedError, assembleCandidate } from "../verification/assemble.js"
+import { ImageGoneError } from "../verification/docker-verifier.js"
 import { loadPolicy } from "../verification/policy.js"
 import { workspaceReadFailure } from "../worker/workspace-reader.js"
 import type { ControllerContext } from "./context.js"
-import { boundImageOf } from "./images.js"
+import { bindingMoved, boundImageOf } from "./images.js"
 import { handedSourceDigest } from "./source-digest.js"
 
 /**
@@ -26,7 +27,7 @@ export async function runVerification(ctx: ControllerContext, id: string): Promi
   } catch (error) {
     // The backstop. The specific faults below (`baseline_unavailable`, `workspace_unreadable`,
     // `verifier_unavailable`) each journal what they know and return; this catches everything
-    // else — a failed artifact write, a policy that will not load, a registry constraint, a
+    // else — a malformed image binding, a failed artifact write, a registry constraint, a
     // bug. Without it the throw escapes into `track()`, which records `run_observer_error`
     // and leaves the row in `verifying` with no transition: recoverable only by a restart,
     // and in-process a hang. Whatever the fault was, the controller does not know anything
@@ -59,6 +60,14 @@ async function verifyCandidate(
     policy = loadPolicy(row.taskId, bound.image)
   } catch (error) {
     ctx.recordEvent(id, "policy_unavailable", { phase: "verify", error: String(error) })
+    if (ctx.mustGet(id).state === "verifying")
+      ctx.transition(id, "receipt_inconclusive", { blockedReason: "verification_inconclusive" })
+    return
+  }
+  // The binding is for the task being graded: its target at its pin, never another's.
+  const moved = bindingMoved(bound, policy.task.target, "verify")
+  if (moved !== null) {
+    ctx.recordEvent(id, "image_changed", moved)
     if (ctx.mustGet(id).state === "verifying")
       ctx.transition(id, "receipt_inconclusive", { blockedReason: "verification_inconclusive" })
     return
@@ -205,6 +214,14 @@ async function verifyCandidate(
       ctx.recordEvent(id, "verification_aborted", { reason: String(signal.reason) })
       return
     }
+    // The bound image left the daemon: the verdict cannot be earned where the work order is
+    // bound, and a rebuild is another environment.
+    if (error instanceof ImageGoneError)
+      ctx.recordEvent(id, "image_changed", {
+        reason: "gone",
+        bound: bound.image.localId,
+        phase: "verify",
+      })
     ctx.recordEvent(id, "verifier_unavailable", { error: String(error) })
     if (ctx.mustGet(id).state === "verifying")
       ctx.transition(id, "receipt_inconclusive", { blockedReason: "verification_inconclusive" })

@@ -53,13 +53,14 @@ import {
   repositoryRoot,
   type TargetRecipe,
 } from "../targets/catalog.js"
+import { ImageGoneError } from "../verification/docker-verifier.js"
 import { loadPolicy } from "../verification/policy.js"
 import type { Verifier } from "../verification/verifier.js"
 import type { CancelResult, WorkerClient } from "../worker/client.js"
 import type { InterruptFrame, StreamFrame } from "../worker/wire.js"
 import { type BudgetTicker, startBudgetTicker } from "./budget.js"
 import type { ControllerContext } from "./context.js"
-import { type BoundImage, boundImageOf, prepareWorkOrderImage } from "./images.js"
+import { type BoundImage, bindingMoved, boundImageOf, prepareWorkOrderImage } from "./images.js"
 import { finishIntake, observeIntakeTurn, runIntake } from "./intake.js"
 import { reconcileAll, reconcileWorkOrder } from "./reconcile.js"
 import { denyPending, observeRun } from "./run-observer.js"
@@ -1479,7 +1480,15 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       }
       // The image the work order bound (D5): the policy digests it and the re-verification
       // runs in it, by id, whatever the registry records for the key since.
-      const bound = boundImageOf(store.events(id))
+      // A binding that will not parse is a refusal, not an escape: an exception here would
+      // leave this command's key in flight.
+      let bound: BoundImage | undefined
+      try {
+        bound = boundImageOf(store.events(id))
+      } catch (error) {
+        recordEvent(id, "image_unbound", { phase: "export", error: String(error) })
+        return refuse(`The work order's image binding could not be read: ${String(error)}`)
+      }
       if (bound === undefined) {
         recordEvent(id, "image_unbound", { phase: "export" })
         return refuse("The work order has no bound image to re-verify in")
@@ -1492,6 +1501,13 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       } catch (error) {
         recordEvent(id, "policy_unavailable", { phase: "export", error: String(error) })
         return refuse(`Verification policy could not be loaded: ${String(error)}`)
+      }
+      const moved = bindingMoved(bound, policy.task.target, "export")
+      if (moved !== null) {
+        recordEvent(id, "image_changed", moved)
+        return refuse(
+          `The work order's image is bound to target ${bound.targetId} at ${bound.pin}, not the task's ${policy.task.target.id} at ${policy.task.target.pin}`,
+        )
       }
       // Consent named a whole claim, not the diff: the frozen payload asserts the policy,
       // the specification, the baseline and the environment the passing verdict was earned
@@ -1582,6 +1598,12 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           abort.signal,
         )
       } catch (error) {
+        if (error instanceof ImageGoneError)
+          recordEvent(id, "image_changed", {
+            reason: "gone",
+            bound: bound.image.localId,
+            phase: "export",
+          })
         recordEvent(id, "verifier_unavailable", { phase: "export", error: String(error) })
         return refuse(`Re-verification could not run: ${String(error)}`)
       }

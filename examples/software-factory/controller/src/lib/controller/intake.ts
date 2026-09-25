@@ -11,7 +11,7 @@ import { loadPolicy } from "../verification/policy.js"
 import { classifyDone, type StreamFrame } from "../worker/wire.js"
 import { WorkspaceRootMissingError, workspaceReadFailure } from "../worker/workspace-reader.js"
 import type { ControllerContext } from "./context.js"
-import { prepareWorkOrderImage } from "./images.js"
+import { bindingMoved, prepareWorkOrderImage } from "./images.js"
 import { reconcileWorkOrder } from "./reconcile.js"
 import { handedSourceDigest } from "./source-digest.js"
 import { consumeTurn } from "./turns.js"
@@ -399,6 +399,16 @@ async function proveDraft(
   // The catalog search path now resolves `id`: the policy is the generated task's own, in the
   // image the fit step bound.
   const policy = loadPolicy(id, image.bound.image)
+  // The fit step bound the drafted target at the work order's pin; the generated task must
+  // name the same, or the proof would be earned in another target's image.
+  const moved = bindingMoved(image.bound, policy.task.target, "intake")
+  if (moved !== null) {
+    ctx.recordEvent(id, "image_changed", moved)
+    block(ctx, id, "intake_run_failed", {
+      reason: "the generated task names another target or pin than the image bound for it",
+    })
+    return
+  }
 
   let baseline: Awaited<ReturnType<typeof ctx.captureBaseline>>
   try {
