@@ -3,6 +3,7 @@ import { ACTIVE_STATES, isTerminal } from "../domain/states.js"
 import type { WorkOrderRow } from "../domain/work-order.js"
 import type { StreamFrame } from "../worker/wire.js"
 import type { ControllerContext } from "./context.js"
+import { dispatchPreparing } from "./images.js"
 
 const isRunState = (state: WorkOrderRow["state"]) => state === "dispatched" || state === "running"
 
@@ -195,17 +196,22 @@ export async function reconcileWorkOrder(
   // its own pause; reconciliation called from inside it must not.
   const current = ctx.mustGet(id)
   if (!ctx.isTracked(id)) {
-    // A build the journal shows started and never ended, with nothing in this process waiting
-    // on it: the controller died mid-build. Its end is written now, so the journal (and the
-    // CLI's follower, which reads it) never shows a build in flight that nothing is running.
+    // A dispatch (or intake) the journal shows preparing its image and never ending, with
+    // nothing in this process running it: the controller died between the build's start and
+    // the phase's end (mid-build, or after the build ended but before the transition or the
+    // refusal). Its end is written now, once, so the journal (and the CLI's follower, which
+    // reads it) never shows a preparation in flight that nothing is running. A dispatch live
+    // in this process (a supervisor's `/reconcile` while it waits on its build) is its own
+    // to end.
     const events = ctx.store.events(id)
-    const last = [...events].reverse().find((e) => e.type.startsWith("image_prepare_"))
-    if (last?.type === "image_prepare_started")
+    if (!ctx.isPreparingImage(id) && dispatchPreparing(events)) {
+      const started = [...events].reverse().find((e) => e.type === "image_prepare_started")
       ctx.recordEvent(id, "image_prepare_aborted", {
-        targetId: last.payload.targetId,
-        pin: last.payload.pin,
+        targetId: started?.payload.targetId,
+        pin: started?.payload.pin,
         reason: "restart",
       })
+    }
     if (ACTIVE_STATES.has(current.state) && current.activeStartedAt === null)
       ctx.resumeBudget(id, "reconcile")
   }

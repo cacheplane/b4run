@@ -270,6 +270,7 @@ describe("reconciliation", () => {
       runVerification: async () => {},
       // Reconciliation's restart rule (a paused budget, a build a restart cut short) reads these.
       isTracked: () => false,
+      isPreparingImage: () => false,
       store: { events: () => [] },
     } as unknown as ControllerContext
 

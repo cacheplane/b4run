@@ -117,7 +117,8 @@ export interface PrepareWorkOrderImageOptions {
 
 /**
  * The image work order `id` runs in. Bound already (and not rebinding): the bound image, if
- * the daemon still holds it, else `image_changed`. Otherwise `recipe`'s image (a target at the
+ * it is for `recipe`'s target and pin and the daemon still holds it, else `image_changed`
+ * (a daemon that cannot answer is a refusal, not a verdict). Otherwise `recipe`'s image (a target at the
  * work order's pin): the registry's recorded image re-verified on the daemon, or a build of it,
  * sharing any build of the same recipe in flight; journalled (`image_prepare_started` with its
  * wait bound, `image_prepared`, `image_prepare_failed`, `image_prepare_aborted`,
@@ -134,7 +135,31 @@ export async function prepareWorkOrderImage(
   if (!options.rebind) {
     const bound = boundImageOf(ctx.store.events(id))
     if (bound !== undefined) {
-      if (await requireImages().present(bound.image.localId, signal)) return { ok: true, bound }
+      // A binding for another target or pin than the task names now (a shipped task's target
+      // whose default pin moved since, say) is never the task's environment: refused before
+      // anything is spent, as `verify` and `approve` refuse it.
+      const moved = bindingMoved(bound, recipe, "dispatch")
+      if (moved !== null) {
+        ctx.recordEvent(id, "image_changed", moved)
+        return {
+          ok: false,
+          kind: "changed",
+          reason: `work order ${id} is bound to target ${bound.targetId} at ${bound.pin} (image ${bound.image.localId}), the environment an earlier phase ran in, and its task now names target ${recipe.id} at ${recipe.pin}: running it there would bind two environments. Cancel it and create a new work order`,
+        }
+      }
+      let present: boolean
+      try {
+        present = await requireImages().present(bound.image.localId, signal)
+      } catch (error) {
+        if (signal.aborted)
+          return { ok: false, kind: "aborted", reason: "the image check was abandoned" }
+        return {
+          ok: false,
+          kind: "failed",
+          reason: `work order ${id} is bound to image ${bound.image.localId}, and the daemon could not say whether it still holds it: ${error instanceof Error ? error.message : String(error)}`,
+        }
+      }
+      if (present) return { ok: true, bound }
       ctx.recordEvent(id, "image_changed", {
         bound: bound.image.localId,
         boundKey: bound.key,

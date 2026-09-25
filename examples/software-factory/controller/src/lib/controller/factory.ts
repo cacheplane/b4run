@@ -307,17 +307,35 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   const PHASE_STATES: ReadonlySet<WorkOrderRow["state"]> = new Set(["verifying", "intake_running"])
   /**
    * One per work order waiting on an image at `dispatch` (in `received`, before the key):
-   * aborted by any transition that moves the row (a cancel) and by close().
+   * aborted by any transition that moves the row (a cancel) and by close(), and removed when
+   * the last dispatch waiting on it stops waiting (bound or refused).
    */
-  const imageWaits = new Map<string, AbortController>()
-  const imageWaitSignal = (id: string): AbortSignal => {
-    let controller = imageWaits.get(id)
-    if (!controller) {
-      controller = new AbortController()
-      imageWaits.set(id, controller)
+  const imageWaits = new Map<string, { controller: AbortController; waiters: number }>()
+  const imageWait = (id: string): { readonly signal: AbortSignal; release(): void } => {
+    let wait = imageWaits.get(id)
+    if (!wait) {
+      wait = { controller: new AbortController(), waiters: 0 }
+      imageWaits.set(id, wait)
     }
-    return AbortSignal.any([abort.signal, controller.signal])
+    wait.waiters += 1
+    const held = wait
+    let released = false
+    return {
+      signal: AbortSignal.any([abort.signal, held.controller.signal]),
+      release() {
+        if (released) return
+        released = true
+        held.waiters -= 1
+        if (held.waiters === 0 && imageWaits.get(id) === held) imageWaits.delete(id)
+      },
+    }
   }
+  /**
+   * Dispatches in flight in this process, per work order, from their first line to their
+   * journalled end: a dispatch preparing its image sits in `received` with no tracked run,
+   * and reconciliation must not write off its build as a restart's.
+   */
+  const liveDispatches = new Map<string, number>()
   let closed = false
   /** Started only once reconciliation has run, so no tick can race the boot rules. */
   let ticker: BudgetTicker | null = null
@@ -371,7 +389,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         phases.delete(id)
       }
       if (to !== row.state) {
-        imageWaits.get(id)?.abort(new Error(`work order ${id} left ${row.state}`))
+        imageWaits.get(id)?.controller.abort(new Error(`work order ${id} left ${row.state}`))
         imageWaits.delete(id)
       }
       return updated
@@ -753,6 +771,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     settleRun,
     track,
     isTracked: (id) => runs.has(id),
+    isPreparingImage: (id) => liveDispatches.has(id),
   }
 
   /**
@@ -891,11 +910,17 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     // build again, not replay this refusal.
     let bound: BoundImage | undefined
     if (row.state === "received" && !options.tasks) {
+      const wait = imageWait(id)
       const signal = AbortSignal.any([
-        imageWaitSignal(id),
+        wait.signal,
         ...(dispatchOptions.signal !== undefined ? [dispatchOptions.signal] : []),
       ])
-      const image = await prepareDispatchImage(id, row, signal)
+      let image: Awaited<ReturnType<typeof prepareDispatchImage>>
+      try {
+        image = await prepareDispatchImage(id, row, signal)
+      } finally {
+        wait.release()
+      }
       if (dispatchOptions.signal?.aborted && isNonTerminalAndNotCancelling(mustGet(id)))
         await factory.cancel(id, `cancel:${id}:aborted-dispatch`).catch(() => undefined)
       row = mustGet(id)
@@ -1344,17 +1369,24 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
             ...(operationKey !== undefined ? { operationKey } : {}),
           })
       }
-      let outcome: CommandOutcome
+      liveDispatches.set(id, (liveDispatches.get(id) ?? 0) + 1)
       try {
-        outcome = await dispatchOnce(id, operationKey, dispatchOptions)
-      } catch (error) {
-        // A dispatch that lost the key to another (one that joined the same build, say) did
-        // not end the work: the key holder is still running and journals its own end.
-        if (!(error instanceof CommandInFlightError)) refused(String(error))
-        throw error
+        let outcome: CommandOutcome
+        try {
+          outcome = await dispatchOnce(id, operationKey, dispatchOptions)
+        } catch (error) {
+          // A dispatch that lost the key to another (one that joined the same build, say) did
+          // not end the work: the key holder is still running and journals its own end.
+          if (!(error instanceof CommandInFlightError)) refused(String(error))
+          throw error
+        }
+        if (!outcome.ok) refused(outcome.message)
+        return outcome
+      } finally {
+        const live = (liveDispatches.get(id) ?? 1) - 1
+        if (live > 0) liveDispatches.set(id, live)
+        else liveDispatches.delete(id)
       }
-      if (!outcome.ok) refused(outcome.message)
-      return outcome
     },
 
     async retry(id, operationKey) {

@@ -107,4 +107,10 @@ export interface ControllerContext {
    * first, and nothing awaits the evicted one any more.
    */
   isTracked(id: string): boolean
+  /**
+   * Is a `dispatch` of `id` in flight in this process right now (from its first line to its
+   * journalled end)? One preparing its image waits in `received` with no tracked run, so
+   * `isTracked` alone would read its build as one a restart abandoned.
+   */
+  isPreparingImage(id: string): boolean
 }
