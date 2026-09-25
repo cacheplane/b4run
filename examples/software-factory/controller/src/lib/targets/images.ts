@@ -325,17 +325,25 @@ export function openImageRegistry(options: ImageRegistryOptions): ImageRegistry 
   const db = new DatabaseSync(options.path)
   db.exec("PRAGMA journal_mode = WAL")
   db.exec("PRAGMA busy_timeout = 5000")
-  db.exec(SCHEMA)
-  const found = Number(
-    (db.prepare("SELECT max(version) AS v FROM schema_version").get() as { v: number | null }).v ??
-      0,
-  )
+  // The version first: a registry a newer factory wrote is refused before this one creates
+  // its own tables or indexes in it.
+  const versioned =
+    db
+      .prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get("schema_version") !== undefined
+  const found = versioned
+    ? Number(
+        (db.prepare("SELECT max(version) AS v FROM schema_version").get() as { v: number | null })
+          .v ?? 0,
+      )
+    : 0
   if (found > IMAGE_REGISTRY_VERSION) {
     db.close()
     throw new Error(
       `The image registry schema version ${found} is newer than this factory supports (${IMAGE_REGISTRY_VERSION}): upgrade the factory, or give it another FACTORY_STATE_DIR`,
     )
   }
+  db.exec(SCHEMA)
   if (found < IMAGE_REGISTRY_VERSION)
     db.prepare("INSERT OR IGNORE INTO schema_version(version) VALUES (?)").run(
       IMAGE_REGISTRY_VERSION,
@@ -514,12 +522,14 @@ export function openImageRegistry(options: ImageRegistryOptions): ImageRegistry 
       const joined = inflight.get(described.key)
       const flight = joined ?? startFlight(described, recipe)
       const shared = joined !== undefined
-      ensureOptions.onBuild?.({ key: described.key, shared, deadlineMs: waitBoundMs })
+      // Counted before `onBuild` runs, inside the `try` whose `finally` uncounts it: a caller
+      // whose hook throws leaves the build as a cancel would, never waiterless and running.
       flight.waiters += 1
       // This caller's own bound: queued behind other keys' builds, then this build. Leaving at
       // it is leaving like a cancel: the build goes on only if another caller still waits.
       const waited = AbortSignal.timeout(waitBoundMs)
       try {
+        ensureOptions.onBuild?.({ key: described.key, shared, deadlineMs: waitBoundMs })
         const built = await abortable(flight.promise, AbortSignal.any([signal, waited])).catch(
           (error: unknown) => {
             if (waited.aborted && !signal.aborted)

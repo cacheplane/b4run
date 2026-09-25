@@ -136,6 +136,14 @@ describe("the image registry", () => {
     expect(() => open(fakeImageBuilder())).toThrow(
       /image registry schema version 99 is newer than this factory supports \(1\)/,
     )
+    // Refused before this factory wrote its own tables into the newer registry.
+    const after = new DatabaseSync(join(dir, "images.sqlite"))
+    const tables = after
+      .prepare("SELECT name FROM sqlite_master WHERE type IN ('table', 'index') ORDER BY name")
+      .all()
+      .map((row) => (row as { name: string }).name)
+    after.close()
+    expect(tables).toEqual(["schema_version"])
   })
 })
 
@@ -220,6 +228,25 @@ describe("builds in flight", () => {
     builder.release()
     await ensure(registry, other)
     expect(builder.requests).toHaveLength(3)
+  })
+
+  it("cancels a build whose only caller's onBuild threw, rather than leave it waiterless", async () => {
+    const builder = fakeImageBuilder()
+    builder.hold()
+    const registry = open(builder)
+    const recipe = recipeFixture()
+    await expect(
+      ensure(registry, recipe, {
+        onBuild: () => {
+          throw new Error("journal write failed")
+        },
+      }),
+    ).rejects.toThrow("journal write failed")
+    // The abandoned build was cancelled, so the next need starts its own instead of joining it.
+    builder.release()
+    const next = await ensure(registry, recipe)
+    expect(next.build?.shared).toBe(false)
+    await until(() => builder.running === 0)
   })
 
   it("leaves a queued waiter's cancel costing nothing", async () => {

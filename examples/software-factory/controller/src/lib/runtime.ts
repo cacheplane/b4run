@@ -82,9 +82,14 @@ export function createControllerRuntime(
     },
     async dispose() {
       disposed = true
-      const factory = await opening?.catch(() => undefined)
-      await factory?.close()
-      releaseImages()
+      try {
+        const factory = await opening?.catch(() => undefined)
+        await factory?.close()
+      } finally {
+        // Released even when close() throws: the process-wide registry must not outlive this
+        // runtime, pointing the next one at a closed database.
+        releaseImages()
+      }
     },
   }
 
