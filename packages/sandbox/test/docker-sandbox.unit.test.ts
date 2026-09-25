@@ -1852,3 +1852,24 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
     ])
   })
 })
+describe("dockerSandbox image options", () => {
+  test("needs an image, or an images predicate", () => {
+    expect(() => dockerSandbox({ scope: "s" })).toThrow(/an image, or an images predicate/)
+    expect(() => dockerSandbox({ scope: "s", image: " " })).toThrow(/an image, or an images/)
+    expect(() => dockerSandbox({ scope: "s", images: "yes" as never })).toThrow(/images must be/)
+  })
+  test("with no default image, the per-app lifecycle refuses rather than guesses", async () => {
+    const { docker, runs } = recordingDocker()
+    const provider = dockerSandbox({ scope: "sandbox-test", images: () => true, docker })
+    await expect(
+      provider.acquire({ threadId: "t", policy: { network: { mode: "deny" } }, signal: signal() }),
+    ).rejects.toThrow(/no default image/)
+    await expect(
+      provider.openWorkspaceReader?.({ threadId: "t", signal: signal() }),
+    ).rejects.toThrow(/no default image/)
+    expect(runs).toEqual([])
+    await expect(provider.workspaces?.resolveEnvironment(signal())).rejects.toMatchObject({
+      code: "unsupported",
+    })
+  })
+})

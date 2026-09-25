@@ -53,6 +53,7 @@ function fixture(
     readonly image?: string
     /** What `docker image inspect --format {{.Id}} <ref>` answers per reference. */
     readonly identities?: Readonly<Record<string, string>>
+    readonly images?: (reference: string) => boolean
   } = {},
 ) {
   const objects = new Map<
@@ -107,8 +108,13 @@ function fixture(
     },
   }
   /** A provider over the SAME daemon and scope, as another process would construct it. */
-  const providerFor = (image: string) =>
-    createDockerManagedWorkspaces({ scope: "app", image, docker })
+  const providerFor = (image: string | undefined, images = options.images) =>
+    createDockerManagedWorkspaces({
+      scope: "app",
+      ...(image !== undefined ? { image } : {}),
+      ...(images !== undefined ? { images } : {}),
+      docker,
+    })
   const provider = providerFor(options.image ?? "tag")
   const intent = async () =>
     createWorkspaceIntent({
@@ -457,5 +463,62 @@ describe("managed Docker: the image is the intent's, not the provider's", () => 
     // The other provider's image was never looked up, named or run.
     expect(after.some((call) => call.includes("factory:two") || call.includes(two))).toBe(false)
     expect(f.objects.size).toBe(0)
+  })
+})
+describe("managed Docker: per-thread images", () => {
+  const one = `sha256:${"a".repeat(64)}`
+  const two = `sha256:${"b".repeat(64)}`
+  const identities = { "factory:one": one, "factory:two": two }
+
+  it("resolves an allowed image to its own identity", async () => {
+    const f = fixture({ image: "factory:one", identities, images: (ref) => ref === "factory:two" })
+    const environment = await f.provider.resolveImageEnvironment?.("factory:two", signal)
+    expect(environment).toEqual({
+      binding: { provider: "docker", scope: "app", account: "daemon" },
+      identity: two,
+    })
+    expect(f.calls).toContainEqual(["image", "inspect", "--format", "{{.Id}}", "factory:two"])
+  })
+  it("needs no predicate for its own image", async () => {
+    const f = fixture({ image: "factory:one", identities })
+    expect((await f.provider.resolveImageEnvironment?.("factory:one", signal))?.identity).toBe(one)
+  })
+  it.each([
+    ["an image the predicate refuses", "factory:three"],
+    ["a reference that reads as a flag", "--privileged"],
+    ["a reference with whitespace", "factory two"],
+  ])("refuses %s before any Docker call", async (_why, reference) => {
+    const f = fixture({ image: "factory:one", identities, images: (ref) => ref === "factory:two" })
+    await expect(f.provider.resolveImageEnvironment?.(reference, signal)).rejects.toMatchObject({
+      code: "unsupported",
+    })
+    expect(f.calls).toEqual([])
+  })
+  it("refuses every other image when no predicate is configured", async () => {
+    const f = fixture({ image: "factory:one", identities })
+    await expect(f.provider.resolveImageEnvironment?.("factory:two", signal)).rejects.toMatchObject(
+      { code: "unsupported" },
+    )
+    expect(f.calls).toEqual([])
+  })
+  it("lets a throwing predicate fail the admission rather than allow", async () => {
+    const f = fixture({
+      image: "factory:one",
+      identities,
+      images: () => {
+        throw new Error("catalog unavailable")
+      },
+    })
+    await expect(f.provider.resolveImageEnvironment?.("factory:two", signal)).rejects.toThrow(
+      /catalog unavailable/,
+    )
+    expect(f.calls).toEqual([])
+  })
+  it("without a default image, refuses a thread that names none", async () => {
+    const f = fixture({ identities, images: () => true })
+    const bare = f.providerFor(undefined)
+    await expect(bare.resolveEnvironment(signal)).rejects.toMatchObject({ code: "unsupported" })
+    expect(f.calls).toEqual([])
+    expect((await bare.resolveImageEnvironment?.("factory:two", signal))?.identity).toBe(two)
   })
 })
