@@ -6,9 +6,11 @@ import { prepareHomepage } from "./highlight"
 import styles from "./homepage.module.css"
 import { Narrative } from "./Narrative"
 import { exampleFileUrl, exampleUrl, prepareNarrative } from "./narrative-source"
+import { ScaffoldTerminal } from "./ScaffoldTerminal"
+import { scaffoldTree } from "./scaffold-tree"
 import { Walkthrough } from "./Walkthrough"
 
-const createCommand = "npm create b4-app@latest my-agent"
+const createCommand = scaffoldTree.command
 
 export async function DeveloperHome() {
   const [prepared, narrative, firstAgent] = await Promise.all([
@@ -20,24 +22,30 @@ export async function DeveloperHome() {
     <main id="content" tabIndex={-1} className={styles.home}>
       <div className={styles.container}>
         <section className={styles.hero} aria-labelledby="home-title">
-          <Eyebrow className={styles.eyebrow}>An agent framework, the way I'd build it.</Eyebrow>
-          <h1 id="home-title">
-            Ridiculous speed.
-            <br />
-            Readable code.
-          </h1>
-          <p>
-            Write the agent in TypeScript, give it tools, and set its limits.
-            <br />
-            You ship code you can actually read.
-          </p>
-          <div className={styles.heroActions}>
-            <CopyCommand command={createCommand} className={styles.command ?? ""} />
-            <a href="/docs/getting-started" className={styles.textLink}>
-              Get started →
-            </a>
+          <div className={styles.heroCopy}>
+            <Eyebrow className={styles.eyebrow}>An agent framework, the way I'd build it.</Eyebrow>
+            <h1 id="home-title">
+              Ridiculous speed.
+              <br />
+              Readable code.
+            </h1>
+            <p className={styles.lede}>
+              Write the agent in TypeScript, give it tools, and set its limits.
+              <br />
+              You ship code you can actually read.
+            </p>
+            <p className={styles.runtime}>Runs on LangGraph.js. You keep the graph.</p>
+            <div className={styles.heroActions}>
+              <CopyCommand command={createCommand} className={styles.command ?? ""} />
+              <a href="/docs/getting-started" className={styles.textLink}>
+                Get started →
+              </a>
+            </div>
           </div>
-          <span className={styles.dot} aria-hidden="true" />
+          <div className={styles.heroVisual}>
+            <span className={styles.eclipse} aria-hidden="true" />
+            <ScaffoldTerminal />
+          </div>
         </section>
         <FirstAgent code={firstAgent} />
         <div className={styles.recording}>

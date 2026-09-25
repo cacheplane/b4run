@@ -34,6 +34,20 @@ it("opens with the install command and a first agent from the basic template", a
   expect(order).toEqual([...order].sort((a, b) => a - b))
 })
 
+it("shows the runtime and what the command creates beside the headline", async () => {
+  const container = document.createElement("div")
+  container.innerHTML = renderToString(await DeveloperHome())
+  const hero = container.querySelector('[aria-labelledby="home-title"]')
+  expect(hero?.textContent).toContain("Runs on LangGraph.js. You keep the graph.")
+  const figure = hero?.querySelector("figure")
+  expect(figure?.querySelector("figcaption")?.textContent).toBe("What npm create b4-app scaffolds")
+  // The tree's agent row points at the section that opens those files.
+  expect(figure?.querySelector('a[href="#first-agent"]')).not.toBeNull()
+  expect(container.querySelector("#first-agent")).not.toBeNull()
+  // The old dot hung directly off the hero; decoration now lives beside the terminal.
+  expect(hero?.querySelectorAll(':scope > [aria-hidden="true"]')).toHaveLength(0)
+})
+
 it("marks only off-site links with ↗, opens them in a new tab, and pins example links", async () => {
   const container = document.createElement("div")
   container.innerHTML = renderToString(await DeveloperHome())
