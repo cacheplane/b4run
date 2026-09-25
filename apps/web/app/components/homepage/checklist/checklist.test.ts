@@ -4,6 +4,11 @@ import { fileURLToPath } from "node:url"
 import { createProgram } from "@b4run/cli"
 import { extractToolSchemasForRoute } from "@b4run/core/node"
 import type { PermissionDecision } from "@b4run/permissions"
+import {
+  createPostgresPermissionsStore,
+  createPostgresThreadsStore,
+  postgresCheckpointer,
+} from "@b4run/postgres-storage"
 import { dockerSandbox, kubernetesSandbox } from "@b4run/sandbox"
 import {
   allow,
@@ -18,7 +23,7 @@ import { describe, expect, it } from "vitest"
 import { contrast } from "../../../../lib/design-system-checks"
 import { COLOR } from "../../../../lib/design-tokens"
 import { DOCS_INDEX } from "../../docs/search-index"
-import { checklist, describeToggle } from "./checklist"
+import { CHECKLIST_FIXTURES, checklist, describeToggle } from "./checklist"
 import sandboxConfig from "./fixtures/b4.config.sandbox"
 import support from "./fixtures/src/app/support/index"
 import middleware from "./fixtures/src/middleware"
@@ -68,10 +73,93 @@ describe("the checklist shows real code", () => {
     expect(greet?.parameters).toMatchObject({ required: ["name"], additionalProperties: false })
   }, 60_000)
 
+  it("takes code only from files a typecheck compiles", () => {
+    const template = "packages/devkit/templates/app-basic/"
+    // The generated app's tsconfig compiles src/, and not test/.
+    const include: string[] = JSON.parse(read(`${template}tsconfig.json.template`)).include
+    expect(include).toContain("src/**/*.ts")
+    expect(include.some((glob) => glob.startsWith("test"))).toBe(false)
+    for (const item of checklist) {
+      if (item.origin.endsWith(".mdx")) continue
+      expect(
+        [
+          CHECKLIST_FIXTURES,
+          "apps/web/app/components/homepage/tour/fixtures/",
+          `${template}src/`,
+        ].some((root) => item.origin.startsWith(root)),
+        item.id,
+      ).toBe(true)
+    }
+    // The offline-tests line is the eval's, and the scaffolded test has it too.
+    const tests = itemOf("tests")
+    expect(tests.origin).toBe(`${template}src/app/hello/evals/smoke.eval.ts.template`)
+    expect(read(`${template}test/agent.test.ts.template`)).toContain(tests.code)
+  })
+
   it("streams on the endpoints the runtime serves", () => {
     const runtime = read("packages/cli/src/lib/dev/runtime-fetch-core.ts")
-    expect(runtime).toContain("// POST /threads/:thread_id/runs/stream")
-    expect(runtime).toContain("// POST /agui/:routeId")
+    expect(runtime).toContain(
+      String.raw`method: "POST",
+      pattern: /^\/threads\/(?<thread_id>[^/?#]+)\/runs\/stream(?:\?.*)?$/,`,
+    )
+    expect(runtime).toContain(
+      String.raw`method: "POST",
+      pattern: /^\/agui\/(?<routeId>[^/?#]+)(?:\?.*)?$/,`,
+    )
+  })
+
+  it("retries a failed model call only before anything has streamed", () => {
+    const retry = read("packages/langchain/src/retry.ts")
+    const classify = retry.slice(
+      retry.indexOf("export function isRetryableError"),
+      retry.indexOf("export async function withRetry"),
+    )
+    for (const needle of ["429", "rate limit", "503", "econnreset"]) {
+      expect(classify).toContain(`message.includes("${needle}")`)
+    }
+    const adapter = read("packages/langchain/src/agent-adapter.ts")
+    expect(adapter).toContain("retryConfig?.maxAttempts ?? 3")
+    expect(adapter).toContain(
+      "if (hasYielded || !isRetryableError(error) || attempt === maxStreamAttempts - 1) {",
+    )
+    // The streaming path's backoff is fixed, so the excerpt sets no baseDelay.
+    expect(adapter).toContain("const delay = Math.min(1000 * 2 ** attempt")
+    const retries = itemOf("retries")
+    expect(retries.code).not.toContain("baseDelay")
+    expect(read(`${CHECKLIST_FIXTURES}src/app/support/index.ts`)).not.toContain("baseDelay")
+    expect(retries.handledBy).toContain("before anything has streamed")
+  })
+
+  it("moves the three durable stores to Postgres, which the defaults keep on local disk", () => {
+    for (const store of [
+      postgresCheckpointer,
+      createPostgresThreadsStore,
+      createPostgresPermissionsStore,
+    ]) {
+      expect(typeof store).toBe("function")
+    }
+    expect(itemOf("persistence").handledBy).toContain(
+      "the checkpointer, the thread store and the permission store",
+    )
+    // The defaults already survive a restart, so the chore is sharing them.
+    expect(itemOf("persistence").chore).not.toMatch(/restart/)
+    const docs = read("apps/web/content/docs/persistence.mdx")
+    expect(docs).toContain("**Default:** `.b4/checkpoints.sqlite`")
+    expect(docs).toContain("**Default:** `.b4/threads.sqlite`")
+    expect(docs).toContain(
+      "When compute becomes ephemeral, or several processes need the same records, move the three durable runtime stores.",
+    )
+  })
+
+  it("gives a route with memory.ts remember and recall tools", () => {
+    const typegen = read("packages/cli/src/lib/typegen/run-typegen.ts")
+    const extra = typegen.slice(typegen.indexOf("function memoryExtraTools"))
+    const core = read("packages/core/src/capabilities/built-in/memory.ts")
+    for (const tool of ["remember", "recall"]) {
+      expect(extra).toContain(`name: "${tool}",`)
+      expect(core).toContain(`name: "${tool}",`)
+    }
+    expect(itemOf("memory").handledBy).toContain("remember and recall tools")
   })
 
   it("turns away a request the middleware rejects, and lets the rest through", async () => {

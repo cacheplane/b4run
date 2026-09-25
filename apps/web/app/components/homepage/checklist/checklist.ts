@@ -2,8 +2,10 @@
  * "The last mile": twelve parts of shipping an agent, and what in B4 handles
  * each. Every `code` excerpt is lines of a real file (`origin`): a fixture
  * under checklist/fixtures/ or the tour's, which the web typecheck compiles,
- * or a basic-template file, which the generated-app harness typechecks.
- * checklist.test.ts pins each excerpt, and runs the handler where one can run.
+ * or a basic-template file under src/, which the generated app's tsconfig
+ * includes and the generated-app harness typechecks. The template's test/ is
+ * not typechecked, so no excerpt comes from it. checklist.test.ts pins each
+ * excerpt and its origin, and runs the handler where one can run.
  */
 export type ChecklistId =
   | "schemas"
@@ -26,7 +28,7 @@ export interface ChecklistItem {
   readonly chore: string
   /** The back of the tile: what handles it. One or two sentences. */
   readonly handledBy: string
-  /** Where the excerpt lives in the scaffolded app, when it is a file. */
+  /** Where the excerpt lives in your app, when it is a file. */
   readonly file: string | null
   /** A few real lines, or the command or endpoints that do the work. */
   readonly code: string
@@ -121,11 +123,11 @@ export const checklist: readonly ChecklistItem[] = [
   {
     id: "retries",
     title: "Model retries",
-    chore: "Retry the model after a rate limit or a dropped connection.",
+    chore: "Retry the model after a rate limit or a server error.",
     handledBy:
-      "Model calls that hit a rate limit, a server error or a network error retry with backoff.",
+      "A model call that fails with a rate limit, a server error or a network error, before anything has streamed, retries with backoff.",
     file: "src/app/support/index.ts",
-    code: "retry: { maxAttempts: 5, baseDelay: 500 },",
+    code: "retry: { maxAttempts: 5 },",
     origin: `${CHECKLIST_FIXTURES}src/app/support/index.ts`,
     docsHref: "/docs/retry#configuring-retry",
     docsLabel: "Retry",
@@ -133,7 +135,8 @@ export const checklist: readonly ChecklistItem[] = [
   {
     id: "persistence",
     title: "Persistence",
-    chore: "Keep threads and checkpoints when the server restarts.",
+    chore:
+      "Share threads and checkpoints across servers, and keep them when a container is replaced.",
     handledBy:
       "@b4run/postgres-storage gives you the checkpointer, the thread store and the permission store.",
     file: "b4.config.ts",
@@ -149,7 +152,8 @@ export const checklist: readonly ChecklistItem[] = [
     handledBy: "script() fixtures stand in for the model, so npm test needs no API key.",
     file: "test/agent.test.ts",
     code: 'fixtures: script().user("Say hello to Ada").replies("Hello, Ada!"),',
-    origin: `${TEMPLATE}test/agent.test.ts.template`,
+    // The same line is in the eval, which the generated app typechecks.
+    origin: `${TEMPLATE}src/app/hello/evals/smoke.eval.ts.template`,
     docsHref: "/docs/testing-agents#your-scaffolded-app-already-has-a-test",
     docsLabel: "Testing agents",
   },

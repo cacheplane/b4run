@@ -4,5 +4,5 @@ export default agent({
   model: "gpt-5-mini",
   systemPrompt: "You help customers with their orders.",
   tools: { approve: ["refund"] },
-  retry: { maxAttempts: 5, baseDelay: 500 },
+  retry: { maxAttempts: 5 },
 })
