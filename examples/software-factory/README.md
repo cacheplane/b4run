@@ -173,7 +173,9 @@ handoff names the image its work order bound by id (`target.image`, `sha256:<64 
 that image's recipe tag beside it (`target.tag`, `b4-factory-<target>:<pin[:12]>-<key[:12]>`,
 the recipe key's first twelve hex digits) whose target and pin segments must be the handoff's
 own `targetId` and `pin` (the handoff schema refuses any other at admission, and refuses a
-version-3 handoff that named only a tag). The builder's provider accepts only ids
+version-3 handoff that named only a tag). The controller and the builder must be upgraded
+together: a mismatch refuses every new work order at its builder's first run (spending one
+candidate attempt each), while threads already admitted keep running. The builder's provider accepts only ids
 (`dockerSandbox({ images })`), and before the framework resolves the image, the builder's
 thread resolver reads the id's build labels (`docker image inspect -- <id>`, bounded at 30
 seconds and by the thread's abort) and refuses it, failing closed, unless `b4.factory.target`,
@@ -375,8 +377,8 @@ terminal (the same value in all three):
 One builder serves every target and pin. Each work order's handoff names the image its task
 is verified in (by id, with its recipe tag), the sandbox policy and the permission
 allow-list; the builder records them at the thread's first admission and runs that thread in
-them, and only an image id whose build labels name the handoff's own target, pin and recipe
-key can run. The handoff names an image, it does not build one: the controller builds it
+them, and only an image id whose build labels name the handoff's own target, full pin and a recipe
+key matching the tag's key prefix can run. The handoff names an image, it does not build one: the controller builds it
 before the handoff is written. To write a handoff by hand, `factory builder-handoff` takes
 `--image-id sha256:<64 hex>`, or reads the image `<FACTORY_STATE_DIR>/images.sqlite` records
 for the task's target at its pin (read-only), and refuses rather than guess. An upgraded controller's allow-list reaches the next
@@ -701,7 +703,9 @@ controller does) and otherwise under a temporary directory it removes, never und
 controller package. The handoff names `--image-id`, or else the image
 `<FACTORY_STATE_DIR>/images.sqlite` records for the task's target at its pin, read without
 creating, migrating or writing the registry; with neither it refuses rather than guess (run
-`target:prepare`, or pass the id). `target:prepare` builds from a temporary archive into
+`target:prepare`, or pass the id). It names the image the registry records now, not any work
+order's binding; to reproduce a work order's builder, pass `--image-id` from its `image_bound`
+event (`factory events <id>`). `target:prepare` builds from a temporary archive into
 `<FACTORY_STATE_DIR>/images.sqlite` and writes nothing under the target.
 
 A work order whose worker has left the map — `FACTORY_DRAFTER_URL` unset while a draft is in

@@ -5569,6 +5569,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 PR 2 verification: the PR 1 table, plus `pnpm --filter @b4-example/software-factory-server test` and Task 20's lane. Push `blove/images-by-id` and open the PR only when Brian asks.
 
 > **As landed:** the README's second statement of the builder's image bound (the builder quick start) and its `builder-handoff` reference paragraph were corrected too (`--image-id`, or the registry read-only, refusing to guess), and the images plan gained As-landed notes for Tasks 18-20.
+>
+> **Final-review fixes:** dispatch's kept-binding test asserts the builder handoff names the bound id and tag, not the registry's newer build (mutation-checked); the CLI usage and comment say `builder-handoff` reads `images.sqlite` read-only unless `--image-id` is given, and a missing or unreadable registry carries the `--image-id` hint; the README says the handoff names the registry's current image (use `--image-id` from `image_bound` to reproduce a work order), states the full-pin/key-prefix label rule, and that controller and builder upgrade together; `FACTORY_LABELS` is exported from `controller/src/lib/targets/image-builder.ts` and a test pins the builder's copy to it. Follow-up: carry the full recipe key in the handoff so the builder's label check compares all 64 hex, not the tag's 12.
 
 ---
 
