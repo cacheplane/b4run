@@ -16,7 +16,9 @@ import {
 } from "@b4run/workspace"
 import {
   createWorkspaceIntent,
+  MAX_THREAD_SANDBOX_RECORD_BYTES,
   readSourceFile,
+  threadSandboxRecordBytes,
   verifyCapturedWorkspaceDefinition,
   verifyCreationStatus,
   verifyReadyWorkspace,
@@ -146,6 +148,13 @@ export class ManagedWorkspaceManager {
         ...(result.image !== undefined ? { image: result.image } : {}),
         ...(result.policy !== undefined ? { policy: result.policy } : {}),
       })
+      // Checked here, before any provider call or source row: a policy can pass every
+      // per-field bound and still not fit the stored record.
+      if (threadSandboxRecordBytes(sandbox) > MAX_THREAD_SANDBOX_RECORD_BYTES)
+        throw new WorkspaceLifecycleError(
+          "unsupported",
+          `Thread ${threadId}'s sandbox record exceeds ${MAX_THREAD_SANDBOX_RECORD_BYTES} bytes: its policy.env is too large`,
+        )
       return { definition: result.definition, sandbox }
     }
     const definition = await captureDefinition?.({ threadId, metadata, signal })
@@ -194,10 +203,33 @@ export class ManagedWorkspaceManager {
         throw new WorkspaceLifecycleError("conflict", "Workspace installation identity mismatch")
       if (record?.state === "deleting" || record?.state === "deleted")
         throw new WorkspaceLifecycleError("lost", "Workspace is deleting or deleted")
-      // In thread mode every admitted thread has a record ({ version: 1 } at least). A thread
-      // with an association and none was admitted before the app switched to sandbox.thread,
-      // or its record was lost: re-admitting it would silently run the app's defaults.
-      if (record && this.#options.resolveThread && !installation.threadSandboxes.get(threadId))
+      // An admitted session already holds the bundle it was verified with, in memory
+      // and frozen. While the association still names that operation and digest, the
+      // stored bundle is not consulted again: re-reading and re-hashing it here cost
+      // one full bundle verification per filesystem call (see the benchmark in the
+      // manager tests). A new session re-reads and re-verifies it below.
+      const admitted = this.#sessions.get(threadId)
+      if (
+        record &&
+        admitted &&
+        record.state === "ready" &&
+        !this.#retired.has(threadId) &&
+        admitted.workspace.ready.reference.operationId === record.intent.operationId &&
+        admitted.workspace.source.digest === record.intent.sourceDigest
+      ) {
+        const expiresAt = record.ready?.provenance.retention.expiresAt
+        if (expiresAt && Date.parse(expiresAt) <= this.#now())
+          throw new WorkspaceLifecycleError("expired", "Workspace retention deadline has passed")
+        admitted.lastUsedAt = this.#now()
+        return this.#handle(threadId, admitted.session.handle)
+      }
+      // One read of the thread's sandbox record, reused at reconnect below. In thread mode every
+      // admitted thread has one ({ version: 1 } at least). A thread with an association and none
+      // was admitted before the app switched to sandbox.thread, or its record was lost:
+      // re-admitting it would silently run the app's defaults. Refused before any resolver or
+      // provider call. (The fast path above only serves a session this check already admitted.)
+      let sandboxRecord = record ? installation.threadSandboxes.get(threadId) : undefined
+      if (record && this.#options.resolveThread && !sandboxRecord)
         throw new WorkspaceLifecycleError(
           "conflict",
           `Thread ${threadId} has no sandbox record: it was admitted before sandbox.thread was configured, or its record was lost. Delete the thread to resolve its sandbox again.`,
@@ -228,25 +260,7 @@ export class ManagedWorkspaceManager {
           }),
           resolved.sandbox,
         )
-      }
-      // An admitted session already holds the bundle it was verified with, in memory
-      // and frozen. While the association still names that operation and digest, the
-      // stored bundle is not consulted again: re-reading and re-hashing it here cost
-      // one full bundle verification per filesystem call (see the benchmark in the
-      // manager tests). A new session re-reads and re-verifies it below.
-      const admitted = this.#sessions.get(threadId)
-      if (
-        admitted &&
-        record.state === "ready" &&
-        !this.#retired.has(threadId) &&
-        admitted.workspace.ready.reference.operationId === record.intent.operationId &&
-        admitted.workspace.source.digest === record.intent.sourceDigest
-      ) {
-        const expiresAt = record.ready?.provenance.retention.expiresAt
-        if (expiresAt && Date.parse(expiresAt) <= this.#now())
-          throw new WorkspaceLifecycleError("expired", "Workspace retention deadline has passed")
-        admitted.lastUsedAt = this.#now()
-        return this.#handle(threadId, admitted.session.handle)
+        sandboxRecord = resolved.sandbox
       }
       const source = installation.sources.get(record.intent.sourceDigest)
       if (!source) throw new WorkspaceLifecycleError("lost", "Workspace initial source is missing")
@@ -299,12 +313,15 @@ export class ManagedWorkspaceManager {
       signal.throwIfAborted()
       const session = await provider.reconnect(
         ready,
-        threadPolicy(policy, installation.threadSandboxes.get(threadId)?.policy),
+        threadPolicy(policy, sandboxRecord?.policy),
         signal,
       )
       // Session identity is validated independently of the provider's backend object.
       const validated = verifyReadyWorkspace(
-        { reference: session.reference.workspace, provenance: ready.provenance },
+        {
+          reference: session.reference.workspace,
+          provenance: ready.provenance,
+        },
         record.intent,
       )
       if (JSON.stringify(validated.reference) !== JSON.stringify(ready.reference))
@@ -348,7 +365,11 @@ export class ManagedWorkspaceManager {
           incarnation: session.reference.incarnation,
         }),
       }
-      this.#sessions.set(threadId, { session: admittedSession, lastUsedAt: this.#now(), workspace })
+      this.#sessions.set(threadId, {
+        session: admittedSession,
+        lastUsedAt: this.#now(),
+        workspace,
+      })
       return this.#handle(threadId, session.handle)
     }).finally(release)
   }

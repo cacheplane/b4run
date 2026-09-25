@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite"
 import type { ThreadSandboxRecord } from "@b4run/workspace"
-import { verifyThreadSandboxRecord } from "@b4run/workspace/node"
+import { MAX_THREAD_SANDBOX_RECORD_BYTES, verifyThreadSandboxRecord } from "@b4run/workspace/node"
 
 /** A thread's sandbox record: written once, with its association, and read on every admission. */
 export interface WorkspaceThreadSandboxStore {
@@ -12,7 +12,7 @@ export interface WorkspaceThreadSandboxWriter extends WorkspaceThreadSandboxStor
   remove(threadId: string): void
 }
 
-const MAX_RECORD_BYTES = 256 * 1024
+const MAX_RECORD_BYTES = MAX_THREAD_SANDBOX_RECORD_BYTES
 
 /**
  * Create the record's tables if the installation predates them. Owner-only: it

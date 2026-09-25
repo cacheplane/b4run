@@ -163,3 +163,25 @@ it("leaves the lock-free reader working beside the owner", () => {
     owner.close()
   }
 })
+
+it("rolls the association back when the record's insert fails", () => {
+  const path = root()
+  openWorkspaceInstallation(path).close()
+  const db = new DatabaseSync(join(path, ".b4", "workspaces", "state.sqlite"))
+  db.exec(
+    "CREATE TRIGGER fail_record BEFORE INSERT ON workspace_thread_sandboxes BEGIN SELECT RAISE(ABORT, 'injected record failure'); END",
+  )
+  db.close()
+  const owner = openWorkspaceInstallation(path)
+  try {
+    owner.sources.put(bundle)
+    expect(() => owner.associations.create(intentFor(owner.installationId, "one"), record)).toThrow(
+      /injected record failure/,
+    )
+    expect(owner.associations.get("one")).toBeUndefined()
+    expect(owner.associations.list()).toEqual([])
+    expect(owner.threadSandboxes.get("one")).toBeUndefined()
+  } finally {
+    owner.close()
+  }
+})

@@ -699,7 +699,7 @@ it("keeps the app's policy for a thread whose resolver set none", async () => {
 
 it("resolves a thread's sandbox once when two first admissions overlap", async () => {
   let resolved = 0
-  const { manager } = threadFixture(async () => {
+  const { manager, installation } = threadFixture(async () => {
     resolved += 1
     await new Promise((resolve) => setTimeout(resolve, 10))
     return { definition: captured("a"), image: "factory:a" }
@@ -707,6 +707,8 @@ it("resolves a thread's sandbox once when two first admissions overlap", async (
   const signal = new AbortController().signal
   await Promise.all([manager.getForThread("one", signal), manager.getForThread("one", signal)])
   expect(resolved).toBe(1)
+  expect(installation.associations.list().map((entry) => entry.intent.threadId)).toEqual(["one"])
+  expect(installation.threadSandboxes.get("one")).toEqual({ version: 1, image: "factory:a" })
 })
 
 it("records every thread it admits, { version: 1 } when the resolver chose nothing", async () => {
@@ -785,4 +787,42 @@ it("refuses a thread resolver beside a workspace definition or resolver", () => 
   } finally {
     installation.close()
   }
+})
+
+it("refuses at reconnect a thread whose network the app has since denied", async () => {
+  const first = threadFixture(
+    async () => ({ definition: captured("a"), policy: { network: { mode: "allow" } } }),
+    { appPolicy: { network: { mode: "allow" } } },
+  )
+  await first.manager.getForThread("one", new AbortController().signal)
+  expect(first.policies.get("one")?.network).toEqual({ mode: "allow" })
+  await first.manager.releaseAll()
+  const second = threadFixture(
+    async () => {
+      throw new Error("the resolver must not run on re-admission")
+    },
+    { root: first.root, appPolicy: { network: { mode: "deny" } } },
+  )
+  await expect(second.manager.getForThread("one", new AbortController().signal)).rejects.toThrow(
+    /may not open the network/,
+  )
+  expect(second.calls).toEqual([])
+})
+
+it("refuses a record too large to store before any provider call or source row", async () => {
+  const env = Object.fromEntries(
+    Array.from({ length: 10 }, (_, i) => [`V${i}`, "x".repeat(30_000)]),
+  )
+  const { manager, installation, calls } = threadFixture(async () => ({
+    definition: captured("big"),
+    image: "factory:a",
+    policy: { env },
+  }))
+  await expect(manager.getForThread("one", new AbortController().signal)).rejects.toMatchObject({
+    code: "unsupported",
+    message: expect.stringMatching(/exceeds/),
+  })
+  expect(calls).toEqual([])
+  expect(installation.associations.get("one")).toBeUndefined()
+  expect(installation.sources.get(bundle("big").digest)).toBeUndefined()
 })

@@ -9,6 +9,8 @@ import type {
   WorkspaceResolverInput,
 } from "../src/index.ts"
 import {
+  MAX_THREAD_SANDBOX_RECORD_BYTES,
+  threadSandboxRecordBytes,
   verifyImageReference,
   verifyThreadSandbox,
   verifyThreadSandboxPolicy,
@@ -121,5 +123,50 @@ describe("verifyThreadSandboxRecord", () => {
     expect(() => verifyThreadSandboxRecord({ version: 1, extra: 1 })).toThrow(
       /unsupported key extra/,
     )
+  })
+})
+
+describe("own properties only", () => {
+  it("refuses an env variable named __proto__ rather than dropping it", () => {
+    expect(() =>
+      verifyThreadSandboxPolicy(JSON.parse('{"env":{"__proto__":"x","A":"1"}}')),
+    ).toThrow(/__proto__.*not a valid variable name/)
+  })
+  it("refuses an accessor, which could answer the check and the copy differently", () => {
+    let reads = 0
+    const network = {
+      get mode() {
+        reads += 1
+        return reads === 1 ? "deny" : "allow"
+      },
+    }
+    expect(() => verifyThreadSandboxPolicy({ network })).toThrow(/must be a data property/)
+  })
+  it("reads nothing from a polluted Object.prototype", () => {
+    const proto = Object.prototype as Record<string, unknown>
+    try {
+      proto.image = "evil:latest"
+      proto.policy = { network: { mode: "allow" } }
+      proto.environment = { image: "evil:latest" }
+      proto.mode = "allow"
+      proto.memoryMb = 1
+      expect(verifyThreadSandboxRecord({ version: 1 })).toEqual({ version: 1 })
+      expect(JSON.stringify(verifyThreadSandbox({ workspace }))).toBe(JSON.stringify({ workspace }))
+      expect(() => verifyThreadSandbox({ workspace, environment: {} })).toThrow(/image reference/)
+      expect(() => verifyThreadSandboxPolicy({ network: {} })).toThrow(/network.mode/)
+      expect(JSON.stringify(verifyThreadSandboxPolicy({ resources: {} }))).toBe('{"resources":{}}')
+    } finally {
+      for (const key of ["image", "policy", "environment", "mode", "memoryMb"]) delete proto[key]
+    }
+  })
+})
+
+describe("record size", () => {
+  it("measures a record whose env passes every per-field bound yet exceeds the cap", () => {
+    const env = Object.fromEntries(
+      Array.from({ length: 10 }, (_, i) => [`V${i}`, "x".repeat(30_000)]),
+    )
+    const record = verifyThreadSandboxRecord({ version: 1, policy: { env } })
+    expect(threadSandboxRecordBytes(record)).toBeGreaterThan(MAX_THREAD_SANDBOX_RECORD_BYTES)
   })
 })

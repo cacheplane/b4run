@@ -12,6 +12,19 @@ import type {
  * default instead of what its resolver asked for.
  */
 
+/**
+ * The largest a thread's stored record may be, as UTF-8 JSON. A policy can
+ * pass every per-field bound (256 variables of 32768 characters) and still
+ * exceed it, so the manager checks the resolved record against this before
+ * any provider call, and the store refuses anything larger.
+ */
+export const MAX_THREAD_SANDBOX_RECORD_BYTES = 256 * 1024
+
+/** The size `JSON.stringify` of a verified record takes when stored. */
+export function threadSandboxRecordBytes(record: ThreadSandboxRecord): number {
+  return new TextEncoder().encode(JSON.stringify(record)).byteLength
+}
+
 /** Letters, digits and `._/:@-`, not starting with a symbol: never readable as a CLI flag. */
 const IMAGE_REFERENCE = /^[A-Za-z0-9][A-Za-z0-9._/:@-]{0,511}$/
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,255}$/
@@ -23,6 +36,18 @@ function plainObject(value: unknown, what: string): Record<string, unknown> {
   if (prototype !== Object.prototype && prototype !== null)
     throw new Error(`${what} must be a plain object`)
   return value as Record<string, unknown>
+}
+
+/**
+ * An own data property, read once. Inherited values (a polluted
+ * `Object.prototype`) read as absent, and an accessor is refused: a getter
+ * could answer the check and the copy differently.
+ */
+function own(value: Record<string, unknown>, key: string, what: string): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(value, key)
+  if (descriptor === undefined) return undefined
+  if (!("value" in descriptor)) throw new Error(`${what}.${key} must be a data property`)
+  return descriptor.value
 }
 
 function onlyKeys(value: Record<string, unknown>, allowed: readonly string[], what: string): void {
@@ -56,14 +81,15 @@ export function verifyImageReference(value: unknown): string {
 
 function network(value: unknown): SandboxPolicy["network"] {
   const n = plainObject(value, "policy.network")
-  if ("allowlist" in n || "denylist" in n)
+  if (Object.hasOwn(n, "allowlist") || Object.hasOwn(n, "denylist"))
     throw new Error(
       "policy.network lists are not enforced by managed workspaces: a thread's network is deny or allow",
     )
   onlyKeys(n, ["mode"], "policy.network")
-  if (n.mode !== "deny" && n.mode !== "allow")
+  const mode = own(n, "mode", "policy.network")
+  if (mode !== "deny" && mode !== "allow")
     throw new Error('policy.network.mode must be "deny" or "allow"')
-  return Object.freeze({ mode: n.mode })
+  return Object.freeze({ mode })
 }
 
 function env(value: unknown): Readonly<Record<string, string>> {
@@ -74,9 +100,10 @@ function env(value: unknown): Readonly<Record<string, string>> {
   if (names.length > 256) throw new Error("policy.env has more than 256 variables")
   const out: Record<string, string> = {}
   for (const name of names) {
-    if (!ENV_NAME.test(name))
+    // `__proto__` matches the pattern but cannot be an own key of a plain object: refused, never dropped.
+    if (!ENV_NAME.test(name) || name === "__proto__")
       throw new Error(`policy.env name ${JSON.stringify(name)} is not a valid variable name`)
-    const text = e[name]
+    const text = own(e, name, "policy.env")
     if (typeof text !== "string" || text.length > 32_768 || text.includes("\u0000"))
       throw new Error(`policy.env.${name} must be a string without NUL, at most 32768 characters`)
     out[name] = text
@@ -86,18 +113,21 @@ function env(value: unknown): Readonly<Record<string, string>> {
 
 function resources(value: unknown): NonNullable<ThreadSandboxPolicy["resources"]> {
   const r = plainObject(value, "policy.resources")
-  if ("diskGb" in r)
+  if (Object.hasOwn(r, "diskGb"))
     throw new Error(
       "policy.resources.diskGb is not enforced by managed workspaces: a thread cannot size its disk",
     )
   onlyKeys(r, ["memoryMb", "cpus", "timeoutMs"], "policy.resources")
+  const memoryMb = own(r, "memoryMb", "policy.resources")
+  const cpus = own(r, "cpus", "policy.resources")
+  const timeoutMs = own(r, "timeoutMs", "policy.resources")
   return Object.freeze({
-    ...(r.memoryMb !== undefined
-      ? { memoryMb: positive(r.memoryMb, "policy.resources.memoryMb", true) }
+    ...(memoryMb !== undefined
+      ? { memoryMb: positive(memoryMb, "policy.resources.memoryMb", true) }
       : {}),
-    ...(r.cpus !== undefined ? { cpus: positive(r.cpus, "policy.resources.cpus", false) } : {}),
-    ...(r.timeoutMs !== undefined
-      ? { timeoutMs: positive(r.timeoutMs, "policy.resources.timeoutMs", true) }
+    ...(cpus !== undefined ? { cpus: positive(cpus, "policy.resources.cpus", false) } : {}),
+    ...(timeoutMs !== undefined
+      ? { timeoutMs: positive(timeoutMs, "policy.resources.timeoutMs", true) }
       : {}),
   })
 }
@@ -106,10 +136,13 @@ function resources(value: unknown): NonNullable<ThreadSandboxPolicy["resources"]
 export function verifyThreadSandboxPolicy(value: unknown): ThreadSandboxPolicy {
   const policy = plainObject(value, "A thread's sandbox policy")
   onlyKeys(policy, ["network", "env", "resources"], "A thread's sandbox policy")
+  const n = own(policy, "network", "policy")
+  const e = own(policy, "env", "policy")
+  const r = own(policy, "resources", "policy")
   return Object.freeze({
-    ...(policy.network !== undefined ? { network: network(policy.network) } : {}),
-    ...(policy.env !== undefined ? { env: env(policy.env) } : {}),
-    ...(policy.resources !== undefined ? { resources: resources(policy.resources) } : {}),
+    ...(n !== undefined ? { network: network(n) } : {}),
+    ...(e !== undefined ? { env: env(e) } : {}),
+    ...(r !== undefined ? { resources: resources(r) } : {}),
   })
 }
 
@@ -121,17 +154,18 @@ export function verifyThreadSandboxPolicy(value: unknown): ThreadSandboxPolicy {
 export function verifyThreadSandbox(value: unknown): ThreadSandbox {
   const sandbox = plainObject(value, "A thread sandbox")
   onlyKeys(sandbox, ["workspace", "environment", "policy"], "A thread sandbox")
-  const workspace = sandbox.workspace
+  const workspace = own(sandbox, "workspace", "A thread sandbox")
   if (workspace === null || typeof workspace !== "object" || Array.isArray(workspace))
     throw new Error("A thread sandbox must name its workspace")
   let environment: ThreadSandbox["environment"]
-  if (sandbox.environment !== undefined) {
-    const e = plainObject(sandbox.environment, "environment")
+  const rawEnvironment = own(sandbox, "environment", "A thread sandbox")
+  if (rawEnvironment !== undefined) {
+    const e = plainObject(rawEnvironment, "environment")
     onlyKeys(e, ["image"], "environment")
-    environment = Object.freeze({ image: verifyImageReference(e.image) })
+    environment = Object.freeze({ image: verifyImageReference(own(e, "image", "environment")) })
   }
-  const policy =
-    sandbox.policy === undefined ? undefined : verifyThreadSandboxPolicy(sandbox.policy)
+  const rawPolicy = own(sandbox, "policy", "A thread sandbox")
+  const policy = rawPolicy === undefined ? undefined : verifyThreadSandboxPolicy(rawPolicy)
   return Object.freeze({
     workspace: workspace as ThreadSandbox["workspace"],
     ...(environment !== undefined ? { environment } : {}),
@@ -143,10 +177,13 @@ export function verifyThreadSandbox(value: unknown): ThreadSandbox {
 export function verifyThreadSandboxRecord(value: unknown): ThreadSandboxRecord {
   const record = plainObject(value, "A thread sandbox record")
   onlyKeys(record, ["version", "image", "policy"], "A thread sandbox record")
-  if (record.version !== 1) throw new Error("Unsupported thread sandbox record version")
+  if (own(record, "version", "A thread sandbox record") !== 1)
+    throw new Error("Unsupported thread sandbox record version")
+  const image = own(record, "image", "A thread sandbox record")
+  const policy = own(record, "policy", "A thread sandbox record")
   return Object.freeze({
     version: 1,
-    ...(record.image !== undefined ? { image: verifyImageReference(record.image) } : {}),
-    ...(record.policy !== undefined ? { policy: verifyThreadSandboxPolicy(record.policy) } : {}),
+    ...(image !== undefined ? { image: verifyImageReference(image) } : {}),
+    ...(policy !== undefined ? { policy: verifyThreadSandboxPolicy(policy) } : {}),
   })
 }
