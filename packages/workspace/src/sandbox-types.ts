@@ -184,6 +184,49 @@ export type WorkspaceResolver = (
   thread: WorkspaceResolverInput,
 ) => Promise<WorkspaceDefinition | CapturedWorkspaceDefinition>
 
+/**
+ * The part of a {@link SandboxPolicy} one thread may set for itself. `resources`
+ * merge over the app's key by key, `env` replaces the app's whole, and `network`
+ * may only keep or narrow the app's: a thread may not open a network the app's
+ * policy denies. `security` is always the app's.
+ */
+export interface ThreadSandboxPolicy {
+  readonly network?: SandboxPolicy["network"]
+  readonly env?: SandboxPolicy["env"]
+  /** Merged over the app's key by key. `diskGb` is not settable per thread: managed workspaces ignore it. */
+  readonly resources?: Omit<NonNullable<SandboxPolicy["resources"]>, "diskGb">
+}
+
+/** One thread's whole sandbox, as a {@link ThreadSandboxResolver} decides it. */
+export interface ThreadSandbox {
+  /** The thread's initial workspace, exactly as a {@link WorkspaceResolver} returns one. */
+  readonly workspace: WorkspaceDefinition | CapturedWorkspaceDefinition
+  /**
+   * Provider-interpreted. The Docker provider reads `image`, and runs it only if
+   * it is the provider's own image or its `images` predicate allows it.
+   */
+  readonly environment?: { readonly image: string }
+  readonly policy?: ThreadSandboxPolicy
+}
+
+/**
+ * Host code that decides one thread's whole sandbox. Called once per thread, at
+ * the thread's first admission, never again: the workspace is captured and
+ * recorded by digest in the thread's creation intent, the image's immutable
+ * identity is recorded there too, and the image reference and policy are kept
+ * in a per-thread record beside it. Every later turn, restart and reader uses
+ * the records. Exclusive with `SandboxConfig.workspace`.
+ */
+export type ThreadSandboxResolver = (thread: WorkspaceResolverInput) => Promise<ThreadSandbox>
+
+/** What B4.run keeps for a thread whose sandbox was resolved per thread. Written once, with the association. */
+export interface ThreadSandboxRecord {
+  readonly version: 1
+  /** The reference the resolver named. Its immutable identity is in the thread's intent. */
+  readonly image?: string
+  readonly policy?: ThreadSandboxPolicy
+}
+
 export interface SandboxConfig {
   /**
    * The initial managed workspace: one definition for every thread, or a
@@ -192,6 +235,12 @@ export interface SandboxConfig {
    * and the artifact records only that a resolver is configured.
    */
   readonly workspace?: WorkspaceDefinition | WorkspaceResolver
+  /**
+   * Decide each thread's whole sandbox (workspace, image, policy) once, at its
+   * first admission. Exclusive with `workspace`. Requires a provider with
+   * managed workspaces.
+   */
+  readonly thread?: ThreadSandboxResolver
   readonly provider: SandboxProvider
   readonly network?: SandboxPolicy["network"]
   readonly env?: SandboxPolicy["env"]

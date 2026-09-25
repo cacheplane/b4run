@@ -26,3 +26,9 @@ export {
   verifySourceBundle,
 } from "./source-bundle.js"
 export { captureWorkspaceSource, type WorkspaceSourceDefinition } from "./source-capture.js"
+export {
+  verifyImageReference,
+  verifyThreadSandbox,
+  verifyThreadSandboxPolicy,
+  verifyThreadSandboxRecord,
+} from "./thread-sandbox.js"
