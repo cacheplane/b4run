@@ -37,8 +37,9 @@ const checkFailure = (result: { readonly stderr: string; readonly stdout: string
 
 describe("generate-seo-lastmod", () => {
   // These assert the generator's own round trip rather than that the
-  // checked-in file is current: a stale timestamp only dates a page wrong, and
-  // route coverage (below) is the gate that keeps the build from throwing.
+  // checked-in file is current: `--check` needs Git history, which a shallow
+  // CI checkout lacks. The Git-free `--check-routes` gate (below) is what
+  // holds the checked-in file to the current routes and content.
   it("accepts a manifest it just generated from today's production visibility", () => {
     const directory = mkdtempSync(join(tmpdir(), "b4-lastmod-"))
     temporaryDirectories.push(directory)
@@ -71,9 +72,11 @@ describe("generate-seo-lastmod", () => {
     expect(result.status, checkFailure(result)).toBe(0)
   })
 
-  it("covers every route the site renders", () => {
-    // Timestamps can drift harmlessly; a missing route has no timestamp at
-    // all and makes requireValidLastModified throw during the build.
+  it("covers every route the site renders, recorded against its current content", () => {
+    // The gate a content PR cannot skip (#823 made regeneration the PR's job).
+    // A missing route makes requireValidLastModified throw during the build; a
+    // route whose content changed since it was recorded is left misdated on
+    // main, because nothing regenerates the manifest after merge.
     const result = runGenerator("--check-routes")
 
     expect(result.stderr).toBe("")
@@ -138,18 +141,56 @@ describe("generate-seo-lastmod", () => {
     expect(result.stderr).toContain("/docs/removed-page")
   })
 
-  it("tolerates a stale timestamp in the route-coverage check", () => {
-    // Route coverage is about which routes exist, not when they changed.
+  /** Write the checked-in manifest with one entry edited, for `--check-routes`. */
+  function manifestWith(edit: (routes: Record<string, Record<string, string>>) => void) {
     const manifest = JSON.parse(readFileSync(generatedManifest, "utf8"))
-    const [route] = Object.keys(manifest.routes)
-    manifest.routes[route as string].sourceDigest = "1".repeat(64)
-
+    edit(manifest.routes)
     const directory = mkdtempSync(join(tmpdir(), "b4-lastmod-"))
     temporaryDirectories.push(directory)
-    const drifted = join(directory, "lastmod.generated.json")
-    writeFileSync(drifted, `${JSON.stringify(manifest, null, 2)}\n`)
+    const path = join(directory, "lastmod.generated.json")
+    writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`)
+    return path
+  }
 
-    expect(runGenerator("--check-routes", "--output", drifted).status).toBe(0)
+  it("reports a route whose content changed since it was recorded", () => {
+    const drifted = manifestWith((routes) => {
+      ;(routes["/docs/evals"] as Record<string, string>).sourceDigest = "1".repeat(64)
+    })
+
+    const result = runGenerator("--check-routes", "--output", drifted)
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain("content changed since it was recorded")
+    expect(result.stderr).toContain("/docs/evals")
+    expect(result.stderr).toContain("pnpm --dir apps/web seo:lastmod")
+  })
+
+  it("reports a record edited by hand", () => {
+    // A date moved without regenerating no longer matches its recordDigest.
+    const edited = manifestWith((routes) => {
+      ;(routes["/docs/evals"] as Record<string, string>).lastModified = "2020-01-01T00:00:00.000Z"
+    })
+
+    const result = runGenerator("--check-routes", "--output", edited)
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain("/docs/evals")
+  })
+
+  it("exempts blog listings, whose content changes with the date alone", () => {
+    // A post committed ahead of its date joins /blog on that day with no
+    // commit at all; gating that drift would turn every open PR red.
+    const drifted = manifestWith((routes) => {
+      for (const [route, entry] of Object.entries(routes)) {
+        if (route === "/blog" || route.startsWith("/blog/tags/"))
+          entry.sourceDigest = "1".repeat(64)
+      }
+    })
+
+    const result = runGenerator("--check-routes", "--output", drifted)
+
+    expect(result.stderr).toBe("")
+    expect(result.status).toBe(0)
   })
 
   it("preserves a timestamp while the sources behind a route are unchanged", () => {

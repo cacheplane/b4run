@@ -212,13 +212,17 @@ substitute for the other or optional release cleanup.
   is why you commit the content first; with uncommitted sources, or in a
   shallow clone, the generator stamps the current time instead. The file stays
   committed because deploy and CI checkouts are shallow and the sitemap
-  imports it statically. There is no job on main that regenerates it. A
-  route the manifest has never seen has no timestamp and
-  `requireValidLastModified` throws during the build; the web suite's
-  route-coverage case (`covers every route the site renders`, in
-  `apps/web/app/seo/generate-lastmod.test.ts`) reds `source-validate` until
-  you regenerate, and `pnpm --dir apps/web seo:lastmod:routes` reproduces it
-  locally. If the manifest conflicts on a merge or rebase, it is marked
+  imports it statically. There is no job on main that regenerates it, so
+  the web suite's gate (`covers every route the site renders, recorded
+  against its current content`, in `apps/web/app/seo/generate-lastmod.test.ts`)
+  reds `source-validate` until you regenerate, and
+  `pnpm --dir apps/web seo:lastmod:routes` reproduces it locally. It fails
+  on a route the manifest has never seen (it has no timestamp, so
+  `requireValidLastModified` throws during the build), a route it covers
+  that the site no longer renders, and a docs or homepage route whose
+  content changed since it was recorded. It needs no Git history. Blog
+  listings are exempt from the content check, because a post committed
+  ahead of its date joins them on that day with no commit at all. If the manifest conflicts on a merge or rebase, it is marked
   `-merge` in `.gitattributes`, so git leaves valid JSON on one side instead
   of writing conflict markers — regenerate on top of that rather than
   hand-editing it.
