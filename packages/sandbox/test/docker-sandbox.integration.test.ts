@@ -3,7 +3,12 @@ import { existsSync } from "node:fs"
 import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { type FilesystemBackend, inspectWorkspace, withWorkspaceReader } from "@b4run/workspace"
+import {
+  type FilesystemBackend,
+  inspectWorkspace,
+  isWorkspaceInspectionError,
+  withWorkspaceReader,
+} from "@b4run/workspace"
 import { describe, expect, test } from "vitest"
 import { createDocker, type Docker, type SpawnResult } from "../src/docker/docker-cli.ts"
 import { dockerSandbox } from "../src/index.ts"
@@ -570,7 +575,14 @@ describe.skipIf(!enabled)("dockerSandbox (real Docker)", { timeout: 120_000 }, (
             },
           },
         }
-        await expect(inspectWorkspace(grown)).rejects.toThrow(/exceeds maxBytes/)
+        // The bounded read's limit error is classified as a workspace that changed during the
+        // inspection, named by its relative path, never the container's absolute one.
+        const error = await inspectWorkspace(grown).then(
+          () => undefined,
+          (caught: unknown) => caught,
+        )
+        expect(isWorkspaceInspectionError(error) ? error.code : error).toBe("changed")
+        expect((error as Error).message).not.toContain("/workspace")
       } finally {
         await p.destroy(threadId)
       }
