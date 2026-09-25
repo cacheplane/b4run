@@ -19,6 +19,7 @@ import { createFakeWorkspaceReader } from "./fake-workspace-reader.ts"
 import { ORACLE_DRAFT } from "./intake-fixtures.ts"
 import { isolatedDrafter } from "./isolated-drafter.ts"
 import { shippedPin } from "./temp-repo.ts"
+import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
 /**
  * The intake half of the factory, for real: one drafter turn in the DRAFTER'S OWN PROCESS
@@ -76,6 +77,7 @@ const ENV = [
   "OPENAI_BASE_URL",
   "OPENAI_API_KEY",
   "B4_PERMISSIONS_MODE",
+  "FACTORY_WORKER_TOKEN",
 ] as const
 
 let aimock: Aimock
@@ -110,6 +112,8 @@ beforeAll(async () => {
   process.env.FACTORY_DRAFTER_MANIFEST_DIR = manifestDir
   process.env.OPENAI_BASE_URL = aimock.baseUrl
   process.env.OPENAI_API_KEY = "test"
+  // The drafter admits only the controller: the runtime below sends the same token.
+  process.env.FACTORY_WORKER_TOKEN = TEST_WORKER_TOKEN
   drafter = await serveRuntime({ appRoot: drafterRoot, host: "127.0.0.1", port: 0 })
 }, 300_000)
 
@@ -155,6 +159,7 @@ async function bootController(
       FACTORY_DRAFTER_URL: drafter.url,
       FACTORY_DRAFTER_APP_ROOT: drafterRoot,
       FACTORY_DRAFTER_MANIFEST_DIR: manifestDir,
+      FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
     },
     {
       readers: {

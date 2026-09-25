@@ -144,7 +144,7 @@ program correctness, and the receipt says so.
 **No authorization.** The controller is an HTTP app whose routes mutate the registry, and
 anyone who can reach its port can create, dispatch, approve and cancel work orders; there is
 no authentication and no per-caller check, which this rung scopes out. Run it on loopback and
-do not expose it. And note where the trust now sits on the builder's side: whoever can write
+do not expose it. (Its workers are different: see "Who may talk to a worker" below.) And note where the trust now sits on the builder's side: whoever can write
 into the builder's manifest directory chooses a thread's workspace, image, policy and
 permissions, within the builder's own bounds, which no manifest can move: the network is
 denied (a thread may not open what the app denies), and the permissions mode is
@@ -249,6 +249,19 @@ by reading the registry with `show`. Cancelling a live dispatch is the runtime's
 which aborts that route's signal. And the app has no boot hook, so reconcile is a route:
 nothing walks the registry after a restart unless an operator or a supervisor asks it to.
 
+**Who may talk to a worker.** Each worker's `src/thread-access.ts` admits a request only with
+`authorization: Bearer <FACTORY_WORKER_TOKEN>`, so only the controller can create, run, read or
+delete a worker's threads; any other caller gets 403 from every thread endpoint. The policy
+compares in constant time, and nothing logs or echoes the token. `/healthz` and `/readyz` stay
+open (they disclose nothing), and so do the memory-candidate endpoints, which are not thread
+endpoints; neither worker keeps memory. A worker started without the variable, or with one
+shorter than 32 characters, refuses to boot instead of serving open endpoints.
+
+**The token is a bearer credential: never send it over an untrusted network in the clear.**
+Run the workers on loopback or a private network only the controller can reach, or put TLS in
+front of them (`https://` in `FACTORY_WORKER_URL`). The controller never follows a redirect, so
+a worker URL cannot bounce the token elsewhere.
+
 ## Run it
 
 The builder and the verifier both run in the target's prepared image, so this needs Docker:
@@ -271,10 +284,14 @@ pin, and `devkit` is the target that is re-pinned.
 needs no target file, no per-target copy and no second process. The manifest directories live
 under the controller's state directory, created readable and writable by you alone: whoever
 can write a manifest chooses a thread's workspace, image, policy and permissions (see "No
-authorization" above), so a world-writable `/tmp` directory is the wrong home for one:
+authorization" above), so a world-writable `/tmp` directory is the wrong home for one. The
+three processes share one secret, the token every worker requires of its caller; export it in
+each terminal (the same value in all three):
 
+    export TOKEN=$(openssl rand -hex 32)
     (umask 077 && mkdir -p .factory/builder-manifests .factory/drafter-manifests)
     FACTORY_BUILDER_MANIFEST_DIR=$PWD/.factory/builder-manifests \
+    FACTORY_WORKER_TOKEN=$TOKEN \
     OPENAI_API_KEY=... \
       pnpm --filter @b4-example/software-factory-server dev --port 4100
 
@@ -296,6 +313,7 @@ It reads the repository through the capture in each manifest, never through the 
 so it needs no repository path:
 
     FACTORY_DRAFTER_MANIFEST_DIR=$PWD/.factory/drafter-manifests \
+    FACTORY_WORKER_TOKEN=$TOKEN \
     OPENAI_API_KEY=... \
       pnpm --filter @b4-example/software-factory-drafter dev --port 4200
 
@@ -315,6 +333,7 @@ with), its own state directory, and the drafter pair: the drafter's URL and its 
     FACTORY_DRAFTER_APP_ROOT=$PWD/examples/software-factory/drafter \
     FACTORY_DRAFTER_MANIFEST_DIR=$PWD/.factory/drafter-manifests \
     FACTORY_STATE_DIR=$PWD/.factory \
+    FACTORY_WORKER_TOKEN=$TOKEN \
       pnpm --filter @b4-example/software-factory-controller dev --port 4300
 
 Every target's work orders go to that one builder. `FACTORY_WORKERS` (the per-target worker
@@ -555,6 +574,7 @@ The controller app reads:
 | `FACTORY_BUILDER_APP_ROOT` | yes | The BUILDER package's root, so the workspace reader can address its installation store |
 | `FACTORY_WORKER_ROUTE` | no | Default `/build#agent` |
 | `FACTORY_BUILDER_MANIFEST_DIR` | no | Default `<builder app root>/.factory/manifests`; must be the directory the builder process was started with |
+| `FACTORY_WORKER_TOKEN` | yes | The secret every worker requires, sent as `authorization: Bearer <token>` on every request; at least 32 characters, no whitespace (`openssl rand -hex 32`). Never journalled or logged |
 | `FACTORY_STATE_DIR` | yes | Holds `registry.sqlite`, `artifacts/`, `exports/`, generated `tasks/`, and the `captures/` and `verifiers/` staging the controller removes after each use |
 | `FACTORY_DRAFTER_URL` | for `intake` | The drafter's Agent Protocol base URL, `http(s)` only. Set with `FACTORY_DRAFTER_APP_ROOT` or not at all |
 | `FACTORY_DRAFTER_APP_ROOT` | for `intake` | The DRAFTER package's root, so the controller can read a drafter thread's `draft/` through its installation store |
@@ -582,7 +602,8 @@ request timeout and the arrival window the long-wait fallback measures, and let 
 a pipe as it would at a terminal); an operator sets none of them. `review` reads evidence from
 `FACTORY_ARTIFACTS_DIR` when it is set, as the controller does.
 
-The builder app reads `FACTORY_BUILDER_MANIFEST_DIR` (required: the manifest directory,
+Both worker apps read `FACTORY_WORKER_TOKEN` (required: the same value the controller sends; a
+worker started without it refuses to boot). The builder app reads `FACTORY_BUILDER_MANIFEST_DIR` (required: the manifest directory,
 which may be empty; its `check` and `build` scripts default it to `.factory/manifests`) and
 `FACTORY_BUILDER_MODEL` (default `gpt-5-mini`); its `check` and `build` scripts also read
 `FACTORY_BUILDER_LANE` (`1` runs them, anything else skips them with a notice). The drafter app reads

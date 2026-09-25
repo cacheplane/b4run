@@ -7,6 +7,8 @@ import { type Aimock, createAimock, script } from "@b4run/testing"
 import { captureWorkspaceDefinition } from "@b4run/workspace/node"
 import { afterAll, beforeAll, expect, it } from "vitest"
 import { isolatedDrafter } from "./isolated-drafter.ts"
+import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
+import { expectOnlyTheTokenAdmitted, WORKER_AUTHORIZATION } from "./worker-token-probe.ts"
 
 /**
  * The drafter's resolver, served: one drafter process, two work orders, two threads, and
@@ -30,6 +32,7 @@ const ENV = [
   "OPENAI_BASE_URL",
   "OPENAI_API_KEY",
   "B4_PERMISSIONS_MODE",
+  "FACTORY_WORKER_TOKEN",
 ] as const
 
 let aimock: Aimock
@@ -61,7 +64,7 @@ async function writeManifest(workOrderId: string, files: Record<string, string>)
 async function createThread(workOrderId: string): Promise<string> {
   const response = await fetch(`${server.url}/threads`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...WORKER_AUTHORIZATION },
     body: JSON.stringify({ metadata: { factoryWorkOrderId: workOrderId } }),
   })
   expect(response.status).toBe(200)
@@ -71,7 +74,7 @@ async function createThread(workOrderId: string): Promise<string> {
 async function runTurn(threadId: string): Promise<{ status: number; text: string }> {
   const response = await fetch(`${server.url}/threads/${encodeURIComponent(threadId)}/runs/wait`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...WORKER_AUTHORIZATION },
     body: JSON.stringify({
       route: "/intake#agent",
       input: { messages: [{ role: "user", content: PROMPT }] },
@@ -110,6 +113,7 @@ beforeAll(async () => {
   process.env.FACTORY_DRAFTER_MANIFEST_DIR = manifestDir
   process.env.OPENAI_BASE_URL = aimock.baseUrl
   process.env.OPENAI_API_KEY = "test"
+  process.env.FACTORY_WORKER_TOKEN = TEST_WORKER_TOKEN
   server = await serveRuntime({ appRoot: root, host: "127.0.0.1", port: 0 })
 }, 300_000)
 
@@ -123,6 +127,12 @@ afterAll(async () => {
     if (previous === undefined) delete process.env[key]
     else process.env[key] = previous
   }
+})
+
+it("answers no thread endpoint without the worker token, and 403 with a wrong one", async () => {
+  // Created with the token, as the controller does; no turn runs, so no sandbox is acquired.
+  const threadId = await createThread("wo-alpha")
+  await expectOnlyTheTokenAdmitted(server.url, threadId, "/intake#agent")
 })
 
 it("serves each work order's own capture to its own thread", async () => {

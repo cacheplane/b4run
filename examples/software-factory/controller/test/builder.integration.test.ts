@@ -12,6 +12,7 @@ import { captureTarget } from "../src/lib/targets/archive.ts"
 import { imageTag, loadTarget, loadTask } from "../src/lib/targets/catalog.ts"
 import { prepareDevkitSecondPin, SECOND_PIN } from "./devkit-second-pin.ts"
 import { type ServedBuilder, serveBuilder, toolCallsSeen, toolResults } from "./served-builder.ts"
+import { expectOnlyTheTokenAdmitted } from "./worker-token-probe.ts"
 
 /**
  * Layer 2: the real builder app, real typegen, real tool wiring, scripted model output, and
@@ -95,6 +96,14 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await builder?.close(threads)
+})
+
+it("answers no thread endpoint without the worker token, and 403 with a wrong one", async () => {
+  // A thread the controller made (with the token), probed by everyone else. No turn runs, so
+  // no sandbox is acquired for it.
+  const threadId = await builder.createThread("wo-alpha")
+  threads.push(threadId)
+  await expectOnlyTheTokenAdmitted(builder.url, threadId, "/build#agent")
 })
 
 it("drives the real builder to write the repaired source and nothing else", async () => {

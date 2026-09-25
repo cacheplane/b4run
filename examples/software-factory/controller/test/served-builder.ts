@@ -3,6 +3,8 @@ import { join } from "node:path"
 import { type ServeRuntimeHandle, serveRuntime } from "@b4run/cli"
 import { type Aimock, createAimock } from "@b4run/testing"
 import { isolatedBuilder } from "./isolated-builder.ts"
+import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
+import { WORKER_AUTHORIZATION } from "./worker-token-probe.ts"
 
 /**
  * The real builder app (`../../server/`), served by `serveRuntime` from a private copy: one
@@ -37,6 +39,7 @@ const ENV = [
   "OPENAI_BASE_URL",
   "OPENAI_API_KEY",
   "B4_PERMISSIONS_MODE",
+  "FACTORY_WORKER_TOKEN",
 ] as const
 
 export async function serveBuilder(): Promise<ServedBuilder> {
@@ -62,6 +65,9 @@ export async function serveBuilder(): Promise<ServedBuilder> {
     process.env.FACTORY_BUILDER_MANIFEST_DIR = manifestDir
     process.env.OPENAI_BASE_URL = aimock.baseUrl
     process.env.OPENAI_API_KEY = "test"
+    // The builder's thread-access policy reads it at boot and admits only callers presenting
+    // it, as the controller does; every request this helper makes carries it.
+    process.env.FACTORY_WORKER_TOKEN = TEST_WORKER_TOKEN
     delete process.env.B4_PERMISSIONS_MODE
     server = await serveRuntime({ appRoot, host: "127.0.0.1", port: 0 })
   } catch (error) {
@@ -82,7 +88,7 @@ export async function serveBuilder(): Promise<ServedBuilder> {
     async createThread(workOrderId) {
       const response = await fetch(`${url}/threads`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...WORKER_AUTHORIZATION },
         body: JSON.stringify({ metadata: { factoryWorkOrderId: workOrderId } }),
       })
       if (response.status !== 200)
@@ -92,7 +98,7 @@ export async function serveBuilder(): Promise<ServedBuilder> {
     async runTurn(threadId, content) {
       const response = await fetch(`${url}/threads/${encodeURIComponent(threadId)}/runs/wait`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...WORKER_AUTHORIZATION },
         body: JSON.stringify({
           route: "/build#agent",
           input: { messages: [{ role: "user", content }] },
@@ -101,13 +107,18 @@ export async function serveBuilder(): Promise<ServedBuilder> {
       return { status: response.status, text: await response.text() }
     },
     async threadStatus(threadId) {
-      const response = await fetch(`${url}/threads/${encodeURIComponent(threadId)}`)
+      const response = await fetch(`${url}/threads/${encodeURIComponent(threadId)}`, {
+        headers: WORKER_AUTHORIZATION,
+      })
       return ((await response.json()) as { status: string }).status
     },
     async close(threads = []) {
       try {
         for (const threadId of threads)
-          await fetch(`${url}/threads/${encodeURIComponent(threadId)}`, { method: "DELETE" })
+          await fetch(`${url}/threads/${encodeURIComponent(threadId)}`, {
+            method: "DELETE",
+            headers: WORKER_AUTHORIZATION,
+          })
       } finally {
         await served.close()
         await model.close()
