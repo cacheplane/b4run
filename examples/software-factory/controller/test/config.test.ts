@@ -1,3 +1,4 @@
+import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { DEFAULT_WORKER_ROUTE, loadConfig } from "../src/lib/config.ts"
 import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
@@ -242,5 +243,30 @@ describe("drafter configuration", () => {
     expect(() => loadConfig({ ...pair, FACTORY_DRAFTER_ROUTE: "" })).toThrow(
       /FACTORY_DRAFTER_ROUTE/,
     )
+  })
+
+  it("reads the image build limit and timeout, defaulting to one build and thirty minutes", () => {
+    const defaults = loadConfig(base)
+    expect(defaults.imagesPath).toBe(join(defaults.stateDir, "images.sqlite"))
+    expect(defaults.maxImageBuilds).toBe(1)
+    expect(defaults.imageBuildTimeoutMs).toBe(1_800_000)
+    const set = loadConfig({
+      ...base,
+      FACTORY_MAX_IMAGE_BUILDS: "2",
+      FACTORY_IMAGE_BUILD_TIMEOUT_MS: "2700000",
+    })
+    expect(set.maxImageBuilds).toBe(2)
+    expect(set.imageBuildTimeoutMs).toBe(2_700_000)
+    expect(() => loadConfig({ ...base, FACTORY_MAX_IMAGE_BUILDS: "0" })).toThrow(
+      /FACTORY_MAX_IMAGE_BUILDS must be a positive integer/,
+    )
+  })
+
+  it("refuses FACTORY_TARGETS_DIR, which named a copy the prepare script no longer writes", () => {
+    expect(() => loadConfig({ ...base, FACTORY_TARGETS_DIR: "/x" })).toThrow(
+      /FACTORY_TARGETS_DIR is retired/,
+    )
+    // Kept (D3): the builder reads it, and whether it is still needed is unverified.
+    expect(() => loadConfig({ ...base, FACTORY_SKIP_BASE_PULL: "1" })).not.toThrow()
   })
 })

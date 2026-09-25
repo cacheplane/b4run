@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { z } from "zod"
 import { environmentIdentityDigest, type ImageInputs } from "../domain/digest.js"
+import type { ImageRegistry } from "./images.js"
 
 /** The package root, derived from this module rather than the working directory. */
 export const appRoot = fileURLToPath(new URL("../../../", import.meta.url))
@@ -584,6 +585,19 @@ export function configureCatalog(options: { readonly generatedTasksDir?: string 
 }
 export function resetCatalogForTests(): void {
   generatedTasksDir = undefined
+}
+/**
+ * The host's image registry, which `loadTarget` reads a target's image from (a SQLite read,
+ * never Docker) and the factory builds through. Process-wide like the task search path: the
+ * runtime configures it once per process, and the test setup files configure a static one
+ * (unit) or the lanes' shared one (Docker).
+ */
+let images: ImageRegistry | undefined
+export function configureImages(registry: ImageRegistry | undefined): void {
+  images = registry
+}
+export function configuredImages(): ImageRegistry | undefined {
+  return images
 }
 /** An explicit `tasksDir` is looked up alone; otherwise the search path, shipped first. */
 function taskRoots(options: CatalogOptions): readonly [string, ...string[]] {
