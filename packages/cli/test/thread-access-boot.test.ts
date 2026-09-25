@@ -227,17 +227,32 @@ describe("thread-access manifest staleness", () => {
     expect(lines).not.toContain("B4.run: no thread access policy (all thread endpoints are open)")
   })
 
-  it("accepts a manifest that carries the key bound to nothing", async () => {
-    // `in`, not truthiness: an entry present and undefined is a build that
-    // considered the policy and bound nothing (a hand-rolled embed's
-    // `threadAccess: undefined`), which is a different fact from an entry that
-    // was never emitted at all. Conflating them is the bug.
-    const appRoot = await fixtureApp()
+  it("fails the boot when the build saw a policy and the manifest binds it to nothing", async () => {
+    // A key present but undefined is not a policy. With the build's record set,
+    // accepting it would fall through to the disk probe, which reads a missing
+    // file as "no policy" and serves every thread endpoint open. No generated
+    // manifest emits it (`normalizeThreadAccessModule` throws instead), so only
+    // a hand-built or tampered manifest can reach this.
+    //
+    // The policy file on disk is present and DENIES, so a boot that fell back
+    // to the probe would come up gated and hide the fall-through; the boot
+    // must refuse before resolving anything.
+    const appRoot = await fixtureApp({
+      "src/thread-access.ts": 'export default { fallback: () => ({ decision: "deny" }) }\n',
+    })
     // Cast because `exactOptionalPropertyTypes` forbids writing the key as
     // undefined in TypeScript at all — which is exactly why the runtime must
     // handle it: a generated `.mjs` manifest carries no types.
     const modules = { routes: [], threadAccess: undefined } as unknown as B4StaticModules
-    const lines = await bootWithLog({ appRoot, modules, threadAccessExpected: true })
+    const failure = await bootFailure({ appRoot, modules, threadAccessExpected: true })
+    expect(failure.code).toBe("B4_E3003")
+    expect(failure.message).toContain("re-run `b4 build`")
+  })
+
+  it("accepts a manifest whose key is bound to nothing when the build saw no policy", async () => {
+    const appRoot = await fixtureApp()
+    const modules = { routes: [], threadAccess: undefined } as unknown as B4StaticModules
+    const lines = await bootWithLog({ appRoot, modules })
     expect(lines).toContain("B4.run: no thread access policy (all thread endpoints are open)")
   })
 
