@@ -139,13 +139,14 @@ async function runDrafterTurn(
     return
   }
   // An issue row always has a pin (`createFromIssue` requires one); a row without is a fault
-  // of whoever made it, and there is no commit to list prepared targets at.
+  // of whoever made it, and there is no commit to list available targets at.
   if (row.pin === null) {
     block(ctx, id, "intake_run_failed", { reason: "the work order has no pin to draft at" })
     return
   }
-  // The prompt lists the targets prepared at the pin from disk, and a catalog that cannot be
-  // read is a refusal to start the turn, not a fault to leave the row stranded on.
+  // The prompt lists the targets available at the pin (those whose files exist at that
+  // commit), read from disk, and a catalog that cannot be read is a refusal to start the
+  // turn, not a fault to leave the row stranded on.
   let prompt: string
   try {
     const decisions = carriedDecisions(ctx, row, input.note)

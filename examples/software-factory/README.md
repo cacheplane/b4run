@@ -322,7 +322,7 @@ Images are built when a work order first needs them. The first intake or dispatc
 pins by digest), records it in `<FACTORY_STATE_DIR>/images.sqlite`, journals the build
 (`image_prepare_started`, `image_prepared` with the build log's artifact digest, or
 `image_prepare_failed`) and binds it to the work order (`image_bound`). Concurrent work orders
-at one pin share one build; `FACTORY_MAX_IMAGE_BUILDS` (default 1) bounds builds across pins
+for one target at one pin share one build; `FACTORY_MAX_IMAGE_BUILDS` (default 1) bounds builds across pins
 and `FACTORY_IMAGE_BUILD_TIMEOUT_MS` (default 30 minutes) each build. The build's time is not
 charged to the work order's budget. A failed build blocks an intake as `image_prepare_failed`
 (no drafter attempt spent) and refuses a dispatch (the row stays `received`; dispatch again to
@@ -339,6 +339,13 @@ refuses a pin at which any path the target names (root, build context, lockfile,
 entries, command directory, runner configuration) does not exist, naming the path:
 `cli-flags`'s fixture lived under the server before the controller split, so it can only be
 built at its historical pin, and `devkit` is the target that is re-pinned.
+
+Upgrading from a factory that recorded images in `target.json`: a work order dispatched
+before this change has no binding, so its verification settles `verification_inconclusive`
+(`image_unbound`); `retry` binds a freshly prepared image, so for a generated task whose oracle
+was proved before the upgrade, prefer a new work order (whose intake proves the oracle in the
+image it binds). Built images accumulate on the Docker daemon: nothing removes superseded
+ones yet (a reaper is a recorded follow-up), so prune old `b4-factory-*` tags by hand.
 
 `dispatch` waits in `received` while its image builds, before any thread, key or budget is
 spent, and honours `cancel` during the wait. The CLI's `dispatch` follows a build that
@@ -644,7 +651,7 @@ The controller app reads:
 | `FACTORY_MAX_CHANGED_BYTES` | no | Default 1048576; exceeding it is a `scope_violation`, never a truncation |
 | `FACTORY_MAX_INTAKE_ATTEMPTS` | no | Default 2, a positive integer: the drafter turns an issue intake may spend before its last refusal blocks it. Fixed on the row at create, like `FACTORY_MAX_ACTIVE_MS` |
 | `FACTORY_MAX_CANDIDATE_ATTEMPTS` | no | Default 2, a positive integer: the builder dispatches a work order may spend, the first and one per `retry`. Fixed on the row at create |
-| `FACTORY_MAX_IMAGE_BUILDS` | no | Default 1, a positive integer: image builds running at once across pins (work orders at one pin share one build) |
+| `FACTORY_MAX_IMAGE_BUILDS` | no | Default 1, a positive integer: image builds running at once across pins (work orders for one target at one pin share one build) |
 | `FACTORY_IMAGE_BUILD_TIMEOUT_MS` | no | Default 1800000 (30 minutes): one image build, from when it gets a slot; a work order waits at most twice that in the queue before its build starts |
 | `FACTORY_SKIP_BASE_PULL` | no | `1` never pulls the base image (pull it once by hand, `docker pull --platform <platform> <baseImage>`); an absent base then fails the build, naming it. Without it the base, pinned by digest, is pulled only when absent |
 | `FACTORY_TARGETS_DIR` | retired | Refused by name, here and by `target:prepare`: `target.json` is never written, so there is no copy to point at |

@@ -106,7 +106,7 @@ export const BuilderHandoffSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["target", "image"],
-        message: `image ${handoff.target.image} is not target ${handoff.targetId} at pin ${handoff.target.pin}: a factory tag names b4-factory-${handoff.targetId}:${handoff.target.pin.slice(0, 12)}-<dockerfile>`,
+        message: `image ${handoff.target.image} is not target ${handoff.targetId} at pin ${handoff.target.pin}: a factory tag names b4-factory-${handoff.targetId}:${handoff.target.pin.slice(0, 12)}-<key>`,
       })
   })
 export type BuilderHandoff = z.infer<typeof BuilderHandoffSchema>
