@@ -1,11 +1,13 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { DRAFTER_UNCONFIGURED } from "../src/lib/controller/workers.ts"
 import { createControllerRuntime } from "../src/lib/runtime.ts"
+import { configuredImages } from "../src/lib/targets/catalog.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
 import { fakeBuilderHandoff, fakeDrafterHandoff } from "./fake-worker-map.ts"
+import { staticImageRegistry } from "./static-images.ts"
 import { repositoryHead } from "./temp-repo.ts"
 import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
@@ -206,6 +208,58 @@ describe("controller runtime", () => {
     await expect(runtime.factory()).rejects.toThrow()
     rmSync(blocker, { force: true })
     await expect(runtime.factory()).resolves.toBeDefined()
+    await runtime.dispose()
+  })
+
+  it("opens the image registry under the state directory, configures the catalog with it, and restores on dispose", async () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-runtime-"))
+    fake = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only" })
+    const before = configuredImages()
+    const runtime = createControllerRuntime({
+      FACTORY_WORKER_URL: fake.baseUrl,
+      FACTORY_STATE_DIR: join(dir, "state"),
+      FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
+    })
+    await runtime.factory()
+    expect(existsSync(join(dir, "state", "images.sqlite"))).toBe(true)
+    expect(configuredImages()).not.toBe(before)
+    await runtime.dispose()
+    expect(configuredImages()).toBe(before)
+  })
+
+  it("uses an injected image registry and leaves it open", async () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-runtime-"))
+    fake = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only" })
+    const images = staticImageRegistry()
+    const runtime = createControllerRuntime(
+      {
+        FACTORY_WORKER_URL: fake.baseUrl,
+        FACTORY_STATE_DIR: join(dir, "state"),
+        FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
+      },
+      { images },
+    )
+    await runtime.factory()
+    expect(configuredImages()).toBe(images)
+    expect(existsSync(join(dir, "state", "images.sqlite"))).toBe(false)
+    await runtime.dispose()
+  })
+
+  it("leaves no image registry configured or open behind a failed open", async () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-runtime-"))
+    fake = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only" })
+    const state = join(dir, "state")
+    // The work-order registry cannot open over a directory: createFactory rejects after the
+    // image registry was opened and configured.
+    mkdirSync(join(state, "registry.sqlite"), { recursive: true })
+    const before = configuredImages()
+    const runtime = createControllerRuntime({
+      FACTORY_WORKER_URL: fake.baseUrl,
+      FACTORY_STATE_DIR: state,
+      FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
+    })
+    await expect(runtime.factory()).rejects.toThrow()
+    expect(configuredImages()).toBe(before)
     await runtime.dispose()
   })
 })

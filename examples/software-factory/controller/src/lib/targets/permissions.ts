@@ -1,4 +1,4 @@
-import type { Target } from "./catalog.js"
+import type { TargetRecipe } from "./catalog.js"
 
 /** What the builder's `b4.config.ts` pre-approves, derived from the target alone. */
 export interface BuilderPermissions {
@@ -39,7 +39,7 @@ const FIXED_BASH = ["node ", ...READ_ONLY_BASH]
  *
  * The dependency tree the image provides is readable, never writable.
  */
-export function builderPermissions(target: Target): BuilderPermissions {
+export function builderPermissions(target: TargetRecipe): BuilderPermissions {
   const { commands, environmentLinks } = target
   const invocations = [commands.build, commands.test]
     .filter((argv) => argv.length > 0)

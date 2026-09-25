@@ -11,6 +11,7 @@ import { loadPolicy } from "../verification/policy.js"
 import { classifyDone, type StreamFrame } from "../worker/wire.js"
 import { WorkspaceRootMissingError, workspaceReadFailure } from "../worker/workspace-reader.js"
 import type { ControllerContext } from "./context.js"
+import { bindingMoved, prepareWorkOrderImage } from "./images.js"
 import { reconcileWorkOrder } from "./reconcile.js"
 import { handedSourceDigest } from "./source-digest.js"
 import { consumeTurn } from "./turns.js"
@@ -138,13 +139,14 @@ async function runDrafterTurn(
     return
   }
   // An issue row always has a pin (`createFromIssue` requires one); a row without is a fault
-  // of whoever made it, and there is no commit to list prepared targets at.
+  // of whoever made it, and there is no commit to list available targets at.
   if (row.pin === null) {
     block(ctx, id, "intake_run_failed", { reason: "the work order has no pin to draft at" })
     return
   }
-  // The prompt lists the targets prepared at the pin from disk, and a catalog that cannot be
-  // read is a refusal to start the turn, not a fault to leave the row stranded on.
+  // The prompt lists the targets available at the pin (those whose files exist at that
+  // commit), read from disk, and a catalog that cannot be read is a refusal to start the
+  // turn, not a fault to leave the row stranded on.
   let prompt: string
   try {
     const decisions = carriedDecisions(ctx, row, input.note)
@@ -364,6 +366,20 @@ async function proveDraft(
     await refuse(ctx, id, parsed.reason, parsed.blockedReason, draft)
     return
   }
+  // The fit step's image (spec item 4): the drafted target at the work order's pin, built now
+  // if this host has none, journalled with its log, and bound to this attempt, which proves
+  // its oracle in it. Its time is not the work order's (the budget is paused around it), and a
+  // failure is not the drafter's: the row blocks with no attempt spent.
+  const image = await prepareWorkOrderImage(ctx, id, parsed.target, signal, { rebind: true })
+  if (!image.ok) {
+    if (image.kind === "aborted") {
+      ctx.recordEvent(id, "intake_aborted", { reason: String(signal.reason) })
+      return
+    }
+    block(ctx, id, "image_prepare_failed", { reason: image.reason })
+    return
+  }
+  if (!isIntake(ctx.mustGet(id).state)) return
 
   // Read before the task is written: materialising replaces the directory wholesale, and
   // `issue.md` is one of the files it writes back.
@@ -381,8 +397,19 @@ async function proveDraft(
     target: parsed.manifest.target,
     files: generated.files,
   })
-  // The catalog search path now resolves `id`: the policy is the generated task's own.
-  const policy = loadPolicy(id)
+  // The catalog search path now resolves `id`: the policy is the generated task's own, in the
+  // image the fit step bound.
+  const policy = loadPolicy(id, image.bound.image)
+  // The fit step bound the drafted target at the work order's pin; the generated task must
+  // name the same, or the proof would be earned in another target's image.
+  const moved = bindingMoved(image.bound, policy.task.target, "intake")
+  if (moved !== null) {
+    ctx.recordEvent(id, "image_changed", moved)
+    block(ctx, id, "intake_run_failed", {
+      reason: "the generated task names another target or pin than the image bound for it",
+    })
+    return
+  }
 
   let baseline: Awaited<ReturnType<typeof ctx.captureBaseline>>
   try {
@@ -401,6 +428,7 @@ async function proveDraft(
       taskId: id,
       policyDigest: policy.policyDigest,
       baselineDigest: baseline.digest,
+      image: image.bound.image,
       signal,
     })
   } catch (error) {
@@ -500,8 +528,7 @@ function keepRefusedDraft(
 
 /**
  * A draft the controller will not take. The attempt is spent either way; a
- * `no_target_for_package` or an `image_unprepared` never retries (no redraft can prepare a
- * target, or an image at the pin), and the last
+ * `no_target_for_package` never retries (no redraft can prepare a target), and the last
  * attempt blocks as `intake_attempts_exhausted` with the refusal in the journal. Otherwise
  * the row stays `intake_running` through `intake_retry` and another turn runs on the same
  * thread with the reason quoted. What was read is kept first (`keepRefusedDraft`), since the
@@ -511,7 +538,7 @@ async function refuse(
   ctx: ControllerContext,
   id: string,
   reason: string,
-  refusal: "intake_invalid" | "no_target_for_package" | "image_unprepared" | "oracle_did_not_fail",
+  refusal: "intake_invalid" | "no_target_for_package" | "oracle_did_not_fail",
   draft: ReadonlyMap<string, string>,
 ): Promise<void> {
   const current = ctx.mustGet(id)
@@ -525,7 +552,7 @@ async function refuse(
     ...(kept ? { keptAt: kept.keptAt, keptFiles: kept.files } : {}),
   })
   const exhausted = attempt >= current.maxIntakeAttempts
-  const final = refusal === "no_target_for_package" || refusal === "image_unprepared"
+  const final = refusal === "no_target_for_package"
   if (final || exhausted) {
     // The row's reason and the transition's agree; the refusal that spent the last attempt
     // rides beside it as `lastRefusal`, and each `intake_refused` above keeps its own.

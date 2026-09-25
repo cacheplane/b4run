@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { repositoryRoot as defaultRepositoryRoot, type Task } from "./catalog.js"
+import { repositoryRoot as defaultRepositoryRoot, type TaskRecipe } from "./catalog.js"
 
 export interface CapturedTarget {
   /**
@@ -170,7 +170,7 @@ export function archiveTreeInto(
  * asserted present in the extracted tree before the defect patch is applied.
  */
 export function captureTarget(
-  task: Task,
+  task: TaskRecipe,
   role: CaptureRole,
   options: CaptureTargetOptions,
 ): CapturedTarget {

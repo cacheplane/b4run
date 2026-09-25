@@ -4,18 +4,23 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { proveOracle } from "../src/lib/intake/oracle.ts"
 import { createArtifactStore } from "../src/lib/storage/artifacts.ts"
-import { configureCatalog, resetCatalogForTests, tasksDir } from "../src/lib/targets/catalog.ts"
+import {
+  configureCatalog,
+  loadTask,
+  resetCatalogForTests,
+  tasksDir,
+} from "../src/lib/targets/catalog.ts"
 import { captureTargetBaseline } from "../src/lib/verification/baseline.ts"
 import { createDockerVerifier } from "../src/lib/verification/docker-verifier.ts"
 import { loadPolicy } from "../src/lib/verification/policy.ts"
 
 /**
- * The oracle proof against the real verifier, in the prepared `cli-flags` image. The shipped
+ * The oracle proof against the real verifier, in the `cli-flags` image. The shipped
  * `cli-flags` task stands in for a drafted one: copied under a generated-tasks directory as
  * a work order's task, minus the reference repair a draft never has. Its pinned bytes ARE the
  * defect, so its independent check must fail on the unpatched baseline — which is exactly
- * what makes a drafted check an oracle. Runs only under `test:sandbox` (Docker, after
- * `target:prepare cli-flags`), like its siblings.
+ * what makes a drafted check an oracle. Runs only under `test:sandbox` (Docker; the image is
+ * built or re-verified by the lanes' global setup, `lane-images.global.ts`), like its siblings.
  */
 let dir: string
 afterEach(() => {
@@ -38,7 +43,8 @@ function materialise(generated: string, id: string): string {
 }
 
 const prove = async (id: string) => {
-  const policy = loadPolicy(id)
+  const image = loadTask(id).target.image
+  const policy = loadPolicy(id, image)
   const signal = AbortSignal.timeout(280_000)
   const baseline = await captureTargetBaseline(id, signal, { captureRoot: dir })
   return proveOracle({
@@ -49,6 +55,7 @@ const prove = async (id: string) => {
     taskId: id,
     policyDigest: policy.policyDigest,
     baselineDigest: baseline.digest,
+    image,
     signal,
   })
 }

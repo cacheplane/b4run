@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { loadTask } from "../src/lib/targets/catalog.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 
 const input = {
@@ -7,6 +8,7 @@ const input = {
   candidateDigest: "a".repeat(64),
   changes: { "src/cli.ts": "fixed\n" },
   policyDigest: "b".repeat(64),
+  image: loadTask("cli-flags").target.image,
 }
 
 describe("fake verifier", () => {

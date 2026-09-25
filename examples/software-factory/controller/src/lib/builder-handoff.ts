@@ -5,7 +5,8 @@ import type { CapturedWorkspaceDefinition, StagedWorkspaceReference } from "@b4r
 import { captureWorkspaceDefinition } from "@b4run/workspace/node"
 import { z } from "zod"
 import { captureDirectory } from "./targets/archive.js"
-import { imageTag, isCatalogId, type Task } from "./targets/catalog.js"
+import { isCatalogId, type TaskRecipe } from "./targets/catalog.js"
+import { recipeTag } from "./targets/images.js"
 import { builderPermissions } from "./targets/permissions.js"
 import { targetSandboxPolicy, targetWorkspace } from "./targets/workspace.js"
 
@@ -18,13 +19,13 @@ import { targetSandboxPolicy, targetWorkspace } from "./targets/workspace.js"
 const CATALOG_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
 /**
- * A tag in the factory's shape: `b4-factory-<target>:<pin[:12]>-<dockerfile[:12]>`, the tag
- * `imageTag` writes and the verifier runs, with the target and the pin prefix captured. The
- * builder's provider allows no other shape, and the handoff schema requires the captured
- * target and pin prefix to be the handoff's own `targetId` and `pin`. That bounds a handoff
- * to an image present on the daemon under a tag naming its own target and pin; it does not
- * prove the image is the one `target:prepare` built (anyone who can tag an image on the
- * daemon can already run anything as root there).
+ * A tag in the factory's shape: `b4-factory-<target>:<pin[:12]>-<key[:12]>`, the tag the
+ * builder's sandbox runs (the verifier never runs a tag: it runs the work order's bound image
+ * by its id), with the target and the pin prefix captured. The builder's provider allows no
+ * other shape, and the handoff schema requires the captured target and pin prefix to be the
+ * handoff's own `targetId` and `pin`. That bounds a handoff to an image present on the daemon
+ * under a tag naming its own target and pin; it does not prove the image is the one the work
+ * order bound (PR 2 moves the builder to the id).
  */
 const FACTORY_IMAGE = /^b4-factory-([A-Za-z0-9][A-Za-z0-9._-]*):([0-9a-f]{12})-[0-9a-f]{12}$/
 
@@ -105,7 +106,7 @@ export const BuilderHandoffSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["target", "image"],
-        message: `image ${handoff.target.image} is not target ${handoff.targetId} at pin ${handoff.target.pin}: a factory tag names b4-factory-${handoff.targetId}:${handoff.target.pin.slice(0, 12)}-<dockerfile>`,
+        message: `image ${handoff.target.image} is not target ${handoff.targetId} at pin ${handoff.target.pin}: a factory tag names b4-factory-${handoff.targetId}:${handoff.target.pin.slice(0, 12)}-<key>`,
       })
   })
 export type BuilderHandoff = z.infer<typeof BuilderHandoffSchema>
@@ -136,6 +137,12 @@ export interface CaptureBuilderHandoffOptions {
    */
   readonly captureRoot: string
   readonly signal?: AbortSignal
+  /**
+   * The image tag the handoff names: the work order's bound tag (`image_bound`). This host's
+   * recipe tag for the task when absent (`recipeTag`), which is what `factory builder-handoff`
+   * writes for a lane with no controller.
+   */
+  readonly tag?: string
 }
 
 export interface CapturedBuilderHandoff {
@@ -153,7 +160,7 @@ export interface CapturedBuilderHandoff {
  * each other's) archive directory.
  */
 export async function captureBuilderHandoff(
-  task: Task,
+  task: TaskRecipe,
   options: CaptureBuilderHandoffOptions,
 ): Promise<CapturedBuilderHandoff> {
   const workOrderId = options.workOrderId ?? task.id
@@ -183,7 +190,7 @@ export async function captureBuilderHandoff(
     targetId: task.target.id,
     workspace: stagedReferenceOf(workspace),
     target: {
-      image: imageTag(task.target),
+      image: options.tag ?? recipeTag(task.target),
       pin: task.target.pin,
       policy: targetSandboxPolicy(task.target),
       permissions: builderPermissions(task.target),

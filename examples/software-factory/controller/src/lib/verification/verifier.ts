@@ -1,4 +1,5 @@
 import type { Receipt, Verdict } from "../domain/work-order.js"
+import type { Image } from "../targets/catalog.js"
 
 /**
  * Which sessions a verification runs. `full` (the default) grades the visible suite, then the
@@ -13,6 +14,11 @@ export interface VerifyInput {
   readonly candidateDigest: string
   readonly changes: Readonly<Record<string, string>>
   readonly policyDigest: string
+  /**
+   * The image the work order bound (`image_bound`): the verdict is earned in this image, by
+   * its id, and the receipt's environment identity digests this object.
+   */
+  readonly image: Image
   /** Defaults to `full`. See {@link VerifyMode}. */
   readonly mode?: VerifyMode
 }

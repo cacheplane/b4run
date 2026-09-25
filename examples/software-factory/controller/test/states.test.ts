@@ -195,6 +195,7 @@ describe("intake prefix", () => {
       "intake_attempts_exhausted",
       "no_target_for_package",
       "image_unprepared",
+      "image_prepare_failed",
       "intake_run_failed",
     ])
       expect(BLOCKED_REASONS).toContain(reason)

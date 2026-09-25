@@ -132,7 +132,12 @@ export async function serveController(
   // load its own copy of the module and the overrides would bind nothing.
   const { resetControllerRuntimeForTests } = await import("../src/lib/runtime.ts")
   // Disposes any previous runtime, then clears it; the overrides bind the next open.
+  const { configuredImages } = await import("../src/lib/targets/catalog.ts")
+  const images = configuredImages()
   await resetControllerRuntimeForTests({
+    // The registry the test setup configured (static in the unit suite, the run's in the
+    // lanes): a served controller never opens a Docker registry of its own.
+    ...(images !== undefined ? { images } : {}),
     verifier: createFakeVerifier({ verdict: "pass" }),
     // The same fake for the drafter's thread: its `draft/` is scripted under FIRST_DRAFTER_THREAD.
     readers: { builder: workspace, drafter: workspace },

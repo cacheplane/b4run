@@ -1087,7 +1087,7 @@
               "classification": "safe",
               "descriptor": {
                 "name": "Software factory controller-owned verification",
-                "run": "pnpm turbo run build --filter=@b4-example/software-factory-controller^...\npnpm --filter @b4-example/software-factory-controller target:prepare cli-flags\npnpm --filter @b4-example/software-factory-controller target:prepare devkit\nFACTORY_BUILDER_LANE=1 pnpm --filter @b4-example/software-factory-server check\nFACTORY_BUILDER_LANE=1 pnpm --filter @b4-example/software-factory-server build\ndocker pull \"$(grep -oE '[a-z0-9.:/-]+@sha256:[a-f0-9]{64}' examples/software-factory/drafter/src/drafter-image.ts)\"\npnpm --filter @b4-example/software-factory-drafter check\npnpm --filter @b4-example/software-factory-drafter build\npnpm --filter @b4-example/software-factory-controller test:sandbox\n"
+                "run": "pnpm turbo run build --filter=@b4-example/software-factory-controller^...\nFACTORY_BUILDER_LANE=1 pnpm --filter @b4-example/software-factory-server check\nFACTORY_BUILDER_LANE=1 pnpm --filter @b4-example/software-factory-server build\ndocker pull \"$(grep -oE '[a-z0-9.:/-]+@sha256:[a-f0-9]{64}' examples/software-factory/drafter/src/drafter-image.ts)\"\npnpm --filter @b4-example/software-factory-drafter check\npnpm --filter @b4-example/software-factory-drafter build\npnpm --filter @b4-example/software-factory-controller test:sandbox\n"
               }
             },
             {

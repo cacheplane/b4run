@@ -349,12 +349,18 @@ describe("cancel", () => {
     expect(settled.map((r) => r.status)).toEqual(["fulfilled", "fulfilled"])
     const outcomes = settled.map((r) => (r as PromiseFulfilledResult<CommandOutcome>).value)
     expect(outcomes.filter((o) => o.ok)).toHaveLength(1)
-    // The thread the losing dispatch created is journalled and ended rather than leaked.
     if (!outcomes[0]?.ok) {
-      expect(outcomes[0]?.message).toBe("Work order changed state while dispatching")
       const orphaned = factory.events(id).find((e) => e.type === "thread_orphaned")
-      expect(orphaned?.payload.threadId).toEqual(expect.any(String))
-      expect(cancels()).toHaveLength(1)
+      if (outcomes[0]?.message === "Cannot dispatch from cancelled") {
+        // The cancel landed while dispatch waited on the task's image: no thread was made.
+        expect(orphaned).toBeUndefined()
+        expect(cancels()).toHaveLength(0)
+      } else {
+        // The thread the losing dispatch created is journalled and ended rather than leaked.
+        expect(outcomes[0]?.message).toBe("Work order changed state while dispatching")
+        expect(orphaned?.payload.threadId).toEqual(expect.any(String))
+        expect(cancels()).toHaveLength(1)
+      }
     }
     expect(await factory.dispatch(id, "dispatch-1")).toEqual(outcomes[0])
     expect(await factory.cancel(id, "cancel-1")).toEqual(outcomes[1])

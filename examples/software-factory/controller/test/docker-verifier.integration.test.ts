@@ -1,16 +1,18 @@
+import { execFileSync } from "node:child_process"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { freezeBundle } from "../src/lib/review/bundle.ts"
 import { createArtifactStore } from "../src/lib/storage/artifacts.ts"
-import { loadTask } from "../src/lib/targets/catalog.ts"
-import { createDockerVerifier } from "../src/lib/verification/docker-verifier.ts"
+import { environmentIdentity, loadTargetRecipe, loadTask } from "../src/lib/targets/catalog.ts"
+import { imageTag } from "../src/lib/targets/images.ts"
+import { createDockerVerifier, ImageGoneError } from "../src/lib/verification/docker-verifier.ts"
 import { loadPolicy } from "../src/lib/verification/policy.ts"
 import { applyReference } from "./reference-repair.ts"
 
 const task = loadTask("cli-flags")
-const policy = loadPolicy("cli-flags")
+const policy = loadPolicy("cli-flags", task.target.image)
 const allowed = task.manifest.allowedSourcePaths[0] as string
 
 const directories: string[] = []
@@ -38,6 +40,7 @@ describe("the real verifier", () => {
         candidateDigest: "a".repeat(64),
         changes: { [allowed]: await applyReference() },
         policyDigest: policy.policyDigest,
+        image: task.target.image,
       },
       AbortSignal.timeout(280_000),
     )
@@ -70,6 +73,43 @@ describe("the real verifier", () => {
     expect(bundle.payload.evidence).toHaveLength(2)
   }, 300_000)
 
+  it("verifies in the bound image by id whatever the recipe tag names, and refuses one the daemon lacks", async () => {
+    const tag = imageTag(task.target)
+    // Point the recipe tag at another image (the drafter's base, already on the daemon); the
+    // finally puts it back on the bound image, as the registry's next `ensure` would.
+    execFileSync("docker", ["tag", loadTargetRecipe("cli-flags").baseImage, tag])
+    try {
+      const receipt = await (await verifierFor()).verify(
+        {
+          workOrderId: "wo-tag",
+          taskId: "cli-flags",
+          candidateDigest: "a".repeat(64),
+          changes: { [allowed]: await applyReference() },
+          policyDigest: policy.policyDigest,
+          image: task.target.image,
+        },
+        AbortSignal.timeout(280_000),
+      )
+      expect(receipt.verdict).toBe("pass")
+      expect(receipt.environmentIdentity).toBe(environmentIdentity(task.target))
+      await expect(
+        (await verifierFor()).verify(
+          {
+            workOrderId: "wo-gone",
+            taskId: "cli-flags",
+            candidateDigest: "a".repeat(64),
+            changes: {},
+            policyDigest: policy.policyDigest,
+            image: { ...task.target.image, localId: `sha256:${"7".repeat(64)}` },
+          },
+          AbortSignal.timeout(60_000),
+        ),
+      ).rejects.toThrow(ImageGoneError)
+    } finally {
+      execFileSync("docker", ["tag", task.target.image.localId, tag])
+    }
+  }, 600_000)
+
   it("fails a candidate that satisfies the visible suite and not the independent checks", async () => {
     // Rung 1's headline invariant, earned rather than scripted.
     const receipt = await (await verifierFor()).verify(
@@ -79,6 +119,7 @@ describe("the real verifier", () => {
         candidateDigest: "b".repeat(64),
         changes: { [allowed]: shallowRepair() },
         policyDigest: policy.policyDigest,
+        image: task.target.image,
       },
       AbortSignal.timeout(280_000),
     )
@@ -95,6 +136,7 @@ describe("the real verifier", () => {
         candidateDigest: "c".repeat(64),
         changes: { [allowed]: selfModifying() },
         policyDigest: policy.policyDigest,
+        image: task.target.image,
       },
       AbortSignal.timeout(280_000),
     )
@@ -113,6 +155,7 @@ describe("the real verifier", () => {
         candidateDigest: "d".repeat(64),
         changes: { [allowed]: await applyReference() },
         policyDigest: policy.policyDigest,
+        image: task.target.image,
       },
       AbortSignal.timeout(280_000),
     )
@@ -131,6 +174,7 @@ describe("the real verifier", () => {
           candidateDigest: "e".repeat(64),
           changes: { [allowed]: await applyReference() },
           policyDigest: policy.policyDigest,
+          image: task.target.image,
         },
         controller.signal,
       ),

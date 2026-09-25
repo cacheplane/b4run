@@ -33,7 +33,7 @@ const receipt = {
 
 describe("loadPolicy", () => {
   it("derives the specification and policy digests from fixture data", () => {
-    const policy = loadPolicy("cli-flags")
+    const policy = loadPolicy("cli-flags", loadTask("cli-flags").target.image)
     expect(policy.specificationDigest).toMatch(/^[a-f0-9]{64}$/)
     expect(policy.policyDigest).toMatch(/^[a-f0-9]{64}$/)
     expect(policy.acceptanceIds.length).toBeGreaterThan(0)
@@ -41,13 +41,13 @@ describe("loadPolicy", () => {
   })
 
   it("moves the policy digest when the inventory changes, and not otherwise", () => {
-    const one = loadPolicy("cli-flags")
-    const two = loadPolicy("cli-flags")
+    const one = loadPolicy("cli-flags", loadTask("cli-flags").target.image)
+    const two = loadPolicy("cli-flags", loadTask("cli-flags").target.image)
     expect(two.policyDigest).toBe(one.policyDigest)
   })
 
   it("binds the target's environment, so a changed image or baseline definition moves the policy", () => {
-    const policy = loadPolicy("cli-flags")
+    const policy = loadPolicy("cli-flags", loadTask("cli-flags").target.image)
     expect(policy.environment.identity).toMatch(/^[a-f0-9]{64}$/)
     expect(policy.environment.pin).toMatch(/^[a-f0-9]{40}$/)
     expect(policy.environment.defectPatchSha256).toBeNull()
@@ -55,6 +55,15 @@ describe("loadPolicy", () => {
       "examples/software-factory/server/fixtures/cli-flags/project",
     )
     expect(policy.environment.captureInclude).toEqual(policy.task.target.capture.include)
+  })
+
+  it("digests the image it is given, so a work order's policy is its binding's", () => {
+    const image = loadTask("cli-flags").target.image
+    const other = { ...image, localId: `sha256:${"7".repeat(64)}` }
+    const bound = loadPolicy("cli-flags", other)
+    expect(bound.task.target.image).toEqual(other)
+    expect(bound.environment.identity).not.toBe(loadPolicy("cli-flags", image).environment.identity)
+    expect(bound.policyDigest).not.toBe(loadPolicy("cli-flags", image).policyDigest)
   })
 
   it("hashes the defect patch into the environment when the task has one", () => {
@@ -75,7 +84,7 @@ describe("loadPolicy", () => {
   })
 
   it("moves the policy digest when the checks, the allowed paths or the immutable paths move", () => {
-    const base = loadPolicy("cli-flags")
+    const base = loadPolicy("cli-flags", loadTask("cli-flags").target.image)
     const digestFor = (task: Task) =>
       policyDigest({
         checks: task.checks,
@@ -258,7 +267,7 @@ describe("freezing a receipt shaped as the real verifier emits one", () => {
     const dir = mkdtempSync(join(tmpdir(), "factory-bundle-"))
     directories.push(dir)
     const artifacts = createArtifactStore(join(dir, "artifacts"))
-    const policy = loadPolicy("cli-flags")
+    const policy = loadPolicy("cli-flags", loadTask("cli-flags").target.image)
     // Two suites, two different outputs, therefore two different digests: exactly the
     // condition a shared evidence id turns into a refusal.
     const visible = await artifacts.put("visible suite output\n")

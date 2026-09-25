@@ -1,4 +1,5 @@
 import type { FactoryEvent, Receipt, Verdict } from "../domain/work-order.js"
+import type { Image } from "../targets/catalog.js"
 import type { Verifier } from "../verification/verifier.js"
 
 export interface ProveOracleInput {
@@ -11,6 +12,8 @@ export interface ProveOracleInput {
    * pin. A receipt naming any other digest is refused.
    */
   readonly baselineDigest: string
+  /** The image the attempt bound (`image_bound`): the proof is earned in it, by its id. */
+  readonly image: Image
   readonly signal: AbortSignal
 }
 
@@ -69,6 +72,7 @@ export async function proveOracle(input: ProveOracleInput): Promise<OracleProof>
       candidateDigest: input.baselineDigest,
       changes: {},
       policyDigest: input.policyDigest,
+      image: input.image,
       mode: "independentOnly",
     },
     input.signal,

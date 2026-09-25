@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process"
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -21,7 +22,7 @@ import {
   targetsDir,
 } from "../src/lib/targets/catalog.ts"
 import { BAD_DRAFTS, GOOD_DRAFT, ORACLE_DRAFT } from "./intake-fixtures.ts"
-import { shippedPin } from "./temp-repo.ts"
+import { repositoryHead, shippedPin } from "./temp-repo.ts"
 
 const WO = "wo-0123456789abcdef"
 /** The work order's pin: the one the shipped devkit target (GOOD_DRAFT's) is prepared at. */
@@ -289,34 +290,51 @@ describe("parseDraft", () => {
     expect(pinned.reason).toMatch(/^draft\/task\.json is invalid: .*pin/)
   })
 
-  it("refuses a target with no image at the work order's pin as image_unprepared", () => {
-    // The shipped devkit target holds one image, at PIN; this work order is pinned elsewhere.
-    // A sha nothing holds is enough: the image is looked up before the pin is fetched.
-    const elsewhere = "1".repeat(40)
-    const parsed = parseDraft(files(GOOD_DRAFT), { workOrderId: WO, pin: elsewhere })
-    expect(parsed).toEqual({
-      ok: false,
-      blockedReason: "image_unprepared",
-      reason: `draft/task.json names target devkit, which has no image prepared at ${elsewhere}: an operator runs pnpm --filter @b4-example/software-factory-controller target:prepare devkit --pin ${elsewhere}`,
-    })
+  it("accepts a known target at a pin no image was built at: the image is built at the fit step", () => {
+    const head = repositoryHead().pin
+    const parsed = parseDraft(files(GOOD_DRAFT), { workOrderId: WO, pin: head })
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(parsed.target.id).toBe("devkit")
+    expect(parsed.target.pin).toBe(head)
+    expect(parsed.target).not.toHaveProperty("image")
+  })
+
+  it("refuses a target whose files do not exist at the work order's pin as no_target_for_package", () => {
+    const head = repositoryHead().pin
+    const draft = {
+      ...GOOD_DRAFT,
+      "draft/task.json": GOOD_DRAFT["draft/task.json"]?.replace('"devkit"', '"cli-flags"') ?? "",
+    }
+    const parsed = parseDraft(files(draft), { workOrderId: WO, pin: head })
+    expect(parsed).toMatchObject({ ok: false, blockedReason: "no_target_for_package" })
+    if (parsed.ok) return
+    expect(parsed.reason).toMatch(
+      /^draft\/task\.json names target cli-flags, which is not available at [0-9a-f]{40}: Target "cli-flags" names examples\/software-factory\/server\/fixtures\/cli-flags\/project, which does not exist at /,
+    )
   })
 
   it("looks the target up in the catalog it is given, at the work order's pin", () => {
     dir = mkdtempSync(join(tmpdir(), "factory-draft-targets-"))
     const shipped = JSON.parse(readFileSync(join(targetsDir, "devkit", "target.json"), "utf8"))
     mkdirSync(join(dir, "devkit"))
-    // Pin A has an image; pin B (the work order's) does not.
+    copyFileSync(join(targetsDir, "devkit", "Dockerfile"), join(dir, "devkit", "Dockerfile"))
+    // The copy's capture names a path the pin does not hold: the draft is refused by the copy's
+    // recipe, which only a catalog honoured can do.
     writeFileSync(
       join(dir, "devkit", "target.json"),
-      JSON.stringify({ ...shipped, images: { [PIN]: shipped.images[PIN] } }),
+      JSON.stringify({
+        ...shipped,
+        capture: { include: [...shipped.capture.include, "packages/devkit/no-such-dir"] },
+      }),
     )
-    const pinB = "2".repeat(40)
     const refused = parseDraft(files(GOOD_DRAFT), {
       workOrderId: WO,
-      pin: pinB,
+      pin: PIN,
       catalog: { targetsDir: dir },
     })
-    expect(refused).toMatchObject({ ok: false, blockedReason: "image_unprepared" })
+    expect(refused).toMatchObject({ ok: false, blockedReason: "no_target_for_package" })
+    writeFileSync(join(dir, "devkit", "target.json"), JSON.stringify(shipped))
     const accepted = parseDraft(files(GOOD_DRAFT), {
       workOrderId: WO,
       pin: PIN,
@@ -339,12 +357,9 @@ describe("parseDraft", () => {
     expect(torn).toMatchObject({ ok: false, blockedReason: "intake_run_failed" })
     if (torn.ok) return
     expect(torn.reason).toMatch(/^target "devkit" could not be loaded at /)
-    // A pin with an image that the repository cannot make present (no fetch allowed).
+    // A pin the repository cannot make present (no fetch allowed).
     const absent = "3".repeat(40)
-    writeFileSync(
-      join(dir, "devkit", "target.json"),
-      JSON.stringify({ ...shipped, images: { [absent]: shipped.images[PIN] } }),
-    )
+    writeFileSync(join(dir, "devkit", "target.json"), JSON.stringify(shipped))
     const previous = process.env.FACTORY_NO_FETCH
     process.env.FACTORY_NO_FETCH = "1"
     try {
@@ -360,12 +375,6 @@ describe("parseDraft", () => {
       if (previous === undefined) delete process.env.FACTORY_NO_FETCH
       else process.env.FACTORY_NO_FETCH = previous
     }
-    // A target with no image at all is image_unprepared: the same operator action mends it.
-    const { images: _images, ...unprepared } = shipped
-    writeFileSync(join(dir, "devkit", "target.json"), JSON.stringify(unprepared))
-    expect(
-      parseDraft(files(GOOD_DRAFT), { workOrderId: WO, pin: PIN, catalog: { targetsDir: dir } }),
-    ).toMatchObject({ ok: false, blockedReason: "image_unprepared" })
   })
 
   it("refuses any draft file beyond the three manifests and the named check", () => {

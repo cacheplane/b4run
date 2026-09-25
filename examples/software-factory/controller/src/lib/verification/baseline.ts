@@ -3,7 +3,7 @@ import { rmSync } from "node:fs"
 import { join } from "node:path"
 import { captureWorkspaceDefinition, readSourceFile } from "@b4run/workspace/node"
 import { captureDirectory } from "../targets/archive.js"
-import { loadTask } from "../targets/catalog.js"
+import { loadTaskRecipe } from "../targets/catalog.js"
 import { targetWorkspace } from "../targets/workspace.js"
 
 export interface CapturedBaseline {
@@ -32,7 +32,7 @@ export async function captureTargetBaseline(
   options: { readonly captureRoot: string },
 ): Promise<CapturedBaseline> {
   const { captureRoot } = options
-  const task = loadTask(taskId)
+  const task = loadTaskRecipe(taskId)
   const instance = randomUUID()
   const instanceDirectory = join(captureRoot, captureDirectory(taskId, "controller", instance))
   try {
