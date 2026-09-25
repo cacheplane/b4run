@@ -147,9 +147,14 @@ no authentication and no per-caller check, which this rung scopes out. Run it on
 do not expose it. And note where the trust now sits on the builder's side: whoever can write
 into the builder's manifest directory chooses a thread's workspace, image, policy and
 permissions, within the builder's own bounds, which no manifest can move: the network is
-denied (a thread may not open what the app denies), only an image the factory prepared
-(`b4-factory-…`) may be named (`dockerSandbox({ images })`), and the permissions mode is
-`non-interactive`. That includes the WHOLE allow-list: `permissions` is a record keyed by any
+denied (a thread may not open what the app denies), and the permissions mode is
+`non-interactive`. The image bound is narrower than "an image the factory prepared": a
+manifest may name only a tag in the factory's shape (`b4-factory-<target>:<pin[:12]>-<12 hex>`,
+`dockerSandbox({ images })`) whose target and pin segments are the manifest's own `targetId`
+and `pin` (the manifest schema refuses any other at admission), and only an image present on
+the daemon under that tag runs. Nothing proves that image is the one `target:prepare` built:
+whoever can tag an image on the builder's Docker daemon can put anything behind the tag, but
+that access is already root on the host, so it adds no power a manifest writer lacks. That includes the WHOLE allow-list: `permissions` is a record keyed by any
 tool name, so a manifest's writer also decides the `tool` and `subagent` keys (which tools run
 without approval and which subagents may be dispatched), not only `bash` and the path keys;
 the builder's `non-interactive` mode means anything off that list is refused, never asked
@@ -169,6 +174,17 @@ the image prepared at the task's pin, so one builder runs several pins of one ta
 each thread in its own. And intake threads accumulate on
 the drafter, one per work order, since nothing sweeps a parked or blocked work order's drafter
 thread yet.
+
+**Upgrading to one builder.** Drain the builder first: let every work order in `dispatched`
+or `running` settle, or `cancel` it, before stopping the per-target builders and starting the
+one builder. A work order caught mid-flight fails closed, but it spends a candidate attempt:
+`reconcile` finds its thread gone from the new builder and ends the attempt
+`ended_without_candidate`; a verification of it cannot read the workspace
+(`workspace_unreadable`, settling `verification_inconclusive`); a version 1 manifest still in
+the manifest directory is refused at admission; and a thread the old builder admitted before
+the app resolved sandboxes per thread, if its installation store comes along, is refused as
+`conflict` (it has no per-thread record). `retry` the work order once the new builder runs,
+attempts permitting.
 
 **Upgrading across per-pin images.** The environment identity now digests the pin with the
 image, so every identity changed. A bundle frozen before the upgrade and still awaiting review
@@ -252,9 +268,13 @@ under the server before the controller split, so it can only be prepared at its 
 pin, and `devkit` is the target that is re-pinned.
 
 **1. Start the builder** (terminal 1), told where the controller will leave its manifests. It
-needs no target file, no per-target copy and no second process:
+needs no target file, no per-target copy and no second process. The manifest directories live
+under the controller's state directory, created readable and writable by you alone: whoever
+can write a manifest chooses a thread's workspace, image, policy and permissions (see "No
+authorization" above), so a world-writable `/tmp` directory is the wrong home for one:
 
-    FACTORY_BUILDER_MANIFEST_DIR=/tmp/builder-manifests \
+    (umask 077 && mkdir -p .factory/builder-manifests .factory/drafter-manifests)
+    FACTORY_BUILDER_MANIFEST_DIR=$PWD/.factory/builder-manifests \
     OPENAI_API_KEY=... \
       pnpm --filter @b4-example/software-factory-server dev --port 4100
 
@@ -275,7 +295,7 @@ as `unexpected_interrupt`, spending a candidate attempt on a question nobody ans
 It reads the repository through the capture in each manifest, never through the filesystem,
 so it needs no repository path:
 
-    FACTORY_DRAFTER_MANIFEST_DIR=/tmp/drafter-manifests \
+    FACTORY_DRAFTER_MANIFEST_DIR=$PWD/.factory/drafter-manifests \
     OPENAI_API_KEY=... \
       pnpm --filter @b4-example/software-factory-drafter dev --port 4200
 
@@ -290,10 +310,10 @@ with), its own state directory, and the drafter pair: the drafter's URL and its 
 
     FACTORY_WORKER_URL=http://127.0.0.1:4100 \
     FACTORY_BUILDER_APP_ROOT=$PWD/examples/software-factory/server \
-    FACTORY_BUILDER_MANIFEST_DIR=/tmp/builder-manifests \
+    FACTORY_BUILDER_MANIFEST_DIR=$PWD/.factory/builder-manifests \
     FACTORY_DRAFTER_URL=http://127.0.0.1:4200 \
     FACTORY_DRAFTER_APP_ROOT=$PWD/examples/software-factory/drafter \
-    FACTORY_DRAFTER_MANIFEST_DIR=/tmp/drafter-manifests \
+    FACTORY_DRAFTER_MANIFEST_DIR=$PWD/.factory/drafter-manifests \
     FACTORY_STATE_DIR=$PWD/.factory \
       pnpm --filter @b4-example/software-factory-controller dev --port 4300
 
@@ -301,7 +321,12 @@ Every target's work orders go to that one builder. `FACTORY_WORKERS` (the per-ta
 map) and `FACTORY_BUILDER_TARGET` (the per-process target file) are retired: the controller
 refuses to start while either is set, naming it, rather than leave an operator believing it
 still routes anything. The builder and the drafter each need their own app root, and the
-controller refuses one shared between them. The controller creates each manifest directory at boot; `dispatch` writes
+controller refuses one shared between them. Each manifest directory must be the same on both
+sides. Left unset, the builder's side still agrees by default: the controller's
+`FACTORY_BUILDER_MANIFEST_DIR` defaults to `<FACTORY_BUILDER_APP_ROOT>/.factory/manifests`,
+and the builder's `dev`, `check` and `build` scripts default theirs to `.factory/manifests`
+under the same package, which is not world-writable either. The drafter has no such default
+of its own, so its directory is always set on both sides. The controller creates each manifest directory at boot; `dispatch` writes
 the work order's manifest there before it creates the thread, and removes it once the row
 leaves `dispatched`/`running` (the resolver reads it once, at the thread's first admission;
 verification reads the workspace through the reader) or a cancel has settled the thread. Without the

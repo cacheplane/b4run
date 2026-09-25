@@ -1,5 +1,12 @@
 # Software factory, rung 2: developer guide
 
+> **Superseded in part.** One builder process now serves every target and pin. The steps
+> below that write a builder target file (`factory builder-target`), set
+> `FACTORY_BUILDER_TARGET`, or map builders per target with `FACTORY_WORKERS` no longer
+> apply: the command is gone and both variables are refused by name. Each work order's
+> manifest carries its target's image, policy and permissions. Follow the
+> [software factory README](../../../examples/software-factory/README.md#run-it) to run it.
+
 Reconciled against the implementation on branch `blove/software-factory-rung2-spec`.
 The design is the [rung 2 spec](../specs/2026-09-19-software-factory-rung2-design.md);
 what changed while it was built is recorded per task in the
