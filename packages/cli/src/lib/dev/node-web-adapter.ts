@@ -20,6 +20,12 @@ function drainableBody(req: IncomingMessage): ReadableStream<Uint8Array> {
           return
         }
         attached = true
+        // The client may have gone before the handler first read (a route that awaits a
+        // lookup and a policy first). No `end` or `error` will come again, so answer now.
+        if (req.errored || req.readableAborted || (req.destroyed && !req.readableEnded)) {
+          controller.error(req.errored ?? new Error("aborted"))
+          return
+        }
         req.on("data", (chunk: Buffer) => {
           if (cancelled) return
           controller.enqueue(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength))
@@ -30,6 +36,11 @@ function drainableBody(req: IncomingMessage): ReadableStream<Uint8Array> {
         })
         req.on("error", (error) => {
           if (!cancelled) controller.error(error)
+        })
+        // A close without an end is a dropped upload, whether or not `error` fired first
+        // (erroring an already-errored or closed stream is a no-op).
+        req.on("close", () => {
+          if (!cancelled && !req.readableEnded) controller.error(new Error("aborted"))
         })
         req.resume()
       },

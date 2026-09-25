@@ -127,3 +127,37 @@ it("leaves a body the handler never reads to Node, which discards it and keeps s
     await server.close()
   }
 })
+
+it("rejects a body read that starts after the client dropped mid-upload, never hanging", async () => {
+  let settled!: (outcome: string) => void
+  const outcome = new Promise<string>((resolve) => {
+    settled = resolve
+  })
+  const server = createServer((req, res) => {
+    const request = toWebRequest(req, res)
+    // The read starts only after the drop, as a route that awaits a lookup and a policy does.
+    setTimeout(() => {
+      request.text().then(
+        () => settled("resolved"),
+        (error: unknown) => settled(`rejected: ${error instanceof Error ? error.message : error}`),
+      )
+    }, 300)
+  })
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  try {
+    const socket = connect((server.address() as AddressInfo).port, "127.0.0.1")
+    socket.on("error", () => {})
+    await new Promise<void>((resolve) => socket.on("connect", resolve))
+    socket.write("POST /x HTTP/1.1\r\nhost: x\r\ncontent-length: 1000\r\n\r\npartial")
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    socket.destroy()
+    const result = await Promise.race([
+      outcome,
+      new Promise<string>((resolve) => setTimeout(() => resolve("hung"), 3000)),
+    ])
+    expect(result).toMatch(/^rejected/)
+  } finally {
+    server.closeAllConnections()
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+  }
+})
