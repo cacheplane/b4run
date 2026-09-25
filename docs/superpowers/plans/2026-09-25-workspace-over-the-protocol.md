@@ -21,18 +21,18 @@
 Each has a recommendation, and the plan is written to it. If Brian decides otherwise, the named tasks change.
 
 - **D1. PR split.** Recommendation: **five PRs**, below. The shared prerequisite ("the thread-access token lands on the worker", spec §8) is example code, not framework: `threadAccess` already receives every request's headers (verified below), so a bearer policy needs no framework change. It ships first and on its own (PR 1). Each framework item then ships alone (PRs 2 and 4) and the factory adopts each in its own PR (3 and 5). Order: 1, 2, 3, 4, 5; PR 2 can be developed beside PR 1.
-- **D2. Token scheme and where the secret comes from.** Recommendation: **one shared bearer token, `FACTORY_WORKER_TOKEN`, from the operator's environment** on the controller and on every worker; at least 32 characters, no whitespace; `authorization: Bearer <token>` on every request the controller sends; each worker's `src/thread-access.ts` compares it in constant time and denies everything else with `403`. The token is read when the policy module loads, so a worker without it fails to boot (`B4_E3003`) instead of serving open endpoints. Not in thread metadata, not in a stamp, never logged. One token rather than one per worker: both workers trust exactly one caller, and §7's `factory up` glue can mint it per run later. No framework helper: a policy is ten lines, and a shipped helper would have to pick a header and a comparison for everyone. Caveat recorded in the README: `/healthz`, `/readyz` and the memory-candidate endpoints are not thread endpoints and stay open (`packages/cli/test/thread-access-coverage.test.ts`, `EXEMPT`); the factory's workers have no memory.
-- **D3. Request body limits: values and where enforced.** Recommendation: **per endpoint, in the runtime core** (`runtime-fetch-core.ts`, so the dev server, `b4 start`, Hono and Vercel all enforce it), by one bounded reader that refuses a declared `content-length` over the limit before reading anything and otherwise counts streamed bytes and cancels the stream the moment it passes the limit; `413` with `code: "payload_too_large"`. Values: the upload's default and ceiling is **96 MiB**, the installation content store's own payload cap (`packages/sqlite-storage/src/workspace/source-store.ts:10`; a 64 MiB bundle encodes to about 86 MiB), lowerable with `stagedWorkspaces.maxUploadBytes`; `POST /threads` **1 MiB**; the inspect request **64 KiB**. The four other body-reading endpoints (`runs/stream`, `runs/wait`, `resume`, `POST /agui/:routeId`) are unbounded today and stay so in this plan: bounding them is a behaviour change for every app, recorded as a follow-up.
+- **D2. Token scheme and where the secret comes from.** (Amended: it is a bearer credential, so the README requires loopback, a private network or TLS, and both clients refuse redirects.) Recommendation: **one shared bearer token, `FACTORY_WORKER_TOKEN`, from the operator's environment** on the controller and on every worker; at least 32 characters, no whitespace; `authorization: Bearer <token>` on every request the controller sends; each worker's `src/thread-access.ts` compares it in constant time and denies everything else with `403`. The token is read when the policy module loads, so a worker without it fails to boot (`B4_E3003`) instead of serving open endpoints. Not in thread metadata, not in a stamp, never logged. One token rather than one per worker: both workers trust exactly one caller, and §7's `factory up` glue can mint it per run later. No framework helper: a policy is ten lines, and a shipped helper would have to pick a header and a comparison for everyone. Caveat recorded in the README: `/healthz`, `/readyz` and the memory-candidate endpoints are not thread endpoints and stay open (`packages/cli/test/thread-access-coverage.test.ts`, `EXEMPT`); the factory's workers have no memory.
+- **D3. Request body limits: values and where enforced.** Recommendation: **per endpoint, in the runtime core** (`runtime-fetch-core.ts`, so the dev server, `b4 start`, Hono and Vercel all enforce it), by one bounded reader that refuses a declared `content-length` over the limit before reading anything and otherwise counts streamed bytes and cancels the stream the moment it passes the limit; `413` with `code: "payload_too_large"`. Values: the upload's default and ceiling is **96 MiB**, the installation content store's own payload cap (`packages/sqlite-storage/src/workspace/source-store.ts:10`; a 64 MiB bundle encodes to about 86 MiB), lowerable with `stagedWorkspaces.maxUploadBytes`; `POST /threads` **1 MiB, only in an app with `stagedWorkspaces`** (every other app reads its create body as before); the inspect request **64 KiB**. Uploads run **one at a time per process** (`429 upload_in_flight`) and all uploaded sources together stay within **`maxStagedBytes`** (default 1 GiB; `507`), because verifying and storing an upload holds it four to five times over in memory. On Node the adapter owns the body stream, so a refused body is discarded rather than resetting the socket and the 413 reaches the client (Task 8). The four other body-reading endpoints (`runs/stream`, `runs/wait`, `resume`, `POST /agui/:routeId`) are unbounded today and stay so in this plan: bounding them is a behaviour change for every app, recorded as a follow-up.
 - **D4. `staged` in `WorkspaceResolverInput` or `ThreadSandbox`?** Recommendation: **`WorkspaceResolverInput.staged`** (the spec's placement). It is input: both resolver kinds receive `WorkspaceResolverInput` (`packages/workspace/src/sandbox-types.ts:166-185, 231`), and `ThreadSandbox.workspace` already accepts a `CapturedWorkspaceDefinition` (`:209`), so a thread resolver returns `{ workspace: thread.staged, ... }`. A field on `ThreadSandbox` would be an output naming what the input already carries.
 - **D5. What the upload carries.** Recommendation: **the upload body is a `SourceBundle` (content-addressed by its own digest); `environmentLinks` and `baseline` travel on `POST /threads` beside the digest.** The spec's body, a whole `CapturedWorkspaceDefinition` keyed by the source digest, cannot work: the source digest covers only the files (`packages/workspace/src/source-bundle.ts:52-61`), so two definitions with the same files and different links or baseline would share a key, and `200 (already held)` would answer for a definition the server does not hold. The content store is already keyed by exactly this digest (`source-store.ts:44-50`).
-- **D6. Where the thread's staged reference is recorded.** Recommendation: **in the worker's installation database**, a `workspace_thread_staged` row written right after the thread row, not a reserved metadata key. Reclaim must see every reference in one database (the thread store may be Postgres); the row is written in a savepoint that re-checks the source is still held, and a failure after the thread row exists deletes that row (only when it is the row this request wrote). The staged row is removed when the thread is deleted.
+- **D6. Where the thread's staged reference is recorded.** Recommendation: **in the worker's installation database**, a `workspace_thread_staged` row written right after the thread row, not a reserved metadata key. Reclaim must see every reference in one database (the thread store may be Postgres); the row is written in a savepoint that re-checks the source is still held, and a failure after the thread row exists deletes that row (only when it is the row this request wrote). `DELETE /threads/:id` removes the staged row BEFORE the thread row, so a failed delete fails closed and an id reused through a run endpoint inherits nothing; a boot sweep removes the staged rows of threads whose rows are gone.
 - **D7. Retention window and who reclaims.** Recommendation: **24 hours by default (`stagedWorkspaces.retentionMs`, at least 60 s, at most 30 days), reclaimed by the worker that owns the installation, at boot and after each upload, with no timer.** Referenced (never reclaimed): the source of every association not deleted, the source of every staged thread row, the app's static definition, and any upload younger than the window. Everything else goes: an unreferenced upload past the window, and any unreferenced non-upload source at once (rung 3 §9's orphan rows; #832 already stopped most new ones by putting the source after the environment resolves). Only apps that enable `stagedWorkspaces` reclaim; extending the orphan sweep to every managed app is a follow-up. A re-upload of held bytes refreshes the upload time, so a controller that re-stages before creating never races the window.
 - **D8. Inspect response size and streaming.** Recommendation: **one JSON response, not streamed, bounded by server caps**: `maxEntries` ≤ 10,000, `maxFileBytes` ≤ 16 MiB, `maxTotalBytes` ≤ 32 MiB; a request over a cap is `400`; defaults are `inspectWorkspace`'s own (10,000; 2 MiB; 16 MiB). The worker's Node adapter buffers a JSON reply whole (`packages/cli/src/lib/dev/node-web-adapter.ts:111-122`), and the controller needs the whole inventory before it can diff, so streaming buys nothing.
 - **D9. How the read excludes a run.** Recommendation: **the read holds the thread's run slot** (`RunRegistry.begin`) for its whole duration, not only a check at the start. A run started meanwhile gets the ordinary `409 run_in_flight`, `DELETE` is refused the same way, a `cancel` aborts the read, and shutdown drains it. A check-then-read would let a turn start mid-inspection and return an inventory from two moments.
 - **D10. Error classification.** Recommendation: **typed errors in `@b4run/workspace`**: `WorkspaceInspectionError` (`invalid_options`, `root_missing`, `refused`, `changed`) and `WorkspaceReadLimitError` (thrown by B4.run's bounded reads, messages unchanged). The batched read that finds a file larger than its walked size (#829) becomes `changed` → `409 workspace_changed`, never a generic 500; a policy refusal is `422 workspace_inspection_refused`; a missing `root` is `422 workspace_root_missing` with `{ root, kind }`; a backend I/O failure stays untyped and is a 500.
-- **D11. Operations and actions.** Recommendation: **`thread.workspace` under `read`** (a denial defaults to the same 404 a missing thread returns), **`workspace.source.put` under `create`** with no thread id and no thread, and a new required **`ThreadAccessRequest.requestedWorkspace: { sourceDigest } | undefined`**, set only on `thread.create` with a `workspace`. Without it a policy cannot tell "create a thread" from "create a thread and choose its workspace"; with it, an app whose users may create threads can still reserve workspace choice to a service caller. The docs say plainly that an upload is authorized by the app's `create` handler.
+- **D11. Operations and actions.** Recommendation: **`thread.workspace` under `read`** (a denial defaults to the same 404 a missing thread returns), **`workspace.source.put` under `create`** with no thread id and no thread, and a new required **`ThreadAccessRequest.requestedWorkspace`**: the whole reference (`{ sourceDigest, environmentLinks?, baseline? }`) on a `thread.create` that names one, and `{ sourceDigest }` on `workspace.source.put`, so one rule covers staging and choosing. Without it a policy cannot tell "create a thread" from "create a thread and choose its workspace"; with it, an app whose users may create threads can still reserve workspace choice to a service caller. The docs say plainly that enabling `stagedWorkspaces` means auditing the `create` handler. Both workspace endpoints check the feature only after the gate, so an unauthorized caller cannot tell whether it is on.
 - **D12. What each option requires, and what a stray `workspace` means.** Recommendation: `workspaceRead` requires `sandbox.workspace` or `sandbox.thread` and a provider whose managed workspaces implement `openWorkspaceReader` (refused at boot otherwise). `stagedWorkspaces` requires a resolver (`sandbox.thread`, or a function `sandbox.workspace`): with a static definition the staged workspace would be silently ignored. A `POST /threads` body carrying `workspace` on an app without the option is `400 workspace_not_accepted`, not ignored: today the runtime ignores unknown body keys (`runtime-fetch-core.ts:1364-1380`), and ignoring this one would hand a client a thread without the workspace it asked for.
-- **D13. How the factory's builder target block travels once the manifest is gone.** Recommendation: **in thread metadata, under one key `factoryBuilder`, parsed strictly by the builder and bound to the staged workspace by digest** (`factoryBuilder.sourceDigest` must equal `thread.staged.source.digest`). With PR 1's policy only the controller can create a thread, and metadata is written only at create (run endpoints accept none), so metadata is exactly as controller-authored as the manifest file was, with the boundary moved from filesystem write access to the token. The drafter's handoff is `factoryDrafter: { version, workOrderId, sourceDigest }` under the same rule.
+- **D13. How the factory's builder target block travels once the manifest is gone.** Recommendation: **in thread metadata, under one key `factoryBuilder`, parsed strictly by the builder and bound to the staged workspace by its whole reference** (`factoryBuilder.workspace`, `{ sourceDigest, environmentLinks, baseline? }`, must equal the staged definition's digest, links and baseline). With PR 1's policy only the controller can create a thread, and metadata is written only at create (run endpoints accept none), so metadata is exactly as controller-authored as the manifest file was, with the boundary moved from filesystem write access to the token. The drafter's handoff is `factoryDrafter: { version, workOrderId, sourceDigest }` under the same rule.
 - **D14. The `sourceDigest` check.** Recommendation: the client helper takes `expectedSourceDigest` and refuses a mismatched answer (`code: "source_mismatch"`), and it also refuses an answer whose `threadId` is not the one asked for. The controller passes the digest it journalled when it handed that thread its workspace. Recorded honestly: two threads with the same source (a `retry` of the same task) have the same digest, so the check refuses a worker answering with a different workspace, not every wrong thread; the thread id in the path, the echo and the token are the rest.
 
 ## Verification of the spec against main (feaf517b) and #836 (690479c1)
@@ -318,15 +318,27 @@ Copy it byte for byte: `cp examples/software-factory/server/src/thread-access.ts
 Run: `pnpm --filter @b4-example/software-factory-controller exec vitest run test/worker-token.test.ts`
 Expected: PASS (4 tests).
 
-- [ ] **Step 5: The worker apps still type-check and boot-check**
+- [ ] **Step 5: The worker apps type-check, and `check` gets the token where it evaluates the policy**
 
-Run: `pnpm --filter @b4-example/software-factory-server typecheck && pnpm --filter @b4-example/software-factory-drafter typecheck`
-Expected: exit 0. (`b4 check` and `b4 build` never evaluate `src/thread-access.ts`: the build only probes for the file, `packages/cli/src/lib/build/targets/web-runtime.ts:52`, and emits an import that runs at boot.)
+`b4 build` only probes for `src/thread-access.ts` (`packages/cli/src/lib/build/targets/web-runtime.ts:52`) and emits an import of it into `.b4/build/modules.mjs`. `b4 check` LOADS that manifest when it exists (`packages/cli/src/commands/check.ts:203-211`), which evaluates the policy module, so a `check` after a `build` needs `FACTORY_WORKER_TOKEN`. CI's lane checks each worker before it builds, in a fresh checkout, so no `modules.mjs` exists there; a developer's checkout usually has one. Turbo runs `check` in strict env mode with only the variables `turbo.json` names, so pass the token through (never hashed into the cache key) for both workers. In `turbo.json`:
+
+```json
+    "@b4-example/software-factory-server#check": {
+      "dependsOn": ["^check"],
+      "env": ["FACTORY_BUILDER_LANE", "FACTORY_BUILDER_MANIFEST_DIR"],
+      "passThroughEnv": ["FACTORY_WORKER_TOKEN"]
+    },
+```
+
+and the same `"passThroughEnv": ["FACTORY_WORKER_TOKEN"]` on `@b4-example/software-factory-drafter#check`. The README line is in Task 3 Step 5.
+
+Run: `pnpm --filter @b4-example/software-factory-server typecheck && pnpm --filter @b4-example/software-factory-drafter typecheck && pnpm --filter @b4-example/software-factory-drafter build && FACTORY_WORKER_TOKEN=$(printf 't%.0s' {1..40}) pnpm --filter @b4-example/software-factory-drafter check`
+Expected: exit 0. The same `check` without the variable fails naming `FACTORY_WORKER_TOKEN is required` (B4_E3003): that is the policy failing closed, and the README says so.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add examples/software-factory/server/src/thread-access.ts examples/software-factory/drafter/src/thread-access.ts examples/software-factory/controller/test/worker-token.test.ts
+git add examples/software-factory/server/src/thread-access.ts examples/software-factory/drafter/src/thread-access.ts examples/software-factory/controller/test/worker-token.test.ts turbo.json
 git commit -m "feat(software-factory): the workers answer only a caller holding FACTORY_WORKER_TOKEN
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -354,6 +366,20 @@ export const TEST_WORKER_TOKEN = "test-worker-token-0123456789abcdef0123"
 In `test/worker-client.test.ts`, construct the client with it and add:
 
 ```ts
+  it("never follows a redirect, which would carry the token elsewhere", async () => {
+    const seen: Request[] = []
+    const capturing = createHttpWorkerClient("http://worker", {
+      token: TEST_WORKER_TOKEN,
+      fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        seen.push(new Request(input, init))
+        return Response.json({ thread_id: "t", created_at: "", updated_at: "", metadata: {}, status: "idle" })
+      }) as typeof fetch,
+    })
+    await capturing.createThread({})
+    await capturing.getThread("t")
+    expect(seen.map((request) => request.redirect)).toEqual(["error", "error"])
+  })
+
   it("sends the worker token on every call, cancel and getThread included", async () => {
     const threadId = await client.createThread({})
     await client.getThread(threadId)
@@ -366,19 +392,17 @@ In `test/worker-client.test.ts`, construct the client with it and add:
   })
 ```
 
-In `test/config.test.ts` (whose base environment helper sets the required variables; add `FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN` to it) add:
+`test/config.test.ts` builds its environments from two constants, `base` (`:6-9`) and `pair` (`:34-38`), spread into the rest, plus one one-key literal in "rejects missing or malformed values" (`:21`, `{ FACTORY_STATE_DIR: "/tmp/state" }`, which must still fail on the missing URL). Add `FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN` to `base`, to `pair`, and to that literal (`{ FACTORY_STATE_DIR: "/tmp/state", FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN }`); every other environment in the file spreads one of the two constants. Import `TEST_WORKER_TOKEN` from `./worker-token-fixture.ts`, and add:
 
 ```ts
   it("requires FACTORY_WORKER_TOKEN, 32 characters or more, no whitespace", () => {
-    const { FACTORY_WORKER_TOKEN: _drop, ...without } = baseEnv()
+    const { FACTORY_WORKER_TOKEN: _drop, ...without } = base
     expect(() => loadConfig(without)).toThrow(/FACTORY_WORKER_TOKEN is required/)
-    expect(() => loadConfig({ ...baseEnv(), FACTORY_WORKER_TOKEN: "short" })).toThrow(/at least 32/)
-    expect(() => loadConfig({ ...baseEnv(), FACTORY_WORKER_TOKEN: `${"a".repeat(20)} ${"b".repeat(20)}` })).toThrow(/no whitespace/)
-    expect(loadConfig(baseEnv()).workerToken).toBe(TEST_WORKER_TOKEN)
+    expect(() => loadConfig({ ...base, FACTORY_WORKER_TOKEN: "short" })).toThrow(/at least 32/)
+    expect(() => loadConfig({ ...base, FACTORY_WORKER_TOKEN: `${"a".repeat(20)} ${"b".repeat(20)}` })).toThrow(/no whitespace/)
+    expect(loadConfig(base).workerToken).toBe(TEST_WORKER_TOKEN)
   })
 ```
-
-(`baseEnv` is the file's existing helper that returns a valid environment; if it is named differently, use that name.)
 
 - [ ] **Step 2: Run them to see them fail**
 
@@ -427,7 +451,8 @@ export function createHttpWorkerClient(
   const send = (url: string, init: RequestInit): Promise<Response> => {
     const headers = new Headers(init.headers)
     headers.set("authorization", authorization)
-    return fetchImpl(url, { ...init, headers })
+    // A redirect would carry the token to wherever it points: refuse it.
+    return fetchImpl(url, { ...init, headers, redirect: "error" })
   }
 ```
 
@@ -458,7 +483,6 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Modify: `examples/software-factory/controller/test/serve-controller.ts` (`FACTORY_ENV`, sets the token)
 - Modify: `examples/software-factory/controller/test/drafter-end-to-end.integration.test.ts`, `drafter-resolver.integration.test.ts` (their served drafter's env and fetches)
 - Modify: `examples/software-factory/controller/test/builder.integration.test.ts` (one new case)
-- Modify: `examples/software-factory/drafter/test/drafter-config.test.ts`, `examples/software-factory/server/test/builder-config.test.ts` if they boot the app (set the variable)
 - Modify: `examples/software-factory/README.md`
 
 - [ ] **Step 1: Write the failing lane test**
@@ -486,7 +510,7 @@ Expected: FAIL at boot: `FACTORY_WORKER_TOKEN is required` (the policy now loads
 
 - [ ] **Step 3: Set the token in every served worker and send it**
 
-`served-builder.ts`: add `"FACTORY_WORKER_TOKEN"` to `ENV`, set `process.env.FACTORY_WORKER_TOKEN = TEST_WORKER_TOKEN` beside the other variables before `serveRuntime`, and add `authorization: \`Bearer ${TEST_WORKER_TOKEN}\`` to the headers of every `fetch` the helper makes (`createThread`, `runTurn`, `threadStatus`, and the `DELETE`s in `close`). Do the same in the drafter lanes' served drafter and in `serve-controller.ts` (add `"FACTORY_WORKER_TOKEN"` to `FACTORY_ENV` and set it to `TEST_WORKER_TOKEN`). In `drafter/test/drafter-config.test.ts` and `server/test/builder-config.test.ts`, if a case imports `b4.config.ts` or boots the app, stub `FACTORY_WORKER_TOKEN` with `vi.stubEnv` in that case.
+`served-builder.ts`: add `"FACTORY_WORKER_TOKEN"` to `ENV`, set `process.env.FACTORY_WORKER_TOKEN = TEST_WORKER_TOKEN` beside the other variables before `serveRuntime`, and add `authorization: \`Bearer ${TEST_WORKER_TOKEN}\`` to the headers of every `fetch` the helper makes (`createThread`, `runTurn`, `threadStatus`, and the `DELETE`s in `close`). Do the same in the drafter lanes' served drafter and in `serve-controller.ts` (add `"FACTORY_WORKER_TOKEN"` to `FACTORY_ENV` and set it to `TEST_WORKER_TOKEN`). `drafter/test/drafter-config.test.ts` and `server/test/builder-config.test.ts` need no change: they import `b4.config.ts` (which does not import the policy) and spawn only `in-lane.mjs`, never booting the app or loading `modules.mjs`.
 
 - [ ] **Step 4: Run the lanes**
 
@@ -502,12 +526,20 @@ In `examples/software-factory/README.md`: add `FACTORY_WORKER_TOKEN` to the cont
 `authorization: Bearer <FACTORY_WORKER_TOKEN>`, so only the controller can create, run, read or
 delete a worker's threads. `/healthz` and `/readyz` stay open (they disclose nothing), and so do
 the memory-candidate endpoints, which are not thread endpoints; neither worker keeps memory.
+
+**The token is a bearer credential: never send it over an untrusted network in the clear.**
+Run the workers on loopback or a private network only the controller can reach, or put TLS in
+front of them (`https://` in `FACTORY_WORKER_URL`). The controller never follows a redirect, so
+a worker URL cannot bounce the token elsewhere.
+
+`b4 check` loads the built manifest when one exists (after `b4 build`), which evaluates the
+policy: set `FACTORY_WORKER_TOKEN` for `check` as well as for the running worker.
 ```
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add examples/software-factory/controller/test examples/software-factory/drafter/test examples/software-factory/server/test examples/software-factory/README.md
+git add examples/software-factory/controller/test examples/software-factory/README.md
 git commit -m "test(software-factory): served workers expect the token and refuse without it
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -693,6 +725,36 @@ describe("inspectWorkspace root", () => {
     })
   }
 
+  it("refuses a symlink anywhere in the root, first or mid-path, and never looks through it", async () => {
+    const f = fixture({
+      "/workspace": { kind: "directory", names: ["draft", "a"] },
+      "/workspace/draft": { kind: "symlink", target: "/etc" },
+      "/workspace/draft/sub": { kind: "directory", names: ["passwd"] },
+      "/workspace/a": { kind: "directory", names: ["link"] },
+      "/workspace/a/link": { kind: "symlink", target: "/" },
+      "/workspace/a/link/x": { kind: "directory", names: [] },
+    })
+    for (const [root, at] of [
+      ["draft", "draft"],
+      ["draft/sub", "draft"],
+      ["a/link/x", "a/link"],
+    ] as const) {
+      const error = await workspace
+        .inspectWorkspace(f.handle, { root })
+        .catch((caught: unknown) => caught)
+      expect((error as workspace.WorkspaceInspectionError).detail).toEqual({ root, kind: "not_directory" })
+      expect((error as Error).message).toContain(`"${at}" is a symlink`)
+    }
+    expect(f.calls).not.toContain("/workspace/draft/sub")
+    expect(f.calls).not.toContain("/workspace/a/link/x")
+  })
+
+  it("re-roots a batch-only backend with lstat alone (its per-entry listDir refuses)", async () => {
+    const f = nested()
+    const result = await workspace.inspectWorkspace(f.batched, { root: "draft/checks" })
+    expect(Object.keys(result.files)).toEqual(["a.test.ts"])
+  })
+
   it("refuses a root for an author filesystem, which has no absolute root to nest", async () => {
     const error = await workspace
       .inspectWorkspace(nested().author, { root: "draft" })
@@ -769,6 +831,30 @@ export class WorkspaceInspectionError extends Error {
   }
 }
 
+/**
+ * The one rule for an inspection `root`: relative, `/`-separated leaf names, none
+ * empty, `.`, `..`, containing `\\` or a control character. Shared by
+ * `inspectWorkspace` and by the HTTP endpoint, which refuses a bad root before it
+ * starts a reader.
+ */
+export function isCanonicalWorkspaceRoot(root: string): boolean {
+  return (
+    typeof root === "string" &&
+    root.length > 0 &&
+    root.length <= 1024 &&
+    root
+      .split("/")
+      .every(
+        (segment) =>
+          segment !== "" &&
+          segment !== "." &&
+          segment !== ".." &&
+          !segment.includes("\\") &&
+          ![...segment].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127),
+      )
+  )
+}
+
 const CODES: ReadonlySet<string> = new Set(["invalid_options", "root_missing", "refused", "changed"])
 
 export function isWorkspaceInspectionError(error: unknown): error is WorkspaceInspectionError {
@@ -785,6 +871,7 @@ export function isWorkspaceInspectionError(error: unknown): error is WorkspaceIn
 ```ts
 import type { WorkspaceFs } from "@b4run/sdk"
 import {
+  isCanonicalWorkspaceRoot,
   isWorkspaceReadLimitError,
   WorkspaceInspectionError,
   type WorkspaceInspectionErrorCode,
@@ -806,12 +893,13 @@ export interface InspectWorkspaceOptions {
   readonly expectedRootSymlinks?: Readonly<Record<string, string>>
   /**
    * A relative directory (`draft`, `a/b`) under the workspace root at which the
-   * inspection STARTS. Nothing outside it is walked, stat'ed or read, every
-   * returned key is relative to it, and `excludeRootDirectories` and
-   * `expectedRootSymlinks` apply at it. Each level is found by LISTING its
-   * parent and only the last is stat'ed, so a root that names nothing, or names a
-   * file or a link, is a `root_missing` refusal naming the root, never a read
-   * failure. Needs a sandbox handle or workspace reader (an absolute root).
+   * inspection STARTS. Nothing outside it is walked or read, every returned key
+   * is relative to it, and `excludeRootDirectories` and `expectedRootSymlinks`
+   * apply at it. Every segment is lstat'ed and must be a real directory: a root
+   * that names nothing, or passes through or ends at a file or a symlink, is a
+   * `root_missing` refusal naming the root and the segment, never a read that
+   * follows a link out of the workspace. Needs a sandbox handle or workspace
+   * reader (an absolute root).
    */
   readonly root?: string
 }
@@ -1027,26 +1115,22 @@ function limit(value: number, name: string): number {
 }
 
 /**
- * The absolute directory `root` names under the workspace root, established
- * without touching a sibling: each level by a listing of its parent (a name
- * present, not a stat that can fail for other reasons), and only the last level
- * stat'ed. Every later call of the inspection is built under it.
+ * The absolute directory `root` names under the workspace root. EVERY segment is
+ * lstat'ed and must be a directory: a symlink anywhere in `root` is refused, not
+ * followed, because a provider's read-only reader need not jail paths (the Docker
+ * reader does not) and a link at `draft` or at `draft/sub` would otherwise point
+ * the whole inspection outside the workspace. A segment whose lstat fails is
+ * `absent` only when its parent's listing proves the name is not there; any other
+ * failure is the backend's own and is rethrown untyped. Only `lstat` is needed on
+ * the path that succeeds, so a batch-only backend (whose per-entry `listDir` may
+ * refuse) can still be re-rooted.
  */
 async function atRoot(
   source: WorkspaceFs | WorkspaceReadSource,
   root: string,
   signal: AbortSignal,
 ): Promise<string> {
-  const segments = root.split("/")
-  const canonical = segments.every(
-    (segment) =>
-      segment !== "" &&
-      segment !== "." &&
-      segment !== ".." &&
-      !segment.includes("\\") &&
-      ![...segment].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127),
-  )
-  if (!canonical)
+  if (!isCanonicalWorkspaceRoot(root))
     throw new WorkspaceInspectionError(
       "invalid_options",
       `Invalid workspace inspection root: ${JSON.stringify(root)}`,
@@ -1063,26 +1147,38 @@ async function atRoot(
   if (!lstat) throw fail("invalid_options", "Workspace inspection requires leaf metadata (lstat)")
   const ctx = { workspaceRoot: source.workspaceRoot, signal }
   let current = source.workspaceRoot.replace(/\/$/, "")
-  for (const segment of segments) {
+  const walked: string[] = []
+  for (const segment of root.split("/")) {
     signal.throwIfAborted()
-    const names = await fs.listDir(current || "/", ctx)
-    signal.throwIfAborted()
-    if (!names.includes(segment))
+    const parent = current
+    current = `${current}/${segment}`
+    walked.push(segment)
+    let metadata: Metadata
+    try {
+      metadata = await lstat(current, ctx)
+    } catch (error) {
+      signal.throwIfAborted()
+      let names: readonly string[]
+      try {
+        names = await fs.listDir(parent || "/", ctx)
+      } catch {
+        throw error
+      }
+      if (names.includes(segment)) throw error
       throw new WorkspaceInspectionError(
         "root_missing",
-        `Workspace root ${JSON.stringify(root)} is missing`,
+        `Workspace root ${JSON.stringify(root)} is missing (${JSON.stringify(walked.join("/"))} does not exist)`,
         { root, kind: "absent" },
       )
-    current = `${current}/${segment}`
+    }
+    signal.throwIfAborted()
+    if (metadata.kind !== "directory")
+      throw new WorkspaceInspectionError(
+        "root_missing",
+        `Workspace root ${JSON.stringify(root)} is not a directory (${JSON.stringify(walked.join("/"))} is a ${metadata.kind})`,
+        { root, kind: "not_directory" },
+      )
   }
-  const metadata = await lstat(current, ctx)
-  signal.throwIfAborted()
-  if (metadata.kind !== "directory")
-    throw new WorkspaceInspectionError(
-      "root_missing",
-      `Workspace root ${JSON.stringify(root)} is not a directory`,
-      { root, kind: "not_directory" },
-    )
   return current
 }
 
@@ -1213,6 +1309,7 @@ In `packages/workspace/src/index.ts`, after the `inspectWorkspace` export:
 
 ```ts
 export {
+  isCanonicalWorkspaceRoot,
   isWorkspaceInspectionError,
   isWorkspaceReadLimitError,
   WorkspaceInspectionError,
@@ -1367,7 +1464,8 @@ Every body the runtime reads today is `await request.text()` with no bound (veri
 
 **Files:**
 - Create: `packages/cli/src/lib/dev/bounded-body.ts`
-- Create: `packages/cli/test/bounded-body.test.ts`
+- Modify: `packages/cli/src/lib/dev/node-web-adapter.ts:52-56` (`drainableBody`)
+- Create: `packages/cli/test/bounded-body.test.ts`, `packages/cli/test/bounded-body-node.test.ts`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1492,7 +1590,9 @@ export async function readBoundedText(request: Request, maxBytes: number): Promi
   const body = request.body
   if (!body) return ""
   const reader = body.getReader()
-  const chunks: Uint8Array[] = []
+  // Decoded as it arrives: no second full-size byte buffer is ever assembled.
+  const decoder = new TextDecoder()
+  const parts: string[] = []
   let total = 0
   try {
     for (;;) {
@@ -1500,21 +1600,18 @@ export async function readBoundedText(request: Request, maxBytes: number): Promi
       if (done) break
       total += value.byteLength
       if (total > maxBytes) {
+        // On Node this discards the rest of the upload without closing the socket
+        // (`toWebRequest`), so the 413 reaches the client.
         await reader.cancel().catch(() => {})
         throw new RequestBodyTooLargeError(maxBytes)
       }
-      chunks.push(value)
+      parts.push(decoder.decode(value, { stream: true }))
     }
   } finally {
     reader.releaseLock()
   }
-  const bytes = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return new TextDecoder().decode(bytes)
+  parts.push(decoder.decode())
+  return parts.join("")
 }
 
 /** The one 413 every bounded endpoint answers. */
@@ -1531,10 +1628,96 @@ export function payloadTooLarge(error: RequestBodyTooLargeError): Response {
 Run: `pnpm --filter @b4run/cli exec vitest run test/bounded-body.test.ts test/fetch-entry-purity.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: A refusal must reach a real client, not a reset**
+
+Today `toWebRequest` hands the `IncomingMessage` itself to `new Request` as the body (`node-web-adapter.ts:52-56`), so cancelling the body stream destroys the socket and a client still uploading sees a reset instead of the 413. Write the failing test over a real socket:
+
+```ts
+// packages/cli/test/bounded-body-node.test.ts
+import { createServer } from "node:http"
+import type { AddressInfo } from "node:net"
+import { expect, it } from "vitest"
+import { payloadTooLarge, RequestBodyTooLargeError, readBoundedText } from "../src/lib/dev/bounded-body.ts"
+import { toWebRequest, writeNodeResponse } from "../src/lib/dev/node-web-adapter.ts"
+
+it("delivers a 413 whole to a client still uploading, and keeps reading the next request", async () => {
+  const server = createServer((req, res) => {
+    void (async () => {
+      try {
+        const text = await readBoundedText(toWebRequest(req, res), 1024)
+        await writeNodeResponse(res, Response.json({ length: text.length }))
+      } catch (error) {
+        if (!(error instanceof RequestBodyTooLargeError)) throw error
+        await writeNodeResponse(res, payloadTooLarge(error))
+      }
+    })()
+  })
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`
+  try {
+    const refused = await fetch(url, { method: "POST", body: "x".repeat(4 * 1024 * 1024) })
+    expect(refused.status).toBe(413)
+    expect(await refused.json()).toMatchObject({ error: { details: { code: "payload_too_large" } } })
+    const accepted = await fetch(url, { method: "POST", body: "ok" })
+    expect(await accepted.json()).toEqual({ length: 2 })
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+  }
+})
+```
+
+Run: `pnpm --filter @b4run/cli exec vitest run test/bounded-body-node.test.ts`
+Expected: FAIL (`fetch failed`, `other side closed` or `ECONNRESET`).
+
+Then give `toWebRequest` its own body stream whose `cancel` discards instead of destroying. In `packages/cli/src/lib/dev/node-web-adapter.ts`:
+
+```ts
+/**
+ * The request body as a web stream the adapter owns. Backpressure pauses the socket;
+ * `cancel` (a handler refusing a body it read only part of) DISCARDS the rest of the
+ * upload with `req.resume()` instead of destroying the socket, so a response written
+ * before the body was read, such as a 413, reaches the client whole.
+ */
+function drainableBody(req: IncomingMessage): ReadableStream<Uint8Array> {
+  let cancelled = false
+  return new ReadableStream<Uint8Array>(
+    {
+      start(controller) {
+        req.on("data", (chunk: Buffer) => {
+          if (cancelled) return
+          controller.enqueue(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength))
+          if ((controller.desiredSize ?? 0) <= 0) req.pause()
+        })
+        req.on("end", () => {
+          if (!cancelled) controller.close()
+        })
+        req.on("error", (error) => {
+          if (!cancelled) controller.error(error)
+        })
+        req.pause()
+      },
+      pull() {
+        req.resume()
+      },
+      cancel() {
+        cancelled = true
+        req.resume()
+      },
+    },
+    { highWaterMark: 64 * 1024, size: (chunk) => chunk.byteLength },
+  )
+}
+```
+
+and in `toWebRequest` replace `body: req as unknown as ReadableStream<Uint8Array>` with `body: drainableBody(req)`.
+
+Run: `pnpm --filter @b4run/cli exec vitest run test/bounded-body-node.test.ts test/node-web-adapter.test.ts test/runtime-server-host.test.ts test/agui-endpoint.test.ts test/runs-wait-output.test.ts`
+Expected: PASS: the refusal arrives whole, and every body the adapter already served (runs, resumes, AG-UI) reads as before.
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add packages/cli/src/lib/dev/bounded-body.ts packages/cli/test/bounded-body.test.ts
+git add packages/cli/src/lib/dev/bounded-body.ts packages/cli/src/lib/dev/node-web-adapter.ts packages/cli/test/bounded-body.test.ts packages/cli/test/bounded-body-node.test.ts
 git commit -m "feat(cli): a bounded request-body reader for the runtime core
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -1850,17 +2033,17 @@ and pass `workspaceProtocol` to the final `new SandboxManager({ ... })`.
 
 - [ ] **Step 8: Boot refuses the option without a policy**
 
-In `runtime-fetch-core.ts`, inside the `try` that follows the sandbox manager's resolution, directly after the `requestStores` refusal (`:526-529`), so a refusal releases the installation through the existing `catch`:
+In `runtime-fetch-core.ts`, inside the `try` that follows the sandbox manager's resolution, directly after the `requestStores` refusal (`:526-529`) and BEFORE `reconcileDeletions` (`:530`), so a refused boot performs no deletion work and releases the installation through the existing `catch`:
 
 ```ts
     // A workspace endpoint with no policy would be open to anyone who reaches the port.
     // Checked against the RESOLVED policy, so an injected one counts and a missing file does not.
-    const opened = sandboxManager ? openedWorkspaceProtocol(sandboxManager.workspaceProtocol) : []
+    const opened = openedWorkspaceProtocol(sandboxManager?.workspaceProtocol ?? NO_WORKSPACE_PROTOCOL)
     if (opened.length > 0 && threadAccess === undefined)
       throw new Error(workspaceProtocolPolicyMessage(opened))
 ```
 
-with `import { openedWorkspaceProtocol, workspaceProtocolPolicyMessage } from "../runtime/workspace-protocol.js"`.
+with `import { NO_WORKSPACE_PROTOCOL, openedWorkspaceProtocol, workspaceProtocolPolicyMessage } from "../runtime/workspace-protocol.js"`.
 
 - [ ] **Step 9: Run the tests**
 
@@ -2205,12 +2388,13 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { openWorkspaceInstallationReader } from "@b4run/sqlite-storage"
-import { inspectWorkspace } from "@b4run/workspace"
+import { inspectWorkspace, isCanonicalWorkspaceRoot, WorkspaceReadLimitError } from "@b4run/workspace"
 import { afterEach, expect, it } from "vitest"
 import {
   createRuntimeFetchHandler,
   type RuntimeFetchHandler,
 } from "../src/lib/dev/runtime-fetch-handler.ts"
+import { isCanonicalRoot } from "../src/lib/dev/thread-workspace-http.ts"
 import { withManagedWorkspaceReader } from "../src/lib/runtime/managed-workspace-reader.ts"
 import { managedProviderFixture } from "./support/managed-provider.ts"
 
@@ -2355,12 +2539,47 @@ it("refuses a root with `..` by name, and names an absent root", async () => {
   })
 })
 
-it("is not served unless the app opts in", async () => {
-  const f = await fixture({ workspaceRead: false })
-  const threadId = await f.createThread()
-  const response = await f.inspect(threadId)
+it("is not served unless the app opts in, and never tells an unauthorized caller which", async () => {
+  const off = await fixture({ workspaceRead: false })
+  const threadId = await off.createThread()
+  const response = await off.inspect(threadId)
   expect(response.status).toBe(404)
   expect(await response.json()).toMatchObject({ error: { message: "Not found" } })
+  // Unauthorized: the gate's answer, on or off alike, and the body is never read.
+  const on = await fixture()
+  const onThread = await on.createThread()
+  for (const [f, id] of [[off, threadId], [on, onThread]] as const) {
+    const denied = await f.inspect(id, "x".repeat(200 * 1024), null)
+    expect(denied.status).toBe(403)
+  }
+})
+
+it("agrees with @b4run/workspace on which roots are canonical", () => {
+  for (const root of ["draft", "a/b", "..", "a/../b", "/a", "a/", "a//b", "", ".", "a\\b", "x\u0000y", "é/ü"])
+    expect([root, isCanonicalRoot(root)]).toEqual([root, isCanonicalWorkspaceRoot(root)])
+})
+
+it("answers 409 workspace_changed when the workspace changes under the read", async () => {
+  const f = await fixture()
+  const threadId = await f.createThread()
+  await f.run(threadId, "/edit#workflow", { path: "a.txt", text: "a" })
+  const open = f.physical.workspaces.openWorkspaceReader?.bind(f.physical.workspaces)
+  if (!open) throw new Error("the fixture reads")
+  f.physical.workspaces.openWorkspaceReader = async (input) => {
+    const reader = await open(input)
+    return {
+      ...reader,
+      filesystem: {
+        ...reader.filesystem,
+        readBinaryFile: async (path: string) => {
+          throw new WorkspaceReadLimitError(`readBinaryFile ${path}: content exceeds maxBytes (1).`, path, 1)
+        },
+      },
+    }
+  }
+  const response = await f.inspect(threadId)
+  expect(response.status).toBe(409)
+  expect(await response.json()).toMatchObject({ error: { details: { code: "workspace_changed" } } })
 })
 
 it("names a thread that has not run, and a thread that does not exist", async () => {
@@ -2429,6 +2648,28 @@ const KEYS = new Set([
 ])
 const MAX_NAMES = 64
 
+/**
+ * `isCanonicalWorkspaceRoot` from `@b4run/workspace`, restated so this module stays in the
+ * runtime core's pure graph without pulling that package's barrel in; the endpoint test
+ * pins the two to the same answers over a table of roots.
+ */
+export function isCanonicalRoot(root: string): boolean {
+  return (
+    root.length > 0 &&
+    root.length <= 1024 &&
+    root
+      .split("/")
+      .every(
+        (segment) =>
+          segment !== "" &&
+          segment !== "." &&
+          segment !== ".." &&
+          !segment.includes("\\") &&
+          ![...segment].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127),
+      )
+  )
+}
+
 type Parsed =
   | { readonly ok: true; readonly request: ThreadWorkspaceInspectRequest }
   | { readonly ok: false; readonly message: string }
@@ -2463,8 +2704,11 @@ export function parseThreadWorkspaceRequest(value: unknown): Parsed {
     if (!KEYS.has(key)) return { ok: false, message: `Unknown workspace read option: ${key}` }
   const own = (key: string) => (Object.hasOwn(value, key) ? value[key] : undefined)
   const root = own("root")
-  if (root !== undefined && (typeof root !== "string" || root.length > 1024))
-    return { ok: false, message: "root must be a string of at most 1024 characters" }
+  if (root !== undefined && (typeof root !== "string" || !isCanonicalRoot(root)))
+    return {
+      ok: false,
+      message: `Invalid workspace inspection root: ${JSON.stringify(root)} (relative leaf names, no "..", ".", empty segment, backslash or control character)`,
+    }
   const excluded = own("excludeRootDirectories") === undefined ? [] : strings(own("excludeRootDirectories"), "excludeRootDirectories")
   if (typeof excluded === "string") return { ok: false, message: excluded }
   const ignored = own("ignorePrefixes") === undefined ? [] : strings(own("ignorePrefixes"), "ignorePrefixes")
@@ -2514,7 +2758,12 @@ const STATUS: Readonly<Record<ThreadWorkspaceInspectFailure, number>> = {
   invalid_request: 400,
 }
 
-/** The one place an outcome becomes bytes. `ignorePrefixes` are applied here, to keys relative to the root. */
+/**
+ * The one place an outcome becomes bytes. `ignorePrefixes` are applied here, to keys
+ * relative to the root: the files are dropped from `files`, but they were read, so they
+ * still count in `totalBytes` and `entries` (and against the byte and entry limits).
+ * The two counts describe the inspection, not the answer.
+ */
 export function threadWorkspaceResponse(
   threadId: string,
   request: ThreadWorkspaceInspectRequest,
@@ -2559,28 +2808,15 @@ In `runtime-fetch-core.ts`, import `{ payloadTooLarge, RequestBodyTooLargeError,
     // ------------------------------------------------------------------
     // POST /threads/:thread_id/workspace/inspect — read a thread's workspace
     // ------------------------------------------------------------------
-    // Off unless the app sets `sandbox.workspaceRead: "http"`, which boot refuses
-    // without a thread-access policy; off, it is indistinguishable from a route
-    // that does not exist. A `read` of the thread (`thread.workspace`), so a
+    // Order: thread lookup, gate, THEN the feature check and the body. An unauthorized
+    // caller gets the gate's answer whether the feature is on or off, so the route never
+    // tells it which; an authorized caller of an app without `sandbox.workspaceRead`
+    // gets the same 404 as a route that does not exist. Nothing is read from the body
+    // until the caller is authorized. A `read` of the thread (`thread.workspace`), so a
     // denial defaults to the same 404 a missing thread returns.
     {
       handle: async (request, params) => {
         const threadId = params.thread_id ?? ""
-        if (!sandboxManager?.workspaceProtocol.read)
-          return Response.json(createRequestErrorBody("Not found"), { status: 404 })
-        let body: unknown = {}
-        try {
-          const raw = await readBoundedText(request, INSPECT_BODY_MAX_BYTES)
-          if (raw.trim()) {
-            const parsed = parseJson(raw)
-            if (!parsed.ok)
-              return Response.json(createRequestErrorBody("Malformed request body"), { status: 400 })
-            body = parsed.value
-          }
-        } catch (error) {
-          if (error instanceof RequestBodyTooLargeError) return payloadTooLarge(error)
-          throw error
-        }
         const thread = await getThreadsStore(request).getThread(threadId)
         const notFound = () =>
           Response.json(createRequestErrorBody("Thread not found", { code: "thread_not_found" }), {
@@ -2596,7 +2832,23 @@ In `runtime-fetch-core.ts`, import `{ payloadTooLarge, RequestBodyTooLargeError,
         })
         const settled = isThenable(g) ? await g : g
         if (!settled.ok) return settled.response
+        if (!sandboxManager?.workspaceProtocol.read)
+          return Response.json(createRequestErrorBody("Not found"), { status: 404 })
         if (!thread) return notFound()
+        let body: unknown = {}
+        try {
+          const raw = await readBoundedText(request, INSPECT_BODY_MAX_BYTES)
+          if (raw.trim()) {
+            const parsed = parseJson(raw)
+            if (!parsed.ok)
+              return Response.json(createRequestErrorBody("Malformed request body"), { status: 400 })
+            body = parsed.value
+          }
+        } catch (error) {
+          if (error instanceof RequestBodyTooLargeError) return payloadTooLarge(error)
+          throw error
+        }
+        // Every option, `root` included, is refused here before a reader is started.
         const parsed = parseThreadWorkspaceRequest(body)
         if (!parsed.ok)
           return Response.json(createRequestErrorBody(parsed.message, { code: "invalid_request" }), {
@@ -2645,7 +2897,7 @@ and change the count test to 17 with its comment extended by "plus `POST /thread
 - [ ] **Step 6: Run the tests**
 
 Run: `pnpm --filter @b4run/cli exec vitest run test/thread-workspace-endpoint.test.ts test/thread-access-coverage.test.ts test/fetch-entry-purity.test.ts test/runtime-fetch-parity.test.ts`
-Expected: PASS. (`runtime-fetch-parity.test.ts` compares the Node and fetch runtimes' route behaviour; if it enumerates routes, add the new one where it lists the others.)
+Expected: PASS. (`runtime-fetch-parity.test.ts` exercises a chat route through both runtimes and enumerates no routes, so it needs no edit; it is run to show the new route changes nothing it covers.)
 
 - [ ] **Step 7: Commit**
 
@@ -2707,7 +2959,14 @@ describe("readThreadWorkspace", () => {
     expect(request.method).toBe("POST")
     expect(request.url).toBe("http://worker:4100/threads/t%201/workspace/inspect")
     expect(request.headers.get("authorization")).toBe("Bearer x")
+    expect(request.redirect).toBe("error")
     expect(await request.json()).toEqual({ root: "draft", maxTotalBytes: 1024 })
+  })
+
+  it("refuses an answer larger than maxResponseBytes before holding it whole", async () => {
+    await expect(
+      readThreadWorkspace("http://w", "t 1", {}, { fetch: answering(200, good), maxResponseBytes: 64 }),
+    ).rejects.toMatchObject({ code: "response_too_large" })
   })
 
   it("refuses an answer about another source or another thread", async () => {
@@ -2725,6 +2984,9 @@ describe("readThreadWorkspace", () => {
     "a non-string file": { ...good, inspection: { ...good.inspection, files: { a: 1 } } },
     "a missing inspection": { threadId: "t 1", sourceDigest: DIGEST, intentDigest: OTHER },
     "an array": [good],
+    "a file key that climbs out": { ...good, inspection: { ...good.inspection, files: { "../x": "" } } },
+    "an absolute file key": { ...good, inspection: { ...good.inspection, files: { "/etc/passwd": "" } } },
+    "a nested symlink key": { ...good, inspection: { ...good.inspection, symlinks: { "a/b": "/x" } } },
   }))
     it(`refuses a malformed answer: ${label}`, async () => {
       await expect(
@@ -2823,6 +3085,8 @@ export interface ReadThreadWorkspaceInit {
   readonly signal?: AbortSignal
   /** Refuse an answer whose recorded source is not this digest (`source_mismatch`). */
   readonly expectedSourceDigest?: string
+  /** Refuse an answer larger than this (`response_too_large`). Default 80 MiB: 32 MiB of text, JSON-escaped. */
+  readonly maxResponseBytes?: number
   readonly fetch?: typeof fetch
 }
 
@@ -2869,15 +3133,56 @@ function exactKeys(value: Record<string, unknown>, required: readonly string[], 
     throw malformed(`expected keys ${[...required, ...optional].join(", ")}, got ${keys.join(", ")}`)
 }
 
-/** Own string values only, copied onto a null prototype so no key can reach `Object.prototype`. */
-function textRecord(value: unknown, what: string): Record<string, string> {
+const RESPONSE_MAX_BYTES = 80 * 1024 * 1024
+
+/** A leaf name as `inspectWorkspace` admits one: no empty, `.`, `..`, slash, backslash or control character. */
+function isLeaf(name: string): boolean {
+  return (
+    name !== "" &&
+    name !== "." &&
+    name !== ".." &&
+    !name.includes("/") &&
+    !name.includes("\\") &&
+    ![...name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)
+  )
+}
+
+/**
+ * Own string values only, copied onto a null prototype so no key can reach
+ * `Object.prototype`. Every key must be a relative path of leaf names (`nested`) or a
+ * single leaf: a caller that joins a key to a directory can never be walked out of it.
+ */
+function textRecord(value: unknown, what: string, nested: boolean): Record<string, string> {
   if (!isPlain(value)) throw malformed(`${what} is not an object`)
   const copy: Record<string, string> = Object.create(null)
   for (const [key, text] of Object.entries(value)) {
+    if (!(nested ? key.split("/").every(isLeaf) : isLeaf(key)))
+      throw malformed(`${what} key ${JSON.stringify(key)} is not a relative path`)
     if (typeof text !== "string") throw malformed(`${what}.${key} is not a string`)
     Object.defineProperty(copy, key, { value: text, enumerable: true })
   }
   return copy
+}
+
+/** The body as text, refusing more than `max` bytes before holding it whole. */
+async function boundedText(response: Response, max: number): Promise<string> {
+  const reader = response.body?.getReader()
+  if (!reader) return ""
+  const decoder = new TextDecoder()
+  const parts: string[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > max) {
+      await reader.cancel().catch(() => {})
+      throw new ThreadWorkspaceReadError(0, "response_too_large", `The worker's answer exceeds ${max} bytes`)
+    }
+    parts.push(decoder.decode(value, { stream: true }))
+  }
+  parts.push(decoder.decode())
+  return parts.join("")
 }
 
 function count(value: unknown, what: string): number {
@@ -2899,8 +3204,8 @@ function verify(body: unknown, threadId: string, init: ReadThreadWorkspaceInit):
     intentDigest: body.intentDigest,
     ...(typeof body.root === "string" ? { root: body.root } : {}),
     inspection: {
-      files: textRecord(body.inspection.files, "files"),
-      symlinks: textRecord(body.inspection.symlinks, "symlinks"),
+      files: textRecord(body.inspection.files, "files", true),
+      symlinks: textRecord(body.inspection.symlinks, "symlinks", false),
       totalBytes: count(body.inspection.totalBytes, "totalBytes"),
       entries: count(body.inspection.entries, "entries"),
     },
@@ -2940,9 +3245,11 @@ export async function readThreadWorkspace(
     method: "POST",
     headers,
     body: JSON.stringify(options),
+    // A redirect would carry the credential in `headers` to wherever it points.
+    redirect: "error",
     ...(init.signal ? { signal: init.signal } : {}),
   })
-  const text = await response.text()
+  const text = await boundedText(response, init.maxResponseBytes ?? RESPONSE_MAX_BYTES)
   if (!response.ok) {
     let message = text
     let code: string | undefined
@@ -3004,8 +3311,8 @@ Existing pages only, so no lastmod regeneration (`AGENTS.md`). `scripts/check-do
 **Files:**
 - Modify: `apps/web/content/docs/sandbox.mdx` (a section after "Reading a thread's workspace from another process", `:189-224`)
 - Modify: `apps/web/content/docs/dev-server/agent-protocol.mdx` (endpoint table, `:34-48`)
-- Modify: `apps/web/content/docs/thread-access.mdx` (the operation list and a short section)
-- Modify: `apps/web/content/docs/api/workspace.mdx`, `apps/web/content/docs/api/cli.mdx:155-166, 239-258`, `apps/web/content/docs/api/sdk.mdx` if it lists operations
+- Modify: `apps/web/content/docs/thread-access.mdx` (a new section; the page has no list of operations to extend)
+- Modify: `apps/web/content/docs/api/workspace.mdx`, `apps/web/content/docs/api/cli.mdx:155-166, 239-258` (`api/sdk.mdx` describes `ThreadOperation` in one generic row, `:95`, and needs no change)
 - Modify: `scripts/check-docs.mjs` (the agent-protocol page's `required` list, `:2776-2800`)
 - Create: `.changeset/workspace-read-http.md`
 
@@ -3046,7 +3353,7 @@ The worker serves it with the same reader as above, inside its own process: a se
 
 - **It needs a thread-access policy.** `b4 check`, `b4 build` and boot refuse `workspaceRead` without one, because the endpoint discloses every file under the requested root. The policy sees it as the `thread.workspace` operation, a `read`, so a denial answers the same 404 as a missing thread.
 - **It needs managed workspaces** (`sandbox.workspace` or `sandbox.thread`) and a provider whose managed workspaces can be read. `dockerSandbox` can.
-- **Limits.** `maxEntries` up to 10,000, `maxFileBytes` up to 16 MiB, `maxTotalBytes` up to 32 MiB; the defaults are `inspectWorkspace`'s. The answer is one JSON document.
+- **Limits.** `maxEntries` up to 10,000, `maxFileBytes` up to 16 MiB, `maxTotalBytes` up to 32 MiB; the defaults are `inspectWorkspace`'s. The answer is one JSON document. `ignorePrefixes` drops paths from `files`, but they were read, so they count in `totalBytes`, `entries` and the limits.
 - **Refusals are named.** `404 workspace_not_found` (the thread has not run), `404 workspace_lost`, `410 workspace_expired`, `409 workspace_not_ready`, `409 workspace_changed` (the workspace changed while it was read; retry), `422 workspace_root_missing` with `root` and `kind`, `422 workspace_inspection_refused` (an executable, binary or oversized file), `400 invalid_request`.
 - **Check what you get.** The answer carries the thread's recorded `sourceDigest`. Pass the digest you expect as `expectedSourceDigest` and the client refuses an answer about another workspace; it also refuses an answer for another thread id.
 ````
@@ -3063,7 +3370,7 @@ and add `"POST /threads/:thread_id/workspace/inspect"` to that page's `required`
 
 - [ ] **Step 3: The thread-access page**
 
-Where the page lists what `operation` can be (and in `api/sdk.mdx` if it enumerates `ThreadOperation`), add `thread.workspace` (`POST /threads/:thread_id/workspace/inspect`, a `read`). Add a short section:
+Add a section after "What the policy receives":
 
 ```md
 ## Workspace endpoints
@@ -3099,13 +3406,13 @@ Expected: exit 0. A failure names a page and a missing phrase or an undocumented
 "@b4run/sdk": patch
 ---
 
-Read a thread's workspace over HTTP. `sandbox.workspaceRead: "http"` serves `POST /threads/:thread_id/workspace/inspect`, a bounded read-only inventory of a thread's managed workspace, authorized by the app's thread-access policy as the new `thread.workspace` operation; `b4 check`, `b4 build` and boot refuse it without a policy. `readThreadWorkspace` in `@b4run/cli/workspace` is the client. `inspectWorkspace` gains `root` and throws `WorkspaceInspectionError` with a code (`invalid_options`, `root_missing`, `refused`, `changed`); B4.run's bounded reads throw `WorkspaceReadLimitError` with their existing messages. `ThreadOperation` gains a member, so an exhaustive `switch` over it needs a case.
+Read a thread's workspace over HTTP. `sandbox.workspaceRead: "http"` serves `POST /threads/:thread_id/workspace/inspect`, a bounded read-only inventory of a thread's managed workspace, authorized by the app's thread-access policy as the new `thread.workspace` operation; `b4 check`, `b4 build` and boot refuse it without a policy. `readThreadWorkspace` in `@b4run/cli/workspace` is the client. `inspectWorkspace` gains `root` and throws `WorkspaceInspectionError` with a code (`invalid_options`, `root_missing`, `refused`, `changed`); B4.run's bounded reads throw `WorkspaceReadLimitError` with their existing messages. `ThreadOperation` gains a member, so an exhaustive `switch` over it needs a case. On Node, a request body a handler stops reading part-way is now discarded rather than resetting the connection, so a refusal such as a 413 reaches the client.
 ```
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add apps/web/content/docs/sandbox.mdx apps/web/content/docs/dev-server/agent-protocol.mdx apps/web/content/docs/thread-access.mdx apps/web/content/docs/api/workspace.mdx apps/web/content/docs/api/cli.mdx apps/web/content/docs/api/sdk.mdx scripts/check-docs.mjs .changeset/workspace-read-http.md
+git add apps/web/content/docs/sandbox.mdx apps/web/content/docs/dev-server/agent-protocol.mdx apps/web/content/docs/thread-access.mdx apps/web/content/docs/api/workspace.mdx apps/web/content/docs/api/cli.mdx scripts/check-docs.mjs .changeset/workspace-read-http.md
 git commit -m "docs(sandbox): reading a thread's workspace over HTTP
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -3144,7 +3451,7 @@ After this PR the controller reads a builder or drafter thread with the worker's
 
 - [ ] **Step 1: Write the failing tests**
 
-In each config test (they already import the app's `b4.config.ts` with the required variables stubbed), add:
+In each config test (they already import the app's `b4.config.ts` through `loadConfig`, `builder-config.test.ts:65` and `drafter-config.test.ts:63`), add:
 
 ```ts
   it("serves its threads' workspaces over its own port, behind src/thread-access.ts", async () => {
@@ -3227,6 +3534,17 @@ describe("handedSourceDigest", () => {
       ["builder_manifest_written", { sourceDigest: B }],
     )
     expect(handedSourceDigest(log, "t-1", "builder")).toBe(A)
+  })
+
+  it("reads a staged upload's digest exactly as a manifest's", () => {
+    const log = events(
+      ["builder_manifest_written", { sourceDigest: A }],
+      ["thread_created", { threadId: "t-1" }],
+      ["builder_source_staged", { sourceDigest: B, status: "created" }],
+      ["thread_created", { threadId: "t-2" }],
+    )
+    expect(handedSourceDigest(log, "t-1", "builder")).toBe(A)
+    expect(handedSourceDigest(log, "t-2", "builder")).toBe(B)
   })
 
   it("reads the drafter's events for a drafter thread", () => {
@@ -3316,7 +3634,7 @@ describe("the HTTP thread workspace reader", () => {
 })
 ```
 
-Update the file's imports (drop `fakeManagedApp`, `SandboxProvider`, `SandboxWorkspaceReader`, `mkdtemp`, `rm`, `tmpdir`, `join`, `readFileSync`, `targetSandboxPolicy` if unused; import `createHttpThreadWorkspaceReader`) and the `target` helper to `({ threadId, taskId, sourceDigest: "d".repeat(64) })`. `fake-managed-provider.ts` stays only if another test imports it (`git grep -l fake-managed-provider examples/software-factory/controller/test`); otherwise delete it with the old block.
+Update the file's imports (drop `fakeManagedApp`, `SandboxProvider`, `SandboxWorkspaceReader`, `mkdtemp`, `rm`, `tmpdir`, `join`, `readFileSync`, `targetSandboxPolicy`, whichever `pnpm lint`'s unused-import rule then names; import `createHttpThreadWorkspaceReader`) and the `target` helper to `({ threadId, taskId, sourceDigest: "d".repeat(64) })`. Delete `test/fake-managed-provider.ts` with the old block: `workspace-reader.test.ts` was its only importer (checked at #836's head).
 
 - [ ] **Step 2: Run them to see them fail**
 
@@ -3327,10 +3645,15 @@ Expected: FAIL: modules and exports missing.
 
 ```ts
 // examples/software-factory/controller/src/lib/controller/source-digest.ts
-/** The events that record a capture handed to a worker, and the event that hands it to a thread. */
+/**
+ * The events that record a capture handed to a worker, and the event that hands it to a
+ * thread. Both spellings of the first: `*_manifest_written` (a manifest file, until PR 5) and
+ * `*_source_staged` (an upload over the protocol, from PR 5), so a row journalled under either
+ * reads the same.
+ */
 const ROLE = {
-  builder: { written: "builder_manifest_written", created: "thread_created" },
-  drafter: { written: "drafter_manifest_written", created: "intake_thread_created" },
+  builder: { written: ["builder_manifest_written", "builder_source_staged"], created: "thread_created" },
+  drafter: { written: ["drafter_manifest_written", "drafter_source_staged"], created: "intake_thread_created" },
 } as const
 
 /**
@@ -3346,7 +3669,7 @@ export function handedSourceDigest(
 ): string {
   let last: unknown
   for (const event of events) {
-    if (event.type === ROLE[role].written) last = event.payload.sourceDigest
+    if ((ROLE[role].written as readonly string[]).includes(event.type)) last = event.payload.sourceDigest
     else if (event.type === ROLE[role].created && event.payload.threadId === threadId) {
       if (typeof last === "string" && /^[0-9a-f]{64}$/.test(last)) return last
       break
@@ -3442,7 +3765,7 @@ export function createHttpThreadWorkspaceReader(
 }
 ```
 
-(`ignorePrefixes` keeps its meaning, prefixes of keys relative to `root`; the worker now applies them.) In `targets/workspace.ts`, `targetInspectionOptions` stops spreading `runAsNonRoot` (delete the `...(policy.security?.runAsNonRoot === undefined ? {} : { runAsNonRoot: ... })` lines and the comment above them), and `test/targets-workspace.test.ts` drops its `runAsNonRoot` assertion if it has one.
+(`ignorePrefixes` keeps its meaning, prefixes of keys relative to `root`; the worker now applies them.) In `targets/workspace.ts`, `targetInspectionOptions` stops spreading `runAsNonRoot` (delete the `...(policy.security?.runAsNonRoot === undefined ? {} : { runAsNonRoot: ... })` lines and the comment above them) (`test/targets-workspace.test.ts` asserts nothing about `runAsNonRoot` and needs no change for this).
 
 - [ ] **Step 5: The two callers pass the digest**
 
@@ -3482,7 +3805,6 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Modify: `examples/software-factory/controller/src/lib/config.ts` (`RETIRED`, `EnvSchema`, `WorkerEndpoint`, `DrafterEndpoint`, `FactoryConfig`, `loadConfig`)
 - Modify: `examples/software-factory/controller/src/lib/controller/workers.ts` (no `appRoot`; `DRAFTER_UNCONFIGURED`)
 - Modify: `examples/software-factory/controller/src/lib/runtime.ts:85-215` (readers by URL; `isDirectory` and `namingDrafterAppRoot` deleted)
-- Modify: `examples/software-factory/controller/src/lib/targets/workspace.ts` (`builderSandboxProvider`, `drafterSandboxProvider` deleted if nothing else imports them)
 - Create: `examples/software-factory/controller/test/no-worker-filesystem.test.ts`
 - Modify: `examples/software-factory/controller/test/config.test.ts`, `workers.test.ts`, `runtime.test.ts`, `fake-worker-map.ts`, `serve-controller.ts`
 
@@ -3542,7 +3864,16 @@ In `test/config.test.ts`:
   })
 ```
 
-and drop from `baseEnv()` `FACTORY_BUILDER_APP_ROOT`, adding `FACTORY_BUILDER_MANIFEST_DIR: "/m/b"`; delete the cases that tested the app-root pairing, the same-app-root refusal, and the `DRAFTER_IMAGE` literal pin.
+Then rewrite the file's environments and cases (line numbers at #836's head):
+- `base` and `pair`: replace `FACTORY_BUILDER_APP_ROOT` with `FACTORY_BUILDER_MANIFEST_DIR: "/m/b"` (`base`) and `"/srv/builder/manifests"` (`pair`); drop `DRAFTER_IMAGE` from the import (`:3`).
+- "is one worker for every target, with its manifest directory defaulted under its app root" (`:40`) becomes "is one worker for every target, at its URL, writing into its manifest directory", asserting `config.builder` equals `{ url: "http://127.0.0.1:4100", route: DEFAULT_WORKER_ROUTE, manifestDir: "/srv/builder/manifests" }`.
+- "still needs both halves of the pair" (`:76`) becomes "needs the manifest directory with the URL": dropping `FACTORY_BUILDER_MANIFEST_DIR` from `pair` throws `/FACTORY_BUILDER_MANIFEST_DIR is required/`.
+- Delete "refuses a drafter app root that is also the builder's" (`:83`) and "pins the default image to the drafter's own" (`:245`).
+- "leaves the drafter unset and defaults the image to the pinned digest" (`:158`): drop the `drafterImage` assertion and rename to "leaves the drafter unset".
+- "takes the drafter pair, defaulting the route and the manifest directory" (`:167`): the environment is `FACTORY_DRAFTER_URL` plus `FACTORY_DRAFTER_MANIFEST_DIR` (no app root, no image), and the expected `drafter` has no `appRoot`.
+- "refuses a drafter knob without the drafter, naming it" (`:194`): the knobs are `FACTORY_DRAFTER_ROUTE` and `FACTORY_DRAFTER_MANIFEST_DIR`, the message ends "set FACTORY_DRAFTER_URL, or unset it" / "or unset them".
+- "refuses half a drafter" (`:212`) becomes the "needs only a URL per worker" case above.
+- "rejects a blank or malformed drafter value under its name" (`:222`): drop the `FACTORY_DRAFTER_APP_ROOT` and `FACTORY_DRAFTER_IMAGE` lines, keep the URL and route ones.
 
 - [ ] **Step 2: Run them to see them fail**
 
@@ -3584,8 +3915,6 @@ Expected: FAIL: `runtime.ts` still names `FACTORY_DRAFTER_APP_ROOT`; the retired
     )
   }
 ```
-
-`targets/workspace.ts`: `git grep -n "builderSandboxProvider\|drafterSandboxProvider" examples/software-factory` — delete each function no longer imported anywhere (tests included).
 
 Tests: `fake-worker-map.ts` and every `fakeWorkerMap({ builder: { ..., appRoot } })` drop `appRoot`; `serve-controller.ts`'s `FACTORY_ENV` drops the two app roots and sets `FACTORY_BUILDER_MANIFEST_DIR` and `FACTORY_DRAFTER_MANIFEST_DIR` to directories under its temp dir; `workers.test.ts` and `runtime.test.ts` follow.
 
@@ -3643,7 +3972,7 @@ Add, right after it, the proof that the controller needed nothing of the worker'
   expect(bare.status).toBe(403)
 ```
 
-Make the same reader change in `devkit-end-to-end.integration.test.ts` and in `drafter-end-to-end.integration.test.ts` (root `"draft"`, role `"drafter"`).
+Make the same reader change in `devkit-end-to-end.integration.test.ts` and in `drafter-end-to-end.integration.test.ts` (root `"draft"`, role `"drafter"`). Those lanes, `end-to-end.integration.test.ts`, `targets-workspace.test.ts` and `runtime.ts` (changed in Task 17) were the only importers of `builderSandboxProvider` and `drafterSandboxProvider` (checked at #836's head), so delete both functions and their imports from `controller/src/lib/targets/workspace.ts` now, delete the `targets-workspace.test.ts` cases that construct them, and add `controller/src/lib/targets/workspace.ts` to this task's commit.
 
 - [ ] **Step 2: Run the Docker lane**
 
@@ -3667,7 +3996,7 @@ installation store, and needs Docker only for its own verifier.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add examples/software-factory/controller/test examples/software-factory/README.md
+git add examples/software-factory/controller/test examples/software-factory/controller/src/lib/targets/workspace.ts examples/software-factory/README.md
 git commit -m "test(software-factory): the lanes read workers over HTTP with no path to their .b4
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -3877,11 +4206,16 @@ and in `SandboxConfig` after `workspaceRead`:
    * (default and ceiling 96 MiB) and `retentionMs` (how long an unreferenced
    * upload is kept; default 24 hours, 60 seconds to 30 days). Needs a resolver
    * (`thread`, or a function `workspace`) and a thread-access policy: `b4 check`,
-   * `b4 build` and boot refuse it without one.
+   * `b4 build` and boot refuse it without one. `maxStagedBytes` (default 1 GiB,
+   * at most 16 GiB) caps the stored bytes of every uploaded source together.
    */
   readonly stagedWorkspaces?:
     | boolean
-    | { readonly maxUploadBytes?: number; readonly retentionMs?: number }
+    | {
+        readonly maxUploadBytes?: number
+        readonly retentionMs?: number
+        readonly maxStagedBytes?: number
+      }
 ```
 
 `index.ts`: add `StagedWorkspaceReference` to the `./managed-workspace.js` type exports. `node.ts`: add `stagedWorkspaceDefinition` and `verifyStagedWorkspaceReference` to the `./managed-workspace-node.js` exports.
@@ -3929,6 +4263,7 @@ async function installation() {
   roots.push(appRoot)
   return { appRoot, installation: openWorkspaceInstallation(appRoot) }
 }
+const Q = 64 * 1024 * 1024
 const bundle = (text: string) =>
   createSourceBundle([{ path: "a.txt", bytes: new TextEncoder().encode(text), executable: false }])
 
@@ -3936,8 +4271,8 @@ describe("the staged source store", () => {
   it("keeps an upload, answers held for the same bytes, and serves it from the content store", async () => {
     const { installation: i } = await installation()
     const a = bundle("a")
-    expect(i.staged.upload(a, 1_000)).toBe("created")
-    expect(i.staged.upload(a, 2_000)).toBe("held")
+    expect(i.staged.upload(a, 1_000, Q)).toBe("created")
+    expect(i.staged.upload(a, 2_000, Q)).toBe("held")
     expect(i.staged.holds(a.digest)).toBe(true)
     expect(i.sources.get(a.digest)).toEqual(a)
     i.close()
@@ -3947,7 +4282,7 @@ describe("the staged source store", () => {
     const { installation: i } = await installation()
     const a = bundle("a")
     expect(() => i.staged.attach("t-1", { sourceDigest: a.digest })).toThrow(WorkspaceStagedSourceError)
-    i.staged.upload(a, 1_000)
+    i.staged.upload(a, 1_000, Q)
     i.staged.attach("t-1", { sourceDigest: a.digest, baseline: "git" })
     expect(i.staged.get("t-1")).toEqual({ sourceDigest: a.digest, environmentLinks: [], baseline: "git" })
     const again = (() => {
@@ -3966,15 +4301,42 @@ describe("the staged source store", () => {
   it("reclaims an unreferenced upload only after the window, and never a referenced one", async () => {
     const { installation: i } = await installation()
     const [fresh, old, pinned, inUse] = [bundle("fresh"), bundle("old"), bundle("pinned"), bundle("in use")]
-    i.staged.upload(old, 1_000)
-    i.staged.upload(pinned, 1_000)
-    i.staged.upload(inUse, 1_000)
-    i.staged.upload(fresh, 9_000)
+    i.staged.upload(old, 1_000, Q)
+    i.staged.upload(pinned, 1_000, Q)
+    i.staged.upload(inUse, 1_000, Q)
+    i.staged.upload(fresh, 9_000, Q)
     i.staged.attach("t-pinned", { sourceDigest: pinned.digest })
     const removed = i.staged.reclaim(5_000, new Set([inUse.digest]))
     expect(removed).toEqual([old.digest])
     expect(i.staged.holds(old.digest)).toBe(false)
     for (const kept of [fresh, pinned, inUse]) expect(i.staged.holds(kept.digest)).toBe(true)
+    i.close()
+  })
+
+  it("refuses new bytes past the staged quota, but not a re-upload of held ones", async () => {
+    const { installation: i } = await installation()
+    const a = bundle("a")
+    i.staged.upload(a, 1_000, Q)
+    const size = JSON.stringify(a).length
+    const again = (() => {
+      try {
+        i.staged.upload(bundle("b"), 1_000, size + 10)
+      } catch (error) {
+        return error
+      }
+    })()
+    expect(again).toMatchObject({ code: "quota_exceeded" })
+    expect(i.staged.upload(a, 2_000, size)).toBe("held")
+    i.close()
+  })
+
+  it("lists the threads that have a staged reference", async () => {
+    const { installation: i } = await installation()
+    const a = bundle("a")
+    i.staged.upload(a, 1_000, Q)
+    i.staged.attach("t-2", { sourceDigest: a.digest })
+    i.staged.attach("t-1", { sourceDigest: a.digest })
+    expect(i.staged.threads()).toEqual(["t-1", "t-2"])
     i.close()
   })
 
@@ -3989,7 +4351,7 @@ describe("the staged source store", () => {
   it("persists across reopen, and adds its tables to an installation that predates them", async () => {
     const { appRoot, installation: first } = await installation()
     const a = bundle("a")
-    first.staged.upload(a, 1_000)
+    first.staged.upload(a, 1_000, Q)
     first.staged.attach("t-1", { sourceDigest: a.digest })
     first.close()
     const reopened = openWorkspaceInstallation(appRoot)
@@ -4000,7 +4362,7 @@ describe("the staged source store", () => {
     db.close()
     const upgraded = openWorkspaceInstallation(appRoot)
     expect(upgraded.staged.get("t-1")).toBeUndefined()
-    upgraded.staged.upload(bundle("b"), 1_000)
+    upgraded.staged.upload(bundle("b"), 1_000, Q)
     upgraded.close()
   })
 })
@@ -4023,7 +4385,7 @@ import type { WorkspaceSourceStore } from "./source-store.js"
 /** A staging request the store refuses: the source is not held, or the thread already has one. */
 export class WorkspaceStagedSourceError extends Error {
   constructor(
-    readonly code: "not_held" | "already_staged",
+    readonly code: "not_held" | "already_staged" | "quota_exceeded",
     message: string,
   ) {
     super(message)
@@ -4039,8 +4401,15 @@ export class WorkspaceStagedSourceError extends Error {
  * at once.
  */
 export interface WorkspaceStagedSourceStore {
-  /** Keep a verified bundle; `held` when these bytes were kept already. Refreshes its upload time either way. */
-  upload(bundle: SourceBundle, now: number): "created" | "held"
+  /**
+   * Keep a verified bundle; `held` when these bytes were kept already (nothing is
+   * rewritten or re-parsed then: equal digests are equal bytes). Refreshes its upload
+   * time either way. Refuses (`quota_exceeded`) new bytes that would take the uploaded
+   * sources past `maxStagedBytes` of stored payload.
+   */
+  upload(bundle: SourceBundle, now: number, maxStagedBytes: number): "created" | "held"
+  /** Every thread with a staged reference, for the boot sweep of deleted threads. */
+  threads(): readonly string[]
   /** Whether the content store holds this digest (cheap: no payload is read). */
   holds(digest: string): boolean
   /** Record the workspace a new thread was created with. Refuses a source not held, and a second record. */
@@ -4119,6 +4488,10 @@ export function makeWorkspaceStagedSourceStore(
   sources: WorkspaceSourceStore,
 ): WorkspaceStagedSourceStore {
   const held = db.prepare("SELECT 1 AS one FROM workspace_sources WHERE digest=?")
+  const stagedBytes = db.prepare(
+    "SELECT COALESCE(SUM(length(CAST(payload AS BLOB))), 0) AS bytes FROM workspace_sources WHERE digest IN (SELECT digest FROM workspace_source_uploads)",
+  )
+  const everyStagedThread = db.prepare("SELECT thread_id FROM workspace_thread_staged ORDER BY thread_id")
   const upsertUpload = db.prepare(
     "INSERT INTO workspace_source_uploads(digest, uploaded_at) VALUES (?,?) ON CONFLICT(digest) DO UPDATE SET uploaded_at=excluded.uploaded_at",
   )
@@ -4147,15 +4520,29 @@ export function makeWorkspaceStagedSourceStore(
     return held.get(digest) !== undefined
   }
   return {
-    upload(bundle, now) {
+    upload(bundle, now, maxStagedBytes) {
       const at = timeOf(now)
       return savepoint(db, () => {
-        const existed = holds(bundle.digest)
-        // Verifies the bundle; different bytes under a held digest are refused there.
+        if (holds(bundle.digest)) {
+          // Equal digests are equal bytes: refresh the window and rewrite nothing.
+          upsertUpload.run(bundle.digest, at)
+          return "held"
+        }
+        const size = Buffer.byteLength(JSON.stringify(bundle), "utf8")
+        const current = Number(stagedBytes.get()?.bytes ?? 0)
+        if (current + size > maxStagedBytes)
+          throw new WorkspaceStagedSourceError(
+            "quota_exceeded",
+            `Staging ${size} bytes would exceed the ${maxStagedBytes}-byte staged quota (${current} held)`,
+          )
+        // Verifies the bundle and stores its canonical JSON.
         sources.put(bundle)
         upsertUpload.run(bundle.digest, at)
-        return existed ? "held" : "created"
+        return "created"
       })
+    },
+    threads() {
+      return everyStagedThread.all().map((row) => String(row.thread_id))
     },
     holds,
     attach(threadId, input) {
@@ -4217,9 +4604,13 @@ in `openWorkspaceInstallation`, after `ensureWorkspaceThreadSandboxSchema(stateD
 
 ```ts
       staged: {
-        upload(bundle, now) {
+        upload(bundle, now, maxStagedBytes) {
           requireOpen()
-          return staged.upload(bundle, now)
+          return staged.upload(bundle, now, maxStagedBytes)
+        },
+        threads() {
+          requireOpen()
+          return staged.threads()
         },
         holds(digest) {
           requireOpen()
@@ -4280,12 +4671,22 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Write the failing contract**
 
-In `thread-access.contract.ts`: add `| "workspace.source.put"` to `_Operation`, `requestedWorkspace: undefined,` to the `request` literal, and
+In `thread-access.contract.ts`: add `ThreadAccessRequestedWorkspace` to its type import from `@b4run/sdk` (rebuild the package, `pnpm --filter @b4run/sdk build`, before the typecheck), `| "workspace.source.put"` to `_Operation`, `requestedWorkspace: undefined,` to the `request` literal, and
 
 ```ts
 // Required as `T | undefined`, like `requestedMetadata`: set only on a create that names a workspace.
 type _RequestedWorkspace = Expect<
-  Equal<ThreadAccessRequest["requestedWorkspace"], Readonly<{ sourceDigest: string }> | undefined>
+  Equal<ThreadAccessRequest["requestedWorkspace"], ThreadAccessRequestedWorkspace | undefined>
+>
+type _RequestedWorkspaceShape = Expect<
+  Equal<
+    ThreadAccessRequestedWorkspace,
+    Readonly<{
+      sourceDigest: string
+      environmentLinks?: readonly Readonly<{ path: string; target: string }>[]
+      baseline?: "git"
+    }>
+  >
 >
 ```
 
@@ -4315,20 +4716,34 @@ in the union:
   | "workspace.source.put"
 ```
 
+the type (exported from `packages/sdk/src/index.ts` beside `ThreadAccessRequest`):
+
+```ts
+/** A workspace a request chooses: see `ThreadAccessRequest.requestedWorkspace`. */
+export type ThreadAccessRequestedWorkspace = Readonly<{
+  sourceDigest: string
+  environmentLinks?: readonly Readonly<{ path: string; target: string }>[]
+  baseline?: "git"
+}>
+```
+
 and in `ThreadAccessRequest`, after `requestedMetadata`:
 
 ```ts
   /**
-   * The staged workspace a `thread.create` names (`POST /threads` with a
-   * `workspace`, `sandbox.stagedWorkspaces`). `undefined` on every other
-   * request, on a create without one, and on the create's `update` recheck.
-   * Present so a policy can let a caller create threads without letting it
-   * choose what they run on.
+   * The workspace this request chooses (`sandbox.stagedWorkspaces`): on a
+   * `thread.create` with a `workspace`, the whole reference it names (digest,
+   * links, baseline); on `workspace.source.put`, `{ sourceDigest }` of the
+   * upload. `undefined` on every other request, on a create without one, and on
+   * the create's `update` recheck. One rule in a policy (`if
+   * (req.requestedWorkspace)`) therefore covers both staging a workspace and
+   * choosing one, and lets a caller create threads without choosing what they
+   * run on. Shape-checked, not yet verified against held bytes.
    */
-  readonly requestedWorkspace: Readonly<{ sourceDigest: string }> | undefined
+  readonly requestedWorkspace: ThreadAccessRequestedWorkspace | undefined
 ```
 
-`thread-gate.ts`: `GateSpec` gains `readonly requestedWorkspace?: Readonly<{ sourceDigest: string }>`, and the request it builds gains `requestedWorkspace: spec.requestedWorkspace,` beside `requestedMetadata`. `packages/testing/src/thread-access-harness.ts`: `ThreadAccessCheckSpec` gains the same optional field and the request it builds `requestedWorkspace: spec.requestedWorkspace,`.
+`thread-gate.ts`: `GateSpec` gains `readonly requestedWorkspace?: ThreadAccessRequestedWorkspace`, and the request it builds gains `requestedWorkspace: spec.requestedWorkspace,` beside `requestedMetadata`. `packages/testing/src/thread-access-harness.ts`: `ThreadAccessCheckSpec` gains the same optional field and the request it builds `requestedWorkspace: spec.requestedWorkspace,`.
 
 - [ ] **Step 4: Find and fix every literal**
 
@@ -4376,6 +4791,7 @@ describe("sandbox.stagedWorkspaces shape", () => {
     ["an unknown limit", { maxUpload: 1 }, /stagedWorkspaces.maxUpload is not/],
     ["an upload over 96 MiB", { maxUploadBytes: 97 * 1024 * 1024 }, /maxUploadBytes must be/],
     ["a retention under a minute", { retentionMs: 1_000 }, /retentionMs must be/],
+    ["a zero quota", { maxStagedBytes: 0 }, /maxStagedBytes must be/],
   ] as const)
     it(`refuses ${label}`, () => {
       expect(sandboxConfigShapeErrors({ provider, thread: resolver, stagedWorkspaces: value }).join("\n")).toMatch(message)
@@ -4413,10 +4829,13 @@ export const STAGED_UPLOAD_MAX_BYTES = 96 * 1024 * 1024
 export const STAGED_RETENTION_DEFAULT_MS = 24 * 60 * 60 * 1000
 export const STAGED_RETENTION_MIN_MS = 60 * 1000
 export const STAGED_RETENTION_MAX_MS = 30 * 24 * 60 * 60 * 1000
+export const STAGED_QUOTA_DEFAULT_BYTES = 1024 * 1024 * 1024
+export const STAGED_QUOTA_MAX_BYTES = 16 * 1024 * 1024 * 1024
 
 export interface StagedWorkspaceSettings {
   readonly maxUploadBytes: number
   readonly retentionMs: number
+  readonly maxStagedBytes: number
 }
 ```
 
@@ -4426,10 +4845,14 @@ export interface StagedWorkspaceSettings {
 /** `sandbox.stagedWorkspaces` as settings: `undefined` when off. Assumes the shape was checked. */
 export function stagedWorkspaceSettings(value: unknown): StagedWorkspaceSettings | undefined {
   if (value === undefined || value === false) return undefined
-  const limits = value === true ? {} : (value as { maxUploadBytes?: number; retentionMs?: number })
+  const limits =
+    value === true
+      ? {}
+      : (value as { maxUploadBytes?: number; retentionMs?: number; maxStagedBytes?: number })
   return {
     maxUploadBytes: limits.maxUploadBytes ?? STAGED_UPLOAD_MAX_BYTES,
     retentionMs: limits.retentionMs ?? STAGED_RETENTION_DEFAULT_MS,
+    maxStagedBytes: limits.maxStagedBytes ?? STAGED_QUOTA_DEFAULT_BYTES,
   }
 }
 ```
@@ -4458,7 +4881,7 @@ export function openedWorkspaceProtocol(settings: WorkspaceProtocolSettings): st
 
 - [ ] **Step 4: Shape rules**
 
-`sandbox-config-shape.ts`: add `"stagedWorkspaces"` to `SANDBOX_KEYS`, import the four `STAGED_*` constants from `./workspace-protocol.js`, and before `return errors`:
+`sandbox-config-shape.ts`: add `"stagedWorkspaces"` to `SANDBOX_KEYS`, import `STAGED_UPLOAD_MAX_BYTES`, `STAGED_RETENTION_MIN_MS`, `STAGED_RETENTION_MAX_MS` and `STAGED_QUOTA_MAX_BYTES` from `./workspace-protocol.js`, and before `return errors`:
 
 ```ts
   const staged = block.stagedWorkspaces
@@ -4469,8 +4892,16 @@ export function openedWorkspaceProtocol(settings: WorkspaceProtocolSettings): st
       if (staged !== true) {
         const limits = staged as Record<string, unknown>
         for (const key of Object.keys(limits))
-          if (key !== "maxUploadBytes" && key !== "retentionMs")
-            errors.push(`b4.config sandbox.stagedWorkspaces.${key} is not an option (known: maxUploadBytes, retentionMs).`)
+          if (key !== "maxUploadBytes" && key !== "retentionMs" && key !== "maxStagedBytes")
+            errors.push(
+              `b4.config sandbox.stagedWorkspaces.${key} is not an option (known: maxUploadBytes, retentionMs, maxStagedBytes).`,
+            )
+        const quota = limits.maxStagedBytes
+        if (
+          quota !== undefined &&
+          (!Number.isSafeInteger(quota) || (quota as number) < 1 || (quota as number) > STAGED_QUOTA_MAX_BYTES)
+        )
+          errors.push(`b4.config sandbox.stagedWorkspaces.maxStagedBytes must be an integer from 1 to ${STAGED_QUOTA_MAX_BYTES}.`)
         const bytes = limits.maxUploadBytes
         if (bytes !== undefined && (!Number.isSafeInteger(bytes) || (bytes as number) < 1 || (bytes as number) > STAGED_UPLOAD_MAX_BYTES))
           errors.push(`b4.config sandbox.stagedWorkspaces.maxUploadBytes must be an integer from 1 to ${STAGED_UPLOAD_MAX_BYTES}.`)
@@ -4525,9 +4956,11 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ```ts
 // packages/cli/test/staged-workspace-manager.test.ts
+import { readFileSync } from "node:fs"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { openWorkspaceInstallation, type WorkspaceInstallation } from "@b4run/sqlite-storage"
 import type { CapturedWorkspaceDefinition } from "@b4run/workspace"
 import { createSourceBundle } from "@b4run/workspace/node"
@@ -4545,7 +4978,7 @@ const bundle = (text: string) =>
   createSourceBundle([{ path: "main.txt", bytes: new TextEncoder().encode(text), executable: false }])
 const HOUR = 60 * 60 * 1000
 
-async function setup(options: { readonly staged?: boolean } = {}) {
+async function setup(options: { readonly staged?: boolean; readonly maxStagedBytes?: number } = {}) {
   const appRoot = await mkdtemp(join(tmpdir(), "b4-staged-manager-"))
   roots.push(appRoot)
   let now = 1_000_000
@@ -4560,7 +4993,9 @@ async function setup(options: { readonly staged?: boolean } = {}) {
       policy: { network: { mode: "deny" } },
       idleTimeoutMs: 60_000,
       clock: () => now,
-      ...(staged ? { staged: { retentionMs: HOUR } } : {}),
+      ...(staged
+        ? { staged: { retentionMs: HOUR, maxStagedBytes: options.maxStagedBytes ?? 64 * 1024 * 1024 } }
+        : {}),
       resolveThread: async (thread) => {
         seen.push({ threadId: thread.threadId, staged: thread.staged })
         if (!thread.staged) throw new Error("no staged workspace")
@@ -4652,6 +5087,42 @@ describe("staged workspaces in the manager", () => {
     expect(manager.reclaimStagedSources()).toEqual([staged.digest])
     expect(installation.staged.holds(admitted.digest)).toBe(true)
   })
+
+  it("forgets a thread's staged workspace on request, and sweeps threads whose rows are gone", async () => {
+    const { open } = await setup()
+    const { manager, installation } = open()
+    const a = bundle("a")
+    manager.stageSource(a, a.digest)
+    for (const id of ["t-kept", "t-gone", "t-forgotten"]) manager.attachStagedWorkspace(id, { sourceDigest: a.digest })
+    manager.forgetStagedWorkspace("t-forgotten")
+    expect(await manager.sweepStagedThreads(async (id) => id === "t-kept")).toEqual(["t-gone"])
+    expect(installation.staged.threads()).toEqual(["t-kept"])
+  })
+
+  it("refuses an upload past the staged quota", async () => {
+    const first = bundle("x".repeat(100))
+    const second = bundle("y".repeat(100))
+    const { open } = await setup({ maxStagedBytes: JSON.stringify(first).length + 10 })
+    const { manager } = open()
+    expect(manager.stageSource(first, first.digest)).toMatchObject({ ok: true, status: "created" })
+    expect(manager.stageSource(second, second.digest)).toMatchObject({ ok: false, code: "staged_quota_exceeded" })
+    expect(manager.stageSource(first, first.digest)).toMatchObject({ ok: true, status: "held" })
+  })
+
+  it("keeps the source write and the association write synchronous: nothing can reclaim between them", () => {
+    // `reclaimStagedSources` is synchronous SQLite; it can run between two statements only if
+    // an `await` separates them. This pins that `sources.put` and `associations.create` in
+    // `getForThread` stay back to back with no `await` between.
+    const text = readFileSync(
+      fileURLToPath(new URL("../src/lib/runtime/managed-workspace-manager.ts", import.meta.url)),
+      "utf8",
+    )
+    const from = text.indexOf("installation.sources.put(definition.source)")
+    const to = text.indexOf("installation.associations.create(", from)
+    expect(from).toBeGreaterThan(0)
+    expect(to).toBeGreaterThan(from)
+    expect(text.slice(from, to)).not.toMatch(/\bawait\b/)
+  })
 })
 ```
 
@@ -4667,7 +5138,11 @@ Append to `workspace-protocol.ts`:
 ```ts
 export type StageSourceOutcome =
   | { readonly ok: true; readonly status: "created" | "held" }
-  | { readonly ok: false; readonly code: "digest_mismatch" | "workspace_source_invalid"; readonly message: string }
+  | {
+      readonly ok: false
+      readonly code: "digest_mismatch" | "workspace_source_invalid" | "staged_quota_exceeded"
+      readonly message: string
+    }
 
 export type StagedWorkspaceCheck =
   | { readonly ok: true; readonly reference: StagedWorkspaceReference }
@@ -4690,7 +5165,7 @@ In `managed-workspace-manager.ts` add the imports `WorkspaceStagedSourceError` (
    * as `staged` at first admission, and unreferenced sources older than
    * `retentionMs` are reclaimed at construction and after each upload.
    */
-  staged?: { readonly retentionMs: number }
+  staged?: { readonly retentionMs: number; readonly maxStagedBytes: number }
 ```
 
 and both resolver input types (`captureDefinition`, `resolveThread`) gain `readonly staged?: CapturedWorkspaceDefinition`. At the end of the constructor: `if (options.staged) this.reclaimStagedSources()`. In `#resolve`, after `metadata` is computed:
@@ -4735,9 +5210,43 @@ and pass `input` to `resolveThread(input)` and `captureDefinition?.(input)` in p
     }
     if (bundle.digest !== digest)
       return { ok: false, code: "digest_mismatch", message: `The uploaded source's digest is ${bundle.digest}, not ${digest}` }
-    const status = this.#options.installation.staged.upload(bundle, this.#now())
+    // Reclaim first, so expired uploads free their share of the quota before this one is counted.
     this.reclaimStagedSources()
-    return { ok: true, status }
+    try {
+      const status = this.#options.installation.staged.upload(
+        bundle,
+        this.#now(),
+        this.#options.staged.maxStagedBytes,
+      )
+      return { ok: true, status }
+    } catch (error) {
+      if (error instanceof WorkspaceStagedSourceError && error.code === "quota_exceeded")
+        return { ok: false, code: "staged_quota_exceeded", message: error.message }
+      throw error
+    }
+  }
+
+  /**
+   * Forget the workspace a thread was created with. `DELETE /threads/:id` calls it
+   * BEFORE the thread row goes: if the row delete then fails, the thread survives with no
+   * staged workspace (its resolver refuses it), and a thread later created under the
+   * same id (run endpoints take client-chosen ids) never inherits it.
+   */
+  forgetStagedWorkspace(threadId: string): void {
+    this.#assertOpen()
+    this.#options.installation.staged.detach(threadId)
+  }
+
+  /** Boot sweep: forget the staged reference of every thread whose row no longer exists. */
+  async sweepStagedThreads(exists: (threadId: string) => Promise<boolean>): Promise<readonly string[]> {
+    this.#assertOpen()
+    const forgotten: string[] = []
+    for (const threadId of this.#options.installation.staged.threads()) {
+      if (await exists(threadId)) continue
+      this.#options.installation.staged.detach(threadId)
+      forgotten.push(threadId)
+    }
+    return forgotten
   }
 
   /** The reference a create names, checked whole (held, and a valid definition) before any thread row exists. */
@@ -4799,7 +5308,7 @@ and pass `input` to `resolveThread(input)` and `captureDefinition?.(input)` in p
 
 `completeDelete` gains, after its association branch: `this.#options.installation.staged.detach(threadId)` (unconditional: a thread deleted before it ever ran has no association, and its reference must not pin a source).
 
-In `resolve-sandbox.ts`, both resolver branches (`thread`, and a function `workspace`) pass the window to the manager: `...(staged ? { staged: { retentionMs: staged.retentionMs } } : {})` in the `ManagedWorkspaceManager` options.
+In `resolve-sandbox.ts`, both resolver branches (`thread`, and a function `workspace`) pass the window to the manager: `...(staged ? { staged: { retentionMs: staged.retentionMs, maxStagedBytes: staged.maxStagedBytes } } : {})` in the `ManagedWorkspaceManager` options.
 
 In `sandbox-manager.ts`, three pass-throughs:
 
@@ -4836,7 +5345,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 **Files:**
 - Modify: `packages/cli/src/lib/dev/thread-workspace-http.ts` (`THREAD_CREATE_BODY_MAX_BYTES`, `stagedWorkspaceField`)
-- Modify: `packages/cli/src/lib/dev/runtime-fetch-core.ts` (the `POST /threads` handler, `:1364-1430`; a new route)
+- Modify: `packages/cli/src/lib/dev/runtime-fetch-core.ts` (the `POST /threads` handler, `:1364-1430`; the `DELETE /threads/:thread_id` handler, `:1466-1539`; the boot sweep after `reconcileDeletions`; a new route)
+- Modify: `packages/cli/src/lib/runtime/sandbox-manager.ts` (`forgetStagedWorkspace`, `sweepStagedThreads`)
 - Modify: `packages/cli/test/thread-access-coverage.test.ts`
 - Create: `packages/cli/test/staged-workspace-endpoint.test.ts`
 
@@ -4849,11 +5359,13 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { openWorkspaceInstallationReader } from "@b4run/sqlite-storage"
 import { createSourceBundle } from "@b4run/workspace/node"
-import { afterEach, expect, it } from "vitest"
+import { seedB4Config } from "@b4run/core"
+import { afterEach, expect, it, vi } from "vitest"
 import {
   createRuntimeFetchHandler,
   type RuntimeFetchHandler,
 } from "../src/lib/dev/runtime-fetch-handler.ts"
+import { resolveSandboxManager } from "../src/lib/runtime/resolve-sandbox.ts"
 import { managedProviderFixture } from "./support/managed-provider.ts"
 
 const TOKEN = "Bearer staged-test-token"
@@ -4867,7 +5379,9 @@ afterEach(async () => {
 const source = (text: string) =>
   createSourceBundle([{ path: "main.txt", bytes: new TextEncoder().encode(text), executable: false }])
 
-async function fixture(options: { readonly stagedWorkspaces?: unknown } = {}) {
+async function fixture(
+  options: { readonly stagedWorkspaces?: unknown; readonly attachRefusedOnce?: boolean } = {},
+) {
   const appRoot = await mkdtemp(join(tmpdir(), "b4-staged-endpoint-"))
   roots.push(appRoot)
   const files = {
@@ -4885,6 +5399,8 @@ async function fixture(options: { readonly stagedWorkspaces?: unknown } = {}) {
   const physical = managedProviderFixture()
   const resolved: { threadId: string; digest: string | undefined }[] = []
   const decisions: { action: string; operation: string; requestedWorkspace: unknown }[] = []
+  /** Thread ids the create recheck saw: the rows this runtime wrote. */
+  const written: string[] = []
   const config = {
     sandbox: {
       provider: physical.provider,
@@ -4900,17 +5416,37 @@ async function fixture(options: { readonly stagedWorkspaces?: unknown } = {}) {
     fallback: (req: {
       action: string
       operation: string
+      threadId: string | undefined
       headers: Readonly<Record<string, string>>
       requestedWorkspace: unknown
     }) => {
       decisions.push({ action: req.action, operation: req.operation, requestedWorkspace: req.requestedWorkspace })
+      if (req.action === "update" && req.operation === "thread.create" && req.threadId) written.push(req.threadId)
       return req.headers.authorization === TOKEN
         ? { decision: "allow" as const }
         : { decision: "deny" as const, status: 403 as const }
     },
   }
   const boot = async () => {
-    const handler = await createRuntimeFetchHandler({ appRoot, config: config as never, threadAccess: threadAccess as never })
+    // To race a reclaim against a create, a test hands the runtime a manager whose next
+    // attach finds the source gone, exactly as a reclaim between the check and the attach would.
+    let sandboxManager: Awaited<ReturnType<typeof resolveSandboxManager>> | undefined
+    if (options.attachRefusedOnce) {
+      seedB4Config(appRoot, config as never)
+      sandboxManager = await resolveSandboxManager(appRoot)
+      if (!sandboxManager) throw new Error("the fixture configures a sandbox")
+      vi.spyOn(sandboxManager, "attachStagedWorkspace").mockReturnValueOnce({
+        ok: false,
+        code: "workspace_source_not_held",
+        message: "Workspace source was reclaimed: upload it again",
+      })
+    }
+    const handler = await createRuntimeFetchHandler({
+      appRoot,
+      config: config as never,
+      threadAccess: threadAccess as never,
+      ...(sandboxManager ? { sandboxManager } : {}),
+    })
     handlers.push(handler)
     return handler
   }
@@ -4927,6 +5463,7 @@ async function fixture(options: { readonly stagedWorkspaces?: unknown } = {}) {
     appRoot,
     resolved,
     decisions,
+    written,
     call,
     async restart() {
       await handler.close()
@@ -4992,27 +5529,69 @@ it("403 without the token, for the upload and for the create, before anything is
   expect((await f.create({ sourceDigest: bundle.digest })).status).toBe(422)
 })
 
-it("shows the policy which workspace a create asks for, and an upload as a create with no thread", async () => {
+it("shows the policy the workspace an upload stages and the whole reference a create names", async () => {
   const f = await fixture()
   const bundle = source("x")
   await f.upload(bundle)
-  await f.create({ sourceDigest: bundle.digest })
-  expect(f.decisions).toContainEqual({ action: "create", operation: "workspace.source.put", requestedWorkspace: undefined })
+  const reference = { sourceDigest: bundle.digest, environmentLinks: [{ path: "deps", target: "/opt/deps" }], baseline: "git" }
+  expect((await f.create(reference)).status).toBe(200)
   expect(f.decisions).toContainEqual({
     action: "create",
-    operation: "thread.create",
+    operation: "workspace.source.put",
     requestedWorkspace: { sourceDigest: bundle.digest },
   })
+  expect(f.decisions).toContainEqual({ action: "create", operation: "thread.create", requestedWorkspace: reference })
   expect(f.decisions).toContainEqual({ action: "update", operation: "thread.create", requestedWorkspace: undefined })
 })
 
-it("refuses a workspace the app does not accept instead of ignoring it", async () => {
-  const f = await fixture({ stagedWorkspaces: false })
-  const response = await f.create({ sourceDigest: "a".repeat(64) })
+it("refuses a workspace the app does not accept instead of ignoring it, and hides the option from the unauthorized", async () => {
+  const off = await fixture({ stagedWorkspaces: false })
+  const response = await off.create({ sourceDigest: "a".repeat(64) })
   expect(response.status).toBe(400)
   expect(await response.json()).toMatchObject({ error: { details: { code: "workspace_not_accepted" } } })
-  expect((await f.upload(source("x"))).status).toBe(404)
-  expect(rowsCreated(f.decisions)).toBe(0)
+  expect((await off.upload(source("x"))).status).toBe(404)
+  expect(rowsCreated(off.decisions)).toBe(0)
+  // Without the token, off and on answer alike: the gate's 403.
+  const on = await fixture()
+  for (const f of [off, on]) {
+    expect((await f.upload(source("x"), undefined, null)).status).toBe(403)
+    expect((await f.create({ sourceDigest: "a".repeat(64) }, null)).status).toBe(403)
+  }
+  // And an app without the option keeps reading create bodies unbounded, as before.
+  expect((await off.call("POST", "/threads", { metadata: { pad: "x".repeat(2 * 1024 * 1024) } })).status).toBe(200)
+})
+
+it("takes one upload at a time and caps what is staged", async () => {
+  const f = await fixture({ stagedWorkspaces: { maxStagedBytes: 4096 } })
+  const [a, b] = [source("a".repeat(1500)), source("b".repeat(1500))]
+  const both = await Promise.all([f.upload(a), f.upload(b)])
+  expect(both.map((r) => r.status).sort()).toEqual([201, 429])
+  expect(both.find((r) => r.status === 429)?.headers.get("retry-after")).toBe("1")
+  const later = await f.upload(both[0].status === 201 ? b : a)
+  expect(later.status).toBe(507)
+  expect(await later.json()).toMatchObject({ error: { details: { code: "staged_quota_exceeded" } } })
+})
+
+it("deletes the thread row when its source is reclaimed between the check and the attach", async () => {
+  const f = await fixture({ attachRefusedOnce: true })
+  const bundle = source("x")
+  await f.upload(bundle)
+  const response = await f.create({ sourceDigest: bundle.digest })
+  expect(response.status).toBe(409)
+  expect(await response.json()).toMatchObject({ error: { details: { code: "workspace_source_not_held" } } })
+  expect(f.written).toHaveLength(1)
+  expect((await f.call("GET", `/threads/${f.written[0]}`)).status).toBe(404)
+})
+
+it("forgets a deleted thread's staged workspace first: a thread reusing the id gets none", async () => {
+  const f = await fixture()
+  const bundle = source("x")
+  await f.upload(bundle)
+  const threadId = ((await (await f.create({ sourceDigest: bundle.digest })).json()) as { thread_id: string }).thread_id
+  expect((await f.call("DELETE", `/threads/${threadId}`)).status).toBe(204)
+  // A run endpoint creates a thread under a client-chosen id: this one.
+  await f.read(threadId)
+  expect(f.resolved).toEqual([{ threadId, digest: undefined }])
 })
 
 it("bounds the upload and the create", async () => {
@@ -5051,47 +5630,95 @@ Expected: FAIL: the upload answers 404; the create ignores `workspace`.
 Append to `thread-workspace-http.ts`:
 
 ```ts
-/** `POST /threads` is metadata and a reference, never content (D3). */
+/** `POST /threads` is metadata and a reference, never content (D3). Only when `stagedWorkspaces` is on. */
 export const THREAD_CREATE_BODY_MAX_BYTES = 1024 * 1024
+const MAX_LINKS = 1024
+
+export interface StagedWorkspaceFieldValue {
+  readonly sourceDigest: string
+  readonly environmentLinks?: readonly { readonly path: string; readonly target: string }[]
+  readonly baseline?: "git"
+}
 
 /**
- * The `workspace` field's first check, in the pure core: an object naming a
- * 64-hex digest. The manager verifies the whole reference (links, baseline)
- * against the source it holds before any thread row exists.
+ * The `workspace` field's shape, in the pure core, copied onto fresh objects (own keys
+ * only): what the policy sees as `requestedWorkspace`. The manager then verifies the
+ * whole reference (path rules, link targets, collisions) against the source it holds
+ * before any thread row exists.
  */
 export function stagedWorkspaceField(
   value: unknown,
-): { readonly ok: true; readonly sourceDigest: string } | { readonly ok: false; readonly message: string } {
+):
+  | { readonly ok: true; readonly reference: StagedWorkspaceFieldValue }
+  | { readonly ok: false; readonly message: string } {
   if (typeof value !== "object" || value === null || Array.isArray(value))
     return { ok: false, message: "workspace must be an object naming a staged source" }
-  const digest = Object.hasOwn(value, "sourceDigest") ? (value as { sourceDigest?: unknown }).sourceDigest : undefined
+  const record = value as Record<string, unknown>
+  for (const key of Object.keys(record))
+    if (key !== "sourceDigest" && key !== "environmentLinks" && key !== "baseline")
+      return { ok: false, message: `Unknown workspace field: ${key}` }
+  const own = (key: string) => (Object.hasOwn(record, key) ? record[key] : undefined)
+  const digest = own("sourceDigest")
   if (typeof digest !== "string" || !/^[0-9a-f]{64}$/.test(digest))
     return { ok: false, message: "workspace.sourceDigest must be 64 lowercase hex characters" }
-  return { ok: true, sourceDigest: digest }
+  const baseline = own("baseline")
+  if (baseline !== undefined && baseline !== "git")
+    return { ok: false, message: 'workspace.baseline must be "git"' }
+  const links = own("environmentLinks")
+  let environmentLinks: { path: string; target: string }[] | undefined
+  if (links !== undefined) {
+    if (!Array.isArray(links) || links.length > MAX_LINKS)
+      return { ok: false, message: `workspace.environmentLinks must be an array of at most ${MAX_LINKS} links` }
+    environmentLinks = []
+    for (const link of links) {
+      if (typeof link !== "object" || link === null || Array.isArray(link))
+        return { ok: false, message: "each workspace.environmentLinks entry must be { path, target }" }
+      const { path, target } = link as Record<string, unknown>
+      if (
+        Object.keys(link).length !== 2 ||
+        typeof path !== "string" ||
+        typeof target !== "string" ||
+        path.length > 1024 ||
+        target.length > 1024
+      )
+        return { ok: false, message: "each workspace.environmentLinks entry must be { path, target }" }
+      environmentLinks.push({ path, target })
+    }
+  }
+  return {
+    ok: true,
+    reference: {
+      sourceDigest: digest,
+      ...(environmentLinks !== undefined ? { environmentLinks } : {}),
+      ...(baseline === "git" ? { baseline: "git" as const } : {}),
+    },
+  }
 }
 ```
 
 - [ ] **Step 4: The upload route**
 
-Add to `buildRouteTable`, after the inspect route:
+Add to `buildRouteTable`, after the inspect route, with one per-table flag declared beside `threadRouteMap` at the top of `buildRouteTable`:
+
+```ts
+  // One upload at a time per process: a source costs several times its size in memory
+  // while it is decoded, parsed, verified and stored (D3), so a second concurrent upload
+  // is told to retry rather than doubling that peak.
+  let uploadInFlight = false
+```
 
 ```ts
     // ------------------------------------------------------------------
     // PUT /workspace/sources/:digest — stage a workspace's files
     // ------------------------------------------------------------------
-    // Off unless the app sets `sandbox.stagedWorkspaces`. Content-addressed and
-    // idempotent: 201 for new bytes, 200 for bytes already held. Gated as a
-    // `create` with no thread BEFORE the body is read, so an unauthorized caller
-    // cannot make this worker buffer anything.
+    // Order: digest shape (a 400 that reveals nothing), gate, THEN the feature check, the
+    // single-flight check and the body. An unauthorized caller gets the gate's answer
+    // whether the feature is on or off and never makes this worker buffer a byte; an
+    // authorized caller of an app without `sandbox.stagedWorkspaces` gets the 404 of a
+    // route that does not exist. Content-addressed and idempotent: 201 for new bytes,
+    // 200 for bytes already held.
     {
       handle: async (request, params) => {
-        const staged = sandboxManager?.workspaceProtocol.staged
-        if (!sandboxManager || !staged)
-          return Response.json(createRequestErrorBody("Not found"), { status: 404 })
-        const gate = makeThreadGate(threadAccess, request)
-        const g = gate({ action: "create", operation: "workspace.source.put" })
-        const settled = isThenable(g) ? await g : g
-        if (!settled.ok) return settled.response
         const digest = params.digest ?? ""
         if (!/^[0-9a-f]{64}$/.test(digest))
           return Response.json(
@@ -5100,44 +5727,73 @@ Add to `buildRouteTable`, after the inspect route:
             }),
             { status: 400 },
           )
-        let raw: string
+        const gate = makeThreadGate(threadAccess, request)
+        const g = gate({
+          action: "create",
+          operation: "workspace.source.put",
+          requestedWorkspace: { sourceDigest: digest },
+        })
+        const settled = isThenable(g) ? await g : g
+        if (!settled.ok) return settled.response
+        const staged = sandboxManager?.workspaceProtocol.staged
+        if (!sandboxManager || !staged)
+          return Response.json(createRequestErrorBody("Not found"), { status: 404 })
+        if (uploadInFlight)
+          return Response.json(
+            createRequestErrorBody("Another workspace upload is in progress; retry shortly", {
+              code: "upload_in_flight",
+            }),
+            { status: 429, headers: { "retry-after": "1" } },
+          )
+        uploadInFlight = true
         try {
-          raw = await readBoundedText(request, staged.maxUploadBytes)
-        } catch (error) {
-          if (error instanceof RequestBodyTooLargeError) return payloadTooLarge(error)
-          throw error
+          let raw: string
+          try {
+            raw = await readBoundedText(request, staged.maxUploadBytes)
+          } catch (error) {
+            if (error instanceof RequestBodyTooLargeError) return payloadTooLarge(error)
+            throw error
+          }
+          const parsed = parseJson(raw)
+          if (!parsed.ok)
+            return Response.json(createRequestErrorBody("Malformed request body"), { status: 400 })
+          const outcome = sandboxManager.stageSource(parsed.value, digest)
+          if (!outcome.ok)
+            return Response.json(createRequestErrorBody(outcome.message, { code: outcome.code }), {
+              status:
+                outcome.code === "digest_mismatch" ? 400 : outcome.code === "staged_quota_exceeded" ? 507 : 422,
+            })
+          return Response.json(
+            { digest, status: outcome.status },
+            { status: outcome.status === "created" ? 201 : 200 },
+          )
+        } finally {
+          uploadInFlight = false
         }
-        const parsed = parseJson(raw)
-        if (!parsed.ok)
-          return Response.json(createRequestErrorBody("Malformed request body"), { status: 400 })
-        const outcome = sandboxManager.stageSource(parsed.value, digest)
-        if (!outcome.ok)
-          return Response.json(createRequestErrorBody(outcome.message, { code: outcome.code }), {
-            status: outcome.code === "digest_mismatch" ? 400 : 422,
-          })
-        return Response.json(
-          { digest, status: outcome.status },
-          { status: outcome.status === "created" ? 201 : 200 },
-        )
       },
       method: "PUT",
       pattern: /^\/workspace\/sources\/(?<digest>[^/?#]+)(?:\?.*)?$/,
     },
 ```
 
-- [ ] **Step 5: `POST /threads` reads a bounded body and a `workspace`**
+- [ ] **Step 5: `POST /threads` takes a `workspace`, bounded only when the app accepts one**
 
 Replace the handler's opening (from `const rawBody = await request.text()` through the first gate call) with:
 
 ```ts
       handle: async (request) => {
+        const stagedOn = Boolean(sandboxManager?.workspaceProtocol.staged)
+        // The 1 MiB bound applies only to an app that accepts staged workspaces: every other
+        // app reads its create body exactly as before (no behaviour change; D3).
         let rawBody: string
-        try {
-          rawBody = await readBoundedText(request, THREAD_CREATE_BODY_MAX_BYTES)
-        } catch (error) {
-          if (error instanceof RequestBodyTooLargeError) return payloadTooLarge(error)
-          throw error
-        }
+        if (stagedOn) {
+          try {
+            rawBody = await readBoundedText(request, THREAD_CREATE_BODY_MAX_BYTES)
+          } catch (error) {
+            if (error instanceof RequestBodyTooLargeError) return payloadTooLarge(error)
+            throw error
+          }
+        } else rawBody = await request.text()
         let metadata: Record<string, unknown> | undefined
         let workspaceField: unknown
         if (rawBody.trim()) {
@@ -5157,24 +5813,16 @@ Replace the handler's opening (from `const rawBody = await request.text()` throu
           }
           if (Object.hasOwn(body, "workspace")) workspaceField = body.workspace
         }
-        // A workspace this app will not serve is refused, never ignored (D12): ignoring it would
-        // hand the caller a thread without the workspace it asked for.
-        let requestedWorkspace: { readonly sourceDigest: string } | undefined
+        // A malformed field is a 400 whether or not the app accepts workspaces, so the answer
+        // reveals nothing about the option.
+        let requestedWorkspace: StagedWorkspaceFieldValue | undefined
         if (workspaceField !== undefined) {
-          if (!sandboxManager?.workspaceProtocol.staged)
-            return Response.json(
-              createRequestErrorBody(
-                "This app does not accept a workspace at thread creation (sandbox.stagedWorkspaces)",
-                { code: "workspace_not_accepted" },
-              ),
-              { status: 400 },
-            )
           const field = stagedWorkspaceField(workspaceField)
           if (!field.ok)
             return Response.json(createRequestErrorBody(field.message, { code: "invalid_request" }), {
               status: 400,
             })
-          requestedWorkspace = { sourceDigest: field.sourceDigest }
+          requestedWorkspace = field.reference
         }
         // (the existing comment on the reserved key stays here)
         const clientMetadata = stripReservedThreadMetadata(metadata)
@@ -5188,12 +5836,20 @@ Replace the handler's opening (from `const rawBody = await request.text()` throu
         const settled = isThenable(created) ? await created : created
         if (!settled.ok) return settled.response
 
+        // After the gate: a workspace this app will not serve is refused, never ignored (D12).
+        if (workspaceField !== undefined && !stagedOn)
+          return Response.json(
+            createRequestErrorBody(
+              "This app does not accept a workspace at thread creation (sandbox.stagedWorkspaces)",
+              { code: "workspace_not_accepted" },
+            ),
+            { status: 400 },
+          )
         // Checked whole BEFORE any thread row exists: a source this worker does not hold, or a
-        // definition it could not serve, leaves nothing behind. After the gate, so an
-        // unauthorized caller learns nothing about which sources are held.
+        // definition it could not serve, leaves nothing behind.
         let staged: StagedWorkspaceReference | undefined
-        if (workspaceField !== undefined && sandboxManager) {
-          const checked = sandboxManager.checkStagedWorkspace(workspaceField)
+        if (requestedWorkspace !== undefined && sandboxManager) {
+          const checked = sandboxManager.checkStagedWorkspace(requestedWorkspace)
           if (!checked.ok)
             return Response.json(createRequestErrorBody(checked.message, { code: checked.code }), {
               status: 422,
@@ -5208,6 +5864,8 @@ Replace the handler's opening (from `const rawBody = await request.text()` throu
         if (staged && sandboxManager) {
           // Only the row this request wrote may be given a workspace, and only that row may be
           // removed again: a collision's existing row is refused and left exactly as it was.
+          // A source reclaimed between the check and here (`workspace_source_not_held`) is the
+          // same refusal: the row goes and the caller re-uploads.
           const ours = isRowWeJustWrote(thread, stored)
           const attached = ours
             ? sandboxManager.attachStagedWorkspace(thread.thread_id, staged)
@@ -5221,7 +5879,34 @@ Replace the handler's opening (from `const rawBody = await request.text()` throu
         }
 ```
 
-Imports: `THREAD_CREATE_BODY_MAX_BYTES` and `stagedWorkspaceField` from `./thread-workspace-http.js`, and `import type { StagedWorkspaceReference } from "@b4run/workspace"`. (`stagedWorkspaces` requires a policy, so a create with `workspace` always takes the policy branch in which `isRowWeJustWrote` already runs.)
+Imports: `THREAD_CREATE_BODY_MAX_BYTES`, `stagedWorkspaceField` and `type StagedWorkspaceFieldValue` from `./thread-workspace-http.js`, and `import type { StagedWorkspaceReference } from "@b4run/workspace"`. (`stagedWorkspaces` requires a policy, so a create with `workspace` always takes the policy branch in which `isRowWeJustWrote` already runs.)
+
+In the `DELETE /threads/:thread_id` handler, right after its `run_in_flight` refusal and before `sandboxManager.destroyThread`, forget the staged reference FIRST (item 7 of the review): if the checkpoint or row delete below fails, the surviving thread has no staged workspace and its resolver refuses it; and a thread later created under the same id through a run endpoint (which takes client-chosen ids) never inherits it.
+
+```ts
+        if (sandboxManager?.managed) sandboxManager.forgetStagedWorkspace(threadId)
+```
+
+`SandboxManager` gains the pass-throughs, with no option check (cleanup must work after the option is turned off):
+
+```ts
+  forgetStagedWorkspace(threadId: string): void {
+    this.#managed?.forgetStagedWorkspace(threadId)
+  }
+  async sweepStagedThreads(exists: (threadId: string) => Promise<boolean>): Promise<readonly string[]> {
+    return this.#managed ? this.#managed.sweepStagedThreads(exists) : []
+  }
+```
+
+And at boot, in `runtime-fetch-core.ts` right after `reconcileDeletions` (`:530-535`), sweep the references of threads whose rows are gone (a crash between the detach and the row delete, or rows deleted behind the runtime's back):
+
+```ts
+    if (sandboxManager?.workspaceProtocol.staged && threadsStore) {
+      const store = threadsStore
+      // "Exists" means the store returns a row for the id.
+      await sandboxManager.sweepStagedThreads(async (threadId) => Boolean(await store.getThread(threadId)))
+    }
+```
 
 - [ ] **Step 6: Run the tests**
 
@@ -5231,7 +5916,7 @@ Expected: PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add packages/cli/src/lib/dev/thread-workspace-http.ts packages/cli/src/lib/dev/runtime-fetch-core.ts packages/cli/test/staged-workspace-endpoint.test.ts packages/cli/test/thread-access-coverage.test.ts
+git add packages/cli/src/lib/dev/thread-workspace-http.ts packages/cli/src/lib/dev/runtime-fetch-core.ts packages/cli/src/lib/runtime/sandbox-manager.ts packages/cli/test/staged-workspace-endpoint.test.ts packages/cli/test/thread-access-coverage.test.ts
 git commit -m "feat(cli): stage a workspace with PUT /workspace/sources and name it at POST /threads
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -5243,7 +5928,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Modify: `apps/web/content/docs/sandbox.mdx` (a section after the one PR 2 added)
 - Modify: `apps/web/content/docs/dev-server/agent-protocol.mdx` (the `POST /threads` row; a `PUT` row), `scripts/check-docs.mjs` (its `required` list)
 - Modify: `apps/web/content/docs/thread-access.mdx` (`requestedWorkspace` row; `workspace.source.put`)
-- Modify: `apps/web/content/docs/api/workspace.mdx`, `api/sqlite-storage.mdx`, `api/sdk.mdx` if it lists request fields
+- Modify: `apps/web/content/docs/api/workspace.mdx`, `api/sqlite-storage.mdx` (`api/sdk.mdx` lists `ThreadAccessRequest` in one row and needs no change)
 - Create: `.changeset/staged-workspaces.md`
 
 - [ ] **Step 1: The sandbox page**
@@ -5276,8 +5961,9 @@ curl -X POST "$WORKER/threads" -H "authorization: Bearer $TOKEN" \
 
 - **Verified, then recorded.** The upload is checked byte for byte against the digest in its path. The create is refused, before any thread exists, when the worker does not hold the source or the named links cannot sit beside its files. At the thread's first run the resolver receives the definition as `thread.staged`, and what it returns is recorded by digest and never resolved again.
 - **Refused, not ignored.** A `workspace` sent to an app without `stagedWorkspaces` is `400 workspace_not_accepted`.
-- **It needs a thread-access policy.** An upload arrives as `workspace.source.put`, a `create` with no thread; a create that names a workspace carries `requestedWorkspace`, so a policy can let users create threads while reserving the choice of workspace. `b4 check`, `b4 build` and boot refuse the option without a policy.
-- **Limits and retention.** An upload is at most `maxUploadBytes` (default and ceiling 96 MiB); `POST /threads` bodies at most 1 MiB. Sources nothing references (no thread names them, no workspace was made from them) are deleted once older than `retentionMs` (default 24 hours), when the worker starts and after each upload.
+- **It needs a thread-access policy, and turning it on means auditing your `create` handler.** An upload arrives as `workspace.source.put`, a `create` with no thread; both it and a create that names a workspace carry `requestedWorkspace` (the upload's `{ sourceDigest }`, the create's whole reference), so one rule, `if (req.requestedWorkspace)`, decides who may stage and choose a workspace. A `create` handler written before this option admits both unless it checks that field. `b4 check`, `b4 build` and boot refuse the option without a policy.
+- **Limits and retention.** An upload is at most `maxUploadBytes` (default and ceiling 96 MiB), and all uploaded sources together at most `maxStagedBytes` (default 1 GiB; `507 staged_quota_exceeded` past it). `POST /threads` bodies are at most 1 MiB in an app with the option. Sources nothing references (no thread names them, no workspace was made from them) are deleted once older than `retentionMs` (default 24 hours), when the worker starts and before each upload; a thread's reference goes when the thread is deleted.
+- **Cost.** Verifying and storing an upload holds it several times over in the worker's memory (the body as text, the parsed bundle, its canonical JSON: about four to five times its size at the peak), so a worker takes one upload at a time and answers `429 upload_in_flight` (with `retry-after`) to a second. Lower `maxUploadBytes` on a small worker.
 ````
 
 - [ ] **Step 2: The Agent Protocol and thread-access pages**
@@ -5288,7 +5974,7 @@ Agent Protocol table: the `POST /threads` row's request becomes ``Optional `{ "m
 | `PUT /workspace/sources/:digest` | A `SourceBundle` whose `digest` is the path's | `201 { digest, status: "created" }` or `200 { digest, status: "held" }`. Only with `sandbox.stagedWorkspaces` and a thread-access policy. `400` `digest_mismatch`, `422` invalid bundle, `413` over `maxUploadBytes` |
 ```
 
-with `"PUT /workspace/sources/:digest"` added to the page's `required` array in `scripts/check-docs.mjs`. Thread-access page: a `requestedWorkspace` row in "What the policy receives" ("The staged workspace a `thread.create` names, `{ sourceDigest }`. `undefined` everywhere else."), `workspace.source.put` beside `thread.workspace` in the workspace section.
+with `"PUT /workspace/sources/:digest"` added to the page's `required` array in `scripts/check-docs.mjs`. Thread-access page: a `requestedWorkspace` row in "What the policy receives" ("The workspace the request stages or chooses: `{ sourceDigest }` on `workspace.source.put`, the whole reference `{ sourceDigest, environmentLinks?, baseline? }` on a `thread.create` that names one. `undefined` everywhere else. Enabling `stagedWorkspaces` means reviewing your `create` handler: check this field to decide who may stage and choose workspaces."), `workspace.source.put` beside `thread.workspace` in the workspace section.
 
 - [ ] **Step 3: API pages**
 
@@ -5307,7 +5993,7 @@ with `"PUT /workspace/sources/:digest"` added to the page's `required` array in 
 "@b4run/testing": patch
 ---
 
-Hand a thread its workspace at creation. `sandbox.stagedWorkspaces` serves `PUT /workspace/sources/:digest` (a content-addressed `SourceBundle` upload, verified against its digest) and accepts `workspace: { sourceDigest, environmentLinks?, baseline? }` on `POST /threads`; the app's resolver receives it as `thread.staged` at the thread's first admission, and unreferenced sources are reclaimed after `retentionMs`. The option needs a resolver and a thread-access policy; `b4 check`, `b4 build` and boot refuse it otherwise. Thread access gains the `workspace.source.put` operation and `requestedWorkspace` on the request, which is required: a hand-built `ThreadAccessRequest` needs `requestedWorkspace: undefined`. `POST /threads` now refuses a body over 1 MiB (`413`) and a `workspace` field on an app that does not accept one (`400`).
+Hand a thread its workspace at creation. `sandbox.stagedWorkspaces` serves `PUT /workspace/sources/:digest` (a content-addressed `SourceBundle` upload, verified against its digest, one at a time, within `maxStagedBytes`) and accepts `workspace: { sourceDigest, environmentLinks?, baseline? }` on `POST /threads`; the app's resolver receives it as `thread.staged` at the thread's first admission, and unreferenced sources are reclaimed after `retentionMs`. The option needs a resolver and a thread-access policy; `b4 check`, `b4 build` and boot refuse it otherwise. Thread access gains the `workspace.source.put` operation and `requestedWorkspace` on the request (set on uploads and on creates that name a workspace), which is required: a hand-built `ThreadAccessRequest` needs `requestedWorkspace: undefined`. In an app with the option, `POST /threads` refuses a body over 1 MiB (`413`); in any app it refuses a `workspace` field it will not serve (`400`) rather than ignoring it.
 ```
 
 - [ ] **Step 6: Commit**
@@ -5325,7 +6011,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - [ ] **Step 2:** `node scripts/check-docs.mjs && node scripts/check-changesets.mjs` → exit 0.
 - [ ] **Step 3:** `pnpm check:release-inventory && pnpm pack:check` → exit 0.
 - [ ] **Step 4:** `B4_TEST_DOCKER=1 pnpm --filter @b4run/sandbox test` → exit 0 (the Docker provider's bounded reads and readers, unchanged here, still pass under the typed error from PR 2).
-- [ ] **Step 5:** open the PR; name the two behaviour changes in its body (the 1 MiB `POST /threads` limit, the refused stray `workspace`).
+- [ ] **Step 5:** open the PR; name the behaviour change in its body (a `workspace` field on `POST /threads` is refused by an app without the option; the 1 MiB limit applies only with it).
 
 ---
 
@@ -5378,7 +6064,7 @@ After this PR no file passes between the controller and a worker. `dispatch` and
   })
 ```
 
-(`createSourceBundle` from `@b4run/workspace/node`; `LoggedRequest` gains `method` and `path` if it does not log them already.)
+(`createSourceBundle` from `@b4run/workspace/node`; `LoggedRequest` already logs `method` and `path`, and PR 1 added `authorization`.)
 
 - [ ] **Step 2: Run them to see them fail**
 
@@ -5444,7 +6130,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 29: Handoffs replace manifests, on both sides
 
-A handoff is what a manifest carried minus the workspace, plus the workspace's digest: the builder's target block, or the drafter's work order. The worker parses it strictly from one metadata key and refuses a staged workspace whose digest is not the handoff's, so metadata and files are bound (D13).
+A handoff is what a manifest carried minus the workspace's files, plus the full reference the thread is created with (`workspace: { sourceDigest, environmentLinks, baseline? }`): the builder's target block, or the drafter's work order. The worker parses it strictly from one metadata key and refuses a staged workspace whose digest, links or baseline differ from the handoff's, so metadata and the whole staged definition are bound (D13).
 
 **Files:**
 - Rename: `examples/software-factory/controller/src/lib/builder-manifest.ts` → `builder-handoff.ts`; `drafter-manifest.ts` → `drafter-handoff.ts` (`git mv`)
@@ -5469,7 +6155,7 @@ const handoff = {
   workOrderId: "wo-1",
   taskId: "cli-flags",
   targetId: "cli-flags",
-  sourceDigest: DIGEST_SOURCE.digest,
+  workspace: { sourceDigest: DIGEST_SOURCE.digest, environmentLinks: [], baseline: "git" },
   target: {
     image: `b4-factory-cli-flags:${"a".repeat(12)}-${"b".repeat(12)}`,
     pin: "a".repeat(40),
@@ -5496,9 +6182,14 @@ describe("the builder's handoff", () => {
   it("serves only the staged workspace the handoff names", () => {
     expect(stagedBuilderWorkspace(staged, handoff as never).source.digest).toBe(DIGEST_SOURCE.digest)
     expect(() => stagedBuilderWorkspace(undefined, handoff as never)).toThrow(/without a staged workspace/)
-    expect(() => stagedBuilderWorkspace(staged, { ...handoff, sourceDigest: "f".repeat(64) } as never)).toThrow(
-      /names ffff/,
-    )
+    for (const workspace of [
+      { ...handoff.workspace, sourceDigest: "f".repeat(64) },
+      { ...handoff.workspace, environmentLinks: [{ path: "node_modules", target: "/opt/deps" }] },
+      { sourceDigest: DIGEST_SOURCE.digest, environmentLinks: [] },
+    ])
+      expect(() => stagedBuilderWorkspace(staged, { ...handoff, workspace } as never)).toThrow(
+        /is not the one work order wo-1 names/,
+      )
   })
 
   it("refuses the retired manifest directory by name", () => {
@@ -5516,7 +6207,19 @@ Expected: FAIL: the modules do not exist.
 
 - [ ] **Step 3: The builder side** (`examples/software-factory/server/src/builder-handoff.ts`)
 
-Keep `CATALOG_ID`, `FACTORY_IMAGE`, `isFactoryImage`, `describe` and `workOrderIdOf` from the manifest module. Replace `BuilderManifestSchema` with `BuilderHandoffSchema`, identical except `version: z.literal(3)`, `sourceDigest: z.string().regex(/^[a-f0-9]{64}$/)` in place of `workspace: z.unknown()`, and its doc comment ("the builder's one input per thread besides its staged workspace, carried in thread metadata under `factoryBuilder`"). Delete `builderManifestDir` and `loadBuilderManifest`. Add:
+Keep `CATALOG_ID`, `FACTORY_IMAGE`, `isFactoryImage`, `describe` and `workOrderIdOf` from the manifest module. Replace `BuilderManifestSchema` with `BuilderHandoffSchema`, identical except `version: z.literal(3)`, and in place of `workspace: z.unknown()` the reference the thread is created with:
+
+```ts
+    workspace: z
+      .object({
+        sourceDigest: z.string().regex(/^[a-f0-9]{64}$/),
+        environmentLinks: z.array(z.object({ path: z.string().min(1), target: z.string().min(1) }).strict()),
+        baseline: z.literal("git").optional(),
+      })
+      .strict(),
+```
+
+and its doc comment ("the builder's one input per thread besides its staged workspace, carried in thread metadata under `factoryBuilder`"). Delete `builderManifestDir` and `loadBuilderManifest`. Add:
 
 ```ts
 /**
@@ -5550,9 +6253,16 @@ export function stagedBuilderWorkspace(
 ): CapturedWorkspaceDefinition {
   if (staged === undefined)
     throw new Error(`work order ${handoff.workOrderId}'s thread was created without a staged workspace`)
-  if (staged.source.digest !== handoff.sourceDigest)
+  // The whole reference, not only the digest: links and baseline change what the thread runs.
+  const named = JSON.stringify([
+    handoff.workspace.sourceDigest,
+    [...handoff.workspace.environmentLinks].sort((a, b) => (a.path < b.path ? -1 : 1)),
+    handoff.workspace.baseline ?? null,
+  ])
+  const got = JSON.stringify([staged.source.digest, staged.environmentLinks, staged.baseline ?? null])
+  if (got !== named)
     throw new Error(
-      `the staged workspace is ${staged.source.digest}, but work order ${handoff.workOrderId} names ${handoff.sourceDigest}`,
+      `the staged workspace ${got} is not the one work order ${handoff.workOrderId} names (${named})`,
     )
   return verifyCapturedWorkspaceDefinition(staged)
 }
@@ -5589,7 +6299,7 @@ with the body of `writeBuilderManifest` up to the capture unchanged, then
     workOrderId,
     taskId: task.id,
     targetId: task.target.id,
-    sourceDigest: workspace.source.digest,
+    workspace: stagedReferenceOf(workspace),
     target: {
       image: imageTag(task.target),
       pin: task.target.pin,
@@ -5615,7 +6325,7 @@ export function stagedReferenceOf(workspace: CapturedWorkspaceDefinition): Stage
 
 - [ ] **Step 5: The drafter, both sides**
 
-`DrafterHandoffSchema = z.object({ version: z.literal(2), workOrderId: z.string().regex(CATALOG_ID), sourceDigest: z.string().regex(/^[a-f0-9]{64}$/) }).strict()` in both copies; the controller's `captureDrafterHandoff({ workOrderId, pin, repositoryRoot, captureRoot, signal })` returns `{ handoff, workspace }` from the existing capture; the drafter's `drafterHandoffOf(metadata)` reads `factoryDrafter` exactly as `builderHandoffOf` reads `factoryBuilder`, and
+`DrafterHandoffSchema = z.object({ version: z.literal(2), workOrderId: z.string().regex(CATALOG_ID), workspace: z.object({ sourceDigest: z.string().regex(/^[a-f0-9]{64}$/), environmentLinks: z.array(z.object({ path: z.string().min(1), target: z.string().min(1) }).strict()) }).strict() }).strict()` in both copies (no `baseline`: the drafter's capture has none); the controller's `captureDrafterHandoff({ workOrderId, pin, repositoryRoot, captureRoot, signal })` returns `{ handoff, workspace }` from the existing capture; the drafter's `drafterHandoffOf(metadata)` reads `factoryDrafter` exactly as `builderHandoffOf` reads `factoryBuilder`, and
 
 ```ts
 export function stagedDrafterWorkspace(
@@ -5624,10 +6334,15 @@ export function stagedDrafterWorkspace(
 ): CapturedWorkspaceDefinition {
   if (staged === undefined)
     throw new Error(`work order ${handoff.workOrderId}'s intake thread was created without a staged workspace`)
-  if (staged.source.digest !== handoff.sourceDigest)
-    throw new Error(`the staged workspace is ${staged.source.digest}, but work order ${handoff.workOrderId} names ${handoff.sourceDigest}`)
   // The drafter's capture has no `.git` to diff against; a baseline would be a different workspace.
   if (staged.baseline !== undefined) throw new Error("a drafter workspace carries no baseline")
+  const named = JSON.stringify([
+    handoff.workspace.sourceDigest,
+    [...handoff.workspace.environmentLinks].sort((a, b) => (a.path < b.path ? -1 : 1)),
+  ])
+  const got = JSON.stringify([staged.source.digest, staged.environmentLinks])
+  if (got !== named)
+    throw new Error(`the staged workspace ${got} is not the one work order ${handoff.workOrderId} names (${named})`)
   return verifyCapturedWorkspaceDefinition(staged)
 }
 ```
@@ -5656,10 +6371,9 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Modify: `examples/software-factory/controller/src/lib/controller/factory.ts` (dispatch `:1194-1256`, intake `:920-990`, the `leftIntake`/`leftBuild` removals `:390-412`, `removeBuilderManifest` `:563-567`, `finishCancel` `:644-651`, the options `writeDrafterManifest`/`writeBuilderManifest`)
 - Modify: `examples/software-factory/controller/src/lib/controller/intake.ts` (`removeDrafterManifest`, `:14`, `:441-450`)
 - Modify: `examples/software-factory/controller/src/lib/controller/reconcile.ts` (`:6`, `:47`, `:82`)
-- Modify: `examples/software-factory/controller/src/lib/controller/source-digest.ts` (event names)
 - Delete: `examples/software-factory/controller/src/lib/controller/manifest-files.ts`
 - Modify: `examples/software-factory/server/b4.config.ts`, `examples/software-factory/drafter/b4.config.ts`
-- Test: `factory-builder-manifest.test.ts` → `factory-builder-handoff.test.ts`, `factory-dispatch.test.ts`, `factory-intake.test.ts`, `factory-cancel.test.ts`, `factory-reconcile.test.ts`, `source-digest.test.ts`
+- Test: `factory-builder-manifest.test.ts` → `factory-builder-handoff.test.ts`, `factory-dispatch.test.ts`, `factory-intake.test.ts`, `factory-cancel.test.ts`, `factory-reconcile.test.ts`
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -5672,11 +6386,16 @@ In `factory-builder-handoff.test.ts` (the renamed file; its fake worker map now 
     const staged = factory.events(id).find((e) => e.type === "builder_source_staged")?.payload
     expect(staged).toMatchObject({ sourceDigest: expect.stringMatching(/^[0-9a-f]{64}$/), status: "created" })
     const create = fake.requests.find((r) => r.method === "POST" && r.path === "/threads")?.body as {
-      metadata: { factoryWorkOrderId: string; factoryBuilder: { sourceDigest: string; workOrderId: string } }
+      metadata: {
+        factoryWorkOrderId: string
+        factoryBuilder: { workOrderId: string; workspace: { sourceDigest: string; baseline?: string } }
+      }
       workspace: { sourceDigest: string; baseline?: string }
     }
     expect(create.metadata.factoryWorkOrderId).toBe(id)
-    expect(create.metadata.factoryBuilder).toMatchObject({ workOrderId: id, sourceDigest: staged?.sourceDigest })
+    expect(create.metadata.factoryBuilder.workOrderId).toBe(id)
+    // The handoff carries exactly the reference the thread is created with.
+    expect(create.metadata.factoryBuilder.workspace).toEqual(create.workspace)
     expect(create.workspace).toMatchObject({ sourceDigest: staged?.sourceDigest, baseline: "git" })
     expect(factory.events(id).map((e) => e.type).filter((t) => t.includes("manifest"))).toEqual([])
   })
@@ -5689,11 +6408,11 @@ In `factory-builder-handoff.test.ts` (the renamed file; its fake worker map now 
   })
 ```
 
-(`failNext(method, status)` is a small addition to `fake-worker.ts`: the next request of that method answers that status with an error body.) In `source-digest.test.ts`, rename the events to `builder_source_staged` and `drafter_source_staged`. Delete the cases in `factory-cancel.test.ts`, `factory-reconcile.test.ts` and `factory-intake.test.ts` that assert `*_manifest_removed`, `*_manifest_kept`, `*_manifest_remove_failed` or a file under a manifest directory; the equivalent obligation is gone, and an upload no thread names is reclaimed by the worker (D7).
+(`failNext(method, status)` is a small addition to `fake-worker.ts`: the next request of that method answers that status with an error body.) `source-digest.test.ts` already covers `builder_source_staged` (PR 3 accepts both spellings) and needs no change. Delete the cases in `factory-cancel.test.ts`, `factory-reconcile.test.ts` and `factory-intake.test.ts` that assert `*_manifest_removed`, `*_manifest_kept`, `*_manifest_remove_failed` or a file under a manifest directory; the equivalent obligation is gone, and an upload no thread names is reclaimed by the worker (D7).
 
 - [ ] **Step 2: Run them to see them fail**
 
-Run: `pnpm --filter @b4-example/software-factory-controller exec vitest run test/factory-builder-handoff.test.ts test/source-digest.test.ts`
+Run: `pnpm --filter @b4-example/software-factory-controller exec vitest run test/factory-builder-handoff.test.ts`
 Expected: FAIL: no `builder_source_staged` event.
 
 - [ ] **Step 3: Dispatch**
@@ -5712,7 +6431,10 @@ Replace the manifest block and the thread creation in `dispatch` with:
           signal: abort.signal,
         })
         const status = await worker.client.uploadSource(captured.workspace.source)
-        recordEvent(id, "builder_source_staged", { sourceDigest: captured.handoff.sourceDigest, status })
+        recordEvent(id, "builder_source_staged", {
+          sourceDigest: captured.handoff.workspace.sourceDigest,
+          status,
+        })
       } catch (error) {
         recordEvent(id, "builder_source_failed", { error: String(error) })
         return finish(key, {
@@ -5756,7 +6478,7 @@ Delete `manifest-files.ts`; in `factory.ts` delete `leftIntake`, `leftBuild`, `p
 Run: `git grep -n -i "manifest" examples/software-factory/controller/src`
 Expected: no hit except words in comments that describe the old design; reword those to "handoff" or delete them.
 
-`source-digest.ts`: `ROLE.builder.written = "builder_source_staged"`, `ROLE.drafter.written = "drafter_source_staged"`.
+`source-digest.ts` needs no change: it has read both event spellings since PR 3.
 
 - [ ] **Step 6: The workers resolve from the staged workspace**
 
@@ -5827,6 +6549,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Modify: `examples/software-factory/controller/src/lib/config.ts` (`RETIRED`; `manifestDir` gone)
 - Modify: `examples/software-factory/controller/src/lib/controller/workers.ts`, `runtime.ts`, `test/config.test.ts`, `test/serve-controller.ts`, `test/fake-worker-map.ts`
 - Modify: `.github/workflows/ci.yml:461-476` (comment and the `run` block)
+- Modify: `turbo.json:59-76` (the workers' `env` lists)
 - Modify: `scripts/release/test/fixtures/workflow-entrypoints.json`, `scripts/release/test/fixtures/workflow-safe-executables.json`
 
 - [ ] **Step 1: The configuration**
@@ -5844,7 +6567,11 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 Run: `pnpm --filter @b4-example/software-factory-controller typecheck && pnpm --filter @b4-example/software-factory-controller test` → exit 0.
 
-- [ ] **Step 2: Edit `ci.yml` and both fixtures with one script, in raw text**
+- [ ] **Step 2: `turbo.json`**
+
+The retired variables leave the workers' cache keys: `@b4-example/software-factory-server#build` and `#check` keep `["FACTORY_BUILDER_LANE"]` (and `#check` its `passThroughEnv` from PR 1); `@b4-example/software-factory-drafter#build` and `#check` keep `["FACTORY_DRAFTER_IMAGE"]`, which the drafter still reads for its own image (only the controller stopped reading it, in PR 3), and `#check` its `passThroughEnv`. `FACTORY_BUILDER_MANIFEST_DIR` and `FACTORY_DRAFTER_MANIFEST_DIR` appear nowhere in `turbo.json` afterwards.
+
+- [ ] **Step 3: Edit `ci.yml` and both fixtures with one script, in raw text**
 
 The fixtures embed each workflow step's `run` block as one JSON string; a JSON round trip would re-escape non-ASCII and show a phantom diff (memory of #763 and `project_workflow_entrypoint_audit`), so edit raw text and check the counts:
 
@@ -5883,7 +6610,7 @@ Expected: `ci.yml` 3 lines changed; each fixture exactly 1 line changed (its one
 
 If `pnpm --filter @b4-example/software-factory-server check` refuses `FACTORY_BUILDER_MANIFEST_DIR` in a developer's shell, unset it: `refuseRetiredVariables` is doing its job.
 
-- [ ] **Step 3: The workflow audit**
+- [ ] **Step 4: The workflow audit**
 
 Run: `node --test scripts/release/test/workflow-contracts.test.mjs && pnpm test:release-integrity`
 Expected: PASS. On a failure the audit prints one opaque string; to see the difference, copy the repository to a scratch directory, run the fixture generator the test names against the edited `ci.yml`, and diff its output with the committed fixture, then apply only the differing `run` line by the script above.
@@ -5891,10 +6618,10 @@ Expected: PASS. On a failure the audit prints one opaque string; to see the diff
 Run: `pnpm test:release-controller`
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add examples/software-factory/controller/src/lib/config.ts examples/software-factory/controller/src/lib/controller/workers.ts examples/software-factory/controller/src/lib/runtime.ts examples/software-factory/controller/test .github/workflows/ci.yml scripts/release/test/fixtures/workflow-entrypoints.json scripts/release/test/fixtures/workflow-safe-executables.json
+git add examples/software-factory/controller/src/lib/config.ts examples/software-factory/controller/src/lib/controller/workers.ts examples/software-factory/controller/src/lib/runtime.ts examples/software-factory/controller/test turbo.json .github/workflows/ci.yml scripts/release/test/fixtures/workflow-entrypoints.json scripts/release/test/fixtures/workflow-safe-executables.json
 git commit -m "ci(software-factory): no manifest directory for the builder lane
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -5984,7 +6711,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - [ ] **Step 3:** `node --test scripts/release/test/workflow-contracts.test.mjs && pnpm test:release-integrity && pnpm test:release-controller` → exit 0 (`ci.yml` changed).
 - [ ] **Step 4:** the `sandbox-docker` software-factory block (Task 32 Step 3) → exit 0.
 - [ ] **Step 5:** `node scripts/check-changesets.mjs` → passes with none; `node scripts/check-docs.mjs` → exit 0 (the runbook is under `docs/superpowers/`, outside its scan).
-- [ ] **Step 6:** `git grep -n "MANIFEST_DIR\|APP_ROOT" examples/software-factory .github` → only the `RETIRED` tables and `refuseRetiredVariables`.
+- [ ] **Step 6:** `git grep -n "MANIFEST_DIR\|_APP_ROOT" examples/software-factory .github turbo.json docs/superpowers/runbooks scripts/release/test/fixtures` → hits only in the controller's `RETIRED` table, the workers' `refuseRetiredVariables`, and the tests that pin those refusals. `git grep -n "FACTORY_DRAFTER_IMAGE" examples/software-factory/controller turbo.json` → only the controller's `RETIRED` table and the drafter's `turbo.json` entries.
 
 ---
 
@@ -6007,4 +6734,29 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - §2 "Proof": upload, create, first run, `intent.sourceDigest` equal to the upload; an unheld digest refused before any thread row; a body whose digest differs refused; 403 without the token (Task 25); the option without a policy refused at boot (Task 23); factory lanes with no manifest directory (Task 32).
 - §8 order and "one policy": PR 1 lands the token before either item; 3 before 2 (PRs 2 and 3 before 4 and 5); both items gated by the same policy file.
 - Conventions: shape validation that fails closed (Tasks 9, 23), `sandbox` unknown keys still refused (the two keys added to `SANDBOX_KEYS`), `exactOptionalPropertyTypes` spreads throughout, `.js`/`.ts` specifiers, core purity checked (Tasks 8, 9, 11, 25), patch changesets in the fixed group (Tasks 13, 26; none for private examples), docs on existing pages with no lastmod regeneration, workflow-audit fixtures edited in raw text with counts (Task 31), `test:release-controller` when `ci.yml` changes (Tasks 31, 33).
-- Names used consistently: `WorkspaceReadLimitError`, `isWorkspaceReadLimitError`, `WorkspaceInspectionError`, `isWorkspaceInspectionError`, `WorkspaceInspectionErrorCode`, `WorkspaceInspectionErrorDetail`, `readBoundedText`, `RequestBodyTooLargeError`, `payloadTooLarge`, `WorkspaceProtocolSettings`, `NO_WORKSPACE_PROTOCOL`, `workspaceProtocolOptionNames`, `openedWorkspaceProtocol`, `workspaceProtocolPolicyMessage`, `ThreadWorkspaceInspectRequest`, `ThreadWorkspaceInspectOutcome`, `ThreadWorkspaceInspectFailure`, `inspectFailure`, `inspectThread`, `parseThreadWorkspaceRequest`, `threadWorkspaceResponse`, `INSPECT_BODY_MAX_BYTES`, `INSPECT_CAPS`, `INSPECT_DEFAULTS`, `readThreadWorkspace`, `ThreadWorkspaceReadError`, `ThreadWorkspaceRead`, `StagedWorkspaceReference`, `verifyStagedWorkspaceReference`, `stagedWorkspaceDefinition`, `WorkspaceStagedSourceStore`, `WorkspaceStagedSourceError`, `STAGED_UPLOAD_MAX_BYTES`, `StagedWorkspaceSettings`, `stagedWorkspaceSettings`, `StageSourceOutcome`, `StagedWorkspaceCheck`, `StagedWorkspaceAttach`, `stageSource`, `checkStagedWorkspace`, `attachStagedWorkspace`, `reclaimStagedSources`, `THREAD_CREATE_BODY_MAX_BYTES`, `stagedWorkspaceField`, `createHttpThreadWorkspaceReader`, `handedSourceDigest`, `BuilderHandoffSchema`, `builderHandoffOf`, `stagedBuilderWorkspace`, `captureBuilderHandoff`, `stagedReferenceOf`, `DrafterHandoffSchema`, `drafterHandoffOf`, `stagedDrafterWorkspace`, `captureDrafterHandoff`, `TEST_WORKER_TOKEN`.
+- Names used consistently: `WorkspaceReadLimitError`, `isWorkspaceReadLimitError`, `WorkspaceInspectionError`, `isWorkspaceInspectionError`, `WorkspaceInspectionErrorCode`, `WorkspaceInspectionErrorDetail`, `readBoundedText`, `RequestBodyTooLargeError`, `payloadTooLarge`, `WorkspaceProtocolSettings`, `NO_WORKSPACE_PROTOCOL`, `workspaceProtocolOptionNames`, `openedWorkspaceProtocol`, `workspaceProtocolPolicyMessage`, `ThreadWorkspaceInspectRequest`, `ThreadWorkspaceInspectOutcome`, `ThreadWorkspaceInspectFailure`, `inspectFailure`, `inspectThread`, `parseThreadWorkspaceRequest`, `threadWorkspaceResponse`, `INSPECT_BODY_MAX_BYTES`, `INSPECT_CAPS`, `INSPECT_DEFAULTS`, `readThreadWorkspace`, `ThreadWorkspaceReadError`, `ThreadWorkspaceRead`, `StagedWorkspaceReference`, `verifyStagedWorkspaceReference`, `stagedWorkspaceDefinition`, `WorkspaceStagedSourceStore`, `WorkspaceStagedSourceError`, `STAGED_UPLOAD_MAX_BYTES`, `StagedWorkspaceSettings`, `stagedWorkspaceSettings`, `StageSourceOutcome`, `StagedWorkspaceCheck`, `StagedWorkspaceAttach`, `stageSource`, `checkStagedWorkspace`, `attachStagedWorkspace`, `reclaimStagedSources`, `THREAD_CREATE_BODY_MAX_BYTES`, `stagedWorkspaceField`, `createHttpThreadWorkspaceReader`, `handedSourceDigest`, `BuilderHandoffSchema`, `builderHandoffOf`, `stagedBuilderWorkspace`, `captureBuilderHandoff`, `stagedReferenceOf`, `DrafterHandoffSchema`, `drafterHandoffOf`, `stagedDrafterWorkspace`, `captureDrafterHandoff`, `TEST_WORKER_TOKEN`, and from the review amendments `isCanonicalWorkspaceRoot`, `isCanonicalRoot`, `drainableBody`, `ThreadAccessRequestedWorkspace`, `StagedWorkspaceFieldValue`, `STAGED_QUOTA_DEFAULT_BYTES`, `STAGED_QUOTA_MAX_BYTES`, `forgetStagedWorkspace`, `sweepStagedThreads`, `threads()` on the staged store, `maxResponseBytes`.
+
+## Review amendments (2026-09-25)
+
+An independent review found no critical issues. Each item it raised, and where the plan now answers it:
+
+1. **and 2. `root` could escape through a symlink, and needed per-entry `listDir`.** `atRoot` (Task 5) now lstats EVERY segment and requires a real directory, so a link at any depth (`draft`, or `a/link` in `a/link/x`) is refused as `root_missing` naming the segment and is never looked through; this matters because the Docker reader does not jail paths. The success path needs only `lstat`, so a batch-only backend (whose per-entry `listDir` refuses, `inspect-workspace.test.ts:76-79`) can be re-rooted; `listDir` is consulted only after a failed `lstat`, to tell "absent" from a backend failure. New tests: first-segment and mid-path symlinks with no lstat past the link, and re-rooting the batched backend. The option's doc comment says what the code does. `isCanonicalWorkspaceRoot` is exported from `@b4run/workspace`, and `parseThreadWorkspaceRequest` refuses a malformed `root` (400, the root named) before any reader starts, through a pure local copy (`isCanonicalRoot`) pinned to the same answers by a table test (Task 11).
+3. **The inspect route's order.** Thread lookup, gate, then the feature check, then the body (Task 11). An unauthorized caller gets the gate's answer whether the feature is on or off, and the body is never read for it; an authorized caller of an app without the option gets the 404 of a missing route. Test: 403 from both an "off" and an "on" app for an unauthenticated caller sending a 200 KiB body. The upload route and `POST /threads`' `workspace_not_accepted` follow the same rule (Task 25).
+4. **Upload cost.** One upload in flight per process (`429 upload_in_flight`, `retry-after: 1`); a `stagedWorkspaces.maxStagedBytes` quota (default 1 GiB, at most 16 GiB, shape-validated) checked in the store's `upload` after a reclaim (`507 staged_quota_exceeded`); a re-upload of held bytes rewrites and re-parses nothing; `readBoundedText` decodes as it reads instead of assembling a second full byte buffer. The sandbox page states the cost (four to five times the upload at the peak). Tasks 8, 21, 23, 24, 25, 26; tests for the 429, the 507 and the quota at store and manager level.
+5. **One rule for upload and create.** `requestedWorkspace` is set on `workspace.source.put` (`{ sourceDigest }`) and carries the whole reference on `thread.create` (`{ sourceDigest, environmentLinks?, baseline? }`), typed as `ThreadAccessRequestedWorkspace` (Task 22; D11). The pure `stagedWorkspaceField` shape-checks the whole field before the gate (Task 25). Docs say that enabling `stagedWorkspaces` means auditing the `create` handler (Task 26).
+6. **A bearer token over plain HTTP.** The factory README requires loopback, a private network or TLS (Task 3). Both clients refuse redirects: the factory client's `send` (Task 2, with a test) and `readThreadWorkspace` (Task 12, with a test).
+7. **DELETE ordering.** `DELETE /threads/:id` forgets the staged reference before the thread row (Task 25), so a failed delete fails closed and an id reused through a run endpoint inherits nothing (test); a boot sweep (`sweepStagedThreads`) forgets the references of threads whose rows are gone (manager test). The detach in `completeDelete` stays, idempotent.
+
+Minor:
+- Task 1 Step 5 no longer claims `b4 check` never evaluates the policy: it does once `.b4/build/modules.mjs` exists (`check.ts:203-211`). `turbo.json` passes `FACTORY_WORKER_TOKEN` through to both workers' `check`, and the README says to set it for `check`. CI's lane checks before it builds in a fresh checkout, so `ci.yml` needs no change in PR 1.
+- `config.test.ts` has no `baseEnv()`: Tasks 2 and 17 now name the real `base` and `pair` constants, the one-key literal at `:21`, and every case Task 17 rewrites or deletes.
+- PR 5 updates `turbo.json`: both `*_MANIFEST_DIR` leave the workers' env lists. `FACTORY_DRAFTER_IMAGE` stays on the drafter's, because the drafter still reads it; only the controller stopped in PR 3. Task 33's grep now covers `turbo.json`, the runbooks and the fixtures.
+- The 1 MiB `POST /threads` cap applies only when `stagedWorkspaces` is on, so other apps see no behaviour change (Task 25, with a test that an app without the option still accepts a 2 MiB create; D3; changeset).
+- `readThreadWorkspace` bounds the response (`maxResponseBytes`, default 80 MiB, `response_too_large`) and refuses file keys that are not relative leaf paths and symlink keys that are not single leaves (Task 12 tests).
+- A 413 reaching a real client: Task 8 adds a real-socket test and gives `toWebRequest` its own body stream (`drainableBody`) whose cancel discards the rest of the upload instead of destroying the socket; the existing adapter, AG-UI and runs tests run against it. The PR 2 changeset says so.
+- Paths removed by `ignorePrefixes` still count in `totalBytes` and `entries` (they were read): documented on `threadWorkspaceResponse` and on the sandbox page.
+- Task 9's boot refusal runs before `reconcileDeletions` and reads `sandboxManager?.workspaceProtocol ?? NO_WORKSPACE_PROTOCOL`.
+- `handedSourceDigest` accepts both `*_manifest_written` and `*_source_staged` from PR 3 on (test), so rows journalled under either read alike; PR 5 no longer edits it.
+- D13 carries the full reference in `factoryBuilder.workspace` (and `factoryDrafter.workspace`), and the workers compare digest, links and baseline against the staged definition (Task 29 tests).
+- Missing tests added: a reclaim racing a create (the attach reports `workspace_source_not_held`, the create answers 409 and the row is gone; Task 25), `workspace_changed` end to end as a 409 (Task 11), mid-path symlinks (Task 5), and a pin that `sources.put` and `associations.create` in `getForThread` stay synchronous with no `await` between (Task 24).
+- Conditional instructions resolved: Task 3 (the two worker config tests import `b4.config.ts` and spawn only `in-lane.mjs`: no change), Task 11 Step 6 (`runtime-fetch-parity.test.ts` enumerates no routes: run, no edit), Task 13 and Task 26 (`api/sdk.mdx` describes `ThreadOperation` and `ThreadAccessRequest` in one generic row each: no change; `thread-access.mdx` has no operation list, so a section is added), Task 16 (`fake-managed-provider.ts` is deleted, its only importer being the replaced block) and Tasks 17/18 (`builderSandboxProvider` and `drafterSandboxProvider` are deleted in Task 18 with their last importers, `targets-workspace.test.ts` cases included).
