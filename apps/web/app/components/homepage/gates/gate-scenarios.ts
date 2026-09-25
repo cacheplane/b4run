@@ -115,7 +115,7 @@ export const gateScenarios: readonly GateScenario[] = [
     file: "config",
     why: ['mode: "interactive"', 'network: { mode: "deny" }'],
     explain:
-      'No bash allow rule matches curl, so runBash asks first. Once allowed, it has no network because this config sets mode: "deny". Without that line, the sandbox allows egress and blocks only 169.254.169.254, on a best-effort basis.',
+      'No bash allow rule matches curl, so runBash asks first. Once allowed, it has no network because this config sets mode: "deny". Without that line the sandbox falls back to allow mode, and Docker gives the container ordinary network access.',
     docsHref: "/docs/sandbox#network-policy",
     docsLabel: "Network policy",
   },
@@ -161,11 +161,11 @@ export const gateBoards: readonly GateBoard[] = [
       {
         gate: "sandbox",
         state: "contained",
-        note: "It reads the sandbox's workspace, not your disk.",
+        note: "It reads the file inside the sandbox container.",
       },
       { gate: "delegation", state: "skipped", note: onlyTask },
     ],
-    result: "readFile runs inside the sandbox.",
+    result: "readFile runs inside the sandbox, and no one is asked.",
   },
   {
     id: "refund",
@@ -202,7 +202,8 @@ export const gateBoards: readonly GateBoard[] = [
       { gate: "sandbox", state: "unreached", note: "The call never runs." },
       { gate: "delegation", state: "unreached", note: "The call never runs." },
     ],
-    result: "refund doesn't run. The model gets the reason as the tool result and can adapt.",
+    result:
+      'refund doesn\'t run. The model gets "[B4_E3001] Permission denied by user: tool refund" as the tool result and can adapt.',
   },
   {
     id: "bash",
