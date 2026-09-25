@@ -14,7 +14,11 @@ function toolRoundReq(userText: string): Recording["request"] {
       role: "assistant",
       content: "",
       tool_calls: [
-        { id: "call_x", type: "function", function: { name: "greet", arguments: "{}" } },
+        {
+          id: "call_x",
+          type: "function",
+          function: { name: "greet", arguments: "{}" },
+        },
       ],
     },
     { role: "tool", content: "ok", tool_call_id: "call_x" },
@@ -39,14 +43,18 @@ describe("recordingsToFixtures", () => {
     const recordings: Recording[] = [
       {
         request: userReq("greet me"),
-        response: { toolCalls: [{ id: "call_x", name: "greet", arguments: { who: "me" } }] },
+        response: {
+          toolCalls: [{ id: "call_x", name: "greet", arguments: { who: "me" } }],
+        },
       },
       { request: toolRoundReq("greet me"), response: { content: "Hello, me" } },
     ]
     expect(recordingsToFixtures(recordings)).toEqual([
       {
         match: { userMessage: "greet me", turnIndex: 0, hasToolResult: false },
-        response: { toolCalls: [{ id: "call_x", name: "greet", arguments: { who: "me" } }] },
+        response: {
+          toolCalls: [{ id: "call_x", name: "greet", arguments: { who: "me" } }],
+        },
       },
       {
         match: { userMessage: "greet me", turnIndex: 1, hasToolResult: true },
@@ -57,9 +65,44 @@ describe("recordingsToFixtures", () => {
 
   it("uses the FIRST user message as userMessage even when later messages exist", () => {
     const recordings: Recording[] = [
-      { request: toolRoundReq("original prompt"), response: { content: "done" } },
+      {
+        request: toolRoundReq("original prompt"),
+        response: { content: "done" },
+      },
     ]
     const [fx] = recordingsToFixtures(recordings)
     expect(fx?.match.userMessage).toBe("original prompt")
+  })
+
+  it("rejects at record time a recording replay would reject, naming the turn", () => {
+    const recordings: Recording[] = [
+      {
+        request: userReq("show me the ledger"),
+        response: {
+          toolCalls: [{ id: "call_r", name: "render", arguments: { ui: [] } }],
+        },
+      },
+      {
+        request: toolRoundReq("show me the ledger"),
+        response: { content: "" },
+      },
+    ]
+    expect(() => recordingsToFixtures(recordings)).toThrow(
+      /turn 1 of "show me the ledger": content is empty string/,
+    )
+  })
+
+  it("names the likely causes and returnDirect in the record-time error", () => {
+    const recordings: Recording[] = [{ request: userReq("q"), response: { content: "" } }]
+    expect(() => recordingsToFixtures(recordings)).toThrow(/refus/)
+    expect(() => recordingsToFixtures(recordings)).toThrow(/returnDirect/)
+  })
+
+  it("reports every rejected turn, not just the first", () => {
+    const recordings: Recording[] = [
+      { request: userReq("q"), response: { content: "" } },
+      { request: userReq("q"), response: { content: "" } },
+    ]
+    expect(() => recordingsToFixtures(recordings)).toThrow(/turn 0 of "q"[\s\S]*turn 1 of "q"/)
   })
 })
