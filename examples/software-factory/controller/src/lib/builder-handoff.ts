@@ -5,7 +5,8 @@ import type { CapturedWorkspaceDefinition, StagedWorkspaceReference } from "@b4r
 import { captureWorkspaceDefinition } from "@b4run/workspace/node"
 import { z } from "zod"
 import { captureDirectory } from "./targets/archive.js"
-import { imageTag, isCatalogId, type Task } from "./targets/catalog.js"
+import { isCatalogId, type Task } from "./targets/catalog.js"
+import { imageTag } from "./targets/images.js"
 import { builderPermissions } from "./targets/permissions.js"
 import { targetSandboxPolicy, targetWorkspace } from "./targets/workspace.js"
 

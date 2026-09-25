@@ -18,13 +18,13 @@ import {
 } from "../src/lib/prompts.ts"
 import {
   environmentIdentity,
-  imageTag,
   loadTarget,
   loadTargetIds,
   TargetSchema,
   targetsDir,
   tasksDir,
 } from "../src/lib/targets/catalog.ts"
+import { imageTag } from "../src/lib/targets/images.ts"
 import { shippedPin } from "./temp-repo.ts"
 
 const PIN = shippedPin("devkit")

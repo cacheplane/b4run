@@ -7,13 +7,8 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest"
 import type { Receipt } from "../src/lib/domain/work-order.ts"
 import type { ArtifactStore } from "../src/lib/storage/artifacts.ts"
 import { createArtifactStore } from "../src/lib/storage/artifacts.ts"
-import {
-  ensurePin,
-  imageTag,
-  loadTask,
-  repositoryRoot,
-  type Task,
-} from "../src/lib/targets/catalog.ts"
+import { ensurePin, loadTask, repositoryRoot, type Task } from "../src/lib/targets/catalog.ts"
+import { imageTag } from "../src/lib/targets/images.ts"
 import { createDockerVerifier } from "../src/lib/verification/docker-verifier.ts"
 import { gradeSuite } from "../src/lib/verification/grade-suite.ts"
 import { loadPolicy } from "../src/lib/verification/policy.ts"

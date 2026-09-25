@@ -14,7 +14,8 @@ import {
   captureBuilderHandoff,
   stagedReferenceOf,
 } from "../src/lib/builder-handoff.ts"
-import { imageTag, loadTask } from "../src/lib/targets/catalog.ts"
+import { loadTask } from "../src/lib/targets/catalog.ts"
+import { imageTag } from "../src/lib/targets/images.ts"
 import { builderPermissions } from "../src/lib/targets/permissions.ts"
 import { targetSandboxPolicy } from "../src/lib/targets/workspace.ts"
 

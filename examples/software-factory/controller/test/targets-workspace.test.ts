@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { isFactoryImage } from "../src/lib/builder-handoff.ts"
-import { imageTag, type Task } from "../src/lib/targets/catalog.ts"
+import { type Task, tagFor } from "../src/lib/targets/catalog.ts"
 import {
   drafterInspectionOptions,
   targetInspectionOptions,
@@ -170,7 +170,8 @@ describe("targetSandboxPolicy", () => {
 
 describe("the factory's images", () => {
   it("are every one an image the builder's provider allows", () => {
-    expect(isFactoryImage(imageTag(task("0".repeat(40)).target))).toBe(true)
+    const { target } = task("0".repeat(40))
+    expect(isFactoryImage(tagFor(target.id, target.pin, "c".repeat(64)))).toBe(true)
     expect(isFactoryImage("alpine:latest")).toBe(false)
   })
 })

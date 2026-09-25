@@ -440,15 +440,6 @@ export function commitExists(repo: string, pin: string): boolean {
 }
 
 /**
- * The tag the prepare script builds and the sandbox provider runs. Derived, never stored.
- * Binds both the pin and the Dockerfile hash: a changed Dockerfile at the same pin must
- * never run under the old recorded identity.
- */
-export function imageTag(target: Pick<Target, "id" | "pin" | "image">): string {
-  return `b4-factory-${target.id}:${target.pin.slice(0, 12)}-${target.image.dockerfileSha256.slice(0, 12)}`
-}
-
-/**
  * The recipe tag of `id` at `pin` whose recipe key (`recipeKey`) is `key`. One tag per
  * recipe: a changed Dockerfile, base, context or pin is another key and so another tag, and
  * re-pointing a tag (the registry does, D10) can never move it between recipes. Still the

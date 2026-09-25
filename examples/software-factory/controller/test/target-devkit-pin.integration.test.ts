@@ -6,12 +6,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import {
   environmentIdentity,
   ImageUnpreparedError,
-  imageTag,
   loadTarget,
   repositoryRoot,
   TargetSchema,
   targetsDir,
 } from "../src/lib/targets/catalog.ts"
+import { imageTag } from "../src/lib/targets/images.ts"
 import { prepareDevkitSecondPin, SECOND_PIN } from "./devkit-second-pin.ts"
 
 /**

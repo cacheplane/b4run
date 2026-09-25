@@ -6,11 +6,11 @@ import { join } from "node:path"
 import {
   covers,
   ensurePin,
-  imageTag,
   repositoryRoot,
   TargetSchema,
   targetsDir,
 } from "../src/lib/targets/catalog.js"
+import { recipeTag } from "../src/lib/targets/images.js"
 import {
   capturedListMismatch,
   firstMissingPath,
@@ -120,8 +120,8 @@ try {
 
   const dockerfileSha256 = sha(readFileSync(join(directory, "Dockerfile")))
   const lockfileSha256 = sha(bytes("git", ["-C", repo, "show", `${pin}:${manifest.lockfile}`]))
-  // The tag binds the pin and the Dockerfile (see `imageTag`), so it is computable before the
-  // build from a provisional image object; `localId` is the only field the build supplies.
+  // The tag is the recipe's (see `recipeTag`), so it is computable before the build;
+  // `localId` is the only field of the image object the build supplies.
   const provisional = {
     localId: `sha256:${"0".repeat(64)}`,
     platform,
@@ -130,7 +130,8 @@ try {
     lockfileSha256,
     pnpmVersion,
   }
-  const tag = imageTag({ id: manifest.id, pin, image: provisional })
+  const { images: _images, ...recipe } = manifest
+  const tag = recipeTag({ ...recipe, pin, directory }, platform)
   execFileSync(
     "docker",
     [

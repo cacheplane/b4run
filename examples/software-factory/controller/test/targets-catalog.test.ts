@@ -12,7 +12,6 @@ import {
   environmentIdentity,
   ImageUnpreparedError,
   idTagFor,
-  imageTag,
   loadTarget,
   loadTargetIds,
   loadTargetRecipe,
@@ -28,6 +27,7 @@ import {
   tasksDir,
   UnknownTargetError,
 } from "../src/lib/targets/catalog.ts"
+import { imageTag, recipeKey } from "../src/lib/targets/images.ts"
 
 const dirs: string[] = []
 afterEach(() => {
@@ -100,6 +100,7 @@ function targetsDir(pin: string, overrides: Record<string, unknown> = {}): strin
   dirs.push(dir)
   mkdirSync(join(dir, "t"))
   writeFileSync(join(dir, "t", "target.json"), JSON.stringify(manifest(pin, overrides)))
+  writeFileSync(join(dir, "t", "Dockerfile"), "FROM scratch\n")
   return dir
 }
 
@@ -218,7 +219,7 @@ describe("target catalog", () => {
     const target = loadTarget("t", { targetsDir: targetsDir(pin), repositoryRoot: root })
     expect(target.pin).toBe(pin)
     expect(target.directory.endsWith("/t")).toBe(true)
-    expect(imageTag(target)).toBe(`b4-factory-t:${pin.slice(0, 12)}-${"c".repeat(12)}`)
+    expect(imageTag(target)).toBe(tagFor("t", pin, recipeKey(target, target.image.platform)))
     expect(environmentIdentity(target)).toMatch(/^[a-f0-9]{64}$/)
   })
 
@@ -332,7 +333,9 @@ describe("target catalog", () => {
     const atSecond = loadTarget("t", { targetsDir: dir, repositoryRoot: root, pin: second })
     expect(atSecond.pin).toBe(second)
     expect(atSecond.image).toEqual(other)
-    expect(imageTag(atSecond)).toBe(`b4-factory-t:${second.slice(0, 12)}-${"8".repeat(12)}`)
+    expect(imageTag(atSecond)).toBe(
+      tagFor("t", second, recipeKey(atSecond, atSecond.image.platform)),
+    )
   })
 
   it("refuses a pin the target has no image at, distinctly and without fetching", () => {

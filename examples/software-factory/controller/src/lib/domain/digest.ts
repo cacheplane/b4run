@@ -207,3 +207,31 @@ export function environmentIdentityDigest(image: ImageInputs, pin: string): stri
     pnpmVersion: image.pnpmVersion,
   })
 }
+
+/** The inputs a target's image is built from at a pin: what the image registry keys on. */
+export interface ImageRecipeInputs {
+  readonly targetId: string
+  readonly pin: string
+  readonly platform: string
+  readonly baseImage: string
+  readonly dockerfileSha256: string
+  readonly imageContext: readonly string[]
+  readonly lockfile: string
+  readonly imageAssertResolves: readonly string[]
+  readonly commandsCwd: string
+}
+
+/**
+ * The image registry's key. Everything in `target.json` that changes what `docker build`
+ * produces, or what the build is checked against, is here, including three inputs today's
+ * tag and environment identity never saw (`imageContext`, `imageAssertResolves`, the
+ * commands' working directory). Not the lockfile's hash: the pin is an immutable commit, so
+ * the pin and the lockfile's path already decide it. Order-free lists are sorted.
+ */
+export function imageRecipeDigest(input: ImageRecipeInputs): string {
+  return digest("b4-factory-image-recipe-v1", {
+    ...input,
+    imageContext: [...input.imageContext].sort(),
+    imageAssertResolves: [...input.imageAssertResolves].sort(),
+  })
+}
