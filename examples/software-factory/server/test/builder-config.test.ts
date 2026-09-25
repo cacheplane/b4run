@@ -112,9 +112,9 @@ describe("builder configuration", () => {
     expect(config.permissions?.allow).toBeUndefined()
   })
 
-  it("addresses the controller's reader's storage: one scope, no default image", () => {
+  it("has one scope and no default image: every thread runs the image its manifest names", () => {
     const text = readFileSync(new URL("../b4.config.ts", import.meta.url), "utf8")
-    // Scope and allowed images, and no default image: the controller's reader builds the same.
+    // Scope and allowed images, and no default image.
     expect(text).toContain(
       'dockerSandbox({ scope: "software-factory-builder", images: isFactoryImage })',
     )

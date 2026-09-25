@@ -1,7 +1,5 @@
 import { readdirSync } from "node:fs"
-import { dockerSandbox } from "@b4run/sandbox"
-import type { SandboxPolicy, SandboxProvider, WorkspaceDefinition } from "@b4run/workspace"
-import { isFactoryImage } from "../builder-manifest.js"
+import type { SandboxPolicy, WorkspaceDefinition } from "@b4run/workspace"
 import type { WorkspaceReadOptions } from "../worker/workspace-reader.js"
 import { type CaptureRole, type CaptureTargetOptions, captureTarget } from "./archive.js"
 import type { Target, Task } from "./catalog.js"
@@ -35,36 +33,6 @@ function capturedFiles(absolute: string): string[] {
 
 /** Names {@link targetWorkspace} injects itself; a captured file cannot also claim one. */
 const RESERVED_CAPTURE_PATHS = ["TASK.md", ".gitignore"]
-
-/**
- * Storage identity for the builder's sandboxes: the builder's `b4.config.ts` and the
- * controller's reader both use it, in different processes. A managed workspace is addressed
- * by this scope, the daemon and the thread's recorded operation; its image is in its record.
- */
-export const builderSandboxScope = "software-factory-builder"
-
-/**
- * The builder's sandbox provider, as the controller's reader constructs it. The scope is the
- * whole of the address a managed workspace needs: the image is read from the thread's own
- * record (proved in @b4run/sandbox's managed-workspace test "the image is the intent's"), so
- * this provider has no default image and serves every target's threads. It allows only the
- * factory's own images, as the builder's does.
- */
-export function builderSandboxProvider(): SandboxProvider {
-  return dockerSandbox({ scope: builderSandboxScope, images: isFactoryImage })
-}
-
-/**
- * The drafter's sandbox provider. The scope and the image MUST equal the drafter app's own
- * config (`drafter/b4.config.ts`: scope `software-factory-drafter`, image `DRAFTER_IMAGE`
- * unless `FACTORY_DRAFTER_IMAGE` overrides it) because the two values are the whole of the
- * provider's identity: they are what address a drafter thread's workspace, and a reader
- * built with either different would open a different (or no) workspace. The image reaches
- * the controller through its configuration, never by importing the drafter's source.
- */
-export function drafterSandboxProvider(image: string): SandboxProvider {
-  return dockerSandbox({ scope: "software-factory-drafter", image })
-}
 
 /**
  * How a drafter thread is inspected. These bounds apply to the re-rooted `draft/` read

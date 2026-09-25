@@ -196,16 +196,27 @@ nothing else; rung 0 drove code-fixer as its worker, and rung 1 does not.
 
 ## What is joined, and what is not
 
-The controller reads a builder thread's workspace through the framework's managed-workspace
-read surface: `withManagedWorkspaceReader` from `@b4run/cli/workspace`, over
-`ManagedWorkspaceProvider.openWorkspaceReader`. The builder's `b4.config.ts` gives it a
-workspace *definition*, which makes its threads **managed workspaces**: their bytes live in a
-volume named by the builder's installation and operation ids, not by the thread id, so the
-reader first resolves the thread through the builder's own installation store under its app
-root (read-only, without taking the builder's owner lock) and then opens that record's volume
-read-only in a separate, networkless container. `controller/src/lib/worker/workspace-reader.ts` is that
-join; the builder's own session is never acquired, started, stopped or replaced, and the
-reader carries no exec backend and no write operation, so a mutation cannot be expressed.
+**How the controller reads a thread.** Each worker sets `sandbox.workspaceRead: "http"`. The
+controller reads a builder's candidate, or a drafter's `draft/`, with
+`POST /threads/:id/workspace/inspect` on that worker's URL, sending the worker token and
+checking that the answer's `sourceDigest` is the digest it journalled when it handed the thread
+its workspace. The worker runs the read in a separate, networkless, read-only container and
+refuses it while a turn runs. The controller holds no worker app root, opens no worker
+installation store, and needs Docker only for its own verifier.
+`controller/src/lib/worker/workspace-reader.ts` is that join (`readThreadWorkspace` from
+`@b4run/cli/workspace`); the builder's own session is never acquired, started, stopped or
+replaced, and the read carries no exec backend and no write operation, so a mutation cannot
+be expressed.
+
+A read the controller could not make is never a verdict on the candidate or the draft. The
+worker's refusals (`thread_not_found`, `workspace_lost`, `workspace_expired`,
+`workspace_not_ready`, `run_in_flight`, `workspace_changed`, `workspace_read_timeout`,
+`workspace_unavailable`, `workspace_inspection_refused`, `shutting_down`) and the client's own
+(`source_mismatch`, `thread_mismatch`, a malformed or oversized answer) are journalled as
+`workspace_unreadable` with the status and code, and settle `verification_inconclusive` (which
+`retry` accepts) or, for a drafter read, `intake_run_failed` with no attempt spent. The one
+refusal that is a verdict is `workspace_root_missing` on a drafter read: the drafter wrote
+nothing under `draft/`, which spends an attempt.
 
 - **Joined, and proven in `controller/test/end-to-end.integration.test.ts` (Docker-gated).** A real
   builder turn — the route, its tools, its permission config and its container, with only the
@@ -218,19 +229,19 @@ reader carries no exec backend and no write operation, so a mutation cannot be e
   exercised against real Docker in that lane rather than merely passed: the git baseline is
   excluded (while `.gitignore` survives) and the `node_modules` environment link is validated
   against its exact target instead of walked into.
-- **Addressing, not authorization.** The controller needs the builder's app root as well as
-  a provider of the same kind and scope; the image is in the thread's record, so the reader's
-  provider has no default image and serves every target. Naming a thread id is not a claim of
-  ownership; the process holding those two things is the boundary. In this example the builder
-  is the sibling `server` package, which is what `FACTORY_BUILDER_APP_ROOT` names.
+- **Authorization, and which workspace.** The worker token is the boundary: the worker's
+  thread-access policy refuses the read without it (403, proven in the end-to-end lanes). The
+  handed digest is the check that the answer is about the workspace the controller handed that
+  thread: a retry of the same task shares a digest, so the thread id in the path and its echo
+  in the answer are the rest.
 - **What rests on a fake elsewhere.** Layer 1 scripts the worker, the reader and the
   verifier. The end-to-end lanes dispatch through the controller to the real builder, served
   in-process, and script only its model; the builder-side test scripts the model,
   as layer 2 does; the route, tools, permission config and container there are real.
 - **What the inspection options are.** They are not cosmetic: `WorkspaceInspectionOptions`
   supplies `excludeRootDirectories` and `expectedRootSymlinks` for every read, derived from
-  the target rather than restated, plus the builder's own `runAsNonRoot` identity so the
-  reader can read what the builder wrote. A reader without them throws on the
+  the target rather than restated; the worker reads as its own app's identity. A reader
+  without them throws on the
   dependency symlink or reports the git directory as added paths — a `scope_violation` on
   every run. `ignorePrefixes` is the target's `snapshotIgnore`: a builder that runs the
   target's build writes there legitimately, and those paths are dropped rather than reported
@@ -260,7 +271,8 @@ shorter than 32 characters, refuses to boot instead of serving open endpoints.
 **The token is a bearer credential: never send it over an untrusted network in the clear.**
 Run the workers on loopback or a private network only the controller can reach, or put TLS in
 front of them (`https://` in `FACTORY_WORKER_URL`). The controller never follows a redirect, so
-a worker URL cannot bounce the token elsewhere.
+a worker URL cannot bounce the token elsewhere. The same token reads every thread's workspace,
+so it is as sensitive as the candidate bytes themselves.
 
 ## Run it
 
@@ -321,16 +333,13 @@ so it needs no repository path:
 `B4_PERMISSIONS_MODE` in this process: it would override the app's `non-interactive` mode,
 and a drafter that parks on a permission prompt is a turn nobody answers.
 
-**3. Start the controller** (terminal 3). It needs the builder pair — the builder's URL and
-its *app root*, the package whose installation store the controller reads a builder thread's
-workspace from — with `FACTORY_BUILDER_MANIFEST_DIR` (the directory the builder was started
-with), its own state directory, and the drafter pair: the drafter's URL and its app root:
+**3. Start the controller** (terminal 3). It needs each worker's URL and the manifest
+directory that worker was started with, its own state directory, and the worker token. It
+reads a thread's workspace over the worker's URL, so it needs no worker's app root:
 
     FACTORY_WORKER_URL=http://127.0.0.1:4100 \
-    FACTORY_BUILDER_APP_ROOT=$PWD/examples/software-factory/server \
     FACTORY_BUILDER_MANIFEST_DIR=$PWD/.factory/builder-manifests \
     FACTORY_DRAFTER_URL=http://127.0.0.1:4200 \
-    FACTORY_DRAFTER_APP_ROOT=$PWD/examples/software-factory/drafter \
     FACTORY_DRAFTER_MANIFEST_DIR=$PWD/.factory/drafter-manifests \
     FACTORY_STATE_DIR=$PWD/.factory \
     FACTORY_WORKER_TOKEN=$TOKEN \
@@ -339,17 +348,17 @@ with), its own state directory, and the drafter pair: the drafter's URL and its 
 Every target's work orders go to that one builder. `FACTORY_WORKERS` (the per-target worker
 map) and `FACTORY_BUILDER_TARGET` (the per-process target file) are retired: the controller
 refuses to start while either is set, naming it, rather than leave an operator believing it
-still routes anything. The builder and the drafter each need their own app root, and the
-controller refuses one shared between them. Each manifest directory must be the same on both
-sides. Left unset, the builder's side still agrees by default: the controller's
-`FACTORY_BUILDER_MANIFEST_DIR` defaults to `<FACTORY_BUILDER_APP_ROOT>/.factory/manifests`,
-and the builder's `dev`, `check` and `build` scripts default theirs to `.factory/manifests`
-under the same package, which is not world-writable either. The drafter has no such default
-of its own, so its directory is always set on both sides. The controller creates each manifest directory at boot; `dispatch` writes
+still routes anything. So are `FACTORY_BUILDER_APP_ROOT`, `FACTORY_DRAFTER_APP_ROOT` and
+`FACTORY_DRAFTER_IMAGE` on the controller: it reads each worker over its URL, and only the
+drafter needs the drafter's image. Each manifest directory must be the same on both sides, and
+the controller has no default for either: set `FACTORY_BUILDER_MANIFEST_DIR` and
+`FACTORY_DRAFTER_MANIFEST_DIR` to the directories the workers were started with (the
+builder's `dev`, `check` and `build` scripts default theirs to `.factory/manifests` under the
+`server` package). The controller creates each manifest directory at boot; `dispatch` writes
 the work order's manifest there before it creates the thread, and removes it once the row
 leaves `dispatched`/`running` (the resolver reads it once, at the thread's first admission;
-verification reads the workspace through the reader) or a cancel has settled the thread. Without the
-drafter pair the controller starts and every command works except `intake`, which refuses
+verification reads the workspace over the builder's URL) or a cancel has settled the thread. Without the
+drafter the controller starts and every command works except `intake`, which refuses
 before spending anything. The controller keeps every file it writes at run time under
 `FACTORY_STATE_DIR` (the registry, evidence, generated tasks, and the captures it stages
 under `captures/` and `verifiers/`), so its own package directory stays read-only while it
@@ -571,16 +580,13 @@ The controller app reads:
 | Variable | Required | Meaning |
 |---|---|---|
 | `FACTORY_WORKER_URL` | yes | The builder's Agent Protocol base URL, `http(s)` only: the one builder, for every target and pin |
-| `FACTORY_BUILDER_APP_ROOT` | yes | The BUILDER package's root, so the workspace reader can address its installation store |
 | `FACTORY_WORKER_ROUTE` | no | Default `/build#agent` |
-| `FACTORY_BUILDER_MANIFEST_DIR` | no | Default `<builder app root>/.factory/manifests`; must be the directory the builder process was started with |
+| `FACTORY_BUILDER_MANIFEST_DIR` | yes | The directory the builder process was started with; `dispatch` writes each work order's manifest there |
 | `FACTORY_WORKER_TOKEN` | yes | The secret every worker requires, sent as `authorization: Bearer <token>` on every request; at least 32 characters, no whitespace (`openssl rand -hex 32`). Never journalled or logged |
 | `FACTORY_STATE_DIR` | yes | Holds `registry.sqlite`, `artifacts/`, `exports/`, generated `tasks/`, and the `captures/` and `verifiers/` staging the controller removes after each use |
-| `FACTORY_DRAFTER_URL` | for `intake` | The drafter's Agent Protocol base URL, `http(s)` only. Set with `FACTORY_DRAFTER_APP_ROOT` or not at all |
-| `FACTORY_DRAFTER_APP_ROOT` | for `intake` | The DRAFTER package's root, so the controller can read a drafter thread's `draft/` through its installation store |
-| `FACTORY_DRAFTER_ROUTE` | no | Default `/intake#agent`; only with the drafter pair |
-| `FACTORY_DRAFTER_MANIFEST_DIR` | no | Default `<drafter app root>/.factory/manifests`; must be the directory the drafter process was started with. Only with the drafter pair |
-| `FACTORY_DRAFTER_IMAGE` | no | Default: the pinned `node:24-slim` digest. Must equal what the drafter booted with, since the image is half of the provider identity the controller reads its threads by. Only with the drafter pair |
+| `FACTORY_DRAFTER_URL` | for `intake` | The drafter's Agent Protocol base URL, `http(s)` only |
+| `FACTORY_DRAFTER_MANIFEST_DIR` | with `FACTORY_DRAFTER_URL` | The directory the drafter process was started with; `intake` writes each work order's manifest there |
+| `FACTORY_DRAFTER_ROUTE` | no | Default `/intake#agent`; only with `FACTORY_DRAFTER_URL` |
 | `FACTORY_EXPORT_DIR` | no | Default `<state>/exports`; also the bundle's destination identity |
 | `FACTORY_ARTIFACTS_DIR` | no | Default `<state>/artifacts`, the content-addressed evidence store |
 | `FACTORY_APPROVAL_TTL_MS` | no | Default 900000 |
@@ -588,6 +594,7 @@ The controller app reads:
 | `FACTORY_MAX_CHANGED_BYTES` | no | Default 1048576; exceeding it is a `scope_violation`, never a truncation |
 | `FACTORY_MAX_INTAKE_ATTEMPTS` | no | Default 2, a positive integer: the drafter turns an issue intake may spend before its last refusal blocks it. Fixed on the row at create, like `FACTORY_MAX_ACTIVE_MS` |
 | `FACTORY_MAX_CANDIDATE_ATTEMPTS` | no | Default 2, a positive integer: the builder dispatches a work order may spend, the first and one per `retry`. Fixed on the row at create |
+| `FACTORY_BUILDER_APP_ROOT`, `FACTORY_DRAFTER_APP_ROOT`, `FACTORY_DRAFTER_IMAGE` | retired | Refused by name: the controller reads each worker over its URL (`sandbox.workspaceRead`). The drafter app still reads `FACTORY_DRAFTER_IMAGE` |
 | `FACTORY_REPO_ROOT` | no | The repository the targets pin into and the wide capture is taken from; default `git rev-parse --show-toplevel` from the package. Set by the Docker-lane tests, which copy the app outside the repository. |
 
 The CLI's `create --issue` reads `FACTORY_GH` (default `gh`: the executable that answers
@@ -619,7 +626,7 @@ controller package. `target:prepare` builds from a temporary archive and writes 
 target's `target.json` (under `FACTORY_TARGETS_DIR` when set), so run it before a `b4 dev`
 controller starts or point it at another targets directory.
 
-A work order whose worker has left the map — the drafter pair unset while a draft is in
+A work order whose worker has left the map — `FACTORY_DRAFTER_URL` unset while a draft is in
 flight — waits where it is, journalling
 `worker_unavailable` (and `reconcile_failed`) until the map is restored and the controller
 reconciles. `cancel` is the operator's escape when the worker is gone for good: with nowhere
@@ -636,7 +643,7 @@ than stripped, because each used to decide where a work order went or what it ra
 `FACTORY_WORKERS` and `FACTORY_BUILDER_TARGET` (and the `factory builder-target` command that
 wrote the latter's file is gone). The scripted intake's `FACTORY_INTAKE_ROUTE` and
 `FACTORY_INTAKE_TASK` are gone the same way: the drafter is its own process now, and
-`intake` refuses by name when the drafter pair is unset.
+`intake` refuses by name when `FACTORY_DRAFTER_URL` is unset.
 
 ## Tests
 

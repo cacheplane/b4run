@@ -320,6 +320,15 @@ it("runs a real drafter turn against the wide capture, reads only draft/, and pr
     files: Object.keys(ORACLE_DRAFT).sort(),
   })
   expect(typeof payload(factory, id, "draft_read")?.ms).toBe("number")
+  // The controller read it over the drafter's port with the token; without it the port refuses.
+  const bare = await fetch(
+    `${drafter.url}/threads/${encodeURIComponent(threadId)}/workspace/inspect`,
+    {
+      method: "POST",
+      body: JSON.stringify({ root: "draft" }),
+    },
+  )
+  expect(bare.status).toBe(403)
 
   // The oracle was proved in the target's image over the drafted check alone.
   const evidence = factory.evidence(id)

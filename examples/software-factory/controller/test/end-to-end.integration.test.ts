@@ -152,6 +152,23 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
   // baseline and must survive, so the exclusion has to be a root-directory rule.
   expect(observed.has(".gitignore")).toBe(true)
   expect(observed.has("node_modules")).toBe(false)
+  // The controller half of this lane was built from `served.url` and the token alone; the
+  // worker's own port refuses the same read without the token, and a read that names another
+  // source is refused by the controller's client, whatever the worker answered.
+  const bare = await fetch(
+    `${served.url}/threads/${encodeURIComponent(threadId)}/workspace/inspect`,
+    {
+      method: "POST",
+      body: "{}",
+    },
+  )
+  expect(bare.status).toBe(403)
+  await expect(
+    reader().read(
+      { threadId, taskId: "cli-flags", sourceDigest: "f".repeat(64) },
+      AbortSignal.timeout(120_000),
+    ),
+  ).rejects.toMatchObject({ code: "source_mismatch" })
   // Reading disturbed nothing, and the manifest's removal cost the thread nothing: the
   // builder's next turn runs its tools in the same session and workspace, admitted long ago.
   served.aimock.addFixtures(
