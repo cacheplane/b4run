@@ -139,8 +139,8 @@ const inspection = await inspectWorkspace(ctx.fs, {
 
 When a backend implements both `walkTree` and `readBinaryFiles`, inspection
 walks the tree in one call and reads the files in as few calls as the backend
-allows. The Docker backend implements both, so inspecting a container workspace
-costs a few `docker exec` calls instead of one per entry. The checks and limits
+allows. The Docker and Kubernetes backends implement both, so inspecting a
+container workspace costs a few execs instead of one per entry. The checks and limits
 are the same either way. A batched inspection also refuses a file that grew
 between the walk and the read.
 

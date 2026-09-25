@@ -1,4 +1,5 @@
 import type { BackendContext, FilesystemBackend } from "@b4run/workspace"
+import { metadataFromStat, readSandboxFiles, walkSandboxTree } from "../batch-read.js"
 import { readSandboxBytes } from "../bounded-read.js"
 import type { KubeClient } from "./kube-client.js"
 
@@ -34,27 +35,25 @@ export function kubeFilesystem(
     async lstat(path, ctx) {
       const r = await run(`stat -c '%f %s' -- ${q(path)}`, ctx)
       if (r.exitCode !== 0) throw new Error(`lstat failed: ${r.stderr.trim()}`)
-      const match = /^([a-fA-F0-9]+) ([0-9]+)\s*$/.exec(r.stdout)
-      if (!match) throw new Error("Invalid lstat response")
-      const mode = Number.parseInt(match[1] ?? "", 16)
-      const size = Number(match[2])
-      if (!Number.isSafeInteger(size)) throw new Error("Invalid lstat size")
-      const kind =
-        (mode & 0xf000) === 0xa000
-          ? "symlink"
-          : (mode & 0xf000) === 0x8000
-            ? "file"
-            : (mode & 0xf000) === 0x4000
-              ? "directory"
-              : "other"
-      const metadata = { kind, size, executable: (mode & 0o111) !== 0 } as const
-      if (kind !== "symlink") return metadata
+      const metadata = metadataFromStat(r.stdout.trimEnd())
+      if (metadata.kind !== "symlink") return metadata
       const target = await run(`readlink -n -- ${q(path)}`, ctx)
       if (target.exitCode !== 0) throw new Error(`readlink failed: ${target.stderr.trim()}`)
       return {
         ...metadata,
         target: target.stdout,
       }
+    },
+    async walkTree(path, ctx, walkOpts) {
+      return walkSandboxTree(path, walkOpts, (cmd) => run(cmd, ctx))
+    },
+    async readBinaryFiles(requests, ctx) {
+      // The script goes on stdin, not argv: a Kubernetes exec carries its command in the
+      // request URL, where an API server or the proxy in front of it may cap the length
+      // well below the size of one read batch.
+      return readSandboxFiles(requests, (script) =>
+        client.exec(namespace, pod, ["sh", "-s"], { stdin: script, signal: ctx.signal }),
+      )
     },
     async writeFile(path, content, ctx) {
       const r = await run(`mkdir -p "$(dirname ${q(path)})" && cat > ${q(path)}`, ctx, content)

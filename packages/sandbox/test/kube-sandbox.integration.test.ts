@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { inspectWorkspace } from "@b4run/workspace"
 import {
   ApiException,
   CoreV1Api,
@@ -187,6 +188,93 @@ describe.skipIf(!enabled)("kubernetesSandbox (real cluster)", { timeout: 240_000
       )
       expect(fetchResult.exitCode).toBe(7)
       assertEgressEvidence(fetchResult.stdout, "blocked")
+    } finally {
+      await provider.destroy(threadId)
+    }
+  })
+
+  test("batched inspection matches per-entry inspection in a few execs", async () => {
+    const provider = make()
+    const threadId = `batch-${randomUUID().slice(0, 8)}`
+    try {
+      const h = await provider.acquire({
+        threadId,
+        policy: { network: { mode: "deny" } },
+        signal: ctx("/").signal,
+      })
+      const run = (command: string) => h.exec.runCommand({ command }, ctx(h.workspaceRoot))
+      const made = await run(
+        [
+          "mkdir -p src .git/objects 'sp ace' \"[glob]*?\"",
+          "printf 'hello\\n' > src/a.ts",
+          "printf 'caf\\303\\251' > \"src/$(printf 'caf\\303\\251').ts\"",
+          ": > empty.txt",
+          'printf q > "it\'s.txt"',
+          "printf g > '[glob]*?/x.txt'",
+          "printf s > 'sp ace/y.txt'",
+          "printf git > .git/objects/ignored",
+          "ln -s /opt/deps deps",
+        ].join(" && "),
+      )
+      expect(made.stderr).toBe("")
+      expect(made.exitCode).toBe(0)
+      const { lstat, readBinaryFile, walkTree } = h.filesystem
+      if (!lstat || !readBinaryFile || !walkTree)
+        throw new Error("the Kubernetes backend lost a read capability")
+      const options = {
+        excludeRootDirectories: [".git"],
+        expectedRootSymlinks: { deps: "/opt/deps" },
+      }
+
+      let started = performance.now()
+      const batched = await inspectWorkspace(h, options)
+      const batchedMs = performance.now() - started
+      started = performance.now()
+      const single = await inspectWorkspace(
+        {
+          workspaceRoot: h.workspaceRoot,
+          filesystem: {
+            lstat: lstat.bind(h.filesystem),
+            readBinaryFile: readBinaryFile.bind(h.filesystem),
+            listDir: h.filesystem.listDir.bind(h.filesystem),
+          },
+        },
+        options,
+      )
+      console.log(
+        `kube inspection of ${single.entries} entries: batched ${batchedMs.toFixed(0)} ms, per-entry ${(performance.now() - started).toFixed(0)} ms`,
+      )
+      expect(batched).toEqual(single)
+      expect(batched.files["src/café.ts"]).toBe("café")
+      expect(batched.files["[glob]*?/x.txt"]).toBe("g")
+      expect(batched.symlinks).toEqual({ deps: "/opt/deps" })
+
+      // Pruning happens in the pod, not only in the inspection loop.
+      const walked = async (prune: readonly string[]) =>
+        (
+          await walkTree.call(h.filesystem, h.workspaceRoot, ctx(h.workspaceRoot), {
+            maxEntries: 100,
+            prune,
+          })
+        ).map((entry) => entry.path)
+      expect(await walked([".git"])).not.toContain(".git/objects")
+      expect(await walked([])).toContain(".git/objects/ignored")
+
+      // Enough long paths that the batch read spans several execs, each script on stdin.
+      expect(
+        (
+          await run(
+            'mkdir -p src/deep && i=0; while [ $i -lt 1200 ]; do printf "$i" > src/deep/a-file-with-a-rather-long-name-$i.txt; i=$((i+1)); done',
+          )
+        ).exitCode,
+      ).toBe(0)
+      started = performance.now()
+      const large = await inspectWorkspace(h, options)
+      console.log(
+        `kube batched inspection of ${large.entries} entries: ${(performance.now() - started).toFixed(0)} ms`,
+      )
+      expect(Object.keys(large.files)).toHaveLength(Object.keys(batched.files).length + 1200)
+      expect(large.files["src/deep/a-file-with-a-rather-long-name-1199.txt"]).toBe("1199")
     } finally {
       await provider.destroy(threadId)
     }
