@@ -143,8 +143,9 @@ describe("homepage tokens", () => {
   it("uses tokens for every colour, and the AA olive for accent text", () => {
     const css = read("components/homepage/homepage.module.css")
     expect(css).not.toMatch(/#[0-9a-f]{3,6}\b/i)
-    // The two olive text uses (.flowNumber and the ::after arrow); the .receipt
-    // border also uses olive but is `border-left: … var(--color-olive)`.
-    expect(css.match(/(^|\s)color: var\(--color-olive\);/gm)).toHaveLength(2)
+    // The three olive text uses (the hero's .runtime line, .flowNumber and the
+    // ::after arrow); the .receipt border also uses olive but is
+    // `border-left: … var(--color-olive)`.
+    expect(css.match(/(^|\s)color: var\(--color-olive\);/gm)).toHaveLength(3)
   })
 })

@@ -7,6 +7,7 @@ import { CodePanel } from "./CodePanel"
 import { DeveloperHome } from "./DeveloperHome"
 import { prepareHomepage } from "./highlight"
 import { exampleUrl, narrativeSource, prepareNarrative } from "./narrative-source"
+import { ScaffoldTerminal } from "./ScaffoldTerminal"
 import { Walkthrough } from "./Walkthrough"
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -31,6 +32,23 @@ it("opens with the install command and a first agent from the basic template", a
     [...container.querySelectorAll("[id]")].findIndex((node) => node.id === id),
   )
   expect(order).toEqual([...order].sort((a, b) => a - b))
+})
+
+it("shows the runtime and what the command creates beside the headline", async () => {
+  const container = document.createElement("div")
+  container.innerHTML = renderToString(await DeveloperHome())
+  const hero = container.querySelector('[aria-labelledby="home-title"]')
+  expect(hero?.textContent).toContain("Runs on LangGraph.js. You keep the graph.")
+  const figure = hero?.querySelector("figure")
+  expect(figure?.querySelector("figcaption")?.textContent).toBe("What npm create b4-app scaffolds")
+  // The tree's agent row points at the section that opens those files.
+  expect(figure?.querySelector('a[href="#first-agent"]')).not.toBeNull()
+  expect(container.querySelector("#first-agent")).not.toBeNull()
+  // The old dot hung directly off the hero; the eclipse now sits beside the
+  // terminal, as an empty decorative element outside the figure.
+  expect(hero?.querySelectorAll(':scope > [aria-hidden="true"]')).toHaveLength(0)
+  const decorations = [...(hero?.querySelectorAll('[aria-hidden="true"]:empty') ?? [])]
+  expect(decorations.filter((node) => !node.closest("figure"))).toHaveLength(1)
 })
 
 it("marks only off-site links with ↗, opens them in a new tab, and pins example links", async () => {
@@ -202,4 +220,42 @@ it("connects the project map to code sections and ends with the execution flow",
     [...(execution?.querySelectorAll("li strong") ?? [])].map((item) => item.textContent),
   ).toEqual(["Request", "Repair", "Verify", "Pause", "Approve", "Export"])
   expect(container.querySelector('nav[aria-label="Follow the example"]')).toBeNull()
+})
+
+it("renders the scaffold as a captioned figure a screen reader can follow", () => {
+  const container = document.createElement("div")
+  container.innerHTML = renderToString(<ScaffoldTerminal />)
+  const figure = container.querySelector("figure")
+  expect(figure?.querySelector("figcaption")?.textContent).toBe("What npm create b4-app scaffolds")
+  expect(figure?.textContent).toContain("npm create b4-app@latest my-agent")
+  expect(figure?.textContent).toContain("Created my-agent (basic template)")
+  expect(figure?.textContent).toContain("cd my-agent && npm install && npm test")
+  expect(figure?.querySelector("ul")?.children).toHaveLength(4)
+  expect(figure?.querySelectorAll("ul ul > li")).toHaveLength(3)
+  // Glyphs, prompts, the marker and the arrow are decoration: with every
+  // aria-hidden node removed, what remains reads as plain labels and notes.
+  const spoken = figure?.cloneNode(true) as HTMLElement
+  for (const hidden of spoken.querySelectorAll('[aria-hidden="true"]')) hidden.remove()
+  const text = spoken.textContent ?? ""
+  expect(text).not.toMatch(/[│├└─✔↓$]/)
+  expect(text).toContain("src/app/hello/, the agent")
+  expect(text).toContain("npm create b4-app@latest my-agent")
+  const agent = figure?.querySelector<HTMLAnchorElement>('a[href="#first-agent"]')
+  expect(agent?.textContent?.replace(/\s+/g, " ")).toContain("src/app/hello/")
+  expect(agent?.textContent).toContain("the agent")
+  // Every row's --i is unique, so no two lines appear at once.
+  // Read the attribute: jsdom's CSSStyleDeclaration is unreliable for custom properties.
+  const orders = [...(figure?.querySelectorAll("[style*='--i']") ?? [])].map(
+    (node) => node.getAttribute("style")?.match(/--i:\s*(\d+)/)?.[1],
+  )
+  expect(new Set(orders).size).toBe(orders.length)
+  expect(orders).toHaveLength(10)
+})
+
+it("marks the first-agent section with the dot the terminal's agent row carries", async () => {
+  const container = document.createElement("div")
+  container.innerHTML = renderToString(await DeveloperHome())
+  const eyebrow = container.querySelector('#first-agent [data-ui="eyebrow"]')
+  expect(eyebrow?.textContent).toBe("Your first agent")
+  expect(eyebrow?.querySelector('span[aria-hidden="true"]')).not.toBeNull()
 })

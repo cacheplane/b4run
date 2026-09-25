@@ -3,6 +3,9 @@
   color: var(--color-ink);
   font-family: var(--font-sans);
   padding: 0 40px 72px;
+  /* The hero's eclipse crops at the page edge and under the header. `clip`
+     is not a scroll container, so nothing inside becomes scrollable. */
+  overflow: clip;
 }
 .container {
   max-width: 1200px;
@@ -14,31 +17,46 @@
 .home a {
   color: inherit;
 }
+/* Copy left, the scaffold terminal right; stacked below 960px. */
 .hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 48px;
+  align-items: start;
   padding: 64px 0 44px;
   position: relative;
+}
+.heroCopy {
+  min-width: 0;
+  position: relative;
+  z-index: 1;
 }
 .eyebrow {
   margin: 0;
 }
+/* Sized so each headline line fits the copy column at every desktop width. */
 .hero h1 {
-  font-size: clamp(44px, 6.5vw, 88px);
+  font-size: clamp(44px, 4.8vw, 68px);
   line-height: 1.03;
   letter-spacing: -0.055em;
   font-weight: 600;
   margin: 20px 0 24px;
-  position: relative;
-  z-index: 1;
 }
-.hero > p:last-of-type {
+.lede {
   font-size: 19px;
   line-height: 1.65;
   max-width: 550px;
   margin: 0;
 }
+.runtime {
+  margin: 12px 0 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--color-olive);
+}
 /* The eyebrow stays on one line in both the fallback and the loaded mono font,
    so the font swap never shifts the hero. */
-.hero > .eyebrow {
+.heroCopy > .eyebrow {
   white-space: nowrap;
 }
 .home h1,
@@ -56,8 +74,6 @@
   align-items: flex-start;
   gap: 8px;
   margin-top: 32px;
-  position: relative;
-  z-index: 1;
 }
 /* One line at every width, so the font swap cannot change the hero's height. */
 .home .command {
@@ -65,14 +81,52 @@
   font-size: 13px;
   white-space: nowrap;
 }
-.dot {
+/* Top-aligned with the headline (eyebrow + its margin). */
+.heroVisual {
+  position: relative;
+  min-width: 0;
+  margin-top: 40px;
+}
+/* The signature dot, as an eclipse behind the terminal's top-right corner.
+   Decorative; `.home` crops it at the page edge. Never behind text: it sits
+   entirely inside the terminal column's corner. */
+.eclipse {
   position: absolute;
-  right: 20px;
-  top: 85px;
-  width: 108px;
-  height: 108px;
+  top: -220px;
+  right: -220px;
+  width: 440px;
+  height: 440px;
   border-radius: 50%;
   background: var(--color-relay);
+  pointer-events: none;
+}
+/* The same dot, small and outlined (relay on paper is 1.6:1), marking the
+   section the terminal's agent row links to. */
+.markerDot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 10px;
+  border: 1.5px solid var(--color-ink);
+  border-radius: 50%;
+  background: var(--color-relay);
+  vertical-align: -1px;
+}
+@media (max-width: 959px) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 72px;
+  }
+  .heroVisual {
+    margin-top: 0;
+  }
+  /* 60px overshoot above the terminal stays inside the 72px row gap. */
+  .eclipse {
+    top: -60px;
+    right: -60px;
+    width: 200px;
+    height: 200px;
+  }
 }
 .sectionHeading {
   display: flex;
@@ -392,9 +446,6 @@
   .hero {
     padding-top: 40px;
   }
-  .dot {
-    display: none;
-  }
   .walkthroughGrid,
   .takeaway {
     grid-template-columns: 1fr;
@@ -431,7 +482,7 @@
   .hero h1 {
     font-size: 43px;
   }
-  .hero > p:last-of-type {
+  .lede {
     font-size: 17px;
   }
   .sectionHeading {

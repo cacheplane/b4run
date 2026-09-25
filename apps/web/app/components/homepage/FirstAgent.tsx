@@ -8,7 +8,10 @@ export function FirstAgent({ code }: { code: Record<FirstAgentKey, DisplayCode> 
   return (
     <section className={styles.chapter} id="first-agent" aria-labelledby="first-agent-title">
       <div className={styles.chapterCopy}>
-        <Eyebrow className={styles.eyebrow}>Your first agent</Eyebrow>
+        <Eyebrow className={styles.eyebrow}>
+          <span className={styles.markerDot} aria-hidden="true" />
+          Your first agent
+        </Eyebrow>
         <h2 id="first-agent-title">An agent is a folder.</h2>
         <p>
           Export a function from tools/ and your agent can call it. B4 reads the input type and
