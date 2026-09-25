@@ -196,7 +196,8 @@ export function threadWorkspaceResponse(
     },
   })
   // The read limits count file bytes; the answer is JSON, where a control character
-  // escapes to six bytes. Measured before encoding, so an over-cap answer is never built.
+  // escapes to six bytes. The JSON string is built; its UTF-8 length is counted without
+  // encoding it, so an over-cap answer is never encoded or sent.
   if (utf8Length(serialized) > INSPECT_RESPONSE_MAX_BYTES)
     return Response.json(
       createRequestErrorBody(

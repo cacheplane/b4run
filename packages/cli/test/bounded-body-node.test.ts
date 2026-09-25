@@ -1,5 +1,6 @@
-import { createServer } from "node:http"
+import { createServer, type IncomingMessage } from "node:http"
 import { type AddressInfo, connect } from "node:net"
+import { Readable } from "node:stream"
 import { expect, it } from "vitest"
 import {
   payloadTooLarge,
@@ -160,4 +161,26 @@ it("rejects a body read that starts after the client dropped mid-upload, never h
     server.closeAllConnections()
     await new Promise<void>((resolve) => server.close(() => resolve()))
   }
+})
+
+it("rejects a body whose source closes mid-read with neither an end nor an error", async () => {
+  // A stream that is destroyed without an error emits only `close`: the one signal left.
+  const source = Object.assign(new Readable({ read() {} }), {
+    headers: { host: "x", "content-length": "100" },
+    method: "POST",
+    url: "/x",
+  })
+  const request = toWebRequest(source as unknown as IncomingMessage)
+  const reading = request.text()
+  source.push("partial")
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  source.destroy()
+  const result = await Promise.race([
+    reading.then(
+      () => "resolved",
+      (error: unknown) => `rejected: ${error instanceof Error ? error.message : error}`,
+    ),
+    new Promise<string>((resolve) => setTimeout(() => resolve("hung"), 2000)),
+  ])
+  expect(result).toBe("rejected: aborted")
 })

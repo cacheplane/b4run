@@ -37,6 +37,18 @@ describe("threadWorkspaceResponse", () => {
     })
   })
 
+  it("measures UTF-8 bytes, not string length: a multibyte answer over the cap in bytes only", async () => {
+    // U+20AC is one UTF-16 unit and three UTF-8 bytes: 24 Mi of them is a string of
+    // 24 Mi units (under the 64 MiB cap) that encodes to 72 MiB (over it).
+    const text = "\u20ac".repeat(24 * 1024 * 1024)
+    expect(text.length).toBeLessThan(INSPECT_RESPONSE_MAX_BYTES)
+    const response = threadWorkspaceResponse("t", request, outcome({ "a.txt": text }))
+    expect(response.status).toBe(422)
+    expect(await response.json()).toMatchObject({
+      error: { details: { code: "workspace_response_too_large" } },
+    })
+  })
+
   it("answers an inventory under the cap with its exact byte length", async () => {
     const response = threadWorkspaceResponse("t", request, outcome({ "é.txt": "héllo" }))
     expect(response.status).toBe(200)
