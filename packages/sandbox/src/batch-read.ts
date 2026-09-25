@@ -1,4 +1,4 @@
-import type { WalkedEntry } from "@b4run/workspace"
+import { type WalkedEntry, WorkspaceInspectionError } from "@b4run/workspace"
 import { boundedReadCommand, decodeBoundedRead, validMaxBytes } from "./bounded-read.js"
 
 type Run = (command: string) => Promise<{ stdout: string; stderr: string; exitCode: number }>
@@ -42,6 +42,14 @@ const WALK_BATCH = [
   'for p; do if [ -L "$p" ]; then readlink -n -- "$p" || exit 1; fi; printf "\\0"; done',
 ].join("; ")
 
+/**
+ * The walk found more entries than the inspection admits: a refusal of the workspace
+ * (`inspectWorkspace`'s `refused`, a 422 over HTTP), not a backend failure.
+ */
+function entriesLimit(): WorkspaceInspectionError {
+  return new WorkspaceInspectionError("refused", "Workspace entries limit exceeded")
+}
+
 /** Every character escaped, so a pruned name is matched literally by `find -path`. */
 function literalPattern(path: string): string {
   return [...path].map((char) => `\\${char}`).join("")
@@ -77,7 +85,7 @@ export async function walkSandboxTree(
   )
   if (result.exitCode !== 0) throw new Error(`walkTree failed: ${result.stderr.trim()}`)
   const bytes = Buffer.from(result.stdout.replace(/\s/g, ""), "base64")
-  if (bytes.length > cap) throw new Error("Workspace entries limit exceeded")
+  if (bytes.length > cap) throw entriesLimit()
 
   const entries: WalkedEntry[] = []
   let at = 0
@@ -114,7 +122,7 @@ export async function walkSandboxTree(
         ...metadata,
         ...(metadata.kind === "symlink" ? { target: targets[index] as string } : {}),
       })
-      if (entries.length > opts.maxEntries) throw new Error("Workspace entries limit exceeded")
+      if (entries.length > opts.maxEntries) throw entriesLimit()
     }
   }
 }

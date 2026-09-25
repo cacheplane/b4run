@@ -1,3 +1,4 @@
+import { inspectWorkspace, isWorkspaceInspectionError } from "@b4run/workspace"
 import { describe, expect, it } from "vitest"
 import { readSandboxFiles, walkSandboxTree } from "../src/batch-read.ts"
 
@@ -83,6 +84,38 @@ describe("walkSandboxTree", () => {
         exitCode: 1,
       })),
     ).rejects.toThrow(/boom/)
+  })
+
+  it("types both entry-limit refusals as inspection refusals, so they are never a 500", async () => {
+    const one = block([{ stat: "81a4 1", path: "/w/a" }])
+    for (const output of [walkOutput(one + footer()), walkOutput("x".repeat(9000))]) {
+      const error = await walkSandboxTree("/w", { maxEntries: 0 }, async () => output).catch(
+        (caught: unknown) => caught,
+      )
+      expect(isWorkspaceInspectionError(error) && error.code).toBe("refused")
+    }
+    // Through inspectWorkspace's batched path, as the Docker and Kubernetes readers serve it.
+    const run = async () => walkOutput("x".repeat(9000))
+    const error = await inspectWorkspace(
+      {
+        workspaceRoot: "/w",
+        filesystem: {
+          async lstat() {
+            return { kind: "directory" as const, size: 0, executable: false }
+          },
+          async listDir() {
+            throw new Error("unexpected per-entry listDir")
+          },
+          async readBinaryFile() {
+            throw new Error("unexpected per-entry read")
+          },
+          walkTree: (path, _ctx, opts) => walkSandboxTree(path, opts, run),
+          readBinaryFiles: async () => [],
+        },
+      },
+      { maxEntries: 0 },
+    ).catch((caught: unknown) => caught)
+    expect(isWorkspaceInspectionError(error) && error.code).toBe("refused")
   })
 
   it("refuses paths outside the walked root and malformed blocks", async () => {
