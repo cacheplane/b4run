@@ -4,13 +4,15 @@
 
 **Goal:** A work order that needs a target's image at a pin gets it without an operator step: the controller builds it the first time any work order needs it, records it in a host-local registry, binds it to the work order, and the builder and the verifier run exactly that image, by ID.
 
-**Architecture:** A new image registry (`<FACTORY_STATE_DIR>/images.sqlite`, `node:sqlite`) keyed by a digest of the target's image recipe at a pin, with one build per key at a time, a global build limit, a build timeout and refcounted cancellation. `target.json` stops carrying images at all: it carries the recipe, including the base image pinned by digest. The controller calls the registry at intake's fit step and at dispatch, journals the build, stores its log as evidence, pauses the work order's budget while it waits, and binds the image to the work order (`image_bound`). PR 2 moves identity from tag to image ID: the builder's handoff names the bound image ID, the builder's provider accepts only image IDs, and the verifier runs the bound ID and refuses if the registry now names another.
+**Architecture:** A new image registry (`<FACTORY_STATE_DIR>/images.sqlite`, `node:sqlite`) keyed by a digest of the target's image recipe at a pin, with one build per key at a time, a global build limit, a build timeout and refcounted cancellation. `target.json` stops carrying images at all: it carries the recipe, including the base image pinned by digest. The controller calls the registry at intake's fit step and at dispatch, journals the build, stores its log as evidence, pauses the work order's budget while it waits, and binds the image to the work order (`image_bound`). The binding is authoritative: the verifier runs the bound image by ID in PR 1, and its policy and environment identity are computed from the bound image object, never from whatever the registry records later. PR 2 moves the builder to the same ID: the handoff names the bound image ID, the builder's provider accepts only image IDs, and the builder's resolver checks the ID's build labels name the handoff's own target, pin and recipe key.
 
 **Tech Stack:** TypeScript (NodeNext ESM, `exactOptionalPropertyTypes`), `node:sqlite`, `node:child_process` `spawn` with `AbortSignal`, zod 4, vitest 4, Docker (BuildKit), git.
 
 **Spec:** [`2026-09-23-software-factory-framework-gaps-design.md`](../specs/2026-09-23-software-factory-framework-gaps-design.md) §4 (this item), §7, §8, §9 findings 3 and 5.
 
-**Base:** `main` after PR #843 ("workspaces travel with thread creation; no manifest directory") merges. Every path and line below that names `builder-handoff.ts`, `drafter-handoff.ts` or the #843 `factory.ts` was read at `f92607ef` (the #843 head); everything else at `main` `79c5f63d`. If #843 has not merged when PR 1 starts, rebase this plan's PR 1 onto it first: PR 1 edits `factory.ts` `dispatch` as #843 leaves it.
+**Base:** `main` at `38fcb3dd` (PR #843, "workspaces travel with thread creation; no manifest directory", merged 2026-09-25). Paths and lines were read at `f92607ef` (the #843 head, identical to `38fcb3dd` for every file this plan touches) and `79c5f63d`.
+
+> **Amended after review (2026-09-25).** An independent review found eight Important issues and several minors; all are addressed in place, and "Review amendments (2026-09-25)" at the end lists each with where it landed. The largest changes: the verifier runs the bound image by ID in PR 1 (Task 13a, moved from PR 2), the binding is authoritative (policy and identity come from the bound image object), tags are recipe-key-scoped and a build reads its own ID from `--iidfile`, the CLI and the review's pin diff load tasks without an image (`loadTaskRecipe`), `dispatch` honours the route's cancel and re-checks the approved digest after the build, waiters have a total wait bound, the lanes' registry is per run, PR 2's builder checks build labels, and `FACTORY_SKIP_BASE_PULL` is kept.
 
 ---
 
@@ -18,35 +20,33 @@
 
 Brian decides these before PR 1 starts. Each has a recommendation; the tasks below implement the recommendation.
 
-**D1. Registry: where and what shape.** *Recommend:* its own SQLite file, `<FACTORY_STATE_DIR>/images.sqlite`, one table `images` keyed by the recipe digest, holding the full `Image` object (`localId`, `platform`, `baseManifestDigest`, `dockerfileSha256`, `lockfileSha256`, `pnpmVersion`) plus `target_id`, `pin`, `tag`, `built_at`, `build_ms`; `PRAGMA user_version = 1`, refused when newer. Not a table in `registry.sqlite`: images outlive work orders, the `target:prepare` script writes the image registry without opening the work-order registry (and without its migrations), and a host-level fact should not ride a work-order schema version. (Spec §4 names this file; kept.)
+**D1. Registry: where and what shape.** *Recommend:* its own SQLite file, `<FACTORY_STATE_DIR>/images.sqlite`, one table `images` keyed by the recipe digest, holding the full `Image` object (`localId`, `platform`, `baseManifestDigest`, `dockerfileSha256`, `lockfileSha256`, `pnpmVersion`) plus `target_id`, `pin`, `tag`, `built_at`, `build_ms`, versioned by the repository's own idiom, a `schema_version` table (as `registry/db.ts:195-209`), refused when newer. Not a table in `registry.sqlite`: images outlive work orders, the `target:prepare` script and `factory builder-handoff` read or write the image registry without opening the work-order registry (and without its migrations), and a host-level fact should not ride a work-order schema version. (Spec §4 names this file; kept.)
 
 **D2. The key.** *Recommend:* `imageRecipeDigest` over `{targetId, pin, platform, baseImage, dockerfileSha256, imageContext (sorted), lockfile (path), imageAssertResolves (sorted), commandsCwd}`, domain `b4-factory-image-recipe-v1`. Not the lockfile hash and not an `imageContext` tree hash: a pin is an immutable commit, so (pin, path list) already determines both, and computing them would put a `git show` of a multi-MB lockfile in every `loadTarget`. The lockfile hash stays in the recorded `Image` (it is an identity input). The key deliberately covers more than today's tag and identity do: `imageContext`, `imageAssertResolves` and `commands.cwd` are recipe inputs in `target.json` that neither `imageTag` nor `environmentIdentityDigest` sees, so today an `imageContext` edit that leaves the Dockerfile alone silently reuses a stale image under the old identity.
 
-**D3. `target.json` stops carrying images; what pins the default image.** *Recommend:* drop `images` (and 3a's single `image`) from `target.json` entirely, refused by name with a message that says where images live now; add `baseImage: "node:24-slim@sha256:<index digest>"`. What pins the default image is the committed recipe: the Dockerfile, the `imageContext` and lockfile at the default `pin`, and the base by digest. `localId` is host-specific and never belonged in the repository; committing it is exactly the rewrite churn (and the CI "manifest diff is expected here" comment). Pinning the base is what makes the key computable offline: with a floating `node:24-slim`, a lookup would need a pull to learn which base it would build on. *Also recommend* unifying all three targets on the drafter's pinned base (`node:24-slim@sha256:0e0ff40c…`, `drafter/src/drafter-image.ts:10`), which is already `cli`'s: CI pulls it for the drafter lane anyway, and on this host `devkit` and `cli-flags` must rebuild regardless (their committed `localId`s are not on the daemon; see "Today, verified", row 12). `FACTORY_SKIP_BASE_PULL` retires: the base is pulled only when `docker image inspect <baseImage>` says it is absent, which is also the Docker Desktop pull-wedge workaround.
+**D3. `target.json` stops carrying images; what pins the default image.** *Recommend:* drop `images` (and 3a's single `image`) from `target.json` entirely, refused by name with a message that says where images live now; add `baseImage: "node:24-slim@sha256:<index digest>"`. What pins the default image is the committed recipe: the Dockerfile, the `imageContext` and lockfile at the default `pin`, and the base by digest. `localId` is host-specific and never belonged in the repository; committing it is exactly the rewrite churn (and the CI "manifest diff is expected here" comment). Pinning the base is what makes the key computable offline: with a floating `node:24-slim`, a lookup would need a pull to learn which base it would build on. *Also recommend* unifying all three targets on the drafter's pinned base (`node:24-slim@sha256:0e0ff40c…`, `drafter/src/drafter-image.ts:10`), which is already `cli`'s: CI pulls it for the drafter lane anyway, and on this host `devkit` and `cli-flags` must rebuild regardless (their committed `localId`s are not on the daemon; "Today, verified", row 12). The builder pulls the base only when `docker image inspect <baseImage>` says it is absent. `FACTORY_SKIP_BASE_PULL` is **kept** (amended): whether pull-only-when-absent avoids the Docker Desktop pull wedge is unverified, because BuildKit may still contact the registry to load metadata for a digest-pinned `FROM`. With the variable set the builder never pulls, and an absent base fails the build naming it. The check that would retire it is recorded under Follow-ups.
 
-**D4. One image identity for builder and verifier: by image ID.** *Recommend (PR 2):* the builder handoff's `target.image` becomes the bound image ID (`sha256:<64 hex>`) and gains `target.tag` (the factory tag, whose target and pin segments the schema still checks against `targetId` and `pin`); the builder's `dockerSandbox({ images })` predicate accepts only `^sha256:[0-9a-f]{64}$`, so the framework's `docker image inspect <id>` records exactly that ID as the thread's `environment.identity`; `VerifyInput` gains `imageId`, and the Docker verifier runs `dockerSandbox({ image: imageId })` and refuses (`verifier_unavailable` → `verification_inconclusive`) when the task's current registry image is not that ID. This closes the per-thread-sandbox plan's review follow-up. Rejected alternative: have the builder resolve the tag and check its `RepoTags` against the manifest; it adds a Docker call to the untrusted side and still races a moved tag.
+**D4. One image identity for builder and verifier: by image ID.** *Recommend:* the verifier runs `dockerSandbox({ image: <bound id> })` with policy and environment identity computed from the bound image object (PR 1, Task 13a, amended from PR 2); a bound ID the daemon no longer holds refuses the verification (`verifier_unavailable` → `verification_inconclusive`). PR 2: the builder handoff's `target.image` becomes the bound image ID (`sha256:<64 hex>`) and gains `target.tag`; the builder's `dockerSandbox({ images })` predicate accepts only `^sha256:[0-9a-f]{64}$`, so the framework's `docker image inspect <id>` records exactly that ID as the thread's `environment.identity`; and the builder's resolver reads the ID's `b4.factory.target`, `b4.factory.pin` and `b4.factory.key` labels (stamped at build, D10) and refuses an image whose labels do not name the handoff's own target, pin and the tag's key. Labels are part of the image config the ID content-addresses, so checking them by ID has no time-of-check gap. No framework hook is needed: the resolver is the builder app's own code and may call Docker; a framework predicate that received the inspected labels (`images: (reference, inspected) => …`) would be tidier and is recorded as a follow-up. Rejected alternative: have the builder resolve a tag and check its `RepoTags`; it races a moved tag.
 
-**D5. Binding.** *Recommend:* a work order binds its image the first time it needs one, journalled as `image_bound {targetId, pin, key, tag, image}`; the last `image_bound` is the binding. Intake rebinds on every attempt (a redraft may name another target, and each oracle proof runs in the image that attempt bound); dispatch binds when nothing is bound and otherwise requires the registry's current image to equal the binding, refusing with `image_changed` (row stays `received`, nothing spent, journalled). PR 2's verifier and approve's re-verification run the binding. Fail-closed on a rebuild between intake and dispatch: the oracle was proved in the old image, and running the builder and verifier in a new one without re-proving would bind two environments into one bundle. The remedy is a new work order; a `reprove` command is a follow-up.
+**D5. Binding, and the binding is authoritative.** *Recommend:* a work order binds its image the first time it needs one, journalled as `image_bound {targetId, pin, key, tag, image}`; the last `image_bound` is the binding. Intake rebinds on every attempt (a redraft may name another target, and each oracle proof runs in the image that attempt bound). Once bound, the work order's policy and environment identity are computed from the bound image object, and the bound ID is what dispatch, the verifier, the oracle proof and approve's re-verification run: never whatever the registry records later. The only refusal is a bound ID the daemon no longer holds (`image_changed` at dispatch, row stays `received`, nothing spent; `verification_inconclusive` at verify): the oracle was proved in that image, and it cannot be proved again in a rebuild without a new proof. The remedy is a new work order; a `reprove` command is a follow-up. A registry record replaced by a later build of the same key does not strand a bound work order while its image exists (amended: the review's key-stranding minor).
 
-**D6. Single flight and the global limit.** *Recommend:* one in-process build per key (a second caller joins the first's promise, journalled `shared: true`); `FACTORY_MAX_IMAGE_BUILDS` (default 1) bounds builds across keys, queued callers still cancellable. The spec's cost bound ("bound it with a build concurrency limit") is this. Cross-process single flight (the script and a controller building one key at once) is not attempted: both builds succeed, the later write wins, and a work order that bound the earlier ID is refused at its next use (`image_changed` / PR 2's verifier check), which is safe.
+**D6. Single flight, the global limit, and a wait bound.** *Recommend:* one in-process build per key (a second caller joins the first's promise, journalled `shared: true`); `FACTORY_MAX_IMAGE_BUILDS` (default 1) bounds builds across keys, queued callers still cancellable; each waiter's total wait (queue plus build) is bounded by `queueTimeoutMs + buildTimeoutMs`, with `queueTimeoutMs` defaulting to twice the build timeout, and journalled as `deadlineMs` on `image_prepare_started` so a follower (the CLI) knows how long to wait. The spec's cost bound ("bound it with a build concurrency limit") is this. Cross-process single flight (the script and a controller building one key at once) is not attempted: both builds succeed and the later record wins; a work order that bound the earlier ID keeps running it (D5), and that image keeps its ID tag (D10).
 
-**D7. Cancellation.** *Recommend:* each caller waits with its own signal (intake: the phase signal; dispatch: a per-row image-wait signal aborted by any transition out of `received`, and by `close()`); the build itself has its own controller, aborted only when its last waiter leaves. Aborting kills the `docker build` client, which cancels the BuildKit session. A cancelled build records nothing.
+**D7. Cancellation.** *Recommend:* each caller waits with its own signal (intake: the phase signal; dispatch: a per-row image-wait signal combined with the dispatch route's own `ctx.signal`, aborted by any transition out of `received`, by the route's cancel, and by `close()`); the build itself has its own controller, aborted only when its last waiter leaves. An abort of the dispatch route's signal during the build records a cancel exactly as `settleOutcome` does (`cancel:<id>:aborted-dispatch`). Aborting kills the `docker build` client, which cancels the BuildKit session. A cancelled build records nothing.
 
-**D8. Timeout.** *Recommend:* `FACTORY_IMAGE_BUILD_TIMEOUT_MS`, default 1,800,000 (30 min), started when the build takes its slot (queue time excluded). Measure the `cli` target's cold build during PR 1 and raise the default if it needs more; the timeout is a wedge detector, not a stopwatch.
+**D8. Timeout.** *Recommend:* `FACTORY_IMAGE_BUILD_TIMEOUT_MS`, default 1,800,000 (30 min), started when the build takes its slot (queue time excluded, and bounded separately, D6). Measure the `cli` target's cold build during PR 1 and raise the default if it needs more; the timeout is a wedge detector, not a stopwatch.
 
 **D9. Build log to evidence.** *Recommend:* the builder streams every command's stdout and stderr into a bounded log (last 1 MiB kept, with a note of what was dropped); on success and on failure the controller stores it in the artifact store and journals its digest (`image_prepared.logDigest`, `image_prepare_failed.logDigest`).
 
-**D10. Drift: the local image deleted out from under the registry.** *Recommend:* every `ensure` re-verifies a recorded image with `docker image inspect <localId>`; missing → `image_missing` journalled, the record deleted, a rebuild. A tag moved off the recorded image is pointed back (`docker tag <localId> <tag>`) without a rebuild, so a dangling-image prune cannot remove it. `loadTarget` itself (synchronous, called everywhere) reads the record only and never calls Docker; the dispatch-time `ensure` is the verification point, and PR 2's verifier fails a run whose image is gone.
+**D10. Tags, the build's own ID, and drift.** *Recommend (amended):* a build reads its image ID from `docker build --iidfile`, never from a tag another build may have moved. Each image gets two tags: the recipe tag `b4-factory-<target>:<pin[:12]>-<key[:12]>` (key-scoped, so one tag belongs to one recipe and D10's re-pointing can never move a tag between keys; it still matches the builder's `FACTORY_IMAGE` pattern) and an ID tag `b4-factory-<target>:<pin[:12]>-<key[:12]>-<id[:12]>` that never moves, so a bound image superseded by a later build of its key keeps a tag and a dangling-image prune cannot remove it. Every build is labelled `b4.factory.target`, `b4.factory.pin`, `b4.factory.key` (D4). Every `ensure` re-verifies a recorded image with `docker image inspect <localId>`; missing → `image_missing` journalled, the record deleted, a rebuild. A recipe tag moved off the recorded image is pointed back. `loadTarget` (synchronous, called everywhere) reads the record only and never calls Docker.
 
-**D11. Journal and budget.** *Recommend:* events `image_prepare_started {targetId, pin, key, shared}`, `image_prepared {… localId, tag, ms, logDigest, shared}`, `image_prepare_failed {… error, logDigest}`, `image_prepare_aborted`, `image_missing`, `image_bound`, `image_changed`. Budget: only intake waits in an active state; the controller pauses the row's clock around the wait (`budget_paused` banks the open interval and leaves `activeStartedAt` null; `budget_resumed` reopens it), persisted, and reconciliation resumes a paused active row that has no tracked run (a restart mid-build). Dispatch waits in `received`, which is not active, so nothing is charged there. A failed build at intake blocks the row `image_prepare_failed` without spending a drafter attempt; at dispatch it is a refusal and the row stays `received`, so dispatching again retries the build. Either way the next need rebuilds: a failure is never recorded as the key's answer, so nothing blocks "for good".
+**D11. Journal and budget.** *Recommend:* events `image_prepare_started {targetId, pin, key, shared, deadlineMs}`, `image_prepared {… localId, tag, ms, logDigest, shared}`, `image_prepare_failed {… error, logDigest}`, `image_prepare_aborted`, `image_missing`, `image_bound`, `image_changed`, and `dispatch_refused` (Task 14). Budget: only intake waits in an active state; the controller pauses the row's clock when a build starts or is joined for it (not for a recorded image re-verified in milliseconds), and resumes it when the wait ends (`budget_paused` banks the open interval and leaves `activeStartedAt` null; `budget_resumed` reopens it), persisted. Reconciliation, for a row with no tracked run, resumes a paused active clock and journals `image_prepare_aborted {reason: "restart"}` for a build the journal shows started and never ended. Dispatch waits in `received`, which is not active, so nothing is charged there. A failed build at intake blocks the row `image_prepare_failed` without spending a drafter attempt; at dispatch it is a refusal and the row stays `received`, so dispatching again retries the build. Either way the next need rebuilds: a failure is never recorded as the key's answer, so nothing blocks "for good".
 
 **D12. The git object store (spec §9 finding 3).** *Recommend: defer* to its own item. The factory reads pins from the developer's clone in five places (the image context archive, the wide capture, the baseline, the pin diff base, the replay pin), and `ensurePin` fetches into it; an image registry that owned a bare mirror only for image builds would leave four readers on the developer's clone and add a second store to keep in step. The immediate foot-gun (a `--depth=1` fetch making a full clone shallow) is fixed (`catalog.ts:372-390`). PR 1 changes nothing about where pins are read or fetched.
 
-**D13. CI lanes.** *Recommend:* drop the two explicit `target:prepare` lines from the `sandbox-docker` step (`ci.yml:472-473`). The `test:sandbox` run builds `cli-flags` and `devkit` at their default pins in a vitest `globalSetup` through the same `ensure` the controller calls, into one lane registry every lane file shares, and every lane that boots a controller reaches `ensure` itself. The step's comment is rewritten (no "manifest diff is expected here"), and both workflow-audit fixtures change in the same commit.
+**D13. CI lanes.** *Recommend:* drop the two explicit `target:prepare` lines from the `sandbox-docker` step (`ci.yml:472-473`). The `test:sandbox` run's `globalSetup` creates a fresh registry directory for the run (`mkdtemp`, handed to every lane file through vitest's `provide`/`inject`, removed at teardown), so two worktrees or two runs on one host never share a registry, and builds `cli-flags` and `devkit` at their default pins in it through the same `ensure` the controller calls; every lane that boots a controller reaches `ensure` itself. The opt-in `test:sandbox:cli` run (`FACTORY_TEST_CLI_TARGET=1`) skips those two prebuilds; its lane builds `cli` itself. The step's comment is rewritten (no "manifest diff is expected here"), and both workflow-audit fixtures change in the same commit.
 
 **D14. Measured verifier time per (target, pin) (spec §9 finding 5).** *Recommend: defer.* The budget's unit is the target's verifier deadline, which the target already carries; a measured time belongs to the verifier's receipts, not to the image registry, and deriving budgets from it is its own design.
-
----
 
 ## Today, verified
 
@@ -81,23 +81,23 @@ Each claim of spec §4's "Today" and of the follow-up this plan closes, re-locat
 4. **§4 "build time is not charged to the work order's active budget"**: only intake needs a mechanism (dispatch waits in `received`, which is not active), and a persisted pause needs a restart rule (D11).
 5. **§4 "`image_unprepared` becomes a build failure, not a standing block"**: at intake a failed build still blocks that row (the intake has no path back for a non-draft failure), under a new reason `image_prepare_failed`; what stops being standing is the cause, since the next work order rebuilds. `image_unprepared` stays in `BLOCKED_REASONS` because existing rows carry it and the row schema is a `z.enum`.
 6. **§4 Proof "the recorded identity equals the script's"** holds only because Docker's build cache makes an identical rebuild yield the same ID (Experiment above); the lane runs the controller's build and the script's back to back.
-7. **§4 Trust impact** omits the new exposure: automatic rebuilds make a moved tag (and a changed ID) routine rather than an operator act, which is what makes D4/D5 necessary rather than tidy.
+7. **§4 Trust impact** omits two new exposures. Automatic rebuilds make a moved tag (and a changed ID) routine rather than an operator act, which is what makes D4/D5 necessary rather than tidy. And a build is now model-triggerable: the drafter chooses which available target a draft names, so each drafter attempt can cause one build of a reviewed recipe at the work order's pin (at most `maxIntakeAttempts` per work order, each bounded by the build limit, the queue bound and the timeout, D6/D8). The drafter never chooses the pin or the recipe; the exposure is cost, not content.
 8. **§9 finding 3 "item 4's image registry should own its own object store"**: the object store serves captures, baselines and pin diffs as well as images; it is its own item (D12).
 9. **§9 finding 5 "item 4's registry should record measured verifier time"**: deferred (D14).
 
 ## PR split
 
-- **PR 1 — images built on demand** (`blove/images-on-demand`, Tasks 1-17). Standalone: the registry, the Docker builder, `target.json` without images, intake and dispatch building on first need with journal, log evidence, budget pause and binding (`image_bound`, `image_changed` at dispatch), the thin script, the lanes, CI, docs. The builder and verifier still run the tag, which the registry points at the current ID on every `ensure`: no weaker than today.
-- **PR 2 — identity by image ID** (`blove/images-by-id`, Tasks 18-21). Needs PR 1's binding. Handoff version 4 names the image ID, the builder accepts only IDs, the verifier runs the bound ID and refuses a changed one, approve's re-verification likewise. Closes the per-thread-sandbox follow-up.
+- **PR 1 — images built on demand, verified by ID** (`blove/images-on-demand`, Tasks 1-17, with 8a and 13a). Standalone: the registry, the Docker builder, `target.json` without images, `loadTaskRecipe` for everything that needs no image (the CLI, the review's pin diff, prompts, budgets), intake and dispatch building on first need with journal, log evidence, budget pause and binding (`image_bound`; `image_changed` when the bound image is gone), and the verifier, the oracle proof and approve's re-verification running the bound image by ID with policy and identity from the binding (Task 13a); the thin script, the lanes, CI, docs. The builder still runs the tag, which is recipe-key-scoped and names the bound image unless someone retags it by hand: identity is enforced where the verdict is earned.
+- **PR 2 — the builder runs the bound ID** (`blove/images-by-id`, Tasks 18-21). Needs PR 1's binding. Handoff version 4 names the image ID, the builder's provider accepts only IDs, the builder's resolver checks the ID's `b4.factory.*` labels against the handoff, and `factory builder-handoff` takes `--image-id` or reads the registry. Closes the per-thread-sandbox follow-up.
 
-No changeset: examples only. No release-pinned script is touched (the factory's scripts are not reachable from the release workflows); PR 1 edits `ci.yml`, so both workflow-audit fixtures change in the same commit (Task 17).
+No changeset: examples only. No release-pinned script is touched (the factory's scripts are not reachable from the release workflows); PR 1 edits `ci.yml`, so both workflow-audit fixtures change in the same commit (Task 16).
 
 ## File structure
 
 | File | PR | Responsibility |
 |---|---|---|
 | `controller/src/lib/domain/digest.ts` | 1 | `imageRecipeDigest` |
-| `controller/src/lib/targets/catalog.ts` | 1 | `baseImage`; `images` retired; `TargetRecipe`, `loadTargetRecipe`, `loadTaskTargetRecipe`; `loadTarget` reads the configured registry; `ImageNotBuiltError`; `tagFor`; `configureImages` |
+| `controller/src/lib/targets/catalog.ts` | 1 | `baseImage`; `images` retired; `TargetRecipe`, `loadTargetRecipe`, `TaskRecipe`, `loadTaskRecipe`; `loadTarget` reads the configured registry or `options.image`; `ImageNotBuiltError`; `tagFor`, `idTagFor`; `configureImages` |
 | `controller/src/lib/targets/images.ts` (new) | 1 | recipe key helpers, `ImageBuilder` interface, `openImageRegistry` (single flight, slots, timeout, refcounted cancel, drift), `BuildLog`, `ImagePrepareError` |
 | `controller/src/lib/targets/image-builder.ts` (new) | 1 | `dockerImageBuilder` (lifted from the script), `spawnRun` |
 | `controller/src/lib/targets/prepare.ts` | 1 | keeps the pure checks; `recipeProblem`; loses `withImageAt`/`recordImage`/`formatManifest` |
@@ -111,14 +111,17 @@ No changeset: examples only. No release-pinned script is touched (the factory's 
 | `controller/src/lib/controller/reconcile.ts` | 1 | resume a paused budget after a restart |
 | `controller/src/lib/domain/states.ts` | 1 | `image_prepare_failed` |
 | `controller/src/lib/config.ts`, `runtime.ts` | 1 | `imagesPath`, `FACTORY_MAX_IMAGE_BUILDS`, `FACTORY_IMAGE_BUILD_TIMEOUT_MS`, retired variables; open and configure the registry |
-| `controller/src/cli.ts` | 1 | `dispatch` follows an image build |
+| `controller/src/cli.ts` | 1, 2 | `builder-handoff` loads a `TaskRecipe` (1) and takes `--image-id` or reads the registry (2); `dispatch` follows an image build (1) |
+| `controller/src/lib/review/pin-diff-base.ts`, `verification/baseline.ts`, `prompts.ts`, `targets/workspace.ts`, `targets/permissions.ts` | 1 | load and take a `TaskRecipe` (Task 8a) |
+| `controller/src/app/work-orders/dispatch/index.ts` | 1 | passes the route's signal to `dispatch` |
 | `controller/test/static-images.ts`, `setup-images.ts`, `fake-image-builder.ts` (new) | 1 | unit-suite registry, fake builder |
-| `controller/test/lane-images.ts`, `lane-images.global.ts`, `setup-lane-images.ts` (new) | 1 | the Docker lanes' shared registry |
+| `controller/test/lane-images.ts`, `lane-images.global.ts`, `setup-lane-images.ts` (new) | 1 | one registry per `test:sandbox` run |
 | `controller/test/images-on-demand.integration.test.ts` (new) | 1 | spec §4's Docker proof |
 | `.github/workflows/ci.yml`, `scripts/release/test/fixtures/workflow-{entrypoints,safe-executables}.json` | 1 | no explicit prepare |
 | `examples/software-factory/README.md`, `docs/superpowers/runbooks/software-factory-rung2-developer-guide.md`, the spec | 1, 2 | docs |
-| `controller/src/lib/builder-handoff.ts`, `server/src/builder-handoff.ts`, `server/b4.config.ts` | 2 | handoff v4 by image ID |
-| `controller/src/lib/verification/{verifier,docker-verifier}.ts`, `controller/{verify,factory}.ts`, `intake/oracle.ts` | 2 | `imageId` |
+| `controller/src/lib/builder-handoff.ts` | 1, 2 | `TaskRecipe` and the bound tag (1); handoff v4 by image ID (2) |
+| `server/src/builder-handoff.ts`, `server/b4.config.ts` | 2 | handoff v4 by image ID; `builderThreadSandbox` checks build labels |
+| `controller/src/lib/verification/{verifier,docker-verifier,policy}.ts`, `controller/{verify,factory,intake}.ts`, `intake/oracle.ts` | 1 | the bound image as `VerifyInput.image`, the policy's image, run by id (Task 13a) |
 
 All paths below are relative to `examples/software-factory/` unless they start with `.github/`, `docs/`, `packages/` or `scripts/`.
 
@@ -133,7 +136,7 @@ All paths below are relative to `examples/software-factory/` unless they start w
 7. **The two handoff schema texts must stay identical** (PR 2): `test/builder-handoff.test.ts` compares them.
 8. **`ci.yml` and both audit fixtures in one commit**, edited as raw text (a JSON round trip re-escapes non-ASCII): `node --test scripts/release/test/workflow-contracts.test.mjs` is the fast gate; it runs under `pnpm test:release-controller`, not `test:release-integrity`.
 9. **A lane's image build can take minutes**: every `ensure` in a lane gets an explicit signal timeout (`AbortSignal.timeout(1_200_000)`) and every `beforeAll` that builds gets `1_200_000` ms.
-10. **Do not prune the Docker build cache** while developing this: the "identity equals the script's" proof relies on it.
+10. **No destructive Docker commands on this host.** No `docker builder prune`, `docker image prune`, `docker rm`, `docker rmi` or `docker image rm`: the host's daemon and build cache are shared by other sessions (an earlier `docker builder prune -f` while writing this plan affected them), and the "identity equals the script's" proof relies on the build cache. The lanes move a tag and put it back; nothing in this plan deletes an image.
 
 ---
 
@@ -165,7 +168,7 @@ In `test/targets-catalog.test.ts`, the fixture `manifest()` (`:57-80`) gains `ba
 const BASE_IMAGE = `node:24-slim@sha256:${"e".repeat(64)}`
 ```
 
-above it, and the import list gains `loadTargetRecipe` and `tagFor`. Add, inside `describe("target catalog", …)`:
+above it, and the import list gains `loadTargetRecipe`, `tagFor` and `idTagFor`. Add, inside `describe("target catalog", …)`:
 
 ```ts
   it("requires the base image pinned by digest", () => {
@@ -193,10 +196,13 @@ above it, and the import list gains `loadTargetRecipe` and `tagFor`. Add, inside
     )
   })
 
-  it("names a tag after the target, the pin and the Dockerfile", () => {
+  it("names a recipe tag after the target, the pin and the recipe key, and an id tag that never moves", () => {
     const pin = "1".repeat(40)
-    expect(tagFor("devkit", pin, "c".repeat(64))).toBe(`b4-factory-devkit:${"1".repeat(12)}-${"c".repeat(12)}`)
-    expect(imageTag({ id: "devkit", pin, image })).toBe(tagFor("devkit", pin, image.dockerfileSha256))
+    const key = "c".repeat(64)
+    expect(tagFor("devkit", pin, key)).toBe(`b4-factory-devkit:${"1".repeat(12)}-${"c".repeat(12)}`)
+    expect(idTagFor("devkit", pin, key, `sha256:${"9".repeat(64)}`)).toBe(
+      `b4-factory-devkit:${"1".repeat(12)}-${"c".repeat(12)}-${"9".repeat(12)}`,
+    )
   })
 ```
 
@@ -282,22 +288,27 @@ export function loadTargetRecipe(id: string, options: CatalogOptions = {}): Targ
 }
 ```
 
-Replace `imageTag` (`:404-411`) with:
+Add beside `imageTag` (`:404-411`), which Task 2 moves to `images.ts`:
 
 ```ts
 /**
- * The tag an image of `id` at `pin` from a Dockerfile hashing to `dockerfileSha256` is built
- * under. Binds the pin and the Dockerfile: a changed Dockerfile at the same pin is never the
- * old tag. Readable, and what keeps a built image from being a dangling one a prune removes;
- * never the identity (PR 2 runs images by ID).
+ * The recipe tag of `id` at `pin` whose recipe key (`recipeKey`, Task 2) is `key`. One tag per
+ * recipe: a changed Dockerfile, base, context or pin is another key and so another tag, and
+ * re-pointing a tag (the registry does, D10) can never move it between recipes. Still the
+ * builder's `FACTORY_IMAGE` shape (`<target>:<12 hex>-<12 hex>`). Readable, and what keeps a
+ * built image from being a dangling one a prune removes; never the identity.
  */
-export function tagFor(id: string, pin: string, dockerfileSha256: string): string {
-  return `b4-factory-${id}:${pin.slice(0, 12)}-${dockerfileSha256.slice(0, 12)}`
+export function tagFor(id: string, pin: string, key: string): string {
+  return `b4-factory-${id}:${pin.slice(0, 12)}-${key.slice(0, 12)}`
 }
 
-/** {@link tagFor} of a loaded target. Derived, never stored in the target. */
-export function imageTag(target: Pick<Target, "id" | "pin" | "image">): string {
-  return tagFor(target.id, target.pin, target.image.dockerfileSha256)
+/**
+ * The tag that stays on one build for good: the recipe tag plus the image id's first twelve
+ * hex digits. A bound image a later build of its key superseded keeps this tag, so no
+ * dangling-image prune removes an image a work order is bound to.
+ */
+export function idTagFor(id: string, pin: string, key: string, localId: string): string {
+  return `${tagFor(id, pin, key)}-${localId.slice("sha256:".length, "sha256:".length + 12)}`
 }
 ```
 
@@ -375,11 +386,12 @@ export function recipeFixture(
 ```ts
 import { afterEach, describe, expect, it } from "vitest"
 import { imageRecipeDigest } from "../src/lib/domain/digest.ts"
-import type { TargetRecipe } from "../src/lib/targets/catalog.ts"
+import { type TargetRecipe, tagFor } from "../src/lib/targets/catalog.ts"
 import {
   baseDigestOf,
   dockerfileSha256Of,
   hostPlatform,
+  imageTag,
   recipeKey,
 } from "../src/lib/targets/images.ts"
 import { cleanupRecipeFixtures, recipeFixture } from "./recipe-fixture.ts"
@@ -429,6 +441,21 @@ describe("the image recipe key", () => {
     expect(hostPlatform("arm64")).toBe("linux/arm64")
     expect(hostPlatform("x64")).toBe("linux/amd64")
     expect(() => hostPlatform("ia32")).toThrow(/Unsupported host architecture ia32/)
+  })
+
+  it("tags a loaded target by its recipe key on its image's platform", () => {
+    const recipe = recipeFixture()
+    const image = {
+      localId: `sha256:${"a".repeat(64)}`,
+      platform: "linux/amd64",
+      baseManifestDigest: baseDigestOf(recipe.baseImage),
+      dockerfileSha256: dockerfileSha256Of(recipe),
+      lockfileSha256: "d".repeat(64),
+      pnpmVersion: "10.33.0",
+    }
+    expect(imageTag({ ...recipe, image })).toBe(
+      tagFor(recipe.id, recipe.pin, recipeKey(recipe, "linux/amd64")),
+    )
   })
 
   it("is the domain-separated digest of its inputs", () => {
@@ -496,7 +523,7 @@ import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { imageRecipeDigest } from "../domain/digest.js"
-import type { TargetRecipe } from "./catalog.js"
+import { type Target, type TargetRecipe, tagFor } from "./catalog.js"
 
 /** The Docker platform this host builds and runs: the image object's `platform`. */
 export function hostPlatform(arch: string = process.arch): string {
@@ -515,6 +542,20 @@ export function dockerfileSha256Of(recipe: Pick<TargetRecipe, "directory">): str
 /** `sha256:<hex>` of a `<name>[:<tag>]@sha256:<hex>` reference the schema already checked. */
 export function baseDigestOf(baseImage: string): string {
   return baseImage.slice(baseImage.indexOf("@") + 1)
+}
+
+/**
+ * The recipe tag of a loaded target: its recipe key on its image's platform. Moved here from
+ * `catalog.ts` (which cannot import this module at runtime); every importer of `imageTag`
+ * now imports it from `targets/images.js`.
+ */
+export function imageTag(target: Target): string {
+  return tagFor(target.id, target.pin, recipeKey(target, target.image.platform))
+}
+
+/** The recipe tag `recipe` builds under on `platform` (this host's by default). */
+export function recipeTag(recipe: TargetRecipe, platform: string = hostPlatform()): string {
+  return tagFor(recipe.id, recipe.pin, recipeKey(recipe, platform))
 }
 
 /** The registry key of `recipe` (at its own pin) on `platform`: see `imageRecipeDigest`. */
@@ -537,16 +578,18 @@ export function recipeKey(
 }
 ```
 
+Delete `imageTag` from `catalog.ts` and change every import of it to `targets/images.js` (`.ts` in tests): `git grep -ln "imageTag" examples/software-factory` lists `controller/src/lib/builder-handoff.ts`, `controller/src/lib/verification/docker-verifier.ts`, and the tests `builder-handoff.test.ts`, `targets-workspace.test.ts`, `targets-catalog.test.ts`, `builder.integration.test.ts`, `target-devkit-pin.integration.test.ts`. `targets-catalog.test.ts`'s "selects the image prepared at the pin asked for" expectation becomes `tagFor("t", second, recipeKey(atSecond, atSecond.image.platform))` (the tag is key-scoped now).
+
 - [ ] **Step 4: Run the test**
 
-Run: `pnpm --filter @b4-example/software-factory-controller exec vitest run test/images-recipe.test.ts test/digest.test.ts`
+Run: `pnpm --filter @b4-example/software-factory-controller exec vitest run test/images-recipe.test.ts test/digest.test.ts && pnpm --filter @b4-example/software-factory-controller test && pnpm --filter @b4-example/software-factory-controller typecheck`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add examples/software-factory/controller/src/lib/domain/digest.ts examples/software-factory/controller/src/lib/targets/images.ts examples/software-factory/controller/test/images-recipe.test.ts examples/software-factory/controller/test/recipe-fixture.ts
-git commit -m "feat(software-factory): an image's registry key is its whole recipe at a pin
+git add examples/software-factory/controller/src/lib/domain/digest.ts examples/software-factory/controller/src/lib/targets/images.ts examples/software-factory/controller/src/lib/targets/catalog.ts examples/software-factory/controller/src/lib/builder-handoff.ts examples/software-factory/controller/src/lib/verification/docker-verifier.ts examples/software-factory/controller/test
+git commit -m "feat(software-factory): an image's registry key and tag are its whole recipe at a pin
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -694,7 +737,6 @@ import { DatabaseSync } from "node:sqlite"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { tagFor } from "../src/lib/targets/catalog.ts"
 import {
-  dockerfileSha256Of,
   type EnsureOptions,
   type ImageBuilder,
   ImagePrepareError,
@@ -742,14 +784,15 @@ describe("the image registry", () => {
     expect(registry.recorded(recipe)).toBeUndefined()
     const started: unknown[] = []
     const first = await ensure(registry, recipe, { onBuild: (event) => started.push(event) })
-    const tag = tagFor(recipe.id, recipe.pin, dockerfileSha256Of(recipe))
+    const key = recipeKey(recipe, "linux/arm64")
+    const tag = tagFor(recipe.id, recipe.pin, key)
     expect(builder.requests).toHaveLength(1)
-    expect(builder.requests[0]).toMatchObject({ platform: "linux/arm64", tag, repositoryRoot: "/repo" })
+    expect(builder.requests[0]).toMatchObject({ platform: "linux/arm64", tag, key, repositoryRoot: "/repo" })
     expect(first.key).toBe(recipeKey(recipe, "linux/arm64"))
     expect(first.tag).toBe(tag)
     expect(first.build?.shared).toBe(false)
     expect(first.build?.log).toContain(`building ${tag}`)
-    expect(started).toEqual([{ key: first.key, shared: false }])
+    expect(started).toEqual([{ key: first.key, shared: false, deadlineMs: expect.any(Number) }])
 
     const second = await ensure(registry, recipe)
     expect(builder.requests).toHaveLength(1)
@@ -808,7 +851,7 @@ describe("the image registry", () => {
 
   it("refuses a registry written by a newer factory", () => {
     const db = new DatabaseSync(join(dir, "images.sqlite"))
-    db.exec("PRAGMA user_version = 99")
+    db.exec("CREATE TABLE schema_version (version INTEGER PRIMARY KEY); INSERT INTO schema_version(version) VALUES (99)")
     db.close()
     expect(() => open(fakeImageBuilder())).toThrow(
       /image registry schema version 99 is newer than this factory supports \(1\)/,
@@ -824,13 +867,16 @@ Expected: FAIL (`openImageRegistry` is not exported).
 
 - [ ] **Step 4: Implement**
 
-Append to `controller/src/lib/targets/images.ts` (and extend its imports to `import { mkdirSync, readFileSync } from "node:fs"`, `import { dirname, join } from "node:path"`, `import { DatabaseSync } from "node:sqlite"`, and `import { type Image, ImageSchema, repositoryRoot, type TargetRecipe, tagFor } from "./catalog.js"` in place of the type-only import):
+Append to `controller/src/lib/targets/images.ts` (and extend its imports to `import { mkdirSync, readFileSync } from "node:fs"`, `import { dirname, join } from "node:path"`, `import { DatabaseSync } from "node:sqlite"`, and `import { type Image, ImageSchema, repositoryRoot, type Target, type TargetRecipe, tagFor } from "./catalog.js"` in place of Task 2's import):
 
 ```ts
 /** What one build is asked for. */
 export interface BuildRequest {
   readonly recipe: TargetRecipe
   readonly platform: string
+  /** The recipe key: stamped on the image as the `b4.factory.key` label and part of both tags. */
+  readonly key: string
+  /** The recipe tag (`tagFor`); the builder also stamps the id tag (`idTagFor`) once it knows the id. */
   readonly tag: string
   readonly repositoryRoot: string
 }
@@ -861,8 +907,15 @@ export interface EnsuredImage extends RecordedImage {
 
 export interface EnsureOptions {
   readonly signal: AbortSignal
-  /** Once, when this call starts a build (`shared: false`) or joins one in flight (`shared: true`). */
-  readonly onBuild?: (event: { readonly key: string; readonly shared: boolean }) => void
+  /**
+   * Once, when this call starts a build (`shared: false`) or joins one in flight (`shared: true`).
+   * `deadlineMs` is how long this call will wait for it at most (queue and build, D6).
+   */
+  readonly onBuild?: (event: {
+    readonly key: string
+    readonly shared: boolean
+    readonly deadlineMs: number
+  }) => void
   /** When the recorded image is gone from the daemon; it is then forgotten and built again. */
   readonly onMissing?: (event: { readonly key: string; readonly localId: string }) => void
 }
@@ -878,6 +931,8 @@ export interface ImageRegistry {
   recorded(recipe: TargetRecipe): RecordedImage | undefined
   /** The recorded image, or a build of it. See `openImageRegistry`. */
   ensure(recipe: TargetRecipe, options: EnsureOptions): Promise<EnsuredImage>
+  /** Does the daemon hold `localId`? What a bound work order asks instead of `ensure` (D5). */
+  present(localId: string, signal: AbortSignal): Promise<boolean>
   /** Abort every build in flight and close the database. */
   close(): void
 }
@@ -909,6 +964,11 @@ export interface ImageRegistryOptions {
   readonly maxConcurrentBuilds?: number
   /** Per build, from when it takes its slot (`FACTORY_IMAGE_BUILD_TIMEOUT_MS`). */
   readonly buildTimeoutMs?: number
+  /**
+   * How long a caller may wait for a slot before its build starts; twice the build timeout
+   * when absent. A caller's whole wait is bounded by this plus the build timeout (D6).
+   */
+  readonly queueTimeoutMs?: number
   /** The repository the build context is archived from; `repositoryRoot()` when absent. */
   readonly repositoryRoot?: string
   /** `hostPlatform()` when absent. */
@@ -916,7 +976,14 @@ export interface ImageRegistryOptions {
   readonly now?: () => number
 }
 
+/**
+ * Versioned like the work-order registry (`registry/db.ts`): a `schema_version` table, one row
+ * per applied version, rather than `PRAGMA user_version`, so the two stores on one state
+ * directory read the same way and a person inspecting either finds the version where the other
+ * keeps it.
+ */
 const SCHEMA = `
+  CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY);
   CREATE TABLE IF NOT EXISTS images (
     key TEXT PRIMARY KEY,
     target_id TEXT NOT NULL,
@@ -994,25 +1061,25 @@ export function openImageRegistry(options: ImageRegistryOptions): ImageRegistry 
   const db = new DatabaseSync(options.path)
   db.exec("PRAGMA journal_mode = WAL")
   db.exec("PRAGMA busy_timeout = 5000")
-  const found = Number((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version)
+  db.exec(SCHEMA)
+  const found = Number(
+    (db.prepare("SELECT max(version) AS v FROM schema_version").get() as { v: number | null }).v ?? 0,
+  )
   if (found > IMAGE_REGISTRY_VERSION) {
     db.close()
     throw new Error(
       `The image registry schema version ${found} is newer than this factory supports (${IMAGE_REGISTRY_VERSION}): upgrade the factory, or give it another FACTORY_STATE_DIR`,
     )
   }
-  db.exec(SCHEMA)
-  db.exec(`PRAGMA user_version = ${IMAGE_REGISTRY_VERSION}`)
+  if (found < IMAGE_REGISTRY_VERSION)
+    db.prepare("INSERT OR IGNORE INTO schema_version(version) VALUES (?)").run(IMAGE_REGISTRY_VERSION)
   const platform = options.platform ?? hostPlatform()
   const now = options.now ?? Date.now
 
   const describe = (recipe: TargetRecipe): Described => {
     const dockerfileSha256 = dockerfileSha256Of(recipe)
-    return {
-      key: recipeKey(recipe, platform, dockerfileSha256),
-      tag: tagFor(recipe.id, recipe.pin, dockerfileSha256),
-      dockerfileSha256,
-    }
+    const key = recipeKey(recipe, platform, dockerfileSha256)
+    return { key, tag: tagFor(recipe.id, recipe.pin, key), dockerfileSha256 }
   }
   const read = (key: string): Image | undefined => {
     const row = db
@@ -1068,6 +1135,7 @@ export function openImageRegistry(options: ImageRegistryOptions): ImageRegistry 
         {
           recipe,
           platform,
+          key: described.key,
           tag: described.tag,
           repositoryRoot: options.repositoryRoot ?? repositoryRoot(),
         },
@@ -1096,7 +1164,7 @@ export function openImageRegistry(options: ImageRegistryOptions): ImageRegistry 
       const described = describe(recipe)
       const image = read(described.key)
       if (image !== undefined) return { key: described.key, tag: described.tag, image }
-      ensureOptions.onBuild?.({ key: described.key, shared: false })
+      ensureOptions.onBuild?.({ key: described.key, shared: false, deadlineMs: 0 })
       const built = await build(described, recipe, signal)
       return {
         key: described.key,
@@ -1104,6 +1172,9 @@ export function openImageRegistry(options: ImageRegistryOptions): ImageRegistry 
         image: built.image,
         build: { shared: false, ms: built.ms, log: built.log },
       }
+    },
+    async present(localId, signal) {
+      return (await options.builder.inspect(localId, signal)) !== null
     },
     close() {
       db.close()
@@ -1230,6 +1301,30 @@ describe("builds in flight", () => {
     expect(builder.requests).toHaveLength(1)
   })
 
+  it("bounds a caller's whole wait, queue included, and says what it waited on", async () => {
+    const builder = fakeImageBuilder()
+    builder.hold()
+    const registry = open(builder, { maxConcurrentBuilds: 1, buildTimeoutMs: 5_000, queueTimeoutMs: 100 })
+    const ahead = ensure(registry, recipeFixture({ pin: "5".repeat(40) })).catch((e: unknown) => e)
+    await until(() => builder.running === 1)
+    const behind = recipeFixture({ pin: "6".repeat(40) })
+    const started: number[] = []
+    const failure = await ensure(registry, behind, {
+      onBuild: ({ deadlineMs }) => started.push(deadlineMs),
+    }).catch((error: unknown) => error)
+    expect(started).toEqual([5_100])
+    expect(failure).toBeInstanceOf(ImagePrepareError)
+    expect((failure as ImagePrepareError).message).toBe(
+      `Target devkit at ${behind.pin}: waited more than 5100 ms for the image (queued behind other builds, then built); FACTORY_MAX_IMAGE_BUILDS and FACTORY_IMAGE_BUILD_TIMEOUT_MS bound this`,
+    )
+    // Nothing was recorded for it: the next need starts afresh. (The build ahead timed out at
+    // 5,000 ms and freed the slot, so the queued build may have started before its only
+    // waiter left and cancelled it; either way it recorded nothing.)
+    expect(registry.recorded(behind)).toBeUndefined()
+    builder.release()
+    await ahead
+  }, 15_000)
+
   it("fails a build past its timeout, naming the limit, with the log so far", async () => {
     const builder = fakeImageBuilder()
     builder.hold()
@@ -1343,6 +1438,8 @@ Inside `openImageRegistry`, after `const now = …`:
 ```ts
   const slots = new BuildSlots(options.maxConcurrentBuilds ?? DEFAULT_MAX_IMAGE_BUILDS)
   const timeoutMs = options.buildTimeoutMs ?? DEFAULT_IMAGE_BUILD_TIMEOUT_MS
+  /** A caller's whole wait: a slot, then the build. Journalled, so a follower knows the bound. */
+  const waitBoundMs = (options.queueTimeoutMs ?? 2 * timeoutMs) + timeoutMs
   /** The build in flight per key. A later caller joins it rather than building again. */
   const inflight = new Map<string, Flight>()
 ```
@@ -1415,10 +1512,24 @@ Replace `ensure` and `close`:
       const joined = inflight.get(described.key)
       const flight = joined ?? startFlight(described, recipe)
       const shared = joined !== undefined
-      ensureOptions.onBuild?.({ key: described.key, shared })
+      ensureOptions.onBuild?.({ key: described.key, shared, deadlineMs: waitBoundMs })
       flight.waiters += 1
+      // This caller's own bound: queued behind other keys' builds, then this build. Leaving at
+      // it is leaving like a cancel: the build goes on only if another caller still waits.
+      const waited = AbortSignal.timeout(waitBoundMs)
       try {
-        const built = await abortable(flight.promise, signal)
+        const built = await abortable(flight.promise, AbortSignal.any([signal, waited])).catch(
+          (error: unknown) => {
+            if (waited.aborted && !signal.aborted)
+              throw new ImagePrepareError(
+                `Target ${recipe.id} at ${recipe.pin}: waited more than ${waitBoundMs} ms for the image (queued behind other builds, then built); FACTORY_MAX_IMAGE_BUILDS and FACTORY_IMAGE_BUILD_TIMEOUT_MS bound this`,
+                described.key,
+                "",
+                { cause: error },
+              )
+            throw error
+          },
+        )
         return {
           key: described.key,
           tag: described.tag,
@@ -1499,6 +1610,16 @@ describe("a registry that disagrees with the daemon", () => {
     expect(builder.daemon.get(first.image.localId)).toEqual([first.tag])
   })
 
+  it("answers whether the daemon holds an image, by id", async () => {
+    const builder = fakeImageBuilder()
+    const registry = open(builder)
+    const first = await ensure(registry, recipeFixture())
+    const signal = AbortSignal.timeout(1_000)
+    expect(await registry.present(first.image.localId, signal)).toBe(true)
+    builder.daemon.delete(first.image.localId)
+    expect(await registry.present(first.image.localId, signal)).toBe(false)
+  })
+
   it("answers `recorded` from the registry alone, never the daemon", async () => {
     const builder = fakeImageBuilder()
     const registry = open(builder)
@@ -1568,7 +1689,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 6: The Docker builder, lifted out of the script
 
-The build steps move from `scripts/prepare-target.ts:34-186` into `src/lib/targets/image-builder.ts`, unchanged in substance except: the base is pulled only when absent (D3), the lockfile is hashed from the context the build saw, the module assertions run the image by ID, every command's output goes to the log, and every command is cancellable. The pre-build refusals become one function in `prepare.ts`.
+The build steps move from `scripts/prepare-target.ts:34-186` into `src/lib/targets/image-builder.ts`, unchanged in substance except: the base is pulled only when absent unless `FACTORY_SKIP_BASE_PULL=1` forbids pulling (D3); the Dockerfile and the lockfile are hashed from the context the build saw; the build's own id comes from `--iidfile`, never a tag (D10); the image is labelled with its target, pin and key and gets an id tag that never moves (D10); the module assertions run the image by ID; every command's output goes to the log; and every command is cancellable. The pre-build refusals become one function in `prepare.ts`.
 
 **Files:**
 - Create: `controller/src/lib/targets/image-builder.ts`
@@ -1586,9 +1707,9 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { tagFor } from "../src/lib/targets/catalog.ts"
+import { idTagFor, tagFor } from "../src/lib/targets/catalog.ts"
 import { dockerImageBuilder, type Run, spawnRun } from "../src/lib/targets/image-builder.ts"
-import { dockerfileSha256Of } from "../src/lib/targets/images.ts"
+import { dockerfileSha256Of, recipeKey } from "../src/lib/targets/images.ts"
 import { recipeProblem } from "../src/lib/targets/prepare.ts"
 import { cleanupRecipeFixtures, recipeFixture } from "./recipe-fixture.ts"
 
@@ -1658,11 +1779,12 @@ function scriptedDocker(options: { readonly basePresent: boolean }) {
     }
     if (verb === "build") {
       context = readdirSync(args.at(-1) as string).sort()
+      // What BuildKit does with --iidfile: this build's id, whatever the tag names.
+      writeFileSync(args[args.indexOf("--iidfile") + 1] as string, LOCAL_ID)
       runOptions.onOutput?.("#5 DONE 0.1s\n")
       return ""
     }
-    if (verb === "image") return `${LOCAL_ID}\n`
-    if (verb === "run") return ""
+    if (verb === "tag" || verb === "run") return ""
     throw new Error(`unscripted: docker ${args.join(" ")}`)
   }
   return { run, calls, context: () => context }
@@ -1674,10 +1796,11 @@ describe("dockerImageBuilder", () => {
     const recipe = recipeAt(pin)
     const docker = scriptedDocker({ basePresent: false })
     const tmp = temp("factory-builder-tmp-")
-    const tag = tagFor(recipe.id, pin, dockerfileSha256Of(recipe))
+    const key = recipeKey(recipe, "linux/arm64")
+    const tag = tagFor(recipe.id, pin, key)
     const log: string[] = []
     const image = await dockerImageBuilder({ run: docker.run, tmp }).build(
-      { recipe, platform: "linux/arm64", tag, repositoryRoot: root },
+      { recipe, platform: "linux/arm64", key, tag, repositoryRoot: root },
       (chunk) => log.push(chunk),
       AbortSignal.timeout(30_000),
     )
@@ -1694,7 +1817,7 @@ describe("dockerImageBuilder", () => {
       ["image", "inspect"],
       ["pull", "--platform"],
       ["build", "--platform"],
-      ["image", "inspect"],
+      ["tag", LOCAL_ID],
       ["run", "--rm"],
     ])
     expect(docker.calls[1]).toEqual(["pull", "--platform", "linux/arm64", BASE])
@@ -1703,15 +1826,22 @@ describe("dockerImageBuilder", () => {
         `BASE_IMAGE=${BASE}`,
         "PLATFORM=linux/arm64",
         "PNPM_VERSION=10.33.0",
+        "b4.factory.target=devkit",
+        `b4.factory.pin=${pin}`,
+        `b4.factory.key=${key}`,
+        "--iidfile",
         "-t",
         tag,
       ]),
     )
+    // The id file lives beside the context, never inside it (it would enter the build).
+    expect(build[build.indexOf("--iidfile") + 1]).not.toContain(build.at(-1) as string)
     // The context is the pin's archive of imageContext plus the Dockerfile, and nothing else.
     expect(docker.context()).toEqual(["Dockerfile", "package.json", "pnpm-lock.yaml"])
     expect(existsSync(build.at(-1) as string)).toBe(false)
     expect(readdirSync(tmp)).toEqual([])
-    expect(docker.calls[3]).toEqual(["image", "inspect", "--format", "{{.Id}}", tag])
+    // The id is the build's own (--iidfile), never a tag's: no `image inspect <tag>` after it.
+    expect(docker.calls[3]).toEqual(["tag", LOCAL_ID, idTagFor("devkit", pin, key, LOCAL_ID)])
     expect(docker.calls[4]).toEqual([
       "run", "--rm", "--network", "none", "-w", "/opt/targets/devkit",
       LOCAL_ID, "node", "-e", 'require.resolve("vitest")',
@@ -1725,10 +1855,28 @@ describe("dockerImageBuilder", () => {
     const { root, pin } = repo()
     const docker = scriptedDocker({ basePresent: true })
     await dockerImageBuilder({ run: docker.run }).build(
-      { recipe: recipeAt(pin), platform: "linux/arm64", tag: "b4-factory-devkit:x", repositoryRoot: root },
+      { recipe: recipeAt(pin), platform: "linux/arm64", key: "k".repeat(64), tag: "b4-factory-devkit:x", repositoryRoot: root },
       () => {},
       AbortSignal.timeout(30_000),
     )
+    expect(docker.calls.some((call) => call[0] === "pull")).toBe(false)
+  })
+
+  it("never pulls under FACTORY_SKIP_BASE_PULL, and says so when the base is absent", async () => {
+    const { root, pin } = repo()
+    const docker = scriptedDocker({ basePresent: false })
+    process.env.FACTORY_SKIP_BASE_PULL = "1"
+    try {
+      await expect(
+        dockerImageBuilder({ run: docker.run }).build(
+          { recipe: recipeAt(pin), platform: "linux/arm64", key: "k".repeat(64), tag: "t", repositoryRoot: root },
+          () => {},
+          AbortSignal.timeout(30_000),
+        ),
+      ).rejects.toThrow(`base image ${BASE} is not on the daemon and FACTORY_SKIP_BASE_PULL=1 forbids pulling it`)
+    } finally {
+      delete process.env.FACTORY_SKIP_BASE_PULL
+    }
     expect(docker.calls.some((call) => call[0] === "pull")).toBe(false)
   })
 
@@ -1741,7 +1889,7 @@ describe("dockerImageBuilder", () => {
     )
     await expect(
       dockerImageBuilder({ run: docker.run }).build(
-        { recipe, platform: "linux/arm64", tag: "t", repositoryRoot: root },
+        { recipe, platform: "linux/arm64", key: "k".repeat(64), tag: "t", repositoryRoot: root },
         () => {},
         AbortSignal.timeout(30_000),
       ),
@@ -1821,10 +1969,10 @@ export function recipeProblem(
 ```ts
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
-import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { ImageSchema } from "./catalog.js"
+import { idTagFor, ImageSchema } from "./catalog.js"
 import { baseDigestOf, type ImageBuilder } from "./images.js"
 import { recipeProblem } from "./prepare.js"
 
@@ -1888,20 +2036,28 @@ export function dockerImageBuilder(options: DockerImageBuilderOptions = {}): Ima
     }
   }
   return {
-    async build({ recipe, platform, tag, repositoryRoot: repo }, log, signal) {
+    async build({ recipe, platform, key, tag, repositoryRoot: repo }, log, signal) {
       const problem = recipeProblem(recipe, repo)
       if (problem !== undefined) throw new Error(problem)
       const base = recipe.baseImage
-      // Pulled only when absent: pinned by digest, a present copy is the one the recipe names,
-      // and a daemon whose registry path wedges (Docker Desktop, twice in the live run) is not
-      // asked. This retires FACTORY_SKIP_BASE_PULL.
+      // Pulled only when absent: pinned by digest, a present copy is the one the recipe names.
+      // FACTORY_SKIP_BASE_PULL=1 never pulls (a host whose registry path wedges: Docker Desktop,
+      // twice in the live run); an absent base then fails the build, naming the variable.
       if (!(await present(base, signal))) {
+        if (process.env.FACTORY_SKIP_BASE_PULL === "1")
+          throw new Error(
+            `base image ${base} is not on the daemon and FACTORY_SKIP_BASE_PULL=1 forbids pulling it: pull it by hand (docker pull --platform ${platform} ${base}) or unset the variable`,
+          )
         log(`pulling ${base} for ${platform}\n`)
         await run("docker", ["pull", "--platform", platform, base], { signal, onOutput: log })
       }
-      const context = mkdtempSync(join(options.tmp ?? tmpdir(), `factory-image-${recipe.id}-`))
+      // One directory per build: the context, and beside it (never inside it) the id file.
+      const work = mkdtempSync(join(options.tmp ?? tmpdir(), `factory-image-${recipe.id}-`))
       try {
-        const tar = join(context, "context.tar")
+        const context = join(work, "context")
+        const iidFile = join(work, "image.iid")
+        mkdirSync(context)
+        const tar = join(work, "context.tar")
         await run(
           "git",
           ["-C", repo, "archive", "--format=tar", "-o", tar, recipe.pin, "--", ...recipe.imageContext],
@@ -1916,8 +2072,10 @@ export function dockerImageBuilder(options: DockerImageBuilderOptions = {}): Ima
         const pnpmVersion = String(rootPackage.packageManager ?? "").replace(/^pnpm@/, "")
         if (!/^\d+\.\d+\.\d+$/.test(pnpmVersion))
           throw new Error(`No pnpm version in package.json at ${recipe.pin}`)
-        const dockerfileSha256 = sha256(readFileSync(join(recipe.directory, "Dockerfile")))
-        // Over the bytes the build saw: `recipeProblem` proved the lockfile is in the context.
+        // Over the bytes the build saw: the Dockerfile copy in the context (the registry refuses
+        // the image if it differs from the one the key was computed from), and the lockfile
+        // `recipeProblem` proved is inside the context.
+        const dockerfileSha256 = sha256(readFileSync(join(context, "Dockerfile")))
         const lockfileSha256 = sha256(readFileSync(join(context, recipe.lockfile)))
         await run(
           "docker",
@@ -1931,15 +2089,27 @@ export function dockerImageBuilder(options: DockerImageBuilderOptions = {}): Ima
             `PLATFORM=${platform}`,
             "--build-arg",
             `PNPM_VERSION=${pnpmVersion}`,
+            // Part of the image config the id content-addresses: PR 2's builder checks them.
+            "--label",
+            `b4.factory.target=${recipe.id}`,
+            "--label",
+            `b4.factory.pin=${recipe.pin}`,
+            "--label",
+            `b4.factory.key=${key}`,
+            // This build's own id, whatever any tag names by the time it is read (D10).
+            "--iidfile",
+            iidFile,
             "-t",
             tag,
             context,
           ],
           { signal, onOutput: log },
         )
-        const localId = (
-          await run("docker", ["image", "inspect", "--format", "{{.Id}}", tag], { signal })
-        ).trim()
+        const localId = readFileSync(iidFile, "utf8").trim()
+        if (!/^sha256:[0-9a-f]{64}$/.test(localId))
+          throw new Error(`docker build wrote no image id to ${iidFile}`)
+        // The tag that never moves: a bound image a later build of its key supersedes keeps it.
+        await run("docker", ["tag", localId, idTagFor(recipe.id, recipe.pin, key, localId)], { signal })
         // A frozen install can silently skip a platform-matched optional dependency, and the
         // verifier would blame the builder: the modules the commands need must resolve.
         const cwd =
@@ -1961,7 +2131,7 @@ export function dockerImageBuilder(options: DockerImageBuilderOptions = {}): Ima
           pnpmVersion,
         })
       } finally {
-        rmSync(context, { recursive: true, force: true })
+        rmSync(work, { recursive: true, force: true })
       }
     },
     async inspect(localId, signal) {
@@ -2070,7 +2240,7 @@ Independent of images: a target is offered when its recipe applies at the pin (e
 
 In the test at `:322` ("blocks as intake_run_failed … when the catalog fails the controller"), replace the two `images`-rewriting blocks: the unfetchable pin needs no image entry any more (`writeFileSync(join(dir, "devkit", "target.json"), JSON.stringify(shipped))` before the `FACTORY_NO_FETCH` block), and the closing "A target with no image at all is image_unprepared" block is deleted.
 
-`factory-intake.test.ts`: delete the test at `:407` ("blocks image_unprepared after one attempt …"). Its replacement ("offers and fits a target at a pin no image was built at") needs `loadTask` to load at any pin, which Task 8's registry-backed catalog provides; Task 8 adds it.
+`factory-intake.test.ts`: delete the test at `:407` ("blocks image_unprepared after one attempt …"). Its replacement ("offers and fits a target at a pin no image was built at") needs `loadTask` to load at any pin, which Task 9's registry-backed catalog provides; Task 9 adds it.
 
 - [ ] **Step 2: Run them to see them fail**
 
@@ -2211,13 +2381,12 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
     )
   })
 
-  it("refuses the variables the prepare script retired", () => {
+  it("refuses FACTORY_TARGETS_DIR, which named a copy the prepare script no longer writes", () => {
     expect(() => loadConfig({ ...baseEnv(), FACTORY_TARGETS_DIR: "/x" })).toThrow(
       /FACTORY_TARGETS_DIR is retired/,
     )
-    expect(() => loadConfig({ ...baseEnv(), FACTORY_SKIP_BASE_PULL: "1" })).toThrow(
-      /FACTORY_SKIP_BASE_PULL is retired/,
-    )
+    // Kept (D3): the builder reads it, and whether it is still needed is unverified.
+    expect(() => loadConfig({ ...baseEnv(), FACTORY_SKIP_BASE_PULL: "1" })).not.toThrow()
   })
 ```
 
@@ -2259,7 +2428,78 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   })
 ```
 
-(`configuredImages` from the catalog; `staticImageRegistry` from `./static-images.ts`, which Task 9 Step 1 gives in full: write that file now and commit it here.)
+(`configuredImages` from the catalog; `staticImageRegistry` from `./static-images.ts`, created here.) The test registries, used from here on:
+
+`test/static-images.ts`:
+
+```ts
+import { createHash } from "node:crypto"
+import { configuredImages, configureImages, type Image, tagFor } from "../src/lib/targets/catalog.ts"
+import {
+  baseDigestOf,
+  dockerfileSha256Of,
+  ImagePrepareError,
+  type ImageRegistry,
+  type RecordedImage,
+  recipeKey,
+} from "../src/lib/targets/images.ts"
+
+const sha = (text: string) => createHash("sha256").update(text).digest("hex")
+
+/**
+ * The unit suite's registry: every target at every pin has an image, synthesised from its
+ * recipe (the local id is `sha256:<recipe key>`), and nothing touches Docker. So `loadTarget`
+ * loads everywhere a unit test reaches, and two recipes never share an image.
+ */
+export function staticImageRegistry(platform = "linux/arm64"): ImageRegistry {
+  const answer = (recipe: Parameters<ImageRegistry["recorded"]>[0]): RecordedImage => {
+    const dockerfileSha256 = dockerfileSha256Of(recipe)
+    const key = recipeKey(recipe, platform, dockerfileSha256)
+    const image: Image = {
+      localId: `sha256:${key}`,
+      platform,
+      baseManifestDigest: baseDigestOf(recipe.baseImage),
+      dockerfileSha256,
+      lockfileSha256: sha(`${recipe.pin}:${recipe.lockfile}`),
+      pnpmVersion: "10.33.0",
+    }
+    return { key, tag: tagFor(recipe.id, recipe.pin, key), image }
+  }
+  return {
+    recorded: answer,
+    async ensure(recipe, { signal }) {
+      signal.throwIfAborted()
+      return answer(recipe)
+    },
+    async present() {
+      return true
+    },
+    close() {},
+  }
+}
+
+/** A registry that has built nothing and cannot build: `loadTarget` finds no image anywhere. */
+export function emptyImageRegistry(): ImageRegistry {
+  return {
+    recorded: () => undefined,
+    async ensure(recipe) {
+      throw new ImagePrepareError(`Target ${recipe.id} at ${recipe.pin}: this test builds nothing`, "", "")
+    },
+    async present() {
+      return false
+    },
+    close() {},
+  }
+}
+
+/** Configure `registry` process-wide; the returned function puts the previous one back. */
+export function useImages(registry: ImageRegistry): () => void {
+  const previous = configuredImages()
+  configureImages(registry)
+  return () => configureImages(previous)
+}
+```
+
 
 - [ ] **Step 2: Run them to see them fail**
 
@@ -2291,9 +2531,9 @@ Expected: FAIL (`imagesPath` undefined; the retired variables accepted; `configu
 ```ts
   FACTORY_TARGETS_DIR:
     "target.json is never written any more (images live in <FACTORY_STATE_DIR>/images.sqlite), so there is no copy to point at",
-  FACTORY_SKIP_BASE_PULL:
-    "the base image is pinned by digest in target.json and pulled only when the daemon lacks it",
 ```
+
+(`FACTORY_SKIP_BASE_PULL` is not retired: the image builder, which runs in the controller's process now, reads it, D3.)
 
 and the returned object gains
 
@@ -2357,15 +2597,35 @@ with `let images: ImageRegistry | undefined`, `let ownsImages = false` and `let 
       disposed = true
       const factory = await opening?.catch(() => undefined)
       await factory?.close()
-      if (images !== undefined) {
-        if (configuredImages() === images) configureImages(previousImages)
-        if (ownsImages) images.close()
-        images = undefined
-      }
+      releaseImages()
     },
 ```
 
-and the `.catch` that clears `opening` on a failed open also runs the same restore-and-close (a failed open must not leave a registry configured or open). The factory needs no option for it: it builds through `configuredImages()`, the same registry `loadTarget` reads (Task 11), so the two can never be different registries.
+with, inside `createControllerRuntime` beside `openFactory`,
+
+```ts
+  /** Put back the registry configured before this runtime opened its own, and close its own. */
+  function releaseImages(): void {
+    if (images === undefined) return
+    if (configuredImages() === images) configureImages(previousImages)
+    if (ownsImages) images.close()
+    images = undefined
+  }
+```
+
+and the `.catch` at the end of `openFactory` becomes
+
+```ts
+    }).catch((error) => {
+      // A failed open is retried by the next caller, like middleware setup itself, and leaves
+      // no registry configured or open behind it.
+      opening = undefined
+      releaseImages()
+      throw error
+    })
+```
+
+A runtime test for the failed open: `createControllerRuntime` over a state directory whose `registry.sqlite` is a directory (`mkdirSync(join(state, "registry.sqlite"), { recursive: true })`) rejects `factory()`, and afterwards `configuredImages()` is the registry configured before it. The factory needs no option for it: it builds through `configuredImages()`, the same registry `loadTarget` reads (Task 11), so the two can never be different registries.
 
 `test/serve-controller.ts`: where it calls `resetControllerRuntimeForTests(overrides)`, pass `{ images: configuredImages(), ...overrides }` so a served controller in the unit suite reads the static registry and in the lanes the shared one, never a Docker registry of its own.
 
@@ -2383,85 +2643,140 @@ git commit -m "feat(software-factory): the controller opens the host's image reg
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+### Task 8a: Everything that needs no image loads a task without one (`loadTaskRecipe`)
+
+Added after review (item 1). Once Task 9 makes `loadTarget` read the registry, every `loadTask` in a process with no registry configured throws `ImagesUnconfiguredError`, and every `loadTask` of a task whose image this host has not built throws `ImageNotBuiltError`. Most callers never read the image: the CLI's `builder-handoff` (`cli.ts:798`, driven as a subprocess by `cli.test.ts:1046-1100`, with no setup file), the export review's pin diff (`review/pin-diff-base.ts:26`, from `cli.ts:604`, which would silently show every file `unavailable`), the prompts, the budget checks, the builder's inspection options and the baseline capture. They move to a task loaded without its image, before Task 9 switches the catalog, so none of them can break.
+
+Only three things read `task.target.image`: the builder handoff's tag (PR 1: the recipe tag, computable without an image), the verifier and the policy (Task 13a: from the work order's binding). Everything else takes a `TaskRecipe`.
+
+**Files:**
+- Modify: `controller/src/lib/targets/catalog.ts` (`TaskRecipe`, `loadTaskRecipe`; `loadTask` built on it)
+- Modify: `controller/src/lib/review/pin-diff-base.ts:26` (`loadTaskRecipe`)
+- Modify: `controller/src/lib/verification/baseline.ts:35` (`loadTaskRecipe`)
+- Modify: `controller/src/lib/runtime.ts` (`builderReader`: `targetInspectionOptions(loadTaskRecipe(...))`)
+- Modify: `controller/src/lib/prompts.ts` (`promptFor` loads a `TaskRecipe`; `taskPrompt`, `builderRules` take one)
+- Modify: `controller/src/lib/targets/workspace.ts` (`targetWorkspace`, `targetInspectionOptions`, `targetSandboxPolicy` take `TaskRecipe`/`TargetRecipe`), `controller/src/lib/targets/permissions.ts:42` (`builderPermissions(target: TargetRecipe)`)
+- Modify: `controller/src/lib/builder-handoff.ts` (`captureBuilderHandoff(task: TaskRecipe, options)`; `options.tag`, default `recipeTag(task.target)`)
+- Modify: `controller/src/lib/controller/factory.ts` (`targetOf`, `budgetShortfall`, `captureBuilderHandoffFromCatalog` use `loadTaskRecipe`; the capture input gains `tag?: string`)
+- Modify: `controller/src/cli.ts:795-815` (`builder-handoff`: `loadTaskRecipe(values.task)`)
+- Test: `controller/test/targets-catalog.test.ts`, `controller/test/builder-handoff.test.ts`
+
+- [ ] **Step 1: Write the failing tests**
+
+`targets-catalog.test.ts`, in `describe("task catalog")` (it has `tasksDirFor` and `targetsDir`):
+
+```ts
+  it("loads a task without its image, where loadTask needs one", () => {
+    const { root, pin } = repo()
+    // A target with no image at the pin: loadTask cannot load it, loadTaskRecipe can.
+    const targets = targetsDir(pin, { images: undefined })
+    const tasks = tasksDirFor()
+    const options = { targetsDir: targets, tasksDir: tasks, repositoryRoot: root }
+    expect(() => loadTask("k", options)).toThrow()
+    const recipe = loadTaskRecipe("k", options)
+    expect(recipe.id).toBe("k")
+    expect(recipe.target.id).toBe("t")
+    expect(recipe.target.pin).toBe(pin)
+    expect(recipe.target).not.toHaveProperty("image")
+    expect(recipe.checks.independent.file).toBe("checks/k.test.ts")
+    expect(recipe.specText).toContain("A1:")
+  })
+```
+
+`builder-handoff.test.ts`, in the first test, the capture is `captureBuilderHandoff(loadTaskRecipe("cli-flags"), { workOrderId, captureRoot: app })` and its target block expectation is `image: recipeTag(task.target)` (import `recipeTag` from `../src/lib/targets/images.ts`, `loadTaskRecipe` from the catalog); add:
+
+```ts
+  it("names the tag it is given: the one the work order bound", async () => {
+    const { handoff } = await captureBuilderHandoff(loadTaskRecipe("cli-flags"), {
+      captureRoot: tempDir("factory-handoff-app-"),
+      tag: `b4-factory-cli-flags:${loadTaskRecipe("cli-flags").target.pin.slice(0, 12)}-0123456789ab`,
+    })
+    expect(handoff.target.image).toMatch(/-0123456789ab$/)
+  })
+```
+
+- [ ] **Step 2: Run them to see them fail**
+
+Run: `pnpm --filter @b4-example/software-factory-controller exec vitest run test/targets-catalog.test.ts test/builder-handoff.test.ts`
+Expected: FAIL (`loadTaskRecipe` is not exported; `captureBuilderHandoff` has no `tag`).
+
+- [ ] **Step 3: Implement**
+
+`catalog.ts`: after the `Task` interface,
+
+```ts
+/**
+ * A task with its target at the task's pin, without the target's image: what everything that
+ * never reads the image loads (the CLI, the review's pin diff, prompts, budgets, the builder's
+ * inspection options, the baseline capture). Loads whether or not this host has built the
+ * image, and with no image registry configured at all.
+ */
+export interface TaskRecipe extends Omit<Task, "target"> {
+  readonly target: TargetRecipe
+}
+```
+
+Rename the body of `loadTask` to `export function loadTaskRecipe(id: string, options: CatalogOptions = {}): TaskRecipe`, with its one `loadTarget(...)` call becoming `loadTargetRecipe(...)` (same arguments), and make `loadTask`:
+
+```ts
+/** `loadTaskRecipe` with the target's image: for the few callers that run or digest it. */
+export function loadTask(id: string, options: CatalogOptions = {}): Task {
+  const recipe = loadTaskRecipe(id, options)
+  return {
+    ...recipe,
+    target: loadTarget(recipe.target.id, { ...options, pin: recipe.target.pin }),
+  }
+}
+```
+
+`pin-diff-base.ts:26`, `baseline.ts:35`: `loadTask(…)` → `loadTaskRecipe(…)` (imports follow). `runtime.ts` `builderReader`: `targetInspectionOptions(loadTaskRecipe(requireTaskId(taskId)))`. `prompts.ts`: `promptFor` returns `taskPrompt(loadTaskRecipe(id, options))`; `taskPrompt` and `builderRules` take `TaskRecipe`. `workspace.ts`: `targetWorkspace(task: TaskRecipe, …)`, `targetInspectionOptions(task: TaskRecipe)`, `targetSandboxPolicy(target: TargetRecipe)`; `permissions.ts`: `builderPermissions(target: TargetRecipe)`. None of them reads `image`; `pnpm typecheck` confirms it.
+
+`builder-handoff.ts`: `CaptureBuilderHandoffOptions` gains
+
+```ts
+  /**
+   * The image tag the handoff names: the work order's bound tag (`image_bound`). This host's
+   * recipe tag for the task when absent (`recipeTag`), which is what `factory builder-handoff`
+   * writes for a lane with no controller.
+   */
+  readonly tag?: string
+```
+
+`captureBuilderHandoff(task: TaskRecipe, options)` builds its target block with `image: options.tag ?? recipeTag(task.target)` in place of `imageTag(task.target)`.
+
+`factory.ts`: `targetOf` and `budgetShortfall` call `loadTaskRecipe(row.taskId, options.promptCatalog ?? {})`; the `captureBuilderHandoff` option's input gains `readonly tag?: string`, and `captureBuilderHandoffFromCatalog` passes `loadTaskRecipe(input.taskId, …)` and `...(input.tag !== undefined ? { tag: input.tag } : {})` (Task 13 supplies the bound tag).
+
+`cli.ts` `builder-handoff`: `captureBuilderHandoff(loadTaskRecipe(values.task), …)`. Its output is unchanged in shape (`cli.test.ts:1053-1056` asserts a tag with `:<pin[:12]>-`, which the recipe tag keeps).
+
+- [ ] **Step 4: Run the tests**
+
+Run: `pnpm --filter @b4-example/software-factory-controller test && pnpm --filter @b4-example/software-factory-controller typecheck && pnpm --filter @b4-example/software-factory-controller lint`
+Expected: PASS, exit 0.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add examples/software-factory/controller/src examples/software-factory/controller/test/targets-catalog.test.ts examples/software-factory/controller/test/builder-handoff.test.ts
+git commit -m "refactor(software-factory): everything that reads no image loads a task without one
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
 ### Task 9: `target.json` carries no images; `loadTarget` reads the registry; the script only warms it
 
 The switch. After this task no file in the repository records an image id, and nothing but the registry does.
 
 **Files:**
-- Modify: `controller/src/lib/targets/catalog.ts` (schema; `loadTarget`; errors; `loadTaskTargetRecipe`; `targetsDir`)
+- Modify: `controller/src/lib/targets/catalog.ts` (schema; `loadTarget`; errors; `targetsDir`)
 - Modify: `controller/src/lib/targets/prepare.ts` (delete `withImageAt`, `formatManifest`, `recordImage` and their imports)
 - Modify: `controller/scripts/prepare-target.ts` (rewrite)
 - Modify: `controller/targets/{cli,cli-flags,devkit}/target.json` (delete `images`)
-- Create: `controller/test/static-images.ts` (if Task 8 did not), `controller/test/setup-images.ts`, `controller/test/lane-images.ts`, `controller/test/lane-images.global.ts`, `controller/test/setup-lane-images.ts`
+- Create: `controller/test/setup-images.ts`, `controller/test/lane-images.ts`, `controller/test/lane-images.global.ts`, `controller/test/setup-lane-images.ts`
 - Modify: `controller/vitest.config.ts`, `controller/vitest.sandbox.config.ts`, `controller/test/recipe-fixture.ts`
 - Modify: `controller/test/devkit-second-pin.ts`, `controller/test/target-devkit-pin.integration.test.ts`, `controller/test/builder.integration.test.ts:290-300`
-- Test: `controller/test/targets-catalog.test.ts:247-330,383-447`, `controller/test/targets-prepare.test.ts:136-245`, `controller/test/task-prompts.test.ts:60-100,250-280`, `controller/test/intake-draft.test.ts:305-369`, `controller/test/factory-intake.test.ts`
+- Test: `controller/test/targets-catalog.test.ts:247-330,383-447`, `controller/test/targets-prepare.test.ts:136-245`, `controller/test/task-prompts.test.ts:60-100,131-135,235-280`, `controller/test/intake-draft.test.ts:305-369`, `controller/test/factory-intake.test.ts`, `controller/test/pin-diff-base.test.ts` (new)
 
-- [ ] **Step 1: The test registries**
-
-`test/static-images.ts`:
-
-```ts
-import { createHash } from "node:crypto"
-import { configuredImages, configureImages, type Image, tagFor } from "../src/lib/targets/catalog.ts"
-import {
-  baseDigestOf,
-  dockerfileSha256Of,
-  ImagePrepareError,
-  type ImageRegistry,
-  type RecordedImage,
-  recipeKey,
-} from "../src/lib/targets/images.ts"
-
-const sha = (text: string) => createHash("sha256").update(text).digest("hex")
-
-/**
- * The unit suite's registry: every target at every pin has an image, synthesised from its
- * recipe (the local id is `sha256:<recipe key>`), and nothing touches Docker. So `loadTarget`
- * loads everywhere a unit test reaches, and two recipes never share an image.
- */
-export function staticImageRegistry(platform = "linux/arm64"): ImageRegistry {
-  const answer = (recipe: Parameters<ImageRegistry["recorded"]>[0]): RecordedImage => {
-    const dockerfileSha256 = dockerfileSha256Of(recipe)
-    const key = recipeKey(recipe, platform, dockerfileSha256)
-    const image: Image = {
-      localId: `sha256:${key}`,
-      platform,
-      baseManifestDigest: baseDigestOf(recipe.baseImage),
-      dockerfileSha256,
-      lockfileSha256: sha(`${recipe.pin}:${recipe.lockfile}`),
-      pnpmVersion: "10.33.0",
-    }
-    return { key, tag: tagFor(recipe.id, recipe.pin, dockerfileSha256), image }
-  }
-  return {
-    recorded: answer,
-    async ensure(recipe, { signal }) {
-      signal.throwIfAborted()
-      return answer(recipe)
-    },
-    close() {},
-  }
-}
-
-/** A registry that has built nothing and cannot build: `loadTarget` finds no image anywhere. */
-export function emptyImageRegistry(): ImageRegistry {
-  return {
-    recorded: () => undefined,
-    async ensure(recipe) {
-      throw new ImagePrepareError(`Target ${recipe.id} at ${recipe.pin}: this test builds nothing`, "", "")
-    },
-    close() {},
-  }
-}
-
-/** Configure `registry` process-wide; the returned function puts the previous one back. */
-export function useImages(registry: ImageRegistry): () => void {
-  const previous = configuredImages()
-  configureImages(registry)
-  return () => configureImages(previous)
-}
-```
+- [ ] **Step 1: The setup files** (`test/static-images.ts` is Task 8's)
 
 `test/setup-images.ts`:
 
@@ -2478,31 +2793,33 @@ configureImages(staticImageRegistry())
 `test/lane-images.ts`:
 
 ```ts
-import { mkdirSync } from "node:fs"
-import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { configuredImages, loadTargetRecipe } from "../src/lib/targets/catalog.ts"
 import { dockerImageBuilder } from "../src/lib/targets/image-builder.ts"
 import { type EnsuredImage, type ImageRegistry, openImageRegistry } from "../src/lib/targets/images.ts"
 
-/**
- * One registry for a whole `test:sandbox` run, shared by every lane file: what CI's two
- * `target:prepare` steps used to produce, now built through the same `ensure` the controller
- * calls. `FACTORY_LANE_IMAGES_DIR` moves it; a fresh temporary directory otherwise.
- */
-export const LANE_IMAGES_DIR =
-  process.env.FACTORY_LANE_IMAGES_DIR ?? join(tmpdir(), "b4-factory-lane-images")
+declare module "vitest" {
+  export interface ProvidedContext {
+    /** The directory of this `test:sandbox` run's own image registry (`lane-images.global.ts`). */
+    readonly laneImagesDir: string
+  }
+}
 
-export function openLaneImages(): ImageRegistry {
-  mkdirSync(LANE_IMAGES_DIR, { recursive: true })
+/**
+ * The registry one `test:sandbox` run shares across its lane files, in a directory the run's
+ * global setup created for it alone (`mkdtemp`): two worktrees, or two runs, on one host never
+ * share a registry, and nothing survives the run but the images themselves on the daemon, which
+ * the next run's `ensure` re-verifies and, by the build cache, rebuilds in seconds.
+ */
+export function openLaneImages(dir: string): ImageRegistry {
   return openImageRegistry({
-    path: join(LANE_IMAGES_DIR, "images.sqlite"),
+    path: join(dir, "images.sqlite"),
     builder: dockerImageBuilder(),
     buildTimeoutMs: 1_140_000,
   })
 }
 
-/** Build (or re-verify) `targetId` at `pin` (its default pin when absent) in the lanes' registry. */
+/** Build (or re-verify) `targetId` at `pin` (its default pin when absent) in the run's registry. */
 export async function ensureLaneImage(targetId: string, pin?: string): Promise<EnsuredImage> {
   const registry = configuredImages()
   if (registry === undefined) throw new Error("the lane setup did not configure an image registry")
@@ -2516,38 +2833,50 @@ export async function ensureLaneImage(targetId: string, pin?: string): Promise<E
 `test/lane-images.global.ts`:
 
 ```ts
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import type { TestProject } from "vitest/node"
 import { loadTargetRecipe } from "../src/lib/targets/catalog.ts"
 import { openLaneImages } from "./lane-images.ts"
 
 /**
- * Before any lane file: the two targets the lanes run at their default pins, built (or
- * re-verified) once. A lane that needs another pin calls `ensureLaneImage` itself.
+ * Once per `test:sandbox` run: a registry directory of the run's own, handed to every lane file
+ * (`provide`), and the two targets the lanes run at their default pins built (or re-verified)
+ * in it. The opt-in `cli` run (`FACTORY_TEST_CLI_TARGET=1`, `test:sandbox:cli`) needs neither
+ * and builds `cli` in its own lane. The teardown removes the registry file, never an image.
  */
-export default async function setup(): Promise<void> {
-  const registry = openLaneImages()
-  try {
-    for (const id of ["cli-flags", "devkit"]) {
-      const started = Date.now()
-      const ensured = await registry.ensure(loadTargetRecipe(id), {
-        signal: AbortSignal.timeout(1_200_000),
-      })
-      process.stderr.write(
-        `lane images: ${id} ${ensured.image.localId} (${ensured.build ? `built in ${Date.now() - started} ms` : "recorded"})\n`,
-      )
+export default async function setup(project: TestProject): Promise<() => void> {
+  const dir = mkdtempSync(join(tmpdir(), "b4-factory-lane-images-"))
+  project.provide("laneImagesDir", dir)
+  if (process.env.FACTORY_TEST_CLI_TARGET !== "1") {
+    const registry = openLaneImages(dir)
+    try {
+      for (const id of ["cli-flags", "devkit"]) {
+        const started = Date.now()
+        const ensured = await registry.ensure(loadTargetRecipe(id), {
+          signal: AbortSignal.timeout(1_200_000),
+        })
+        process.stderr.write(
+          `lane images: ${id} ${ensured.image.localId} (${ensured.build ? `built in ${Date.now() - started} ms` : "recorded"})\n`,
+        )
+      }
+    } finally {
+      registry.close()
     }
-  } finally {
-    registry.close()
   }
+  return () => rmSync(dir, { recursive: true, force: true })
 }
 ```
 
 `test/setup-lane-images.ts`:
 
 ```ts
+import { inject } from "vitest"
 import { configureImages } from "../src/lib/targets/catalog.ts"
 import { openLaneImages } from "./lane-images.ts"
 
-configureImages(openLaneImages())
+configureImages(openLaneImages(inject("laneImagesDir")))
 ```
 
 `vitest.sandbox.config.ts` gains, inside `test`:
@@ -2559,7 +2888,7 @@ configureImages(openLaneImages())
 
 - [ ] **Step 2: Write the failing tests**
 
-`targets-catalog.test.ts`: the fixture `manifest()` loses `images: { [pin]: image }`; the import list loses `ImageUnpreparedError`, `TargetUnpreparedError`, gains `configureImages`, `ImageNotBuiltError`, `ImagesUnconfiguredError`, `loadTaskTargetRecipe`, `type TargetRecipe`; add `import { emptyImageRegistry, useImages } from "./static-images.ts"` and `import type { ImageRegistry } from "../src/lib/targets/images.ts"`. Replace the four tests at `:247-320` with:
+`targets-catalog.test.ts`: the fixture `manifest()` loses `images: { [pin]: image }`; the import list loses `ImageUnpreparedError`, `TargetUnpreparedError`, gains `configureImages`, `ImageNotBuiltError`, `ImagesUnconfiguredError`, `type TargetRecipe`; add `import { emptyImageRegistry, useImages } from "./static-images.ts"` and `import type { ImageRegistry } from "../src/lib/targets/images.ts"`. Replace the four tests at `:247-320` with:
 
 ```ts
   /** A registry answering every recipe with `answer(recipe)`, recording the pins it was asked. */
@@ -2652,12 +2981,12 @@ configureImages(openLaneImages())
     }
   })
 
-  it("loads a task's target recipe at the task's pin without an image", () => {
+  it("loads a task without an image where the registry has none", () => {
     const restore = useImages(emptyImageRegistry())
     try {
-      const recipe = loadTaskTargetRecipe("devkit-spawn-deadline")
-      expect(recipe.id).toBe("devkit")
-      expect(recipe).not.toHaveProperty("image")
+      const recipe = loadTaskRecipe("devkit-spawn-deadline")
+      expect(recipe.target.id).toBe("devkit")
+      expect(recipe.target).not.toHaveProperty("image")
       expect(() => loadTask("devkit-spawn-deadline")).toThrow(ImageNotBuiltError)
     } finally {
       restore()
@@ -2705,13 +3034,13 @@ describe("prepare-target.ts at a pin its paths do not exist at", () => {
     expect(readFileSync(join(targetsDir, "cli-flags", "target.json"), "utf8")).toBe(shipped)
   }, 90_000)
 
-  it("requires FACTORY_STATE_DIR and refuses the retired variables by name", async () => {
+  it("requires FACTORY_STATE_DIR and refuses FACTORY_TARGETS_DIR by name", async () => {
     const env = { ...process.env, PATH: pathWithoutDocker() }
     delete env.FACTORY_STATE_DIR
     expect((await run(["scripts/prepare-target.ts", "devkit"], env)).stderr).toContain(
       "FACTORY_STATE_DIR is required",
     )
-    for (const name of ["FACTORY_TARGETS_DIR", "FACTORY_SKIP_BASE_PULL"])
+    for (const name of ["FACTORY_TARGETS_DIR"])
       expect(
         (await run(["scripts/prepare-target.ts", "devkit"], { ...env, FACTORY_STATE_DIR: "/tmp/x", [name]: "1" })).stderr,
       ).toContain(`${name} is retired`)
@@ -2719,7 +3048,33 @@ describe("prepare-target.ts at a pin its paths do not exist at", () => {
 })
 ```
 
-`task-prompts.test.ts`: `catalogs()` loses its `prepared` flag (both targets get `baseImage: \`node:24-slim@sha256:${"e".repeat(64)}\`` and no `images`); the tests that distinguished `ready` from `raw` (`:79`, `:250-280`) configure `useImages(emptyImageRegistry())` for the `raw` case instead of deleting `images` from the manifest, and expect the message `/^Unknown task served: .*has no image built at/` in place of `has not been prepared`; restoring the static registry (the `restore()` the helper returns) is what "prepared again" becomes. Task 13 rewrites this test once `dispatch` builds.
+`task-prompts.test.ts`: `catalogs()` loses its `prepared` flag (both targets get `baseImage: \`node:24-slim@sha256:${"e".repeat(64)}\`` and no `images`). Prompts load a `TaskRecipe` since Task 8a, so a target without an image no longer stops a prompt: delete "throws for a task whose target is unprepared, naming why" (`:131`). "refuses, rather than throws, a dispatch whose task stopped loading after create" (`:235`) keeps its point (refused before the key, not replayed once the task loads again) but breaks the task another way: it overwrites `ready/target.json` with `"{"` between create and dispatch, expects `{ ok: false, state: "received", message: expect.stringMatching(/^Unknown task served: /) }`, restores the file, and expects the next `dispatch` to succeed.
+
+`test/pin-diff-base.test.ts` (new): the export review's pin diff does not need an image.
+
+```ts
+import { afterEach, describe, expect, it } from "vitest"
+import type { WorkOrderRow } from "../src/lib/domain/work-order.ts"
+import { pinDiffBase } from "../src/lib/review/pin-diff-base.ts"
+import { loadTaskRecipe } from "../src/lib/targets/catalog.ts"
+import { emptyImageRegistry, useImages } from "./static-images.ts"
+
+let restore: (() => void) | undefined
+afterEach(() => restore?.())
+
+describe("the export review's pin diff", () => {
+  it("reads the target's files at the pin on a host that has built no image of it", () => {
+    restore = useImages(emptyImageRegistry())
+    const task = loadTaskRecipe("cli-flags")
+    const base = pinDiffBase({ taskId: "cli-flags", pin: null } as unknown as WorkOrderRow)
+    expect(base.label).toBe(`pin ${task.target.pin.slice(0, 12)}`)
+    const path = task.manifest.allowedSourcePaths[0] as string
+    expect(base.read(path).kind).toBe("bytes")
+  })
+})
+```
+
+The two subprocess tests of `factory builder-handoff` (`cli.test.ts:1046-1100`, which run the CLI with no setup file and so no registry) are the check that the CLI needs none: they must pass unchanged.
 
 `intake-draft.test.ts` (`:305-369`): the "looks the target up in the catalog it is given" test writes the shipped manifest without `images` and proves the catalog is honoured by capture instead: a copy whose `capture.include` gains `"packages/devkit/no-such-dir"` is refused `no_target_for_package` at `PIN`, the unmodified copy is accepted. In the "catalog fails the controller" test the unfetchable pin's manifest is `JSON.stringify(shipped)` (no images).
 
@@ -2825,30 +3180,7 @@ export function loadTarget(id: string, options: CatalogOptions = {}): Target {
 }
 ```
 
-- After `loadTask`, add:
-
-```ts
-/**
- * The target a task runs on, at the task's pin (its target's default for a shipped task),
- * without an image: what `dispatch` builds before `loadTask`, which needs the image, can load.
- */
-export function loadTaskTargetRecipe(id: string, options: CatalogOptions = {}): TargetRecipe {
-  const directory = taskDirectory(id, options)
-  const manifest = parseTaskFile(
-    TaskSchema,
-    JSON.parse(readFileSync(join(directory, "task.json"), "utf8")),
-    id,
-    "task.json",
-  )
-  if (manifest.id !== id) throw new Error(`Task ${id} declares a different id: ${manifest.id}`)
-  return loadTargetRecipe(
-    manifest.target,
-    manifest.pin !== undefined ? { ...options, pin: manifest.pin } : options,
-  )
-}
-```
-
-(the `images` variable Task 8 declared must be declared above `loadTarget`; move the block if Task 8 put it lower).
+Task 8 declared the `images` variable after `resetCatalogForTests`, which is above `loadTarget` in `catalog.ts` (`:532-538` against `:315`): the function reads it at call time, so no move is needed.
 
 `prepare.ts`: delete `withImageAt`, `formatManifest`, `recordImage`, and the imports only they used (`writeFileAtomic`, `appRoot`, `type Image`, `TargetSchema`).
 
@@ -2874,8 +3206,6 @@ import { parsePrepareArgs } from "../src/lib/targets/prepare.js"
  */
 const RETIRED: Readonly<Record<string, string>> = {
   FACTORY_TARGETS_DIR: "the script writes no target file, so there is no copy to point it at",
-  FACTORY_SKIP_BASE_PULL:
-    "the base is pinned by digest in target.json and pulled only when the daemon lacks it",
 }
 for (const [name, why] of Object.entries(RETIRED))
   if (process.env[name] !== undefined) throw new Error(`${name} is retired: ${why}. Unset it`)
@@ -3033,13 +3363,13 @@ Expected: PASS; stderr shows `lane images: cli-flags …` and `lane images: devk
 - [ ] **Step 7: Commit**
 
 ```bash
-git add examples/software-factory/controller/src/lib/targets/catalog.ts examples/software-factory/controller/src/lib/targets/prepare.ts examples/software-factory/controller/scripts/prepare-target.ts examples/software-factory/controller/targets examples/software-factory/controller/test/static-images.ts examples/software-factory/controller/test/setup-images.ts examples/software-factory/controller/test/lane-images.ts examples/software-factory/controller/test/lane-images.global.ts examples/software-factory/controller/test/setup-lane-images.ts examples/software-factory/controller/vitest.config.ts examples/software-factory/controller/vitest.sandbox.config.ts examples/software-factory/controller/test/recipe-fixture.ts examples/software-factory/controller/test/devkit-second-pin.ts examples/software-factory/controller/test/target-devkit-pin.integration.test.ts examples/software-factory/controller/test/builder.integration.test.ts examples/software-factory/controller/test/drafter-end-to-end.integration.test.ts examples/software-factory/controller/test/intake-oracle.integration.test.ts examples/software-factory/controller/test/target-cli.integration.test.ts examples/software-factory/controller/test/targets-catalog.test.ts examples/software-factory/controller/test/targets-prepare.test.ts examples/software-factory/controller/test/task-prompts.test.ts examples/software-factory/controller/test/intake-draft.test.ts examples/software-factory/controller/test/factory-intake.test.ts
+git add examples/software-factory/controller/src/lib/targets/catalog.ts examples/software-factory/controller/src/lib/targets/prepare.ts examples/software-factory/controller/scripts/prepare-target.ts examples/software-factory/controller/targets examples/software-factory/controller/test/static-images.ts examples/software-factory/controller/test/setup-images.ts examples/software-factory/controller/test/lane-images.ts examples/software-factory/controller/test/lane-images.global.ts examples/software-factory/controller/test/setup-lane-images.ts examples/software-factory/controller/vitest.config.ts examples/software-factory/controller/vitest.sandbox.config.ts examples/software-factory/controller/test/recipe-fixture.ts examples/software-factory/controller/test/devkit-second-pin.ts examples/software-factory/controller/test/target-devkit-pin.integration.test.ts examples/software-factory/controller/test/builder.integration.test.ts examples/software-factory/controller/test/drafter-end-to-end.integration.test.ts examples/software-factory/controller/test/intake-oracle.integration.test.ts examples/software-factory/controller/test/target-cli.integration.test.ts examples/software-factory/controller/test/targets-catalog.test.ts examples/software-factory/controller/test/targets-prepare.test.ts examples/software-factory/controller/test/task-prompts.test.ts examples/software-factory/controller/test/intake-draft.test.ts examples/software-factory/controller/test/factory-intake.test.ts examples/software-factory/controller/test/pin-diff-base.test.ts
 git commit -m "feat(software-factory): targets record no images; the host's registry does
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-### Task 10: A work order's budget can be paused, and a restart resumes it
+### Task 10: A work order's budget can be paused, and a restart resumes it and ends a build it interrupted
 
 **Files:**
 - Modify: `controller/src/lib/controller/context.ts` (two members)
@@ -3049,16 +3379,20 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Write the failing test**
 
-In `factory-intake.test.ts` (it has `forceRow`, `crash` and `bootFactory`):
+In `factory-intake.test.ts` (it has `forceRow`, `crash` and `bootFactory`; add `journalEvent(id, type, payload)` beside `journalHandoff`, with the same body appending one event):
 
 ```ts
   it("resumes, before any rule, a budget a restart left paused", async () => {
     await boot()
     const { id } = await createIssue()
     await crash()
-    // What a controller killed mid-build leaves: an active row with its clock stopped.
+    // What a controller killed mid-build leaves: an active row with its clock stopped, and a
+    // build the journal shows started and never ended.
     forceRow(id, { state: "intake_running", activeMs: 1_234, activeStartedAt: null })
+    journalEvent(id, "image_prepare_started", { targetId: "devkit", pin: PIN, key: "a".repeat(64), shared: false, deadlineMs: 1 })
     await bootFactory()
+    const aborted = factory.events(id).filter((e) => e.type === "image_prepare_aborted")
+    expect(aborted.map((e) => e.payload)).toEqual([{ targetId: "devkit", pin: PIN, reason: "restart" }])
     const events = factory.events(id)
     const resumed = events.findIndex((e) => e.type === "budget_resumed")
     expect(resumed).toBeGreaterThanOrEqual(0)
@@ -3126,8 +3460,21 @@ and `ctx` gains `pauseBudget,` and `resumeBudget,`.
   // budget cannot fail open. A tracked run (the build still in flight in this process) resumes
   // its own pause; reconciliation called from inside it must not.
   const current = ctx.mustGet(id)
-  if (ACTIVE_STATES.has(current.state) && current.activeStartedAt === null && !ctx.isTracked(id))
-    ctx.resumeBudget(id, "reconcile")
+  if (!ctx.isTracked(id)) {
+    // A build the journal shows started and never ended, with nothing in this process waiting
+    // on it: the controller died mid-build. Its end is written now, so the journal (and the
+    // CLI's follower, which reads it) never shows a build in flight that nothing is running.
+    const events = ctx.store.events(id)
+    const last = [...events].reverse().find((e) => e.type.startsWith("image_prepare_"))
+    if (last?.type === "image_prepare_started")
+      ctx.recordEvent(id, "image_prepare_aborted", {
+        targetId: last.payload.targetId,
+        pin: last.payload.pin,
+        reason: "restart",
+      })
+    if (ACTIVE_STATES.has(current.state) && current.activeStartedAt === null)
+      ctx.resumeBudget(id, "reconcile")
+  }
 ```
 
 (import `ACTIVE_STATES` from `../domain/states.js`).
@@ -3256,19 +3603,21 @@ export type WorkOrderImage =
 
 export interface PrepareWorkOrderImageOptions {
   /**
-   * Intake: every attempt binds what it proves its oracle in. Dispatch: bind when nothing is
-   * bound, and otherwise require the registry's image to be the one already bound.
+   * Intake: every attempt builds (or re-verifies) and binds what it proves its oracle in.
+   * Dispatch: a work order already bound keeps its binding while the daemon holds that image
+   * (D5), and only an unbound one prepares and binds.
    */
   readonly rebind: boolean
 }
 
 /**
- * The image `recipe` (a target at the work order's pin) runs in, for work order `id`: the
- * registry's recorded image re-verified on the daemon, or a build of it, sharing any build of
- * the same recipe already in flight. Journals the build (`image_prepare_started`,
- * `image_prepared`, `image_prepare_failed`, `image_prepare_aborted`, `image_missing`), stores its
- * log as evidence, pauses the work order's budget around the wait (only an active row has one
- * running), and binds the result (`image_bound`) or refuses a change (`image_changed`).
+ * The image work order `id` runs in. Bound already (and not rebinding): the bound image, if
+ * the daemon still holds it, else `image_changed`. Otherwise `recipe`'s image (a target at the
+ * work order's pin): the registry's recorded image re-verified on the daemon, or a build of it,
+ * sharing any build of the same recipe in flight; journalled (`image_prepare_started` with its
+ * wait bound, `image_prepared`, `image_prepare_failed`, `image_prepare_aborted`,
+ * `image_missing`), its log stored as evidence, the work order's budget paused while a build
+ * runs for it, and the result bound (`image_bound`).
  */
 export async function prepareWorkOrderImage(
   ctx: ControllerContext,
@@ -3277,15 +3626,35 @@ export async function prepareWorkOrderImage(
   signal: AbortSignal,
   options: PrepareWorkOrderImageOptions,
 ): Promise<WorkOrderImage> {
+  if (!options.rebind) {
+    const bound = boundImageOf(ctx.store.events(id))
+    if (bound !== undefined) {
+      if (await requireImages().present(bound.image.localId, signal)) return { ok: true, bound }
+      ctx.recordEvent(id, "image_changed", {
+        bound: bound.image.localId,
+        boundKey: bound.key,
+        reason: "gone",
+      })
+      return {
+        ok: false,
+        kind: "changed",
+        reason: `work order ${id} is bound to image ${bound.image.localId} (target ${bound.targetId} at ${bound.pin}), the one an earlier phase ran in, and this host no longer holds it: running and verifying in a rebuild would bind two environments. Cancel it and create a new work order`,
+      }
+    }
+  }
   const need = { targetId: recipe.id, pin: recipe.pin }
-  const paused = ctx.pauseBudget(id, "image_prepare")
+  // Paused only when a build starts or is joined for this work order: re-verifying a recorded
+  // image takes milliseconds and is the work order's own time.
+  let paused = false
   let ensured: EnsuredImage
   try {
     ensured = await requireImages().ensure(recipe, {
       signal,
       onMissing: ({ key, localId }) => ctx.recordEvent(id, "image_missing", { ...need, key, localId }),
-      onBuild: ({ key, shared }) =>
-        ctx.recordEvent(id, "image_prepare_started", { ...need, key, shared }),
+      onBuild: ({ key, shared, deadlineMs }) => {
+        ctx.recordEvent(id, "image_prepare_started", { ...need, key, shared, deadlineMs })
+        paused = ctx.pauseBudget(id, "image_prepare")
+      },
     })
   } catch (error) {
     if (signal.aborted) {
@@ -3321,25 +3690,8 @@ export async function prepareWorkOrderImage(
       logDigest: (await ctx.artifacts.put(log)).digest,
     })
   }
-  const current: BoundImage = { ...need, key: ensured.key, tag: ensured.tag, image: ensured.image }
-  const bound = options.rebind ? undefined : boundImageOf(ctx.store.events(id))
-  if (bound === undefined) {
-    ctx.recordEvent(id, "image_bound", { ...current })
-    return { ok: true, bound: current }
-  }
-  if (bound.key !== current.key || bound.image.localId !== current.image.localId) {
-    ctx.recordEvent(id, "image_changed", {
-      bound: bound.image.localId,
-      boundKey: bound.key,
-      current: current.image.localId,
-      currentKey: current.key,
-    })
-    return {
-      ok: false,
-      kind: "changed",
-      reason: `work order ${id} is bound to image ${bound.image.localId} (target ${bound.targetId} at ${bound.pin}), the one an earlier phase ran in, and this host now builds ${current.image.localId} for it: running and verifying in another image would bind two environments. Cancel it and create a new work order`,
-    }
-  }
+  const bound: BoundImage = { ...need, key: ensured.key, tag: ensured.tag, image: ensured.image }
+  ctx.recordEvent(id, "image_bound", { ...bound })
   return { ok: true, bound }
 }
 ```
@@ -3499,8 +3851,10 @@ describe("the fit step's image", () => {
       expect(row.state).toBe("awaiting_intake_approval")
       expect(row.activeMs).toBeLessThan(60_000)
       const types = factory.events(id).map((e) => e.type)
-      expect(types.indexOf("budget_paused")).toBeLessThan(types.indexOf("image_prepare_started"))
-      expect(types.indexOf("budget_resumed")).toBeGreaterThan(types.indexOf("image_prepare_started"))
+      // Paused as the build started for this work order, resumed as its wait ended.
+      expect(types.indexOf("budget_paused")).toBe(types.indexOf("image_prepare_started") + 1)
+      expect(types.indexOf("budget_resumed")).toBeGreaterThan(types.indexOf("budget_paused"))
+      expect(eventsOf(id, "image_prepare_started")[0]?.payload.deadlineMs).toBeGreaterThan(0)
     } finally {
       images.builder.release()
       images.restore()
@@ -3549,7 +3903,7 @@ Expected: FAIL (nothing builds: no `image_prepare_started`, the static-free regi
 - [ ] **Step 4: Run the tests**
 
 Run: `pnpm --filter @b4-example/software-factory-controller test && pnpm --filter @b4-example/software-factory-controller typecheck`
-Expected: PASS. Any existing intake test that asserts the whole journal gains `image_bound` (and, under the static registry, no `image_prepare_*` events) after `draft_read`; update those expectations, nothing else.
+Expected: PASS once the one whole-journal assertion in `factory-intake.test.ts` ("runs the drafter turn, reads and proves the draft, and parks the generated task", `:257`; its `expect(eventTypes(id)).toEqual([…])` at `:278`) gains `"image_bound:"` between `"draft_read:"` and `"task_generated:"`. Under the static registry nothing is built, so no `image_prepare_*` or `budget_*` events appear there; no other intake test lists the whole journal.
 
 - [ ] **Step 5: Commit**
 
@@ -3560,19 +3914,20 @@ git commit -m "feat(software-factory): intake builds the drafted target's image 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-### Task 13: Dispatch builds the task's image before anything is spent
+### Task 13: Dispatch prepares the task's image before anything is spent, honours the route's cancel, and re-checks the approved digest
 
 **Files:**
-- Modify: `controller/src/lib/controller/factory.ts` (`dispatch`: `const row` → `let row`, the image before `prompt`; `transition`: abort a waiting image; `imageWaitSignal`; `prepareDispatchImage`)
-- Test: `controller/test/factory-dispatch.test.ts`, `controller/test/task-prompts.test.ts:250-280`
+- Modify: `controller/src/lib/controller/factory.ts` (`Factory.dispatch` gains `options?: { signal?: AbortSignal }`; `dispatch`: `const row` → `let row`, the approved-digest check factored into `approvedDigestRefusal` and run before and after the image step, the image before `prompt`, the bound tag into the capture; `transition`: abort a waiting image; `imageWaitSignal`; `prepareDispatchImage`)
+- Modify: `controller/src/app/work-orders/dispatch/index.ts` (pass `{ signal: ctx.signal }`)
+- Test: `controller/test/factory-dispatch.test.ts`, `controller/test/factory-intake.test.ts`, `controller/test/cli.test.ts`
 
 - [ ] **Step 1: Write the failing tests**
 
-In `factory-dispatch.test.ts` (same `fakeImages`/`until`/`eventsOf` helpers as Task 12, copied into this file):
+In `factory-dispatch.test.ts`, copy Task 12's `fakeImages`, `until` and `eventsOf` helpers, add a `journal(id, type, payload)` helper beside `boot` (the body of `factory-intake.test.ts`'s `journalHandoff`: `openRegistry(join(dir, "registry.sqlite"))`, `createWorkOrderStore(registry.db).appendEvent(id, type, payload, new Date().toISOString())`, `registry.close()`), and:
 
 ```ts
 describe("the task's image at dispatch", () => {
-  it("builds it while the row waits in received, then dispatches in it", async () => {
+  it("builds it while the row waits in received, binds it, and hands the builder its tag", async () => {
     await boot()
     const images = fakeImages()
     images.builder.hold()
@@ -3588,6 +3943,7 @@ describe("the task's image at dispatch", () => {
       expect(bound?.payload).toMatchObject({ targetId: "cli-flags" })
       const types = factory.events(id).map((e) => e.type)
       expect(types.indexOf("image_bound")).toBeLessThan(types.indexOf("builder_source_staged"))
+      expect(handoffTags).toEqual([bound?.payload.tag])
     } finally {
       images.builder.release()
       images.restore()
@@ -3602,7 +3958,9 @@ describe("the task's image at dispatch", () => {
       images.builder.failNext("docker build failed", "#7 ERROR: failed to solve\n")
       const refused = await factory.dispatch(id)
       expect(refused).toMatchObject({ ok: false, state: "received" })
-      expect(refused.message).toMatch(/^the image of target cli-flags at [0-9a-f]{40} could not be built: .*docker build failed \(build log: artifact [0-9a-f]{64}\)$/)
+      expect(refused.message).toMatch(
+        /^the image of target cli-flags at [0-9a-f]{40} could not be built: .*docker build failed \(build log: artifact [0-9a-f]{64}\)$/,
+      )
       expect(fake.requests.filter((r) => r.path === "/threads")).toHaveLength(0)
       expect(await factory.dispatch(id)).toMatchObject({ ok: true, state: "dispatched" })
       expect(images.builder.requests).toHaveLength(2)
@@ -3628,29 +3986,48 @@ describe("the task's image at dispatch", () => {
     }
   })
 
-  it("refuses an image other than the one the work order bound", async () => {
+  it("cancels the work order when the caller's signal aborts during the build", async () => {
+    await boot()
+    const images = fakeImages()
+    images.builder.hold()
+    try {
+      const { id } = await factory.create({ taskId: "cli-flags" })
+      const route = new AbortController()
+      const dispatching = factory.dispatch(id, undefined, { signal: route.signal })
+      await until(() => eventsOf(id, "image_prepare_started").length === 1)
+      route.abort(new Error("the runtime cancelled the dispatch run"))
+      expect(await dispatching).toMatchObject({ ok: false, state: "cancelled" })
+      await until(() => images.builder.aborted === 1)
+      const cancel = factory.events(id).find((e) => e.type === "transition" && e.payload.event === "cancel")
+      expect(cancel?.payload.operationKey).toBe(`cancel:${id}:aborted-dispatch`)
+    } finally {
+      images.builder.release()
+      images.restore()
+    }
+  })
+
+  it("keeps a binding whose image the daemon holds, and refuses one it no longer holds", async () => {
     await boot()
     const images = fakeImages()
     try {
       const { id } = await factory.create({ taskId: "cli-flags" })
-      const recipe = loadTaskTargetRecipe("cli-flags")
+      const recipe = loadTaskRecipe("cli-flags").target
       const built = await images.registry.ensure(recipe, { signal: AbortSignal.timeout(5_000) })
-      // What an earlier phase bound: the same recipe, an image this host no longer builds.
-      journal(id, "image_bound", {
-        targetId: "cli-flags",
-        pin: recipe.pin,
-        key: built.key,
-        tag: built.tag,
-        image: { ...built.image, localId: `sha256:${"7".repeat(64)}` },
-      })
-      const refused = await factory.dispatch(id)
+      // Bound earlier to an image a later build of the same key superseded, still on the daemon.
+      const earlier = { ...built.image, localId: `sha256:${"7".repeat(64)}` }
+      images.builder.daemon.set(earlier.localId, [])
+      journal(id, "image_bound", { targetId: "cli-flags", pin: recipe.pin, key: built.key, tag: built.tag, image: earlier })
+      expect(await factory.dispatch(id)).toMatchObject({ ok: true, state: "dispatched" })
+      expect(images.builder.requests).toHaveLength(1)
+      expect(eventsOf(id, "image_bound")).toHaveLength(1)
+
+      const { id: other } = await factory.create({ taskId: "cli-flags", operationKey: "other" })
+      const gone = { ...built.image, localId: `sha256:${"6".repeat(64)}` }
+      journal(other, "image_bound", { targetId: "cli-flags", pin: recipe.pin, key: built.key, tag: built.tag, image: gone })
+      const refused = await factory.dispatch(other)
       expect(refused).toMatchObject({ ok: false, state: "received" })
-      expect(refused.message).toMatch(/is bound to image sha256:7{64} .* Cancel it and create a new work order$/)
-      expect(eventsOf(id, "image_changed")[0]?.payload).toMatchObject({
-        bound: `sha256:${"7".repeat(64)}`,
-        current: built.image.localId,
-      })
-      expect(fake.requests.filter((r) => r.path === "/threads")).toHaveLength(0)
+      expect(refused.message).toMatch(/is bound to image sha256:6{64} .* no longer holds it: .* Cancel it and create a new work order$/)
+      expect(eventsOf(other, "image_changed")[0]?.payload).toEqual({ bound: gone.localId, boundKey: built.key, reason: "gone" })
     } finally {
       images.restore()
     }
@@ -3658,18 +4035,99 @@ describe("the task's image at dispatch", () => {
 })
 ```
 
-with a `journal(id, type, payload)` helper beside `boot` that opens `join(dir, "registry.sqlite")` with `openRegistry`, appends through `createWorkOrderStore(db).appendEvent(id, type, payload, new Date().toISOString())` and closes (the shape of `factory-intake.test.ts`'s `journalHandoff`). Tests in this file that assert a whole journal gain `image_bound` before `builder_source_staged`.
+`handoffTags` is a `string[]` the file's `boot` fills by wrapping `fakeBuilderHandoff`: `captureBuilderHandoff: async (input) => { handoffTags.push(input.tag ?? "(none)"); return fakeBuilderHandoff(input) }`, reset in `afterEach`. The whole-journal assertion in "runs the worker turn into the verifying phase and journals the order of events" (`:104`, its `expect(types).toEqual([…])` at `:125`) gains `"image_bound:"` between `"created:"` and `"builder_source_staged:"`.
 
-`task-prompts.test.ts:250-280` (the test Task 9 moved onto `emptyImageRegistry`): a target with no image is no longer a refusal; replace it with the build-failure refusal and its non-replay: configure `useImages` with a fake-builder registry whose builder `failNext`s once, expect `dispatch` to refuse with `/could not be built/` in `received`, then expect the next `dispatch` (same default key) to build and succeed.
+In `factory-intake.test.ts`, after "approves only the digest on disk, then dispatch runs rung 2 on the generated task" (`:1016`):
+
+```ts
+  it("re-checks the approved digest after the image step, however long it took", async () => {
+    await boot()
+    const { id } = await intake()
+    const parked = await factory.settleIntake(id, 20_000)
+    const taskDigest = parked.taskDigest as string
+    expect((await factory.approveIntake(id, { revision: parked.revision, taskDigest })).ok).toBe(true)
+    const spec = join(generated, id, "spec.md")
+    // The generated task changes on disk while dispatch waits on its image.
+    const base = configuredImages() as ImageRegistry
+    const restore = useImages({
+      recorded: (recipe) => base.recorded(recipe),
+      ensure: (recipe, options) => base.ensure(recipe, options),
+      close: () => {},
+      async present() {
+        writeFileSync(spec, `${readFileSync(spec, "utf8")}\nA9: edited during the wait\n`)
+        return true
+      },
+    })
+    try {
+      expect(await factory.dispatch(id)).toEqual({
+        ok: false,
+        state: "received",
+        message: "Generated task on disk no longer matches the approved digest",
+      })
+      expect(eventsOf(id, "generated_task_changed").at(-1)?.payload).toMatchObject({ phase: "dispatch_after_image" })
+      expect(threadPosts()).toHaveLength(1)
+    } finally {
+      restore()
+    }
+  })
+```
+
+(`configuredImages` from the catalog; `useImages` from `./static-images.ts`; `ImageRegistry` from `../src/lib/targets/images.ts`.)
+
+In `cli.test.ts`, through the route: `boot` accepts `images` (Task 14 adds the option; add it here), and
+
+```ts
+  it("cancels a dispatch the operator cancels while it builds its image", async () => {
+    const builder = fakeImageBuilder()
+    builder.hold()
+    const imagesDir = mkdtempSync(join(tmpdir(), "factory-cli-images-"))
+    const images = openImageRegistry({ path: join(imagesDir, "images.sqlite"), builder, platform: "linux/arm64" })
+    const restore = useImages(images)
+    try {
+      const { env, stateDir } = await boot({ images })
+      const { stdout: createdOut } = await run(process.execPath, [tsxBin, cliEntry, "create", "--task", "cli-flags"], { env, cwd: packageRoot })
+      const id = JSON.parse(createdOut).row.id as string
+      const dispatching = run(process.execPath, [tsxBin, cliEntry, "dispatch", id], { env, cwd: packageRoot })
+      await pollEvents(stateDir, id, (types) => types.includes("image_prepare_started"))
+      const cancelled = await run(process.execPath, [tsxBin, cliEntry, "cancel", id], { env, cwd: packageRoot })
+      expect(JSON.parse(cancelled.stdout)).toMatchObject({ ok: true })
+      const { stdout } = await dispatching
+      expect(JSON.parse(stdout)).toMatchObject({ ok: false, state: "cancelled" })
+      expect(await pollState(stateDir, id, (state) => state === "cancelled")).toBe("cancelled")
+      expect(builder.aborted).toBe(1)
+    } finally {
+      builder.release()
+      restore()
+      images.close()
+      rmSync(imagesDir, { recursive: true, force: true })
+    }
+  }, 90_000)
+```
+
+`pollEvents(stateDir, id, predicate)` sits beside the file's `pollState` with the same shape, reading `openRegistryReader(join(stateDir, "registry.sqlite")).events(id).map((e) => e.type)`. The CLI's `cancel` interrupts the dispatch's run (`controller.interrupt(id)`), which aborts the route's `ctx.signal`: before this task nothing listened to it until `settleOutcome`, after the build.
 
 - [ ] **Step 2: Run them to see them fail**
 
-Run: `pnpm --filter @b4-example/software-factory-controller exec vitest run test/factory-dispatch.test.ts -t "image at dispatch"`
-Expected: FAIL (no build at dispatch; `loadTask` throws `ImageNotBuiltError` inside `prompt`).
+Run: `pnpm --filter @b4-example/software-factory-controller exec vitest run test/factory-dispatch.test.ts test/factory-intake.test.ts test/cli.test.ts -t "image|approved digest after"`
+Expected: FAIL (no build at dispatch; `loadTask` throws `ImageNotBuiltError` in the capture; the route's abort is ignored; the digest is not re-checked).
 
 - [ ] **Step 3: Implement**
 
-`factory.ts`, beside `phases`:
+`factory.ts`, the `Factory` interface's `dispatch`:
+
+```ts
+  /**
+   * `signal`: the caller's own (the dispatch route's `ctx.signal`). Aborted while dispatch waits
+   * on the task's image, it cancels the work order as `settleOutcome` would after the wait.
+   */
+  dispatch(
+    id: string,
+    operationKey?: string,
+    options?: { readonly signal?: AbortSignal },
+  ): Promise<CommandOutcome>
+```
+
+Beside `phases`:
 
 ```ts
   /**
@@ -3700,46 +4158,89 @@ After `budgetRefusal`:
 
 ```ts
   /**
-   * The image the row's task runs in, prepared (built, joined or re-verified) and bound, or the
-   * refusal that says why not. Undefined also when the task does not load: `prompt` then
-   * refuses it with the catalog's own reason.
+   * The image the row's task runs in: its binding if it has one the daemon still holds, else
+   * prepared (built, joined or re-verified) and bound. `undefined` when the task does not load:
+   * `prompt` then refuses it with the catalog's own reason.
    */
-  async function prepareDispatchImage(id: string, row: WorkOrderRow): Promise<string | undefined> {
+  async function prepareDispatchImage(
+    id: string,
+    row: WorkOrderRow,
+    signal: AbortSignal,
+  ): Promise<{ readonly refusal: string } | { readonly bound: BoundImage } | undefined> {
     let recipe: TargetRecipe
     try {
-      recipe = loadTaskTargetRecipe(row.taskId, options.promptCatalog ?? {})
+      recipe = loadTaskRecipe(row.taskId, options.promptCatalog ?? {}).target
     } catch {
       return undefined
     }
-    const result = await prepareWorkOrderImage(ctx, id, recipe, imageWaitSignal(id), {
-      rebind: false,
-    })
-    if (result.ok) return undefined
-    return result.kind === "aborted"
-      ? `Work order ${id} left received while its image was being prepared`
-      : result.reason
+    const result = await prepareWorkOrderImage(ctx, id, recipe, signal, { rebind: false })
+    if (result.ok) return { bound: result.bound }
+    return {
+      refusal:
+        result.kind === "aborted"
+          ? `Work order ${id} left received while its image was being prepared`
+          : result.reason,
+    }
+  }
+
+  /** The approved generated task's digest, re-read from disk: a refusal, or undefined when it holds. */
+  function approvedDigestRefusal(id: string, row: WorkOrderRow, phase: string): CommandOutcome | undefined {
+    if (row.taskDigest === null || row.state !== "received") return undefined
+    const onDisk = diskTaskDigest(id)
+    if ("error" in onDisk) {
+      recordEvent(id, "generated_task_unreadable", { phase, error: String(onDisk.error) })
+      return { ok: false, state: row.state, message: `Generated task unreadable: ${String(onDisk.error)}` }
+    }
+    if (onDisk.digest !== row.taskDigest) {
+      recordEvent(id, "generated_task_changed", { phase, approved: row.taskDigest, onDisk: onDisk.digest })
+      return { ok: false, state: row.state, message: "Generated task on disk no longer matches the approved digest" }
+    }
+    return undefined
   }
 ```
 
-In `dispatch`, `const row = mustGet(id)` becomes `let row = mustGet(id)`, and directly before the comment that begins "Refuse rather than send an empty prompt":
+In `dispatch(id, operationKey, dispatchOptions = {})`: `const row = mustGet(id)` becomes `let row = mustGet(id)`; the inline digest block at the top (`if (row.taskDigest !== null && row.state === "received") { … }`) becomes
 
 ```ts
-      // The image the task runs in (spec item 4), before anything is spent: built if this host
-      // has none for the task's target at its pin, re-verified if it has one, and bound to the
-      // work order, or refused against the image the work order already bound. The row waits
-      // in `received`, which is not active, so the build costs its budget nothing; a cancel
-      // abandons the wait. Before the key: a failed build is not a function of the row's
-      // revision, and the dispatch after it must build again, not replay this refusal.
+      const changed = approvedDigestRefusal(id, row, "dispatch")
+      if (changed !== undefined) return changed
+```
+
+and directly after it:
+
+```ts
+      // The image the task runs in (spec item 4), before anything is spent: its binding if it
+      // has one the daemon still holds, else built (or re-verified) and bound. The row waits in
+      // `received`, which is not active, so a build costs its budget nothing. A cancel (any
+      // transition out of `received`) or the caller's own signal (the route, cancelled by the
+      // runtime when the operator cancels) abandons the wait; the caller's abort also cancels
+      // the work order, as `settleOutcome` does once a dispatch is running. Before the key: a
+      // failed build is not a function of the row's revision, and the dispatch after it must
+      // build again, not replay this refusal.
+      let bound: BoundImage | undefined
       if (row.state === "received" && !options.tasks) {
-        const refusal = await prepareDispatchImage(id, row)
+        const signal = AbortSignal.any([
+          imageWaitSignal(id),
+          ...(dispatchOptions.signal !== undefined ? [dispatchOptions.signal] : []),
+        ])
+        const image = await prepareDispatchImage(id, row, signal)
+        if (dispatchOptions.signal?.aborted && isNonTerminalAndNotCancelling(mustGet(id)))
+          await factory.cancel(id, `cancel:${id}:aborted-dispatch`).catch(() => undefined)
         row = mustGet(id)
-        if (refusal !== undefined) return { ok: false, state: row.state, message: refusal }
+        if (image !== undefined && "refusal" in image)
+          return { ok: false, state: row.state, message: image.refusal }
         if (row.state !== "received")
           return { ok: false, state: row.state, message: `Cannot dispatch from ${row.state}` }
+        bound = image?.bound
+        // The wait may have been long: what the person approved must still be what is on disk.
+        const changedDuring = approvedDigestRefusal(id, row, "dispatch_after_image")
+        if (changedDuring !== undefined) return changedDuring
       }
 ```
 
-(imports: `prepareWorkOrderImage` from `./images.js`; `loadTaskTargetRecipe`, `type TargetRecipe` from the catalog). The pre-key `prompt(row.taskId)` that follows now loads the task with its image.
+with `const isNonTerminalAndNotCancelling = (r: WorkOrderRow) => !isTerminal(r.state) && r.state !== "cancel_requested"` beside `mustGet`. The capture call passes the bound tag: `…({ taskId: row.taskId, workOrderId: id, signal: abort.signal, ...(bound !== undefined ? { tag: bound.tag } : {}) })`. Imports: `prepareWorkOrderImage`, `type BoundImage` from `./images.js`; `loadTaskRecipe`, `type TargetRecipe` from the catalog.
+
+`app/work-orders/dispatch/index.ts`: `const outcome = await factory.dispatch(id, operationKey, { signal: ctx.signal })`.
 
 - [ ] **Step 4: Run the tests**
 
@@ -3749,8 +4250,221 @@ Expected: PASS, exit 0.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add examples/software-factory/controller/src/lib/controller/factory.ts examples/software-factory/controller/test/factory-dispatch.test.ts examples/software-factory/controller/test/task-prompts.test.ts
-git commit -m "feat(software-factory): dispatch builds the task's image before anything is spent
+git add examples/software-factory/controller/src/lib/controller/factory.ts examples/software-factory/controller/src/app/work-orders/dispatch/index.ts examples/software-factory/controller/test/factory-dispatch.test.ts examples/software-factory/controller/test/factory-intake.test.ts examples/software-factory/controller/test/cli.test.ts
+git commit -m "feat(software-factory): dispatch prepares the task's image before anything is spent
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+### Task 13a: The verifier, the oracle proof and approve's re-verification run the bound image by ID
+
+Moved into PR 1 after review (item 3), so identity is never half enforced: from this task on, every verdict is earned in the image the work order bound, by ID, and the receipt, the policy and the bundle all digest that image object. The binding is authoritative (D5): a registry record replaced by a later build of the key strands nothing while the bound image exists; a bound ID the daemon no longer holds is refused. PR 2 then only moves the builder.
+
+**Files:**
+- Modify: `controller/src/lib/targets/catalog.ts` (`CatalogOptions.image`)
+- Modify: `controller/src/lib/verification/verifier.ts` (`VerifyInput.image`)
+- Modify: `controller/src/lib/verification/policy.ts:19-53` (`loadPolicy(taskId, image)`)
+- Modify: `controller/src/lib/verification/docker-verifier.ts:40-53` (run by id; `ImageGoneError`; `present` option)
+- Modify: `controller/src/lib/intake/oracle.ts` (`ProveOracleInput.image`)
+- Modify: `controller/src/lib/controller/intake.ts:385-405` (policy and proof from the fit step's binding)
+- Modify: `controller/src/lib/controller/verify.ts:44-60,170-180` (the binding, `image_unbound`, `loadPolicy` inside a guard)
+- Modify: `controller/src/lib/controller/factory.ts:1369-1376,1455-1464` (approve: the binding for the policy and the re-verification)
+- Test: `controller/test/docker-verifier.test.ts` (new, no Docker), `controller/test/factory-verify.test.ts`, `controller/test/factory-intake.test.ts`, `controller/test/factory-approve.test.ts`, `controller/test/targets-catalog.test.ts`; every direct caller of `verify`, `proveOracle` or `loadPolicy` in `controller/test` (`grep -rn "\.verify(\|proveOracle(\|loadPolicy(" examples/software-factory/controller/test` lists them) passes the image: `loadTask(<taskId>).target.image`
+
+- [ ] **Step 1: Write the failing tests**
+
+`targets-catalog.test.ts`:
+
+```ts
+  it("loads a target with the image it is given, without asking the registry", () => {
+    const { root, pin } = repo()
+    const restore = useImages(emptyImageRegistry())
+    try {
+      const target = loadTarget("t", { targetsDir: targetsDir(pin), repositoryRoot: root, image })
+      expect(target.image).toEqual(image)
+    } finally {
+      restore()
+    }
+  })
+```
+
+`test/docker-verifier.test.ts`:
+
+```ts
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { afterEach, describe, expect, it } from "vitest"
+import { createArtifactStore } from "../src/lib/storage/artifacts.ts"
+import { loadTask } from "../src/lib/targets/catalog.ts"
+import { createDockerVerifier, ImageGoneError } from "../src/lib/verification/docker-verifier.ts"
+
+const dirs: string[] = []
+afterEach(() => {
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+})
+
+describe("the verifier's image", () => {
+  it("refuses, before any container, a bound image the daemon no longer holds", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "factory-verifier-unit-"))
+    dirs.push(dir)
+    const asked: string[] = []
+    const verifier = createDockerVerifier(createArtifactStore(join(dir, "artifacts")), {
+      stagingRoot: dir,
+      present: async (localId) => {
+        asked.push(localId)
+        return false
+      },
+    })
+    const image = { ...loadTask("cli-flags").target.image, localId: `sha256:${"7".repeat(64)}` }
+    const verifying = verifier.verify(
+      { workOrderId: "wo-1", taskId: "cli-flags", candidateDigest: "a".repeat(64), changes: {}, policyDigest: "b".repeat(64), image },
+      AbortSignal.timeout(5_000),
+    )
+    await expect(verifying).rejects.toThrow(ImageGoneError)
+    await expect(verifying).rejects.toThrow(
+      `The work order is bound to image ${image.localId} (target cli-flags), which this host no longer holds: its verdict cannot be earned in the environment it is bound to`,
+    )
+    expect(asked).toEqual([image.localId])
+  })
+})
+```
+
+`factory-verify.test.ts`: in the file's first dispatch-to-verification test, `verifier.calls.at(-1)?.image` equals `boundImageOf(factory.events(id))?.image`; add a test that forces a row into `verifying` with no `image_bound` in its journal (the file's `forceRow`, on a work order created but never dispatched, with `workerThreadId` set to a thread its reader serves) and expects it to settle `blocked` / `verification_inconclusive` with one `image_unbound` event and no verifier call. `factory-intake.test.ts`: in "runs the drafter turn, reads and proves the draft, and parks the generated task" (`:257`), `verifier.calls[0]?.image` equals the `image_bound` payload's `image`. `factory-approve.test.ts`: the re-verification's `verifier.calls.at(-1)?.image` equals the binding's image.
+
+- [ ] **Step 2: Run them to see them fail**
+
+Run: `pnpm --filter @b4-example/software-factory-controller exec vitest run test/docker-verifier.test.ts test/targets-catalog.test.ts test/factory-verify.test.ts test/factory-intake.test.ts test/factory-approve.test.ts`
+Expected: FAIL.
+
+- [ ] **Step 3: Implement**
+
+`catalog.ts`, `CatalogOptions` gains
+
+```ts
+  /**
+   * The image to load the target with, instead of the registry's record: a work order's
+   * binding (`image_bound`), which is authoritative for everything that runs or digests it.
+   */
+  readonly image?: Image
+```
+
+and `loadTarget` becomes `const recorded = options.image ?? images?.recorded(recipe)?.image`, throwing `ImagesUnconfiguredError` only when neither is available and `ImageNotBuiltError` when the registry has none: 
+
+```ts
+export function loadTarget(id: string, options: CatalogOptions = {}): Target {
+  const recipe = loadTargetRecipe(id, options)
+  if (options.image !== undefined) return { ...recipe, image: options.image }
+  if (images === undefined) throw new ImagesUnconfiguredError()
+  const recorded = images.recorded(recipe)
+  if (recorded === undefined) throw new ImageNotBuiltError(recipe.id, recipe.pin)
+  return { ...recipe, image: recorded.image }
+}
+```
+
+(`loadTask` already forwards its options to `loadTarget`, Task 8a.)
+
+`verifier.ts`, `VerifyInput` gains
+
+```ts
+  /**
+   * The image the work order bound (`image_bound`): the verdict is earned in this image, by
+   * its id, and the receipt's environment identity digests this object.
+   */
+  readonly image: Image
+```
+
+`policy.ts`: `loadPolicy(taskId: string, image: Image)` loads `loadTask(taskId, { image })`; `policyEnvironment` is unchanged (it reads `task.target.image`, now the bound one).
+
+`docker-verifier.ts`:
+
+```ts
+/** The work order's bound image is gone from the daemon. */
+export class ImageGoneError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "ImageGoneError"
+  }
+}
+```
+
+`DockerVerifierOptions` gains
+
+```ts
+  /** Does the daemon hold an image id? The configured registry's `present` when absent. */
+  readonly present?: (localId: string, signal: AbortSignal) => Promise<boolean>
+```
+
+and the top of `verify` becomes:
+
+```ts
+      const task = loadTask(input.taskId, { image: input.image })
+      const target = task.target
+      const present = options.present ?? ((localId, signal) => requireImages().present(localId, signal))
+      if (!(await present(input.image.localId, signal)))
+        throw new ImageGoneError(
+          `The work order is bound to image ${input.image.localId} (target ${target.id}), which this host no longer holds: its verdict cannot be earned in the environment it is bound to`,
+        )
+      const deadlineMs = options.deadlineMs ?? target.resources.verifierDeadlineMs
+      // By id, never by tag: a tag names whatever was built or tagged last.
+      const provider = dockerSandbox({ scope: "software-factory-verifier", image: input.image.localId })
+      const identity = environmentIdentity(target)
+```
+
+(`requireImages` from `../controller/images.js`; `imageTag` is no longer imported). A throw here rejects `verify`, which every caller already journals as `verifier_unavailable` and settles `inconclusive`.
+
+`oracle.ts`: `ProveOracleInput` gains `readonly image: Image`, passed into the `verify` input.
+
+`intake.ts`: `const policy = loadPolicy(id)` becomes `const policy = loadPolicy(id, image.bound.image)` (the fit step's binding, Task 12), and `proveOracle` receives `image: image.bound.image`.
+
+`verify.ts` `verifyCandidate`: replace `const policy = loadPolicy(row.taskId)` (`:46`, outside any guard today; a throw there reached only the phase backstop) with
+
+```ts
+  // The image the work order bound: the verdict is earned in it or not at all, and the policy
+  // digests it. A row with no binding (dispatched before images were bound) is not verified
+  // in whatever the registry names now.
+  const bound = boundImageOf(ctx.store.events(id))
+  if (bound === undefined) {
+    ctx.recordEvent(id, "image_unbound", { phase: "verify" })
+    if (ctx.mustGet(id).state === "verifying")
+      ctx.transition(id, "receipt_inconclusive", { blockedReason: "verification_inconclusive" })
+    return
+  }
+  let policy: ReturnType<typeof loadPolicy>
+  try {
+    policy = loadPolicy(row.taskId, bound.image)
+  } catch (error) {
+    ctx.recordEvent(id, "policy_unavailable", { phase: "verify", error: String(error) })
+    if (ctx.mustGet(id).state === "verifying")
+      ctx.transition(id, "receipt_inconclusive", { blockedReason: "verification_inconclusive" })
+    return
+  }
+```
+
+and the `verify` input gains `image: bound.image`.
+
+`factory.ts` approve: before the policy guard (`:1369`),
+
+```ts
+      const bound = boundImageOf(store.events(id))
+      if (bound === undefined) {
+        recordEvent(id, "image_unbound", { phase: "export" })
+        return refuse("The work order has no bound image to re-verify in")
+      }
+```
+
+the guarded `loadPolicy(row.taskId)` becomes `loadPolicy(row.taskId, bound.image)`, and the re-verification input (`:1455-1464`) gains `image: bound.image`. The frozen-policy comparison (`:1398`) is now a comparison of two digests of the same bound image, so a registry record replaced since the freeze no longer invalidates consent; a changed recipe (another key) still cannot, because the binding does not change after dispatch.
+
+- [ ] **Step 4: Run the tests**
+
+Run: `pnpm --filter @b4-example/software-factory-controller test && pnpm --filter @b4-example/software-factory-controller typecheck`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add examples/software-factory/controller/src examples/software-factory/controller/test
+git commit -m "feat(software-factory): every verdict is earned in the bound image, by id
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -3770,6 +4484,18 @@ A dispatch that builds holds its request for the build (minutes for `cli`), with
 `work-order-images.test.ts`:
 
 ```ts
+describe("imageWaitBoundMs", () => {
+  it("is the longest journalled wait bound, or 0", () => {
+    expect(imageWaitBoundMs([event("transition", {})])).toBe(0)
+    expect(
+      imageWaitBoundMs([
+        event("image_prepare_started", { deadlineMs: 5_400_000 }),
+        event("image_prepare_started", { deadlineMs: 90_000 }),
+      ]),
+    ).toBe(5_400_000)
+  })
+})
+
 describe("dispatchPreparing", () => {
   it("is true from an image build's start until the dispatch moves the row or refuses", () => {
     expect(dispatchPreparing([])).toBe(false)
@@ -3796,7 +4522,7 @@ describe("dispatchPreparing", () => {
       expect(journalled?.payload).toEqual({ message: refused.message })
 ```
 
-`cli.test.ts`: `boot` gains an `images?: ImageRegistry` option passed to the served controller's overrides; add, after the dispatch-follow test at `:444`:
+`cli.test.ts` (`boot`'s `images` option came in Task 13); add, after the dispatch-follow test at `:444`:
 
 ```ts
   it("follows a dispatch that is still building its image when its request times out", async () => {
@@ -3855,21 +4581,36 @@ export function dispatchPreparing(events: readonly Pick<FactoryEvent, "type">[])
   }
   return preparing
 }
+
+/** The longest wait bound (`deadlineMs`: queue and build) any `image_prepare_started` in `events` journalled. */
+export function imageWaitBoundMs(events: readonly Pick<FactoryEvent, "type" | "payload">[]): number {
+  let bound = 0
+  for (const event of events)
+    if (event.type === "image_prepare_started" && typeof event.payload.deadlineMs === "number")
+      bound = Math.max(bound, event.payload.deadlineMs)
+  return bound
+}
 ```
 
-`factory.ts`: rename the `dispatch` method's body to a local `async function dispatchOnce(id: string, operationKey?: string): Promise<CommandOutcome>` (unchanged), and make the method
+`factory.ts`: rename the `dispatch` method's body to a local `async function dispatchOnce(id: string, operationKey?: string, dispatchOptions: { readonly signal?: AbortSignal } = {}): Promise<CommandOutcome>` (Task 13's body, unchanged; its `factory.cancel` call is unaffected), and make the method
 
 ```ts
-    async dispatch(id, operationKey) {
-      const outcome = await dispatchOnce(id, operationKey)
-      // Every refusal is journalled, so a caller that lost the request (the CLI's fallback)
-      // can tell a dispatch that ended in `received` from one still preparing its image.
-      if (!outcome.ok) recordEvent(id, "dispatch_refused", { message: outcome.message })
+    async dispatch(id, operationKey, dispatchOptions) {
+      const mark = store.events(id).at(-1)?.seq ?? 0
+      const outcome = await dispatchOnce(id, operationKey, dispatchOptions)
+      // A refusal after an image build started for this dispatch is journalled, so a caller
+      // that lost the request (the CLI's fallback) can tell a dispatch that ended in `received`
+      // from one still preparing its image. Other refusals write nothing new, as before.
+      if (
+        !outcome.ok &&
+        store.events(id).some((e) => e.seq > mark && e.type === "image_prepare_started")
+      )
+        recordEvent(id, "dispatch_refused", { message: outcome.message })
       return outcome
     },
 ```
 
-(tests in `factory-dispatch.test.ts` and `task-prompts.test.ts` that assert a refused dispatch's whole journal gain `dispatch_refused` last).
+No existing test's journal changes: under the static registry nothing is built, so no refusal is preceded by an `image_prepare_started`.
 
 `cli.ts`: `FollowEvents` becomes
 
@@ -3882,18 +4623,18 @@ interface FollowEvents {
   /**
    * Work the command does before its row moves (a dispatch's image build): while it holds of
    * the events after the mark, the row is not settled however it looks, and the follow's
-   * deadline is extended by `workingGraceMs`.
+   * deadline is extended by `workingGraceMs` of those events.
    */
   readonly working?: (events: readonly FactoryEvent[]) => boolean
-  readonly workingGraceMs?: number
+  readonly workingGraceMs?: (events: readonly FactoryEvent[]) => number
 }
 ```
 
 In `followRow`, after `journalled`:
 
 ```ts
-  const working = () =>
-    events?.working?.(read((reader) => reader.events(id)).filter((e) => e.seq > before.seq)) ?? false
+  const after = () => read((reader) => reader.events(id)).filter((e) => e.seq > before.seq)
+  const working = () => events?.working?.(after()) ?? false
 ```
 
 and the second `pollRow` becomes
@@ -3904,7 +4645,7 @@ and the second `pollRow` becomes
     (r) =>
       r !== null &&
       ((!active.has(r.state) && !working()) || journalled(events?.refused) !== undefined),
-    (r) => (r?.maxActiveMs ?? 0) + POLL_GRACE_MS + (events?.workingGraceMs ?? 0),
+    (r) => (r?.maxActiveMs ?? 0) + POLL_GRACE_MS + (events?.workingGraceMs?.(after()) ?? 0),
     1_000,
   )
 ```
@@ -3916,13 +4657,13 @@ The `dispatch` case passes as `awaiting`'s fifth argument
             arrived: "image_prepare_started",
             refused: "dispatch_refused",
             working: dispatchPreparing,
-            // The controller's build limit is its own configuration; the default is what an
-            // operator who never set it runs with.
-            workingGraceMs: DEFAULT_IMAGE_BUILD_TIMEOUT_MS,
+            // The controller journals each wait's own bound (queue and build, from ITS
+            // configuration), so the CLI never guesses the controller's settings.
+            workingGraceMs: imageWaitBoundMs,
           },
 ```
 
-(imports: `dispatchPreparing` from `./lib/controller/images.js`, `DEFAULT_IMAGE_BUILD_TIMEOUT_MS` from `./lib/targets/images.js`, `type FactoryEvent` from the domain). A dispatch that builds nothing writes no `image_prepare_started`; its arrival is still read from the revision as before. Add to the usage text's `dispatch …` paragraph (`:92`): "A dispatch that first builds its target's image (the first time this host needs it) is followed through the build: its journal lines are the arrival, and `dispatch_refused` is its end when it refuses."
+(imports: `dispatchPreparing`, `imageWaitBoundMs` from `./lib/controller/images.js`, `type FactoryEvent` from the domain). A dispatch that builds nothing writes no `image_prepare_started`; its arrival is still read from the revision as before. Add to the usage text's `dispatch …` paragraph (`:92`): "A dispatch that first builds its target's image (the first time this host needs it) is followed through the build: its journal lines are the arrival, and `dispatch_refused` is its end when it refuses."
 
 - [ ] **Step 4: Run the tests**
 
@@ -3938,12 +4679,13 @@ git commit -m "feat(software-factory): the CLI follows a dispatch through its im
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-### Task 15: The Docker proof: intake at an unprepared devkit pin builds it, and its identity is the script's
+### Task 15: The Docker proofs: an unprepared pin built at intake with the script's identity; a moved tag moves nothing
 
-Spec §4's Docker proof, plus drift against a real daemon.
+Spec §4's Docker proof; the moved-tag half of drift against a real daemon (the deleted-image half is Task 5's, in the unit suite, because this plan runs no `docker rmi`); and the verifier running the bound image by ID (Task 13a) whatever the recipe tag names.
 
 **Files:**
 - Create: `controller/test/images-on-demand.integration.test.ts`
+- Modify: `controller/test/docker-verifier.integration.test.ts`
 
 - [ ] **Step 1: Write the lane**
 
@@ -4077,7 +4819,7 @@ describe("an image built when a work order first needs it", () => {
     }
   }, 1_500_000)
 
-  it("rebuilds an image deleted from the daemon, and re-points a moved tag without rebuilding", async () => {
+  it("re-points a moved recipe tag without rebuilding", async () => {
     const recipe = loadTargetRecipe("devkit", { pin: SECOND_PIN })
     const recorded = images.recorded(recipe)
     if (recorded === undefined) throw new Error("the first test recorded no image")
@@ -4093,18 +4835,61 @@ describe("an image built when a work order first needs it", () => {
 })
 ```
 
-The deleted-image half of drift is proved in the unit suite (Task 5): removing a real image here would cost a rebuild the lane budget cannot spare, and `docker rmi` of an image a concurrent lane may be using is not safe.
+The deleted-image half of drift is proved in the unit suite (Task 5): this plan runs no `docker rmi`, `docker image rm` or prune on the shared host, and removing a real image would cost a rebuild the lane budget cannot spare.
 
-- [ ] **Step 2: Run the lane (Docker required)**
+In `docker-verifier.integration.test.ts`, every `verify` input gains `image: task.target.image` (the file's module-level `const task = loadTask("cli-flags")`, which the lanes' registry answers), and `policy` becomes `loadPolicy("cli-flags", task.target.image)`. Add, using the file's `verifierFor()` and the input shape of its "passes the reference repair" test:
 
-Run: `pnpm --filter @b4-example/software-factory-controller exec vitest run --config vitest.sandbox.config.ts test/images-on-demand.integration.test.ts`
+```ts
+  it("verifies in the bound image by id whatever the recipe tag names, and refuses one the daemon lacks", async () => {
+    const tag = imageTag(task.target)
+    // Point the recipe tag at another image (the drafter's base, already on the daemon); the
+    // finally puts it back on the bound image, as the registry's next `ensure` would.
+    execFileSync("docker", ["tag", loadTargetRecipe("cli-flags").baseImage, tag])
+    try {
+      const receipt = await (await verifierFor()).verify(
+        {
+          workOrderId: "wo-tag",
+          taskId: "cli-flags",
+          candidateDigest: "a".repeat(64),
+          changes: { [allowed]: await applyReference() },
+          policyDigest: policy.policyDigest,
+          image: task.target.image,
+        },
+        AbortSignal.timeout(280_000),
+      )
+      expect(receipt.verdict).toBe("pass")
+      expect(receipt.environmentIdentity).toBe(environmentIdentity(task.target))
+      await expect(
+        (await verifierFor()).verify(
+          {
+            workOrderId: "wo-gone",
+            taskId: "cli-flags",
+            candidateDigest: "a".repeat(64),
+            changes: {},
+            policyDigest: policy.policyDigest,
+            image: { ...task.target.image, localId: `sha256:${"7".repeat(64)}` },
+          },
+          AbortSignal.timeout(60_000),
+        ),
+      ).rejects.toThrow(ImageGoneError)
+    } finally {
+      execFileSync("docker", ["tag", task.target.image.localId, tag])
+    }
+  }, 600_000)
+```
+
+(imports: `execFileSync`; `imageTag` from `../src/lib/targets/images.ts`; `environmentIdentity`, `loadTargetRecipe` from the catalog; `ImageGoneError` from the verifier.) A pass here, in the image the tag no longer names, is the proof the verdict was earned in the bound id.
+
+- [ ] **Step 2: Run the lanes (Docker required)**
+
+Run: `pnpm --filter @b4-example/software-factory-controller exec vitest run --config vitest.sandbox.config.ts test/images-on-demand.integration.test.ts test/docker-verifier.integration.test.ts`
 Expected: PASS. The first run on a host without the `SECOND_PIN` devkit image takes minutes; a second run is fast (cache). If `script.printed.localId` differs from the bound one, check that nothing pruned the build cache between the two builds (trap 10) before suspecting the code.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add examples/software-factory/controller/test/images-on-demand.integration.test.ts
-git commit -m "test(software-factory): an intake at an unprepared pin builds its image, identical to the script's
+git add examples/software-factory/controller/test/images-on-demand.integration.test.ts examples/software-factory/controller/test/docker-verifier.integration.test.ts
+git commit -m "test(software-factory): an unprepared pin is built at intake; a moved tag moves no verdict
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -4147,7 +4932,7 @@ EOF
 git diff --stat .github/workflows/ci.yml scripts/release/test/fixtures
 ```
 
-Expected: `ci.yml` 2 lines removed; each fixture exactly 1 line changed (its one `run` string). If a count is not 1, #843 or a later PR changed the step: read the current `run` block and adapt the strings, never the assertion.
+Expected: `ci.yml` 2 lines removed; each fixture exactly 1 line changed (its one `run` string). Each string occurs exactly once in each file at `38fcb3dd` (checked 2026-09-25 with `grep -c`); the script's assertion stops the edit if a later change to the step has moved them, and the step's current `run` block is then the one to read.
 
 Then rewrite the step's comment (`ci.yml:434-448`, the part from "`target:prepare <id>` pulls the pinned base" to "nothing in this job asserts a clean tree", and the sentence "`cli-flags` and `devkit` are prepared because the Docker lanes here cover them. The `cli` target is not:") as:
 
@@ -4194,11 +4979,11 @@ Replace the "prepare a target" instructions (`:283-290`, `:316`) with one paragr
 
 > Images are built when a work order first needs them. The first intake or dispatch at a (target, pin) this host has never built builds the target's image from its committed recipe (the Dockerfile, the `imageContext` and lockfile at the pin, and the base image `target.json` pins by digest), records it in `<FACTORY_STATE_DIR>/images.sqlite`, journals the build (`image_prepare_started`, `image_prepared` with the build log's artifact digest, or `image_prepare_failed`) and binds it to the work order (`image_bound`). Concurrent work orders at one pin share one build; `FACTORY_MAX_IMAGE_BUILDS` (default 1) bounds builds across pins and `FACTORY_IMAGE_BUILD_TIMEOUT_MS` (default 30 minutes) each build. The build's time is not charged to the work order's budget. A failed build blocks an intake as `image_prepare_failed` (no drafter attempt spent) and refuses a dispatch (the row stays `received`; dispatch again to retry); the next need builds again. `target.json` records no image: `pnpm --filter @b4-example/software-factory-controller target:prepare <id> [--pin <sha>]` (with `FACTORY_STATE_DIR` set) warms the registry by hand and prints the image; nothing requires it.
 
-Replace `:171`'s `image_unprepared` sentence with the fit step's behaviour (`image_prepare_failed`), `:155`'s "Nothing proves that image is the one `target:prepare` built" with "the tag names the image the registry recorded; PR 2 of the images plan runs it by ID", the CI paragraph (`:695`) with the global-setup build, and `:703`'s `cli` instructions with `FACTORY_TEST_CLI_TARGET=1 pnpm --filter @b4-example/software-factory-controller test:sandbox:cli` (the lane builds `cli` itself). Delete every `FACTORY_TARGETS_DIR` and `FACTORY_SKIP_BASE_PULL` mention; list both as retired where the README lists retired variables.
+Replace `:171`'s `image_unprepared` sentence with the fit step's behaviour (`image_prepare_failed`), `:155`'s "Nothing proves that image is the one `target:prepare` built" with "the verifier runs the work order's bound image by id (its verdict and receipt digest that image); the builder runs the recipe tag until PR 2 of the images plan moves it to the id", the CI paragraph (`:695`) with the per-run global-setup build, and `:703`'s `cli` instructions with `FACTORY_TEST_CLI_TARGET=1 pnpm --filter @b4-example/software-factory-controller test:sandbox:cli` (the lane builds `cli` itself; the global setup builds nothing for it). Delete every `FACTORY_TARGETS_DIR` mention and list it as retired where the README lists retired variables. `FACTORY_SKIP_BASE_PULL` stays documented: with it set, the controller's builder never pulls, and an absent base fails the build naming it.
 
 - [ ] **Step 2: The developer guide**
 
-`:219` and `:464` (the `FACTORY_SKIP_BASE_PULL` workaround): the base is pinned by digest and pulled only when absent, so a wedged pull is avoided by pulling it once by hand (`docker pull --platform <platform> <baseImage>`); the variable is retired. Every `target:prepare` step becomes optional warming, with `FACTORY_STATE_DIR`.
+`:219` and `:464` (the `FACTORY_SKIP_BASE_PULL` workaround): the base is pinned by digest in `target.json` and pulled only when absent; the variable still works and now means "never pull" (pull the base once by hand, `docker pull --platform <platform> <baseImage>`, then set it). Whether pull-only-when-absent alone avoids the wedge is unverified (BuildKit may still load registry metadata for a digest-pinned `FROM`). Every `target:prepare` step becomes optional warming, with `FACTORY_STATE_DIR`.
 
 - [ ] **Step 3: The spec**
 
@@ -4208,13 +4993,16 @@ Under §4, append:
 **As landed** ([plan](../plans/2026-09-25-images-built-on-demand.md), PR 1). `target.json`
 records no image; it pins its base by digest (`baseImage`). The registry key is the recipe
 digest (target, pin, platform, base, Dockerfile, `imageContext`, lockfile path, asserted
-modules, commands' cwd), not the lockfile hash, which the pin already decides. Intake builds
-at the fit step with the budget paused (persisted; reconciliation resumes it after a
-restart); dispatch builds before its key with the row in `received`. A work order binds its
-image (`image_bound`; intake rebinds each attempt) and dispatch refuses a changed one
-(`image_changed`). The drafter is offered every target whose files exist at the pin. CI's
-explicit prepares are gone: the lanes' global setup builds through the same registry. PR 2
-runs the bound image by ID in the builder and the verifier. Deferred: the factory's own git
+modules, commands' cwd), not the lockfile hash, which the pin already decides. Intake builds at the fit step with the budget paused while a build runs (persisted;
+reconciliation resumes it after a restart); dispatch builds before its key with the row in
+`received`, honours the route's cancel, and re-checks the approved digest after the wait. A
+work order binds its image (`image_bound`; intake rebinds each attempt), and the binding is
+authoritative: the verifier, the oracle proof and approve's re-verification run the bound
+image by ID, and the policy and receipt digest it; only a bound image gone from the daemon is
+refused. Tags are recipe-key-scoped and a build reads its own ID from `--iidfile`. The drafter
+is offered every target whose files exist at the pin. CI's explicit prepares are gone: each
+lane run builds through a registry of its own. PR 2 moves the builder to the bound ID, checked
+against the image's build labels. Deferred: the factory's own git
 object store (§9 finding 3) and budgets from measured verifier time (§9 finding 5).
 ```
 
@@ -4249,7 +5037,7 @@ Push `blove/images-on-demand` and open the PR only when Brian asks.
 
 ---
 
-# PR 2: identity by image ID
+# PR 2: the builder runs the bound image by ID
 
 ```bash
 git fetch origin
@@ -4259,57 +5047,94 @@ pnpm install --frozen-lockfile
 pnpm turbo run build --filter=@b4-example/software-factory-controller^...
 ```
 
-Closes the per-thread-sandbox plan's review follow-up (`2026-09-24-per-thread-sandbox.md:4862,4895`): the builder resolves exactly the image the controller bound, and the verifier runs exactly that image, by ID.
+Closes the per-thread-sandbox plan's review follow-up (`2026-09-24-per-thread-sandbox.md:4862,4895`): with PR 1 the verifier already runs the bound image by ID; here the builder resolves exactly that ID, and checks the ID's build labels name the handoff's own target, pin and recipe key.
 
-### Task 18: The builder handoff names the bound image by ID (version 4)
+### Task 18: The builder handoff names the bound image by ID (version 4), and `factory builder-handoff` supplies one
 
 **Files:**
-- Modify: `controller/src/lib/builder-handoff.ts` (schema, `isFactoryImage` → `isFactoryImageId`, `CaptureBuilderHandoffOptions`, `captureBuilderHandoff`)
-- Modify: `server/src/builder-handoff.ts` (the identical schema, `isFactoryImageId`)
+- Modify: `controller/src/lib/builder-handoff.ts` (schema; `isFactoryImage` → `isFactoryImageId`; `CaptureBuilderHandoffOptions.image` replaces `tag`)
+- Modify: `server/src/builder-handoff.ts` (the identical schema; `isFactoryImageId`)
 - Modify: `server/b4.config.ts` (`images: isFactoryImageId`)
-- Modify: `controller/src/lib/controller/factory.ts` (`captureBuilderHandoff` option input gains `imageId`; `prepareDispatchImage` returns the binding; `dispatch` passes it)
+- Modify: `controller/src/lib/targets/images.ts` (`openImageRegistryReader`, read-only)
+- Modify: `controller/src/lib/controller/factory.ts` (the capture input's `tag` becomes `image: { localId, tag }`; dispatch passes the binding's)
+- Modify: `controller/src/cli.ts` (`builder-handoff`: `--image-id`, else the registry under `FACTORY_STATE_DIR`; usage text `:45-58`)
 - Modify: `controller/test/fake-worker-map.ts` (`fakeBuilderHandoff` writes version 4)
-- Test: `controller/test/builder-handoff.test.ts`, `server/test/builder-config.test.ts`, `controller/test/targets-workspace.test.ts:170-175`, `controller/test/factory-dispatch.test.ts`
+- Test: `controller/test/builder-handoff.test.ts` (fixture `handoff`, `:110-126`), `server/test/builder-config.test.ts`, `controller/test/targets-workspace.test.ts:170-175`, `controller/test/factory-dispatch.test.ts`, `controller/test/cli.test.ts:1043-1110`, `controller/test/images-registry.test.ts`
 
 - [ ] **Step 1: Write the failing tests**
 
-`builder-handoff.test.ts`, the first test: `captureBuilderHandoff(task, { workOrderId, captureRoot: app, imageId: task.target.image.localId })`, and
+`builder-handoff.test.ts`: the fixture `handoff` (`:110`) becomes version 4 with `image: \`sha256:${"0".repeat(64)}\`` and `tag` set to the tag it named before. The first test captures with `image: { localId: \`sha256:${"1".repeat(64)}\`, tag: recipeTag(task.target) }` and expects
 
 ```ts
     expect(handoff.version).toBe(4)
     expect(handoff.target).toEqual({
-      image: task.target.image.localId,
-      tag: imageTag(task.target),
+      image: `sha256:${"1".repeat(64)}`,
+      tag: recipeTag(task.target),
       pin: task.target.pin,
       policy: targetSandboxPolicy(task.target),
       permissions: builderPermissions(task.target),
     })
 ```
 
-and a new test:
+and add:
 
 ```ts
   it("names an image only by id, and its tag only as its own target's at its own pin", () => {
-    const base = BuilderHandoffSchema.parse(validHandoff())   // the file's fixture handoff, now version 4
     const id = `sha256:${"a".repeat(64)}`
-    expect(TheBuildersHandoffSchema.parse({ ...base, target: { ...base.target, image: id } }).target.image).toBe(id)
-    for (const image of [base.target.tag, "alpine:latest", `sha256:${"a".repeat(63)}`, `b4-factory-t@sha256:${"a".repeat(64)}`])
-      expect(TheBuildersHandoffSchema.safeParse({ ...base, target: { ...base.target, image } }).success, image).toBe(false)
-    const otherPin = `b4-factory-${base.targetId}:${"f".repeat(12)}-0123456789ab`
-    expect(TheBuildersHandoffSchema.safeParse({ ...base, target: { ...base.target, tag: otherPin } }).success).toBe(false)
+    const parse = (target: Record<string, unknown>) =>
+      TheBuildersHandoffSchema.safeParse({ ...handoff, target: { ...handoff.target, ...target } }).success
+    expect(parse({ image: id })).toBe(true)
+    for (const image of [handoff.target.tag, "alpine:latest", `sha256:${"a".repeat(63)}`, `b4-factory-t@sha256:${"a".repeat(64)}`])
+      expect(parse({ image }), image).toBe(false)
+    expect(parse({ tag: `b4-factory-${handoff.targetId}:${"f".repeat(12)}-0123456789ab` })).toBe(false)
     expect(isFactoryImageId(id)).toBe(true)
-    expect(isFactoryImageId(base.target.tag)).toBe(false)
-  })
-
-  it("refuses to capture a handoff for an image the catalog does not record for the task", async () => {
-    const task = loadTask("cli-flags")
-    await expect(
-      captureBuilderHandoff(task, { captureRoot: tempDir("factory-handoff-app-"), imageId: `sha256:${"7".repeat(64)}` }),
-    ).rejects.toThrow(/is not the image this host records for target cli-flags/)
+    expect(isFactoryImageId(handoff.target.tag)).toBe(false)
   })
 ```
 
-(`validHandoff()` stands for the fixture handoff object the file already builds at `:110-130`, whatever its local name; it gains `version: 4`, `image: \`sha256:${"0".repeat(64)}\`` and `tag: \`b4-factory-<its target>:<its pin[:12]>-0123456789ab\``.) The schema-text equality test needs no change: it compares whatever both files hold.
+`images-registry.test.ts`:
+
+```ts
+  it("is read, read-only, by a reader that never creates or migrates", async () => {
+    const builder = fakeImageBuilder()
+    const recipe = recipeFixture()
+    expect(() => openImageRegistryReader(join(dir, "absent.sqlite"))).toThrow(/no image registry at/)
+    const ensured = await ensure(open(builder), recipe)
+    const reader = openImageRegistryReader(join(dir, "images.sqlite"), "linux/arm64")
+    try {
+      expect(reader.recorded(recipe)).toEqual({ key: ensured.key, tag: ensured.tag, image: ensured.image })
+    } finally {
+      reader.close()
+    }
+  })
+```
+
+`cli.test.ts`, the two builder-handoff tests (`:1043-1110`): each run passes `--image-id sha256:${"1".repeat(64)}`, and the target-block expectation becomes `expect(handoff.target.image).toBe(\`sha256:${"1".repeat(64)}\`)` with `expect(handoff.target.tag).toContain(\`:${task.target.pin.slice(0, 12)}-\`)`. Add:
+
+```ts
+  it("names the image the state directory's registry recorded, and refuses to guess one", async () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
+    const { FACTORY_CONTROLLER_URL, FACTORY_WORKER_URL, ...rest } = process.env
+    const out = join(dir, "handoffs")
+    const refused = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "builder-handoff", "--task", "cli-flags", "--out", out], { env: rest, cwd: packageRoot }),
+    )
+    expect(refused.stderr).toContain("builder-handoff needs --image-id, or FACTORY_STATE_DIR whose images.sqlite records")
+    const state = join(dir, "state")
+    const registry = openImageRegistry({ path: join(state, "images.sqlite"), builder: fakeImageBuilder() })
+    const ensured = await registry.ensure(loadTaskRecipe("cli-flags").target, { signal: AbortSignal.timeout(5_000) })
+    registry.close()
+    const { stdout } = await run(
+      process.execPath,
+      [tsxBin, cliEntry, "builder-handoff", "--task", "cli-flags", "--out", out],
+      { env: { ...rest, FACTORY_STATE_DIR: state }, cwd: packageRoot },
+    )
+    const handoff = BuilderHandoffSchema.parse(JSON.parse(readFileSync(JSON.parse(stdout).handoff, "utf8")))
+    expect(handoff.target).toMatchObject({ image: ensured.image.localId, tag: ensured.tag })
+  }, 60_000)
+```
+
+(`failing` is the file's helper for a run expected to exit non-zero, used at `:400`.)
 
 `server/test/builder-config.test.ts`: the predicate string becomes `'dockerSandbox({ scope: "software-factory-builder", images: isFactoryImageId })'`; `:182-185` becomes
 
@@ -4320,20 +5145,16 @@ and a new test:
     expect(isFactoryImageId("alpine:latest")).toBe(false)
 ```
 
-and its handoffs (`alpha`, the second target) carry `image: sha256:…` plus `tag`, with `first.environment` expected to be `{ image: <that id> }`; the "names another target or another pin" test moves its tags to `tag`.
-
-`targets-workspace.test.ts:170-175`: `isFactoryImage(imageTag(...))` becomes `isFactoryImageId(task("0".repeat(40)).target.image.localId)`.
-
-`factory-dispatch.test.ts`: in "builds it while the row waits in received, then dispatches in it" (Task 13), capture the handoff the builder was created with (`fake.requests` for `POST /threads`, `metadata.factoryBuilder`) and assert `target.image` equals the `image_bound` payload's `image.localId`.
+and its handoffs carry `image: sha256:…` plus `tag` (the "refuses a handoff whose image names another target or another pin" test moves its two tags to `tag`). `targets-workspace.test.ts:170-175`: `isFactoryImage(imageTag(...))` becomes `isFactoryImageId(task("0".repeat(40)).target.image.localId)`. `factory-dispatch.test.ts`: Task 13's `handoffTags` records `input.image?.tag` and a new `handoffImages` records `input.image?.localId`, expected to equal the `image_bound` payload's `image.localId`.
 
 - [ ] **Step 2: Run them to see them fail**
 
-Run: `pnpm --filter @b4-example/software-factory-controller exec vitest run test/builder-handoff.test.ts test/targets-workspace.test.ts test/factory-dispatch.test.ts && pnpm --filter @b4-example/software-factory-server test`
-Expected: FAIL (version 3; `image` is a tag; no `tag`; `isFactoryImageId` missing).
+Run: `pnpm --filter @b4-example/software-factory-controller exec vitest run test/builder-handoff.test.ts test/images-registry.test.ts test/targets-workspace.test.ts test/factory-dispatch.test.ts test/cli.test.ts && pnpm --filter @b4-example/software-factory-server test`
+Expected: FAIL (version 3; `image` is a tag; no reader; no `--image-id`).
 
 - [ ] **Step 3: Implement**
 
-In BOTH `controller/src/lib/builder-handoff.ts` and `server/src/builder-handoff.ts`, identically: keep `FACTORY_IMAGE`, now documented as the tag's shape, and add
+In BOTH `controller/src/lib/builder-handoff.ts` and `server/src/builder-handoff.ts`, identically: `FACTORY_IMAGE` captures the key segment too, `/^b4-factory-([A-Za-z0-9][A-Za-z0-9._-]*):([0-9a-f]{12})-([0-9a-f]{12})$/`, documented as the recipe tag's shape, and add
 
 ```ts
 /**
@@ -4352,48 +5173,111 @@ In the schema: `version: z.literal(4)`; `target` becomes
       .object({
         /** The bound image, by id: the one the controller prepared and verifies in. */
         image: z.string().regex(IMAGE_ID),
-        /** The factory tag it was built under; its target and pin must be this handoff's own. */
+        /** Its recipe tag; target and pin segments must be this handoff's own. */
         tag: z.string().regex(FACTORY_IMAGE),
         /** The commit that image was prepared at. */
         pin: z.string().regex(/^[a-f0-9]{40}$/),
-        policy: /* unchanged */,
-        permissions: /* unchanged */,
+        policy: z
+          .object({
+            network: z.object({ mode: z.literal("deny") }).strict(),
+            env: z.record(z.string(), z.string()),
+            resources: z
+              .object({
+                memoryMb: z.number().int().positive(),
+                cpus: z.number().positive(),
+                timeoutMs: z.number().int().positive(),
+              })
+              .strict(),
+          })
+          .strict(),
+        /** Keyed by tool name, so the key set is open; the values are always patterns naming something. */
+        permissions: z.record(z.string(), z.array(z.string().regex(/\S/))),
       })
       .strict(),
 ```
 
-the `superRefine` reads `handoff.target.tag` instead of `handoff.target.image` (message: `tag ${handoff.target.tag} is not target … at pin …`), and
+the `superRefine` reads `handoff.target.tag` (`const [, target, pin] = FACTORY_IMAGE.exec(handoff.target.tag) ?? []`, message `tag ${handoff.target.tag} is not target … at pin …`), and
 
 ```ts
 /** Whether `reference` is an image id: the builder's `dockerSandbox({ images })`. */
 export const isFactoryImageId = (reference: string): boolean => IMAGE_ID.test(reference)
 ```
 
-replaces `isFactoryImage`. The doc comments that said the provider "allows no other shape" than a factory tag now say it allows only an image id, and that a moved tag moves nothing.
+replaces `isFactoryImage`.
 
-Controller only: `CaptureBuilderHandoffOptions` gains
-
-```ts
-  /** The image the work order bound (`image_bound`): the handoff names it, and it must be the catalog's. */
-  readonly imageId: string
-```
-
-and `captureBuilderHandoff`, before the capture:
+Controller only: `CaptureBuilderHandoffOptions.tag` (Task 8a) becomes
 
 ```ts
-  if (options.imageId !== task.target.image.localId)
-    throw new Error(
-      `image ${options.imageId} is not the image this host records for target ${task.target.id} at ${task.target.pin} (${task.target.image.localId})`,
-    )
+  /** The bound image (`image_bound`): its id is what the builder runs, its tag what it is named. */
+  readonly image: { readonly localId: string; readonly tag: string }
 ```
 
-and builds the handoff with `version: 4`, `image: options.imageId`, `tag: imageTag(task.target)`.
+and the handoff is built with `version: 4`, `image: options.image.localId`, `tag: options.image.tag`.
 
-`server/b4.config.ts`: import and pass `isFactoryImageId`.
+`images.ts`: factor `openImageRegistry`'s `read` into a module-level `readRecorded(db, key): Image | undefined`, and add
 
-`factory.ts`: the `captureBuilderHandoff` option's input gains `readonly imageId?: string` (absent only for the `tasks` test seam, which binds no image); `captureBuilderHandoffFromCatalog` throws `new Error("dispatch bound no image")` when it is absent and passes it on; `prepareDispatchImage` returns `{ refusal: string } | { bound: BoundImage | undefined }` (`bound` undefined when the task does not load), and `dispatch` keeps the binding and passes `...(bound !== undefined ? { imageId: bound.image.localId } : {})` into the capture call.
+```ts
+/**
+ * The registry, read-only: what a command that must not create, migrate or write a host's
+ * registry opens (`factory builder-handoff`). Refuses a path with no registry, and one written
+ * by a newer factory.
+ */
+export function openImageRegistryReader(
+  path: string,
+  platform: string = hostPlatform(),
+): { recorded(recipe: TargetRecipe): RecordedImage | undefined; close(): void } {
+  if (!existsSync(path)) throw new Error(`no image registry at ${path}`)
+  const db = new DatabaseSync(path, { readOnly: true })
+  const found = Number(
+    (db.prepare("SELECT max(version) AS v FROM schema_version").get() as { v: number | null }).v ?? 0,
+  )
+  if (found > IMAGE_REGISTRY_VERSION) {
+    db.close()
+    throw new Error(`The image registry schema version ${found} is newer than this factory supports (${IMAGE_REGISTRY_VERSION})`)
+  }
+  return {
+    recorded(recipe) {
+      const key = recipeKey(recipe, platform)
+      const image = readRecorded(db, key)
+      return image === undefined ? undefined : { key, tag: tagFor(recipe.id, recipe.pin, key), image }
+    },
+    close: () => db.close(),
+  }
+}
+```
 
-`fake-worker-map.ts` `fakeBuilderHandoff`: `version: 4`, `image: imageId ?? \`sha256:${"0".repeat(64)}\``, `tag: \`b4-factory-fake-target:${"0".repeat(12)}-${"0".repeat(12)}\``.
+`factory.ts`: the capture input's `tag?: string` becomes `image?: { readonly localId: string; readonly tag: string }` (absent only for the `tasks` test seam); `captureBuilderHandoffFromCatalog` throws `new Error("dispatch bound no image")` without it; `dispatch` passes `...(bound !== undefined ? { image: { localId: bound.image.localId, tag: bound.tag } } : {})`.
+
+`cli.ts`: `parseArgs` options gain `"image-id": { type: "string" }`; the usage line becomes `builder-handoff --task <id> --out <dir> [--work-order <workOrderId>] [--image-id sha256:<64 hex>]`, with the paragraph at `:53` gaining: "The image is `--image-id`, or the one `<FACTORY_STATE_DIR>/images.sqlite` records for the task's target at its pin (read-only); with neither, the command refuses rather than guess." The `builder-handoff` branch, before the capture:
+
+```ts
+    const task = loadTaskRecipe(values.task)
+    let image: { localId: string; tag: string }
+    const imageId = values["image-id"]
+    if (imageId !== undefined) {
+      if (!/^sha256:[0-9a-f]{64}$/.test(imageId))
+        throw new Error(`--image-id must be sha256:<64 hex>, got ${JSON.stringify(imageId)}`)
+      image = { localId: imageId, tag: recipeTag(task.target) }
+    } else {
+      if (!stateDir)
+        throw new Error(
+          "builder-handoff needs --image-id, or FACTORY_STATE_DIR whose images.sqlite records the task's image (target:prepare writes it)",
+        )
+      const reader = openImageRegistryReader(join(stateDir, "images.sqlite"))
+      try {
+        const recorded = reader.recorded(task.target)
+        if (recorded === undefined)
+          throw new Error(
+            `builder-handoff needs --image-id, or FACTORY_STATE_DIR whose images.sqlite records the task's image: none is recorded for target ${task.target.id} at ${task.target.pin}`,
+          )
+        image = { localId: recorded.image.localId, tag: recorded.tag }
+      } finally {
+        reader.close()
+      }
+    }
+```
+
+and the capture receives `image`. `server/b4.config.ts`: import and pass `isFactoryImageId`. `fake-worker-map.ts` `fakeBuilderHandoff`: `version: 4`, `image: image?.localId ?? \`sha256:${"0".repeat(64)}\``, `tag: image?.tag ?? \`b4-factory-fake-target:${"0".repeat(12)}-${"0".repeat(12)}\``.
 
 - [ ] **Step 4: Run the tests**
 
@@ -4403,198 +5287,234 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add examples/software-factory/controller/src/lib/builder-handoff.ts examples/software-factory/server/src/builder-handoff.ts examples/software-factory/server/b4.config.ts examples/software-factory/controller/src/lib/controller/factory.ts examples/software-factory/controller/test/fake-worker-map.ts examples/software-factory/controller/test/builder-handoff.test.ts examples/software-factory/server/test/builder-config.test.ts examples/software-factory/controller/test/targets-workspace.test.ts examples/software-factory/controller/test/factory-dispatch.test.ts
-git commit -m "feat(software-factory): the builder runs the bound image by id
+git add examples/software-factory/controller/src examples/software-factory/server/src/builder-handoff.ts examples/software-factory/server/b4.config.ts examples/software-factory/controller/test examples/software-factory/server/test/builder-config.test.ts
+git commit -m "feat(software-factory): the builder handoff names the bound image by id
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-### Task 19: The verifier runs the bound image by ID and refuses a changed one
+### Task 19: The builder checks the image's build labels against its handoff
+
+Added after review (item 7). An image ID alone binds no target: the provider's predicate admits any `sha256:` the daemon holds. PR 1's builds carry `b4.factory.target`, `b4.factory.pin` and `b4.factory.key` labels (Task 6); the builder's thread resolver reads them by ID and refuses an image whose labels are not the handoff's own target, pin and the tag's key. Labels are part of the image config the ID content-addresses, so a check by ID has no time-of-check gap. No framework hook is needed: the resolver is the builder app's own code, and the check runs there before the framework resolves the image. Trust impact, stated: the labels bind an ID to a target, pin and recipe as the controller built it; whoever can build or load images on the daemon can forge labels, which is the bound the handoff had before (anyone who can tag an image can already run anything as root there). Without this task, PR 2's ID-only predicate would be a narrower bound than the tag shape it replaces for the target and pin segments; with it, it is at least as narrow. A framework-level `images: (reference, inspected) => …` predicate would let the provider make the same check and is recorded as a follow-up.
 
 **Files:**
-- Modify: `controller/src/lib/verification/verifier.ts` (`VerifyInput.imageId`)
-- Modify: `controller/src/lib/verification/docker-verifier.ts:40-53` (`verifierImage`; run by id)
-- Modify: `controller/src/lib/intake/oracle.ts` (`ProveOracleInput.imageId`, passed through)
-- Modify: `controller/src/lib/controller/intake.ts` (pass `image.bound.image.localId` to `proveOracle`)
-- Modify: `controller/src/lib/controller/verify.ts:44-60,170-180` (the binding; `image_unbound`)
-- Modify: `controller/src/lib/controller/factory.ts` (approve's re-verification, `:1455-1464` at #843)
-- Test: `controller/test/docker-verifier.test.ts` (new, unit), `controller/test/factory-verify.test.ts`, `controller/test/factory-intake.test.ts`, `controller/test/factory-approve.test.ts`; callers of `verify`/`proveOracle` in `test/*.integration.test.ts` and `test/intake-oracle.test.ts` pass `imageId: loadTask(<id>).target.image.localId`
+- Modify: `server/src/builder-handoff.ts` (`FACTORY_LABELS`, `dockerLabels`, `assertFactoryImage`, `builderThreadSandbox`)
+- Modify: `server/b4.config.ts` (`thread: (thread) => builderThreadSandbox(thread)`)
+- Test: `server/test/builder-config.test.ts` (`describe("the builder's thread resolver")`, `:145-260`)
 
 - [ ] **Step 1: Write the failing tests**
 
-`test/docker-verifier.test.ts`:
+In `builder-config.test.ts`, the thread-resolver tests call `builderThreadSandbox(thread(…), { inspect })` instead of `(await resolver())(thread(…))`, with
 
 ```ts
-import { describe, expect, it } from "vitest"
-import { loadTask } from "../src/lib/targets/catalog.ts"
-import { ImageChangedError, verifierImage } from "../src/lib/verification/docker-verifier.ts"
-
-describe("the verifier's image", () => {
-  it("is the bound id when the catalog records the same image", () => {
-    const task = loadTask("cli-flags")
-    expect(verifierImage(task, task.target.image.localId)).toBe(task.target.image.localId)
-  })
-
-  it("refuses a bound id the catalog no longer records, naming both", () => {
-    const task = loadTask("cli-flags")
-    const stale = `sha256:${"7".repeat(64)}`
-    expect(() => verifierImage(task, stale)).toThrow(ImageChangedError)
-    expect(() => verifierImage(task, stale)).toThrow(
-      `The work order is bound to image ${stale}, and this host now records ${task.target.image.localId} for target cli-flags at ${task.target.pin}: the verdict would be earned in another environment`,
-    )
-  })
+/** The labels a factory build stamps, for `handoff`: what a fake daemon answers for its id. */
+const labelsOf = (handoff: BuilderHandoff): Record<string, string> => ({
+  "b4.factory.target": handoff.targetId,
+  "b4.factory.pin": handoff.target.pin,
+  "b4.factory.key": `${handoff.target.tag.slice(-12)}${"0".repeat(52)}`,
 })
+const inspectFor =
+  (answers: Record<string, Record<string, string> | null>) => async (id: string) =>
+    Object.hasOwn(answers, id) ? (answers[id] ?? null) : null
 ```
 
-`factory-verify.test.ts`: after a dispatch that reaches `verifying`, `verifier.calls.at(-1)?.imageId` equals `boundImageOf(factory.events(id))?.image.localId`; and a new test that removes the binding (a row whose journal has no `image_bound`, forced with the file's `forceRow`/journal helpers into `verifying`) settles `blocked` / `verification_inconclusive` with an `image_unbound` event and no verifier call. `factory-intake.test.ts`: the oracle call (`verifier.calls[0]`) carries `imageId` equal to the `image_bound` payload's. `factory-approve.test.ts`: the re-verification call carries the bound id.
+and adds:
+
+```ts
+  it("refuses an image whose build labels are not the handoff's own target, pin and recipe", async () => {
+    const order = workOrder("wo-alpha", "x\n")
+    const good = labelsOf(order.handoff)
+    const cases: [string, Record<string, string> | null, RegExp][] = [
+      ["absent", null, /is not on this daemon/],
+      ["unlabelled (a base image)", {}, /carries no factory labels/],
+      ["another target", { ...good, "b4.factory.target": "devkit" }, /target devkit, not fixture-target/],
+      ["another pin", { ...good, "b4.factory.pin": "d".repeat(40) }, /pin d{40}, not /],
+      ["another recipe", { ...good, "b4.factory.key": "f".repeat(64) }, /recipe key f{12}…, not /],
+    ]
+    for (const [name, labels, message] of cases)
+      await expect(
+        builderThreadSandbox(thread(order), { inspect: inspectFor({ [order.handoff.target.image]: labels }) }),
+        name,
+      ).rejects.toThrow(message)
+    await expect(
+      builderThreadSandbox(thread(order), { inspect: inspectFor({ [order.handoff.target.image]: good }) }),
+    ).resolves.toMatchObject({ environment: { image: order.handoff.target.image } })
+  })
+
+  it("runs the label check for every thread the config resolves", async () => {
+    const text = readFileSync(join(serverRoot, "b4.config.ts"), "utf8")
+    expect(text).toContain("thread: (thread) => builderThreadSandbox(thread)")
+  })
+```
+
+(`workOrder`, `thread` and the fixture target id `fixture-target` are the file's existing helpers and fixture; `serverRoot` is the path the file's text assertions already read `b4.config.ts` from.)
 
 - [ ] **Step 2: Run them to see them fail**
 
-Run: `pnpm --filter @b4-example/software-factory-controller exec vitest run test/docker-verifier.test.ts test/factory-verify.test.ts test/factory-intake.test.ts test/factory-approve.test.ts`
-Expected: FAIL.
+Run: `pnpm --filter @b4-example/software-factory-server test`
+Expected: FAIL (`builderThreadSandbox` is not exported).
 
 - [ ] **Step 3: Implement**
 
-`verifier.ts`, in `VerifyInput`:
+`server/src/builder-handoff.ts`:
 
 ```ts
-  /**
-   * The image the work order bound (`image_bound`), by id: the one image the verdict may be
-   * earned in. The verifier refuses to run when the catalog records another for the task.
-   */
-  readonly imageId: string
-```
+import { execFile } from "node:child_process"
 
-`docker-verifier.ts`:
+/** The labels every factory image build stamps (the controller's `dockerImageBuilder`). */
+export const FACTORY_LABELS = {
+  target: "b4.factory.target",
+  pin: "b4.factory.pin",
+  key: "b4.factory.key",
+} as const
 
-```ts
-/** The work order's bound image is not the one this host now records for its task. */
-export class ImageChangedError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = "ImageChangedError"
-  }
+/** An image id's labels, or null when the daemon does not hold it. */
+export type InspectLabels = (localId: string) => Promise<Record<string, string> | null>
+
+export const dockerLabels: InspectLabels = (localId) =>
+  new Promise((resolve, reject) => {
+    execFile(
+      "docker",
+      ["image", "inspect", "--format", "{{json .Config.Labels}}", localId],
+      { timeout: 30_000 },
+      (error, stdout, stderr) => {
+        if (error) return /No such image/i.test(String(stderr)) ? resolve(null) : reject(error)
+        resolve((JSON.parse(stdout) as Record<string, string> | null) ?? {})
+      },
+    )
+  })
+
+/**
+ * Refuse, by name, an image the handoff names by id whose build labels are not the handoff's
+ * own target, pin and recipe key (the tag's key segment). By id, so the labels read are the
+ * image's own: an id content-addresses the config the labels live in.
+ */
+export async function assertFactoryImage(
+  handoff: BuilderHandoff,
+  inspect: InspectLabels = dockerLabels,
+): Promise<void> {
+  const id = handoff.target.image
+  const labels = await inspect(id)
+  if (labels === null) throw new Error(`image ${id} is not on this daemon`)
+  if (!(FACTORY_LABELS.target in labels))
+    throw new Error(`image ${id} carries no factory labels: it was not built by the factory`)
+  const [, , , key] = FACTORY_IMAGE.exec(handoff.target.tag) ?? []
+  const problems: string[] = []
+  if (labels[FACTORY_LABELS.target] !== handoff.targetId)
+    problems.push(`target ${labels[FACTORY_LABELS.target]}, not ${handoff.targetId}`)
+  if (labels[FACTORY_LABELS.pin] !== handoff.target.pin)
+    problems.push(`pin ${labels[FACTORY_LABELS.pin]}, not ${handoff.target.pin}`)
+  const built = labels[FACTORY_LABELS.key] ?? ""
+  if (key === undefined || !built.startsWith(key))
+    problems.push(`recipe key ${built.slice(0, 12)}…, not ${key ?? "(no key in the tag)"}…`)
+  if (problems.length > 0) throw new Error(`image ${id} was built for ${problems.join("; ")}`)
 }
 
 /**
- * The image a verification runs: the work order's bound id, and only when the catalog still
- * records that image for the task's target at its pin. A receipt binds the environment
- * identity the catalog computes (`environmentIdentity`), so a verdict earned in any other image
- * would bind an identity that did not produce it.
+ * The builder's whole per-thread sandbox, from the thread's handoff: what `b4.config.ts`'s
+ * `sandbox.thread` returns, after the image's labels are checked. `inspect` is a test seam.
  */
-export function verifierImage(task: Task, imageId: string): string {
-  if (imageId !== task.target.image.localId)
-    throw new ImageChangedError(
-      `The work order is bound to image ${imageId}, and this host now records ${task.target.image.localId} for target ${task.target.id} at ${task.target.pin}: the verdict would be earned in another environment`,
-    )
-  return imageId
+export async function builderThreadSandbox(
+  thread: {
+    readonly metadata: Readonly<Record<string, unknown>>
+    readonly staged: Parameters<typeof stagedBuilderWorkspace>[0]
+  },
+  options: { readonly inspect?: InspectLabels } = {},
+) {
+  const handoff = builderHandoffOf(thread.metadata)
+  await assertFactoryImage(handoff, options.inspect)
+  return {
+    workspace: stagedBuilderWorkspace(thread.staged, handoff),
+    environment: { image: handoff.target.image },
+    policy: handoff.target.policy,
+    permissions: { allow: handoff.target.permissions },
+  }
 }
 ```
 
-and in `verify`: `const provider = dockerSandbox({ scope: "software-factory-verifier", image: verifierImage(task, input.imageId) })` (the `imageTag` import goes). A throw here rejects `verify`, which every caller already journals as `verifier_unavailable` and settles `inconclusive`: the harness could not run in the environment the work order is bound to.
+The framework's thread argument has these two fields (and more), so `b4.config.ts` passes it straight through. The label code lives only in the server copy: it is not part of the schema text the two copies share.
 
-`oracle.ts`: `ProveOracleInput` gains `readonly imageId: string`, passed into the `verify` input. `intake.ts` passes `imageId: image.bound.image.localId` (the `image` from Task 12's fit step).
-
-`verify.ts`, in `verifyCandidate` after `const policy = loadPolicy(row.taskId)`:
-
-```ts
-  // The image the work order bound at dispatch: the verdict is earned in it or not at all. A
-  // row with no binding (dispatched before images were bound) is not verified in whatever the
-  // catalog names now.
-  const bound = boundImageOf(ctx.store.events(id))
-  if (bound === undefined) {
-    ctx.recordEvent(id, "image_unbound", { phase: "verify" })
-    if (ctx.mustGet(id).state === "verifying")
-      ctx.transition(id, "receipt_inconclusive", { blockedReason: "verification_inconclusive" })
-    return
-  }
-```
-
-and the `verify` input gains `imageId: bound.image.localId`. `factory.ts`'s approve re-verification does the same: no binding → `recordEvent(id, "image_unbound", { phase: "export" })` and `refuse("The work order has no bound image to re-verify in")`; otherwise `imageId: bound.image.localId`.
-
-`test/fake-verifier.ts` needs no change (it records `calls`). Every direct caller of `verify` or `proveOracle` in the tests passes `imageId: loadTask(<taskId>).target.image.localId`: `grep -rn "\.verify(\|proveOracle(" examples/software-factory/controller/test` lists them.
+`server/b4.config.ts`: the `thread` resolver becomes `thread: (thread) => builderThreadSandbox(thread),` (its comment gains: "after the image's build labels are checked against the handoff").
 
 - [ ] **Step 4: Run the tests**
 
-Run: `pnpm --filter @b4-example/software-factory-controller test && pnpm --filter @b4-example/software-factory-controller typecheck`
+Run: `pnpm --filter @b4-example/software-factory-server test && pnpm --filter @b4-example/software-factory-server typecheck && pnpm --filter @b4-example/software-factory-controller test`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add examples/software-factory/controller/src/lib/verification/verifier.ts examples/software-factory/controller/src/lib/verification/docker-verifier.ts examples/software-factory/controller/src/lib/intake/oracle.ts examples/software-factory/controller/src/lib/controller/intake.ts examples/software-factory/controller/src/lib/controller/verify.ts examples/software-factory/controller/src/lib/controller/factory.ts examples/software-factory/controller/test
-git commit -m "feat(software-factory): the verifier runs the bound image by id, and refuses a changed one
+git add examples/software-factory/server/src/builder-handoff.ts examples/software-factory/server/b4.config.ts examples/software-factory/server/test/builder-config.test.ts
+git commit -m "feat(software-factory): the builder admits only an image built for its handoff
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-### Task 20: The Docker proof: a moved tag moves nothing
+### Task 20: The Docker proof: a moved tag moves nothing, and an image not built for the handoff is refused
 
 **Files:**
-- Modify: `controller/test/builder.integration.test.ts:290-363`
-- Modify: `controller/test/docker-verifier.integration.test.ts`
+- Modify: `controller/test/builder.integration.test.ts:288-370` ("serves a cli-flags thread and devkit threads at two pins from one process")
 
 - [ ] **Step 1: The builder lane**
 
-In the multi-target lane (`:290-363`), the handoffs are built with `imageId` (each work order's `task.target.image.localId`), and after the three threads are admitted and their records checked (`record?.intent.environment.identity` equals `want.localId`, as today), add:
+In that test, every handoff is captured with its bound image: `captureBuilderHandoff(devkitTask, { workOrderId: "wo-devkit", captureRoot: root, image: { localId: devkitTask.target.image.localId, tag: imageTag(devkitTask.target) } })`, and `wo-devkit-2`'s re-pinned handoff sets `image: atSecond.image.localId, tag: imageTag(atSecond)`. After the existing loop over `expected` (each thread's recorded identity and session image equal its `localId`, unchanged), add, inside the same `try`:
 
 ```ts
-    // A moved tag moves nothing: point devkit's factory tag at another image, then admit a
-    // fourth thread from the same handoff. It runs the bound id, not what the tag names now.
-    execFileSync("docker", ["tag", loadTargetRecipe("devkit").baseImage, imageTag(devkitTask.target)])
+    // A handoff admitted or refused: upload its source, create its thread, run one turn.
+    const admitted = async (workOrderId: string, factoryBuilder: unknown): Promise<boolean> => {
+      await builder.client.uploadSource(devkit.workspace.source)
+      try {
+        const threadId = await builder.client.createThread(
+          { factoryWorkOrderId: workOrderId, factoryBuilder },
+          stagedReferenceOf(devkit.workspace),
+        )
+        threads.push(threadId)
+        builder.aimock.addFixtures(
+          script().user(LIST).callsTool("listDir", { path: "." }).replies("Listed.").build(),
+        )
+        return (await builder.runTurn(threadId, LIST)).status === 200
+      } catch {
+        return false
+      }
+    }
+    const tag = imageTag(devkitTask.target)
+    const base = loadTargetRecipe("devkit").baseImage
+    const baseId = execFileSync("docker", ["image", "inspect", "--format", "{{.Id}}", base], { encoding: "utf8" }).trim()
+    execFileSync("docker", ["tag", base, tag])
     try {
-      const fourth = await admit("wo-devkit-3", { ...devkit.handoff, workOrderId: "wo-devkit-3" })
-      const session = inspectSession(fourth)
-      expect(session.Image).toBe(devkitTask.target.image.localId)
-      // And a handoff naming the tag, the pre-version-4 shape, is refused at admission.
-      await expect(
-        admit("wo-devkit-4", {
-          ...devkit.handoff,
-          workOrderId: "wo-devkit-4",
-          target: { ...devkit.handoff.target, image: imageTag(devkitTask.target) },
-        }),
-      ).rejects.toThrow(/image/)
+      // The recipe tag now names the base image; a thread handed the bound id runs the bound id.
+      const moved = { ...devkit.handoff, workOrderId: "wo-devkit-3" }
+      expect(await admitted("wo-devkit-3", moved)).toBe(true)
+      const record = openWorkspaceInstallationReader(builder.appRoot)
+      let operation: string
+      try {
+        operation = record.associations.get(threads.at(-1) as string)?.intent.operationId as string
+      } finally {
+        record.close()
+      }
+      expect(sessionOf(operation).Image).toBe(devkitTask.target.image.localId)
+      // The pre-version-4 shape (a tag in `image`) is refused by the schema at admission.
+      expect(await admitted("wo-devkit-4", { ...moved, workOrderId: "wo-devkit-4", version: 3, target: { ...moved.target, image: tag } })).toBe(false)
+      // An id the daemon holds but the factory did not build for this handoff is refused by its labels.
+      expect(await admitted("wo-devkit-5", { ...moved, workOrderId: "wo-devkit-5", target: { ...moved.target, image: baseId } })).toBe(false)
     } finally {
-      // Put the tag back on the registry's image, as the next `ensure` would.
-      execFileSync("docker", ["tag", devkitTask.target.image.localId, imageTag(devkitTask.target)])
+      // Put the recipe tag back on the bound image, as the registry's next `ensure` would.
+      execFileSync("docker", ["tag", devkitTask.target.image.localId, tag])
     }
 ```
 
-(`admit` and `inspectSession` stand for the lane's existing steps that create a thread from a handoff and read its session container's `docker inspect`; factor them out of the three-thread loop if they are inline.)
+(`builder.client`, `builder.handOff`, `builder.runTurn`, `builder.aimock`, `sessionOf`, `threads`, `LIST`, `script` and `openWorkspaceInstallationReader` are the file's; `stagedReferenceOf` from `../src/lib/builder-handoff.ts`, `imageTag` from `../src/lib/targets/images.ts`, `loadTargetRecipe` from the catalog. The refused threads are pushed to `threads` only when created, so the file's `afterAll` deletes what exists.)
 
-- [ ] **Step 2: The verifier lane**
+- [ ] **Step 2: Run the lane (Docker required)**
 
-In `docker-verifier.integration.test.ts`, every `verify` input gains `imageId: task.target.image.localId`, and add:
-
-```ts
-  it("verifies in the bound image by id, and refuses to verify in a changed one", async () => {
-    const task = loadTask("cli-flags")
-    const tag = imageTag(task.target)
-    execFileSync("docker", ["tag", loadTargetRecipe("cli-flags").baseImage, tag])
-    try {
-      const receipt = await verifier.verify({ ...baselineInput(), imageId: task.target.image.localId }, AbortSignal.timeout(600_000))
-      expect(receipt.environmentIdentity).toBe(environmentIdentity(task.target))
-      await expect(
-        verifier.verify({ ...baselineInput(), imageId: `sha256:${"7".repeat(64)}` }, AbortSignal.timeout(60_000)),
-      ).rejects.toThrow(ImageChangedError)
-    } finally {
-      execFileSync("docker", ["tag", task.target.image.localId, tag])
-    }
-  }, 900_000)
-```
-
-(`baselineInput()` stands for the file's existing verify input for the unpatched baseline; reuse its construction.)
-
-- [ ] **Step 3: Run the lanes (Docker required)**
-
-Run: `pnpm --filter @b4-example/software-factory-controller exec vitest run --config vitest.sandbox.config.ts test/builder.integration.test.ts test/docker-verifier.integration.test.ts`
+Run: `pnpm --filter @b4-example/software-factory-controller exec vitest run --config vitest.sandbox.config.ts test/builder.integration.test.ts`
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-git add examples/software-factory/controller/test/builder.integration.test.ts examples/software-factory/controller/test/docker-verifier.integration.test.ts
-git commit -m "test(software-factory): a moved tag moves neither the builder nor the verifier
+git add examples/software-factory/controller/test/builder.integration.test.ts
+git commit -m "test(software-factory): a moved tag moves no builder, and an unlabelled image is refused
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -4603,52 +5523,83 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 **Files:**
 - Modify: `examples/software-factory/README.md` (the builder's image bound, `:150-160` at main)
-- Modify: `docs/superpowers/plans/2026-09-24-per-thread-sandbox.md` (`:4862`, `:4895`: append "Closed by the images plan, PR 2")
+- Modify: `docs/superpowers/plans/2026-09-24-per-thread-sandbox.md` (`:4862`, `:4895`: append "Closed by the images plan")
 - Modify: `docs/superpowers/specs/2026-09-23-software-factory-framework-gaps-design.md` (§4 As landed, PR 2 sentence)
 
 - [ ] **Step 1: Edit**
 
-README: the paragraph on the builder's image bound says: the handoff names the image the work order bound by id (`sha256:…`), the builder's provider accepts only ids, the framework records that id as the thread's identity, and the verifier runs the same id and refuses (`verification_inconclusive`) when the host now records another image for the task; a tag is a name for people and prunes, never the identity. The per-thread plan's two follow-up paragraphs each gain one line: "Closed by `2026-09-25-images-built-on-demand.md` PR 2: handoff version 4 names the bound image id; the verifier runs it and refuses a changed one." The spec's As-landed paragraph replaces "PR 2 runs the bound image by ID in the builder and the verifier" with what landed.
+README: the paragraph on the builder's image bound says: the handoff names the image the work order bound by id (`sha256:…`) with its recipe tag; the builder's provider accepts only ids; the builder's resolver refuses an id whose `b4.factory.*` build labels are not the handoff's target, pin and recipe key; the framework records that id as the thread's identity; and the verifier runs the same id (since PR 1). A tag is a name for people and prunes, never the identity. `factory builder-handoff` takes `--image-id`, or reads the state directory's registry. The per-thread plan's two follow-up paragraphs each gain one line: "Closed by `2026-09-25-images-built-on-demand.md`: the verifier runs the bound image id (PR 1, Task 13a); the builder's handoff names it and its labels are checked (PR 2)." The spec's As-landed paragraph replaces "PR 2 moves the builder to the bound ID, checked against the image's build labels" with what landed.
 
 - [ ] **Step 2: Commit and verify**
 
 ```bash
 git add examples/software-factory/README.md docs/superpowers/plans/2026-09-24-per-thread-sandbox.md docs/superpowers/specs/2026-09-23-software-factory-framework-gaps-design.md
-git commit -m "docs(software-factory): builder and verifier run the bound image by id
+git commit -m "docs(software-factory): the builder runs the bound image by id
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-PR 2 verification: the PR 1 table, plus `pnpm --filter @b4-example/software-factory-server test` and the two lanes of Task 20. Push `blove/images-by-id` and open the PR only when Brian asks.
+PR 2 verification: the PR 1 table, plus `pnpm --filter @b4-example/software-factory-server test` and Task 20's lane. Push `blove/images-by-id` and open the PR only when Brian asks.
 
 ---
 
 ## Proof map
 
-| Proof (spec §4 and this plan) | Where |
+| Proof (spec §4, this plan, and the review) | Where |
 |---|---|
 | Two concurrent work orders at one pin build once | Task 4 "builds a key once however many need it at once" (registry); Task 12 "builds a pin once for two work orders that need it at once" (intake) |
 | A failed build settles the work order with the log in evidence | Task 3 (the error carries the log); Task 12 (intake blocks `image_prepare_failed`, the artifact holds the log, no attempt spent, the next work order builds); Task 13 (dispatch refuses, retries on the next dispatch) |
 | Docker: intake at an unprepared devkit pin builds it, and the recorded identity equals the script's | Task 15 |
-| Identity by id: a retagged image is refused | Task 18 (a handoff naming a tag is refused by schema; the provider accepts only ids); Task 19 (a bound id the catalog no longer records is refused by the verifier); Task 20 (Docker: a moved tag moves neither) |
-| Concurrency limit | Task 4 "never runs more builds at once than its limit"; "leaves a queued waiter's cancel costing nothing" |
-| Cancellation | Task 4 (last waiter cancels; a shared build survives one waiter); Task 12 (intake cancel mid-build); Task 13 (dispatch cancel mid-build) |
-| Registry / local image drift | Task 5 (deleted image rebuilt; moved tag pointed back; `recorded` never asks Docker); Task 15 (moved tag against a real daemon); Task 13 (`image_changed` at dispatch) |
-| Budget exclusion | Task 10 (restart resumes a paused clock); Task 12 (an hour of building charges nothing) |
+| Identity by id: a retagged image is refused | Task 13a (the verifier runs the bound id; a bound id the daemon lacks is refused); Task 15 (Docker: a verdict earned while the recipe tag names another image); Task 18 (a handoff naming a tag is refused by schema; the provider accepts only ids); Task 19 (an id not built for the handoff is refused by its labels); Task 20 (Docker: a moved tag moves no builder; an unlabelled id is refused) |
+| A build's own id | Task 6 (`--iidfile`; no `image inspect <tag>` after the build) |
+| Concurrency limit and wait bound | Task 4 "never runs more builds at once than its limit"; "leaves a queued waiter's cancel costing nothing"; "bounds a caller's whole wait, queue included" |
+| Cancellation | Task 4 (last waiter cancels; a shared build survives one waiter); Task 12 (intake cancel mid-build); Task 13 (dispatch cancel mid-build, in process, by the caller's signal, and through the route with `factory cancel`) |
+| Registry / local image drift | Task 5 (deleted image rebuilt; moved tag pointed back; `recorded` never asks Docker; `present`); Task 15 (moved tag against a real daemon); Task 13 (a superseded bound image kept while present; `image_changed` when gone) |
+| Budget exclusion | Task 10 (restart resumes a paused clock and ends an interrupted build in the journal); Task 12 (an hour of building charges nothing) |
 | Timeout | Task 4 "fails a build past its timeout" |
 | No image in the repository | Task 9 (schema refuses `images`/`image`; `git grep localId` empty) |
+| The CLI and the review need no image | Task 8a (`loadTaskRecipe`); Task 9 (`pin-diff-base.test.ts`; `cli.test.ts:1046-1100` pass with no registry) |
+| The approved digest holds after a long wait | Task 13 "re-checks the approved digest after the image step" |
 
 ## Follow-ups recorded, not in this plan
 
 - **The factory's own git object store** (spec §9 finding 3, D12): a bare mirror under `FACTORY_STATE_DIR` that `ensurePin`, the image context archive, the wide capture, the baseline and the pin diff all read, so the factory never fetches into the developer's clone.
-- **`reprove`** (D5): a command that re-runs the oracle proof in the image the host now builds, rebinding, for a work order refused `image_changed` after a prune; today the remedy is a new work order.
+- **`reprove`** (D5): a command that re-runs the oracle proof in the image the host now builds, rebinding, for a work order refused `image_changed` because its bound image is gone; today the remedy is a new work order.
 - **Budgets from measured verifier time** (spec §9 finding 5, D14).
 - **Cross-process single flight** (D6): a lock row in `images.sqlite` if running the script beside a live controller ever builds one key twice in practice.
-- **A reaper for superseded images**: every recipe change leaves the previous image tagged on the daemon; a `factory images prune` that removes images no registry row and no live work order names.
+- **A reaper for superseded images**: every recipe change leaves the previous image tagged (recipe tag and id tag) on the daemon; a `factory images prune` that removes images no registry row and no live work order's binding names. Deliberately not in this plan (no image deletion on a shared host).
 - **Build output as a live journal tail**: the CLI shows `image_prepare_started` and then nothing until the build ends; streaming log lines as events would make a multi-minute build visible.
+- **A framework `images` predicate that sees the inspected image** (`dockerSandbox({ images: (reference, inspected) => … })`), so the provider itself, not the builder's resolver, can check labels (Task 19).
+- **Whether `FACTORY_SKIP_BASE_PULL` is still needed** (D3). The check: on Docker Desktop, with the base present locally by digest and the network to the registry blocked (or the registry path in the wedged state the live run saw), run a `dockerImageBuilder` build of `devkit` without the variable. If `docker build` completes without contacting the registry (BuildKit's "load metadata for docker.io/library/node" step is the one to watch in the log), the variable can retire; if it stalls there, it stays, and its message should say so.
 
 ## Self-review
 
-- **Spec coverage.** §4 Change: the build lifted into `src/lib/targets` (Tasks 3-6) as `ImageRegistry.ensure(recipe, { signal })` rather than a free `prepareImage(target, pin, { signal })`, because single flight and the limit need shared state; called at intake's fit step (Task 12) and at dispatch (Task 13); one build per key (Task 4); registry at `<FACTORY_STATE_DIR>/images.sqlite` (Task 3, Task 8); journal events (Task 11); budget exclusion (Tasks 10, 12); `image_unprepared` retired as a standing block (Tasks 7, 12, 13); no B4-level `dockerSandbox({ build })` (none added). Trust impact: inputs unchanged and reviewed (the base is now reviewed too, Task 1); the drafter still never chooses a pin; the cost exposure is bounded by the limit (Task 4). Proof: the proof map above. §7's row "`target:prepare` per pin | 4" is removed by Tasks 9, 13 and 16. §9 findings 3 and 5: deferred with reasons (D12, D14).
-- **Placeholder scan.** Code steps carry code. Three places reference an existing test helper by role rather than name (`validHandoff()` in Task 18, `admit`/`inspectSession` and `baselineInput()` in Task 20) because the helpers exist under file-local names the executor reads in place; each says so.
-- **Type consistency.** `TargetRecipe` (Task 1) is what `recipeKey`, `ImageRegistry.recorded/ensure`, `BuildRequest.recipe`, `recipeProblem`, `availableTargets`, `ParsedDraft.target`, `loadTaskTargetRecipe` and `prepareWorkOrderImage` take. `EnsuredImage.build` is optional everywhere. `BoundImage` (Task 11) is what `boundImageOf` returns and `image_bound` carries; Task 18 and Task 19 read `bound.image.localId`. `isFactoryImage` is renamed `isFactoryImageId` in both handoff copies and in `b4.config.ts` in the same task. The registry's `recorded` takes the recipe alone (its pin is `recipe.pin`); no task passes a separate pin.
+- **Spec coverage.** §4 Change: the build lifted into `src/lib/targets` (Tasks 3-6) as `ImageRegistry.ensure(recipe, { signal })` rather than a free `prepareImage(target, pin, { signal })`, because single flight and the limit need shared state; called at intake's fit step (Task 12) and at dispatch (Task 13); one build per key (Task 4); registry at `<FACTORY_STATE_DIR>/images.sqlite` (Task 3, Task 8); journal events (Task 11); budget exclusion (Tasks 10, 12); `image_unprepared` retired as a standing block (Tasks 7, 12, 13); no B4-level `dockerSandbox({ build })` (none added). Trust impact: inputs unchanged and reviewed (the base is now reviewed too, Task 1); the drafter still never chooses a pin; the model-triggerable build cost is bounded by the limit, the wait bound and the timeout (Task 4; Spec corrections 7). Proof: the proof map above. §7's row "`target:prepare` per pin | 4" is removed by Tasks 9, 13 and 16. §9 findings 3 and 5: deferred with reasons (D12, D14).
+- **Placeholder scan.** Code steps carry code. Helpers are named as the files name them (`handoff` at `builder-handoff.test.ts:110`; `builder.handOff`, `builder.runTurn`, `builder.client`, `sessionOf`, `threads`, `LIST`, `script` in `builder.integration.test.ts`; `verifierFor`, `applyReference`, `allowed`, `policy` in `docker-verifier.integration.test.ts`; `forceRow`, `journalHandoff`, `crash`, `bootFactory`, `intake`, `refusals` in `factory-intake.test.ts`; `failing`, `pollState`, `run`, `boot` in `cli.test.ts`). Two small helpers are new and specified by body: `journalEvent`/`journal` (the body of `journalHandoff`) and `pollEvents` (the shape of `pollState`).
+- **Type consistency.** `TargetRecipe` (Task 1) is what `recipeKey`, `recipeTag`, `ImageRegistry.recorded/ensure`, `BuildRequest.recipe`, `recipeProblem`, `availableTargets`, `ParsedDraft.target`, `TaskRecipe.target` and `prepareWorkOrderImage` take. `tagFor(id, pin, key)` is the one tag function (Task 1); `imageTag(target)` and `recipeTag(recipe, platform)` derive it from the key (Task 2). `EnsuredImage.build` is optional everywhere; `onBuild` carries `deadlineMs` (Task 4) and `image_prepare_started` journals it (Task 11), which `imageWaitBoundMs` reads (Task 14). `BoundImage` (Task 11) is what `boundImageOf` returns and `image_bound` carries; Task 13a passes `bound.image` (the whole `Image`) as `VerifyInput.image`, `CatalogOptions.image` and `loadPolicy`'s second argument; Task 18 passes `{ localId: bound.image.localId, tag: bound.tag }` to the capture. `isFactoryImage` is renamed `isFactoryImageId` in both handoff copies and in `b4.config.ts` in one task (18). The registry's `recorded` takes the recipe alone (its pin is `recipe.pin`).
+
+## Review amendments (2026-09-25)
+
+An independent review of this plan found no Critical issues, eight Important ones and several minors. Each is addressed in place; this list says where.
+
+1. **The CLI loses `loadTask` in PR 1** (`builder-handoff` at `cli.ts:798` and its subprocess tests `cli.test.ts:1046-1100` would throw `ImagesUnconfiguredError`; `pinDiffBase` at `pin-diff-base.ts:26`, from `cli.ts:604`, would show every file unavailable). New Task 8a adds `TaskRecipe`/`loadTaskRecipe` and moves every caller that reads no image onto it (the pin diff, the baseline, prompts, budgets, the builder's inspection options, the handoff capture, the CLI) before Task 9 switches the catalog; Task 9 adds `pin-diff-base.test.ts` and names the two CLI tests as the check. PR 1's `builder-handoff` writes the recipe tag (computable without an image); PR 2's (Task 18, which lists `cli.ts`) takes `--image-id` or reads `<FACTORY_STATE_DIR>/images.sqlite` read-only (`openImageRegistryReader`), refusing to guess.
+2. **The builder could record another build's image.** Task 6 reads the id from `docker build --iidfile` (written beside, never inside, the context) and no longer inspects the tag. Tags are recipe-key-scoped (`tagFor(id, pin, key)`, Task 1, still matching `FACTORY_IMAGE`), so re-pointing (Task 5) cannot move a tag between keys; each build also gets an id tag that never moves (`idTagFor`), so a bound image a later build of its key superseded keeps a tag (D10).
+3. **Identity was half enforced in PR 1.** The verifier's run-by-id and binding check moved from PR 2 into PR 1 as Task 13a, together with the oracle proof and approve's re-verification. PR 2 now only moves the builder (Tasks 18-20).
+4. **An operator cancel during a dispatch build was ignored** (the route's `ctx.signal` had no listener until `settleOutcome`). Task 13: `Factory.dispatch` takes `{ signal }`, the route passes `ctx.signal`, the image wait includes it, and an abort cancels the work order with `settleOutcome`'s key (`cancel:<id>:aborted-dispatch`); tested in process and through the route with the CLI's `cancel` (`cli.test.ts`).
+5. **The approved digest could change during the wait.** Task 13 factors the check into `approvedDigestRefusal` and runs it again after the image step (`phase: "dispatch_after_image"`), with a test that edits the generated task during the wait.
+6. **The lanes' registry was shared across worktrees and runs.** Task 9: the global setup makes a registry directory per run (`mkdtemp`), hands it to the lane files with `provide`/`inject`, and removes it at teardown; the misleading comment is gone.
+7. **PR 2's id-only predicate bound no target.** Task 6 labels every build `b4.factory.target`/`pin`/`key`; new Task 19 has the builder's resolver check an id's labels against the handoff. No framework hook is needed (the resolver is the app's code; labels are content-addressed by the id); the trust bound is stated in Task 19, and a framework predicate that sees the inspected image is a follow-up.
+8. **Waits were unbounded, and the CLI's grace ignored queue time and the controller's settings.** Task 4 bounds each waiter's whole wait (`queueTimeoutMs`, default twice the build timeout, plus the build timeout) and reports it as `deadlineMs`; Task 11 journals it on `image_prepare_started`; Task 14's follower extends its deadline by the journalled bound (`imageWaitBoundMs`), so it never guesses the controller's configuration.
+
+Minors:
+
+- **Key stranding / `loadPolicy` outside any guard.** The binding is authoritative (D5): Task 13a computes policy and identity from the bound image object (`CatalogOptions.image`, `loadPolicy(taskId, image)`), refuses only a bound id the daemon no longer holds, and moves `verify.ts:46`'s `loadPolicy` into a guard (`policy_unavailable` → inconclusive). Dispatch keeps a binding whose image is present (Task 11, Task 13 test).
+- **Model-triggerable build cost** is stated in Spec corrections 7.
+- **The Dockerfile hash** is taken from the copy in the context (Task 6); the registry refuses a mismatch with the key's.
+- **A crash mid-build** leaves `image_prepare_aborted {reason: "restart"}` in the journal at reconciliation (Task 10).
+- **`user_version` vs `schema_version`.** The image registry now uses the repository's `schema_version` table idiom (D1, Task 3), so both stores read the same way.
+- **Wrong task references.** Task 7 now defers to Task 9 (was "Task 8"); the PR split names Task 16 for CI (was "Task 17"); Task 15's title says what it proves (the deleted-image half of drift is Task 5's, in the unit suite).
+- **`test:sandbox:cli` built `devkit` and `cli-flags`.** The global setup skips both prebuilds under `FACTORY_TEST_CLI_TARGET=1` (Task 9).
+- **The pull-wedge claim was unverified.** D3 says so; `FACTORY_SKIP_BASE_PULL` is kept (the builder never pulls under it and names it when the base is absent, Task 6), the config no longer retires it (Task 8), and the check that could retire it is recorded under Follow-ups.
+- **Placeholders.** Task 8's `.catch` is code (`releaseImages`) with a failed-open test; `static-images.ts` is written in Task 8, where it is first used, with `present`; Task 9's conditionals are definite (the `images` variable's placement is stated); Tasks 12 and 13 name the one whole-journal test each changes (`factory-intake.test.ts:257`, `factory-dispatch.test.ts:104`), and Task 14 journals `dispatch_refused` only after a build started, so no other journal assertion changes; Task 16's "adapt" is replaced by the verified counts; Tasks 18 and 20 name the files' real helpers.
+- **A process note.** While writing the first version of this plan, `docker builder prune -f` was run on this shared host during an experiment; it affected other sessions' build caches. Trap 10 now forbids destructive Docker commands, and no task deletes an image.
