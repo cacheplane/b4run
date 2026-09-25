@@ -18,6 +18,17 @@ export interface CapturedWorkspaceDefinition {
   readonly environmentLinks: readonly { readonly path: string; readonly target: string }[]
   readonly baseline?: "git"
 }
+/**
+ * What `POST /threads` names to give a new thread a workspace staged with
+ * `PUT /workspace/sources/:digest` (`sandbox.stagedWorkspaces`). The files are
+ * the held source, addressed by its digest; the links and baseline, which the
+ * source digest does not cover, travel here.
+ */
+export interface StagedWorkspaceReference {
+  readonly sourceDigest: string
+  readonly environmentLinks?: readonly { readonly path: string; readonly target: string }[]
+  readonly baseline?: "git"
+}
 export interface WorkspaceEnvironment {
   readonly binding: { readonly provider: string; readonly scope: string; readonly account: string }
   readonly identity: string

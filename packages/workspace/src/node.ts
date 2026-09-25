@@ -13,9 +13,11 @@ export { type LocalFilesystemOptions, localFilesystem } from "./local-filesystem
 export {
   captureWorkspaceDefinition,
   createWorkspaceIntent,
+  stagedWorkspaceDefinition,
   verifyCapturedWorkspaceDefinition,
   verifyCreationStatus,
   verifyReadyWorkspace,
+  verifyStagedWorkspaceReference,
   verifyWorkspaceIntent,
 } from "./managed-workspace-node.js"
 export {
