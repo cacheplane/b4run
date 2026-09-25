@@ -15,7 +15,14 @@ import { createCommandLog } from "../src/lib/registry/commands.ts"
 import { openRegistry } from "../src/lib/registry/db.ts"
 import { createWorkOrderStore, type WorkOrderPatch } from "../src/lib/registry/work-orders.ts"
 import { createArtifactStore } from "../src/lib/storage/artifacts.ts"
-import { configureCatalog, loadTask, resetCatalogForTests } from "../src/lib/targets/catalog.ts"
+import {
+  configureCatalog,
+  configuredImages,
+  loadTargetRecipe,
+  loadTask,
+  resetCatalogForTests,
+} from "../src/lib/targets/catalog.ts"
+import { type ImageRegistry, openImageRegistry } from "../src/lib/targets/images.ts"
 import { assembleReceipt, evidenceRef } from "../src/lib/verification/receipt.ts"
 import type { Verifier } from "../src/lib/verification/verifier.ts"
 import { createHttpWorkerClient, type WorkerClient } from "../src/lib/worker/client.ts"
@@ -23,11 +30,13 @@ import {
   type WorkspaceReader,
   WorkspaceRootMissingError,
 } from "../src/lib/worker/workspace-reader.ts"
+import { fakeImageBuilder } from "./fake-image-builder.ts"
 import { createFakeVerifier, type FakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
 import { fakeBuilderHandoff, fakeWorkerMap } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
 import { BAD_DRAFTS, GOOD_DRAFT } from "./intake-fixtures.ts"
+import { useImages } from "./static-images.ts"
 import { createEmptyRepo, repositoryHead, shippedPin } from "./temp-repo.ts"
 import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
@@ -244,6 +253,14 @@ function journalHandoff(id: string, threadId: string): void {
   registry.close()
 }
 
+/** Append one event to the journal directly, as a controller that died mid-step left it. */
+function journalEvent(id: string, type: string, payload: Record<string, unknown>): void {
+  const registry = openRegistry(registryPath())
+  const events = createWorkOrderStore(registry.db)
+  events.appendEvent(id, type, payload, new Date().toISOString())
+  registry.close()
+}
+
 function forceRow(id: string, patch: WorkOrderPatch): void {
   const registry = openRegistry(registryPath())
   const rows = createWorkOrderStore(registry.db)
@@ -283,6 +300,7 @@ describe("intake", () => {
       "intake_run_started:",
       "intake_turn_ended:",
       "draft_read:",
+      "image_bound:",
       "task_generated:",
       "oracle_receipt:",
       "transition:intake_drafted",
@@ -335,6 +353,10 @@ describe("intake", () => {
       workOrderId: id,
       candidateDigest: "a".repeat(64),
     })
+    // In the image the fit step bound, by that binding's object.
+    const bound = factory.events(id).find((e) => e.type === "image_bound")?.payload
+    expect(bound?.image).toBeDefined()
+    expect(verifier.calls[0]?.image).toEqual(bound?.image)
     expect(reader.reads).toEqual([threadId])
     // The read named the source intake handed the thread: the worker must answer with it.
     expect(reader.targets).toEqual([{ threadId, sourceDigest: DRAFT_SOURCE.digest }])
@@ -404,10 +426,8 @@ describe("intake", () => {
     expect(eventTypes(id).at(-1)).toBe("transition:intake_blocked")
   })
 
-  it("blocks image_unprepared after one attempt when the target has no image at the work order's pin", async () => {
+  it("offers and fits a target at a pin no image was built at", async () => {
     await boot({}, { maxIntakeAttempts: 2 })
-    // HEAD: a commit this repository holds (so `intake` admits it without a fetch), at which
-    // no shipped target has been prepared.
     const head = repositoryHead().pin
     expect(head).not.toBe(PIN)
     const { id } = await factory.createFromIssue({ origin: ORIGIN, pin: head, issue: ISSUE })
@@ -415,25 +435,9 @@ describe("intake", () => {
     const threadId = (factory.show(id) as WorkOrderRow).workerThreadId as string
     reader.set(threadId, GOOD_DRAFT)
     const row = await factory.settleIntake(id, 20_000)
-    expect(row).toMatchObject({
-      state: "blocked",
-      blockedReason: "image_unprepared",
-      intakeAttempts: 1,
-      targetId: null,
-      taskDigest: null,
-    })
-    // The prompt offered nothing: no target is prepared at that pin.
-    expect(promptOf(0)).toContain("(none prepared)")
-    expect(promptOf(0)).toContain(head)
-    expect(runPosts()).toHaveLength(1)
-    expect(refusals(id)).toHaveLength(1)
-    expect(refusals(id)[0]?.payload).toMatchObject({
-      blockedReason: "image_unprepared",
-      attempt: 1,
-      reason: `draft/task.json names target devkit, which has no image prepared at ${head}: an operator runs pnpm --filter @b4-example/software-factory-controller target:prepare devkit --pin ${head}`,
-    })
-    expect(eventTypes(id)).not.toContain("transition:intake_retry")
-    expect(verifier.calls).toHaveLength(0)
+    expect(row).toMatchObject({ state: "awaiting_intake_approval", targetId: "devkit" })
+    expect(promptOf(0)).toContain("- `devkit`")
+    expect(refusals(id)).toHaveLength(0)
   })
 
   it("retries an invalid draft on the same thread with the refusal quoted, then parks", async () => {
@@ -1128,6 +1132,40 @@ describe("the intake gate", () => {
     expect(verifier.calls[1]?.mode).toBeUndefined()
   })
 
+  it("re-checks the approved digest after the image step, however long it took", async () => {
+    await boot()
+    const { id } = await intake()
+    const parked = await factory.settleIntake(id, 20_000)
+    const taskDigest = parked.taskDigest as string
+    expect((await factory.approveIntake(id, { revision: parked.revision, taskDigest })).ok).toBe(
+      true,
+    )
+    const spec = join(generated, id, "spec.md")
+    // The generated task changes on disk while dispatch waits on its image.
+    const base = configuredImages() as ImageRegistry
+    const restore = useImages({
+      recorded: (recipe) => base.recorded(recipe),
+      ensure: (recipe, options) => base.ensure(recipe, options),
+      close: () => {},
+      async present() {
+        writeFileSync(spec, `${readFileSync(spec, "utf8")}\nA9: edited during the wait\n`)
+        return true
+      },
+    })
+    try {
+      expect(await factory.dispatch(id)).toEqual({
+        ok: false,
+        state: "received",
+        message: "Generated task on disk no longer matches the approved digest",
+      })
+      expect(eventsOf(id, "generated_task_changed").at(-1)?.payload).toMatchObject({
+        phase: "dispatch_after_image",
+      })
+      expect(threadPosts()).toHaveLength(1)
+    } finally {
+      restore()
+    }
+  })
   it("freezes the origin, the pin, the task digest and the oracle proof into the bundle, and approve re-checks the task on disk", async () => {
     await boot()
     const { id } = await intake()
@@ -1377,6 +1415,38 @@ describe("the intake gate", () => {
 })
 
 describe("intake reconciliation", () => {
+  it("resumes, before any rule, a budget a restart left paused", async () => {
+    await boot()
+    const { id } = await createIssue()
+    await crash()
+    // What a controller killed mid-build leaves: an active row with its clock stopped, and a
+    // build the journal shows started and never ended.
+    forceRow(id, { state: "intake_running", activeMs: 1_234, activeStartedAt: null })
+    journalEvent(id, "image_prepare_started", {
+      targetId: "devkit",
+      pin: PIN,
+      key: "a".repeat(64),
+      shared: false,
+      deadlineMs: 1,
+    })
+    await bootFactory()
+    const aborted = factory.events(id).filter((e) => e.type === "image_prepare_aborted")
+    expect(aborted.map((e) => e.payload)).toEqual([
+      { targetId: "devkit", pin: PIN, reason: "restart" },
+    ])
+    const events = factory.events(id)
+    const resumed = events.findIndex((e) => e.type === "budget_resumed")
+    expect(resumed).toBeGreaterThanOrEqual(0)
+    expect(events[resumed]?.payload).toEqual({ reason: "reconcile" })
+    const firstRule = events.findIndex((e, i) => i > resumed - 1 && e.type === "transition")
+    expect(firstRule === -1 || firstRule > resumed).toBe(true)
+    const row = factory.show(id) as WorkOrderRow
+    // Still active: the clock runs. Settled: the resumed interval was banked by the transition.
+    if (["intake_running", "dispatched", "running", "verifying", "exporting"].includes(row.state))
+      expect(row.activeStartedAt).not.toBeNull()
+    else expect(row.activeMs).toBeGreaterThanOrEqual(1_234)
+  })
+
   it("adopts a builder thread a crashed dispatch journalled behind the lingering drafter thread", async () => {
     await bootWorker()
     await bootFactory()
@@ -1646,5 +1716,194 @@ describe("intake reconciliation", () => {
       payload: { threadId, reason: "observer_live" },
     })
     expect(factory.show(id)?.state).toBe("intake_running")
+  })
+})
+
+/** A registry over a fake builder, configured process-wide for this test (the factory builds through it). */
+function fakeImages(): {
+  builder: ReturnType<typeof fakeImageBuilder>
+  registry: ImageRegistry
+  restore(): void
+} {
+  const builder = fakeImageBuilder()
+  const registry = openImageRegistry({
+    path: join(dir, "images.sqlite"),
+    builder,
+    platform: "linux/arm64",
+  })
+  const restore = useImages(registry)
+  return {
+    builder,
+    registry,
+    restore: () => {
+      restore()
+      registry.close()
+    },
+  }
+}
+const eventsOf = (id: string, type: string) => factory.events(id).filter((e) => e.type === type)
+async function until(condition: () => boolean, ms = 10_000): Promise<void> {
+  const started = Date.now()
+  while (!condition()) {
+    if (Date.now() - started > ms) throw new Error("condition never held")
+    await new Promise((r) => setTimeout(r, 10))
+  }
+}
+
+describe("the fit step's image", () => {
+  it("builds the drafted target's image, journals the build with its log, and binds it before the proof", async () => {
+    await boot()
+    const images = fakeImages()
+    try {
+      const { id } = await intake()
+      const row = await factory.settleIntake(id, 20_000)
+      expect(row.state).toBe("awaiting_intake_approval")
+      expect(images.builder.requests).toHaveLength(1)
+      const [started] = eventsOf(id, "image_prepare_started")
+      const [prepared] = eventsOf(id, "image_prepared")
+      const [bound] = eventsOf(id, "image_bound")
+      expect(started?.payload).toMatchObject({ targetId: "devkit", pin: PIN, shared: false })
+      expect(prepared?.payload).toMatchObject({ targetId: "devkit", pin: PIN, shared: false })
+      const log = await createArtifactStore(join(dir, "artifacts")).read(
+        String(prepared?.payload.logDigest),
+      )
+      expect(log).toContain("building b4-factory-devkit:")
+      expect(bound?.payload).toMatchObject({
+        targetId: "devkit",
+        pin: PIN,
+        image: { localId: prepared?.payload.localId },
+      })
+      const types = factory.events(id).map((e) => e.type)
+      expect(types.indexOf("image_bound")).toBeLessThan(types.indexOf("oracle_receipt"))
+    } finally {
+      images.restore()
+    }
+  })
+
+  it("builds a pin once for two work orders that need it at once", async () => {
+    await boot()
+    const images = fakeImages()
+    images.builder.hold()
+    try {
+      const first = await intake()
+      const { id: second } = await factory.createFromIssue({
+        origin: { ...ORIGIN, number: 779 },
+        pin: PIN,
+        issue: ISSUE,
+        operationKey: "issue:779",
+      })
+      await factory.intake(second)
+      reader.set((factory.show(second) as WorkOrderRow).workerThreadId as string, GOOD_DRAFT)
+      await until(
+        () =>
+          eventsOf(first.id, "image_prepare_started").length === 1 &&
+          eventsOf(second, "image_prepare_started").length === 1,
+      )
+      images.builder.release()
+      const rows = await Promise.all([
+        factory.settleIntake(first.id, 20_000),
+        factory.settleIntake(second, 20_000),
+      ])
+      expect(rows.map((r) => r.state)).toEqual([
+        "awaiting_intake_approval",
+        "awaiting_intake_approval",
+      ])
+      expect(images.builder.requests).toHaveLength(1)
+      const shared = [first.id, second]
+        .map((id) => eventsOf(id, "image_prepare_started")[0]?.payload.shared)
+        .sort()
+      expect(shared).toEqual([false, true])
+      const localIds = [first.id, second].map(
+        (id) => (eventsOf(id, "image_bound")[0]?.payload.image as { localId?: string })?.localId,
+      )
+      expect(localIds[0]).toMatch(/^sha256:/)
+      expect(localIds[0]).toBe(localIds[1])
+    } finally {
+      images.builder.release()
+      images.restore()
+    }
+  })
+
+  it("blocks a failed build with its log in evidence, spends no drafter attempt, and the next work order builds again", async () => {
+    await boot()
+    const images = fakeImages()
+    try {
+      images.builder.failNext("pnpm install failed", "ERR_PNPM_OUTDATED_LOCKFILE\n")
+      const { id } = await intake()
+      const row = await factory.settleIntake(id, 20_000)
+      expect(row).toMatchObject({
+        state: "blocked",
+        blockedReason: "image_prepare_failed",
+        intakeAttempts: 0,
+      })
+      const [failed] = eventsOf(id, "image_prepare_failed")
+      expect(failed?.payload).toMatchObject({
+        targetId: "devkit",
+        pin: PIN,
+        error: `Target devkit at ${PIN}: pnpm install failed`,
+      })
+      const log = await createArtifactStore(join(dir, "artifacts")).read(
+        String(failed?.payload.logDigest),
+      )
+      expect(log).toContain("ERR_PNPM_OUTDATED_LOCKFILE")
+      expect(verifier.calls).toHaveLength(0)
+      expect(refusals(id)).toHaveLength(0)
+
+      const { id: next } = await factory.createFromIssue({
+        origin: { ...ORIGIN, number: 780 },
+        pin: PIN,
+        issue: ISSUE,
+        operationKey: "issue:780",
+      })
+      await factory.intake(next)
+      reader.set((factory.show(next) as WorkOrderRow).workerThreadId as string, GOOD_DRAFT)
+      expect((await factory.settleIntake(next, 20_000)).state).toBe("awaiting_intake_approval")
+      expect(images.builder.requests).toHaveLength(2)
+    } finally {
+      images.restore()
+    }
+  })
+
+  it("abandons the build when the work order is cancelled mid-build, recording nothing", async () => {
+    await boot()
+    const images = fakeImages()
+    images.builder.hold()
+    try {
+      const { id } = await intake()
+      await until(() => eventsOf(id, "image_prepare_started").length === 1)
+      expect((await factory.cancel(id)).ok).toBe(true)
+      await until(() => images.builder.aborted === 1)
+      expect(factory.show(id)?.state).toBe("cancelled")
+      expect(eventsOf(id, "image_prepare_aborted")).toHaveLength(1)
+      expect(images.registry.recorded(loadTargetRecipe("devkit", { pin: PIN }))).toBeUndefined()
+    } finally {
+      images.builder.release()
+      images.restore()
+    }
+  })
+
+  it("does not charge the build's time to the work order's budget", async () => {
+    let clock = Date.parse("2026-09-25T00:00:00.000Z")
+    await bootWorker()
+    await bootFactory({ now: () => clock, maxActiveMs: 1_200_000 })
+    const images = fakeImages()
+    images.builder.hold()
+    try {
+      const { id } = await intake()
+      await until(() => eventsOf(id, "image_prepare_started").length === 1)
+      clock += 3_600_000 // an hour of building: three times the whole budget
+      images.builder.release()
+      const row = await factory.settleIntake(id, 20_000)
+      expect(row.state).toBe("awaiting_intake_approval")
+      expect(row.activeMs).toBeLessThan(60_000)
+      const types = factory.events(id).map((e) => e.type)
+      // Paused as the build started for this work order, resumed as its wait ended.
+      expect(types.indexOf("budget_paused")).toBe(types.indexOf("image_prepare_started") + 1)
+      expect(types.indexOf("budget_resumed")).toBeGreaterThan(types.indexOf("budget_paused"))
+      expect(eventsOf(id, "image_prepare_started")[0]?.payload.deadlineMs).toBeGreaterThan(0)
+    } finally {
+      images.builder.release()
+      images.restore()
+    }
   })
 })

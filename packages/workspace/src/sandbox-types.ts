@@ -13,6 +13,12 @@ import type {
 import type { ExecBackend, FilesystemBackend } from "./types.js"
 
 export interface SandboxPolicy {
+  /**
+   * Network intent. Enforcement is the provider's: the reference Docker and
+   * Kubernetes providers ignore an allow-mode `denylist`, so `allow` is open
+   * egress, cloud metadata endpoint included. Docker also ignores a deny-mode
+   * `allowlist` (`--network none`).
+   */
   readonly network:
     | { readonly mode: "allow"; readonly denylist?: readonly string[] }
     | { readonly mode: "deny"; readonly allowlist?: readonly string[] }

@@ -7,18 +7,18 @@ import {
   ChecksSchema,
   commitSha,
   covers,
-  ImageUnpreparedError,
   isCatalogId,
-  loadTarget,
-  prepareCommand,
+  loadTargetRecipe,
   relativePath,
   repositoryRoot,
   requiredImmutablePaths,
+  type TargetRecipe,
   TaskFieldsSchema,
   type TaskManifest,
   TaskSchema,
   UnknownTargetError,
 } from "../targets/catalog.js"
+import { recipeProblem } from "../targets/prepare.js"
 import { describePrecheck, precheckDraftedCheck } from "./check-precheck.js"
 
 /** Where the drafter writes, relative to its workspace. Keys outside it are not the draft. */
@@ -47,6 +47,8 @@ export interface ParsedDraft {
   readonly checks: Checks
   readonly specText: string
   readonly acceptanceIds: readonly string[]
+  /** The drafted target at the work order's pin, without an image: intake builds that next. */
+  readonly target: TargetRecipe
   /** Every `draft/`-relative file, for materialisation: the three manifests and the one check. */
   readonly files: ReadonlyMap<string, string>
 }
@@ -57,11 +59,7 @@ export type DraftRefusal = {
    * `intake_run_failed` is not a verdict on the draft: the catalog could not be read, or the
    * pin could not be made present. The caller blocks without spending a drafter attempt.
    */
-  readonly blockedReason:
-    | "intake_invalid"
-    | "no_target_for_package"
-    | "image_unprepared"
-    | "intake_run_failed"
+  readonly blockedReason: "intake_invalid" | "no_target_for_package" | "intake_run_failed"
 }
 export type ParseResult = ({ readonly ok: true } & ParsedDraft) | DraftRefusal
 
@@ -243,20 +241,14 @@ export function parseDraft(
     return invalid(`${DRAFT_ROOT}task.json is invalid: ${describeIssues(filled.error)}`)
   const drafted = filled.data
 
-  // Before checks.json on purpose: an unknown target is the least fixable defect, so its
-  // refusal (`no_target_for_package`) wins on precedence over anything a redraft could mend;
-  // a known target with no image at the work order's pin (`image_unprepared`) is an
-  // operator's to mend, never the drafter's.
-  let target: ReturnType<typeof loadTarget>
+  // Before checks.json on purpose: an unknown target, or one whose files are not at the work
+  // order's pin, is the least fixable defect, so its refusal (`no_target_for_package`) wins on
+  // precedence over anything a redraft could mend. Whether this host has an image of it is not
+  // asked here: intake builds one at the fit step.
+  let target: TargetRecipe
   try {
-    target = loadTarget(drafted.target, { ...input.catalog, pin })
+    target = loadTargetRecipe(drafted.target, { ...input.catalog, pin })
   } catch (error) {
-    if (error instanceof ImageUnpreparedError)
-      return {
-        ok: false,
-        reason: `${DRAFT_ROOT}task.json names target ${error.targetId}, which has no image prepared at ${error.pin}: an operator runs ${prepareCommand(error.targetId, error.pin)}`,
-        blockedReason: "image_unprepared",
-      }
     if (error instanceof UnknownTargetError)
       return {
         ok: false,
@@ -264,13 +256,20 @@ export function parseDraft(
         blockedReason: "no_target_for_package",
       }
     // Anything else is the controller's own trouble, not the draft's: a manifest it could
-    // not read or parse (a prepare mid-write, a bad edit), or a pin it could not fetch.
+    // not read or parse (a bad edit), or a pin it could not fetch.
     return {
       ok: false,
       reason: `target ${JSON.stringify(drafted.target)} could not be loaded at ${pin}: ${error instanceof Error ? error.message : String(error)}`,
       blockedReason: "intake_run_failed",
     }
   }
+  const inapplicable = recipeProblem(target, input.catalog?.repositoryRoot ?? repositoryRoot())
+  if (inapplicable !== undefined)
+    return {
+      ok: false,
+      reason: `${DRAFT_ROOT}task.json names target ${target.id}, which is not available at ${pin}: ${inapplicable}`,
+      blockedReason: "no_target_for_package",
+    }
 
   const rawChecks = readJson(draft, "checks.json")
   if (rawChecks.kind === "refusal") return rawChecks.refusal
@@ -331,5 +330,5 @@ export function parseDraft(
   })
   if (violations.length > 0) return invalid(describePrecheck(checks.independent.file, violations))
 
-  return { ok: true, manifest, checks, specText, acceptanceIds, files: draft }
+  return { ok: true, manifest, checks, specText, acceptanceIds, target, files: draft }
 }

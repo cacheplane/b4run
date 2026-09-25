@@ -48,6 +48,28 @@ describe("resolveSandboxManager", () => {
     expect(mgr).toBeDefined()
   })
 
+  // Neither reference provider enforces an allow-mode denylist, so the default must not carry one.
+  test("defaults to plain allow-mode network, with no denylist", async () => {
+    const appRoot = await mkdtemp(join(tmpdir(), "b4-sbx-cfg-"))
+    await writeFile(
+      join(appRoot, "b4.config.ts"),
+      [
+        `import { fakeSandbox } from "@b4run/sandbox/testing"`,
+        `const inner = fakeSandbox()`,
+        `export const seen = []`,
+        `export default { sandbox: { provider: { ...inner, acquire: (input) => { seen.push(input.policy); return inner.acquire(input) } } } }`,
+      ].join("\n"),
+      "utf8",
+    )
+    const mgr = await resolveSandboxManager(appRoot)
+    await mgr?.getForThread("t1", new AbortController().signal)
+    const { seen } = (await import(join(appRoot, "b4.config.ts"))) as {
+      seen: { network: unknown }[]
+    }
+    expect(seen.map((policy) => policy.network)).toEqual([{ mode: "allow" }])
+    await mgr?.releaseAll()
+  })
+
   test("builds a managed manager from a resolver in development mode", async () => {
     const appRoot = await writeResolverApp()
     const mgr = await resolveSandboxManager(appRoot)

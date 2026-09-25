@@ -114,9 +114,10 @@ const isB4CodedError = (error: unknown): error is Error & { readonly code: strin
  * /workspace. acquire() reuses only a keeper owned by this provider lifecycle
  * with a matching persisted identity; otherwise it replaces the keeper while
  * preserving the volume. release() removes the container but KEEPS the volume;
- * destroy() removes both. Network: deny → --network none (exact); allow →
- * bridge (denylist is best-effort and NOT enforced here — see the spec's
- * honest-scope note). Host env is never inherited; only policy.env is passed.
+ * destroy() removes both. Network: deny → --network none (exact, so an
+ * allowlist is ignored); allow → bridge with open egress (a denylist is
+ * ignored, so the cloud metadata endpoint stays reachable). Host env is never
+ * inherited; only policy.env is passed.
  */
 export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
   if (opts.images !== undefined && typeof opts.images !== "function")

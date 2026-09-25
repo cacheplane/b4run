@@ -1,5 +1,6 @@
 import { join } from "node:path"
 import { z } from "zod"
+import { DEFAULT_IMAGE_BUILD_TIMEOUT_MS, DEFAULT_MAX_IMAGE_BUILDS } from "./targets/images.js"
 
 const positiveInt = (name: string) =>
   z
@@ -60,6 +61,8 @@ const EnvSchema = z.object({
   FACTORY_MAX_CHANGED_BYTES: positiveInt("FACTORY_MAX_CHANGED_BYTES"),
   FACTORY_MAX_INTAKE_ATTEMPTS: positiveInt("FACTORY_MAX_INTAKE_ATTEMPTS"),
   FACTORY_MAX_CANDIDATE_ATTEMPTS: positiveInt("FACTORY_MAX_CANDIDATE_ATTEMPTS"),
+  FACTORY_MAX_IMAGE_BUILDS: positiveInt("FACTORY_MAX_IMAGE_BUILDS"),
+  FACTORY_IMAGE_BUILD_TIMEOUT_MS: positiveInt("FACTORY_IMAGE_BUILD_TIMEOUT_MS"),
   /** The drafter: its URL configures it. */
   FACTORY_DRAFTER_URL: httpUrl("FACTORY_DRAFTER_URL").optional(),
   FACTORY_DRAFTER_ROUTE: z.string().min(1).default(DEFAULT_DRAFTER_ROUTE),
@@ -92,6 +95,12 @@ export interface FactoryConfig {
   readonly drafter?: DrafterEndpoint
   readonly stateDir: string
   readonly registryPath: string
+  /** The host's image registry: `<stateDir>/images.sqlite`. */
+  readonly imagesPath: string
+  /** Image builds running at once across every target and pin. Default 1. */
+  readonly maxImageBuilds: number
+  /** One image build's limit, from when it starts. Default 30 minutes. */
+  readonly imageBuildTimeoutMs: number
   /** Where the approved bytes are written, and the bundle's destination identity. */
   readonly exportDir: string
   /** Content-addressed evidence store for candidate bytes and check output. */
@@ -138,6 +147,8 @@ const RETIRED: Readonly<Record<string, string>> = {
     "the controller reads the builder's threads over its URL (sandbox.workspaceRead), not through its app root",
   FACTORY_DRAFTER_APP_ROOT:
     "the controller reads the drafter's threads over its URL (sandbox.workspaceRead), not through its app root",
+  FACTORY_TARGETS_DIR:
+    "target.json is never written any more (images live in <FACTORY_STATE_DIR>/images.sqlite), so there is no copy to point at",
 }
 
 /**
@@ -186,6 +197,9 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
     ...(drafter !== undefined ? { drafter } : {}),
     stateDir: e.FACTORY_STATE_DIR,
     registryPath: join(e.FACTORY_STATE_DIR, "registry.sqlite"),
+    imagesPath: join(e.FACTORY_STATE_DIR, "images.sqlite"),
+    maxImageBuilds: e.FACTORY_MAX_IMAGE_BUILDS ?? DEFAULT_MAX_IMAGE_BUILDS,
+    imageBuildTimeoutMs: e.FACTORY_IMAGE_BUILD_TIMEOUT_MS ?? DEFAULT_IMAGE_BUILD_TIMEOUT_MS,
     exportDir: e.FACTORY_EXPORT_DIR ?? join(e.FACTORY_STATE_DIR, "exports"),
     artifactsDir: e.FACTORY_ARTIFACTS_DIR ?? join(e.FACTORY_STATE_DIR, "artifacts"),
     generatedTasksDir: generatedTasksDirFor(e.FACTORY_STATE_DIR),

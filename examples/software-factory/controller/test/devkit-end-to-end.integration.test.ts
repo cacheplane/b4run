@@ -5,6 +5,7 @@ import { openWorkspaceInstallationReader } from "@b4run/sqlite-storage"
 import { script } from "@b4run/testing"
 import { afterEach, expect, it } from "vitest"
 import { createFactory, type Factory } from "../src/lib/controller/factory.ts"
+import { type BoundImage, boundImageOf } from "../src/lib/controller/images.ts"
 import { handedSourceDigest } from "../src/lib/controller/source-digest.ts"
 import { taskPrompt } from "../src/lib/prompts.ts"
 import { createArtifactStore } from "../src/lib/storage/artifacts.ts"
@@ -205,7 +206,12 @@ it(
     // Both oracles ran: the package's own suite, and the controller's copy of the independent
     // checks, which were never in the read workspace to begin with.
     expect(evidence.receipt?.checks.map((check) => check.id)).toEqual(["visible", "independent"])
-    expect(evidence.receipt?.environmentIdentity).toBe(loadPolicy(TASK).environment.identity)
+    // Earned in the image the work order bound, and the policy digests that binding.
+    const bound = boundImageOf(factory.events(id))
+    expect(bound).toBeDefined()
+    expect(evidence.receipt?.environmentIdentity).toBe(
+      loadPolicy(TASK, (bound as BoundImage).image).environment.identity,
+    )
     expect(evidence.bundle?.digest).toBe(reviewed.bundleDigest)
     expect(evidence.bundle?.candidateDigest).toBe(evidence.candidate?.digest)
 

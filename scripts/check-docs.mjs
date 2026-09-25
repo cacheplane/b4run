@@ -2487,7 +2487,8 @@ const accuracyContracts = [
       "resources.timeoutMs",
       "code `124`",
       "--network none",
-      "best-effort",
+      "Neither the Docker nor the Kubernetes provider enforces `denylist`.",
+      "including the cloud metadata endpoint `169.254.169.254`",
       "preflight?():",
       "warnings?: readonly string[]",
       "npm install @b4run/sandbox",
@@ -3288,7 +3289,7 @@ for (const field of expectedB4ConfigSchemaPaths.filter((path) => !path.includes(
 }
 
 for (const requiredExampleText of [
-  '//   // network: { mode: "deny", allowlist: ["api.openai.com"] },',
+  '//   // network: { mode: "deny", allowlist: ["10.0.0.0/8"] }, // Kubernetes CIDRs; Docker ignores it',
   "//     // runAsNonRoot: { uid: 1000, gid: 1000 },",
 ]) {
   if (!completeConfigurationExample.includes(requiredExampleText)) {

@@ -2,7 +2,7 @@ import { agent } from "@b4run/sdk"
 
 /**
  * The drafter. It has the four built-in workspace tools and nothing else: no verifier, no
- * export, no gate. The issue, the list of prepared targets and any refusal note arrive in the
+ * export, no gate. The issue, the list of available targets and any refusal note arrive in the
  * user message (the controller's `intakePrompt`); this prompt carries only the rules that do
  * not change from one work order to the next.
  */

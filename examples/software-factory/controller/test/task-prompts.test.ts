@@ -51,23 +51,12 @@ function repo(): { root: string; pin: string } {
   return { root, pin: git("rev-parse", "HEAD") }
 }
 
-const image = {
-  localId: `sha256:${"a".repeat(64)}`,
-  platform: "linux/arm64",
-  baseManifestDigest: `sha256:${"b".repeat(64)}`,
-  dockerfileSha256: "c".repeat(64),
-  lockfileSha256: "d".repeat(64),
-  pnpmVersion: "10.33.0",
-}
-
-/** Two targets against one pin: `ready` is prepared, `raw` has no image yet. */
+/** Two targets against one pin, each with its recipe (no image is ever recorded in a target). */
 function catalogs(pin: string): { targetsDir: string; tasksDir: string } {
   const targetsDir = temporary("factory-prompts-targets-")
-  for (const [id, prepared] of [
-    ["ready", true],
-    ["raw", false],
-  ] as const) {
+  for (const id of ["ready", "raw"]) {
     mkdirSync(join(targetsDir, id))
+    writeFileSync(join(targetsDir, id, "Dockerfile"), "FROM scratch\n")
     writeFileSync(
       join(targetsDir, id, "target.json"),
       JSON.stringify({
@@ -76,7 +65,7 @@ function catalogs(pin: string): { targetsDir: string; tasksDir: string } {
         root: ".",
         capture: { include: ["a.txt"] },
         snapshotIgnore: [],
-        ...(prepared ? { images: { [pin]: image } } : {}),
+        baseImage: `node:24-slim@sha256:${"e".repeat(64)}`,
         imageContext: ["package.json"],
         lockfile: "pnpm-lock.yaml",
         imageAssertResolves: [],
@@ -126,12 +115,6 @@ describe("promptFor", () => {
     const { root, pin } = repo()
     const options: CatalogOptions = { ...catalogs(pin), repositoryRoot: root }
     expect(promptFor("served", options)).toMatch(/Run the tests with `npm test`\./)
-  })
-
-  it("throws for a task whose target is unprepared, naming why", () => {
-    const { root, pin } = repo()
-    const options: CatalogOptions = { ...catalogs(pin), repositoryRoot: root }
-    expect(() => promptFor("unprepared", options)).toThrow(/has not been prepared/)
   })
 
   it("throws when there is no catalog at all", () => {
@@ -195,10 +178,13 @@ describe("taskPrompt's rules", () => {
   })
 })
 
-describe("the controller over a partly unprepared catalog", () => {
+describe("the controller over a partly unloadable catalog", () => {
   it("boots, creates a work order for the task it can serve and refuses the one it cannot", async () => {
     const { root, pin } = repo()
     const { tasksDir, targetsDir } = catalogs(pin)
+    // A target that no longer parses (a bad edit): its task cannot be loaded. An image the host
+    // has not built is not such a case any more; prompts load a task without one.
+    writeFileSync(join(targetsDir, "raw", "target.json"), "{")
     const dir = temporary("factory-prompts-state-")
     worker = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only" })
     const unavailable: Array<[string, string]> = []
@@ -223,13 +209,13 @@ describe("the controller over a partly unprepared catalog", () => {
           unavailable.push([String(payload.id), String(payload.error)])
       },
     })
-    // Nothing is loaded at boot: the unprepared sibling is only reported when it is named.
+    // Nothing is loaded at boot: the broken sibling is only reported when it is named.
     expect(unavailable).toEqual([])
     expect((await factory.create({ taskId: "served" })).id).toMatch(/\S/)
     await expect(factory.create({ taskId: "unprepared" })).rejects.toThrow(
       /Unknown task unprepared/,
     )
-    expect(unavailable).toEqual([["unprepared", expect.stringMatching(/has not been prepared/)]])
+    expect(unavailable).toEqual([["unprepared", expect.stringMatching(/JSON/)]])
   })
 
   it("refuses, rather than throws, a dispatch whose task stopped loading after create", async () => {
@@ -255,15 +241,14 @@ describe("the controller over a partly unprepared catalog", () => {
       promptCatalog: { tasksDir, targetsDir, repositoryRoot: root },
     })
     const { id } = await factory.create({ taskId: "served" })
-    // The target loses its image between create and dispatch: an upgrade, or a re-prepare.
+    // The target stops loading between create and dispatch: a bad edit of its manifest.
     const manifestPath = join(targetsDir, "ready", "target.json")
     const prepared = readFileSync(manifestPath, "utf8")
-    const { images: _images, ...unprepared } = JSON.parse(prepared)
-    writeFileSync(manifestPath, JSON.stringify(unprepared))
+    writeFileSync(manifestPath, "{")
     expect(await factory.dispatch(id)).toMatchObject({
       ok: false,
       state: "received",
-      message: expect.stringMatching(/^Unknown task served: .*has not been prepared/),
+      message: expect.stringMatching(/^Unknown task served: /),
     })
     expect(factory.show(id)?.state).toBe("received")
     // Refused before the key is spent: the lookup is where a target's pin is fetched, and a

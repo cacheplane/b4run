@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process"
 import { posix } from "node:path"
 import type { WorkOrderRow } from "../domain/work-order.js"
-import { commitExists, loadTask, repositoryRoot } from "../targets/catalog.js"
+import { commitExists, loadTaskRecipe, repositoryRoot } from "../targets/catalog.js"
 import type { DiffBase, PinnedFile } from "./operator-review.js"
 
 /** The first line of an error, for a reason shown beside a whole file. */
@@ -23,7 +23,7 @@ export function pinDiffBase(row: WorkOrderRow): DiffBase {
   let root: string
   let defect: boolean
   try {
-    const task = loadTask(row.taskId)
+    const task = loadTaskRecipe(row.taskId)
     pin = row.pin ?? task.target.pin
     root = task.target.root
     defect = task.defectPatch !== null

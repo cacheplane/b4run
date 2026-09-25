@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
@@ -10,22 +10,23 @@ import {
 } from "../src/lib/controller/intake.ts"
 import type { FactoryEvent, WorkOrderRow } from "../src/lib/domain/work-order.ts"
 import {
+  availableTargets,
   intakePrompt,
-  preparedTargets,
   ROOT_RULE,
   targetLine,
   targetNotes,
 } from "../src/lib/prompts.ts"
 import {
   environmentIdentity,
-  imageTag,
   loadTarget,
   loadTargetIds,
+  loadTargetRecipe,
   TargetSchema,
   targetsDir,
   tasksDir,
 } from "../src/lib/targets/catalog.ts"
-import { shippedPin } from "./temp-repo.ts"
+import { imageTag } from "../src/lib/targets/images.ts"
+import { repositoryHead, shippedPin } from "./temp-repo.ts"
 
 const PIN = shippedPin("devkit")
 
@@ -207,37 +208,26 @@ describe("intakePrompt", () => {
     expect(prompt.indexOf(ISSUE)).toBeLessThan(prompt.indexOf(note))
   })
 
-  it("lists only the targets prepared at the work order's pin, and says so", () => {
-    const dir = mkdtempSync(join(tmpdir(), "factory-prompt-targets-"))
+  it("lists the targets whose recipe applies at the work order's pin, image or not, and says so", () => {
+    // PIN (the shipped devkit pin) holds both targets' paths; HEAD no longer holds cli-flags'
+    // fixture, which moved when the controller split from the server.
+    const head = repositoryHead().pin
+    const atPin = availableTargets(PIN)
+    expect(atPin).toContain(targetLine(loadTargetRecipe("devkit", { pin: PIN })))
+    expect(atPin).toContain(targetLine(loadTargetRecipe("cli-flags", { pin: PIN })))
+    const atHead = availableTargets(head)
+    expect(atHead.some((line) => line.startsWith("- `devkit`"))).toBe(true)
+    expect(atHead.some((line) => line.startsWith("- `cli-flags`"))).toBe(false)
+    const prompt = intakePrompt({ pin: head, issueText: ISSUE })
+    expect(prompt).toContain(`checked out at ${head}`)
+    expect(prompt).toContain("Available targets, those whose files exist at that commit")
+    const empty = mkdtempSync(join(tmpdir(), "factory-prompt-targets-"))
     try {
-      // devkit prepared at PIN only; cli-flags prepared nowhere.
-      for (const id of ["cli-flags", "devkit"]) {
-        const shipped = JSON.parse(readFileSync(join(targetsDir, id, "target.json"), "utf8"))
-        const { images: _images, ...rest } = shipped
-        mkdirSync(join(dir, id))
-        writeFileSync(
-          join(dir, id, "target.json"),
-          JSON.stringify(
-            id === "devkit" ? { ...rest, images: { [PIN]: shipped.images[PIN] } } : rest,
-          ),
-        )
-      }
-      expect(preparedTargets(PIN, { targetsDir: dir })).toEqual([targetLine(loadTarget("devkit"))])
-      expect(preparedTargets(PIN, { targetsDir: dir })[0]).toContain(
-        "look like `packages/devkit/src/...`",
-      )
-      const elsewhere = "1".repeat(40)
-      expect(preparedTargets(elsewhere, { targetsDir: dir })).toEqual([])
-      const prompt = intakePrompt({
-        pin: elsewhere,
-        issueText: ISSUE,
-        catalog: { targetsDir: dir },
-      })
-      expect(prompt).toContain(`checked out at ${elsewhere}`)
-      expect(prompt).toContain("those prepared at that commit")
-      expect(prompt).toContain("- (none prepared)")
+      expect(
+        intakePrompt({ pin: head, issueText: ISSUE, catalog: { targetsDir: empty } }),
+      ).toContain("- (none available)")
     } finally {
-      rmSync(dir, { recursive: true, force: true })
+      rmSync(empty, { recursive: true, force: true })
     }
   })
 })

@@ -113,7 +113,7 @@ A workspace gives file operations a configured root directory. Permission checks
 
 A **sandbox** provides a separate execution environment for filesystem and shell work. B4.run has Docker and Kubernetes providers.
 
-The Docker provider uses a non-root user, drops Linux capabilities, prevents privilege escalation and makes the root filesystem read-only by default. Network restrictions depend on the selected mode. Deny-network blocks egress, while an allow-mode host denylist is best-effort. Kubernetes network enforcement depends on a policy-capable network plugin.
+The Docker provider uses a non-root user, drops Linux capabilities, prevents privilege escalation and makes the root filesystem read-only by default. Network restrictions depend on the selected mode. Deny-network blocks egress, while allow mode leaves egress open and does not enforce a host denylist. Kubernetes network enforcement depends on a policy-capable network plugin.
 
 Sandbox lifecycle matters too. `release()` drops warm compute but keeps the thread's volume and workspace. `destroy()` removes both the compute and the persisted workspace data, so a conversation that continues later loses its files.
 

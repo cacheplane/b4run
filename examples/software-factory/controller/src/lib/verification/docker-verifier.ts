@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto"
 import { dockerSandbox } from "@b4run/sandbox"
+import { requireImages } from "../controller/images.js"
 import type { Receipt } from "../domain/work-order.js"
 import type { ArtifactStore } from "../storage/artifacts.js"
-import { environmentIdentity, imageTag, loadTask } from "../targets/catalog.js"
+import { environmentIdentity, loadTask } from "../targets/catalog.js"
 import { gradeSuite, type SuiteKind, type SuiteSession } from "./grade-suite.js"
 import { assembleReceipt, deadlinePlan, evidenceRef, type ReceiptPlan } from "./receipt.js"
 import type { Verifier, VerifyInput } from "./verifier.js"
@@ -15,6 +16,16 @@ export interface DockerVerifierOptions {
   readonly stagingRoot: string
   /** Overrides the target's own deadline; only so a test can prove the deadline fires. */
   readonly deadlineMs?: number
+  /** Does the daemon hold an image id? The configured registry's `present` when absent. */
+  readonly present?: (localId: string, signal: AbortSignal) => Promise<boolean>
+}
+
+/** The work order's bound image is gone from the daemon. */
+export class ImageGoneError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "ImageGoneError"
+  }
 }
 
 /**
@@ -43,12 +54,19 @@ export function createDockerVerifier(
 ): Verifier {
   return {
     async verify(input: VerifyInput, signal: AbortSignal): Promise<Receipt> {
-      const task = loadTask(input.taskId)
+      const task = loadTask(input.taskId, { image: input.image })
       const target = task.target
+      const present =
+        options.present ?? ((localId, signal) => requireImages().present(localId, signal))
+      if (!(await present(input.image.localId, signal)))
+        throw new ImageGoneError(
+          `The work order is bound to image ${input.image.localId} (target ${target.id}), which this host no longer holds: its verdict cannot be earned in the environment it is bound to`,
+        )
       const deadlineMs = options.deadlineMs ?? target.resources.verifierDeadlineMs
+      // By id, never by tag: a tag names whatever was built or tagged last.
       const provider = dockerSandbox({
         scope: "software-factory-verifier",
-        image: imageTag(target),
+        image: input.image.localId,
       })
       const identity = environmentIdentity(target)
 

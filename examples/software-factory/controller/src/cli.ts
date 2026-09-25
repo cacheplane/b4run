@@ -7,8 +7,14 @@ import { parseArgs } from "node:util"
 import { captureBuilderHandoff } from "./lib/builder-handoff.js"
 import { type ControllerClient, ControllerHttpError, createControllerClient } from "./lib/client.js"
 import { generatedTasksDirFor } from "./lib/config.js"
+import { dispatchPreparing, imageWaitBoundMs } from "./lib/controller/images.js"
 import type { WorkOrderState } from "./lib/domain/states.js"
-import { COMMIT_PATTERN, DIGEST_PATTERN, type WorkOrderRow } from "./lib/domain/work-order.js"
+import {
+  COMMIT_PATTERN,
+  DIGEST_PATTERN,
+  type FactoryEvent,
+  type WorkOrderRow,
+} from "./lib/domain/work-order.js"
 import {
   execFileExec,
   fetchIssue,
@@ -20,7 +26,12 @@ import { exportReview, intakeReview, type OperatorReview } from "./lib/review/op
 import { pinDiffBase } from "./lib/review/pin-diff-base.js"
 import type { RouteOutcome } from "./lib/routes/outcome.js"
 import { createArtifactStore } from "./lib/storage/artifacts.js"
-import { configureCatalog, ensurePin, loadTask, repositoryRoot } from "./lib/targets/catalog.js"
+import {
+  configureCatalog,
+  ensurePin,
+  loadTaskRecipe,
+  repositoryRoot,
+} from "./lib/targets/catalog.js"
 
 const USAGE = `factory <command> [options]
 
@@ -96,6 +107,10 @@ row in the registry (FACTORY_STATE_DIR) until it leaves its active state, for up
 active budget plus 10 minutes, then answers from the row with the same exit codes. The row is
 read before the request is sent: a row whose revision never moves past that reading within a
 minute is a request that did not reach the controller, and the command says so and exits 1.
+A dispatch that first builds its target's image (the first time this host needs it) is followed
+through the build: its journal lines are the arrival, and dispatch_refused is its end when it
+refuses.
+
 retry returns a work order a candidate failure blocked (unexpected_interrupt, scope_violation,
 encoding_violation, candidate_rejected, verification_failed, verification_inconclusive) to
 received, while it has candidate attempts left (FACTORY_MAX_CANDIDATE_ATTEMPTS, fixed at create,
@@ -255,7 +270,14 @@ interface FollowEvents {
   /** Written as the command starts: the request arrived. */
   readonly arrived: string
   /** Written when the command refuses: it is over, whatever the row's state. */
-  readonly refused: string
+  readonly refused?: string
+  /**
+   * Work the command does before its row moves (a dispatch's image build): while it holds of
+   * the events after the mark, the row is not settled however it looks, and the follow's
+   * deadline is extended by `workingGraceMs` of those events.
+   */
+  readonly working?: (events: readonly FactoryEvent[]) => boolean
+  readonly workingGraceMs?: (events: readonly FactoryEvent[]) => number
 }
 
 /** Connection errors that mean nothing was sent: there is no work to wait for. */
@@ -381,6 +403,8 @@ async function followRow(
     type === undefined
       ? undefined
       : read((reader) => reader.events(id)).find((e) => e.seq > before.seq && e.type === type)
+  const after = () => read((reader) => reader.events(id)).filter((e) => e.seq > before.seq)
+  const working = () => events?.working?.(after()) ?? false
   const moved = (r: WorkOrderRow) =>
     r.revision > before.revision ||
     (!active.has(before.state) && active.has(r.state)) ||
@@ -397,13 +421,26 @@ async function followRow(
     }
   const row = await pollRow(
     id,
-    (r) => r !== null && (!active.has(r.state) || journalled(events?.refused) !== undefined),
-    (r) => (r?.maxActiveMs ?? 0) + POLL_GRACE_MS,
+    (r) =>
+      r !== null &&
+      ((!active.has(r.state) && !working()) || journalled(events?.refused) !== undefined),
+    (r) => (r?.maxActiveMs ?? 0) + POLL_GRACE_MS + (events?.workingGraceMs?.(after()) ?? 0),
     1_000,
   )
   if (!row) throw new Error(`Unknown work order ${id}`)
   const refusal = journalled(events?.refused)
-  if (refusal !== undefined && active.has(row.state))
+  if (refusal === undefined && working()) {
+    const waited = (row.maxActiveMs ?? 0) + POLL_GRACE_MS + (events?.workingGraceMs?.(after()) ?? 0)
+    return {
+      ok: false,
+      state: row.state,
+      message: `Still preparing its image after ${Math.round(waited / 60_000)} minutes (read from the registry after the request ended); run show ${id}`,
+      row,
+    }
+  }
+  // A dispatch refused after its image build leaves the row where it found it (`received`,
+  // not active): the refusal is the answer there too, not a row that "settled".
+  if (refusal !== undefined && (active.has(row.state) || row.state === before.state))
     return {
       ok: false,
       state: row.state,
@@ -795,7 +832,7 @@ async function main(argv: string[]): Promise<number> {
       ? resolve(stateDir)
       : mkdtempSync(join(tmpdir(), "factory-captures-"))
     try {
-      const { handoff, workspace } = await captureBuilderHandoff(loadTask(values.task), {
+      const { handoff, workspace } = await captureBuilderHandoff(loadTaskRecipe(values.task), {
         captureRoot,
         ...(workOrder !== undefined ? { workOrderId: workOrder } : {}),
       })
@@ -839,6 +876,14 @@ async function main(argv: string[]): Promise<number> {
           (controller) => controller.dispatch(id, values.key),
           DISPATCH_ACTIVE,
           DISPATCH_SUCCESS,
+          {
+            arrived: "image_prepare_started",
+            refused: "dispatch_refused",
+            working: dispatchPreparing,
+            // The controller journals each wait's own bound (queue and build, from ITS
+            // configuration), so the CLI never guesses the controller's settings.
+            workingGraceMs: imageWaitBoundMs,
+          },
         )
         print(outcome)
         return outcome.ok && outcome.row && DISPATCH_SUCCESS.has(outcome.row.state) ? 0 : 1

@@ -2,20 +2,32 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { createFactory, type Factory, type FactoryOptions } from "../src/lib/controller/factory.ts"
+import {
+  CommandInFlightError,
+  createFactory,
+  type Factory,
+  type FactoryOptions,
+} from "../src/lib/controller/factory.ts"
+import { dispatchPreparing } from "../src/lib/controller/images.ts"
 import { ACTIVE_STATES } from "../src/lib/domain/states.ts"
 import { taskPrompt } from "../src/lib/prompts.ts"
+import { openRegistry } from "../src/lib/registry/db.ts"
+import { createWorkOrderStore } from "../src/lib/registry/work-orders.ts"
 import {
   configureCatalog,
   loadTask,
+  loadTaskRecipe,
   resetCatalogForTests,
   tasksDir,
 } from "../src/lib/targets/catalog.ts"
+import { type ImageRegistry, openImageRegistry } from "../src/lib/targets/images.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
+import { fakeImageBuilder } from "./fake-image-builder.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
 import { fakeBuilderHandoff, fakeWorkerMap } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
+import { useImages } from "./static-images.ts"
 import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
 let dir: string
@@ -24,6 +36,8 @@ let generated: string | undefined
 let fake: FakeWorker
 let factory: Factory
 let reader: FakeWorkspaceReader
+/** The tag each builder handoff capture was asked to name (`(none)` when none was bound). */
+let handoffTags: string[] = []
 
 const REPAIRED = "export const fixed = true\n"
 
@@ -63,7 +77,10 @@ async function boot(
         reader,
       },
     }),
-    captureBuilderHandoff: fakeBuilderHandoff,
+    captureBuilderHandoff: async (input) => {
+      handoffTags.push(input.tag ?? "(none)")
+      return fakeBuilderHandoff(input)
+    },
     exportDir: join(dir, "out"),
     artifactsDir: join(dir, "artifacts"),
     verifier: createFakeVerifier({ verdict: "pass" }),
@@ -71,8 +88,47 @@ async function boot(
     ...overrides,
   })
 }
+
+/** Append one event to the journal directly, as an earlier phase (or a crash) left it. */
+function journal(id: string, type: string, payload: Record<string, unknown>): void {
+  const registry = openRegistry(join(dir, "registry.sqlite"))
+  createWorkOrderStore(registry.db).appendEvent(id, type, payload, new Date().toISOString())
+  registry.close()
+}
+
+/** A registry over a fake builder, configured process-wide for this test (the factory builds through it). */
+function fakeImages(): {
+  builder: ReturnType<typeof fakeImageBuilder>
+  registry: ImageRegistry
+  restore(): void
+} {
+  const builder = fakeImageBuilder()
+  const registry = openImageRegistry({
+    path: join(dir, "images.sqlite"),
+    builder,
+    platform: "linux/arm64",
+  })
+  const restore = useImages(registry)
+  return {
+    builder,
+    registry,
+    restore: () => {
+      restore()
+      registry.close()
+    },
+  }
+}
+const eventsOf = (id: string, type: string) => factory.events(id).filter((e) => e.type === type)
+async function until(condition: () => boolean, ms = 10_000): Promise<void> {
+  const started = Date.now()
+  while (!condition()) {
+    if (Date.now() - started > ms) throw new Error("condition never held")
+    await new Promise((r) => setTimeout(r, 10))
+  }
+}
 afterEach(async () => {
   resetCatalogForTests()
+  handoffTags = []
   await factory?.close()
   await fake?.close()
   if (dir) rmSync(dir, { recursive: true, force: true })
@@ -124,6 +180,7 @@ describe("create and dispatch", () => {
       .map((e) => `${e.type}:${String(e.payload.event ?? "")}`)
     expect(types).toEqual([
       "created:",
+      "image_bound:",
       "builder_source_staged:",
       "thread_created:",
       "transition:dispatch_committed",
@@ -243,6 +300,8 @@ describe("create and dispatch", () => {
       type: "budget_below_verifier_deadline",
       payload: { phase: "dispatch", ...shortfall },
     })
+    // Nothing was built for this dispatch, so its refusal writes nothing new (D11).
+    expect(eventsOf(id, "dispatch_refused")).toHaveLength(0)
     expect(factory.show(id)?.state).toBe("received")
     expect(fake.requests.some((r) => r.path === "/threads")).toBe(false)
     // A small target's task under the same budget is not warned about.
@@ -366,5 +425,326 @@ describe("generated tasks", () => {
     const created = await factory.create({ taskId: "wo-fedcba9876543210" })
     expect(created.state).toBe("received")
     expect(await factory.dispatch(created.id)).toMatchObject({ ok: true, state: "dispatched" })
+  })
+})
+
+describe("the task's image at dispatch", () => {
+  it("builds it while the row waits in received, binds it, and hands the builder its tag", async () => {
+    await boot()
+    const images = fakeImages()
+    images.builder.hold()
+    try {
+      const { id } = await factory.create({ taskId: "cli-flags" })
+      const dispatching = factory.dispatch(id)
+      await until(() => eventsOf(id, "image_prepare_started").length === 1)
+      expect(factory.show(id)?.state).toBe("received")
+      images.builder.release()
+      expect(await dispatching).toEqual({ ok: true, state: "dispatched", message: "Dispatched" })
+      expect(images.builder.requests).toHaveLength(1)
+      const [bound] = eventsOf(id, "image_bound")
+      expect(bound?.payload).toMatchObject({ targetId: "cli-flags" })
+      const types = factory.events(id).map((e) => e.type)
+      expect(types.indexOf("image_bound")).toBeLessThan(types.indexOf("builder_source_staged"))
+      expect(handoffTags).toEqual([bound?.payload.tag])
+    } finally {
+      images.builder.release()
+      images.restore()
+    }
+  })
+
+  it("refuses a failed build before the key is spent, and builds again on the next dispatch", async () => {
+    await boot()
+    const images = fakeImages()
+    try {
+      const { id } = await factory.create({ taskId: "cli-flags" })
+      images.builder.failNext("docker build failed", "#7 ERROR: failed to solve\n")
+      const refused = await factory.dispatch(id)
+      expect(refused).toMatchObject({ ok: false, state: "received" })
+      expect(refused.message).toMatch(
+        /^the image of target cli-flags at [0-9a-f]{40} could not be built: .*docker build failed \(build log: artifact [0-9a-f]{64}\)$/,
+      )
+      const [journalled] = eventsOf(id, "dispatch_refused")
+      expect(journalled?.payload).toEqual({ message: refused.message })
+      expect(fake.requests.filter((r) => r.path === "/threads")).toHaveLength(0)
+      expect(await factory.dispatch(id)).toMatchObject({ ok: true, state: "dispatched" })
+      expect(images.builder.requests).toHaveLength(2)
+    } finally {
+      images.restore()
+    }
+  })
+
+  it("journals the refusal, with the caller's key, when a dispatch throws after its build", async () => {
+    // No builder serves the target: `workerFor` throws once the image is bound.
+    await boot({}, { workers: fakeWorkerMap({}) })
+    const images = fakeImages()
+    try {
+      const { id } = await factory.create({ taskId: "cli-flags" })
+      await expect(factory.dispatch(id, "dispatch-key")).rejects.toThrow(/no worker for target/)
+      expect(eventsOf(id, "image_prepared")).toHaveLength(1)
+      const [journalled] = eventsOf(id, "dispatch_refused")
+      expect(journalled?.payload).toEqual({
+        message: expect.stringContaining("no worker for target"),
+        operationKey: "dispatch-key",
+      })
+    } finally {
+      images.restore()
+    }
+  })
+
+  it("journals no refusal for a concurrent dispatch that joined the build and lost the key", async () => {
+    await boot()
+    const images = fakeImages()
+    images.builder.hold()
+    try {
+      const { id } = await factory.create({ taskId: "cli-flags" })
+      const first = factory.dispatch(id)
+      const second = factory.dispatch(id)
+      await until(() => eventsOf(id, "image_prepare_started").length === 2)
+      images.builder.release()
+      const settled = await Promise.allSettled([first, second])
+      const fulfilled = settled.filter((r) => r.status === "fulfilled")
+      const rejected = settled.filter((r) => r.status === "rejected")
+      expect(fulfilled.map((r) => r.value)).toEqual([
+        { ok: true, state: "dispatched", message: "Dispatched" },
+      ])
+      expect(rejected).toHaveLength(1)
+      expect(rejected[0]?.reason).toBeInstanceOf(CommandInFlightError)
+      // The key holder is still running: its end is its own to journal, not the loser's.
+      expect(eventsOf(id, "dispatch_refused")).toHaveLength(0)
+    } finally {
+      images.builder.release()
+      images.restore()
+    }
+  })
+
+  it("abandons the build when the work order is cancelled while it waits", async () => {
+    await boot()
+    const images = fakeImages()
+    images.builder.hold()
+    try {
+      const { id } = await factory.create({ taskId: "cli-flags" })
+      const dispatching = factory.dispatch(id)
+      await until(() => eventsOf(id, "image_prepare_started").length === 1)
+      expect((await factory.cancel(id)).ok).toBe(true)
+      expect(await dispatching).toMatchObject({ ok: false, state: "cancelled" })
+      await until(() => images.builder.aborted === 1)
+    } finally {
+      images.builder.release()
+      images.restore()
+    }
+  })
+
+  it("cancels the work order when the caller's signal aborts during the build", async () => {
+    await boot()
+    const images = fakeImages()
+    images.builder.hold()
+    try {
+      const { id } = await factory.create({ taskId: "cli-flags" })
+      const route = new AbortController()
+      const dispatching = factory.dispatch(id, undefined, { signal: route.signal })
+      await until(() => eventsOf(id, "image_prepare_started").length === 1)
+      route.abort(new Error("the runtime cancelled the dispatch run"))
+      expect(await dispatching).toMatchObject({ ok: false, state: "cancelled" })
+      await until(() => images.builder.aborted === 1)
+      const cancel = factory
+        .events(id)
+        .find((e) => e.type === "transition" && e.payload.event === "cancel")
+      expect(cancel?.payload.operationKey).toBe(`cancel:${id}:aborted-dispatch`)
+    } finally {
+      images.builder.release()
+      images.restore()
+    }
+  })
+
+  it("keeps a binding whose image the daemon holds, and refuses one it no longer holds", async () => {
+    await boot()
+    const images = fakeImages()
+    try {
+      const { id } = await factory.create({ taskId: "cli-flags" })
+      const recipe = loadTaskRecipe("cli-flags").target
+      const built = await images.registry.ensure(recipe, { signal: AbortSignal.timeout(5_000) })
+      // Bound earlier to an image a later build of the same key superseded, still on the daemon.
+      const earlier = { ...built.image, localId: `sha256:${"7".repeat(64)}` }
+      images.builder.daemon.set(earlier.localId, [])
+      journal(id, "image_bound", {
+        targetId: "cli-flags",
+        pin: recipe.pin,
+        key: built.key,
+        tag: built.tag,
+        image: earlier,
+      })
+      expect(await factory.dispatch(id)).toMatchObject({ ok: true, state: "dispatched" })
+      expect(images.builder.requests).toHaveLength(1)
+      expect(eventsOf(id, "image_bound")).toHaveLength(1)
+
+      const { id: other } = await factory.create({ taskId: "cli-flags", operationKey: "other" })
+      const gone = { ...built.image, localId: `sha256:${"6".repeat(64)}` }
+      journal(other, "image_bound", {
+        targetId: "cli-flags",
+        pin: recipe.pin,
+        key: built.key,
+        tag: built.tag,
+        image: gone,
+      })
+      const refused = await factory.dispatch(other)
+      expect(refused).toMatchObject({ ok: false, state: "received" })
+      expect(refused.message).toMatch(
+        /is bound to image sha256:6{64} .* no longer holds it: .* Cancel it and create a new work order$/,
+      )
+      expect(eventsOf(other, "image_changed")[0]?.payload).toEqual({
+        bound: gone.localId,
+        boundKey: built.key,
+        reason: "gone",
+      })
+    } finally {
+      images.restore()
+    }
+  })
+
+  it("writes no restart marker when reconciled while its dispatch waits on the build", async () => {
+    await boot()
+    const images = fakeImages()
+    images.builder.hold()
+    try {
+      const { id } = await factory.create({ taskId: "cli-flags" })
+      const dispatching = factory.dispatch(id)
+      await until(() => eventsOf(id, "image_prepare_started").length === 1)
+      // A supervisor's `/reconcile` while this controller is live and the build is held.
+      await factory.reconcileWorkOrder(id)
+      expect(eventsOf(id, "image_prepare_aborted")).toHaveLength(0)
+      images.builder.release()
+      expect(await dispatching).toEqual({ ok: true, state: "dispatched", message: "Dispatched" })
+      expect(eventsOf(id, "image_prepare_aborted")).toHaveLength(0)
+    } finally {
+      images.builder.release()
+      images.restore()
+    }
+  })
+
+  it("writes the restart marker once for a dispatch that died after its build ended", async () => {
+    await boot()
+    const images = fakeImages()
+    try {
+      const { id } = await factory.create({ taskId: "cli-flags" })
+      const need = { targetId: "cli-flags", pin: loadTaskRecipe("cli-flags").target.pin }
+      // What a controller killed after the build failed, before it journalled the refusal, left.
+      journal(id, "image_prepare_started", {
+        ...need,
+        key: "a".repeat(64),
+        shared: false,
+        deadlineMs: 1,
+      })
+      journal(id, "image_prepare_failed", {
+        ...need,
+        error: "docker build failed",
+        logDigest: null,
+      })
+      expect(dispatchPreparing(factory.events(id))).toBe(true)
+      await factory.reconcileWorkOrder(id)
+      await factory.reconcileWorkOrder(id)
+      expect(eventsOf(id, "image_prepare_aborted").map((e) => e.payload)).toEqual([
+        { ...need, reason: "restart" },
+      ])
+      expect(dispatchPreparing(factory.events(id))).toBe(false)
+    } finally {
+      images.restore()
+    }
+  })
+
+  it("writes the restart marker once for a dispatch that died after its binding", async () => {
+    await boot()
+    const images = fakeImages()
+    try {
+      const { id } = await factory.create({ taskId: "cli-flags" })
+      const recipe = loadTaskRecipe("cli-flags").target
+      const built = await images.registry.ensure(recipe, { signal: AbortSignal.timeout(5_000) })
+      const need = { targetId: "cli-flags", pin: recipe.pin }
+      // What a controller killed after the build and the binding, before the transition, left.
+      journal(id, "image_prepare_started", {
+        ...need,
+        key: built.key,
+        shared: false,
+        deadlineMs: 1,
+      })
+      journal(id, "image_prepared", { ...need, key: built.key, tag: built.tag })
+      journal(id, "image_bound", { ...need, key: built.key, tag: built.tag, image: built.image })
+      expect(dispatchPreparing(factory.events(id))).toBe(true)
+      await factory.reconcileWorkOrder(id)
+      await factory.reconcileWorkOrder(id)
+      expect(eventsOf(id, "image_prepare_aborted").map((e) => e.payload)).toEqual([
+        { ...need, reason: "restart" },
+      ])
+      expect(dispatchPreparing(factory.events(id))).toBe(false)
+    } finally {
+      images.restore()
+    }
+  })
+
+  it("refuses, before the key, a binding for another pin than the task's target now names", async () => {
+    await boot()
+    const images = fakeImages()
+    try {
+      const { id } = await factory.create({ taskId: "cli-flags" })
+      const recipe = loadTaskRecipe("cli-flags").target
+      const built = await images.registry.ensure(recipe, { signal: AbortSignal.timeout(5_000) })
+      const earlierPin = "1".repeat(40)
+      // Bound at an earlier default pin; the target has moved on since (a retried shipped task).
+      journal(id, "image_bound", {
+        targetId: "cli-flags",
+        pin: earlierPin,
+        key: built.key,
+        tag: built.tag,
+        image: built.image,
+      })
+      const refused = await factory.dispatch(id, "dispatch-moved")
+      expect(refused).toMatchObject({ ok: false, state: "received" })
+      expect(refused.message).toMatch(/Cancel it and create a new work order$/)
+      expect(eventsOf(id, "image_changed")[0]?.payload).toEqual({
+        reason: "target_moved",
+        bound: { targetId: "cli-flags", pin: earlierPin },
+        task: { targetId: "cli-flags", pin: recipe.pin },
+        phase: "dispatch",
+      })
+      expect(fake.requests.filter((r) => r.path === "/threads")).toHaveLength(0)
+      expect(handoffTags).toEqual([])
+      // Nothing spent: the key holds no outcome, so it is free for the dispatch after a fix.
+      expect(factory.show(id)?.candidateAttempts).toBe(0)
+    } finally {
+      images.restore()
+    }
+  })
+
+  it("refuses when the daemon cannot say whether it holds the bound image", async () => {
+    await boot()
+    const images = fakeImages()
+    try {
+      const { id } = await factory.create({ taskId: "cli-flags" })
+      const recipe = loadTaskRecipe("cli-flags").target
+      const built = await images.registry.ensure(recipe, { signal: AbortSignal.timeout(5_000) })
+      journal(id, "image_bound", {
+        targetId: "cli-flags",
+        pin: recipe.pin,
+        key: built.key,
+        tag: built.tag,
+        image: built.image,
+      })
+      images.builder.inspect = async () => {
+        throw new Error("Cannot connect to the Docker daemon")
+      }
+      const refused = await factory.dispatch(id)
+      expect(refused).toMatchObject({ ok: false, state: "received" })
+      expect(refused.message).toMatch(/Cannot connect to the Docker daemon/)
+      expect(fake.requests.filter((r) => r.path === "/threads")).toHaveLength(0)
+
+      // The caller's signal already aborted: refused, and the abort cancels the work order.
+      const route = new AbortController()
+      route.abort(new Error("the runtime cancelled the dispatch run"))
+      expect(await factory.dispatch(id, undefined, { signal: route.signal })).toMatchObject({
+        ok: false,
+        state: "cancelled",
+      })
+    } finally {
+      images.restore()
+    }
   })
 })

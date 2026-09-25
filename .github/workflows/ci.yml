@@ -433,13 +433,12 @@ jobs:
       - name: Software factory controller-owned verification
         # The software-factory example runs its builder and its verifier in the
         # image of the TARGET a task names, not in code-fixer's fixture image.
-        # `target:prepare <id>` pulls the pinned base, builds
-        # `targets/<id>/Dockerfile` for this runner's platform (linux/amd64),
-        # asserts the target's modules resolve inside it, and rewrites
-        # `targets/<id>/target.json` with the runner's own local image id. That
-        # manifest diff is expected here and nothing in this job asserts a clean
-        # tree. `cli-flags` and `devkit` are prepared because the Docker lanes
-        # here cover them. The `cli` target is not: its lane
+        # Nothing prepares those images here: `test:sandbox`'s global setup
+        # builds `cli-flags` and `devkit` at their default pins through the same
+        # image registry the controller uses (for this runner's platform,
+        # linux/amd64, on the base each target pins by digest), and a lane that
+        # needs another pin builds it when it first needs it, as the controller
+        # does. Nothing writes the working tree. The `cli` target is not built: its lane
         # (`target-cli.integration.test.ts`) is opt-in (`FACTORY_TEST_CLI_TARGET=1`,
         # `test:sandbox:cli`) and skips here, because its image is 2 GB and its
         # six verifier sessions take about 70 minutes against this job's 30 until
@@ -469,8 +468,6 @@ jobs:
         # (two threads, two captures) and the real intake turn through it.
         run: |
           pnpm turbo run build --filter=@b4-example/software-factory-controller^...
-          pnpm --filter @b4-example/software-factory-controller target:prepare cli-flags
-          pnpm --filter @b4-example/software-factory-controller target:prepare devkit
           FACTORY_BUILDER_LANE=1 pnpm --filter @b4-example/software-factory-server check
           FACTORY_BUILDER_LANE=1 pnpm --filter @b4-example/software-factory-server build
           docker pull "$(grep -oE '[a-z0-9.:/-]+@sha256:[a-f0-9]{64}' examples/software-factory/drafter/src/drafter-image.ts)"

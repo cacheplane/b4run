@@ -17,6 +17,8 @@ import { afterEach, describe, expect, it } from "vitest"
 import { BuilderHandoffSchema } from "../src/lib/builder-handoff.ts"
 import { openRegistryReader } from "../src/lib/registry/reader.ts"
 import { loadTask, tasksDir } from "../src/lib/targets/catalog.ts"
+import { openImageRegistry } from "../src/lib/targets/images.ts"
+import { fakeImageBuilder } from "./fake-image-builder.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { BAD_DRAFTS, GOOD_DRAFT } from "./intake-fixtures.ts"
 import {
@@ -25,6 +27,7 @@ import {
   type ServedController,
   serveController,
 } from "./serve-controller.ts"
+import { useImages } from "./static-images.ts"
 
 const run = promisify(execFile)
 // Resolved from the package's own node_modules rather than relying on `pnpm` being on PATH
@@ -90,6 +93,28 @@ async function failing(promise: Promise<{ stdout: string; stderr: string }>) {
   expect(error, "expected the command to exit non-zero").toBeDefined()
   expect(error?.code).toBe(1)
   return { stdout: error?.stdout ?? "", stderr: error?.stderr ?? "" }
+}
+
+/** Poll the journal read-only until `done` holds for its event types; the last types seen. */
+async function pollEvents(
+  stateDir: string,
+  id: string,
+  done: (types: readonly string[]) => boolean,
+  timeoutMs = 10_000,
+): Promise<readonly string[]> {
+  const deadline = Date.now() + timeoutMs
+  let types: readonly string[] = []
+  while (Date.now() < deadline) {
+    const reader = openRegistryReader(join(stateDir, "registry.sqlite"))
+    try {
+      types = reader.events(id).map((e) => e.type)
+    } finally {
+      reader.close()
+    }
+    if (done(types)) return types
+    await new Promise((r) => setTimeout(r, 25))
+  }
+  return types
 }
 
 async function pollState(
@@ -212,6 +237,46 @@ describe("cli", () => {
     const { stdout } = await failing(dispatching)
     expect(JSON.parse(stdout)).toMatchObject({ ok: false, refusal: "run_cancelled" })
     expect(await pollState(stateDir, id, (state) => state === "cancelled")).toBe("cancelled")
+  }, 90_000)
+
+  it("cancels a dispatch the operator cancels while it builds its image", async () => {
+    const builder = fakeImageBuilder()
+    builder.hold()
+    const imagesDir = mkdtempSync(join(tmpdir(), "factory-cli-images-"))
+    const images = openImageRegistry({
+      path: join(imagesDir, "images.sqlite"),
+      builder,
+      platform: "linux/arm64",
+    })
+    // Configured before the boot: the served controller builds through the registry the
+    // process has configured (`serveController`), so the build below is this fake's.
+    const restore = useImages(images)
+    try {
+      const { cli, spawn, stateDir } = await boot()
+      const { json: created } = await cli("create", "--task", "cli-flags")
+      const id = created.row.id as string
+      // Not awaited: this is the dispatch the cancel has to reach, while it waits on the build.
+      const dispatching = spawn("dispatch", id).promise
+      expect(
+        await pollEvents(stateDir, id, (types) => types.includes("image_prepare_started")),
+      ).toContain("image_prepare_started")
+      expect(await pollState(stateDir, id, () => true)).toBe("received")
+      const { json: cancelled } = await cli("cancel", id)
+      expect(cancelled).toMatchObject({ ok: true })
+      const { stdout } = await failing(dispatching)
+      expect(JSON.parse(stdout)).toMatchObject({ ok: false })
+      expect(await pollState(stateDir, id, (state) => state === "cancelled")).toBe("cancelled")
+      const deadline = Date.now() + 10_000
+      while (builder.aborted === 0 && Date.now() < deadline)
+        await new Promise((r) => setTimeout(r, 25))
+      expect(builder.aborted).toBe(1)
+      expect(builder.requests).toHaveLength(1)
+    } finally {
+      builder.release()
+      restore()
+      images.close()
+      rmSync(imagesDir, { recursive: true, force: true })
+    }
   }, 90_000)
 
   it("reads without a controller, and refuses to write without one", async () => {
@@ -464,6 +529,95 @@ esac
       row: { id, state: "awaiting_approval" },
     })
     expect(await pollState(stateDir, id, () => true)).toBe("awaiting_approval")
+  }, 90_000)
+
+  it("follows a dispatch that is still building its image when its request times out", async () => {
+    const builder = fakeImageBuilder()
+    builder.hold()
+    const imagesDir = mkdtempSync(join(tmpdir(), "factory-cli-images-"))
+    const images = openImageRegistry({
+      path: join(imagesDir, "images.sqlite"),
+      builder,
+      platform: "linux/arm64",
+    })
+    // Configured before the boot, as in the cancel-while-building test: the served controller
+    // builds through this registry, and the test's own catalog reads agree with it.
+    const restore = useImages(images)
+    try {
+      const { env, stateDir } = await boot()
+      const { stdout: createdOut } = await run(
+        process.execPath,
+        [tsxBin, cliEntry, "create", "--task", "cli-flags"],
+        { env, cwd: packageRoot },
+      )
+      const id = JSON.parse(createdOut).row.id as string
+      // The build outlives the request (500 ms) and the arrival window (1 s): only the journal
+      // says the request arrived and the work goes on.
+      setTimeout(() => builder.release(), 3_000)
+      const { stdout, stderr } = await run(process.execPath, [tsxBin, cliEntry, "dispatch", id], {
+        env: {
+          ...env,
+          FACTORY_CLI_REQUEST_TIMEOUT_MS: "500",
+          FACTORY_CLI_ARRIVAL_WINDOW_MS: "1000",
+        },
+        cwd: packageRoot,
+      })
+      expect(stderr).toContain("the request ended before its answer")
+      expect(stderr).toContain("image_prepare_started")
+      expect(JSON.parse(stdout)).toMatchObject({ ok: true, state: "awaiting_approval" })
+      expect(await pollState(stateDir, id, () => true)).toBe("awaiting_approval")
+    } finally {
+      builder.release()
+      restore()
+      images.close()
+      rmSync(imagesDir, { recursive: true, force: true })
+    }
+  }, 90_000)
+
+  it("reads back a dispatch refused after its image build, with the row still received", async () => {
+    const builder = fakeImageBuilder()
+    builder.hold()
+    builder.failNext("docker build failed")
+    const imagesDir = mkdtempSync(join(tmpdir(), "factory-cli-images-"))
+    const images = openImageRegistry({
+      path: join(imagesDir, "images.sqlite"),
+      builder,
+      platform: "linux/arm64",
+    })
+    const restore = useImages(images)
+    try {
+      const { env, stateDir } = await boot()
+      const { stdout: createdOut } = await run(
+        process.execPath,
+        [tsxBin, cliEntry, "create", "--task", "cli-flags"],
+        { env, cwd: packageRoot },
+      )
+      const id = JSON.parse(createdOut).row.id as string
+      // The build fails only after the request (500 ms) and the arrival window (1 s) are gone.
+      setTimeout(() => builder.release(), 3_000)
+      const { stdout, stderr } = await failing(
+        run(process.execPath, [tsxBin, cliEntry, "dispatch", id], {
+          env: {
+            ...env,
+            FACTORY_CLI_REQUEST_TIMEOUT_MS: "500",
+            FACTORY_CLI_ARRIVAL_WINDOW_MS: "1000",
+          },
+          cwd: packageRoot,
+        }),
+      )
+      expect(stderr).toContain("the request ended before its answer")
+      const outcome = JSON.parse(stdout)
+      expect(outcome).toMatchObject({ ok: false, state: "received" })
+      expect(outcome.message).toMatch(
+        /^Refused \(read from the registry after the request ended\): the image of target cli-flags .* could not be built: .*docker build failed/,
+      )
+      expect(await pollState(stateDir, id, () => true)).toBe("received")
+    } finally {
+      builder.release()
+      restore()
+      images.close()
+      rmSync(imagesDir, { recursive: true, force: true })
+    }
   }, 90_000)
 
   it("follows an approve past its request timeout: arrival and the export read from the registry", async () => {

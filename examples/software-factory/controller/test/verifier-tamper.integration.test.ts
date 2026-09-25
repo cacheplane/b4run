@@ -44,7 +44,7 @@ import { applyReference } from "./reference-repair.ts"
  */
 const TASK = "devkit-spawn-deadline"
 const task = loadTask(TASK)
-const policy = loadPolicy(TASK)
+const policy = loadPolicy(TASK, task.target.image)
 const allowed = task.manifest.allowedSourcePaths[0] as string
 const budget = task.target.resources.verifierDeadlineMs
 
@@ -159,6 +159,7 @@ const verify = async (changes: Record<string, string>, id: string) => {
       candidateDigest: "b".repeat(64),
       changes,
       policyDigest: policy.policyDigest,
+      image: task.target.image,
     },
     AbortSignal.timeout(budget + 30_000),
   )

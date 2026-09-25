@@ -7,5 +7,6 @@ export default defineConfig({
     exclude: ["test/**/*.integration.test.ts"],
     fileParallelism: false,
     testTimeout: 30_000,
+    setupFiles: ["test/setup-images.ts"],
   },
 })

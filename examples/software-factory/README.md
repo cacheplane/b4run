@@ -51,7 +51,7 @@ records both at the thread's first run. An upload no thread names is deleted by 
 anywhere the controller can reach.
 
 The builder's handoff names the thread's whole sandbox besides its files: the task's target
-(the image prepared at the task's pin, that pin, the sandbox policy and the permission
+(the image built for the task's pin, that pin, the sandbox policy and the permission
 allow-list) and the reference its workspace is staged under (the source digest, the
 environment links and the git baseline, all three compared with the staged workspace). The
 builder's `sandbox.thread` resolver parses it strictly from the thread's metadata when the
@@ -126,11 +126,13 @@ bundle and an export, but the bytes in that lane are not yet the *builder's* own
   is impossible.
 
 **Targets and tasks.** A *target* is an environment: a commit pin, the repository subtree the
-workspace is captured from, that capture's inventory, the prepared image its dependencies live
-in, and the build and test commands to run. It lives under `targets/<id>/`. A *task* is one
+workspace is captured from, that capture's inventory, the recipe of the image its dependencies
+live in (a Dockerfile and a base image pinned by digest), and the build and test commands to
+run. It lives under `targets/<id>/`. A *task* is one
 repair inside a target: a spec with named acceptance ids, the defect and reference patches,
 and the visible and independent checks. It lives under `tasks/<id>/`. Adding either is a
-directory and a prepared image, not a code change; the design is in
+directory, not a code change (the image is built the first time a work order needs it); the
+design is in
 [the rung 2 spec](../../docs/superpowers/specs/2026-09-19-software-factory-rung2-design.md).
 A target's `resources.verifierDeadlineMs` bounds one verification, and a work order's active
 budget (`FACTORY_MAX_ACTIVE_MS`, fixed on the row when it is created) covers everything active
@@ -149,8 +151,7 @@ A target may carry `draftingNotes`: at most ten one-line facts about its own cod
 drafter needs to write a check (how a fixture route exports its entry, how a run names its
 route, which helper the package's own tests drive it with). The intake prompt lists them under
 the target's line. They are facts true at the target's pin, never a solution, and they are not
-an image input: editing them changes no image tag or environment identity and needs no
-`target:prepare`. The `cli` target's notes are how attempt 4's check could have reached the
+an image input: editing them changes no image, tag or environment identity. The `cli` target's notes are how attempt 4's check could have reached the
 behaviour instead of failing route discovery with `B4_E1007`.
 
 ## What it does not do
@@ -168,12 +169,15 @@ image, policy and permissions, by uploading a source and creating a thread with 
 within the builder's own bounds, which no handoff can move: the network is
 denied (a thread may not open what the app denies), and the permissions mode is
 `non-interactive`. The image bound is narrower than "an image the factory prepared": a
-handoff may name only a tag in the factory's shape (`b4-factory-<target>:<pin[:12]>-<12 hex>`,
-`dockerSandbox({ images })`) whose target and pin segments are the handoff's own `targetId`
-and `pin` (the handoff schema refuses any other at admission), and only an image present on
-the daemon under that tag runs. Nothing proves that image is the one `target:prepare` built:
-whoever can tag an image on the builder's Docker daemon can put anything behind the tag, but
-that access is already root on the host, so it adds no power a token holder lacks. That includes the WHOLE allow-list: `permissions` is a record keyed by any
+handoff may name only a tag in the factory's shape (`b4-factory-<target>:<pin[:12]>-<key[:12]>`,
+the recipe key's first twelve hex digits; `dockerSandbox({ images })`) whose target and pin
+segments are the handoff's own `targetId` and `pin` (the handoff schema refuses any other at
+admission), and only an image present on the daemon under that tag runs. The verifier runs the
+work order's bound image by id (its verdict and receipt digest that image); the builder runs
+the recipe tag until PR 2 of the images plan moves it to the id. Until then, whoever can tag an
+image on the builder's Docker daemon can put anything behind the tag the builder runs, but
+that access is already root on the host, so it adds no power a token holder lacks, and the
+verdict is still earned in the bound image. That includes the WHOLE allow-list: `permissions` is a record keyed by any
 tool name, so a handoff's author also decides the `tool` and `subagent` keys (which tools run
 without approval and which subagents may be dispatched), not only `bash` and the path keys;
 the builder's `non-interactive` mode means anything off that list is refused, never asked
@@ -184,16 +188,16 @@ is client input, and metadata is written only at create, which the token alone a
 `factoryBuilder` key is exactly as controller-authored as the manifest file it replaced, with
 the boundary moved from write access to a directory to the token.
 
-**The pin is honoured, one image per pin.** The wide capture the drafter reads is taken at
+**The pin is honoured, one image per recipe.** The wide capture the drafter reads is taken at
 the work order's pin, out of the object store; the generated `task.json` carries that pin, so
 the target, the baseline, the oracle proof and the verification are all looked up at it, in the
-image prepared AT that pin. A target records one image per pin it was prepared at (`images`
-in `target.json`); a shipped task carries no pin and runs at its target's default `pin`. A draft
-whose target has no image at the work order's pin blocks at once (`image_unprepared`, naming
-the `pnpm --filter @b4-example/software-factory-controller target:prepare <id> --pin <pin>` an operator runs); no redraft can mend it. The
-builder runs each task in the same image the verifier does: the work order's handoff names
-the image prepared at the task's pin, so one builder runs several pins of one target at once,
-each thread in its own. And intake threads accumulate on
+image built AT that pin. A shipped task carries no pin and runs at its target's default `pin`.
+The fit step builds the drafted target's image at the work order's pin if this host has never
+built it; a build that fails blocks the work order at once (`image_prepare_failed`, the build
+log in evidence), spending no drafter attempt, and the next work order at that pin builds
+again. The builder runs each task in the image built for the task's pin: the work order's
+handoff names it, so one builder runs several pins of one target at once, each thread in its
+own. And intake threads accumulate on
 the drafter, one per work order, since nothing sweeps a parked or blocked work order's drafter
 thread yet.
 
@@ -310,21 +314,44 @@ it is as sensitive as the candidate bytes themselves.
 
 ## Run it
 
-The builder and the verifier both run in the target's prepared image, so this needs Docker:
+The builder and the verifier both run in the target's image, so this needs Docker.
 
-    pnpm --filter @b4-example/software-factory-controller target:prepare cli-flags
-    # builds b4-factory-cli-flags:<pin>-<dockerfile sha>, recorded as images[<pin>]
+Images are built when a work order first needs them. The first intake or dispatch at a
+(target, pin) this host has never built builds the target's image from its committed recipe
+(the Dockerfile, the `imageContext` and lockfile at the pin, and the base image `target.json`
+pins by digest), records it in `<FACTORY_STATE_DIR>/images.sqlite`, journals the build
+(`image_prepare_started`, `image_prepared` with the build log's artifact digest, or
+`image_prepare_failed`) and binds it to the work order (`image_bound`). Concurrent work orders
+for one target at one pin share one build; `FACTORY_MAX_IMAGE_BUILDS` (default 1) bounds builds across pins
+and `FACTORY_IMAGE_BUILD_TIMEOUT_MS` (default 30 minutes) each build. The build's time is not
+charged to the work order's budget. A failed build blocks an intake as `image_prepare_failed`
+(no drafter attempt spent) and refuses a dispatch (the row stays `received`; dispatch again to
+retry); the next need builds again. `target.json` records no image:
+`pnpm --filter @b4-example/software-factory-controller target:prepare <id> [--pin <sha>]` (with
+`FACTORY_STATE_DIR` set) warms the registry by hand and prints the image; nothing requires it.
 
-`pnpm --filter @b4-example/software-factory-controller target:prepare <id> --pin <sha>` prepares the same target at another commit and records that image beside
-the others (an issue work order is pinned to `origin/main`, so a target is prepared at the pin
-its work orders name). The manifest is re-read after the build and only that pin's entry is
-merged, then renamed into place, so two prepares do not lose each other's entry and a running
-controller never reads a half-written file. `FACTORY_TARGETS_DIR` points the script and the
-catalog at another targets directory. The script refuses a pin at which any path the target
-names (root, build context, lockfile, capture entries, command directory, runner
-configuration) does not exist, naming the path: `cli-flags`'s fixture lived
-under the server before the controller split, so it can only be prepared at its historical
-pin, and `devkit` is the target that is re-pinned.
+A recorded image is re-checked on the daemon at every need and rebuilt if it is gone. Once
+bound, the binding is what counts: the verifier, the oracle proof and approve's
+re-verification run the bound image by id, and a bound image that has left the daemon is
+refused rather than rebuilt (`image_changed`, reason `gone`; verification settles
+`verification_inconclusive`, a dispatch refuses, and a new work order is the remedy). A build
+refuses a pin at which any path the target names (root, build context, lockfile, capture
+entries, command directory, runner configuration) does not exist, naming the path:
+`cli-flags`'s fixture lived under the server before the controller split, so it can only be
+built at its historical pin, and `devkit` is the target that is re-pinned.
+
+Upgrading from a factory that recorded images in `target.json`: a work order dispatched
+before this change has no binding, so its verification settles `verification_inconclusive`
+(`image_unbound`); `retry` binds a freshly prepared image, so for a generated task whose oracle
+was proved before the upgrade, prefer a new work order (whose intake proves the oracle in the
+image it binds). Built images accumulate on the Docker daemon: nothing removes superseded
+ones yet (a reaper is a recorded follow-up), so prune old `b4-factory-*` tags by hand.
+
+`dispatch` waits in `received` while its image builds, before any thread, key or budget is
+spent, and honours `cancel` during the wait. The CLI's `dispatch` follows a build that
+outlasts its request: it reads the journal until the dispatch moves the row, refuses, or ends
+with a restart, bounded by the build's journalled `deadlineMs`, and otherwise says the work
+order is still preparing its image.
 
 **1. Start the builder** (terminal 1). It needs no target file, no per-target copy, no
 directory shared with the controller and no second process. The three processes share one
@@ -340,9 +367,8 @@ terminal (the same value in all three):
 One builder serves every target and pin. Each work order's handoff names the image its task
 is verified in, the sandbox policy and the permission allow-list; the builder records them at
 the thread's first admission and runs that thread in them, and only an image the factory
-prepared (`b4-factory-…`) can be named. Prepare every target (and pin) you will dispatch
-(`target:prepare <id> [--pin <sha>]`) before its work orders reach the builder: the handoff
-names an image, it does not build one. An upgraded controller's allow-list reaches the next
+built (`b4-factory-…`) can be named. The handoff names an image, it does not build one: the
+controller builds it before the handoff is written. An upgraded controller's allow-list reaches the next
 work order at once, because it travels in that work order's handoff; a thread already
 admitted keeps the list it was admitted with.
 
@@ -541,9 +567,11 @@ last refusal blocks the work order. A blocked intake's generated task stays on d
 kept refused copy; it is inert, since only an approval by digest puts a task in front of a
 builder. A draft naming a package
 with no prepared target blocks immediately (`no_target_for_package`), since no redraft can
-prepare one, and so does a draft whose target has no image at the work order's pin
-(`image_unprepared`: the prompt lists only the targets prepared at that pin, and the task's
-`pin` is the controller's to fill, never the draft's). A draft that parks in
+prepare one. A draft's target is fitted at the work order's pin: the fit step builds its image
+there if this host has none, pausing the work order's budget while the build runs, and a
+build that fails blocks the work order (`image_prepare_failed`, no drafter attempt spent; the
+prompt offers every target whose files exist at that pin, and the task's `pin` is the
+controller's to fill, never the draft's). A draft that parks in
 `awaiting_intake_approval` is read and approved **by digest**: `factory review <id>` prints the
 task directory and digests what it printed, refusing if that is not the row's `taskDigest`, and
 `approve-intake` recomputes the directory's digest at call time and refuses if either differs,
@@ -613,7 +641,7 @@ The controller app reads:
 | `FACTORY_WORKER_URL` | yes | The builder's Agent Protocol base URL, `http(s)` only: the one builder, for every target and pin |
 | `FACTORY_WORKER_ROUTE` | no | Default `/build#agent` |
 | `FACTORY_WORKER_TOKEN` | yes | The secret every worker requires, sent as `authorization: Bearer <token>` on every request; at least 32 characters, no whitespace (`openssl rand -hex 32`). Never journalled or logged |
-| `FACTORY_STATE_DIR` | yes | Holds `registry.sqlite`, `artifacts/`, `exports/`, generated `tasks/`, and the `captures/` and `verifiers/` staging the controller removes after each use |
+| `FACTORY_STATE_DIR` | yes | Holds `registry.sqlite`, `images.sqlite` (this host's built images, by recipe key), `artifacts/`, `exports/`, generated `tasks/`, and the `captures/` and `verifiers/` staging the controller removes after each use |
 | `FACTORY_DRAFTER_URL` | for `intake` | The drafter's Agent Protocol base URL, `http(s)` only |
 | `FACTORY_DRAFTER_ROUTE` | no | Default `/intake#agent`; only with `FACTORY_DRAFTER_URL` |
 | `FACTORY_EXPORT_DIR` | no | Default `<state>/exports`; also the bundle's destination identity |
@@ -623,6 +651,10 @@ The controller app reads:
 | `FACTORY_MAX_CHANGED_BYTES` | no | Default 1048576; exceeding it is a `scope_violation`, never a truncation |
 | `FACTORY_MAX_INTAKE_ATTEMPTS` | no | Default 2, a positive integer: the drafter turns an issue intake may spend before its last refusal blocks it. Fixed on the row at create, like `FACTORY_MAX_ACTIVE_MS` |
 | `FACTORY_MAX_CANDIDATE_ATTEMPTS` | no | Default 2, a positive integer: the builder dispatches a work order may spend, the first and one per `retry`. Fixed on the row at create |
+| `FACTORY_MAX_IMAGE_BUILDS` | no | Default 1, a positive integer: image builds running at once across pins (work orders for one target at one pin share one build) |
+| `FACTORY_IMAGE_BUILD_TIMEOUT_MS` | no | Default 1800000 (30 minutes): one image build, from when it gets a slot; a work order waits at most twice that in the queue before its build starts |
+| `FACTORY_SKIP_BASE_PULL` | no | `1` never pulls the base image (pull it once by hand, `docker pull --platform <platform> <baseImage>`); an absent base then fails the build, naming it. Without it the base, pinned by digest, is pulled only when absent |
+| `FACTORY_TARGETS_DIR` | retired | Refused by name, here and by `target:prepare`: `target.json` is never written, so there is no copy to point at |
 | `FACTORY_BUILDER_APP_ROOT`, `FACTORY_DRAFTER_APP_ROOT` | retired | Refused by name: the controller reads each worker over its URL (`sandbox.workspaceRead`) |
 | `FACTORY_BUILDER_MANIFEST_DIR`, `FACTORY_DRAFTER_MANIFEST_DIR` | retired | Refused by name, here and by the workers: `dispatch` and `intake` stage each workspace over the worker's port (`sandbox.stagedWorkspaces`) |
 | `FACTORY_DRAFTER_IMAGE` | ignored | The drafter's, not the controller's: ignored here with one `config_ignored` line at boot, so a shared environment still starts |
@@ -655,9 +687,8 @@ controller: `PUT` the source to `/workspace/sources/<sourceDigest>`, then `POST 
 the handoff as `metadata.factoryBuilder` and its `workspace` as the body's `workspace`, both
 with the token. It stages its capture under `FACTORY_STATE_DIR` when that is set (as the
 controller does) and otherwise under a temporary directory it removes, never under the
-controller package. `target:prepare` builds from a temporary archive and writes only the
-target's `target.json` (under `FACTORY_TARGETS_DIR` when set), so run it before a `b4 dev`
-controller starts or point it at another targets directory.
+controller package. `target:prepare` builds from a temporary archive into
+`<FACTORY_STATE_DIR>/images.sqlite` and writes nothing under the target.
 
 A work order whose worker has left the map — `FACTORY_DRAFTER_URL` unset while a draft is in
 flight — waits where it is, journalling
@@ -674,8 +705,8 @@ is whichever one each work order's handoff names. `FACTORY_BUILDER_MANIFEST`, th
 old single-manifest variable, is gone the same way. Retired variables are refused rather
 than stripped, because each used to decide where a work order went, what it ran with or where
 its workspace came from: `FACTORY_WORKERS`, `FACTORY_BUILDER_TARGET` (and the `factory
-builder-target` command that wrote the latter's file is gone), the two app roots and the two
-manifest directories (and the `factory builder-manifest` command, now `builder-handoff`). The scripted intake's `FACTORY_INTAKE_ROUTE` and
+builder-target` command that wrote the latter's file is gone), `FACTORY_TARGETS_DIR`, the two
+app roots and the two manifest directories (and the `factory builder-manifest` command, now `builder-handoff`). The scripted intake's `FACTORY_INTAKE_ROUTE` and
 `FACTORY_INTAKE_TASK` are gone the same way: the drafter is its own process now, and
 `intake` refuses by name when `FACTORY_DRAFTER_URL` is unset.
 
@@ -686,7 +717,6 @@ config.
 
     # the controller
     pnpm --filter @b4-example/software-factory-controller test
-    pnpm --filter @b4-example/software-factory-controller target:prepare cli-flags
     pnpm --filter @b4-example/software-factory-controller test:sandbox
 
     # the builder
@@ -699,9 +729,10 @@ config.
 
 The controller's `test` is layer 1: every invariant, against a scripted worker, reader and
 verifier, and it is the only always-on lane. `test:sandbox` is layers 2 and 3 — the real
-builder, the real drafter and the real verifier — and needs Docker plus the `target:prepare`
-step above, which builds the target images it runs in, and the drafter's base image pulled
-by digest. Layer 2 needs Docker even though its model is scripted: the app configures a
+builder, the real drafter and the real verifier — and needs Docker and the drafter's base
+image pulled by digest. Its global setup builds the `cli-flags` and `devkit` images (or finds
+them already built) into a registry of the run's own, which every lane file shares and the
+teardown removes (the file, never an image). Layer 2 needs Docker even though its model is scripted: the app configures a
 sandbox, so the run acquires a real container — which is the point, since the permission
 config and `runBash` are exactly what that layer exists to exercise. Both fail rather than
 skip when Docker is absent. The controller's `builder.integration.test.ts` serves the builder
@@ -723,14 +754,14 @@ staged at a pin, a scripted drafter turn in the drafter's own process and image,
 re-rooted `draft/` read, and the oracle proof in the target's image.
 
 In CI, all three packages' always-on lanes run inside `source-validate`'s `pnpm test`, which
-the `validate` gate aggregates. The Docker work is the `sandbox-docker` job: it prepares both
-target images (`target:prepare cli-flags` and `target:prepare devkit`), runs the
+the `validate` gate aggregates. The Docker work is the `sandbox-docker` job: it prepares no
+image itself (the controller's `test:sandbox` global setup builds both target images per
+run, as above), runs the
 **builder's** own `check` and `build` (`FACTORY_BUILDER_LANE=1`) — the only place either
 runs, since `check` needs Docker — pulls the drafter's base image by the digest in
 `drafter/src/drafter-image.ts`, runs the drafter's `check` and `build`, and then runs the controller's `test:sandbox`, which
 serves the drafter in both of its drafter lanes. The `cli` target's lane
 (`target-cli.integration.test.ts`) is opt-in and skips there: it needs the `cli` image (2 GB)
 and runs about 70 minutes, so it runs by hand with
-`pnpm --filter @b4-example/software-factory-controller target:prepare cli` and then
-`pnpm --filter @b4-example/software-factory-controller test:sandbox:cli`
-(`FACTORY_TEST_CLI_TARGET=1`).
+`FACTORY_TEST_CLI_TARGET=1 pnpm --filter @b4-example/software-factory-controller test:sandbox:cli`
+(the lane builds `cli` itself; the global setup builds nothing for it).

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { Receipt } from "../src/lib/domain/work-order.ts"
 import { proveOracle } from "../src/lib/intake/oracle.ts"
+import { loadTask } from "../src/lib/targets/catalog.ts"
 import type { Verifier, VerifyInput } from "../src/lib/verification/verifier.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 
@@ -17,6 +18,7 @@ const prove = (verifier: Verifier) =>
     taskId: "cli-flags",
     policyDigest: "b".repeat(64),
     baselineDigest,
+    image: loadTask("cli-flags").target.image,
     signal: AbortSignal.timeout(1_000),
   })
 
