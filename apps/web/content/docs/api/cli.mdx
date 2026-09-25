@@ -193,6 +193,7 @@ export interface ServeRuntimeOptions {
   readonly permissionsStore?: PermissionsStore | (() => Promise<PermissionsStore>)
   readonly memoryStore?: () => Promise<MemoryStore>
   readonly middleware?: B4Middleware
+  readonly threadAccessExpected?: boolean
 }
 ```
 
@@ -210,6 +211,7 @@ export interface ServeRuntimeOptions {
 | `readonly permissionsStore` | `PermissionsStore \| (() => Promise<PermissionsStore>)` | no | Supply a permissions store or its async factory. |
 | `readonly memoryStore` | `() => Promise<MemoryStore>` | no | Supply the lazy memory-store factory. |
 | `readonly middleware` | `B4Middleware` | no | Supply preloaded middleware. |
+| `readonly threadAccessExpected` | `boolean` | no | Record that the build saw a [thread access policy](/docs/thread-access), so a `modules` manifest without one fails the boot instead of serving thread endpoints open. The node target's generated `server.mjs` sets it. |
 
 #### Behavior contract `cli.serve.production-boot`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/cli/test/serve-runtime.test.ts","testNames":["boots without running typegen (never writes .b4 artifacts)"]}] */}

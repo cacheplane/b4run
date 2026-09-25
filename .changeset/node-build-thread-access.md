@@ -1,0 +1,5 @@
+---
+"@b4run/cli": patch
+---
+
+Security fix: the `node` build target now carries the app's thread access policy in its build. Previously `b4 build` left `src/thread-access.ts` out of `.b4/build/modules.mjs` and the generated `server.mjs` probed the disk for it at boot, where a missing file reads as "no policy" — so a built node app whose policy file was absent at boot (deleted, or left out of the image) served every thread endpoint ungated. The policy is now a static import of the manifest and `server.mjs` records that the build saw one, so a missing policy file or a manifest older than the policy makes the server refuse to start instead of serving open, matching the `hono` and `vercel` targets. Rebuild node apps that have a thread access policy. The built manifest now imports the policy when it loads, including in `b4 check` after `b4 build`, so a policy that requires an environment variable at import time needs it there too; `b4 check` now says so when an app module throws while the manifest loads.

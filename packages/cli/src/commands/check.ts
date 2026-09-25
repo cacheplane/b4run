@@ -211,7 +211,13 @@ async function checkStaticModuleManifest(manifest: RouteManifest, fileName: stri
   } catch (error) {
     throw new CliError(
       `Static module manifest failed to load:\n${modulesPath}\n${formatErrorMessage(error)}\n` +
-        "The manifest is stale or corrupt — re-run `b4 build` to regenerate it.",
+        // Loading it evaluates every module it imports — routes, middleware and
+        // the thread access policy — so an import-time throw in app code lands
+        // here too, and a rebuild would not fix that.
+        "Loading the manifest imports the app's modules (routes, middleware, thread access policy), " +
+        "so an app module that throws at import time — for example on a required environment " +
+        "variable that is unset — fails here. Otherwise the manifest is stale or corrupt — " +
+        "re-run `b4 build` to regenerate it.",
     )
   }
 

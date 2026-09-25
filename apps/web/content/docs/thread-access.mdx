@@ -166,9 +166,14 @@ B4.run: no thread access policy (all thread endpoints are open)
 
 `b4 build --target langsmith` **fails** with `B4_E1005` while a policy file exists, and always will. That target materializes per-route graphs and no B4.run HTTP layer, so there is nowhere for the hook to run. A build that silently dropped it would deploy every thread endpoint ungated. Put equivalent authorization in the LangSmith platform.
 
-`hono` and `vercel` carry the policy. They share one emitter, and the built manifest has a slot for it. The policy rides in as a static import, and the generated entry point records that the build saw one. If a manifest generated before the app had a policy is later deployed beside a newer entry point, the boot **fails**. Otherwise it would come up silently ungated, and on a bundled runtime there's no disk to probe, so nothing else would notice.
+`node`, `hono` and `vercel` carry the policy. The built manifest has a slot for it: the policy rides in as a static import, and the generated entry point (`server.mjs` for `node`, `app.mjs` for the web targets) records that the build saw one. So the built app never probes the disk for the policy at boot, where a missing file would read as "no policy". For `node`, the built app is `node .b4/build/server.mjs`, the entry point of the generated `Dockerfile`. `b4 start` doesn't run the build output: it serves the source tree, and reads the policy from source the way `b4 dev` does. Instead of a disk probe, the built app handles a missing policy like this:
 
-The `node` target needs nothing special. Its emitted server reaches the same disk probe `b4 dev` does. An app with no policy file builds for every target exactly as before. See [Deployment](/docs/deployment) and [Edge and Hono](/docs/deployment/edge).
+- On `node`, the manifest imports the policy from the app's source tree, so a policy file removed after the build fails that import and the server refuses to start. `hono` and `vercel` bundle the policy into the build output, so the deployed app doesn't need the source file.
+- A manifest generated before the app had a policy, deployed beside a newer entry point, fails the boot.
+
+Either way the app refuses to start rather than coming up silently ungated. `b4 build` itself never imports the policy, so building needs none of the secrets the policy reads. The built manifest imports it as it loads, together with the routes and middleware. So a policy that reads a required environment variable at import time needs that variable wherever the manifest loads: the running server, and `b4 check` run after `b4 build`. Read secrets inside the hooks instead if `b4 check` runs somewhere they aren't set.
+
+An app with no policy file builds for every target exactly as before. See [Deployment](/docs/deployment) and [Edge and Hono](/docs/deployment/edge).
 
 ## Adopting a policy on an existing app
 

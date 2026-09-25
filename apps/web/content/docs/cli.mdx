@@ -122,7 +122,7 @@ Flags:
 
 Here's what each target writes:
 
-- **`node`**: `.b4/build/server.mjs`, which boots `serveRuntime` (the real B4.run runtime), and a hardened `Dockerfile` in the app root (or in `.b4/build/` if the app root already has one). Run it with `b4 start` or `docker build`/`docker run`.
+- **`node`**: `.b4/build/server.mjs`, which boots `serveRuntime` (the real B4.run runtime), and a hardened `Dockerfile` in the app root (or in `.b4/build/` if the app root already has one). Run the build output with `node .b4/build/server.mjs` (the generated `Dockerfile`'s entry point) or `docker build`/`docker run`. `b4 start` doesn't use the build output: it serves the app's source tree, so it reads route modules, middleware and the [thread access policy](/docs/thread-access) from source.
 - **`langsmith`**: `.b4/build/langgraph.json` plus per-route entry files under `.b4/build/<routeSlug>.ts`, which you hand to LangSmith. The JSON includes `graphs` (keyed by `<routeId>#<kind>`), `dependencies: ["."]`, `env` (`.env.example` if present, else `.env`), and `node_version: "22"`. For an `agent` route, the entry imports the default `agent()` descriptor, turns it into a LangGraph graph, and wires in every tool B4.run discovered for the route.
 - **`hono`** (opt-in): `.b4/build/app.mjs`, a Hono app around B4.run's web-standard fetch handler, `export default`ed for Cloudflare Workers, Vercel, or Bun. It also writes `.b4/build/modules.edge.mjs` (the module manifest, free of Node built-ins), `.b4/build/stores.mjs` (a per-request Postgres store factory), and a `wrangler.toml` scaffold if the app root has none. Deploy with `wrangler deploy`.
 - **`vercel`** (opt-in): a [Vercel Build Output API](https://vercel.com/docs/build-output-api) tree. See [below](#the-vercel-target).

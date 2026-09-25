@@ -167,6 +167,18 @@ class StaleThreadAccessManifestError extends Error {
   }
 }
 
+class UnboundThreadAccessManifestError extends Error {
+  readonly code = "B4_E3003"
+  constructor() {
+    super(
+      "This app was built with a thread access policy, but the static module manifest it " +
+        "booted with binds its thread access entry to nothing. B4.run will not boot with every " +
+        "thread endpoint ungated: re-run `b4 build` and deploy the whole build output together.",
+    )
+    this.name = "UnboundThreadAccessManifestError"
+  }
+}
+
 function threadAccessSourceLabel(source: {
   readonly fromManifest: boolean
   readonly fromOptions: boolean
@@ -454,16 +466,22 @@ export async function createRuntimeFetchHandler(
   }
   // BEFORE the resolution below, because the resolution cannot tell the
   // difference this catches: a stale manifest resolves to `undefined` exactly
-  // like an app that never had a policy. `in`, not truthiness — a key present
-  // and bound to undefined is a build that considered the policy and bound
-  // nothing, which is a legitimate (if unusual) hand-rolled embed, whereas a
-  // key that was never emitted means the manifest predates the policy.
+  // like an app that never had a policy, and then falls through to the disk
+  // probe — which reads a missing file as "no policy" and serves every thread
+  // endpoint open.
+  //
+  // With the build's record set, the manifest must carry a DEFINED policy. A
+  // key that was never emitted means the manifest predates the policy; a key
+  // present and bound to undefined is not a policy either, and no generated
+  // manifest emits it (`normalizeThreadAccessModule` throws instead), so only
+  // a hand-built or tampered manifest reaches that branch. Both refuse.
   //
   // Scoped to a manifest boot on purpose: without `modules` the policy comes
   // from the disk probe, which reads the app's CURRENT state and so cannot be
   // stale in this way.
-  if (options.threadAccessExpected && options.modules && !("threadAccess" in options.modules)) {
-    throw new StaleThreadAccessManifestError()
+  if (options.threadAccessExpected && options.modules) {
+    if (!("threadAccess" in options.modules)) throw new StaleThreadAccessManifestError()
+    if (options.modules.threadAccess === undefined) throw new UnboundThreadAccessManifestError()
   }
   // Authorization, unlike middleware, must never resolve to "allow all" by
   // accident: `loadThreadAccess` throws B4_E3003 rather than degrading when a
