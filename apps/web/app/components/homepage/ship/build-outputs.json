@@ -1,0 +1,71 @@
+{
+  "app": "my-agent",
+  "command": "npx b4 build",
+  "builds": [
+    {
+      "id": "default",
+      "config": "import { config } from \"@b4run/cli\"\n\nexport default config({})\n",
+      "lines": [
+        "Build complete: .b4/build",
+        "  1 route(s) compiled",
+        "  targets: node, langsmith",
+        "  wrote .b4/build/workspace.json",
+        "  wrote .b4/build/modules.mjs",
+        "  wrote .b4/build/server.mjs",
+        "  wrote Dockerfile",
+        "  wrote .b4/build/hello.ts",
+        "  wrote .b4/build/langgraph.json"
+      ]
+    },
+    {
+      "id": "node",
+      "config": "import { config } from \"@b4run/cli\"\n\nexport default config({\n  build: { targets: [\"node\"] },\n})\n",
+      "lines": [
+        "Build complete: .b4/build",
+        "  1 route(s) compiled",
+        "  targets: node",
+        "  wrote .b4/build/workspace.json",
+        "  wrote .b4/build/modules.mjs",
+        "  wrote .b4/build/server.mjs",
+        "  wrote Dockerfile"
+      ]
+    },
+    {
+      "id": "langsmith",
+      "config": "import { config } from \"@b4run/cli\"\n\nexport default config({\n  build: { targets: [\"langsmith\"] },\n})\n",
+      "lines": [
+        "Build complete: .b4/build",
+        "  1 route(s) compiled",
+        "  targets: langsmith",
+        "  wrote .b4/build/hello.ts",
+        "  wrote .b4/build/langgraph.json"
+      ]
+    },
+    {
+      "id": "hono",
+      "config": "import { config } from \"@b4run/cli\"\n\nexport default config({\n  build: { targets: [\"hono\"] },\n})\n",
+      "lines": [
+        "Build complete: .b4/build",
+        "  1 route(s) compiled",
+        "  targets: hono",
+        "  wrote .b4/build/modules.edge.mjs",
+        "  wrote .b4/build/stores.mjs",
+        "  wrote .b4/build/app.mjs",
+        "  wrote wrangler.toml"
+      ]
+    },
+    {
+      "id": "vercel",
+      "config": "import { config } from \"@b4run/cli\"\n\nexport default config({\n  build: { targets: [\"vercel\"] },\n})\n",
+      "lines": [
+        "Build complete: .b4/build",
+        "  1 route(s) compiled",
+        "  targets: vercel",
+        "  wrote .vercel/output/config.json",
+        "  wrote .vercel/output/functions/b4.func/.vc-config.json",
+        "  wrote .vercel/output/functions/b4.func/index.mjs",
+        "  wrote vercel.json"
+      ]
+    }
+  ]
+}

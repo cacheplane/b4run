@@ -40,6 +40,7 @@
     "@b4run/config-typescript": "workspace:*",
     "@b4run/core": "workspace:*",
     "@b4run/permissions": "workspace:*",
+    "@b4run/postgres-storage": "workspace:*",
     "@b4run/sandbox": "workspace:*",
     "@b4run/sdk": "workspace:*",
     "@langchain/core": "1.2.12",

@@ -1,0 +1,182 @@
+/* "The last mile" (#last-mile). Paper Relay tokens only (tokens.css). */
+.section {
+  padding: 56px 0;
+  border-bottom: 1px solid var(--color-rule);
+}
+.intro {
+  max-width: 640px;
+  margin-bottom: 32px;
+}
+.eyebrow {
+  margin: 0;
+}
+.intro h2 {
+  font-size: clamp(30px, 3.5vw, 43px);
+  font-weight: 500;
+  line-height: 1.08;
+  letter-spacing: -0.045em;
+  margin: 24px 0 16px;
+}
+.intro p:not([data-ui="eyebrow"]) {
+  font-size: 15px;
+  line-height: 1.8;
+  color: var(--color-ink-muted);
+  margin: 0;
+}
+
+.checklist {
+  container-type: inline-size;
+}
+
+/* The count is text. "Handled." keeps its space while hidden, so it never
+   moves anything when it appears. */
+.counter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  margin: 0 0 16px;
+  font:
+    13px / 1.6 var(--font-mono),
+    monospace;
+  color: var(--color-ink);
+}
+.handled {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-relay-ink);
+}
+.handled:not([data-done="true"]) {
+  visibility: hidden;
+}
+/* The Relay marker: decorative, a fill, never text. */
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-relay);
+}
+
+/* 2 columns on phones, 3 on tablets, 4 × 3 on desktop. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+@container (min-width: 560px) {
+  .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@container (min-width: 880px) {
+  .grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--color-rule-strong);
+  background: var(--color-page);
+}
+.tile[data-open="true"] {
+  border-color: var(--color-ink);
+  background: var(--color-relay-tint);
+}
+.toggle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 12px;
+  border: 0;
+  border-bottom: 1px solid var(--color-rule);
+  background: transparent;
+  font:
+    500 14px / 1.35 var(--font-sans),
+    sans-serif;
+  color: var(--color-ink);
+  text-align: left;
+  cursor: pointer;
+}
+/* A hover cue: the rule under the title darkens to ink, a boundary well
+   above 3:1 on paper and on the opened tint. */
+@media (hover: hover) {
+  .toggle:hover {
+    border-bottom-color: var(--color-ink);
+  }
+}
+.number {
+  font:
+    12px / 1.35 var(--font-mono),
+    monospace;
+  color: var(--color-ink-muted);
+}
+
+/* Both faces share one grid cell: the taller sets the tile's height, so a
+   turn never moves the page. Only the active face is visible, and the other
+   is aria-hidden and inert as well. The perspective lives here, once; the
+   clip keeps a mid-flip face inside the tile, and the 12px face padding
+   holds the docs link's focus ring (3px ring, 3px offset) inside it. */
+.faces {
+  display: grid;
+  flex: 1;
+  perspective: 800px;
+  overflow: clip;
+}
+.face {
+  grid-area: 1 / 1;
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  backface-visibility: hidden;
+}
+.face:not([data-active="true"]) {
+  visibility: hidden;
+}
+p.face {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--color-ink-muted);
+}
+.answer {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+.file {
+  margin: 0 0 4px;
+  font:
+    12px / 1.5 var(--font-mono),
+    monospace;
+  color: var(--color-ink-muted);
+  overflow-wrap: anywhere;
+}
+.code {
+  margin: 0 0 4px;
+  font:
+    12px / 1.55 var(--font-mono),
+    monospace;
+  color: var(--color-relay-ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.code code {
+  font: inherit;
+}
+.face a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: 14px;
+  text-underline-offset: 5px;
+}

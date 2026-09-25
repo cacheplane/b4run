@@ -159,6 +159,9 @@ importers:
       '@b4run/permissions':
         specifier: workspace:*
         version: link:../../packages/permissions
+      '@b4run/postgres-storage':
+        specifier: workspace:*
+        version: link:../../packages/postgres-storage
       '@b4run/sandbox':
         specifier: workspace:*
         version: link:../../packages/sandbox
