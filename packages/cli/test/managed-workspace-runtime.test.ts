@@ -372,3 +372,15 @@ it("refuses to boot a static app from a stale resolver artifact", async () => {
     }),
   ).rejects.toThrow(/rebuild/i)
 })
+
+it("fails b4 build on a misspelt sandbox key even with no workspace or thread", async () => {
+  const { appRoot } = await fixture()
+  const physical = managedProviderFixture()
+  seedB4Config(appRoot, {
+    build: { targets: ["node"] },
+    sandbox: { provider: physical.provider, thred: async () => ({}) },
+  } as never)
+  await expect(
+    runBuildCommand({ cwd: appRoot, clean: true }, { stdout: () => {}, stderr: () => {} }),
+  ).rejects.toThrow(/sandbox.thred is not a sandbox option/)
+})
