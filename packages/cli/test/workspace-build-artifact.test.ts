@@ -1,9 +1,10 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
 import {
   captureWorkspaceArtifact,
+  threadSandboxArtifact,
   verifyWorkspaceArtifact,
   verifyWorkspaceResolverArtifact,
 } from "../src/lib/build/workspace-artifact.ts"
@@ -59,7 +60,9 @@ it("records a resolver as a resolver, with no captured source", async () => {
   const resolver = async () => ({ source: { directory: ".", include: ["a"] } })
   const artifact = await captureWorkspaceArtifact(root, resolver)
   expect(artifact).toEqual({ version: 2, kind: "resolver" })
-  expect(() => verifyWorkspaceResolverArtifact(JSON.parse(JSON.stringify(artifact)))).not.toThrow()
+  expect(() =>
+    verifyWorkspaceResolverArtifact(JSON.parse(JSON.stringify(artifact)), "resolver"),
+  ).not.toThrow()
 })
 
 it("refuses to boot a static artifact under a resolver config, and the reverse", async () => {
@@ -69,12 +72,45 @@ it("refuses to boot a static artifact under a resolver config, and the reverse",
   const definition = { source: { directory: ".", include: ["a"] } }
   const staticArtifact = await captureWorkspaceArtifact(root, definition)
   const resolverArtifact = await captureWorkspaceArtifact(root, async () => definition)
-  expect(() => verifyWorkspaceResolverArtifact(JSON.parse(JSON.stringify(staticArtifact)))).toThrow(
-    /rebuild/i,
-  )
+  expect(() =>
+    verifyWorkspaceResolverArtifact(JSON.parse(JSON.stringify(staticArtifact)), "resolver"),
+  ).toThrow(/rebuild/i)
   expect(() =>
     verifyWorkspaceArtifact(JSON.parse(JSON.stringify(resolverArtifact)), definition),
   ).toThrow(/rebuild/i)
-  expect(() => verifyWorkspaceResolverArtifact(null)).toThrow(/rebuild/i)
-  expect(() => verifyWorkspaceResolverArtifact({ version: 2, kind: "other" })).toThrow(/rebuild/i)
+  expect(() => verifyWorkspaceResolverArtifact(null, "resolver")).toThrow(/rebuild/i)
+  expect(() => verifyWorkspaceResolverArtifact({ version: 2, kind: "other" }, "resolver")).toThrow(
+    /rebuild/i,
+  )
+})
+
+describe("thread sandbox artifact", () => {
+  const definition = { source: { directory: ".", include: [] as string[] } }
+  it("is a tagged record with nothing captured", () => {
+    expect(threadSandboxArtifact()).toEqual({ version: 2, kind: "thread" })
+    expect(Object.isFrozen(threadSandboxArtifact())).toBe(true)
+  })
+  it("verifies as its own form only", () => {
+    expect(() =>
+      verifyWorkspaceResolverArtifact({ version: 2, kind: "thread" }, "thread"),
+    ).not.toThrow()
+    expect(() =>
+      verifyWorkspaceResolverArtifact({ version: 2, kind: "resolver" }, "resolver"),
+    ).not.toThrow()
+    expect(() =>
+      verifyWorkspaceResolverArtifact({ version: 2, kind: "resolver" }, "thread"),
+    ).toThrow(/configuration changed; rebuild/)
+    expect(() =>
+      verifyWorkspaceResolverArtifact({ version: 2, kind: "thread" }, "resolver"),
+    ).toThrow(/configuration changed; rebuild/)
+    expect(() => verifyWorkspaceArtifact({ version: 2, kind: "thread" }, definition)).toThrow(
+      /configuration changed; rebuild/,
+    )
+    expect(() => verifyWorkspaceResolverArtifact({ version: 2, kind: "other" }, "thread")).toThrow(
+      /Invalid workspace build artifact/,
+    )
+    expect(() =>
+      verifyWorkspaceResolverArtifact({ version: 2, kind: "thread", extra: 1 }, "thread"),
+    ).toThrow(/Invalid workspace build artifact/)
+  })
 })

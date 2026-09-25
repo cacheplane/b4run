@@ -47,7 +47,7 @@ export async function resolveSandboxManager(
       // A resolver has nothing to capture at boot. In a built app the artifact
       // must say so, or the config changed form since the build. Verified before
       // opening the installation, so a mismatched config never creates sqlite files.
-      if (options.built) verifyWorkspaceResolverArtifact(options.artifact)
+      if (options.built) verifyWorkspaceResolverArtifact(options.artifact, "resolver")
       const installation = openWorkspaceInstallation(appRoot)
       try {
         managed = new ManagedWorkspaceManager({

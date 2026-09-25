@@ -20,7 +20,19 @@ export interface ResolverWorkspaceBuildArtifact {
   readonly version: 2
   readonly kind: "resolver"
 }
-export type WorkspaceBuildArtifact = CapturedWorkspaceBuildArtifact | ResolverWorkspaceBuildArtifact
+/** A thread-sandbox resolver: nothing to capture at build time. Boot verifies the config is still one. */
+export interface ThreadSandboxBuildArtifact {
+  readonly version: 2
+  readonly kind: "thread"
+}
+export type WorkspaceBuildArtifact =
+  | CapturedWorkspaceBuildArtifact
+  | ResolverWorkspaceBuildArtifact
+  | ThreadSandboxBuildArtifact
+
+export function threadSandboxArtifact(): ThreadSandboxBuildArtifact {
+  return Object.freeze({ version: 2, kind: "thread" })
+}
 function descriptorDigest(definition: WorkspaceDefinition): string {
   let entries = 0
   function canonical(value: unknown, depth = 0): unknown {
@@ -88,8 +100,11 @@ export function verifyWorkspaceArtifact(
   return verifyCapturedWorkspaceDefinition(record.workspace)
 }
 
-/** Verify a resolver artifact. A static artifact here means the config changed form. */
-export function verifyWorkspaceResolverArtifact(value: unknown): void {
+/**
+ * Verify a resolver artifact of `kind`. A static artifact, or the other
+ * resolver kind, means the config changed form since the build.
+ */
+export function verifyWorkspaceResolverArtifact(value: unknown, kind: "resolver" | "thread"): void {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("Invalid workspace build artifact; rebuild the app")
   const record = value as Record<string, unknown>
@@ -97,7 +112,8 @@ export function verifyWorkspaceResolverArtifact(value: unknown): void {
   if (
     Object.keys(record).sort().join(",") !== "kind,version" ||
     record.version !== 2 ||
-    record.kind !== "resolver"
+    (record.kind !== "resolver" && record.kind !== "thread")
   )
     throw new Error("Invalid workspace build artifact; rebuild the app")
+  if (record.kind !== kind) throw new Error("Workspace configuration changed; rebuild the app")
 }
