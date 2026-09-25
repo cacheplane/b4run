@@ -583,6 +583,9 @@ describe("the task's image at dispatch", () => {
       expect(await factory.dispatch(id)).toMatchObject({ ok: true, state: "dispatched" })
       expect(images.builder.requests).toHaveLength(1)
       expect(eventsOf(id, "image_bound")).toHaveLength(1)
+      // The builder runs the image this work order bound, not the newer one the registry records.
+      expect(handoffImages).toEqual([earlier.localId])
+      expect(handoffTags).toEqual([built.tag])
 
       const { id: other } = await factory.create({ taskId: "cli-flags", operationKey: "other" })
       const gone = { ...built.image, localId: `sha256:${"6".repeat(64)}` }

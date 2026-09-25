@@ -61,7 +61,8 @@ The commands that change something are requests to a running controller:
 FACTORY_CONTROLLER_URL is its base URL. The commands that read do not go through the
 controller at all: they open <FACTORY_STATE_DIR>/registry.sqlite read-only. The cancel command uses
 both: it asks the controller to stop the run and then reads the row back.
-builder-handoff needs neither.
+builder-handoff needs no controller; it reads <FACTORY_STATE_DIR>/images.sqlite (read-only)
+unless --image-id is given.
 
 builder-handoff writes <dir>/<work-order>.source.json and <dir>/<work-order>.handoff.json (the
 work order defaults to the task id): the captured workspace's files, and the handoff naming
@@ -153,7 +154,15 @@ function builderHandoffImage(
     throw new Error(
       "builder-handoff needs --image-id, or FACTORY_STATE_DIR whose images.sqlite records the task's image (target:prepare writes it)",
     )
-  const reader = openImageRegistryReader(join(stateDir, "images.sqlite"))
+  let reader: ReturnType<typeof openImageRegistryReader>
+  try {
+    reader = openImageRegistryReader(join(stateDir, "images.sqlite"))
+  } catch (error) {
+    // Missing, schema-less or newer: the same refusal, so the hint (--image-id) appears.
+    throw new Error(
+      `builder-handoff needs --image-id, or FACTORY_STATE_DIR whose images.sqlite records the task's image: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
   try {
     const recorded = reader.recorded(task.target)
     if (recorded === undefined)
@@ -854,7 +863,8 @@ async function main(argv: string[]): Promise<number> {
     return id
   }
   // Answered before anything is opened: writing a builder handoff reads the catalog and
-  // captures an archive, and needs neither a controller nor a registry.
+  // captures an archive, and needs no controller; it opens the image registry read-only only
+  // when --image-id is absent.
   if (command === "builder-handoff") {
     if (!values.task) throw new Error("builder-handoff requires --task")
     if (!values.out) throw new Error("builder-handoff requires --out")

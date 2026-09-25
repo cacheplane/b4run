@@ -8,6 +8,7 @@ import {
   isFactoryImageId,
   refuseRetiredVariables,
   stagedBuilderWorkspace,
+  FACTORY_LABELS as THE_BUILDERS_LABELS,
   BuilderHandoffSchema as TheBuildersHandoffSchema,
 } from "../../server/src/builder-handoff.ts"
 import {
@@ -16,6 +17,7 @@ import {
   stagedReferenceOf,
 } from "../src/lib/builder-handoff.ts"
 import { loadTask, loadTaskRecipe, type TaskRecipe } from "../src/lib/targets/catalog.ts"
+import { FACTORY_LABELS } from "../src/lib/targets/image-builder.ts"
 import { recipeTag } from "../src/lib/targets/images.ts"
 import { builderPermissions } from "../src/lib/targets/permissions.ts"
 import { targetSandboxPolicy } from "../src/lib/targets/workspace.ts"
@@ -368,5 +370,12 @@ describe("the builder's copy of the schemas", () => {
       expect(rule(here, name)).toBeDefined()
       expect(rule(there, name)).toBe(rule(here, name))
     }
+  })
+
+  it("checks the three labels the controller's image build writes, by the same names", () => {
+    // The builder refuses an image whose labels it cannot find: a rename on one side only
+    // would refuse every image the factory builds.
+    expect(Object.keys(FACTORY_LABELS).sort()).toEqual(["key", "pin", "target"])
+    expect(THE_BUILDERS_LABELS).toEqual(FACTORY_LABELS)
   })
 })

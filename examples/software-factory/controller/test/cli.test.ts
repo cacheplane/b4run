@@ -1292,7 +1292,9 @@ esac
     const absent = await failing(
       run(process.execPath, args, { env: { ...rest, FACTORY_STATE_DIR: state }, cwd: packageRoot }),
     )
-    expect(absent.stderr).toContain(`no image registry at ${join(state, "images.sqlite")}`)
+    expect(absent.stderr).toContain(
+      `builder-handoff needs --image-id, or FACTORY_STATE_DIR whose images.sqlite records the task's image: no image registry at ${join(state, "images.sqlite")}`,
+    )
     expect(existsSync(join(state, "images.sqlite"))).toBe(false)
     // A registry that records nothing for the task's target at its pin.
     openImageRegistry({ path: join(state, "images.sqlite"), builder: fakeImageBuilder() }).close()
