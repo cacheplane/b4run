@@ -2,7 +2,7 @@ import type { WorkspaceFs } from "@b4run/sdk"
 import { describe, expect, it } from "vitest"
 import * as workspace from "../src/index.ts"
 import type { SandboxHandle } from "../src/sandbox-types.ts"
-import type { FilesystemBackend } from "../src/types.ts"
+import type { FilesystemBackend, WalkedEntry } from "../src/types.ts"
 
 type Entry = {
   kind: "file" | "directory" | "symlink" | "other"
@@ -69,7 +69,50 @@ function fixture(entries: Record<string, Entry>) {
       throw new Error("unexpected write")
     },
   }
-  return { handle, author, backend, calls }
+  // The same tree served through the batch methods: a walk of `entries` below the root
+  // (pruning root names) and a batch read with `readBinaryFile`'s maxBytes semantics.
+  const batchCalls: string[] = []
+  const batchedBackend: FilesystemBackend = {
+    ...backend,
+    async listDir(path) {
+      throw new Error(`unexpected per-entry listDir: ${path}`)
+    },
+    async readBinaryFile(path) {
+      throw new Error(`unexpected per-entry read: ${path}`)
+    },
+    async walkTree(path, _ctx, opts) {
+      batchCalls.push(`walk ${path} prune=${(opts.prune ?? []).join(",")}`)
+      const walked: WalkedEntry[] = []
+      const visit = (directory: string, relative: string) => {
+        for (const name of entries[directory]?.names ?? []) {
+          const full = `${directory}/${name}`
+          const rel = relative ? `${relative}/${name}` : name
+          const e = entries[full] ?? { kind: "file" as const }
+          walked.push({
+            path: rel,
+            kind: e.kind,
+            size: e.size ?? e.bytes?.length ?? 0,
+            executable: e.executable ?? false,
+            ...(e.target !== undefined ? { target: e.target } : {}),
+          })
+          if (e.kind === "directory" && !(relative === "" && opts.prune?.includes(name)))
+            visit(full, rel)
+        }
+      }
+      visit(path, "")
+      return walked
+    },
+    async readBinaryFiles(requests) {
+      batchCalls.push(`read ${requests.length}`)
+      return requests.map(({ path, maxBytes }) => {
+        const bytes = entries[path]?.bytes ?? new Uint8Array()
+        if (bytes.length > maxBytes) throw new Error(`${path}: content exceeds maxBytes`)
+        return bytes
+      })
+    },
+  }
+  const batched: SandboxHandle = { ...handle, filesystem: batchedBackend }
+  return { handle, author, batched, backend, batchedBackend, calls, batchCalls }
 }
 const text = (s: string) => new TextEncoder().encode(s)
 const tree = (entry: Entry) => ({
@@ -81,7 +124,7 @@ describe("inspectWorkspace", () => {
   it("exports the inspection primitive", () => {
     expect(workspace).toHaveProperty("inspectWorkspace")
   })
-  for (const adapter of ["handle", "author"] as const) {
+  for (const adapter of ["handle", "author", "batched"] as const) {
     it(`inventories text and validated links through ${adapter}`, async () => {
       const f = fixture({
         "/workspace": { kind: "directory", names: ["src", ".git", "node_modules", "__proto__"] },
@@ -112,6 +155,7 @@ describe("inspectWorkspace", () => {
   } satisfies Record<string, Entry>)) {
     it(`rejects ${label}`, async () => {
       await expect(workspace.inspectWorkspace(fixture(tree(entry)).handle)).rejects.toThrow()
+      await expect(workspace.inspectWorkspace(fixture(tree(entry)).batched)).rejects.toThrow()
     })
   }
   for (const name of ["..", ".", "a/b", "a\\b", "", "x\0y", "/escape"]) {
@@ -119,6 +163,10 @@ describe("inspectWorkspace", () => {
       const f = fixture({ "/workspace": { kind: "directory", names: [name] } })
       await expect(workspace.inspectWorkspace(f.handle)).rejects.toThrow(/name/)
       expect(f.calls).toEqual(["/workspace"])
+      const g = fixture({ "/workspace": { kind: "directory", names: [name] } })
+      await expect(workspace.inspectWorkspace(g.batched)).rejects.toThrow(/name/)
+      expect(g.calls).toEqual(["/workspace"])
+      expect(g.batchCalls).toEqual(["walk /workspace prune="])
     })
   }
   it("bounds both stat size and actual bytes, individual and aggregate", async () => {
@@ -239,5 +287,95 @@ describe("inspectWorkspace", () => {
       workspace.inspectWorkspace(f.handle, { signal: controller.signal }),
     ).rejects.toThrow()
     expect(f.calls).toEqual([])
+  })
+  describe("through a backend's batch methods", () => {
+    const deep = () =>
+      fixture({
+        "/workspace": { kind: "directory", names: ["src", ".git", "top.txt"] },
+        "/workspace/src": { kind: "directory", names: ["a.ts", "nested"] },
+        "/workspace/src/a.ts": { kind: "file", bytes: text("a") },
+        "/workspace/src/nested": { kind: "directory", names: ["b.ts"] },
+        "/workspace/src/nested/b.ts": { kind: "file", bytes: text("bb") },
+        "/workspace/.git": { kind: "directory", names: ["HEAD"] },
+        "/workspace/.git/HEAD": { kind: "file", bytes: text("ref") },
+        "/workspace/top.txt": { kind: "file", bytes: text("top") },
+      })
+
+    it("walks once, reads once, and lstats only the root", async () => {
+      const f = deep()
+      const result = await workspace.inspectWorkspace(f.batched, {
+        excludeRootDirectories: [".git"],
+      })
+      expect(result).toEqual(
+        await workspace.inspectWorkspace(deep().handle, { excludeRootDirectories: [".git"] }),
+      )
+      expect(f.batchCalls).toEqual(["walk /workspace prune=.git", "read 3"])
+      expect(f.calls).toEqual(["/workspace"])
+      expect(result.files[".git/HEAD"]).toBeUndefined()
+    })
+
+    it("counts walked entries against the entry limit", async () => {
+      await expect(workspace.inspectWorkspace(deep().batched, { maxEntries: 6 })).rejects.toThrow(
+        /entries/,
+      )
+      expect((await workspace.inspectWorkspace(deep().batched, { maxEntries: 7 })).entries).toBe(7)
+    })
+
+    it("refuses a walk entry whose parent was not walked as a directory", async () => {
+      const f = deep()
+      f.batchedBackend.walkTree = async () => [
+        { path: "orphan/child.txt", kind: "file", size: 0, executable: false },
+      ]
+      await expect(workspace.inspectWorkspace(f.batched)).rejects.toThrow(/name/)
+      f.batchedBackend.walkTree = async () => [
+        { path: "file", kind: "file", size: 0, executable: false },
+        { path: "file/child", kind: "file", size: 0, executable: false },
+      ]
+      await expect(workspace.inspectWorkspace(f.batched)).rejects.toThrow(/name/)
+      f.batchedBackend.walkTree = async () => [
+        { path: "dup", kind: "file", size: 0, executable: false },
+        { path: "dup", kind: "file", size: 0, executable: false },
+      ]
+      await expect(workspace.inspectWorkspace(f.batched)).rejects.toThrow(/duplicate/)
+    })
+
+    it("refuses a file that grew between the walk and the read", async () => {
+      const f = fixture(tree({ kind: "file", size: 2, bytes: text("grown") }))
+      await expect(workspace.inspectWorkspace(f.batched)).rejects.toThrow(/exceeds maxBytes/)
+    })
+
+    it("skips the prefetch when the files exceed the byte budget, and still refuses", async () => {
+      const f = deep()
+      // Without a prefetch the loop reads per entry, and its own budget check refuses.
+      f.batchedBackend.readBinaryFile = f.backend.readBinaryFile as NonNullable<
+        FilesystemBackend["readBinaryFile"]
+      >
+      await expect(workspace.inspectWorkspace(f.batched, { maxTotalBytes: 4 })).rejects.toThrow(
+        /bytes/,
+      )
+      expect(f.batchCalls).toEqual(["walk /workspace prune="])
+    })
+
+    it("stays per-entry unless the backend offers both batch methods", async () => {
+      const f = deep()
+      delete f.batchedBackend.readBinaryFiles
+      await expect(workspace.inspectWorkspace(f.batched)).rejects.toThrow(/unexpected per-entry/)
+      expect(f.batchCalls).toEqual([])
+    })
+
+    it("checks cancellation after the walk", async () => {
+      const controller = new AbortController()
+      const f = deep()
+      const walk = f.batchedBackend.walkTree?.bind(f.batchedBackend)
+      f.batchedBackend.walkTree = async (...args) => {
+        const result = await (walk as NonNullable<typeof walk>)(...args)
+        controller.abort()
+        return result
+      }
+      await expect(
+        workspace.inspectWorkspace(f.batched, { signal: controller.signal }),
+      ).rejects.toThrow()
+      expect(f.batchCalls).toEqual(["walk /workspace prune="])
+    })
   })
 })

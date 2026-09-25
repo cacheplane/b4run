@@ -187,8 +187,10 @@ describe("dockerSandbox.openWorkspaceReader (unit, no daemon)", () => {
       "listDir",
       "lstat",
       "readBinaryFile",
+      "readBinaryFiles",
       "readFile",
       "statFile",
+      "walkTree",
     ])
   })
 

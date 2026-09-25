@@ -65,7 +65,8 @@ export type ReadOnlyFilesystemBackend = Readonly<
   Pick<
     Required<FilesystemBackend>,
     "lstat" | "readFile" | "readBinaryFile" | "listDir" | "statFile"
-  >
+  > &
+    Pick<FilesystemBackend, "walkTree" | "readBinaryFiles">
 >
 
 /**
@@ -73,7 +74,10 @@ export type ReadOnlyFilesystemBackend = Readonly<
  * so does a read-only reader that has no `exec` backend at all.
  */
 export interface WorkspaceReadSource {
-  readonly filesystem: Pick<FilesystemBackend, "lstat" | "readBinaryFile" | "listDir">
+  readonly filesystem: Pick<
+    FilesystemBackend,
+    "lstat" | "readBinaryFile" | "listDir" | "walkTree" | "readBinaryFiles"
+  >
   /** Absolute path of the workspace root INSIDE the sandbox, e.g. "/workspace". */
   readonly workspaceRoot: string
 }
