@@ -485,3 +485,109 @@ it("builds a thread-sandbox app to the thread artifact and resolves per thread f
     }),
   ).rejects.toThrow(/rebuild/i)
 })
+
+it("gates each thread's filesystem calls with its own permissions", async () => {
+  const { appRoot } = await fixture()
+  await mkdir(join(appRoot, "src/app/probe/tools"), { recursive: true })
+  await writeFile(
+    join(appRoot, "src/app/probe/index.ts"),
+    "export const workflow=async (input,ctx)=>ctx.tools.probe(input)",
+  )
+  await writeFile(
+    join(appRoot, "src/app/probe/tools/probe.ts"),
+    "export default async function probe(input:{path:string},ctx){try{await ctx.fs.writeFile(input.path,'x');return {ok:true}}catch(error){return {error:error instanceof Error?error.message:String(error)}}}",
+  )
+  const physical = managedProviderFixture()
+  const config = {
+    permissions: { mode: "non-interactive" as const, allow: { writeFile: ["/everyone/"] } },
+    sandbox: {
+      provider: physical.provider,
+      thread: async (thread: { metadata: Record<string, unknown> }) => ({
+        workspace: { source: { directory: "source", include: ["main.txt"] } },
+        permissions:
+          thread.metadata.role === "writer"
+            ? { allow: { writeFile: ["/outside/"] } }
+            : { allow: {} },
+      }),
+    },
+  }
+  const handler = await createRuntimeFetchHandler({ appRoot, config })
+  handlers.push(handler)
+  const probe = async (id: string, path: string) => {
+    const response = await handler.fetch(
+      new Request(`http://localhost/threads/${id}/runs/wait`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ route: "/probe#workflow", input: { path } }),
+      }),
+    )
+    return (await response.json()) as { ok?: true; error?: string }
+  }
+  const writer = await createThread(handler, { role: "writer" })
+  const reader = await createThread(handler, { role: "reader" })
+  expect(await probe(writer, "/outside/file.txt")).toEqual({ ok: true })
+  expect((await probe(reader, "/outside/file.txt")).error).toMatch(
+    /Permission denied \(fail-closed\)/,
+  )
+  // The app's own allow-list does not reach a thread with permissions of its own.
+  expect((await probe(writer, "/everyone/file.txt")).error).toMatch(
+    /Permission denied \(fail-closed\)/,
+  )
+})
+
+it("scopes a thread over a configured permissions store (e.g. Postgres): its denials apply, its allows and grants do not", async () => {
+  const { appRoot } = await fixture()
+  await mkdir(join(appRoot, "src/app/probe/tools"), { recursive: true })
+  await writeFile(
+    join(appRoot, "src/app/probe/index.ts"),
+    "export const workflow=async (input,ctx)=>ctx.tools.probe(input)",
+  )
+  await writeFile(
+    join(appRoot, "src/app/probe/tools/probe.ts"),
+    "export default async function probe(input:{path:string},ctx){try{await ctx.fs.writeFile(input.path,'x');return {ok:true}}catch(error){return {error:error instanceof Error?error.message:String(error)}}}",
+  )
+  const granted: string[] = []
+  // Stands in for any non-file store (the Postgres one): the thread store reads only its mode
+  // and deny verdicts, and never writes to it.
+  const store = {
+    mode: "non-interactive" as const,
+    async load() {},
+    match: (tool: string, candidate: string) =>
+      tool === "writeFile" && candidate.startsWith("/outside/secret")
+        ? ("deny" as const)
+        : tool === "writeFile" && candidate.startsWith("/everyone/")
+          ? ("allow" as const)
+          : ("unknown" as const),
+    async addAllow(tool: string, pattern: string) {
+      granted.push(`${tool} ${pattern}`)
+    },
+  }
+  const physical = managedProviderFixture()
+  const config = {
+    permissions: { store },
+    sandbox: {
+      provider: physical.provider,
+      thread: async () => ({
+        workspace: { source: { directory: "source", include: ["main.txt"] } },
+        permissions: { allow: { writeFile: ["/outside/"] } },
+      }),
+    },
+  }
+  const handler = await createRuntimeFetchHandler({ appRoot, config })
+  handlers.push(handler)
+  const probe = async (path: string) => {
+    const response = await handler.fetch(
+      new Request("http://localhost/threads/one/runs/wait", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ route: "/probe#workflow", input: { path } }),
+      }),
+    )
+    return (await response.json()) as { ok?: true; error?: string }
+  }
+  expect(await probe("/outside/file.txt")).toEqual({ ok: true })
+  // The app store's deny verdict wins over the thread's allow.
+  expect((await probe("/outside/secret.txt")).error).toMatch(/Permission denied by user/)
+  expect((await probe("/everyone/file.txt")).error).toMatch(/Permission denied \(fail-closed\)/)
+  expect(granted).toEqual([])
+})
