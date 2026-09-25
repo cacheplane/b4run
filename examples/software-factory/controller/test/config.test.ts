@@ -5,7 +5,6 @@ import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 const base = {
   FACTORY_WORKER_URL: "http://127.0.0.1:4100",
   FACTORY_STATE_DIR: "/tmp/state",
-  FACTORY_BUILDER_MANIFEST_DIR: "/m/b",
   FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
 }
 
@@ -55,26 +54,21 @@ describe("the builder endpoint", () => {
   const pair = {
     FACTORY_STATE_DIR: "/tmp/state",
     FACTORY_WORKER_URL: "http://127.0.0.1:4100/",
-    FACTORY_BUILDER_MANIFEST_DIR: "/srv/builder/manifests",
     FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
   }
 
-  it("is one worker for every target, at its URL, writing into its manifest directory", () => {
+  it("is one worker for every target, at its URL alone", () => {
     expect(loadConfig(pair).builder).toEqual({
       url: "http://127.0.0.1:4100",
       route: DEFAULT_WORKER_ROUTE,
-      manifestDir: "/srv/builder/manifests",
     })
   })
 
-  it("takes an explicit route and manifest directory", () => {
-    expect(
-      loadConfig({
-        ...pair,
-        FACTORY_WORKER_ROUTE: "/fix#agent",
-        FACTORY_BUILDER_MANIFEST_DIR: "/var/manifests",
-      }).builder,
-    ).toMatchObject({ route: "/fix#agent", manifestDir: "/var/manifests" })
+  it("takes an explicit route", () => {
+    expect(loadConfig({ ...pair, FACTORY_WORKER_ROUTE: "/fix#agent" }).builder).toEqual({
+      url: "http://127.0.0.1:4100",
+      route: "/fix#agent",
+    })
   })
 
   it.each([
@@ -88,19 +82,36 @@ describe("the builder endpoint", () => {
       "/tmp/factory-builder/cli-flags.target.json",
       /FACTORY_BUILDER_TARGET is retired: the builder boots with no target file/,
     ],
+    [
+      "FACTORY_BUILDER_MANIFEST_DIR",
+      "/srv/builder/manifests",
+      /FACTORY_BUILDER_MANIFEST_DIR is retired: dispatch stages the workspace over the builder's Agent Protocol port/,
+    ],
+    [
+      "FACTORY_DRAFTER_MANIFEST_DIR",
+      "/srv/drafter/manifests",
+      /FACTORY_DRAFTER_MANIFEST_DIR is retired: intake stages the workspace over the drafter's Agent Protocol port/,
+    ],
   ])("refuses the retired %s by name", (name, value, message) => {
     expect(() => loadConfig({ ...pair, [name]: value })).toThrow(message)
     // Even an empty value: an operator who set it at all learns it does nothing now.
     expect(() => loadConfig({ ...pair, [name]: "" })).toThrow(message)
   })
 
-  it("needs the manifest directory with the URL", () => {
-    const { FACTORY_BUILDER_MANIFEST_DIR: _dir, ...urlOnly } = pair
-    expect(() => loadConfig(urlOnly)).toThrow(
-      "FACTORY_BUILDER_MANIFEST_DIR is required: the directory the builder was started with",
-    )
-    const { FACTORY_WORKER_URL: _url, ...dirOnly } = pair
-    expect(() => loadConfig(dirOnly)).toThrow(/FACTORY_WORKER_URL is required/)
+  it("needs the URL", () => {
+    const { FACTORY_WORKER_URL: _url, ...without } = pair
+    expect(() => loadConfig(without)).toThrow(/FACTORY_WORKER_URL is required/)
+  })
+
+  it("refuses a retired manifest directory even beside a drafter", () => {
+    // The drafter pair no longer needs one, and a drafter URL does not make one mean anything.
+    expect(() =>
+      loadConfig({
+        ...pair,
+        FACTORY_DRAFTER_URL: "http://127.0.0.1:4200",
+        FACTORY_DRAFTER_MANIFEST_DIR: "/m/d",
+      }),
+    ).toThrow(/FACTORY_DRAFTER_MANIFEST_DIR is retired/)
   })
 
   for (const name of ["FACTORY_BUILDER_APP_ROOT", "FACTORY_DRAFTER_APP_ROOT"])
@@ -116,11 +127,7 @@ describe("the builder endpoint", () => {
 describe("FACTORY_DRAFTER_IMAGE on the controller", () => {
   it("is ignored with one warning, because the drafter sharing the environment still reads it", () => {
     const image = `node:24-slim@sha256:${"b".repeat(64)}`
-    const withDrafter = {
-      ...base,
-      FACTORY_DRAFTER_URL: "http://127.0.0.1:4200",
-      FACTORY_DRAFTER_MANIFEST_DIR: "/m/d",
-    }
+    const withDrafter = { ...base, FACTORY_DRAFTER_URL: "http://127.0.0.1:4200" }
     for (const env of [base, withDrafter]) {
       const config = loadConfig({ ...env, FACTORY_DRAFTER_IMAGE: image })
       expect(config.warnings).toEqual([
@@ -206,25 +213,10 @@ describe("drafter configuration", () => {
     expect(Object.keys(config)).not.toContain("drafterImage")
   })
 
-  it("needs only a URL per worker, and the manifest directory it writes into", () => {
-    const config = loadConfig({
-      ...base,
-      FACTORY_DRAFTER_URL: "http://127.0.0.1:4200/",
-      FACTORY_DRAFTER_MANIFEST_DIR: "/m/d",
-    })
-    expect(config.builder).toEqual({
-      url: "http://127.0.0.1:4100",
-      route: "/build#agent",
-      manifestDir: "/m/b",
-    })
-    expect(config.drafter).toEqual({
-      url: "http://127.0.0.1:4200",
-      route: "/intake#agent",
-      manifestDir: "/m/d",
-    })
-    expect(() => loadConfig({ ...base, FACTORY_DRAFTER_URL: "http://127.0.0.1:4200" })).toThrow(
-      "FACTORY_DRAFTER_MANIFEST_DIR is required with FACTORY_DRAFTER_URL",
-    )
+  it("needs only a URL per worker", () => {
+    const config = loadConfig({ ...base, FACTORY_DRAFTER_URL: "http://127.0.0.1:4200/" })
+    expect(config.builder).toEqual({ url: "http://127.0.0.1:4100", route: "/build#agent" })
+    expect(config.drafter).toEqual({ url: "http://127.0.0.1:4200", route: "/intake#agent" })
   })
 
   it("takes an explicit drafter route", () => {
@@ -232,46 +224,23 @@ describe("drafter configuration", () => {
       ...base,
       FACTORY_DRAFTER_URL: "http://127.0.0.1:4200",
       FACTORY_DRAFTER_ROUTE: "/draft#agent",
-      FACTORY_DRAFTER_MANIFEST_DIR: "/var/lib/factory/manifests",
     })
-    expect(explicit.drafter).toMatchObject({
-      route: "/draft#agent",
-      manifestDir: "/var/lib/factory/manifests",
-    })
+    expect(explicit.drafter).toEqual({ url: "http://127.0.0.1:4200", route: "/draft#agent" })
   })
 
   it("refuses a drafter knob without the drafter, naming it", () => {
     expect(() => loadConfig({ ...base, FACTORY_DRAFTER_ROUTE: "/draft#agent" })).toThrow(
       "FACTORY_DRAFTER_ROUTE is set but the drafter is not: set FACTORY_DRAFTER_URL, or unset it",
     )
-    expect(() => loadConfig({ ...base, FACTORY_DRAFTER_MANIFEST_DIR: "/srv/m" })).toThrow(
-      "FACTORY_DRAFTER_MANIFEST_DIR is set but the drafter is not",
-    )
-    expect(() =>
-      loadConfig({
-        ...base,
-        FACTORY_DRAFTER_ROUTE: "/draft#agent",
-        FACTORY_DRAFTER_MANIFEST_DIR: "/srv/m",
-      }),
-    ).toThrow(
-      "FACTORY_DRAFTER_ROUTE and FACTORY_DRAFTER_MANIFEST_DIR are set but the drafter is not: set FACTORY_DRAFTER_URL, or unset them",
-    )
   })
 
   it("rejects a blank or malformed drafter value under its name", () => {
-    const pair = {
-      ...base,
-      FACTORY_DRAFTER_URL: "http://127.0.0.1:4200",
-      FACTORY_DRAFTER_MANIFEST_DIR: "/m/d",
-    }
+    const pair = { ...base, FACTORY_DRAFTER_URL: "http://127.0.0.1:4200" }
     expect(() => loadConfig({ ...pair, FACTORY_DRAFTER_URL: "ftp://x" })).toThrow(
       /FACTORY_DRAFTER_URL must be http\(s\)/,
     )
     expect(() => loadConfig({ ...pair, FACTORY_DRAFTER_ROUTE: "" })).toThrow(
       /FACTORY_DRAFTER_ROUTE/,
-    )
-    expect(() => loadConfig({ ...pair, FACTORY_DRAFTER_MANIFEST_DIR: "" })).toThrow(
-      /FACTORY_DRAFTER_MANIFEST_DIR/,
     )
   })
 })

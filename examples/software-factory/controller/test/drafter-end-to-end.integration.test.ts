@@ -151,10 +151,8 @@ async function bootController(
   runtime = createControllerRuntime(
     {
       FACTORY_WORKER_URL: builder.baseUrl,
-      FACTORY_BUILDER_MANIFEST_DIR: join(dir, "builder", "manifests"),
       FACTORY_STATE_DIR: join(dir, "state"),
       FACTORY_DRAFTER_URL: drafter.url,
-      FACTORY_DRAFTER_MANIFEST_DIR: join(dir, "drafter", "manifests"),
       FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
     },
     {

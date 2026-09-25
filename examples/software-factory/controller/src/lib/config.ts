@@ -26,11 +26,6 @@ export interface WorkerEndpoint {
   /** The builder's Agent Protocol base URL: runs, and reads of its threads' workspaces. */
   readonly url: string
   readonly route: string
-  /**
-   * Where `dispatch` writes one manifest per work order for the builder's resolver to read:
-   * the directory the builder was started with (its `FACTORY_BUILDER_MANIFEST_DIR`).
-   */
-  readonly manifestDir: string
 }
 
 /** The drafter: the one process that runs `/intake#agent` for every issue work order. */
@@ -38,8 +33,6 @@ export interface DrafterEndpoint {
   /** The drafter's Agent Protocol base URL: runs, and reads of its threads' `draft/`. */
   readonly url: string
   readonly route: string
-  /** Where the controller writes one manifest per work order for the drafter's resolver to read. */
-  readonly manifestDir: string
 }
 
 export const DEFAULT_WORKER_ROUTE = "/build#agent"
@@ -59,7 +52,6 @@ const EnvSchema = z.object({
   /** The builder pair: the one builder worker, for every target at every pin. */
   FACTORY_WORKER_URL: httpUrl("FACTORY_WORKER_URL").optional(),
   FACTORY_WORKER_ROUTE: z.string().min(1).default(DEFAULT_WORKER_ROUTE),
-  FACTORY_BUILDER_MANIFEST_DIR: z.string().min(1).optional(),
   FACTORY_STATE_DIR: z.string({ message: "FACTORY_STATE_DIR is required" }).min(1),
   FACTORY_EXPORT_DIR: z.string().min(1).optional(),
   FACTORY_ARTIFACTS_DIR: z.string().min(1).optional(),
@@ -68,10 +60,9 @@ const EnvSchema = z.object({
   FACTORY_MAX_CHANGED_BYTES: positiveInt("FACTORY_MAX_CHANGED_BYTES"),
   FACTORY_MAX_INTAKE_ATTEMPTS: positiveInt("FACTORY_MAX_INTAKE_ATTEMPTS"),
   FACTORY_MAX_CANDIDATE_ATTEMPTS: positiveInt("FACTORY_MAX_CANDIDATE_ATTEMPTS"),
-  /** The drafter: its URL configures it, and its manifest directory comes with it. */
+  /** The drafter: its URL configures it. */
   FACTORY_DRAFTER_URL: httpUrl("FACTORY_DRAFTER_URL").optional(),
   FACTORY_DRAFTER_ROUTE: z.string().min(1).default(DEFAULT_DRAFTER_ROUTE),
-  FACTORY_DRAFTER_MANIFEST_DIR: z.string().min(1).optional(),
   /**
    * The secret every worker's thread-access policy requires: `authorization: Bearer <token>`.
    * Every message below names the variable and never its value.
@@ -94,7 +85,7 @@ export function generatedTasksDirFor(stateDir: string): string {
 export interface FactoryConfig {
   /**
    * The one builder worker: every target's work orders, at every pin. Each work order's
-   * manifest carries the image, policy and permissions its thread runs with.
+   * handoff carries the image, policy and permissions its thread runs with.
    */
   readonly builder: WorkerEndpoint
   /** The drafter. Absent, the `intake` command refuses before spending anything. */
@@ -136,10 +127,13 @@ export interface FactoryConfig {
  * operator still setting it would otherwise believe it still does.
  */
 const RETIRED: Readonly<Record<string, string>> = {
-  FACTORY_WORKERS:
-    "one builder serves every target and pin: set FACTORY_WORKER_URL and FACTORY_BUILDER_MANIFEST_DIR",
+  FACTORY_WORKERS: "one builder serves every target and pin: set FACTORY_WORKER_URL",
   FACTORY_BUILDER_TARGET:
-    "the builder boots with no target file; each work order's manifest carries its target",
+    "the builder boots with no target file; each work order's handoff carries its target",
+  FACTORY_BUILDER_MANIFEST_DIR:
+    "dispatch stages the workspace over the builder's Agent Protocol port; no directory is shared",
+  FACTORY_DRAFTER_MANIFEST_DIR:
+    "intake stages the workspace over the drafter's Agent Protocol port; no directory is shared",
   FACTORY_BUILDER_APP_ROOT:
     "the controller reads the builder's threads over its URL (sandbox.workspaceRead), not through its app root",
   FACTORY_DRAFTER_APP_ROOT:
@@ -172,34 +166,20 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
   /** Set by the operator, as opposed to defaulted by the schema. */
   const isSet = (name: string) => env[name] !== undefined
   if (e.FACTORY_WORKER_URL === undefined) throw invalid("FACTORY_WORKER_URL is required")
-  if (e.FACTORY_BUILDER_MANIFEST_DIR === undefined)
-    throw invalid(
-      "FACTORY_BUILDER_MANIFEST_DIR is required: the directory the builder was started with",
-    )
   const builder: WorkerEndpoint = {
     url: e.FACTORY_WORKER_URL.replace(/\/$/, ""),
     route: e.FACTORY_WORKER_ROUTE,
-    manifestDir: e.FACTORY_BUILDER_MANIFEST_DIR,
   }
-  // The drafter is configured by its URL. Its manifest directory is where intake writes and
-  // the drafter reads, so it comes with the URL; its other knobs mean nothing without the
-  // drafter, and an operator who set one is told so rather than left waiting for an intake
-  // that will refuse.
-  if (e.FACTORY_DRAFTER_URL === undefined) {
-    const stray = ["FACTORY_DRAFTER_ROUTE", "FACTORY_DRAFTER_MANIFEST_DIR"].filter(isSet)
-    if (stray.length > 0)
-      throw invalid(
-        `${stray.join(" and ")} ${stray.length > 1 ? "are" : "is"} set but the drafter is not: set FACTORY_DRAFTER_URL, or unset ${stray.length > 1 ? "them" : "it"}`,
-      )
-  } else if (e.FACTORY_DRAFTER_MANIFEST_DIR === undefined)
-    throw invalid("FACTORY_DRAFTER_MANIFEST_DIR is required with FACTORY_DRAFTER_URL")
+  // The drafter is configured by its URL alone. Its route means nothing without the drafter,
+  // and an operator who set it is told so rather than left waiting for an intake that will
+  // refuse.
+  if (e.FACTORY_DRAFTER_URL === undefined && isSet("FACTORY_DRAFTER_ROUTE"))
+    throw invalid(
+      "FACTORY_DRAFTER_ROUTE is set but the drafter is not: set FACTORY_DRAFTER_URL, or unset it",
+    )
   const drafter: DrafterEndpoint | undefined =
-    e.FACTORY_DRAFTER_URL !== undefined && e.FACTORY_DRAFTER_MANIFEST_DIR !== undefined
-      ? {
-          url: e.FACTORY_DRAFTER_URL.replace(/\/$/, ""),
-          route: e.FACTORY_DRAFTER_ROUTE,
-          manifestDir: e.FACTORY_DRAFTER_MANIFEST_DIR,
-        }
+    e.FACTORY_DRAFTER_URL !== undefined
+      ? { url: e.FACTORY_DRAFTER_URL.replace(/\/$/, ""), route: e.FACTORY_DRAFTER_ROUTE }
       : undefined
   return {
     builder,

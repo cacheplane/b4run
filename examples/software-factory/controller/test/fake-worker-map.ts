@@ -35,7 +35,6 @@ export function fakeWorkerMap(options: FakeWorkerMapOptions): WorkerMap {
         client: options.builder.client,
         reader: options.builder.reader,
         route: options.builder.route ?? "/build#agent",
-        manifestDir: "/unused/builder-manifests",
       }
     : undefined
   const drafter: DrafterWorker | undefined = options.drafter
@@ -43,7 +42,6 @@ export function fakeWorkerMap(options: FakeWorkerMapOptions): WorkerMap {
         client: options.drafter.client,
         reader: options.drafter.reader,
         route: options.drafter.route ?? "/intake#agent",
-        manifestDir: "/unused/drafter-manifests",
       }
     : undefined
   return {

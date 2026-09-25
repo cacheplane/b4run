@@ -4,8 +4,8 @@ import type { WorkspaceReader } from "../worker/workspace-reader.js"
 
 /**
  * The worker map: one builder worker for every target and pin, and one drafter, each a process
- * of its own with its own Agent Protocol endpoint, its own app root (where its installation
- * store lives) and its own route. A work order's thread lives on exactly one of them, and which
+ * of its own with its own Agent Protocol endpoint and its own route: the controller reaches
+ * each by URL and token alone. A work order's thread lives on exactly one of them, and which
  * one is a fact about the row (which phase parked the thread) that `ControllerContext.workerFor`,
  * `drafter` and `workerOfThread` decide. Nothing here knows a row; this is only the table.
  */
@@ -16,12 +16,6 @@ export interface TargetWorker {
   readonly route: string
   /** Reads a builder thread's candidate bytes (addressed by thread AND task). */
   readonly reader: WorkspaceReader
-  /**
-   * Where `dispatch` writes the work order's manifest before it creates the thread: the
-   * builder process's `FACTORY_BUILDER_MANIFEST_DIR`. The manifest carries the thread's
-   * workspace, image, policy and permissions.
-   */
-  readonly manifestDir: string
 }
 
 /** The drafter as the controller talks to it. */
@@ -30,8 +24,6 @@ export interface DrafterWorker {
   readonly route: string
   /** Reads a drafter thread re-rooted at `draft/` (addressed by thread alone). */
   readonly reader: WorkspaceReader
-  /** Where `intake` writes the work order's manifest before it creates the thread. */
-  readonly manifestDir: string
 }
 
 export interface WorkerMap {
@@ -40,8 +32,7 @@ export interface WorkerMap {
   readonly drafter?: DrafterWorker
 }
 
-export const DRAFTER_UNCONFIGURED =
-  "intake is not configured: set FACTORY_DRAFTER_URL and FACTORY_DRAFTER_MANIFEST_DIR"
+export const DRAFTER_UNCONFIGURED = "intake is not configured: set FACTORY_DRAFTER_URL"
 
 /** No drafter is configured: nothing can start or read an intake thread. */
 export class DrafterUnconfiguredError extends Error {
@@ -93,7 +84,6 @@ export function createWorkerMap(
             client: client(entry.url),
             route: entry.route,
             reader: deps.createDrafterReader(entry),
-            manifestDir: entry.manifestDir,
           }),
         )
   /** Every target's work orders go to the one builder, at any pin. */
@@ -101,7 +91,6 @@ export function createWorkerMap(
     client: client(config.builder.url),
     route: config.builder.route,
     reader: reader(config.builder),
-    manifestDir: config.builder.manifestDir,
   })
   // A getter, not a spread over one: spreading would read it at boot.
   if (drafter !== undefined && drafterEntry !== undefined)

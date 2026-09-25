@@ -58,32 +58,32 @@
     },
     "@b4-example/software-factory-server#build": {
       "dependsOn": ["^build"],
-      "env": ["FACTORY_BUILDER_LANE", "FACTORY_BUILDER_MANIFEST_DIR"],
+      "env": ["FACTORY_BUILDER_LANE"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**", ".b4/build/**", ".b4/b4.generated.d.ts"]
     },
     "@b4-example/software-factory-server#check": {
       "dependsOn": ["^check"],
-      "env": ["FACTORY_BUILDER_LANE", "FACTORY_BUILDER_MANIFEST_DIR"]
+      "env": ["FACTORY_BUILDER_LANE"]
     },
     "@b4-example/software-factory-drafter#build": {
       "dependsOn": ["^build"],
-      "env": ["FACTORY_DRAFTER_MANIFEST_DIR", "FACTORY_DRAFTER_IMAGE"],
+      "env": ["FACTORY_DRAFTER_IMAGE"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**", ".b4/build/**", ".b4/b4.generated.d.ts"]
     },
     "@b4-example/software-factory-drafter#check": {
       "dependsOn": ["^check"],
-      "env": ["FACTORY_DRAFTER_MANIFEST_DIR", "FACTORY_DRAFTER_IMAGE"]
+      "env": ["FACTORY_DRAFTER_IMAGE"]
     },
     "@b4-example/software-factory-controller#test": {
       "dependsOn": ["build", "^test"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/examples/software-factory/README.md",
-        "$TURBO_ROOT$/examples/software-factory/server/src/builder-manifest.ts",
+        "$TURBO_ROOT$/examples/software-factory/server/src/builder-handoff.ts",
         "$TURBO_ROOT$/examples/software-factory/server",
         "$TURBO_ROOT$/examples/software-factory/drafter/b4.config.ts",
         "$TURBO_ROOT$/examples/software-factory/drafter/src/drafter-image.ts",
-        "$TURBO_ROOT$/examples/software-factory/drafter/src/drafter-manifest.ts",
+        "$TURBO_ROOT$/examples/software-factory/drafter/src/drafter-handoff.ts",
         "$TURBO_ROOT$/examples/software-factory/drafter/src/thread-access.ts",
         "$TURBO_ROOT$/examples/software-factory/drafter/src/app/intake/index.ts"
       ]

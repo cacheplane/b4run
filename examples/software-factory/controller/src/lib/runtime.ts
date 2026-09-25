@@ -1,4 +1,3 @@
-import { mkdirSync } from "node:fs"
 import { resolve } from "node:path"
 import {
   type DrafterEndpoint,
@@ -80,30 +79,6 @@ export function createControllerRuntime(
     // below — the prompt, the verifier, the baseline, the workspace reader — then finds a
     // generated task. The search path is process-wide, like the runtime itself.
     configureCatalog({ generatedTasksDir: config.generatedTasksDir })
-    // The drafter's manifest directory is the controller's own to make: the drafter only
-    // reads it. The drafter itself is reached by URL alone, so nothing else is checked here.
-    if (config.drafter !== undefined) {
-      try {
-        mkdirSync(config.drafter.manifestDir, { recursive: true })
-      } catch (error) {
-        return Promise.reject(
-          new Error(
-            `FACTORY_DRAFTER_MANIFEST_DIR could not be created (${config.drafter.manifestDir}): ${String(error)}`,
-          ),
-        )
-      }
-    }
-    // The builder's manifest directory is the controller's to make too, for the same reason:
-    // `dispatch` writes into it, the builder only reads it.
-    try {
-      mkdirSync(config.builder.manifestDir, { recursive: true })
-    } catch (error) {
-      return Promise.reject(
-        new Error(
-          `the builder's manifest directory could not be created (${config.builder.manifestDir}): ${String(error)}`,
-        ),
-      )
-    }
     const { readers, ...factoryOverrides } = overrides
     // Every run-time file the controller stages (captures, verifier state) lives under its
     // state directory, never under its own app root: `b4 dev` restarts the server on any write

@@ -112,9 +112,10 @@ export async function serveController(
   })
   process.env.FACTORY_WORKER_URL = fake.baseUrl
   process.env.FACTORY_STATE_DIR = stateDir
-  process.env.FACTORY_BUILDER_MANIFEST_DIR = join(dir, "builder", "manifests")
+  // Retired: the controller refuses to boot while either is set, and restores them on close.
+  delete process.env.FACTORY_BUILDER_MANIFEST_DIR
+  delete process.env.FACTORY_DRAFTER_MANIFEST_DIR
   process.env.FACTORY_DRAFTER_URL = drafter.baseUrl
-  process.env.FACTORY_DRAFTER_MANIFEST_DIR = join(dir, "drafter", "manifests")
   process.env.FACTORY_WORKER_TOKEN = TEST_WORKER_TOKEN
   // A commit the served controller's repository (this one) holds, so `intake`'s pin check
   // passes without a fetch, and the one the shipped targets hold images at, so a draft

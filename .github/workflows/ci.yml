@@ -453,27 +453,26 @@ jobs:
         #
         # The builder's OWN `check` and `build` run here and nowhere else
         # (`FACTORY_BUILDER_LANE=1`; outside this job `scripts/in-lane.mjs` skips
-        # them). The builder has no target file: one builder serves every target
-        # and pin, each work order's manifest carrying its image, policy and
-        # permissions, so it checks and builds as it runs, against an empty
-        # manifest directory (manifests are per work order, read at admission).
+        # them). The builder has no target file and no manifest directory: one
+        # builder serves every target and pin, and the controller hands each work
+        # order's workspace and target (image, policy, permissions) to its thread
+        # over the builder's Agent Protocol port, so it checks and builds as it runs.
         # `check` runs the provider preflight, which needs Docker; this lane has it.
         #
         # The drafter runs on the plain `node:24-slim` base, pinned by digest in
         # `drafter/src/drafter-image.ts`; that literal is the only copy, so the
         # pull reads it from the file rather than restating it here (any
         # `<image>@sha256:<digest>` there is what gets pulled). The drafter's own
-        # `check` and `build` default their manifest directory to one that need
-        # not exist, so they run as they are. The controller's `test:sandbox`
+        # `check` and `build` need nothing per work order either: its intakes are
+        # handed over its port the same way. The controller's `test:sandbox`
         # then serves the drafter against the pulled image: its resolver lane
         # (two threads, two captures) and the real intake turn through it.
         run: |
           pnpm turbo run build --filter=@b4-example/software-factory-controller^...
           pnpm --filter @b4-example/software-factory-controller target:prepare cli-flags
           pnpm --filter @b4-example/software-factory-controller target:prepare devkit
-          mkdir -p "$RUNNER_TEMP/factory-builder/manifests"
-          FACTORY_BUILDER_LANE=1 FACTORY_BUILDER_MANIFEST_DIR="$RUNNER_TEMP/factory-builder/manifests" pnpm --filter @b4-example/software-factory-server check
-          FACTORY_BUILDER_LANE=1 FACTORY_BUILDER_MANIFEST_DIR="$RUNNER_TEMP/factory-builder/manifests" pnpm --filter @b4-example/software-factory-server build
+          FACTORY_BUILDER_LANE=1 pnpm --filter @b4-example/software-factory-server check
+          FACTORY_BUILDER_LANE=1 pnpm --filter @b4-example/software-factory-server build
           docker pull "$(grep -oE '[a-z0-9.:/-]+@sha256:[a-f0-9]{64}' examples/software-factory/drafter/src/drafter-image.ts)"
           pnpm --filter @b4-example/software-factory-drafter check
           pnpm --filter @b4-example/software-factory-drafter build
