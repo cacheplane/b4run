@@ -110,6 +110,7 @@ minute is a request that did not reach the controller, and the command says so a
 A dispatch that first builds its target's image (the first time this host needs it) is followed
 through the build: its journal lines are the arrival, and dispatch_refused is its end when it
 refuses.
+
 retry returns a work order a candidate failure blocked (unexpected_interrupt, scope_violation,
 encoding_violation, candidate_rejected, verification_failed, verification_inconclusive) to
 received, while it has candidate attempts left (FACTORY_MAX_CANDIDATE_ATTEMPTS, fixed at create,
@@ -428,6 +429,15 @@ async function followRow(
   )
   if (!row) throw new Error(`Unknown work order ${id}`)
   const refusal = journalled(events?.refused)
+  if (refusal === undefined && working()) {
+    const waited = (row.maxActiveMs ?? 0) + POLL_GRACE_MS + (events?.workingGraceMs?.(after()) ?? 0)
+    return {
+      ok: false,
+      state: row.state,
+      message: `Still preparing its image after ${Math.round(waited / 60_000)} minutes (read from the registry after the request ended); run show ${id}`,
+      row,
+    }
+  }
   // A dispatch refused after its image build leaves the row where it found it (`received`,
   // not active): the refusal is the answer there too, not a row that "settled".
   if (refusal !== undefined && (active.has(row.state) || row.state === before.state))

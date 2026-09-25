@@ -574,6 +574,52 @@ esac
     }
   }, 90_000)
 
+  it("reads back a dispatch refused after its image build, with the row still received", async () => {
+    const builder = fakeImageBuilder()
+    builder.hold()
+    builder.failNext("docker build failed")
+    const imagesDir = mkdtempSync(join(tmpdir(), "factory-cli-images-"))
+    const images = openImageRegistry({
+      path: join(imagesDir, "images.sqlite"),
+      builder,
+      platform: "linux/arm64",
+    })
+    const restore = useImages(images)
+    try {
+      const { env, stateDir } = await boot()
+      const { stdout: createdOut } = await run(
+        process.execPath,
+        [tsxBin, cliEntry, "create", "--task", "cli-flags"],
+        { env, cwd: packageRoot },
+      )
+      const id = JSON.parse(createdOut).row.id as string
+      // The build fails only after the request (500 ms) and the arrival window (1 s) are gone.
+      setTimeout(() => builder.release(), 3_000)
+      const { stdout, stderr } = await failing(
+        run(process.execPath, [tsxBin, cliEntry, "dispatch", id], {
+          env: {
+            ...env,
+            FACTORY_CLI_REQUEST_TIMEOUT_MS: "500",
+            FACTORY_CLI_ARRIVAL_WINDOW_MS: "1000",
+          },
+          cwd: packageRoot,
+        }),
+      )
+      expect(stderr).toContain("the request ended before its answer")
+      const outcome = JSON.parse(stdout)
+      expect(outcome).toMatchObject({ ok: false, state: "received" })
+      expect(outcome.message).toMatch(
+        /^Refused \(read from the registry after the request ended\): the image of target cli-flags .* could not be built: .*docker build failed/,
+      )
+      expect(await pollState(stateDir, id, () => true)).toBe("received")
+    } finally {
+      builder.release()
+      restore()
+      images.close()
+      rmSync(imagesDir, { recursive: true, force: true })
+    }
+  }, 90_000)
+
   it("follows an approve past its request timeout: arrival and the export read from the registry", async () => {
     // Approve re-verifies with the row still `awaiting_approval` at its revision (about 20
     // minutes on the `cli` target), so the live run's CLI timed out and a repeat was refused

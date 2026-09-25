@@ -55,14 +55,23 @@ export function bindingMoved(
 /**
  * Is a dispatch that began by preparing an image still going on, by its journal lines
  * (`events` after the caller's mark)? From `image_prepare_started` until the dispatch moves
- * the row (`transition`) or refuses (`dispatch_refused`); the build's own end is not the
- * dispatch's, which still captures, uploads and creates the thread.
+ * the row (`transition`), refuses (`dispatch_refused`), or the controller that ran it is gone
+ * (reconciliation's `image_prepare_aborted` with reason `restart`: nothing is waiting on that
+ * build, so no refusal will follow); the build's own end is not the dispatch's, which still
+ * captures, uploads and creates the thread.
  */
-export function dispatchPreparing(events: readonly Pick<FactoryEvent, "type">[]): boolean {
+export function dispatchPreparing(
+  events: readonly Pick<FactoryEvent, "type" | "payload">[],
+): boolean {
   let preparing = false
-  for (const { type } of events) {
+  for (const { type, payload } of events) {
     if (type === "image_prepare_started") preparing = true
-    else if (type === "transition" || type === "dispatch_refused") preparing = false
+    else if (
+      type === "transition" ||
+      type === "dispatch_refused" ||
+      (type === "image_prepare_aborted" && payload.reason === "restart")
+    )
+      preparing = false
   }
   return preparing
 }
@@ -72,9 +81,17 @@ export function imageWaitBoundMs(
   events: readonly Pick<FactoryEvent, "type" | "payload">[],
 ): number {
   let bound = 0
-  for (const event of events)
-    if (event.type === "image_prepare_started" && typeof event.payload.deadlineMs === "number")
-      bound = Math.max(bound, event.payload.deadlineMs)
+  for (const event of events) {
+    const deadlineMs = event.payload.deadlineMs
+    // A journal line is data: a bound that is not a finite, non-negative number extends nothing.
+    if (
+      event.type === "image_prepare_started" &&
+      typeof deadlineMs === "number" &&
+      Number.isFinite(deadlineMs) &&
+      deadlineMs > 0
+    )
+      bound = Math.max(bound, deadlineMs)
+  }
   return bound
 }
 

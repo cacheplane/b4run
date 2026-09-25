@@ -1333,15 +1333,25 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
 
     async dispatch(id, operationKey, dispatchOptions) {
       const mark = store.events(id).at(-1)?.seq ?? 0
-      const outcome = await dispatchOnce(id, operationKey, dispatchOptions)
-      // A refusal after an image build started for this dispatch is journalled, so a caller
-      // that lost the request (the CLI's fallback) can tell a dispatch that ended in `received`
-      // from one still preparing its image. Other refusals write nothing new, as before.
-      if (
-        !outcome.ok &&
-        store.events(id).some((e) => e.seq > mark && e.type === "image_prepare_started")
-      )
-        recordEvent(id, "dispatch_refused", { message: outcome.message })
+      // A refusal (or a throw) after an image build started for this dispatch is journalled,
+      // so a caller that lost the request (the CLI's fallback) can tell a dispatch that ended
+      // in `received` from one still preparing its image. Other refusals write nothing new,
+      // as before.
+      const refused = (message: string) => {
+        if (store.events(id).some((e) => e.seq > mark && e.type === "image_prepare_started"))
+          recordEvent(id, "dispatch_refused", {
+            message,
+            ...(operationKey !== undefined ? { operationKey } : {}),
+          })
+      }
+      let outcome: CommandOutcome
+      try {
+        outcome = await dispatchOnce(id, operationKey, dispatchOptions)
+      } catch (error) {
+        refused(String(error))
+        throw error
+      }
+      if (!outcome.ok) refused(outcome.message)
       return outcome
     },
 

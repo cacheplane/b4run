@@ -294,6 +294,8 @@ describe("create and dispatch", () => {
       type: "budget_below_verifier_deadline",
       payload: { phase: "dispatch", ...shortfall },
     })
+    // Nothing was built for this dispatch, so its refusal writes nothing new (D11).
+    expect(eventsOf(id, "dispatch_refused")).toHaveLength(0)
     expect(factory.show(id)?.state).toBe("received")
     expect(fake.requests.some((r) => r.path === "/threads")).toBe(false)
     // A small target's task under the same budget is not warned about.
@@ -460,6 +462,24 @@ describe("the task's image at dispatch", () => {
       expect(fake.requests.filter((r) => r.path === "/threads")).toHaveLength(0)
       expect(await factory.dispatch(id)).toMatchObject({ ok: true, state: "dispatched" })
       expect(images.builder.requests).toHaveLength(2)
+    } finally {
+      images.restore()
+    }
+  })
+
+  it("journals the refusal, with the caller's key, when a dispatch throws after its build", async () => {
+    // No builder serves the target: `workerFor` throws once the image is bound.
+    await boot({}, { workers: fakeWorkerMap({}) })
+    const images = fakeImages()
+    try {
+      const { id } = await factory.create({ taskId: "cli-flags" })
+      await expect(factory.dispatch(id, "dispatch-key")).rejects.toThrow(/no worker for target/)
+      expect(eventsOf(id, "image_prepared")).toHaveLength(1)
+      const [journalled] = eventsOf(id, "dispatch_refused")
+      expect(journalled?.payload).toEqual({
+        message: expect.stringContaining("no worker for target"),
+        operationKey: "dispatch-key",
+      })
     } finally {
       images.restore()
     }

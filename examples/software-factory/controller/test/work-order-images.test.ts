@@ -49,6 +49,17 @@ describe("imageWaitBoundMs", () => {
       ]),
     ).toBe(5_400_000)
   })
+
+  it("ignores a bound that is not a finite, non-negative number", () => {
+    for (const deadlineMs of [Number.POSITIVE_INFINITY, Number.NaN, -5, "90000"])
+      expect(imageWaitBoundMs([event("image_prepare_started", { deadlineMs })])).toBe(0)
+    expect(
+      imageWaitBoundMs([
+        event("image_prepare_started", { deadlineMs: -1 }),
+        event("image_prepare_started", { deadlineMs: 90_000 }),
+      ]),
+    ).toBe(90_000)
+  })
 })
 
 describe("dispatchPreparing", () => {
@@ -76,6 +87,20 @@ describe("dispatchPreparing", () => {
         event("image_prepare_started", {}),
         event("dispatch_refused", {}),
         event("image_prepare_started", {}),
+      ]),
+    ).toBe(true)
+  })
+
+  it("ends when reconciliation writes off a build a restart interrupted, and only then", () => {
+    const started = event("image_prepare_started", {})
+    expect(
+      dispatchPreparing([started, event("image_prepare_aborted", { reason: "restart" })]),
+    ).toBe(false)
+    // A cancel's abort is followed by the cancel's transition or the dispatch's refusal.
+    expect(
+      dispatchPreparing([
+        started,
+        event("image_prepare_aborted", { reason: "Error: Run cancelled" }),
       ]),
     ).toBe(true)
   })
