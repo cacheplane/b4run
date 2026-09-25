@@ -295,7 +295,7 @@ export interface SandboxPolicy {
 **Fields: `@b4run/workspace#.:SandboxPolicy`**
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `readonly network` | `\| { readonly mode: "allow"; readonly denylist?: readonly string[] } \| { readonly mode: "deny"; readonly allowlist?: readonly string[] }` | yes | Set the provider's network policy intent. |
+| `readonly network` | `\| { readonly mode: "allow"; readonly denylist?: readonly string[] } \| { readonly mode: "deny"; readonly allowlist?: readonly string[] }` | yes | Set the provider's network policy intent. The reference Docker and Kubernetes providers do not enforce an allow-mode `denylist`. |
 | `readonly env` | `Readonly<Record<string, string>>` | no | Supply the sandbox environment explicitly. |
 | `readonly resources` | `{ readonly memoryMb?: number; readonly cpus?: number; readonly timeoutMs?: number; readonly diskGb?: number }` | no | Request provider resource limits. |
 | `readonly security` | `SandboxSecurityPolicy` | no | Override provider hardening intent. |

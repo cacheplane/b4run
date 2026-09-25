@@ -21,7 +21,7 @@ import { dockerSandbox } from "@b4run/sandbox"
 export default config({
   sandbox: {
     provider: dockerSandbox({ scope: "my-app", image: "node:24-slim" }),
-    network: { mode: "allow", denylist: ["169.254.169.254"] },
+    network: { mode: "deny" }, // no egress; see "Network policy"
     env: { NODE_ENV: "production" },
     resources: { memoryMb: 512, cpus: 1, timeoutMs: 120_000 },
     idleTimeoutMs: 600_000,
@@ -171,10 +171,10 @@ sandbox: {
 
 The portable policy has two modes:
 
-- `{ mode: "deny" }` asks the provider for default-closed egress. Docker enforces this with `--network none`.
-- `{ mode: "allow", denylist?: [...] }` leaves egress open and lists hosts to block.
+- `{ mode: "deny", allowlist?: [...] }` asks the provider for default-closed egress. Docker enforces this with `--network none` and ignores `allowlist`. Kubernetes reads `allowlist` as CIDR exceptions.
+- `{ mode: "allow", denylist?: [...] }` leaves egress open. Neither the Docker nor the Kubernetes provider enforces `denylist`. A custom provider can.
 
-When you omit it, the policy defaults to allow mode with `169.254.169.254` in the denylist. Docker's allow-mode denylist is best-effort, not a firewall. Use an egress proxy or another provider when you rely on host-level filtering for security. Docker deny mode is the stronger option because `--network none` removes network access entirely.
+When you omit it, the policy defaults to `{ mode: "allow" }`: open egress, including the cloud metadata endpoint `169.254.169.254`. On a cloud VM, that endpoint can hand the instance's credentials to any command the agent runs. Use `{ mode: "deny" }` when the sandbox does not need the network. When it does, block the endpoint outside B4.run: a host firewall or egress proxy for Docker, or the infrastructure chart's default-deny egress backstop or your own NetworkPolicy for Kubernetes.
 
 Providers map the policy differently, so read the provider's guide before assuming Docker behavior applies elsewhere.
 
@@ -374,7 +374,7 @@ Only a B4.run runtime entry (`b4 dev`, `b4 start` or the Node build target) cons
 
 **It is** a filesystem and process boundary keyed by the provider's derived thread resource name. It also gives you explicit environment injection, CPU and memory controls, provider-specific network policy, a workspace lifecycle that outlives warm compute, and hardened Docker defaults: a non-root user, dropped capabilities, no privilege escalation, a read-only root filesystem and a process-count limit.
 
-**It is not** authorization, tool selection, or a guarantee against container-escape vulnerabilities. Tool scoping and permissions are separate controls. Docker's allow-mode denylist is best-effort, and container isolation is weaker than a microVM. For hostile multi-tenant workloads, implement a stronger provider behind the same `SandboxProvider` interface and validate its controls against your threat model.
+**It is not** authorization, tool selection, or a guarantee against container-escape vulnerabilities. Tool scoping and permissions are separate controls. Allow-mode network is open egress, since the reference providers do not enforce `denylist`, and container isolation is weaker than a microVM. For hostile multi-tenant workloads, implement a stronger provider behind the same `SandboxProvider` interface and validate its controls against your threat model.
 
 Kubernetes maps the same policy to different mechanisms and limitations. Treat [Kubernetes Sandbox](/docs/sandbox/kubernetes) as the source of truth for that provider.
 
