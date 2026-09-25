@@ -258,6 +258,14 @@ it("runs a real drafter turn against the wide capture, reads only draft/, and pr
     "intake_run_started",
     "intake_turn_ended",
     "draft_read",
+    // The runtime's registry is its own state dir's, empty: the fit step builds the target's
+    // image at the pin (served from Docker's build cache) and binds it, the budget paused
+    // while the build runs, before the oracle is proved in it.
+    "image_prepare_started",
+    "budget_paused",
+    "budget_resumed",
+    "image_prepared",
+    "image_bound",
     "task_generated",
     "oracle_receipt",
     "transition",
