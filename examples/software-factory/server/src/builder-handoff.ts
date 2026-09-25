@@ -233,26 +233,38 @@ export const FACTORY_LABELS = {
   key: "b4.factory.key",
 } as const
 
-/** An image id's labels (`{}` when it has none), or null when the daemon does not hold it. */
-export type InspectLabels = (id: string) => Promise<Readonly<Record<string, string>> | null>
+/**
+ * An image id's labels (`{}` when it has none), or null when the daemon does not hold it.
+ * `signal` is the thread's: an abandoned admission stops asking.
+ */
+export type InspectLabels = (
+  id: string,
+  signal?: AbortSignal,
+) => Promise<Readonly<Record<string, string>> | null>
+
+/** Text from outside (a label value, the daemon's stderr) quoted into a refusal, capped. */
+const quoted = (value: unknown, max: number): string => {
+  const text = value === undefined ? "(none)" : JSON.stringify(value)
+  return text.length > max ? `${text.slice(0, max)}…` : text
+}
 
 /**
  * The daemon's answer for `id`, read by id. Fails closed: any error other than the daemon
  * saying it holds no such image, and any answer that is not a string-valued object, rejects.
  */
-export const dockerLabels: InspectLabels = (id) =>
+export const dockerLabels: InspectLabels = (id, signal) =>
   new Promise((resolve, reject) => {
     execFile(
       "docker",
-      ["image", "inspect", "--format", "{{json .Config.Labels}}", id],
-      { timeout: 30_000 },
+      ["image", "inspect", "--format", "{{json .Config.Labels}}", "--", id],
+      { timeout: 30_000, ...(signal !== undefined ? { signal } : {}) },
       (error, stdout, stderr) => {
         if (error) {
           if (/No such image/i.test(String(stderr))) resolve(null)
           else
             reject(
               new Error(
-                `docker image inspect ${id} failed: ${String(stderr).trim() || error.message}`,
+                `docker image inspect ${id} failed: ${quoted(String(stderr).trim() || error.message, 500)}`,
                 { cause: error },
               ),
             )
@@ -288,9 +300,10 @@ const RECIPE_KEY = /^[0-9a-f]{64}$/
 export async function assertFactoryImage(
   handoff: BuilderHandoff,
   inspect: InspectLabels = dockerLabels,
+  signal?: AbortSignal,
 ): Promise<void> {
   const id = handoff.target.image
-  const labels = await inspect(id)
+  const labels = await inspect(id, signal)
   if (labels === null) throw new Error(`image ${id} is not on this daemon`)
   if (!Object.hasOwn(labels, FACTORY_LABELS.target))
     throw new Error(`image ${id} carries no factory labels: it was not built by the factory`)
@@ -298,12 +311,13 @@ export async function assertFactoryImage(
   const [, , , key] = FACTORY_IMAGE.exec(handoff.target.tag) ?? []
   const problems: string[] = []
   const target = label(FACTORY_LABELS.target)
-  if (target !== handoff.targetId) problems.push(`target ${target}, not ${handoff.targetId}`)
+  if (target !== handoff.targetId)
+    problems.push(`target ${quoted(target, 80)}, not ${handoff.targetId}`)
   const pin = label(FACTORY_LABELS.pin)
-  if (pin !== handoff.target.pin) problems.push(`pin ${pin}, not ${handoff.target.pin}`)
-  const built = label(FACTORY_LABELS.key) ?? ""
-  if (key === undefined || !RECIPE_KEY.test(built) || !built.startsWith(key))
-    problems.push(`recipe key ${built.slice(0, 12)}…, not ${key ?? "(no key in the tag)"}…`)
+  if (pin !== handoff.target.pin) problems.push(`pin ${quoted(pin, 80)}, not ${handoff.target.pin}`)
+  const built = label(FACTORY_LABELS.key)
+  if (key === undefined || built === undefined || !RECIPE_KEY.test(built) || !built.startsWith(key))
+    problems.push(`recipe key ${quoted(built, 80)}, not ${key ?? "(no key in the tag)"}…`)
   if (problems.length > 0) throw new Error(`image ${id} was built for ${problems.join("; ")}`)
 }
 
@@ -318,12 +332,13 @@ export async function builderThreadSandbox(
   thread: {
     readonly metadata: Readonly<Record<string, unknown>>
     readonly staged?: CapturedWorkspaceDefinition | undefined
+    readonly signal?: AbortSignal | undefined
   },
   options: { readonly inspect?: InspectLabels } = {},
 ) {
   const handoff = builderHandoffOf(thread.metadata)
   const workspace = stagedBuilderWorkspace(thread.staged, handoff)
-  await assertFactoryImage(handoff, options.inspect)
+  await assertFactoryImage(handoff, options.inspect, thread.signal)
   return {
     workspace,
     environment: { image: handoff.target.image },

@@ -337,18 +337,18 @@ describe("the builder's image label check", () => {
       [
         "another target",
         { ...good, "b4.factory.target": "devkit" },
-        /target devkit, not fixture-target/,
+        /target "devkit", not fixture-target/,
       ],
-      ["another pin", { ...good, "b4.factory.pin": "e".repeat(40) }, /pin e{40}, not d{40}/],
+      ["another pin", { ...good, "b4.factory.pin": "e".repeat(40) }, /pin "e{40}", not d{40}/],
       [
         "another recipe",
         { ...good, "b4.factory.key": "f".repeat(64) },
-        /recipe key f{12}…, not 0123456789ab…/,
+        /recipe key "f{64}", not 0123456789ab…/,
       ],
       [
         "a key label that is only the tag's prefix",
         { ...good, "b4.factory.key": "0123456789ab" },
-        /recipe key 0123456789ab…, not 0123456789ab…/,
+        /recipe key "0123456789ab", not 0123456789ab…/,
       ],
       [
         "a target label missing, the others present",
@@ -361,7 +361,7 @@ describe("the builder's image label check", () => {
       [
         "a pin label missing",
         { "b4.factory.target": "fixture-target", "b4.factory.key": good["b4.factory.key"] ?? "" },
-        /pin undefined, not d{40}/,
+        /pin \(none\), not d{40}/,
       ],
     ]
     for (const [name, labels, message] of cases)
@@ -406,9 +406,117 @@ describe("the builder's image label check", () => {
     expect(asked).toHaveLength(1)
   })
 
-  it("runs the label check for every thread the config resolves", () => {
-    const text = readFileSync(new URL("../b4.config.ts", import.meta.url), "utf8")
-    expect(text).toContain("thread: (thread) => builderThreadSandbox(thread)")
+  it("caps what the image and the daemon say when quoting them into a refusal", async () => {
+    const { builderThreadSandbox } = await import("../src/builder-handoff.ts")
+    const order = workOrder("wo-alpha", "x\n")
+    const long = "x".repeat(10_000)
+    const refusal = await builderThreadSandbox(thread(metadataOf(order), order.staged), {
+      inspect: inspectFor({
+        [order.handoff.target.image]: { ...labelsOf(order.handoff), "b4.factory.target": long },
+      }),
+    }).catch((error: Error) => error.message)
+    expect(refusal).toMatch(/target "x{79}…, not fixture-target/)
+    expect(String(refusal).length).toBeLessThan(400)
+  })
+})
+
+describe("the config's thread resolver, against the docker CLI", () => {
+  type Callback = (error: Error | null, stdout: string, stderr: string) => void
+  /** A `docker` that answers every call with `answer`, recording what it was asked. */
+  const fakeDocker = (answer: { stdout?: string; stderr?: string; exit?: number }) => {
+    const calls: { file: string; args: readonly string[]; options: Record<string, unknown> }[] = []
+    vi.doMock("node:child_process", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("node:child_process")>()),
+      execFile: (
+        file: string,
+        args: readonly string[],
+        options: Record<string, unknown>,
+        callback: Callback,
+      ) => {
+        calls.push({ file, args, options })
+        const error =
+          answer.exit !== undefined && answer.exit !== 0
+            ? Object.assign(new Error(`Command failed: docker ${args.join(" ")}`), {
+                code: answer.exit,
+              })
+            : null
+        queueMicrotask(() => callback(error, answer.stdout ?? "", answer.stderr ?? ""))
+      },
+    }))
+    return calls
+  }
+  afterEach(() => {
+    vi.doUnmock("node:child_process")
+  })
+
+  const resolveWith = async (answer: Parameters<typeof fakeDocker>[0]) => {
+    const calls = fakeDocker(answer)
+    const sandbox = (await loadConfig()).sandbox
+    if (typeof sandbox?.thread !== "function") throw new Error("no thread resolver")
+    const order = workOrder("wo-alpha", "x\n")
+    const admission = thread(metadataOf(order), order.staged)
+    const outcome = await Promise.resolve(sandbox.thread(admission)).then(
+      (resolved) => ({ resolved }),
+      (error: Error) => ({ error }),
+    )
+    return { calls, order, admission, outcome }
+  }
+
+  it("asks docker for the handoff's image labels, by id, under the thread's signal", async () => {
+    const order = workOrder("wo-alpha", "x\n")
+    const { calls, admission, outcome } = await resolveWith({
+      stdout: `${JSON.stringify(labelsOf(order.handoff))}\n`,
+    })
+    expect(outcome).toMatchObject({
+      resolved: { environment: { image: order.handoff.target.image } },
+    })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.file).toBe("docker")
+    expect(calls[0]?.args).toEqual([
+      "image",
+      "inspect",
+      "--format",
+      "{{json .Config.Labels}}",
+      "--",
+      order.handoff.target.image,
+    ])
+    expect(calls[0]?.options).toMatchObject({ timeout: 30_000, signal: admission.signal })
+  })
+
+  it("refuses every answer that is not this handoff's own labels", async () => {
+    const order = workOrder("wo-alpha", "x\n")
+    const cases: [string, Parameters<typeof fakeDocker>[0], RegExp][] = [
+      [
+        "another target's labels",
+        { stdout: JSON.stringify({ ...labelsOf(order.handoff), "b4.factory.target": "devkit" }) },
+        /target "devkit", not fixture-target/,
+      ],
+      ["no labels (null)", { stdout: "null\n" }, /carries no factory labels/],
+      ["an array", { stdout: "[]\n" }, /answered unreadable labels/],
+      ["a non-string value", { stdout: '{"b4.factory.target":1}\n' }, /answered unreadable labels/],
+      ["not JSON", { stdout: "<no value>\n" }, /answered unreadable labels/],
+      [
+        "no such image",
+        {
+          exit: 1,
+          stderr: `Error response from daemon: No such image: ${order.handoff.target.image}\n`,
+        },
+        /is not on this daemon/,
+      ],
+      [
+        "another daemon error",
+        { exit: 1, stderr: `Cannot connect to the Docker daemon ${"z".repeat(5_000)}` },
+        /docker image inspect sha256:[0-9a-f]{64} failed: "Cannot connect to the Docker daemon z+…$/,
+      ],
+    ]
+    for (const [name, answer, message] of cases) {
+      vi.resetModules()
+      const { outcome } = await resolveWith(answer)
+      expect("error" in outcome, name).toBe(true)
+      const error = (outcome as { error: Error }).error
+      expect(error.message, name).toMatch(message)
+      expect(error.message.length, name).toBeLessThan(700)
+    }
   })
 })
 
