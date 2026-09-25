@@ -14,6 +14,7 @@ export {
   captureWorkspaceDefinition,
   createWorkspaceIntent,
   stagedWorkspaceDefinition,
+  stagedWorkspaceFits,
   verifyCapturedWorkspaceDefinition,
   verifyCreationStatus,
   verifyReadyWorkspace,

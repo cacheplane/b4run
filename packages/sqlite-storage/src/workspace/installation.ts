@@ -326,9 +326,17 @@ export function openWorkspaceInstallation(appRoot: string): WorkspaceInstallatio
         },
       },
       staged: {
-        upload(bundle, now, maxStagedBytes) {
+        upload(bundle, now, maxStagedBytes, uploader) {
           requireOpen()
-          return staged.upload(bundle, now, maxStagedBytes)
+          return staged.upload(bundle, now, maxStagedBytes, uploader)
+        },
+        files(digest) {
+          requireOpen()
+          return staged.files(digest)
+        },
+        uploaders(digest) {
+          requireOpen()
+          return staged.uploaders(digest)
         },
         threads() {
           requireOpen()

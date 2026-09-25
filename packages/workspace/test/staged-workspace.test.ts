@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   createSourceBundle,
   stagedWorkspaceDefinition,
+  stagedWorkspaceFits,
   verifyCapturedWorkspaceDefinition,
   verifyStagedWorkspaceReference,
 } from "../src/node.ts"
@@ -100,6 +101,55 @@ describe("stagedWorkspaceDefinition", () => {
       stagedWorkspaceDefinition(
         { sourceDigest: bundle.digest, environmentLinks: [{ path: "src/a.ts", target: "/x" }] },
         bundle,
+      ),
+    ).toThrow()
+  })
+})
+
+describe("stagedWorkspaceFits", () => {
+  const files = ["src/a.ts", "src/b.ts"]
+  it("accepts links and a baseline beside the files, and returns the verified reference", () => {
+    expect(
+      stagedWorkspaceFits(
+        {
+          sourceDigest: bundle.digest,
+          environmentLinks: [{ path: "node_modules", target: "/opt/deps" }],
+          baseline: "git",
+        },
+        files,
+      ),
+    ).toEqual({
+      sourceDigest: bundle.digest,
+      environmentLinks: [{ path: "node_modules", target: "/opt/deps" }],
+      baseline: "git",
+    })
+  })
+  for (const [label, links, fileList] of [
+    ["a link over a file", [{ path: "src/a.ts", target: "/x" }], files],
+    ["a link over a directory of files", [{ path: "src", target: "/x" }], files],
+    ["a link under a file", [{ path: "src/a.ts/x", target: "/x" }], files],
+    ["a link colliding by case", [{ path: "SRC/a.ts", target: "/x" }], files],
+  ] as const)
+    it(`refuses ${label}`, () => {
+      expect(() =>
+        stagedWorkspaceFits({ sourceDigest: bundle.digest, environmentLinks: links }, fileList),
+      ).toThrow()
+    })
+  it("refuses a file at .git under a git baseline", () => {
+    expect(() =>
+      stagedWorkspaceFits({ sourceDigest: bundle.digest, baseline: "git" }, [".git/config"]),
+    ).toThrow()
+  })
+  it("agrees with stagedWorkspaceDefinition over the real bundle", () => {
+    const reference = {
+      sourceDigest: bundle.digest,
+      environmentLinks: [{ path: "src/a.ts", target: "/x" }],
+    }
+    expect(() => stagedWorkspaceDefinition(reference, bundle)).toThrow()
+    expect(() =>
+      stagedWorkspaceFits(
+        reference,
+        bundle.files.map((file) => file.path),
       ),
     ).toThrow()
   })

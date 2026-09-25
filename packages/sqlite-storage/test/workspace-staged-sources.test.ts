@@ -143,6 +143,88 @@ describe("the staged source store", () => {
     i.close()
   })
 
+  it("stages only what was uploaded: a source an admission stored is not held for staging", async () => {
+    const { installation: i } = await installation()
+    // A resolver produced this for another thread at its admission: it is in the content
+    // store, and its digest is public (inspection answers it), but nobody uploaded it.
+    const secret = bundle("another thread's workspace")
+    i.sources.put(secret)
+    expect(i.staged.holds(secret.digest)).toBe(false)
+    expect(i.staged.files(secret.digest)).toBeUndefined()
+    expect(thrown(() => i.staged.attach("t-b", { sourceDigest: secret.digest }))).toMatchObject({
+      code: "not_held",
+    })
+    expect(i.staged.get("t-b")).toBeUndefined()
+    i.close()
+  })
+
+  it("counts a first upload of bytes an admission already stored against the quota", async () => {
+    const { installation: i } = await installation()
+    const admitted = bundle("x".repeat(1000))
+    i.sources.put(admitted)
+    expect(thrown(() => i.staged.upload(admitted, 1_000, 10))).toMatchObject({
+      code: "quota_exceeded",
+    })
+    expect(i.staged.holds(admitted.digest)).toBe(false)
+    expect(i.staged.upload(admitted, 1_000, Q)).toBe("created")
+    expect(i.staged.holds(admitted.digest)).toBe(true)
+    expect(i.staged.upload(admitted, 2_000, Q)).toBe("held")
+    i.close()
+  })
+
+  it("records the file paths of an upload, so a reference is checked without the bytes", async () => {
+    const { installation: i } = await installation()
+    const two = createSourceBundle([
+      { path: "b/c.txt", bytes: new TextEncoder().encode("c"), executable: false },
+      { path: "a.txt", bytes: new TextEncoder().encode("a"), executable: true },
+    ])
+    i.staged.upload(two, 1_000, Q)
+    expect(i.staged.files(two.digest)).toEqual(["a.txt", "b/c.txt"])
+    i.close()
+  })
+
+  it("binds each upload to the principals that uploaded it, once each", async () => {
+    const { installation: i } = await installation()
+    const a = bundle("a")
+    i.staged.upload(a, 1_000, Q, { ownerId: "u-1" })
+    i.staged.upload(a, 2_000, Q, { ownerId: "u-2", org: "acme" })
+    i.staged.upload(a, 3_000, Q, { ownerId: "u-1" })
+    i.staged.upload(a, 4_000, Q)
+    expect(i.staged.uploaders(a.digest)).toEqual([
+      { ownerId: "u-1" },
+      { ownerId: "u-2", org: "acme" },
+    ])
+    expect(i.staged.uploaders(bundle("never").digest)).toEqual([])
+    // Frozen copies: a policy cannot rewrite what the next one sees.
+    expect(Object.isFrozen(i.staged.uploaders(a.digest)[0])).toBe(true)
+    i.close()
+  })
+
+  it("bounds the principals kept per source and the size of each", async () => {
+    const { installation: i } = await installation()
+    const a = bundle("a")
+    for (let n = 0; n < 64; n++) i.staged.upload(a, 1_000, Q, { ownerId: `u-${n}` })
+    expect(thrown(() => i.staged.upload(a, 1_000, Q, { ownerId: "one too many" }))).toMatchObject({
+      code: "quota_exceeded",
+    })
+    // An uploader already bound may upload again.
+    expect(i.staged.upload(a, 2_000, Q, { ownerId: "u-3" })).toBe("held")
+    expect(() => i.staged.upload(bundle("b"), 1_000, Q, { pad: "x".repeat(20_000) })).toThrow(
+      /uploader/,
+    )
+    expect(i.staged.holds(bundle("b").digest)).toBe(false)
+    i.close()
+  })
+
+  it("forgets the uploaders of a reclaimed source", async () => {
+    const { installation: i } = await installation()
+    const a = bundle("a")
+    i.staged.upload(a, 1_000, Q, { ownerId: "u-1" })
+    expect(i.staged.reclaim(5_000, new Set())).toEqual([a.digest])
+    expect(i.staged.uploaders(a.digest)).toEqual([])
+    i.close()
+  })
+
   it("persists across reopen, and adds its tables to an installation that predates them", async () => {
     const { appRoot, installation: first } = await installation()
     const a = bundle("a")
@@ -154,7 +236,7 @@ describe("the staged source store", () => {
     reopened.close()
     const db = new DatabaseSync(join(appRoot, ".b4", "workspaces", "state.sqlite"))
     db.exec(
-      "DROP TABLE workspace_staged_schema; DROP TABLE workspace_source_uploads; DROP TABLE workspace_thread_staged",
+      "DROP TABLE workspace_staged_schema; DROP TABLE workspace_source_uploads; DROP TABLE workspace_source_uploaders; DROP TABLE workspace_thread_staged",
     )
     db.close()
     const upgraded = openWorkspaceInstallation(appRoot)
