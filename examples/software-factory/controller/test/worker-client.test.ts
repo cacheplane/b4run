@@ -166,6 +166,34 @@ describe("http worker client", () => {
     expect(fake.requests.length - before).toBe(4)
   })
 
+  it("stops waiting out a busy worker the moment the request's signal aborts", async () => {
+    const bundle = createSourceBundle([
+      { path: "d.txt", bytes: new TextEncoder().encode("d"), executable: false },
+    ])
+    const patient = createHttpWorkerClient(fake.baseUrl, {
+      token: TEST_WORKER_TOKEN,
+      busyRetry: { attempts: 5, baseDelayMs: 60_000, maxDelayMs: 60_000 },
+    })
+    for (const method of ["PUT", "POST"]) {
+      fake.failNext(
+        method,
+        429,
+        method === "PUT" ? "upload_in_flight" : "workspace_create_in_flight",
+      )
+      const controller = new AbortController()
+      const started = Date.now()
+      const pending =
+        method === "PUT"
+          ? patient.uploadSource(bundle, controller.signal)
+          : patient.createThread({}, { sourceDigest: bundle.digest }, controller.signal)
+      setTimeout(() => controller.abort(new Error("dispatch cancelled")), 50)
+      await expect(pending).rejects.toThrow("dispatch cancelled")
+      // Well inside the minute-long backoff, and nothing was sent after the abort.
+      expect(Date.now() - started).toBeLessThan(10_000)
+      expect(fake.requests.filter((r) => r.method === method)).toHaveLength(1)
+    }
+  })
+
   it("never retries a refusal that is not the worker being busy", async () => {
     const bundle = createSourceBundle([
       { path: "c.txt", bytes: new TextEncoder().encode("c"), executable: false },

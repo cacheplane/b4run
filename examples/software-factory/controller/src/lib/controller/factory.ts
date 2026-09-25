@@ -850,7 +850,10 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
             captureRoot: options.captureRoot,
             signal: abort.signal,
           })
-          const status = await drafterWorker.client.uploadSource(captured.workspace.source)
+          const status = await drafterWorker.client.uploadSource(
+            captured.workspace.source,
+            abort.signal,
+          )
           recordEvent(id, "drafter_source_staged", {
             sourceDigest: captured.handoff.workspace.sourceDigest,
             status,
@@ -863,6 +866,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           threadId = await drafterWorker.client.createThread(
             { factoryWorkOrderId: id, factoryStage: "intake", factoryDrafter: captured.handoff },
             stagedReferenceOf(captured.workspace),
+            abort.signal,
           )
         } catch (error) {
           // Nothing to remove: an upload no thread names is reclaimed by the drafter once it
@@ -1113,7 +1117,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           workOrderId: id,
           signal: abort.signal,
         })
-        const status = await worker.client.uploadSource(captured.workspace.source)
+        const status = await worker.client.uploadSource(captured.workspace.source, abort.signal)
         recordEvent(id, "builder_source_staged", {
           sourceDigest: captured.handoff.workspace.sourceDigest,
           status,
@@ -1131,6 +1135,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         threadId = await worker.client.createThread(
           { factoryWorkOrderId: id, factoryBuilder: captured.handoff },
           stagedReferenceOf(captured.workspace),
+          abort.signal,
         )
       } catch (error) {
         // Nothing to remove: an upload no thread names is reclaimed by the builder once it

@@ -26,7 +26,7 @@ export interface WorkerClient {
    * Stage a workspace's files on the worker (`PUT /workspace/sources/:digest`),
    * content-addressed: `created` for new bytes, `held` when the worker had them.
    */
-  uploadSource(bundle: SourceBundle): Promise<"created" | "held">
+  uploadSource(bundle: SourceBundle, signal?: AbortSignal): Promise<"created" | "held">
   /**
    * `POST /threads`. With `workspace`, the thread is created with the staged source it
    * names (uploaded first), and the worker refuses a digest it does not hold.
@@ -34,6 +34,7 @@ export interface WorkerClient {
   createThread(
     metadata: Record<string, unknown>,
     workspace?: StagedWorkspaceReference,
+    signal?: AbortSignal,
   ): Promise<string>
   startRun(
     threadId: string,
@@ -147,6 +148,8 @@ export function createHttpWorkerClient(
    * `jsonRequest`, sending the same request again while the worker answers that it is busy
    * (`BUSY_CODES`), at most `retry.attempts` more times. Only for the upload and the create,
    * whose busy refusals keep nothing; the body must be a string so it can be sent again.
+   * The wait between attempts ends with the request's own signal: an aborted command stops
+   * at once, with the signal's reason, and sends nothing more.
    */
   async function busyRetried(url: string, init: RequestInit & { body: string }): Promise<Response> {
     for (let attempt = 0; ; attempt++) {
@@ -162,7 +165,14 @@ export function createHttpWorkerClient(
         )
           throw error
         const asked = error.retryAfterMs ?? 0
-        await sleep(Math.min(retry.maxDelayMs, Math.max(asked, retry.baseDelayMs * 2 ** attempt)))
+        const wait = Math.min(retry.maxDelayMs, Math.max(asked, retry.baseDelayMs * 2 ** attempt))
+        const signal = init.signal ?? undefined
+        signal?.throwIfAborted()
+        await sleep(wait, undefined, signal ? { signal } : {}).catch((cause: unknown) => {
+          // `sleep` rejects with its own AbortError; the caller asked with its reason.
+          signal?.throwIfAborted()
+          throw cause
+        })
       }
     }
   }
@@ -177,10 +187,10 @@ export function createHttpWorkerClient(
   }
 
   return {
-    async uploadSource(bundle) {
+    async uploadSource(bundle, signal) {
       const response = await busyRetried(
         `${base}/workspace/sources/${encodeURIComponent(bundle.digest)}`,
-        { method: "PUT", body: JSON.stringify(bundle) },
+        { method: "PUT", body: JSON.stringify(bundle), ...(signal ? { signal } : {}) },
       )
       const staged = StagedSourceResponseSchema.parse(await response.json())
       if (staged.digest !== bundle.digest)
@@ -191,10 +201,11 @@ export function createHttpWorkerClient(
         )
       return staged.status
     },
-    async createThread(metadata, workspace) {
+    async createThread(metadata, workspace, signal) {
       const response = await busyRetried(`${base}/threads`, {
         method: "POST",
         body: JSON.stringify({ metadata, ...(workspace !== undefined ? { workspace } : {}) }),
+        ...(signal ? { signal } : {}),
       })
       return ThreadSchema.parse(await response.json()).thread_id
     },
