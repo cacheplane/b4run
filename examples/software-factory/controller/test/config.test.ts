@@ -1,11 +1,13 @@
 import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import { DEFAULT_WORKER_ROUTE, DRAFTER_IMAGE, loadConfig } from "../src/lib/config.ts"
+import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
 const base = {
   FACTORY_WORKER_URL: "http://127.0.0.1:4100",
   FACTORY_STATE_DIR: "/tmp/state",
   FACTORY_BUILDER_APP_ROOT: "/tmp/builder",
+  FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
 }
 
 describe("loadConfig", () => {
@@ -18,14 +20,34 @@ describe("loadConfig", () => {
 
   it("rejects missing or malformed values", () => {
     expect(() => loadConfig({})).toThrow(/FACTORY_STATE_DIR is required/)
-    expect(() => loadConfig({ FACTORY_STATE_DIR: "/tmp/state" })).toThrow(
-      /FACTORY_WORKER_URL is required/,
-    )
+    expect(() =>
+      loadConfig({ FACTORY_STATE_DIR: "/tmp/state", FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN }),
+    ).toThrow(/FACTORY_WORKER_URL is required/)
     expect(() => loadConfig({ ...base, FACTORY_APPROVAL_TTL_MS: "soon" })).toThrow(
       /FACTORY_APPROVAL_TTL_MS/,
     )
     expect(() => loadConfig({ ...base, FACTORY_WORKER_URL: "ftp://x" })).toThrow(
       /FACTORY_WORKER_URL/,
+    )
+  })
+
+  it("requires FACTORY_WORKER_TOKEN, 32 characters or more, no whitespace", () => {
+    const { FACTORY_WORKER_TOKEN: _drop, ...without } = base
+    expect(() => loadConfig(without)).toThrow(/FACTORY_WORKER_TOKEN is required/)
+    expect(() => loadConfig({ ...base, FACTORY_WORKER_TOKEN: "" })).toThrow(
+      /FACTORY_WORKER_TOKEN is required/,
+    )
+    expect(() => loadConfig({ ...base, FACTORY_WORKER_TOKEN: "short" })).toThrow(/at least 32/)
+    expect(() =>
+      loadConfig({ ...base, FACTORY_WORKER_TOKEN: `${"a".repeat(20)} ${"b".repeat(20)}` }),
+    ).toThrow(/no whitespace/)
+    expect(loadConfig(base).workerToken).toBe(TEST_WORKER_TOKEN)
+  })
+
+  it("never echoes a refused token", () => {
+    const secret = `${"s".repeat(20)} ${"e".repeat(20)}`
+    expect(() => loadConfig({ ...base, FACTORY_WORKER_TOKEN: secret })).toThrow(
+      expect.objectContaining({ message: expect.not.stringContaining("sssss") }),
     )
   })
 })
@@ -35,6 +57,7 @@ describe("the builder endpoint", () => {
     FACTORY_STATE_DIR: "/tmp/state",
     FACTORY_WORKER_URL: "http://127.0.0.1:4100/",
     FACTORY_BUILDER_APP_ROOT: "/srv/builder",
+    FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
   }
 
   it("is one worker for every target, with its manifest directory defaulted under its app root", () => {

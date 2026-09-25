@@ -20,6 +20,7 @@ import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
 import { fakeWorkerMap } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
+import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
 /**
  * The builder manifest's lifetime (plan Task 6): `dispatch` writes `<manifestDir>/<id>.json`
@@ -67,7 +68,11 @@ async function boot(
     generatedTasksDir: join(dir, "tasks"),
     captureRoot: dir,
     workers: fakeWorkerMap({
-      builder: { client: wrapClient(createHttpWorkerClient(fake.baseUrl)), reader, manifestDir },
+      builder: {
+        client: wrapClient(createHttpWorkerClient(fake.baseUrl, { token: TEST_WORKER_TOKEN })),
+        reader,
+        manifestDir,
+      },
     }),
     exportDir: join(dir, "out"),
     artifactsDir: join(dir, "artifacts"),
@@ -326,7 +331,11 @@ async function reboot(): Promise<void> {
     generatedTasksDir: join(dir, "tasks"),
     captureRoot: dir,
     workers: fakeWorkerMap({
-      builder: { client: createHttpWorkerClient(fake.baseUrl), reader, manifestDir },
+      builder: {
+        client: createHttpWorkerClient(fake.baseUrl, { token: TEST_WORKER_TOKEN }),
+        reader,
+        manifestDir,
+      },
     }),
     exportDir: join(dir, "out"),
     artifactsDir: join(dir, "artifacts"),

@@ -8,6 +8,7 @@ import {
   type WorkerHttpError,
 } from "../src/lib/worker/client.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
+import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
 let dir: string
 let fake: FakeWorker
@@ -15,7 +16,7 @@ let client: WorkerClient
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), "worker-client-"))
   fake = await createFakeWorker({ outboxDir: dir })
-  client = createHttpWorkerClient(fake.baseUrl)
+  client = createHttpWorkerClient(fake.baseUrl, { token: TEST_WORKER_TOKEN })
 })
 afterEach(async () => {
   await fake.close()
@@ -29,6 +30,66 @@ async function drain<T>(frames: AsyncIterable<T>): Promise<T[]> {
 }
 
 describe("http worker client", () => {
+  it("never follows a redirect, which would carry the token elsewhere", async () => {
+    const seen: Request[] = []
+    const capturing = createHttpWorkerClient("http://worker", {
+      token: TEST_WORKER_TOKEN,
+      fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        seen.push(new Request(input, init))
+        return Response.json({
+          thread_id: "t",
+          created_at: "",
+          updated_at: "",
+          metadata: {},
+          status: "idle",
+        })
+      }) as typeof fetch,
+    })
+    await capturing.createThread({})
+    await capturing.getThread("t")
+    await capturing.cancel("t").catch(() => undefined)
+    expect(seen.map((request) => request.redirect)).toEqual(["error", "error", "error"])
+  })
+
+  it("sends the worker token on every call, cancel and getThread included", async () => {
+    const threadId = await client.createThread({})
+    await client.getThread(threadId)
+    await client.cancel(threadId)
+    await drain(await client.startRun(threadId, "/fix#agent", "go"))
+    await client.pendingInterrupts(threadId)
+    const gate = (await client.pendingInterrupts(threadId))[0]
+    if (gate)
+      await drain(
+        await client.resume(threadId, "/fix#agent", [
+          { interruptId: gate.interruptId, payload: "once" },
+        ]),
+      )
+    expect(fake.requests.map((logged) => logged.path)).toEqual(
+      expect.arrayContaining([
+        "/threads",
+        `/threads/${threadId}`,
+        `/threads/${threadId}/cancel`,
+        `/threads/${threadId}/runs/stream`,
+        `/threads/${threadId}/pending_interrupts`,
+        `/threads/${threadId}/resume`,
+      ]),
+    )
+    for (const logged of fake.requests)
+      expect(logged.authorization).toBe(`Bearer ${TEST_WORKER_TOKEN}`)
+  })
+
+  it("never puts the token in an error it raises", async () => {
+    const failing = createHttpWorkerClient("http://worker", {
+      token: TEST_WORKER_TOKEN,
+      fetch: (async () =>
+        Response.json({ error: { message: "denied" } }, { status: 403 })) as typeof fetch,
+    })
+    const error = await failing.createThread({}).catch((caught: unknown) => caught)
+    expect(error).toMatchObject({ name: "WorkerHttpError", status: 403 })
+    expect(String(error)).not.toContain(TEST_WORKER_TOKEN)
+    expect(JSON.stringify(error)).not.toContain(TEST_WORKER_TOKEN)
+  })
+
   it("creates a thread with metadata and reads it back", async () => {
     const threadId = await client.createThread({ factoryWorkOrderId: "wo-1" })
     expect(threadId).toMatch(/^fake-thread-/)
@@ -78,7 +139,7 @@ describe("http worker client", () => {
   it("cancels a live run", async () => {
     const hangDir = mkdtempSync(join(tmpdir(), "worker-client-hang-"))
     const hangFake = await createFakeWorker({ outboxDir: hangDir, run: "hang" })
-    const hangClient = createHttpWorkerClient(hangFake.baseUrl)
+    const hangClient = createHttpWorkerClient(hangFake.baseUrl, { token: TEST_WORKER_TOKEN })
     try {
       const threadId = await hangClient.createThread({})
       const framesPromise = drain(await hangClient.startRun(threadId, "/fix#agent", "go"))
@@ -94,7 +155,7 @@ describe("http worker client", () => {
   it("reattaches to a live run and observes its terminal frame", async () => {
     const hangDir = mkdtempSync(join(tmpdir(), "worker-client-reattach-"))
     const hangFake = await createFakeWorker({ outboxDir: hangDir, run: "hang" })
-    const hangClient = createHttpWorkerClient(hangFake.baseUrl)
+    const hangClient = createHttpWorkerClient(hangFake.baseUrl, { token: TEST_WORKER_TOKEN })
     try {
       const threadId = await hangClient.createThread({})
       const framesPromise = drain(await hangClient.startRun(threadId, "/fix#agent", "go"))

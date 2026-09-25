@@ -121,7 +121,7 @@ export function createControllerRuntime(
     // ran under it. Absolute, because the framework's capture resolves against it.
     const captureRoot = resolve(config.stateDir)
     const workers = createWorkerMap(config, {
-      createClient: createHttpWorkerClient,
+      createClient: (url) => createHttpWorkerClient(url, { token: config.workerToken }),
       createBuilderReader: (entry) => readers?.builder ?? builderReader(entry),
       // The drafter's threads live under ITS app root, addressed by a provider of its scope
       // and image, and are read re-rooted at `draft/`: the wide capture under `repo/` is

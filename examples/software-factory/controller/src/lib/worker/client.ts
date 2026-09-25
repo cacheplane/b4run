@@ -65,18 +65,33 @@ async function toError(response: Response): Promise<WorkerHttpError> {
   return new WorkerHttpError(response.status, code, message)
 }
 
+export interface HttpWorkerClientOptions {
+  /** `FACTORY_WORKER_TOKEN`: sent as `authorization: Bearer <token>` on every request. */
+  readonly token: string
+  readonly fetch?: typeof fetch
+}
+
 export function createHttpWorkerClient(
   baseUrl: string,
-  fetchImpl: typeof fetch = fetch,
+  options: HttpWorkerClientOptions,
 ): WorkerClient {
   const base = baseUrl.replace(/\/$/, "")
+  const fetchImpl = options.fetch ?? fetch
+  const authorization = `Bearer ${options.token}`
+  /** Every request, with no exception: the worker's policy denies anything without it. */
+  const send = (url: string, init: RequestInit): Promise<Response> => {
+    const headers = new Headers(init.headers)
+    headers.set("authorization", authorization)
+    // A redirect would carry the token to wherever it points: refuse it.
+    return fetchImpl(url, { ...init, headers, redirect: "error" })
+  }
   const threadPath = (threadId: string, tail = "") =>
     `${base}/threads/${encodeURIComponent(threadId)}${tail}`
 
   async function jsonRequest(url: string, init: RequestInit): Promise<Response> {
     const headers = new Headers(init.headers)
     if (!headers.has("content-type")) headers.set("content-type", "application/json")
-    const response = await fetchImpl(url, { ...init, headers })
+    const response = await send(url, { ...init, headers })
     if (!response.ok) throw await toError(response)
     return response
   }
@@ -132,7 +147,7 @@ export function createHttpWorkerClient(
       })
     },
     async cancel(threadId) {
-      const response = await fetchImpl(threadPath(threadId, "/cancel"), { method: "POST" })
+      const response = await send(threadPath(threadId, "/cancel"), { method: "POST" })
       if (response.ok) {
         CancelResponseSchema.parse(await response.json())
         return "interrupted"
@@ -143,7 +158,7 @@ export function createHttpWorkerClient(
       throw error
     },
     async getThread(threadId) {
-      const response = await fetchImpl(threadPath(threadId), { method: "GET" })
+      const response = await send(threadPath(threadId), { method: "GET" })
       if (response.status === 404) return null
       if (!response.ok) throw await toError(response)
       const thread = ThreadSchema.parse(await response.json())
