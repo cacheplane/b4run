@@ -8,6 +8,7 @@ import {
   type ThreadAccessDeny,
   type ThreadAccessPolicy,
   type ThreadAccessRequest,
+  type ThreadAccessRequestedWorkspace,
   type ThreadAccessResult,
   type ThreadAction,
   type ThreadOperation,
@@ -39,6 +40,7 @@ type _Operation = Expect<
     | "thread.attach"
     | "run.agui"
     | "thread.workspace"
+    | "workspace.source.put"
   >
 >
 
@@ -84,9 +86,33 @@ const request: ThreadAccessRequest = {
   method: "GET",
   url: "/threads/t-1/state",
   requestedMetadata: undefined,
+  requestedWorkspace: undefined,
   resuming: false,
 }
 void request
+
+// Required as `T | undefined`, like `requestedMetadata`: set only on an upload and
+// on a create that names a workspace, so a runtime that forgets it must not compile.
+type _RequestedWorkspace = Expect<
+  Equal<ThreadAccessRequest["requestedWorkspace"], ThreadAccessRequestedWorkspace | undefined>
+>
+type _RequestedWorkspaceShape = Expect<
+  Equal<
+    ThreadAccessRequestedWorkspace,
+    Readonly<{
+      sourceDigest: string
+      environmentLinks?: readonly Readonly<{ path: string; target: string }>[]
+      baseline?: "git"
+    }>
+  >
+>
+
+// One rule covers staging and choosing a workspace.
+const serviceChoosesWorkspaces: B4ThreadAccess = (req) =>
+  req.requestedWorkspace !== undefined && req.headers["x-service"] !== "controller"
+    ? deny({ status: 403 })
+    : permit()
+void serviceChoosesWorkspaces
 
 // Required and a plain boolean, never `boolean | undefined`: a policy that
 // treats resumes differently must be able to write `if (req.resuming)` with no

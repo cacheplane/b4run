@@ -70,6 +70,7 @@ export type {
   ThreadAccessDeny,
   ThreadAccessPolicy,
   ThreadAccessRequest,
+  ThreadAccessRequestedWorkspace,
   ThreadAccessResult,
   ThreadAction,
   ThreadOperation,
