@@ -259,6 +259,40 @@ The worker serves it with the same reader as above, inside its own process: a se
 - **The root is checked twice, not held.** Every segment of `root` is lstat'ed before the read and again after it, and a symlink or non-directory at either check is refused. A process in the thread's session that swaps a segment for a link and back between the two checks is not detected, because each read resolves its path afresh; what it could reach is bounded by the reader, a read-only, networkless container over the workspace's own volume.
 - **Check what you get.** The answer carries the thread's recorded `sourceDigest`. Pass the digest you expect as `expectedSourceDigest` and the client refuses an answer about another workspace; it also refuses an answer for another thread id.
 
+## Handing a thread its workspace at creation
+
+A creator on another host can give a new thread its exact workspace without a shared filesystem. Turn it on beside a resolver:
+
+```ts
+export default config({
+  sandbox: {
+    provider: dockerSandbox({ scope: "my-app", image: "node:24-slim" }),
+    stagedWorkspaces: true,
+    thread: async (thread) => {
+      if (!thread.staged) throw new Error("create threads with a staged workspace")
+      return { workspace: thread.staged }
+    },
+  },
+})
+```
+
+The creator uploads the files as a `SourceBundle` (from `captureWorkspaceDefinition` or `createSourceBundle` in `@b4run/workspace/node`), then names them when it creates the thread:
+
+```bash
+curl -X PUT "$WORKER/workspace/sources/$DIGEST" -H "authorization: Bearer $TOKEN" --data-binary @source.json
+curl -X POST "$WORKER/threads" -H "authorization: Bearer $TOKEN" \
+  -d '{"metadata":{},"workspace":{"sourceDigest":"'$DIGEST'","environmentLinks":[],"baseline":"git"}}'
+```
+
+- **Verified, then recorded.** The upload is checked byte for byte against the digest in its path, and kept under that digest only. The create is refused before any thread exists when the worker does not hold the source (`422 workspace_source_not_held`) or the named links cannot sit beside its files (`422 workspace_invalid`). The thread's reference is kept in the worker's installation, never in client-visible metadata. At the thread's first run the resolver receives the definition as `thread.staged`; what it returns is recorded by digest and never resolved again.
+- **Either resolver.** A `sandbox.thread` resolver returns it as `workspace` beside its image, policy and permissions, and B4.run keeps the thread's sandbox record as it does for any other thread. A function `sandbox.workspace` returns it as is. A resolver may also refuse it, or ignore it: the staged workspace is the creator's choice, like metadata.
+- **Refused, not ignored.** A `workspace` sent to an app without `stagedWorkspaces` is `400 workspace_not_accepted`, after the policy has allowed the create.
+- **It needs a thread-access policy, and turning it on means auditing your `create` handler.** An upload arrives as `workspace.source.put`, a `create` with no thread; both it and a create that names a workspace carry `requestedWorkspace`, so one rule, `if (req.requestedWorkspace)`, decides who may stage and choose a workspace. A `create` handler written before this option admits both unless it checks that field. The upload route asks the policy before it reads a byte of the body, so an unauthorized caller neither costs the worker memory nor learns whether the option is on. `b4 check`, `b4 build` and boot refuse the option without a policy.
+- **Limits.** An upload is at most `maxUploadBytes` (default and ceiling 96 MiB, `413 payload_too_large`), and all uploaded sources together at most `maxStagedBytes` (default 1 GiB; `507 staged_quota_exceeded`). In an app with the option, `POST /threads` bodies are at most 1 MiB; an app without it reads them as before.
+- **Retention.** Sources nothing references (no thread names them, no live workspace was made from them) are deleted once older than `retentionMs` (default 24 hours), when the worker starts and before each upload; a re-upload refreshes the window. A thread's reference goes when the thread is deleted, before its row, so a failed delete leaves a thread with no staged workspace rather than one that could pass it on. A create racing a reclaim of its source answers `409 workspace_source_not_held` and leaves no thread behind: upload again and retry.
+- **Cost.** Verifying and storing an upload holds it several times over in the worker's memory (the body as text, the parsed bundle, its canonical JSON: about four to five times its size at the peak), so a worker takes one upload at a time and answers `429 upload_in_flight` (with `retry-after`) to a second. Lower `maxUploadBytes` on a small worker.
+- **Cross-origin browsers.** `server.cors.methods` does not include `PUT` by default; add it for a browser client on another origin.
+
 ## Custom providers
 
 Implement `SandboxProvider` to integrate a microVM, cloud sandbox or another isolation backend:

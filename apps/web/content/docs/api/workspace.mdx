@@ -43,8 +43,9 @@ The root's emitted subpath graph has no runtime package or Node built-in depende
 | `isCanonicalWorkspaceRoot` | Check an inspection root: relative leaf names with no empty, `.`, `..`, backslash or control-character segment. |
 | `WorkspaceDefinition` | Declare initial source, immutable environment links, and an optional Git baseline. |
 | `CapturedWorkspaceDefinition` | Hold a verified source bundle and canonical creation options. |
+| `StagedWorkspaceReference` | Name an uploaded source by digest, with the links and baseline a thread is created with (`sandbox.stagedWorkspaces`). |
 | `WorkspaceResolver` | Decide one thread's initial workspace from its id and client metadata, once, at first admission. |
-| `WorkspaceResolverInput` | What a resolver is told: the thread id, its stored client metadata with the reserved key stripped, and the admitting run's abort signal. |
+| `WorkspaceResolverInput` | What a resolver is told: the thread id, its stored client metadata with the reserved key stripped, the admitting run's abort signal, and `staged`, the verified workspace the thread was created with under `sandbox.stagedWorkspaces`. |
 | `ThreadSandboxResolver` | Decide one thread's workspace, image, policy and permissions from its id and client metadata, once, at first admission. |
 | `ThreadSandbox` | Declare one thread's workspace, an optional provider-interpreted image, optional policy overrides, and optional permission lists. |
 | `ThreadSandboxPolicy` | Name the network, environment and resource fields a thread may set for itself. |
@@ -67,7 +68,7 @@ The root's emitted subpath graph has no runtime package or Node built-in depende
 | `WorkspaceSourceDefinition` | Declare the source directory, exact inventory, exclusions, and additional files. |
 | `LocalExecOptions` | Configure the local command backend without importing its runtime. |
 | `LocalFilesystemOptions` | Configure the local filesystem backend without importing its runtime. |
-| `SandboxConfig` | Configure provider selection and lifecycle policy, including `workspaceRead: "http"`, which serves a thread's workspace over the Agent Protocol. |
+| `SandboxConfig` | Configure provider selection and lifecycle policy, including `workspaceRead: "http"`, which serves a thread's workspace over the Agent Protocol, and `stagedWorkspaces`, which accepts one at thread creation. |
 | `SandboxHandle` | Describe one acquired sandbox. |
 | `SandboxPolicy` | Describe per-thread network, environment, resource, and security policy. |
 | `SandboxProvider` | Define sandbox acquisition, release, destruction, and optional workspace reads. |
@@ -108,6 +109,8 @@ The `/node` entry owns the exports below. Its types are also exported from the d
 | `captureWorkspaceSource` | Capture the declared application source into a verified bundle. |
 | `captureWorkspaceDefinition` | Capture declared source and validate creation options. |
 | `verifyCapturedWorkspaceDefinition` | Validate and freeze a captured definition. |
+| `verifyStagedWorkspaceReference` | Validate and normalize a staged workspace reference: a bare digest, checked and sorted links, and only a `"git"` baseline. |
+| `stagedWorkspaceDefinition` | Build the captured definition a staged reference names over the held source, refusing a source that is not the one named. |
 | `createWorkspaceIntent` | Create a canonical immutable intent bound to operation and environment. |
 | `verifyWorkspaceIntent` | Validate the persisted intent and digest. |
 | `verifyReadyWorkspace` | Verify provider readiness against its persisted intent. |
@@ -439,6 +442,13 @@ export interface SandboxConfig {
   readonly thread?: ThreadSandboxResolver
   readonly workspaceRead?: "http"
   readonly workspaceReadTimeoutMs?: number
+  readonly stagedWorkspaces?:
+    | boolean
+    | {
+        readonly maxUploadBytes?: number
+        readonly retentionMs?: number
+        readonly maxStagedBytes?: number
+      }
   readonly provider: SandboxProvider
   readonly network?: SandboxPolicy["network"]
   readonly env?: SandboxPolicy["env"]
@@ -455,6 +465,7 @@ export interface SandboxConfig {
 | `readonly thread` | `ThreadSandboxResolver` | no | Decide each thread's workspace, image, policy and permissions once, at first admission; exclusive with `workspace`. |
 | `readonly workspaceRead` | `"http"` | no | Serve `POST /threads/:thread_id/workspace/inspect`, a read-only inventory of a thread's managed workspace behind the thread-access policy; refused without a policy. |
 | `readonly workspaceReadTimeoutMs` | `number` | no | Bound one workspace read, open to close, before it is abandoned with `504 workspace_read_timeout`; 1,000 to 1,800,000 ms, default 120,000. |
+| `readonly stagedWorkspaces` | `\| boolean \| { readonly maxUploadBytes?: number; readonly retentionMs?: number; readonly maxStagedBytes?: number }` | no | Accept a thread's workspace at creation (`PUT /workspace/sources/:digest`, then `workspace` on `POST /threads`), handed to the resolver as `thread.staged`; needs a resolver and a thread-access policy. |
 | `readonly provider` | `SandboxProvider` | yes | Supply the sandbox provider. |
 | `readonly network` | `SandboxPolicy["network"]` | no | Set the default network policy. |
 | `readonly env` | `SandboxPolicy["env"]` | no | Set the default explicit environment. |
