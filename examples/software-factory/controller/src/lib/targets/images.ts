@@ -253,6 +253,73 @@ interface Built {
   readonly log: string
 }
 
+/** A counting semaphore whose waiters leave the queue when their signal aborts. */
+export class BuildSlots {
+  private free: number
+  private readonly queue: (() => void)[] = []
+  constructor(size: number) {
+    if (!Number.isInteger(size) || size < 1)
+      throw new Error(`the image build limit must be a positive integer, got ${size}`)
+    this.free = size
+  }
+  async acquire(signal: AbortSignal): Promise<() => void> {
+    signal.throwIfAborted()
+    if (this.free > 0) {
+      this.free -= 1
+      return this.releaser()
+    }
+    return await new Promise<() => void>((resolve, reject) => {
+      const grant = () => {
+        signal.removeEventListener("abort", onAbort)
+        resolve(this.releaser())
+      }
+      const onAbort = () => {
+        const at = this.queue.indexOf(grant)
+        if (at >= 0) this.queue.splice(at, 1)
+        reject(signal.reason)
+      }
+      this.queue.push(grant)
+      signal.addEventListener("abort", onAbort, { once: true })
+    })
+  }
+  private releaser(): () => void {
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      const next = this.queue.shift()
+      if (next) next()
+      else this.free += 1
+    }
+  }
+}
+
+/** `promise`, or `signal`'s reason as soon as it aborts; the promise itself runs on. */
+export function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason)
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason)
+    signal.addEventListener("abort", onAbort, { once: true })
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort)
+        resolve(value)
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort)
+        reject(error)
+      },
+    )
+  })
+}
+
+interface Flight {
+  readonly promise: Promise<Built>
+  readonly controller: AbortController
+  waiters: number
+  settled: boolean
+}
+
 export function openImageRegistry(options: ImageRegistryOptions): ImageRegistry {
   mkdirSync(dirname(options.path), { recursive: true })
   const db = new DatabaseSync(options.path)
@@ -275,6 +342,12 @@ export function openImageRegistry(options: ImageRegistryOptions): ImageRegistry 
     )
   const platform = options.platform ?? hostPlatform()
   const now = options.now ?? Date.now
+  const slots = new BuildSlots(options.maxConcurrentBuilds ?? DEFAULT_MAX_IMAGE_BUILDS)
+  const timeoutMs = options.buildTimeoutMs ?? DEFAULT_IMAGE_BUILD_TIMEOUT_MS
+  /** A caller's whole wait: a slot, then the build. Journalled, so a follower knows the bound. */
+  const waitBoundMs = (options.queueTimeoutMs ?? 2 * timeoutMs) + timeoutMs
+  /** The build in flight per key. A later caller joins it rather than building again. */
+  const inflight = new Map<string, Flight>()
 
   const describe = (recipe: TargetRecipe): Described => {
     const dockerfileSha256 = dockerfileSha256Of(recipe)
@@ -357,6 +430,58 @@ export function openImageRegistry(options: ImageRegistryOptions): ImageRegistry 
     return { image, ms, log: log.text() }
   }
 
+  /**
+   * Start `described`'s build: queued for a slot, then bounded by the timeout from when it
+   * runs. Its controller aborts only when the last waiter leaves (`ensure`) or the registry
+   * closes, so one work order's cancel never kills a build another still waits on.
+   */
+  function startFlight(described: Described, recipe: TargetRecipe): Flight {
+    const controller = new AbortController()
+    const run = async (): Promise<Built> => {
+      let release: () => void
+      try {
+        release = await slots.acquire(controller.signal)
+      } catch (error) {
+        throw new ImagePrepareError(
+          `Target ${recipe.id} at ${recipe.pin}: the build was abandoned before it started`,
+          described.key,
+          "",
+          { cause: error },
+        )
+      }
+      try {
+        const deadline = AbortSignal.timeout(timeoutMs)
+        try {
+          return await build(described, recipe, AbortSignal.any([controller.signal, deadline]))
+        } catch (error) {
+          if (deadline.aborted && !controller.signal.aborted && error instanceof ImagePrepareError)
+            throw new ImagePrepareError(
+              `Target ${recipe.id} at ${recipe.pin}: the build exceeded ${timeoutMs} ms (FACTORY_IMAGE_BUILD_TIMEOUT_MS)`,
+              described.key,
+              error.log,
+              { cause: error },
+            )
+          throw error
+        }
+      } finally {
+        release()
+      }
+    }
+    const flight: Flight = {
+      controller,
+      waiters: 0,
+      settled: false,
+      promise: run().finally(() => {
+        flight.settled = true
+        if (inflight.get(described.key) === flight) inflight.delete(described.key)
+      }),
+    }
+    // Every waiter may have left: the rejection is then nobody's, and must not be unhandled.
+    flight.promise.catch(() => {})
+    inflight.set(described.key, flight)
+    return flight
+  }
+
   return {
     recorded(recipe) {
       const described = describe(recipe)
@@ -369,19 +494,50 @@ export function openImageRegistry(options: ImageRegistryOptions): ImageRegistry 
       const described = describe(recipe)
       const image = read(described.key)
       if (image !== undefined) return { key: described.key, tag: described.tag, image }
-      ensureOptions.onBuild?.({ key: described.key, shared: false, deadlineMs: 0 })
-      const built = await build(described, recipe, signal)
-      return {
-        key: described.key,
-        tag: described.tag,
-        image: built.image,
-        build: { shared: false, ms: built.ms, log: built.log },
+      const joined = inflight.get(described.key)
+      const flight = joined ?? startFlight(described, recipe)
+      const shared = joined !== undefined
+      ensureOptions.onBuild?.({ key: described.key, shared, deadlineMs: waitBoundMs })
+      flight.waiters += 1
+      // This caller's own bound: queued behind other keys' builds, then this build. Leaving at
+      // it is leaving like a cancel: the build goes on only if another caller still waits.
+      const waited = AbortSignal.timeout(waitBoundMs)
+      try {
+        const built = await abortable(flight.promise, AbortSignal.any([signal, waited])).catch(
+          (error: unknown) => {
+            if (waited.aborted && !signal.aborted)
+              throw new ImagePrepareError(
+                `Target ${recipe.id} at ${recipe.pin}: waited more than ${waitBoundMs} ms for the image (queued behind other builds, then built); FACTORY_MAX_IMAGE_BUILDS and FACTORY_IMAGE_BUILD_TIMEOUT_MS bound this`,
+                described.key,
+                "",
+                { cause: error },
+              )
+            throw error
+          },
+        )
+        return {
+          key: described.key,
+          tag: described.tag,
+          image: built.image,
+          build: { shared, ms: built.ms, log: built.log },
+        }
+      } finally {
+        flight.waiters -= 1
+        if (flight.waiters === 0 && !flight.settled) {
+          // Nobody waits on it any more: a later need starts afresh rather than joining a
+          // build that is being cancelled.
+          if (inflight.get(described.key) === flight) inflight.delete(described.key)
+          flight.controller.abort(new Error("no work order is waiting on this image build"))
+        }
       }
     },
     async present(localId, signal) {
       return (await options.builder.inspect(localId, signal)) !== null
     },
     close() {
+      for (const flight of inflight.values())
+        flight.controller.abort(new Error("the image registry closed"))
+      inflight.clear()
       db.close()
     },
   }
