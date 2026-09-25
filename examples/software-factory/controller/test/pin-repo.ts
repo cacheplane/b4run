@@ -9,12 +9,14 @@ const roots: string[] = []
 export const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`
 
 /**
- * A throwaway repository holding `files` (and `links`: path to symlink target) in one commit,
- * so a pin is real without touching this repository.
+ * A throwaway repository holding `files` (and `links`: path to symlink target; `gitlinks`: path
+ * to the commit a submodule entry records) in one commit, so a pin is real without touching this
+ * repository.
  */
 export function pinRepo(
   files: Readonly<Record<string, string>>,
   links: Readonly<Record<string, string>> = {},
+  gitlinks: Readonly<Record<string, string>> = {},
 ): { root: string; pin: string } {
   const root = mkdtempSync(join(tmpdir(), "factory-pin-repo-"))
   roots.push(root)
@@ -33,6 +35,8 @@ export function pinRepo(
     symlinkSync(target, join(root, path))
   }
   git("add", "-A")
+  for (const [path, commit] of Object.entries(gitlinks))
+    git("update-index", "--add", "--cacheinfo", `160000,${commit},${path}`)
   git("commit", "-q", "-m", "fixture")
   return { root, pin: git("rev-parse", "HEAD") }
 }
