@@ -120,7 +120,7 @@ describe("the manifest's target block", () => {
     targetId: "cli-flags",
     target: {
       image: "b4-factory-cli-flags:6a59e00aed46-0123456789ab",
-      pin: "6".repeat(40),
+      pin: `6a59e00aed46${"0".repeat(28)}`,
       policy: {
         network: { mode: "deny" },
         env: {},
@@ -168,6 +168,14 @@ describe("the manifest's target block", () => {
     ],
     ["an unknown target key", (m: Manifest) => withTarget(m, { scope: "elsewhere" })],
     ["version 1", (m: Manifest) => ({ ...m, version: 1 })],
+    [
+      "another target's image",
+      (m: Manifest) => withTarget(m, { image: "b4-factory-devkit:6a59e00aed46-0123456789ab" }),
+    ],
+    [
+      "its own target's image at another pin",
+      (m: Manifest) => withTarget(m, { image: "b4-factory-cli-flags:bfaf0c2b3030-0123456789ab" }),
+    ],
   ])("refuses %s", (_name, edit) => {
     expect(() => BuilderManifestSchema.parse(edit(good()))).toThrow()
     expect(() => TheBuildersManifestSchema.parse(edit(good()))).toThrow()

@@ -5,8 +5,11 @@ import {
   builderManifestDir,
   isFactoryImage,
   loadBuilderManifest,
+  refuseRetiredVariables,
   workOrderIdOf,
 } from "./src/builder-manifest.js"
+
+refuseRetiredVariables()
 
 // Boot refuses without the directory; an empty one is fine, because a thread with no
 // manifest is refused at admission, by name.

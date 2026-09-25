@@ -19,11 +19,15 @@ import { targetSandboxPolicy, targetWorkspace } from "./targets/workspace.js"
 const CATALOG_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
 /**
- * An image the factory prepared: `b4-factory-<target>:<pin[:12]>-<dockerfile[:12]>`, the tag
- * `imageTag` writes and the verifier runs. The builder's provider allows no other image, so a
- * manifest can choose among the factory's own images and nothing else.
+ * A tag in the factory's shape: `b4-factory-<target>:<pin[:12]>-<dockerfile[:12]>`, the tag
+ * `imageTag` writes and the verifier runs, with the target and the pin prefix captured. The
+ * builder's provider allows no other shape, and the manifest schema requires the captured
+ * target and pin prefix to be the manifest's own `targetId` and `pin`. That bounds a manifest
+ * to an image present on the daemon under a tag naming its own target and pin; it does not
+ * prove the image is the one `target:prepare` built (anyone who can tag an image on the
+ * daemon can already run anything as root there).
  */
-const FACTORY_IMAGE = /^b4-factory-[A-Za-z0-9][A-Za-z0-9._-]*:[0-9a-f]{12}-[0-9a-f]{12}$/
+const FACTORY_IMAGE = /^b4-factory-([A-Za-z0-9][A-Za-z0-9._-]*):([0-9a-f]{12})-[0-9a-f]{12}$/
 
 /**
  * Everything the builder app's `b4.config.ts` needs for one thread, as data, in one file per
@@ -88,6 +92,17 @@ export const BuilderManifestSchema = z
     workspace: z.unknown(),
   })
   .strict()
+  .superRefine((manifest, ctx) => {
+    // The tag's target and pin segments must be this manifest's own: a work order may not
+    // run in another target's image, or in its own target's image at another pin.
+    const [, target, pin] = FACTORY_IMAGE.exec(manifest.target.image) ?? []
+    if (target !== manifest.targetId || pin !== manifest.target.pin.slice(0, 12))
+      ctx.addIssue({
+        code: "custom",
+        path: ["target", "image"],
+        message: `image ${manifest.target.image} is not target ${manifest.targetId} at pin ${manifest.target.pin}: a factory tag names b4-factory-${manifest.targetId}:${manifest.target.pin.slice(0, 12)}-<dockerfile>`,
+      })
+  })
 export type BuilderManifest = z.infer<typeof BuilderManifestSchema>
 
 /** Whether `reference` is an image the factory prepared: the builder's `dockerSandbox({ images })`. */

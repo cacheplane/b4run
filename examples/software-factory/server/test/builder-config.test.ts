@@ -25,15 +25,17 @@ const bundle = (text: string) =>
 const manifest = (
   workOrderId: string,
   text: string,
-  image = "b4-factory-fixture-target:deadbeefcafe-0123456789ab",
+  targetId = "fixture-target",
+  pin = "d".repeat(40),
 ): BuilderManifest => ({
   version: 2,
   workOrderId,
   taskId: "fixture-task",
-  targetId: "fixture-target",
+  targetId,
   target: {
-    image,
-    pin: "d".repeat(40),
+    // The factory's tag shape, naming this manifest's own target and pin.
+    image: `b4-factory-${targetId}:${pin.slice(0, 12)}-0123456789ab`,
+    pin,
     policy: {
       network: { mode: "deny" },
       env: { npm_config_cache: "/tmp/npm-cache" },
@@ -80,7 +82,6 @@ const digestOf = (resolved: unknown) =>
 
 describe("builder configuration", () => {
   it("boots with no target file and denies the network to every thread", async () => {
-    delete process.env.FACTORY_BUILDER_TARGET
     const config = await loadConfig()
     expect(config.sandbox?.network?.mode).toBe("deny")
     expect(config.sandbox?.provider.name).toBe("docker")
@@ -107,14 +108,7 @@ describe("builder configuration", () => {
 describe("the builder's thread resolver", () => {
   it("serves each work order its own workspace, image, policy and permissions", async () => {
     const alpha = manifest("wo-alpha", "export const run = () => 0\n")
-    const beta = {
-      ...manifest(
-        "wo-beta",
-        "export const run = () => 1\n",
-        "b4-factory-other:0123456789ab-ba9876543210",
-      ),
-      targetId: "other-target",
-    }
+    const beta = manifest("wo-beta", "export const run = () => 1\n", "other-target", "e".repeat(40))
     beta.target = {
       ...beta.target,
       policy: {
@@ -134,11 +128,38 @@ describe("the builder's thread resolver", () => {
     // One builder, two targets: each thread runs its own manifest's image under its own
     // policy and allow-list, which the framework records at the thread's first admission.
     expect(first.environment).toEqual({ image: alpha.target.image })
-    expect(second.environment).toEqual({ image: "b4-factory-other:0123456789ab-ba9876543210" })
+    expect(second.environment).toEqual({
+      image: `b4-factory-other-target:${"e".repeat(12)}-0123456789ab`,
+    })
     expect(first.policy).toEqual(alpha.target.policy)
     expect(second.policy?.resources).toEqual({ memoryMb: 8192, cpus: 4, timeoutMs: 600_000 })
     expect(first.permissions).toEqual({ allow: alpha.target.permissions })
     expect(second.permissions).toEqual({ allow: { bash: ["make"] } })
+  })
+
+  it("refuses a manifest whose image names another target or another pin", async () => {
+    const good = manifest("wo-alpha", "x\n")
+    writeManifest(
+      { ...good, target: { ...good.target, image: "b4-factory-devkit:dddddddddddd-0123456789ab" } },
+      "wo-alpha",
+    )
+    writeManifest(
+      {
+        ...manifest("wo-beta", "x\n"),
+        target: { ...good.target, image: "b4-factory-fixture-target:eeeeeeeeeeee-0123456789ab" },
+      },
+      "wo-beta",
+    )
+    const resolve = await resolver()
+    // Both are factory-shaped tags the provider's `images` predicate would admit; only the
+    // manifest's own target and pin make them wrong, and the thread is refused before any
+    // image is resolved.
+    await expect(resolve(thread({ factoryWorkOrderId: "wo-alpha" }))).rejects.toThrow(
+      /is not target fixture-target at pin d{40}/,
+    )
+    await expect(resolve(thread({ factoryWorkOrderId: "wo-beta" }))).rejects.toThrow(
+      /is not target fixture-target at pin d{40}/,
+    )
   })
 
   it("allows only the factory's own images", async () => {
@@ -217,6 +238,22 @@ describe("the builder route", () => {
     vi.resetModules()
     const again = (await import("../src/app/build/index.ts")).default
     expect(again.systemPrompt).toBe(builder.systemPrompt)
+  })
+})
+
+describe("the retired target file", () => {
+  it("is a boot error naming FACTORY_BUILDER_TARGET, not a variable silently ignored", async () => {
+    process.env.FACTORY_BUILDER_TARGET = join(dir, "cli-flags.target.json")
+    vi.resetModules()
+    try {
+      // An operator still pointing the builder at a target file would otherwise believe it
+      // chooses the builder's image, policy and permissions; each work order's manifest does.
+      await expect(loadConfig()).rejects.toThrow(
+        /FACTORY_BUILDER_TARGET is retired: the builder boots with no target file/,
+      )
+    } finally {
+      delete process.env.FACTORY_BUILDER_TARGET
+    }
   })
 })
 

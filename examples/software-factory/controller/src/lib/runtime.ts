@@ -39,7 +39,7 @@ export type ControllerRuntimeOverrides = Partial<
   >
 > & {
   readonly readers?: {
-    /** Replaces the reader of EVERY builder worker entry. */
+    /** Replaces the one builder's reader. */
     readonly builder?: WorkspaceReader
     readonly drafter?: WorkspaceReader
   }
