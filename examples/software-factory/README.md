@@ -614,7 +614,8 @@ a pipe as it would at a terminal); an operator sets none of them. `review` reads
 `FACTORY_ARTIFACTS_DIR` when it is set, as the controller does.
 
 Both worker apps read `FACTORY_WORKER_TOKEN` (required: the same value the controller sends; a
-worker started without it refuses to boot). The builder app reads `FACTORY_BUILDER_MANIFEST_DIR` (required: the manifest directory,
+worker started without it refuses to boot). Once a worker has been built, its `b4 check` loads the built
+policy too, so set the token for `check` after `build` as well (or delete the gitignored `.b4/build`). The builder app reads `FACTORY_BUILDER_MANIFEST_DIR` (required: the manifest directory,
 which may be empty; its `check` and `build` scripts default it to `.factory/manifests`) and
 `FACTORY_BUILDER_MODEL` (default `gpt-5-mini`); its `check` and `build` scripts also read
 `FACTORY_BUILDER_LANE` (`1` runs them, anything else skips them with a notice). The drafter app reads
