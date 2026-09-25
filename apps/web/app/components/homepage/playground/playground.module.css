@@ -1,0 +1,112 @@
+/* The type-to-schema playground (the folder tour's tool stop). Dark-panel
+   tokens only (tokens.css). */
+.playground {
+  /* The global focus ring is tuned for paper; on the panel it uses the accent. */
+  --color-focus: var(--color-panel-accent);
+  container-type: inline-size;
+  background: var(--color-panel);
+  color: var(--color-panel-ink);
+}
+.toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 12px 16px;
+  border: 0;
+  border-bottom: 1px solid var(--color-panel-rule);
+  background: var(--color-panel-strip);
+}
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--color-panel-rule);
+  background: transparent;
+  color: var(--color-panel-muted);
+  font:
+    12px / 1.4 var(--font-mono),
+    monospace;
+  cursor: pointer;
+}
+.toggle code {
+  font: inherit;
+}
+.toggle[aria-pressed="true"] {
+  border-color: var(--color-panel-accent);
+  color: var(--color-panel-ink);
+}
+.box {
+  color: var(--color-panel-accent);
+}
+.panes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.pane {
+  min-width: 0;
+}
+.pane + .pane {
+  border-top: 1px solid var(--color-panel-rule);
+}
+.paneLabel {
+  margin: 0;
+  padding: 12px 16px 0;
+  font:
+    11px / 1.6 var(--font-mono),
+    monospace;
+  color: var(--color-panel-muted);
+}
+.code {
+  margin: 0;
+  padding: 8px 16px 16px;
+  font:
+    12px / 1.7 var(--font-mono),
+    monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 2;
+  background: transparent;
+  color: var(--color-panel-ink);
+}
+.code code {
+  font: inherit;
+}
+.line {
+  display: block;
+}
+.gutter {
+  display: inline-block;
+  width: 2ch;
+  color: var(--color-panel-accent);
+}
+/* A changed line keeps a faint tint (and its + in the gutter) until the next
+   toggle. Full-strength relay-tint under light panel text would be unreadable,
+   so the tint is mixed into the panel. */
+.line[data-changed="true"] {
+  background-color: color-mix(in srgb, var(--color-relay-tint) 14%, var(--color-panel));
+}
+/* Source left, schema right, once the schema's longest line fits unwrapped. */
+@container (min-width: 820px) {
+  .panes {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  }
+  .pane + .pane {
+    border-top: 0;
+    border-left: 1px solid var(--color-panel-rule);
+  }
+}
+/* The flash: colour only, 600ms. Reduced motion keeps the static tint. */
+@media (prefers-reduced-motion: no-preference) {
+  .line[data-changed="true"] {
+    animation: schema-flash 600ms ease-out;
+  }
+}
+@keyframes schema-flash {
+  from {
+    background-color: color-mix(in srgb, var(--color-relay-tint) 40%, var(--color-panel));
+  }
+}
