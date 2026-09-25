@@ -1,8 +1,17 @@
 import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import { parseArgs } from "node:util"
 import { writeFileAtomic } from "../storage/atomic-file.js"
-import { appRoot, commitSha, type Image, type TargetManifest, TargetSchema } from "./catalog.js"
+import {
+  appRoot,
+  commitSha,
+  covers,
+  type Image,
+  type TargetManifest,
+  type TargetRecipe,
+  TargetSchema,
+} from "./catalog.js"
 
 /**
  * The pure parts of `scripts/prepare-target.ts`: what it was asked to prepare, which
@@ -169,4 +178,29 @@ export async function recordImage(
   const next = withImageAt(current, pin, image)
   await writeFileAtomic(path, format(`${JSON.stringify(next, null, 2)}\n`))
   return next
+}
+
+/**
+ * Why `recipe` cannot be built at its pin, or undefined. Each is refused by name before any
+ * pull or build: a path the target names that the pin does not hold (`git archive` of it would
+ * fail naming nothing useful, and the `cli-flags` fixture's paths moved); a Dockerfile whose
+ * `CAPTURED` list disagrees with the capture; a lockfile outside the build context, whose hash
+ * would record an input that did not produce the image.
+ */
+export function recipeProblem(
+  recipe: TargetRecipe,
+  repo: string,
+  exists: (path: string) => boolean = (path) => pathExistsAtPin(repo, recipe.pin, path),
+): string | undefined {
+  const missing = firstMissingPath(pathsRequiredAtPin(recipe), exists)
+  if (missing !== undefined)
+    return `Target "${recipe.id}" names ${missing}, which does not exist at ${recipe.pin}: it cannot be prepared at that pin`
+  const captured = capturedListMismatch(
+    recipe,
+    readFileSync(join(recipe.directory, "Dockerfile"), "utf8"),
+  )
+  if (captured !== undefined) return captured
+  if (!covers(recipe.imageContext, recipe.lockfile))
+    return `Target "${recipe.id}" records lockfile "${recipe.lockfile}", which its imageContext does not cover`
+  return undefined
 }
