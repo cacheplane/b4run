@@ -76,6 +76,7 @@ function catalogs(pin: string): { targetsDir: string; tasksDir: string } {
         root: ".",
         capture: { include: ["a.txt"] },
         snapshotIgnore: [],
+        baseImage: `node:24-slim@sha256:${"e".repeat(64)}`,
         ...(prepared ? { images: { [pin]: image } } : {}),
         imageContext: ["package.json"],
         lockfile: "pnpm-lock.yaml",

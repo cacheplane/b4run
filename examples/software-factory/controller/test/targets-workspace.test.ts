@@ -78,6 +78,7 @@ function task(pin: string): Task {
       root: "pkg",
       capture: { include: ["src", "package.json"] },
       snapshotIgnore: ["packages/x/dist/"],
+      baseImage: `node:24-slim@sha256:${"e".repeat(64)}`,
       image: {
         localId: `sha256:${"a".repeat(64)}`,
         platform: "linux/arm64",

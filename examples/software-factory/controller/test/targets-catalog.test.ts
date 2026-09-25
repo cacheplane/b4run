@@ -11,9 +11,11 @@ import {
   ensurePin,
   environmentIdentity,
   ImageUnpreparedError,
+  idTagFor,
   imageTag,
   loadTarget,
   loadTargetIds,
+  loadTargetRecipe,
   loadTask,
   loadTaskIds,
   overlaps,
@@ -22,6 +24,7 @@ import {
   TargetSchema,
   TargetUnpreparedError,
   TaskSchema,
+  tagFor,
   tasksDir,
   UnknownTargetError,
 } from "../src/lib/targets/catalog.ts"
@@ -55,6 +58,8 @@ const image = {
   pnpmVersion: "10.33.0",
 }
 
+const BASE_IMAGE = `node:24-slim@sha256:${"e".repeat(64)}`
+
 function manifest(pin: string, overrides: Record<string, unknown> = {}) {
   return {
     id: "t",
@@ -62,6 +67,7 @@ function manifest(pin: string, overrides: Record<string, unknown> = {}) {
     root: ".",
     capture: { include: ["a.txt"] },
     snapshotIgnore: [],
+    baseImage: BASE_IMAGE,
     images: { [pin]: image },
     imageContext: ["package.json"],
     lockfile: "pnpm-lock.yaml",
@@ -165,6 +171,44 @@ function holdsCommit(root: string, sha: string): boolean {
 }
 
 describe("target catalog", () => {
+  it("requires the base image pinned by digest", () => {
+    const { pin } = repo()
+    for (const baseImage of ["node:24-slim", "node@sha256:abc", `Node:24@sha256:${"e".repeat(64)}`])
+      expect(TargetSchema.safeParse(manifest(pin, { baseImage })).success, baseImage).toBe(false)
+    const { baseImage: _omitted, ...without } = manifest(pin)
+    expect(TargetSchema.safeParse(without).success).toBe(false)
+    for (const baseImage of [
+      BASE_IMAGE,
+      `node@sha256:${"e".repeat(64)}`,
+      `docker.io/library/node:24-slim@sha256:${"e".repeat(64)}`,
+    ])
+      expect(TargetSchema.safeParse(manifest(pin, { baseImage })).success, baseImage).toBe(true)
+  })
+
+  it("loads a target's recipe at a pin without its image", () => {
+    const { root, first, second } = twoCommitRepo()
+    const dir = targetsDir(first, { images: undefined })
+    const recipe = loadTargetRecipe("t", { targetsDir: dir, repositoryRoot: root, pin: second })
+    expect(recipe.pin).toBe(second)
+    expect(recipe.directory).toBe(join(dir, "t"))
+    expect(recipe.baseImage).toBe(BASE_IMAGE)
+    expect(recipe).not.toHaveProperty("image")
+    expect(recipe).not.toHaveProperty("images")
+    expect(loadTargetRecipe("t", { targetsDir: dir, repositoryRoot: root }).pin).toBe(first)
+    expect(() => loadTargetRecipe("nope", { targetsDir: dir, repositoryRoot: root })).toThrow(
+      UnknownTargetError,
+    )
+  })
+
+  it("names a recipe tag after the target, the pin and the recipe key, and an id tag that never moves", () => {
+    const pin = "1".repeat(40)
+    const key = "c".repeat(64)
+    expect(tagFor("devkit", pin, key)).toBe(`b4-factory-devkit:${"1".repeat(12)}-${"c".repeat(12)}`)
+    expect(idTagFor("devkit", pin, key, `sha256:${"9".repeat(64)}`)).toBe(
+      `b4-factory-devkit:${"1".repeat(12)}-${"c".repeat(12)}-${"9".repeat(12)}`,
+    )
+  })
+
   it("lists the targets shipped with the factory", () => {
     expect(loadTargetIds()).toEqual(["cli", "cli-flags", "devkit"])
   })
@@ -388,6 +432,10 @@ describe("target catalog", () => {
           JSON.parse(readFileSync(join(directory, "target.json"), "utf8")),
         )
         expect(parsed.id).toBe(id)
+        // One base for every shipped target: the drafter's, pinned by digest (plan D3).
+        expect(parsed.baseImage).toBe(
+          "node:24-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6",
+        )
 
         const root = repositoryRoot()
         expect(() =>

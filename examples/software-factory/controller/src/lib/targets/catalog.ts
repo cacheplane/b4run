@@ -90,6 +90,13 @@ export function overlaps(a: string, b: string): boolean {
   return covers([a], b) || covers([b], a)
 }
 
+/**
+ * An image reference pinned by digest: `<name>[:<tag>]@sha256:<64 hex>`. The base is the one
+ * image input that is not in the repository, so it is pinned here, where a person reviews it,
+ * and never resolved from a floating tag at build time.
+ */
+const BASE_IMAGE = /^[a-z0-9][a-z0-9._/-]*(?::[A-Za-z0-9._-]+)?@sha256:[a-f0-9]{64}$/
+
 export const ImageSchema = z
   .object({
     localId: z.string().regex(SHA_256_REF),
@@ -127,6 +134,12 @@ const TargetObjectSchema = z
     capture: z.object({ include: z.array(relativePath).min(1) }).strict(),
     /** Root-relative prefixes a suite may write under; the tamper comparison skips them. */
     snapshotIgnore: z.array(pathPrefix),
+    /**
+     * The image the Dockerfile builds FROM (`BASE_IMAGE` build arg), pinned by digest. A
+     * multi-platform index digest, so one value serves every host platform. Part of the image
+     * recipe (the registry's key) and of the image object (`baseManifestDigest`).
+     */
+    baseImage: z.string().regex(BASE_IMAGE, "baseImage must be <name>[:<tag>]@sha256:<64 hex>"),
     /**
      * One image per pin it was prepared at (`target:prepare <id> --pin <sha>`). Absent until
      * the prepare script has run at least once; a pin with no entry is `image_unprepared`.
@@ -183,12 +196,18 @@ export const TargetSchema = z.preprocess(migrateSingleImage, TargetObjectSchema)
 export type TargetManifest = z.infer<typeof TargetObjectSchema>
 
 /**
- * A target as loaded AT one pin: `pin` is the chosen pin (the work order's, or the
- * manifest's default) and `image` is the image prepared at it, so everything downstream
- * (`imageTag`, the archive, the providers) reads one pin and one image.
+ * A target AT one pin, without its image: what the capture, the prompt, the fit checks and
+ * the image recipe read. `pin` is the chosen pin (the work order's, or the manifest's default).
  */
-export interface Target extends Omit<TargetManifest, "images"> {
+export interface TargetRecipe extends Omit<TargetManifest, "images"> {
   readonly directory: string
+}
+
+/**
+ * A target as loaded AT one pin with the image built for it on this host, so everything
+ * downstream (`imageTag`, the providers, the environment identity) reads one pin and one image.
+ */
+export interface Target extends TargetRecipe {
   /** Present: `loadTarget` refuses a pin without one. */
   readonly image: Image
 }
@@ -312,6 +331,25 @@ export function loadTargetIds(dir = targetsDir): string[] {
   return readIds(dir, "target")
 }
 
+/**
+ * `id` at `options.pin` (the manifest's own pin when absent), without its image: the pin is
+ * made present in the object store, nothing else is looked up. A new target is a directory,
+ * not a code change.
+ */
+export function loadTargetRecipe(id: string, options: CatalogOptions = {}): TargetRecipe {
+  const dir = options.targetsDir ?? targetsDir
+  if (!loadTargetIds(dir).includes(id)) throw new UnknownTargetError(id)
+  const directory = join(dir, id)
+  const manifest = TargetSchema.parse(
+    JSON.parse(readFileSync(join(directory, "target.json"), "utf8")),
+  )
+  if (manifest.id !== id) throw new Error(`Target ${id} declares a different id: ${manifest.id}`)
+  const pin = options.pin ?? manifest.pin
+  ensurePin(options.repositoryRoot ?? repositoryRoot(), id, pin)
+  const { images: _images, ...recipe } = manifest
+  return { ...recipe, pin, directory }
+}
+
 export function loadTarget(id: string, options: CatalogOptions = {}): Target {
   const dir = options.targetsDir ?? targetsDir
   if (!loadTargetIds(dir).includes(id)) throw new UnknownTargetError(id)
@@ -408,6 +446,26 @@ export function commitExists(repo: string, pin: string): boolean {
  */
 export function imageTag(target: Pick<Target, "id" | "pin" | "image">): string {
   return `b4-factory-${target.id}:${target.pin.slice(0, 12)}-${target.image.dockerfileSha256.slice(0, 12)}`
+}
+
+/**
+ * The recipe tag of `id` at `pin` whose recipe key (`recipeKey`) is `key`. One tag per
+ * recipe: a changed Dockerfile, base, context or pin is another key and so another tag, and
+ * re-pointing a tag (the registry does, D10) can never move it between recipes. Still the
+ * builder's `FACTORY_IMAGE` shape (`<target>:<12 hex>-<12 hex>`). Readable, and what keeps a
+ * built image from being a dangling one a prune removes; never the identity.
+ */
+export function tagFor(id: string, pin: string, key: string): string {
+  return `b4-factory-${id}:${pin.slice(0, 12)}-${key.slice(0, 12)}`
+}
+
+/**
+ * The tag that stays on one build for good: the recipe tag plus the image id's first twelve
+ * hex digits. A bound image a later build of its key superseded keeps this tag, so no
+ * dangling-image prune removes an image a work order is bound to.
+ */
+export function idTagFor(id: string, pin: string, key: string, localId: string): string {
+  return `${tagFor(id, pin, key)}-${localId.slice("sha256:".length, "sha256:".length + 12)}`
 }
 
 /**

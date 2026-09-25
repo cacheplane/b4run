@@ -47,6 +47,7 @@ const manifest = TargetSchema.parse({
   root: "pkg",
   capture: { include: ["src"] },
   snapshotIgnore: [],
+  baseImage: `node:24-slim@sha256:${"e".repeat(64)}`,
   images: { [PIN_A]: image("1") },
   imageContext: ["pkg/package.json", "pkg/package-lock.json"],
   lockfile: "pkg/package-lock.json",
