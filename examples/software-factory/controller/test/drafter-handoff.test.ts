@@ -179,6 +179,27 @@ describe("the drafter's handoff", () => {
       )
   })
 
+  it("matches links named in any order: the staged workspace's are sorted by path", () => {
+    const links = [
+      { path: "node_modules", target: "/deps/node_modules" },
+      { path: "b-cache", target: "/deps/cache" },
+    ]
+    const sorted = [...links].sort((a, b) => (a.path < b.path ? -1 : 1))
+    const linked = verifyCapturedWorkspaceDefinition({ ...staged, environmentLinks: sorted })
+    const unsorted = { ...handoff, workspace: { ...handoff.workspace, environmentLinks: links } }
+    expect(stagedDrafterWorkspace(linked, unsorted).environmentLinks).toEqual(sorted)
+    const retargeted = [
+      links[0] as (typeof links)[number],
+      { path: "b-cache", target: "/deps/other" },
+    ]
+    expect(() =>
+      stagedDrafterWorkspace(linked, {
+        ...handoff,
+        workspace: { ...handoff.workspace, environmentLinks: retargeted },
+      }),
+    ).toThrow(/is not the one work order wo-1 names/)
+  })
+
   it("refuses the retired manifest directory by name", () => {
     expect(() => refuseRetiredVariables({ FACTORY_DRAFTER_MANIFEST_DIR: "/m" })).toThrow(
       /FACTORY_DRAFTER_MANIFEST_DIR is retired/,

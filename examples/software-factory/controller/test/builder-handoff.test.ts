@@ -183,6 +183,26 @@ describe("the builder's handoff", () => {
       )
   })
 
+  it("matches links named in any order: the staged workspace's are sorted by path", () => {
+    const links = [
+      { path: "node_modules", target: "/deps/node_modules" },
+      { path: "b-cache", target: "/deps/cache" },
+    ]
+    const sorted = [...links].sort((a, b) => (a.path < b.path ? -1 : 1))
+    const linked = verifyCapturedWorkspaceDefinition({ ...staged, environmentLinks: sorted })
+    expect(linked.environmentLinks.map((link) => link.path)).toEqual(["b-cache", "node_modules"])
+    const unsorted = { ...handoff, workspace: { ...handoff.workspace, environmentLinks: links } }
+    expect(stagedBuilderWorkspace(linked, unsorted as never).environmentLinks).toEqual(sorted)
+    // Order is the only freedom: a target that differs is still another workspace.
+    const retargeted = [links[0], { path: "b-cache", target: "/deps/other" }]
+    expect(() =>
+      stagedBuilderWorkspace(linked, {
+        ...handoff,
+        workspace: { ...handoff.workspace, environmentLinks: retargeted },
+      } as never),
+    ).toThrow(/is not the one work order wo-1 names/)
+  })
+
   it("refuses the retired variables by name", () => {
     expect(() => refuseRetiredVariables({ FACTORY_BUILDER_MANIFEST_DIR: "/m" })).toThrow(
       /FACTORY_BUILDER_MANIFEST_DIR is retired/,
