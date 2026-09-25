@@ -73,6 +73,7 @@ export default config({
   // sandbox: {
   //   provider: dockerSandbox({ scope: "my-app", image: "node:24-slim" }),
   //   network: { mode: "deny" },
+  //   // network: { mode: "deny", allowlist: ["10.0.0.0/8"] }, // Kubernetes CIDRs; Docker ignores it
   //   // network: { mode: "allow" }, // open egress, cloud metadata endpoint included
   //   env: { NODE_ENV: "production" },
   //   resources: { memoryMb: 1024, cpus: 1, timeoutMs: 120_000, diskGb: 10 },
