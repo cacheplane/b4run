@@ -63,6 +63,7 @@ export function fakeWorkerMap(options: FakeWorkerMapOptions): WorkerMap {
 export const fakeBuilderHandoff: NonNullable<FactoryOptions["captureBuilderHandoff"]> = async ({
   taskId,
   workOrderId,
+  image,
 }) => {
   const workspace = {
     version: 1 as const,
@@ -73,13 +74,16 @@ export const fakeBuilderHandoff: NonNullable<FactoryOptions["captureBuilderHando
     baseline: "git" as const,
   }
   const handoff = BuilderHandoffSchema.parse({
-    version: 3,
+    version: 4,
     workOrderId,
     taskId,
     targetId: "fake-target",
     workspace: stagedReferenceOf(workspace),
     target: {
-      image: `b4-factory-fake-target:${"0".repeat(12)}-${"0".repeat(12)}`,
+      // The bound image's id when dispatch bound one; the tag stays the fake target's own, since
+      // the handoff's tag must name its target and pin and this handoff's are the fake's.
+      image: image?.localId ?? `sha256:${"0".repeat(64)}`,
+      tag: `b4-factory-fake-target:${"0".repeat(12)}-${"0".repeat(12)}`,
       pin: "0".repeat(40),
       policy: {
         network: { mode: "deny" },

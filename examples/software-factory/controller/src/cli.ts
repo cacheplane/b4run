@@ -4,7 +4,7 @@ import { join, resolve } from "node:path"
 import { createInterface } from "node:readline"
 import { setTimeout as sleep } from "node:timers/promises"
 import { parseArgs } from "node:util"
-import { captureBuilderHandoff } from "./lib/builder-handoff.js"
+import { captureBuilderHandoff, isFactoryImageId } from "./lib/builder-handoff.js"
 import { type ControllerClient, ControllerHttpError, createControllerClient } from "./lib/client.js"
 import { generatedTasksDirFor } from "./lib/config.js"
 import { dispatchPreparing, imageWaitBoundMs } from "./lib/controller/images.js"
@@ -31,7 +31,9 @@ import {
   ensurePin,
   loadTaskRecipe,
   repositoryRoot,
+  type TaskRecipe,
 } from "./lib/targets/catalog.js"
+import { openImageRegistryReader, recipeTag } from "./lib/targets/images.js"
 
 const USAGE = `factory <command> [options]
 
@@ -53,7 +55,7 @@ const USAGE = `factory <command> [options]
   events    <workOrderId>
   evidence  <workOrderId>
   list
-  builder-handoff --task <id> --out <dir> [--work-order <workOrderId>]
+  builder-handoff --task <id> --out <dir> [--work-order <workOrderId>] [--image-id sha256:<64 hex>]
 
 The commands that change something are requests to a running controller:
 FACTORY_CONTROLLER_URL is its base URL. The commands that read do not go through the
@@ -64,7 +66,9 @@ builder-handoff needs neither.
 builder-handoff writes <dir>/<work-order>.source.json and <dir>/<work-order>.handoff.json (the
 work order defaults to the task id): the captured workspace's files, and the handoff naming
 them with the target's image, pin, sandbox policy and permissions, which one builder serving
-every target and pin runs that work order's thread in. The controller stages both over the
+every target and pin runs that work order's thread in. The image is --image-id, or the one
+<FACTORY_STATE_DIR>/images.sqlite records for the task's target at its pin (read-only); with
+neither, the command refuses rather than guess. The controller stages both over the
 builder's Agent Protocol port at dispatch; to drive a builder without a controller, PUT the
 source to /workspace/sources/<sourceDigest>, then POST /threads with
 {"metadata":{"factoryWorkOrderId":<work-order>,"factoryBuilder":<handoff>},"workspace":<handoff.workspace>},
@@ -127,6 +131,39 @@ reject-intake settles anywhere but awaiting_intake_approval.`
 
 function print(value: unknown) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
+}
+
+/**
+ * The image `builder-handoff` names: `--image-id` (with this host's recipe tag for the task's
+ * target), else the one `<stateDir>/images.sqlite` records for that target at its pin, read
+ * without creating, migrating or writing the registry. With neither, a refusal: a handoff
+ * naming a guessed image would run the builder in something no one bound.
+ */
+function builderHandoffImage(
+  task: TaskRecipe,
+  imageId: string | undefined,
+  stateDir: string | undefined,
+): { localId: string; tag: string } {
+  if (imageId !== undefined) {
+    if (!isFactoryImageId(imageId))
+      throw new Error(`--image-id must be sha256:<64 hex>, got ${JSON.stringify(imageId)}`)
+    return { localId: imageId, tag: recipeTag(task.target) }
+  }
+  if (!stateDir)
+    throw new Error(
+      "builder-handoff needs --image-id, or FACTORY_STATE_DIR whose images.sqlite records the task's image (target:prepare writes it)",
+    )
+  const reader = openImageRegistryReader(join(stateDir, "images.sqlite"))
+  try {
+    const recorded = reader.recorded(task.target)
+    if (recorded === undefined)
+      throw new Error(
+        `builder-handoff needs --image-id, or FACTORY_STATE_DIR whose images.sqlite records the task's image: none is recorded for target ${task.target.id} at ${task.target.pin}`,
+      )
+    return { localId: recorded.image.localId, tag: recorded.tag }
+  } finally {
+    reader.close()
+  }
 }
 
 const registryPath = (): string => {
@@ -796,6 +833,7 @@ async function main(argv: string[]): Promise<number> {
       out: { type: "string" },
       pin: { type: "string" },
       "work-order": { type: "string" },
+      "image-id": { type: "string" },
       approve: { type: "boolean", default: false },
       reject: { type: "boolean", default: false },
       "allow-missing-evidence": { type: "boolean", default: false },
@@ -824,6 +862,8 @@ async function main(argv: string[]): Promise<number> {
     // builder root, only the state directory's generated tasks, and only when there is one.
     const stateDir = process.env.FACTORY_STATE_DIR
     if (stateDir) configureCatalog({ generatedTasksDir: generatedTasksDirFor(stateDir) })
+    const task = loadTaskRecipe(values.task)
+    const image = builderHandoffImage(task, values["image-id"], stateDir)
     const workOrder = values["work-order"]
     // The capture is staged under the state directory when there is one (where the controller
     // stages its own), and otherwise under a temporary directory this command removes: never
@@ -832,8 +872,9 @@ async function main(argv: string[]): Promise<number> {
       ? resolve(stateDir)
       : mkdtempSync(join(tmpdir(), "factory-captures-"))
     try {
-      const { handoff, workspace } = await captureBuilderHandoff(loadTaskRecipe(values.task), {
+      const { handoff, workspace } = await captureBuilderHandoff(task, {
         captureRoot,
+        image,
         ...(workOrder !== undefined ? { workOrderId: workOrder } : {}),
       })
       // The work order id is a catalog id (the capture refused anything else): a plain name.

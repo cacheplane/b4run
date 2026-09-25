@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { mkdirSync, readFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { imageRecipeDigest } from "../domain/digest.js"
@@ -320,13 +320,29 @@ interface Flight {
   settled: boolean
 }
 
-export function openImageRegistry(options: ImageRegistryOptions): ImageRegistry {
-  mkdirSync(dirname(options.path), { recursive: true })
-  const db = new DatabaseSync(options.path)
-  db.exec("PRAGMA journal_mode = WAL")
-  db.exec("PRAGMA busy_timeout = 5000")
-  // The version first: a registry a newer factory wrote is refused before this one creates
-  // its own tables or indexes in it.
+/** The recorded image under `key`, or undefined: the one read both the registry and its reader do. */
+function readRecorded(db: DatabaseSync, key: string): Image | undefined {
+  const row = db
+    .prepare(
+      "SELECT tag, local_id, platform, base_manifest_digest, dockerfile_sha256, lockfile_sha256, pnpm_version FROM images WHERE key = ?",
+    )
+    .get(key) as unknown as ImageRow | undefined
+  if (row === undefined) return undefined
+  return ImageSchema.parse({
+    localId: row.local_id,
+    platform: row.platform,
+    baseManifestDigest: row.base_manifest_digest,
+    dockerfileSha256: row.dockerfile_sha256,
+    lockfileSha256: row.lockfile_sha256,
+    pnpmVersion: row.pnpm_version,
+  })
+}
+
+/**
+ * The schema version `db` records (0 when it has no `schema_version` table), refusing, and
+ * closing `db`, when a newer factory wrote it.
+ */
+function checkedSchemaVersion(db: DatabaseSync): number {
   const versioned =
     db
       .prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?")
@@ -343,6 +359,59 @@ export function openImageRegistry(options: ImageRegistryOptions): ImageRegistry 
       `The image registry schema version ${found} is newer than this factory supports (${IMAGE_REGISTRY_VERSION}): upgrade the factory, or give it another FACTORY_STATE_DIR`,
     )
   }
+  return found
+}
+
+/** The read-only registry `openImageRegistryReader` opens: `recorded`, and nothing that writes. */
+export interface ImageRegistryReader {
+  /** What the registry records for `recipe` at its own pin on the reader's platform, if anything. */
+  recorded(recipe: TargetRecipe): RecordedImage | undefined
+  close(): void
+}
+
+/**
+ * The registry, read-only: what a command that must not create, migrate or write a host's
+ * registry opens (`factory builder-handoff`). Refuses a path with no registry, one written by a
+ * newer factory, and one no factory has finished creating.
+ */
+export function openImageRegistryReader(
+  path: string,
+  platform: string = hostPlatform(),
+): ImageRegistryReader {
+  if (!existsSync(path)) throw new Error(`no image registry at ${path}`)
+  const db = new DatabaseSync(path, { readOnly: true })
+  let found: number
+  try {
+    db.exec("PRAGMA busy_timeout = 5000")
+    found = checkedSchemaVersion(db)
+  } catch (error) {
+    if (db.isOpen) db.close()
+    throw error
+  }
+  if (found < IMAGE_REGISTRY_VERSION) {
+    db.close()
+    throw new Error(`no image registry at ${path}: it records no schema version`)
+  }
+  return {
+    recorded(recipe) {
+      const key = recipeKey(recipe, platform)
+      const image = readRecorded(db, key)
+      return image === undefined
+        ? undefined
+        : { key, tag: tagFor(recipe.id, recipe.pin, key), image }
+    },
+    close: () => db.close(),
+  }
+}
+
+export function openImageRegistry(options: ImageRegistryOptions): ImageRegistry {
+  mkdirSync(dirname(options.path), { recursive: true })
+  const db = new DatabaseSync(options.path)
+  db.exec("PRAGMA journal_mode = WAL")
+  db.exec("PRAGMA busy_timeout = 5000")
+  // The version first: a registry a newer factory wrote is refused before this one creates
+  // its own tables or indexes in it.
+  const found = checkedSchemaVersion(db)
   db.exec(SCHEMA)
   if (found < IMAGE_REGISTRY_VERSION)
     db.prepare("INSERT OR IGNORE INTO schema_version(version) VALUES (?)").run(
@@ -362,22 +431,7 @@ export function openImageRegistry(options: ImageRegistryOptions): ImageRegistry 
     const key = recipeKey(recipe, platform, dockerfileSha256)
     return { key, tag: tagFor(recipe.id, recipe.pin, key), dockerfileSha256 }
   }
-  const read = (key: string): Image | undefined => {
-    const row = db
-      .prepare(
-        "SELECT tag, local_id, platform, base_manifest_digest, dockerfile_sha256, lockfile_sha256, pnpm_version FROM images WHERE key = ?",
-      )
-      .get(key) as unknown as ImageRow | undefined
-    if (row === undefined) return undefined
-    return ImageSchema.parse({
-      localId: row.local_id,
-      platform: row.platform,
-      baseManifestDigest: row.base_manifest_digest,
-      dockerfileSha256: row.dockerfile_sha256,
-      lockfileSha256: row.lockfile_sha256,
-      pnpmVersion: row.pnpm_version,
-    })
-  }
+  const read = (key: string): Image | undefined => readRecorded(db, key)
   const write = (described: Described, recipe: TargetRecipe, image: Image, ms: number) => {
     db.prepare(
       `INSERT OR REPLACE INTO images (key, target_id, pin, tag, local_id, platform, base_manifest_digest, dockerfile_sha256, lockfile_sha256, pnpm_version, built_at, build_ms)

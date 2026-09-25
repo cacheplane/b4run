@@ -2,7 +2,7 @@ import { config } from "@b4run/cli"
 import { dockerSandbox } from "@b4run/sandbox"
 import {
   builderHandoffOf,
-  isFactoryImage,
+  isFactoryImageId,
   refuseRetiredVariables,
   stagedBuilderWorkspace,
 } from "./src/builder-handoff.js"
@@ -13,9 +13,10 @@ export default config({
   appDir: "src/app",
   build: { targets: ["node"] },
   sandbox: {
-    // No default image: every thread runs the image its handoff names, and only an image the
-    // factory prepared may be named. A managed workspace's image is read from its own record.
-    provider: dockerSandbox({ scope: "software-factory-builder", images: isFactoryImage }),
+    // No default image: every thread runs the image its handoff names, by id, never a tag
+    // that could have moved since the controller bound it. A managed workspace's image is read
+    // from its own record.
+    provider: dockerSandbox({ scope: "software-factory-builder", images: isFactoryImageId }),
     // The controller reads a thread's workspace through this app's own port
     // (`POST /threads/:id/workspace/inspect`), authorized by src/thread-access.ts, and
     // never opens this app's installation store or its volumes itself.

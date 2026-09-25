@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -22,6 +23,10 @@ const bundle = (text: string) =>
     { path: "src/cli.ts", bytes: Buffer.from(text), executable: false },
   ])
 
+/** A stand-in image id, distinct per target and pin. */
+const imageIdOf = (targetId: string, pin: string) =>
+  `sha256:${createHash("sha256").update(`${targetId}@${pin}`).digest("hex")}`
+
 interface WorkOrder {
   readonly handoff: BuilderHandoff
   readonly staged: CapturedWorkspaceDefinition
@@ -42,7 +47,7 @@ const workOrder = (
   return {
     staged,
     handoff: {
-      version: 3,
+      version: 4,
       workOrderId,
       taskId: "fixture-task",
       targetId,
@@ -52,8 +57,10 @@ const workOrder = (
         baseline: "git",
       },
       target: {
-        // The factory's tag shape, naming this handoff's own target and pin.
-        image: `b4-factory-${targetId}:${pin.slice(0, 12)}-0123456789ab`,
+        // An image id, one per target and pin, and the factory's tag shape naming this
+        // handoff's own target and pin beside it.
+        image: imageIdOf(targetId, pin),
+        tag: `b4-factory-${targetId}:${pin.slice(0, 12)}-0123456789ab`,
         pin,
         policy: {
           network: { mode: "deny" },
@@ -137,7 +144,7 @@ describe("builder configuration", () => {
     const text = readFileSync(new URL("../b4.config.ts", import.meta.url), "utf8")
     // Scope and allowed images, and no default image.
     expect(text).toContain(
-      'dockerSandbox({ scope: "software-factory-builder", images: isFactoryImage })',
+      'dockerSandbox({ scope: "software-factory-builder", images: isFactoryImageId })',
     )
   })
 })
@@ -175,41 +182,42 @@ describe("the builder's thread resolver", () => {
     expect((first.workspace as CapturedWorkspaceDefinition).baseline).toBe("git")
     // One builder, two targets: each thread runs its own handoff's image under its own
     // policy and allow-list, which the framework records at the thread's first admission.
+    // By id: never a tag, which could have moved since the controller bound the image.
     expect(first.environment).toEqual({ image: alpha.handoff.target.image })
-    expect(second.environment).toEqual({
-      image: `b4-factory-other-target:${"e".repeat(12)}-0123456789ab`,
-    })
+    expect(first.environment?.image).toMatch(/^sha256:[0-9a-f]{64}$/)
+    expect(second.environment).toEqual({ image: imageIdOf("other-target", "e".repeat(40)) })
     expect(first.policy).toEqual(alpha.handoff.target.policy)
     expect(second.policy?.resources).toEqual({ memoryMb: 8192, cpus: 4, timeoutMs: 600_000 })
     expect(first.permissions).toEqual({ allow: alpha.handoff.target.permissions })
     expect(second.permissions).toEqual({ allow: { bash: ["make"] } })
   })
 
-  it("refuses a handoff whose image names another target or another pin", async () => {
+  it("refuses a handoff whose tag names another target or another pin", async () => {
     const order = workOrder("wo-alpha", "x\n")
     const resolve = await resolver()
-    // Both are factory-shaped tags the provider's `images` predicate would admit; only the
+    // Both are factory-shaped tags naming a real target and pin; only the
     // handoff's own target and pin make them wrong, and the thread is refused before any
     // image is resolved.
-    for (const image of [
+    for (const tag of [
       "b4-factory-devkit:dddddddddddd-0123456789ab",
       "b4-factory-fixture-target:eeeeeeeeeeee-0123456789ab",
     ])
       await expect(
         resolve(
           thread(
-            metadataOf(order, { ...order.handoff, target: { ...order.handoff.target, image } }),
+            metadataOf(order, { ...order.handoff, target: { ...order.handoff.target, tag } }),
             order.staged,
           ),
         ),
       ).rejects.toThrow(/is not target fixture-target at pin d{40}/)
   })
 
-  it("allows only the factory's own images", async () => {
-    const { isFactoryImage } = await import("../src/builder-handoff.ts")
-    expect(isFactoryImage("b4-factory-devkit:6a59e00aed46-0123456789ab")).toBe(true)
-    expect(isFactoryImage("alpine:latest")).toBe(false)
-    expect(isFactoryImage("b4-factory-devkit:latest")).toBe(false)
+  it("allows an image only by id, never by a tag, the factory's included", async () => {
+    const { isFactoryImageId } = await import("../src/builder-handoff.ts")
+    expect(isFactoryImageId(`sha256:${"0".repeat(64)}`)).toBe(true)
+    expect(isFactoryImageId("b4-factory-devkit:6a59e00aed46-0123456789ab")).toBe(false)
+    expect(isFactoryImageId("alpine:latest")).toBe(false)
+    expect(isFactoryImageId(`sha256:${"0".repeat(63)}`)).toBe(false)
   })
 
   it("refuses, by name, a thread created with no handoff or with no staged workspace", async () => {

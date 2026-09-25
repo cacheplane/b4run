@@ -58,6 +58,7 @@ beforeAll(async () => {
   const alpha = await captureBuilderHandoff(task, {
     workOrderId: "wo-alpha",
     captureRoot: alphaRoot,
+    image: { localId: task.target.image.localId, tag: imageTag(task.target) },
   }).finally(() => rm(alphaRoot, { recursive: true, force: true }))
   handoffs["wo-alpha"] = alpha
   digests["wo-alpha"] = alpha.handoff.workspace.sourceDigest
@@ -296,6 +297,7 @@ it("serves a cli-flags thread and devkit threads at two pins from one process", 
     const devkit = await captureBuilderHandoff(devkitTask, {
       workOrderId: "wo-devkit",
       captureRoot: root,
+      image: { localId: devkitTask.target.image.localId, tag: imageTag(devkitTask.target) },
     })
     // The same capture at the second pin: only the target block changes, which is all the
     // image and the policy are drawn from. Captured as dispatch would, then re-pinned.
@@ -307,7 +309,12 @@ it("serves a cli-flags thread and devkit threads at two pins from one process", 
         handoff: BuilderHandoffSchema.parse({
           ...devkit.handoff,
           workOrderId: "wo-devkit-2",
-          target: { ...devkit.handoff.target, image: imageTag(atSecond), pin: SECOND_PIN },
+          target: {
+            ...devkit.handoff.target,
+            image: atSecond.image.localId,
+            tag: imageTag(atSecond),
+            pin: SECOND_PIN,
+          },
         }),
       },
     }

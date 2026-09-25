@@ -3,6 +3,8 @@ import {
   appendFileSync,
   chmodSync,
   cpSync,
+  existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -16,7 +18,7 @@ import { verifySourceBundle } from "@b4run/workspace/node"
 import { afterEach, describe, expect, it } from "vitest"
 import { BuilderHandoffSchema } from "../src/lib/builder-handoff.ts"
 import { openRegistryReader } from "../src/lib/registry/reader.ts"
-import { loadTask, tasksDir } from "../src/lib/targets/catalog.ts"
+import { loadTask, loadTaskRecipe, tasksDir } from "../src/lib/targets/catalog.ts"
 import { openImageRegistry } from "../src/lib/targets/images.ts"
 import { fakeImageBuilder } from "./fake-image-builder.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
@@ -36,6 +38,8 @@ const run = promisify(execFile)
 const tsxBin = join(import.meta.dirname, "../node_modules/tsx/dist/cli.mjs")
 const cliEntry = join(import.meta.dirname, "../src/cli.ts")
 const packageRoot = join(import.meta.dirname, "..")
+/** A lane with no controller names the image the handoff runs by id. */
+const IMAGE_ID_ARGS = ["--image-id", `sha256:${"1".repeat(64)}`]
 
 let dir: string
 // Undefined for the tests that serve nothing, and cleared after every test so a later one
@@ -1197,7 +1201,7 @@ esac
     // The work order defaults to the task: a lane with no controller names the files itself.
     const { stdout } = await run(
       process.execPath,
-      [tsxBin, cliEntry, "builder-handoff", "--task", "cli-flags", "--out", out],
+      [tsxBin, cliEntry, "builder-handoff", "--task", "cli-flags", "--out", out, ...IMAGE_ID_ARGS],
       { env: rest, cwd: packageRoot },
     )
     const written = JSON.parse(stdout)
@@ -1205,9 +1209,10 @@ esac
     expect(written.source).toBe(join(out, "cli-flags.source.json"))
     const handoff = BuilderHandoffSchema.parse(JSON.parse(readFileSync(written.handoff, "utf8")))
     expect(handoff).toMatchObject({ taskId: "cli-flags", workOrderId: "cli-flags", targetId })
-    // The target block: the image prepared at the task's pin, and the pin beside it.
+    // The target block: the image it was given, by id, its tag at the task's pin, and the pin.
     expect(handoff.target.pin).toBe(task.target.pin)
-    expect(handoff.target.image).toContain(`:${task.target.pin.slice(0, 12)}-`)
+    expect(handoff.target.image).toBe(`sha256:${"1".repeat(64)}`)
+    expect(handoff.target.tag).toContain(`:${task.target.pin.slice(0, 12)}-`)
     expect(handoff.target.policy.network.mode).toBe("deny")
     // The source is the body `PUT /workspace/sources/<digest>` takes, under the handoff's digest.
     const source = verifySourceBundle(JSON.parse(readFileSync(written.source, "utf8")))
@@ -1225,6 +1230,7 @@ esac
         "wo-named",
         "--out",
         out,
+        ...IMAGE_ID_ARGS,
       ],
       { env: rest, cwd: packageRoot },
     )
@@ -1251,7 +1257,16 @@ esac
     const out = join(dir, "handoffs")
     const { stdout } = await run(
       process.execPath,
-      [tsxBin, cliEntry, "builder-handoff", "--task", "wo-0123456789abcdef", "--out", out],
+      [
+        tsxBin,
+        cliEntry,
+        "builder-handoff",
+        "--task",
+        "wo-0123456789abcdef",
+        "--out",
+        out,
+        ...IMAGE_ID_ARGS,
+      ],
       { env: { ...rest, FACTORY_STATE_DIR: join(dir, "state") }, cwd: packageRoot },
     )
     const { handoff } = JSON.parse(stdout)
@@ -1259,5 +1274,56 @@ esac
     expect(BuilderHandoffSchema.parse(JSON.parse(readFileSync(handoff, "utf8"))).taskId).toBe(
       "wo-0123456789abcdef",
     )
+  }, 60_000)
+
+  it("names the image the state directory's registry recorded, and refuses to guess one", async () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
+    const { FACTORY_CONTROLLER_URL, FACTORY_WORKER_URL, FACTORY_STATE_DIR, ...rest } = process.env
+    const out = join(dir, "handoffs")
+    const args = [tsxBin, cliEntry, "builder-handoff", "--task", "cli-flags", "--out", out]
+    // No --image-id and no state directory: nothing to read the image from.
+    const unnamed = await failing(run(process.execPath, args, { env: rest, cwd: packageRoot }))
+    expect(unnamed.stderr).toContain(
+      "builder-handoff needs --image-id, or FACTORY_STATE_DIR whose images.sqlite records",
+    )
+    const state = join(dir, "state")
+    mkdirSync(state, { recursive: true })
+    // A state directory with no registry: refused, and none is created.
+    const absent = await failing(
+      run(process.execPath, args, { env: { ...rest, FACTORY_STATE_DIR: state }, cwd: packageRoot }),
+    )
+    expect(absent.stderr).toContain(`no image registry at ${join(state, "images.sqlite")}`)
+    expect(existsSync(join(state, "images.sqlite"))).toBe(false)
+    // A registry that records nothing for the task's target at its pin.
+    openImageRegistry({ path: join(state, "images.sqlite"), builder: fakeImageBuilder() }).close()
+    const unrecorded = await failing(
+      run(process.execPath, args, { env: { ...rest, FACTORY_STATE_DIR: state }, cwd: packageRoot }),
+    )
+    expect(unrecorded.stderr).toContain("none is recorded for target")
+    // A malformed --image-id is refused, not passed through.
+    const malformed = await failing(
+      run(process.execPath, [...args, "--image-id", "alpine:latest"], {
+        env: rest,
+        cwd: packageRoot,
+      }),
+    )
+    expect(malformed.stderr).toContain("--image-id must be sha256:<64 hex>")
+
+    const registry = openImageRegistry({
+      path: join(state, "images.sqlite"),
+      builder: fakeImageBuilder(),
+    })
+    const ensured = await registry.ensure(loadTaskRecipe("cli-flags").target, {
+      signal: AbortSignal.timeout(5_000),
+    })
+    registry.close()
+    const { stdout } = await run(process.execPath, args, {
+      env: { ...rest, FACTORY_STATE_DIR: state },
+      cwd: packageRoot,
+    })
+    const handoff = BuilderHandoffSchema.parse(
+      JSON.parse(readFileSync(JSON.parse(stdout).handoff, "utf8")),
+    )
+    expect(handoff.target).toMatchObject({ image: ensured.image.localId, tag: ensured.tag })
   }, 60_000)
 })

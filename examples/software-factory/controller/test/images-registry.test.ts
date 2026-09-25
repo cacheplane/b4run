@@ -12,6 +12,7 @@ import {
   type ImageRegistry,
   type ImageRegistryOptions,
   openImageRegistry,
+  openImageRegistryReader,
   recipeKey,
 } from "../src/lib/targets/images.ts"
 import { fakeImageBuilder } from "./fake-image-builder.ts"
@@ -144,6 +145,29 @@ describe("the image registry", () => {
       .map((row) => (row as { name: string }).name)
     after.close()
     expect(tables).toEqual(["schema_version"])
+    expect(() => openImageRegistryReader(join(dir, "images.sqlite"))).toThrow(
+      /image registry schema version 99 is newer than this factory supports \(1\)/,
+    )
+  })
+
+  it("is read, read-only, by a reader that never creates or migrates", async () => {
+    const builder = fakeImageBuilder()
+    const recipe = recipeFixture()
+    expect(() => openImageRegistryReader(join(dir, "absent.sqlite"))).toThrow(
+      /no image registry at/,
+    )
+    const ensured = await ensure(open(builder), recipe)
+    const reader = openImageRegistryReader(join(dir, "images.sqlite"), "linux/arm64")
+    try {
+      expect(reader.recorded(recipe)).toEqual({
+        key: ensured.key,
+        tag: ensured.tag,
+        image: ensured.image,
+      })
+      expect(reader.recorded({ ...recipe, pin: "f".repeat(40) })).toBeUndefined()
+    } finally {
+      reader.close()
+    }
   })
 })
 
