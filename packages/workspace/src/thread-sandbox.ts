@@ -189,9 +189,9 @@ function patterns(value: unknown, what: string): Readonly<Record<string, readonl
       )
       if (typeof pattern !== "string" || pattern.length > 4096 || pattern.includes("\u0000"))
         throw new Error(`${what}.${tool} must be a list of at most 1024 patterns without NUL`)
-      if (pattern === "")
+      if (pattern.trim() === "")
         throw new Error(
-          `${what}.${tool}: an empty pattern matches every candidate; name what to ${what.endsWith("deny") ? "deny" : "allow"}`,
+          `${what}.${tool}: an empty pattern matches every candidate, and a whitespace-only pattern names nothing; name what to ${what.endsWith("deny") ? "deny" : "allow"}`,
         )
       copy.push(pattern)
     }

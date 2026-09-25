@@ -298,11 +298,12 @@ Only `"always"` persists. It adds the allow entry to the configured permissions 
 
 An app whose `sandbox.thread` resolver returns `permissions` gives that thread its own lists:
 
-- The thread's `allow` replaces the app's `permissions.allow` for that thread. The app's allow-list, and grants other threads saved to `.b4/permissions.json`, don't apply to it.
+- The thread's `allow` replaces the app's `permissions.allow` for that thread. The app's allow-list, and grants other threads saved to `.b4/permissions.json`, don't apply to it. A thread that sets only `deny` gets an empty allow-list: nothing the app allowed applies to it.
 - Denials add up: the thread's `deny` and the app's denials both apply, and a denial wins over any allow.
 - The mode is the app's. In `bypass` mode nothing is checked, as for any thread.
 - An **Always** decision in such a thread is saved to that thread's record in the workspace installation, never to `.b4/permissions.json` or a configured `permissions.store`. It applies to later turns of that thread and to its subagents, not to other threads. Deleting the thread deletes its grants.
-- An empty pattern (`""`) is refused, because it would allow every candidate.
+- An empty pattern (`""`) is refused, because it matches every candidate and is almost always a mistake, and so is a whitespace-only one, which names nothing. A deliberately broad pattern, such as `"/"` for every path, is accepted.
+- A grant is kept only if its pattern is at most 4096 characters. A longer suggested pattern is allowed for that one call, as **Once** would be, and not saved, with a warning in the server log.
 
 A thread whose resolver returns no `permissions` uses the app's store unchanged.
 

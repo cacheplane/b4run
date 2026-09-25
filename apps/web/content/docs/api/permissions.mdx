@@ -46,6 +46,7 @@ The root keeps Node filesystem APIs out of its import graph. The `/node` store r
 | `createThreadPermissionsStore` | Build one thread's store over the app's: the app's mode and denials, the thread's allow-list, grants kept in the thread's record. |
 | `ThreadPermissions` | Describe one thread's allow and deny lists. |
 | `ThreadPermissionGrants` | List and add one thread's recorded "Always" grants. |
+| `MAX_THREAD_GRANT_LENGTH` | Bound a thread grant's tool and pattern; a longer "Always" is allowed once and not recorded. |
 | `SubagentDetail` | Describe a subagent dispatch request. |
 | `ToolDetail` | Describe an arbitrary tool request. |
 

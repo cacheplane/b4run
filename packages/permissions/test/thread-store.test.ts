@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   createThreadPermissionsStore,
+  MAX_THREAD_GRANT_LENGTH,
   type PermissionMode,
   type PermissionsStore,
   type ThreadPermissionGrants,
@@ -108,5 +109,25 @@ describe("createThreadPermissionsStore", () => {
     await store.load()
     expect(store.match("constructor", "x")).toBe("unknown")
     expect(store.match("__proto__", "x")).toBe("unknown")
+  })
+  it.each([
+    ["an over-long", "x".repeat(MAX_THREAD_GRANT_LENGTH + 1)],
+    ["an empty", ""],
+    ["a whitespace-only", "  "],
+  ])("degrades Always to once for %s pattern: allowed now, never recorded", async (_, pattern) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const app = appStore("interactive")
+      const grants = recordGrants()
+      const store = createThreadPermissionsStore({ base: app, permissions: {}, grants })
+      await store.load()
+      await expect(store.addAllow("bash", pattern)).resolves.toBeUndefined()
+      expect(grants.stored).toEqual({})
+      expect(app.granted).toEqual([])
+      expect(store.match("bash", `${pattern} more`)).toBe("unknown")
+      expect(warn).toHaveBeenCalledWith(expect.stringMatching(/allowed once and not recorded/))
+    } finally {
+      warn.mockRestore()
+    }
   })
 })

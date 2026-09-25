@@ -64,7 +64,12 @@ export function makeWorkspaceThreadSandboxStore(db: DatabaseSync): WorkspaceThre
     "DELETE FROM workspace_thread_permission_grants WHERE thread_id=?",
   )
   const text = (value: unknown, what: string): string => {
-    if (typeof value !== "string" || !value || value.length > 4096 || value.includes("\u0000"))
+    if (
+      typeof value !== "string" ||
+      !value.trim() ||
+      value.length > 4096 ||
+      value.includes("\u0000")
+    )
       throw new Error(`Invalid workspace thread grant ${what}`)
     return value
   }

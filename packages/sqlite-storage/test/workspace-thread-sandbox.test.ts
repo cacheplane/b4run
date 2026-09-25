@@ -213,12 +213,16 @@ it("keeps a thread's grants across reopen, idempotently, and only for a thread w
   }
 })
 
-it("refuses an empty or NUL-bearing grant", () => {
+it("refuses an empty, whitespace-only, over-long or NUL-bearing grant", () => {
   const owner = openWorkspaceInstallation(root())
   try {
     owner.sources.put(bundle)
     owner.associations.create(intentFor(owner.installationId, "one"), scoped)
     expect(() => owner.threadSandboxes.addGrant("one", "bash", "")).toThrow(/grant pattern/)
+    expect(() => owner.threadSandboxes.addGrant("one", "bash", "  ")).toThrow(/grant pattern/)
+    expect(() => owner.threadSandboxes.addGrant("one", "bash", "x".repeat(4097))).toThrow(
+      /grant pattern/,
+    )
     expect(() => owner.threadSandboxes.addGrant("one", "", "ls")).toThrow(/grant tool/)
     expect(() => owner.threadSandboxes.addGrant("one", "bash", "a\u0000b")).toThrow(/grant pattern/)
     expect(owner.threadSandboxes.grants("one")).toEqual({})

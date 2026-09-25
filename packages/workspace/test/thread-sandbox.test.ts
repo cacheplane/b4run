@@ -196,12 +196,19 @@ describe("thread permissions", () => {
     expect(Object.isFrozen(verified.permissions)).toBe(true)
     expect(Object.isFrozen(verified.permissions?.allow?.bash)).toBe(true)
   })
+  it("keeps a broad but explicit pattern such as the root directory", () => {
+    expect(verifyThreadSandboxPermissions({ allow: { readFile: ["/"] } })).toEqual({
+      allow: { readFile: ["/"] },
+    })
+  })
   it("accepts an empty allow-list, which allows nothing", () => {
     expect(verifyThreadSandboxPermissions({ allow: {} })).toEqual({ allow: {} })
   })
   it.each([
     [{ allow: { bash: [""] } }, /empty pattern matches every candidate/],
     [{ deny: { bash: [""] } }, /empty pattern matches every candidate/],
+    [{ allow: { bash: ["   "] } }, /whitespace-only pattern/],
+    [{ deny: { readFile: ["\t"] } }, /whitespace-only pattern/],
     [{ allow: { bash: "ls" } }, /must be a list/],
     [{ allow: { bash: [1] } }, /must be a list/],
     [{ allow: { bash: ["a\u0000b"] } }, /must be a list/],
