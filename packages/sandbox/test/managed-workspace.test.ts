@@ -73,8 +73,23 @@ function fixture(
             ? "null"
             : (options.identities?.[String(args.at(-1))] ?? `sha256:${"a".repeat(64)}`),
         )
-      if (args[0] === "ps")
+      if (args[0] === "ps") {
+        // A reader-label filter is honoured exactly; any other listing answers the sessions.
+        const reader = args.find((arg) => arg.startsWith("label=b4.sandbox.reader="))
+        if (reader) {
+          const [key, value] = [
+            "b4.sandbox.reader",
+            reader.slice("label=b4.sandbox.reader=".length),
+          ]
+          return ok(
+            [...objects.entries()]
+              .filter(([, item]) => item.Config?.Labels[key] === value)
+              .map(([name]) => name)
+              .join("\n"),
+          )
+        }
         return ok([...objects.keys()].filter((k) => k.includes("session")).join("\n"))
+      }
       if (args.includes("inspect")) {
         const item = objects.get(args.at(-1)!)
         if (item && args.includes("{{.Mountpoint}}"))
@@ -348,6 +363,22 @@ describe("managed Docker workspace reader", () => {
       workspace: ready,
       signal,
     }) as Promise<SandboxWorkspaceReader>
+
+  it("destroy removes the thread's readers left open (a read abandoned at its deadline), and no other", async () => {
+    const f = fixture(),
+      intent = await f.intent(),
+      ready = await f.provider.create(intent, source, signal)
+    await open(f, ready)
+    await open(f, ready)
+    const readers = () => [...f.objects.keys()].filter((name) => name.startsWith("b4-ws-reader-"))
+    expect(readers()).toHaveLength(2)
+    const foreign = "b4-ws-reader-someone-else-00000000"
+    f.objects.set(foreign, { Config: { Labels: { "b4.sandbox.reader": "someone-else" } } })
+    await f.provider.destroy({ intent, reference: ready.reference }, signal)
+    expect(readers()).toEqual([foreign])
+    f.objects.delete(foreign)
+    expect(f.objects.size).toBe(0)
+  })
 
   it("binds the managed volume read-only and never names a session container", async () => {
     const f = fixture(),

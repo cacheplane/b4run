@@ -218,7 +218,7 @@ Two things to know before you use it:
 
 An inspection is not an atomic snapshot. Quiesce the writer (read after the turn ends) or revalidate before acting on the inventory.
 
-Docker readers are labelled `b4.sandbox.reader=<resource id>` and are removed on `close()`, including when the open itself fails. If `close()` can't remove the container, it raises and you can retry it. Deleting a thread leaves its readers in place, so a reader that's never closed outlives the thread. An operator finds leftovers by that label: `docker ps -aq --filter label=b4.sandbox.reader`.
+Docker readers are labelled `b4.sandbox.reader=<resource id>` and are removed on `close()`, including when the open itself fails. If `close()` can't remove the container, it raises and you can retry it. Deleting a thread whose workspace is managed (`sandbox.workspace` or `sandbox.thread`) also removes that workspace's readers, including one abandoned at a read deadline. Deleting a thread that uses provider storage leaves its readers in place, so a reader that's never closed outlives the thread. An operator finds leftovers by that label: `docker ps -aq --filter label=b4.sandbox.reader`.
 
 Reading needs a workspace volume with a host-visible backing path, which the default local volume driver provides. A volume that reports none is rejected. A named-volume mount would have silently recreated a deleted workspace instead of failing.
 
