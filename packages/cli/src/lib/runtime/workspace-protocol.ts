@@ -9,6 +9,40 @@ export interface WorkspaceProtocolSettings {
   readonly read: boolean
   /** `sandbox.workspaceReadTimeoutMs`; the default when absent. */
   readonly readTimeoutMs?: number
+  /** `sandbox.stagedWorkspaces`, resolved: present means uploads and `workspace` on create are served. */
+  readonly staged?: StagedWorkspaceSettings
+}
+
+/** The content store's own payload cap: nothing larger could be kept anyway. */
+export const STAGED_UPLOAD_MAX_BYTES = 96 * 1024 * 1024
+export const STAGED_RETENTION_DEFAULT_MS = 24 * 60 * 60 * 1000
+export const STAGED_RETENTION_MIN_MS = 60 * 1000
+export const STAGED_RETENTION_MAX_MS = 30 * 24 * 60 * 60 * 1000
+export const STAGED_QUOTA_DEFAULT_BYTES = 1024 * 1024 * 1024
+export const STAGED_QUOTA_MAX_BYTES = 16 * 1024 * 1024 * 1024
+
+/** `sandbox.stagedWorkspaces` with its defaults applied. */
+export interface StagedWorkspaceSettings {
+  /** The largest upload body, in bytes. */
+  readonly maxUploadBytes: number
+  /** How long an unreferenced upload is kept before it may be reclaimed. */
+  readonly retentionMs: number
+  /** The stored bytes of every uploaded source together. */
+  readonly maxStagedBytes: number
+}
+
+/** `sandbox.stagedWorkspaces` as settings: `undefined` when off. Assumes the shape was checked. */
+export function stagedWorkspaceSettings(value: unknown): StagedWorkspaceSettings | undefined {
+  if (value === undefined || value === false) return undefined
+  const limits =
+    value === true
+      ? {}
+      : (value as { maxUploadBytes?: number; retentionMs?: number; maxStagedBytes?: number })
+  return Object.freeze({
+    maxUploadBytes: limits.maxUploadBytes ?? STAGED_UPLOAD_MAX_BYTES,
+    retentionMs: limits.retentionMs ?? STAGED_RETENTION_DEFAULT_MS,
+    maxStagedBytes: limits.maxStagedBytes ?? STAGED_QUOTA_DEFAULT_BYTES,
+  })
 }
 
 /**
@@ -26,12 +60,20 @@ export const NO_WORKSPACE_PROTOCOL: WorkspaceProtocolSettings = Object.freeze({ 
 export function workspaceProtocolOptionNames(sandbox: unknown): string[] {
   if (sandbox === null || typeof sandbox !== "object") return []
   const block = sandbox as Record<string, unknown>
-  return block.workspaceRead !== undefined ? ["sandbox.workspaceRead"] : []
+  return [
+    ...(block.workspaceRead !== undefined ? ["sandbox.workspaceRead"] : []),
+    ...(block.stagedWorkspaces !== undefined && block.stagedWorkspaces !== false
+      ? ["sandbox.stagedWorkspaces"]
+      : []),
+  ]
 }
 
 /** The same names, from resolved settings. */
 export function openedWorkspaceProtocol(settings: WorkspaceProtocolSettings): string[] {
-  return settings.read ? ["sandbox.workspaceRead"] : []
+  return [
+    ...(settings.read ? ["sandbox.workspaceRead"] : []),
+    ...(settings.staged ? ["sandbox.stagedWorkspaces"] : []),
+  ]
 }
 
 export function workspaceProtocolPolicyMessage(names: readonly string[]): string {

@@ -158,3 +158,143 @@ describe("sandbox.workspaceRead needs a thread-access policy", () => {
     ).rejects.toThrow(/workspaceRead needs a provider whose managed workspaces can be read/)
   })
 })
+
+describe("sandbox.stagedWorkspaces shape", () => {
+  const provider = managedProviderFixture().provider
+  const staticWorkspace = { source: { directory: "source", include: ["main.txt"] } }
+  it("accepts true, false and bounded limits beside a resolver", () => {
+    for (const value of [
+      true,
+      false,
+      {},
+      { maxUploadBytes: 1024 },
+      { maxUploadBytes: 96 * 1024 * 1024 },
+      { retentionMs: 60_000 },
+      { retentionMs: 30 * 24 * 60 * 60 * 1000 },
+      { maxStagedBytes: 16 * 1024 * 1024 * 1024 },
+    ])
+      expect(
+        sandboxConfigShapeErrors({ provider, thread: resolver, stagedWorkspaces: value }),
+      ).toEqual([])
+    expect(
+      sandboxConfigShapeErrors({ provider, workspace: resolver, stagedWorkspaces: true }),
+    ).toEqual([])
+    // Off is off: no resolver is needed to say so.
+    expect(
+      sandboxConfigShapeErrors({ provider, workspace: staticWorkspace, stagedWorkspaces: false }),
+    ).toEqual([])
+  })
+  for (const [label, value, message] of [
+    ["a string", "true", /stagedWorkspaces must be true, false or/],
+    ["null", null, /stagedWorkspaces must be true, false or/],
+    ["an array", [], /stagedWorkspaces must be true, false or/],
+    ["an unknown limit", { maxUpload: 1 }, /stagedWorkspaces.maxUpload is not an option/],
+    ["an upload over 96 MiB", { maxUploadBytes: 96 * 1024 * 1024 + 1 }, /maxUploadBytes must be/],
+    ["a zero upload", { maxUploadBytes: 0 }, /maxUploadBytes must be/],
+    ["a fractional upload", { maxUploadBytes: 1.5 }, /maxUploadBytes must be/],
+    ["a retention under a minute", { retentionMs: 59_999 }, /retentionMs must be/],
+    [
+      "a retention over 30 days",
+      { retentionMs: 30 * 24 * 60 * 60 * 1000 + 1 },
+      /retentionMs must be/,
+    ],
+    ["a zero quota", { maxStagedBytes: 0 }, /maxStagedBytes must be/],
+    [
+      "a quota over 16 GiB",
+      { maxStagedBytes: 16 * 1024 * 1024 * 1024 + 1 },
+      /maxStagedBytes must be/,
+    ],
+    ["a string quota", { maxStagedBytes: "1" }, /maxStagedBytes must be/],
+  ] as const)
+    it(`refuses ${label}`, () => {
+      expect(
+        sandboxConfigShapeErrors({ provider, thread: resolver, stagedWorkspaces: value }).join(
+          "\n",
+        ),
+      ).toMatch(message)
+    })
+  it("refuses it without a resolver: a static workspace would ignore what was staged", () => {
+    for (const block of [
+      { provider, workspace: staticWorkspace, stagedWorkspaces: true },
+      { provider, stagedWorkspaces: { retentionMs: 60_000 } },
+    ])
+      expect(sandboxConfigShapeErrors(block).join("\n")).toMatch(
+        /stagedWorkspaces needs a resolver/,
+      )
+  })
+  it("refuses a misspelling as an unknown key", () => {
+    expect(
+      sandboxConfigShapeErrors({ provider, thread: resolver, stagedWorkspace: true }).join("\n"),
+    ).toMatch(/sandbox.stagedWorkspace is not a sandbox option/)
+  })
+})
+
+describe("sandbox.stagedWorkspaces needs a thread-access policy", () => {
+  it("b4 check refuses it without src/thread-access.ts, and accepts it with one", async () => {
+    const provider = managedProviderFixture().provider
+    const sandbox = { provider, thread: resolver, stagedWorkspaces: true }
+    const without = await collectSandboxErrors({ sandbox } as never, await app())
+    expect(without.errors.join("\n")).toMatch(/sandbox.stagedWorkspaces .* no thread-access policy/)
+    const withPolicy = await collectSandboxErrors(
+      { sandbox } as never,
+      await app({ policyFile: true }),
+    )
+    expect(withPolicy.errors).toEqual([])
+    // Off needs nothing.
+    const off = await collectSandboxErrors(
+      { sandbox: { provider, thread: resolver, stagedWorkspaces: false } } as never,
+      await app(),
+    )
+    expect(off.errors).toEqual([])
+  })
+
+  it("b4 build refuses it without src/thread-access.ts", async () => {
+    const appRoot = await app()
+    seedB4Config(appRoot, {
+      build: { targets: ["node"] },
+      sandbox: {
+        provider: managedProviderFixture().provider,
+        thread: resolver,
+        stagedWorkspaces: true,
+      },
+    } as never)
+    await expect(
+      runBuildCommand({ cwd: appRoot, clean: true }, { stdout: () => {}, stderr: () => {} }),
+    ).rejects.toThrow(/sandbox.stagedWorkspaces .* no thread-access policy/)
+  })
+
+  it("boot refuses it without a policy, releases the installation, and boots with one", async () => {
+    const appRoot = await app()
+    const config = {
+      sandbox: {
+        provider: managedProviderFixture().provider,
+        workspace: resolver,
+        stagedWorkspaces: true,
+      },
+    }
+    await expect(createRuntimeFetchHandler({ appRoot, config: config as never })).rejects.toThrow(
+      /sandbox.stagedWorkspaces .* no thread-access policy/,
+    )
+    const handler = await createRuntimeFetchHandler({
+      appRoot,
+      config: config as never,
+      threadAccess: allowAll,
+    })
+    handlers.push(handler)
+  })
+
+  it("names both options when both are on", async () => {
+    const appRoot = await app()
+    const config = {
+      sandbox: {
+        provider: managedProviderFixture().provider,
+        thread: resolver,
+        workspaceRead: "http",
+        stagedWorkspaces: { retentionMs: 60_000 },
+      },
+    }
+    await expect(createRuntimeFetchHandler({ appRoot, config: config as never })).rejects.toThrow(
+      /sandbox.workspaceRead and sandbox.stagedWorkspaces serve .* no thread-access policy/,
+    )
+  })
+})

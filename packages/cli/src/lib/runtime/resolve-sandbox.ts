@@ -15,7 +15,7 @@ import { loadOptionalB4Config } from "../node-config.js"
 import { ManagedWorkspaceManager } from "./managed-workspace-manager.js"
 import { sandboxConfigShapeErrors } from "./sandbox-config-shape.js"
 import { SandboxManager } from "./sandbox-manager.js"
-import type { WorkspaceProtocolSettings } from "./workspace-protocol.js"
+import { stagedWorkspaceSettings, type WorkspaceProtocolSettings } from "./workspace-protocol.js"
 
 const DEFAULT_IDLE_MS = 600_000
 const DEFAULT_NETWORK: SandboxPolicy["network"] = { mode: "allow", denylist: ["169.254.169.254"] }
@@ -35,11 +35,13 @@ export async function resolveSandboxManager(
   if (shape.length > 0) throw new Error(`Invalid sandbox config:\n${shape.join("\n")}`)
   if (!sandbox.workspace && !sandbox.thread && options.artifact != null)
     throw new Error("Built workspace configuration was removed; rebuild the app")
+  const staged = stagedWorkspaceSettings(sandbox.stagedWorkspaces)
   const workspaceProtocol: WorkspaceProtocolSettings = {
     read: sandbox.workspaceRead === "http",
     ...(sandbox.workspaceReadTimeoutMs !== undefined
       ? { readTimeoutMs: sandbox.workspaceReadTimeoutMs }
       : {}),
+    ...(staged ? { staged } : {}),
   }
   if (
     workspaceProtocol.read &&

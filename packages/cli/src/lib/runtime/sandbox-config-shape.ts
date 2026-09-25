@@ -1,4 +1,8 @@
 import {
+  STAGED_QUOTA_MAX_BYTES,
+  STAGED_RETENTION_MAX_MS,
+  STAGED_RETENTION_MIN_MS,
+  STAGED_UPLOAD_MAX_BYTES,
   WORKSPACE_READ_TIMEOUT_MAX_MS,
   WORKSPACE_READ_TIMEOUT_MIN_MS,
 } from "./workspace-protocol.js"
@@ -14,6 +18,7 @@ const SANDBOX_KEYS = [
   "thread",
   "workspaceRead",
   "workspaceReadTimeoutMs",
+  "stagedWorkspaces",
   "provider",
   "network",
   "env",
@@ -76,5 +81,50 @@ export function sandboxConfigShapeErrors(sandbox: unknown): string[] {
         'b4.config sandbox.workspaceReadTimeoutMs applies only with sandbox.workspaceRead: "http".',
       )
   }
+  errors.push(...stagedWorkspacesErrors(block))
+  return errors
+}
+
+const STAGED_LIMITS = ["maxUploadBytes", "retentionMs", "maxStagedBytes"] as const
+
+function integerIn(value: unknown, min: number, max: number): boolean {
+  return Number.isSafeInteger(value) && (value as number) >= min && (value as number) <= max
+}
+
+/**
+ * `stagedWorkspaces`: `true`, `false`, or bounded limits, and only beside a
+ * resolver. A static `workspace` would serve every thread the same files and
+ * silently ignore what a creator staged, so it is refused rather than accepted.
+ */
+function stagedWorkspacesErrors(block: Record<string, unknown>): string[] {
+  const staged = block.stagedWorkspaces
+  if (staged === undefined || staged === false) return []
+  if (staged !== true && (staged === null || typeof staged !== "object" || Array.isArray(staged)))
+    return [
+      `b4.config sandbox.stagedWorkspaces must be true, false or { ${STAGED_LIMITS.map((key) => `${key}?`).join(", ")} } (got: ${JSON.stringify(staged) ?? typeof staged}).`,
+    ]
+  const errors: string[] = []
+  if (staged !== true) {
+    const limits = staged as Record<string, unknown>
+    for (const key of Object.keys(limits))
+      if (!(STAGED_LIMITS as readonly string[]).includes(key))
+        errors.push(
+          `b4.config sandbox.stagedWorkspaces.${key} is not an option (known: ${STAGED_LIMITS.join(", ")}).`,
+        )
+    const bound = (key: (typeof STAGED_LIMITS)[number], min: number, max: number) => {
+      const value = limits[key]
+      if (value !== undefined && !integerIn(value, min, max))
+        errors.push(
+          `b4.config sandbox.stagedWorkspaces.${key} must be an integer from ${min} to ${max} (got: ${JSON.stringify(value) ?? typeof value}).`,
+        )
+    }
+    bound("maxUploadBytes", 1, STAGED_UPLOAD_MAX_BYTES)
+    bound("retentionMs", STAGED_RETENTION_MIN_MS, STAGED_RETENTION_MAX_MS)
+    bound("maxStagedBytes", 1, STAGED_QUOTA_MAX_BYTES)
+  }
+  if (block.thread === undefined && typeof block.workspace !== "function")
+    errors.push(
+      "b4.config sandbox.stagedWorkspaces needs a resolver (sandbox.thread, or a function sandbox.workspace): a static workspace would ignore what was staged.",
+    )
   return errors
 }
