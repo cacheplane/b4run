@@ -34,6 +34,8 @@ export type ThreadAction = "create" | "read" | "update" | "delete"
  * - `run.resume` — `POST /threads/:id/resume` — `update`
  * - `run.agui` — `POST /agui/:routeId` — `update`, or the same
  *   `create`-then-`update` pair on a thread id with no row yet
+ * - `thread.workspace` — `POST /threads/:id/workspace/inspect` — `read`; served
+ *   only when the app sets `sandbox.workspaceRead: "http"`
  *
  * Starting a turn on a thread that exists mutates it, so it is an `update`.
  * Three of these endpoints also CREATE the thread when the id names no row, and
@@ -69,6 +71,14 @@ export type ThreadOperation =
   | "run.wait"
   | "run.resume"
   | "run.agui"
+  /**
+   * `POST /threads/:id/workspace/inspect`: a read of every file under the
+   * requested root of the thread's workspace. Discloses at least as much as
+   * `thread.state`, so it arrives as a `read` and a denial defaults to the same
+   * 404 a missing thread returns. Served only when the app sets
+   * `sandbox.workspaceRead: "http"`, which B4.run refuses without a policy.
+   */
+  | "thread.workspace"
 
 /**
  * The persisted thread as the policy sees it: the stored row, plus the server
