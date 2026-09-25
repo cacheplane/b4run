@@ -185,3 +185,77 @@ it("rolls the association back when the record's insert fails", () => {
     owner.close()
   }
 })
+
+const scoped: ThreadSandboxRecord = { version: 1, permissions: { allow: { bash: ["ls"] } } }
+
+it("keeps a thread's grants across reopen, idempotently, and only for a thread with its own permissions", () => {
+  const path = root()
+  const owner = openWorkspaceInstallation(path)
+  owner.sources.put(bundle)
+  owner.associations.create(intentFor(owner.installationId, "one"), scoped)
+  owner.associations.create(intentFor(owner.installationId, "two"), record)
+  owner.threadSandboxes.addGrant("one", "bash", "make")
+  owner.threadSandboxes.addGrant("one", "bash", "make")
+  owner.threadSandboxes.addGrant("one", "readFile", "/tmp/")
+  expect(() => owner.threadSandboxes.addGrant("two", "bash", "make")).toThrow(
+    /permissions of its own/,
+  )
+  expect(() => owner.threadSandboxes.addGrant("three", "bash", "make")).toThrow(
+    /permissions of its own/,
+  )
+  owner.close()
+  const reopened = openWorkspaceInstallation(path)
+  try {
+    expect(reopened.threadSandboxes.grants("one")).toEqual({ bash: ["make"], readFile: ["/tmp/"] })
+    expect(reopened.threadSandboxes.grants("two")).toEqual({})
+  } finally {
+    reopened.close()
+  }
+})
+
+it("refuses an empty or NUL-bearing grant", () => {
+  const owner = openWorkspaceInstallation(root())
+  try {
+    owner.sources.put(bundle)
+    owner.associations.create(intentFor(owner.installationId, "one"), scoped)
+    expect(() => owner.threadSandboxes.addGrant("one", "bash", "")).toThrow(/grant pattern/)
+    expect(() => owner.threadSandboxes.addGrant("one", "", "ls")).toThrow(/grant tool/)
+    expect(() => owner.threadSandboxes.addGrant("one", "bash", "a\u0000b")).toThrow(/grant pattern/)
+    expect(owner.threadSandboxes.grants("one")).toEqual({})
+  } finally {
+    owner.close()
+  }
+})
+
+it("drops a thread's grants with its record", () => {
+  const owner = openWorkspaceInstallation(root())
+  try {
+    owner.sources.put(bundle)
+    owner.associations.create(intentFor(owner.installationId, "one"), scoped)
+    owner.threadSandboxes.addGrant("one", "bash", "make")
+    const deleting = owner.associations.beginDelete("one")
+    owner.associations.completeDelete("one", deleting?.revision ?? 0)
+    expect(owner.threadSandboxes.grants("one")).toEqual({})
+  } finally {
+    owner.close()
+  }
+})
+
+it("adds the grants table to an installation whose record tables predate it", () => {
+  const path = root()
+  const first = openWorkspaceInstallation(path)
+  first.sources.put(bundle)
+  first.associations.create(intentFor(first.installationId, "one"), scoped)
+  first.close()
+  const db = new DatabaseSync(join(path, ".b4", "workspaces", "state.sqlite"))
+  db.exec("DROP TABLE workspace_thread_permission_grants")
+  db.close()
+  const reopened = openWorkspaceInstallation(path)
+  try {
+    expect(reopened.threadSandboxes.grants("one")).toEqual({})
+    reopened.threadSandboxes.addGrant("one", "bash", "make")
+    expect(reopened.threadSandboxes.grants("one")).toEqual({ bash: ["make"] })
+  } finally {
+    reopened.close()
+  }
+})
