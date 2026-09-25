@@ -103,6 +103,7 @@ export interface AgentHarnessOptions {
   readonly live?: boolean
   readonly record?: boolean
   readonly recordUpstream?: string
+  readonly responseSchema?: Readonly<Record<string, unknown>>
 }
 ```
 
@@ -116,6 +117,7 @@ export interface AgentHarnessOptions {
 | `readonly live` | `boolean` | no | Proxy to a live OpenAI endpoint. |
 | `readonly record` | `boolean` | no | Capture upstream traffic for replay. |
 | `readonly recordUpstream` | `string` | no | Override the record-mode upstream. |
+| `readonly responseSchema` | `Readonly<Record<string, unknown>>` | no | Constrain the root model's final message as a Hashbrown client's `hashbrown.responseSchema` does. |
 
 ```ts api-contract="@b4run/testing#.:AgentHarness"
 export interface AgentHarness {

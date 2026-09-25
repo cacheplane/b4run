@@ -217,6 +217,25 @@ const h = await createAgentHarness({
 
 Every tool the run invokes reads that record as `ctx.middleware`. The same option is accepted on `defineEval` so `b4 eval` can drive routes whose tools depend on middleware.
 
+### Constrain the final message
+
+A Hashbrown client sends a JSON Schema as `hashbrown.responseSchema` on every AG-UI run, and the server binds it on the root model so the final message must match it. The harness drives the route directly, with no AG-UI request, so pass the same schema as `responseSchema`:
+
+```ts
+const h = await createAgentHarness({
+  appRoot,
+  route: "/assistant#agent",
+  responseSchema: {
+    type: "object",
+    properties: { ui: { type: "array", items: { type: "string" } } },
+    required: ["ui"],
+    additionalProperties: false,
+  },
+})
+```
+
+Every turn then sends the model the same `response_format` a production run sends, so recorded fixtures capture what the model does under that constraint. Without it, a recording can show replies production never produces, such as an empty final message. Only an `agent` route on a provider that supports schema-constrained output (`openai`, `anthropic`) can take one; any other route fails the run instead of running unconstrained. `defineEval` accepts the same option.
+
 ## Choose how much to run
 
 `@b4run/testing` has a separate factory for each level:

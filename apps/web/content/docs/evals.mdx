@@ -57,6 +57,7 @@ The fields:
 - **`dataset`:** the cases to run (see below).
 - **`scorers`:** one or more scorers. Each runs against every case.
 - **`middlewareContext`:** the context your `middleware.ts` would have produced, as a value or a `(run) => context` function evaluated per case. `b4 eval` runs the route in-process and bypasses middleware, so tools that read `ctx.middleware` need it supplied here. See [Supply the middleware context](/docs/testing-agents#supply-the-middleware-context).
+- **`responseSchema`:** the JSON Schema your client sends as `hashbrown.responseSchema`. `b4 eval` binds it on the root model exactly as the server does for an AG-UI run, so replayed, live and recorded cases send the model the request production sends. See [Constrain the final message](/docs/testing-agents#constrain-the-final-message).
 - **`threshold`:** sugar for `gate.mean(threshold)` (see Gating).
 - **`gate`:** a composable gate policy. It takes precedence over `threshold`.
 

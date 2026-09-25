@@ -235,3 +235,52 @@ describe("b4 eval --record (unreplayable recording)", () => {
     }
   }, 120_000)
 })
+
+describe("b4 eval --record (response schema)", () => {
+  it("forwards the eval's responseSchema to the model request", async () => {
+    const upstream = await createAimock({
+      fixtures: [{ match: {}, response: { content: '{"answer":"from upstream"}' } }],
+    })
+
+    try {
+      const { root } = await makeApp(
+        [
+          'import { contains, defineEval } from "@b4run/evals"',
+          "",
+          "export default defineEval({",
+          '  name: "filter",',
+          '  dataset: [{ name: "open", input: "Filter open items" }],',
+          '  scorers: [contains("from upstream", { threshold: 1 })],',
+          "  responseSchema: {",
+          '    type: "object",',
+          '    properties: { answer: { type: "string" } },',
+          '    required: ["answer"],',
+          "    additionalProperties: false,",
+          "  },",
+          "  threshold: 1,",
+          "})",
+          "",
+        ].join("\n"),
+      )
+      process.env.OPENAI_API_KEY = "test-placeholder"
+      process.env.B4_RECORD_UPSTREAM = upstream.baseUrl.replace(/\/v1$/, "")
+
+      await runEvalCommand(
+        undefined,
+        { cwd: root, record: true },
+        { stdout: () => {}, stderr: () => {} },
+      )
+
+      const bodies = upstream.getRequests().map((r) => r.body as Record<string, unknown> | null)
+      expect(bodies.length).toBeGreaterThan(0)
+      for (const body of bodies) {
+        expect(body?.response_format).toMatchObject({
+          type: "json_schema",
+          json_schema: { name: "hashbrown_response", strict: true },
+        })
+      }
+    } finally {
+      await upstream.close()
+    }
+  }, 120_000)
+})

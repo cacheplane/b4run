@@ -26,6 +26,7 @@ export interface EvalDefinition {
   readonly dataset: unknown
   readonly scorers: readonly unknown[]
   readonly middlewareContext?: unknown
+  readonly responseSchema?: unknown
   readonly threshold?: number
   readonly gate?: unknown
 }

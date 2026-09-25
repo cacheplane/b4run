@@ -104,6 +104,7 @@ import { createRuntimeFetchHandler } from "@b4run/cli/fetch"
 | `PendingInterruptSnapshot` | Snapshot pending decisions for a thread. |
 | `PermissionDecision` | Represent a human permission decision. |
 | `PreparedRouteModules` | Hold prepared modules for a route. |
+| `ReadResponseFormatResult` | Represent a parsed or rejected client response schema. |
 | `ResumeResolution` | Represent resolved resume input. |
 | `RuntimeFetchHandler` | Handle runtime fetch requests. |
 | `RuntimeRegistry` | Resolve materialized routes. |
@@ -129,6 +130,7 @@ import { createRuntimeFetchHandler } from "@b4run/cli/fetch"
 | `normalizeMiddlewareModule` | Normalize middleware exports. |
 | `normalizeThreadAccessModule` | Normalize thread-access policy exports. |
 | `readPendingInterrupts` | Read pending human decisions. |
+| `readResponseFormat` | Parse a run body's `hashbrown.responseSchema` into a bound response format. |
 | `resolveCheckpointer` | Resolve the configured checkpointer. |
 | `resolvePendingResume` | Resolve submitted interrupt decisions. |
 | `resolveSandboxManager` | Resolve the server sandbox manager. |

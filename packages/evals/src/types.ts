@@ -43,6 +43,12 @@ export interface EvalDefinition {
    * evaluated once per case.
    */
   readonly middlewareContext?: AgentHarnessMiddlewareContext
+  /**
+   * The JSON Schema a Hashbrown client sends as `hashbrown.responseSchema`,
+   * forwarded to `createAgentHarness({ responseSchema })` by `b4 eval` so the
+   * root model's final message is constrained as it is in production.
+   */
+  readonly responseSchema?: Readonly<Record<string, unknown>>
   /** Sugar for gate.mean(threshold). Ignored if `gate` is set. */
   readonly threshold?: number
   readonly gate?: GatePolicy
