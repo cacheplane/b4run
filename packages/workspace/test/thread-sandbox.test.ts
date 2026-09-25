@@ -13,6 +13,7 @@ import {
   threadSandboxRecordBytes,
   verifyImageReference,
   verifyThreadSandbox,
+  verifyThreadSandboxPermissions,
   verifyThreadSandboxPolicy,
   verifyThreadSandboxRecord,
 } from "../src/node.ts"
@@ -59,7 +60,6 @@ describe("verifyThreadSandbox", () => {
   })
   it.each([
     [{}, /must name its workspace/],
-    [{ workspace, permissions: { allow: {} } }, /unsupported key permissions/],
     [{ workspace, polcy: {} }, /unsupported key polcy/],
     [{ workspace, environment: { image: "x", pull: true } }, /unsupported key pull/],
     [{ workspace, policy: { security: { runAsNonRoot: false } } }, /unsupported key security/],
@@ -176,6 +176,90 @@ describe("record size", () => {
       Array.from({ length: 10 }, (_, i) => [`V${i}`, "x".repeat(30_000)]),
     )
     const record = verifyThreadSandboxRecord({ version: 1, policy: { env } })
+    expect(threadSandboxRecordBytes(record)).toBeGreaterThan(MAX_THREAD_SANDBOX_RECORD_BYTES)
+  })
+})
+
+describe("thread permissions", () => {
+  const workspace = { source: { directory: "source", include: ["main.txt"] } }
+  it("accepts allow and deny lists and normalizes their tool order", () => {
+    const verified = verifyThreadSandbox({
+      workspace,
+      permissions: {
+        deny: { bash: ["rm -rf"] },
+        allow: { readFile: ["/deps"], bash: ["npm test", "ls"] },
+      },
+    })
+    expect(JSON.stringify(verified.permissions)).toBe(
+      '{"allow":{"bash":["npm test","ls"],"readFile":["/deps"]},"deny":{"bash":["rm -rf"]}}',
+    )
+    expect(Object.isFrozen(verified.permissions)).toBe(true)
+    expect(Object.isFrozen(verified.permissions?.allow?.bash)).toBe(true)
+  })
+  it("accepts an empty allow-list, which allows nothing", () => {
+    expect(verifyThreadSandboxPermissions({ allow: {} })).toEqual({ allow: {} })
+  })
+  it.each([
+    [{ allow: { bash: [""] } }, /empty pattern matches every candidate/],
+    [{ deny: { bash: [""] } }, /empty pattern matches every candidate/],
+    [{ allow: { bash: "ls" } }, /must be a list/],
+    [{ allow: { bash: [1] } }, /must be a list/],
+    [{ allow: { bash: ["a\u0000b"] } }, /must be a list/],
+    [{ allow: { "": ["ls"] } }, /tool name/],
+    [{ allow: { ["__proto__"]: ["ls"] } }, /tool name/],
+    [JSON.parse('{"allow":{"__proto__":["ls"]}}'), /tool name/],
+    [{ allow: [] }, /must be an object/],
+    [{ grant: {} }, /unsupported key grant/],
+    [null, /must be an object/],
+  ])("refuses %j", (value, message) => {
+    expect(() => verifyThreadSandboxPermissions(value)).toThrow(message)
+  })
+  it("refuses a getter, a non-enumerable tool, and a list with extra properties rather than reading them", () => {
+    const getter = Object.defineProperty({}, "allow", {
+      get: () => ({ bash: ["ls"] }),
+      enumerable: true,
+    })
+    expect(() => verifyThreadSandboxPermissions(getter)).toThrow(/must be a data property/)
+    const hiddenTool = Object.defineProperty({}, "bash", { value: ["ls"], enumerable: false })
+    expect(() => verifyThreadSandboxPermissions({ allow: hiddenTool })).toThrow(
+      /permissions.allow.bash must be an enumerable/,
+    )
+    const toolGetter = Object.defineProperty({}, "bash", { get: () => ["ls"], enumerable: true })
+    expect(() => verifyThreadSandboxPermissions({ allow: toolGetter })).toThrow(
+      /must be a data property/,
+    )
+    const extra = Object.assign(["ls"], { more: "rm" })
+    expect(() => verifyThreadSandboxPermissions({ allow: { bash: extra } })).toThrow(
+      /must be a list/,
+    )
+    // biome-ignore lint/suspicious/noSparseArray: a hole must be refused, not read as a pattern
+    expect(() => verifyThreadSandboxPermissions({ allow: { bash: ["ls", , "pwd"] } })).toThrow(
+      /must be a list/,
+    )
+    const inherited = Object.create({ bash: ["ls"] })
+    expect(() => verifyThreadSandboxPermissions({ allow: inherited })).toThrow(/plain object/)
+  })
+  it("ignores a polluted Object.prototype", () => {
+    const proto = Object.prototype as Record<string, unknown>
+    proto.allow = { bash: [""] }
+    try {
+      expect(verifyThreadSandboxPermissions({})).toEqual({})
+    } finally {
+      delete proto.allow
+    }
+  })
+  it("is part of the canonical record", () => {
+    const record = verifyThreadSandboxRecord({
+      version: 1,
+      permissions: { allow: { bash: ["ls"] } },
+    })
+    expect(JSON.stringify(record)).toBe('{"version":1,"permissions":{"allow":{"bash":["ls"]}}}')
+  })
+  it("counts toward the record's size", () => {
+    const record = verifyThreadSandboxRecord({
+      version: 1,
+      permissions: { allow: { bash: Array.from({ length: 100 }, () => "x".repeat(4096)) } },
+    })
     expect(threadSandboxRecordBytes(record)).toBeGreaterThan(MAX_THREAD_SANDBOX_RECORD_BYTES)
   })
 })

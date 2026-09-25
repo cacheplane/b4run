@@ -197,6 +197,12 @@ export interface ThreadSandboxPolicy {
   readonly resources?: Omit<NonNullable<SandboxPolicy["resources"]>, "diskGb">
 }
 
+/** One thread's permission lists, in the vocabulary of `permissions.allow` and `permissions.deny`. */
+export interface ThreadSandboxPermissions {
+  readonly allow?: Readonly<Record<string, readonly string[]>>
+  readonly deny?: Readonly<Record<string, readonly string[]>>
+}
+
 /** One thread's whole sandbox, as a {@link ThreadSandboxResolver} decides it. */
 export interface ThreadSandbox {
   /** The thread's initial workspace, exactly as a {@link WorkspaceResolver} returns one. */
@@ -207,6 +213,11 @@ export interface ThreadSandbox {
    */
   readonly environment?: { readonly image: string }
   readonly policy?: ThreadSandboxPolicy
+  /**
+   * Replaces the app's allow-list for this thread; the app's mode and denials
+   * still apply. Grants are kept in the thread's record.
+   */
+  readonly permissions?: ThreadSandboxPermissions
 }
 
 /**
@@ -225,6 +236,7 @@ export interface ThreadSandboxRecord {
   /** The reference the resolver named. Its immutable identity is in the thread's intent. */
   readonly image?: string
   readonly policy?: ThreadSandboxPolicy
+  readonly permissions?: ThreadSandboxPermissions
 }
 
 export interface SandboxConfig {
