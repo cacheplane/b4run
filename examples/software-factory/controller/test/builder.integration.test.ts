@@ -1,12 +1,17 @@
 import { execFileSync } from "node:child_process"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { openWorkspaceInstallationReader } from "@b4run/sqlite-storage"
 import { script } from "@b4run/testing"
-import { createSourceBundle, verifyCapturedWorkspaceDefinition } from "@b4run/workspace/node"
+import { createSourceBundle } from "@b4run/workspace/node"
 import { afterAll, beforeAll, expect, it } from "vitest"
-import { BuilderManifestSchema, writeBuilderManifest } from "../src/lib/builder-manifest.ts"
+import {
+  BuilderHandoffSchema,
+  type CapturedBuilderHandoff,
+  captureBuilderHandoff,
+  stagedReferenceOf,
+} from "../src/lib/builder-handoff.ts"
 import { taskPrompt } from "../src/lib/prompts.ts"
 import { captureTarget } from "../src/lib/targets/archive.ts"
 import { imageTag, loadTarget, loadTask } from "../src/lib/targets/catalog.ts"
@@ -24,10 +29,10 @@ import { expectOnlyTheTokenAdmitted } from "./worker-token-probe.ts"
  * the app configures a sandbox, so the run acquires one. Without Docker it fails rather than
  * skipping.
  *
- * The builder is configured by one MANIFEST per work order
- * (`writeBuilderManifest(task, dir, { workOrderId })`), which carries the workspace, image,
- * policy and permissions; the resolver loads it by the thread's `metadata.factoryWorkOrderId`.
- * The builder resolves no pin and captures nothing of its own.
+ * The builder is handed each work order over its Agent Protocol port, as `dispatch` does it
+ * (`captureBuilderHandoff`, then `handOff`): the captured source uploaded, and the thread
+ * created naming it, with the image, policy and permissions in `factoryBuilder`. Nothing is
+ * shared on disk. The builder resolves no pin and captures nothing of its own.
  */
 
 const task = loadTask("cli-flags")
@@ -37,51 +42,53 @@ const LIST = "List the workspace."
 
 let builder: ServedBuilder
 const threads: string[] = []
-/** Each work order's manifest source digest, as written. */
+/** Each work order's captured handoff, and its source digest, as `dispatch` would stage them. */
+const handoffs: Record<string, CapturedBuilderHandoff> = {}
 const digests: Record<string, string> = {}
 let repaired: string
 
 beforeAll(async () => {
   builder = await serveBuilder()
-  // The controller's half, twice: `wo-alpha` is the task's capture as `dispatch` writes it;
+  // The controller's half, twice: `wo-alpha` is the task's capture as `dispatch` takes it;
   // `wo-beta` is the same capture with one file more, so the two workspaces differ by a path
   // a listing can see and a digest the association records.
   const alphaRoot = await mkdtemp(join(tmpdir(), "factory-builder-capture-"))
-  const alpha = await writeBuilderManifest(task, builder.manifestDir, {
+  const alpha = await captureBuilderHandoff(task, {
     workOrderId: "wo-alpha",
     captureRoot: alphaRoot,
   }).finally(() => rm(alphaRoot, { recursive: true, force: true }))
-  digests["wo-alpha"] = alpha.sourceDigest
-  const parsed = BuilderManifestSchema.parse(JSON.parse(await readFile(alpha.path, "utf8")))
-  const workspace = verifyCapturedWorkspaceDefinition(parsed.workspace)
+  handoffs["wo-alpha"] = alpha
+  digests["wo-alpha"] = alpha.handoff.workspace.sourceDigest
   const extra = createSourceBundle([
-    ...workspace.source.files.map((file) => ({
+    ...alpha.workspace.source.files.map((file) => ({
       path: file.path,
       bytes: new Uint8Array(Buffer.from(file.base64, "base64")),
       executable: file.executable,
     })),
     { path: "EXTRA.md", bytes: new Uint8Array(Buffer.from("one file more\n")), executable: false },
   ])
-  digests["wo-beta"] = extra.digest
-  await writeFile(
-    join(builder.manifestDir, "wo-beta.json"),
-    JSON.stringify({
-      ...parsed,
+  const betaWorkspace = { ...alpha.workspace, source: extra }
+  handoffs["wo-beta"] = {
+    workspace: betaWorkspace,
+    handoff: BuilderHandoffSchema.parse({
+      ...alpha.handoff,
       workOrderId: "wo-beta",
-      workspace: { ...workspace, source: extra },
+      workspace: stagedReferenceOf(betaWorkspace),
     }),
-  )
-  // A manifest naming an image the factory did not prepare: refused before any provider call.
-  await writeFile(
-    join(builder.manifestDir, "wo-foreign-image.json"),
-    JSON.stringify({
-      ...parsed,
+  }
+  digests["wo-beta"] = extra.digest
+  // A handoff naming an image the factory did not prepare: refused before any provider call.
+  // Not parsed here: the controller's schema would refuse it, and the builder's must too.
+  handoffs["wo-foreign-image"] = {
+    workspace: alpha.workspace,
+    handoff: {
+      ...alpha.handoff,
       workOrderId: "wo-foreign-image",
-      target: { ...parsed.target, image: "alpine:latest" },
-    }),
-  )
+      target: { ...alpha.handoff.target, image: "alpine:latest" },
+    },
+  }
   // The baseline bytes, from a throwaway capture of the pin under a temporary root: the
-  // same archive the manifest's workspace is built from, captured where it disturbs neither
+  // same archive the handoff's workspace is built from, captured where it disturbs neither
   // the builder's nor the controller's capture directory.
   const captureRoot = await mkdtemp(join(tmpdir(), "factory-builder-baseline-"))
   try {
@@ -101,10 +108,24 @@ afterAll(async () => {
 it("answers no thread endpoint without the worker token, and 403 with a wrong one", async () => {
   // A thread the controller made (with the token), probed by everyone else. No turn runs, so
   // no sandbox is acquired for it.
-  const threadId = await builder.createThread("wo-alpha")
+  const threadId = await builder.handOff(handoffs["wo-alpha"] as CapturedBuilderHandoff)
   threads.push(threadId)
   await expectOnlyTheTokenAdmitted(builder.url, threadId, "/build#agent")
 })
+
+it("admits a create naming a workspace only when the controller uploaded that source", async () => {
+  // A digest never uploaded: the policy refuses it before the framework looks for it, and no
+  // thread row is written.
+  await expect(
+    builder.client.createThread(
+      { factoryWorkOrderId: "wo-alpha", factoryBuilder: handoffs["wo-alpha"]?.handoff },
+      { sourceDigest: "f".repeat(64), environmentLinks: [] },
+    ),
+  ).rejects.toMatchObject({ status: 403, code: "workspace_not_uploaded_by_controller" })
+  // The controller's upload is stamped as its own and named: admitted.
+  const alpha = handoffs["wo-alpha"] as CapturedBuilderHandoff
+  expect(await builder.client.uploadSource(alpha.workspace.source)).toBe("held")
+}, 300_000)
 
 it("drives the real builder to write the repaired source and nothing else", async () => {
   builder.aimock.addFixtures(
@@ -117,7 +138,7 @@ it("drives the real builder to write the repaired source and nothing else", asyn
       .replies("Repair complete.")
       .build(),
   )
-  const threadId = await builder.createThread("wo-alpha")
+  const threadId = await builder.handOff(handoffs["wo-alpha"] as CapturedBuilderHandoff)
   threads.push(threadId)
   const turn = await builder.runTurn(threadId, input)
   expect(turn.status).toBe(200)
@@ -132,7 +153,7 @@ it("drives the real builder to write the repaired source and nothing else", asyn
 
   // Every tool actually ran. The bash results came out of a container that really ran the
   // fixture's own test command, and the first reproduced the documented failure, so the
-  // workspace the manifest carried really is the faulty baseline. Only the first is pinned
+  // workspace the controller staged really is the faulty baseline. Only the first is pinned
   // to the failure: the scripted write is deliberately not a repair.
   const results = toolResults(builder.aimock)
   expect(results).toHaveLength(4)
@@ -142,7 +163,7 @@ it("drives the real builder to write the repaired source and nothing else", asyn
   expect(results[1]).toContain("unknown option")
 
   // The workspace the builder SERVED is the one the controller captured for THIS work order,
-  // byte for byte: the association records the manifest's source digest.
+  // byte for byte: the association records the staged source's digest.
   const installation = openWorkspaceInstallationReader(builder.appRoot)
   try {
     const record = installation.associations.get(threadId)
@@ -164,7 +185,7 @@ it("serves a second work order's own workspace from the same builder process", a
   builder.aimock.addFixtures(
     script().user(LIST).callsTool("listDir", { path: "." }).replies("Listed.").build(),
   )
-  const beta = await builder.createThread("wo-beta")
+  const beta = await builder.handOff(handoffs["wo-beta"] as CapturedBuilderHandoff)
   threads.push(beta)
   expect((await builder.runTurn(beta, LIST)).status).toBe(200)
   const listing = toolResults(builder.aimock)[0]
@@ -188,15 +209,45 @@ it("serves a second work order's own workspace from the same builder process", a
   }
 }, 300_000)
 
-it("refuses, at admission and by name, a work order with no manifest or a foreign image", async () => {
-  for (const [workOrderId, reason] of [
-    ["wo-none", "no builder manifest for wo-none"],
-    ["wo-foreign-image", "wo-foreign-image.json is invalid"],
-  ] as const) {
-    const threadId = await builder.createThread(workOrderId)
+it("refuses, at admission and by name, a thread with no staged workspace, another one, or a foreign image", async () => {
+  const alpha = handoffs["wo-alpha"] as CapturedBuilderHandoff
+  const beta = handoffs["wo-beta"] as CapturedBuilderHandoff
+  const refused: [string, () => Promise<string>, string][] = [
+    [
+      // Created with the handoff and no workspace, as a controller that staged nothing would.
+      "wo-none",
+      () =>
+        builder.client.createThread({
+          factoryWorkOrderId: "wo-none",
+          factoryBuilder: { ...alpha.handoff, workOrderId: "wo-none" },
+        }),
+      "work order wo-none's thread was created without a staged workspace",
+    ],
+    [
+      // Created with a staged workspace the controller uploaded, but not the one the handoff
+      // names: the links and baseline match, the files do not.
+      "wo-mismatch",
+      () =>
+        builder.client.createThread(
+          {
+            factoryWorkOrderId: "wo-mismatch",
+            factoryBuilder: { ...alpha.handoff, workOrderId: "wo-mismatch" },
+          },
+          stagedReferenceOf(beta.workspace),
+        ),
+      "is not the one work order wo-mismatch names",
+    ],
+    [
+      "wo-foreign-image",
+      () => builder.handOff(handoffs["wo-foreign-image"] as CapturedBuilderHandoff),
+      "thread metadata factoryBuilder is invalid",
+    ],
+  ]
+  for (const [workOrderId, create, reason] of refused) {
+    const threadId = await create()
     threads.push(threadId)
     const turn = await builder.runTurn(threadId, LIST)
-    expect(turn.status).toBeGreaterThanOrEqual(400)
+    expect([workOrderId, turn.status >= 400]).toEqual([workOrderId, true])
     expect(turn.text).toContain(reason)
     const installation = openWorkspaceInstallationReader(builder.appRoot)
     try {
@@ -240,24 +291,24 @@ it("serves a cli-flags thread and devkit threads at two pins from one process", 
   const root = await mkdtemp(join(tmpdir(), "factory-builder-capture-"))
   try {
     const devkitTask = loadTask("devkit-spawn-deadline")
-    const devkit = await writeBuilderManifest(devkitTask, builder.manifestDir, {
+    const devkit = await captureBuilderHandoff(devkitTask, {
       workOrderId: "wo-devkit",
       captureRoot: root,
     })
     // The same capture at the second pin: only the target block changes, which is all the
-    // image and the policy are drawn from. Written as dispatch would, then re-pinned.
+    // image and the policy are drawn from. Captured as dispatch would, then re-pinned.
     const atSecond = loadTarget("devkit", { targetsDir: second.targetsDir, pin: SECOND_PIN })
-    const parsed = BuilderManifestSchema.parse(JSON.parse(await readFile(devkit.path, "utf8")))
-    await writeFile(
-      join(builder.manifestDir, "wo-devkit-2.json"),
-      JSON.stringify(
-        BuilderManifestSchema.parse({
-          ...parsed,
+    const byWorkOrder: Record<string, CapturedBuilderHandoff> = {
+      "wo-devkit": devkit,
+      "wo-devkit-2": {
+        workspace: devkit.workspace,
+        handoff: BuilderHandoffSchema.parse({
+          ...devkit.handoff,
           workOrderId: "wo-devkit-2",
-          target: { ...parsed.target, image: imageTag(atSecond), pin: SECOND_PIN },
+          target: { ...devkit.handoff.target, image: imageTag(atSecond), pin: SECOND_PIN },
         }),
-      ),
-    )
+      },
+    }
     const expected: Record<string, { localId: string; memoryMb: number }> = {
       "wo-alpha": {
         localId: task.target.image.localId,
@@ -280,7 +331,7 @@ it("serves a cli-flags thread and devkit threads at two pins from one process", 
       builder.aimock.addFixtures(
         script().user(LIST).callsTool("listDir", { path: "." }).replies("Listed.").build(),
       )
-      const threadId = await builder.createThread(workOrderId)
+      const threadId = await builder.handOff(byWorkOrder[workOrderId] as CapturedBuilderHandoff)
       threads.push(threadId)
       threadOf[workOrderId] = threadId
       expect((await builder.runTurn(threadId, LIST)).status).toBe(200)

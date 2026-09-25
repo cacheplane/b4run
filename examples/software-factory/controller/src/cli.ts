@@ -1,10 +1,10 @@
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { createInterface } from "node:readline"
 import { setTimeout as sleep } from "node:timers/promises"
 import { parseArgs } from "node:util"
-import { writeBuilderManifest } from "./lib/builder-manifest.js"
+import { captureBuilderHandoff } from "./lib/builder-handoff.js"
 import { type ControllerClient, ControllerHttpError, createControllerClient } from "./lib/client.js"
 import { generatedTasksDirFor } from "./lib/config.js"
 import type { WorkOrderState } from "./lib/domain/states.js"
@@ -42,19 +42,22 @@ const USAGE = `factory <command> [options]
   events    <workOrderId>
   evidence  <workOrderId>
   list
-  builder-manifest --task <id> --out <dir> [--work-order <workOrderId>]
+  builder-handoff --task <id> --out <dir> [--work-order <workOrderId>]
 
 The commands that change something are requests to a running controller:
 FACTORY_CONTROLLER_URL is its base URL. The commands that read do not go through the
 controller at all: they open <FACTORY_STATE_DIR>/registry.sqlite read-only. The cancel command uses
 both: it asks the controller to stop the run and then reads the row back.
-builder-manifest needs neither.
+builder-handoff needs neither.
 
-builder-manifest writes <dir>/<work-order>.json (the work order defaults to the task id): the
-workspace, and the target's image, pin, sandbox policy and permissions, which one builder
-serving every target and pin runs that work order's thread in. The controller writes one per
-work order at dispatch into the builder's manifest directory, and this command is for driving a
-builder without a controller.
+builder-handoff writes <dir>/<work-order>.source.json and <dir>/<work-order>.handoff.json (the
+work order defaults to the task id): the captured workspace's files, and the handoff naming
+them with the target's image, pin, sandbox policy and permissions, which one builder serving
+every target and pin runs that work order's thread in. The controller stages both over the
+builder's Agent Protocol port at dispatch; to drive a builder without a controller, PUT the
+source to /workspace/sources/<sourceDigest>, then POST /threads with
+{"metadata":{"factoryWorkOrderId":<work-order>,"factoryBuilder":<handoff>},"workspace":<handoff.workspace>},
+both with the worker token.
 
 create --issue reads the issue through gh (FACTORY_GH names the executable; default gh) and pins
 the work order to origin/main of the target checkout (FACTORY_REPO_ROOT; FACTORY_NO_FETCH=1 skips
@@ -775,11 +778,11 @@ async function main(argv: string[]): Promise<number> {
     if (!id) throw new Error(`${command} requires a work order id`)
     return id
   }
-  // Answered before anything is opened: writing a builder manifest reads the catalog and
+  // Answered before anything is opened: writing a builder handoff reads the catalog and
   // captures an archive, and needs neither a controller nor a registry.
-  if (command === "builder-manifest") {
-    if (!values.task) throw new Error("builder-manifest requires --task")
-    if (!values.out) throw new Error("builder-manifest requires --out")
+  if (command === "builder-handoff") {
+    if (!values.task) throw new Error("builder-handoff requires --task")
+    if (!values.out) throw new Error("builder-handoff requires --out")
     // Read directly rather than through the full config: this command needs no worker or
     // builder root, only the state directory's generated tasks, and only when there is one.
     const stateDir = process.env.FACTORY_STATE_DIR
@@ -792,11 +795,17 @@ async function main(argv: string[]): Promise<number> {
       ? resolve(stateDir)
       : mkdtempSync(join(tmpdir(), "factory-captures-"))
     try {
-      const written = await writeBuilderManifest(loadTask(values.task), values.out, {
+      const { handoff, workspace } = await captureBuilderHandoff(loadTask(values.task), {
         captureRoot,
         ...(workOrder !== undefined ? { workOrderId: workOrder } : {}),
       })
-      print({ path: written.path, sourceDigest: written.sourceDigest })
+      // The work order id is a catalog id (the capture refused anything else): a plain name.
+      mkdirSync(values.out, { recursive: true })
+      const source = join(values.out, `${handoff.workOrderId}.source.json`)
+      const handoffPath = join(values.out, `${handoff.workOrderId}.handoff.json`)
+      writeFileSync(source, `${JSON.stringify(workspace.source)}\n`)
+      writeFileSync(handoffPath, `${JSON.stringify(handoff, null, 2)}\n`)
+      print({ handoff: handoffPath, source, sourceDigest: handoff.workspace.sourceDigest })
     } finally {
       if (!stateDir) rmSync(captureRoot, { recursive: true, force: true })
     }

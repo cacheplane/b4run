@@ -3,14 +3,17 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { dockerSandbox } from "@b4run/sandbox"
+import type { CapturedWorkspaceDefinition } from "@b4run/workspace"
 import { captureWorkspaceDefinition } from "@b4run/workspace/node"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 /**
- * The drafter's config is a function of ONE input, FACTORY_DRAFTER_MANIFEST_DIR, and its
- * resolver of ONE thread fact, `metadata.factoryWorkOrderId`. These tests build the manifest
- * themselves with the framework's own capture rather than importing the controller: the
- * drafter package must be understood, typechecked and tested without the controller's source.
+ * The drafter's config reads nothing per work order from disk: its resolver is a function of
+ * the thread's metadata (`factoryWorkOrderId`, and the handoff in `factoryDrafter`) and of the
+ * workspace the thread was created with (`thread.staged`), which must be the one the handoff
+ * names. These tests capture the workspace themselves with the framework's own capture
+ * rather than importing the controller: the drafter package must be understood, typechecked
+ * and tested without the controller's source.
  */
 vi.mock("@b4run/sandbox", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@b4run/sandbox")>()
@@ -18,40 +21,46 @@ vi.mock("@b4run/sandbox", async (importOriginal) => {
 })
 
 const WORK_ORDER = "wo-0123456789abcdef"
-const thread = (metadata: Readonly<Record<string, unknown>>) => ({
+const thread = (
+  metadata: Readonly<Record<string, unknown>>,
+  staged?: CapturedWorkspaceDefinition,
+) => ({
   threadId: "t-1",
   metadata,
   signal: new AbortController().signal,
+  ...(staged !== undefined ? { staged } : {}),
 })
 
 let root: string
-let manifestDir: string
-let sourceDigest: string
 
-async function writeManifest(overrides: Record<string, unknown> = {}) {
-  // A tiny tree in the shape the controller stages: the repository under `repo/`, nothing
-  // else, and no baseline. The capture is the framework's, so what the drafter verifies is
-  // exactly what the controller will hand it.
+/** A capture in the shape the controller stages, and the handoff naming it. */
+async function captured(text = "# fixture\n") {
+  // A tiny tree: the repository under `repo/`, nothing else, and no baseline. The capture is
+  // the framework's, so what the drafter checks is exactly what the controller hands it.
   const tree = join(root, "tree")
   mkdirSync(join(tree, "repo"), { recursive: true })
-  writeFileSync(join(tree, "repo", "README.md"), "# fixture\n")
+  writeFileSync(join(tree, "repo", "README.md"), text)
   const workspace = await captureWorkspaceDefinition(root, {
     source: { directory: "tree", include: ["repo/README.md"] },
     environmentLinks: [],
   })
-  sourceDigest = workspace.source.digest
-  writeFileSync(
-    join(manifestDir, `${WORK_ORDER}.json`),
-    JSON.stringify({ version: 1, workOrderId: WORK_ORDER, workspace, ...overrides }),
-  )
+  const handoff = {
+    version: 2,
+    workOrderId: WORK_ORDER,
+    workspace: { sourceDigest: workspace.source.digest, environmentLinks: [] },
+  }
+  return { workspace, handoff }
 }
+const metadataOf = (handoff: unknown) => ({
+  factoryWorkOrderId: WORK_ORDER,
+  factoryStage: "intake",
+  factoryDrafter: handoff,
+})
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "drafter-config-"))
-  manifestDir = join(root, "manifests")
-  mkdirSync(manifestDir)
-  process.env.FACTORY_DRAFTER_MANIFEST_DIR = manifestDir
   delete process.env.FACTORY_DRAFTER_IMAGE
+  delete process.env.FACTORY_DRAFTER_MANIFEST_DIR
   vi.mocked(dockerSandbox).mockClear()
   vi.resetModules()
 })
@@ -70,42 +79,69 @@ const resolver = async () => {
 }
 
 describe("the drafter's workspace resolver", () => {
-  it("serves the work order's captured workspace, verified, by digest", async () => {
-    await writeManifest()
-    const resolved = await (await resolver())(thread({ factoryWorkOrderId: WORK_ORDER }))
+  it("serves the staged workspace its handoff names, verified, by digest", async () => {
+    const { workspace, handoff } = await captured()
+    const resolved = await (await resolver())(thread(metadataOf(handoff), workspace))
     expect("version" in resolved && resolved.version).toBe(1)
-    expect((resolved as { source: { digest: string } }).source.digest).toBe(sourceDigest)
+    expect((resolved as { source: { digest: string } }).source.digest).toBe(workspace.source.digest)
     expect((resolved as { baseline?: string }).baseline).toBeUndefined()
   })
 
-  it("refuses a work order with no manifest, naming it and the directory", async () => {
+  it("refuses, by name, a thread created with no handoff or with no staged workspace", async () => {
+    const { workspace, handoff } = await captured()
     const resolve = await resolver()
-    await expect(resolve(thread({ factoryWorkOrderId: WORK_ORDER }))).rejects.toThrow(
-      `no drafter manifest for ${WORK_ORDER}`,
+    // A thread created by an older controller (a manifest on disk, no handoff) is refused at
+    // admission: drain in-flight intakes before upgrading.
+    await expect(resolve(thread({ factoryWorkOrderId: WORK_ORDER }, workspace))).rejects.toThrow(
+      /factoryDrafter is required/,
     )
-    await expect(resolve(thread({ factoryWorkOrderId: WORK_ORDER }))).rejects.toThrow(manifestDir)
+    await expect(resolve(thread(metadataOf(handoff)))).rejects.toThrow(
+      `work order ${WORK_ORDER}'s intake thread was created without a staged workspace`,
+    )
   })
 
-  it("trusts nothing in the metadata beyond a catalog-id string", async () => {
-    await writeManifest()
+  it("refuses a staged workspace that is not the one the handoff names, or has a baseline", async () => {
+    const { workspace, handoff } = await captured()
+    const other = await captured("# another\n")
     const resolve = await resolver()
-    // Missing, a path that would escape the directory, and a non-string: each is refused
-    // before any file is read, and the refusal names the key the client got wrong.
-    for (const metadata of [{}, { factoryWorkOrderId: "../x" }, { factoryWorkOrderId: 7 }]) {
-      await expect(resolve(thread(metadata))).rejects.toThrow(/factoryWorkOrderId/)
+    await expect(resolve(thread(metadataOf(handoff), other.workspace))).rejects.toThrow(
+      /is not the one work order wo-0123456789abcdef names/,
+    )
+    await expect(
+      resolve(thread(metadataOf(handoff), { ...workspace, baseline: "git" })),
+    ).rejects.toThrow(/carries no baseline/)
+  })
+
+  it("trusts nothing in the metadata beyond a catalog-id string and a strictly parsed handoff", async () => {
+    const { workspace, handoff } = await captured()
+    const resolve = await resolver()
+    for (const metadata of [
+      { factoryDrafter: handoff },
+      { factoryWorkOrderId: "../x", factoryDrafter: handoff },
+      { factoryWorkOrderId: 7, factoryDrafter: handoff },
+    ]) {
+      await expect(resolve(thread(metadata, workspace))).rejects.toThrow(/factoryWorkOrderId/)
     }
   })
 
-  it("refuses a manifest of another version", async () => {
-    await writeManifest({ version: 2 })
+  it("refuses a handoff of another version, or with the workspace's files in it", async () => {
+    const { workspace, handoff } = await captured()
     const resolve = await resolver()
-    await expect(resolve(thread({ factoryWorkOrderId: WORK_ORDER }))).rejects.toThrow(/version/)
+    for (const drifted of [
+      { ...handoff, version: 1 },
+      { ...handoff, workspace: { ...handoff.workspace, source: workspace.source } },
+    ])
+      await expect(resolve(thread(metadataOf(drifted), workspace))).rejects.toThrow(
+        /factoryDrafter is invalid/,
+      )
   })
 
-  it("refuses a manifest written for a different work order", async () => {
-    await writeManifest({ workOrderId: "wo-other" })
+  it("refuses a handoff written for a different work order", async () => {
+    const { workspace, handoff } = await captured()
     const resolve = await resolver()
-    await expect(resolve(thread({ factoryWorkOrderId: WORK_ORDER }))).rejects.toThrow(/workOrderId/)
+    await expect(
+      resolve(thread(metadataOf({ ...handoff, workOrderId: "wo-other" }), workspace)),
+    ).rejects.toThrow(/names work order wo-other/)
   })
 })
 
@@ -113,6 +149,8 @@ describe("the drafter's sandbox and permissions", () => {
   it("serves its threads' workspaces over its own port, behind src/thread-access.ts", async () => {
     const config = await loadConfig()
     expect(config.sandbox?.workspaceRead).toBe("http")
+    // And takes each thread's workspace at creation, over the same port, behind the same policy.
+    expect(config.sandbox?.stagedWorkspaces).toBe(true)
     expect(existsSync(fileURLToPath(new URL("../src/thread-access.ts", import.meta.url)))).toBe(
       true,
     )
@@ -160,15 +198,11 @@ describe("the drafter's sandbox and permissions", () => {
   })
 })
 
-describe("a missing manifest directory", () => {
-  it("is a boot error naming the variable", async () => {
-    delete process.env.FACTORY_DRAFTER_MANIFEST_DIR
+describe("the retired manifest directory", () => {
+  it("is a boot error naming FACTORY_DRAFTER_MANIFEST_DIR, and the drafter boots without it", async () => {
+    await expect(loadConfig()).resolves.toBeDefined()
+    process.env.FACTORY_DRAFTER_MANIFEST_DIR = join(root, "manifests")
     vi.resetModules()
-    await expect(loadConfig()).rejects.toThrow(/FACTORY_DRAFTER_MANIFEST_DIR/)
-  })
-
-  it("tolerates an empty directory at boot: refusal happens per thread", async () => {
-    const config = await loadConfig()
-    expect(typeof config.sandbox?.workspace).toBe("function")
+    await expect(loadConfig()).rejects.toThrow(/FACTORY_DRAFTER_MANIFEST_DIR is retired/)
   })
 })

@@ -1,5 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -42,21 +41,11 @@ describe("the intake route", () => {
     expect(named).toBeDefined()
     const commands = (named as string).split(",").map((c) => c.trim())
     expect(commands.length).toBeGreaterThan(0)
-    // The config needs its one input to load; any existing directory serves.
-    const manifestDir = mkdtempSync(join(tmpdir(), "drafter-manifests-"))
-    const previous = process.env.FACTORY_DRAFTER_MANIFEST_DIR
-    process.env.FACTORY_DRAFTER_MANIFEST_DIR = manifestDir
-    try {
-      const config = (await import("../b4.config.ts")).default as {
-        permissions?: { allow?: { bash?: string[] } }
-      }
-      const allowed = config.permissions?.allow?.bash ?? []
-      for (const command of commands) expect(allowed).toContain(command)
-    } finally {
-      if (previous === undefined) delete process.env.FACTORY_DRAFTER_MANIFEST_DIR
-      else process.env.FACTORY_DRAFTER_MANIFEST_DIR = previous
-      rmSync(manifestDir, { recursive: true, force: true })
+    const config = (await import("../b4.config.ts")).default as {
+      permissions?: { allow?: { bash?: string[] } }
     }
+    const allowed = config.permissions?.allow?.bash ?? []
+    for (const command of commands) expect(allowed).toContain(command)
   })
 
   it("states the fixed rules the controller's prompt relies on", async () => {

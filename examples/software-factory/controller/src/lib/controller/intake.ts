@@ -11,7 +11,6 @@ import { loadPolicy } from "../verification/policy.js"
 import { classifyDone, type StreamFrame } from "../worker/wire.js"
 import { WorkspaceRootMissingError, workspaceReadFailure } from "../worker/workspace-reader.js"
 import type { ControllerContext } from "./context.js"
-import { removeJournalledManifest } from "./manifest-files.js"
 import { reconcileWorkOrder } from "./reconcile.js"
 import { handedSourceDigest } from "./source-digest.js"
 import { consumeTurn } from "./turns.js"
@@ -444,16 +443,6 @@ async function proveDraft(
     },
     { taskDigest: generated.digest, receiptId: receipt.id, attempt: current.intakeAttempts + 1 },
   )
-}
-
-/**
- * Remove the work order's drafter manifest, the file `intake` wrote for the drafter's
- * resolver, at the path the journal recorded (see `removeJournalledManifest`). It is removed
- * when the row leaves the intake states for good (a block, an approval, a settled cancel)
- * and kept across a redraft, which reuses the admitted thread.
- */
-export function removeDrafterManifest(ctx: ControllerContext, id: string): void {
-  removeJournalledManifest(ctx, id, "drafter")
 }
 
 /**

@@ -1,5 +1,8 @@
+import { createSourceBundle } from "@b4run/workspace/node"
+import { BuilderHandoffSchema, stagedReferenceOf } from "../src/lib/builder-handoff.ts"
 import type { FactoryOptions } from "../src/lib/controller/factory.ts"
 import type { DrafterWorker, TargetWorker, WorkerMap } from "../src/lib/controller/workers.ts"
+import { DrafterHandoffSchema } from "../src/lib/drafter-handoff.ts"
 import type { WorkerClient } from "../src/lib/worker/client.ts"
 import type { WorkspaceReader } from "../src/lib/worker/workspace-reader.ts"
 
@@ -12,18 +15,11 @@ export interface FakeWorkerMapOptions {
     readonly client: WorkerClient
     readonly reader: WorkspaceReader
     readonly route?: string
-    /**
-     * Where `dispatch` writes builder manifests. A path nothing creates by default: a test
-     * that does not care boots with {@link noopBuilderManifestWriter}, and one that asserts on
-     * the file names a directory of its own.
-     */
-    readonly manifestDir?: string
   }
   /** The drafter. Absent: intake is not configured. */
   readonly drafter?: {
     readonly client: WorkerClient
     readonly reader: WorkspaceReader
-    readonly manifestDir: string
     readonly route?: string
   }
 }
@@ -39,7 +35,6 @@ export function fakeWorkerMap(options: FakeWorkerMapOptions): WorkerMap {
         client: options.builder.client,
         reader: options.builder.reader,
         route: options.builder.route ?? "/build#agent",
-        manifestDir: options.builder.manifestDir ?? "/unused/builder-manifests",
       }
     : undefined
   const drafter: DrafterWorker | undefined = options.drafter
@@ -47,7 +42,6 @@ export function fakeWorkerMap(options: FakeWorkerMapOptions): WorkerMap {
         client: options.drafter.client,
         reader: options.drafter.reader,
         route: options.drafter.route ?? "/intake#agent",
-        manifestDir: options.drafter.manifestDir,
       }
     : undefined
   return {
@@ -61,14 +55,62 @@ export function fakeWorkerMap(options: FakeWorkerMapOptions): WorkerMap {
 }
 
 /**
- * The builder manifest writer for tests whose builder is a fake: nothing reads a manifest, so
- * nothing is captured (the real writer archives the task's target at its pin) and nothing is
- * written. `dispatch` still journals `builder_manifest_written` with this path; there is no
- * file for a removal to find, so no `builder_manifest_removed` follows.
+ * The builder handoff capture for tests whose builder is a fake: nothing serves the workspace,
+ * so the target is not archived at its pin (the real capture is) and the source is one small
+ * file. `dispatch` still uploads it and creates the thread naming it, which the fake worker
+ * checks as the real one does: a create naming a source it was not sent is refused.
  */
-export const noopBuilderManifestWriter: NonNullable<
-  FactoryOptions["writeBuilderManifest"]
-> = async ({ dir, workOrderId }) => ({
-  path: `${dir}/${workOrderId}.json`,
-  sourceDigest: "0".repeat(64),
-})
+export const fakeBuilderHandoff: NonNullable<FactoryOptions["captureBuilderHandoff"]> = async ({
+  taskId,
+  workOrderId,
+}) => {
+  const workspace = {
+    version: 1 as const,
+    source: createSourceBundle([
+      { path: "TASK.md", bytes: new TextEncoder().encode(`# ${taskId}\n`), executable: false },
+    ]),
+    environmentLinks: [],
+    baseline: "git" as const,
+  }
+  const handoff = BuilderHandoffSchema.parse({
+    version: 3,
+    workOrderId,
+    taskId,
+    targetId: "fake-target",
+    workspace: stagedReferenceOf(workspace),
+    target: {
+      image: `b4-factory-fake-target:${"0".repeat(12)}-${"0".repeat(12)}`,
+      pin: "0".repeat(40),
+      policy: {
+        network: { mode: "deny" },
+        env: {},
+        resources: { memoryMb: 1024, cpus: 1, timeoutMs: 60_000 },
+      },
+      permissions: {},
+    },
+  })
+  return { handoff, workspace }
+}
+
+/**
+ * The drafter handoff capture for tests whose drafter is a fake: the pin is no commit of any
+ * repository, so the wide capture (tens of MiB) is stood in for by one small file. `intake`
+ * still uploads it and creates the thread naming it.
+ */
+export const fakeDrafterHandoff: NonNullable<FactoryOptions["captureDrafterHandoff"]> = async ({
+  workOrderId,
+}) => {
+  const workspace = {
+    version: 1 as const,
+    source: createSourceBundle([
+      { path: "repo/README.md", bytes: new TextEncoder().encode("# fixture\n"), executable: false },
+    ]),
+    environmentLinks: [],
+  }
+  const handoff = DrafterHandoffSchema.parse({
+    version: 2,
+    workOrderId,
+    workspace: stagedReferenceOf(workspace),
+  })
+  return { handoff, workspace }
+}

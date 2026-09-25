@@ -13,8 +13,9 @@ process.env.FACTORY_REPO_ROOT ??= repositoryRoot()
  * The integration lanes boot a real builder or drafter, and it must not be the checked-out
  * package directory: a served runtime (and the harness, which runs typegen) writes its
  * installation store, checkpoints and build output under the root it is given, and those
- * are the test's and nobody else's. `.factory/` is left out too: it is where a checked-out
- * package keeps manifests, and the copy is told its own.
+ * are the test's and nobody else's. `.factory/` is left out too: a checked-out package from
+ * before workspaces were handed over the Agent Protocol may still hold manifests there, and the
+ * end-to-end lanes assert that the copy has none.
  */
 export async function isolatedApp(appRoot: string, prefix: string): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), prefix))

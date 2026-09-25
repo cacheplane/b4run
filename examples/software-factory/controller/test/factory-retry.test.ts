@@ -7,7 +7,7 @@ import { createFactory, type Factory, type FactoryOptions } from "../src/lib/con
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier, type FakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
-import { fakeWorkerMap, noopBuilderManifestWriter } from "./fake-worker-map.ts"
+import { fakeBuilderHandoff, fakeWorkerMap } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
 import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
@@ -23,7 +23,7 @@ let fake: FakeWorker
 let factory: Factory
 let reader: FakeWorkspaceReader
 let verifier: FakeVerifier
-let manifestsWritten: string[]
+let handoffsCaptured: string[]
 
 const REPAIRED = "export const fixed = true\n"
 const captureRepairable = async () => ({
@@ -49,7 +49,7 @@ async function boot(
   fake = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only", ...options })
   reader = createFakeWorkspaceReader({})
   verifier = createFakeVerifier({ verdict: "pass" })
-  manifestsWritten = []
+  handoffsCaptured = []
   factory = await createFactory({
     registryPath: join(dir, "registry.sqlite"),
     generatedTasksDir: join(dir, "tasks"),
@@ -60,9 +60,9 @@ async function boot(
         reader,
       },
     }),
-    writeBuilderManifest: async (input) => {
-      manifestsWritten.push(input.workOrderId)
-      return noopBuilderManifestWriter(input)
+    captureBuilderHandoff: async (input) => {
+      handoffsCaptured.push(input.workOrderId)
+      return fakeBuilderHandoff(input)
     },
     exportDir: join(dir, "out"),
     artifactsDir: join(dir, "artifacts"),
@@ -170,8 +170,8 @@ describe("retry", () => {
     const second = await dispatchAndSettle(id)
     expect(second.threadId).not.toBe(first.threadId)
     expect(second.row).toMatchObject({ state: "awaiting_approval", candidateAttempts: 2 })
-    // A fresh manifest for the fresh thread: one per dispatch.
-    expect(manifestsWritten).toEqual([id, id])
+    // A fresh handoff for the fresh thread: one per dispatch.
+    expect(handoffsCaptured).toEqual([id, id])
     expect(reader.reads).toEqual([second.threadId])
   })
 
@@ -259,7 +259,7 @@ describe("retry", () => {
           reader,
         },
       }),
-      writeBuilderManifest: noopBuilderManifestWriter,
+      captureBuilderHandoff: fakeBuilderHandoff,
       exportDir: join(dir, "out"),
       artifactsDir: join(dir, "artifacts"),
       verifier,

@@ -7,7 +7,7 @@ import { createFactory, type Factory } from "../src/lib/controller/factory.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
-import { fakeWorkerMap, noopBuilderManifestWriter } from "./fake-worker-map.ts"
+import { fakeBuilderHandoff, fakeWorkerMap } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader } from "./fake-workspace-reader.ts"
 import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
@@ -51,7 +51,7 @@ async function boot(
         reader,
       },
     }),
-    writeBuilderManifest: noopBuilderManifestWriter,
+    captureBuilderHandoff: fakeBuilderHandoff,
     exportDir: join(dir, "out"),
     artifactsDir: join(dir, "artifacts"),
     verifier,
@@ -98,7 +98,8 @@ describe("the verifying phase", () => {
       {
         threadId: dispatched.workerThreadId,
         taskId: "cli-flags",
-        sourceDigest: "0".repeat(64),
+        sourceDigest: factory.events(id).find((e) => e.type === "builder_source_staged")?.payload
+          .sourceDigest,
       },
     ])
   })
@@ -259,10 +260,18 @@ describe("the verifying phase", () => {
           reader,
         },
       }),
-      writeBuilderManifest: async (input) => ({
-        ...(await noopBuilderManifestWriter(input)),
-        sourceDigest: "",
-      }),
+      // The workspace is staged and named as ever; only the digest the journal records is not
+      // one, as a journal written by something other than `dispatch` could leave it.
+      captureBuilderHandoff: async (input) => {
+        const captured = await fakeBuilderHandoff(input)
+        return {
+          ...captured,
+          handoff: {
+            ...captured.handoff,
+            workspace: { ...captured.handoff.workspace, sourceDigest: "" },
+          },
+        }
+      },
       exportDir: join(dir, "out"),
       artifactsDir: join(dir, "artifacts"),
       verifier,

@@ -28,11 +28,11 @@ import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
  *
  * What is real here: the drafter app (`examples/software-factory/drafter`, served by
  * `serveRuntime` from a private copy, on its pinned `node:24-slim` image with the network
- * denied and permissions non-interactive), its resolver (which loads the manifest the
- * controller wrote for the work order and serves that capture and no other), its tools, the
+ * denied and permissions non-interactive), its resolver (which serves the capture the
+ * controller staged over its port for the work order, and no other), its tools, the
  * controller's runtime with the real worker map (the drafter entry pointing at that server),
- * the real manifest writer (the wide capture at the work order's pin, staged out of the
- * object store), the real re-rooted read over the drafter's own port with the worker token
+ * the real capture (the wide capture at the work order's pin, staged out of the object store)
+ * and its upload, the real re-rooted read over the drafter's own port with the worker token
  * and the handed digest, the real baseline capture and the real Docker
  * verifier. What is not: the model is scripted (aimock), and the builder worker the map
  * also needs is the fake HTTP one, which nothing here dispatches to.
@@ -83,7 +83,6 @@ const ENV = [
 
 let aimock: Aimock
 let drafterRoot: string
-let manifestDir: string
 let drafter: ServeRuntimeHandle
 let pin: string
 const previousEnv: Partial<Record<(typeof ENV)[number], string | undefined>> = {}
@@ -105,12 +104,10 @@ beforeAll(async () => {
 
   aimock = await createAimock({ fixtures: [] })
   drafterRoot = await isolatedDrafter()
-  manifestDir = join(drafterRoot, ".factory", "manifests")
-  await mkdir(manifestDir, { recursive: true })
-  // The drafter's `b4.config.ts` reads the manifest directory at module load and the model
-  // layer reads `OPENAI_BASE_URL` when the route first builds its model, so all three are
-  // set BEFORE the app boots in this process.
-  process.env.FACTORY_DRAFTER_MANIFEST_DIR = manifestDir
+  // The model layer reads `OPENAI_BASE_URL` when the route first builds its model, and the
+  // policy reads the token at boot, so both are set BEFORE the app boots in this process.
+  // The retired manifest directory is unset: the drafter refuses to boot while it is set.
+  delete process.env.FACTORY_DRAFTER_MANIFEST_DIR
   process.env.OPENAI_BASE_URL = aimock.baseUrl
   process.env.OPENAI_API_KEY = "test"
   // The drafter admits only the controller: the runtime below sends the same token.
@@ -142,8 +139,7 @@ afterEach(async () => {
 
 /**
  * The controller as deployed: the builder pair for the one builder (the fake, which nothing here
- * dispatches to) and the drafter pair pointing at the served drafter, with its manifest
- * directory. Everything the runtime builds is real except the builder's reader (no builder
+ * dispatches to) and the drafter pair pointing at the served drafter. Everything the runtime builds is real except the builder's reader (no builder
  * thread exists to read) and, when a test gives one, the drafter's.
  */
 async function bootController(
@@ -155,10 +151,8 @@ async function bootController(
   runtime = createControllerRuntime(
     {
       FACTORY_WORKER_URL: builder.baseUrl,
-      FACTORY_BUILDER_MANIFEST_DIR: join(dir, "builder", "manifests"),
       FACTORY_STATE_DIR: join(dir, "state"),
       FACTORY_DRAFTER_URL: drafter.url,
-      FACTORY_DRAFTER_MANIFEST_DIR: manifestDir,
       FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
     },
     {
@@ -257,7 +251,7 @@ it("runs a real drafter turn against the wide capture, reads only draft/, and pr
   expect(parked.taskDigest).toMatch(/^[a-f0-9]{64}$/)
   expect(eventTypes(factory, id)).toEqual([
     "created",
-    "drafter_manifest_written",
+    "drafter_source_staged",
     "intake_thread_created",
     "transition",
     "intake_run_started",
@@ -296,22 +290,23 @@ it("runs a real drafter turn against the wide capture, reads only draft/, and pr
     `wrote ${Buffer.byteLength(draftFile("draft/checks/independent.test.ts"))} bytes to draft/checks/independent.test.ts`,
   ])
 
-  // The thread was admitted THROUGH the resolver: the drafter's own installation store
-  // associates it with a workspace whose source digest is the manifest's, which is the
-  // capture the controller staged at the pin and nothing else.
+  // Handed over the protocol: the drafter's own installation store associates the thread
+  // with a workspace whose source digest is the one the controller staged at the pin, and
+  // nothing was written for the drafter to read.
   const threadId = payload(factory, id, "intake_thread_created")?.threadId as string
-  const manifest = payload(factory, id, "drafter_manifest_written") as {
-    path: string
+  const staged = payload(factory, id, "drafter_source_staged") as {
     sourceDigest: string
+    status: string
   }
-  expect(manifest.path).toBe(join(manifestDir, `${id}.json`))
-  expect(manifest.sourceDigest).toMatch(/^[a-f0-9]{64}$/)
+  expect(staged.sourceDigest).toMatch(/^[a-f0-9]{64}$/)
   const store = openWorkspaceInstallationReader(drafterRoot)
   try {
-    expect(store.associations.get(threadId)?.intent.sourceDigest).toBe(manifest.sourceDigest)
+    expect(store.associations.get(threadId)?.intent.sourceDigest).toBe(staged.sourceDigest)
   } finally {
     store.close()
   }
+  expect(existsSync(join(drafterRoot, ".factory"))).toBe(false)
+  expect(process.env.FACTORY_DRAFTER_MANIFEST_DIR).toBeUndefined()
 
   // The controller read only `draft/`: four paths. The wide capture under `repo/` holds
   // over a thousand files and more bytes than the drafter's inspection bound admits, so a
@@ -339,16 +334,13 @@ it("runs a real drafter turn against the wide capture, reads only draft/, and pr
   ])
   expect(evidence.oracleReceipt?.verifierIdentity).toMatch(/^docker:/)
 
-  // Approval: the manifest was dead weight from the moment the thread was admitted, and it
-  // goes when the row leaves intake.
-  expect(existsSync(manifest.path)).toBe(true)
+  // Approval: nothing to remove behind it, on either side.
   const approved = await factory.approveIntake(id, {
     revision: parked.revision,
     taskDigest: parked.taskDigest as string,
   })
   expect(approved).toMatchObject({ ok: true, state: "received" })
-  expect(existsSync(manifest.path)).toBe(false)
-  expect(payload(factory, id, "drafter_manifest_removed")).toEqual({ path: manifest.path })
+  expect(eventTypes(factory, id).filter((type) => type.includes("manifest"))).toEqual([])
 }, 900_000)
 
 it("refuses a three-file draft by name, and the redraft's prompt carries the reason", async () => {
@@ -445,10 +437,8 @@ it("refuses a three-file draft by name, and the redraft's prompt carries the rea
   // The thread is the same one: the second request carries the first turn's tool calls.
   expect(secondTurn.filter((m) => m.role === "tool")).toHaveLength(4)
 
-  // Blocked for good: the manifest went with the row.
-  const manifestPath = (payload(factory, id, "drafter_manifest_written") as { path: string }).path
-  expect(existsSync(manifestPath)).toBe(false)
-  expect(payload(factory, id, "drafter_manifest_removed")).toEqual({ path: manifestPath })
+  // One capture, one upload, for both attempts: the redraft reused the admitted thread.
+  expect(eventTypes(factory, id).filter((type) => type === "drafter_source_staged")).toHaveLength(1)
 }, 900_000)
 
 /** The real reader, built on first use. */

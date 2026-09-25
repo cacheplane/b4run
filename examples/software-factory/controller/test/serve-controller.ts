@@ -1,10 +1,11 @@
-import { mkdirSync, writeFileSync } from "node:fs"
+import { mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { type ServeRuntimeHandle, serveRuntime } from "@b4run/cli"
 import type { ControllerRuntimeOverrides } from "../src/lib/runtime.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
+import { fakeBuilderHandoff, fakeDrafterHandoff } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
 import { shippedPin } from "./temp-repo.ts"
 import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
@@ -81,7 +82,7 @@ export async function serveController(
     readonly drafter?: Omit<FakeWorkerOptions, "outboxDir">
     /**
      * Keep the runtime's REAL capture collaborators (the drafter's wide capture, the
-     * builder's manifest capture and the controller's baseline) instead of the stand-ins
+     * builder's handoff capture and the controller's baseline) instead of the stand-ins
      * below: for a test about where the controller stages what it captures.
      */
     readonly realCaptures?: boolean
@@ -111,9 +112,10 @@ export async function serveController(
   })
   process.env.FACTORY_WORKER_URL = fake.baseUrl
   process.env.FACTORY_STATE_DIR = stateDir
-  process.env.FACTORY_BUILDER_MANIFEST_DIR = join(dir, "builder", "manifests")
+  // Retired: the controller refuses to boot while either is set, and restores them on close.
+  delete process.env.FACTORY_BUILDER_MANIFEST_DIR
+  delete process.env.FACTORY_DRAFTER_MANIFEST_DIR
   process.env.FACTORY_DRAFTER_URL = drafter.baseUrl
-  process.env.FACTORY_DRAFTER_MANIFEST_DIR = join(dir, "drafter", "manifests")
   process.env.FACTORY_WORKER_TOKEN = TEST_WORKER_TOKEN
   // A commit the served controller's repository (this one) holds, so `intake`'s pin check
   // passes without a fetch, and the one the shipped targets hold images at, so a draft
@@ -190,20 +192,10 @@ function captureStandIns(): ControllerRuntimeOverrides {
   return {
     captureBaseline: async () => ({ digest: "a".repeat(64), files: BASELINE }),
     // The pin of a served issue is no commit of any repository: the capture is stood in for,
-    // and the manifest is the file the real writer would leave.
-    writeDrafterManifest: async ({ dir: target, workOrderId, pin }) => {
-      mkdirSync(target, { recursive: true })
-      const path = join(target, `${workOrderId}.json`)
-      writeFileSync(path, `${JSON.stringify({ version: 1, workOrderId, pin })}\n`)
-      return { path, sourceDigest: "c".repeat(64) }
-    },
-    // The builder is a fake too, whose threads resolve nothing: the file stands in for the
-    // capture the real writer would take (and a drafted task's target's is not this lane's).
-    writeBuilderManifest: async ({ dir: target, workOrderId, taskId }) => {
-      mkdirSync(target, { recursive: true })
-      const path = join(target, `${workOrderId}.json`)
-      writeFileSync(path, `${JSON.stringify({ version: 1, workOrderId, taskId })}\n`)
-      return { path, sourceDigest: "d".repeat(64) }
-    },
+    // and uploaded to the fake drafter as the real one would be.
+    captureDrafterHandoff: fakeDrafterHandoff,
+    // The builder is a fake too, whose threads resolve nothing: a small source stands in for
+    // the capture the real one would take (and a drafted task's target's is not this lane's).
+    captureBuilderHandoff: fakeBuilderHandoff,
   }
 }

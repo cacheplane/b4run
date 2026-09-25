@@ -1,11 +1,11 @@
-import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { DRAFTER_UNCONFIGURED } from "../src/lib/controller/workers.ts"
 import { createControllerRuntime } from "../src/lib/runtime.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
-import { noopBuilderManifestWriter } from "./fake-worker-map.ts"
+import { fakeBuilderHandoff, fakeDrafterHandoff } from "./fake-worker-map.ts"
 import { repositoryHead } from "./temp-repo.ts"
 import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
@@ -26,7 +26,6 @@ describe("controller runtime", () => {
     const runtime = createControllerRuntime({
       FACTORY_WORKER_URL: fake.baseUrl,
       FACTORY_STATE_DIR: join(dir, "state"),
-      FACTORY_BUILDER_MANIFEST_DIR: join(dir, "builder", "manifests"),
       FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
     })
     const a = await runtime.factory()
@@ -42,7 +41,6 @@ describe("controller runtime", () => {
     const env = {
       FACTORY_WORKER_URL: fake.baseUrl,
       FACTORY_STATE_DIR: join(dir, "state"),
-      FACTORY_BUILDER_MANIFEST_DIR: join(dir, "builder", "manifests"),
       FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
     }
     const three = createControllerRuntime({
@@ -71,21 +69,16 @@ describe("controller runtime", () => {
     const env = {
       FACTORY_WORKER_URL: fake.baseUrl,
       FACTORY_STATE_DIR: join(dir, "state"),
-      FACTORY_BUILDER_MANIFEST_DIR: join(dir, "builder", "manifests"),
       FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
       FACTORY_WORKER_ROUTE: "/fix#agent",
     }
     const runtime = createControllerRuntime(env, {
-      writeBuilderManifest: noopBuilderManifestWriter,
+      captureBuilderHandoff: fakeBuilderHandoff,
     })
-    expect(runtime.config.builder).toEqual({
-      url: fake.baseUrl,
-      route: "/fix#agent",
-      manifestDir: join(dir, "builder", "manifests"),
-    })
+    expect(runtime.config.builder).toEqual({ url: fake.baseUrl, route: "/fix#agent" })
     const factory = await runtime.factory()
-    // The builder's manifest directory is made at boot.
-    expect(statSync(join(dir, "builder", "manifests")).isDirectory()).toBe(true)
+    // Nothing is made for the builder at boot: no directory is shared with it.
+    expect(existsSync(join(dir, "builder"))).toBe(false)
     const { id } = await factory.create({ taskId: "cli-flags" })
     expect(await factory.dispatch(id)).toMatchObject({ ok: true, state: "dispatched" })
     await fake.waitForRunStart(factory.show(id)?.workerThreadId as string)
@@ -103,6 +96,8 @@ describe("controller runtime", () => {
       ["FACTORY_BUILDER_TARGET", join(dir, "cli-flags.target.json")],
       ["FACTORY_BUILDER_APP_ROOT", join(dir, "builder")],
       ["FACTORY_DRAFTER_APP_ROOT", join(dir, "drafter")],
+      ["FACTORY_BUILDER_MANIFEST_DIR", join(dir, "builder", "manifests")],
+      ["FACTORY_DRAFTER_MANIFEST_DIR", join(dir, "drafter", "manifests")],
     ] as const)
       expect(() => createControllerRuntime({ ...env, [name]: value })).toThrow(`${name} is retired`)
     // The drafter's image is the drafter's: a shared environment still boots, with one line.
@@ -133,7 +128,6 @@ describe("controller runtime", () => {
     const env = {
       FACTORY_WORKER_URL: fake.baseUrl,
       FACTORY_STATE_DIR: join(dir, "state"),
-      FACTORY_BUILDER_MANIFEST_DIR: join(dir, "builder", "manifests"),
       FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
     }
     const issue = {
@@ -155,29 +149,16 @@ describe("controller runtime", () => {
       message: DRAFTER_UNCONFIGURED,
     })
     await without.dispose()
-    // A drafter URL without the manifest directory is a boot refusal, not an unconfigured
-    // intake.
-    expect(() =>
-      createControllerRuntime({ ...env, FACTORY_DRAFTER_URL: drafter?.baseUrl }),
-    ).toThrow("FACTORY_DRAFTER_MANIFEST_DIR is required with FACTORY_DRAFTER_URL")
+    // The drafter's URL alone configures intake.
     const configured = createControllerRuntime(
-      {
-        ...env,
-        FACTORY_DRAFTER_URL: drafter?.baseUrl,
-        FACTORY_DRAFTER_MANIFEST_DIR: join(dir, "drafter", "manifests"),
-      },
+      { ...env, FACTORY_DRAFTER_URL: drafter?.baseUrl },
       {
         // The pin is no commit of any repository: the capture is stood in for.
-        writeDrafterManifest: async ({ dir: target, workOrderId }) => ({
-          path: join(target, `${workOrderId}.json`),
-          sourceDigest: "c".repeat(64),
-        }),
+        captureDrafterHandoff: fakeDrafterHandoff,
       },
     )
-    // The manifest directory is made at boot.
     const factory = await configured.factory()
-    expect(configured.config.drafter?.manifestDir).toBe(join(dir, "drafter", "manifests"))
-    expect(statSync(configured.config.drafter?.manifestDir as string).isDirectory()).toBe(true)
+    expect(configured.config.drafter).toEqual({ url: drafter?.baseUrl, route: "/intake#agent" })
     expect(await factory.intake(id)).toEqual({
       ok: true,
       state: "intake_running",
@@ -186,6 +167,11 @@ describe("controller runtime", () => {
     // The intake thread was created on the DRAFTER, not the builder.
     expect(drafter?.requests.filter((r) => r.path === "/threads")).toHaveLength(1)
     expect(fake.requests.filter((r) => r.path === "/threads")).toHaveLength(0)
+    // And its workspace was uploaded to the DRAFTER, with the token, before its thread.
+    expect(drafter?.requests.find((r) => r.method === "PUT")?.authorization).toBe(
+      `Bearer ${TEST_WORKER_TOKEN}`,
+    )
+    expect(fake.requests.filter((r) => r.method === "PUT")).toHaveLength(0)
     // The real drafter reader asks the DRAFTER's port, with the token and the handed digest's
     // thread; this fake serves no workspace read, so its 404 is a failed run, not a spent
     // attempt, and the row is blocked rather than left running when the runtime is disposed.
@@ -215,7 +201,6 @@ describe("controller runtime", () => {
     const runtime = createControllerRuntime({
       FACTORY_WORKER_URL: fake.baseUrl,
       FACTORY_STATE_DIR: join(blocker, "state"),
-      FACTORY_BUILDER_MANIFEST_DIR: join(dir, "builder", "manifests"),
       FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
     })
     await expect(runtime.factory()).rejects.toThrow()

@@ -3,7 +3,6 @@ import { isTerminal } from "../domain/states.js"
 import type { WorkOrderRow } from "../domain/work-order.js"
 import type { StreamFrame } from "../worker/wire.js"
 import type { ControllerContext } from "./context.js"
-import { removeUnhandedManifest } from "./manifest-files.js"
 
 const isRunState = (state: WorkOrderRow["state"]) => state === "dispatched" || state === "running"
 
@@ -44,9 +43,6 @@ export async function reconcileAll(ctx: ControllerContext): Promise<void> {
         await settleIncompleteDispatch(ctx, row.id, open.operationKey)
         continue
       }
-      // An `intake` that died between its manifest and its thread left a file no thread will
-      // be admitted with; the rerun writes its own.
-      if (open.intent.command === "intake") removeUnhandedManifest(ctx, row.id, "drafter")
       await safeReconcile(ctx, row.id)
       const final = ctx.mustGet(row.id)
       ctx.commands.complete(open.operationKey, {
@@ -79,8 +75,8 @@ async function settleIncompleteDispatch(
 ): Promise<void> {
   const threadId = journalledThreadId(ctx, id)
   if (!threadId) {
-    // The manifest was written and never handed to a thread: nothing will read it.
-    removeUnhandedManifest(ctx, id, "builder")
+    // A source staged and never named by a thread is the builder's to reclaim, once it is
+    // older than its retention window: nothing to remove here.
     ctx.recordEvent(id, "reconciled", { operationKey, resolution: "dispatch_incomplete" })
     ctx.commands.complete(operationKey, {
       ok: false,

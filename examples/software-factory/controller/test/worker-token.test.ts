@@ -28,9 +28,34 @@ const request = (authorization?: string) => ({
   method: "GET",
   url: "/threads/t-1",
   requestedMetadata: undefined,
-  // Not yet on the type (PR 4 adds it as required); harmless before, needed after.
   requestedWorkspace: undefined,
   resuming: false,
+})
+
+const DIGEST = "d".repeat(64)
+/** `PUT /workspace/sources/:digest`: a create with no thread, naming the upload's digest. */
+const upload = (authorization?: string) => ({
+  ...request(authorization),
+  action: "create" as const,
+  operation: "workspace.source.put" as const,
+  threadId: undefined,
+  method: "PUT",
+  url: `/workspace/sources/${DIGEST}`,
+  requestedWorkspace: { sourceDigest: DIGEST },
+})
+/** `POST /threads` naming a staged workspace, uploaded by `uploadedBy`. */
+const create = (uploadedBy: readonly Record<string, unknown>[] | undefined) => ({
+  ...request(`Bearer ${TOKEN}`),
+  action: "create" as const,
+  operation: "thread.create" as const,
+  threadId: undefined,
+  method: "POST",
+  url: "/threads",
+  requestedMetadata: { factoryWorkOrderId: "wo-1" },
+  requestedWorkspace:
+    uploadedBy === undefined
+      ? undefined
+      : { sourceDigest: DIGEST, environmentLinks: [], uploadedBy },
 })
 
 describe("the workers' thread-access policy", () => {
@@ -52,6 +77,44 @@ describe("the workers' thread-access policy", () => {
       "",
     ])
       expect(await policy.fallback(request(wrong))).toEqual({ decision: "deny", status: 403 })
+  })
+
+  it("stamps the controller's uploads as the controller's, and denies anyone else's", async () => {
+    const policy = (await load(TOKEN)).default
+    expect(await policy.fallback(upload(`Bearer ${TOKEN}`))).toEqual({
+      decision: "allow",
+      stamp: { principal: "controller" },
+    })
+    for (const wrong of [undefined, `Bearer ${"u".repeat(40)}`])
+      expect(await policy.fallback(upload(wrong))).toEqual({ decision: "deny", status: 403 })
+  })
+
+  it("admits a create naming a workspace only when the controller uploaded that source", async () => {
+    const policy = (await load(TOKEN)).default
+    // No workspace named: the ordinary create.
+    expect(await policy.fallback(create(undefined))).toEqual({ decision: "allow" })
+    expect(await policy.fallback(create([{ principal: "controller" }]))).toEqual({
+      decision: "allow",
+    })
+    expect(
+      await policy.fallback(create([{ principal: "someone" }, { principal: "controller" }])),
+    ).toEqual({ decision: "allow" })
+    // Never uploaded (or no longer held), or uploaded only under another stamp: refused, with a
+    // body the controller's client reads as a code, never as a thread with no workspace.
+    for (const uploadedBy of [
+      [],
+      [{ principal: "someone" }],
+      [{ principal: "controller", extra: 1 }],
+      [{ principal: ["controller"] }],
+    ]) {
+      const denied = await policy.fallback(create(uploadedBy))
+      expect(denied).toMatchObject({
+        decision: "deny",
+        status: 403,
+        body: { error: { details: { code: "workspace_not_uploaded_by_controller" } } },
+      })
+      expect(JSON.stringify(denied)).not.toContain(TOKEN)
+    }
   })
 
   it("has no per-action handler: every operation goes through the one check", async () => {

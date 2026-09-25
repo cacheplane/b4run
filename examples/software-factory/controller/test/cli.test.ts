@@ -12,8 +12,9 @@ import { createServer, type Server } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
+import { verifySourceBundle } from "@b4run/workspace/node"
 import { afterEach, describe, expect, it } from "vitest"
-import { BuilderManifestSchema } from "../src/lib/builder-manifest.ts"
+import { BuilderHandoffSchema } from "../src/lib/builder-handoff.ts"
 import { openRegistryReader } from "../src/lib/registry/reader.ts"
 import { loadTask, tasksDir } from "../src/lib/targets/catalog.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
@@ -1019,45 +1020,51 @@ esac
     expect(Date.now() - started).toBeLessThan(30_000)
   }, 90_000)
 
-  it("writes a builder manifest without a controller, a registry or a Factory", async () => {
+  it("writes a builder handoff and its source without a controller, a registry or a Factory", async () => {
     dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
     // Deliberately neither variable: a command that still needed one would fail here.
     const { FACTORY_CONTROLLER_URL, FACTORY_STATE_DIR, FACTORY_WORKER_URL, ...rest } = process.env
-    const out = join(dir, "manifests")
+    const out = join(dir, "handoffs")
     const task = loadTask("cli-flags")
     const targetId = task.target.id
 
-    // The per-process target file is retired: one builder serves every target and pin, and
-    // each manifest carries its own target. The command is unknown now.
-    const retired = await failing(
-      run(process.execPath, [tsxBin, cliEntry, "builder-target", "--out", dir], {
-        env: rest,
-        cwd: packageRoot,
-      }),
-    )
-    expect(retired.stderr).toContain("Unknown command builder-target")
+    // The per-process target file and the manifest file are retired: one builder serves every
+    // target and pin, and each work order's workspace is staged over the Agent Protocol.
+    for (const command of ["builder-target", "builder-manifest"]) {
+      const retired = await failing(
+        run(process.execPath, [tsxBin, cliEntry, command, "--out", dir], {
+          env: rest,
+          cwd: packageRoot,
+        }),
+      )
+      expect(retired.stderr).toContain(`Unknown command ${command}`)
+    }
 
-    // The work order defaults to the task: a lane with no controller names the file itself.
+    // The work order defaults to the task: a lane with no controller names the files itself.
     const { stdout } = await run(
       process.execPath,
-      [tsxBin, cliEntry, "builder-manifest", "--task", "cli-flags", "--out", out],
+      [tsxBin, cliEntry, "builder-handoff", "--task", "cli-flags", "--out", out],
       { env: rest, cwd: packageRoot },
     )
-    const { path, sourceDigest } = JSON.parse(stdout)
-    expect(path).toBe(join(out, "cli-flags.json"))
-    const manifest = BuilderManifestSchema.parse(JSON.parse(readFileSync(path, "utf8")))
-    expect(manifest).toMatchObject({ taskId: "cli-flags", workOrderId: "cli-flags", targetId })
+    const written = JSON.parse(stdout)
+    expect(written.handoff).toBe(join(out, "cli-flags.handoff.json"))
+    expect(written.source).toBe(join(out, "cli-flags.source.json"))
+    const handoff = BuilderHandoffSchema.parse(JSON.parse(readFileSync(written.handoff, "utf8")))
+    expect(handoff).toMatchObject({ taskId: "cli-flags", workOrderId: "cli-flags", targetId })
     // The target block: the image prepared at the task's pin, and the pin beside it.
-    expect(manifest.target.pin).toBe(task.target.pin)
-    expect(manifest.target.image).toContain(`:${task.target.pin.slice(0, 12)}-`)
-    expect(manifest.target.policy.network.mode).toBe("deny")
-    expect(sourceDigest).toMatch(/^[a-f0-9]{64}$/)
+    expect(handoff.target.pin).toBe(task.target.pin)
+    expect(handoff.target.image).toContain(`:${task.target.pin.slice(0, 12)}-`)
+    expect(handoff.target.policy.network.mode).toBe("deny")
+    // The source is the body `PUT /workspace/sources/<digest>` takes, under the handoff's digest.
+    const source = verifySourceBundle(JSON.parse(readFileSync(written.source, "utf8")))
+    expect(source.digest).toBe(handoff.workspace.sourceDigest)
+    expect(written.sourceDigest).toBe(source.digest)
     const { stdout: named } = await run(
       process.execPath,
       [
         tsxBin,
         cliEntry,
-        "builder-manifest",
+        "builder-handoff",
         "--task",
         "cli-flags",
         "--work-order",
@@ -1067,34 +1074,35 @@ esac
       ],
       { env: rest, cwd: packageRoot },
     )
-    expect(JSON.parse(named).path).toBe(join(out, "wo-named.json"))
+    expect(JSON.parse(named).handoff).toBe(join(out, "wo-named.handoff.json"))
     expect(
-      BuilderManifestSchema.parse(JSON.parse(readFileSync(join(out, "wo-named.json"), "utf8")))
-        .workOrderId,
+      BuilderHandoffSchema.parse(
+        JSON.parse(readFileSync(join(out, "wo-named.handoff.json"), "utf8")),
+      ).workOrderId,
     ).toBe("wo-named")
   }, 60_000)
 
-  it("writes a builder manifest for a task generated under FACTORY_STATE_DIR", async () => {
+  it("writes a builder handoff for a task generated under FACTORY_STATE_DIR", async () => {
     dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
     const { FACTORY_CONTROLLER_URL, FACTORY_WORKER_URL, ...rest } = process.env
     // A generated task: the shipped one copied under a work-order id, minus reference.patch.
     const generated = join(dir, "state", "tasks", "wo-0123456789abcdef")
     cpSync(join(tasksDir, "cli-flags"), generated, { recursive: true })
     rmSync(join(generated, "reference.patch"))
-    const manifest = JSON.parse(readFileSync(join(generated, "task.json"), "utf8"))
+    const taskFile = JSON.parse(readFileSync(join(generated, "task.json"), "utf8"))
     writeFileSync(
       join(generated, "task.json"),
-      JSON.stringify({ ...manifest, id: "wo-0123456789abcdef" }),
+      JSON.stringify({ ...taskFile, id: "wo-0123456789abcdef" }),
     )
-    const out = join(dir, "manifests")
+    const out = join(dir, "handoffs")
     const { stdout } = await run(
       process.execPath,
-      [tsxBin, cliEntry, "builder-manifest", "--task", "wo-0123456789abcdef", "--out", out],
+      [tsxBin, cliEntry, "builder-handoff", "--task", "wo-0123456789abcdef", "--out", out],
       { env: { ...rest, FACTORY_STATE_DIR: join(dir, "state") }, cwd: packageRoot },
     )
-    const { path } = JSON.parse(stdout)
-    expect(path).toBe(join(out, "wo-0123456789abcdef.json"))
-    expect(BuilderManifestSchema.parse(JSON.parse(readFileSync(path, "utf8"))).taskId).toBe(
+    const { handoff } = JSON.parse(stdout)
+    expect(handoff).toBe(join(out, "wo-0123456789abcdef.handoff.json"))
+    expect(BuilderHandoffSchema.parse(JSON.parse(readFileSync(handoff, "utf8"))).taskId).toBe(
       "wo-0123456789abcdef",
     )
   }, 60_000)

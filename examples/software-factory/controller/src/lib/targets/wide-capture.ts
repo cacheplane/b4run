@@ -158,7 +158,7 @@ function assertCaptureDirectory(instanceDir: string): void {
  * takes as `source.directory`, and must lie under {@link CAPTURES_PREFIX} (see
  * {@link assertCaptureDirectory}); `captureDirectory` in `archive.ts` is how a caller
  * names one. The caller owns it and removes it once the capture has read the bytes into
- * the definition (see `writeDrafterManifest`). The archive mechanics are
+ * the definition (see `captureDrafterHandoff`). The archive mechanics are
  * {@link archiveTreeInto}'s, with the include as an explicit file list and `repo/` as the
  * prefix, so an executable script keeps its bit on disk and the framework records it.
  *

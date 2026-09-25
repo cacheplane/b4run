@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -25,8 +26,9 @@ import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
  * the controller's own captured baseline, verified in the controller's own container, frozen
  * into a bundle and exported.
  *
- * What is real here: the controller's `dispatch` (it writes the work order's builder manifest
- * into the builder's manifest directory and creates the thread with `{ factoryWorkOrderId }`),
+ * What is real here: the controller's `dispatch` (it captures the work order's workspace,
+ * uploads its source to the builder, and creates the thread naming it, with the work order's
+ * target in `factoryBuilder`; no directory is shared),
  * the builder app served by `serveRuntime` for the `cli-flags` target, its per-work-order
  * resolver, its route, tools and permission config, its managed workspace (a
  * `b4-ws-volume-*` published under the builder's installation), the Agent Protocol between
@@ -63,8 +65,8 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
   const repaired = await applyReference()
 
   // The builder: this package's own app, in an isolated root so its installation store and
-  // checkpoints are this test's and nobody else's, served for every target. Its
-  // manifest directory starts empty: `dispatch` writes the work order's manifest there.
+  // checkpoints are this test's and nobody else's, served for every target. It shares no
+  // directory with the controller: `dispatch` hands it the work order over its port.
   builder = await serveBuilder()
   const served = builder
   served.aimock.addFixtures(
@@ -89,7 +91,6 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
       builder: {
         client: createHttpWorkerClient(served.url, { token: TEST_WORKER_TOKEN }),
         reader: reader(),
-        manifestDir: served.manifestDir,
       },
     }),
     exportDir,
@@ -119,19 +120,25 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
   expect(toolCallsSeen(served.aimock)).toEqual(["readFile", "writeFile", "runBash"])
   expect(toolResults(served.aimock)[2]).toContain("b4-fixture-cli-flags")
 
-  // The thread was admitted THROUGH the resolver, from the manifest `dispatch` wrote for this
-  // work order: the builder's installation store associates it with that manifest's digest.
-  // And the manifest is gone once the turn ended: it was needed once, at admission.
-  const written = factory.events(id).find((e) => e.type === "builder_manifest_written")?.payload
-  expect(written?.path).toBe(join(served.manifestDir, `${id}.json`))
+  // Handed over the protocol: the digest the controller staged is the one the builder
+  // recorded when it admitted the thread through its resolver, and nothing was written for
+  // the builder to read.
+  const staged = factory.events(id).find((e) => e.type === "builder_source_staged")?.payload
+  expect(staged?.sourceDigest).toMatch(/^[0-9a-f]{64}$/)
   const installation = openWorkspaceInstallationReader(served.appRoot)
   try {
-    expect(installation.associations.get(threadId)?.intent.sourceDigest).toBe(written?.sourceDigest)
+    expect(installation.associations.get(threadId)?.intent.sourceDigest).toBe(staged?.sourceDigest)
   } finally {
     installation.close()
   }
-  expect(await readdir(served.manifestDir)).toEqual([])
-  expect(factory.events(id).map((e) => e.type)).toContain("builder_manifest_removed")
+  expect(existsSync(join(served.appRoot, ".factory"))).toBe(false)
+  expect(process.env.FACTORY_BUILDER_MANIFEST_DIR).toBeUndefined()
+  expect(
+    factory
+      .events(id)
+      .map((e) => e.type)
+      .filter((type) => type.includes("manifest")),
+  ).toEqual([])
 
   // Read while the thread is IDLE BETWEEN TURNS, with its session container still alive:
   // one of the two states the read surface is specified for, and the one `docker exec` into
@@ -170,8 +177,8 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
       AbortSignal.timeout(120_000),
     ),
   ).rejects.toMatchObject({ code: "source_mismatch" })
-  // Reading disturbed nothing, and the manifest's removal cost the thread nothing: the
-  // builder's next turn runs its tools in the same session and workspace, admitted long ago.
+  // Reading disturbed nothing: the builder's next turn runs its tools in the same session
+  // and workspace, admitted long ago.
   served.aimock.addFixtures(
     script()
       .user("Confirm the file.")

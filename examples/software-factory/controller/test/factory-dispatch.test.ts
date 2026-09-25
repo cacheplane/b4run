@@ -14,7 +14,7 @@ import {
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
-import { fakeWorkerMap, noopBuilderManifestWriter } from "./fake-worker-map.ts"
+import { fakeBuilderHandoff, fakeWorkerMap } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
 import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
@@ -63,7 +63,7 @@ async function boot(
         reader,
       },
     }),
-    writeBuilderManifest: noopBuilderManifestWriter,
+    captureBuilderHandoff: fakeBuilderHandoff,
     exportDir: join(dir, "out"),
     artifactsDir: join(dir, "artifacts"),
     verifier: createFakeVerifier({ verdict: "pass" }),
@@ -124,7 +124,7 @@ describe("create and dispatch", () => {
       .map((e) => `${e.type}:${String(e.payload.event ?? "")}`)
     expect(types).toEqual([
       "created:",
-      "builder_manifest_written:",
+      "builder_source_staged:",
       "thread_created:",
       "transition:dispatch_committed",
       "transition:run_started",
@@ -211,7 +211,7 @@ describe("create and dispatch", () => {
           reader,
         },
       }),
-      writeBuilderManifest: noopBuilderManifestWriter,
+      captureBuilderHandoff: fakeBuilderHandoff,
       exportDir: join(dir, "out"),
       artifactsDir: join(dir, "artifacts"),
       verifier: createFakeVerifier({ verdict: "pass" }),
@@ -275,7 +275,7 @@ describe("create and dispatch", () => {
           reader,
         },
       }),
-      writeBuilderManifest: noopBuilderManifestWriter,
+      captureBuilderHandoff: fakeBuilderHandoff,
       exportDir: join(dir, "out"),
       artifactsDir: join(dir, "artifacts"),
       verifier: createFakeVerifier({ verdict: "pass" }),

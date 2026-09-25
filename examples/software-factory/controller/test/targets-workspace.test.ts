@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { isFactoryImage } from "../src/lib/builder-manifest.ts"
+import { isFactoryImage } from "../src/lib/builder-handoff.ts"
 import { imageTag, type Task } from "../src/lib/targets/catalog.ts"
 import {
   drafterInspectionOptions,
