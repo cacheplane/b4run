@@ -319,8 +319,11 @@ it("with motion on, a quick pick or answer kills the running trace and the state
       id,
     ).toEqual([])
     expect(
-      gates.every((node) => (node as HTMLElement).style.opacity === ""),
+      gates.map((node) => {
+        const { opacity, transform } = (node as HTMLElement).style
+        return { opacity, transform }
+      }),
       id,
-    ).toBe(true)
+    ).toEqual(gates.map(() => ({ opacity: "", transform: "" })))
   }
 })
