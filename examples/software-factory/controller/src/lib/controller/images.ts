@@ -52,6 +52,32 @@ export function bindingMoved(
   }
 }
 
+/**
+ * Is a dispatch that began by preparing an image still going on, by its journal lines
+ * (`events` after the caller's mark)? From `image_prepare_started` until the dispatch moves
+ * the row (`transition`) or refuses (`dispatch_refused`); the build's own end is not the
+ * dispatch's, which still captures, uploads and creates the thread.
+ */
+export function dispatchPreparing(events: readonly Pick<FactoryEvent, "type">[]): boolean {
+  let preparing = false
+  for (const { type } of events) {
+    if (type === "image_prepare_started") preparing = true
+    else if (type === "transition" || type === "dispatch_refused") preparing = false
+  }
+  return preparing
+}
+
+/** The longest wait bound (`deadlineMs`: queue and build) any `image_prepare_started` in `events` journalled. */
+export function imageWaitBoundMs(
+  events: readonly Pick<FactoryEvent, "type" | "payload">[],
+): number {
+  let bound = 0
+  for (const event of events)
+    if (event.type === "image_prepare_started" && typeof event.payload.deadlineMs === "number")
+      bound = Math.max(bound, event.payload.deadlineMs)
+  return bound
+}
+
 /** The registry the factory builds through: the one `loadTarget` reads, never a second one. */
 export function requireImages(): ImageRegistry {
   const registry = configuredImages()

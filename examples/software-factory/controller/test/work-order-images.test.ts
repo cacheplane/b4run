@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { boundImageOf } from "../src/lib/controller/images.ts"
+import { boundImageOf, dispatchPreparing, imageWaitBoundMs } from "../src/lib/controller/images.ts"
 import type { FactoryEvent } from "../src/lib/domain/work-order.ts"
 
 const image = (n: string) => ({
@@ -36,5 +36,47 @@ describe("boundImageOf", () => {
     expect(() =>
       boundImageOf([event("image_bound", { ...bound("a"), image: { localId: "x" } })]),
     ).toThrow()
+  })
+})
+
+describe("imageWaitBoundMs", () => {
+  it("is the longest journalled wait bound, or 0", () => {
+    expect(imageWaitBoundMs([event("transition", {})])).toBe(0)
+    expect(
+      imageWaitBoundMs([
+        event("image_prepare_started", { deadlineMs: 5_400_000 }),
+        event("image_prepare_started", { deadlineMs: 90_000 }),
+      ]),
+    ).toBe(5_400_000)
+  })
+})
+
+describe("dispatchPreparing", () => {
+  it("is true from an image build's start until the dispatch moves the row or refuses", () => {
+    expect(dispatchPreparing([])).toBe(false)
+    expect(dispatchPreparing([event("image_prepare_started", {})])).toBe(true)
+    // The build ending is not the dispatch ending: the thread is still to be created.
+    expect(
+      dispatchPreparing([
+        event("image_prepare_started", {}),
+        event("image_prepared", {}),
+        event("image_bound", {}),
+      ]),
+    ).toBe(true)
+    for (const end of ["transition", "dispatch_refused"])
+      expect(
+        dispatchPreparing([
+          event("image_prepare_started", {}),
+          event("image_prepared", {}),
+          event(end, {}),
+        ]),
+      ).toBe(false)
+    expect(
+      dispatchPreparing([
+        event("image_prepare_started", {}),
+        event("dispatch_refused", {}),
+        event("image_prepare_started", {}),
+      ]),
+    ).toBe(true)
   })
 })

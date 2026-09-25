@@ -455,6 +455,8 @@ describe("the task's image at dispatch", () => {
       expect(refused.message).toMatch(
         /^the image of target cli-flags at [0-9a-f]{40} could not be built: .*docker build failed \(build log: artifact [0-9a-f]{64}\)$/,
       )
+      const [journalled] = eventsOf(id, "dispatch_refused")
+      expect(journalled?.payload).toEqual({ message: refused.message })
       expect(fake.requests.filter((r) => r.path === "/threads")).toHaveLength(0)
       expect(await factory.dispatch(id)).toMatchObject({ ok: true, state: "dispatched" })
       expect(images.builder.requests).toHaveLength(2)

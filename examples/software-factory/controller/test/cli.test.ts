@@ -531,6 +531,49 @@ esac
     expect(await pollState(stateDir, id, () => true)).toBe("awaiting_approval")
   }, 90_000)
 
+  it("follows a dispatch that is still building its image when its request times out", async () => {
+    const builder = fakeImageBuilder()
+    builder.hold()
+    const imagesDir = mkdtempSync(join(tmpdir(), "factory-cli-images-"))
+    const images = openImageRegistry({
+      path: join(imagesDir, "images.sqlite"),
+      builder,
+      platform: "linux/arm64",
+    })
+    // Configured before the boot, as in the cancel-while-building test: the served controller
+    // builds through this registry, and the test's own catalog reads agree with it.
+    const restore = useImages(images)
+    try {
+      const { env, stateDir } = await boot()
+      const { stdout: createdOut } = await run(
+        process.execPath,
+        [tsxBin, cliEntry, "create", "--task", "cli-flags"],
+        { env, cwd: packageRoot },
+      )
+      const id = JSON.parse(createdOut).row.id as string
+      // The build outlives the request (500 ms) and the arrival window (1 s): only the journal
+      // says the request arrived and the work goes on.
+      setTimeout(() => builder.release(), 3_000)
+      const { stdout, stderr } = await run(process.execPath, [tsxBin, cliEntry, "dispatch", id], {
+        env: {
+          ...env,
+          FACTORY_CLI_REQUEST_TIMEOUT_MS: "500",
+          FACTORY_CLI_ARRIVAL_WINDOW_MS: "1000",
+        },
+        cwd: packageRoot,
+      })
+      expect(stderr).toContain("the request ended before its answer")
+      expect(stderr).toContain("image_prepare_started")
+      expect(JSON.parse(stdout)).toMatchObject({ ok: true, state: "awaiting_approval" })
+      expect(await pollState(stateDir, id, () => true)).toBe("awaiting_approval")
+    } finally {
+      builder.release()
+      restore()
+      images.close()
+      rmSync(imagesDir, { recursive: true, force: true })
+    }
+  }, 90_000)
+
   it("follows an approve past its request timeout: arrival and the export read from the registry", async () => {
     // Approve re-verifies with the row still `awaiting_approval` at its revision (about 20
     // minutes on the `cli` target), so the live run's CLI timed out and a repeat was refused

@@ -866,6 +866,182 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     return row
   }
 
+  /** `Factory.dispatch` without the journalled refusal the method adds around it. */
+  async function dispatchOnce(
+    id: string,
+    operationKey?: string,
+    dispatchOptions: { readonly signal?: AbortSignal } = {},
+  ): Promise<CommandOutcome> {
+    let row = mustGet(id)
+    // An approved generated task is bound to the digest the person consented to, and the
+    // gate recomputed it at approval; this is the other end of that binding, so the window
+    // between approval and dispatch cannot hand the builder a task nobody approved.
+    // Checked BEFORE the key is spent, as `intake`'s config check is: what is on disk is
+    // not a function of the row's revision, and a refusal recorded under
+    // `dispatch:<id>:<revision>` would replay to the dispatch after the file is restored.
+    const changed = approvedDigestRefusal(id, row, "dispatch")
+    if (changed !== undefined) return changed
+    // The image the task runs in (spec item 4), before anything is spent: its binding if it
+    // has one the daemon still holds, else built (or re-verified) and bound. The row waits in
+    // `received`, which is not active, so a build costs its budget nothing. A cancel (any
+    // transition out of `received`) or the caller's own signal (the route, cancelled by the
+    // runtime when the operator cancels) abandons the wait; the caller's abort also cancels
+    // the work order, as `settleOutcome` does once a dispatch is running. Before the key: a
+    // failed build is not a function of the row's revision, and the dispatch after it must
+    // build again, not replay this refusal.
+    let bound: BoundImage | undefined
+    if (row.state === "received" && !options.tasks) {
+      const signal = AbortSignal.any([
+        imageWaitSignal(id),
+        ...(dispatchOptions.signal !== undefined ? [dispatchOptions.signal] : []),
+      ])
+      const image = await prepareDispatchImage(id, row, signal)
+      if (dispatchOptions.signal?.aborted && isNonTerminalAndNotCancelling(mustGet(id)))
+        await factory.cancel(id, `cancel:${id}:aborted-dispatch`).catch(() => undefined)
+      row = mustGet(id)
+      if (image !== undefined && "refusal" in image)
+        return { ok: false, state: row.state, message: image.refusal }
+      if (row.state !== "received")
+        return { ok: false, state: row.state, message: `Cannot dispatch from ${row.state}` }
+      bound = image?.bound
+      // The wait may have been long: what the person approved must still be what is on disk.
+      const changedDuring = approvedDigestRefusal(id, row, "dispatch_after_image")
+      if (changedDuring !== undefined) return changedDuring
+    }
+    // Refuse rather than send an empty prompt: a worker asked to fix nothing still burns a
+    // thread and a run, and the resulting turn would fail in a way that looks like the
+    // worker. Re-resolved here rather than trusted from create: the task may have stopped
+    // loading since (its target re-prepared, say). Resolved BEFORE the key is spent: the
+    // lookup is where the target's pin is fetched into a shallow checkout (`loadTarget`'s
+    // `ensurePin`), and a fetch that fails is transient, not a function of the row's
+    // revision; the dispatch after the network mends is not the replay of this refusal. It
+    // also makes the capture below depend on nothing but the disk. The cause rides
+    // along so an unprepared target is not reported as a task nobody has heard of.
+    let input: string | Error | undefined
+    if (row.state === "received") {
+      input = prompt(row.taskId)
+      if (input instanceof Error)
+        return {
+          ok: false,
+          state: row.state,
+          message: options.tasks
+            ? `Unknown task ${row.taskId}`
+            : `Unknown task ${row.taskId}: ${input.message}`,
+        }
+    }
+    // A budget the verification alone may exhaust is refused before a thread and a turn are
+    // spent, and before the key: the remedy (raise FACTORY_MAX_ACTIVE_MS, create again) is
+    // the operator's, and a target re-prepared with a shorter deadline dispatches this row.
+    // What counts is what is LEFT: the intake and any earlier attempt spent from it.
+    if (row.state === "received") {
+      const refusal = budgetRefusal(id, row, "dispatch")
+      if (refusal !== undefined) return { ok: false, state: row.state, message: refusal }
+    }
+    const key = operationKey ?? `dispatch:${id}:${row.revision}`
+    const begun = commands.begin(key, id, { command: "dispatch", args: {} }, iso())
+    if (begun.status === "done") return begun.outcome
+    if (begun.status === "in_flight") throw new CommandInFlightError(key)
+    if (row.state !== "received")
+      return finish(key, {
+        ok: false,
+        state: row.state,
+        message: `Cannot dispatch from ${row.state}`,
+      })
+    // `retry` refuses past the cap, so only a row created with a cap it has already met
+    // (none today) reaches this; kept so the cap is the dispatch's to enforce, not the
+    // caller's to remember.
+    if (row.candidateAttempts >= row.maxCandidateAttempts)
+      return finish(key, {
+        ok: false,
+        state: row.state,
+        message: noAttemptsLeft(row),
+      })
+    // The pre-key lookup ran for every `received` row, and a row in any other state was
+    // refused just above; resolved again only if a refactor ever lets one through unset.
+    input ??= prompt(row.taskId)
+    if (input instanceof Error)
+      return finish(key, {
+        ok: false,
+        state: row.state,
+        message: options.tasks
+          ? `Unknown task ${row.taskId}`
+          : `Unknown task ${row.taskId}: ${input.message}`,
+      })
+    // The prompt loaded, so the task loads and names its target; the one builder serves it
+    // at its pin, from the workspace staged below.
+    const worker = workerFor(row)
+    // The workspace first: the builder serves only the staged source the thread names, and
+    // refuses a create naming one it does not hold. The pin is already in the object store
+    // (the prompt lookup above fetched it), so this fails only on the capture or the
+    // upload: under the key.
+    let captured: CapturedBuilderHandoff
+    try {
+      captured = await (options.captureBuilderHandoff ?? captureBuilderHandoffFromCatalog)({
+        taskId: row.taskId,
+        workOrderId: id,
+        signal: abort.signal,
+        ...(bound !== undefined ? { tag: bound.tag } : {}),
+      })
+      const status = await worker.client.uploadSource(captured.workspace.source, abort.signal)
+      recordEvent(id, "builder_source_staged", {
+        sourceDigest: captured.handoff.workspace.sourceDigest,
+        status,
+      })
+    } catch (error) {
+      recordEvent(id, "builder_source_failed", { error: String(error) })
+      return finish(key, {
+        ok: false,
+        state: row.state,
+        message: `builder workspace could not be staged: ${String(error)}`,
+      })
+    }
+    let threadId: string
+    try {
+      threadId = await worker.client.createThread(
+        { factoryWorkOrderId: id, factoryBuilder: captured.handoff },
+        stagedReferenceOf(captured.workspace),
+        abort.signal,
+      )
+    } catch (error) {
+      // Nothing to remove: an upload no thread names is reclaimed by the builder once it
+      // is older than its retention window.
+      return finish(key, {
+        ok: false,
+        state: row.state,
+        message: `Thread creation failed: ${String(error)}`,
+      })
+    }
+    // Journalled before the transition so a crash in between still leaves the thread id in
+    // the event log: reconciliation can adopt the orphan thread instead of leaking it.
+    recordEvent(id, "thread_created", { threadId })
+    let dispatched: WorkOrderRow
+    try {
+      dispatched = transition(id, "dispatch_committed", {
+        workerThreadId: threadId,
+        workerRoute: worker.route,
+      })
+    } catch (error) {
+      // A cancel moved the row while the worker was creating the thread. The row cannot hold
+      // the thread now, so end it here rather than leak a thread nothing observes.
+      if (!(error instanceof IllegalTransitionError)) throw error
+      recordEvent(id, "thread_orphaned", { threadId })
+      try {
+        await worker.client.cancel(threadId)
+      } catch (cancelError) {
+        recordEvent(id, "worker_cancel_failed", { threadId, error: String(cancelError) })
+      }
+      await abandonThread(id, worker.client, threadId)
+      return finish(key, {
+        ok: false,
+        state: mustGet(id).state,
+        message: "Work order changed state while dispatching",
+      })
+    }
+    const outcome = finish(key, { ok: true, state: dispatched.state, message: "Dispatched" })
+    track(id, startRun(id, input))
+    return outcome
+  }
+
   const factory: Factory = {
     async create({ taskId, operationKey }) {
       // Shipped catalog only, decided BEFORE the key is spent. The search path also resolves
@@ -1155,174 +1331,17 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       return outcome
     },
 
-    async dispatch(id, operationKey, dispatchOptions = {}) {
-      let row = mustGet(id)
-      // An approved generated task is bound to the digest the person consented to, and the
-      // gate recomputed it at approval; this is the other end of that binding, so the window
-      // between approval and dispatch cannot hand the builder a task nobody approved.
-      // Checked BEFORE the key is spent, as `intake`'s config check is: what is on disk is
-      // not a function of the row's revision, and a refusal recorded under
-      // `dispatch:<id>:<revision>` would replay to the dispatch after the file is restored.
-      const changed = approvedDigestRefusal(id, row, "dispatch")
-      if (changed !== undefined) return changed
-      // The image the task runs in (spec item 4), before anything is spent: its binding if it
-      // has one the daemon still holds, else built (or re-verified) and bound. The row waits in
-      // `received`, which is not active, so a build costs its budget nothing. A cancel (any
-      // transition out of `received`) or the caller's own signal (the route, cancelled by the
-      // runtime when the operator cancels) abandons the wait; the caller's abort also cancels
-      // the work order, as `settleOutcome` does once a dispatch is running. Before the key: a
-      // failed build is not a function of the row's revision, and the dispatch after it must
-      // build again, not replay this refusal.
-      let bound: BoundImage | undefined
-      if (row.state === "received" && !options.tasks) {
-        const signal = AbortSignal.any([
-          imageWaitSignal(id),
-          ...(dispatchOptions.signal !== undefined ? [dispatchOptions.signal] : []),
-        ])
-        const image = await prepareDispatchImage(id, row, signal)
-        if (dispatchOptions.signal?.aborted && isNonTerminalAndNotCancelling(mustGet(id)))
-          await factory.cancel(id, `cancel:${id}:aborted-dispatch`).catch(() => undefined)
-        row = mustGet(id)
-        if (image !== undefined && "refusal" in image)
-          return { ok: false, state: row.state, message: image.refusal }
-        if (row.state !== "received")
-          return { ok: false, state: row.state, message: `Cannot dispatch from ${row.state}` }
-        bound = image?.bound
-        // The wait may have been long: what the person approved must still be what is on disk.
-        const changedDuring = approvedDigestRefusal(id, row, "dispatch_after_image")
-        if (changedDuring !== undefined) return changedDuring
-      }
-      // Refuse rather than send an empty prompt: a worker asked to fix nothing still burns a
-      // thread and a run, and the resulting turn would fail in a way that looks like the
-      // worker. Re-resolved here rather than trusted from create: the task may have stopped
-      // loading since (its target re-prepared, say). Resolved BEFORE the key is spent: the
-      // lookup is where the target's pin is fetched into a shallow checkout (`loadTarget`'s
-      // `ensurePin`), and a fetch that fails is transient, not a function of the row's
-      // revision; the dispatch after the network mends is not the replay of this refusal. It
-      // also makes the capture below depend on nothing but the disk. The cause rides
-      // along so an unprepared target is not reported as a task nobody has heard of.
-      let input: string | Error | undefined
-      if (row.state === "received") {
-        input = prompt(row.taskId)
-        if (input instanceof Error)
-          return {
-            ok: false,
-            state: row.state,
-            message: options.tasks
-              ? `Unknown task ${row.taskId}`
-              : `Unknown task ${row.taskId}: ${input.message}`,
-          }
-      }
-      // A budget the verification alone may exhaust is refused before a thread and a turn are
-      // spent, and before the key: the remedy (raise FACTORY_MAX_ACTIVE_MS, create again) is
-      // the operator's, and a target re-prepared with a shorter deadline dispatches this row.
-      // What counts is what is LEFT: the intake and any earlier attempt spent from it.
-      if (row.state === "received") {
-        const refusal = budgetRefusal(id, row, "dispatch")
-        if (refusal !== undefined) return { ok: false, state: row.state, message: refusal }
-      }
-      const key = operationKey ?? `dispatch:${id}:${row.revision}`
-      const begun = commands.begin(key, id, { command: "dispatch", args: {} }, iso())
-      if (begun.status === "done") return begun.outcome
-      if (begun.status === "in_flight") throw new CommandInFlightError(key)
-      if (row.state !== "received")
-        return finish(key, {
-          ok: false,
-          state: row.state,
-          message: `Cannot dispatch from ${row.state}`,
-        })
-      // `retry` refuses past the cap, so only a row created with a cap it has already met
-      // (none today) reaches this; kept so the cap is the dispatch's to enforce, not the
-      // caller's to remember.
-      if (row.candidateAttempts >= row.maxCandidateAttempts)
-        return finish(key, {
-          ok: false,
-          state: row.state,
-          message: noAttemptsLeft(row),
-        })
-      // The pre-key lookup ran for every `received` row, and a row in any other state was
-      // refused just above; resolved again only if a refactor ever lets one through unset.
-      input ??= prompt(row.taskId)
-      if (input instanceof Error)
-        return finish(key, {
-          ok: false,
-          state: row.state,
-          message: options.tasks
-            ? `Unknown task ${row.taskId}`
-            : `Unknown task ${row.taskId}: ${input.message}`,
-        })
-      // The prompt loaded, so the task loads and names its target; the one builder serves it
-      // at its pin, from the workspace staged below.
-      const worker = workerFor(row)
-      // The workspace first: the builder serves only the staged source the thread names, and
-      // refuses a create naming one it does not hold. The pin is already in the object store
-      // (the prompt lookup above fetched it), so this fails only on the capture or the
-      // upload: under the key.
-      let captured: CapturedBuilderHandoff
-      try {
-        captured = await (options.captureBuilderHandoff ?? captureBuilderHandoffFromCatalog)({
-          taskId: row.taskId,
-          workOrderId: id,
-          signal: abort.signal,
-          ...(bound !== undefined ? { tag: bound.tag } : {}),
-        })
-        const status = await worker.client.uploadSource(captured.workspace.source, abort.signal)
-        recordEvent(id, "builder_source_staged", {
-          sourceDigest: captured.handoff.workspace.sourceDigest,
-          status,
-        })
-      } catch (error) {
-        recordEvent(id, "builder_source_failed", { error: String(error) })
-        return finish(key, {
-          ok: false,
-          state: row.state,
-          message: `builder workspace could not be staged: ${String(error)}`,
-        })
-      }
-      let threadId: string
-      try {
-        threadId = await worker.client.createThread(
-          { factoryWorkOrderId: id, factoryBuilder: captured.handoff },
-          stagedReferenceOf(captured.workspace),
-          abort.signal,
-        )
-      } catch (error) {
-        // Nothing to remove: an upload no thread names is reclaimed by the builder once it
-        // is older than its retention window.
-        return finish(key, {
-          ok: false,
-          state: row.state,
-          message: `Thread creation failed: ${String(error)}`,
-        })
-      }
-      // Journalled before the transition so a crash in between still leaves the thread id in
-      // the event log: reconciliation can adopt the orphan thread instead of leaking it.
-      recordEvent(id, "thread_created", { threadId })
-      let dispatched: WorkOrderRow
-      try {
-        dispatched = transition(id, "dispatch_committed", {
-          workerThreadId: threadId,
-          workerRoute: worker.route,
-        })
-      } catch (error) {
-        // A cancel moved the row while the worker was creating the thread. The row cannot hold
-        // the thread now, so end it here rather than leak a thread nothing observes.
-        if (!(error instanceof IllegalTransitionError)) throw error
-        recordEvent(id, "thread_orphaned", { threadId })
-        try {
-          await worker.client.cancel(threadId)
-        } catch (cancelError) {
-          recordEvent(id, "worker_cancel_failed", { threadId, error: String(cancelError) })
-        }
-        await abandonThread(id, worker.client, threadId)
-        return finish(key, {
-          ok: false,
-          state: mustGet(id).state,
-          message: "Work order changed state while dispatching",
-        })
-      }
-      const outcome = finish(key, { ok: true, state: dispatched.state, message: "Dispatched" })
-      track(id, startRun(id, input))
+    async dispatch(id, operationKey, dispatchOptions) {
+      const mark = store.events(id).at(-1)?.seq ?? 0
+      const outcome = await dispatchOnce(id, operationKey, dispatchOptions)
+      // A refusal after an image build started for this dispatch is journalled, so a caller
+      // that lost the request (the CLI's fallback) can tell a dispatch that ended in `received`
+      // from one still preparing its image. Other refusals write nothing new, as before.
+      if (
+        !outcome.ok &&
+        store.events(id).some((e) => e.seq > mark && e.type === "image_prepare_started")
+      )
+        recordEvent(id, "dispatch_refused", { message: outcome.message })
       return outcome
     },
 
