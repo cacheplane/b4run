@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process"
 import type { CapturedWorkspaceDefinition } from "@b4run/workspace"
 import { verifyCapturedWorkspaceDefinition } from "@b4run/workspace/node"
 import { z } from "zod"
@@ -219,4 +220,114 @@ export function stagedBuilderWorkspace(
       `the staged workspace ${got} is not the one work order ${handoff.workOrderId} names (${named})`,
     )
   return verifyCapturedWorkspaceDefinition(staged)
+}
+
+/**
+ * The labels every factory image build stamps (the controller's `dockerImageBuilder`): the
+ * target and full pin the image was prepared for, and its full recipe key. They live in the
+ * image config, which the image id content-addresses.
+ */
+export const FACTORY_LABELS = {
+  target: "b4.factory.target",
+  pin: "b4.factory.pin",
+  key: "b4.factory.key",
+} as const
+
+/** An image id's labels (`{}` when it has none), or null when the daemon does not hold it. */
+export type InspectLabels = (id: string) => Promise<Readonly<Record<string, string>> | null>
+
+/**
+ * The daemon's answer for `id`, read by id. Fails closed: any error other than the daemon
+ * saying it holds no such image, and any answer that is not a string-valued object, rejects.
+ */
+export const dockerLabels: InspectLabels = (id) =>
+  new Promise((resolve, reject) => {
+    execFile(
+      "docker",
+      ["image", "inspect", "--format", "{{json .Config.Labels}}", id],
+      { timeout: 30_000 },
+      (error, stdout, stderr) => {
+        if (error) {
+          if (/No such image/i.test(String(stderr))) resolve(null)
+          else
+            reject(
+              new Error(
+                `docker image inspect ${id} failed: ${String(stderr).trim() || error.message}`,
+                { cause: error },
+              ),
+            )
+          return
+        }
+        try {
+          const parsed: unknown = JSON.parse(stdout)
+          if (parsed === null) return resolve({})
+          if (
+            typeof parsed !== "object" ||
+            Array.isArray(parsed) ||
+            !Object.values(parsed).every((value) => typeof value === "string")
+          )
+            throw new Error("labels are not a string map")
+          resolve(parsed as Record<string, string>)
+        } catch (cause) {
+          reject(new Error(`docker image inspect ${id} answered unreadable labels`, { cause }))
+        }
+      },
+    )
+  })
+
+const RECIPE_KEY = /^[0-9a-f]{64}$/
+
+/**
+ * Refuse, by name, the handoff's image when its build labels are not the handoff's own target,
+ * full pin and a recipe key whose prefix is the tag's key segment. An id alone binds no target:
+ * the provider admits any id the daemon holds. Read by id, so the labels are the image's own
+ * (the id content-addresses the config they live in) and nothing can change between this check
+ * and the run. Whoever can build or load images on the daemon can forge labels; that is the
+ * bound the tag shape had before.
+ */
+export async function assertFactoryImage(
+  handoff: BuilderHandoff,
+  inspect: InspectLabels = dockerLabels,
+): Promise<void> {
+  const id = handoff.target.image
+  const labels = await inspect(id)
+  if (labels === null) throw new Error(`image ${id} is not on this daemon`)
+  if (!Object.hasOwn(labels, FACTORY_LABELS.target))
+    throw new Error(`image ${id} carries no factory labels: it was not built by the factory`)
+  const label = (name: string) => (Object.hasOwn(labels, name) ? labels[name] : undefined)
+  const [, , , key] = FACTORY_IMAGE.exec(handoff.target.tag) ?? []
+  const problems: string[] = []
+  const target = label(FACTORY_LABELS.target)
+  if (target !== handoff.targetId) problems.push(`target ${target}, not ${handoff.targetId}`)
+  const pin = label(FACTORY_LABELS.pin)
+  if (pin !== handoff.target.pin) problems.push(`pin ${pin}, not ${handoff.target.pin}`)
+  const built = label(FACTORY_LABELS.key) ?? ""
+  if (key === undefined || !RECIPE_KEY.test(built) || !built.startsWith(key))
+    problems.push(`recipe key ${built.slice(0, 12)}…, not ${key ?? "(no key in the tag)"}…`)
+  if (problems.length > 0) throw new Error(`image ${id} was built for ${problems.join("; ")}`)
+}
+
+/**
+ * The builder's whole per-thread sandbox, from the thread's handoff: what `b4.config.ts`'s
+ * `sandbox.thread` returns. The handoff is parsed and the staged workspace verified first (no
+ * daemon needed to refuse either), then the image's build labels are checked against the
+ * handoff, all before the framework resolves the image or starts anything. `inspect` is a test
+ * seam; the config passes none, so the daemon is asked.
+ */
+export async function builderThreadSandbox(
+  thread: {
+    readonly metadata: Readonly<Record<string, unknown>>
+    readonly staged?: CapturedWorkspaceDefinition | undefined
+  },
+  options: { readonly inspect?: InspectLabels } = {},
+) {
+  const handoff = builderHandoffOf(thread.metadata)
+  const workspace = stagedBuilderWorkspace(thread.staged, handoff)
+  await assertFactoryImage(handoff, options.inspect)
+  return {
+    workspace,
+    environment: { image: handoff.target.image },
+    policy: handoff.target.policy,
+    permissions: { allow: handoff.target.permissions },
+  }
 }

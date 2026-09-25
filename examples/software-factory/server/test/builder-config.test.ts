@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url"
 import type { CapturedWorkspaceDefinition } from "@b4run/workspace"
 import { createSourceBundle } from "@b4run/workspace/node"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import type { BuilderHandoff } from "../src/builder-handoff.ts"
+import type { BuilderHandoff, InspectLabels } from "../src/builder-handoff.ts"
 
 /**
  * The builder's config reads nothing per work order from disk: its thread resolver is a
@@ -102,6 +102,24 @@ const metadataOf = (order: WorkOrder, handoff: unknown = order.handoff) => ({
   factoryWorkOrderId: order.handoff.workOrderId,
   factoryBuilder: handoff,
 })
+/** The labels a factory build stamps, for `handoff`: what a fake daemon answers for its id. */
+const labelsOf = (handoff: BuilderHandoff): Record<string, string> => ({
+  "b4.factory.target": handoff.targetId,
+  "b4.factory.pin": handoff.target.pin,
+  "b4.factory.key": `${handoff.target.tag.slice(-12)}${"0".repeat(52)}`,
+})
+/** A fake daemon: each id's labels, or null (not held) for an id it was not given. */
+const inspectFor =
+  (answers: Record<string, Record<string, string> | null>): InspectLabels =>
+  async (id) =>
+    Object.hasOwn(answers, id) ? (answers[id] ?? null) : null
+type ResolverThread = ReturnType<typeof thread>
+/**
+ * The builder's thread resolver against an honest daemon: one holding, under each thread's
+ * handoff's image id, the labels the factory stamped for that handoff. The config's own
+ * resolver is `builderThreadSandbox` with the real daemon (asserted by text below), which a
+ * unit test does not reach.
+ */
 const resolver = async () => {
   const sandbox = (await loadConfig()).sandbox
   // A thread resolver, not a workspace resolver: the bytes, the image, the policy and the
@@ -109,7 +127,12 @@ const resolver = async () => {
   if (typeof sandbox?.thread !== "function")
     throw new Error("builder config must resolve each thread's whole sandbox")
   expect(sandbox.workspace).toBeUndefined()
-  return sandbox.thread
+  const { builderThreadSandbox } = await import("../src/builder-handoff.ts")
+  return (t: ResolverThread) => {
+    const raw = (t.metadata as { factoryBuilder?: BuilderHandoff }).factoryBuilder
+    const honest = raw?.target?.image !== undefined ? { [raw.target.image]: labelsOf(raw) } : {}
+    return builderThreadSandbox(t, { inspect: inspectFor(honest) })
+  }
 }
 const digestOf = (resolved: unknown) =>
   (resolved as { workspace: { source: { digest: string } } }).workspace.source.digest
@@ -299,6 +322,93 @@ describe("the builder's thread resolver", () => {
     tampered.source.files[0].base64 = Buffer.from("tampered").toString("base64")
     const resolve = await resolver()
     await expect(resolve(thread(metadataOf(order), tampered))).rejects.toThrow()
+  })
+})
+
+describe("the builder's image label check", () => {
+  it("refuses an image whose build labels are not the handoff's own target, pin and recipe", async () => {
+    const { builderThreadSandbox } = await import("../src/builder-handoff.ts")
+    const order = workOrder("wo-alpha", "x\n")
+    const good = labelsOf(order.handoff)
+    const id = order.handoff.target.image
+    const cases: [string, Record<string, string> | null, RegExp][] = [
+      ["absent", null, /is not on this daemon/],
+      ["unlabelled (a base image)", {}, /carries no factory labels/],
+      [
+        "another target",
+        { ...good, "b4.factory.target": "devkit" },
+        /target devkit, not fixture-target/,
+      ],
+      ["another pin", { ...good, "b4.factory.pin": "e".repeat(40) }, /pin e{40}, not d{40}/],
+      [
+        "another recipe",
+        { ...good, "b4.factory.key": "f".repeat(64) },
+        /recipe key f{12}…, not 0123456789ab…/,
+      ],
+      [
+        "a key label that is only the tag's prefix",
+        { ...good, "b4.factory.key": "0123456789ab" },
+        /recipe key 0123456789ab…, not 0123456789ab…/,
+      ],
+      [
+        "a target label missing, the others present",
+        {
+          "b4.factory.pin": good["b4.factory.pin"] ?? "",
+          "b4.factory.key": good["b4.factory.key"] ?? "",
+        },
+        /carries no factory labels/,
+      ],
+      [
+        "a pin label missing",
+        { "b4.factory.target": "fixture-target", "b4.factory.key": good["b4.factory.key"] ?? "" },
+        /pin undefined, not d{40}/,
+      ],
+    ]
+    for (const [name, labels, message] of cases)
+      await expect(
+        builderThreadSandbox(thread(metadataOf(order), order.staged), {
+          inspect: inspectFor({ [id]: labels }),
+        }),
+        name,
+      ).rejects.toThrow(message)
+    await expect(
+      builderThreadSandbox(thread(metadataOf(order), order.staged), {
+        inspect: inspectFor({ [id]: good }),
+      }),
+    ).resolves.toMatchObject({ environment: { image: id } })
+  })
+
+  it("fails closed when the daemon cannot be asked", async () => {
+    const { builderThreadSandbox } = await import("../src/builder-handoff.ts")
+    const order = workOrder("wo-alpha", "x\n")
+    await expect(
+      builderThreadSandbox(thread(metadataOf(order), order.staged), {
+        inspect: async () => {
+          throw new Error("Cannot connect to the Docker daemon")
+        },
+      }),
+    ).rejects.toThrow(/Cannot connect to the Docker daemon/)
+  })
+
+  it("asks the daemon about the handoff's image id, and only after the handoff parses", async () => {
+    const { builderThreadSandbox } = await import("../src/builder-handoff.ts")
+    const order = workOrder("wo-alpha", "x\n")
+    const asked: string[] = []
+    const inspect: InspectLabels = async (id) => {
+      asked.push(id)
+      return labelsOf(order.handoff)
+    }
+    await builderThreadSandbox(thread(metadataOf(order), order.staged), { inspect })
+    expect(asked).toEqual([order.handoff.target.image])
+    await expect(
+      builderThreadSandbox(thread({ factoryWorkOrderId: "wo-alpha" }, order.staged), { inspect }),
+    ).rejects.toThrow(/factoryBuilder is required/)
+    expect(asked).toHaveLength(1)
+  })
+
+  it("runs the label check for every thread the config resolves", () => {
+    const text = readFileSync(new URL("../b4.config.ts", import.meta.url), "utf8")
+    expect(text).toContain("thread: (thread) => builderThreadSandbox(thread)")
   })
 })
 
