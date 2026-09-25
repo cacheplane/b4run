@@ -10,6 +10,7 @@ import type {
 } from "@b4run/sdk"
 import { THREAD_ACCESS_METADATA_KEY } from "@b4run/sdk"
 import type { Thread, ThreadsStore } from "@b4run/sqlite-storage"
+import type { StagedWorkspaceReference } from "@b4run/workspace"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import { checkpointRoutes } from "../runtime/checkpoint-route-provenance.js"
 import {
@@ -71,6 +72,9 @@ import { assertNoReservedKey, stripReservedThreadMetadata } from "./thread-metad
 import {
   INSPECT_BODY_MAX_BYTES,
   parseThreadWorkspaceRequest,
+  type StagedWorkspaceFieldValue,
+  stagedWorkspaceField,
+  THREAD_CREATE_BODY_MAX_BYTES,
   threadWorkspaceResponse,
 } from "./thread-workspace-http.js"
 
@@ -569,6 +573,16 @@ export async function createRuntimeFetchHandler(
       if (typeof checkpointer.deleteThread === "function") await checkpointer.deleteThread(threadId)
       await threadsStore.deleteThread(threadId)
     })
+    // Forget the staged reference of every thread whose row is gone (a crash between the
+    // forget and the row delete, or rows deleted behind the runtime's back), so a thread
+    // later created under that id inherits nothing. Runs whether or not the option is on:
+    // cleanup never depends on it. A managed app always has boot-owned stores.
+    if (sandboxManager?.managed && threadsStore) {
+      const store = threadsStore
+      await sandboxManager.sweepStagedThreads(async (threadId) =>
+        Boolean(await store.getThread(threadId)),
+      )
+    }
     // The request-time half of `assertEdgeCapabilities`. One pass at boot, raised
     // per request (see RuntimeCapabilityError). `hasFilesystemFallback` is what
     // keeps this off every node path: `runtime-fetch-handler.ts` applies
@@ -1361,6 +1375,12 @@ export function buildRouteTable(ctx: {
   // can re-invoke the correct route without requiring the client to repeat it.
   const threadRouteMap = new Map<string, string>()
 
+  // One workspace upload at a time per process (`PUT /workspace/sources/:digest`): a
+  // source costs several times its size in memory while it is decoded, parsed, verified
+  // and stored (D3), so a second concurrent upload is told to retry rather than doubling
+  // that peak.
+  let uploadInFlight = false
+
   return [
     // ------------------------------------------------------------------
     // GET /healthz — liveness: the process serves HTTP. Touches no store.
@@ -1398,14 +1418,28 @@ export function buildRouteTable(ctx: {
     // ------------------------------------------------------------------
     {
       handle: async (request) => {
-        const rawBody = await request.text()
+        const stagedOn = Boolean(sandboxManager?.workspaceProtocol.staged)
+        // The 1 MiB bound applies only to an app that accepts staged workspaces: every
+        // other app reads its create body exactly as before (no behaviour change; D3).
+        let rawBody: string
+        if (stagedOn) {
+          try {
+            rawBody = await readBoundedText(request, THREAD_CREATE_BODY_MAX_BYTES)
+          } catch (error) {
+            if (error instanceof RequestBodyTooLargeError) return payloadTooLarge(error)
+            throw error
+          }
+        } else rawBody = await request.text()
         let metadata: Record<string, unknown> | undefined
+        let workspaceNamed = false
+        let workspaceField: unknown
         if (rawBody.trim()) {
           const parsed = parseJson(rawBody)
           if (!parsed.ok || !isRecord(parsed.value)) {
             return Response.json(createRequestErrorBody("Malformed request body"), { status: 400 })
           }
-          const bodyMetadata = (parsed.value as Record<string, unknown>).metadata
+          const body = parsed.value as Record<string, unknown>
+          const bodyMetadata = body.metadata
           if (bodyMetadata !== undefined) {
             if (!isRecord(bodyMetadata)) {
               return Response.json(createRequestErrorBody("metadata must be an object"), {
@@ -1414,6 +1448,22 @@ export function buildRouteTable(ctx: {
             }
             metadata = bodyMetadata
           }
+          if (Object.hasOwn(body, "workspace")) {
+            workspaceNamed = true
+            workspaceField = body.workspace
+          }
+        }
+        // A malformed field is a 400 whether or not the app accepts workspaces, so the
+        // answer reveals nothing about the option.
+        let requestedWorkspace: StagedWorkspaceFieldValue | undefined
+        if (workspaceNamed) {
+          const field = stagedWorkspaceField(workspaceField)
+          if (!field.ok)
+            return Response.json(
+              createRequestErrorBody(field.message, { code: "invalid_request" }),
+              { status: 400 },
+            )
+          requestedWorkspace = field.reference
         }
         // Unconditional, hook or no hook: the reserved key is B4.run's, contains
         // a colon (so it cannot be written as a JS property identifier), and
@@ -1425,9 +1475,32 @@ export function buildRouteTable(ctx: {
           action: "create",
           operation: "thread.create",
           ...(clientMetadata !== undefined ? { requestedMetadata: clientMetadata } : {}),
+          ...(requestedWorkspace !== undefined ? { requestedWorkspace } : {}),
         })
         const settled = isThenable(created) ? await created : created
         if (!settled.ok) return settled.response
+
+        // After the gate: a workspace this app will not serve is refused, never ignored
+        // (D12), and an unauthorized caller never learns whether the option is on.
+        if (requestedWorkspace !== undefined && !stagedOn)
+          return Response.json(
+            createRequestErrorBody(
+              "This app does not accept a workspace at thread creation (sandbox.stagedWorkspaces)",
+              { code: "workspace_not_accepted" },
+            ),
+            { status: 400 },
+          )
+        // Checked whole BEFORE any thread row exists: a source this worker does not hold,
+        // or a definition it could not serve, leaves nothing behind.
+        let staged: StagedWorkspaceReference | undefined
+        if (requestedWorkspace !== undefined && sandboxManager) {
+          const checked = sandboxManager.checkStagedWorkspace(requestedWorkspace)
+          if (!checked.ok)
+            return Response.json(createRequestErrorBody(checked.message, { code: checked.code }), {
+              status: 422,
+            })
+          staged = checked.reference
+        }
 
         const stored = settled.stamp
           ? { ...(clientMetadata ?? {}), [THREAD_ACCESS_METADATA_KEY]: settled.stamp }
@@ -1461,6 +1534,30 @@ export function buildRouteTable(ctx: {
           })
           const rechecked = isThenable(recheck) ? await recheck : recheck
           if (!rechecked.ok) return rechecked.response
+        }
+
+        if (staged && sandboxManager) {
+          // Only the row this request wrote may be given a workspace, and only that row
+          // may be removed again: a collision's existing row is refused and left exactly as
+          // it was. A source reclaimed between the check and here
+          // (`workspace_source_not_held`) is the same refusal: the row goes and the caller
+          // uploads again. `stagedWorkspaces` requires a policy, so the collision check
+          // above always ran.
+          const ours = isRowWeJustWrote(thread, stored)
+          const attached = ours
+            ? sandboxManager.attachStagedWorkspace(thread.thread_id, staged)
+            : ({
+                ok: false,
+                code: "thread_conflict",
+                message: "Thread id collision: retry the create",
+              } as const)
+          if (!attached.ok) {
+            if (ours) await getThreadsStore(request).deleteThread(thread.thread_id)
+            return Response.json(
+              createRequestErrorBody(attached.message, { code: attached.code }),
+              { status: 409 },
+            )
+          }
         }
 
         return Response.json(thread, { status: 200 })
@@ -1546,6 +1643,10 @@ export function buildRouteTable(ctx: {
             { status: 409 },
           )
         }
+        // The staged reference goes FIRST: if anything below fails, the thread survives
+        // with no staged workspace (its resolver sees none), and a thread later created
+        // under this id through a run endpoint (client-chosen ids) inherits nothing.
+        if (sandboxManager?.managed) sandboxManager.forgetStagedWorkspace(threadId)
         if (sandboxManager?.managed) await sandboxManager.destroyThread(threadId)
         const checkpointer = getCheckpointer(request)
         // Checkpoints BEFORE the row, and deliberately not the other way round:
@@ -1954,6 +2055,77 @@ export function buildRouteTable(ctx: {
       },
       method: "POST",
       pattern: /^\/threads\/(?<thread_id>[^/?#]+)\/workspace\/inspect(?:\?.*)?$/,
+    },
+
+    // ------------------------------------------------------------------
+    // PUT /workspace/sources/:digest — stage a workspace's files
+    // ------------------------------------------------------------------
+    // Order: digest shape (a 400 that reveals nothing), gate, THEN the feature check, the
+    // single-flight check and the body. An unauthorized caller gets the gate's answer
+    // whether the feature is on or off and never makes this worker buffer a byte; an
+    // authorized caller of an app without `sandbox.stagedWorkspaces` gets the 404 of a
+    // route that does not exist. Content-addressed and idempotent: 201 for new bytes, 200
+    // for bytes already held. A `create` with no thread (`workspace.source.put`).
+    {
+      handle: async (request, params) => {
+        const digest = params.digest ?? ""
+        if (!/^[0-9a-f]{64}$/.test(digest))
+          return Response.json(
+            createRequestErrorBody("The source digest must be 64 lowercase hex characters", {
+              code: "invalid_request",
+            }),
+            { status: 400 },
+          )
+        const gate = makeThreadGate(threadAccess, request)
+        const g = gate({
+          action: "create",
+          operation: "workspace.source.put",
+          requestedWorkspace: Object.freeze({ sourceDigest: digest }),
+        })
+        const settled = isThenable(g) ? await g : g
+        if (!settled.ok) return settled.response
+        const staged = sandboxManager?.workspaceProtocol.staged
+        if (!sandboxManager || !staged)
+          return Response.json(createRequestErrorBody("Not found"), { status: 404 })
+        if (uploadInFlight)
+          return Response.json(
+            createRequestErrorBody("Another workspace upload is in progress; retry shortly", {
+              code: "upload_in_flight",
+            }),
+            { status: 429, headers: { "retry-after": "1" } },
+          )
+        uploadInFlight = true
+        try {
+          let raw: string
+          try {
+            raw = await readBoundedText(request, staged.maxUploadBytes)
+          } catch (error) {
+            if (error instanceof RequestBodyTooLargeError) return payloadTooLarge(error)
+            throw error
+          }
+          const parsed = parseJson(raw)
+          if (!parsed.ok)
+            return Response.json(createRequestErrorBody("Malformed request body"), { status: 400 })
+          const outcome = sandboxManager.stageSource(parsed.value, digest)
+          if (!outcome.ok)
+            return Response.json(createRequestErrorBody(outcome.message, { code: outcome.code }), {
+              status:
+                outcome.code === "digest_mismatch"
+                  ? 400
+                  : outcome.code === "staged_quota_exceeded"
+                    ? 507
+                    : 422,
+            })
+          return Response.json(
+            { digest, status: outcome.status },
+            { status: outcome.status === "created" ? 201 : 200 },
+          )
+        } finally {
+          uploadInFlight = false
+        }
+      },
+      method: "PUT",
+      pattern: /^\/workspace\/sources\/(?<digest>[^/?#]+)(?:\?.*)?$/,
     },
 
     // ------------------------------------------------------------------

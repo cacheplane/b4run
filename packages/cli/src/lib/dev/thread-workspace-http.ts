@@ -229,3 +229,84 @@ function utf8Length(text: string): number {
   }
   return bytes
 }
+
+/**
+ * `POST /threads` names metadata and a reference, never content (D3). Enforced only in an
+ * app with `sandbox.stagedWorkspaces`; every other app reads its create body as before.
+ */
+export const THREAD_CREATE_BODY_MAX_BYTES = 1024 * 1024
+const MAX_LINKS = 1024
+const DIGEST = /^[0-9a-f]{64}$/
+
+/** A shape-checked `workspace` field of `POST /threads`: what the policy sees as `requestedWorkspace`. */
+export interface StagedWorkspaceFieldValue {
+  readonly sourceDigest: string
+  readonly environmentLinks?: readonly { readonly path: string; readonly target: string }[]
+  readonly baseline?: "git"
+}
+
+/**
+ * The `workspace` field's shape, in the pure core, copied onto fresh frozen objects (own
+ * keys only), so the reference the policy authorizes is the one the manager then checks.
+ * The manager verifies the whole reference (path rules, link targets, collisions with the
+ * files) against the source it holds before any thread row exists.
+ */
+export function stagedWorkspaceField(
+  value: unknown,
+):
+  | { readonly ok: true; readonly reference: StagedWorkspaceFieldValue }
+  | { readonly ok: false; readonly message: string } {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return { ok: false, message: "workspace must be an object naming a staged source" }
+  const record = value as Record<string, unknown>
+  for (const key of Object.keys(record))
+    if (key !== "sourceDigest" && key !== "environmentLinks" && key !== "baseline")
+      return { ok: false, message: `Unknown workspace field: ${key}` }
+  const own = (key: string) => (Object.hasOwn(record, key) ? record[key] : undefined)
+  const digest = own("sourceDigest")
+  if (typeof digest !== "string" || !DIGEST.test(digest))
+    return { ok: false, message: "workspace.sourceDigest must be 64 lowercase hex characters" }
+  const baseline = own("baseline")
+  if (baseline !== undefined && baseline !== "git")
+    return { ok: false, message: 'workspace.baseline must be "git"' }
+  const links = own("environmentLinks")
+  let environmentLinks: readonly { readonly path: string; readonly target: string }[] | undefined
+  if (links !== undefined) {
+    if (!Array.isArray(links) || links.length > MAX_LINKS)
+      return {
+        ok: false,
+        message: `workspace.environmentLinks must be an array of at most ${MAX_LINKS} links`,
+      }
+    const copied: { readonly path: string; readonly target: string }[] = []
+    for (const link of links) {
+      const entry =
+        typeof link === "object" && link !== null && !Array.isArray(link)
+          ? (link as Record<string, unknown>)
+          : undefined
+      const path = entry && Object.hasOwn(entry, "path") ? entry.path : undefined
+      const target = entry && Object.hasOwn(entry, "target") ? entry.target : undefined
+      if (
+        !entry ||
+        Object.keys(entry).length !== 2 ||
+        typeof path !== "string" ||
+        typeof target !== "string" ||
+        path.length > 1024 ||
+        target.length > 1024
+      )
+        return {
+          ok: false,
+          message: "each workspace.environmentLinks entry must be { path, target }",
+        }
+      copied.push(Object.freeze({ path, target }))
+    }
+    environmentLinks = Object.freeze(copied)
+  }
+  return {
+    ok: true,
+    reference: Object.freeze({
+      sourceDigest: digest,
+      ...(environmentLinks !== undefined ? { environmentLinks } : {}),
+      ...(baseline === "git" ? { baseline: "git" as const } : {}),
+    }),
+  }
+}
