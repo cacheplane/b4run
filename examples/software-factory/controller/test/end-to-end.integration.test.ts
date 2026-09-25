@@ -60,9 +60,9 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
   const repaired = await applyReference()
 
   // The builder: this package's own app, in an isolated root so its installation store and
-  // checkpoints are this test's and nobody else's, served for the `cli-flags` target. Its
+  // checkpoints are this test's and nobody else's, served for every target. Its
   // manifest directory starts empty: `dispatch` writes the work order's manifest there.
-  builder = await serveBuilder(task.target)
+  builder = await serveBuilder()
   const served = builder
   served.aimock.addFixtures(
     script()
@@ -75,7 +75,7 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
   )
   const reader = () =>
     createThreadWorkspaceReader(
-      { providerFor: () => builderSandboxProvider(task.target), appRoot: served.appRoot },
+      { providerFor: () => builderSandboxProvider(), appRoot: served.appRoot },
       () => targetInspectionOptions(task),
     )
   factory = await createFactory({

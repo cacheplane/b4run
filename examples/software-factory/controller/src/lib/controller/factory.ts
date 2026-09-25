@@ -48,13 +48,9 @@ import {
   type CatalogOptions,
   ensurePin,
   isShippedTask,
-  type loadTarget,
   loadTask,
-  prepareCommand,
   repositoryRoot,
 } from "../targets/catalog.js"
-import { builderPermissions } from "../targets/permissions.js"
-import { builderTarget } from "../targets/workspace.js"
 import { loadPolicy } from "../verification/policy.js"
 import type { Verifier } from "../verification/verifier.js"
 import type { CancelResult, WorkerClient } from "../worker/client.js"
@@ -75,7 +71,6 @@ import {
   DRAFTER_UNCONFIGURED,
   DrafterUnconfiguredError,
   type DrafterWorker,
-  NoWorkerForTargetError,
   type TargetWorker,
   type WorkerMap,
 } from "./workers.js"
@@ -262,100 +257,6 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   const evidenceStore: EvidenceStore = createEvidenceStore(registry.db)
   const artifacts: ArtifactStore = createArtifactStore(options.artifactsDir)
   const log = options.log ?? (() => {})
-  /**
-   * Compare the environment the task's builder RUNS (its target at the worker's pin: the pin
-   * of the target file it booted from, the target's default when the entry names none) with
-   * the one the task is verified in (the target at the task's pin, or the default pin for a
-   * catalog task). Undefined when dispatch may go on; a refusal message otherwise. The same
-   * pin needs nothing; different pins whose images agree on lockfile, base image and
-   * Dockerfile are journalled and allowed; any other difference is refused, because the
-   * build would run against an environment the verifier never sees. Journals
-   * `builder_environment_differs` whenever the pins differ.
-   */
-  const builderEnvironmentRefusal = (
-    id: string,
-    taskId: string,
-    worker: { readonly pin?: string },
-  ): string | undefined => {
-    const catalog = options.promptCatalog ?? {}
-    const { pin: _pin, ...unpinned } = catalog
-    let task: ReturnType<typeof loadTask>
-    let builder: ReturnType<typeof loadTarget>
-    try {
-      task = loadTask(taskId, catalog)
-      builder = builderTarget(task.target.id, worker.pin, unpinned)
-    } catch (error) {
-      return `Builder environment for ${taskId} could not be resolved: ${error instanceof Error ? error.message : String(error)}`
-    }
-    const builderPin = builder.pin
-    const taskPin = task.target.pin
-    if (builderPin === taskPin) return undefined
-    const lockfileDiffers = builder.image.lockfileSha256 !== task.target.image.lockfileSha256
-    const baseDiffers = builder.image.baseManifestDigest !== task.target.image.baseManifestDigest
-    const dockerfileDiffers = builder.image.dockerfileSha256 !== task.target.image.dockerfileSha256
-    recordEvent(id, "builder_environment_differs", {
-      builderPin,
-      taskPin,
-      lockfileDiffers,
-      baseDiffers,
-      dockerfileDiffers,
-    })
-    if (!lockfileDiffers && !baseDiffers && !dockerfileDiffers) return undefined
-    const what = [
-      ...(lockfileDiffers ? ["lockfile"] : []),
-      ...(baseDiffers ? ["base image"] : []),
-      ...(dockerfileDiffers ? ["Dockerfile"] : []),
-    ].join(", ")
-    const target = task.target.id
-    return `builder for ${target} runs at ${builderPin}, whose environment (${what}) differs from ${taskPin}: prepare ${target} at ${taskPin} (\`${prepareCommand(target, taskPin)}\`), then restart its builder from \`factory builder-target --target ${target} --pin ${taskPin}\` and set that pin on its worker entry; or cancel`
-  }
-  /**
-   * A builder still running an allow-list older than the one the controller would write for
-   * its target today. The allow-list lives in the target file the builder booted from, so a
-   * change to `builderPermissions` (the read commands the first live dispatch lacked) reaches
-   * no builder until its file is rewritten and it restarts; until then its prompt names
-   * commands its permissions refuse. Known only
-   * when the controller read the builder's target file (the legacy pair); undefined when the
-   * lists agree or cannot be compared.
-   */
-  const stalePermissionsRefusal = (
-    id: string,
-    taskId: string,
-    worker: { readonly pin?: string; readonly permissions?: TargetWorker["permissions"] },
-  ): string | undefined => {
-    if (worker.permissions === undefined) return undefined
-    const catalog = options.promptCatalog ?? {}
-    const { pin: _pin, ...unpinned } = catalog
-    let expected: Record<string, readonly string[]>
-    try {
-      expected = {
-        ...builderPermissions(
-          builderTarget(loadTask(taskId, catalog).target.id, worker.pin, unpinned),
-        ),
-      }
-    } catch {
-      // The environment check above already resolved this; a failure here is its to report.
-      return undefined
-    }
-    const running = worker.permissions
-    const keys = [...new Set([...Object.keys(expected), ...Object.keys(running)])].sort()
-    // As sets: the order a list was written in admits nothing more or less.
-    const asSets = (lists: Readonly<Record<string, readonly string[]>>) =>
-      canon(Object.fromEntries(keys.map((key) => [key, [...new Set(lists[key] ?? [])].sort()])))
-    if (asSets(expected) === asSets(running)) return undefined
-    const missing = keys.flatMap((key) =>
-      (expected[key] ?? [])
-        .filter((entry) => !(running[key] ?? []).includes(entry))
-        .map((entry) => `${key}:${entry}`),
-    )
-    const extra = keys.flatMap((key) =>
-      (running[key] ?? [])
-        .filter((entry) => !(expected[key] ?? []).includes(entry))
-        .map((entry) => `${key}:${entry}`),
-    )
-    recordEvent(id, "builder_permissions_stale", { missing, extra })
-    return `the builder's target file is stale: its permissions differ from what this controller writes (missing ${missing.length ? missing.join(", ") : "nothing"}; extra ${extra.length ? extra.join(", ") : "nothing"}). Restart the builder from a fresh \`factory builder-target\`, and the controller after it, then dispatch again`
-  }
   /**
    * The prompt for `taskId`, or the Error saying why the catalog cannot serve it. Resolved
    * at the point of use and never at boot: one unprepared sibling target must not decide
@@ -625,9 +526,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   }
   const workerFor = (row: WorkOrderRow): TargetWorker => {
     const targetId = targetOf(row)
-    const worker = options.workers.forTarget(targetId)
-    if (worker === undefined) throw new NoWorkerForTargetError(targetId)
-    return worker
+    return options.workers.forTarget(targetId)
   }
   const drafter = (): DrafterWorker => {
     const worker = options.workers.drafter
@@ -1230,26 +1129,6 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           }
         }
       }
-      // The worker map is the operator's configuration, not a function of the row: refused
-      // before the key is spent, so the dispatch after the entry is added is not a replay.
-      // The target is the catalog's to name, and a task the catalog cannot load is the
-      // prompt refusal's below, under the key: only a resolved target can lack a worker.
-      let targetId: string | undefined
-      try {
-        targetId = targetOf(row)
-      } catch {
-        targetId = undefined
-      }
-      if (targetId !== undefined && row.state === "received") {
-        if (options.workers.forTarget(targetId) === undefined) {
-          recordEvent(id, "no_worker_for_target", { targetId })
-          return {
-            ok: false,
-            state: row.state,
-            message: new NoWorkerForTargetError(targetId).message,
-          }
-        }
-      }
       // Refuse rather than send an empty prompt: a worker asked to fix nothing still burns a
       // thread and a run, and the resulting turn would fail in a way that looks like the
       // worker. Re-resolved here rather than trusted from create: the task may have stopped
@@ -1277,20 +1156,6 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       // What counts is what is LEFT: the intake and any earlier attempt spent from it.
       if (row.state === "received") {
         const refusal = budgetRefusal(id, row, "dispatch")
-        if (refusal !== undefined) return { ok: false, state: row.state, message: refusal }
-      }
-      // The builder process boots from its target file, at ONE pin (the file's). A task at
-      // another pin is built in that pin's image and verified in its own: allowed and
-      // journalled where the two environments agree, refused before the key where they do
-      // not, since the operator's remedy (prepare, restart the builder at the task's pin) is
-      // not a function of the row's revision.
-      if (row.state === "received" && !options.tasks && targetId !== undefined) {
-        const worker = options.workers.forTarget(targetId)
-        const refusal =
-          worker === undefined
-            ? undefined
-            : (builderEnvironmentRefusal(id, row.taskId, worker) ??
-              stalePermissionsRefusal(id, row.taskId, worker))
         if (refusal !== undefined) return { ok: false, state: row.state, message: refusal }
       }
       const key = operationKey ?? `dispatch:${id}:${row.revision}`
@@ -1323,18 +1188,9 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
             ? `Unknown task ${row.taskId}`
             : `Unknown task ${row.taskId}: ${input.message}`,
         })
-      // The prompt loaded, so the task loads and names its target; a map with no entry for
-      // it is the refusal above, now under the key.
-      targetId ??= targetOf(row)
-      const worker = options.workers.forTarget(targetId)
-      if (worker === undefined) {
-        recordEvent(id, "no_worker_for_target", { targetId })
-        return finish(key, {
-          ok: false,
-          state: row.state,
-          message: new NoWorkerForTargetError(targetId).message,
-        })
-      }
+      // The prompt loaded, so the task loads and names its target; the one builder serves it
+      // at its pin, from the manifest written below.
+      const worker = workerFor(row)
       // The manifest first: the builder's resolver reads `<manifestDir>/<id>.json` when the
       // thread's first run is admitted, so a thread created before it exists would be one
       // nothing can serve. The pin is already in the object store (the prompt lookup above

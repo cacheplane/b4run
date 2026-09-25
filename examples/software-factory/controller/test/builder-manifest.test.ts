@@ -4,15 +4,10 @@ import { join } from "node:path"
 import { verifyCapturedWorkspaceDefinition } from "@b4run/workspace/node"
 import { afterEach, describe, expect, it } from "vitest"
 import { BuilderManifestSchema as TheBuildersManifestSchema } from "../../server/src/builder-manifest.ts"
-import {
-  BuilderManifestSchema,
-  BuilderTargetSchema,
-  writeBuilderManifest,
-  writeBuilderTarget,
-} from "../src/lib/builder-manifest.ts"
+import { BuilderManifestSchema, writeBuilderManifest } from "../src/lib/builder-manifest.ts"
 import { imageTag, loadTask } from "../src/lib/targets/catalog.ts"
 import { builderPermissions } from "../src/lib/targets/permissions.ts"
-import { builderSandboxScope, targetSandboxPolicy } from "../src/lib/targets/workspace.ts"
+import { targetSandboxPolicy } from "../src/lib/targets/workspace.ts"
 
 const dirs: string[] = []
 afterEach(() => {
@@ -23,60 +18,6 @@ const tempDir = (prefix: string) => {
   dirs.push(dir)
   return dir
 }
-
-describe("builder target", () => {
-  it("writes the per-process half of the builder's config, as data", async () => {
-    const dir = tempDir("factory-target-")
-    const task = loadTask("cli-flags")
-    const path = await writeBuilderTarget(task.target, dir)
-    expect(path).toBe(join(dir, `${task.target.id}.target.json`))
-    const file = BuilderTargetSchema.parse(JSON.parse(readFileSync(path, "utf8")))
-    expect(file.target.id).toBe(task.target.id)
-    // `builderSandboxProvider` passes dockerSandbox exactly `scope` and `image` and nothing
-    // else, so those two fields are the whole provider the builder must reconstruct. Asserted
-    // against the same constructors the controller uses, so a third option added there
-    // without a field here fails rather than silently changing the builder's SandboxConfig.
-    expect(file.target.scope).toBe(builderSandboxScope)
-    expect(file.target.image).toBe(imageTag(task.target))
-    // The pin the image was prepared at: what the controller compares each task's pin with.
-    expect(file.target.pin).toBe(task.target.pin)
-    expect(file.target.policy).toEqual(targetSandboxPolicy(task.target))
-    expect(file.target.permissions).toEqual(builderPermissions(task.target))
-  })
-
-  it("refuses a drifted policy key rather than dropping it", async () => {
-    const dir = tempDir("factory-target-")
-    const path = await writeBuilderTarget(loadTask("cli-flags").target, dir)
-    const good = JSON.parse(readFileSync(path, "utf8"))
-    expect(good.target.policy.network.mode).toBe("deny")
-
-    // A typo one level down. Without `.strict()` both of these parse, `network` (or its
-    // `mode`) is absent from what reaches `b4.config.ts`, and the builder runs under the
-    // provider's DEFAULT network instead of the denial the controller wrote: a fail-open on
-    // a misspelling. Each must be an error instead.
-    const drifted = (mutate: (policy: Record<string, unknown>) => void) => {
-      const file = JSON.parse(JSON.stringify(good))
-      mutate(file.target.policy)
-      return () => BuilderTargetSchema.parse(file)
-    }
-    expect(
-      drifted((policy) => {
-        policy.netwrok = policy.network
-        delete policy.network
-      }),
-    ).toThrow()
-    expect(
-      drifted((policy) => ((policy.network as Record<string, unknown>) = { modee: "deny" })),
-    ).toThrow()
-    // And an extra key BESIDE a correct one, which is the drift a new option would cause.
-    expect(drifted((policy) => (policy.security = { runAsNonRoot: false }))).toThrow()
-    // The union is discriminated on `mode` alone: an allowlist the builder was never meant
-    // to be handed is refused rather than silently honoured.
-    expect(
-      drifted((policy) => ((policy.network as Record<string, unknown>).allowlist = ["npmjs.org"])),
-    ).toThrow()
-  })
-})
 
 describe("builder manifest", () => {
   it("is named by the work order and carries the workspace, the task and the target, no prompt", async () => {

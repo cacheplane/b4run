@@ -12,7 +12,6 @@ import { createArtifactStore } from "./storage/artifacts.js"
 import { configureCatalog, loadTask, resetCatalogForTests } from "./targets/catalog.js"
 import {
   builderSandboxProvider,
-  builderTargetForTask,
   drafterInspectionOptions,
   drafterSandboxProvider,
   targetInspectionOptions,
@@ -104,18 +103,16 @@ export function createControllerRuntime(
         )
       }
     }
-    // Each builder entry's manifest directory is the controller's to make too, for the same
-    // reason: `dispatch` writes into it, the builder only reads it.
-    for (const [key, entry] of Object.entries(config.workers)) {
-      try {
-        mkdirSync(entry.manifestDir, { recursive: true })
-      } catch (error) {
-        return Promise.reject(
-          new Error(
-            `the manifest directory of worker ${key} could not be created (${entry.manifestDir}): ${String(error)}`,
-          ),
-        )
-      }
+    // The builder's manifest directory is the controller's to make too, for the same reason:
+    // `dispatch` writes into it, the builder only reads it.
+    try {
+      mkdirSync(config.builder.manifestDir, { recursive: true })
+    } catch (error) {
+      return Promise.reject(
+        new Error(
+          `the builder's manifest directory could not be created (${config.builder.manifestDir}): ${String(error)}`,
+        ),
+      )
     }
     const { readers, ...factoryOverrides } = overrides
     // Every run-time file the controller stages (captures, verifier state) lives under its
@@ -159,17 +156,14 @@ export function createControllerRuntime(
   }
 
   /**
-   * A builder entry's reader: the provider is the one the BUILDER booted with, the task's
-   * target at the ENTRY's pin (its target file's; the target's default when the entry names
-   * none), and the store the entry's. Not the task's own pin: a task at another pin is
-   * verified in that pin's image, but its workspace lives under the builder's, and a reader
-   * addressing the other image would open no workspace at all.
+   * The builder's reader: the provider is the same for every task (the builder's scope, no
+   * default image: a managed workspace's image is in its own record), and the store is the
+   * builder's. The inspection options are the task's own.
    */
   function builderReader(entry: WorkerEndpoint): WorkspaceReader {
     return createThreadWorkspaceReader(
       {
-        providerFor: (taskId) =>
-          builderSandboxProvider(builderTargetForTask(requireTaskId(taskId), entry.pin)),
+        providerFor: () => builderSandboxProvider(),
         appRoot: entry.appRoot,
       },
       (taskId) => targetInspectionOptions(loadTask(requireTaskId(taskId))),

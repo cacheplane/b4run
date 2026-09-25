@@ -13,19 +13,18 @@ import { type ServedBuilder, serveBuilder, toolCallsSeen, toolResults } from "./
 
 /**
  * Layer 2: the real builder app, real typegen, real tool wiring, scripted model output, and
- * the builder's per-work-order resolver: ONE builder process for the `cli-flags` target, two
- * work orders, two threads, and each thread serves its own work order's workspace.
+ * the builder's per-work-order resolver: ONE builder process for every target and pin, and
+ * each thread serves its own work order's workspace, in its own target's image.
  *
  * Only the model is scripted. The route, the permission config, the tool loop, the resolver
  * and the container are all the real ones, which is why this lives in the Docker project:
  * the app configures a sandbox, so the run acquires one. Without Docker it fails rather than
  * skipping.
  *
- * The builder is configured by the controller's two files: the TARGET file (provider,
- * policy, permissions; one per process, written by `writeBuilderTarget`) and one MANIFEST
- * per work order (`writeBuilderManifest(task, dir, { workOrderId })`), which the resolver
- * loads by the thread's `metadata.factoryWorkOrderId`. The builder resolves no pin and
- * captures nothing of its own.
+ * The builder is configured by one MANIFEST per work order
+ * (`writeBuilderManifest(task, dir, { workOrderId })`), which carries the workspace, image,
+ * policy and permissions; the resolver loads it by the thread's `metadata.factoryWorkOrderId`.
+ * The builder resolves no pin and captures nothing of its own.
  */
 
 const task = loadTask("cli-flags")
@@ -40,7 +39,7 @@ const digests: Record<string, string> = {}
 let repaired: string
 
 beforeAll(async () => {
-  builder = await serveBuilder(task.target)
+  builder = await serveBuilder()
   // The controller's half, twice: `wo-alpha` is the task's capture as `dispatch` writes it;
   // `wo-beta` is the same capture with one file more, so the two workspaces differ by a path
   // a listing can see and a digest the association records.
@@ -69,10 +68,14 @@ beforeAll(async () => {
       workspace: { ...workspace, source: extra },
     }),
   )
-  // A well-formed manifest for a target this process does not serve.
+  // A manifest naming an image the factory did not prepare: refused before any provider call.
   await writeFile(
-    join(builder.manifestDir, "wo-elsewhere.json"),
-    JSON.stringify({ ...parsed, workOrderId: "wo-elsewhere", targetId: "devkit" }),
+    join(builder.manifestDir, "wo-foreign-image.json"),
+    JSON.stringify({
+      ...parsed,
+      workOrderId: "wo-foreign-image",
+      target: { ...parsed.target, image: "alpine:latest" },
+    }),
   )
   // The baseline bytes, from a throwaway capture of the pin under a temporary root: the
   // same archive the manifest's workspace is built from, captured where it disturbs neither
@@ -174,10 +177,10 @@ it("serves a second work order's own workspace from the same builder process", a
   }
 }, 300_000)
 
-it("refuses, at admission and by name, a work order with no manifest or another target's", async () => {
+it("refuses, at admission and by name, a work order with no manifest or a foreign image", async () => {
   for (const [workOrderId, reason] of [
     ["wo-none", "no builder manifest for wo-none"],
-    ["wo-elsewhere", "is for target devkit, but this builder serves cli-flags"],
+    ["wo-foreign-image", "wo-foreign-image.json is invalid"],
   ] as const) {
     const threadId = await builder.createThread(workOrderId)
     threads.push(threadId)

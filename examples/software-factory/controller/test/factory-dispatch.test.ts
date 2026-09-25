@@ -218,48 +218,6 @@ describe("create and dispatch", () => {
     expect(row.activeStartedAt).toBeNull()
   })
 
-  it("refuses a target no worker serves before spending the key, and dispatches once one does", async () => {
-    await boot()
-    const { id } = await factory.create({ taskId: "cli-flags" })
-    const targetId = loadTask("cli-flags").target.id
-    // The map is the operator's configuration, not a function of the row: an empty map
-    // (no entry for the target, no wildcard) refuses without a key, so the dispatch after
-    // the entry is added is not the replay of this refusal.
-    const unserved = await createFactory({
-      registryPath: join(dir, "registry.sqlite"),
-      generatedTasksDir: join(dir, "tasks"),
-      captureRoot: dir,
-      workers: fakeWorkerMap({}),
-      writeBuilderManifest: noopBuilderManifestWriter,
-      exportDir: join(dir, "out"),
-      artifactsDir: join(dir, "artifacts"),
-      verifier: createFakeVerifier({ verdict: "pass" }),
-      captureBaseline: captureRepairable,
-    })
-    try {
-      expect(await unserved.dispatch(id)).toEqual({
-        ok: false,
-        state: "received",
-        message: `no worker for target ${targetId}`,
-      })
-      expect(unserved.show(id)?.state).toBe("received")
-      expect(unserved.events(id).at(-1)).toMatchObject({
-        type: "no_worker_for_target",
-        payload: { targetId },
-      })
-      expect(fake.requests.some((r) => r.path === "/threads")).toBe(false)
-    } finally {
-      await unserved.close()
-    }
-    // The same call, under the default key, once the map serves the target.
-    expect(await factory.dispatch(id)).toEqual({
-      ok: true,
-      state: "dispatched",
-      message: "Dispatched",
-    })
-    expect(fake.requests.filter((r) => r.path === "/threads")).toHaveLength(1)
-  })
-
   it("warns at create and refuses dispatch when the budget is below twice the verifier deadline", async () => {
     // The shipped `cli` target verifies for up to an hour; the default budget is 20 minutes.
     const deadline = loadTask("cli-runs-wait-undefined").target.resources.verifierDeadlineMs

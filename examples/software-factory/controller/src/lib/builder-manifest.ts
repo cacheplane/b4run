@@ -6,9 +6,9 @@ import { captureWorkspaceDefinition } from "@b4run/workspace/node"
 import { z } from "zod"
 import { writeFileAtomic } from "./storage/atomic-file.js"
 import { captureDirectory } from "./targets/archive.js"
-import { imageTag, isCatalogId, type Target, type Task } from "./targets/catalog.js"
+import { imageTag, isCatalogId, type Task } from "./targets/catalog.js"
 import { builderPermissions } from "./targets/permissions.js"
-import { builderSandboxScope, targetSandboxPolicy, targetWorkspace } from "./targets/workspace.js"
+import { targetSandboxPolicy, targetWorkspace } from "./targets/workspace.js"
 
 /**
  * A work order's id and a target's id are catalog ids: a plain directory name, no slash, no
@@ -26,66 +26,15 @@ const CATALOG_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 const FACTORY_IMAGE = /^b4-factory-[A-Za-z0-9][A-Za-z0-9._-]*:[0-9a-f]{12}-[0-9a-f]{12}$/
 
 /**
- * Everything the builder app's `b4.config.ts` needs, as data, in two files. The builder
- * imports no controller code: it verifies these files and serves them. The workspace is
- * captured HERE, so the builder never sees the target archive or the task catalog, only the
- * bytes the controller decided it should start from.
+ * Everything the builder app's `b4.config.ts` needs for one thread, as data, in one file per
+ * work order: the builder's only input. The builder imports no controller code: it verifies the
+ * file and serves it. The workspace is captured HERE, so the builder never sees the target
+ * archive or the task catalog, only the bytes the controller decided it should start from.
  *
- * The TARGET file is per builder process (the framework's provider, sandbox policy and
- * permissions are one per app), written once by `factory builder-target`. The MANIFEST is per
- * work order, written by `dispatch` into the target worker's manifest directory before it
- * creates the thread. Deliberately a SECOND copy of the builder's schemas
- * (`server/src/builder-manifest.ts`) rather than an import, kept identical by test
- * (`test/builder-manifest.test.ts`).
+ * `dispatch` writes the manifest into the builder's manifest directory before it creates the
+ * thread. Deliberately a SECOND copy of the builder's schema (`server/src/builder-manifest.ts`)
+ * rather than an import, kept identical by test (`test/builder-manifest.test.ts`).
  */
-export const BuilderTargetSchema = z
-  .object({
-    version: z.literal(1),
-    target: z
-      .object({
-        id: z.string().regex(CATALOG_ID),
-        /** The two options `dockerSandbox` receives, and the whole of the provider's identity. */
-        scope: z.string().min(1),
-        image: z.string().min(1),
-        /** The commit that image was prepared at; the controller compares each task's pin with it. */
-        pin: z.string().regex(/^[a-f0-9]{40}$/),
-        /**
-         * The sandbox policy, modelled key by key and `.strict()` throughout rather than as an
-         * opaque record. A misspelled `netwrok` or `modee` would otherwise parse, drop out of
-         * the spread into `b4.config.ts`, and leave the builder running under the provider's
-         * DEFAULT network instead of the denial the controller intended: a fail-open on a
-         * typo. Strict parsing makes that a startup error instead.
-         *
-         * `network` is a discriminated union of the one key the controller emits, so a policy
-         * carrying an `allowlist` or a `denylist` is refused rather than quietly honoured:
-         * widening what the builder may be told costs an edit to both copies of this schema.
-         * The framework's own `SandboxPolicy` is wider on purpose; this is the subset one
-         * untrusted builder is allowed to be configured with.
-         */
-        policy: z
-          .object({
-            network: z.discriminatedUnion("mode", [
-              z.object({ mode: z.literal("deny") }).strict(),
-              z.object({ mode: z.literal("allow") }).strict(),
-            ]),
-            env: z.record(z.string(), z.string()),
-            resources: z
-              .object({
-                memoryMb: z.number().int().positive(),
-                cpus: z.number().positive(),
-                timeoutMs: z.number().int().positive(),
-              })
-              .strict(),
-          })
-          .strict(),
-        /** Keyed by tool name, so the key set is open; the values are always patterns. */
-        permissions: z.record(z.string(), z.array(z.string())),
-      })
-      .strict(),
-  })
-  .strict()
-export type BuilderTarget = z.infer<typeof BuilderTargetSchema>
-
 /**
  * One work order's builder thread, whole: the workspace the controller captured (the target's
  * pinned subtree with the task's defect applied), and what the retired per-process target file
@@ -144,44 +93,11 @@ export type BuilderManifest = z.infer<typeof BuilderManifestSchema>
 /** Whether `reference` is an image the factory prepared: the builder's `dockerSandbox({ images })`. */
 export const isFactoryImage = (reference: string): boolean => FACTORY_IMAGE.test(reference)
 
-/** Where the target file for `targetId` lives under `dir`. */
-function builderTargetPath(dir: string, targetId: string): string {
-  return join(dir, `${targetId}.target.json`)
-}
-
 /** Where the manifest for `workOrderId` lives under `dir`: the name the builder's resolver reads. */
 function builderManifestPath(dir: string, workOrderId: string): string {
   if (!CATALOG_ID.test(workOrderId))
     throw new Error(`builder manifest workOrderId must be a catalog id, got ${workOrderId}`)
   return join(dir, `${workOrderId}.json`)
-}
-
-/**
- * Write `<dir>/<targetId>.target.json` and return its path: the one file a builder process
- * serving `target` boots from (`FACTORY_BUILDER_TARGET`). The file records the pin `target`
- * was loaded at, whose image the builder runs: one builder serves one pin at a time.
- */
-export async function writeBuilderTarget(target: Target, dir: string): Promise<string> {
-  // Parsed, not merely typed: the controller validates what it writes against the SAME schema
-  // the builder will apply to it, so a file the builder would refuse cannot be produced here
-  // in the first place. It is also what narrows the framework's wider `SandboxPolicy` to the
-  // subset a builder may be configured with — a policy that grew a key this schema does not
-  // model fails here, loudly, instead of being dropped there, silently.
-  const file: BuilderTarget = BuilderTargetSchema.parse({
-    version: 1,
-    target: {
-      id: target.id,
-      scope: builderSandboxScope,
-      image: imageTag(target),
-      pin: target.pin,
-      policy: targetSandboxPolicy(target),
-      permissions: builderPermissions(target),
-    },
-  })
-  await mkdir(dir, { recursive: true })
-  const path = builderTargetPath(dir, target.id)
-  await writeFileAtomic(path, `${JSON.stringify(file, null, 2)}\n`)
-  return path
 }
 
 interface WriteBuilderManifestOptions {

@@ -14,7 +14,6 @@ import { createCommandLog } from "../src/lib/registry/commands.ts"
 import { openRegistry } from "../src/lib/registry/db.ts"
 import { createWorkOrderStore, type WorkOrderPatch } from "../src/lib/registry/work-orders.ts"
 import { createArtifactStore } from "../src/lib/storage/artifacts.ts"
-import { loadTask } from "../src/lib/targets/catalog.ts"
 import type { Verifier } from "../src/lib/verification/verifier.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
@@ -314,17 +313,13 @@ describe("reconciliation", () => {
     )
     createWorkOrderStore(registry.db).appendEvent(id, "thread_created", { threadId }, now())
     registry.close()
-    // The map lost the target's worker between the crash and the boot: the thread cannot be
-    // adopted (no route to record it under), and that is said before the command is answered.
+    // The worker map cannot serve the row at boot (this fake has no builder): the thread cannot
+    // be adopted (no route to record it under), and that is said before the command is
+    // answered.
     await bootFactory({ workers: fakeWorkerMap({}) })
     expect(factory.show(id)).toMatchObject({ state: "received", workerThreadId: null })
     const failed = factory.events(id).find((e) => e.type === "dispatch_adoption_failed")
     expect(failed?.payload).toMatchObject({ threadId, error: expect.stringMatching(/no worker/) })
-    // Under this map a dispatch is refused before any key, replayed or not.
-    expect(await factory.dispatch(id, "dispatch-orphan")).toMatchObject({
-      ok: false,
-      message: `no worker for target ${loadTask("cli-flags").target.id}`,
-    })
     // With the worker back, the key replays the answer reconciliation gave it.
     await factory.close()
     await bootFactory()

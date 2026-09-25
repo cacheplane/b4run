@@ -4,8 +4,6 @@ import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { afterEach, describe, expect, it } from "vitest"
 import { createFactory, type Factory, type FactoryOptions } from "../src/lib/controller/factory.ts"
-import { loadTask } from "../src/lib/targets/catalog.ts"
-import { builderPermissions } from "../src/lib/targets/permissions.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier, type FakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
@@ -44,7 +42,6 @@ const repaired = (cli = REPAIRED) => ({
 async function boot(
   options: Omit<FakeWorkerOptions, "outboxDir"> = {},
   overrides: Partial<FactoryOptions> = {},
-  permissions?: Readonly<Record<string, readonly string[]>>,
 ) {
   dir = mkdtempSync(join(tmpdir(), "factory-retry-"))
   mkdirSync(join(dir, "out"), { recursive: true })
@@ -57,11 +54,7 @@ async function boot(
     generatedTasksDir: join(dir, "tasks"),
     captureRoot: dir,
     workers: fakeWorkerMap({
-      builder: {
-        client: createHttpWorkerClient(fake.baseUrl),
-        reader,
-        ...(permissions !== undefined ? { permissions } : {}),
-      },
+      builder: { client: createHttpWorkerClient(fake.baseUrl), reader },
     }),
     writeBuilderManifest: async (input) => {
       manifestsWritten.push(input.workOrderId)
@@ -345,32 +338,6 @@ describe("the remaining budget on a first dispatch", () => {
       .filter((e) => e.type === "budget_below_verifier_deadline")
       .map((e) => e.payload.phase)
     expect(phases).toEqual(["dispatch", "retry"])
-  })
-})
-
-describe("a stale builder target file", () => {
-  it("refuses dispatch, unspent, when the builder's allow-list is not the one the controller writes", async () => {
-    await boot({}, {}, { bash: ["npm test", "node ", "cat", "ls", "head"] })
-    const { id } = await factory.create({ taskId: "cli-flags" })
-    const refused = await factory.dispatch(id)
-    expect(refused).toMatchObject({ ok: false, state: "received" })
-    expect(refused.message).toContain("target file is stale")
-    expect(refused.message).toContain("bash:sed -n")
-    expect(refused.message).toContain("fresh `factory builder-target`")
-    expect(fake.requests.some((r) => r.path === "/threads")).toBe(false)
-  })
-
-  it("compares the lists as sets: the same entries in another order are current", async () => {
-    const current = builderPermissions(loadTask("cli-flags").target)
-    await boot({}, {}, { ...current, bash: [...current.bash].reverse() })
-    const { id } = await factory.create({ taskId: "cli-flags" })
-    expect((await dispatchAndSettle(id)).row.state).toBe("awaiting_approval")
-  })
-
-  it("dispatches when the builder's allow-list is current", async () => {
-    await boot({}, {}, { ...builderPermissions(loadTask("cli-flags").target) })
-    const { id } = await factory.create({ taskId: "cli-flags" })
-    expect((await dispatchAndSettle(id)).row.state).toBe("awaiting_approval")
   })
 })
 
