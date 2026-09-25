@@ -284,6 +284,27 @@ it("keeps focus in the tracer when a click that doesn't focus the radio hides th
   expect(document.activeElement).toBe(view.radio("delegate"))
 })
 
+it("gives focus to the radio when a label click moved it to an ancestor of the tracer", async () => {
+  // WebKit moves focus on mousedown to the nearest focusable ancestor of the
+  // clicked label (the page's <main tabindex="-1">), or to <body>, before the
+  // radio changes. The control the visitor used is gone either way.
+  const view = await mount(true)
+  view.container.tabIndex = -1
+  await view.pick("refund")
+  expect(view.focused()).toBe("Allow once")
+  view.container.focus()
+  await view.pick("read")
+  expect(document.activeElement).toBe(view.radio("read"))
+
+  await view.pick("refund")
+  await view.press('[data-decision="once"]')
+  expect(view.focused()).toBe("Ask again")
+  ;(document.activeElement as HTMLElement | null)?.blur()
+  expect(document.activeElement).toBe(document.body)
+  await view.pick("delete")
+  expect(document.activeElement).toBe(view.radio("delete"))
+})
+
 it("with motion on, a quick pick or answer kills the running trace and the state is already final", async () => {
   const view = await mount(false)
   const timeline = vi.spyOn(gsap, "timeline")
