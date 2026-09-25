@@ -248,6 +248,16 @@ describe("the checklist shows real code", () => {
     }
   })
 
+  it("keeps the toggle's hover rule at 3:1 or more on paper and on the opened tint", () => {
+    const css = read("apps/web/app/components/homepage/checklist/checklist.module.css")
+    expect(css).toMatch(
+      /@media \(hover: hover\) \{\s*\.toggle:hover \{\s*border-bottom-color: var\(--color-ink\);/,
+    )
+    for (const background of [COLOR.page, COLOR["relay-tint"]]) {
+      expect(contrast(COLOR.ink, background)).toBeGreaterThanOrEqual(3)
+    }
+  })
+
   it("keeps tile text at 4.5:1 or more on paper and on the opened tint", () => {
     for (const background of [COLOR.page, COLOR["relay-tint"]]) {
       for (const foreground of [COLOR.ink, COLOR["ink-muted"], COLOR["relay-ink"]]) {

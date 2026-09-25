@@ -38,9 +38,10 @@ export function ProductionChecklist() {
   const [announcement, setAnnouncement] = useState("")
   const done = open.size === checklist.length
 
-  // Turn every tile face down once JavaScript runs. If focus is already on a
-  // docs link this hides, hand it to that tile's button.
-  useEffect(() => {
+  // Turn every tile face down once JavaScript runs, before the browser paints,
+  // so a client navigation never shows a frame of open tiles. If focus is
+  // already on a docs link this hides, hand it to that tile's button.
+  useLayoutEffect(() => {
     const focused = document.activeElement
     const face = focused?.closest("[data-face]")
     const item = face ? rootRef.current?.contains(face) && face.closest("[data-item]") : null
@@ -83,7 +84,7 @@ export function ProductionChecklist() {
     if (!face) return
     flipRef.current = gsap.fromTo(
       face,
-      { rotateY: -90, transformPerspective: 800 },
+      { rotateY: -90 },
       { rotateY: 0, duration: 0.3, ease: "power2.out", clearProps: "transform" },
     )
   }, [turn])

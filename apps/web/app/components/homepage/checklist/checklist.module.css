@@ -106,6 +106,13 @@
   text-align: left;
   cursor: pointer;
 }
+/* A hover cue: the rule under the title darkens to ink, a boundary well
+   above 3:1 on paper and on the opened tint. */
+@media (hover: hover) {
+  .toggle:hover {
+    border-bottom-color: var(--color-ink);
+  }
+}
 .number {
   font:
     12px / 1.35 var(--font-mono),
@@ -115,11 +122,14 @@
 
 /* Both faces share one grid cell: the taller sets the tile's height, so a
    turn never moves the page. Only the active face is visible, and the other
-   is aria-hidden and inert as well. */
+   is aria-hidden and inert as well. The perspective lives here, once; the
+   clip keeps a mid-flip face inside the tile, and the 12px face padding
+   holds the docs link's focus ring (3px ring, 3px offset) inside it. */
 .faces {
   display: grid;
   flex: 1;
   perspective: 800px;
+  overflow: clip;
 }
 .face {
   grid-area: 1 / 1;
@@ -141,6 +151,7 @@ p.face {
   font-size: 14px;
   line-height: 1.55;
   color: var(--color-ink);
+  overflow-wrap: anywhere;
 }
 .file {
   margin: 0 0 4px;
