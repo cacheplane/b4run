@@ -147,15 +147,30 @@ importers:
         specifier: ^4.3.3
         version: 4.3.3
     devDependencies:
+      '@b4run/cli':
+        specifier: workspace:*
+        version: link:../../packages/cli
       '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../../packages/config-typescript
       '@b4run/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@b4run/permissions':
+        specifier: workspace:*
+        version: link:../../packages/permissions
+      '@b4run/sandbox':
+        specifier: workspace:*
+        version: link:../../packages/sandbox
       '@b4run/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
+      '@langchain/core':
+        specifier: 1.2.12
+        version: 1.2.12(@opentelemetry/api@1.9.1)(openai@7.22.0(undici@8.10.0)(ws@8.21.0)(zod@4.4.3))(ws@8.21.0)
+      '@langchain/langgraph':
+        specifier: 1.4.17
+        version: 1.4.17(@langchain/core@1.2.12(@opentelemetry/api@1.9.1)(openai@7.22.0(undici@8.10.0)(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.4.3)
       '@types/mdx':
         specifier: ^2.0.14
         version: 2.0.14
