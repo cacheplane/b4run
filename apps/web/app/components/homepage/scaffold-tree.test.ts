@@ -38,9 +38,12 @@ describe("the hero terminal shows what the scaffold really creates", () => {
   })
 
   it("ends on the next steps create-b4-app prints for the basic template", () => {
-    expect(cli).toMatch(/ {2}cd \$\{targetDir\}/)
-    expect(cli).toContain('"  npm install"')
-    expect(cli).toMatch(/" {2}npm test\s+# offline tests/)
+    // Only the basic template's steps; the research template shares some lines.
+    const basicSteps = cli.slice(cli.indexOf("const basicSteps = ["))
+    const steps = basicSteps.slice(0, basicSteps.indexOf("\n  ]"))
+    expect(steps).toContain("changeDirectoryStep")
+    expect(steps).toContain('"  npm install"')
+    expect(steps).toMatch(/" {2}npm test\s+# offline tests/)
     expect(scaffoldTree.next).toBe(`cd ${appName} && npm install && npm test`)
   })
 

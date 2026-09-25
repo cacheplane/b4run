@@ -27,7 +27,7 @@
     {
       "label": "test/agent.test.ts",
       "path": "test/agent.test.ts",
-      "note": "passes offline, no key"
+      "note": "passes, no API key"
     }
   ],
   "next": "cd my-agent && npm install && npm test"

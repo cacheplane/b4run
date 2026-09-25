@@ -45,7 +45,7 @@ top-aligned with the H1.
   │  ├─ index.ts            model + prompt
   │  ├─ tools/greet.ts      a typed tool
   │  └─ evals/smoke.eval.ts behavior check
-  └─ test/agent.test.ts     passes offline, no key
+  └─ test/agent.test.ts     passes, no API key
   ─────────────────────────────────────────────
   cd my-agent && npm install && npm test
   ```

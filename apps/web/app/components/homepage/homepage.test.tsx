@@ -44,8 +44,11 @@ it("shows the runtime and what the command creates beside the headline", async (
   // The tree's agent row points at the section that opens those files.
   expect(figure?.querySelector('a[href="#first-agent"]')).not.toBeNull()
   expect(container.querySelector("#first-agent")).not.toBeNull()
-  // The old dot hung directly off the hero; decoration now lives beside the terminal.
+  // The old dot hung directly off the hero; the eclipse now sits beside the
+  // terminal, as an empty decorative element outside the figure.
   expect(hero?.querySelectorAll(':scope > [aria-hidden="true"]')).toHaveLength(0)
+  const decorations = [...(hero?.querySelectorAll('[aria-hidden="true"]:empty') ?? [])]
+  expect(decorations.filter((node) => !node.closest("figure"))).toHaveLength(1)
 })
 
 it("marks only off-site links with ↗, opens them in a new tab, and pins example links", async () => {
@@ -229,10 +232,14 @@ it("renders the scaffold as a captioned figure a screen reader can follow", () =
   expect(figure?.textContent).toContain("cd my-agent && npm install && npm test")
   expect(figure?.querySelector("ul")?.children).toHaveLength(4)
   expect(figure?.querySelectorAll("ul ul > li")).toHaveLength(3)
-  // Glyphs, the marker and the arrow are decoration; labels and notes are text.
-  for (const hidden of figure?.querySelectorAll('[aria-hidden="true"]') ?? []) {
-    expect(hidden.textContent ?? "").toMatch(/^[\s│├└─$✔↓terminal]*$/)
-  }
+  // Glyphs, prompts, the marker and the arrow are decoration: with every
+  // aria-hidden node removed, what remains reads as plain labels and notes.
+  const spoken = figure?.cloneNode(true) as HTMLElement
+  for (const hidden of spoken.querySelectorAll('[aria-hidden="true"]')) hidden.remove()
+  const text = spoken.textContent ?? ""
+  expect(text).not.toMatch(/[│├└─✔↓$]/)
+  expect(text).toContain("src/app/hello/, the agent")
+  expect(text).toContain("npm create b4-app@latest my-agent")
   const agent = figure?.querySelector<HTMLAnchorElement>('a[href="#first-agent"]')
   expect(agent?.textContent?.replace(/\s+/g, " ")).toContain("src/app/hello/")
   expect(agent?.textContent).toContain("the agent")
