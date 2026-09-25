@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs"
+import { spawnSync } from "node:child_process"
+import { readdirSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { BUILD_TARGET_NAMES } from "@b4run/core"
@@ -7,6 +8,7 @@ import {
   APP_NAME,
   BUILD_COMMAND,
   BUILD_IDS,
+  describeFailure,
   EDGE_PACKAGES,
   EVAL_COMMAND,
   normalizeTranscript,
@@ -64,6 +66,36 @@ describe("the recordings are cleaned, and only cleaned", () => {
     ])
   })
 
+  it("strips timings only where vitest prints them, and keeps look-alikes", () => {
+    const raw = [
+      " ✓ test/agent.test.ts > greets by name 12ms",
+      " × test/agent.test.ts > fails 1.5s",
+      "Duration of cache: 3",
+      "   Duration of cache: 3",
+      "   Start at the top",
+      "retried after 5s",
+      "   Duration  1.18s (transform 14ms, setup 0ms)",
+      "   Start at  12:31:06",
+    ].join("\n")
+    expect(normalizeTranscript(raw, [])).toEqual([
+      " ✓ test/agent.test.ts > greets by name",
+      " × test/agent.test.ts > fails",
+      "Duration of cache: 3",
+      "   Duration of cache: 3",
+      "   Start at the top",
+      "retried after 5s",
+    ])
+  })
+
+  it("says why a recorded command failed: a spawn error, a signal or an exit code", () => {
+    expect(describeFailure(spawnSync("sh", ["-c", "exit 0"]))).toBeUndefined()
+    expect(describeFailure(spawnSync("sh", ["-c", "exit 3"]))).toBe("exited 3")
+    expect(describeFailure(spawnSync("sh", ["-c", "kill -TERM $$"]))).toBe("was killed by SIGTERM")
+    expect(describeFailure(spawnSync("sh", [], { cwd: "/no/such/directory" }))).toMatch(
+      /^could not run: spawnSync sh ENOENT$/,
+    )
+  })
+
   it("leaves no escape codes, timings, absolute paths or model key in either file", () => {
     expect(recordings).not.toContain(String.fromCharCode(27))
     expect(recordings).not.toContain("\\u001b")
@@ -110,8 +142,25 @@ describe("the test replay is the scaffold's own npm test and b4 eval", () => {
       // biome-ignore lint/suspicious/noTemplateCurlyInString: the reporter's source text.
       '`${verdict} ${report.name} mean=${report.mean.toFixed(2)}${report.reason ? ` (${report.reason})` : ""}`',
     )
-    expect(runOf("eval").lines).toEqual([
-      `PASS ${suite} › ${testCase} mean=1.00 [contains(Hello)=1.00]`,
+    // The case's detail is its scorer's name, as the scorer and the reporter build it.
+    expect(read("packages/evals/src/scorers.ts")).toContain(
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: the scorer's source text.
+      "name: `contains(${substring})`,",
+    )
+    expect(reporter).toContain(
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: the reporter's source text.
+      'c.scores.map((s) => `${s.scorer}=${s.score.toFixed(2)}`).join(" ")',
+    )
+    const scorers = [...smoke.matchAll(/\bcontains\("([^"]+)"/g)].map((match) => match[1])
+    expect(scorers).toHaveLength(1)
+    const detail = `contains(${scorers[0]})=1.00`
+    // One line per dataset case, then the suite's verdict.
+    const cases = [...smoke.matchAll(/\bfixtures: /g)].length
+    expect(cases).toBe(1)
+    const { lines } = runOf("eval")
+    expect(lines.filter((line) => line.includes(" › "))).toHaveLength(cases)
+    expect(lines).toEqual([
+      `PASS ${suite} › ${testCase} mean=1.00 [${detail}]`,
       `PASS ${suite} mean=1.00`,
     ])
   })
@@ -140,6 +189,38 @@ describe("the deploy targets are the CLI's own, built for real", () => {
     for (const name of BUILD_TARGET_NAMES) {
       expect(configs[name].build?.targets, name).toEqual([name])
       expect(buildFor(name).config, name).toBe(read(`${SHIP_FIXTURES}${name}.ts`))
+    }
+  })
+
+  it("prints every build in b4 build's own format", () => {
+    // These are the command's four template literals, as source text.
+    const command = read("packages/cli/src/commands/build.ts")
+    for (const literal of [
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: the command's source text.
+      "`Build complete: ${relative(process.cwd(), buildDir)}`",
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: the command's source text.
+      "`  ${manifest.routes.length} route(s) compiled`",
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: the command's source text.
+      '`  targets: ${targetNames.join(", ")}`',
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: the command's source text.
+      "`  wrote ${relative(process.cwd(), artifact)}`",
+    ]) {
+      expect(command).toContain(literal)
+    }
+    // The scaffold has one route folder under src/app.
+    const routes = readdirSync(resolve(repoRoot, `${TEMPLATE}src/app`), { withFileTypes: true })
+    expect(routes.filter((entry) => entry.isDirectory()).map((entry) => entry.name)).toEqual([
+      "hello",
+    ])
+    for (const build of buildOutputs.builds) {
+      const [complete, compiled, targets, ...wrote] = build.lines
+      expect([complete, compiled], build.id).toEqual([
+        "Build complete: .b4/build",
+        "  1 route(s) compiled",
+      ])
+      expect(targets, build.id).toMatch(/^ {2}targets: [a-z]+(?:, [a-z]+)*$/)
+      expect(wrote.length, build.id).toBeGreaterThan(0)
+      for (const line of wrote) expect(line, build.id).toMatch(/^ {2}wrote \S+$/)
     }
   })
 

@@ -19,6 +19,7 @@ afterEach(async () => {
   await act(async () => root?.unmount())
   root = undefined
   vi.restoreAllMocks()
+  vi.unstubAllEnvs()
   media?.restore()
   media = undefined
 })
@@ -88,10 +89,34 @@ it("renders both halves complete on the server, with nothing announced", () => {
   ).toEqual(["", ""])
 })
 
-it("records with no model key, whatever the shell has set", () => {
-  vi.stubEnv("OPENAI_API_KEY", "sk-not-a-real-key")
-  expect(recordingEnv()).not.toHaveProperty("OPENAI_API_KEY")
-  vi.unstubAllEnvs()
+it("records with no model key or token, whatever the shell has set", () => {
+  const secrets = [
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_BASE_URL",
+    "LANGSMITH_API_KEY",
+    "LANGSMITH_TRACING",
+    "LANGCHAIN_API_KEY",
+    "GITHUB_TOKEN",
+    "GH_TOKEN",
+    "NPM_TOKEN",
+    "NODE_AUTH_TOKEN",
+    "npm_config__authToken",
+    "DATABASE_URL",
+    "AWS_SECRET_ACCESS_KEY",
+    "NODE_OPTIONS",
+  ]
+  for (const name of secrets) vi.stubEnv(name, "not-a-real-secret")
+  vi.stubEnv("LC_ALL", "en_US.UTF-8")
+  vi.stubEnv("LANG", "en_US.UTF-8")
+  const env = recordingEnv()
+  for (const name of secrets) expect(env, name).not.toHaveProperty([name])
+  expect(Object.values(env)).not.toContain("not-a-real-secret")
+  // What the commands need: the shell's tools, home (pnpm's store) and locale.
+  for (const name of ["PATH", "HOME", "LANG", "LC_ALL"]) {
+    expect(env[name], name).toBe(process.env[name])
+  }
+  expect(env).toMatchObject({ FORCE_COLOR: "0", NO_COLOR: "1" })
 })
 
 it("announces a replay once, at once, and words a repeat differently", async () => {

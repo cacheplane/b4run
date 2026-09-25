@@ -1,5 +1,8 @@
 // Regenerates the data behind the homepage demos from the real framework.
 //
+// Re-record after any change to packages/cli/src/lib/build/targets/*,
+// packages/cli/src/commands/{build,eval}.ts, or the app-basic template.
+//
 //   pnpm build   # every @b4run package and create-b4-app resolve to their dist/
 //   node apps/web/scripts/export-homepage-demos.mjs                  # schema variants
 //   node apps/web/scripts/export-homepage-demos.mjs --record-tests   # ship/test-replay.json
@@ -12,9 +15,9 @@
 //
 // Recordings: scaffolds the basic app into a temp directory with this
 // checkout's create-b4-app (`--mode internal`, so every @b4run package is this
-// checkout's), installs it, and runs the real commands with OPENAI_API_KEY
-// removed from the environment. The transcripts lose ANSI codes, timings and
-// the temp path, and nothing else. The install reads pnpm's store first and
+// checkout's), installs it, and runs the real commands in an allow-listed
+// environment: no OPENAI_API_KEY, no other key or token. The transcripts lose
+// ANSI codes, vitest's timings and the temp path, and nothing else. The install reads pnpm's store first and
 // falls back to the npm registry for anything the store lacks. No model is
 // called: the scaffold's test and eval replay script() fixtures.
 import { execFileSync, spawnSync } from "node:child_process"
@@ -104,10 +107,12 @@ export async function extractSchemaVariants() {
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape sequences start with ESC.
 const ANSI = /\u001b\[[0-?]*[ -/]*[@-~]/g
-/** A timing at the end of a line, as vitest prints after each test ("246ms", "1.2s"). */
+/** vitest's result line for one test or file: a ✓ or × after the indent. */
+const RESULT_LINE = /^\s*[✓×]\s/
+/** The timing vitest ends a result line with ("246ms", "1.2s"). */
 const TRAILING_TIMING = /\s+\d+(?:\.\d+)?m?s$/
-/** vitest's wall-clock summary lines. */
-const TIMING_LINE = /^\s*(?:Start at|Duration)\s/
+/** vitest's wall-clock summary lines: an indented label, then two spaces. */
+const TIMING_LINE = /^\s+(?:Start at|Duration)\s{2}/
 
 /**
  * One command's output as the page shows it: no ANSI codes, no timings, and
@@ -121,7 +126,8 @@ export function normalizeTranscript(text, roots) {
     if (TIMING_LINE.test(raw)) continue
     let line = raw
     for (const root of byLength) line = line.replaceAll(root, APP_NAME)
-    line = line.replace(TRAILING_TIMING, "").trimEnd()
+    if (RESULT_LINE.test(line)) line = line.replace(TRAILING_TIMING, "")
+    line = line.trimEnd()
     if (line === "" && (lines.length === 0 || lines.at(-1) === "")) continue
     lines.push(line)
   }
@@ -129,19 +135,48 @@ export function normalizeTranscript(text, roots) {
   return lines
 }
 
-/** The environment every recorded command runs in: no model key, no colour. */
+/**
+ * The variables a recorded command inherits: the shell's tools, the home and
+ * temp directories (pnpm's store and cache live under them) and the locale.
+ * Nothing else passes, so no model key, token or tracing setting reaches the
+ * scaffold.
+ */
+const INHERITED_ENV = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "TZ"]
+/** Where pnpm and npm keep their store and cache when HOME isn't it. */
+const INHERITED_ENV_PREFIXES = ["LC_", "XDG_"]
+const INHERITED_TOOL_ENV = [
+  "PNPM_HOME",
+  "COREPACK_HOME",
+  "npm_config_cache",
+  "npm_config_store_dir",
+]
+
+/**
+ * The environment every recorded command runs in: allow-listed, no colour.
+ * @returns {Record<string, string>}
+ */
 export function recordingEnv() {
-  const env = {
-    ...process.env,
-    FORCE_COLOR: "0",
-    NO_COLOR: "1",
-    npm_config_update_notifier: "false",
+  /** @type {Record<string, string>} */
+  const env = {}
+  for (const [name, value] of Object.entries(process.env)) {
+    const inherited =
+      INHERITED_ENV.includes(name) ||
+      INHERITED_TOOL_ENV.includes(name) ||
+      INHERITED_ENV_PREFIXES.some((prefix) => name.startsWith(prefix))
+    if (inherited && value !== undefined) env[name] = value
   }
-  delete env.OPENAI_API_KEY
-  return env
+  return { ...env, FORCE_COLOR: "0", NO_COLOR: "1", npm_config_update_notifier: "false" }
 }
 
-/** Runs `command` in `cwd` with stderr folded into stdout; throws on a non-zero exit. */
+/** Why a finished spawnSync failed, or undefined when it exited 0. */
+export function describeFailure(result) {
+  if (result.error) return `could not run: ${result.error.message}`
+  if (result.signal) return `was killed by ${result.signal}`
+  if (result.status !== 0) return `exited ${result.status}`
+  return undefined
+}
+
+/** Runs `command` in `cwd` with stderr folded into stdout; throws unless it exits 0. */
 function run(command, cwd) {
   const result = spawnSync("sh", ["-c", `${command} 2>&1`], {
     cwd,
@@ -149,9 +184,8 @@ function run(command, cwd) {
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
   })
-  if (result.status !== 0) {
-    throw new Error(`${command} exited ${result.status} in ${cwd}:\n${result.stdout}`)
-  }
+  const failed = describeFailure(result)
+  if (failed) throw new Error(`${command} ${failed} in ${cwd}:\n${result.stdout ?? ""}`)
   return result.stdout
 }
 
@@ -159,19 +193,28 @@ function run(command, cwd) {
  * Scaffolds the basic app into a fresh temp directory and installs it. The
  * internal-mode `.npmrc` (`ignore-workspace=true`, for a scaffold inside a pnpm
  * workspace) goes, as an external scaffold's does; the temp directory is in
- * no workspace.
+ * no workspace. If either step fails, the temp directory goes too.
  */
 export function scaffoldBasicApp() {
   const tempRoot = mkdtempSync(join(tmpdir(), "b4-homepage-"))
-  const appRoot = join(tempRoot, APP_NAME)
-  execFileSync(
-    process.execPath,
-    [join(repoRoot, "packages", "create-b4-app", "dist", "bin.js"), appRoot, "--mode", "internal"],
-    { stdio: "ignore" },
-  )
-  rmSync(join(appRoot, ".npmrc"), { force: true })
-  run("pnpm install --prefer-offline", appRoot)
-  return { tempRoot, appRoot, roots: [...new Set([appRoot, realpathSync(appRoot)])] }
+  try {
+    const appRoot = join(tempRoot, APP_NAME)
+    const bin = join(repoRoot, "packages", "create-b4-app", "dist", "bin.js")
+    const scaffold = spawnSync(process.execPath, [bin, appRoot, "--mode", "internal"], {
+      env: recordingEnv(),
+      encoding: "utf8",
+    })
+    const failed = describeFailure(scaffold)
+    if (failed) {
+      throw new Error(`create-b4-app ${failed}:\n${scaffold.stdout ?? ""}${scaffold.stderr ?? ""}`)
+    }
+    rmSync(join(appRoot, ".npmrc"), { force: true })
+    run("pnpm install --prefer-offline", appRoot)
+    return { tempRoot, appRoot, roots: [...new Set([appRoot, realpathSync(appRoot)])] }
+  } catch (error) {
+    rmSync(tempRoot, { recursive: true, force: true })
+    throw error
+  }
 }
 
 /** The scaffold's tests and evals, exactly as they print. */
