@@ -7,6 +7,7 @@ import {
   APP_NAME,
   BUILD_COMMAND,
   BUILD_IDS,
+  EDGE_PACKAGES,
   EVAL_COMMAND,
   normalizeTranscript,
   TEST_COMMAND,
@@ -174,12 +175,63 @@ describe("the deploy targets are the CLI's own, built for real", () => {
     }
   })
 
-  it("installs Kubernetes with the docs' own commands and the repository's chart", () => {
+  it("installs Kubernetes with the docs' own commands, in the docs' order, and the repository's chart", () => {
     const docs = read("apps/web/content/docs/deployment/kubernetes.mdx")
     const kubernetes = deployTargets.find((target) => target.id === "kubernetes")
     expect(kubernetes?.build).toBe("node")
-    for (const command of kubernetes?.after ?? []) expect(docs).toContain(command)
+    // Every command in the page's bash blocks, a backslash-continued command as one.
+    const commands = [...docs.matchAll(/```bash\n([\s\S]*?)```/g)].flatMap((block) =>
+      (block[1] ?? "").split(/(?<!\\)\n/).filter(Boolean),
+    )
+    const from = commands.indexOf("b4 build")
+    const to = commands.findIndex((command) => command.startsWith("helm install b4-app "))
+    expect([from, to].every((index) => index >= 0)).toBe(true)
+    // From `b4 build` to the app's install, skipping only the sandbox chart the
+    // scaffold (no kubernetesSandbox) doesn't need.
+    const docsOrder = commands
+      .slice(from, to + 1)
+      .filter((command) => !command.includes("b4-sandbox-infra"))
+    expect([buildOutputs.command.replace(/^npx /, ""), ...(kubernetes?.after ?? [])]).toEqual(
+      docsOrder,
+    )
+    expect(docsOrder.map((command) => command.split(" ").slice(0, 2).join(" "))).toEqual([
+      "b4 build",
+      "docker build",
+      "docker push",
+      "helm install",
+    ])
     expect(read("charts/b4-app/Chart.yaml")).toMatch(/^name: b4-app$/m)
+  })
+
+  it("names the packages the edge builds needed, as their docs pages do", () => {
+    // The scaffold's route runs gpt-5-mini, an OpenAI model, whose provider package this is.
+    expect(read(`${TEMPLATE}src/app/hello/index.ts`)).toMatch(/model: "gpt-5-mini"/)
+    expect(read("packages/langchain/src/chat-model-factory.ts")).toMatch(
+      /openai: \{\s*packageName: "@langchain\/openai",/,
+    )
+    expect(EDGE_PACKAGES).toEqual([
+      "@b4run/postgres-storage",
+      "@neondatabase/serverless",
+      "hono",
+      "@langchain/openai",
+    ])
+    const scaffold = JSON.parse(read(`${TEMPLATE}package.json.template`)).dependencies
+    for (const target of deployTargets) {
+      const edge = target.id === "hono" || target.id === "vercel"
+      for (const name of EDGE_PACKAGES) {
+        expect(target.summary.includes(name), `${target.id} ${name}`).toBe(edge)
+      }
+      if (!edge) continue
+      const page = read(`apps/web/content/docs${target.docsHref.split("#")[0]?.slice(5)}.mdx`)
+      // The docs name every package but the provider, which they call the
+      // model-provider package; the scaffold already depends on @b4run/cli.
+      expect(page, target.id).toMatch(/model-provider package/)
+      for (const name of ["@b4run/cli", ...EDGE_PACKAGES.slice(0, -1)]) {
+        expect(page, `${target.id} ${name}`).toContain(`\`${name}\``)
+      }
+      expect(scaffold).toHaveProperty(["@b4run/cli"])
+      for (const name of EDGE_PACKAGES) expect(scaffold).not.toHaveProperty([name])
+    }
   })
 
   it("announces the target and the files its build writes", () => {

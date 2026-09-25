@@ -90,7 +90,8 @@ export const deployTargets: readonly DeployTarget[] = [
   {
     id: "hono",
     build: "hono",
-    summary: "A Hono app over the web-standard runtime. It serves the edge subset of B4.",
+    summary:
+      "A Hono app over the web-standard runtime. It serves the edge subset of B4. The app must also depend on @b4run/postgres-storage, @neondatabase/serverless, hono and its model provider, here @langchain/openai.",
     after: [],
     docsHref: "/docs/deployment/edge#emitted-artifacts",
     docsLabel: "Edge and Hono",
@@ -99,7 +100,7 @@ export const deployTargets: readonly DeployTarget[] = [
     id: "vercel",
     build: "vercel",
     summary:
-      "A Build Output API tree with one streaming function. It serves the edge subset of B4.",
+      "A Build Output API tree with one streaming function. It serves the edge subset of B4. The app must also depend on @b4run/postgres-storage, @neondatabase/serverless, hono and its model provider, here @langchain/openai.",
     after: [],
     docsHref: "/docs/deployment/vercel#emitted-artifacts",
     docsLabel: "Vercel",
@@ -107,9 +108,11 @@ export const deployTargets: readonly DeployTarget[] = [
   {
     id: "kubernetes",
     build: "node",
-    summary: "The Node build in an image, installed with the b4-app Helm chart.",
+    summary:
+      "The Node build in an image, pushed to a registry and installed with the b4-app Helm chart.",
     after: [
       "docker build -t ghcr.io/you/my-b4-app:2026-08-10 .",
+      "docker push ghcr.io/you/my-b4-app:2026-08-10",
       [
         "helm install b4-app oci://ghcr.io/cacheplane/charts/b4-app \\",
         "  --namespace b4-app \\",

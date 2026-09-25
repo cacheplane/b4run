@@ -45,17 +45,23 @@ export const BUILD_COMMAND = "npx b4 build"
 /** `default` is the scaffold's own b4.config.ts; the rest set `build.targets`. */
 export const BUILD_IDS = ["default", "node", "langsmith", "hono", "vercel"]
 /**
- * The packages the hono and vercel targets' runtime imports, which the app has
- * to declare (`/docs/deployment/vercel#select-the-target`), plus the model
- * provider the scaffold's gpt-5-mini route bundles. Postgres storage comes
- * from this checkout, like every other @b4run package in the scaffold.
+ * The packages the hono and vercel targets' runtime imports that the scaffold
+ * doesn't already declare (`/docs/deployment/edge#emitted-artifacts`,
+ * `/docs/deployment/vercel`), then the model provider the scaffold's
+ * gpt-5-mini route bundles. The page names each one in those targets' copy.
  */
-const EDGE_DEPENDENCIES = [
-  `@b4run/postgres-storage@file:${join(repoRoot, "packages", "postgres-storage")}`,
+export const EDGE_PACKAGES = [
+  "@b4run/postgres-storage",
   "@neondatabase/serverless",
   "hono",
   "@langchain/openai",
 ]
+/** What `pnpm add` gets: postgres storage from this checkout, like every other @b4run package. */
+const EDGE_DEPENDENCIES = EDGE_PACKAGES.map((name) =>
+  name === "@b4run/postgres-storage"
+    ? `${name}@file:${join(repoRoot, "packages", "postgres-storage")}`
+    : name,
+)
 /** Everything a build writes, cleared before each target runs. */
 const BUILD_OUTPUTS = [".b4/build", ".vercel", "Dockerfile", "wrangler.toml", "vercel.json"]
 
