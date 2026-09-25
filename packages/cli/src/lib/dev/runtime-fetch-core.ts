@@ -1602,7 +1602,18 @@ export function buildRouteTable(ctx: {
                   message: "Thread id collision: retry the create",
                 } as const)
             if (!attached.ok) {
-              if (ours) await getThreadsStore(request).deleteThread(thread.thread_id)
+              // Only a refusal that proves the attach wrote nothing removes the row.
+              // `already_staged` does not: `isRowWeJustWrote` compares metadata and
+              // timestamps, so two concurrent creates with identical metadata that collide
+              // on the 32-bit id both take the row as theirs, and the second would delete
+              // the first's thread. Kept, the row answers 409 to the second caller and
+              // stays the first's. Residual, not fixed (it would need a per-create nonce
+              // stored with the row, and row metadata is client-visible today): in the same
+              // collision, a SECOND create whose source was reclaimed deletes the shared row
+              // before the first attaches, leaving a staged row with no thread; the boot
+              // sweep and any run endpoint's create under that id forget it.
+              if (ours && attached.code === "workspace_source_not_held")
+                await getThreadsStore(request).deleteThread(thread.thread_id)
               return Response.json(
                 createRequestErrorBody(attached.message, { code: attached.code }),
                 { status: 409 },
@@ -2411,6 +2422,10 @@ async function handleApStreamRequest(options: {
     const settled = isThenable(g) ? await g : g
     if (!settled.ok) return settled.response
     if (!thread) {
+      // No row under this client-chosen id, so any staged workspace recorded for it is
+      // stale (its thread was deleted behind the runtime's back since the boot sweep):
+      // forget it before the row exists, so the new thread never inherits it.
+      sandboxManager?.forgetStagedWorkspace(threadId)
       const created = await createGatedThreadForRun({
         gate,
         operation: "run.stream",
@@ -2427,6 +2442,7 @@ async function handleApStreamRequest(options: {
   // re-authorized. PR A's contract is that an app with no policy file behaves
   // exactly as it did, and this line is what that means here.
   if (!thread) {
+    sandboxManager?.forgetStagedWorkspace(threadId)
     thread = await threadsStore.createThread({ thread_id: threadId })
   }
 
@@ -2775,6 +2791,10 @@ async function handleApWaitRequest(options: {
     const settled = isThenable(g) ? await g : g
     if (!settled.ok) return settled.response
     if (!thread) {
+      // No row under this client-chosen id, so any staged workspace recorded for it is
+      // stale (its thread was deleted behind the runtime's back since the boot sweep):
+      // forget it before the row exists, so the new thread never inherits it.
+      sandboxManager?.forgetStagedWorkspace(threadId)
       const created = await createGatedThreadForRun({
         gate,
         operation: "run.wait",
@@ -2789,6 +2809,7 @@ async function handleApWaitRequest(options: {
 
   // Hook-less only — see the same line in handleApStreamRequest.
   if (!thread) {
+    sandboxManager?.forgetStagedWorkspace(threadId)
     thread = await threadsStore.createThread({ thread_id: threadId })
   }
 

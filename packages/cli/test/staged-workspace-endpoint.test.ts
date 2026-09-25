@@ -56,6 +56,8 @@ async function fixture(
   options: {
     readonly stagedWorkspaces?: unknown
     readonly attachRefusedOnce?: boolean
+    /** The refusal the next attach returns (default `workspace_source_not_held`). */
+    readonly attachRefusal?: "workspace_source_not_held" | "already_staged"
     readonly mode?: "thread" | "workspace"
     /** Served to a thread created without a staged workspace, instead of refusing it. */
     readonly fallbackSource?: Bundle
@@ -133,8 +135,8 @@ async function fixture(
       if (!sandboxManager) throw new Error("the fixture configures a sandbox")
       vi.spyOn(sandboxManager, "attachStagedWorkspace").mockReturnValueOnce({
         ok: false,
-        code: "workspace_source_not_held",
-        message: "Workspace source was reclaimed: upload it again",
+        code: options.attachRefusal ?? "workspace_source_not_held",
+        message: "Refused by the test",
       })
     }
     const handler = await createRuntimeFetchHandler({
@@ -668,4 +670,32 @@ it("abandons an upload whose body stalls past the deadline, and frees the slot",
   expect(await response.json()).toMatchObject({ error: { details: { code: "upload_timeout" } } })
   expect(Date.now() - started).toBeLessThan(10_000)
   expect((await f.upload(bundle)).status).toBe(201)
+})
+
+for (const route of ["runs/wait", "runs/stream"] as const)
+  it(`a thread created by ${route} under the id of a thread deleted behind the runtime's back inherits no staged workspace, before any restart`, async () => {
+    const f = await fixture()
+    const bundle = source("x")
+    await f.upload(bundle)
+    const threadId = (
+      (await (await f.create({ sourceDigest: bundle.digest })).json()) as { thread_id: string }
+    ).thread_id
+    await f.store.deleteThread(threadId)
+    const response = await f.call("POST", `/threads/${threadId}/${route}`, {
+      route: "/read#workflow",
+      input: { path: "main.txt" },
+    })
+    await response.text()
+    expect(f.resolved).toEqual([{ threadId, digest: undefined }])
+  })
+
+it("keeps a row whose attach finds a staged workspace already there: it may be another create's", async () => {
+  const f = await fixture({ attachRefusedOnce: true, attachRefusal: "already_staged" })
+  const bundle = source("x")
+  await f.upload(bundle)
+  const response = await f.create({ sourceDigest: bundle.digest })
+  expect(response.status).toBe(409)
+  expect(await response.json()).toMatchObject({ error: { details: { code: "already_staged" } } })
+  expect(f.written).toHaveLength(1)
+  expect(await f.store.getThread(f.written[0] as string)).toBeDefined()
 })

@@ -439,6 +439,9 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       const settled = isThenable(recheck) ? await recheck : recheck
       if (!settled.ok) return settled.response
     } else if (createGate) {
+      // No row under this id: a staged workspace recorded for it is stale (see the run
+      // endpoints), and a new thread must not inherit it.
+      sandboxManager?.forgetStagedWorkspace(threadId)
       const created = await createGatedThreadForRun({
         gate: createGate,
         operation: "run.agui",
@@ -449,7 +452,8 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       })
       if (!created.ok) return created.response
     } else if (!existingThread) {
-      // Hook-less: unchanged.
+      // Hook-less: unchanged, but for forgetting a stale staged workspace.
+      sandboxManager?.forgetStagedWorkspace(threadId)
       await threadsStore.createThread({ thread_id: threadId })
     }
 
