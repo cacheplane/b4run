@@ -59,6 +59,9 @@ export interface DrafterEndpoint {
 export const DEFAULT_WORKER_ROUTE = "/build#agent"
 export const DEFAULT_DRAFTER_ROUTE = "/intake#agent"
 
+const WORKER_TOKEN_REQUIRED =
+  "FACTORY_WORKER_TOKEN is required: the secret the workers expect (openssl rand -hex 32)"
+
 /**
  * The environment the controller reads. Unknown keys are stripped rather than
  * rejected, which is how rung 0's `FACTORY_WORKER_OUTBOX` and
@@ -86,6 +89,15 @@ const EnvSchema = z.object({
   FACTORY_DRAFTER_ROUTE: z.string().min(1).default(DEFAULT_DRAFTER_ROUTE),
   FACTORY_DRAFTER_MANIFEST_DIR: z.string().min(1).optional(),
   FACTORY_DRAFTER_IMAGE: z.string().min(1).default(DRAFTER_IMAGE),
+  /**
+   * The secret every worker's thread-access policy requires: `authorization: Bearer <token>`.
+   * Every message below names the variable and never its value.
+   */
+  FACTORY_WORKER_TOKEN: z
+    .string({ message: WORKER_TOKEN_REQUIRED })
+    .min(1, { message: WORKER_TOKEN_REQUIRED })
+    .min(32, { message: "FACTORY_WORKER_TOKEN must be at least 32 characters" })
+    .regex(/^\S+$/, { message: "FACTORY_WORKER_TOKEN must contain no whitespace" }),
 })
 
 /**
@@ -135,6 +147,8 @@ export interface FactoryConfig {
    * (`FACTORY_DRAFTER_IMAGE` on both, else the pinned default on both).
    */
   readonly drafterImage: string
+  /** Sent to every worker as `authorization: Bearer <token>`. Never journalled or logged. */
+  readonly workerToken: string
 }
 
 /** Where a worker app reads its manifests when nobody says otherwise. */
@@ -229,5 +243,6 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
     maxIntakeAttempts: e.FACTORY_MAX_INTAKE_ATTEMPTS ?? 2,
     maxCandidateAttempts: e.FACTORY_MAX_CANDIDATE_ATTEMPTS ?? 2,
     drafterImage: e.FACTORY_DRAFTER_IMAGE,
+    workerToken: e.FACTORY_WORKER_TOKEN,
   }
 }

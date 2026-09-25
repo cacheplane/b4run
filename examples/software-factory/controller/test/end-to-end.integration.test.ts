@@ -16,6 +16,7 @@ import { createThreadWorkspaceReader } from "../src/lib/worker/workspace-reader.
 import { fakeWorkerMap } from "./fake-worker-map.ts"
 import { applyReference } from "./reference-repair.ts"
 import { type ServedBuilder, serveBuilder, toolCallsSeen, toolResults } from "./served-builder.ts"
+import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
 /**
  * The join: bytes the BUILDER'S OWN TOOLS wrote into its managed workspace during a real
@@ -84,7 +85,7 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
     captureRoot: dir,
     workers: fakeWorkerMap({
       builder: {
-        client: createHttpWorkerClient(served.url),
+        client: createHttpWorkerClient(served.url, { token: TEST_WORKER_TOKEN }),
         reader: reader(),
         appRoot: served.appRoot,
         manifestDir: served.manifestDir,

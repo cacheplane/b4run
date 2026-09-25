@@ -16,6 +16,7 @@ import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
 import { fakeWorkerMap, noopBuilderManifestWriter } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
+import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
 let dir: string
 /** Where a test's generated tasks live; created before `boot()` when the test needs that. */
@@ -57,7 +58,10 @@ async function boot(
     generatedTasksDir: join(dir, "tasks"),
     captureRoot: dir,
     workers: fakeWorkerMap({
-      builder: { client: createHttpWorkerClient(fake.baseUrl), reader },
+      builder: {
+        client: createHttpWorkerClient(fake.baseUrl, { token: TEST_WORKER_TOKEN }),
+        reader,
+      },
     }),
     writeBuilderManifest: noopBuilderManifestWriter,
     exportDir: join(dir, "out"),
@@ -202,7 +206,10 @@ describe("create and dispatch", () => {
       generatedTasksDir: join(dir, "tasks"),
       captureRoot: dir,
       workers: fakeWorkerMap({
-        builder: { client: createHttpWorkerClient(fake.baseUrl), reader },
+        builder: {
+          client: createHttpWorkerClient(fake.baseUrl, { token: TEST_WORKER_TOKEN }),
+          reader,
+        },
       }),
       writeBuilderManifest: noopBuilderManifestWriter,
       exportDir: join(dir, "out"),
@@ -263,7 +270,10 @@ describe("create and dispatch", () => {
       generatedTasksDir: join(dir, "tasks"),
       captureRoot: dir,
       workers: fakeWorkerMap({
-        builder: { client: createHttpWorkerClient(fake.baseUrl), reader },
+        builder: {
+          client: createHttpWorkerClient(fake.baseUrl, { token: TEST_WORKER_TOKEN }),
+          reader,
+        },
       }),
       writeBuilderManifest: noopBuilderManifestWriter,
       exportDir: join(dir, "out"),

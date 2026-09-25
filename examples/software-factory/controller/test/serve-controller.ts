@@ -7,6 +7,7 @@ import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
 import { shippedPin } from "./temp-repo.ts"
+import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
 /** What the target is deemed to hold before the builder runs. */
 const BASELINE = new Map([
@@ -37,6 +38,7 @@ const FACTORY_ENV = [
   "FACTORY_BUILDER_MANIFEST_DIR",
   "FACTORY_DRAFTER_URL",
   "FACTORY_DRAFTER_APP_ROOT",
+  "FACTORY_WORKER_TOKEN",
 ] as const
 
 const appRoot = fileURLToPath(new URL("../", import.meta.url))
@@ -113,6 +115,7 @@ export async function serveController(
   process.env.FACTORY_BUILDER_APP_ROOT = join(dir, "builder")
   process.env.FACTORY_DRAFTER_URL = drafter.baseUrl
   process.env.FACTORY_DRAFTER_APP_ROOT = join(dir, "drafter")
+  process.env.FACTORY_WORKER_TOKEN = TEST_WORKER_TOKEN
   // A commit the served controller's repository (this one) holds, so `intake`'s pin check
   // passes without a fetch, and the one the shipped targets hold images at, so a draft
   // naming one of them is looked up at a pin it was prepared for.

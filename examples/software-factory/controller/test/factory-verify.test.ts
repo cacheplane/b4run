@@ -8,6 +8,7 @@ import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
 import { fakeWorkerMap, noopBuilderManifestWriter } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader } from "./fake-workspace-reader.ts"
+import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
 let dir: string
 let fake: FakeWorker
@@ -44,7 +45,10 @@ async function boot(
     generatedTasksDir: join(dir, "tasks"),
     captureRoot: dir,
     workers: fakeWorkerMap({
-      builder: { client: createHttpWorkerClient(fake.baseUrl), reader },
+      builder: {
+        client: createHttpWorkerClient(fake.baseUrl, { token: TEST_WORKER_TOKEN }),
+        reader,
+      },
     }),
     writeBuilderManifest: noopBuilderManifestWriter,
     exportDir: join(dir, "out"),

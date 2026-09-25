@@ -7,6 +7,7 @@ import { createControllerRuntime } from "../src/lib/runtime.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
 import { noopBuilderManifestWriter } from "./fake-worker-map.ts"
 import { repositoryHead } from "./temp-repo.ts"
+import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
 let dir: string
 let fake: FakeWorker
@@ -26,6 +27,7 @@ describe("controller runtime", () => {
       FACTORY_WORKER_URL: fake.baseUrl,
       FACTORY_STATE_DIR: join(dir, "state"),
       FACTORY_BUILDER_APP_ROOT: join(dir, "builder"),
+      FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
     })
     const a = await runtime.factory()
     const b = await runtime.factory()
@@ -41,6 +43,7 @@ describe("controller runtime", () => {
       FACTORY_WORKER_URL: fake.baseUrl,
       FACTORY_STATE_DIR: join(dir, "state"),
       FACTORY_BUILDER_APP_ROOT: join(dir, "builder"),
+      FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
     }
     const three = createControllerRuntime({
       ...env,
@@ -69,6 +72,7 @@ describe("controller runtime", () => {
       FACTORY_WORKER_URL: fake.baseUrl,
       FACTORY_STATE_DIR: join(dir, "state"),
       FACTORY_BUILDER_APP_ROOT: join(dir, "builder"),
+      FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
       FACTORY_WORKER_ROUTE: "/fix#agent",
     }
     const runtime = createControllerRuntime(env, {
@@ -83,6 +87,10 @@ describe("controller runtime", () => {
     await fake.waitForRunStart(factory.show(id)?.workerThreadId as string)
     const run = fake.requests.find((r) => r.method === "POST" && r.path.endsWith("/runs/stream"))
     expect(run?.body).toMatchObject({ route: "/fix#agent" })
+    // The runtime's client carries the configured token on every request it made.
+    expect(fake.requests.length).toBeGreaterThan(0)
+    for (const logged of fake.requests)
+      expect(logged.authorization).toBe(`Bearer ${TEST_WORKER_TOKEN}`)
     expect(factory.show(id)?.workerRoute).toBe("/fix#agent")
     await runtime.dispose()
     // An operator still setting either retired variable is told it does nothing now.
@@ -102,6 +110,7 @@ describe("controller runtime", () => {
       FACTORY_WORKER_URL: fake.baseUrl,
       FACTORY_STATE_DIR: join(dir, "state"),
       FACTORY_BUILDER_APP_ROOT: join(dir, "builder"),
+      FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
     }
     const issue = {
       origin: {
@@ -173,6 +182,7 @@ describe("controller runtime", () => {
       FACTORY_WORKER_URL: fake.baseUrl,
       FACTORY_STATE_DIR: join(dir, "state"),
       FACTORY_BUILDER_APP_ROOT: join(dir, "builder"),
+      FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
     }
     const absent = createControllerRuntime({
       ...env,
@@ -206,6 +216,7 @@ describe("controller runtime", () => {
       FACTORY_WORKER_URL: fake.baseUrl,
       FACTORY_STATE_DIR: join(blocker, "state"),
       FACTORY_BUILDER_APP_ROOT: join(dir, "builder"),
+      FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
     })
     await expect(runtime.factory()).rejects.toThrow()
     rmSync(blocker, { force: true })

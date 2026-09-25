@@ -52,6 +52,8 @@ export interface LoggedRequest {
   readonly method: string
   readonly path: string
   readonly body: unknown
+  /** The request's `authorization` header, as received. */
+  readonly authorization: string | undefined
 }
 
 interface Thread {
@@ -312,7 +314,12 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
   const server: Server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1")
     const body = await readBody(req)
-    requests.push({ method: req.method ?? "", path: url.pathname, body })
+    requests.push({
+      method: req.method ?? "",
+      path: url.pathname,
+      body,
+      authorization: req.headers.authorization,
+    })
     const parts = url.pathname.split("/").filter(Boolean)
 
     if (req.method === "POST" && url.pathname === "/threads") {

@@ -17,6 +17,7 @@ import { createThreadWorkspaceReader } from "../src/lib/worker/workspace-reader.
 import { fakeWorkerMap } from "./fake-worker-map.ts"
 import { applyReference } from "./reference-repair.ts"
 import { type ServedBuilder, serveBuilder, toolCallsSeen, toolResults } from "./served-builder.ts"
+import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
 /**
  * Layer 3 for the monorepo target: the same join the `cli-flags` lane proves, over a real
@@ -104,7 +105,7 @@ it(
       captureRoot: dir,
       workers: fakeWorkerMap({
         builder: {
-          client: createHttpWorkerClient(served.url),
+          client: createHttpWorkerClient(served.url, { token: TEST_WORKER_TOKEN }),
           reader: reader(),
           appRoot: served.appRoot,
           manifestDir: served.manifestDir,

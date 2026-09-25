@@ -17,6 +17,7 @@ import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
 import { fakeWorkerMap, noopBuilderManifestWriter } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader } from "./fake-workspace-reader.ts"
+import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
 let dir: string
 // Cleared after every test: the tests that open neither must not re-close the previous
@@ -31,7 +32,7 @@ function factoryOptions(dir: string, registryPath: string): FactoryOptions {
     captureRoot: dir,
     workers: fakeWorkerMap({
       builder: {
-        client: createHttpWorkerClient(fake?.baseUrl ?? ""),
+        client: createHttpWorkerClient(fake?.baseUrl ?? "", { token: TEST_WORKER_TOKEN }),
         reader: createFakeWorkspaceReader({}),
       },
     }),

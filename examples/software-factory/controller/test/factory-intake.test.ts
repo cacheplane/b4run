@@ -25,6 +25,7 @@ import { fakeWorkerMap, noopBuilderManifestWriter } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
 import { BAD_DRAFTS, GOOD_DRAFT } from "./intake-fixtures.ts"
 import { createEmptyRepo, repositoryHead, shippedPin } from "./temp-repo.ts"
+import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
 let dir: string
 let generated: string
@@ -128,11 +129,16 @@ async function bootFactory(overrides: BootOverrides = {}) {
     workers: fakeWorkerMap({
       // One reader serves both stages: the drafter's `draft/` and the builder's candidate are
       // scripted under their own thread ids, and the fake ignores the task and the root.
-      builder: { client: createHttpWorkerClient(builder.baseUrl), reader },
+      builder: {
+        client: createHttpWorkerClient(builder.baseUrl, { token: TEST_WORKER_TOKEN }),
+        reader,
+      },
       ...(withDrafter
         ? {
             drafter: {
-              client: drafterClient(createHttpWorkerClient(fake.baseUrl)),
+              client: drafterClient(
+                createHttpWorkerClient(fake.baseUrl, { token: TEST_WORKER_TOKEN }),
+              ),
               reader: drafterReader ?? reader,
               manifestDir: manifestDir(),
             },

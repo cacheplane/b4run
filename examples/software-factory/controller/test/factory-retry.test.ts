@@ -9,6 +9,7 @@ import { createFakeVerifier, type FakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
 import { fakeWorkerMap, noopBuilderManifestWriter } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
+import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
 /**
  * `retry` (the first live run's approved task stranded on its one candidate attempt): a
@@ -54,7 +55,10 @@ async function boot(
     generatedTasksDir: join(dir, "tasks"),
     captureRoot: dir,
     workers: fakeWorkerMap({
-      builder: { client: createHttpWorkerClient(fake.baseUrl), reader },
+      builder: {
+        client: createHttpWorkerClient(fake.baseUrl, { token: TEST_WORKER_TOKEN }),
+        reader,
+      },
     }),
     writeBuilderManifest: async (input) => {
       manifestsWritten.push(input.workOrderId)
@@ -249,7 +253,12 @@ describe("retry", () => {
       registryPath: join(dir, "registry.sqlite"),
       generatedTasksDir: join(dir, "tasks"),
       captureRoot: dir,
-      workers: fakeWorkerMap({ builder: { client: createHttpWorkerClient(fake.baseUrl), reader } }),
+      workers: fakeWorkerMap({
+        builder: {
+          client: createHttpWorkerClient(fake.baseUrl, { token: TEST_WORKER_TOKEN }),
+          reader,
+        },
+      }),
       writeBuilderManifest: noopBuilderManifestWriter,
       exportDir: join(dir, "out"),
       artifactsDir: join(dir, "artifacts"),
