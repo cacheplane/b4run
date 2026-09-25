@@ -638,7 +638,7 @@ export const HOME_SEO_PAGE: StaticWebSeoPage = {
   canonical: "https://b4.run/",
   title: "B4.run: Ridiculous speed. Readable code.",
   description:
-    "Build TypeScript agents with tools, workspaces, sandbox execution, and approval. Watch an agent fix a real bug, then scaffold your own app.",
+    "Build TypeScript agents where files are features: tools, planning, memory, skills, subagents and evals. Scaffold your own app with one command.",
   kind: "WebPage",
   routeKind: "home",
   breadcrumbs: [],

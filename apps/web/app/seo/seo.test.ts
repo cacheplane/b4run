@@ -44,7 +44,7 @@ const BLOG_INDEX_DESCRIPTION =
 const PRODUCTION_AS_OF = "2026-08-26"
 const HOME_TITLE = "B4.run: Ridiculous speed. Readable code."
 const HOME_DESCRIPTION =
-  "Build TypeScript agents with tools, workspaces, sandbox execution, and approval. Watch an agent fix a real bug, then scaffold your own app."
+  "Build TypeScript agents where files are features: tools, planning, memory, skills, subagents and evals. Scaffold your own app with one command."
 const BLOG_CONTENT_DIRECTORY = resolve(seoDirectory, "../../content/blog")
 const REPO_ROOT = resolve(seoDirectory, "../../../..")
 
@@ -215,11 +215,11 @@ describe("homepage SEO", () => {
     for (const term of [
       "typescript",
       "tools",
-      "workspaces",
-      "sandboxes",
-      "approval",
-      "recorded",
-      "blueprint",
+      "planning",
+      "memory",
+      "skills",
+      "subagents",
+      "evals",
     ])
       expect(html).toContain(term)
     expect(readFileSync(resolve(seoDirectory, "../layout.tsx"), "utf8")).not.toContain(
