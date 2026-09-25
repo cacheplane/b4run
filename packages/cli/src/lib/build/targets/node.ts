@@ -3,6 +3,7 @@ import { readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 
 import { findMiddlewareFile } from "../../dev/middleware-node.js"
+import { findThreadAccessFile } from "../../dev/thread-access-node.js"
 import { writeLine } from "../../output.js"
 import type { BuildEmitContext, BuildTarget } from "./index.js"
 import {
@@ -24,8 +25,16 @@ const DOCKERFILE_MARKER =
  * server.mjs lives at `<appRoot>/.b4/build/server.mjs`, so the app root is
  * two directories up from the module's own location. Verified against
  * `buildDir = <appRoot>/.b4/build`.
+ *
+ * `threadAccessExpected` records WHAT THE BUILD SAW, in a different artifact
+ * from the manifest that carries the policy itself — the same split the web
+ * targets make. A `modules.mjs` older than the policy then pairs a set record
+ * with a missing `threadAccess` key, and the boot refuses instead of falling
+ * back to a disk probe that reads a missing file as "no policy".
  */
-const SERVER_ENTRY = `import { loadStaticModules, serveRuntime } from "@b4run/cli"
+const SERVER_ENTRY = (
+  threadAccessExpected: boolean,
+): string => `import { loadStaticModules, serveRuntime } from "@b4run/cli"
 import { fileURLToPath } from "node:url"
 import { dirname, resolve } from "node:path"
 
@@ -41,7 +50,7 @@ const { readFile, stat } = await import("node:fs/promises")
 if ((await stat(workspaceUrl)).size > 100 * 1024 * 1024) throw new Error("Workspace artifact exceeds size limit")
 const modules = { ...loadedModules, workspace: JSON.parse(await readFile(workspaceUrl, "utf8")) }
 
-await serveRuntime({ appRoot, modules })
+await serveRuntime({ appRoot, modules${threadAccessExpected ? ", threadAccessExpected: true" : ""} })
 `
 
 /**
@@ -84,6 +93,16 @@ CMD ["node", ".b4/build/server.mjs"]
 export const nodeTarget: BuildTarget = {
   name: "node",
   async emit({ appRoot, buildDir, io, manifest, workspaceArtifact }: BuildEmitContext) {
+    // Thread access probe, BEFORE anything is written, through the same
+    // `findThreadAccessFile` the web targets and the dynamic loader use. The
+    // policy is embedded in the manifest rather than left to a boot-time disk
+    // probe: that probe reads a missing file as "no policy" and serves every
+    // thread endpoint open, so a built app whose policy file is absent at boot
+    // (a narrowed Docker context, a deleted file, a stale manifest) would run
+    // ungated. Embedded, a missing file fails the manifest's static import and
+    // the server refuses to start. It throws rather than shrugging when a
+    // candidate cannot be probed, so an unreadable policy cannot drop out.
+    const threadAccessFile = findThreadAccessFile(appRoot)
     const artifacts: string[] = []
     const workspacePath = join(buildDir, "workspace.json")
     await writeFile(workspacePath, JSON.stringify(workspaceArtifact ?? null), "utf8")
@@ -112,13 +131,14 @@ export const nodeTarget: BuildTarget = {
         buildDir,
         discoveries,
         ...(middlewareFile ? { middlewareFile } : {}),
+        ...(threadAccessFile ? { threadAccessFile } : {}),
       }),
       "utf8",
     )
     artifacts.push(modulesPath)
 
     const serverPath = join(buildDir, "server.mjs")
-    await writeFile(serverPath, SERVER_ENTRY, "utf8")
+    await writeFile(serverPath, SERVER_ENTRY(threadAccessFile !== undefined), "utf8")
     artifacts.push(serverPath)
 
     // server.mjs imports @b4run/cli at runtime; `npm ci --omit=dev` strips it
