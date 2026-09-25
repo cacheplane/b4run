@@ -13,6 +13,8 @@ const tempDirs: string[] = []
 // Every thread-scoped store the runtime builds, in order: the parent's preparation first,
 // then one per subagent dispatch.
 const built = vi.hoisted(() => [] as PermissionsStore[])
+// The base each of those stores was built over.
+const bases = vi.hoisted(() => [] as PermissionsStore[])
 vi.mock("@b4run/permissions", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@b4run/permissions")>()
   return {
@@ -22,6 +24,7 @@ vi.mock("@b4run/permissions", async (importOriginal) => {
     ) => {
       const store = actual.createThreadPermissionsStore(options)
       built.push(store)
+      bases.push(options.base)
       return store
     },
   }
@@ -29,6 +32,7 @@ vi.mock("@b4run/permissions", async (importOriginal) => {
 
 afterEach(async () => {
   built.splice(0)
+  bases.splice(0)
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { force: true, recursive: true })))
   vi.doUnmock("langchain")
   vi.doUnmock("@langchain/openai")
@@ -91,6 +95,11 @@ it("gates a subagent with its parent thread's permissions and records its Always
     ])
     expect(built).toHaveLength(2)
     const [parent, child] = built as [PermissionsStore, PermissionsStore]
+    // Not stacked: the child's store is built over the same app store as the parent's,
+    // never over the parent's thread-scoped store.
+    expect(bases).toHaveLength(2)
+    expect(bases[1]).toBe(bases[0])
+    expect(bases[1]).not.toBe(parent)
     expect(child.mode).toBe("interactive")
     expect(child.match("bash", "npm test")).toBe("allow")
     expect(child.match("bash", "make all")).toBe("unknown")

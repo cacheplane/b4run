@@ -348,6 +348,10 @@ export function toAgentInput(input: unknown, resume?: RouteResumePayload): unkno
  * immediately visible to the parent and its later turns. That sharing is
  * deliberate: it matches the process-wide `.b4/permissions.json` semantics
  * the per-request path has always had, without the per-child re-read.
+ * A thread whose sandbox carries its own permissions is the exception: each
+ * preparation (the parent's and every child's) builds its own thread-scoped
+ * store over the app's, so a child's "Always" goes to the thread's record and
+ * the parent sees it at its next preparation, not immediately.
  *
  * `config` is an already-constructed B4Config. When present it IS the
  * config — `b4.config.ts` is never read (and no memo consulted).
@@ -1076,8 +1080,9 @@ async function prepareRouteExecutionForInvocation(
       permissionsConfig,
     )
   }
-  // The app's store, before any thread scoping: what a subagent's preparation wraps again
-  // for itself, so the scoping is applied once per preparation, never stacked.
+  // The app's store, before any thread scoping. A subagent's preparation is handed this,
+  // not the parent's thread-scoped store, and wraps it for itself: every thread-scoped
+  // store is built directly over the app's store, one layer deep.
   const appPermissionsStore = permissionsStore
   // A thread whose sandbox was resolved with its own permissions runs under a
   // store built from that record: the app's mode and denials, the thread's own
