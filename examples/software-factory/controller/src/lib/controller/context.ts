@@ -59,6 +59,16 @@ export interface ControllerContext {
     patch?: WorkOrderPatch,
     payload?: Record<string, unknown>,
   ): WorkOrderRow
+  /**
+   * Stop the row's active clock while the controller builds an image for it (spec item 4:
+   * build time is not the work order's). Banks the open interval and leaves `activeStartedAt`
+   * null, which the budget ticker reads as nothing open. Persisted, so a restart mid-build is
+   * visible and reconciliation resumes it. False when the row is not active or already paused:
+   * then there is nothing for the caller to resume.
+   */
+  pauseBudget(id: string, reason: string): boolean
+  /** Reopen a paused row's clock at now; a no-op for a row that is not active, or running. */
+  resumeBudget(id: string, reason: string): void
   /** Observe the worker turn to its end, applying the turn rules. */
   observeRun(
     id: string,

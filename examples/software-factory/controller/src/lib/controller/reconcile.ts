@@ -1,5 +1,5 @@
 import { type ExportedState, exportedState, exportPath } from "../delivery/export.js"
-import { isTerminal } from "../domain/states.js"
+import { ACTIVE_STATES, isTerminal } from "../domain/states.js"
 import type { WorkOrderRow } from "../domain/work-order.js"
 import type { StreamFrame } from "../worker/wire.js"
 import type { ControllerContext } from "./context.js"
@@ -189,6 +189,26 @@ export async function reconcileWorkOrder(
   // A closing factory reconciles nothing: its aborted signal would fail every worker call,
   // and a run tracked here would outlive the registry connection.
   if (ctx.signal.aborted) return
+  // A clock paused around an image build that no tracked run will resume: the controller
+  // restarted mid-build. Resumed before any rule, so an active row always accrues time and the
+  // budget cannot fail open. A tracked run (the build still in flight in this process) resumes
+  // its own pause; reconciliation called from inside it must not.
+  const current = ctx.mustGet(id)
+  if (!ctx.isTracked(id)) {
+    // A build the journal shows started and never ended, with nothing in this process waiting
+    // on it: the controller died mid-build. Its end is written now, so the journal (and the
+    // CLI's follower, which reads it) never shows a build in flight that nothing is running.
+    const events = ctx.store.events(id)
+    const last = [...events].reverse().find((e) => e.type.startsWith("image_prepare_"))
+    if (last?.type === "image_prepare_started")
+      ctx.recordEvent(id, "image_prepare_aborted", {
+        targetId: last.payload.targetId,
+        pin: last.payload.pin,
+        reason: "restart",
+      })
+    if (ACTIVE_STATES.has(current.state) && current.activeStartedAt === null)
+      ctx.resumeBudget(id, "reconcile")
+  }
   const row = ctx.mustGet(id)
   switch (row.state) {
     case "dispatched":

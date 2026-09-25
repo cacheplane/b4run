@@ -348,6 +348,23 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     })
   }
 
+  const pauseBudget = (id: string, reason: string): boolean =>
+    store.transaction(() => {
+      const row = mustGet(id)
+      if (!ACTIVE_STATES.has(row.state) || row.activeStartedAt === null) return false
+      const activeMs = row.activeMs + Math.max(0, now() - Date.parse(row.activeStartedAt))
+      store.update(id, row.revision, { activeMs, activeStartedAt: null }, iso())
+      recordEvent(id, "budget_paused", { reason, activeMs })
+      return true
+    })
+  const resumeBudget = (id: string, reason: string): void =>
+    store.transaction(() => {
+      const row = mustGet(id)
+      if (!ACTIVE_STATES.has(row.state) || row.activeStartedAt !== null) return
+      store.update(id, row.revision, { activeStartedAt: iso() }, iso())
+      recordEvent(id, "budget_resumed", { reason })
+    })
+
   const phaseSignal = (id: string): AbortSignal => {
     let controller = phases.get(id)
     if (!controller) {
@@ -637,6 +654,8 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     mustGet,
     recordEvent,
     transition,
+    pauseBudget,
+    resumeBudget,
     observeRun: (id, frames, observeOptions) => observeRun(ctx, id, frames, observeOptions),
     captureBaseline: (taskId, signal) => options.captureBaseline(taskId, signal),
     runVerification: (id) => runVerification(ctx, id),

@@ -244,6 +244,14 @@ function journalHandoff(id: string, threadId: string): void {
   registry.close()
 }
 
+/** Append one event to the journal directly, as a controller that died mid-step left it. */
+function journalEvent(id: string, type: string, payload: Record<string, unknown>): void {
+  const registry = openRegistry(registryPath())
+  const events = createWorkOrderStore(registry.db)
+  events.appendEvent(id, type, payload, new Date().toISOString())
+  registry.close()
+}
+
 function forceRow(id: string, patch: WorkOrderPatch): void {
   const registry = openRegistry(registryPath())
   const rows = createWorkOrderStore(registry.db)
@@ -1359,6 +1367,38 @@ describe("the intake gate", () => {
 })
 
 describe("intake reconciliation", () => {
+  it("resumes, before any rule, a budget a restart left paused", async () => {
+    await boot()
+    const { id } = await createIssue()
+    await crash()
+    // What a controller killed mid-build leaves: an active row with its clock stopped, and a
+    // build the journal shows started and never ended.
+    forceRow(id, { state: "intake_running", activeMs: 1_234, activeStartedAt: null })
+    journalEvent(id, "image_prepare_started", {
+      targetId: "devkit",
+      pin: PIN,
+      key: "a".repeat(64),
+      shared: false,
+      deadlineMs: 1,
+    })
+    await bootFactory()
+    const aborted = factory.events(id).filter((e) => e.type === "image_prepare_aborted")
+    expect(aborted.map((e) => e.payload)).toEqual([
+      { targetId: "devkit", pin: PIN, reason: "restart" },
+    ])
+    const events = factory.events(id)
+    const resumed = events.findIndex((e) => e.type === "budget_resumed")
+    expect(resumed).toBeGreaterThanOrEqual(0)
+    expect(events[resumed]?.payload).toEqual({ reason: "reconcile" })
+    const firstRule = events.findIndex((e, i) => i > resumed - 1 && e.type === "transition")
+    expect(firstRule === -1 || firstRule > resumed).toBe(true)
+    const row = factory.show(id) as WorkOrderRow
+    // Still active: the clock runs. Settled: the resumed interval was banked by the transition.
+    if (["intake_running", "dispatched", "running", "verifying", "exporting"].includes(row.state))
+      expect(row.activeStartedAt).not.toBeNull()
+    else expect(row.activeMs).toBeGreaterThanOrEqual(1_234)
+  })
+
   it("adopts a builder thread a crashed dispatch journalled behind the lingering drafter thread", async () => {
     await bootWorker()
     await bootFactory()

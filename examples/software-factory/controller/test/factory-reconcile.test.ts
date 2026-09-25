@@ -266,6 +266,9 @@ describe("reconciliation", () => {
         return row
       },
       runVerification: async () => {},
+      // Reconciliation's restart rule (a paused budget, a build a restart cut short) reads these.
+      isTracked: () => false,
+      store: { events: () => [] },
     } as unknown as ControllerContext
 
     await reconcileWorkOrder(ctx, row.id)
