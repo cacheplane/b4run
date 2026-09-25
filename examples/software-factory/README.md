@@ -26,29 +26,30 @@ This example is three b4 apps that share no source:
   `scripts/prepare-target.ts`), the registry, the verifier, the workspace reader, every test,
   and the `factory` CLI.
 - **`server/`** (`@b4-example/software-factory-server`) — the builder: one bounded route that
-  edits files in a container, and nothing else. Its permissions are non-interactive: a command
-  off its list (the target's build and test invocations, `node `, and the drafter's read-only
-  `ls`, `cat`, `head`, `tail`, `grep`, `wc`, `sed -n`, `nl`) is a tool error the model reads,
-  never a prompt parked for a person nobody assigned.
+  edits files in a container, and nothing else. One builder process serves every target at
+  every pin. Its permissions are non-interactive: a command off a thread's list (from its work
+  order's manifest: the target's build and test invocations, `node `, and the drafter's
+  read-only `ls`, `cat`, `head`, `tail`, `grep`, `wc`, `sed -n`, `nl`) is a tool error the model
+  reads, never a prompt parked for a person nobody assigned.
 - **`drafter/`** (`@b4-example/software-factory-drafter`) — the drafter: one `intake` agent
   route with the four built-in workspace tools, run on the plain `node:24-slim` base image
   pinned by digest, with the network denied and permissions non-interactive. It reads a wide
   read-only capture of the repository and writes a task under `draft/`; it repairs nothing.
 
 **The boundary.** Neither worker imports controller code. What crosses between them is a
-**manifest**: a JSON file the controller writes naming a captured workspace, one per **work
-order**. The builder's is `<FACTORY_BUILDER_MANIFEST_DIR>/<workOrderId>.json`, written by
-`dispatch` into the target worker's manifest directory before it creates the builder thread
-with `{ factoryWorkOrderId }`; the builder's resolver loads it when the thread's first run is
-admitted, refuses one written for another target, verifies the workspace and serves it. It
-carries no prompt: the task's instructions are the run's user message. What cannot vary per
-thread — the provider (scope and image), the sandbox policy and the permissions are one per
-app in the framework — is a second, per-process file, the **target file**
-(`factory builder-target --target <id>`), which the builder's `b4.config.ts` reads from
-`FACTORY_BUILDER_TARGET` at boot. So one builder process serves one target. A builder without
-a target file refuses to load, which is why its `build` and `check` scripts run behind
-`scripts/with-target.mjs` and skip with a notice when it is unset: the repository-wide `build`
-has no target in hand, and the real build is the one the Docker lane runs after writing one.
+**manifest**: a JSON file the controller writes, one per **work order**. The builder's is
+`<FACTORY_BUILDER_MANIFEST_DIR>/<workOrderId>.json`, written by `dispatch` into the builder's
+manifest directory before it creates the builder thread with `{ factoryWorkOrderId }`. It
+names the thread's whole sandbox: the captured workspace, and the task's target (the image
+prepared at the task's pin, that pin, the sandbox policy and the permission allow-list). The
+builder's `sandbox.thread` resolver loads it when the thread's first run is admitted, refuses
+it by name if it is missing or malformed, verifies the workspace and hands all four to the
+framework, which records them with the thread and never asks again. It carries no prompt: the
+task's instructions are the run's user message. So one builder process serves every target
+at every pin, and boots with no target file. Its real `b4 check` runs the Docker provider's
+preflight, which is why its `build` and `check` scripts run behind `scripts/in-lane.mjs` and
+skip with a notice unless `FACTORY_BUILDER_LANE=1`: the repository-wide `build` has no Docker
+in hand, and the real build is the one the Docker lane runs.
 The drafter's manifest is per work order too: `intake` writes
 `<FACTORY_DRAFTER_MANIFEST_DIR>/<workOrderId>.json` before it creates the drafter thread, the
 thread is created with `{ factoryWorkOrderId }`, and the drafter's resolver loads that file
@@ -144,11 +145,17 @@ program correctness, and the receipt says so.
 anyone who can reach its port can create, dispatch, approve and cancel work orders; there is
 no authentication and no per-caller check, which this rung scopes out. Run it on loopback and
 do not expose it. And note where the trust now sits on the builder's side: whoever can write
-the file `FACTORY_BUILDER_TARGET` names chooses that builder's sandbox policy, resource
-limits and permission allow-list, and whoever can write into its manifest directory chooses
-the workspace a work order's thread starts from. That is a stronger control point than the
-catalog key it replaced — a key only selected among the target definitions in the
-repository, while these files state them outright.
+into the builder's manifest directory chooses a thread's workspace, image, policy and
+permissions, within the builder's own bounds, which no manifest can move: the network is
+denied (a thread may not open what the app denies), only an image the factory prepared
+(`b4-factory-…`) may be named (`dockerSandbox({ images })`), and the permissions mode is
+`non-interactive`. That includes the WHOLE allow-list: `permissions` is a record keyed by any
+tool name, so a manifest's writer also decides the `tool` and `subagent` keys (which tools run
+without approval and which subagents may be dispatched), not only `bash` and the path keys;
+the builder's `non-interactive` mode means anything off that list is refused, never asked
+about. Each thread's choice is recorded at its first admission and never re-resolved. That
+is a stronger control point than the catalog key it replaced — a key only selected among the
+target definitions in the repository, while a manifest states them outright.
 
 **The pin is honoured, one image per pin.** The wide capture the drafter reads is taken at
 the work order's pin, out of the object store; the generated `task.json` carries that pin, so
@@ -156,13 +163,10 @@ the target, the baseline, the oracle proof and the verification are all looked u
 image prepared AT that pin. A target records one image per pin it was prepared at (`images`
 in `target.json`); a shipped task carries no pin and runs at its target's default `pin`. A draft
 whose target has no image at the work order's pin blocks at once (`image_unprepared`, naming
-the `pnpm --filter @b4-example/software-factory-controller target:prepare <id> --pin <pin>` an operator runs); no redraft can mend it. What is not per pin yet
-is the BUILDER's sandbox image: a builder process boots from one target file, written at the
-target's default pin, so a generated task at another pin is built in the default pin's image
-and verified in its own. A builder runs at ONE pin, its target file's (`builder-target
---pin`, recorded on its worker entry), and `dispatch` compares each task's pin with it: see
-step 1 for the rule and the remedy. Running several pins of one target at once is a
-follow-up (per-(target, pin) builders). And intake threads accumulate on
+the `pnpm --filter @b4-example/software-factory-controller target:prepare <id> --pin <pin>` an operator runs); no redraft can mend it. The
+builder runs each task in the same image the verifier does: the work order's manifest names
+the image prepared at the task's pin, so one builder runs several pins of one target at once,
+each thread in its own. And intake threads accumulate on
 the drafter, one per work order, since nothing sweeps a parked or blocked work order's drafter
 thread yet.
 
@@ -199,7 +203,8 @@ reader carries no exec backend and no write operation, so a mutation cannot be e
   excluded (while `.gitignore` survives) and the `node_modules` environment link is validated
   against its exact target instead of walked into.
 - **Addressing, not authorization.** The controller needs the builder's app root as well as
-  a provider of the same kind, scope and image. Naming a thread id is not a claim of
+  a provider of the same kind and scope; the image is in the thread's record, so the reader's
+  provider has no default image and serves every target. Naming a thread id is not a claim of
   ownership; the process holding those two things is the boundary. In this example the builder
   is the sibling `server` package, which is what `FACTORY_BUILDER_APP_ROOT` names.
 - **What rests on a fake elsewhere.** Layer 1 scripts the worker, the reader and the
@@ -246,73 +251,27 @@ configuration) does not exist, naming the path: `cli-flags`'s fixture lived
 under the server before the controller split, so it can only be prepared at its historical
 pin, and `devkit` is the target that is re-pinned.
 
-**1. Write the builder's target file.** A builder process serves one target, and the
-controller writes that target's file from the catalog. This command needs no controller and
-no registry (the manifests need no step: `dispatch` and `intake` write one per work order):
+**1. Start the builder** (terminal 1), told where the controller will leave its manifests. It
+needs no target file, no per-target copy and no second process:
 
-    pnpm --filter @b4-example/software-factory-controller \
-      factory builder-target --target cli-flags --out /tmp/factory-builder
-
-The file also carries the builder's permission allow-list, derived from the target: rewrite
-it (and restart the builder) after upgrading the controller, or the builder keeps the old list.
-The file records the pin whose image the builder runs: the target's default pin, or
-`--pin <sha>` for another prepared one (`builder-target --target devkit --pin <sha>`; a pin
-with no image is refused, naming the prepare command). **One builder serves one pin at a
-time.** `dispatch` compares each task's pin (a generated task's work order pin, a catalog
-task's target default) with its builder's: the same pin needs nothing; a different pin whose
-image agrees on lockfile, base image and Dockerfile is allowed and journalled
-(`builder_environment_differs`, with which of the three differ); any other difference is
-refused before the key with the remedy: prepare the target at the task's pin, restart its
-builder from `builder-target --target <id> --pin <taskPin>`, and set that pin on its worker
-entry (or cancel the work order).
-
-**2. Start the builder** (terminal 1), pointed at that file and at the directory the
-controller will leave its manifests in:
-
-    FACTORY_BUILDER_TARGET=/tmp/factory-builder/cli-flags.target.json \
     FACTORY_BUILDER_MANIFEST_DIR=/tmp/builder-manifests \
     OPENAI_API_KEY=... \
       pnpm --filter @b4-example/software-factory-server dev --port 4100
 
+One builder serves every target and pin. Each work order's manifest names the image its task
+is verified in, the sandbox policy and the permission allow-list; the builder records them at
+the thread's first admission and runs that thread in them, and only an image the factory
+prepared (`b4-factory-…`) can be named. Prepare every target (and pin) you will dispatch
+(`target:prepare <id> [--pin <sha>]`) before its work orders reach the builder: the manifest
+names an image, it does not build one. An upgraded controller's allow-list reaches the next
+work order at once, because it travels in that work order's manifest; a thread already
+admitted keeps the list it was admitted with.
+
 Do not set `B4_PERMISSIONS_MODE` in this process: it would override the builder app's
 `non-interactive` mode, and a builder that parks on a permission prompt blocks its work order
-as `unexpected_interrupt`, spending a candidate attempt on a question nobody answers. With the
-legacy worker pair (`FACTORY_BUILDER_TARGET`), the controller reads the same target file at its
-boot and `dispatch` refuses, before the key, a builder whose allow-list differs from what the
-controller would write today ("the builder's target file is stale"): rewrite the file with
-`factory builder-target`, restart the builder, then the controller. A `FACTORY_WORKERS` entry
-names no target file, so there the comparison is skipped.
+as `unexpected_interrupt`, spending a candidate attempt on a question nobody answers.
 
-A second target is a second builder process, with its own target file, manifest directory,
-port **and app root**. The app root is where the process keeps its installation store
-(`.b4/workspaces`, one per process), so two processes over one package directory would each
-take the other's threads for their own: give each builder its own copy of the `server`
-package (what the Docker lanes' `isolatedApp` does), and the controller refuses a worker map
-in which two builders, or a builder and the drafter, share one. For `cli-flags` and
-`devkit`, say:
-
-    pnpm --filter @b4-example/software-factory-controller target:prepare devkit
-    for t in cli-flags devkit; do
-      rsync -a --exclude node_modules --exclude .b4 --exclude .factory \
-        examples/software-factory/server/ /tmp/builder-$t/
-      ln -s $PWD/examples/software-factory/server/node_modules /tmp/builder-$t/node_modules
-    done
-    pnpm --filter @b4-example/software-factory-controller \
-      factory builder-target --target devkit --out /tmp/factory-builder
-    # terminal 1a
-    cd /tmp/builder-cli-flags && FACTORY_BUILDER_TARGET=/tmp/factory-builder/cli-flags.target.json \
-      FACTORY_BUILDER_MANIFEST_DIR=/tmp/builder-manifests/cli-flags \
-      OPENAI_API_KEY=... pnpm exec b4 dev --port 4100
-    # terminal 1b
-    cd /tmp/builder-devkit && FACTORY_BUILDER_TARGET=/tmp/factory-builder/devkit.target.json \
-      FACTORY_BUILDER_MANIFEST_DIR=/tmp/builder-manifests/devkit \
-      OPENAI_API_KEY=... pnpm exec b4 dev --port 4101
-
-Each copy shares only the package's dependencies, through the `node_modules` symlink, and
-starts with no installation store of its own. The controller's
-`FACTORY_WORKERS` then names both, with each process's manifest directory (step 4).
-
-**3. Start the drafter** (terminal 2), told where the controller will leave its manifests.
+**2. Start the drafter** (terminal 2), told where the controller will leave its manifests.
 It reads the repository through the capture in each manifest, never through the filesystem,
 so it needs no repository path:
 
@@ -324,17 +283,13 @@ so it needs no repository path:
 `B4_PERMISSIONS_MODE` in this process: it would override the app's `non-interactive` mode,
 and a drafter that parks on a permission prompt is a turn nobody answers.
 
-**4. Start the controller** (terminal 3). It needs a *worker map* — which builder process
-serves which target — its own state directory, and the drafter pair: the drafter's URL and
-its *app root*, the package whose installation store the controller reads `draft/` from. For
-one builder process, the legacy pair `FACTORY_WORKER_URL` + `FACTORY_BUILDER_APP_ROOT` is that
-map, with `FACTORY_BUILDER_TARGET` (the same target file that builder booted from, which is
-how the controller knows the one target it serves) and `FACTORY_BUILDER_MANIFEST_DIR` (the
-directory it was started with):
+**3. Start the controller** (terminal 3). It needs the builder pair — the builder's URL and
+its *app root*, the package whose installation store the controller reads a builder thread's
+workspace from — with `FACTORY_BUILDER_MANIFEST_DIR` (the directory the builder was started
+with), its own state directory, and the drafter pair: the drafter's URL and its app root:
 
     FACTORY_WORKER_URL=http://127.0.0.1:4100 \
     FACTORY_BUILDER_APP_ROOT=$PWD/examples/software-factory/server \
-    FACTORY_BUILDER_TARGET=/tmp/factory-builder/cli-flags.target.json \
     FACTORY_BUILDER_MANIFEST_DIR=/tmp/builder-manifests \
     FACTORY_DRAFTER_URL=http://127.0.0.1:4200 \
     FACTORY_DRAFTER_APP_ROOT=$PWD/examples/software-factory/drafter \
@@ -342,30 +297,11 @@ directory it was started with):
     FACTORY_STATE_DIR=$PWD/.factory \
       pnpm --filter @b4-example/software-factory-controller dev --port 4300
 
-The legacy pair is one entry, keyed by the id in that target file: a work order of any
-other target has no worker, and `dispatch` refuses it (`no worker for target <id>`) before
-spending its key or a thread. With one builder process per target, `FACTORY_WORKERS` replaces
-the pair: a JSON object from target id to `{ "url", "appRoot", "route"?, "manifestDir"?,
-"pin"? }`, where `manifestDir` (default `<appRoot>/.factory/manifests`) is that process's
-`FACTORY_BUILDER_MANIFEST_DIR` and `pin` (default the target's default pin) is the pin its
-target file was written at. The legacy pair reads the pin from `FACTORY_BUILDER_TARGET`. For the two builders above:
-
-    FACTORY_WORKERS='{
-      "cli-flags": { "url": "http://127.0.0.1:4100", "appRoot": "/tmp/builder-cli-flags",
-                     "manifestDir": "/tmp/builder-manifests/cli-flags" },
-      "devkit":    { "url": "http://127.0.0.1:4101", "appRoot": "/tmp/builder-devkit",
-                     "manifestDir": "/tmp/builder-manifests/devkit" }
-    }' \
-    FACTORY_DRAFTER_URL=http://127.0.0.1:4200 \
-    FACTORY_DRAFTER_APP_ROOT=$PWD/examples/software-factory/drafter \
-    FACTORY_DRAFTER_MANIFEST_DIR=/tmp/drafter-manifests \
-    FACTORY_STATE_DIR=$PWD/.factory \
-      pnpm --filter @b4-example/software-factory-controller dev --port 4300
-
-There is no wildcard entry: a key is a target id, one URL serves one target, and no two
-entries (nor an entry and the drafter) share an app root; each is refused by name. The two
-forms are exclusive; setting both (or `FACTORY_BUILDER_TARGET` or
-`FACTORY_BUILDER_MANIFEST_DIR` beside the map) is refused by name. The controller creates each manifest directory at boot; `dispatch` writes
+Every target's work orders go to that one builder. `FACTORY_WORKERS` (the per-target worker
+map) and `FACTORY_BUILDER_TARGET` (the per-process target file) are retired: the controller
+refuses to start while either is set, naming it, rather than leave an operator believing it
+still routes anything. The builder and the drafter each need their own app root, and the
+controller refuses one shared between them. The controller creates each manifest directory at boot; `dispatch` writes
 the work order's manifest there before it creates the thread, and removes it once the row
 leaves `dispatched`/`running` (the resolver reads it once, at the thread's first admission;
 verification reads the workspace through the reader) or a cancel has settled the thread. Without the
@@ -375,7 +311,7 @@ before spending anything. The controller keeps every file it writes at run time 
 under `captures/` and `verifiers/`), so its own package directory stays read-only while it
 runs and `b4 dev` never restarts it mid-command.
 
-**5. Drive it** (terminal 4). Every command above and below runs from the repository root.
+**4. Drive it** (terminal 4). Every command above and below runs from the repository root.
 The CLI's write commands are requests to the running controller
 (`FACTORY_CONTROLLER_URL`); its read commands never touch the controller at all — they open
 `<FACTORY_STATE_DIR>/registry.sqlite` read-only. So both variables are set:
@@ -437,7 +373,7 @@ right answer, so the fix's own test grades what the factory produces without the
 builder being able to see it.
 
 **The model key.** `OPENAI_API_KEY` must be in the environment of the builder and drafter
-processes (steps 2 and 3), not the controller's or this terminal's. Both boot without it and
+processes (steps 1 and 2), not the controller's or this terminal's. Both boot without it and
 fail only at their first model call, as a failed turn. To load the one variable from the
 repository's gitignored `.env` without printing it, in a way every shell runs (bash process
 substitution, `source <(...)`, is silently ignored by macOS's bash 3.2):
@@ -590,12 +526,10 @@ The controller app reads:
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `FACTORY_WORKERS` | one of the two | The worker map: JSON from target id to `{ "url", "appRoot", "route"?, "manifestDir"?, "pin"? }`, one builder process (URL and app root of its own) per target; `manifestDir` defaults to `<appRoot>/.factory/manifests`. Exclusive with the pair below |
-| `FACTORY_WORKER_URL` | one of the two | The legacy pair, with `FACTORY_BUILDER_APP_ROOT` and `FACTORY_BUILDER_TARGET`: one builder, for the one target its target file names. `http(s)` only |
-| `FACTORY_BUILDER_APP_ROOT` | with `FACTORY_WORKER_URL` | The BUILDER package's root, so the workspace reader can address its installation store |
-| `FACTORY_BUILDER_TARGET` | with `FACTORY_WORKER_URL` | The target file that builder boots from (`factory builder-target`); the controller keys the entry by its `target.id` and takes the builder's pin from its `target.pin`. Missing or unreadable is a boot error naming it |
-| `FACTORY_WORKER_ROUTE` | no | Default `/build#agent`; only with the legacy pair |
-| `FACTORY_BUILDER_MANIFEST_DIR` | no | Default `<builder app root>/.factory/manifests`; must be the directory the builder process was started with. Only with the legacy pair |
+| `FACTORY_WORKER_URL` | yes | The builder's Agent Protocol base URL, `http(s)` only: the one builder, for every target and pin |
+| `FACTORY_BUILDER_APP_ROOT` | yes | The BUILDER package's root, so the workspace reader can address its installation store |
+| `FACTORY_WORKER_ROUTE` | no | Default `/build#agent` |
+| `FACTORY_BUILDER_MANIFEST_DIR` | no | Default `<builder app root>/.factory/manifests`; must be the directory the builder process was started with |
 | `FACTORY_STATE_DIR` | yes | Holds `registry.sqlite`, `artifacts/`, `exports/`, generated `tasks/`, and the `captures/` and `verifiers/` staging the controller removes after each use |
 | `FACTORY_DRAFTER_URL` | for `intake` | The drafter's Agent Protocol base URL, `http(s)` only. Set with `FACTORY_DRAFTER_APP_ROOT` or not at all |
 | `FACTORY_DRAFTER_APP_ROOT` | for `intake` | The DRAFTER package's root, so the controller can read a drafter thread's `draft/` through its installation store |
@@ -623,14 +557,14 @@ request timeout and the arrival window the long-wait fallback measures, and let 
 a pipe as it would at a terminal); an operator sets none of them. `review` reads evidence from
 `FACTORY_ARTIFACTS_DIR` when it is set, as the controller does.
 
-The builder app reads `FACTORY_BUILDER_TARGET` (required: the target file `factory
-builder-target` writes), `FACTORY_BUILDER_MANIFEST_DIR` (required: the manifest directory,
+The builder app reads `FACTORY_BUILDER_MANIFEST_DIR` (required: the manifest directory,
 which may be empty; its `check` and `build` scripts default it to `.factory/manifests`) and
-`FACTORY_BUILDER_MODEL` (default `gpt-5-mini`). The drafter app reads
+`FACTORY_BUILDER_MODEL` (default `gpt-5-mini`); its `check` and `build` scripts also read
+`FACTORY_BUILDER_LANE` (`1` runs them, anything else skips them with a notice). The drafter app reads
 `FACTORY_DRAFTER_MANIFEST_DIR` (required: the manifest directory, which may be empty),
 `FACTORY_DRAFTER_IMAGE` (default: the pinned digest in `drafter/src/drafter-image.ts`) and
 `FACTORY_DRAFTER_MODEL` (default `gpt-5-mini`). The CLI reads `FACTORY_CONTROLLER_URL` for
-writes and `FACTORY_STATE_DIR` for reads; `builder-target` and `builder-manifest` need
+writes and `FACTORY_STATE_DIR` for reads; `builder-manifest` needs
 neither. `builder-manifest --task <id> --out <dir> [--work-order <id>]` writes one work
 order's manifest (named by the task id by default) for driving a builder without a
 controller; it stages its capture under `FACTORY_STATE_DIR` when that is set (as the
@@ -640,7 +574,7 @@ target's `target.json` (under `FACTORY_TARGETS_DIR` when set), so run it before 
 controller starts or point it at another targets directory.
 
 A work order whose worker has left the map — the drafter pair unset while a draft is in
-flight, a target's entry removed while its build runs — waits where it is, journalling
+flight — waits where it is, journalling
 `worker_unavailable` (and `reconcile_failed`) until the map is restored and the controller
 reconciles. `cancel` is the operator's escape when the worker is gone for good: with nowhere
 to send the cancel and nothing to deny, it settles the row as `cancelled` with the fact
@@ -651,8 +585,10 @@ Unknown keys are stripped rather than rejected, so an old service file keeps sta
 they existed for is gone. Neither does anything rung 2 used to configure the standalone CLI's
 port or the builder's task: the controller is an app with its own port, and the builder's task
 is whichever one each work order's manifest names. `FACTORY_BUILDER_MANIFEST`, the builder's
-old single-manifest variable, is gone the same way: the builder refuses to boot without
-`FACTORY_BUILDER_TARGET`. The scripted intake's `FACTORY_INTAKE_ROUTE` and
+old single-manifest variable, is gone the same way. Two retired variables are refused rather
+than stripped, because each used to decide where a work order went or what it ran with:
+`FACTORY_WORKERS` and `FACTORY_BUILDER_TARGET` (and the `factory builder-target` command that
+wrote the latter's file is gone). The scripted intake's `FACTORY_INTAKE_ROUTE` and
 `FACTORY_INTAKE_TASK` are gone the same way: the drafter is its own process now, and
 `intake` refuses by name when the drafter pair is unset.
 
@@ -682,9 +618,11 @@ by digest. Layer 2 needs Docker even though its model is scripted: the app confi
 sandbox, so the run acquires a real container — which is the point, since the permission
 config and `runBash` are exactly what that layer exists to exercise. Both fail rather than
 skip when Docker is absent. The controller's `builder.integration.test.ts` serves the builder
-app for `cli-flags` from a private copy and proves its resolver: two work orders on one
-process, each thread admitted with its own manifest's workspace, and a thread with no
-manifest or another target's refused by name; the two end-to-end builder lanes dispatch
+app from a private copy and proves its resolver: two work orders on one process, each thread
+admitted with its own manifest's workspace; a `cli-flags` thread and two `devkit` threads at
+two pins on that same process, each thread's intent recording its own target's image at its
+own pin and its session running that image under its target's memory limit; and a thread
+with no manifest, or naming an image the factory did not prepare, refused by name; the two end-to-end builder lanes dispatch
 through the controller to the served builder, so the manifest `dispatch` wrote is what the
 thread was admitted with. The controller's `drafter-resolver.integration.test.ts` serves
 the drafter app from a private copy and proves its resolver: two threads for two work
@@ -696,10 +634,9 @@ re-rooted `draft/` read, and the oracle proof in the target's image.
 
 In CI, all three packages' always-on lanes run inside `source-validate`'s `pnpm test`, which
 the `validate` gate aggregates. The Docker work is the `sandbox-docker` job: it prepares both
-target images (`target:prepare cli-flags` and `target:prepare devkit`), writes the builder's
-target file for `cli-flags` and runs the **builder's** own `check` and `build` against it and
-an empty manifest directory — the only place either runs, since a target file exists nowhere
-else — pulls the drafter's base image
+target images (`target:prepare cli-flags` and `target:prepare devkit`), runs the
+**builder's** own `check` and `build` (`FACTORY_BUILDER_LANE=1`) against an empty manifest
+directory — the only place either runs, since `check` needs Docker — pulls the drafter's base image
 by the digest in `drafter/src/drafter-image.ts`, runs the drafter's `check` and `build`
 against an empty manifest directory, and then runs the controller's `test:sandbox`, which
 serves the drafter in both of its drafter lanes. The `cli` target's lane
