@@ -1,0 +1,34 @@
+{
+  "command": "npm create b4-app@latest my-agent",
+  "created": "Created my-agent (basic template)",
+  "root": "my-agent/",
+  "entries": [
+    { "label": "AGENTS.md", "path": "AGENTS.md", "note": "guide for your coding agent" },
+    { "label": "b4.config.ts", "path": "b4.config.ts", "note": "runtime" },
+    {
+      "label": "src/app/hello/",
+      "path": "src/app/hello",
+      "note": "the agent",
+      "href": "#first-agent",
+      "children": [
+        { "label": "index.ts", "path": "src/app/hello/index.ts", "note": "model + prompt" },
+        {
+          "label": "tools/greet.ts",
+          "path": "src/app/hello/tools/greet.ts",
+          "note": "a typed tool"
+        },
+        {
+          "label": "evals/smoke.eval.ts",
+          "path": "src/app/hello/evals/smoke.eval.ts",
+          "note": "behavior check"
+        }
+      ]
+    },
+    {
+      "label": "test/agent.test.ts",
+      "path": "test/agent.test.ts",
+      "note": "passes offline, no key"
+    }
+  ],
+  "next": "cd my-agent && npm install && npm test"
+}
