@@ -24,14 +24,17 @@
   margin: 0;
 }
 
-/* The segmented control: native radios, one 44px cell each. */
+/* The segmented control: native radios, one 44px cell each. Every cell
+   overlaps its right and bottom neighbours by 1px, so borders never double,
+   whether the cells sit in one row or wrap to two; the padding gives the
+   last cell's overlap back. */
 .options {
   display: flex;
   flex-wrap: wrap;
   gap: 0;
   min-inline-size: 0;
   margin: 0 0 16px;
-  padding: 0;
+  padding: 0 1px 1px 0;
   border: 0;
 }
 .legend {
@@ -47,6 +50,7 @@
   align-items: center;
   gap: 8px;
   min-height: 44px;
+  margin: 0 -1px -1px 0;
   padding: 0 16px;
   border: 1px solid var(--color-rule-strong);
   font:
@@ -54,9 +58,6 @@
     monospace;
   color: var(--color-ink);
   cursor: pointer;
-}
-.option + .option {
-  margin-left: -1px;
 }
 .option input {
   margin: 0;
