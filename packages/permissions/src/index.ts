@@ -5,6 +5,11 @@ export {
   suggestedMemoryPattern,
   suggestedPathPattern,
 } from "./suggested-pattern.js"
+export {
+  createThreadPermissionsStore,
+  type ThreadPermissionGrants,
+  type ThreadPermissions,
+} from "./thread-store.js"
 export type {
   CommandDetail,
   MemoryDetail,
