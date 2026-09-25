@@ -1,6 +1,15 @@
 export { compose } from "./compose.js"
 export type { InspectWorkspaceOptions, WorkspaceInspection } from "./inspect-workspace.js"
 export { inspectWorkspace } from "./inspect-workspace.js"
+export {
+  isCanonicalWorkspaceRoot,
+  isWorkspaceInspectionError,
+  isWorkspaceReadLimitError,
+  WorkspaceInspectionError,
+  type WorkspaceInspectionErrorCode,
+  type WorkspaceInspectionErrorDetail,
+  WorkspaceReadLimitError,
+} from "./inspection-errors.js"
 // NOTE: `localExec`/`localFilesystem` live on the `./node` subpath — importing
 // them here would put node builtins back into every consumer's graph.
 export type { LocalExecOptions } from "./local-exec.js"

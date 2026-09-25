@@ -34,6 +34,13 @@ The root's emitted subpath graph has no runtime package or Node built-in depende
 | `inspectWorkspace` | Inspect a bounded text inventory through author filesystem APIs, a sandbox handle, or a read-only workspace reader. |
 | `InspectWorkspaceOptions` | Set byte and entry limits, cancellation, omitted directories, and required root links. |
 | `WorkspaceInspection` | Return relative-path text files, validated links, byte count, and entry count. |
+| `WorkspaceInspectionError` | A named inspection refusal: `invalid_options`, `root_missing`, `refused`, `changed`. |
+| `isWorkspaceInspectionError` | Recognize an inspection refusal by name and code, including one thrown by a second copy of the package. |
+| `WorkspaceInspectionErrorCode` | Name why an inspection refused. |
+| `WorkspaceInspectionErrorDetail` | Carry the refused `root` and whether it was absent or not a directory. |
+| `WorkspaceReadLimitError` | A bounded read found more bytes than its limit; thrown by B4.run's backends. |
+| `isWorkspaceReadLimitError` | Recognize a read-limit refusal by name, including one thrown by a second copy of the package. |
+| `isCanonicalWorkspaceRoot` | Check an inspection root: relative leaf names with no empty, `.`, `..`, backslash or control-character segment. |
 | `WorkspaceDefinition` | Declare initial source, immutable environment links, and an optional Git baseline. |
 | `CapturedWorkspaceDefinition` | Hold a verified source bundle and canonical creation options. |
 | `WorkspaceResolver` | Decide one thread's initial workspace from its id and client metadata, once, at first admission. |
@@ -60,7 +67,7 @@ The root's emitted subpath graph has no runtime package or Node built-in depende
 | `WorkspaceSourceDefinition` | Declare the source directory, exact inventory, exclusions, and additional files. |
 | `LocalExecOptions` | Configure the local command backend without importing its runtime. |
 | `LocalFilesystemOptions` | Configure the local filesystem backend without importing its runtime. |
-| `SandboxConfig` | Configure provider selection and lifecycle policy. |
+| `SandboxConfig` | Configure provider selection and lifecycle policy, including `workspaceRead: "http"`, which serves a thread's workspace over the Agent Protocol. |
 | `SandboxHandle` | Describe one acquired sandbox. |
 | `SandboxPolicy` | Describe per-thread network, environment, resource, and security policy. |
 | `SandboxProvider` | Define sandbox acquisition, release, destruction, and optional workspace reads. |
@@ -128,6 +135,13 @@ Defaults are 10,000 entries, 2 MiB per file, and 16 MiB total. Override these wi
 only directory subtrees. A file or link at an excluded name fails. Every entry in
 `expectedRootSymlinks` must exist with its exact raw link target. Other symlinks
 are rejected. `signal` cancels inspection.
+
+`root` (a sandbox handle or workspace reader only) starts the inspection at a
+relative directory: nothing outside it is read, keys are relative to it, and
+every segment must be a real directory, so a missing root or one that passes
+through a file or a symlink is a `root_missing` refusal naming it. Refusals are
+`WorkspaceInspectionError`s with a `code`; a backend's own failure is rethrown
+as it was thrown.
 
 ```ts
 import { inspectWorkspace } from "@b4run/workspace"
@@ -423,6 +437,8 @@ The Docker provider verifies the record, binding and volume exactly as `reconnec
 export interface SandboxConfig {
   readonly workspace?: WorkspaceDefinition | WorkspaceResolver
   readonly thread?: ThreadSandboxResolver
+  readonly workspaceRead?: "http"
+  readonly workspaceReadTimeoutMs?: number
   readonly provider: SandboxProvider
   readonly network?: SandboxPolicy["network"]
   readonly env?: SandboxPolicy["env"]
@@ -437,6 +453,8 @@ export interface SandboxConfig {
 |---|---|---|---|
 | `readonly workspace` | `WorkspaceDefinition \| WorkspaceResolver` | no | Declare the initial managed workspace: one definition for every thread, or a resolver that decides per thread at first admission. |
 | `readonly thread` | `ThreadSandboxResolver` | no | Decide each thread's workspace, image, policy and permissions once, at first admission; exclusive with `workspace`. |
+| `readonly workspaceRead` | `"http"` | no | Serve `POST /threads/:thread_id/workspace/inspect`, a read-only inventory of a thread's managed workspace behind the thread-access policy; refused without a policy. |
+| `readonly workspaceReadTimeoutMs` | `number` | no | Bound one workspace read, open to close, before it is abandoned with `504 workspace_read_timeout`; 1,000 to 1,800,000 ms, default 120,000. |
 | `readonly provider` | `SandboxProvider` | yes | Supply the sandbox provider. |
 | `readonly network` | `SandboxPolicy["network"]` | no | Set the default network policy. |
 | `readonly env` | `SandboxPolicy["env"]` | no | Set the default explicit environment. |

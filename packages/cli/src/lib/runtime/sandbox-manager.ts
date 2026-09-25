@@ -4,6 +4,12 @@ import type {
   ManagedWorkspaceManager,
   WorkspaceAdmissionContext,
 } from "./managed-workspace-manager.js"
+import {
+  NO_WORKSPACE_PROTOCOL,
+  type ThreadWorkspaceInspectOutcome,
+  type ThreadWorkspaceInspectRequest,
+  type WorkspaceProtocolSettings,
+} from "./workspace-protocol.js"
 
 interface Entry {
   handle?: SandboxHandle
@@ -27,6 +33,7 @@ export class SandboxManager {
   readonly #entries = new Map<string, Entry>()
   readonly #managed: ManagedWorkspaceManager | undefined
   readonly #uses = new Map<string, number>()
+  readonly #protocol: WorkspaceProtocolSettings
 
   constructor(opts: {
     provider: SandboxProvider
@@ -34,12 +41,35 @@ export class SandboxManager {
     idleTimeoutMs: number
     clock?: () => number
     managed?: ManagedWorkspaceManager
+    workspaceProtocol?: WorkspaceProtocolSettings
   }) {
     this.#managed = opts.managed
     this.#provider = opts.provider
     this.#policy = opts.policy
     this.#idleTimeoutMs = opts.idleTimeoutMs
     this.#clock = opts.clock ?? Date.now
+    this.#protocol = opts.workspaceProtocol ?? NO_WORKSPACE_PROTOCOL
+  }
+
+  /** Which workspace endpoints this app serves. Always off without managed workspaces. */
+  get workspaceProtocol(): WorkspaceProtocolSettings {
+    return this.#managed ? this.#protocol : NO_WORKSPACE_PROTOCOL
+  }
+
+  /** See `ManagedWorkspaceManager.inspectThread`. Only a managed app with `workspaceRead` serves it. */
+  async inspectThread(
+    threadId: string,
+    request: ThreadWorkspaceInspectRequest,
+    signal: AbortSignal,
+  ): Promise<ThreadWorkspaceInspectOutcome> {
+    if (!this.#managed || !this.#protocol.read)
+      throw new Error("Workspace reads are not served by this app (sandbox.workspaceRead)")
+    return this.#managed.inspectThread(
+      threadId,
+      request,
+      signal,
+      this.#protocol.readTimeoutMs !== undefined ? { timeoutMs: this.#protocol.readTimeoutMs } : {},
+    )
   }
 
   async getForThread(

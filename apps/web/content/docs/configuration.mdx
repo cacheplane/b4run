@@ -362,6 +362,8 @@ A prebuilt app sets
 sandbox?: {
   workspace?: WorkspaceDefinition
   thread?: ThreadSandboxResolver
+  workspaceRead?: "http"
+  workspaceReadTimeoutMs?: number
   provider: SandboxProvider
   network?:
     | { mode: "allow"; denylist?: readonly string[] }
@@ -390,6 +392,13 @@ add a sandbox, `provider` is required. The manager then defaults to:
 is first admitted, and is exclusive with `workspace`. `b4 check`, `b4 build` and
 startup refuse any other key in the `sandbox` block. Read [Per-thread
 sandboxes](/docs/sandbox#per-thread-sandboxes) for what a thread may set.
+
+`workspaceRead: "http"` serves a read of each thread's managed workspace at
+`POST /threads/:thread_id/workspace/inspect`. It needs `workspace` or `thread`
+and a thread-access policy; `b4 check`, `b4 build` and startup refuse it
+without one. `workspaceReadTimeoutMs` (1,000 to 1,800,000; default 120,000)
+bounds one read, open to close. Read [Reading a thread's workspace over
+HTTP](/docs/sandbox#reading-a-threads-workspace-over-http).
 
 Each provider enforces resources and security in its own way. Docker's
 security fields default to hardened. `diskGb` applies to PVC-backed providers,

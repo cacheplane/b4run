@@ -253,6 +253,21 @@ export interface SandboxConfig {
    * managed workspaces.
    */
   readonly thread?: ThreadSandboxResolver
+  /**
+   * `"http"` serves `POST /threads/:thread_id/workspace/inspect`: a bounded,
+   * read-only inventory of a thread's managed workspace over the Agent Protocol,
+   * authorized by the app's thread-access policy as the `thread.workspace`
+   * operation. Off unless set. Needs `workspace` or `thread`, a provider whose
+   * managed workspaces implement `openWorkspaceReader`, and a thread-access
+   * policy: `b4 check`, `b4 build` and boot refuse it without one.
+   */
+  readonly workspaceRead?: "http"
+  /**
+   * How long one `workspaceRead` may take, open to close, before it is abandoned
+   * with `504 workspace_read_timeout` and the thread's run slot is freed. An
+   * integer from 1,000 to 1,800,000 ms; default 120,000. Only with `workspaceRead`.
+   */
+  readonly workspaceReadTimeoutMs?: number
   readonly provider: SandboxProvider
   readonly network?: SandboxPolicy["network"]
   readonly env?: SandboxPolicy["env"]

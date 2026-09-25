@@ -38,6 +38,7 @@ type _Operation = Expect<
     | "run.resume"
     | "thread.attach"
     | "run.agui"
+    | "thread.workspace"
   >
 >
 

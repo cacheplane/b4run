@@ -17,9 +17,14 @@ import {
   threadSandboxArtifact,
   type WorkspaceBuildArtifact,
 } from "../lib/build/workspace-artifact.js"
+import { findThreadAccessFile } from "../lib/dev/thread-access-node.js"
 import { loadOptionalB4Config } from "../lib/node-config.js"
 import { CliError, type CommandIo, writeLine } from "../lib/output.js"
 import { sandboxConfigShapeErrors } from "../lib/runtime/sandbox-config-shape.js"
+import {
+  workspaceProtocolOptionNames,
+  workspaceProtocolPolicyMessage,
+} from "../lib/runtime/workspace-protocol.js"
 import { runTypegen } from "../lib/typegen/run-typegen.js"
 
 interface BuildOptions {
@@ -101,6 +106,9 @@ export async function runBuildCommand(options: BuildOptions, io: CommandIo): Pro
   if (sandbox !== undefined) {
     const shape = sandboxConfigShapeErrors(sandbox)
     if (shape.length > 0) throw new CliError(`Invalid sandbox config:\n${shape.join("\n")}`)
+    const opened = workspaceProtocolOptionNames(sandbox)
+    if (opened.length > 0 && findThreadAccessFile(manifest.appRoot) === undefined)
+      throw new CliError(workspaceProtocolPolicyMessage(opened))
   }
   if (sandbox && (sandbox.workspace || sandbox.thread)) {
     if (targetNames.some((name) => name !== "node"))

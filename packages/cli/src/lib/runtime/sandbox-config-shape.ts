@@ -1,3 +1,8 @@
+import {
+  WORKSPACE_READ_TIMEOUT_MAX_MS,
+  WORKSPACE_READ_TIMEOUT_MIN_MS,
+} from "./workspace-protocol.js"
+
 /**
  * The `sandbox` block's shape, checked where the config is used: `b4 check`,
  * `b4 build` and boot. B4Config has no runtime schema, so without this a
@@ -7,6 +12,8 @@
 const SANDBOX_KEYS = [
   "workspace",
   "thread",
+  "workspaceRead",
+  "workspaceReadTimeoutMs",
   "provider",
   "network",
   "env",
@@ -44,5 +51,30 @@ export function sandboxConfigShapeErrors(sandbox: unknown): string[] {
     errors.push(
       "b4.config sandbox.workspace must be a workspace definition or a resolver function.",
     )
+  if (block.workspaceRead !== undefined) {
+    if (block.workspaceRead !== "http")
+      errors.push(
+        `b4.config sandbox.workspaceRead must be "http" (got: ${JSON.stringify(block.workspaceRead) ?? typeof block.workspaceRead}).`,
+      )
+    else if (block.workspace === undefined && block.thread === undefined)
+      errors.push(
+        "b4.config sandbox.workspaceRead needs managed workspaces: set sandbox.workspace or sandbox.thread.",
+      )
+  }
+  if (block.workspaceReadTimeoutMs !== undefined) {
+    const value = block.workspaceReadTimeoutMs
+    if (
+      !Number.isSafeInteger(value) ||
+      (value as number) < WORKSPACE_READ_TIMEOUT_MIN_MS ||
+      (value as number) > WORKSPACE_READ_TIMEOUT_MAX_MS
+    )
+      errors.push(
+        `b4.config sandbox.workspaceReadTimeoutMs must be an integer from ${WORKSPACE_READ_TIMEOUT_MIN_MS} to ${WORKSPACE_READ_TIMEOUT_MAX_MS} (got: ${JSON.stringify(value) ?? typeof value}).`,
+      )
+    else if (block.workspaceRead === undefined)
+      errors.push(
+        'b4.config sandbox.workspaceReadTimeoutMs applies only with sandbox.workspaceRead: "http".',
+      )
+  }
   return errors
 }

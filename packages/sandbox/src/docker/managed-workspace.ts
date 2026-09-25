@@ -15,7 +15,11 @@ import {
 import type { Docker, SpawnResult } from "./docker-cli.js"
 import { dockerExec } from "./docker-exec.js"
 import { dockerFilesystem } from "./docker-filesystem.js"
-import { openDockerWorkspaceReader } from "./docker-workspace-reader.js"
+import {
+  openDockerWorkspaceReader,
+  READER_LABEL,
+  readerLabelFor,
+} from "./docker-workspace-reader.js"
 import { prepareWorkspaceScript } from "./managed-workspace-prepare.js"
 
 const PREFIX = "b4.workspace."
@@ -197,6 +201,27 @@ export function createDockerManagedWorkspaces(opts: {
       .filter(Boolean)
     for (const id of ids) owned(await inspect("container", id, signal), intent)
     return ids
+  }
+  /**
+   * The workspace's reader containers, by the label each carries. A reader is
+   * `--rm` and closed by its caller, but one abandoned at a read deadline, or whose
+   * close failed, would otherwise outlive the workspace it reads.
+   */
+  async function removeReaders(resourceId: string, signal: AbortSignal) {
+    const ids = (
+      await run(["ps", "-aq", "--filter", `label=${readerLabelFor(resourceId)}`], signal)
+    ).stdout
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+    for (const id of ids) {
+      const item = await inspect("container", id, signal)
+      if (!item) continue
+      if ((item.Config?.Labels ?? item.Labels)?.[READER_LABEL] !== resourceId)
+        fail("conflict", "Foreign Docker workspace reader")
+      await run(["rm", "-f", id], signal)
+      if (await inspect("container", id, signal)) fail("uncertain", "Docker removal not confirmed")
+    }
   }
   async function environmentFor(reference: string, signal: AbortSignal) {
     const account = (await run(["info", "--format", "{{.ID}}"], signal)).stdout.trim()
@@ -556,6 +581,7 @@ export function createDockerManagedWorkspaces(opts: {
       owned(await inspect("volume", n.volume, signal), intent)
       const ids = await keepers(intent, signal)
       for (const id of ids) await remove("container", id, intent, signal)
+      await removeReaders(n.volume.slice(VOLUME_PREFIX.length), signal)
       await remove("container", n.prepare, intent, signal)
       await remove("volume", n.volume, intent, signal)
       await remove("container", n.record, intent, signal)

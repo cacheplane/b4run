@@ -27,8 +27,14 @@ import {
 import type { SandboxManager } from "../runtime/sandbox-manager.js"
 import type { B4StaticModules } from "../runtime/static-modules-core.js"
 import { type StreamChunk, toSseEvent } from "../runtime/stream-types.js"
+import {
+  NO_WORKSPACE_PROTOCOL,
+  openedWorkspaceProtocol,
+  workspaceProtocolPolicyMessage,
+} from "../runtime/workspace-protocol.js"
 import { abortableAsyncIterable } from "./abortable-iterable.js"
 import { handleAgUiFetchRequest } from "./agui-handler.js"
+import { payloadTooLarge, RequestBodyTooLargeError, readBoundedText } from "./bounded-body.js"
 import type { CorsConfig } from "./cors.js"
 import { applyCorsHeaders, corsPreflightResponse, resolveCorsPolicy } from "./cors.js"
 import { createLiveTurnHub, type LiveTurnHub, type LiveTurnProducer } from "./live-turn-hub.js"
@@ -62,6 +68,11 @@ import { terminalStatus } from "./terminal-status.js"
 import { threadAccessBootLine, validateThreadAccessPolicy } from "./thread-access.js"
 import { createGatedThreadForRun, isThenable, makeThreadGate } from "./thread-gate.js"
 import { assertNoReservedKey, stripReservedThreadMetadata } from "./thread-metadata.js"
+import {
+  INSPECT_BODY_MAX_BYTES,
+  parseThreadWorkspaceRequest,
+  threadWorkspaceResponse,
+} from "./thread-workspace-http.js"
 
 // ---------------------------------------------------------------------------
 // Route-table types
@@ -545,6 +556,13 @@ export async function createRuntimeFetchHandler(
       throw new Error(
         "Managed workspaces require stable boot-owned stores; requestStores is unsupported",
       )
+    // A workspace endpoint with no policy would be open to anyone who reaches the port.
+    // Checked against the RESOLVED policy, so an injected one counts and a missing file does not.
+    const opened = openedWorkspaceProtocol(
+      sandboxManager?.workspaceProtocol ?? NO_WORKSPACE_PROTOCOL,
+    )
+    if (opened.length > 0 && threadAccess === undefined)
+      throw new Error(workspaceProtocolPolicyMessage(opened))
     await sandboxManager?.reconcileDeletions(async (threadId) => {
       if (!threadsStore || !checkpointer)
         throw new Error("Managed deletion recovery requires boot-owned thread stores")
@@ -1835,6 +1853,107 @@ export function buildRouteTable(ctx: {
         }),
       method: "GET",
       pattern: /^\/threads\/(?<thread_id>[^/?#]+)\/pending_interrupts(?:\?.*)?$/,
+    },
+
+    // ------------------------------------------------------------------
+    // POST /threads/:thread_id/workspace/inspect — read a thread's workspace
+    // ------------------------------------------------------------------
+    // Order: thread lookup, gate, THEN the feature check and the body. An unauthorized
+    // caller gets the gate's answer whether the feature is on or off, so the route never
+    // tells it which; an authorized caller of an app without `sandbox.workspaceRead`
+    // gets the same 404 as a route that does not exist. Nothing is read from the body
+    // until the caller is authorized. A `read` of the thread (`thread.workspace`), so a
+    // denial defaults to the same 404 a missing thread returns.
+    {
+      handle: async (request, params) => {
+        const threadId = params.thread_id ?? ""
+        const thread = await getThreadsStore(request).getThread(threadId)
+        const notFound = () =>
+          Response.json(createRequestErrorBody("Thread not found", { code: "thread_not_found" }), {
+            status: 404,
+          })
+        const gate = makeThreadGate(threadAccess, request)
+        const g = gate({
+          action: "read",
+          notFound,
+          operation: "thread.workspace",
+          threadId,
+          ...(thread ? { thread } : {}),
+        })
+        const settled = isThenable(g) ? await g : g
+        if (!settled.ok) return settled.response
+        if (!sandboxManager?.workspaceProtocol.read)
+          return Response.json(createRequestErrorBody("Not found"), { status: 404 })
+        if (!thread) return notFound()
+        let body: unknown = {}
+        try {
+          const raw = await readBoundedText(request, INSPECT_BODY_MAX_BYTES)
+          if (raw.trim()) {
+            const parsed = parseJson(raw)
+            if (!parsed.ok)
+              return Response.json(createRequestErrorBody("Malformed request body"), {
+                status: 400,
+              })
+            body = parsed.value
+          }
+        } catch (error) {
+          if (error instanceof RequestBodyTooLargeError) return payloadTooLarge(error)
+          throw error
+        }
+        // Every option, `root` included, is refused here before a reader is started.
+        const parsed = parseThreadWorkspaceRequest(body)
+        if (!parsed.ok)
+          return Response.json(
+            createRequestErrorBody(parsed.message, { code: "invalid_request" }),
+            {
+              status: 400,
+            },
+          )
+        // The read holds the thread's one run slot for its whole duration (D9): a run
+        // started meanwhile is the ordinary 409, a DELETE is refused, a cancel aborts the
+        // read, and shutdown drains it. After the gate, so a 409 never tells an
+        // unauthorized caller the thread is busy.
+        const slot = getRunRegistry(request).begin(threadId, getShutdownSignal(request))
+        if (!slot)
+          return Response.json(
+            createRequestErrorBody(`A run is already in flight for thread "${threadId}"`, {
+              code: "run_in_flight",
+            }),
+            { status: 409 },
+          )
+        try {
+          const outcome = await sandboxManager.inspectThread(
+            threadId,
+            parsed.request,
+            AbortSignal.any([slot.signal, request.signal]),
+          )
+          return threadWorkspaceResponse(threadId, parsed.request, outcome)
+        } catch (error) {
+          // A cancel, a shutdown and a departed client are answers, not server failures.
+          if (slot.cancelled)
+            return Response.json(
+              createRequestErrorBody(`The workspace read of thread "${threadId}" was cancelled`, {
+                code: "read_cancelled",
+              }),
+              { status: 409 },
+            )
+          if (slot.signal.aborted)
+            return Response.json(
+              createRequestErrorBody("The server is shutting down", { code: "shutting_down" }),
+              { status: 503 },
+            )
+          if (request.signal.aborted)
+            return Response.json(
+              createRequestErrorBody("The client closed the request", { code: "request_aborted" }),
+              { status: 499 },
+            )
+          throw error
+        } finally {
+          slot.release()
+        }
+      },
+      method: "POST",
+      pattern: /^\/threads\/(?<thread_id>[^/?#]+)\/workspace\/inspect(?:\?.*)?$/,
     },
 
     // ------------------------------------------------------------------

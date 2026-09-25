@@ -218,9 +218,46 @@ Two things to know before you use it:
 
 An inspection is not an atomic snapshot. Quiesce the writer (read after the turn ends) or revalidate before acting on the inventory.
 
-Docker readers are labelled `b4.sandbox.reader=<resource id>` and are removed on `close()`, including when the open itself fails. If `close()` can't remove the container, it raises and you can retry it. Deleting a thread leaves its readers in place, so a reader that's never closed outlives the thread. An operator finds leftovers by that label: `docker ps -aq --filter label=b4.sandbox.reader`.
+Docker readers are labelled `b4.sandbox.reader=<resource id>` and are removed on `close()`, including when the open itself fails. If `close()` can't remove the container, it raises and you can retry it. Deleting a thread whose workspace is managed (`sandbox.workspace` or `sandbox.thread`) also removes that workspace's readers, including one abandoned at a read deadline. Deleting a thread that uses provider storage leaves its readers in place, so a reader that's never closed outlives the thread. An operator finds leftovers by that label: `docker ps -aq --filter label=b4.sandbox.reader`.
 
 Reading needs a workspace volume with a host-visible backing path, which the default local volume driver provides. A volume that reports none is rejected. A named-volume mount would have silently recreated a deleted workspace instead of failing.
+
+## Reading a thread's workspace over HTTP
+
+A caller with no path to the worker's app root (another host, another container) reads a thread's managed workspace through the worker's own Agent Protocol port. Turn it on in `b4.config.ts`:
+
+```ts
+export default config({
+  sandbox: {
+    provider: dockerSandbox({ scope: "my-app", image: "node:24-slim" }),
+    workspace: async (thread) => definitionFor(thread),
+    workspaceRead: "http",
+  },
+})
+```
+
+and read with the client from `@b4run/cli/workspace`:
+
+```ts
+import { readThreadWorkspace } from "@b4run/cli/workspace"
+
+const read = await readThreadWorkspace(
+  "http://worker:4100",
+  threadId,
+  { root: "draft", excludeRootDirectories: [".git"] },
+  { headers: { authorization: `Bearer ${token}` }, expectedSourceDigest },
+)
+read.inspection.files // relative to `root`
+```
+
+The worker serves it with the same reader as above, inside its own process: a separate, networkless, read-only container, never the thread's session, running as the app's `security.runAsNonRoot`. The read holds the thread's run slot, so it never overlaps a turn: a run in flight answers `409 run_in_flight`, and a run started during the read gets the same.
+
+- **It needs a thread-access policy.** `b4 check`, `b4 build` and boot refuse `workspaceRead` without one, because the endpoint discloses every file under the requested root. The policy sees it as the `thread.workspace` operation, a `read`, so a denial answers the same 404 as a missing thread.
+- **It needs managed workspaces** (`sandbox.workspace` or `sandbox.thread`) and a provider whose managed workspaces can be read. `dockerSandbox` can.
+- **Limits.** `maxEntries` up to 10,000, `maxFileBytes` up to 16 MiB, `maxTotalBytes` up to 32 MiB; the defaults are `inspectWorkspace`'s. The request body is at most 64 KiB (`413 payload_too_large`). The answer is one JSON document of at most 64 MiB serialized: JSON escapes a control character to six bytes, so text within the byte limits can still be refused (`422 workspace_response_too_large`). `ignorePrefixes` drops paths from `files`, but they were read, so they count in `totalBytes`, `entries` and the limits. One read may take `sandbox.workspaceReadTimeoutMs` (default 120,000 ms), open to close; past it the read is abandoned, the run slot freed, and the answer is `504 workspace_read_timeout`.
+- **Refusals are named.** `404 workspace_not_found` (the thread has not run), `404 workspace_lost`, `410 workspace_expired`, `409 workspace_not_ready`, `409 workspace_conflict` (the workspace's record belongs to another installation), `409 workspace_changed` (the workspace changed while it was read; retry), `409 read_cancelled` (cancelled through `POST /threads/:thread_id/cancel`), `422 workspace_root_missing` with `root` and `kind`, `422 workspace_inspection_refused` (the workspace holds something the inspection does not admit: an executable, binary or non-UTF-8 file, a file or the whole tree over its byte limit, more entries than `maxEntries`, or an unexpected link), `400 invalid_request`, `503 workspace_unavailable` (the provider could not be reached; retry), `503 shutting_down`, `504 workspace_read_timeout`.
+- **The root is checked twice, not held.** Every segment of `root` is lstat'ed before the read and again after it, and a symlink or non-directory at either check is refused. A process in the thread's session that swaps a segment for a link and back between the two checks is not detected, because each read resolves its path afresh; what it could reach is bounded by the reader, a read-only, networkless container over the workspace's own volume.
+- **Check what you get.** The answer carries the thread's recorded `sourceDigest`. Pass the digest you expect as `expectedSourceDigest` and the client refuses an answer about another workspace; it also refuses an answer for another thread id.
 
 ## Custom providers
 

@@ -12,7 +12,7 @@ const ROOT = "/workspace"
 /** A reader runs `stat`, `find`, `readlink` and `base64`. It never needs many processes. */
 const READER_PIDS_LIMIT = 128
 
-/** Label every reader carries, so a stray one is findable and `destroy` can reap it. */
+/** Label every reader carries, so a stray one is findable and the managed provider's `destroy` reaps it. */
 export const READER_LABEL = "b4.sandbox.reader"
 
 export const readerLabelFor = (resourceId: string) => `${READER_LABEL}=${resourceId}`

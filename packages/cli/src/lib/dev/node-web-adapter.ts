@@ -1,6 +1,60 @@
 import type { IncomingMessage, ServerResponse } from "node:http"
 
 /**
+ * The request body as a web stream the adapter owns. Nothing touches the socket
+ * until the handler first reads: a body no handler reads is left to Node, which
+ * discards it after the response as it always has. Once reading, each chunk is
+ * delivered on demand (backpressure pauses the socket). `cancel` (a handler
+ * refusing a body, read in part or not at all) DISCARDS the rest of the upload
+ * with `req.resume()` instead of destroying the socket, so a response written
+ * before the body was read, such as a 413, reaches the client whole.
+ */
+function drainableBody(req: IncomingMessage): ReadableStream<Uint8Array> {
+  let attached = false
+  let cancelled = false
+  return new ReadableStream<Uint8Array>(
+    {
+      pull(controller) {
+        if (attached) {
+          req.resume()
+          return
+        }
+        attached = true
+        // The client may have gone before the handler first read (a route that awaits a
+        // lookup and a policy first). No `end` or `error` will come again, so answer now.
+        if (req.errored || req.readableAborted || (req.destroyed && !req.readableEnded)) {
+          controller.error(req.errored ?? new Error("aborted"))
+          return
+        }
+        req.on("data", (chunk: Buffer) => {
+          if (cancelled) return
+          controller.enqueue(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength))
+          if ((controller.desiredSize ?? 0) <= 0) req.pause()
+        })
+        req.on("end", () => {
+          if (!cancelled) controller.close()
+        })
+        req.on("error", (error) => {
+          if (!cancelled) controller.error(error)
+        })
+        // A close without an end is a dropped upload, whether or not `error` fired first
+        // (erroring an already-errored or closed stream is a no-op).
+        req.on("close", () => {
+          if (!cancelled && !req.readableEnded) controller.error(new Error("aborted"))
+        })
+        req.resume()
+      },
+      cancel() {
+        cancelled = true
+        req.resume()
+      },
+    },
+    // Zero: `pull` runs only when the handler reads, never eagerly at construction.
+    { highWaterMark: 0 },
+  )
+}
+
+/**
  * Wrap a Node request as a Web `Request`. The socket closing aborts
  * `request.signal`.
  *
@@ -54,7 +108,7 @@ export function toWebRequest(req: IncomingMessage, res?: ServerResponse): Reques
     method,
     headers,
     signal: controller.signal,
-    ...(hasBody ? { body: req as unknown as ReadableStream<Uint8Array>, duplex: "half" } : {}),
+    ...(hasBody ? { body: drainableBody(req), duplex: "half" } : {}),
   } as RequestInit & { duplex?: "half" })
 }
 

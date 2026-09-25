@@ -162,6 +162,11 @@ New scenario files should import these aliases from [`@b4run/sdk/testing`](/docs
 | `ManagedWorkspaceReadOptions` | Name the worker app root, its provider, the thread to read, cancellation, and the reader identity. |
 | `openManagedWorkspaceReader` | Resolve a thread to its published managed workspace through the worker's installation store and open it read-only. |
 | `withManagedWorkspaceReader` | Open a managed workspace reader for a thread, hand it to an operation, and always close it. |
+| `readThreadWorkspace` | Read a thread's workspace over a worker's Agent Protocol port (`sandbox.workspaceRead: "http"`) and verify the answer. |
+| `ReadThreadWorkspaceOptions` | Name the root, omitted directories, required links, ignored prefixes, and limits of an HTTP workspace read. |
+| `ReadThreadWorkspaceInit` | Carry the request headers, cancellation, the expected source digest, the response-size cap, and an optional `fetch`. |
+| `ThreadWorkspaceRead` | Return the thread id, its recorded source and intent digests, the root, and the inspection. |
+| `ThreadWorkspaceReadError` | Report a refused or unverifiable read with the worker's status, code, and details. |
 
 The package root exports the first three. This subpath lets a host process own
 the workspace lifecycle without importing the command program at the root.
@@ -260,6 +265,13 @@ It refuses, with the reason, when:
 It never falls back to provider storage. `openManagedWorkspaceReader` does the
 same resolution without the scoped close. Both only address a workspace, so
 gate access in the calling process.
+
+`readThreadWorkspace(url, threadId, options, { headers, signal, expectedSourceDigest })`
+reads the same inventory over a worker's Agent Protocol port when the worker
+sets `sandbox.workspaceRead: "http"`, for a caller that cannot reach the
+worker's app root. It verifies the answer's shape, thread and (when given)
+source digest, and throws `ThreadWorkspaceReadError` with the worker's status
+and code otherwise.
 
 ## Examples and related guides
 

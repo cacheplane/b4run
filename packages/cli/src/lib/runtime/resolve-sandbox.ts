@@ -15,6 +15,7 @@ import { loadOptionalB4Config } from "../node-config.js"
 import { ManagedWorkspaceManager } from "./managed-workspace-manager.js"
 import { sandboxConfigShapeErrors } from "./sandbox-config-shape.js"
 import { SandboxManager } from "./sandbox-manager.js"
+import type { WorkspaceProtocolSettings } from "./workspace-protocol.js"
 
 const DEFAULT_IDLE_MS = 600_000
 const DEFAULT_NETWORK: SandboxPolicy["network"] = { mode: "allow", denylist: ["169.254.169.254"] }
@@ -34,6 +35,19 @@ export async function resolveSandboxManager(
   if (shape.length > 0) throw new Error(`Invalid sandbox config:\n${shape.join("\n")}`)
   if (!sandbox.workspace && !sandbox.thread && options.artifact != null)
     throw new Error("Built workspace configuration was removed; rebuild the app")
+  const workspaceProtocol: WorkspaceProtocolSettings = {
+    read: sandbox.workspaceRead === "http",
+    ...(sandbox.workspaceReadTimeoutMs !== undefined
+      ? { readTimeoutMs: sandbox.workspaceReadTimeoutMs }
+      : {}),
+  }
+  if (
+    workspaceProtocol.read &&
+    typeof sandbox.provider.workspaces?.openWorkspaceReader !== "function"
+  )
+    throw new Error(
+      `sandbox.workspaceRead needs a provider whose managed workspaces can be read (openWorkspaceReader); "${sandbox.provider.name}" cannot`,
+    )
   const policy: SandboxPolicy = {
     network: sandbox.network ?? DEFAULT_NETWORK,
     ...(sandbox.env ? { env: sandbox.env } : {}),
@@ -155,6 +169,7 @@ export async function resolveSandboxManager(
   }
   return new SandboxManager({
     ...(managed ? { managed } : {}),
+    workspaceProtocol,
     provider: sandbox.provider,
     policy,
     idleTimeoutMs: sandbox.idleTimeoutMs ?? DEFAULT_IDLE_MS,
