@@ -257,3 +257,27 @@ it("names added files for screen readers, and leaves modified clicks to the brow
   expect(prevented).toBe(false)
   expect(scrollIntoView).not.toHaveBeenCalled()
 })
+
+it("holds the chosen tab while the pinned stage scrolls past the stops between", async () => {
+  const create = vi.spyOn(ScrollTrigger, "create")
+  const view = await mount({ [REDUCE]: false, [FULL]: true, [DESKTOP]: true })
+  const onUpdate = create.mock.calls.at(-1)?.[0].onUpdate
+  expect(onUpdate).toBeTypeOf("function")
+  const update = (progress: number) =>
+    act(async () => onUpdate?.({ progress } as unknown as ScrollTrigger))
+  const selected = () => view.tabs.findIndex((tab) => tab.getAttribute("aria-selected") === "true")
+
+  await act(async () => view.tabs[6]?.click())
+  expect(selected()).toBe(6)
+  expect(view.live()).toBe("evals/smoke.eval.ts, 7 of 7")
+
+  await update(2 / 6)
+  expect(selected()).toBe(6)
+  expect(view.tabs[6]?.tabIndex).toBe(0)
+  expect(view.live()).toBe("evals/smoke.eval.ts, 7 of 7")
+
+  // Once the target stop arrives, scrolling drives the tabs again.
+  await update(1)
+  await update(3 / 6)
+  expect(selected()).toBe(3)
+})

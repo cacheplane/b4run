@@ -84,7 +84,16 @@ export function TourClient({
             end: () => `+=${count * window.innerHeight * 0.7}`,
             snap: { snapTo: 1 / last, duration: { min: 0.2, max: 0.5 }, ease: "power1.inOut" },
             invalidateOnRefresh: true,
-            onUpdate: (self) => moveTo(Math.round(self.progress * last)),
+            onUpdate: (self) => {
+              const index = Math.round(self.progress * last)
+              // While scrolling to a chosen tab, skip the stops passed on the way.
+              if (navigatingRef.current !== null) {
+                if (index !== navigatingRef.current) return
+                navigatingRef.current = null
+                clearTimeout(navigatingTimer.current)
+              }
+              moveTo(index)
+            },
           })
           // A web font swap changes the tour's height; re-measure the pin once fonts load.
           document.fonts?.ready.then(() => {
@@ -178,22 +187,28 @@ export function TourClient({
     }
   }, [active, activeState, pinned])
 
+  /** Until stop `index` arrives (or 1s passes), scroll updates for other stops are ignored. */
+  function navigateTo(index: number) {
+    navigatingRef.current = index
+    clearTimeout(navigatingTimer.current)
+    navigatingTimer.current = setTimeout(() => {
+      navigatingRef.current = null
+    }, 1000)
+  }
+
   /** Shows stop `index`; when stacked, scrolls to its card and returns it. */
   function goTo(index: number): HTMLElement | undefined {
     moveTo(index)
     const trigger = triggerRef.current
     if (trigger) {
+      navigateTo(index)
       const offset = ((trigger.end - trigger.start) * index) / (count - 1)
       window.scrollTo({ top: trigger.start + offset, behavior: "smooth" })
       return undefined
     }
     const card = document.getElementById(`tour-${stops[index]?.id}`)
     if (!card) return
-    navigatingRef.current = index
-    clearTimeout(navigatingTimer.current)
-    navigatingTimer.current = setTimeout(() => {
-      navigatingRef.current = null
-    }, 1000)
+    navigateTo(index)
     const behavior = window.matchMedia(REDUCE).matches ? "auto" : "smooth"
     card.scrollIntoView({ block: "start", behavior })
     return card
