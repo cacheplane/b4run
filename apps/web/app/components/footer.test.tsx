@@ -28,3 +28,8 @@ it("opens same-origin files in a new tab as plain anchors, off-site links with r
   }
   expect(html).not.toContain("↗")
 })
+
+it("no longer links the code-fixer walkthrough, which left the homepage", () => {
+  const html = renderToStaticMarkup(<Footer />)
+  expect(html).not.toMatch(/walkthrough|code-fixer/i)
+})
