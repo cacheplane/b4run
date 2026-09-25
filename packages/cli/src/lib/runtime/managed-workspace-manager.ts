@@ -768,6 +768,8 @@ export class ManagedWorkspaceManager {
     } catch (error) {
       if (error instanceof WorkspaceStagedSourceError && error.code === "quota_exceeded")
         return { ok: false, code: "staged_quota_exceeded", message: error.message }
+      if (error instanceof WorkspaceStagedSourceError && error.code === "uploader_invalid")
+        return { ok: false, code: "workspace_uploader_invalid", message: error.message }
       throw error
     }
   }

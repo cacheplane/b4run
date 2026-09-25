@@ -312,3 +312,28 @@ export function stagedWorkspaceField(
     }),
   }
 }
+
+/**
+ * The largest uploader stamp kept, as JSON. The same bound the installation's staged
+ * store enforces; checked here, from the policy's answer, before the upload body is read.
+ */
+export const UPLOADER_STAMP_MAX_BYTES = 16 * 1024
+
+/**
+ * Why a stamp a policy returned on `workspace.source.put` cannot be kept as the upload's
+ * uploader, or undefined when it can: it must serialize as a JSON object of at most
+ * `UPLOADER_STAMP_MAX_BYTES` (a key order does not change the size).
+ */
+export function uploaderStampProblem(stamp: Readonly<Record<string, unknown>>): string | undefined {
+  let text: string | undefined
+  try {
+    text = JSON.stringify(stamp)
+  } catch (error) {
+    return `The policy's upload stamp is not JSON: ${error instanceof Error ? error.message : String(error)}`
+  }
+  if (typeof text !== "string" || !text.startsWith("{"))
+    return "The policy's upload stamp is not a JSON object"
+  if (new TextEncoder().encode(text).byteLength > UPLOADER_STAMP_MAX_BYTES)
+    return `The policy's upload stamp exceeds ${UPLOADER_STAMP_MAX_BYTES} bytes`
+  return undefined
+}

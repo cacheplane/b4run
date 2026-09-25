@@ -5,8 +5,11 @@ import type { WorkspaceSourceStore } from "./source-store.js"
 
 /** A staging request the store refuses: the source is not uploaded, the thread already has one, or a bound is reached. */
 export class WorkspaceStagedSourceError extends Error {
-  readonly code: "not_held" | "already_staged" | "quota_exceeded"
-  constructor(code: "not_held" | "already_staged" | "quota_exceeded", message: string) {
+  readonly code: "not_held" | "already_staged" | "quota_exceeded" | "uploader_invalid"
+  constructor(
+    code: "not_held" | "already_staged" | "quota_exceeded" | "uploader_invalid",
+    message: string,
+  ) {
     super(message)
     this.name = "WorkspaceStagedSourceError"
     this.code = code
@@ -147,20 +150,43 @@ function digestOf(digest: string): string {
   return digest
 }
 
-/** A stamp as JSON: a JSON object of bounded size. */
+/** Plain objects with their keys sorted, recursively; arrays keep their order. */
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical)
+  if (value !== null && typeof value === "object") {
+    const sorted: Record<string, unknown> = {}
+    for (const key of Object.keys(value).sort())
+      sorted[key] = canonical((value as Record<string, unknown>)[key])
+    return sorted
+  }
+  return value
+}
+
+/**
+ * A stamp as canonical JSON (keys sorted at every depth), so two uploads by one
+ * principal compare equal whatever order the policy built its stamp in: a JSON
+ * object of at most 16 KiB (`uploader_invalid` otherwise).
+ */
 function principalOf(value: Readonly<Record<string, unknown>>): string {
   let text: string | undefined
   try {
-    text = JSON.stringify(value)
+    text = JSON.stringify(canonical(value))
   } catch (error) {
-    throw new Error(
+    throw new WorkspaceStagedSourceError(
+      "uploader_invalid",
       `Invalid staged workspace uploader: ${error instanceof Error ? error.message : String(error)}`,
     )
   }
   if (typeof text !== "string" || !text.startsWith("{"))
-    throw new Error("Invalid staged workspace uploader: not a JSON object")
+    throw new WorkspaceStagedSourceError(
+      "uploader_invalid",
+      "Invalid staged workspace uploader: not a JSON object",
+    )
   if (Buffer.byteLength(text) > MAX_UPLOADER_BYTES)
-    throw new Error(`Staged workspace uploader exceeds ${MAX_UPLOADER_BYTES} bytes`)
+    throw new WorkspaceStagedSourceError(
+      "uploader_invalid",
+      `Staged workspace uploader exceeds ${MAX_UPLOADER_BYTES} bytes`,
+    )
   return text
 }
 

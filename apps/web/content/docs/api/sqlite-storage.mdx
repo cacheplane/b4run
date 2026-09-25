@@ -43,7 +43,7 @@ The package uses Node's `node:sqlite` `DatabaseSync` and LangGraph checkpoint co
 | `WorkspaceInstallationReader` | Hold installation identity, read-only association lookups, and close. |
 | `WorkspaceSourceStore` | Persist and retrieve verified source bundles. |
 | `WorkspaceStagedSourceStore` | Keep uploaded sources with their file paths and uploaders, and each thread's staged reference, and reclaim sources nothing references. |
-| `WorkspaceStagedSourceError` | Refuse a staging request by code: `not_held`, `already_staged`, or `quota_exceeded`. |
+| `WorkspaceStagedSourceError` | Refuse a staging request by code: `not_held`, `already_staged`, `quota_exceeded`, or `uploader_invalid`. |
 | `WorkspaceAssociation` | Describe creating, ready, deleting, or deleted state with its revision. |
 | `WorkspaceAssociationStore` | Insert source-backed intents, with an optional thread sandbox record in the same transaction, and transition associations by revision. |
 | `WorkspaceThreadSandboxStore` | Read the sandbox record a thread's first admission wrote, and keep that thread's "Always" grants. |

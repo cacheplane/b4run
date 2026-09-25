@@ -200,6 +200,23 @@ describe("the staged source store", () => {
     i.close()
   })
 
+  it("compares uploaders in a canonical form: key order does not make a second uploader", async () => {
+    const { installation: i } = await installation()
+    const a = bundle("a")
+    i.staged.upload(a, 1_000, Q, { ownerId: "u-1", org: { name: "acme", id: 7 } })
+    i.staged.upload(a, 2_000, Q, { org: { id: 7, name: "acme" }, ownerId: "u-1" })
+    expect(i.staged.uploaders(a.digest)).toEqual([{ ownerId: "u-1", org: { name: "acme", id: 7 } }])
+    i.close()
+  })
+
+  it("refuses an uploader that is not a JSON object by name", async () => {
+    const { installation: i } = await installation()
+    expect(thrown(() => i.staged.upload(bundle("a"), 1_000, Q, { n: 1n } as never))).toMatchObject({
+      code: "uploader_invalid",
+    })
+    i.close()
+  })
+
   it("bounds the principals kept per source and the size of each", async () => {
     const { installation: i } = await installation()
     const a = bundle("a")
@@ -209,9 +226,9 @@ describe("the staged source store", () => {
     })
     // An uploader already bound may upload again.
     expect(i.staged.upload(a, 2_000, Q, { ownerId: "u-3" })).toBe("held")
-    expect(() => i.staged.upload(bundle("b"), 1_000, Q, { pad: "x".repeat(20_000) })).toThrow(
-      /uploader/,
-    )
+    expect(
+      thrown(() => i.staged.upload(bundle("b"), 1_000, Q, { pad: "x".repeat(20_000) })),
+    ).toMatchObject({ code: "uploader_invalid" })
     expect(i.staged.holds(bundle("b").digest)).toBe(false)
     i.close()
   })

@@ -82,6 +82,7 @@ import {
   stagedWorkspaceField,
   THREAD_CREATE_BODY_MAX_BYTES,
   threadWorkspaceResponse,
+  uploaderStampProblem,
 } from "./thread-workspace-http.js"
 
 // ---------------------------------------------------------------------------
@@ -2151,6 +2152,14 @@ export function buildRouteTable(ctx: {
         const staged = sandboxManager?.workspaceProtocol.staged
         if (!sandboxManager || !staged)
           return Response.json(createRequestErrorBody("Not found"), { status: 404 })
+        // The policy's stamp becomes the upload's uploader; one that cannot be kept is
+        // refused now, from the policy's answer alone, before any of the body is read.
+        const stampProblem = settled.stamp ? uploaderStampProblem(settled.stamp) : undefined
+        if (stampProblem)
+          return Response.json(
+            createRequestErrorBody(stampProblem, { code: "workspace_uploader_invalid" }),
+            { status: 422 },
+          )
         if (uploadInFlight)
           return Response.json(
             createRequestErrorBody("Another workspace upload is in progress; retry shortly", {

@@ -147,7 +147,11 @@ export type StageSourceOutcome =
   | { readonly ok: true; readonly status: "created" | "held" }
   | {
       readonly ok: false
-      readonly code: "digest_mismatch" | "workspace_source_invalid" | "staged_quota_exceeded"
+      readonly code:
+        | "digest_mismatch"
+        | "workspace_source_invalid"
+        | "staged_quota_exceeded"
+        | "workspace_uploader_invalid"
       readonly message: string
     }
 

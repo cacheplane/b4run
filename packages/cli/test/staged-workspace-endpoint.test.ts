@@ -48,6 +48,10 @@ const APP_FILES = {
   "b4.config.ts": "export default {}",
   "workspace/.keep": "",
   "src/app/read/index.ts": "export const workflow=async (input,ctx)=>ctx.tools.read(input)",
+  "src/app/touch/index.ts":
+    "export const workflow=async (_input,ctx)=>ctx.tools.read({path:'main.txt'})",
+  "src/app/touch/tools/read.ts":
+    "export default async function read(input:{path:string},ctx){return {text:await ctx.fs.readFile(input.path)}}",
   "src/app/read/tools/read.ts":
     "export default async function read(input:{path:string},ctx){return {text:await ctx.fs.readFile(input.path)}}",
 }
@@ -698,4 +702,62 @@ it("keeps a row whose attach finds a staged workspace already there: it may be a
   expect(await response.json()).toMatchObject({ error: { details: { code: "already_staged" } } })
   expect(f.written).toHaveLength(1)
   expect(await f.store.getThread(f.written[0] as string)).toBeDefined()
+})
+
+it("refuses, before reading the body, an upload whose policy stamp cannot be kept as its uploader", async () => {
+  for (const stamp of [{ pad: "x".repeat(20 * 1024) }, { n: 1n }]) {
+    const policy = {
+      fallback: () => ({ decision: "allow" as const, stamp }),
+    }
+    const f = await fixture({ policy, stagedWorkspaces: { maxUploadBytes: 1024 } })
+    const big = source("x".repeat(4096))
+    // Over the upload limit: a body that were read would be a 413.
+    const response = await f.upload(big)
+    expect(response.status).toBe(422)
+    expect(await response.json()).toMatchObject({
+      error: { details: { code: "workspace_uploader_invalid" } },
+    })
+    const small = source("small")
+    expect((await f.upload(small)).status).toBe(422)
+    expect(storedPayload(f.appRoot, small.digest)).toBeUndefined()
+  }
+})
+
+it("releases the create slot when a create naming a workspace is refused", async () => {
+  const f = await fixture()
+  // More refused creates, one after another, than there are slots.
+  for (let n = 0; n < 6; n++) {
+    const refused = await f.create({ sourceDigest: "a".repeat(64) })
+    expect(refused.status).toBe(422)
+  }
+  const bundle = source("x")
+  await f.upload(bundle)
+  const invalid = await f.create({
+    sourceDigest: bundle.digest,
+    environmentLinks: [{ path: "main.txt", target: "/x" }],
+  })
+  expect(invalid.status).toBe(422)
+  expect((await f.create({ sourceDigest: bundle.digest })).status).toBe(200)
+})
+
+it("an AG-UI run that creates a thread under the id of one deleted behind the runtime's back inherits no staged workspace", async () => {
+  const f = await fixture({ fallbackSource: source("fallback") })
+  const bundle = source("x")
+  await f.upload(bundle)
+  const threadId = (
+    (await (await f.create({ sourceDigest: bundle.digest })).json()) as { thread_id: string }
+  ).thread_id
+  await f.store.deleteThread(threadId)
+  const response = await f.call("POST", `/agui/${encodeURIComponent("/touch#workflow")}`, {
+    threadId,
+    runId: "run-1",
+    messages: [{ id: "1", role: "user", content: "hello" }],
+    state: {},
+    tools: [],
+    context: [],
+    forwardedProps: {},
+  })
+  expect(response.status).toBe(200)
+  await response.text()
+  expect(f.resolved).toEqual([{ threadId, digest: undefined }])
 })

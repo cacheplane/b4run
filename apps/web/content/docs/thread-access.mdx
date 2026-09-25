@@ -113,20 +113,23 @@ Repeated headers arrive joined. `X-User-Id: victim` plus `X-User-Id: attacker` i
 
 A stamp your policy returns on `workspace.source.put` is not a thread's: B4.run keeps it with the upload as its uploader, and a create that names that source carries every such stamp in `requestedWorkspace.uploadedBy`. Uploads are content-addressed, so two callers who upload the same bytes share one source and both appear. To keep one caller from choosing another's upload, stamp uploads with the caller and check it on create:
 
-```ts
+```ts title="src/thread-access.ts"
 export default defineThreadAccess({
-  create: (req) => {
-    const caller = req.headers["x-user-id"]
-    if (caller === undefined) return deny({ status: 403 })
-    if (req.operation === "workspace.source.put") return permit({ ownerId: caller })
+  create: async (req) => {
+    const user = await principalOf(req.headers)
+    if (!user) return deny()
+    // The stamp on an upload is kept as its uploader, not as a thread's.
+    if (req.operation === "workspace.source.put") return permit({ ownerId: user.id })
     const uploadedBy = req.requestedWorkspace?.uploadedBy
-    if (uploadedBy && !uploadedBy.some((uploader) => uploader.ownerId === caller))
+    if (uploadedBy && !uploadedBy.some((uploader) => uploader.ownerId === user.id))
       return deny({ status: 403 })
-    return permit({ ownerId: caller })
+    return permit({ ownerId: user.id, org: user.org })
   },
-  fallback: (req) => (req.thread?.access?.ownerId === req.headers["x-user-id"] ? permit() : deny()),
+  fallback: owned,
 })
 ```
+
+`principalOf` and `owned` are the ones from [the shape](#the-shape) above. B4.run compares uploaders by their JSON with keys sorted, so a stamp built in a different key order is the same uploader. A stamp that is not a JSON object of at most 16 KiB cannot be kept, and the upload is refused with `422 workspace_uploader_invalid` before its body is read.
 
 ## Denials
 
