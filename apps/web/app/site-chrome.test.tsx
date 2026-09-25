@@ -148,4 +148,35 @@ describe("homepage tokens", () => {
     // `border-left: … var(--color-olive)`.
     expect(css.match(/(^|\s)color: var\(--color-olive\);/gm)).toHaveLength(3)
   })
+
+  // jsdom has no layout, so this pins the rules that keep the one-column
+  // takeaway inside its panel at 375px (the one-line chip was 335px in a
+  // 295px content box and dragged the headline out with it).
+  it("lets the one-column takeaway shrink and wrap its chip, never the hero's", () => {
+    const css = read("components/homepage/homepage.module.css")
+    const oneColumn = mediaBlocks(css, "(max-width: 760px)").join("\n")
+    expect(oneColumn).toMatch(/\.takeaway > div \{\s*min-width: 0;\s*\}/)
+    expect(oneColumn).toMatch(/\.takeaway \.command \{\s*white-space: normal;\s*\}/)
+    const outsideMedia = mediaBlocks(css, "").reduce((rest, block) => rest.replace(block, ""), css)
+    expect(outsideMedia).toMatch(/\.home \.command \{[^}]*white-space: nowrap;/)
+    expect(outsideMedia).not.toMatch(/\.takeaway[^{]*\.command/)
+  })
 })
+
+/** Every `@media <query>` block, whole (every block when query is ""). */
+function mediaBlocks(css: string, query: string): string[] {
+  const blocks: string[] = []
+  let at = css.indexOf(`@media ${query}`)
+  while (at !== -1) {
+    let depth = 0
+    let end = css.indexOf("{", at)
+    do {
+      if (css[end] === "{") depth += 1
+      if (css[end] === "}") depth -= 1
+      end += 1
+    } while (depth > 0)
+    blocks.push(css.slice(at, end))
+    at = css.indexOf(`@media ${query}`, end)
+  }
+  return blocks
+}

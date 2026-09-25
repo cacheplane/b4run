@@ -467,6 +467,16 @@
     gap: 24px;
     margin-top: 48px;
   }
+  /* One column: it may be narrower than the chip on one line (at 375px the
+     chip widened it past the panel, headline and all). Unlike the hero's,
+     this chip may wrap, at the space before the app name; nothing below it
+     shifts. Two columns keep the one-line chip, which sizes its column. */
+  .takeaway > div {
+    min-width: 0;
+  }
+  .takeaway .command {
+    white-space: normal;
+  }
   .code {
     font-size: 12px;
   }
