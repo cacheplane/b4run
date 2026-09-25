@@ -84,6 +84,7 @@
         "$TURBO_ROOT$/examples/software-factory/drafter/b4.config.ts",
         "$TURBO_ROOT$/examples/software-factory/drafter/src/drafter-image.ts",
         "$TURBO_ROOT$/examples/software-factory/drafter/src/drafter-manifest.ts",
+        "$TURBO_ROOT$/examples/software-factory/drafter/src/thread-access.ts",
         "$TURBO_ROOT$/examples/software-factory/drafter/src/app/intake/index.ts"
       ]
     },
