@@ -7,6 +7,7 @@ import { CodePanel } from "./CodePanel"
 import { DeveloperHome } from "./DeveloperHome"
 import { prepareHomepage } from "./highlight"
 import { exampleUrl, narrativeSource, prepareNarrative } from "./narrative-source"
+import { ScaffoldTerminal } from "./ScaffoldTerminal"
 import { Walkthrough } from "./Walkthrough"
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -202,4 +203,30 @@ it("connects the project map to code sections and ends with the execution flow",
     [...(execution?.querySelectorAll("li strong") ?? [])].map((item) => item.textContent),
   ).toEqual(["Request", "Repair", "Verify", "Pause", "Approve", "Export"])
   expect(container.querySelector('nav[aria-label="Follow the example"]')).toBeNull()
+})
+
+it("renders the scaffold as a captioned figure a screen reader can follow", () => {
+  const container = document.createElement("div")
+  container.innerHTML = renderToString(<ScaffoldTerminal />)
+  const figure = container.querySelector("figure")
+  expect(figure?.querySelector("figcaption")?.textContent).toBe("What npm create b4-app scaffolds")
+  expect(figure?.textContent).toContain("npm create b4-app@latest my-agent")
+  expect(figure?.textContent).toContain("Created my-agent (basic template)")
+  expect(figure?.textContent).toContain("cd my-agent && npm install && npm test")
+  expect(figure?.querySelector("ul")?.children).toHaveLength(4)
+  expect(figure?.querySelectorAll("ul ul > li")).toHaveLength(3)
+  // Glyphs, the marker and the arrow are decoration; labels and notes are text.
+  for (const hidden of figure?.querySelectorAll('[aria-hidden="true"]') ?? []) {
+    expect(hidden.textContent ?? "").toMatch(/^[\s│├└─$✔↓terminal]*$/)
+  }
+  const agent = figure?.querySelector<HTMLAnchorElement>('a[href="#first-agent"]')
+  expect(agent?.textContent?.replace(/\s+/g, " ")).toContain("src/app/hello/")
+  expect(agent?.textContent).toContain("the agent")
+  // Every row's --i is unique, so no two lines appear at once.
+  // Read the attribute: jsdom's CSSStyleDeclaration is unreliable for custom properties.
+  const orders = [...(figure?.querySelectorAll("[style*='--i']") ?? [])].map(
+    (node) => node.getAttribute("style")?.match(/--i:\s*(\d+)/)?.[1],
+  )
+  expect(new Set(orders).size).toBe(orders.length)
+  expect(orders).toHaveLength(10)
 })

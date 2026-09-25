@@ -1,0 +1,129 @@
+/* The hero's scaffold terminal. Dark-panel tokens only (tokens.css). */
+.terminal {
+  /* The global focus ring is tuned for paper; on the panel it uses the accent. */
+  --color-focus: var(--color-panel-accent);
+  position: relative;
+  margin: 0;
+  background: var(--color-panel);
+  color: var(--color-panel-ink);
+  font:
+    13px / 1.75 var(--font-mono),
+    monospace;
+}
+.strip {
+  padding: 10px 18px;
+  background: var(--color-panel-strip);
+  color: var(--color-panel-muted);
+  font-size: 12px;
+}
+.body {
+  padding: 18px 18px 20px;
+}
+.body p {
+  margin: 0;
+}
+.prompt {
+  color: var(--color-panel-accent);
+}
+/* A blank terminal line between the command's output and the tree
+   (two classes, so it outranks `.body p`). */
+.body .created {
+  margin-bottom: 1.75em;
+}
+.tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+.file {
+  white-space: pre;
+}
+.note {
+  color: var(--color-panel-dim);
+  text-align: right;
+}
+/* The agent folder: the one row that is a link, marked by the Relay dot. */
+.agent {
+  margin-inline: -18px;
+  padding: 2px 18px 2px 16px;
+  border-left: 2px solid var(--color-panel-accent);
+  background: color-mix(in srgb, var(--color-panel-accent) 14%, var(--color-panel));
+  color: var(--color-panel-ink);
+  text-decoration: none;
+}
+.agent .note {
+  color: var(--color-panel-accent);
+}
+.agent:hover .file,
+.agent:focus-visible .file {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.marker {
+  display: inline-block;
+  width: 0.6em;
+  height: 0.6em;
+  margin-right: 0.5em;
+  border-radius: 50%;
+  background: var(--color-panel-accent);
+}
+.next {
+  margin: 0;
+  padding: 10px 18px;
+  border-top: 1px solid var(--color-panel-rule);
+  background: var(--color-panel-strip);
+  color: var(--color-panel-muted);
+  overflow-wrap: anywhere;
+}
+
+/* Narrow screens: each note drops under its file, indented past the glyphs. */
+@media (max-width: 479px) {
+  .row {
+    flex-direction: column;
+    gap: 0;
+  }
+  .note {
+    padding-left: 3ch;
+    text-align: left;
+  }
+  .tree .tree .note {
+    padding-left: 6ch;
+  }
+}
+
+/* The reveal: one pass, about 1s. Lines are already in place, so only opacity
+   and a 4px lift move (no layout shift). Reduced motion gets the final frame. */
+@media (prefers-reduced-motion: no-preference) {
+  .line {
+    animation: terminal-line 300ms cubic-bezier(0.22, 1, 0.36, 1) calc(var(--i) * 60ms + 120ms) both;
+  }
+  .agent {
+    animation: agent-row 400ms ease-out calc(var(--last) * 60ms + 180ms) both;
+  }
+  .agent .marker {
+    animation: agent-marker 300ms cubic-bezier(0.34, 1.56, 0.64, 1) calc(var(--last) * 60ms + 180ms)
+      both;
+  }
+}
+@keyframes terminal-line {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@keyframes agent-row {
+  from {
+    background-color: var(--color-panel);
+    border-left-color: transparent;
+  }
+}
+@keyframes agent-marker {
+  from {
+    transform: scale(0);
+  }
+}
