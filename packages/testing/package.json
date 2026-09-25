@@ -45,7 +45,7 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.contracts.json"
   },
   "dependencies": {
-    "@copilotkit/aimock": "^1.37.4",
+    "@copilotkit/aimock": "^1.43.0",
     "@b4run/memory": "workspace:*"
   },
   "peerDependencies": {

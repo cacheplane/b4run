@@ -42,8 +42,8 @@ importers:
         specifier: 2.31.1
         version: 2.31.1(@types/node@26.1.2)
       '@copilotkit/aimock':
-        specifier: ^1.37.4
-        version: 1.38.0(vitest@4.1.11)
+        specifier: ^1.43.0
+        version: 1.43.0(vitest@4.1.11)
       '@playwright/test':
         specifier: 1.62.1
         version: 1.62.1
@@ -1066,8 +1066,8 @@ importers:
         specifier: workspace:*
         version: link:../memory
       '@copilotkit/aimock':
-        specifier: ^1.37.4
-        version: 1.38.0(vitest@4.1.11)
+        specifier: ^1.43.0
+        version: 1.43.0(vitest@4.1.11)
     devDependencies:
       '@b4run/cli':
         specifier: workspace:*
@@ -1605,8 +1605,8 @@ packages:
       react-dom:
         optional: true
 
-  '@copilotkit/aimock@1.38.0':
-    resolution: {integrity: sha512-zrGXeSu0/LkHQgrM9Z68uU/k7qpYbnZ25i9djpNlYyDCDCUgKaQPbG1iIYOc+4vuigJmD91ujcK36mBKWz+JVw==}
+  '@copilotkit/aimock@1.43.0':
+    resolution: {integrity: sha512-V8D8cjSMtAR4rHaD2ulp3DR/ZguXQjDNOqwKDNvjb/OJL/KR1I0SDf5xpRCd+TYKjhmf9fM8Xpg3QBKPmV9Kmw==}
     engines: {node: '>=20.15.0'}
     hasBin: true
     peerDependencies:
@@ -9850,7 +9850,7 @@ snapshots:
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
 
-  '@copilotkit/aimock@1.38.0(vitest@4.1.11)':
+  '@copilotkit/aimock@1.43.0(vitest@4.1.11)':
     optionalDependencies:
       vitest: 4.1.11(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@26.1.2)(@vitest/ui@4.1.11)(jsdom@30.0.1)(vite@6.4.3(@types/node@26.1.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.10)(yaml@2.9.0))
 
