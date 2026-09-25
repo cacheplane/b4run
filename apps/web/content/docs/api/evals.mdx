@@ -72,6 +72,7 @@ export interface EvalDefinition {
   readonly dataset: Dataset
   readonly scorers: readonly Scorer[]
   readonly middlewareContext?: AgentHarnessMiddlewareContext
+  readonly responseSchema?: Readonly<Record<string, unknown>>
   readonly threshold?: number
   readonly gate?: GatePolicy
 }
@@ -85,6 +86,7 @@ export interface EvalDefinition {
 | `readonly dataset` | `Dataset` | yes | Supply inline, file, or factory cases. |
 | `readonly scorers` | `readonly Scorer[]` | yes | Score every case. |
 | `readonly middlewareContext` | `AgentHarnessMiddlewareContext` | no | Supply the context `middleware.ts` would have produced. |
+| `readonly responseSchema` | `Readonly<Record<string, unknown>>` | no | Constrain the root model's final message as the client's response schema does. |
 | `readonly threshold` | `number` | no | Shorthand for a mean gate. |
 | `readonly gate` | `GatePolicy` | no | Define explicit report pass policy. |
 

@@ -5,6 +5,7 @@ import {
   type B4ResumeEntry,
   createRuntimeRegistry,
   readPendingInterrupts,
+  readResponseFormat,
   resolveCheckpointer,
   resolvePendingResume,
   resolveSandboxManager,
@@ -87,6 +88,15 @@ export interface AgentHarnessOptions {
   readonly record?: boolean
   /** Upstream base URL for record mode (no /v1 suffix). Default https://api.openai.com. */
   readonly recordUpstream?: string
+  /**
+   * A JSON Schema the root model's final message must match — the value a
+   * Hashbrown client sends as `hashbrown.responseSchema` on every AG-UI run.
+   * Bound on every turn exactly as the server binds it, so a scripted, live or
+   * recorded run sends the model the same request production does. Only an
+   * `agent` route on a provider that supports it can take one; any other
+   * route fails the run rather than running unconstrained.
+   */
+  readonly responseSchema?: Readonly<Record<string, unknown>>
 }
 
 /** Evaluate a `middlewareContext` option (value or per-turn factory) for one turn. */
@@ -116,6 +126,22 @@ export interface AgentHarness {
 export async function createAgentHarness(options: AgentHarnessOptions): Promise<AgentHarness> {
   const live = options.live ?? false
   const record = options.record ?? false
+  const responseSchema: unknown = options.responseSchema
+  if (
+    responseSchema !== undefined &&
+    (typeof responseSchema !== "object" || responseSchema === null || Array.isArray(responseSchema))
+  ) {
+    throw new Error("createAgentHarness: `responseSchema` must be a JSON Schema object")
+  }
+  // Read through the server's own parser so the bound format — including the
+  // provider-facing schema name — is the one an AG-UI run would carry.
+  const responseFormatResult = readResponseFormat(
+    responseSchema !== undefined ? { hashbrown: { responseSchema } } : undefined,
+  )
+  if (!responseFormatResult.ok) {
+    throw new Error(`createAgentHarness: ${responseFormatResult.message}`)
+  }
+  const responseFormat = responseFormatResult.responseFormat
 
   // Guard: live mode requires a real API key before doing anything else.
   if (live && !process.env.OPENAI_API_KEY) {
@@ -231,6 +257,7 @@ export async function createAgentHarness(options: AgentHarnessOptions): Promise<
       ...(sandboxManager ? { sandboxManager } : {}),
       ...(resolvedResume ? { resume: resolvedResume } : {}),
       ...(middlewareContext !== undefined ? { middlewareContext } : {}),
+      ...(responseFormat !== undefined ? { responseFormat } : {}),
     }
     const stream = streamResolvedRoute(streamArgs)
     const result = await collectRunResult(stream, threadId)

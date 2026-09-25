@@ -43,6 +43,7 @@ interface TestingModule {
     record?: boolean
     recordUpstream?: string
     middlewareContext?: unknown
+    responseSchema?: unknown
   }): Promise<AgentHarnessShape>
   loadFixtures(path: string): unknown
   writeFixtures(path: string, fixtures: unknown): void
@@ -149,6 +150,9 @@ export async function runEvalCommand(
         : {}),
       ...(loaded.definition.middlewareContext !== undefined
         ? { middlewareContext: loaded.definition.middlewareContext }
+        : {}),
+      ...(loaded.definition.responseSchema !== undefined
+        ? { responseSchema: loaded.definition.responseSchema }
         : {}),
     })
     try {
