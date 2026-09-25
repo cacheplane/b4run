@@ -229,7 +229,6 @@
   background: var(--color-panel);
   color: var(--color-page);
   display: grid;
-  grid-template-columns: 1fr 1.15fr;
   gap: 40px;
   margin-top: 72px;
   padding: 40px;
@@ -261,17 +260,14 @@
     padding-top: 40px;
   }
   .takeaway {
-    grid-template-columns: 1fr;
-  }
-  .takeaway {
     padding: 26px;
     gap: 24px;
     margin-top: 48px;
   }
-  /* One column: it may be narrower than the chip on one line (at 375px the
+  /* Narrow: the column may be narrower than the chip on one line (at 375px the
      chip widened it past the panel, headline and all). Unlike the hero's,
      this chip may wrap, at the space before the app name; nothing below it
-     shifts. Two columns keep the one-line chip, which sizes its column. */
+     shifts. Wider panels keep the chip on one line. */
   .takeaway > div {
     min-width: 0;
   }
