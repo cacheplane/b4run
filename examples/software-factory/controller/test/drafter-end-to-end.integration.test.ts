@@ -32,7 +32,8 @@ import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
  * controller wrote for the work order and serves that capture and no other), its tools, the
  * controller's runtime with the real worker map (the drafter entry pointing at that server),
  * the real manifest writer (the wide capture at the work order's pin, staged out of the
- * object store), the real re-rooted reader, the real baseline capture and the real Docker
+ * object store), the real re-rooted read over the drafter's own port with the worker token
+ * and the handed digest, the real baseline capture and the real Docker
  * verifier. What is not: the model is scripted (aimock), and the builder worker the map
  * also needs is the fake HTTP one, which nothing here dispatches to.
  *

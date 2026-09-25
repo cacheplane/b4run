@@ -213,10 +213,12 @@ worker's refusals (`thread_not_found`, `workspace_lost`, `workspace_expired`,
 `workspace_not_ready`, `run_in_flight`, `workspace_changed`, `workspace_read_timeout`,
 `workspace_unavailable`, `workspace_inspection_refused`, `shutting_down`) and the client's own
 (`source_mismatch`, `thread_mismatch`, a malformed or oversized answer) are journalled as
-`workspace_unreadable` with the status and code, and settle `verification_inconclusive` (which
+`workspace_unreadable` with the status and code (a 404 with no code gets a hint that the
+worker may not set `sandbox.workspaceRead: "http"`), and settle `verification_inconclusive` (which
 `retry` accepts) or, for a drafter read, `intake_run_failed` with no attempt spent. The one
-refusal that is a verdict is `workspace_root_missing` on a drafter read: the drafter wrote
-nothing under `draft/`, which spends an attempt.
+refusal that is a verdict is `workspace_root_missing` on a drafter read (a 422 naming the
+`draft` root the controller asked for): the drafter wrote nothing under `draft/`, which spends
+an attempt. A thread whose handoff digest the journal does not hold is never read at all.
 
 - **Joined, and proven in `controller/test/end-to-end.integration.test.ts` (Docker-gated).** A real
   builder turn — the route, its tools, its permission config and its container, with only the
@@ -348,9 +350,10 @@ reads a thread's workspace over the worker's URL, so it needs no worker's app ro
 Every target's work orders go to that one builder. `FACTORY_WORKERS` (the per-target worker
 map) and `FACTORY_BUILDER_TARGET` (the per-process target file) are retired: the controller
 refuses to start while either is set, naming it, rather than leave an operator believing it
-still routes anything. So are `FACTORY_BUILDER_APP_ROOT`, `FACTORY_DRAFTER_APP_ROOT` and
-`FACTORY_DRAFTER_IMAGE` on the controller: it reads each worker over its URL, and only the
-drafter needs the drafter's image. Each manifest directory must be the same on both sides, and
+still routes anything. So are `FACTORY_BUILDER_APP_ROOT` and `FACTORY_DRAFTER_APP_ROOT`: the
+controller reads each worker over its URL. `FACTORY_DRAFTER_IMAGE` is the drafter's alone; the
+controller ignores it, printing one `config_ignored` line at boot, so an environment shared
+with the drafter still starts. Each manifest directory must be the same on both sides, and
 the controller has no default for either: set `FACTORY_BUILDER_MANIFEST_DIR` and
 `FACTORY_DRAFTER_MANIFEST_DIR` to the directories the workers were started with (the
 builder's `dev`, `check` and `build` scripts default theirs to `.factory/manifests` under the
@@ -594,7 +597,8 @@ The controller app reads:
 | `FACTORY_MAX_CHANGED_BYTES` | no | Default 1048576; exceeding it is a `scope_violation`, never a truncation |
 | `FACTORY_MAX_INTAKE_ATTEMPTS` | no | Default 2, a positive integer: the drafter turns an issue intake may spend before its last refusal blocks it. Fixed on the row at create, like `FACTORY_MAX_ACTIVE_MS` |
 | `FACTORY_MAX_CANDIDATE_ATTEMPTS` | no | Default 2, a positive integer: the builder dispatches a work order may spend, the first and one per `retry`. Fixed on the row at create |
-| `FACTORY_BUILDER_APP_ROOT`, `FACTORY_DRAFTER_APP_ROOT`, `FACTORY_DRAFTER_IMAGE` | retired | Refused by name: the controller reads each worker over its URL (`sandbox.workspaceRead`). The drafter app still reads `FACTORY_DRAFTER_IMAGE` |
+| `FACTORY_BUILDER_APP_ROOT`, `FACTORY_DRAFTER_APP_ROOT` | retired | Refused by name: the controller reads each worker over its URL (`sandbox.workspaceRead`) |
+| `FACTORY_DRAFTER_IMAGE` | ignored | The drafter's, not the controller's: ignored here with one `config_ignored` line at boot, so a shared environment still starts |
 | `FACTORY_REPO_ROOT` | no | The repository the targets pin into and the wide capture is taken from; default `git rev-parse --show-toplevel` from the package. Set by the Docker-lane tests, which copy the app outside the repository. |
 
 The CLI's `create --issue` reads `FACTORY_GH` (default `gh`: the executable that answers

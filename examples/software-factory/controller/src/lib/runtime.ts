@@ -57,6 +57,8 @@ export function createControllerRuntime(
   overrides: ControllerRuntimeOverrides = {},
 ): ControllerRuntime {
   const config = loadConfig(env)
+  for (const warning of config.warnings)
+    process.stderr.write(`${JSON.stringify({ event: "config_ignored", warning })}\n`)
   let opening: Promise<Factory> | undefined
   let disposed = false
   return {

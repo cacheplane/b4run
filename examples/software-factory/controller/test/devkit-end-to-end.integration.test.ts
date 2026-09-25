@@ -25,8 +25,8 @@ import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
  * package pinned out of this repository. The controller dispatches to the real builder app,
  * served for the `devkit` target, whose resolver serves the work order's manifest that
  * `dispatch` wrote; the builder's own tools write the reference repair into its managed
- * workspace; the controller reads those bytes through the byte channel,
- * assembles them against ITS OWN archive of the pin, verifies them in the prepared image,
+ * workspace; the controller reads those bytes over the builder's own port with the worker
+ * token and the handed digest, assembles them against ITS OWN archive of the pin, verifies them in the prepared image,
  * freezes a bundle, approves and exports exactly those bytes.
  *
  * The builder really builds and tests inside its own container here, which no other lane

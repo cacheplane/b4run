@@ -20,13 +20,50 @@ function sources(dir: string): string[] {
  */
 describe("the controller has no path to a worker's filesystem", () => {
   for (const pattern of [
+    // The framework's managed-workspace read surface, however it is reached.
     /withManagedWorkspaceReader|openManagedWorkspaceReader/,
-    /from "@b4run\/sqlite-storage"/,
+    /\bopenWorkspaceReader\b/,
+    // A worker's installation store, statically or dynamically imported.
+    /from\s+["']@b4run\/sqlite-storage["']/,
+    /import\(\s*["']@b4run\/sqlite-storage["']\s*\)/,
     /openWorkspaceInstallation/,
     /\.b4\/workspaces/,
+    // `@b4run/cli/workspace` is imported for `readThreadWorkspace` alone.
+    /import\(\s*["']@b4run\/cli\/workspace["']\s*\)/,
   ])
     it(`no source matches ${pattern}`, () => {
       const hits = sources(SRC).filter((file) => pattern.test(readFileSync(file, "utf8")))
       expect(hits).toEqual([])
     })
+
+  it("imports only readThreadWorkspace and its error from @b4run/cli/workspace", () => {
+    const imported = sources(SRC).flatMap((file) =>
+      [
+        ...readFileSync(file, "utf8").matchAll(
+          /import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*["']@b4run\/cli\/workspace["']/g,
+        ),
+      ].flatMap((match) =>
+        (match[1] as string)
+          .split(",")
+          .map((name) => name.replace(/^\s*type\s+/, "").trim())
+          .filter(Boolean),
+      ),
+    )
+    expect(new Set(imported)).toEqual(new Set(["readThreadWorkspace", "ThreadWorkspaceReadError"]))
+  })
+
+  it("uses @b4run/sandbox only to build its own verifier's sessions", () => {
+    const users = sources(SRC)
+      .filter((file) => /["']@b4run\/sandbox["']/.test(readFileSync(file, "utf8")))
+      .map((file) => file.slice(SRC.length + 1))
+    expect(users).toEqual(["lib/verification/docker-verifier.ts"])
+    const verifier = readFileSync(join(SRC, "lib/verification/docker-verifier.ts"), "utf8")
+    expect(verifier).not.toMatch(/software-factory-(builder|drafter)/)
+  })
+
+  it("would catch a dynamic import of the installation store (the patterns bind)", () => {
+    const probe = 'const s = await import("@b4run/sqlite-storage")'
+    expect(/import\(\s*["']@b4run\/sqlite-storage["']\s*\)/.test(probe)).toBe(true)
+    expect(/\bopenWorkspaceReader\b/.test("provider.workspaces.openWorkspaceReader(x)")).toBe(true)
+  })
 })

@@ -126,6 +126,8 @@ export interface FactoryConfig {
   readonly maxCandidateAttempts: number
   /** Sent to every worker as `authorization: Bearer <token>`. Never journalled or logged. */
   readonly workerToken: string
+  /** One line per variable set here that the controller ignores; the runtime prints each at boot. */
+  readonly warnings: readonly string[]
 }
 
 /**
@@ -142,8 +144,16 @@ const RETIRED: Readonly<Record<string, string>> = {
     "the controller reads the builder's threads over its URL (sandbox.workspaceRead), not through its app root",
   FACTORY_DRAFTER_APP_ROOT:
     "the controller reads the drafter's threads over its URL (sandbox.workspaceRead), not through its app root",
+}
+
+/**
+ * Variables the controller no longer reads but does not refuse, because a worker still reads
+ * them and an operator may run both from one environment. Each is reported once at boot
+ * ({@link FactoryConfig.warnings}) so nobody believes it still changes the controller.
+ */
+const IGNORED: Readonly<Record<string, string>> = {
   FACTORY_DRAFTER_IMAGE:
-    "only the drafter needs its image; the controller no longer constructs a drafter provider",
+    "FACTORY_DRAFTER_IMAGE is ignored by the controller: only the drafter reads it (the controller reads drafter threads over FACTORY_DRAFTER_URL)",
 }
 
 export function loadConfig(env: Readonly<Record<string, string | undefined>>): FactoryConfig {
@@ -205,5 +215,8 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
     maxIntakeAttempts: e.FACTORY_MAX_INTAKE_ATTEMPTS ?? 2,
     maxCandidateAttempts: e.FACTORY_MAX_CANDIDATE_ATTEMPTS ?? 2,
     workerToken: e.FACTORY_WORKER_TOKEN,
+    warnings: Object.keys(IGNORED)
+      .filter((name) => env[name] !== undefined)
+      .map((name) => IGNORED[name] as string),
   }
 }

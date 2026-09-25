@@ -6,8 +6,10 @@ import { targetInspectionOptions } from "../src/lib/targets/workspace.ts"
 import {
   createHttpThreadWorkspaceReader,
   InvalidWorkspaceRootError,
+  WORKSPACE_READ_NOT_SERVED_HINT,
   type WorkspaceReadOptions,
   WorkspaceRootMissingError,
+  workspaceReadFailure,
 } from "../src/lib/worker/workspace-reader.ts"
 import { createFakeWorkspaceReader } from "./fake-workspace-reader.ts"
 
@@ -151,6 +153,73 @@ describe("the HTTP thread workspace reader", () => {
       expect(error).toBeInstanceOf(WorkspaceRootMissingError)
       expect(error).toMatchObject({ root: "draft", kind })
     }
+  })
+
+  it("is a missing-root verdict only for a 422 naming the requested root", async () => {
+    // Each of these carries the code, but not the whole of the worker's refusal: a code on
+    // another status, a refusal about another root, or one naming no root is a read the
+    // controller could not make, never a verdict that spends an attempt.
+    for (const [status, extra] of [
+      [409, { root: "draft", kind: "absent" }],
+      [500, { root: "draft", kind: "absent" }],
+      [422, { root: "other", kind: "absent" }],
+      [422, { root: "draft/nested", kind: "absent" }],
+      [422, { kind: "absent" }],
+    ] as const) {
+      const reader = createHttpThreadWorkspaceReader(
+        {
+          url: "http://drafter:4200",
+          token: "tok",
+          fetch: refusal(status, "workspace_root_missing", extra),
+        },
+        () => options("draft"),
+      )
+      const error = await reader
+        .read({ threadId: "t-1", sourceDigest: DIGEST }, AbortSignal.timeout(1_000))
+        .catch((e: unknown) => e)
+      expect(error).not.toBeInstanceOf(WorkspaceRootMissingError)
+      expect(error).toMatchObject({ status, code: "workspace_root_missing" })
+    }
+    // A read with no root asked for cannot have a missing one, whatever the worker says.
+    const rootless = createHttpThreadWorkspaceReader(
+      {
+        url: "http://builder:4100",
+        token: "tok",
+        fetch: refusal(422, "workspace_root_missing", { root: "draft", kind: "absent" }),
+      },
+      () => options(),
+    )
+    await expect(
+      rootless.read(target("t-1"), AbortSignal.timeout(1_000)),
+    ).rejects.not.toBeInstanceOf(WorkspaceRootMissingError)
+  })
+
+  it("journals a bare 404 with a hint that the worker may not serve the read", async () => {
+    const bare = createHttpThreadWorkspaceReader(
+      {
+        url: "http://builder:4100",
+        token: "tok",
+        fetch: scripted(404, { error: { kind: "request_error", message: "Not found" } }),
+      },
+      () => options(),
+    )
+    const error = await bare.read(target("t-1"), AbortSignal.timeout(1_000)).catch((e) => e)
+    expect(workspaceReadFailure(error)).toEqual({
+      status: 404,
+      hint: WORKSPACE_READ_NOT_SERVED_HINT,
+    })
+    expect(WORKSPACE_READ_NOT_SERVED_HINT).toContain('sandbox.workspaceRead: "http"')
+    // A 404 that names its code is the worker's answer about the thread, not the route.
+    for (const code of ["thread_not_found", "workspace_lost", "workspace_not_found"]) {
+      const named = createHttpThreadWorkspaceReader(
+        { url: "http://builder:4100", token: "tok", fetch: refusal(404, code) },
+        () => options(),
+      )
+      const refused = await named.read(target("t-1"), AbortSignal.timeout(1_000)).catch((e) => e)
+      expect(workspaceReadFailure(refused)).toEqual({ status: 404, code })
+    }
+    // Anything that is not the client's error carries nothing extra.
+    expect(workspaceReadFailure(new Error("boom"))).toEqual({})
   })
 
   it("refuses an answer about another source", async () => {

@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { DRAFTER_UNCONFIGURED } from "../src/lib/controller/workers.ts"
 import { createControllerRuntime } from "../src/lib/runtime.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
@@ -103,9 +103,26 @@ describe("controller runtime", () => {
       ["FACTORY_BUILDER_TARGET", join(dir, "cli-flags.target.json")],
       ["FACTORY_BUILDER_APP_ROOT", join(dir, "builder")],
       ["FACTORY_DRAFTER_APP_ROOT", join(dir, "drafter")],
-      ["FACTORY_DRAFTER_IMAGE", `node:24-slim@sha256:${"a".repeat(64)}`],
     ] as const)
       expect(() => createControllerRuntime({ ...env, [name]: value })).toThrow(`${name} is retired`)
+    // The drafter's image is the drafter's: a shared environment still boots, with one line.
+    const written: string[] = []
+    const spy = vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      written.push(String(chunk))
+      return true
+    })
+    try {
+      const shared = createControllerRuntime({
+        ...env,
+        FACTORY_DRAFTER_IMAGE: `node:24-slim@sha256:${"a".repeat(64)}`,
+      })
+      await shared.dispose()
+    } finally {
+      spy.mockRestore()
+    }
+    expect(written.filter((line) => line.includes("FACTORY_DRAFTER_IMAGE"))).toEqual([
+      expect.stringContaining('"event":"config_ignored"'),
+    ])
   })
 
   it("configures intake from the drafter pair, and refuses intake without it", async () => {

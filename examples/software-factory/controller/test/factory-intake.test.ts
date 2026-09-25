@@ -933,6 +933,34 @@ describe("the drafter thread's draft/", () => {
     expect(refusals(id)).toEqual([])
   })
 
+  it("fails closed when the journal holds no digest it handed the thread", async () => {
+    // The controller reads a thread only with the source it handed it. A journal whose
+    // handoff carries no digest is one it cannot check an answer against: the read is never
+    // made, and the row is a failed run, not a draft the drafter is charged for.
+    await bootWorker()
+    await bootFactory({
+      writeDrafterManifest: async (input) => ({
+        ...(await fakeManifestWriter(input)),
+        sourceDigest: "not-a-digest",
+      }),
+    })
+    const { id } = await createIssue()
+    expect(await factory.intake(id)).toMatchObject({ ok: true })
+    const threadId = (factory.show(id) as WorkOrderRow).workerThreadId as string
+    reader.set(threadId, GOOD_DRAFT)
+    const row = await factory.settleIntake(id, 20_000)
+    expect(row).toMatchObject({
+      state: "blocked",
+      blockedReason: "intake_run_failed",
+      intakeAttempts: 0,
+    })
+    expect(
+      String(factory.events(id).find((e) => e.type === "workspace_unreadable")?.payload.error),
+    ).toMatch(new RegExp(`No drafter source digest is journalled for thread ${threadId}`))
+    expect(reader.reads).toEqual([])
+    expect(refusals(id)).toEqual([])
+  })
+
   it("keeps a worker's timeout a failed run with its code on the record, not a spent attempt", async () => {
     await bootWorker()
     const timedOut: WorkspaceReader = {

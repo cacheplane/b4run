@@ -6,8 +6,8 @@
 > apply: the command is gone and both variables are refused by name. Each work order's
 > manifest carries its target's image, policy and permissions. The controller also reads each
 > worker's threads over the worker's URL now (`sandbox.workspaceRead: "http"`), with the
-> worker token: `FACTORY_BUILDER_APP_ROOT`, `FACTORY_DRAFTER_APP_ROOT` and
-> `FACTORY_DRAFTER_IMAGE` are refused on the controller by name, and it needs
+> worker token: `FACTORY_BUILDER_APP_ROOT` and `FACTORY_DRAFTER_APP_ROOT` are refused on the
+> controller by name (it ignores `FACTORY_DRAFTER_IMAGE`, the drafter's), and it needs
 > `FACTORY_BUILDER_MANIFEST_DIR` and `FACTORY_WORKER_TOKEN` instead. Follow the
 > [software factory README](../../../examples/software-factory/README.md#run-it) to run it.
 

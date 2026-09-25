@@ -103,11 +103,7 @@ describe("the builder endpoint", () => {
     expect(() => loadConfig(dirOnly)).toThrow(/FACTORY_WORKER_URL is required/)
   })
 
-  for (const name of [
-    "FACTORY_BUILDER_APP_ROOT",
-    "FACTORY_DRAFTER_APP_ROOT",
-    "FACTORY_DRAFTER_IMAGE",
-  ])
+  for (const name of ["FACTORY_BUILDER_APP_ROOT", "FACTORY_DRAFTER_APP_ROOT"])
     it(`refuses ${name} by name: the controller reads workers over HTTP`, () => {
       expect(() => loadConfig({ ...base, [name]: "/somewhere" })).toThrow(
         new RegExp(`${name} is retired`),
@@ -115,6 +111,25 @@ describe("the builder endpoint", () => {
       // Even an empty value: an operator who set it at all learns it does nothing now.
       expect(() => loadConfig({ ...base, [name]: "" })).toThrow(new RegExp(`${name} is retired`))
     })
+})
+
+describe("FACTORY_DRAFTER_IMAGE on the controller", () => {
+  it("is ignored with one warning, because the drafter sharing the environment still reads it", () => {
+    const image = `node:24-slim@sha256:${"b".repeat(64)}`
+    const withDrafter = {
+      ...base,
+      FACTORY_DRAFTER_URL: "http://127.0.0.1:4200",
+      FACTORY_DRAFTER_MANIFEST_DIR: "/m/d",
+    }
+    for (const env of [base, withDrafter]) {
+      const config = loadConfig({ ...env, FACTORY_DRAFTER_IMAGE: image })
+      expect(config.warnings).toEqual([
+        expect.stringMatching(/^FACTORY_DRAFTER_IMAGE is ignored by the controller/),
+      ])
+      expect(Object.keys(config)).not.toContain("drafterImage")
+    }
+    expect(loadConfig(base).warnings).toEqual([])
+  })
 })
 
 describe("rung 1 configuration", () => {

@@ -30,9 +30,10 @@ import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
  * the builder app served by `serveRuntime` for the `cli-flags` target, its per-work-order
  * resolver, its route, tools and permission config, its managed workspace (a
  * `b4-ws-volume-*` published under the builder's installation), the Agent Protocol between
- * the two, the reader (a separate read-only container over that volume, resolved through the
- * builder's installation store), the captured baseline, the assembly, the verifier, the
- * bundle and the export. What is not: the model is scripted (aimock).
+ * the two, the read (`POST /threads/:id/workspace/inspect` on the builder's own port, with the
+ * worker token and the digest `dispatch` handed the thread; the builder opens a separate
+ * read-only container over that volume), the captured baseline, the assembly, the verifier,
+ * the bundle and the export. The controller half holds only the URL and the token. What is not: the model is scripted (aimock).
  */
 
 const task = loadTask("cli-flags")

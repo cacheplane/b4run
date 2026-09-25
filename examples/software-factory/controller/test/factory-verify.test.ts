@@ -241,6 +241,48 @@ describe("the verifying phase", () => {
     expect(verifier.calls).toHaveLength(0)
   })
 
+  it("fails closed when the journal holds no digest it handed the thread", async () => {
+    // The builder's bytes are scripted and would verify; the handoff journalled no digest, so
+    // the controller cannot tell which workspace the worker must answer with and never asks.
+    dir = mkdtempSync(join(tmpdir(), "factory-verify-"))
+    mkdirSync(join(dir, "out"), { recursive: true })
+    fake = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only" })
+    const verifier = createFakeVerifier({ verdict: "pass" })
+    const reader = createFakeWorkspaceReader({})
+    factory = await createFactory({
+      registryPath: join(dir, "registry.sqlite"),
+      generatedTasksDir: join(dir, "tasks"),
+      captureRoot: dir,
+      workers: fakeWorkerMap({
+        builder: {
+          client: createHttpWorkerClient(fake.baseUrl, { token: TEST_WORKER_TOKEN }),
+          reader,
+        },
+      }),
+      writeBuilderManifest: async (input) => ({
+        ...(await noopBuilderManifestWriter(input)),
+        sourceDigest: "",
+      }),
+      exportDir: join(dir, "out"),
+      artifactsDir: join(dir, "artifacts"),
+      verifier,
+      captureBaseline: captureRepairable,
+    })
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id)
+    const dispatched = await factory.waitFor(id, (r) => r.workerThreadId !== null)
+    const threadId = dispatched.workerThreadId as string
+    reader.set(threadId, repaired())
+    const row = await factory.waitFor(id, (r) => r.state === "blocked", 20_000)
+    expect(row.blockedReason).toBe("verification_inconclusive")
+    expect(
+      String(factory.events(id).find((e) => e.type === "workspace_unreadable")?.payload.error),
+    ).toMatch(new RegExp(`No builder source digest is journalled for thread ${threadId}`))
+    expect(reader.reads).toEqual([])
+    expect(row.candidateDigest).toBeNull()
+    expect(verifier.calls).toHaveLength(0)
+  })
+
   it("blocks when the controller cannot capture its own baseline", async () => {
     const { reader, verifier } = await boot({ verdict: "pass" }, async () => {
       throw new Error("baseline container unavailable")

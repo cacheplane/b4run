@@ -123,13 +123,48 @@ export interface ThreadWorkspaceEndpoint {
 }
 
 /**
+ * The journal's hint for a 404 that carries no code. A worker that serves the read answers a
+ * missing thread with `thread_not_found` and a missing workspace with `workspace_lost`; a bare
+ * 404 is the route itself being absent, which is what a worker without
+ * `sandbox.workspaceRead: "http"` answers (an operator's configuration, not the thread's).
+ */
+export const WORKSPACE_READ_NOT_SERVED_HINT =
+  'the worker answered 404 with no code: it may not set sandbox.workspaceRead: "http" (or the URL is not a B4.run worker)'
+
+/**
  * What a failed read said, for the journal: the worker's HTTP status and code
  * (`workspace_changed`, `workspace_read_timeout`, `run_in_flight`, ...) or the client's own
- * (`source_mismatch`, `thread_mismatch`, ...). Empty for a failure that is neither.
+ * (`source_mismatch`, `thread_mismatch`, ...), and a hint for a bare 404. Empty for a failure
+ * that is neither.
  */
-export function workspaceReadFailure(error: unknown): { status?: number; code?: string } {
+export function workspaceReadFailure(error: unknown): {
+  status?: number
+  code?: string
+  hint?: string
+} {
   if (!(error instanceof ThreadWorkspaceReadError)) return {}
-  return { status: error.status, ...(error.code !== undefined ? { code: error.code } : {}) }
+  return {
+    status: error.status,
+    ...(error.code !== undefined ? { code: error.code } : {}),
+    ...(error.status === 404 && error.code === undefined
+      ? { hint: WORKSPACE_READ_NOT_SERVED_HINT }
+      : {}),
+  }
+}
+
+/**
+ * The worker's refusal is the missing-root verdict only when every part of it says so: the
+ * worker's own status for it (422), its code, and the root it names being the one asked for. A
+ * code alone on another status, or a refusal about another root, is a read the controller
+ * could not make, not a verdict on the thread's output.
+ */
+function isRootMissing(error: unknown, root: string): error is ThreadWorkspaceReadError {
+  return (
+    error instanceof ThreadWorkspaceReadError &&
+    error.status === 422 &&
+    error.code === "workspace_root_missing" &&
+    error.details.root === root
+  )
 }
 
 /**
@@ -181,11 +216,7 @@ export function createHttpThreadWorkspaceReader(
       } catch (error) {
         // The one refusal that is a verdict on the thread's output: the worker reached the
         // workspace and found nothing (or not a directory) at `root`.
-        if (
-          root !== undefined &&
-          error instanceof ThreadWorkspaceReadError &&
-          error.code === "workspace_root_missing"
-        )
+        if (root !== undefined && isRootMissing(error, root))
           throw new WorkspaceRootMissingError(
             root,
             target.threadId,
