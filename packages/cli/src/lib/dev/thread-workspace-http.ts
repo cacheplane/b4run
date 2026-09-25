@@ -155,6 +155,7 @@ const STATUS: Readonly<Record<ThreadWorkspaceInspectFailure, number>> = {
   workspace_unavailable: 503,
   workspace_root_missing: 422,
   workspace_inspection_refused: 422,
+  workspace_read_timeout: 504,
   invalid_request: 400,
 }
 

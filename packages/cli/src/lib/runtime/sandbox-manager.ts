@@ -64,7 +64,12 @@ export class SandboxManager {
   ): Promise<ThreadWorkspaceInspectOutcome> {
     if (!this.#managed || !this.#protocol.read)
       throw new Error("Workspace reads are not served by this app (sandbox.workspaceRead)")
-    return this.#managed.inspectThread(threadId, request, signal)
+    return this.#managed.inspectThread(
+      threadId,
+      request,
+      signal,
+      this.#protocol.readTimeoutMs !== undefined ? { timeoutMs: this.#protocol.readTimeoutMs } : {},
+    )
   }
 
   async getForThread(

@@ -1911,13 +1911,23 @@ export function buildRouteTable(ctx: {
           )
           return threadWorkspaceResponse(threadId, parsed.request, outcome)
         } catch (error) {
-          // A cancel through the registry is an answer, not a server failure.
+          // A cancel, a shutdown and a departed client are answers, not server failures.
           if (slot.cancelled)
             return Response.json(
               createRequestErrorBody(`The workspace read of thread "${threadId}" was cancelled`, {
                 code: "read_cancelled",
               }),
               { status: 409 },
+            )
+          if (slot.signal.aborted)
+            return Response.json(
+              createRequestErrorBody("The server is shutting down", { code: "shutting_down" }),
+              { status: 503 },
+            )
+          if (request.signal.aborted)
+            return Response.json(
+              createRequestErrorBody("The client closed the request", { code: "request_aborted" }),
+              { status: 499 },
             )
           throw error
         } finally {

@@ -438,6 +438,7 @@ export interface SandboxConfig {
   readonly workspace?: WorkspaceDefinition | WorkspaceResolver
   readonly thread?: ThreadSandboxResolver
   readonly workspaceRead?: "http"
+  readonly workspaceReadTimeoutMs?: number
   readonly provider: SandboxProvider
   readonly network?: SandboxPolicy["network"]
   readonly env?: SandboxPolicy["env"]
@@ -453,6 +454,7 @@ export interface SandboxConfig {
 | `readonly workspace` | `WorkspaceDefinition \| WorkspaceResolver` | no | Declare the initial managed workspace: one definition for every thread, or a resolver that decides per thread at first admission. |
 | `readonly thread` | `ThreadSandboxResolver` | no | Decide each thread's workspace, image, policy and permissions once, at first admission; exclusive with `workspace`. |
 | `readonly workspaceRead` | `"http"` | no | Serve `POST /threads/:thread_id/workspace/inspect`, a read-only inventory of a thread's managed workspace behind the thread-access policy; refused without a policy. |
+| `readonly workspaceReadTimeoutMs` | `number` | no | Bound one workspace read, open to close, before it is abandoned with `504 workspace_read_timeout`; 1,000 to 1,800,000 ms, default 120,000. |
 | `readonly provider` | `SandboxProvider` | yes | Supply the sandbox provider. |
 | `readonly network` | `SandboxPolicy["network"]` | no | Set the default network policy. |
 | `readonly env` | `SandboxPolicy["env"]` | no | Set the default explicit environment. |

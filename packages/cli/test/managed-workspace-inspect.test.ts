@@ -113,6 +113,45 @@ describe("ManagedWorkspaceManager.inspectThread", () => {
   })
 })
 
+describe("ManagedWorkspaceManager.inspectThread deadline", () => {
+  const never = () => new Promise<never>(() => {})
+  it("answers workspace_read_timeout when the provider's open never settles", async () => {
+    const { manager, physical } = await managerWith()
+    await manager.getForThread("t-1", new AbortController().signal)
+    physical.workspaces.openWorkspaceReader = never
+    const started = Date.now()
+    const outcome = await manager.inspectThread("t-1", request, new AbortController().signal, {
+      timeoutMs: 50,
+    })
+    expect(outcome).toMatchObject({ ok: false, code: "workspace_read_timeout" })
+    expect(Date.now() - started).toBeLessThan(2000)
+  })
+
+  it("bounds the reader's close too", async () => {
+    const { manager, physical } = await managerWith()
+    await manager.getForThread("t-1", new AbortController().signal)
+    const open = physical.workspaces.openWorkspaceReader?.bind(physical.workspaces)
+    if (!open) throw new Error("the fixture reads")
+    physical.workspaces.openWorkspaceReader = async (input) => ({
+      ...(await open(input)),
+      close: never,
+    })
+    expect(
+      await manager.inspectThread("t-1", request, new AbortController().signal, { timeoutMs: 50 }),
+    ).toMatchObject({ ok: false, code: "workspace_read_timeout" })
+  })
+
+  it("settles at once when the caller's signal aborts, even over a wedged provider", async () => {
+    const { manager, physical } = await managerWith()
+    await manager.getForThread("t-1", new AbortController().signal)
+    physical.workspaces.openWorkspaceReader = never
+    const controller = new AbortController()
+    const reading = manager.inspectThread("t-1", request, controller.signal, { timeoutMs: 60_000 })
+    controller.abort(new Error("shutting down"))
+    await expect(reading).rejects.toThrow("shutting down")
+  })
+})
+
 describe("inspectFailure", () => {
   const cases: [unknown, string][] = [
     [new WorkspaceInspectionError("changed", "x"), "workspace_changed"],

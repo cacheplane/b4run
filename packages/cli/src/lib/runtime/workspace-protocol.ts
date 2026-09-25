@@ -7,7 +7,18 @@ import type { WorkspaceInspection } from "@b4run/workspace"
 export interface WorkspaceProtocolSettings {
   /** `sandbox.workspaceRead: "http"`. */
   readonly read: boolean
+  /** `sandbox.workspaceReadTimeoutMs`; the default when absent. */
+  readonly readTimeoutMs?: number
 }
+
+/**
+ * How long one workspace read may take, open to close, before it is abandoned with
+ * `workspace_read_timeout`: a provider that never answers must not hold the thread's
+ * run slot forever. `sandbox.workspaceReadTimeoutMs` sets it.
+ */
+export const WORKSPACE_READ_TIMEOUT_DEFAULT_MS = 120_000
+export const WORKSPACE_READ_TIMEOUT_MIN_MS = 1_000
+export const WORKSPACE_READ_TIMEOUT_MAX_MS = 30 * 60_000
 
 export const NO_WORKSPACE_PROTOCOL: WorkspaceProtocolSettings = Object.freeze({ read: false })
 
@@ -53,6 +64,7 @@ export type ThreadWorkspaceInspectFailure =
   | "workspace_root_missing"
   | "workspace_changed"
   | "workspace_inspection_refused"
+  | "workspace_read_timeout"
   | "invalid_request"
 
 export type ThreadWorkspaceInspectOutcome =

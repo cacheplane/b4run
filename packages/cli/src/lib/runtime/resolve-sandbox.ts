@@ -35,7 +35,12 @@ export async function resolveSandboxManager(
   if (shape.length > 0) throw new Error(`Invalid sandbox config:\n${shape.join("\n")}`)
   if (!sandbox.workspace && !sandbox.thread && options.artifact != null)
     throw new Error("Built workspace configuration was removed; rebuild the app")
-  const workspaceProtocol: WorkspaceProtocolSettings = { read: sandbox.workspaceRead === "http" }
+  const workspaceProtocol: WorkspaceProtocolSettings = {
+    read: sandbox.workspaceRead === "http",
+    ...(sandbox.workspaceReadTimeoutMs !== undefined
+      ? { readTimeoutMs: sandbox.workspaceReadTimeoutMs }
+      : {}),
+  }
   if (
     workspaceProtocol.read &&
     typeof sandbox.provider.workspaces?.openWorkspaceReader !== "function"

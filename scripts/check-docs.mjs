@@ -3178,6 +3178,7 @@ const expectedB4ConfigSchemaPaths = [
   "sandbox.provider",
   "sandbox.workspace",
   "sandbox.workspaceRead",
+  "sandbox.workspaceReadTimeoutMs",
   "sandbox.resources",
   "sandbox.resources.cpus",
   "sandbox.resources.diskGb",

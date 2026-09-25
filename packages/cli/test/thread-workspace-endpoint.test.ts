@@ -36,7 +36,11 @@ const tokenPolicy = {
 }
 
 async function fixture(
-  options: { readonly workspaceRead?: boolean; readonly policy?: unknown } = {},
+  options: {
+    readonly workspaceRead?: boolean
+    readonly policy?: unknown
+    readonly timeoutMs?: number
+  } = {},
 ) {
   const appRoot = await mkdtemp(join(tmpdir(), "b4-inspect-endpoint-"))
   roots.push(appRoot)
@@ -61,6 +65,7 @@ async function fixture(
       provider: physical.provider,
       workspace: { source: { directory: "source", include: ["main.txt"] } },
       ...(options.workspaceRead === false ? {} : { workspaceRead: "http" as const }),
+      ...(options.timeoutMs === undefined ? {} : { workspaceReadTimeoutMs: options.timeoutMs }),
     },
   }
   const handler = await createRuntimeFetchHandler({
@@ -211,6 +216,40 @@ it("a run and a delete are refused while a read holds the slot, and a cancel abo
   const aborted = await cancelled
   expect(aborted.status).toBe(409)
   expect(await aborted.json()).toMatchObject({ error: { details: { code: "read_cancelled" } } })
+})
+
+it("abandons a read the provider never answers at the deadline, and frees the slot", async () => {
+  const f = await fixture({ timeoutMs: 1_000 })
+  const threadId = await f.createThread()
+  await f.run(threadId, "/edit#workflow", { path: "a.txt", text: "a" })
+  f.physical.workspaces.openWorkspaceReader = () => new Promise<never>(() => {})
+  const response = await f.inspect(threadId)
+  expect(response.status).toBe(504)
+  expect(await response.json()).toMatchObject({
+    error: { details: { code: "workspace_read_timeout" } },
+  })
+  expect((await f.run(threadId, "/edit#workflow", { path: "b.txt", text: "b" })).status).toBe(200)
+})
+
+it("answers a read cut short by shutdown with a named code", async () => {
+  const f = await fixture()
+  const threadId = await f.createThread()
+  await f.run(threadId, "/edit#workflow", { path: "a.txt", text: "a" })
+  let opened!: () => void
+  const readerOpened = new Promise<void>((resolve) => {
+    opened = resolve
+  })
+  f.physical.workspaces.openWorkspaceReader = () => {
+    opened()
+    return new Promise<never>(() => {})
+  }
+  const reading = f.inspect(threadId)
+  await readerOpened
+  const closing = f.handler.close()
+  const response = await reading
+  expect(response.status).toBe(503)
+  expect(await response.json()).toMatchObject({ error: { details: { code: "shutting_down" } } })
+  await closing
 })
 
 it("403 without the token, and without a policy's allow the thread is not disclosed", async () => {

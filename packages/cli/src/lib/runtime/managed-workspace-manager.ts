@@ -30,9 +30,10 @@ import {
   verifyThreadSandboxRecord,
 } from "@b4run/workspace/node"
 import { threadPolicy } from "./thread-policy.js"
-import type {
-  ThreadWorkspaceInspectOutcome,
-  ThreadWorkspaceInspectRequest,
+import {
+  type ThreadWorkspaceInspectOutcome,
+  type ThreadWorkspaceInspectRequest,
+  WORKSPACE_READ_TIMEOUT_DEFAULT_MS,
 } from "./workspace-protocol.js"
 /** What admission tells the resolver about the thread. Metadata is loaded lazily: only a thread with no record needs it. */
 export interface WorkspaceAdmissionContext {
@@ -93,6 +94,47 @@ function missingRecord(threadId: string): WorkspaceLifecycleError {
     "conflict",
     `Thread ${threadId} has no sandbox record: it was admitted before sandbox.thread was configured, or its record was lost. Delete the thread to resolve its sandbox again.`,
   )
+}
+
+const TIMED_OUT: unique symbol = Symbol("timed out")
+
+/**
+ * Settle `work` within `timeoutMs`, or as soon as `signal` aborts, whichever comes
+ * first, even when the provider behind it never answers (open, reads and close all
+ * count). At either, `reading` is aborted so a provider that honours its signal
+ * stops; one that does not is abandoned, and its late result or failure dropped.
+ */
+async function withReadDeadline<T>(
+  work: Promise<T>,
+  reading: AbortController,
+  signal: AbortSignal,
+  timeoutMs: number,
+): Promise<T | typeof TIMED_OUT> {
+  work.catch(() => {})
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let onAbort: (() => void) | undefined
+  try {
+    return await Promise.race([
+      work,
+      new Promise<typeof TIMED_OUT>((resolve) => {
+        timer = setTimeout(() => {
+          reading.abort(new Error(`Workspace read deadline of ${timeoutMs} ms passed`))
+          resolve(TIMED_OUT)
+        }, timeoutMs)
+      }),
+      new Promise<never>((_, reject) => {
+        onAbort = () => {
+          reading.abort(signal.reason)
+          reject(signal.reason)
+        }
+        if (signal.aborted) onAbort()
+        else signal.addEventListener("abort", onAbort, { once: true })
+      }),
+    ])
+  } finally {
+    clearTimeout(timer)
+    if (onAbort) signal.removeEventListener("abort", onAbort)
+  }
 }
 
 /**
@@ -546,6 +588,7 @@ export class ManagedWorkspaceManager {
     threadId: string,
     request: ThreadWorkspaceInspectRequest,
     signal: AbortSignal,
+    options: { readonly timeoutMs?: number } = {},
   ): Promise<ThreadWorkspaceInspectOutcome> {
     this.#assertOpen()
     const { installation, provider, policy } = this.#options
@@ -592,24 +635,37 @@ export class ManagedWorkspaceManager {
         }
       release = this.retain(threadId)
       const runAsNonRoot = policy.security?.runAsNonRoot
-      const inspection = await scopedWorkspaceReader(
-        () =>
-          open.call(provider, {
-            workspace: ready,
-            signal,
-            ...(runAsNonRoot === undefined ? {} : { runAsNonRoot }),
-          }),
-        (reader) =>
-          inspectWorkspace(reader, {
-            signal,
-            maxEntries: request.maxEntries,
-            maxFileBytes: request.maxFileBytes,
-            maxTotalBytes: request.maxTotalBytes,
-            excludeRootDirectories: request.excludeRootDirectories,
-            expectedRootSymlinks: request.expectedRootSymlinks,
-            ...(request.root !== undefined ? { root: request.root } : {}),
-          }),
+      // The read's own signal: the caller's, or the deadline's.
+      const reading = new AbortController()
+      const inspection = await withReadDeadline(
+        scopedWorkspaceReader(
+          () =>
+            open.call(provider, {
+              workspace: ready,
+              signal: reading.signal,
+              ...(runAsNonRoot === undefined ? {} : { runAsNonRoot }),
+            }),
+          (reader) =>
+            inspectWorkspace(reader, {
+              signal: reading.signal,
+              maxEntries: request.maxEntries,
+              maxFileBytes: request.maxFileBytes,
+              maxTotalBytes: request.maxTotalBytes,
+              excludeRootDirectories: request.excludeRootDirectories,
+              expectedRootSymlinks: request.expectedRootSymlinks,
+              ...(request.root !== undefined ? { root: request.root } : {}),
+            }),
+        ),
+        reading,
+        signal,
+        options.timeoutMs ?? WORKSPACE_READ_TIMEOUT_DEFAULT_MS,
       )
+      if (inspection === TIMED_OUT)
+        return {
+          ok: false,
+          code: "workspace_read_timeout",
+          message: `Thread ${threadId}'s workspace read did not finish within ${options.timeoutMs ?? WORKSPACE_READ_TIMEOUT_DEFAULT_MS} ms`,
+        }
       return {
         ok: true,
         sourceDigest: record.intent.sourceDigest,

@@ -65,6 +65,36 @@ describe("sandbox.workspaceRead shape", () => {
       /workspaceRead needs managed workspaces/,
     )
   })
+  it("accepts a read deadline beside workspaceRead, within bounds", () => {
+    expect(
+      sandboxConfigShapeErrors({
+        provider,
+        workspace: resolver,
+        workspaceRead: "http",
+        workspaceReadTimeoutMs: 30_000,
+      }),
+    ).toEqual([])
+  })
+  for (const value of [0, 999, 30 * 60_000 + 1, 1.5, "60000", null])
+    it(`refuses workspaceReadTimeoutMs: ${JSON.stringify(value)}`, () => {
+      expect(
+        sandboxConfigShapeErrors({
+          provider,
+          workspace: resolver,
+          workspaceRead: "http",
+          workspaceReadTimeoutMs: value,
+        }).join("\n"),
+      ).toMatch(/sandbox.workspaceReadTimeoutMs must be an integer/)
+    })
+  it("refuses a read deadline without workspaceRead", () => {
+    expect(
+      sandboxConfigShapeErrors({
+        provider,
+        workspace: resolver,
+        workspaceReadTimeoutMs: 5_000,
+      }).join("\n"),
+    ).toMatch(/workspaceReadTimeoutMs applies only with sandbox.workspaceRead/)
+  })
   it("refuses a misspelling as an unknown key", () => {
     expect(
       sandboxConfigShapeErrors({ provider, workspace: resolver, workspaceRaed: "http" }).join("\n"),
