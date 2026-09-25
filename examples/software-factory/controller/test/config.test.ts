@@ -1,12 +1,11 @@
-import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
-import { DEFAULT_WORKER_ROUTE, DRAFTER_IMAGE, loadConfig } from "../src/lib/config.ts"
+import { DEFAULT_WORKER_ROUTE, loadConfig } from "../src/lib/config.ts"
 import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
 const base = {
   FACTORY_WORKER_URL: "http://127.0.0.1:4100",
   FACTORY_STATE_DIR: "/tmp/state",
-  FACTORY_BUILDER_APP_ROOT: "/tmp/builder",
+  FACTORY_BUILDER_MANIFEST_DIR: "/m/b",
   FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
 }
 
@@ -56,16 +55,15 @@ describe("the builder endpoint", () => {
   const pair = {
     FACTORY_STATE_DIR: "/tmp/state",
     FACTORY_WORKER_URL: "http://127.0.0.1:4100/",
-    FACTORY_BUILDER_APP_ROOT: "/srv/builder",
+    FACTORY_BUILDER_MANIFEST_DIR: "/srv/builder/manifests",
     FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
   }
 
-  it("is one worker for every target, with its manifest directory defaulted under its app root", () => {
+  it("is one worker for every target, at its URL, writing into its manifest directory", () => {
     expect(loadConfig(pair).builder).toEqual({
       url: "http://127.0.0.1:4100",
-      appRoot: "/srv/builder",
       route: DEFAULT_WORKER_ROUTE,
-      manifestDir: "/srv/builder/.factory/manifests",
+      manifestDir: "/srv/builder/manifests",
     })
   })
 
@@ -96,21 +94,27 @@ describe("the builder endpoint", () => {
     expect(() => loadConfig({ ...pair, [name]: "" })).toThrow(message)
   })
 
-  it("still needs both halves of the pair", () => {
-    const { FACTORY_BUILDER_APP_ROOT: _root, ...urlOnly } = pair
-    expect(() => loadConfig(urlOnly)).toThrow(/FACTORY_BUILDER_APP_ROOT is required/)
-    const { FACTORY_WORKER_URL: _url, ...rootOnly } = pair
-    expect(() => loadConfig(rootOnly)).toThrow(/FACTORY_WORKER_URL is required/)
+  it("needs the manifest directory with the URL", () => {
+    const { FACTORY_BUILDER_MANIFEST_DIR: _dir, ...urlOnly } = pair
+    expect(() => loadConfig(urlOnly)).toThrow(
+      "FACTORY_BUILDER_MANIFEST_DIR is required: the directory the builder was started with",
+    )
+    const { FACTORY_WORKER_URL: _url, ...dirOnly } = pair
+    expect(() => loadConfig(dirOnly)).toThrow(/FACTORY_WORKER_URL is required/)
   })
 
-  it("refuses a drafter app root that is also the builder's", () => {
-    const drafter = { FACTORY_DRAFTER_URL: "http://127.0.0.1:4200" }
-    expect(() =>
-      loadConfig({ ...base, ...drafter, FACTORY_DRAFTER_APP_ROOT: "/tmp/builder/" }),
-    ).toThrow(
-      "FACTORY_DRAFTER_APP_ROOT is the builder's app root too (/tmp/builder/): the drafter and the builder each need their own",
-    )
-  })
+  for (const name of [
+    "FACTORY_BUILDER_APP_ROOT",
+    "FACTORY_DRAFTER_APP_ROOT",
+    "FACTORY_DRAFTER_IMAGE",
+  ])
+    it(`refuses ${name} by name: the controller reads workers over HTTP`, () => {
+      expect(() => loadConfig({ ...base, [name]: "/somewhere" })).toThrow(
+        new RegExp(`${name} is retired`),
+      )
+      // Even an empty value: an operator who set it at all learns it does nothing now.
+      expect(() => loadConfig({ ...base, [name]: "" })).toThrow(new RegExp(`${name} is retired`))
+    })
 })
 
 describe("rung 1 configuration", () => {
@@ -178,33 +182,40 @@ describe("rung 1 configuration", () => {
 })
 
 describe("drafter configuration", () => {
-  it("leaves the drafter unset and defaults the image to the pinned digest", () => {
+  it("leaves the drafter unset", () => {
     const config = loadConfig(base)
     expect(config.drafter).toBeUndefined()
     // Absent, not present-and-undefined: the runtime spreads this into FactoryOptions under
     // exactOptionalPropertyTypes, so an explicit undefined would be a type error there.
     expect(Object.keys(config)).not.toContain("drafter")
-    expect(config.drafterImage).toBe(DRAFTER_IMAGE)
+    expect(Object.keys(config)).not.toContain("drafterImage")
   })
 
-  it("takes the drafter pair, defaulting the route and the manifest directory", () => {
+  it("needs only a URL per worker, and the manifest directory it writes into", () => {
     const config = loadConfig({
       ...base,
       FACTORY_DRAFTER_URL: "http://127.0.0.1:4200/",
-      FACTORY_DRAFTER_APP_ROOT: "/srv/drafter",
-      FACTORY_DRAFTER_IMAGE: `node:24-slim@sha256:${"b".repeat(64)}`,
+      FACTORY_DRAFTER_MANIFEST_DIR: "/m/d",
+    })
+    expect(config.builder).toEqual({
+      url: "http://127.0.0.1:4100",
+      route: "/build#agent",
+      manifestDir: "/m/b",
     })
     expect(config.drafter).toEqual({
       url: "http://127.0.0.1:4200",
-      appRoot: "/srv/drafter",
       route: "/intake#agent",
-      manifestDir: "/srv/drafter/.factory/manifests",
+      manifestDir: "/m/d",
     })
-    expect(config.drafterImage).toBe(`node:24-slim@sha256:${"b".repeat(64)}`)
+    expect(() => loadConfig({ ...base, FACTORY_DRAFTER_URL: "http://127.0.0.1:4200" })).toThrow(
+      "FACTORY_DRAFTER_MANIFEST_DIR is required with FACTORY_DRAFTER_URL",
+    )
+  })
+
+  it("takes an explicit drafter route", () => {
     const explicit = loadConfig({
       ...base,
       FACTORY_DRAFTER_URL: "http://127.0.0.1:4200",
-      FACTORY_DRAFTER_APP_ROOT: "/srv/drafter",
       FACTORY_DRAFTER_ROUTE: "/draft#agent",
       FACTORY_DRAFTER_MANIFEST_DIR: "/var/lib/factory/manifests",
     })
@@ -216,7 +227,7 @@ describe("drafter configuration", () => {
 
   it("refuses a drafter knob without the drafter, naming it", () => {
     expect(() => loadConfig({ ...base, FACTORY_DRAFTER_ROUTE: "/draft#agent" })).toThrow(
-      "FACTORY_DRAFTER_ROUTE is set but the drafter is not: set FACTORY_DRAFTER_URL and FACTORY_DRAFTER_APP_ROOT, or unset it",
+      "FACTORY_DRAFTER_ROUTE is set but the drafter is not: set FACTORY_DRAFTER_URL, or unset it",
     )
     expect(() => loadConfig({ ...base, FACTORY_DRAFTER_MANIFEST_DIR: "/srv/m" })).toThrow(
       "FACTORY_DRAFTER_MANIFEST_DIR is set but the drafter is not",
@@ -224,21 +235,11 @@ describe("drafter configuration", () => {
     expect(() =>
       loadConfig({
         ...base,
-        FACTORY_DRAFTER_IMAGE: `node:24-slim@sha256:${"b".repeat(64)}`,
+        FACTORY_DRAFTER_ROUTE: "/draft#agent",
         FACTORY_DRAFTER_MANIFEST_DIR: "/srv/m",
       }),
     ).toThrow(
-      "FACTORY_DRAFTER_MANIFEST_DIR and FACTORY_DRAFTER_IMAGE are set but the drafter is not: set FACTORY_DRAFTER_URL and FACTORY_DRAFTER_APP_ROOT, or unset them",
-    )
-  })
-
-  it("refuses half a drafter: the URL and the app root come together", () => {
-    const bothOrNeither = "FACTORY_DRAFTER_URL and FACTORY_DRAFTER_APP_ROOT: set both or neither"
-    expect(() => loadConfig({ ...base, FACTORY_DRAFTER_URL: "http://127.0.0.1:4200" })).toThrow(
-      bothOrNeither,
-    )
-    expect(() => loadConfig({ ...base, FACTORY_DRAFTER_APP_ROOT: "/srv/drafter" })).toThrow(
-      bothOrNeither,
+      "FACTORY_DRAFTER_ROUTE and FACTORY_DRAFTER_MANIFEST_DIR are set but the drafter is not: set FACTORY_DRAFTER_URL, or unset them",
     )
   })
 
@@ -246,11 +247,8 @@ describe("drafter configuration", () => {
     const pair = {
       ...base,
       FACTORY_DRAFTER_URL: "http://127.0.0.1:4200",
-      FACTORY_DRAFTER_APP_ROOT: "/srv/drafter",
+      FACTORY_DRAFTER_MANIFEST_DIR: "/m/d",
     }
-    expect(() => loadConfig({ ...pair, FACTORY_DRAFTER_APP_ROOT: "" })).toThrow(
-      /FACTORY_DRAFTER_APP_ROOT/,
-    )
     expect(() => loadConfig({ ...pair, FACTORY_DRAFTER_URL: "ftp://x" })).toThrow(
       /FACTORY_DRAFTER_URL must be http\(s\)/,
     )
@@ -260,20 +258,5 @@ describe("drafter configuration", () => {
     expect(() => loadConfig({ ...pair, FACTORY_DRAFTER_MANIFEST_DIR: "" })).toThrow(
       /FACTORY_DRAFTER_MANIFEST_DIR/,
     )
-    expect(() => loadConfig({ ...pair, FACTORY_DRAFTER_IMAGE: "" })).toThrow(
-      /FACTORY_DRAFTER_IMAGE/,
-    )
-  })
-
-  it("pins the default image to the drafter's own, which the controller does not import", () => {
-    // The image is half of the provider's identity: a controller reading with a different
-    // one opens no workspace. The drafter's source is read here as text, so the equality is
-    // proven without the controller importing it.
-    const source = readFileSync(
-      new URL("../../drafter/src/drafter-image.ts", import.meta.url),
-      "utf8",
-    )
-    const match = source.match(/export const DRAFTER_IMAGE =\s*"([^"]+)"/)
-    expect(match?.[1]).toBe(DRAFTER_IMAGE)
   })
 })

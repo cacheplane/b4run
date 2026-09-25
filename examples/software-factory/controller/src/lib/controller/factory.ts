@@ -870,7 +870,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       // Refused BEFORE the key is spent: a `received` row's revision does not change on a
       // refusal, so a refusal recorded under `intake:<id>:<revision>` would replay to every
       // later call at that revision — including the one after the operator sets
-      // `FACTORY_DRAFTER_APP_ROOT` and restarts. None of these three is a function of the row's
+      // `FACTORY_DRAFTER_URL` and restarts. None of these three is a function of the row's
       // revision (same principle as `createFromIssue`'s validation).
       const unspent = (message: string): CommandOutcome => ({
         ok: false,

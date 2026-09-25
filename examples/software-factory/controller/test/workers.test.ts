@@ -14,22 +14,21 @@ function deps() {
       made.clients.push(url)
       return client(url)
     },
-    createBuilderReader: (entry: { appRoot: string }) => {
-      made.builders.push(entry.appRoot)
-      return reader(entry.appRoot)
+    createBuilderReader: (entry: { url: string }) => {
+      made.builders.push(entry.url)
+      return reader(entry.url)
     },
-    createDrafterReader: (entry: { appRoot: string }) => {
-      made.drafters.push(entry.appRoot)
-      return reader(entry.appRoot)
+    createDrafterReader: (entry: { url: string }) => {
+      made.drafters.push(entry.url)
+      return reader(entry.url)
     },
   }
 }
 
 const A = {
   url: "http://a:4100",
-  appRoot: "/srv/a",
   route: "/build#agent",
-  manifestDir: "/srv/a/.factory/manifests",
+  manifestDir: "/srv/a/manifests",
 }
 
 describe("createWorkerMap", () => {
@@ -40,18 +39,21 @@ describe("createWorkerMap", () => {
     expect(d.made).toEqual({ clients: [], builders: [], drafters: [] })
     const devkit = map.forTarget("devkit")
     const cli = map.forTarget("cli")
-    expect(devkit).toMatchObject({
+    expect(devkit).toEqual({
+      client: devkit.client,
+      reader: devkit.reader,
       route: "/build#agent",
-      appRoot: "/srv/a",
-      manifestDir: "/srv/a/.factory/manifests",
+      manifestDir: "/srv/a/manifests",
     })
     // Any target, at any pin: each work order's manifest carries its own image, policy and
     // permissions, so the builder is the same for all of them.
-    expect(map.forTarget("a-target-nobody-configured")).toMatchObject({ appRoot: "/srv/a" })
+    expect(map.forTarget("a-target-nobody-configured")).toMatchObject({
+      manifestDir: "/srv/a/manifests",
+    })
     expect(cli?.client).toBe(devkit?.client)
     expect(cli?.reader).toBe(devkit?.reader)
     expect(d.made.clients).toEqual([A.url])
-    expect(d.made.builders).toEqual(["/srv/a"])
+    expect(d.made.builders).toEqual([A.url])
   })
 
   it("has no drafter unless configured, and builds it once when it is", () => {
@@ -59,19 +61,18 @@ describe("createWorkerMap", () => {
     expect(createWorkerMap({ builder: A }, d).drafter).toBeUndefined()
     const drafterEntry = {
       url: "http://drafter:4200",
-      appRoot: "/srv/drafter",
       route: "/intake#agent",
-      manifestDir: "/srv/drafter/.factory/manifests",
+      manifestDir: "/srv/drafter/manifests",
     }
     const map = createWorkerMap({ builder: A, drafter: drafterEntry }, d)
     expect(d.made.drafters).toEqual([])
     const drafter = map.drafter
     expect(drafter).toMatchObject({
       route: "/intake#agent",
-      manifestDir: "/srv/drafter/.factory/manifests",
+      manifestDir: "/srv/drafter/manifests",
     })
     expect(map.drafter).toBe(drafter)
-    expect(d.made.drafters).toEqual(["/srv/drafter"])
+    expect(d.made.drafters).toEqual(["http://drafter:4200"])
     expect(d.made.clients).toEqual(["http://drafter:4200"])
     // A drafter at the builder's URL shares the builder's client.
     const shared = createWorkerMap({ builder: A, drafter: { ...drafterEntry, url: A.url } }, d)
@@ -80,7 +81,7 @@ describe("createWorkerMap", () => {
 
   it("names the variables in its errors", () => {
     expect(new DrafterUnconfiguredError().message).toBe(
-      "intake is not configured: set FACTORY_DRAFTER_URL and FACTORY_DRAFTER_APP_ROOT",
+      "intake is not configured: set FACTORY_DRAFTER_URL and FACTORY_DRAFTER_MANIFEST_DIR",
     )
   })
 })

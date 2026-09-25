@@ -12,7 +12,6 @@ export interface FakeWorkerMapOptions {
     readonly client: WorkerClient
     readonly reader: WorkspaceReader
     readonly route?: string
-    readonly appRoot?: string
     /**
      * Where `dispatch` writes builder manifests. A path nothing creates by default: a test
      * that does not care boots with {@link noopBuilderManifestWriter}, and one that asserts on
@@ -40,7 +39,6 @@ export function fakeWorkerMap(options: FakeWorkerMapOptions): WorkerMap {
         client: options.builder.client,
         reader: options.builder.reader,
         route: options.builder.route ?? "/build#agent",
-        appRoot: options.builder.appRoot ?? "/unused/builder",
         manifestDir: options.builder.manifestDir ?? "/unused/builder-manifests",
       }
     : undefined

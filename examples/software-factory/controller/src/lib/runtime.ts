@@ -1,4 +1,4 @@
-import { mkdirSync, statSync } from "node:fs"
+import { mkdirSync } from "node:fs"
 import { resolve } from "node:path"
 import {
   type DrafterEndpoint,
@@ -78,16 +78,9 @@ export function createControllerRuntime(
     // below — the prompt, the verifier, the baseline, the workspace reader — then finds a
     // generated task. The search path is process-wide, like the runtime itself.
     configureCatalog({ generatedTasksDir: config.generatedTasksDir })
-    // The drafter app root is what every drafter thread is resolved through: a path that is
-    // not a directory is refused at boot, not after a drafter turn has been spent on it. Only
-    // the directory is checked — its `.b4/workspaces` store does not exist until the drafter
-    // app has booted, and starting the controller first is a valid order. The manifest
-    // directory is the controller's own to make: the drafter only reads it.
+    // The drafter's manifest directory is the controller's own to make: the drafter only
+    // reads it. The drafter itself is reached by URL alone, so nothing else is checked here.
     if (config.drafter !== undefined) {
-      if (!isDirectory(config.drafter.appRoot))
-        return Promise.reject(
-          new Error(`FACTORY_DRAFTER_APP_ROOT is not a directory (${config.drafter.appRoot})`),
-        )
       try {
         mkdirSync(config.drafter.manifestDir, { recursive: true })
       } catch (error) {
@@ -166,14 +159,6 @@ export function createControllerRuntime(
       ...drafterInspectionOptions(),
       root: "draft",
     }))
-  }
-}
-
-function isDirectory(path: string): boolean {
-  try {
-    return statSync(path).isDirectory()
-  } catch {
-    return false
   }
 }
 

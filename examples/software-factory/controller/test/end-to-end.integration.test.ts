@@ -88,7 +88,6 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
       builder: {
         client: createHttpWorkerClient(served.url, { token: TEST_WORKER_TOKEN }),
         reader: reader(),
-        appRoot: served.appRoot,
         manifestDir: served.manifestDir,
       },
     }),

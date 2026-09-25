@@ -1,4 +1,4 @@
-import { join, resolve } from "node:path"
+import { join } from "node:path"
 import { z } from "zod"
 
 const positiveInt = (name: string) =>
@@ -15,15 +15,6 @@ const positiveInt = (name: string) =>
       return parsed
     })
 
-/**
- * The drafter app's sandbox image, pinned by digest, copied from `drafter/src/drafter-image.ts`
- * rather than imported: the controller imports no drafter source. The image is half of the
- * provider's identity (the scope is the other half), so a controller reading a drafter thread
- * with a different image opens no workspace; `config.test.ts` pins the two literals equal.
- */
-export const DRAFTER_IMAGE =
-  "node:24-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6"
-
 const httpUrl = (name: string) =>
   z
     .string()
@@ -32,25 +23,20 @@ const httpUrl = (name: string) =>
 
 /** The builder worker: the one process that runs `/build#agent` for every target's threads. */
 export interface WorkerEndpoint {
+  /** The builder's Agent Protocol base URL: runs, and reads of its threads' workspaces. */
   readonly url: string
-  /** The worker app's root: where its installation store (`.b4/workspaces`) lives. */
-  readonly appRoot: string
   readonly route: string
   /**
    * Where `dispatch` writes one manifest per work order for the builder's resolver to read:
-   * the builder's `FACTORY_BUILDER_MANIFEST_DIR`. `<appRoot>/.factory/manifests` by default.
+   * the directory the builder was started with (its `FACTORY_BUILDER_MANIFEST_DIR`).
    */
   readonly manifestDir: string
 }
 
 /** The drafter: the one process that runs `/intake#agent` for every issue work order. */
 export interface DrafterEndpoint {
+  /** The drafter's Agent Protocol base URL: runs, and reads of its threads' `draft/`. */
   readonly url: string
-  /**
-   * The drafter app's root: where its installation store (`.b4/workspaces`) lives, which is
-   * how the controller resolves an intake thread to the workspace the drafter wrote `draft/` in.
-   */
-  readonly appRoot: string
   readonly route: string
   /** Where the controller writes one manifest per work order for the drafter's resolver to read. */
   readonly manifestDir: string
@@ -73,7 +59,6 @@ const EnvSchema = z.object({
   /** The builder pair: the one builder worker, for every target at every pin. */
   FACTORY_WORKER_URL: httpUrl("FACTORY_WORKER_URL").optional(),
   FACTORY_WORKER_ROUTE: z.string().min(1).default(DEFAULT_WORKER_ROUTE),
-  FACTORY_BUILDER_APP_ROOT: z.string().min(1).optional(),
   FACTORY_BUILDER_MANIFEST_DIR: z.string().min(1).optional(),
   FACTORY_STATE_DIR: z.string({ message: "FACTORY_STATE_DIR is required" }).min(1),
   FACTORY_EXPORT_DIR: z.string().min(1).optional(),
@@ -83,12 +68,10 @@ const EnvSchema = z.object({
   FACTORY_MAX_CHANGED_BYTES: positiveInt("FACTORY_MAX_CHANGED_BYTES"),
   FACTORY_MAX_INTAKE_ATTEMPTS: positiveInt("FACTORY_MAX_INTAKE_ATTEMPTS"),
   FACTORY_MAX_CANDIDATE_ATTEMPTS: positiveInt("FACTORY_MAX_CANDIDATE_ATTEMPTS"),
-  /** The drafter pair: set both or neither. */
+  /** The drafter: its URL configures it, and its manifest directory comes with it. */
   FACTORY_DRAFTER_URL: httpUrl("FACTORY_DRAFTER_URL").optional(),
-  FACTORY_DRAFTER_APP_ROOT: z.string().min(1).optional(),
   FACTORY_DRAFTER_ROUTE: z.string().min(1).default(DEFAULT_DRAFTER_ROUTE),
   FACTORY_DRAFTER_MANIFEST_DIR: z.string().min(1).optional(),
-  FACTORY_DRAFTER_IMAGE: z.string().min(1).default(DRAFTER_IMAGE),
   /**
    * The secret every worker's thread-access policy requires: `authorization: Bearer <token>`.
    * Every message below names the variable and never its value.
@@ -141,19 +124,8 @@ export interface FactoryConfig {
    * failure. Fixed on the row at create, like `maxIntakeAttempts`.
    */
   readonly maxCandidateAttempts: number
-  /**
-   * The drafter's sandbox image: with the fixed scope, the identity of the provider that
-   * addresses a drafter thread's workspace. Must equal what the drafter app booted with
-   * (`FACTORY_DRAFTER_IMAGE` on both, else the pinned default on both).
-   */
-  readonly drafterImage: string
   /** Sent to every worker as `authorization: Bearer <token>`. Never journalled or logged. */
   readonly workerToken: string
-}
-
-/** Where a worker app reads its manifests when nobody says otherwise. */
-function defaultManifestDir(appRoot: string): string {
-  return join(appRoot, ".factory", "manifests")
 }
 
 /**
@@ -163,9 +135,15 @@ function defaultManifestDir(appRoot: string): string {
  */
 const RETIRED: Readonly<Record<string, string>> = {
   FACTORY_WORKERS:
-    "one builder serves every target and pin: set FACTORY_WORKER_URL and FACTORY_BUILDER_APP_ROOT",
+    "one builder serves every target and pin: set FACTORY_WORKER_URL and FACTORY_BUILDER_MANIFEST_DIR",
   FACTORY_BUILDER_TARGET:
     "the builder boots with no target file; each work order's manifest carries its target",
+  FACTORY_BUILDER_APP_ROOT:
+    "the controller reads the builder's threads over its URL (sandbox.workspaceRead), not through its app root",
+  FACTORY_DRAFTER_APP_ROOT:
+    "the controller reads the drafter's threads over its URL (sandbox.workspaceRead), not through its app root",
+  FACTORY_DRAFTER_IMAGE:
+    "only the drafter needs its image; the controller no longer constructs a drafter provider",
 }
 
 export function loadConfig(env: Readonly<Record<string, string | undefined>>): FactoryConfig {
@@ -183,52 +161,36 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
   const invalid = (message: string) => new Error(`Invalid factory configuration:\n${message}`)
   /** Set by the operator, as opposed to defaulted by the schema. */
   const isSet = (name: string) => env[name] !== undefined
-  if (e.FACTORY_WORKER_URL === undefined)
+  if (e.FACTORY_WORKER_URL === undefined) throw invalid("FACTORY_WORKER_URL is required")
+  if (e.FACTORY_BUILDER_MANIFEST_DIR === undefined)
     throw invalid(
-      e.FACTORY_BUILDER_APP_ROOT === undefined
-        ? "FACTORY_WORKER_URL is required"
-        : "FACTORY_WORKER_URL is required with FACTORY_BUILDER_APP_ROOT",
+      "FACTORY_BUILDER_MANIFEST_DIR is required: the directory the builder was started with",
     )
-  if (e.FACTORY_BUILDER_APP_ROOT === undefined)
-    throw invalid("FACTORY_BUILDER_APP_ROOT is required with FACTORY_WORKER_URL")
   const builder: WorkerEndpoint = {
     url: e.FACTORY_WORKER_URL.replace(/\/$/, ""),
-    appRoot: e.FACTORY_BUILDER_APP_ROOT,
     route: e.FACTORY_WORKER_ROUTE,
-    manifestDir: e.FACTORY_BUILDER_MANIFEST_DIR ?? defaultManifestDir(e.FACTORY_BUILDER_APP_ROOT),
+    manifestDir: e.FACTORY_BUILDER_MANIFEST_DIR,
   }
-  // The drafter: a URL without an app root could start a turn nobody can read, and an app
-  // root without a URL could read a thread nobody can start. Its other knobs mean nothing
-  // without the pair, and an operator who set one is told so rather than left waiting for
-  // an intake that will refuse.
-  if ((e.FACTORY_DRAFTER_URL === undefined) !== (e.FACTORY_DRAFTER_APP_ROOT === undefined))
-    throw invalid("FACTORY_DRAFTER_URL and FACTORY_DRAFTER_APP_ROOT: set both or neither")
+  // The drafter is configured by its URL. Its manifest directory is where intake writes and
+  // the drafter reads, so it comes with the URL; its other knobs mean nothing without the
+  // drafter, and an operator who set one is told so rather than left waiting for an intake
+  // that will refuse.
   if (e.FACTORY_DRAFTER_URL === undefined) {
-    const stray = [
-      "FACTORY_DRAFTER_ROUTE",
-      "FACTORY_DRAFTER_MANIFEST_DIR",
-      "FACTORY_DRAFTER_IMAGE",
-    ].filter(isSet)
+    const stray = ["FACTORY_DRAFTER_ROUTE", "FACTORY_DRAFTER_MANIFEST_DIR"].filter(isSet)
     if (stray.length > 0)
       throw invalid(
-        `${stray.join(" and ")} ${stray.length > 1 ? "are" : "is"} set but the drafter is not: set FACTORY_DRAFTER_URL and FACTORY_DRAFTER_APP_ROOT, or unset ${stray.length > 1 ? "them" : "it"}`,
+        `${stray.join(" and ")} ${stray.length > 1 ? "are" : "is"} set but the drafter is not: set FACTORY_DRAFTER_URL, or unset ${stray.length > 1 ? "them" : "it"}`,
       )
-  }
+  } else if (e.FACTORY_DRAFTER_MANIFEST_DIR === undefined)
+    throw invalid("FACTORY_DRAFTER_MANIFEST_DIR is required with FACTORY_DRAFTER_URL")
   const drafter: DrafterEndpoint | undefined =
-    e.FACTORY_DRAFTER_URL !== undefined && e.FACTORY_DRAFTER_APP_ROOT !== undefined
+    e.FACTORY_DRAFTER_URL !== undefined && e.FACTORY_DRAFTER_MANIFEST_DIR !== undefined
       ? {
           url: e.FACTORY_DRAFTER_URL.replace(/\/$/, ""),
-          appRoot: e.FACTORY_DRAFTER_APP_ROOT,
           route: e.FACTORY_DRAFTER_ROUTE,
-          manifestDir:
-            e.FACTORY_DRAFTER_MANIFEST_DIR ?? defaultManifestDir(e.FACTORY_DRAFTER_APP_ROOT),
+          manifestDir: e.FACTORY_DRAFTER_MANIFEST_DIR,
         }
       : undefined
-  // The drafter is a process of its own, with its own installation store.
-  if (drafter !== undefined && resolve(builder.appRoot) === resolve(drafter.appRoot))
-    throw invalid(
-      `FACTORY_DRAFTER_APP_ROOT is the builder's app root too (${drafter.appRoot}): the drafter and the builder each need their own`,
-    )
   return {
     builder,
     ...(drafter !== undefined ? { drafter } : {}),
@@ -242,7 +204,6 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
     maxChangedBytes: e.FACTORY_MAX_CHANGED_BYTES ?? 1024 * 1024,
     maxIntakeAttempts: e.FACTORY_MAX_INTAKE_ATTEMPTS ?? 2,
     maxCandidateAttempts: e.FACTORY_MAX_CANDIDATE_ATTEMPTS ?? 2,
-    drafterImage: e.FACTORY_DRAFTER_IMAGE,
     workerToken: e.FACTORY_WORKER_TOKEN,
   }
 }

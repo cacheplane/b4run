@@ -108,7 +108,6 @@ it(
         builder: {
           client: createHttpWorkerClient(served.url, { token: TEST_WORKER_TOKEN }),
           reader: reader(),
-          appRoot: served.appRoot,
           manifestDir: served.manifestDir,
         },
       }),
