@@ -110,7 +110,8 @@
    `backwards` fills only the delay; once a line lands the animation lets go. */
 @media (prefers-reduced-motion: no-preference) {
   .line {
-    animation: terminal-line 300ms cubic-bezier(0.22, 1, 0.36, 1) calc(var(--i) * 60ms + 120ms) backwards;
+    animation: terminal-line 300ms cubic-bezier(0.22, 1, 0.36, 1) calc(var(--i) * 60ms + 120ms)
+      backwards;
   }
   .agent {
     animation: agent-row 400ms ease-out calc(var(--last) * 60ms + 180ms) backwards;
