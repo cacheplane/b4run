@@ -1,4 +1,9 @@
-import type { SandboxHandle, SandboxPolicy, SandboxProvider } from "@b4run/workspace"
+import type {
+  SandboxHandle,
+  SandboxPolicy,
+  SandboxProvider,
+  StagedWorkspaceReference,
+} from "@b4run/workspace"
 import type {
   AdmittedWorkspace,
   ManagedWorkspaceManager,
@@ -6,6 +11,9 @@ import type {
 } from "./managed-workspace-manager.js"
 import {
   NO_WORKSPACE_PROTOCOL,
+  type StagedWorkspaceAttach,
+  type StagedWorkspaceCheck,
+  type StageSourceOutcome,
   type ThreadWorkspaceInspectOutcome,
   type ThreadWorkspaceInspectRequest,
   type WorkspaceProtocolSettings,
@@ -70,6 +78,37 @@ export class SandboxManager {
       signal,
       this.#protocol.readTimeoutMs !== undefined ? { timeoutMs: this.#protocol.readTimeoutMs } : {},
     )
+  }
+
+  #stagedManager(): ManagedWorkspaceManager {
+    if (!this.#managed || !this.#protocol.staged)
+      throw new Error("Staged workspaces are not served by this app (sandbox.stagedWorkspaces)")
+    return this.#managed
+  }
+  /** See `ManagedWorkspaceManager.stageSource`. Only a managed app with `stagedWorkspaces` serves it. */
+  stageSource(value: unknown, digest: string): StageSourceOutcome {
+    return this.#stagedManager().stageSource(value, digest)
+  }
+  /** See `ManagedWorkspaceManager.checkStagedWorkspace`. */
+  checkStagedWorkspace(value: unknown): StagedWorkspaceCheck {
+    return this.#stagedManager().checkStagedWorkspace(value)
+  }
+  /** See `ManagedWorkspaceManager.attachStagedWorkspace`. */
+  attachStagedWorkspace(
+    threadId: string,
+    reference: StagedWorkspaceReference,
+  ): StagedWorkspaceAttach {
+    return this.#stagedManager().attachStagedWorkspace(threadId, reference)
+  }
+  /** Forget a thread's staged workspace. No option check: cleanup must work after it is turned off. */
+  forgetStagedWorkspace(threadId: string): void {
+    this.#managed?.forgetStagedWorkspace(threadId)
+  }
+  /** Boot sweep of staged references whose thread rows are gone. */
+  async sweepStagedThreads(
+    exists: (threadId: string) => Promise<boolean>,
+  ): Promise<readonly string[]> {
+    return this.#managed ? this.#managed.sweepStagedThreads(exists) : []
   }
 
   async getForThread(

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import type { ThreadPermissionGrants } from "@b4run/permissions"
-import type { WorkspaceInstallation } from "@b4run/sqlite-storage"
+import { type WorkspaceInstallation, WorkspaceStagedSourceError } from "@b4run/sqlite-storage"
 import {
   type CapturedWorkspaceDefinition,
   inspectWorkspace,
@@ -10,6 +10,7 @@ import {
   type SandboxHandle,
   type SandboxPolicy,
   type SourceBundle,
+  type StagedWorkspaceReference,
   scopedWorkspaceReader,
   type ThreadSandboxPermissions,
   type ThreadSandboxPolicy,
@@ -23,14 +24,20 @@ import {
   createWorkspaceIntent,
   MAX_THREAD_SANDBOX_RECORD_BYTES,
   readSourceFile,
+  stagedWorkspaceDefinition,
   threadSandboxRecordBytes,
   verifyCapturedWorkspaceDefinition,
   verifyCreationStatus,
   verifyReadyWorkspace,
+  verifySourceBundle,
+  verifyStagedWorkspaceReference,
   verifyThreadSandboxRecord,
 } from "@b4run/workspace/node"
 import { threadPolicy } from "./thread-policy.js"
 import {
+  type StagedWorkspaceAttach,
+  type StagedWorkspaceCheck,
+  type StageSourceOutcome,
   type ThreadWorkspaceInspectOutcome,
   type ThreadWorkspaceInspectRequest,
   WORKSPACE_READ_TIMEOUT_DEFAULT_MS,
@@ -50,6 +57,15 @@ export interface ResolvedThreadSandbox {
   readonly permissions?: ThreadSandboxPermissions
 }
 
+/** What a resolver is told about the thread it decides for (`WorkspaceResolverInput`). */
+export interface ManagedWorkspaceResolverInput {
+  readonly threadId: string
+  readonly metadata: Readonly<Record<string, unknown>>
+  readonly signal: AbortSignal
+  /** The verified workspace the thread was created with (`sandbox.stagedWorkspaces`). */
+  readonly staged?: CapturedWorkspaceDefinition
+}
+
 export interface ManagedWorkspaceManagerOptions {
   installation: WorkspaceInstallation
   /** One definition for every thread. Omit when `captureDefinition` decides per thread. */
@@ -66,22 +82,23 @@ export interface ManagedWorkspaceManagerOptions {
    * static definition through this hook). Without `definition`, it is the
    * only source and is required.
    */
-  captureDefinition?: (thread: {
-    readonly threadId: string
-    readonly metadata: Readonly<Record<string, unknown>>
-    readonly signal: AbortSignal
-  }) => Promise<CapturedWorkspaceDefinition>
+  captureDefinition?: (
+    thread: ManagedWorkspaceResolverInput,
+  ) => Promise<CapturedWorkspaceDefinition>
   /**
    * Called once per thread, at first admission, to decide the thread's whole
    * sandbox. Exclusive with `definition` and `captureDefinition`. Its image
    * and policy are recorded with the association; every later admission,
    * restart included, reads the record and never calls this again.
    */
-  resolveThread?: (thread: {
-    readonly threadId: string
-    readonly metadata: Readonly<Record<string, unknown>>
-    readonly signal: AbortSignal
-  }) => Promise<ResolvedThreadSandbox>
+  resolveThread?: (thread: ManagedWorkspaceResolverInput) => Promise<ResolvedThreadSandbox>
+  /**
+   * `sandbox.stagedWorkspaces`: a thread created with a staged workspace gets it
+   * as `staged` at first admission, uploads are kept within `maxStagedBytes`,
+   * and sources nothing references are reclaimed (uploads once older than
+   * `retentionMs`) at construction and before each upload.
+   */
+  staged?: { readonly retentionMs: number; readonly maxStagedBytes: number }
 }
 export interface AdmittedWorkspace {
   readonly ready: ReadyWorkspace
@@ -207,6 +224,7 @@ export class ManagedWorkspaceManager {
       ? verifyCapturedWorkspaceDefinition(options.definition)
       : undefined
     if (this.#definition) options.installation.sources.put(this.#definition.source)
+    if (options.staged) this.reclaimStagedSources()
   }
   #assertOpen() {
     if (this.#closed || this.#closing) throw new Error("Managed workspace manager is closed")
@@ -241,8 +259,17 @@ export class ManagedWorkspaceManager {
       raw !== null && typeof raw === "object" && !Array.isArray(raw)
         ? Object.freeze({ ...(raw as Record<string, unknown>) })
         : Object.freeze({})
+    // Only while the app serves staged workspaces: an app that turned the option off
+    // stops handing creators' choices to its resolver.
+    const staged = this.#options.staged ? this.#stagedDefinition(threadId) : undefined
+    const input: ManagedWorkspaceResolverInput = {
+      threadId,
+      metadata,
+      signal,
+      ...(staged ? { staged } : {}),
+    }
     if (resolveThread) {
-      const result = await resolveThread({ threadId, metadata, signal })
+      const result = await resolveThread(input)
       if (!result?.definition)
         throw new Error("The thread sandbox resolver returned no workspace definition")
       // Always a record, even an empty one: "no record" must only ever mean "not admitted in
@@ -262,7 +289,7 @@ export class ManagedWorkspaceManager {
         )
       return { definition: result.definition, sandbox }
     }
-    const definition = await captureDefinition?.({ threadId, metadata, signal })
+    const definition = await captureDefinition?.(input)
     if (!definition) throw new Error("The workspace resolver returned no workspace definition")
     return { definition }
   }
@@ -680,6 +707,172 @@ export class ManagedWorkspaceManager {
       release?.()
     }
   }
+  /** The verified definition a thread was created with, or undefined. A missing source is lost, never skipped. */
+  #stagedDefinition(threadId: string): CapturedWorkspaceDefinition | undefined {
+    const { installation } = this.#options
+    const reference = installation.staged.get(threadId)
+    if (!reference) return undefined
+    const source = installation.sources.get(reference.sourceDigest)
+    if (!source)
+      throw new WorkspaceLifecycleError(
+        "lost",
+        `Thread ${threadId}'s staged workspace source ${reference.sourceDigest} is missing`,
+      )
+    return stagedWorkspaceDefinition(reference, source)
+  }
+  #requireStaged(): { readonly retentionMs: number; readonly maxStagedBytes: number } {
+    this.#assertOpen()
+    const staged = this.#options.staged
+    if (!staged) throw new Error("Staged workspaces are off (sandbox.stagedWorkspaces)")
+    return staged
+  }
+  /**
+   * `PUT /workspace/sources/:digest`: keep a bundle under its own digest, which
+   * must be the path's. The bundle is verified here (every file against the
+   * digest it claims) before anything is compared or kept, so no body is ever
+   * held under a digest that is not its own. Reclaims first, so expired uploads
+   * free their share of the quota before this one is counted.
+   */
+  stageSource(value: unknown, digest: string): StageSourceOutcome {
+    const staged = this.#requireStaged()
+    let bundle: SourceBundle
+    try {
+      bundle = verifySourceBundle(value)
+    } catch (error) {
+      return {
+        ok: false,
+        code: "workspace_source_invalid",
+        message: `Invalid workspace source: ${error instanceof Error ? error.message : String(error)}`,
+      }
+    }
+    if (bundle.digest !== digest)
+      return {
+        ok: false,
+        code: "digest_mismatch",
+        message: `The uploaded source's digest is ${bundle.digest}, not ${digest}`,
+      }
+    this.reclaimStagedSources()
+    try {
+      const status = this.#options.installation.staged.upload(
+        bundle,
+        this.#now(),
+        staged.maxStagedBytes,
+      )
+      return { ok: true, status }
+    } catch (error) {
+      if (error instanceof WorkspaceStagedSourceError && error.code === "quota_exceeded")
+        return { ok: false, code: "staged_quota_exceeded", message: error.message }
+      throw error
+    }
+  }
+  /**
+   * The reference a create names, checked whole (held, and a definition the held
+   * source can make) before any thread row exists.
+   */
+  checkStagedWorkspace(value: unknown): StagedWorkspaceCheck {
+    this.#requireStaged()
+    let reference: StagedWorkspaceReference
+    try {
+      reference = verifyStagedWorkspaceReference(value)
+    } catch (error) {
+      return {
+        ok: false,
+        code: "workspace_invalid",
+        message: `Invalid workspace: ${error instanceof Error ? error.message : String(error)}`,
+      }
+    }
+    const { installation } = this.#options
+    const source = installation.staged.holds(reference.sourceDigest)
+      ? installation.sources.get(reference.sourceDigest)
+      : undefined
+    if (!source)
+      return {
+        ok: false,
+        code: "workspace_source_not_held",
+        message: `Workspace source ${reference.sourceDigest} is not held: PUT /workspace/sources/${reference.sourceDigest} first`,
+      }
+    try {
+      stagedWorkspaceDefinition(reference, source)
+    } catch (error) {
+      return {
+        ok: false,
+        code: "workspace_invalid",
+        message: `Invalid workspace: ${error instanceof Error ? error.message : String(error)}`,
+      }
+    }
+    return { ok: true, reference }
+  }
+  /**
+   * Record a new thread's staged workspace. Refused for a thread that already has
+   * a workspace or a staged reference, and for a source no longer held (reclaimed
+   * since the check): the caller removes the thread row it just wrote.
+   */
+  attachStagedWorkspace(
+    threadId: string,
+    reference: StagedWorkspaceReference,
+  ): StagedWorkspaceAttach {
+    this.#requireStaged()
+    const { installation } = this.#options
+    if (installation.associations.get(threadId))
+      return {
+        ok: false,
+        code: "already_staged",
+        message: `Thread ${threadId} already has a workspace`,
+      }
+    try {
+      installation.staged.attach(threadId, reference)
+      return { ok: true }
+    } catch (error) {
+      if (!(error instanceof WorkspaceStagedSourceError)) throw error
+      return {
+        ok: false,
+        code: error.code === "not_held" ? "workspace_source_not_held" : "already_staged",
+        message: error.message,
+      }
+    }
+  }
+  /**
+   * Forget the workspace a thread was created with. `DELETE /threads/:id` calls it
+   * BEFORE the thread row goes: if the row delete then fails, the thread survives
+   * with no staged workspace (its resolver sees none), and a thread later created
+   * under the same id (run endpoints take client-chosen ids) never inherits it.
+   * Works with the option off, so cleanup never depends on it.
+   */
+  forgetStagedWorkspace(threadId: string): void {
+    this.#assertOpen()
+    this.#options.installation.staged.detach(threadId)
+  }
+  /** Boot sweep: forget the staged reference of every thread whose row no longer exists. */
+  async sweepStagedThreads(
+    exists: (threadId: string) => Promise<boolean>,
+  ): Promise<readonly string[]> {
+    this.#assertOpen()
+    const forgotten: string[] = []
+    for (const threadId of this.#options.installation.staged.threads()) {
+      if (await exists(threadId)) continue
+      this.#options.installation.staged.detach(threadId)
+      forgotten.push(threadId)
+    }
+    return forgotten
+  }
+  /**
+   * Delete held sources nothing references: no association that is not deleted,
+   * no staged thread, not the static definition, and (for an upload) not younger
+   * than the retention window. Synchronous, so it can interleave with an
+   * admission only at an `await`, and admission writes the source and its
+   * association with none between. No-op unless staged workspaces are on.
+   */
+  reclaimStagedSources(): readonly string[] {
+    const staged = this.#options.staged
+    if (!staged) return []
+    this.#assertOpen()
+    const { installation } = this.#options
+    const referenced = new Set<string>()
+    for (const record of installation.associations.list())
+      if (record.state !== "deleted") referenced.add(record.intent.sourceDigest)
+    if (this.#definition) referenced.add(this.#definition.source.digest)
+    return installation.staged.reclaim(Math.max(0, this.#now() - staged.retentionMs), referenced)
+  }
   async reapIdle(): Promise<void> {
     this.#assertOpen()
     for (const threadId of [...this.#sessions.keys()])
@@ -733,6 +926,9 @@ export class ManagedWorkspaceManager {
     const record = this.#options.installation.associations.get(threadId)
     if (record?.state === "deleting")
       this.#options.installation.associations.completeDelete(threadId, record.revision)
+    // Unconditional and idempotent: a thread deleted before it ever ran has no
+    // association, and its staged reference must not pin a source.
+    this.#options.installation.staged.detach(threadId)
   }
   async settle(threadId: string, signal: AbortSignal | undefined): Promise<void> {
     if (!signal?.aborted) return

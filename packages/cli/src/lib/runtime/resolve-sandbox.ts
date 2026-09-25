@@ -98,6 +98,9 @@ export async function resolveSandboxManager(
         provider: sandbox.provider.workspaces,
         policy,
         idleTimeoutMs: sandbox.idleTimeoutMs ?? DEFAULT_IDLE_MS,
+        ...(staged
+          ? { staged: { retentionMs: staged.retentionMs, maxStagedBytes: staged.maxStagedBytes } }
+          : {}),
       })
     } catch (error) {
       installation.close()
@@ -140,6 +143,9 @@ export async function resolveSandboxManager(
           provider: sandbox.provider.workspaces,
           policy,
           idleTimeoutMs: sandbox.idleTimeoutMs ?? DEFAULT_IDLE_MS,
+          ...(staged
+            ? { staged: { retentionMs: staged.retentionMs, maxStagedBytes: staged.maxStagedBytes } }
+            : {}),
         })
       } catch (error) {
         installation.close()

@@ -1,4 +1,4 @@
-import type { WorkspaceInspection } from "@b4run/workspace"
+import type { StagedWorkspaceReference, WorkspaceInspection } from "@b4run/workspace"
 
 /**
  * What an app's `sandbox` block opens to HTTP callers. Pure: the runtime core
@@ -122,4 +122,31 @@ export type ThreadWorkspaceInspectOutcome =
       readonly message: string
       readonly root?: string
       readonly kind?: "absent" | "not_directory"
+    }
+
+/** What an upload came to (`PUT /workspace/sources/:digest`). */
+export type StageSourceOutcome =
+  | { readonly ok: true; readonly status: "created" | "held" }
+  | {
+      readonly ok: false
+      readonly code: "digest_mismatch" | "workspace_source_invalid" | "staged_quota_exceeded"
+      readonly message: string
+    }
+
+/** A create's `workspace`, checked against what this worker holds before any thread row exists. */
+export type StagedWorkspaceCheck =
+  | { readonly ok: true; readonly reference: StagedWorkspaceReference }
+  | {
+      readonly ok: false
+      readonly code: "workspace_source_not_held" | "workspace_invalid"
+      readonly message: string
+    }
+
+/** Recording a new thread's staged workspace, after its row exists. */
+export type StagedWorkspaceAttach =
+  | { readonly ok: true }
+  | {
+      readonly ok: false
+      readonly code: "workspace_source_not_held" | "already_staged"
+      readonly message: string
     }
