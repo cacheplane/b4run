@@ -69,12 +69,19 @@ function fail(
 /**
  * A read-limit refusal for a file whose recorded size fit its request means the
  * file grew after it was measured: the workspace changed, it did not break a
- * limit. Anything else the backend threw is its own failure, left untyped.
+ * limit. The message names the file relative to the inspected root (`relative`
+ * maps the backend's path back), never the backend's own absolute path, which is
+ * kept only as the cause. Anything else the backend threw is its own failure,
+ * left untyped.
  */
-function grown(error: unknown): unknown {
-  return isWorkspaceReadLimitError(error)
-    ? fail("changed", `Workspace changed during inspection: ${error.message}`, { cause: error })
-    : error
+function grown(error: unknown, relative: (path: string) => string | undefined): unknown {
+  if (!isWorkspaceReadLimitError(error)) return error
+  const name = relative(error.path)
+  return fail(
+    "changed",
+    `Workspace changed during inspection: ${name === undefined ? "a file" : name} grew after it was measured`,
+    { cause: error },
+  )
 }
 
 /**
@@ -162,7 +169,7 @@ function batched(
             ctx,
           )
         } catch (error) {
-          throw grown(error)
+          throw grown(error, (path) => files.find((entry) => absolute(entry.path) === path)?.path)
         }
         if (read.length !== files.length) throw new Error("Invalid batch read response")
         files.forEach((entry, index) => {
@@ -402,7 +409,7 @@ export async function inspectWorkspace(
       try {
         bytes = await checked(() => fs.read(path, cap))
       } catch (error) {
-        throw grown(error)
+        throw grown(error, () => path)
       }
       if (bytes.byteLength > cap)
         throw fail("refused", `Workspace file bytes limit exceeded: ${path}`)

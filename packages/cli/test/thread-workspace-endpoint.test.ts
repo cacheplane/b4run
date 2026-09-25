@@ -317,7 +317,10 @@ it("answers 409 workspace_changed when the workspace changes under the read", as
   }
   const response = await f.inspect(threadId)
   expect(response.status).toBe(409)
-  expect(await response.json()).toMatchObject({ error: { details: { code: "workspace_changed" } } })
+  const body = (await response.json()) as { error: { message: string } }
+  expect(body).toMatchObject({ error: { details: { code: "workspace_changed" } } })
+  // The worker's absolute paths stay inside the worker.
+  expect(body.error.message).not.toContain("/workspace")
 })
 
 it("names a thread that has not run, and a thread that does not exist", async () => {

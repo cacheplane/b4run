@@ -410,6 +410,31 @@ describe("inspection errors", () => {
     expect(await codeOf(workspace.inspectWorkspace(f.handle))).toBe("changed")
   })
 
+  it("names a grown file by its relative path only, never the backend's absolute one", async () => {
+    const batched = fixture(tree({ kind: "file", size: 2, bytes: text("grown") }))
+    batched.batchedBackend.readBinaryFiles = async (requests) => {
+      const first = requests[0]
+      throw new workspace.WorkspaceReadLimitError(
+        `readBinaryFile ${first?.path}: content exceeds maxBytes (2).`,
+        first?.path ?? "",
+        2,
+      )
+    }
+    const perEntry = fixture(tree({ kind: "file", size: 2, bytes: text("hi") }))
+    perEntry.backend.readBinaryFile = async (path) => {
+      throw new workspace.WorkspaceReadLimitError(`${path}: grew`, path, 2)
+    }
+    for (const source of [batched.batched, perEntry.handle]) {
+      const error = (await workspace
+        .inspectWorkspace(source)
+        .catch((caught: unknown) => caught)) as Error
+      expect(error.message).toBe(
+        "Workspace changed during inspection: file grew after it was measured",
+      )
+      expect(error.message).not.toContain("/workspace")
+    }
+  })
+
   it("classifies policy refusals as refused and keeps their messages", async () => {
     const executable = workspace.inspectWorkspace(
       fixture(tree({ kind: "file", executable: true, bytes: text("x") })).handle,
