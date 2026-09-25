@@ -13,6 +13,13 @@ export const INSPECT_CAPS = Object.freeze({
   maxFileBytes: 16 * 1024 * 1024,
   maxTotalBytes: 32 * 1024 * 1024,
 })
+/**
+ * The serialized answer's ceiling. The read limits bound file bytes (32 MiB at most),
+ * but JSON escapes a control character to six bytes, so an answer within them could
+ * reach 192 MiB; one over this is refused (`422 workspace_response_too_large`).
+ * `readThreadWorkspace` accepts exactly this much by default.
+ */
+export const INSPECT_RESPONSE_MAX_BYTES = 64 * 1024 * 1024
 /** Defaults: `inspectWorkspace`'s own. */
 export const INSPECT_DEFAULTS = Object.freeze({
   maxEntries: 10_000,
@@ -175,19 +182,48 @@ export function threadWorkspaceResponse(
   for (const [path, text] of Object.entries(outcome.inspection.files))
     if (!request.ignorePrefixes.some((prefix) => path.startsWith(prefix)))
       Object.defineProperty(files, path, { value: text, enumerable: true })
-  return Response.json(
-    {
-      threadId,
-      sourceDigest: outcome.sourceDigest,
-      intentDigest: outcome.intentDigest,
-      ...(request.root !== undefined ? { root: request.root } : {}),
-      inspection: {
-        files,
-        symlinks: outcome.inspection.symlinks,
-        totalBytes: outcome.inspection.totalBytes,
-        entries: outcome.inspection.entries,
-      },
+  const serialized = JSON.stringify({
+    threadId,
+    sourceDigest: outcome.sourceDigest,
+    intentDigest: outcome.intentDigest,
+    ...(request.root !== undefined ? { root: request.root } : {}),
+    inspection: {
+      files,
+      symlinks: outcome.inspection.symlinks,
+      totalBytes: outcome.inspection.totalBytes,
+      entries: outcome.inspection.entries,
     },
-    { status: 200, headers: { "cache-control": "no-store" } },
-  )
+  })
+  // The read limits count file bytes; the answer is JSON, where a control character
+  // escapes to six bytes. Measured before encoding, so an over-cap answer is never built.
+  if (utf8Length(serialized) > INSPECT_RESPONSE_MAX_BYTES)
+    return Response.json(
+      createRequestErrorBody(
+        `The workspace inventory serializes to more than ${INSPECT_RESPONSE_MAX_BYTES} bytes; read a narrower root or lower the limits`,
+        { code: "workspace_response_too_large", maxBytes: INSPECT_RESPONSE_MAX_BYTES },
+      ),
+      { status: 422 },
+    )
+  return new Response(serialized, {
+    status: 200,
+    headers: { "cache-control": "no-store", "content-type": "application/json" },
+  })
+}
+
+/** The UTF-8 length of a string, without encoding it. */
+function utf8Length(text: string): number {
+  let bytes = 0
+  for (let index = 0; index < text.length; index++) {
+    const code = text.charCodeAt(index)
+    if (code < 0x80) bytes += 1
+    else if (code < 0x800) bytes += 2
+    else if (code >= 0xd800 && code <= 0xdbff && index + 1 < text.length) {
+      const next = text.charCodeAt(index + 1)
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4
+        index += 1
+      } else bytes += 3
+    } else bytes += 3
+  }
+  return bytes
 }

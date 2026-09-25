@@ -1,4 +1,5 @@
 import type { WorkspaceInspection } from "@b4run/workspace"
+import { INSPECT_RESPONSE_MAX_BYTES } from "../dev/thread-workspace-http.js"
 
 /** The options `POST /threads/:thread_id/workspace/inspect` accepts. */
 export interface ReadThreadWorkspaceOptions {
@@ -19,7 +20,10 @@ export interface ReadThreadWorkspaceInit {
   readonly signal?: AbortSignal
   /** Refuse an answer whose recorded source is not this digest (`source_mismatch`). */
   readonly expectedSourceDigest?: string
-  /** Refuse an answer larger than this (`response_too_large`). Default 80 MiB: 32 MiB of text, JSON-escaped. */
+  /**
+   * Refuse an answer larger than this (`response_too_large`). Default 64 MiB, the
+   * worker's own ceiling on a serialized answer (`workspace_response_too_large`).
+   */
   readonly maxResponseBytes?: number
   readonly fetch?: typeof fetch
 }
@@ -79,8 +83,6 @@ function exactKeys(
       `expected keys ${[...required, ...optional].join(", ")}, got ${keys.join(", ")}`,
     )
 }
-
-const RESPONSE_MAX_BYTES = 80 * 1024 * 1024
 
 /** A leaf name as `inspectWorkspace` admits one: no empty, `.`, `..`, slash, backslash or control character. */
 function isLeaf(name: string): boolean {
@@ -216,7 +218,7 @@ export async function readThreadWorkspace(
     redirect: "error",
     ...(init.signal ? { signal: init.signal } : {}),
   })
-  const text = await boundedText(response, init.maxResponseBytes ?? RESPONSE_MAX_BYTES)
+  const text = await boundedText(response, init.maxResponseBytes ?? INSPECT_RESPONSE_MAX_BYTES)
   if (!response.ok) {
     let message = text
     let code: string | undefined
