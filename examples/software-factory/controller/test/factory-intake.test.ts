@@ -28,7 +28,7 @@ import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fak
 import { fakeBuilderHandoff, fakeWorkerMap } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
 import { BAD_DRAFTS, GOOD_DRAFT } from "./intake-fixtures.ts"
-import { createEmptyRepo, repositoryHead, shippedPin } from "./temp-repo.ts"
+import { createEmptyRepo, shippedPin } from "./temp-repo.ts"
 import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
 let dir: string
@@ -402,38 +402,6 @@ describe("intake", () => {
     expect(eventTypes(id)).not.toContain("transition:intake_retry")
     // The block is the last word: nothing was written for the drafter, so nothing is removed.
     expect(eventTypes(id).at(-1)).toBe("transition:intake_blocked")
-  })
-
-  it("blocks image_unprepared after one attempt when the target has no image at the work order's pin", async () => {
-    await boot({}, { maxIntakeAttempts: 2 })
-    // HEAD: a commit this repository holds (so `intake` admits it without a fetch), at which
-    // no shipped target has been prepared.
-    const head = repositoryHead().pin
-    expect(head).not.toBe(PIN)
-    const { id } = await factory.createFromIssue({ origin: ORIGIN, pin: head, issue: ISSUE })
-    expect(await factory.intake(id)).toMatchObject({ ok: true, state: "intake_running" })
-    const threadId = (factory.show(id) as WorkOrderRow).workerThreadId as string
-    reader.set(threadId, GOOD_DRAFT)
-    const row = await factory.settleIntake(id, 20_000)
-    expect(row).toMatchObject({
-      state: "blocked",
-      blockedReason: "image_unprepared",
-      intakeAttempts: 1,
-      targetId: null,
-      taskDigest: null,
-    })
-    // The prompt offered nothing: no target is prepared at that pin.
-    expect(promptOf(0)).toContain("(none prepared)")
-    expect(promptOf(0)).toContain(head)
-    expect(runPosts()).toHaveLength(1)
-    expect(refusals(id)).toHaveLength(1)
-    expect(refusals(id)[0]?.payload).toMatchObject({
-      blockedReason: "image_unprepared",
-      attempt: 1,
-      reason: `draft/task.json names target devkit, which has no image prepared at ${head}: an operator runs pnpm --filter @b4-example/software-factory-controller target:prepare devkit --pin ${head}`,
-    })
-    expect(eventTypes(id)).not.toContain("transition:intake_retry")
-    expect(verifier.calls).toHaveLength(0)
   })
 
   it("retries an invalid draft on the same thread with the refusal quoted, then parks", async () => {

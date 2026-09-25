@@ -1,13 +1,15 @@
 import { DRAFT_ROOT } from "./intake/draft.js"
 import {
   type CatalogOptions,
-  loadTarget,
   loadTargetIds,
+  loadTargetRecipe,
   loadTask,
-  type Target,
+  repositoryRoot,
+  type TargetRecipe,
   type Task,
 } from "./targets/catalog.js"
 import { builderPermissions } from "./targets/permissions.js"
+import { recipeProblem } from "./targets/prepare.js"
 
 /**
  * One invocation as the builder must type it: from the workspace root when the target's
@@ -100,7 +102,7 @@ export function promptFor(id: string, options: CatalogOptions = {}): string {
  * `src/...` paths; the example is what makes the root unambiguous.
  */
 export function targetLine(
-  target: Pick<Target, "id" | "root" | "capture" | "commands" | "snapshotIgnore">,
+  target: Pick<TargetRecipe, "id" | "root" | "capture" | "commands" | "snapshotIgnore">,
 ): string {
   const pkg = target.commands.cwd === "." ? "" : `${target.commands.cwd}/`
   const includes = target.capture.include
@@ -132,33 +134,35 @@ export function targetLine(
  * target's own code can tell a drafter (attempt 4's check wrote a route with a default export,
  * which the runtime refused as `B4_E1007` before the check reached the behaviour).
  */
-export function targetNotes(target: Pick<Target, "id" | "draftingNotes">): string[] {
+export function targetNotes(target: Pick<TargetRecipe, "id" | "draftingNotes">): string[] {
   const notes = target.draftingNotes ?? []
   if (notes.length === 0) return []
   return [`  Notes for writing a check against \`${target.id}\`:`, ...notes.map((n) => `  - ${n}`)]
 }
 
 /**
- * The targets prepared AT `pin` a draft may name, one line each (`targetLine`), each
- * followed by its drafting notes (`targetNotes`). A
- * target the catalog cannot load there (no image at the pin: nobody has run
- * `target:prepare <id> --pin <pin>` on this machine) is left out rather than listed:
- * `parseDraft` would refuse a draft naming it, so offering it would only be offering a
- * refusal.
+ * The targets a draft at `pin` may name, one line each (`targetLine`), each followed by its
+ * drafting notes (`targetNotes`): every target whose recipe applies at the pin, that is, every
+ * path it names exists there (`recipeProblem`). Whether an image was ever built is not asked:
+ * the controller builds it at the fit step. A target that does not apply (the `cli-flags`
+ * fixture's paths moved) is left out: `parseDraft` would refuse a draft naming it.
  */
-export function preparedTargets(
+export function availableTargets(
   pin: string,
   /** Test-only: the catalog to list; the shipped one otherwise. */
   catalog: Pick<CatalogOptions, "targetsDir" | "repositoryRoot"> = {},
 ): string[] {
+  const repo = catalog.repositoryRoot ?? repositoryRoot()
   const lines: string[] = []
   for (const id of loadTargetIds(catalog.targetsDir)) {
+    let target: TargetRecipe
     try {
-      const target = loadTarget(id, { ...catalog, pin })
-      lines.push(targetLine(target), ...targetNotes(target))
+      target = loadTargetRecipe(id, { ...catalog, pin })
     } catch {
-      // Unprepared at this pin: not something this work order's draft can name.
+      continue
     }
+    if (recipeProblem(target, repo) !== undefined) continue
+    lines.push(targetLine(target), ...targetNotes(target))
   }
   return lines
 }
@@ -179,7 +183,7 @@ export const ROOT_RULE =
  * fixed rules — the four files and their shapes, `draft/` only, no repair, the check's
  * contract — are the drafter route's own system prompt (`drafter/src/app/intake/index.ts`),
  * which this message points at rather than restates. What only the controller knows goes
- * here: the issue, the targets prepared on this machine at the work order's pin with their
+ * here: the issue, the targets available at the work order's pin with their
  * roots (a draft naming any other would only be refused), and the previous attempt's
  * refusal, quoted so the redraft can mend it rather than guess.
  */
@@ -196,13 +200,13 @@ export function intakePrompt(input: {
   /** Test-only: where the targets are looked up; the shipped catalog otherwise. */
   readonly catalog?: Pick<CatalogOptions, "targetsDir" | "repositoryRoot">
 }): string {
-  const targets = preparedTargets(input.pin, input.catalog)
+  const targets = availableTargets(input.pin, input.catalog)
   const sections = [
     [
       `You are drafting a repair task from the GitHub issue below. Write the four files under \`${DRAFT_ROOT}\` (\`${DRAFT_ROOT}task.json\`, \`${DRAFT_ROOT}spec.md\`, \`${DRAFT_ROOT}checks.json\` and \`${DRAFT_ROOT}checks/<name>.test.ts\`) as your instructions say. Do not repair anything: write the task, not the fix.`,
       "",
-      `The repository is under \`repo/\`, checked out at ${input.pin}. Available targets, those prepared at that commit (choose the one whose package the issue is about), each with its root inside the repository:`,
-      ...(targets.length > 0 ? targets : ["- (none prepared)"]),
+      `The repository is under \`repo/\`, checked out at ${input.pin}. Available targets, those whose files exist at that commit (choose the one whose package the issue is about), each with its root inside the repository:`,
+      ...(targets.length > 0 ? targets : ["- (none available)"]),
       "",
       ROOT_RULE,
       "",

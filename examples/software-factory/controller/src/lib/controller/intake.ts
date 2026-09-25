@@ -500,8 +500,7 @@ function keepRefusedDraft(
 
 /**
  * A draft the controller will not take. The attempt is spent either way; a
- * `no_target_for_package` or an `image_unprepared` never retries (no redraft can prepare a
- * target, or an image at the pin), and the last
+ * `no_target_for_package` never retries (no redraft can prepare a target), and the last
  * attempt blocks as `intake_attempts_exhausted` with the refusal in the journal. Otherwise
  * the row stays `intake_running` through `intake_retry` and another turn runs on the same
  * thread with the reason quoted. What was read is kept first (`keepRefusedDraft`), since the
@@ -511,7 +510,7 @@ async function refuse(
   ctx: ControllerContext,
   id: string,
   reason: string,
-  refusal: "intake_invalid" | "no_target_for_package" | "image_unprepared" | "oracle_did_not_fail",
+  refusal: "intake_invalid" | "no_target_for_package" | "oracle_did_not_fail",
   draft: ReadonlyMap<string, string>,
 ): Promise<void> {
   const current = ctx.mustGet(id)
@@ -525,7 +524,7 @@ async function refuse(
     ...(kept ? { keptAt: kept.keptAt, keptFiles: kept.files } : {}),
   })
   const exhausted = attempt >= current.maxIntakeAttempts
-  const final = refusal === "no_target_for_package" || refusal === "image_unprepared"
+  const final = refusal === "no_target_for_package"
   if (final || exhausted) {
     // The row's reason and the transition's agree; the refusal that spent the last attempt
     // rides beside it as `lastRefusal`, and each `intake_refused` above keeps its own.

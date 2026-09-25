@@ -57,8 +57,7 @@ export const BLOCKED_REASONS = [
   "intake_attempts_exhausted",
   // The draft names a package with no prepared target; there is nothing to pin it to.
   "no_target_for_package",
-  // The draft names a prepared target, but none of its images was prepared at the work
-  // order's pin: an operator runs `target:prepare <id> --pin <pin>`; no redraft can mend it.
+  // Retired (images are built when first needed); kept because rows blocked before that carry it and the row schema is an enum.
   "image_unprepared",
   // The drafter turn ended without a draft, or the stream was lost past its retries.
   "intake_run_failed",
