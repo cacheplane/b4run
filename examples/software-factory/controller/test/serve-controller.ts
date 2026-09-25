@@ -34,10 +34,9 @@ export const FIRST_DRAFTER_THREAD = "factory-routes-drafter-thread"
 const FACTORY_ENV = [
   "FACTORY_WORKER_URL",
   "FACTORY_STATE_DIR",
-  "FACTORY_BUILDER_APP_ROOT",
   "FACTORY_BUILDER_MANIFEST_DIR",
   "FACTORY_DRAFTER_URL",
-  "FACTORY_DRAFTER_APP_ROOT",
+  "FACTORY_DRAFTER_MANIFEST_DIR",
   "FACTORY_WORKER_TOKEN",
 ] as const
 
@@ -112,9 +111,9 @@ export async function serveController(
   })
   process.env.FACTORY_WORKER_URL = fake.baseUrl
   process.env.FACTORY_STATE_DIR = stateDir
-  process.env.FACTORY_BUILDER_APP_ROOT = join(dir, "builder")
+  process.env.FACTORY_BUILDER_MANIFEST_DIR = join(dir, "builder", "manifests")
   process.env.FACTORY_DRAFTER_URL = drafter.baseUrl
-  process.env.FACTORY_DRAFTER_APP_ROOT = join(dir, "drafter")
+  process.env.FACTORY_DRAFTER_MANIFEST_DIR = join(dir, "drafter", "manifests")
   process.env.FACTORY_WORKER_TOKEN = TEST_WORKER_TOKEN
   // A commit the served controller's repository (this one) holds, so `intake`'s pin check
   // passes without a fetch, and the one the shipped targets hold images at, so a draft

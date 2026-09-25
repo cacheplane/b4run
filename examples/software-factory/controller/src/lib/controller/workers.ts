@@ -16,7 +16,6 @@ export interface TargetWorker {
   readonly route: string
   /** Reads a builder thread's candidate bytes (addressed by thread AND task). */
   readonly reader: WorkspaceReader
-  readonly appRoot: string
   /**
    * Where `dispatch` writes the work order's manifest before it creates the thread: the
    * builder process's `FACTORY_BUILDER_MANIFEST_DIR`. The manifest carries the thread's
@@ -42,7 +41,7 @@ export interface WorkerMap {
 }
 
 export const DRAFTER_UNCONFIGURED =
-  "intake is not configured: set FACTORY_DRAFTER_URL and FACTORY_DRAFTER_APP_ROOT"
+  "intake is not configured: set FACTORY_DRAFTER_URL and FACTORY_DRAFTER_MANIFEST_DIR"
 
 /** No drafter is configured: nothing can start or read an intake thread. */
 export class DrafterUnconfiguredError extends Error {
@@ -102,7 +101,6 @@ export function createWorkerMap(
     client: client(config.builder.url),
     route: config.builder.route,
     reader: reader(config.builder),
-    appRoot: config.builder.appRoot,
     manifestDir: config.builder.manifestDir,
   })
   // A getter, not a spread over one: spreading would read it at boot.

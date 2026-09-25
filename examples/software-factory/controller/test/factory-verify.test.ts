@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { ThreadWorkspaceReadError } from "@b4run/cli/workspace"
 import { afterEach, describe, expect, it } from "vitest"
 import { createFactory, type Factory } from "../src/lib/controller/factory.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
@@ -92,6 +93,14 @@ describe("the verifying phase", () => {
     expect(types).toContain("candidate_assembled")
     expect(types).toContain("receipt_issued")
     expect(types).toContain("bundle_frozen")
+    // The read named the source dispatch handed the thread: the worker must answer with it.
+    expect(reader.targets).toEqual([
+      {
+        threadId: dispatched.workerThreadId,
+        taskId: "cli-flags",
+        sourceDigest: "0".repeat(64),
+      },
+    ])
   })
 
   it("blocks with verification_failed when the independent checks fail, and freezes nothing", async () => {
@@ -209,6 +218,69 @@ describe("the verifying phase", () => {
       bundle: null,
       oracleReceipt: null,
     })
+  })
+
+  it("blocks, retryably, when the worker's workspace changed under the read", async () => {
+    // The worker's `409 workspace_changed`: a file grew between the walk and the read. The
+    // controller does not know what the candidate is, so it is inconclusive, the same answer
+    // any read it could not make gets, and the code is on the record for an operator.
+    const { reader, verifier } = await boot({ verdict: "pass" })
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id)
+    const dispatched = await factory.waitFor(id, (r) => r.workerThreadId !== null)
+    reader.fail(
+      dispatched.workerThreadId as string,
+      new ThreadWorkspaceReadError(409, "workspace_changed", "Worker answered 409"),
+    )
+    const row = await factory.waitFor(id, (r) => r.state === "blocked", 20_000)
+    expect(row.blockedReason).toBe("verification_inconclusive")
+    expect(
+      factory.events(id).find((e) => e.type === "workspace_unreadable")?.payload,
+    ).toMatchObject({ status: 409, code: "workspace_changed" })
+    expect(row.candidateDigest).toBeNull()
+    expect(verifier.calls).toHaveLength(0)
+  })
+
+  it("fails closed when the journal holds no digest it handed the thread", async () => {
+    // The builder's bytes are scripted and would verify; the handoff journalled no digest, so
+    // the controller cannot tell which workspace the worker must answer with and never asks.
+    dir = mkdtempSync(join(tmpdir(), "factory-verify-"))
+    mkdirSync(join(dir, "out"), { recursive: true })
+    fake = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only" })
+    const verifier = createFakeVerifier({ verdict: "pass" })
+    const reader = createFakeWorkspaceReader({})
+    factory = await createFactory({
+      registryPath: join(dir, "registry.sqlite"),
+      generatedTasksDir: join(dir, "tasks"),
+      captureRoot: dir,
+      workers: fakeWorkerMap({
+        builder: {
+          client: createHttpWorkerClient(fake.baseUrl, { token: TEST_WORKER_TOKEN }),
+          reader,
+        },
+      }),
+      writeBuilderManifest: async (input) => ({
+        ...(await noopBuilderManifestWriter(input)),
+        sourceDigest: "",
+      }),
+      exportDir: join(dir, "out"),
+      artifactsDir: join(dir, "artifacts"),
+      verifier,
+      captureBaseline: captureRepairable,
+    })
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id)
+    const dispatched = await factory.waitFor(id, (r) => r.workerThreadId !== null)
+    const threadId = dispatched.workerThreadId as string
+    reader.set(threadId, repaired())
+    const row = await factory.waitFor(id, (r) => r.state === "blocked", 20_000)
+    expect(row.blockedReason).toBe("verification_inconclusive")
+    expect(
+      String(factory.events(id).find((e) => e.type === "workspace_unreadable")?.payload.error),
+    ).toMatch(new RegExp(`No builder source digest is journalled for thread ${threadId}`))
+    expect(reader.reads).toEqual([])
+    expect(row.candidateDigest).toBeNull()
+    expect(verifier.calls).toHaveLength(0)
   })
 
   it("blocks when the controller cannot capture its own baseline", async () => {

@@ -1,15 +1,12 @@
 import { execFileSync } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { isFactoryImage } from "../src/lib/builder-manifest.ts"
 import { imageTag, type Task } from "../src/lib/targets/catalog.ts"
 import {
-  builderSandboxProvider,
-  builderSandboxScope,
   drafterInspectionOptions,
-  drafterSandboxProvider,
   targetInspectionOptions,
   targetSandboxPolicy,
   targetWorkspace,
@@ -170,36 +167,14 @@ describe("targetSandboxPolicy", () => {
   })
 })
 
-describe("builderSandboxProvider", () => {
-  it("gives the reader a provider with no default image that allows only factory images", async () => {
-    const provider = builderSandboxProvider()
-    expect(provider.name).toBe("docker")
-    expect(builderSandboxScope).toBe("software-factory-builder")
-    // A managed workspace's image is in its record, so the reader needs only the scope; the
-    // provider still resolves an image a thread names, bounded as the builder's is.
-    const resolveImage = provider.workspaces?.resolveImageEnvironment
-    expect(resolveImage).toBeTypeOf("function")
-    // Refused by the `images` predicate before any daemon is asked.
-    await expect(
-      resolveImage?.call(provider.workspaces, "alpine:latest", new AbortController().signal),
-    ).rejects.toThrow()
-    // Every tag the factory writes is one the predicate allows.
+describe("the factory's images", () => {
+  it("are every one an image the builder's provider allows", () => {
     expect(isFactoryImage(imageTag(task("0".repeat(40)).target))).toBe(true)
+    expect(isFactoryImage("alpine:latest")).toBe(false)
   })
 })
 
-describe("the drafter's provider and inspection", () => {
-  it("addresses the drafter's threads by the scope its config declares and the given image", () => {
-    const provider = drafterSandboxProvider(`node:24-slim@sha256:${"0".repeat(64)}`)
-    expect(provider.name).toBe("docker")
-    // The literal the drafter's b4.config.ts uses, pinned by name here.
-    const config = readFileSync(new URL("../../drafter/b4.config.ts", import.meta.url), "utf8")
-    expect(config).toContain('scope: "software-factory-drafter"')
-    expect(
-      readFileSync(new URL("../src/lib/targets/workspace.ts", import.meta.url), "utf8"),
-    ).toContain('scope: "software-factory-drafter"')
-  })
-
+describe("the drafter's inspection", () => {
   it("inspects a draft as a handful of small text files with no links and no baseline", () => {
     expect(drafterInspectionOptions()).toEqual({
       excludeRootDirectories: [],

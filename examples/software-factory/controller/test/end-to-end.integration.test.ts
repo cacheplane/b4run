@@ -5,14 +5,15 @@ import { openWorkspaceInstallationReader } from "@b4run/sqlite-storage"
 import { script } from "@b4run/testing"
 import { afterEach, expect, it } from "vitest"
 import { createFactory, type Factory } from "../src/lib/controller/factory.ts"
+import { handedSourceDigest } from "../src/lib/controller/source-digest.ts"
 import { taskPrompt } from "../src/lib/prompts.ts"
 import { createArtifactStore } from "../src/lib/storage/artifacts.ts"
 import { loadTask } from "../src/lib/targets/catalog.ts"
-import { builderSandboxProvider, targetInspectionOptions } from "../src/lib/targets/workspace.ts"
+import { targetInspectionOptions } from "../src/lib/targets/workspace.ts"
 import { captureTargetBaseline } from "../src/lib/verification/baseline.ts"
 import { createDockerVerifier } from "../src/lib/verification/docker-verifier.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
-import { createThreadWorkspaceReader } from "../src/lib/worker/workspace-reader.ts"
+import { createHttpThreadWorkspaceReader } from "../src/lib/worker/workspace-reader.ts"
 import { fakeWorkerMap } from "./fake-worker-map.ts"
 import { applyReference } from "./reference-repair.ts"
 import { type ServedBuilder, serveBuilder, toolCallsSeen, toolResults } from "./served-builder.ts"
@@ -29,9 +30,10 @@ import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
  * the builder app served by `serveRuntime` for the `cli-flags` target, its per-work-order
  * resolver, its route, tools and permission config, its managed workspace (a
  * `b4-ws-volume-*` published under the builder's installation), the Agent Protocol between
- * the two, the reader (a separate read-only container over that volume, resolved through the
- * builder's installation store), the captured baseline, the assembly, the verifier, the
- * bundle and the export. What is not: the model is scripted (aimock).
+ * the two, the read (`POST /threads/:id/workspace/inspect` on the builder's own port, with the
+ * worker token and the digest `dispatch` handed the thread; the builder opens a separate
+ * read-only container over that volume), the captured baseline, the assembly, the verifier,
+ * the bundle and the export. The controller half holds only the URL and the token. What is not: the model is scripted (aimock).
  */
 
 const task = loadTask("cli-flags")
@@ -74,10 +76,10 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
       .replies("Repair complete.")
       .build(),
   )
+  // The controller's half of this lane is built from `served.url` and the token alone.
   const reader = () =>
-    createThreadWorkspaceReader(
-      { providerFor: () => builderSandboxProvider(), appRoot: served.appRoot },
-      () => targetInspectionOptions(task),
+    createHttpThreadWorkspaceReader({ url: served.url, token: TEST_WORKER_TOKEN }, () =>
+      targetInspectionOptions(task),
     )
   factory = await createFactory({
     registryPath: join(dir, "registry.sqlite"),
@@ -87,7 +89,6 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
       builder: {
         client: createHttpWorkerClient(served.url, { token: TEST_WORKER_TOKEN }),
         reader: reader(),
-        appRoot: served.appRoot,
         manifestDir: served.manifestDir,
       },
     }),
@@ -134,11 +135,11 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
 
   // Read while the thread is IDLE BETWEEN TURNS, with its session container still alive:
   // one of the two states the read surface is specified for, and the one `docker exec` into
-  // the builder could never serve safely. A DIFFERENT provider instance, as the controller is
-  // a different process in production, addressing the same storage by scope, image and the
-  // builder's installation store.
+  // the builder could never serve safely. Over the builder's own port, as the controller
+  // reads in production, naming the source `dispatch` handed the thread.
+  const sourceDigest = handedSourceDigest(factory.events(id), threadId, "builder")
   const observed = await reader().read(
-    { threadId, taskId: "cli-flags" },
+    { threadId, taskId: "cli-flags", sourceDigest },
     AbortSignal.timeout(120_000),
   )
   expect(observed.get(source)).toBe(repaired)
@@ -152,6 +153,23 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
   // baseline and must survive, so the exclusion has to be a root-directory rule.
   expect(observed.has(".gitignore")).toBe(true)
   expect(observed.has("node_modules")).toBe(false)
+  // The controller half of this lane was built from `served.url` and the token alone; the
+  // worker's own port refuses the same read without the token, and a read that names another
+  // source is refused by the controller's client, whatever the worker answered.
+  const bare = await fetch(
+    `${served.url}/threads/${encodeURIComponent(threadId)}/workspace/inspect`,
+    {
+      method: "POST",
+      body: "{}",
+    },
+  )
+  expect(bare.status).toBe(403)
+  await expect(
+    reader().read(
+      { threadId, taskId: "cli-flags", sourceDigest: "f".repeat(64) },
+      AbortSignal.timeout(120_000),
+    ),
+  ).rejects.toMatchObject({ code: "source_mismatch" })
   // Reading disturbed nothing, and the manifest's removal cost the thread nothing: the
   // builder's next turn runs its tools in the same session and workspace, admitted long ago.
   served.aimock.addFixtures(

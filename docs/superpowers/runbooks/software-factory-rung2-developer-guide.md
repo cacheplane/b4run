@@ -4,7 +4,11 @@
 > below that write a builder target file (`factory builder-target`), set
 > `FACTORY_BUILDER_TARGET`, or map builders per target with `FACTORY_WORKERS` no longer
 > apply: the command is gone and both variables are refused by name. Each work order's
-> manifest carries its target's image, policy and permissions. Follow the
+> manifest carries its target's image, policy and permissions. The controller also reads each
+> worker's threads over the worker's URL now (`sandbox.workspaceRead: "http"`), with the
+> worker token: `FACTORY_BUILDER_APP_ROOT` and `FACTORY_DRAFTER_APP_ROOT` are refused on the
+> controller by name (it ignores `FACTORY_DRAFTER_IMAGE`, the drafter's), and it needs
+> `FACTORY_BUILDER_MANIFEST_DIR` and `FACTORY_WORKER_TOKEN` instead. Follow the
 > [software factory README](../../../examples/software-factory/README.md#run-it) to run it.
 
 Reconciled against the implementation on branch `blove/software-factory-rung2-spec`.
@@ -250,16 +254,13 @@ OPENAI_API_KEY=... \
 
 **3. Start the controller** (terminal 2). It is a b4 app too: its mutating commands are
 `workflow` routes, and it owns the targets, the task catalog and the registry. Its
-environment names the builder to dispatch to, where its state lives, the builder's *app
-root* — the package whose installation store the workspace reader addresses — and the
-builder's target file, which is how the controller knows the one target that builder serves
-(a work order of any other target is refused before anything is spent):
+environment names the builder to dispatch to (it reads the builder's threads over that URL,
+with the worker token), where its state lives, and the builder's manifest directory:
 
 ```bash
 FACTORY_WORKER_URL=http://127.0.0.1:4100 \
 FACTORY_STATE_DIR=$PWD/.factory \
-FACTORY_BUILDER_APP_ROOT=$PWD/examples/software-factory/server \
-FACTORY_BUILDER_TARGET=/tmp/factory-builder/devkit.target.json \
+FACTORY_WORKER_TOKEN=$TOKEN \
 FACTORY_BUILDER_MANIFEST_DIR=/tmp/builder-manifests \
   pnpm --filter @b4-example/software-factory-controller dev --port 4300
 ```

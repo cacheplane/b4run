@@ -672,3 +672,22 @@ Appended as the live replay of #714 runs.
     stalled stream costs a quarter hour of active budget. Framework item: a configurable model
     call timeout with a retry.
 
+29. **Two read outcomes are mis-charged once the controller reads over HTTP** (found in the
+    review of the workspace-over-the-protocol plan's PR 3; recorded, not fixed there).
+    (a) *A transient read failure costs a candidate attempt.* A verification whose read the
+    worker refused for a reason about the moment, not the candidate (`run_in_flight`,
+    `workspace_changed`, `workspace_read_timeout`, `workspace_unavailable`, `shutting_down`),
+    settles `verification_inconclusive`; the only way on is `retry`, which dispatches a new
+    builder thread and spends one of `maxCandidateAttempts`. Proposal: a `reverify` command,
+    legal from `verification_inconclusive` when the journalled failure is a read (not a
+    verifier or receipt fault), that re-reads the SAME builder thread with the same handed
+    digest and re-enters verification without a new dispatch or a spent attempt. (b) *A
+    model-caused inspection refusal is journalled as an infrastructure fault.* A
+    `workspace_inspection_refused` or `workspace_response_too_large` answer is the model's
+    output breaking the inspection's rules (an unexpected symlink or executable, a file or a
+    tree over the limits), in the drafter's `draft/` or the builder's workspace, yet it lands
+    as `workspace_unreadable` → `intake_run_failed` (no attempt spent, and the redraft prompt
+    never learns why) or `verification_inconclusive`. Proposal: classify them as a draft
+    defect (`intake_invalid`, the refusal text in the redraft prompt, an attempt spent) and a
+    scope violation (`assembly_rejected` with `scope_violation`), respectively, keyed on the
+    worker's code and never on its message.

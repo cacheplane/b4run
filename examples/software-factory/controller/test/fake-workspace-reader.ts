@@ -1,8 +1,12 @@
-import type { WorkspaceReader } from "../src/lib/worker/workspace-reader.ts"
+import type { WorkspaceReader, WorkspaceTarget } from "../src/lib/worker/workspace-reader.ts"
 
 export interface FakeWorkspaceReader extends WorkspaceReader {
   /** Thread ids this reader was asked for, in order. */
   readonly reads: string[]
+  /** Every target this reader was asked for, in order, handed source digest included. */
+  readonly targets: WorkspaceTarget[]
+  /** Make every later read of a thread reject with `error`, as a worker's refusal would. */
+  fail(threadId: string, error: unknown): void
   /** Replace a thread's bytes between reads, to simulate drift. */
   set(threadId: string, files: Readonly<Record<string, string>>): void
   /** Remove a thread entirely, so a later read behaves like it was never scripted. */
@@ -26,9 +30,15 @@ export function createFakeWorkspaceReader(
 ): FakeWorkspaceReader {
   const state = new Map(Object.entries(threads).map(([id, files]) => [id, { ...files }]))
   const reads: string[] = []
+  const targets: WorkspaceTarget[] = []
+  const failures = new Map<string, unknown>()
   const queues = new Map<string, Readonly<Record<string, string>>[]>()
   return {
     reads,
+    targets,
+    fail(threadId, error) {
+      failures.set(threadId, error)
+    },
     set(threadId, files) {
       state.set(threadId, { ...files })
     },
@@ -41,6 +51,8 @@ export function createFakeWorkspaceReader(
     },
     async read(target) {
       reads.push(target.threadId)
+      targets.push({ ...target })
+      if (failures.has(target.threadId)) throw failures.get(target.threadId)
       const queued = queues.get(target.threadId)
       if (queued && queued.length > 0) {
         const next = queued.shift() as Readonly<Record<string, string>>

@@ -1,5 +1,13 @@
 import { spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -81,6 +89,14 @@ const digestOf = (resolved: unknown) =>
   (resolved as { workspace: { source: { digest: string } } }).workspace.source.digest
 
 describe("builder configuration", () => {
+  it("serves its threads' workspaces over its own port, behind src/thread-access.ts", async () => {
+    const config = await loadConfig()
+    expect(config.sandbox?.workspaceRead).toBe("http")
+    expect(existsSync(fileURLToPath(new URL("../src/thread-access.ts", import.meta.url)))).toBe(
+      true,
+    )
+  })
+
   it("boots with no target file and denies the network to every thread", async () => {
     const config = await loadConfig()
     expect(config.sandbox?.network?.mode).toBe("deny")
@@ -96,9 +112,9 @@ describe("builder configuration", () => {
     expect(config.permissions?.allow).toBeUndefined()
   })
 
-  it("addresses the controller's reader's storage: one scope, no default image", () => {
+  it("has one scope and no default image: every thread runs the image its manifest names", () => {
     const text = readFileSync(new URL("../b4.config.ts", import.meta.url), "utf8")
-    // Scope and allowed images, and no default image: the controller's reader builds the same.
+    // Scope and allowed images, and no default image.
     expect(text).toContain(
       'dockerSandbox({ scope: "software-factory-builder", images: isFactoryImage })',
     )

@@ -1,6 +1,7 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { dockerSandbox } from "@b4run/sandbox"
 import { captureWorkspaceDefinition } from "@b4run/workspace/node"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -109,6 +110,14 @@ describe("the drafter's workspace resolver", () => {
 })
 
 describe("the drafter's sandbox and permissions", () => {
+  it("serves its threads' workspaces over its own port, behind src/thread-access.ts", async () => {
+    const config = await loadConfig()
+    expect(config.sandbox?.workspaceRead).toBe("http")
+    expect(existsSync(fileURLToPath(new URL("../src/thread-access.ts", import.meta.url)))).toBe(
+      true,
+    )
+  })
+
   it("pins the digest-addressed base image unless FACTORY_DRAFTER_IMAGE overrides it", async () => {
     const { DRAFTER_IMAGE } = await import("../src/drafter-image.ts")
     expect(DRAFTER_IMAGE).toMatch(/^node:24-slim@sha256:[a-f0-9]{64}$/)

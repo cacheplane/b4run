@@ -9,9 +9,9 @@ import { type Aimock, createAimock, script } from "@b4run/testing"
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest"
 import type { Factory } from "../src/lib/controller/factory.ts"
 import { type ControllerRuntime, createControllerRuntime } from "../src/lib/runtime.ts"
-import { drafterInspectionOptions, drafterSandboxProvider } from "../src/lib/targets/workspace.ts"
+import { drafterInspectionOptions } from "../src/lib/targets/workspace.ts"
 import {
-  createThreadWorkspaceReader,
+  createHttpThreadWorkspaceReader,
   type WorkspaceReader,
 } from "../src/lib/worker/workspace-reader.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
@@ -32,7 +32,8 @@ import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
  * controller wrote for the work order and serves that capture and no other), its tools, the
  * controller's runtime with the real worker map (the drafter entry pointing at that server),
  * the real manifest writer (the wide capture at the work order's pin, staged out of the
- * object store), the real re-rooted reader, the real baseline capture and the real Docker
+ * object store), the real re-rooted read over the drafter's own port with the worker token
+ * and the handed digest, the real baseline capture and the real Docker
  * verifier. What is not: the model is scripted (aimock), and the builder worker the map
  * also needs is the fake HTTP one, which nothing here dispatches to.
  *
@@ -154,10 +155,9 @@ async function bootController(
   runtime = createControllerRuntime(
     {
       FACTORY_WORKER_URL: builder.baseUrl,
-      FACTORY_BUILDER_APP_ROOT: join(dir, "builder"),
+      FACTORY_BUILDER_MANIFEST_DIR: join(dir, "builder", "manifests"),
       FACTORY_STATE_DIR: join(dir, "state"),
       FACTORY_DRAFTER_URL: drafter.url,
-      FACTORY_DRAFTER_APP_ROOT: drafterRoot,
       FACTORY_DRAFTER_MANIFEST_DIR: manifestDir,
       FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
     },
@@ -171,17 +171,12 @@ async function bootController(
   return runtime.factory()
 }
 
-/** The real drafter reader, as the runtime builds it: the drafter's provider, re-rooted at `draft/`. */
+/** The real drafter reader, as the runtime builds it: the drafter's URL and the token, re-rooted at `draft/`. */
 function realDrafterReader(): WorkspaceReader {
-  return createThreadWorkspaceReader(
-    { providerFor: () => drafterSandboxProvider(runtimeImage()), appRoot: drafterRoot },
-    () => ({ ...drafterInspectionOptions(), root: "draft" }),
-  )
-}
-/** The image the drafter booted with, which is the image the controller must address it by. */
-function runtimeImage(): string {
-  if (runtime === undefined) throw new Error("boot the controller first")
-  return runtime.config.drafterImage
+  return createHttpThreadWorkspaceReader({ url: drafter.url, token: TEST_WORKER_TOKEN }, () => ({
+    ...drafterInspectionOptions(),
+    root: "draft",
+  }))
 }
 
 const eventTypes = (factory: Factory, id: string) => factory.events(id).map((e) => e.type)
@@ -326,6 +321,15 @@ it("runs a real drafter turn against the wide capture, reads only draft/, and pr
     files: Object.keys(ORACLE_DRAFT).sort(),
   })
   expect(typeof payload(factory, id, "draft_read")?.ms).toBe("number")
+  // The controller read it over the drafter's port with the token; without it the port refuses.
+  const bare = await fetch(
+    `${drafter.url}/threads/${encodeURIComponent(threadId)}/workspace/inspect`,
+    {
+      method: "POST",
+      body: JSON.stringify({ root: "draft" }),
+    },
+  )
+  expect(bare.status).toBe(403)
 
   // The oracle was proved in the target's image over the drafted check alone.
   const evidence = factory.evidence(id)
@@ -447,7 +451,7 @@ it("refuses a three-file draft by name, and the redraft's prompt carries the rea
   expect(payload(factory, id, "drafter_manifest_removed")).toEqual({ path: manifestPath })
 }, 900_000)
 
-/** The real reader, built on first use: the controller (whose image it addresses) boots after the wrapper is made. */
+/** The real reader, built on first use. */
 function realDrafterReaderLazily(): () => WorkspaceReader {
   let reader: WorkspaceReader | undefined
   return () => {
