@@ -101,7 +101,7 @@ export const tourStops: readonly TourStop[] = [
     file: "evals/smoke.eval.ts",
     state: "scaffolded",
     title: "The scaffold ships an eval.",
-    copy: "smoke.eval.ts replays a scripted reply and scores it, so npm run eval needs no API key. Add --live to try the real model.",
+    copy: "smoke.eval.ts replays a scripted reply and scores it, so npm run eval needs no API key. Run npm run eval -- --live to try the real model.",
     docsHref: "/docs/evals#your-scaffolded-app-already-has-an-eval",
     docsLabel: "Evals",
     language: "typescript",
