@@ -379,3 +379,189 @@ describe("inspectWorkspace", () => {
     })
   })
 })
+
+describe("inspection errors", () => {
+  const codeOf = async (promise: Promise<unknown>) => {
+    const error = await promise.then(
+      () => undefined,
+      (caught: unknown) => caught,
+    )
+    return workspace.isWorkspaceInspectionError(error) ? error.code : error
+  }
+
+  it("classifies a file that grew between the walk and the batched read as changed", async () => {
+    const f = fixture(tree({ kind: "file", size: 2, bytes: text("grown") }))
+    f.batchedBackend.readBinaryFiles = async (requests) => {
+      const first = requests[0]
+      throw new workspace.WorkspaceReadLimitError(
+        `readBinaryFile ${first?.path}: content exceeds maxBytes (${first?.maxBytes}).`,
+        first?.path ?? "",
+        first?.maxBytes ?? 0,
+      )
+    }
+    expect(await codeOf(workspace.inspectWorkspace(f.batched))).toBe("changed")
+  })
+
+  it("classifies a per-entry read over a cap the metadata fit as changed", async () => {
+    const f = fixture(tree({ kind: "file", size: 2, bytes: text("hi") }))
+    f.backend.readBinaryFile = async (path, _ctx, options) => {
+      throw new workspace.WorkspaceReadLimitError(`${path}: grew`, path, options?.maxBytes ?? 0)
+    }
+    expect(await codeOf(workspace.inspectWorkspace(f.handle))).toBe("changed")
+  })
+
+  it("classifies policy refusals as refused and keeps their messages", async () => {
+    const executable = workspace.inspectWorkspace(
+      fixture(tree({ kind: "file", executable: true, bytes: text("x") })).handle,
+    )
+    await expect(executable).rejects.toThrow("Executable workspace file: file")
+    expect(
+      await codeOf(
+        workspace.inspectWorkspace(fixture(tree({ kind: "file", size: 9 })).handle, {
+          maxFileBytes: 8,
+        }),
+      ),
+    ).toBe("refused")
+    expect(
+      await codeOf(
+        workspace.inspectWorkspace(
+          fixture(tree({ kind: "file", bytes: new Uint8Array([0xff]) })).handle,
+        ),
+      ),
+    ).toBe("refused")
+  })
+
+  it("classifies bad options as invalid_options before any backend call", async () => {
+    const f = fixture(tree({ kind: "file", bytes: text("x") }))
+    expect(await codeOf(workspace.inspectWorkspace(f.handle, { maxEntries: -1 }))).toBe(
+      "invalid_options",
+    )
+    expect(
+      await codeOf(
+        workspace.inspectWorkspace(f.handle, {
+          excludeRootDirectories: ["a"],
+          expectedRootSymlinks: { a: "/x" },
+        }),
+      ),
+    ).toBe("invalid_options")
+    expect(f.calls).toEqual([])
+  })
+
+  it("leaves a backend failure untyped", async () => {
+    const f = fixture(tree({ kind: "file", bytes: text("x") }))
+    f.batchedBackend.readBinaryFiles = async () => {
+      throw new Error("docker exec failed")
+    }
+    const error = await workspace.inspectWorkspace(f.batched).catch((caught: unknown) => caught)
+    expect(workspace.isWorkspaceInspectionError(error)).toBe(false)
+    expect((error as Error).message).toBe("docker exec failed")
+  })
+
+  it("recognizes both errors by name, as a second copy of the package would throw them", () => {
+    const limit = Object.assign(new Error("x"), { name: "WorkspaceReadLimitError" })
+    const inspection = Object.assign(new Error("x"), {
+      name: "WorkspaceInspectionError",
+      code: "changed",
+    })
+    expect(workspace.isWorkspaceReadLimitError(limit)).toBe(true)
+    expect(workspace.isWorkspaceInspectionError(inspection)).toBe(true)
+    expect(workspace.isWorkspaceInspectionError(new Error("x"))).toBe(false)
+  })
+})
+
+describe("inspectWorkspace root", () => {
+  const nested = () =>
+    fixture({
+      "/workspace": { kind: "directory", names: ["draft", "repo", "note"] },
+      "/workspace/draft": { kind: "directory", names: ["task.json", "checks"] },
+      "/workspace/draft/task.json": { kind: "file", bytes: text("{}") },
+      "/workspace/draft/checks": { kind: "directory", names: ["a.test.ts"] },
+      "/workspace/draft/checks/a.test.ts": { kind: "file", bytes: text("test") },
+      "/workspace/repo": { kind: "directory", names: ["secret"] },
+      "/workspace/repo/secret": { kind: "file", executable: true, bytes: text("no") },
+      "/workspace/note": { kind: "file", bytes: text("n") },
+    })
+
+  for (const adapter of ["handle", "batched"] as const) {
+    it(`starts at the root through ${adapter} and never touches anything outside it`, async () => {
+      const f = nested()
+      const result = await workspace.inspectWorkspace(f[adapter], { root: "draft" })
+      expect(Object.keys(result.files).sort()).toEqual(["checks/a.test.ts", "task.json"])
+      expect(f.calls.some((path) => path.startsWith("/workspace/repo"))).toBe(false)
+      if (adapter === "batched") expect(f.batchCalls[0]).toBe("walk /workspace/draft prune=")
+    })
+  }
+
+  it("names an absent root", async () => {
+    const error = await workspace
+      .inspectWorkspace(nested().handle, { root: "missing" })
+      .catch((caught: unknown) => caught)
+    expect(workspace.isWorkspaceInspectionError(error) && error.code).toBe("root_missing")
+    expect((error as workspace.WorkspaceInspectionError).detail).toEqual({
+      root: "missing",
+      kind: "absent",
+    })
+    expect((error as Error).message).toContain('"missing"')
+  })
+
+  it("names a root that is a file", async () => {
+    const error = await workspace
+      .inspectWorkspace(nested().handle, { root: "note" })
+      .catch((caught: unknown) => caught)
+    expect((error as workspace.WorkspaceInspectionError).detail).toEqual({
+      root: "note",
+      kind: "not_directory",
+    })
+  })
+
+  for (const root of ["..", "draft/..", "/draft", "draft/", "a//b", "", ".", "a\\b", "x\u0000y"]) {
+    it(`refuses the root ${JSON.stringify(root)} before any backend call`, async () => {
+      const f = nested()
+      const error = await workspace
+        .inspectWorkspace(f.handle, { root })
+        .catch((caught: unknown) => caught)
+      expect(workspace.isWorkspaceInspectionError(error) && error.code).toBe("invalid_options")
+      expect(f.calls).toEqual([])
+    })
+  }
+
+  it("refuses a symlink anywhere in the root, first or mid-path, and never looks through it", async () => {
+    const f = fixture({
+      "/workspace": { kind: "directory", names: ["draft", "a"] },
+      "/workspace/draft": { kind: "symlink", target: "/etc" },
+      "/workspace/draft/sub": { kind: "directory", names: ["passwd"] },
+      "/workspace/a": { kind: "directory", names: ["link"] },
+      "/workspace/a/link": { kind: "symlink", target: "/" },
+      "/workspace/a/link/x": { kind: "directory", names: [] },
+    })
+    for (const [root, at] of [
+      ["draft", "draft"],
+      ["draft/sub", "draft"],
+      ["a/link/x", "a/link"],
+    ] as const) {
+      const error = await workspace
+        .inspectWorkspace(f.handle, { root })
+        .catch((caught: unknown) => caught)
+      expect((error as workspace.WorkspaceInspectionError).detail).toEqual({
+        root,
+        kind: "not_directory",
+      })
+      expect((error as Error).message).toContain(`"${at}" is a symlink`)
+    }
+    expect(f.calls).not.toContain("/workspace/draft/sub")
+    expect(f.calls).not.toContain("/workspace/a/link/x")
+  })
+
+  it("re-roots a batch-only backend with lstat alone (its per-entry listDir refuses)", async () => {
+    const f = nested()
+    const result = await workspace.inspectWorkspace(f.batched, { root: "draft/checks" })
+    expect(Object.keys(result.files)).toEqual(["a.test.ts"])
+  })
+
+  it("refuses a root for an author filesystem, which has no absolute root to nest", async () => {
+    const error = await workspace
+      .inspectWorkspace(nested().author, { root: "draft" })
+      .catch((caught: unknown) => caught)
+    expect(workspace.isWorkspaceInspectionError(error) && error.code).toBe("invalid_options")
+  })
+})
