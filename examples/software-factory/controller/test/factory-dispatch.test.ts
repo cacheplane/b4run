@@ -2,7 +2,12 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { createFactory, type Factory, type FactoryOptions } from "../src/lib/controller/factory.ts"
+import {
+  CommandInFlightError,
+  createFactory,
+  type Factory,
+  type FactoryOptions,
+} from "../src/lib/controller/factory.ts"
 import { ACTIVE_STATES } from "../src/lib/domain/states.ts"
 import { taskPrompt } from "../src/lib/prompts.ts"
 import { openRegistry } from "../src/lib/registry/db.ts"
@@ -481,6 +486,32 @@ describe("the task's image at dispatch", () => {
         operationKey: "dispatch-key",
       })
     } finally {
+      images.restore()
+    }
+  })
+
+  it("journals no refusal for a concurrent dispatch that joined the build and lost the key", async () => {
+    await boot()
+    const images = fakeImages()
+    images.builder.hold()
+    try {
+      const { id } = await factory.create({ taskId: "cli-flags" })
+      const first = factory.dispatch(id)
+      const second = factory.dispatch(id)
+      await until(() => eventsOf(id, "image_prepare_started").length === 2)
+      images.builder.release()
+      const settled = await Promise.allSettled([first, second])
+      const fulfilled = settled.filter((r) => r.status === "fulfilled")
+      const rejected = settled.filter((r) => r.status === "rejected")
+      expect(fulfilled.map((r) => r.value)).toEqual([
+        { ok: true, state: "dispatched", message: "Dispatched" },
+      ])
+      expect(rejected).toHaveLength(1)
+      expect(rejected[0]?.reason).toBeInstanceOf(CommandInFlightError)
+      // The key holder is still running: its end is its own to journal, not the loser's.
+      expect(eventsOf(id, "dispatch_refused")).toHaveLength(0)
+    } finally {
+      images.builder.release()
       images.restore()
     }
   })

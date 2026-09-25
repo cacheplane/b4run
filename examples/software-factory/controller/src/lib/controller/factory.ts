@@ -1348,7 +1348,9 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       try {
         outcome = await dispatchOnce(id, operationKey, dispatchOptions)
       } catch (error) {
-        refused(String(error))
+        // A dispatch that lost the key to another (one that joined the same build, say) did
+        // not end the work: the key holder is still running and journals its own end.
+        if (!(error instanceof CommandInFlightError)) refused(String(error))
         throw error
       }
       if (!outcome.ok) refused(outcome.message)
