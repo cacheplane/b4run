@@ -22,6 +22,7 @@
     "@tailwindcss/postcss": "^4.3.3",
     "github-slugger": "^2.0.0",
     "gray-matter": "^4.0.3",
+    "gsap": "3.15.0",
     "next": "16.3.3",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -37,6 +38,7 @@
   "devDependencies": {
     "@b4run/config-typescript": "workspace:*",
     "@b4run/core": "workspace:*",
+    "@b4run/sdk": "workspace:*",
     "@types/mdx": "^2.0.14",
     "@types/node": "26.1.2",
     "@types/react": "19.2.18",
@@ -44,6 +46,7 @@
     "@vitest/ui": "^4.1.11",
     "jsdom": "^30.0.1",
     "typescript": "7.0.2",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.11",
+    "zod": "4.4.3"
   }
 }
