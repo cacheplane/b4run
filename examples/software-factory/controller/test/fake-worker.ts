@@ -66,6 +66,8 @@ interface Thread {
   endLive: ((done: unknown) => void) | null
   /** Reattached GET streams waiting for this run's terminal frame. */
   waiters: Set<(done: unknown) => void>
+  /** The staged workspace `POST /threads` named, as sent. */
+  readonly workspace: unknown
 }
 
 export interface FakeWorker {
@@ -81,6 +83,13 @@ export interface FakeWorker {
    * says `busy`, and no run is in memory behind it, so a reattach answers `live: false`.
    */
   markStaleBusy(threadId: string): void
+  /**
+   * The next request with this method answers `status` with an error body (and `code`, when
+   * given) instead of being served; queued, one per call. A `429` carries `retry-after: 1`.
+   */
+  failNext(method: string, status: number, code?: string): void
+  /** Digests `PUT /workspace/sources/:digest` has staged. */
+  readonly staged: ReadonlySet<string>
   close(): Promise<void>
 }
 
@@ -154,6 +163,8 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
   /** Consumed by the first POST /threads; every later thread gets an invented id. */
   let assignedThreadId = options.threadId
   const closing = new AbortController()
+  const failures: { method: string; status: number; code: string | undefined }[] = []
+  const staged = new Set<string>()
 
   /** Sleeps for `ms`, or resolves `true` early if `close()` has fired — the caller must stop writing. */
   async function sleepOrAbort(ms: number): Promise<boolean> {
@@ -322,7 +333,42 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
     })
     const parts = url.pathname.split("/").filter(Boolean)
 
+    const failure = failures.findIndex((f) => f.method === req.method)
+    if (failure !== -1) {
+      const [{ status, code }] = failures.splice(failure, 1) as [(typeof failures)[number]]
+      res.writeHead(status, {
+        "content-type": "application/json",
+        ...(status === 429 ? { "retry-after": "1" } : {}),
+      })
+      return res.end(errorBody(`fake failure ${status}`, code))
+    }
+
+    // The real worker verifies the bundle byte for byte; the fake only requires the digest in
+    // the path to be the body's, which is all a controller test can get wrong.
+    if (req.method === "PUT" && parts[0] === "workspace" && parts[1] === "sources" && parts[2]) {
+      const digest = parts[2]
+      if ((body as { digest?: unknown } | null)?.digest !== digest)
+        return json(res, 400, errorBody("digest mismatch", "digest_mismatch"))
+      const held = staged.has(digest)
+      staged.add(digest)
+      return json(
+        res,
+        held ? 200 : 201,
+        JSON.stringify({ digest, status: held ? "held" : "created" }),
+      )
+    }
+
     if (req.method === "POST" && url.pathname === "/threads") {
+      const workspace = (body as { workspace?: { sourceDigest?: unknown } } | null)?.workspace
+      if (
+        workspace !== undefined &&
+        !(typeof workspace?.sourceDigest === "string" && staged.has(workspace.sourceDigest))
+      )
+        return json(
+          res,
+          422,
+          errorBody("Workspace source is not held", "workspace_source_not_held"),
+        )
       const id = assignedThreadId ?? `fake-thread-${++counter}`
       assignedThreadId = undefined
       threads.set(id, {
@@ -333,6 +379,7 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
         pending: null,
         endLive: null,
         waiters: new Set(),
+        workspace,
       })
       return json(
         res,
@@ -448,6 +495,10 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
       if (thread?.runActive) return Promise.resolve()
       return new Promise((resolve) => runStarted.set(threadId, resolve))
     },
+    failNext(method, status, code) {
+      failures.push({ method, status, code })
+    },
+    staged,
     markStaleBusy(threadId) {
       const thread = threads.get(threadId)
       if (!thread) throw new Error(`no thread ${threadId}`)

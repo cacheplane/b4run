@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { createSourceBundle } from "@b4run/workspace/node"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
   createHttpWorkerClient,
@@ -88,6 +89,96 @@ describe("http worker client", () => {
     expect(error).toMatchObject({ name: "WorkerHttpError", status: 403 })
     expect(String(error)).not.toContain(TEST_WORKER_TOKEN)
     expect(JSON.stringify(error)).not.toContain(TEST_WORKER_TOKEN)
+  })
+
+  it("uploads a source, then creates a thread naming it", async () => {
+    const bundle = createSourceBundle([
+      { path: "a.txt", bytes: new TextEncoder().encode("a"), executable: false },
+    ])
+    expect(await client.uploadSource(bundle)).toBe("created")
+    expect(await client.uploadSource(bundle)).toBe("held")
+    const threadId = await client.createThread(
+      { factoryWorkOrderId: "wo-1" },
+      { sourceDigest: bundle.digest, environmentLinks: [], baseline: "git" },
+    )
+    expect(threadId).toMatch(/^fake-thread-/)
+    const upload = fake.requests.find((r) => r.method === "PUT")
+    expect(upload?.path).toBe(`/workspace/sources/${bundle.digest}`)
+    expect(upload?.authorization).toBe(`Bearer ${TEST_WORKER_TOKEN}`)
+    expect(upload?.body).toEqual(JSON.parse(JSON.stringify(bundle)))
+    expect(fake.requests.at(-1)?.body).toEqual({
+      metadata: { factoryWorkOrderId: "wo-1" },
+      workspace: { sourceDigest: bundle.digest, environmentLinks: [], baseline: "git" },
+    })
+  })
+
+  it("creates a thread with no workspace key when none is given", async () => {
+    await client.createThread({ a: 1 })
+    expect(fake.requests.at(-1)?.body).toEqual({ metadata: { a: 1 } })
+  })
+
+  it("refuses an upload the worker says it staged under another digest", async () => {
+    const bundle = createSourceBundle([
+      { path: "a.txt", bytes: new TextEncoder().encode("a"), executable: false },
+    ])
+    const lying = createHttpWorkerClient("http://worker", {
+      token: TEST_WORKER_TOKEN,
+      fetch: (async () =>
+        Response.json(
+          { digest: "f".repeat(64), status: "created" },
+          { status: 201 },
+        )) as typeof fetch,
+    })
+    await expect(lying.uploadSource(bundle)).rejects.toMatchObject({
+      name: "WorkerHttpError",
+      code: "digest_mismatch",
+    })
+  })
+
+  it("retries a busy worker's 429 a bounded number of times, upload and create alike", async () => {
+    const bundle = createSourceBundle([
+      { path: "b.txt", bytes: new TextEncoder().encode("b"), executable: false },
+    ])
+    const patient = createHttpWorkerClient(fake.baseUrl, {
+      token: TEST_WORKER_TOKEN,
+      busyRetry: { attempts: 3, baseDelayMs: 1, maxDelayMs: 5 },
+    })
+    fake.failNext("PUT", 429, "upload_in_flight")
+    fake.failNext("PUT", 429, "upload_in_flight")
+    expect(await patient.uploadSource(bundle)).toBe("created")
+    fake.failNext("POST", 429, "workspace_create_in_flight")
+    const threadId = await patient.createThread(
+      { factoryWorkOrderId: "wo-1" },
+      { sourceDigest: bundle.digest, environmentLinks: [] },
+    )
+    expect(threadId).toMatch(/^fake-thread-/)
+    expect(fake.requests.filter((r) => r.method === "PUT")).toHaveLength(3)
+    expect(fake.requests.filter((r) => r.method === "POST")).toHaveLength(2)
+
+    // Past the bound, the last answer is the error, and nothing more is sent.
+    for (let i = 0; i < 4; i++) fake.failNext("PUT", 429, "upload_in_flight")
+    const before = fake.requests.length
+    await expect(patient.uploadSource(bundle)).rejects.toMatchObject({
+      name: "WorkerHttpError",
+      status: 429,
+      code: "upload_in_flight",
+    })
+    expect(fake.requests.length - before).toBe(4)
+  })
+
+  it("never retries a refusal that is not the worker being busy", async () => {
+    const bundle = createSourceBundle([
+      { path: "c.txt", bytes: new TextEncoder().encode("c"), executable: false },
+    ])
+    const patient = createHttpWorkerClient(fake.baseUrl, {
+      token: TEST_WORKER_TOKEN,
+      busyRetry: { attempts: 3, baseDelayMs: 1, maxDelayMs: 5 },
+    })
+    fake.failNext("PUT", 507, "staged_quota_exceeded")
+    await expect(patient.uploadSource(bundle)).rejects.toMatchObject({ status: 507 })
+    fake.failNext("PUT", 429, "rate_limited")
+    await expect(patient.uploadSource(bundle)).rejects.toMatchObject({ status: 429 })
+    expect(fake.requests.filter((r) => r.method === "PUT")).toHaveLength(2)
   })
 
   it("creates a thread with metadata and reads it back", async () => {

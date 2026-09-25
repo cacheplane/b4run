@@ -1,9 +1,12 @@
+import { setTimeout as sleep } from "node:timers/promises"
+import type { SourceBundle, StagedWorkspaceReference } from "@b4run/workspace"
 import { parseSse } from "./sse.js"
 import {
   CancelResponseSchema,
   ErrorBodySchema,
   type InterruptFrame,
   PendingInterruptsSchema,
+  StagedSourceResponseSchema,
   type StreamFrame,
   ThreadSchema,
 } from "./wire.js"
@@ -17,9 +20,21 @@ export interface Resolution {
 
 export type CancelResult = "interrupted" | "no_run_in_flight" | "thread_not_found"
 
-/** The seven Agent Protocol calls the controller uses. Nothing else is reachable through this type. */
+/** The eight Agent Protocol calls the controller uses. Nothing else is reachable through this type. */
 export interface WorkerClient {
-  createThread(metadata: Record<string, unknown>): Promise<string>
+  /**
+   * Stage a workspace's files on the worker (`PUT /workspace/sources/:digest`),
+   * content-addressed: `created` for new bytes, `held` when the worker had them.
+   */
+  uploadSource(bundle: SourceBundle): Promise<"created" | "held">
+  /**
+   * `POST /threads`. With `workspace`, the thread is created with the staged source it
+   * names (uploaded first), and the worker refuses a digest it does not hold.
+   */
+  createThread(
+    metadata: Record<string, unknown>,
+    workspace?: StagedWorkspaceReference,
+  ): Promise<string>
   startRun(
     threadId: string,
     route: string,
@@ -44,6 +59,8 @@ export class WorkerHttpError extends Error {
     readonly status: number,
     readonly code: string | undefined,
     message: string,
+    /** The response's `retry-after`, in milliseconds, when it gave one in seconds. */
+    readonly retryAfterMs?: number,
   ) {
     super(`Worker responded ${status}${code ? ` (${code})` : ""}: ${message}`)
     this.name = "WorkerHttpError"
@@ -62,14 +79,39 @@ async function toError(response: Response): Promise<WorkerHttpError> {
   } catch {
     // Non-JSON error body: keep the raw text.
   }
-  return new WorkerHttpError(response.status, code, message)
+  const retryAfter = Number(response.headers.get("retry-after") ?? Number.NaN)
+  return new WorkerHttpError(
+    response.status,
+    code,
+    message,
+    Number.isFinite(retryAfter) && retryAfter >= 0 ? retryAfter * 1000 : undefined,
+  )
+}
+
+/**
+ * How often, and how patiently, a busy worker's `429` is retried. A worker takes one upload
+ * at a time (`upload_in_flight`) and a few creates naming a workspace at a time
+ * (`workspace_create_in_flight`); both refuse before anything is kept, so sending the same
+ * request again is safe. Any other refusal, a `429` with another code included, is final.
+ */
+export interface BusyRetryOptions {
+  /** Retries after the first attempt. Default 5. */
+  readonly attempts?: number
+  /** The first wait; doubled per retry, and never shorter than the worker's `retry-after`. Default 250. */
+  readonly baseDelayMs?: number
+  /** The longest single wait, whatever `retry-after` asks for. Default 5,000. */
+  readonly maxDelayMs?: number
 }
 
 export interface HttpWorkerClientOptions {
   /** `FACTORY_WORKER_TOKEN`: sent as `authorization: Bearer <token>` on every request. */
   readonly token: string
   readonly fetch?: typeof fetch
+  readonly busyRetry?: BusyRetryOptions
 }
+
+/** The `429` codes that mean "this worker is busy with another upload or create; send it again". */
+const BUSY_CODES: ReadonlySet<string> = new Set(["upload_in_flight", "workspace_create_in_flight"])
 
 export function createHttpWorkerClient(
   baseUrl: string,
@@ -85,6 +127,11 @@ export function createHttpWorkerClient(
     // A redirect would carry the token to wherever it points: refuse it.
     return fetchImpl(url, { ...init, headers, redirect: "error" })
   }
+  const retry = {
+    attempts: options.busyRetry?.attempts ?? 5,
+    baseDelayMs: options.busyRetry?.baseDelayMs ?? 250,
+    maxDelayMs: options.busyRetry?.maxDelayMs ?? 5_000,
+  }
   const threadPath = (threadId: string, tail = "") =>
     `${base}/threads/${encodeURIComponent(threadId)}${tail}`
 
@@ -94,6 +141,30 @@ export function createHttpWorkerClient(
     const response = await send(url, { ...init, headers })
     if (!response.ok) throw await toError(response)
     return response
+  }
+
+  /**
+   * `jsonRequest`, sending the same request again while the worker answers that it is busy
+   * (`BUSY_CODES`), at most `retry.attempts` more times. Only for the upload and the create,
+   * whose busy refusals keep nothing; the body must be a string so it can be sent again.
+   */
+  async function busyRetried(url: string, init: RequestInit & { body: string }): Promise<Response> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await jsonRequest(url, init)
+      } catch (error) {
+        if (
+          !(error instanceof WorkerHttpError) ||
+          error.status !== 429 ||
+          error.code === undefined ||
+          !BUSY_CODES.has(error.code) ||
+          attempt >= retry.attempts
+        )
+          throw error
+        const asked = error.retryAfterMs ?? 0
+        await sleep(Math.min(retry.maxDelayMs, Math.max(asked, retry.baseDelayMs * 2 ** attempt)))
+      }
+    }
   }
 
   async function streamRequest(
@@ -106,10 +177,24 @@ export function createHttpWorkerClient(
   }
 
   return {
-    async createThread(metadata) {
-      const response = await jsonRequest(`${base}/threads`, {
+    async uploadSource(bundle) {
+      const response = await busyRetried(
+        `${base}/workspace/sources/${encodeURIComponent(bundle.digest)}`,
+        { method: "PUT", body: JSON.stringify(bundle) },
+      )
+      const staged = StagedSourceResponseSchema.parse(await response.json())
+      if (staged.digest !== bundle.digest)
+        throw new WorkerHttpError(
+          response.status,
+          "digest_mismatch",
+          `The worker staged ${staged.digest}, not ${bundle.digest}`,
+        )
+      return staged.status
+    },
+    async createThread(metadata, workspace) {
+      const response = await busyRetried(`${base}/threads`, {
         method: "POST",
-        body: JSON.stringify({ metadata }),
+        body: JSON.stringify({ metadata, ...(workspace !== undefined ? { workspace } : {}) }),
       })
       return ThreadSchema.parse(await response.json()).thread_id
     },

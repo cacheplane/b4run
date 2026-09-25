@@ -24,6 +24,11 @@ export const DoneFrameSchema = z.looseObject({ output: z.unknown() })
 
 export const ThreadSchema = z.looseObject({ thread_id: z.string().min(1), status: z.string() })
 
+/** `PUT /workspace/sources/:digest`'s answer: `created` for new bytes, `held` for bytes it had. */
+export const StagedSourceResponseSchema = z
+  .object({ digest: z.string().regex(/^[0-9a-f]{64}$/), status: z.enum(["created", "held"]) })
+  .strict()
+
 export const PendingInterruptsSchema = z.object({ interrupts: z.array(InterruptFrameSchema) })
 
 export const CancelResponseSchema = z.object({
