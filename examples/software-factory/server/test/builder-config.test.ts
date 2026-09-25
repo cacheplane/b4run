@@ -1,5 +1,13 @@
 import { spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -81,6 +89,14 @@ const digestOf = (resolved: unknown) =>
   (resolved as { workspace: { source: { digest: string } } }).workspace.source.digest
 
 describe("builder configuration", () => {
+  it("serves its threads' workspaces over its own port, behind src/thread-access.ts", async () => {
+    const config = await loadConfig()
+    expect(config.sandbox?.workspaceRead).toBe("http")
+    expect(existsSync(fileURLToPath(new URL("../src/thread-access.ts", import.meta.url)))).toBe(
+      true,
+    )
+  })
+
   it("boots with no target file and denies the network to every thread", async () => {
     const config = await loadConfig()
     expect(config.sandbox?.network?.mode).toBe("deny")

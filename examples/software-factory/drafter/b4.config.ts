@@ -12,12 +12,15 @@ export default config({
   appDir: "src/app",
   build: { targets: ["node"] },
   sandbox: {
-    // The scope and the image are the whole of the provider's identity, and the controller's
-    // reader constructs a provider from these same two values to address a thread's workspace.
+    // The scope and the image are the whole of the provider's identity.
     provider: dockerSandbox({
       scope: "software-factory-drafter",
       image: process.env.FACTORY_DRAFTER_IMAGE ?? DRAFTER_IMAGE,
     }),
+    // The controller reads a thread's workspace through this app's own port
+    // (`POST /threads/:id/workspace/inspect`), authorized by src/thread-access.ts, and
+    // never opens this app's installation store or its volumes itself.
+    workspaceRead: "http",
     // Per thread: the controller writes `<dir>/<workOrderId>.json` before it creates the
     // thread with `{ factoryWorkOrderId }`, and the thread serves that capture and no other.
     workspace: async (thread) => {

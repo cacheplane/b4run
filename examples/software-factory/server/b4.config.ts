@@ -20,9 +20,12 @@ export default config({
   build: { targets: ["node"] },
   sandbox: {
     // No default image: every thread runs the image its manifest names, and only an image the
-    // factory prepared may be named. The scope is the whole of the storage address the
-    // controller's reader needs; a managed workspace's image is read from its own record.
+    // factory prepared may be named. A managed workspace's image is read from its own record.
     provider: dockerSandbox({ scope: "software-factory-builder", images: isFactoryImage }),
+    // The controller reads a thread's workspace through this app's own port
+    // (`POST /threads/:id/workspace/inspect`), authorized by src/thread-access.ts, and
+    // never opens this app's installation store or its volumes itself.
+    workspaceRead: "http",
     // The ceiling every thread's policy is held to: a thread may not open what the app denies.
     network: { mode: "deny" },
     // Per thread, once, at its first admission: the controller writes `<dir>/<workOrderId>.json`
