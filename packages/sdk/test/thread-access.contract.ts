@@ -103,9 +103,23 @@ type _RequestedWorkspaceShape = Expect<
       sourceDigest: string
       environmentLinks?: readonly Readonly<{ path: string; target: string }>[]
       baseline?: "git"
+      uploadedBy?: readonly Readonly<Record<string, unknown>>[]
     }>
   >
 >
+
+// Bind a chosen workspace to its uploader: the stamp returned on `workspace.source.put` is
+// kept with the upload and handed back on the create that names it.
+const sameUploader: B4ThreadAccess = (req) => {
+  if (req.operation === "workspace.source.put")
+    return permit({ ownerId: req.headers["x-user-id"] ?? "anonymous" })
+  const uploadedBy = req.requestedWorkspace?.uploadedBy
+  return uploadedBy !== undefined &&
+    !uploadedBy.some((principal) => principal.ownerId === req.headers["x-user-id"])
+    ? deny({ status: 403 })
+    : permit()
+}
+void sameUploader
 
 // One rule covers staging and choosing a workspace.
 const serviceChoosesWorkspaces: B4ThreadAccess = (req) =>

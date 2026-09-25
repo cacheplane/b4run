@@ -3,6 +3,8 @@ import {
   STAGED_RETENTION_MAX_MS,
   STAGED_RETENTION_MIN_MS,
   STAGED_UPLOAD_MAX_BYTES,
+  STAGED_UPLOAD_TIMEOUT_MAX_MS,
+  STAGED_UPLOAD_TIMEOUT_MIN_MS,
   WORKSPACE_READ_TIMEOUT_MAX_MS,
   WORKSPACE_READ_TIMEOUT_MIN_MS,
 } from "./workspace-protocol.js"
@@ -85,7 +87,12 @@ export function sandboxConfigShapeErrors(sandbox: unknown): string[] {
   return errors
 }
 
-const STAGED_LIMITS = ["maxUploadBytes", "retentionMs", "maxStagedBytes"] as const
+const STAGED_LIMITS = [
+  "maxUploadBytes",
+  "retentionMs",
+  "maxStagedBytes",
+  "uploadTimeoutMs",
+] as const
 
 function integerIn(value: unknown, min: number, max: number): boolean {
   return Number.isSafeInteger(value) && (value as number) >= min && (value as number) <= max
@@ -121,6 +128,7 @@ function stagedWorkspacesErrors(block: Record<string, unknown>): string[] {
     bound("maxUploadBytes", 1, STAGED_UPLOAD_MAX_BYTES)
     bound("retentionMs", STAGED_RETENTION_MIN_MS, STAGED_RETENTION_MAX_MS)
     bound("maxStagedBytes", 1, STAGED_QUOTA_MAX_BYTES)
+    bound("uploadTimeoutMs", STAGED_UPLOAD_TIMEOUT_MIN_MS, STAGED_UPLOAD_TIMEOUT_MAX_MS)
   }
   if (block.thread === undefined && typeof block.workspace !== "function")
     errors.push(

@@ -10,6 +10,7 @@ import {
 } from "../src/lib/dev/runtime-fetch-handler.ts"
 import { collectSandboxErrors } from "../src/lib/runtime/collect-sandbox-errors.ts"
 import { sandboxConfigShapeErrors } from "../src/lib/runtime/sandbox-config-shape.ts"
+import { stagedWorkspaceSettings } from "../src/lib/runtime/workspace-protocol.ts"
 import { managedProviderFixture } from "./support/managed-provider.ts"
 
 const roots: string[] = []
@@ -172,6 +173,8 @@ describe("sandbox.stagedWorkspaces shape", () => {
       { retentionMs: 60_000 },
       { retentionMs: 30 * 24 * 60 * 60 * 1000 },
       { maxStagedBytes: 16 * 1024 * 1024 * 1024 },
+      { uploadTimeoutMs: 1_000 },
+      { uploadTimeoutMs: 30 * 60_000 },
     ])
       expect(
         sandboxConfigShapeErrors({ provider, thread: resolver, stagedWorkspaces: value }),
@@ -205,6 +208,12 @@ describe("sandbox.stagedWorkspaces shape", () => {
       /maxStagedBytes must be/,
     ],
     ["a string quota", { maxStagedBytes: "1" }, /maxStagedBytes must be/],
+    ["an upload deadline under a second", { uploadTimeoutMs: 999 }, /uploadTimeoutMs must be/],
+    [
+      "an upload deadline over 30 minutes",
+      { uploadTimeoutMs: 30 * 60_000 + 1 },
+      /uploadTimeoutMs must be/,
+    ],
   ] as const)
     it(`refuses ${label}`, () => {
       expect(
@@ -296,5 +305,18 @@ describe("sandbox.stagedWorkspaces needs a thread-access policy", () => {
     await expect(createRuntimeFetchHandler({ appRoot, config: config as never })).rejects.toThrow(
       /sandbox.workspaceRead and sandbox.stagedWorkspaces serve .* no thread-access policy/,
     )
+  })
+})
+
+describe("stagedWorkspaceSettings", () => {
+  it("applies the defaults, the upload deadline included", () => {
+    expect(stagedWorkspaceSettings(true)).toEqual({
+      maxUploadBytes: 96 * 1024 * 1024,
+      retentionMs: 24 * 60 * 60 * 1000,
+      maxStagedBytes: 1024 * 1024 * 1024,
+      uploadTimeoutMs: 120_000,
+    })
+    expect(stagedWorkspaceSettings({ uploadTimeoutMs: 5_000 })?.uploadTimeoutMs).toBe(5_000)
+    expect(stagedWorkspaceSettings(false)).toBeUndefined()
   })
 })

@@ -31,11 +31,17 @@ import { type StreamChunk, toSseEvent } from "../runtime/stream-types.js"
 import {
   NO_WORKSPACE_PROTOCOL,
   openedWorkspaceProtocol,
+  STAGED_CREATES_MAX_IN_FLIGHT,
   workspaceProtocolPolicyMessage,
 } from "../runtime/workspace-protocol.js"
 import { abortableAsyncIterable } from "./abortable-iterable.js"
 import { handleAgUiFetchRequest } from "./agui-handler.js"
-import { payloadTooLarge, RequestBodyTooLargeError, readBoundedText } from "./bounded-body.js"
+import {
+  payloadTooLarge,
+  RequestBodyTimeoutError,
+  RequestBodyTooLargeError,
+  readBoundedText,
+} from "./bounded-body.js"
 import type { CorsConfig } from "./cors.js"
 import { applyCorsHeaders, corsPreflightResponse, resolveCorsPolicy } from "./cors.js"
 import { createLiveTurnHub, type LiveTurnHub, type LiveTurnProducer } from "./live-turn-hub.js"
@@ -1380,6 +1386,8 @@ export function buildRouteTable(ctx: {
   // and stored (D3), so a second concurrent upload is told to retry rather than doubling
   // that peak.
   let uploadInFlight = false
+  // Creates naming a staged workspace in progress (`STAGED_CREATES_MAX_IN_FLIGHT`).
+  let stagedCreatesInFlight = 0
 
   return [
     // ------------------------------------------------------------------
@@ -1426,8 +1434,20 @@ export function buildRouteTable(ctx: {
           try {
             rawBody = await readBoundedText(request, THREAD_CREATE_BODY_MAX_BYTES)
           } catch (error) {
-            if (error instanceof RequestBodyTooLargeError) return payloadTooLarge(error)
-            throw error
+            if (!(error instanceof RequestBodyTooLargeError)) throw error
+            // The gate answers first, as a plain create (nothing of the body was read), so
+            // an unauthorized caller gets its refusal whether or not the option is on and
+            // cannot tell the two apart by the size of what it sends.
+            const plain = makeThreadGate(
+              threadAccess,
+              request,
+            )({
+              action: "create",
+              operation: "thread.create",
+            })
+            const answered = isThenable(plain) ? await plain : plain
+            if (!answered.ok) return answered.response
+            return payloadTooLarge(error)
           }
         } else rawBody = await request.text()
         let metadata: Record<string, unknown> | undefined
@@ -1455,6 +1475,9 @@ export function buildRouteTable(ctx: {
         }
         // A malformed field is a 400 whether or not the app accepts workspaces, so the
         // answer reveals nothing about the option.
+        // `named` is the body's reference, checked below; `requestedWorkspace` is what the
+        // policy sees: the same reference plus who uploaded its source.
+        let named: StagedWorkspaceFieldValue | undefined
         let requestedWorkspace: StagedWorkspaceFieldValue | undefined
         if (workspaceNamed) {
           const field = stagedWorkspaceField(workspaceField)
@@ -1463,7 +1486,17 @@ export function buildRouteTable(ctx: {
               createRequestErrorBody(field.message, { code: "invalid_request" }),
               { status: 400 },
             )
-          requestedWorkspace = field.reference
+          // Who uploaded the named source, for the policy (`uploadedBy`): the stamps its
+          // uploads were allowed with. A lookup by digest, bounded to 64, before the gate so
+          // the policy can decide on it; an app without the option has no uploads.
+          named = field.reference
+          requestedWorkspace = {
+            ...field.reference,
+            uploadedBy:
+              stagedOn && sandboxManager
+                ? sandboxManager.stagedUploaders(field.reference.sourceDigest)
+                : [],
+          }
         }
         // Unconditional, hook or no hook: the reserved key is B4.run's, contains
         // a colon (so it cannot be written as a JS property identifier), and
@@ -1490,77 +1523,97 @@ export function buildRouteTable(ctx: {
             ),
             { status: 400 },
           )
-        // Checked whole BEFORE any thread row exists: a source this worker does not hold,
-        // or a definition it could not serve, leaves nothing behind.
-        let staged: StagedWorkspaceReference | undefined
-        if (requestedWorkspace !== undefined && sandboxManager) {
-          const checked = sandboxManager.checkStagedWorkspace(requestedWorkspace)
-          if (!checked.ok)
-            return Response.json(createRequestErrorBody(checked.message, { code: checked.code }), {
-              status: 422,
-            })
-          staged = checked.reference
-        }
-
-        const stored = settled.stamp
-          ? { ...(clientMetadata ?? {}), [THREAD_ACCESS_METADATA_KEY]: settled.stamp }
-          : clientMetadata
-        const input = stored !== undefined ? { metadata: stored } : {}
-
-        let thread = await getThreadsStore(request).createThread(input)
-
-        // Both of the following are inside the hook branch. A hook-less app
-        // makes the one createThread call above and returns, exactly as today.
-        if (threadAccess) {
-          // The id is server-generated and only 32 bits wide, so the row that
-          // came back is not necessarily the row we wrote: Postgres upserts on a
-          // collision and returns the existing row with its existing metadata,
-          // discarding the caller's. Retry rather than hand back a stranger's
-          // thread — a bare re-authorization would be safe but would 403 a
-          // create the caller was fully entitled to make.
-          for (let attempt = 1; attempt < 3 && !isRowWeJustWrote(thread, stored); attempt++) {
-            thread = await getThreadsStore(request).createThread(input)
-          }
-
-          // Unconditional: authorize the ROW, not the intent. Never a stamp
-          // comparison — when the policy returns permit() with no stamp both
-          // sides are undefined, the comparison passes, and the loser proceeds
-          // on the winner's row with no re-authorization at all.
-          const recheck = gate({
-            action: "update",
-            operation: "thread.create",
-            thread,
-            threadId: thread.thread_id,
-          })
-          const rechecked = isThenable(recheck) ? await recheck : recheck
-          if (!rechecked.ok) return rechecked.response
-        }
-
-        if (staged && sandboxManager) {
-          // Only the row this request wrote may be given a workspace, and only that row
-          // may be removed again: a collision's existing row is refused and left exactly as
-          // it was. A source reclaimed between the check and here
-          // (`workspace_source_not_held`) is the same refusal: the row goes and the caller
-          // uploads again. `stagedWorkspaces` requires a policy, so the collision check
-          // above always ran.
-          const ours = isRowWeJustWrote(thread, stored)
-          const attached = ours
-            ? sandboxManager.attachStagedWorkspace(thread.thread_id, staged)
-            : ({
-                ok: false,
-                code: "thread_conflict",
-                message: "Thread id collision: retry the create",
-              } as const)
-          if (!attached.ok) {
-            if (ours) await getThreadsStore(request).deleteThread(thread.thread_id)
+        // Creates that name a workspace run a few at a time (429 past that), after the
+        // gate so an unauthorized caller never takes a slot.
+        if (requestedWorkspace !== undefined) {
+          if (stagedCreatesInFlight >= STAGED_CREATES_MAX_IN_FLIGHT)
             return Response.json(
-              createRequestErrorBody(attached.message, { code: attached.code }),
-              { status: 409 },
+              createRequestErrorBody(
+                "Too many thread creations naming a workspace are in progress; retry shortly",
+                { code: "workspace_create_in_flight" },
+              ),
+              { status: 429, headers: { "retry-after": "1" } },
             )
-          }
+          stagedCreatesInFlight++
         }
+        try {
+          // Checked whole BEFORE any thread row exists: a source this worker does not hold,
+          // or a definition it could not serve, leaves nothing behind.
+          let staged: StagedWorkspaceReference | undefined
+          if (requestedWorkspace !== undefined && sandboxManager) {
+            const checked = sandboxManager.checkStagedWorkspace(named)
+            if (!checked.ok)
+              return Response.json(
+                createRequestErrorBody(checked.message, { code: checked.code }),
+                {
+                  status: 422,
+                },
+              )
+            staged = checked.reference
+          }
 
-        return Response.json(thread, { status: 200 })
+          const stored = settled.stamp
+            ? { ...(clientMetadata ?? {}), [THREAD_ACCESS_METADATA_KEY]: settled.stamp }
+            : clientMetadata
+          const input = stored !== undefined ? { metadata: stored } : {}
+
+          let thread = await getThreadsStore(request).createThread(input)
+
+          // Both of the following are inside the hook branch. A hook-less app
+          // makes the one createThread call above and returns, exactly as today.
+          if (threadAccess) {
+            // The id is server-generated and only 32 bits wide, so the row that
+            // came back is not necessarily the row we wrote: Postgres upserts on a
+            // collision and returns the existing row with its existing metadata,
+            // discarding the caller's. Retry rather than hand back a stranger's
+            // thread — a bare re-authorization would be safe but would 403 a
+            // create the caller was fully entitled to make.
+            for (let attempt = 1; attempt < 3 && !isRowWeJustWrote(thread, stored); attempt++) {
+              thread = await getThreadsStore(request).createThread(input)
+            }
+
+            // Unconditional: authorize the ROW, not the intent. Never a stamp
+            // comparison — when the policy returns permit() with no stamp both
+            // sides are undefined, the comparison passes, and the loser proceeds
+            // on the winner's row with no re-authorization at all.
+            const recheck = gate({
+              action: "update",
+              operation: "thread.create",
+              thread,
+              threadId: thread.thread_id,
+            })
+            const rechecked = isThenable(recheck) ? await recheck : recheck
+            if (!rechecked.ok) return rechecked.response
+          }
+
+          if (staged && sandboxManager) {
+            // Only the row this request wrote may be given a workspace, and only that row
+            // may be removed again: a collision's existing row is refused and left exactly as
+            // it was. A source reclaimed between the check and here
+            // (`workspace_source_not_held`) is the same refusal: the row goes and the caller
+            // uploads again. `stagedWorkspaces` requires a policy, so the collision check
+            // above always ran.
+            const ours = isRowWeJustWrote(thread, stored)
+            const attached = ours
+              ? sandboxManager.attachStagedWorkspace(thread.thread_id, staged)
+              : ({
+                  ok: false,
+                  code: "thread_conflict",
+                  message: "Thread id collision: retry the create",
+                } as const)
+            if (!attached.ok) {
+              if (ours) await getThreadsStore(request).deleteThread(thread.thread_id)
+              return Response.json(
+                createRequestErrorBody(attached.message, { code: attached.code }),
+                { status: 409 },
+              )
+            }
+          }
+
+          return Response.json(thread, { status: 200 })
+        } finally {
+          if (requestedWorkspace !== undefined) stagedCreatesInFlight--
+        }
       },
       method: "POST",
       pattern: /^\/threads(?:\?.*)?$/,
@@ -2098,15 +2151,29 @@ export function buildRouteTable(ctx: {
         try {
           let raw: string
           try {
-            raw = await readBoundedText(request, staged.maxUploadBytes)
+            // A deadline for the whole body: a client that trickles bytes would otherwise
+            // hold the one upload slot for as long as it likes.
+            raw = await readBoundedText(request, staged.maxUploadBytes, {
+              deadlineMs: staged.uploadTimeoutMs,
+            })
           } catch (error) {
             if (error instanceof RequestBodyTooLargeError) return payloadTooLarge(error)
+            if (error instanceof RequestBodyTimeoutError)
+              return Response.json(
+                createRequestErrorBody(error.message, {
+                  code: "upload_timeout",
+                  deadlineMs: error.deadlineMs,
+                }),
+                { status: 408 },
+              )
             throw error
           }
           const parsed = parseJson(raw)
           if (!parsed.ok)
             return Response.json(createRequestErrorBody("Malformed request body"), { status: 400 })
-          const outcome = sandboxManager.stageSource(parsed.value, digest)
+          // The stamp the policy returned for this upload is its uploader: kept with the
+          // upload and handed to the create that names it (`uploadedBy`), never a thread's.
+          const outcome = sandboxManager.stageSource(parsed.value, digest, settled.stamp)
           if (!outcome.ok)
             return Response.json(createRequestErrorBody(outcome.message, { code: outcome.code }), {
               status:

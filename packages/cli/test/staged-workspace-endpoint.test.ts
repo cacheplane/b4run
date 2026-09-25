@@ -57,6 +57,10 @@ async function fixture(
     readonly stagedWorkspaces?: unknown
     readonly attachRefusedOnce?: boolean
     readonly mode?: "thread" | "workspace"
+    /** Served to a thread created without a staged workspace, instead of refusing it. */
+    readonly fallbackSource?: Bundle
+    /** Replaces the fixture's token policy. */
+    readonly policy?: unknown
   } = {},
 ) {
   const appRoot = await appRootWith(APP_FILES)
@@ -67,6 +71,8 @@ async function fixture(
   const written: string[] = []
   const decide = (thread: { threadId: string; staged?: { source: { digest: string } } }) => {
     resolved.push({ threadId: thread.threadId, digest: thread.staged?.source.digest })
+    if (!thread.staged && options.fallbackSource)
+      return { version: 1 as const, source: options.fallbackSource, environmentLinks: [] }
     if (!thread.staged) throw new Error("this app serves only staged workspaces")
     return thread.staged
   }
@@ -134,7 +140,7 @@ async function fixture(
     const handler = await createRuntimeFetchHandler({
       appRoot,
       config: config as never,
-      threadAccess: threadAccess as never,
+      threadAccess: (options.policy ?? threadAccess) as never,
       threadsStore,
       ...(sandboxManager ? { sandboxManager } : {}),
     })
@@ -167,6 +173,7 @@ async function fixture(
     written,
     store,
     call,
+    raw: (request: Request) => handler.fetch(request),
     failNextDelete() {
       failNextDelete = true
     },
@@ -298,15 +305,17 @@ it("shows the policy the workspace an upload stages and the whole reference a cr
     operation: "workspace.source.put",
     requestedWorkspace: { sourceDigest: bundle.digest },
   })
+  // The create sees who uploaded it: nobody with a stamp, here.
+  const chosen = { ...reference, uploadedBy: [] }
   expect(f.decisions).toContainEqual({
     action: "create",
     operation: "thread.create",
-    requestedWorkspace: reference,
+    requestedWorkspace: chosen,
   })
   expect(
     f.decisions.filter((d) => d.operation === "thread.create" && d.action === "create"),
   ).toEqual([
-    { action: "create", operation: "thread.create", requestedWorkspace: reference },
+    { action: "create", operation: "thread.create", requestedWorkspace: chosen },
     { action: "create", operation: "thread.create", requestedWorkspace: undefined },
   ])
   expect(f.decisions.filter((d) => d.action === "update").map((d) => d.requestedWorkspace)).toEqual(
@@ -505,4 +514,158 @@ it("shape-checks the workspace field onto fresh, frozen objects", () => {
     expect(stagedWorkspaceField(value).ok).toBe(false)
   // Inherited keys are not the client's.
   expect(stagedWorkspaceField(Object.create({ sourceDigest: digest })).ok).toBe(false)
+})
+
+it("refuses a create naming a source an admission stored for another thread", async () => {
+  const secret = source("another thread's workspace")
+  const f = await fixture({ fallbackSource: secret })
+  // Thread A is created without a staged workspace; its admission stores `secret`.
+  const a = (
+    (await (await f.call("POST", "/threads", { metadata: {} })).json()) as {
+      thread_id: string
+    }
+  ).thread_id
+  expect((await f.read(a)).status).toBe(200)
+  const installation = openWorkspaceInstallationReader(f.appRoot)
+  const digest = installation.associations.get(a)?.intent.sourceDigest
+  installation.close()
+  expect(digest).toBe(secret.digest)
+  // Its digest is public (inspection answers it); naming it must not hand B A's files.
+  const response = await f.create({ sourceDigest: secret.digest })
+  expect(response.status).toBe(422)
+  expect(await response.json()).toMatchObject({
+    error: { details: { code: "workspace_source_not_held" } },
+  })
+  expect(rowsCreated(f.decisions)).toBe(1)
+})
+
+it("binds an upload to its uploader, so a policy can refuse another principal's upload", async () => {
+  /** Uploads are stamped with the caller; a create must name a source its caller uploaded. */
+  const sameUploader = {
+    fallback: (req: {
+      operation: string
+      headers: Readonly<Record<string, string>>
+      requestedWorkspace?: { uploadedBy?: readonly Record<string, unknown>[] }
+    }) => {
+      const user = req.headers["x-user-id"]
+      if (!user) return { decision: "deny" as const, status: 403 as const }
+      if (req.operation === "workspace.source.put")
+        return { decision: "allow" as const, stamp: { ownerId: user } }
+      const uploadedBy = req.requestedWorkspace?.uploadedBy
+      if (uploadedBy && !uploadedBy.some((principal) => principal.ownerId === user))
+        return { decision: "deny" as const, status: 403 as const }
+      return { decision: "allow" as const }
+    },
+  }
+  const f = await fixture({ policy: sameUploader })
+  const bundle = source("u-1's files")
+  const call = (user: string, method: string, path: string, body: unknown) =>
+    f.raw(
+      new Request(`http://localhost${path}`, {
+        method,
+        headers: { "content-type": "application/json", "x-user-id": user },
+        body: JSON.stringify(body),
+      }),
+    )
+  expect((await call("u-1", "PUT", `/workspace/sources/${bundle.digest}`, bundle)).status).toBe(201)
+  const stolen = await call("u-2", "POST", "/threads", {
+    metadata: {},
+    workspace: { sourceDigest: bundle.digest },
+  })
+  expect(stolen.status).toBe(403)
+  const own = await call("u-1", "POST", "/threads", {
+    metadata: {},
+    workspace: { sourceDigest: bundle.digest },
+  })
+  expect(own.status).toBe(200)
+  // Once u-2 uploads the same bytes itself, it may choose them too.
+  expect((await call("u-2", "PUT", `/workspace/sources/${bundle.digest}`, bundle)).status).toBe(200)
+  expect(
+    (
+      await call("u-2", "POST", "/threads", {
+        metadata: {},
+        workspace: { sourceDigest: bundle.digest },
+      })
+    ).status,
+  ).toBe(200)
+})
+
+it("limits the creates naming a workspace that run at once", async () => {
+  let release: () => void = () => {}
+  const released = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let blocked = 0
+  /** Allows everything, but holds each create's recheck until released. */
+  const slow = {
+    fallback: async (req: { action: string; operation: string }) => {
+      if (req.action === "update" && req.operation === "thread.create") {
+        blocked++
+        await released
+      }
+      return { decision: "allow" as const }
+    },
+  }
+  const f = await fixture({ policy: slow })
+  const bundle = source("x")
+  expect((await f.upload(bundle)).status).toBe(201)
+  const creates = Array.from({ length: 5 }, () => f.create({ sourceDigest: bundle.digest }))
+  // One of five is refused while four hold their slots; creates without a workspace are not limited.
+  const first = await Promise.race(creates.map((p, i) => p.then((r) => ({ i, r }))))
+  expect(first.r.status).toBe(429)
+  expect(first.r.headers.get("retry-after")).toBe("1")
+  expect(await first.r.json()).toMatchObject({
+    error: { details: { code: "workspace_create_in_flight" } },
+  })
+  const plain = f.call("POST", "/threads", { metadata: {} })
+  await expect.poll(() => blocked).toBe(5)
+  release()
+  expect((await plain).status).toBe(200)
+  const rest = await Promise.all(creates)
+  expect(rest.map((r) => r.status).sort()).toEqual([200, 200, 200, 200, 429])
+  // The slots are free again.
+  expect((await f.create({ sourceDigest: bundle.digest })).status).toBe(200)
+})
+
+it("answers an oversized create the gate's refusal first, so the option stays hidden", async () => {
+  const f = await fixture()
+  const big = {
+    metadata: { pad: "x".repeat(1024 * 1024) },
+    workspace: { sourceDigest: "a".repeat(64) },
+  }
+  expect((await f.call("POST", "/threads", big, null)).status).toBe(403)
+  const off = await fixture({ stagedWorkspaces: false })
+  expect((await off.call("POST", "/threads", big, null)).status).toBe(403)
+  // Authorized: the limit answers, and the policy saw a plain create (nothing read yet).
+  expect((await f.call("POST", "/threads", big)).status).toBe(413)
+  expect(f.decisions.filter((d) => d.operation === "thread.create").at(-1)).toEqual({
+    action: "create",
+    operation: "thread.create",
+    requestedWorkspace: undefined,
+  })
+  expect(rowsCreated(f.decisions)).toBe(0)
+})
+
+it("abandons an upload whose body stalls past the deadline, and frees the slot", async () => {
+  const f = await fixture({ stagedWorkspaces: { uploadTimeoutMs: 1_000 } })
+  const bundle = source("x")
+  const stalled = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('{"version":1,'))
+      // ...and never another byte.
+    },
+  })
+  const started = Date.now()
+  const response = await f.raw(
+    new Request(`http://localhost/workspace/sources/${bundle.digest}`, {
+      method: "PUT",
+      headers: { authorization: TOKEN },
+      body: stalled,
+      duplex: "half",
+    } as RequestInit),
+  )
+  expect(response.status).toBe(408)
+  expect(await response.json()).toMatchObject({ error: { details: { code: "upload_timeout" } } })
+  expect(Date.now() - started).toBeLessThan(10_000)
+  expect((await f.upload(bundle)).status).toBe(201)
 })

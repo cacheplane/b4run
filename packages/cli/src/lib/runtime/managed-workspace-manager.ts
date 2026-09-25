@@ -25,6 +25,7 @@ import {
   MAX_THREAD_SANDBOX_RECORD_BYTES,
   readSourceFile,
   stagedWorkspaceDefinition,
+  stagedWorkspaceFits,
   threadSandboxRecordBytes,
   verifyCapturedWorkspaceDefinition,
   verifyCreationStatus,
@@ -733,7 +734,11 @@ export class ManagedWorkspaceManager {
    * held under a digest that is not its own. Reclaims first, so expired uploads
    * free their share of the quota before this one is counted.
    */
-  stageSource(value: unknown, digest: string): StageSourceOutcome {
+  stageSource(
+    value: unknown,
+    digest: string,
+    uploader?: Readonly<Record<string, unknown>>,
+  ): StageSourceOutcome {
     const staged = this.#requireStaged()
     let bundle: SourceBundle
     try {
@@ -757,6 +762,7 @@ export class ManagedWorkspaceManager {
         bundle,
         this.#now(),
         staged.maxStagedBytes,
+        uploader,
       )
       return { ok: true, status }
     } catch (error) {
@@ -781,18 +787,19 @@ export class ManagedWorkspaceManager {
         message: `Invalid workspace: ${error instanceof Error ? error.message : String(error)}`,
       }
     }
-    const { installation } = this.#options
-    const source = installation.staged.holds(reference.sourceDigest)
-      ? installation.sources.get(reference.sourceDigest)
-      : undefined
-    if (!source)
+    // The upload's recorded file paths, not its bytes: the bundle was verified once, at
+    // upload, and is verified again where it is used (first admission). A create reads no
+    // payload and hashes nothing, so naming a large source costs no more than a small one.
+    // Only an UPLOADED source is offered: one an admission stored for another thread is not.
+    const files = this.#options.installation.staged.files(reference.sourceDigest)
+    if (!files)
       return {
         ok: false,
         code: "workspace_source_not_held",
         message: `Workspace source ${reference.sourceDigest} is not held: PUT /workspace/sources/${reference.sourceDigest} first`,
       }
     try {
-      stagedWorkspaceDefinition(reference, source)
+      stagedWorkspaceFits(reference, files)
     } catch (error) {
       return {
         ok: false,
@@ -801,6 +808,14 @@ export class ManagedWorkspaceManager {
       }
     }
     return { ok: true, reference }
+  }
+  /**
+   * Who uploaded a source: the stamps the policy returned on its uploads, for the
+   * create's policy call (`requestedWorkspace.uploadedBy`). Empty when not uploaded.
+   */
+  stagedUploaders(digest: string): readonly Readonly<Record<string, unknown>>[] {
+    this.#requireStaged()
+    return this.#options.installation.staged.uploaders(digest)
   }
   /**
    * Record a new thread's staged workspace. Refused for a thread that already has

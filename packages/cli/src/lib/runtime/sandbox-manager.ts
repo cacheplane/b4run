@@ -86,8 +86,16 @@ export class SandboxManager {
     return this.#managed
   }
   /** See `ManagedWorkspaceManager.stageSource`. Only a managed app with `stagedWorkspaces` serves it. */
-  stageSource(value: unknown, digest: string): StageSourceOutcome {
-    return this.#stagedManager().stageSource(value, digest)
+  stageSource(
+    value: unknown,
+    digest: string,
+    uploader?: Readonly<Record<string, unknown>>,
+  ): StageSourceOutcome {
+    return this.#stagedManager().stageSource(value, digest, uploader)
+  }
+  /** See `ManagedWorkspaceManager.stagedUploaders`. */
+  stagedUploaders(digest: string): readonly Readonly<Record<string, unknown>>[] {
+    return this.#stagedManager().stagedUploaders(digest)
   }
   /** See `ManagedWorkspaceManager.checkStagedWorkspace`. */
   checkStagedWorkspace(value: unknown): StagedWorkspaceCheck {

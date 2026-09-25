@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { DatabaseSync } from "node:sqlite"
 import { fileURLToPath } from "node:url"
 import { openWorkspaceInstallation, type WorkspaceInstallation } from "@b4run/sqlite-storage"
 import type { CapturedWorkspaceDefinition } from "@b4run/workspace"
@@ -72,7 +73,7 @@ async function setup(
     await manager.releaseAll()
     managers.splice(managers.indexOf(manager), 1)
   }
-  return { open, close, seen, physical, advance: (ms: number) => (now += ms) }
+  return { appRoot, open, close, seen, physical, advance: (ms: number) => (now += ms) }
 }
 
 describe("staged workspaces in the manager", () => {
@@ -269,6 +270,67 @@ describe("staged workspaces in the manager", () => {
       code: "staged_quota_exceeded",
     })
     expect(manager.stageSource(first, first.digest)).toMatchObject({ ok: true, status: "held" })
+  })
+
+  it("never stages a source an admission stored: only an upload is stageable", async () => {
+    const { open } = await setup()
+    const { manager, installation } = open()
+    // Another thread's workspace, stored at its admission; its digest is public.
+    const secret = bundle("another thread's files")
+    installation.sources.put(secret)
+    expect(manager.checkStagedWorkspace({ sourceDigest: secret.digest })).toMatchObject({
+      ok: false,
+      code: "workspace_source_not_held",
+    })
+    expect(manager.attachStagedWorkspace("t-b", { sourceDigest: secret.digest })).toMatchObject({
+      ok: false,
+      code: "workspace_source_not_held",
+    })
+    expect(installation.staged.get("t-b")).toBeUndefined()
+  })
+
+  it("keeps the uploader a policy stamped, and hands it back for a create", async () => {
+    const { open } = await setup()
+    const { manager } = open()
+    const a = bundle("a")
+    expect(manager.stageSource(a, a.digest, { ownerId: "u-1" })).toEqual({
+      ok: true,
+      status: "created",
+    })
+    manager.stageSource(a, a.digest)
+    expect(manager.stagedUploaders(a.digest)).toEqual([{ ownerId: "u-1" }])
+    expect(manager.stagedUploaders(bundle("never").digest)).toEqual([])
+  })
+
+  it("checks a create's reference without reading or re-hashing the source; admission verifies it", async () => {
+    const { appRoot, open } = await setup()
+    const { manager } = open()
+    const a = bundle("a")
+    manager.stageSource(a, a.digest)
+    // Corrupt the stored payload in place: any read of it fails verification.
+    const db = new DatabaseSync(join(appRoot, ".b4", "workspaces", "state.sqlite"))
+    const forged = JSON.stringify({
+      ...a,
+      files: [{ ...a.files[0], base64: Buffer.from("tampered").toString("base64") }],
+    })
+    db.prepare("UPDATE workspace_sources SET payload=? WHERE digest=?").run(forged, a.digest)
+    db.close()
+    const checked = manager.checkStagedWorkspace({
+      sourceDigest: a.digest,
+      environmentLinks: [{ path: "deps", target: "/opt/deps" }],
+    })
+    expect(checked).toMatchObject({ ok: true })
+    // A link over a file is still refused, from the recorded paths alone.
+    expect(
+      manager.checkStagedWorkspace({
+        sourceDigest: a.digest,
+        environmentLinks: [{ path: "main.txt", target: "/x" }],
+      }),
+    ).toMatchObject({ ok: false, code: "workspace_invalid" })
+    if (!checked.ok) return
+    manager.attachStagedWorkspace("t-1", checked.reference)
+    // The bytes are verified where they are used: the first admission refuses them.
+    await expect(manager.getForThread("t-1", signal())).rejects.toThrow()
   })
 
   it("keeps the source write and the association write synchronous: nothing can reclaim between them", () => {

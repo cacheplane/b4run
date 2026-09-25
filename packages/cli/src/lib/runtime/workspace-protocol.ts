@@ -20,6 +20,16 @@ export const STAGED_RETENTION_MIN_MS = 60 * 1000
 export const STAGED_RETENTION_MAX_MS = 30 * 24 * 60 * 60 * 1000
 export const STAGED_QUOTA_DEFAULT_BYTES = 1024 * 1024 * 1024
 export const STAGED_QUOTA_MAX_BYTES = 16 * 1024 * 1024 * 1024
+/** How long one upload body may take to arrive, so a trickling client cannot hold the only upload slot. */
+export const STAGED_UPLOAD_TIMEOUT_DEFAULT_MS = 120_000
+export const STAGED_UPLOAD_TIMEOUT_MIN_MS = 1_000
+export const STAGED_UPLOAD_TIMEOUT_MAX_MS = 30 * 60_000
+/**
+ * Creates naming a staged workspace that run at once in one process. Each is cheap (the
+ * reference is checked against the upload's recorded paths, never its bytes), but it holds
+ * a store round-trip and two policy calls; past this a create is told to retry (429).
+ */
+export const STAGED_CREATES_MAX_IN_FLIGHT = 4
 
 /** `sandbox.stagedWorkspaces` with its defaults applied. */
 export interface StagedWorkspaceSettings {
@@ -29,6 +39,8 @@ export interface StagedWorkspaceSettings {
   readonly retentionMs: number
   /** The stored bytes of every uploaded source together. */
   readonly maxStagedBytes: number
+  /** How long one upload body may take to arrive. */
+  readonly uploadTimeoutMs: number
 }
 
 /** `sandbox.stagedWorkspaces` as settings: `undefined` when off. Assumes the shape was checked. */
@@ -37,11 +49,17 @@ export function stagedWorkspaceSettings(value: unknown): StagedWorkspaceSettings
   const limits =
     value === true
       ? {}
-      : (value as { maxUploadBytes?: number; retentionMs?: number; maxStagedBytes?: number })
+      : (value as {
+          maxUploadBytes?: number
+          retentionMs?: number
+          maxStagedBytes?: number
+          uploadTimeoutMs?: number
+        })
   return Object.freeze({
     maxUploadBytes: limits.maxUploadBytes ?? STAGED_UPLOAD_MAX_BYTES,
     retentionMs: limits.retentionMs ?? STAGED_RETENTION_DEFAULT_MS,
     maxStagedBytes: limits.maxStagedBytes ?? STAGED_QUOTA_DEFAULT_BYTES,
+    uploadTimeoutMs: limits.uploadTimeoutMs ?? STAGED_UPLOAD_TIMEOUT_DEFAULT_MS,
   })
 }
 

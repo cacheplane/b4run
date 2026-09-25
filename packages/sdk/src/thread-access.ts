@@ -86,7 +86,9 @@ export type ThreadOperation =
    * `PUT /workspace/sources/:digest`: an upload of a workspace's files, which a
    * later `thread.create` may name. Arrives as a `create` with no thread and
    * `requestedWorkspace: { sourceDigest }`, so a policy's `create` handler
-   * decides it; a stamp returned here is ignored. Served only when the app sets
+   * decides it. A stamp returned here is not a thread's: it is kept with the
+   * upload as its uploader, and handed to the policy as
+   * `requestedWorkspace.uploadedBy` on a create that names it. Served only when the app sets
    * `sandbox.stagedWorkspaces`, which B4.run refuses without a policy.
    */
   | "workspace.source.put"
@@ -96,6 +98,15 @@ export type ThreadAccessRequestedWorkspace = Readonly<{
   sourceDigest: string
   environmentLinks?: readonly Readonly<{ path: string; target: string }>[]
   baseline?: "git"
+  /**
+   * On a `thread.create` only: who uploaded the named source. Each entry is the
+   * stamp a `workspace.source.put` allow returned for one upload of these bytes
+   * (unstamped uploads add nothing), in the order they first uploaded it, at most
+   * 64. Empty when the source was never uploaded with a stamp, or is not held.
+   * A policy that must keep one caller from choosing another's upload stamps
+   * uploads with the caller's identity and checks it here.
+   */
+  uploadedBy?: readonly Readonly<Record<string, unknown>>[]
 }>
 
 /**
@@ -163,7 +174,7 @@ export interface ThreadAccessRequest {
    * The workspace this request stages or chooses (`sandbox.stagedWorkspaces`):
    * on `workspace.source.put`, `{ sourceDigest }` of the upload; on a
    * `thread.create` whose body names a `workspace`, the whole reference it names
-   * (digest, links, baseline). `undefined` on every other request, on a create
+   * (digest, links, baseline) and `uploadedBy`, who uploaded that source. `undefined` on every other request, on a create
    * without one, and on the create's `update` recheck. One rule in a policy
    * (`if (req.requestedWorkspace)`) therefore covers both staging a workspace
    * and choosing one, and lets a caller create threads without choosing what

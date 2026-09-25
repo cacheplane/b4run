@@ -243,6 +243,8 @@ export interface StagedWorkspaceFieldValue {
   readonly sourceDigest: string
   readonly environmentLinks?: readonly { readonly path: string; readonly target: string }[]
   readonly baseline?: "git"
+  /** Added by the create handler, never read from the body: who uploaded the named source. */
+  readonly uploadedBy?: readonly Readonly<Record<string, unknown>>[]
 }
 
 /**
