@@ -3,7 +3,12 @@ import { join } from "node:path"
 import type { B4Config } from "@b4run/core"
 import type { SandboxProvider } from "@b4run/workspace"
 import { captureWorkspaceDefinition } from "@b4run/workspace/node"
+import { findThreadAccessFile } from "../dev/thread-access-node.js"
 import { sandboxConfigShapeErrors } from "./sandbox-config-shape.js"
+import {
+  workspaceProtocolOptionNames,
+  workspaceProtocolPolicyMessage,
+} from "./workspace-protocol.js"
 
 /** Validate the b4.config.ts sandbox block + run the provider preflight. */
 export async function collectSandboxErrors(
@@ -15,6 +20,9 @@ export async function collectSandboxErrors(
   const shape = sandboxConfigShapeErrors(sandbox)
   if (shape.length > 0) return { errors: shape, warnings: [] }
   const errors: string[] = []
+  const opened = workspaceProtocolOptionNames(sandbox)
+  if (appRoot !== undefined && opened.length > 0 && findThreadAccessFile(appRoot) === undefined)
+    errors.push(workspaceProtocolPolicyMessage(opened))
   const warnings: string[] = []
   const p = sandbox.provider as Partial<SandboxProvider> | undefined
   if (

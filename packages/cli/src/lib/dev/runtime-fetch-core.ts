@@ -27,6 +27,11 @@ import {
 import type { SandboxManager } from "../runtime/sandbox-manager.js"
 import type { B4StaticModules } from "../runtime/static-modules-core.js"
 import { type StreamChunk, toSseEvent } from "../runtime/stream-types.js"
+import {
+  NO_WORKSPACE_PROTOCOL,
+  openedWorkspaceProtocol,
+  workspaceProtocolPolicyMessage,
+} from "../runtime/workspace-protocol.js"
 import { abortableAsyncIterable } from "./abortable-iterable.js"
 import { handleAgUiFetchRequest } from "./agui-handler.js"
 import type { CorsConfig } from "./cors.js"
@@ -527,6 +532,13 @@ export async function createRuntimeFetchHandler(
       throw new Error(
         "Managed workspaces require stable boot-owned stores; requestStores is unsupported",
       )
+    // A workspace endpoint with no policy would be open to anyone who reaches the port.
+    // Checked against the RESOLVED policy, so an injected one counts and a missing file does not.
+    const opened = openedWorkspaceProtocol(
+      sandboxManager?.workspaceProtocol ?? NO_WORKSPACE_PROTOCOL,
+    )
+    if (opened.length > 0 && threadAccess === undefined)
+      throw new Error(workspaceProtocolPolicyMessage(opened))
     await sandboxManager?.reconcileDeletions(async (threadId) => {
       if (!threadsStore || !checkpointer)
         throw new Error("Managed deletion recovery requires boot-owned thread stores")

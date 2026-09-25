@@ -7,6 +7,7 @@
 const SANDBOX_KEYS = [
   "workspace",
   "thread",
+  "workspaceRead",
   "provider",
   "network",
   "env",
@@ -44,5 +45,15 @@ export function sandboxConfigShapeErrors(sandbox: unknown): string[] {
     errors.push(
       "b4.config sandbox.workspace must be a workspace definition or a resolver function.",
     )
+  if (block.workspaceRead !== undefined) {
+    if (block.workspaceRead !== "http")
+      errors.push(
+        `b4.config sandbox.workspaceRead must be "http" (got: ${JSON.stringify(block.workspaceRead) ?? typeof block.workspaceRead}).`,
+      )
+    else if (block.workspace === undefined && block.thread === undefined)
+      errors.push(
+        "b4.config sandbox.workspaceRead needs managed workspaces: set sandbox.workspace or sandbox.thread.",
+      )
+  }
   return errors
 }

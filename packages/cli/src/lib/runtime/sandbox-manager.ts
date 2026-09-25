@@ -4,6 +4,7 @@ import type {
   ManagedWorkspaceManager,
   WorkspaceAdmissionContext,
 } from "./managed-workspace-manager.js"
+import { NO_WORKSPACE_PROTOCOL, type WorkspaceProtocolSettings } from "./workspace-protocol.js"
 
 interface Entry {
   handle?: SandboxHandle
@@ -27,6 +28,7 @@ export class SandboxManager {
   readonly #entries = new Map<string, Entry>()
   readonly #managed: ManagedWorkspaceManager | undefined
   readonly #uses = new Map<string, number>()
+  readonly #protocol: WorkspaceProtocolSettings
 
   constructor(opts: {
     provider: SandboxProvider
@@ -34,12 +36,19 @@ export class SandboxManager {
     idleTimeoutMs: number
     clock?: () => number
     managed?: ManagedWorkspaceManager
+    workspaceProtocol?: WorkspaceProtocolSettings
   }) {
     this.#managed = opts.managed
     this.#provider = opts.provider
     this.#policy = opts.policy
     this.#idleTimeoutMs = opts.idleTimeoutMs
     this.#clock = opts.clock ?? Date.now
+    this.#protocol = opts.workspaceProtocol ?? NO_WORKSPACE_PROTOCOL
+  }
+
+  /** Which workspace endpoints this app serves. Always off without managed workspaces. */
+  get workspaceProtocol(): WorkspaceProtocolSettings {
+    return this.#managed ? this.#protocol : NO_WORKSPACE_PROTOCOL
   }
 
   async getForThread(
