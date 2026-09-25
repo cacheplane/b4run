@@ -62,7 +62,7 @@ async function mount(matching: Readonly<Record<string, boolean>>) {
     root?.render(
       <TourClient stops={stops}>
         {stops.map((stop, index) => (
-          <article key={stop.id} id={`tour-${stop.id}`} data-stop={index}>
+          <article key={stop.id} id={`tour-${stop.id}`} data-stop={index} tabIndex={-1}>
             <h3>{stop.file}</h3>
           </article>
         ))}
@@ -133,6 +133,13 @@ it("pins only at desktop sizes with motion on, and lets go when motion is reduce
 
   await act(async () => media?.change({ [DESKTOP]: true }))
   expect(view.client?.dataset.pinned).toBe("true")
+  // Only the current card shows once the stage pins; the others do not overlap it.
+  expect(
+    view
+      .cards()
+      .slice(1)
+      .map((card) => card.style.visibility),
+  ).toEqual(Array(6).fill("hidden"))
   // Each tab names the card it shows. The cards stay <article>s (tabpanel is not
   // an allowed role on <article>).
   expect(view.tabs.map((tab) => tab.getAttribute("aria-controls"))).toEqual(
@@ -168,6 +175,9 @@ it("scrolls smoothly to a chip's card when stacked, and jumps when motion is red
   await click(chipsOf()[2])
   expect(scrollIntoView.mock.contexts.at(-1)).toBe(moving.cards()[2])
   expect(scrollIntoView.mock.lastCall).toEqual([{ block: "start", behavior: "smooth" }])
+  // The URL names the card without a new history entry, and Tab continues inside it.
+  expect(location.hash).toBe("#tour-plan")
+  expect(document.activeElement).toBe(moving.cards()[2])
 
   await act(async () => root?.unmount())
   media?.restore()
@@ -175,4 +185,75 @@ it("scrolls smoothly to a chip's card when stacked, and jumps when motion is red
   await click(chipsOf()[4])
   expect(scrollIntoView.mock.contexts.at(-1)).toBe(still.cards()[4])
   expect(scrollIntoView.mock.lastCall).toEqual([{ block: "start", behavior: "auto" }])
+})
+
+it("ignores the cards a chip's smooth scroll passes on its way to the target", async () => {
+  const view = await mount({ [REDUCE]: false, [FULL]: true, [DESKTOP]: false })
+  const observer = FakeIntersectionObserver.latest
+  const seen = (index: number) =>
+    act(async () =>
+      observer?.callback(
+        [
+          {
+            isIntersecting: true,
+            target: view.cards()[index],
+          } as unknown as IntersectionObserverEntry,
+        ],
+        observer as unknown as IntersectionObserver,
+      ),
+    )
+  const currentChips = () =>
+    [...document.querySelectorAll('[data-tour="chips"] a[aria-current="true"]')].map((chip) =>
+      chip.getAttribute("href"),
+    )
+  await act(async () => {
+    document
+      .querySelectorAll('[data-tour="chips"] a')[5]
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }))
+  })
+  expect(currentChips()).toEqual(["#tour-subagent"])
+  const announced = view.live()
+
+  await seen(2)
+  expect(currentChips()).toEqual(["#tour-subagent"])
+  expect(view.live()).toBe(announced)
+
+  // Once the target arrives, the observer is back in charge.
+  await seen(5)
+  await seen(3)
+  expect(currentChips()).toEqual(["#tour-memory"])
+})
+
+it("names added files for screen readers, and leaves modified clicks to the browser", async () => {
+  await mount({ [REDUCE]: true, [FULL]: false, [DESKTOP]: false })
+  const chips = [...document.querySelectorAll<HTMLAnchorElement>('[data-tour="chips"] a')]
+  const added = chips.filter((_, index) => stops[index]?.state === "added")
+  expect(added.length).toBeGreaterThan(0)
+  for (const chip of added) expect(chip.querySelector(".sr-only")?.textContent).toBe(" (added)")
+  for (const chip of chips.filter((_, index) => stops[index]?.state !== "added")) {
+    expect(chip.querySelector(".sr-only")).toBeNull()
+  }
+
+  const event = new MouseEvent("click", {
+    bubbles: true,
+    cancelable: true,
+    button: 0,
+    metaKey: true,
+  })
+  // React handles the click at its root, before it bubbles to the document. Record
+  // whether React cancelled it there, then cancel it so jsdom does not navigate.
+  let prevented: boolean | undefined
+  document.addEventListener(
+    "click",
+    (e) => {
+      prevented = e.defaultPrevented
+      e.preventDefault()
+    },
+    { once: true },
+  )
+  await act(async () => {
+    chips[1]?.dispatchEvent(event)
+  })
+  expect(prevented).toBe(false)
+  expect(scrollIntoView).not.toHaveBeenCalled()
 })

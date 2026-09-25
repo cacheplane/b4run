@@ -37,6 +37,9 @@ export function TourClient({
   const triggerRef = useRef<ScrollTrigger | null>(null)
   const pinnedRef = useRef(false)
   const activeRef = useRef(0)
+  // The stop a chip or tab is scrolling to; the observer waits for it (see goTo).
+  const navigatingRef = useRef<number | null>(null)
+  const navigatingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const [active, setActive] = useState(0)
   const [pinned, setPinned] = useState(false)
   const [moved, setMoved] = useState(false)
@@ -66,6 +69,12 @@ export function TourClient({
           const cards = cardsOf(root)
           const last = count - 1
           root.setAttribute("data-pinned", "true")
+          // The cards share one grid cell once pinned: hide all but the current one
+          // before the pin measures, so they never overlap. The context reverts this.
+          gsap.set(
+            cards.filter((_, index) => index !== activeRef.current),
+            { autoAlpha: 0 },
+          )
           pinnedRef.current = true
           setPinned(true)
           triggerRef.current = ScrollTrigger.create({
@@ -105,13 +114,24 @@ export function TourClient({
       (entries) => {
         if (pinnedRef.current) return
         for (const entry of entries) {
-          if (entry.isIntersecting) moveTo(Number((entry.target as HTMLElement).dataset.stop))
+          if (!entry.isIntersecting) continue
+          const index = Number((entry.target as HTMLElement).dataset.stop)
+          // While scrolling to a chosen card, skip the cards passed on the way.
+          if (navigatingRef.current !== null) {
+            if (index !== navigatingRef.current) continue
+            navigatingRef.current = null
+            clearTimeout(navigatingTimer.current)
+          }
+          moveTo(index)
         }
       },
       { rootMargin: "-40% 0px -55% 0px" },
     )
     for (const card of cardsOf(root)) observer.observe(card)
-    return () => observer.disconnect()
+    return () => {
+      observer.disconnect()
+      clearTimeout(navigatingTimer.current)
+    }
   }, [moveTo])
 
   // Keep the current chip in view inside the chip bar (horizontally only).
@@ -158,18 +178,25 @@ export function TourClient({
     }
   }, [active, activeState, pinned])
 
-  function goTo(index: number) {
+  /** Shows stop `index`; when stacked, scrolls to its card and returns it. */
+  function goTo(index: number): HTMLElement | undefined {
     moveTo(index)
     const trigger = triggerRef.current
     if (trigger) {
       const offset = ((trigger.end - trigger.start) * index) / (count - 1)
       window.scrollTo({ top: trigger.start + offset, behavior: "smooth" })
-      return
+      return undefined
     }
+    const card = document.getElementById(`tour-${stops[index]?.id}`)
+    if (!card) return
+    navigatingRef.current = index
+    clearTimeout(navigatingTimer.current)
+    navigatingTimer.current = setTimeout(() => {
+      navigatingRef.current = null
+    }, 1000)
     const behavior = window.matchMedia(REDUCE).matches ? "auto" : "smooth"
-    document
-      .getElementById(`tour-${stops[index]?.id}`)
-      ?.scrollIntoView({ block: "start", behavior })
+    card.scrollIntoView({ block: "start", behavior })
+    return card
   }
 
   // A plain click on a chip scrolls there smoothly (unless motion is reduced);
@@ -179,7 +206,11 @@ export function TourClient({
       return
     }
     event.preventDefault()
-    goTo(index)
+    const card = goTo(index)
+    // Name the card in the URL without a new history entry, as the jump link would.
+    history.replaceState(null, "", `#tour-${stops[index]?.id}`)
+    // Tab continues inside the card. Only here, not in goTo: the tablist keeps focus.
+    card?.focus({ preventScroll: true })
   }
 
   function onTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
@@ -218,6 +249,7 @@ export function TourClient({
           >
             {stop.state === "added" ? <span aria-hidden="true">+ </span> : null}
             {stop.file}
+            {stop.state === "added" ? <span className="sr-only"> (added)</span> : null}
           </a>
         ))}
       </nav>
@@ -250,11 +282,7 @@ export function TourClient({
                   onClick={() => goTo(index)}
                   onKeyDown={(event) => onTabKeyDown(event, index)}
                 >
-                  {stop.state === "added" ? (
-                    <span className={styles.plus} aria-hidden="true">
-                      +
-                    </span>
-                  ) : null}
+                  {stop.state === "added" ? <span aria-hidden="true">+</span> : null}
                   {stop.file}
                   <span className="sr-only">
                     {stop.state === "added" ? ", added" : ", scaffolded"}
