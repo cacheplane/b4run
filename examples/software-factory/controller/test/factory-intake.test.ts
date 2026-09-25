@@ -15,7 +15,13 @@ import { createCommandLog } from "../src/lib/registry/commands.ts"
 import { openRegistry } from "../src/lib/registry/db.ts"
 import { createWorkOrderStore, type WorkOrderPatch } from "../src/lib/registry/work-orders.ts"
 import { createArtifactStore } from "../src/lib/storage/artifacts.ts"
-import { configureCatalog, loadTask, resetCatalogForTests } from "../src/lib/targets/catalog.ts"
+import {
+  configureCatalog,
+  loadTargetRecipe,
+  loadTask,
+  resetCatalogForTests,
+} from "../src/lib/targets/catalog.ts"
+import { type ImageRegistry, openImageRegistry } from "../src/lib/targets/images.ts"
 import { assembleReceipt, evidenceRef } from "../src/lib/verification/receipt.ts"
 import type { Verifier } from "../src/lib/verification/verifier.ts"
 import { createHttpWorkerClient, type WorkerClient } from "../src/lib/worker/client.ts"
@@ -23,11 +29,13 @@ import {
   type WorkspaceReader,
   WorkspaceRootMissingError,
 } from "../src/lib/worker/workspace-reader.ts"
+import { fakeImageBuilder } from "./fake-image-builder.ts"
 import { createFakeVerifier, type FakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
 import { fakeBuilderHandoff, fakeWorkerMap } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
 import { BAD_DRAFTS, GOOD_DRAFT } from "./intake-fixtures.ts"
+import { useImages } from "./static-images.ts"
 import { createEmptyRepo, repositoryHead, shippedPin } from "./temp-repo.ts"
 import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
@@ -291,6 +299,7 @@ describe("intake", () => {
       "intake_run_started:",
       "intake_turn_ended:",
       "draft_read:",
+      "image_bound:",
       "task_generated:",
       "oracle_receipt:",
       "transition:intake_drafted",
@@ -1668,5 +1677,194 @@ describe("intake reconciliation", () => {
       payload: { threadId, reason: "observer_live" },
     })
     expect(factory.show(id)?.state).toBe("intake_running")
+  })
+})
+
+/** A registry over a fake builder, configured process-wide for this test (the factory builds through it). */
+function fakeImages(): {
+  builder: ReturnType<typeof fakeImageBuilder>
+  registry: ImageRegistry
+  restore(): void
+} {
+  const builder = fakeImageBuilder()
+  const registry = openImageRegistry({
+    path: join(dir, "images.sqlite"),
+    builder,
+    platform: "linux/arm64",
+  })
+  const restore = useImages(registry)
+  return {
+    builder,
+    registry,
+    restore: () => {
+      restore()
+      registry.close()
+    },
+  }
+}
+const eventsOf = (id: string, type: string) => factory.events(id).filter((e) => e.type === type)
+async function until(condition: () => boolean, ms = 10_000): Promise<void> {
+  const started = Date.now()
+  while (!condition()) {
+    if (Date.now() - started > ms) throw new Error("condition never held")
+    await new Promise((r) => setTimeout(r, 10))
+  }
+}
+
+describe("the fit step's image", () => {
+  it("builds the drafted target's image, journals the build with its log, and binds it before the proof", async () => {
+    await boot()
+    const images = fakeImages()
+    try {
+      const { id } = await intake()
+      const row = await factory.settleIntake(id, 20_000)
+      expect(row.state).toBe("awaiting_intake_approval")
+      expect(images.builder.requests).toHaveLength(1)
+      const [started] = eventsOf(id, "image_prepare_started")
+      const [prepared] = eventsOf(id, "image_prepared")
+      const [bound] = eventsOf(id, "image_bound")
+      expect(started?.payload).toMatchObject({ targetId: "devkit", pin: PIN, shared: false })
+      expect(prepared?.payload).toMatchObject({ targetId: "devkit", pin: PIN, shared: false })
+      const log = await createArtifactStore(join(dir, "artifacts")).read(
+        String(prepared?.payload.logDigest),
+      )
+      expect(log).toContain("building b4-factory-devkit:")
+      expect(bound?.payload).toMatchObject({
+        targetId: "devkit",
+        pin: PIN,
+        image: { localId: prepared?.payload.localId },
+      })
+      const types = factory.events(id).map((e) => e.type)
+      expect(types.indexOf("image_bound")).toBeLessThan(types.indexOf("oracle_receipt"))
+    } finally {
+      images.restore()
+    }
+  })
+
+  it("builds a pin once for two work orders that need it at once", async () => {
+    await boot()
+    const images = fakeImages()
+    images.builder.hold()
+    try {
+      const first = await intake()
+      const { id: second } = await factory.createFromIssue({
+        origin: { ...ORIGIN, number: 779 },
+        pin: PIN,
+        issue: ISSUE,
+        operationKey: "issue:779",
+      })
+      await factory.intake(second)
+      reader.set((factory.show(second) as WorkOrderRow).workerThreadId as string, GOOD_DRAFT)
+      await until(
+        () =>
+          eventsOf(first.id, "image_prepare_started").length === 1 &&
+          eventsOf(second, "image_prepare_started").length === 1,
+      )
+      images.builder.release()
+      const rows = await Promise.all([
+        factory.settleIntake(first.id, 20_000),
+        factory.settleIntake(second, 20_000),
+      ])
+      expect(rows.map((r) => r.state)).toEqual([
+        "awaiting_intake_approval",
+        "awaiting_intake_approval",
+      ])
+      expect(images.builder.requests).toHaveLength(1)
+      const shared = [first.id, second]
+        .map((id) => eventsOf(id, "image_prepare_started")[0]?.payload.shared)
+        .sort()
+      expect(shared).toEqual([false, true])
+      const localIds = [first.id, second].map(
+        (id) => (eventsOf(id, "image_bound")[0]?.payload.image as { localId?: string })?.localId,
+      )
+      expect(localIds[0]).toMatch(/^sha256:/)
+      expect(localIds[0]).toBe(localIds[1])
+    } finally {
+      images.builder.release()
+      images.restore()
+    }
+  })
+
+  it("blocks a failed build with its log in evidence, spends no drafter attempt, and the next work order builds again", async () => {
+    await boot()
+    const images = fakeImages()
+    try {
+      images.builder.failNext("pnpm install failed", "ERR_PNPM_OUTDATED_LOCKFILE\n")
+      const { id } = await intake()
+      const row = await factory.settleIntake(id, 20_000)
+      expect(row).toMatchObject({
+        state: "blocked",
+        blockedReason: "image_prepare_failed",
+        intakeAttempts: 0,
+      })
+      const [failed] = eventsOf(id, "image_prepare_failed")
+      expect(failed?.payload).toMatchObject({
+        targetId: "devkit",
+        pin: PIN,
+        error: `Target devkit at ${PIN}: pnpm install failed`,
+      })
+      const log = await createArtifactStore(join(dir, "artifacts")).read(
+        String(failed?.payload.logDigest),
+      )
+      expect(log).toContain("ERR_PNPM_OUTDATED_LOCKFILE")
+      expect(verifier.calls).toHaveLength(0)
+      expect(refusals(id)).toHaveLength(0)
+
+      const { id: next } = await factory.createFromIssue({
+        origin: { ...ORIGIN, number: 780 },
+        pin: PIN,
+        issue: ISSUE,
+        operationKey: "issue:780",
+      })
+      await factory.intake(next)
+      reader.set((factory.show(next) as WorkOrderRow).workerThreadId as string, GOOD_DRAFT)
+      expect((await factory.settleIntake(next, 20_000)).state).toBe("awaiting_intake_approval")
+      expect(images.builder.requests).toHaveLength(2)
+    } finally {
+      images.restore()
+    }
+  })
+
+  it("abandons the build when the work order is cancelled mid-build, recording nothing", async () => {
+    await boot()
+    const images = fakeImages()
+    images.builder.hold()
+    try {
+      const { id } = await intake()
+      await until(() => eventsOf(id, "image_prepare_started").length === 1)
+      expect((await factory.cancel(id)).ok).toBe(true)
+      await until(() => images.builder.aborted === 1)
+      expect(factory.show(id)?.state).toBe("cancelled")
+      expect(eventsOf(id, "image_prepare_aborted")).toHaveLength(1)
+      expect(images.registry.recorded(loadTargetRecipe("devkit", { pin: PIN }))).toBeUndefined()
+    } finally {
+      images.builder.release()
+      images.restore()
+    }
+  })
+
+  it("does not charge the build's time to the work order's budget", async () => {
+    let clock = Date.parse("2026-09-25T00:00:00.000Z")
+    await bootWorker()
+    await bootFactory({ now: () => clock, maxActiveMs: 1_200_000 })
+    const images = fakeImages()
+    images.builder.hold()
+    try {
+      const { id } = await intake()
+      await until(() => eventsOf(id, "image_prepare_started").length === 1)
+      clock += 3_600_000 // an hour of building: three times the whole budget
+      images.builder.release()
+      const row = await factory.settleIntake(id, 20_000)
+      expect(row.state).toBe("awaiting_intake_approval")
+      expect(row.activeMs).toBeLessThan(60_000)
+      const types = factory.events(id).map((e) => e.type)
+      // Paused as the build started for this work order, resumed as its wait ended.
+      expect(types.indexOf("budget_paused")).toBe(types.indexOf("image_prepare_started") + 1)
+      expect(types.indexOf("budget_resumed")).toBeGreaterThan(types.indexOf("budget_paused"))
+      expect(eventsOf(id, "image_prepare_started")[0]?.payload.deadlineMs).toBeGreaterThan(0)
+    } finally {
+      images.builder.release()
+      images.restore()
+    }
   })
 })

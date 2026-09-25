@@ -59,6 +59,10 @@ export const BLOCKED_REASONS = [
   "no_target_for_package",
   // Retired (images are built when first needed); kept because rows blocked before that carry it and the row schema is an enum.
   "image_unprepared",
+  // The fit step could not build the drafted target's image at the work order's pin (the log
+  // is in evidence). Not the drafter's doing, so no attempt is spent; not standing either: a
+  // failure is never recorded, and the next work order at the pin builds again.
+  "image_prepare_failed",
   // The drafter turn ended without a draft, or the stream was lost past its retries.
   "intake_run_failed",
   // The candidate's allowed file carries an elision placeholder (`... (file truncated)`) or

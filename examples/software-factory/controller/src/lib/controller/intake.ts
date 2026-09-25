@@ -11,6 +11,7 @@ import { loadPolicy } from "../verification/policy.js"
 import { classifyDone, type StreamFrame } from "../worker/wire.js"
 import { WorkspaceRootMissingError, workspaceReadFailure } from "../worker/workspace-reader.js"
 import type { ControllerContext } from "./context.js"
+import { prepareWorkOrderImage } from "./images.js"
 import { reconcileWorkOrder } from "./reconcile.js"
 import { handedSourceDigest } from "./source-digest.js"
 import { consumeTurn } from "./turns.js"
@@ -364,6 +365,20 @@ async function proveDraft(
     await refuse(ctx, id, parsed.reason, parsed.blockedReason, draft)
     return
   }
+  // The fit step's image (spec item 4): the drafted target at the work order's pin, built now
+  // if this host has none, journalled with its log, and bound to this attempt, which proves
+  // its oracle in it. Its time is not the work order's (the budget is paused around it), and a
+  // failure is not the drafter's: the row blocks with no attempt spent.
+  const image = await prepareWorkOrderImage(ctx, id, parsed.target, signal, { rebind: true })
+  if (!image.ok) {
+    if (image.kind === "aborted") {
+      ctx.recordEvent(id, "intake_aborted", { reason: String(signal.reason) })
+      return
+    }
+    block(ctx, id, "image_prepare_failed", { reason: image.reason })
+    return
+  }
+  if (!isIntake(ctx.mustGet(id).state)) return
 
   // Read before the task is written: materialising replaces the directory wholesale, and
   // `issue.md` is one of the files it writes back.
