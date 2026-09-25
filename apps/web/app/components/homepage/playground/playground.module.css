@@ -22,7 +22,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-height: 36px;
+  min-height: 44px;
   padding: 0 12px;
   border: 1px solid var(--color-panel-rule);
   background: transparent;
@@ -60,7 +60,13 @@
     monospace;
   color: var(--color-panel-muted);
 }
+/* Every variant of a pane is stacked in the same grid cell: the tallest one
+   sets the stage's height, so toggling never shifts the rest of the page. */
+.stage {
+  display: grid;
+}
 .code {
+  grid-area: 1 / 1;
   margin: 0;
   padding: 8px 16px 16px;
   font:
@@ -71,6 +77,9 @@
   tab-size: 2;
   background: transparent;
   color: var(--color-panel-ink);
+}
+.code:not([data-active="true"]) {
+  visibility: hidden;
 }
 .code code {
   font: inherit;
@@ -105,8 +114,11 @@
     animation: schema-flash 600ms ease-out;
   }
 }
+/* Starts at 20%, not 40%: 40% dropped JSON token colours to ~3:1 on the panel.
+   20% keeps every token colour at or above 4.5:1 and still reads as a flash
+   against the 14% settle. */
 @keyframes schema-flash {
   from {
-    background-color: color-mix(in srgb, var(--color-relay-tint) 40%, var(--color-panel));
+    background-color: color-mix(in srgb, var(--color-relay-tint) 20%, var(--color-panel));
   }
 }

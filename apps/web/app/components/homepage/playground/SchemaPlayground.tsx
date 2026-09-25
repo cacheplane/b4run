@@ -25,10 +25,13 @@ const bare = (line: string) => line.replace(/,$/, "")
 
 /** What the live region says after a toggle. */
 export function describeVariant(variant: PlaygroundVariant): string {
+  // `formal` is the only field that's ever optional, so naming it here is what
+  // makes a toggle that never touches `required` still change the announcement.
+  const optional = variant.formal ? "Optional: formal." : "Optional: none."
   const description = variant.description
     ? `Description: ${variant.description}`
     : "No description, so the model sees only the name greet."
-  return `Required: ${variant.required.join(", ")}. ${description}`
+  return `Required: ${variant.required.join(", ")}. ${optional} ${description}`
 }
 
 /**
@@ -77,40 +80,71 @@ export function SchemaPlayground({
       <div className={styles.panes}>
         <section className={styles.pane} aria-label="greet.ts source">
           <p className={styles.paneLabel}>src/app/hello/tools/greet.ts</p>
-          <pre className={styles.code}>
-            <code>
-              {variant.sourceLines.map((html, index) => {
-                const lineKey = `${variant.id}:source:${index}`
-                return (
-                  <span key={lineKey} className={styles.line}>
-                    {/* biome-ignore lint/security/noDangerouslySetInnerHtml: Only server-produced Shiki tokens; highlightCode escapes all source text. */}
-                    <span dangerouslySetInnerHTML={{ __html: html }} />
-                  </span>
-                )
-              })}
-            </code>
-          </pre>
+          {/* Every variant stays mounted, stacked in one grid cell, so the
+              tallest one reserves the space and toggling never shifts layout.
+              Only the active variant is visible or reachable. */}
+          <div className={styles.stage}>
+            {variants.map((item) => {
+              const active = item.id === variant.id
+              return (
+                <pre
+                  key={item.id}
+                  className={styles.code}
+                  data-active={active}
+                  aria-hidden={active ? undefined : true}
+                  inert={active ? undefined : true}
+                >
+                  <code>
+                    {item.sourceLines.map((html, index) => {
+                      const lineKey = `${item.id}:source:${index}`
+                      return (
+                        <span key={lineKey} className={styles.line}>
+                          {/* biome-ignore lint/security/noDangerouslySetInnerHtml: Only server-produced Shiki tokens; highlightCode escapes all source text. */}
+                          <span dangerouslySetInnerHTML={{ __html: html }} />
+                        </span>
+                      )
+                    })}
+                  </code>
+                </pre>
+              )
+            })}
+          </div>
         </section>
         <section className={styles.pane} aria-label="What the model sees">
           <p className={styles.paneLabel}>What the model sees</p>
-          <pre className={styles.code}>
-            <code>
-              {variant.schemaLines.map((html, index) => {
-                const lineKey = `${variant.id}:schema:${index}`
-                const changed =
-                  previous !== null && !previous.has(bare(variant.schemaText[index] ?? ""))
-                return (
-                  <span key={lineKey} className={styles.line} data-changed={changed}>
-                    <span className={styles.gutter} aria-hidden="true">
-                      {changed ? "+" : " "}
-                    </span>
-                    {/* biome-ignore lint/security/noDangerouslySetInnerHtml: Only server-produced Shiki tokens; highlightCode escapes all source text. */}
-                    <span dangerouslySetInnerHTML={{ __html: html }} />
-                  </span>
-                )
-              })}
-            </code>
-          </pre>
+          <div className={styles.stage}>
+            {variants.map((item) => {
+              const active = item.id === variant.id
+              return (
+                <pre
+                  key={item.id}
+                  className={styles.code}
+                  data-active={active}
+                  aria-hidden={active ? undefined : true}
+                  inert={active ? undefined : true}
+                >
+                  <code>
+                    {item.schemaLines.map((html, index) => {
+                      const lineKey = `${item.id}:schema:${index}`
+                      const changed =
+                        active &&
+                        previous !== null &&
+                        !previous.has(bare(item.schemaText[index] ?? ""))
+                      return (
+                        <span key={lineKey} className={styles.line} data-changed={changed}>
+                          <span className={styles.gutter} aria-hidden="true">
+                            {changed ? "+" : " "}
+                          </span>
+                          {/* biome-ignore lint/security/noDangerouslySetInnerHtml: Only server-produced Shiki tokens; highlightCode escapes all source text. */}
+                          <span dangerouslySetInnerHTML={{ __html: html }} />
+                        </span>
+                      )
+                    })}
+                  </code>
+                </pre>
+              )
+            })}
+          </div>
         </section>
       </div>
       <p className="sr-only" aria-live="polite">
