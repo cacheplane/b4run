@@ -18,15 +18,18 @@
 
 Each has a recommendation; the plan is written to the recommendation. If Brian decides otherwise, the named tasks change.
 
-- **D1. May a thread's policy only narrow the app's, or replace it?** Recommendation: **field-wise replace, with one monotone guard.** A thread may set `network`, `env` and `resources`; each one it sets replaces the app's field whole, and `security` is always the app's (not settable per thread). The guard: when the app's `network.mode` is `deny`, a thread asking for `allow` is refused (at first admission and again at every reconnect, so an app that later denies the network also stops old threads that asked for it). Pure narrowing is not workable for resources: the `cli` target needs more memory than `cli-flags`, so "narrow only" would force the app to declare the maximum of every target. Tasks 5 (`threadPolicy`) and 8.
+> **Amended after review (2026-09-24).** D1 now merges `resources` key by key and keeps the app's network object when the mode matches; D9 also refuses `resources.diskGb`; D8 runs on every `sandbox` block at build; D11 (missing record) is new. Tasks 4, 5, 7, 9, 10, 15, 20, 21, 22, 23 and the PR 3 README changed accordingly; see "Review amendments" at the end.
+
+- **D1. May a thread's policy only narrow the app's, or replace it?** Recommendation: **merge, with monotone network.** A thread may set `network`, `env` and `resources`; `security` is always the app's (not settable per thread). `resources` merge key by key (the thread's keys win, the app's other keys stay: a thread that sets only `memoryMb` keeps the app's `timeoutMs`). `env` replaces the app's whole (a partial merge would leave variables nobody asked for). `network` can only stay or narrow: a thread `deny` under an app `allow` becomes `{ mode: "deny" }`; a thread whose mode equals the app's keeps the app's network object, so an app `allow` keeps its `denylist`; a thread `allow` under an app `deny` is refused, at first admission and again at every reconnect (an app that later denies the network also stops old threads that asked for it). Pure narrowing is not workable for resources: the `cli` target needs more memory than `cli-flags`. Tasks 5 (`threadPolicy`) and 8.
 - **D2. How do per-thread permissions combine with the app's?** Recommendation: **the thread's `allow` replaces the app's config allow-list; denials add up; the mode is the app's.** Concretely `match` = deny if the thread's `deny` matches, deny if the app's store says deny (its config denials and any hand-written runtime denials), then allow if the thread's `allow` or (interactive mode only) the thread's recorded grants match, else unknown; `bypass` returns unknown as every store does. The app's runtime allow-list in `.b4/permissions.json` is NOT consulted for such a thread (another thread's "Always" must not leak in) and an "Always" in such a thread is written to the thread's record only. Works over any `PermissionsStore` (the file store, a config `permissions.store`, the Postgres store), because it only reads the base store's `mode` and its `deny` verdicts. PR 2, Tasks 11 to 15.
 - **D3. Provider interface: the spec's `resolveEnvironment(signal, { image })` or a separate method?** Recommendation: **a separate optional method, `resolveImageEnvironment(image, signal)`, whose presence is the capability probe** (the pattern `openWorkspaceReader` already uses). An extra argument to an existing method is silently ignored by every provider written before it, so a third-party provider would run a thread that asked for image B in its default image A: a fail-open. With a probe, the manager refuses a per-thread image on a provider without the method before anything is created. Tasks 2, 3, 5.
-- **D4. Kubernetes and Postgres parity.** No decision needed, recorded because the question was asked: `kubernetesSandbox` has no `workspaces` (no `ManagedWorkspaceProvider`; `packages/sandbox/src/kubernetes/kube-sandbox.ts` never sets it), and `resolveSandboxManager` already refuses a managed configuration on such a provider ("Sandbox provider does not support managed workspaces", `resolve-sandbox.ts:42-43`). `sandbox.thread` always carries a workspace, so it is refused on Kubernetes by the same check; Task 7 adds a test that says so. `@b4run/postgres-storage` has no workspace installation store (its stores are checkpointer, threads, permissions); the installation is always `openWorkspaceInstallation(appRoot)` (SQLite under `.b4/workspaces`), so the record has one home. Thread grants therefore live in SQLite even when the app's permissions store is Postgres; that is the "kept in the thread's record" rule, not a parity gap.
+- **D4. Kubernetes and Postgres parity.** No decision needed, recorded because the question was asked: `kubernetesSandbox` has no `workspaces` (no `ManagedWorkspaceProvider`; `packages/sandbox/src/kubernetes/kube-sandbox.ts` never sets it), and `resolveSandboxManager` already refuses a managed configuration on such a provider ("Sandbox provider does not support managed workspaces", `resolve-sandbox.ts:42-43`). `sandbox.thread` always carries a workspace, so it is refused on Kubernetes by the same check; Task 7 adds tests that construct a real `kubernetesSandbox` (with a stub `client`, so no cluster is touched) and see it refused at check and at boot. `@b4run/postgres-storage` has no workspace installation store (its stores are checkpointer, threads, permissions); the installation is always `openWorkspaceInstallation(appRoot)` (SQLite under `.b4/workspaces`), so the record has one home. Thread grants therefore live in SQLite even when the app's permissions store is Postgres; that is the "kept in the thread's record" rule, not a parity gap.
 - **D5. Is `sandbox.thread` exclusive with any `sandbox.workspace`, or only with a resolver?** Recommendation: **with any.** A `ThreadSandbox` always names its workspace, so a static `workspace` beside `thread` could only be dead configuration or a fallback nobody asked for. Refused at `b4 check`, `b4 build` and boot. Task 7.
 - **D6. May `dockerSandbox` have no default image?** The factory's one builder serves every target, so no image is "the" builder's. Recommendation: **`image` becomes optional when an `images` predicate is given**, and every use of the missing default fails closed by name (`resolveEnvironment` → `unsupported`; `acquire` and the provider-storage reader → `sandboxUnavailable`). Alternative if refused: keep `image` required and have PR 3 pass one target's image as an unused default; drop Task 3 Step 5, the `dockerSandbox image options` tests and the "without a default image" test of Task 3 Step 2. Task 3.
 - **D7. Artifact form.** Recommendation: **a third tagged form, `{ version: 2, kind: "thread" }`**, distinct from `{ version: 2, kind: "resolver" }`, and a mismatch in any direction among the three forms fails boot with the rebuild error. Task 6.
-- **D8. Refuse unknown keys in the `sandbox` block?** Recommendation: **yes, at check, build and boot.** `B4Config` has no runtime schema; a misspelt `thred:` would today be silently ignored and the app would run every thread in a non-managed per-app sandbox under the app's (possibly broader) policy and permissions: exactly the near-miss fail-open class recorded for config opt-outs. Known keys: `workspace`, `thread`, `provider`, `network`, `env`, `resources`, `security`, `idleTimeoutMs`. Risk: an app that carries an extra key in `sandbox` stops booting; TypeScript already flags excess properties in literals, and no app in this repository has one. Task 7.
-- **D9. May a thread policy carry a network `allowlist` or `denylist`?** Recommendation: **no, refused by name.** The Docker managed `reconnect` maps `deny` to `--network none` and `allow` to `bridge` and enforces neither list (`packages/sandbox/src/docker/managed-workspace.ts`, `reconnect`), and managed workspaces are Docker-only today, so a list in a thread policy would read as a guarantee nobody enforces. The factory's schema already refuses both. Task 2.
+- **D8. Refuse unknown keys in the `sandbox` block?** Recommendation: **yes, at check, build and boot.** `B4Config` has no runtime schema; a misspelt `thred:` would today be silently ignored and the app would run every thread in a non-managed per-app sandbox under the app's (possibly broader) policy and permissions: exactly the near-miss fail-open class recorded for config opt-outs. Known keys: `workspace`, `thread`, `provider`, `network`, `env`, `resources`, `security`, `idleTimeoutMs`. Checked whenever `config.sandbox` exists (a lone `thred:` beside a provider fails `b4 build` too, not only a block that also has `workspace` or `thread`). Risk: an app that carries an extra key in `sandbox` stops checking, building and booting; TypeScript already flags excess properties in literals, and no app in this repository has one. The changeset names this as a behaviour change. Task 7.
+- **D9. May a thread policy carry a network `allowlist` or `denylist`, or `resources.diskGb`?** Recommendation: **no, each refused by name.** The Docker managed `reconnect` maps `deny` to `--network none` and `allow` to `bridge` and enforces neither list, and it never reads `diskGb` (`packages/sandbox/src/docker/managed-workspace.ts`, `reconnect`); managed workspaces are Docker-only today, so any of the three in a thread policy would read as a guarantee nobody enforces. The factory's schema already refuses both lists and never emits `diskGb`. Task 2.
+- **D11. What does a missing record mean?** Recommendation: **in thread mode, always a refusal.** A thread-mode manager writes a record for every thread it admits, `{ version: 1 }` when the resolver chose nothing, so "no record" can only mean the thread was admitted before the app switched to `sandbox.thread` (from `sandbox.workspace`) or its record was lost (a dropped or recreated table). Either way re-admitting it would silently run the app's defaults in place of what the thread was given; the manager refuses it as `conflict`, naming the thread and the remedy (delete the thread). The schema's recreate path stays additive rather than refusing when associations exist, deliberately: an installation that predates PR 1 has associations and no tables, and refusing it would stop every existing managed-workspace app from starting after the upgrade. The admission refusal is what makes a lost record fail closed. Tasks 4 and 5.
 - **D10. PR split.** Recommendation: three PRs, below.
 
 ## Verification of the spec against main (f2ee6cf6)
@@ -327,7 +330,7 @@ describe("verifyThreadSandbox", () => {
       policy: {
         network: { mode: "deny" },
         env: { B: "2", A: "1" },
-        resources: { memoryMb: 2048, cpus: 1.5, timeoutMs: 60_000, diskGb: 4 },
+        resources: { memoryMb: 2048, cpus: 1.5, timeoutMs: 60_000 },
       },
     })
     expect(verified.workspace).toBe(workspace)
@@ -363,6 +366,7 @@ describe("verifyThreadSandboxPolicy", () => {
     [{ resources: { cpus: Number.NaN } }, /cpus must be a positive number/],
     [{ resources: { timeoutMs: 1.5 } }, /timeoutMs must be a positive integer/],
     [{ resources: { gpus: 1 } }, /unsupported key gpus/],
+    [{ resources: { diskGb: 4 } }, /diskGb is not enforced/],
   ])("refuses %j", (value, message) => {
     expect(() => verifyThreadSandboxPolicy(value)).toThrow(message)
   })
@@ -417,14 +421,16 @@ In `packages/workspace/src/sandbox-types.ts`, insert after the `WorkspaceResolve
 
 ```ts
 /**
- * The part of a {@link SandboxPolicy} one thread may set for itself. Each field
- * a thread sets replaces the app's field whole; `security` is always the app's.
- * A thread may not open a network the app's policy denies.
+ * The part of a {@link SandboxPolicy} one thread may set for itself. `resources`
+ * merge over the app's key by key, `env` replaces the app's whole, and `network`
+ * may only keep or narrow the app's: a thread may not open a network the app's
+ * policy denies. `security` is always the app's.
  */
 export interface ThreadSandboxPolicy {
   readonly network?: SandboxPolicy["network"]
   readonly env?: SandboxPolicy["env"]
-  readonly resources?: SandboxPolicy["resources"]
+  /** Merged over the app's key by key. `diskGb` is not settable per thread: managed workspaces ignore it. */
+  readonly resources?: Omit<NonNullable<SandboxPolicy["resources"]>, "diskGb">
 }
 
 /** One thread's whole sandbox, as a {@link ThreadSandboxResolver} decides it. */
@@ -576,9 +582,13 @@ function env(value: unknown): Readonly<Record<string, string>> {
   return Object.freeze(out)
 }
 
-function resources(value: unknown): NonNullable<SandboxPolicy["resources"]> {
+function resources(value: unknown): NonNullable<ThreadSandboxPolicy["resources"]> {
   const r = plainObject(value, "policy.resources")
-  onlyKeys(r, ["memoryMb", "cpus", "timeoutMs", "diskGb"], "policy.resources")
+  if ("diskGb" in r)
+    throw new Error(
+      "policy.resources.diskGb is not enforced by managed workspaces: a thread cannot size its disk",
+    )
+  onlyKeys(r, ["memoryMb", "cpus", "timeoutMs"], "policy.resources")
   return Object.freeze({
     ...(r.memoryMb !== undefined
       ? { memoryMb: positive(r.memoryMb, "policy.resources.memoryMb", true) }
@@ -586,9 +596,6 @@ function resources(value: unknown): NonNullable<SandboxPolicy["resources"]> {
     ...(r.cpus !== undefined ? { cpus: positive(r.cpus, "policy.resources.cpus", false) } : {}),
     ...(r.timeoutMs !== undefined
       ? { timeoutMs: positive(r.timeoutMs, "policy.resources.timeoutMs", true) }
-      : {}),
-    ...(r.diskGb !== undefined
-      ? { diskGb: positive(r.diskGb, "policy.resources.diskGb", true) }
       : {}),
   })
 }
@@ -1097,15 +1104,23 @@ it("drops the record when the thread's deletion completes", () => {
   }
 })
 
-it("adds its tables to an installation created before they existed", () => {
+it("adds its tables to an installation whose associations predate them, recording nothing for those", () => {
+  // The upgrade path: an installation from before per-thread sandboxes has associations and
+  // no tables. Opening it must work (every existing managed-workspace app upgrades through
+  // here); its old threads simply have no record. In thread mode the MANAGER refuses such a
+  // thread at admission (Task 5), which is what keeps a lost record from failing open.
   const path = root()
-  openWorkspaceInstallation(path).close()
+  const first = openWorkspaceInstallation(path)
+  first.sources.put(bundle)
+  first.associations.create(intentFor(first.installationId, "old"))
+  first.close()
   const db = new DatabaseSync(join(path, ".b4", "workspaces", "state.sqlite"))
   db.exec("DROP TABLE workspace_thread_sandboxes; DROP TABLE workspace_thread_sandbox_schema")
   db.close()
   const reopened = openWorkspaceInstallation(path)
   try {
-    reopened.sources.put(bundle)
+    expect(reopened.associations.get("old")?.state).toBe("creating")
+    expect(reopened.threadSandboxes.get("old")).toBeUndefined()
     reopened.associations.create(intentFor(reopened.installationId, "one"), record)
     expect(reopened.threadSandboxes.get("one")).toEqual(record)
   } finally {
@@ -1388,7 +1403,51 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `packages/cli/test/managed-workspace-manager.test.ts` (add `SandboxPolicy` to the `@b4run/workspace` type import, `WorkspaceLifecycleError` as a value import from `@b4run/workspace`, and `type ResolvedThreadSandbox` to the manager import):
+Create `packages/cli/test/thread-policy.test.ts`:
+
+```ts
+import { describe, expect, it } from "vitest"
+import { threadPolicy } from "../src/lib/runtime/thread-policy.ts"
+
+describe("threadPolicy", () => {
+  const app = {
+    network: { mode: "allow" as const, denylist: ["169.254.169.254"] },
+    env: { A: "1", B: "2" },
+    resources: { memoryMb: 1024, timeoutMs: 60_000 },
+    security: { runAsNonRoot: true },
+  }
+  it("is the app's policy when the thread set nothing", () => {
+    expect(threadPolicy(app, undefined)).toBe(app)
+    expect(threadPolicy(app, {})).toEqual(app)
+  })
+  it("merges resources key by key, the thread's keys winning", () => {
+    expect(threadPolicy(app, { resources: { memoryMb: 4096, cpus: 2 } }).resources).toEqual({
+      memoryMb: 4096,
+      cpus: 2,
+      timeoutMs: 60_000,
+    })
+  })
+  it("replaces env whole", () => {
+    expect(threadPolicy(app, { env: { C: "3" } }).env).toEqual({ C: "3" })
+  })
+  it("keeps the app's network object, denylist included, when the thread asks for the same mode", () => {
+    expect(threadPolicy(app, { network: { mode: "allow" } }).network).toBe(app.network)
+  })
+  it("narrows an allowed network to deny", () => {
+    expect(threadPolicy(app, { network: { mode: "deny" } }).network).toEqual({ mode: "deny" })
+  })
+  it("refuses to open a network the app denies", () => {
+    expect(() =>
+      threadPolicy({ ...app, network: { mode: "deny" } }, { network: { mode: "allow" } }),
+    ).toThrow(/may not open the network/)
+  })
+  it("never takes security from the thread", () => {
+    expect(threadPolicy(app, { resources: { cpus: 1 } }).security).toBe(app.security)
+  })
+})
+```
+
+Append to `packages/cli/test/managed-workspace-manager.test.ts` (add `SandboxPolicy` to the `@b4run/workspace` type import, `WorkspaceLifecycleError` as a value import from `@b4run/workspace`, and `type ResolvedThreadSandbox` to the manager import; `DatabaseSync` is already imported from `node:sqlite`):
 
 ```ts
 function threadFixture(
@@ -1537,13 +1596,12 @@ it("refuses a thread policy that opens the network the app denies, before any pr
   expect(installation.associations.get("one")).toBeUndefined()
 })
 
-it("keeps the app's policy for a thread whose resolver set none, and records nothing for it", async () => {
-  const { manager, installation, policies, calls } = threadFixture(async () => ({
+it("keeps the app's policy for a thread whose resolver set none", async () => {
+  const { manager, policies, calls } = threadFixture(async () => ({
     definition: captured("a"),
   }))
   await manager.getForThread("one", new AbortController().signal)
   expect(policies.get("one")).toEqual({ network: { mode: "deny" }, resources: { memoryMb: 1024 } })
-  expect(installation.threadSandboxes.get("one")).toBeUndefined()
   expect(calls).toEqual(["inspect", "create", "reconnect"])
 })
 
@@ -1557,6 +1615,51 @@ it("resolves a thread's sandbox once when two first admissions overlap", async (
   const signal = new AbortController().signal
   await Promise.all([manager.getForThread("one", signal), manager.getForThread("one", signal)])
   expect(resolved).toBe(1)
+})
+
+it("records every thread it admits, { version: 1 } when the resolver chose nothing", async () => {
+  const { manager, installation } = threadFixture(async () => ({ definition: captured("a") }))
+  await manager.getForThread("one", new AbortController().signal)
+  expect(installation.threadSandboxes.get("one")).toEqual({ version: 1 })
+})
+
+it("refuses a thread admitted before the app resolved sandboxes per thread", async () => {
+  // The app ran with a static workspace, then switched to sandbox.thread: its old thread has an
+  // association and no sandbox record, and must not run under the app's defaults silently.
+  const root = mkdtempSync(join(tmpdir(), "b4-managed-thread-"))
+  roots.push(root)
+  const before = fixture(root)
+  await before.manager.getForThread("one", new AbortController().signal)
+  await before.manager.releaseAll()
+  let resolved = 0
+  const after = threadFixture(
+    async () => {
+      resolved += 1
+      return { definition: captured("a") }
+    },
+    { root },
+  )
+  await expect(after.manager.getForThread("one", new AbortController().signal)).rejects.toMatchObject({
+    code: "conflict",
+    message: expect.stringMatching(/thread one has no sandbox record/i),
+  })
+  expect(resolved).toBe(0)
+  expect(after.calls).toEqual([])
+})
+
+it("refuses a thread whose record was lost with its table", async () => {
+  const first = threadFixture(async () => ({ definition: captured("a"), image: "factory:a" }))
+  await first.manager.getForThread("one", new AbortController().signal)
+  await first.manager.releaseAll()
+  const db = new DatabaseSync(join(first.root, ".b4", "workspaces", "state.sqlite"))
+  db.exec("DROP TABLE workspace_thread_sandboxes; DROP TABLE workspace_thread_sandbox_schema")
+  db.close()
+  // Reopening recreates the tables empty (the upgrade path); admission is what refuses.
+  const second = threadFixture(async () => ({ definition: captured("a") }), { root: first.root })
+  await expect(second.manager.getForThread("one", new AbortController().signal)).rejects.toMatchObject({
+    code: "conflict",
+  })
+  expect(second.calls).toEqual([])
 })
 
 it("refuses a thread resolver beside a workspace definition or resolver", () => {
@@ -1583,10 +1686,10 @@ it("refuses a thread resolver beside a workspace definition or resolver", () => 
 - [ ] **Step 2: Run them to verify they fail**
 
 ```bash
-pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/managed-workspace-manager.test.ts
+pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/managed-workspace-manager.test.ts test/thread-policy.test.ts
 ```
 
-Expected: FAIL at import: `ResolvedThreadSandbox` is not exported, and `resolveThread` is not a manager option (typecheck would also refuse it).
+Expected: FAIL. `thread-policy.test.ts` cannot import `../src/lib/runtime/thread-policy.ts` (the file does not exist yet). In the manager file the type-only `ResolvedThreadSandbox` import is erased at run time, so the new cases fail at construction: the manager ignores the unknown `resolveThread` option and its constructor throws "Managed workspaces need a definition or a resolver". (`pnpm --filter @b4run/cli typecheck` would also refuse the option.)
 
 - [ ] **Step 3: Write `threadPolicy`**
 
@@ -1600,27 +1703,36 @@ import {
 } from "@b4run/workspace"
 
 /**
- * The policy one thread's session runs under: the app's, with each field the
- * thread set replacing the app's whole. `security` is always the app's. A
- * thread may not open a network the app denies: refused rather than narrowed,
- * so a resolver asking for more than the app grants hears about it, and
- * checked again at every reconnect, so an app that later denies the network
- * also stops the threads that asked for it earlier.
+ * The policy one thread's session runs under, from the app's and the thread's
+ * recorded overrides:
+ * - `resources` merge key by key; the thread's keys win.
+ * - `env` replaces the app's whole.
+ * - `network` keeps or narrows the app's. A thread mode equal to the app's keeps
+ *   the app's network object (an app `allow` keeps its `denylist`); a thread
+ *   `deny` under an app `allow` is `{ mode: "deny" }`; a thread `allow` under an
+ *   app `deny` is refused rather than narrowed, so a resolver asking for more
+ *   than the app grants hears about it. Checked again at every reconnect, so an
+ *   app that later denies the network also stops threads that asked earlier.
+ * - `security` is always the app's.
  */
 export function threadPolicy(
   app: SandboxPolicy,
   thread: ThreadSandboxPolicy | undefined,
 ): SandboxPolicy {
   if (thread === undefined) return app
-  if (app.network.mode === "deny" && thread.network?.mode === "allow")
+  const asked = thread.network?.mode
+  if (app.network.mode === "deny" && asked === "allow")
     throw new WorkspaceLifecycleError(
       "unsupported",
       "A thread's sandbox policy may not open the network the app's policy denies",
     )
+  const network: SandboxPolicy["network"] =
+    asked === undefined || asked === app.network.mode ? app.network : { mode: "deny" }
   const env = thread.env ?? app.env
-  const resources = thread.resources ?? app.resources
+  const resources =
+    thread.resources === undefined ? app.resources : { ...app.resources, ...thread.resources }
   return {
-    network: thread.network ?? app.network,
+    network,
     ...(env !== undefined ? { env } : {}),
     ...(resources !== undefined ? { resources } : {}),
     ...(app.security !== undefined ? { security: app.security } : {}),
@@ -1699,7 +1811,20 @@ Replace the two constructor checks (lines 71-72) with:
       throw new Error("Managed workspaces need a definition or a resolver")
 ```
 
-Replace the whole `if (!record) { ... }` block (lines 127-159) with:
+Before that block, right after the `deleting`/`deleted` refusal (line 126), add the missing-record refusal (D11):
+
+```ts
+      // In thread mode every admitted thread has a record ({ version: 1 } at least). A thread
+      // with an association and none was admitted before the app switched to sandbox.thread,
+      // or its record was lost: re-admitting it would silently run the app's defaults.
+      if (record && this.#options.resolveThread && !installation.threadSandboxes.get(threadId))
+        throw new WorkspaceLifecycleError(
+          "conflict",
+          `Thread ${threadId} has no sandbox record: it was admitted before sandbox.thread was configured, or its record was lost. Delete the thread to resolve its sandbox again.`,
+        )
+```
+
+Then replace the whole `if (!record) { ... }` block (lines 127-159) with:
 
 ```ts
       if (!record) {
@@ -1764,15 +1889,14 @@ Add the two private methods after `#serial`:
       const result = await resolveThread({ threadId, metadata, signal })
       if (!result?.definition)
         throw new Error("The thread sandbox resolver returned no workspace definition")
-      const sandbox =
-        result.image === undefined && result.policy === undefined
-          ? undefined
-          : verifyThreadSandboxRecord({
-              version: 1,
-              ...(result.image !== undefined ? { image: result.image } : {}),
-              ...(result.policy !== undefined ? { policy: result.policy } : {}),
-            })
-      return { definition: result.definition, ...(sandbox !== undefined ? { sandbox } : {}) }
+      // Always a record, even an empty one: "no record" must only ever mean "not admitted in
+      // thread mode" or "lost", both of which admission refuses (D11).
+      const sandbox = verifyThreadSandboxRecord({
+        version: 1,
+        ...(result.image !== undefined ? { image: result.image } : {}),
+        ...(result.policy !== undefined ? { policy: result.policy } : {}),
+      })
+      return { definition: result.definition, sandbox }
     }
     const definition = await captureDefinition?.({ threadId, metadata, signal })
     if (!definition) throw new Error("The workspace resolver returned no workspace definition")
@@ -1796,7 +1920,7 @@ The `const { installation, provider, policy } = this.#options` line stays: `poli
 
 ```bash
 pnpm --filter @b4run/cli typecheck
-pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/managed-workspace-manager.test.ts test/cleanup-workspaces.test.ts test/managed-workspace-reader.test.ts
+pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/managed-workspace-manager.test.ts test/thread-policy.test.ts test/cleanup-workspaces.test.ts test/managed-workspace-reader.test.ts
 ```
 
 Expected: all PASS, the existing resolver cases included ("leaves no source when the resolver ignores the abort signal" now also holds because the source is stored later).
@@ -1805,14 +1929,15 @@ Expected: all PASS, the existing resolver cases included ("leaves no source when
 
 ```bash
 pnpm --filter @b4run/cli lint
-git add packages/cli/src/lib/runtime/thread-policy.ts packages/cli/src/lib/runtime/managed-workspace-manager.ts packages/cli/test/managed-workspace-manager.test.ts
+git add packages/cli/src/lib/runtime/thread-policy.ts packages/cli/src/lib/runtime/managed-workspace-manager.ts packages/cli/test/managed-workspace-manager.test.ts packages/cli/test/thread-policy.test.ts
 git commit -m "feat(cli): the managed workspace manager resolves a thread's whole sandbox once
 
 A thread-sandbox resolver's image goes through the provider's
 resolveImageEnvironment and its identity into the intent; its image and
-policy are recorded with the association. Every reconnect runs the
-thread's recorded policy over the app's, and a thread may not open the
-network the app denies. The source is stored only after the environment
+policy are recorded with the association, { version: 1 } at least, and a thread-mode admission of a
+thread with no record is refused. Every reconnect runs the thread's
+recorded policy over the app's (resources merged, env replaced, network
+kept or narrowed). The source is stored only after the environment
 resolves.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -1954,7 +2079,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `packages/cli/test/collect-sandbox-errors.test.ts` (add `import { managedProviderFixture } from "./support/managed-provider.ts"`):
+Append to `packages/cli/test/collect-sandbox-errors.test.ts` (add `import { managedProviderFixture } from "./support/managed-provider.ts"` and `import { kubernetesSandbox } from "@b4run/sandbox"`; `@b4run/sandbox` is already a dependency of `@b4run/cli`. If the Kubernetes provider's `preflight` also reports an error against the stub client, that is an extra line in `errors`, not a failure of this assertion):
 
 ```ts
 describe("collectSandboxErrors: thread sandbox", () => {
@@ -1996,9 +2121,19 @@ describe("collectSandboxErrors: thread sandbox", () => {
     )
     expect(errors.join("\n")).toMatch(message)
   })
-  it("refuses a thread resolver on a provider without managed workspaces (the fake, as Kubernetes)", async () => {
+  it("refuses a thread resolver on a provider without managed workspaces", async () => {
     const { errors } = await collectSandboxErrors(
       { sandbox: { provider: fakeSandbox(), thread: async () => ({ workspace }) } },
+      await appRootWithWorkspace(),
+    )
+    expect(errors.join("\n")).toMatch(/does not support managed workspaces/)
+  })
+  it("refuses a thread resolver on the real Kubernetes provider (D4)", async () => {
+    // A stub client: construction touches no cluster, and the refusal comes before any call.
+    const provider = kubernetesSandbox({ scope: "k8s-thread-test", image: "i", client: {} as never })
+    expect(provider.workspaces).toBeUndefined()
+    const { errors } = await collectSandboxErrors(
+      { sandbox: { provider, thread: async () => ({ workspace }) } },
       await appRootWithWorkspace(),
     )
     expect(errors.join("\n")).toMatch(/does not support managed workspaces/)
@@ -2017,6 +2152,7 @@ Append to `packages/cli/test/resolve-sandbox.test.ts`, inside the `describe("res
       [
         `import { managedProviderFixture } from ${JSON.stringify(fixtureUrl)}`,
         `import { fakeSandbox } from "@b4run/sandbox/testing"`,
+        `import { kubernetesSandbox } from "@b4run/sandbox"`,
         `export default { sandbox: ${sandboxBody} }`,
       ].join("\n"),
       "utf8",
@@ -2049,6 +2185,11 @@ Append to `packages/cli/test/resolve-sandbox.test.ts`, inside the `describe("res
       `{ provider: fakeSandbox(), thread: async () => ({}) }`,
       /does not support managed workspaces/,
     ],
+    [
+      "a thread resolver on the real Kubernetes provider (stub client, no cluster)",
+      `{ provider: kubernetesSandbox({ scope: "k8s-thread-test", image: "i", client: {} }), thread: async () => ({}) }`,
+      /does not support managed workspaces/,
+    ],
   ])("refuses %s at boot, before opening the installation", async (_name, body, message) => {
     const appRoot = await writeThreadApp(body)
     await expect(resolveSandboxManager(appRoot)).rejects.toThrow(message)
@@ -2056,10 +2197,26 @@ Append to `packages/cli/test/resolve-sandbox.test.ts`, inside the `describe("res
   })
 ```
 
+Append to `packages/cli/test/managed-workspace-runtime.test.ts` (it already has `fixture`, `seedB4Config` and `runBuildCommand`):
+
+```ts
+it("fails b4 build on a misspelt sandbox key even with no workspace or thread", async () => {
+  const { appRoot } = await fixture()
+  const physical = managedProviderFixture()
+  seedB4Config(appRoot, {
+    build: { targets: ["node"] },
+    sandbox: { provider: physical.provider, thred: async () => ({}) },
+  } as never)
+  await expect(
+    runBuildCommand({ cwd: appRoot, clean: true }, { stdout: () => {}, stderr: () => {} }),
+  ).rejects.toThrow(/sandbox.thred is not a sandbox option/)
+})
+```
+
 - [ ] **Step 2: Run them to verify they fail**
 
 ```bash
-pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/collect-sandbox-errors.test.ts test/resolve-sandbox.test.ts
+pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/collect-sandbox-errors.test.ts test/resolve-sandbox.test.ts test/managed-workspace-runtime.test.ts
 ```
 
 Expected: FAIL: no errors for the refused shapes; `resolveSandboxManager` returns a non-managed manager for a `thread` app.
@@ -2147,7 +2304,7 @@ In `packages/cli/src/commands/check.ts`, after the resolver line (145-146):
 
 ```ts
     if (typeof loadedConfig.sandbox?.thread === "function")
-      writeLine(io.stdout, "sandbox: sandbox (workspace, image and policy) is resolved per thread")
+      writeLine(io.stdout, "sandbox: workspace, image and policy are resolved per thread")
 ```
 
 - [ ] **Step 5: Use it at boot**
@@ -2235,9 +2392,12 @@ In `packages/cli/src/commands/build.ts`, import `threadSandboxArtifact` and `typ
 ```ts
   let workspaceArtifact: WorkspaceBuildArtifact | undefined
   const sandbox = config?.sandbox
-  if (sandbox && (sandbox.workspace || sandbox.thread)) {
+  // Every sandbox block, not only a managed one: a lone misspelt `thred:` must fail the build.
+  if (sandbox !== undefined) {
     const shape = sandboxConfigShapeErrors(sandbox)
     if (shape.length > 0) throw new CliError(`Invalid sandbox config:\n${shape.join("\n")}`)
+  }
+  if (sandbox && (sandbox.workspace || sandbox.thread)) {
     if (targetNames.some((name) => name !== "node"))
       throw new CliError('Managed workspaces require build.targets: ["node"]')
     if (!sandbox.provider.workspaces)
@@ -2263,7 +2423,7 @@ Expected: all PASS.
 
 ```bash
 pnpm --filter @b4run/cli lint
-git add packages/cli/src/lib/runtime/sandbox-config-shape.ts packages/cli/src/lib/runtime/collect-sandbox-errors.ts packages/cli/src/lib/runtime/resolve-sandbox.ts packages/cli/src/lib/runtime/execute-route-core.ts packages/cli/src/commands/check.ts packages/cli/src/commands/build.ts packages/cli/test/collect-sandbox-errors.test.ts packages/cli/test/resolve-sandbox.test.ts
+git add packages/cli/src/lib/runtime/sandbox-config-shape.ts packages/cli/src/lib/runtime/collect-sandbox-errors.ts packages/cli/src/lib/runtime/resolve-sandbox.ts packages/cli/src/lib/runtime/execute-route-core.ts packages/cli/src/commands/check.ts packages/cli/src/commands/build.ts packages/cli/test/collect-sandbox-errors.test.ts packages/cli/test/resolve-sandbox.test.ts packages/cli/test/managed-workspace-runtime.test.ts
 git commit -m "feat(cli): sandbox.thread at check, build and boot
 
 The sandbox block's shape is checked where it is used: unknown keys, a
@@ -2398,7 +2558,7 @@ it("builds a thread-sandbox app to the thread artifact and resolves per thread f
 pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/managed-workspace-runtime.test.ts
 ```
 
-Expected: PASS if Tasks 5 to 7 are complete. If the first test fails with "Managed workspace execution requires an admitted Node runtime", the `execute-route-core.ts:979` guard edit from Task 6 is missing.
+Expected: PASS if Tasks 5 to 7 are complete. If the first test fails with "Managed workspace execution requires an admitted Node runtime", the `execute-route-core.ts:979` guard edit from Task 7 is missing.
 
 - [ ] **Step 4: Commit**
 
@@ -2421,6 +2581,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Modify: `apps/web/content/docs/sandbox.mdx` (new subsection after "### Per-thread workspaces", before "## Security hardening", line 95)
 - Modify: `apps/web/content/docs/api/workspace.mdx` (export tables at lines 29-78 and 80-102; the `SandboxConfig` contract and fields at 410-431; "Managed workspace lifecycle" at 557-600)
 - Modify: `apps/web/content/docs/api/sandbox.mdx:38`, `apps/web/content/docs/api/sqlite-storage.mdx:42-46`
+- Modify: `packages/cli/src/workspace-exports.ts:11-13`, `packages/cli/src/lib/runtime/managed-workspace-reader.ts:23-24` (doc comments)
 - Create: `.changeset/per-thread-sandbox.md`
 
 Existing pages only: per `AGENTS.md`, do NOT run `pnpm --dir apps/web seo:lastmod` (no page is added or removed). Do not edit or remove any phrase `scripts/check-docs.mjs` pins for `sandbox.mdx` (its `required` and `retainedHeading` arrays); this task only adds.
@@ -2465,10 +2626,11 @@ Let's quickly review:
 - `sandbox.thread` and `sandbox.workspace` are exclusive. `b4 check`, `b4 build` and startup refuse both together, and refuse any key the `sandbox` block doesn't define.
 - The resolver runs once, when the thread is first admitted. B4.run records the image's immutable identity in the thread's creation intent, and the image reference and policy in a record written in the same transaction. Later turns, restarts and readers use the records, so changing the resolver or `images` never changes a thread that already exists.
 - `images` bounds what a resolver may name. The Docker provider refuses any other reference before it runs a Docker command, and always allows its own `image`. Without `image`, every thread must name one.
-- Each policy field a thread sets replaces the app's field. `security` stays the app's. A thread can't open a network the app denies, and a thread's network can't carry allow or deny lists, because managed workspaces don't enforce them.
+- A thread's `resources` merge over the app's key by key, and its `env` replaces the app's. Its `network` can keep or narrow the app's but never open a network the app denies. `security` stays the app's. Network allow and deny lists and `resources.diskGb` aren't accepted per thread, because managed workspaces don't enforce them.
+- Every thread admitted under `sandbox.thread` gets a record, even when the resolver chose no image or policy. A thread that has a workspace but no record (it was created before the app switched to `sandbox.thread`, or its record was lost) is refused rather than run with the app's defaults: delete it to resolve it again.
 - A provider supports per-thread images by implementing `resolveImageEnvironment`. A provider without it refuses a thread that names an image. Kubernetes has no managed workspaces, so it refuses `sandbox.thread` entirely.
 
-`b4 check` reports "sandbox (workspace, image and policy) is resolved per thread", and a built app carries a thread marker instead of captured source.
+`b4 check` reports "workspace, image and policy are resolved per thread", and a built app carries a thread marker instead of captured source.
 ````
 
 - [ ] **Step 2: The API reference**
@@ -2521,6 +2683,8 @@ export interface SandboxConfig {
 ```md
 `sandbox.thread` goes one step further: a `ThreadSandboxResolver` returns the thread's
 workspace, an optional image and optional policy overrides, once, at first admission.
+Every thread admitted this way has a record, and a thread-mode admission of a thread
+without one is refused as a conflict.
 The provider's `resolveImageEnvironment` turns the image into the identity recorded in
 the creation intent, and B4.run writes the image reference and the policy to a
 per-thread record in the same transaction as the association. Every reconnect runs the
@@ -2536,7 +2700,11 @@ In `apps/web/content/docs/api/sqlite-storage.mdx`, change the `WorkspaceInstalla
 | `WorkspaceThreadSandboxStore` | Read the sandbox record a thread's first admission wrote. |
 ```
 
-- [ ] **Step 3: The changeset**
+- [ ] **Step 3: The reader's doc comments**
+
+Both still say a managed workspace is one "the app declares `sandbox.workspace`". In `packages/cli/src/workspace-exports.ts:11-13` change "(the app declares `sandbox.workspace`)" to "(the app declares `sandbox.workspace` or `sandbox.thread`)", and in `packages/cli/src/lib/runtime/managed-workspace-reader.ts:23-24` change "one an app created through `sandbox.workspace`" to "one an app created through `sandbox.workspace` or `sandbox.thread`, whose image is read from the thread's own record". Doc comments only; `pnpm --filter @b4run/cli build` regenerates nothing checked in from them, but run `node scripts/check-docs.mjs` in Step 5 anyway.
+
+- [ ] **Step 4: The changeset**
 
 Create `.changeset/per-thread-sandbox.md`:
 
@@ -2549,9 +2717,11 @@ Create `.changeset/per-thread-sandbox.md`:
 ---
 
 `sandbox.thread` decides each thread's whole sandbox (workspace, image and policy) once, at the thread's first admission. The image goes through the new optional `ManagedWorkspaceProvider.resolveImageEnvironment`, and its identity is recorded in the thread's creation intent; the image reference and the policy overrides are recorded beside the association in the same transaction, and every reconnect runs the thread's recorded policy over the app's. `dockerSandbox({ images })` bounds which images a thread may name and refuses anything else before any Docker call; `image` is optional when `images` is given. A thread may not open a network the app denies, and `security` stays per app. `b4 check`, `b4 build` and startup refuse unknown `sandbox` keys and `thread` beside `workspace`; a thread-sandbox app builds to a `{ version: 2, kind: "thread" }` artifact. The installation now stores a workspace's source only after its environment resolves, so a refused image leaves no source behind.
+
+**Behaviour change:** `b4 check`, `b4 build` and startup now refuse any key in the `sandbox` block other than `workspace`, `thread`, `provider`, `network`, `env`, `resources`, `security` and `idleTimeoutMs`. A misspelt key used to be ignored silently, which left every thread in a per-app sandbox; rename or remove any other key.
 ```
 
-- [ ] **Step 4: Run the docs and changeset checks**
+- [ ] **Step 5: Run the docs and changeset checks**
 
 ```bash
 pnpm --filter @b4run/workspace... build
@@ -2561,10 +2731,10 @@ node scripts/check-changesets.mjs
 
 Expected: both exit 0. If `check-docs` names a missing ownership row or a contract fingerprint mismatch for a symbol above, fix that row or block to match the built declaration and rerun; do not add rows for symbols it does not name.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add apps/web/content/docs/sandbox.mdx apps/web/content/docs/api/workspace.mdx apps/web/content/docs/api/sandbox.mdx apps/web/content/docs/api/sqlite-storage.mdx .changeset/per-thread-sandbox.md
+git add apps/web/content/docs/sandbox.mdx apps/web/content/docs/api/workspace.mdx apps/web/content/docs/api/sandbox.mdx apps/web/content/docs/api/sqlite-storage.mdx .changeset/per-thread-sandbox.md packages/cli/src/workspace-exports.ts packages/cli/src/lib/runtime/managed-workspace-reader.ts
 git commit -m "docs(workspace): per-thread sandboxes
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -2590,10 +2760,13 @@ describe.skipIf(process.env.B4_TEST_DOCKER !== "1")(
       const docker = createDocker(),
         signal = new AbortController().signal
       const base = managedTestImage()
-      // A second image with its own id: the base plus one label, built from the local base only.
+      // A second image with its own id: the base plus labels, built from the local base only.
+      // The base carries org.b4run.code-fixer.project=cli-flags, which managedTestImage() selects
+      // by (newest first): override it, or every other Docker test file would pick this variant
+      // up as "the" managed image, and this test's cleanup would delete it under them.
       const variant = `b4-managed-variant:${randomUUID().slice(0, 12)}`
       execFileSync("docker", ["build", "-t", variant, "-"], {
-        input: `FROM ${base}\nLABEL org.b4run.test.variant="${variant}"\n`,
+        input: `FROM ${base}\nLABEL org.b4run.code-fixer.project="b4-managed-variant" org.b4run.test.variant="${variant}"\n`,
         stdio: ["pipe", "ignore", "inherit"],
       })
       const provider = createDockerManagedWorkspaces({
@@ -2648,7 +2821,10 @@ describe.skipIf(process.env.B4_TEST_DOCKER !== "1")(
       } finally {
         await provider.destroy({ intent: one }, signal)
         await provider.destroy({ intent: two }, signal)
-        execFileSync("docker", ["image", "rm", variant], { stdio: "ignore" })
+        // Best effort: a failure to untag must not mask the test's own result.
+        try {
+          execFileSync("docker", ["image", "rm", variant], { stdio: "ignore" })
+        } catch {}
       }
     })
   },
@@ -2662,10 +2838,11 @@ Docker Desktop must be running and the managed test image prepared (`pnpm code-f
 ```bash
 pnpm --filter @b4run/sandbox build
 B4_TEST_DOCKER=1 pnpm --filter @b4run/sandbox exec vitest --run --config vitest.config.ts test/managed-workspace.integration.test.ts
+docker image ls --filter label=org.b4run.code-fixer.project=cli-flags --format "{{.Repository}}:{{.Tag}}"
 B4_TEST_DOCKER=1 pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/managed-workspace-process.test.ts test/managed-workspace-reader.test.ts
 ```
 
-Expected: PASS. The second command proves the static path under the real provider is untouched.
+Expected: PASS. The `docker image ls` line must list no `b4-managed-variant` tag (the label override worked). The last command proves the static path under the real provider is untouched.
 
 - [ ] **Step 3: Run the repository gates this PR reaches**
 
@@ -3332,15 +3509,12 @@ In `managed-workspace-manager.ts`: add `type ThreadSandboxPermissions` to the `@
 In `#resolve`, change the record construction to include permissions:
 
 ```ts
-      const sandbox =
-        result.image === undefined && result.policy === undefined && result.permissions === undefined
-          ? undefined
-          : verifyThreadSandboxRecord({
-              version: 1,
-              ...(result.image !== undefined ? { image: result.image } : {}),
-              ...(result.policy !== undefined ? { policy: result.policy } : {}),
-              ...(result.permissions !== undefined ? { permissions: result.permissions } : {}),
-            })
+      const sandbox = verifyThreadSandboxRecord({
+        version: 1,
+        ...(result.image !== undefined ? { image: result.image } : {}),
+        ...(result.policy !== undefined ? { policy: result.policy } : {}),
+        ...(result.permissions !== undefined ? { permissions: result.permissions } : {}),
+      })
 ```
 
 Add the public method after `getWorkspace`:
@@ -3402,11 +3576,111 @@ Expected: all PASS.
 
 **Files:**
 - Modify: `packages/cli/src/lib/runtime/execute-route-core.ts` (after the store resolution at `:1056-1071`)
-- Test: `packages/cli/test/managed-workspace-runtime.test.ts`
+- Modify: `packages/cli/test/subagent-sandbox.test.ts:56` (its fake `sandboxManager` gains `threadPermissions`)
+- Test: `packages/cli/test/managed-workspace-runtime.test.ts`, `packages/cli/test/subagent-thread-permissions.test.ts` (new)
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests**
 
-Append to `packages/cli/test/managed-workspace-runtime.test.ts`:
+First keep the existing subagent test compiling against the wider manager: in `packages/cli/test/subagent-sandbox.test.ts:56`, change the fake to
+
+```ts
+      sandboxManager: {
+        getForThread,
+        getWorkspace: () => undefined,
+        threadPermissions: () => undefined,
+      } as never,
+```
+
+(without it, Step 3's `options.sandboxManager?.threadPermissions(...)` throws "threadPermissions is not a function" in that test).
+
+Create `packages/cli/test/subagent-thread-permissions.test.ts`. Copy `fixtureApp`, `findTaskTool` and `invokeTask` verbatim from `packages/cli/test/subagent-sandbox.test.ts` (lines 94-143 on f2ee6cf6) to the bottom of the new file, with the same imports they use, then add above them:
+
+```ts
+import type { PermissionsStore, ThreadPermissionGrants } from "@b4run/permissions"
+import { AIMessage } from "@langchain/core/messages"
+import { afterEach, expect, it, vi } from "vitest"
+import { materializeResolvedRouteGraph } from "../src/lib/runtime/execute-route.js"
+
+// Every thread-scoped store the runtime builds, in order: the parent's preparation first,
+// then one per subagent dispatch.
+const built = vi.hoisted(() => [] as PermissionsStore[])
+vi.mock("@b4run/permissions", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@b4run/permissions")>()
+  return {
+    ...actual,
+    createThreadPermissionsStore: (
+      options: Parameters<typeof actual.createThreadPermissionsStore>[0],
+    ) => {
+      const store = actual.createThreadPermissionsStore(options)
+      built.push(store)
+      return store
+    },
+  }
+})
+
+afterEach(() => {
+  built.splice(0)
+  vi.doUnmock("langchain")
+  vi.doUnmock("@langchain/openai")
+})
+
+it("gates a subagent with its parent thread's permissions and records its Always grant there", async () => {
+  delete process.env.B4_PERMISSIONS_MODE // the app's default mode, interactive
+  const appRoot = await fixtureApp()
+  // The parent thread's record: one allow-list and one grant store, keyed by the SANDBOX key.
+  const parentGrants: Record<string, string[]> = {}
+  const grants: ThreadPermissionGrants = {
+    list: () => parentGrants,
+    add(tool, pattern) {
+      ;(parentGrants[tool] ??= []).push(pattern)
+    },
+  }
+  const threadPermissions = vi.fn((_key: string) => ({
+    permissions: { allow: { bash: ["npm test"] } },
+    grants,
+  }))
+  const getForThread = vi.fn(async () => ({
+    exec: { execute: vi.fn() },
+    filesystem: { list: vi.fn(), mkdir: vi.fn(), read: vi.fn(), remove: vi.fn(), stat: vi.fn(), write: vi.fn() },
+    workspaceRoot: "/workspace",
+  }))
+  const createAgent = vi.fn((_options: unknown) => ({
+    invoke: vi.fn(async () => ({ messages: [new AIMessage("Child complete.")] })),
+  }))
+  vi.doMock("langchain", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("langchain")>()),
+    createAgent,
+  }))
+  vi.doMock("@langchain/openai", () => ({ ChatOpenAI: class {} }))
+
+  await materializeResolvedRouteGraph({
+    appRoot,
+    routeFile: `${appRoot}/src/app/parent/index.ts`,
+    routeId: "/parent",
+    routePath: "src/app/parent/index.ts",
+    sandboxManager: { getForThread, getWorkspace: () => undefined, threadPermissions } as never,
+    sandboxThreadId: "sandbox-root",
+  })
+  await invokeTask(findTaskTool(createAgent.mock.calls[0]?.[0]), "child-call")
+
+  // The parent's preparation and the child's both asked for the PARENT's record.
+  expect(threadPermissions.mock.calls.map(([key]) => key)).toEqual(["sandbox-root", "sandbox-root"])
+  expect(built).toHaveLength(2)
+  const [parent, child] = built as [PermissionsStore, PermissionsStore]
+  expect(child.match("bash", "npm test")).toBe("allow")
+  expect(child.match("bash", "make all")).toBe("unknown")
+  // The child's Always lands in the parent thread's record, and the parent's next
+  // preparation (a load of the same record) honours it.
+  await child.addAllow("bash", "make")
+  expect(parentGrants).toEqual({ bash: ["make"] })
+  await parent.load()
+  expect(parent.match("bash", "make all")).toBe("allow")
+})
+```
+
+If `vi.mock` does not take effect because `execute-route-core` binds `@b4run/permissions` from the built `dist/` of another package, the `built` array stays empty and the test fails on `toHaveLength(2)`: that is a harness problem, not a pass. Fix it by importing `createThreadPermissionsStore` in `execute-route-core.ts` exactly as the mock names it (`import { createThreadPermissionsStore } from "@b4run/permissions"`), which vitest intercepts for `src/` modules.
+
+Then append to `packages/cli/test/managed-workspace-runtime.test.ts`:
 
 ```ts
 it("gates each thread's filesystem calls with its own permissions", async () => {
@@ -3455,10 +3729,10 @@ it("gates each thread's filesystem calls with its own permissions", async () => 
 - [ ] **Step 2: Run it to verify it fails**
 
 ```bash
-pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/managed-workspace-runtime.test.ts -t "own permissions"
+pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/managed-workspace-runtime.test.ts test/subagent-thread-permissions.test.ts -t "permissions"
 ```
 
-Expected: FAIL: the writer's write is denied and the `/everyone/` write is allowed, because the gate still consults the app's store.
+Expected: FAIL. The writer's write is denied and the `/everyone/` write is allowed, because the gate still consults the app's store; and `threadPermissions` is never called, so the subagent test fails on its first `expect`.
 
 - [ ] **Step 3: Implement**
 
@@ -3483,7 +3757,7 @@ In `packages/cli/src/lib/runtime/execute-route-core.ts`, add `createThreadPermis
 
 ```bash
 pnpm --filter @b4run/cli typecheck
-pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/managed-workspace-runtime.test.ts test/store-injection.test.ts test/boot-instance-passthrough.test.ts test/subagent-sandbox.test.ts
+pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/managed-workspace-runtime.test.ts test/subagent-thread-permissions.test.ts test/store-injection.test.ts test/boot-instance-passthrough.test.ts test/subagent-sandbox.test.ts
 ```
 
 Expected: all PASS; `store-injection` still counts zero permissions-store constructions for an app with no thread sandbox (the wrapper is built only when a record carries permissions).
@@ -3492,7 +3766,7 @@ Expected: all PASS; `store-injection` still counts zero permissions-store constr
 
 ```bash
 pnpm --filter @b4run/cli lint
-git add packages/cli/src/lib/runtime/execute-route-core.ts packages/cli/test/managed-workspace-runtime.test.ts
+git add packages/cli/src/lib/runtime/execute-route-core.ts packages/cli/test/managed-workspace-runtime.test.ts packages/cli/test/subagent-thread-permissions.test.ts packages/cli/test/subagent-sandbox.test.ts
 git commit -m "feat(cli): a thread with its own permissions is gated by them
 
 The gate's store for such a thread keeps the app's mode and denials,
@@ -3599,7 +3873,7 @@ pnpm build
 
 Example-only: `@b4-example/*` packages are private, so no changeset. All paths below are under `examples/software-factory/` unless they start with `.github/`.
 
-**Trust, restated for review.** Today the operator's target file chooses a builder's image, policy and permissions and the controller's manifest chooses its workspace. After this PR the controller's manifest chooses all four, per thread, and the builder validates it strictly (`BuilderManifestSchema`, `.strict()` throughout, a network of `deny` only, factory-shaped images only). Three bounds hold that the manifest cannot move: the builder app's own `network: { mode: "deny" }` (a thread may not open it, Task 5), `dockerSandbox({ images: isFactoryImage })` (Task 3), and the app's `non-interactive` mode (a manifest supplies an allow-list, never a mode). The boundary becomes one: who can write into the builder's manifest directory. Each thread's choice is recorded at first admission and never re-resolved.
+**Trust, restated for review.** Today the operator's target file chooses a builder's image, policy and permissions and the controller's manifest chooses its workspace. After this PR the controller's manifest chooses all four, per thread, and the builder validates it strictly (`BuilderManifestSchema`, `.strict()` throughout, a network of `deny` only, factory-shaped images only). Three bounds hold that the manifest cannot move: the builder app's own `network: { mode: "deny" }` (a thread may not open it, Task 5), `dockerSandbox({ images: isFactoryImage })` (Task 3), and the app's `non-interactive` mode (a manifest supplies an allow-list, never a mode). The boundary becomes one: who can write into the builder's manifest directory. That writer controls the thread's whole allow-list, including the `tool` and `subagent` keys, not only commands and paths. Each thread's choice is recorded at first admission and never re-resolved.
 
 ### Task 17: The manifest carries the target
 
@@ -4265,7 +4539,6 @@ export const SECOND_PIN = "bfaf0c2b3030eebb572703c8f70f0e063593b1fa"
  */
 export function prepareDevkitSecondPin(): {
   readonly targetsDir: string
-  readonly prepareMs: number
   cleanup(): void
 } {
   const copy = mkdtempSync(join(tmpdir(), "factory-devkit-pin-targets-"))
@@ -4281,9 +4554,8 @@ export function prepareDevkitSecondPin(): {
       timeout: 1_140_000,
     },
   )
-  const prepareMs = Date.now() - started
-  process.stderr.write(`target:prepare devkit --pin ${SECOND_PIN}: ${prepareMs} ms\n`)
-  return { targetsDir: copy, prepareMs, cleanup: () => rmSync(copy, { recursive: true, force: true }) }
+  process.stderr.write(`target:prepare devkit --pin ${SECOND_PIN}: ${Date.now() - started} ms\n`)
+  return { targetsDir: copy, cleanup: () => rmSync(copy, { recursive: true, force: true }) }
 }
 ```
 
@@ -4302,7 +4574,7 @@ beforeAll(() => {
 afterAll(() => prepared?.cleanup())
 ```
 
-(import `SECOND_PIN` and `prepareDevkitSecondPin` from `./devkit-second-pin.ts`; `original` is read from the shipped file, which the copy starts equal to).
+(import `SECOND_PIN` and `prepareDevkitSecondPin` from `./devkit-second-pin.ts`; `original` is read from the shipped file, which the copy starts equal to). Delete the file's local `let prepareMs = 0` and remove the imports only the moved code used: `cpSync`, `mkdtempSync` and `rmSync` from `node:fs`, `tmpdir` from `node:os`, and `appRoot` from the catalog import. `execFileSync`, `createHash`, `readFileSync` and `join` stay (the tests still use them); `pnpm --filter @b4-example/software-factory-controller lint` names anything left unused.
 
 - [ ] **Step 2: Typecheck and commit**
 
@@ -4320,6 +4592,8 @@ Expected: typecheck and lint exit 0. The lane itself runs in Task 21.
 ---
 
 ### Task 21: Docker lane: one served builder runs `cli-flags` and `devkit` at two pins
+
+**CI budget (decided: fits, stays in the required lane, no timeout change).** This lane runs in `.github/workflows/ci.yml`'s `sandbox-docker` job (`timeout-minutes: 30`, line 392), step "Software factory controller-owned verification" (`test:sandbox`, line 481). Measured on the last five green `main` runs (2026-09-23 to 2026-09-25, runs 36079578150, 36063550096, 36059617046, 35954981717, 35942418197): the whole job took 10.0, 15.3, 12.3, 11.8 and 12.2 minutes, and the factory step 5.5, 10.0, 7.7, 7.7 and 8.0. The expensive part of this proof, preparing `devkit` at the second pin, is already inside those numbers: `target-devkit-pin.integration.test.ts` prepares it in the same job. The second call here runs the same `prepare-target` on the same runner and is served from Docker's layer cache (it rewrites only the copied `target.json`), then adds two thread admissions (a devkit capture and a `create` each) and five scripted turns with no model latency. Estimate: 1 to 4 minutes more, so 11 to 19 minutes against 30 at the worst observed run. Task 23 Step 2 measures it and makes the test opt-in, like the `cli` target, if it ever passes 24 minutes; the timeout is not raised, because the job's other lanes share it.
 
 **Files:**
 - Modify: `controller/test/builder.integration.test.ts` (the header comment, `beforeAll`, the "wrong target" case; add a test)
@@ -4445,21 +4719,68 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 - [ ] **Step 1: The lane**
 
-In `.github/workflows/ci.yml`, replace lines 474-477:
+The step's `run:` text is fingerprinted, verbatim, by two audited fixtures: `scripts/release/test/fixtures/workflow-entrypoints.json` (the `run` at about line 1090) and `scripts/release/test/fixtures/workflow-safe-executables.json` (the `value` at about line 532). Both must move in the same commit as `ci.yml`, byte for byte. The audit does not help find the difference (it throws one opaque string with no diff), and a naive `JSON.parse`/`JSON.stringify` round trip of a fixture rewrites its `\uXXXX` escapes of non-ASCII text (the fixtures escape `—` and friends) into a phantom diff over the whole file. So the edit is made once, as a function, and applied to the YAML and to the JSON-encoded string in each fixture's raw text.
 
-```yaml
-          FACTORY_BUILDER_LANE=1 FACTORY_BUILDER_MANIFEST_DIR="$RUNNER_TEMP/factory-builder/manifests" pnpm --filter @b4-example/software-factory-server check
-          FACTORY_BUILDER_LANE=1 FACTORY_BUILDER_MANIFEST_DIR="$RUNNER_TEMP/factory-builder/manifests" pnpm --filter @b4-example/software-factory-server build
+Save as `$SCRATCH/regen-ci-lane.mjs` (the session scratchpad, not the repository):
+
+```js
+import { readFileSync, writeFileSync } from "node:fs"
+
+/** The whole change to the lane: the target-file line goes, the build guard keys on the lane. */
+const edit = (text) =>
+  text
+    .split("\n")
+    .filter((line) => !line.includes("factory builder-target --target cli-flags"))
+    .join("\n")
+    .replaceAll(
+      'FACTORY_BUILDER_TARGET="$RUNNER_TEMP/factory-builder/cli-flags.target.json" ',
+      "FACTORY_BUILDER_LANE=1 ",
+    )
+
+const ci = ".github/workflows/ci.yml"
+const yaml = readFileSync(ci, "utf8")
+const edited = edit(yaml)
+if (edited === yaml) throw new Error("ci.yml: nothing to edit")
+writeFileSync(ci, edited)
+
+for (const [file, key] of [
+  ["scripts/release/test/fixtures/workflow-entrypoints.json", "run"],
+  ["scripts/release/test/fixtures/workflow-safe-executables.json", "value"],
+]) {
+  const text = readFileSync(file, "utf8")
+  const found = []
+  JSON.parse(text, (k, v) => {
+    if (k === key && typeof v === "string" && v.includes("factory builder-target")) found.push(v)
+    return v
+  })
+  if (found.length !== 1) throw new Error(`${file}: expected one audited run to edit, found ${found.length}`)
+  // The lane's text is ASCII, so JSON.stringify encodes it exactly as the fixture does;
+  // replace that encoding in the raw text and leave every other byte alone.
+  const before = JSON.stringify(found[0])
+  const after = JSON.stringify(edit(found[0]))
+  if (text.split(before).length !== 2) throw new Error(`${file}: encoded run not found exactly once`)
+  writeFileSync(file, text.replace(before, () => after))
+}
 ```
 
-(the `factory builder-target` line goes), and rewrite the comment block at 457-470 that explains the target file: "The builder's real `b4 check` and `b4 build` run here and nowhere else (`FACTORY_BUILDER_LANE=1`); the builder has no target file, so it checks and builds as it runs." Then run the workflow audits, which fingerprint `run:` steps:
+Run it from the repository root and look at the whole change:
+
+```bash
+node "$SCRATCH/regen-ci-lane.mjs"
+git diff --stat .github/workflows/ci.yml scripts/release/test/fixtures
+git diff scripts/release/test/fixtures
+```
+
+Expected: three files changed; in each fixture exactly one line differs, and that line differs only by the removed `factory builder-target` command and the two `FACTORY_BUILDER_TARGET=... ` → `FACTORY_BUILDER_LANE=1 ` substitutions. No `\u` escape anywhere in the diff.
+
+Then rewrite the step's comment block (`ci.yml` 457-463, the paragraph beginning "The builder's OWN `check` and `build` run here") to: "The builder's OWN `check` and `build` run here and nowhere else (`FACTORY_BUILDER_LANE=1`; outside this job `scripts/in-lane.mjs` skips them). The builder has no target file: it checks and builds as it runs, against an empty manifest directory. `check` runs the provider preflight, which needs Docker; this lane has it." Comments are not fingerprinted, but rerun the audits after every edit of the file:
 
 ```bash
 node --test scripts/release/test/workflow-contracts.test.mjs
 pnpm test:release-integrity
 ```
 
-Expected: both pass. If either names `ci.yml`, regenerate the audited fixtures as that test's failure message instructs (both fixtures move together; see `scripts/release/test/fixtures/`) and rerun until green; do not hand-edit a fixture.
+Expected: both pass. If `workflow-contracts` still fails, find the difference by dumping what the audit computes rather than guessing: copy the test to a scratch file beside it (`cp scripts/release/test/workflow-contracts.test.mjs scripts/release/test/zz-dump.test.mjs`, so its relative imports resolve), and in the copy, at each `assert.deepEqual` whose expected side was read from `ENTRYPOINT_ALLOWLIST_PATH` or is `EXECUTABLE_ALLOWLIST` (lines near 2021, 2111, 2328, 2525-2624 on f2ee6cf6), write the actual side first with `writeFileSync(process.env.DUMP, JSON.stringify(actual, null, 2))`; run `DUMP="$SCRATCH/actual.json" node --test scripts/release/test/zz-dump.test.mjs`, diff the `ci.yml` part of `$SCRATCH/actual.json` against the fixture, fix the fixture by the same raw-text method, and DELETE `zz-dump.test.mjs` before committing (`git status --short scripts/release` must show only the two fixtures).
 
 - [ ] **Step 2: The README**
 
@@ -4474,7 +4795,7 @@ Rewrite, keeping the surrounding prose style:
 
   and the paragraph: "One builder serves every target and pin. Each work order's manifest names the image its task is verified in, the sandbox policy and the permission allow-list; the builder records them at the thread's first admission and runs that thread in them, and only an image the factory prepared (`b4-factory-…`) can be named."
 - Step 4 (controller): the worker map paragraph and the `FACTORY_WORKERS` example (327-377) go; the pair `FACTORY_WORKER_URL` + `FACTORY_BUILDER_APP_ROOT` (+ `FACTORY_BUILDER_MANIFEST_DIR`) is the builder. Say that `FACTORY_WORKERS` and `FACTORY_BUILDER_TARGET` are refused by name.
-- "## What it does not do" and "## What is joined" (137-230): delete "a builder runs at ONE pin" and the `builder_environment_differs` rule; correct "the scope and the image address a thread's workspace" to "the scope addresses it; the image is in the thread's record"; the trust paragraph (around 146) now reads: whoever can write the builder's manifest directory chooses a thread's workspace, image, policy and permissions, within the builder's own bounds (network denied, factory images only, non-interactive).
+- "## What it does not do" and "## What is joined" (137-230): delete "a builder runs at ONE pin" and the `builder_environment_differs` rule; correct "the scope and the image address a thread's workspace" to "the scope addresses it; the image is in the thread's record"; the trust paragraph (around 146) now reads: whoever can write the builder's manifest directory chooses a thread's workspace, image, policy and permissions, within the builder's own bounds (network denied, factory images only, non-interactive). Say plainly that this includes the WHOLE allow-list: `permissions` is a record keyed by any tool name, so a manifest writer also decides the `tool` and `subagent` keys (which tools run without approval and which subagents may be dispatched), not only `bash` and the path keys; the builder's `non-interactive` mode means anything off that list is refused, never asked about.
 - "### Environment" (587-658): delete `FACTORY_WORKERS` and `FACTORY_BUILDER_TARGET` rows; add a note that both are retired.
 
 Check the result for the words that must be gone:
@@ -4488,14 +4809,16 @@ Expected: only the sentence saying the two variables are retired.
 - [ ] **Step 3: Commit**
 
 ```bash
-git add .github/workflows/ci.yml examples/software-factory/README.md
-git add scripts/release/test/fixtures
+pnpm test:release-controller
+git add .github/workflows/ci.yml examples/software-factory/README.md scripts/release/test/fixtures/workflow-entrypoints.json scripts/release/test/fixtures/workflow-safe-executables.json
 git commit -m "docs(software-factory): one builder in the quickstart and the CI lane
+
+The lane's run text moves with both audited workflow fixtures.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-(`git add scripts/release/test/fixtures` stages nothing if the audits did not ask for a regeneration.)
+Expected: `pnpm test:release-controller` (which runs `workflow-contracts.test.mjs` with the rest of the controller suite) passes before the commit.
 
 ---
 
@@ -4514,11 +4837,22 @@ FACTORY_BUILDER_LANE=1 FACTORY_BUILDER_MANIFEST_DIR=/tmp/factory-lane-manifests 
 FACTORY_BUILDER_LANE=1 FACTORY_BUILDER_MANIFEST_DIR=/tmp/factory-lane-manifests pnpm --filter @b4-example/software-factory-server build
 node scripts/check-docs.mjs
 pnpm test:release-integrity
+pnpm test:release-controller
 ```
 
 Expected: every command exits 0. `test:sandbox` is the whole Docker lane: the end-to-end lanes dispatch through the controller to the one served builder, the builder lane of Task 21, and the second-pin lane.
 
-- [ ] **Step 2: No commit unless a gate found something.** Fix it in the task it belongs to, amend that task's commit, rerun this task.
+- [ ] **Step 2: Measure the Docker job once CI has run the PR**
+
+When Brian asks for the PR and CI has run it, read the `sandbox-docker` job's duration and its "Software factory controller-owned verification" step:
+
+```bash
+gh run view <run-id> --json jobs --jq '.jobs[] | select(.name == "sandbox-docker") | {startedAt, completedAt, steps: [.steps[] | select(.name | test("Software factory")) | {startedAt, completedAt}]}'
+```
+
+Expected: the job well under its 30-minute `timeout-minutes` (the budget in Task 21 predicts about 13-19 minutes). If it exceeds 24 minutes (80% of the limit), make Task 21's test opt-in exactly as the `cli` target's lane is: wrap it in `it.skipIf(process.env.FACTORY_TEST_TWO_PINS !== "1")`, add `"test:sandbox:two-pins": "FACTORY_TEST_TWO_PINS=1 vitest run --config vitest.sandbox.config.ts test/builder.integration.test.ts"` to `controller/package.json`, say so in the lane comment in `ci.yml` (comments are not fingerprinted), and record the measured minutes in the commit message. Do not raise `timeout-minutes`.
+
+- [ ] **Step 3: No commit unless a gate found something.** Fix it in the task it belongs to, amend that task's commit, rerun this task.
 
 ---
 
@@ -4538,7 +4872,22 @@ Expected: every command exits 0. `test:sandbox` is the whole Docker lane: the en
 - "The permission gate takes a thread-scoped store ... the mode stays per app ... an Always grant ... never written to `.b4/permissions.json`": Tasks 11, 14, 15 (composition, D2).
 - "The factory's builder then boots with no target file; ... one builder serves every target and pin": Tasks 17, 18, 19.
 - Trust impact: strict manifest validation refusing unknown policy keys and network allowlists (Task 17 tests); recorded at first admission and never re-resolved (Tasks 5 and 8 restart tests); `images` bounds images (Task 3, and before any provider create, Task 5); the dispatch pin guard retires (Task 19) because each thread runs its task's image (Task 21 proves identity equals `localId`).
+- Missing record (review item 1): always a record in thread mode, refused at admission when absent (Tasks 4, 5; D11).
 - Proof list: two threads with different image, policy and permissions → different `environment.identity` (Tasks 5, 8, 10); `reconnect` receives each thread's policy (Tasks 5, 8, 10); a command allowed in one thread and denied in the other (Task 14; the gate end to end, Task 15); re-admission after restart uses the record without the resolver (Tasks 5, 8, 14); an image refused by `images` fails before any provider create (Tasks 3, 5); Docker lane, one served builder, a `cli-flags` thread and two `devkit` threads at two pins (Task 21).
 - Size L: the storage record (4, 13), the manager (5, 14), the provider interface (2, 3), the permission path in `execute-route-core` (15), the build artifact (6), `b4 check` (7).
 - Conventions: shape validation that fails closed (Task 7, D8), `exactOptionalPropertyTypes` spreads throughout, `.js`/`.ts` specifiers, changesets patch in the fixed group (Tasks 9, 16; none for the private examples), docs on existing pages without lastmod regeneration (Tasks 9, 16).
 - Names used consistently: `ThreadSandbox`, `ThreadSandboxPolicy`, `ThreadSandboxPermissions`, `ThreadSandboxRecord`, `ThreadSandboxResolver`, `resolveImageEnvironment`, `ResolvedThreadSandbox`, `resolveThread`, `threadPolicy`, `threadSandboxes` (`get`, `grants`, `addGrant`), `threadPermissions`, `createThreadPermissionsStore`, `ThreadPermissions`, `ThreadPermissionGrants`, `threadSandboxArtifact`, `verifyWorkspaceResolverArtifact(value, kind)`, `sandboxConfigShapeErrors`, `isFactoryImage`, `FACTORY_IMAGE`, `builderSandboxProvider()`, `prepareDevkitSecondPin`, `SECOND_PIN`, `FACTORY_BUILDER_LANE`.
+
+## Review amendments (2026-09-24)
+
+An independent review found no critical issues. Each item it raised, and where the plan now answers it:
+
+1. **Fail-open on a missing record.** A thread-mode manager now writes a record for every thread, `{ version: 1 }` when the resolver chose nothing (Task 5 `#resolve`, Task 14 kept in step). Admitting an existing association in thread mode with no record is refused as `conflict` (Task 5, D11). Tests: "records every thread it admits", "refuses a thread admitted before the app resolved sandboxes per thread" (static app switched to `sandbox.thread`), "refuses a thread whose record was lost with its table" (Task 5), and the upgrade case in Task 4. **Deviation:** the schema's recreate path does not refuse when associations exist. Every installation from before PR 1 has associations and no tables, so that refusal would stop every existing managed-workspace app from starting after the upgrade. The admission refusal already makes a lost record fail closed in thread mode, and outside thread mode a missing record changes nothing.
+2. **Subagents.** Task 15 adds `threadPermissions: () => undefined` to the fake manager in `subagent-sandbox.test.ts:56`, and a new `subagent-thread-permissions.test.ts`: the parent's and the child's preparations both ask for the parent's key, the child is gated by the parent's recorded allow-list, and the child's "Always" lands in the parent's record, where the parent's next load honours it.
+3. **Workflow-audit fixtures.** Task 22 now edits `ci.yml` and both fixtures with one scripted function, applied to the YAML and to the JSON-encoded run string in each fixture's raw text (no JSON round trip, so no `\uXXXX` phantom diff). It checks that exactly one line differs per fixture, gives a scratch-copy descriptor dump for when the audit's single opaque failure string needs a diff, and commits all three files together. `pnpm test:release-controller` is in Tasks 22 and 23.
+4. **Docker variant image.** Task 10's variant overrides `org.b4run.code-fixer.project`, so `managedTestImage()` never selects it. Its `docker image rm` is best effort, and a check confirms no variant carries the `cli-flags` label.
+5. **Policy composition.** D1 now merges `resources` key by key and replaces `env` whole. A `network` mode equal to the app's keeps the app's network object, so an app `allow` keeps its `denylist`; `deny` narrows; `allow` under an app `deny` is refused. D9 also refuses `resources.diskGb`. Tasks 2 and 5, with a new `thread-policy.test.ts`; the docs bullets in Task 9 follow.
+6. **Unknown sandbox keys.** `b4 build` runs `sandboxConfigShapeErrors` whenever `config.sandbox` exists, and a test builds an app with a lone `thred:` (Task 7). The changeset names the refusal as a behaviour change (Task 9).
+7. **CI time.** Measured on the last five green `main` runs, the `sandbox-docker` job took 10.0 to 15.3 minutes against its 30. The second-pin preparation is already in that job and is served from the layer cache the second time. Decision: the proof stays in the required lane without changing the timeout. Task 23 measures the PR's run and makes the test opt-in (like the `cli` target) past 24 minutes (Task 21 header, Task 23 Step 2).
+
+Minor: Task 5 Step 2 names the real failure (the constructor throws, since a type-only import is erased); Task 8 Step 3 points at Task 7; Task 20 drops `prepareMs` and the imports only the moved code used; D4's refusal is tested with a real `kubernetesSandbox` over a stub client, at check and at boot (Task 7); the PR 3 README trust paragraph and the PR 3 preamble say the manifest writer controls the whole allow-list, `tool` and `subagent` keys included; `b4 check` prints "sandbox: workspace, image and policy are resolved per thread"; the `withManagedWorkspaceReader` doc comments name `sandbox.thread` (Task 9 Step 3).
