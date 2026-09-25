@@ -28,6 +28,14 @@ export async function expectOnlyTheTokenAdmitted(
     ["POST", `${thread}/resume`, JSON.stringify({ route, resume: [] })],
     ["POST", `${thread}/cancel`],
     ["DELETE", thread],
+    ["POST", `${thread}/workspace/inspect`, JSON.stringify({})],
+    // The upload and a create naming a workspace: the handover is the controller's alone.
+    ["PUT", `${url}/workspace/sources/${"0".repeat(64)}`, JSON.stringify({})],
+    [
+      "POST",
+      `${url}/threads`,
+      JSON.stringify({ metadata: {}, workspace: { sourceDigest: "0".repeat(64) } }),
+    ],
     [
       "POST",
       `${url}/agui/${encodeURIComponent(route)}`,

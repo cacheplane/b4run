@@ -8,7 +8,7 @@ import type { Verifier } from "../src/lib/verification/verifier.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
-import { fakeWorkerMap, noopBuilderManifestWriter } from "./fake-worker-map.ts"
+import { fakeBuilderHandoff, fakeWorkerMap } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
 import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
@@ -58,7 +58,7 @@ async function boot(
         reader,
       },
     }),
-    writeBuilderManifest: noopBuilderManifestWriter,
+    captureBuilderHandoff: fakeBuilderHandoff,
     exportDir: out(),
     artifactsDir: join(dir, "artifacts"),
     verifier: createFakeVerifier({ verdict: "pass" }),
@@ -322,7 +322,7 @@ describe("cancel", () => {
           reader,
         },
       }),
-      writeBuilderManifest: noopBuilderManifestWriter,
+      captureBuilderHandoff: fakeBuilderHandoff,
       exportDir: out(),
       artifactsDir: join(dir, "artifacts"),
       verifier: createFakeVerifier({ verdict: "pass" }),

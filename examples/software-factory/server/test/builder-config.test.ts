@@ -1,25 +1,17 @@
 import { spawnSync } from "node:child_process"
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs"
-import { tmpdir } from "node:os"
+import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
+import type { CapturedWorkspaceDefinition } from "@b4run/workspace"
 import { createSourceBundle } from "@b4run/workspace/node"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import type { BuilderManifest } from "../src/builder-manifest.ts"
+import type { BuilderHandoff } from "../src/builder-handoff.ts"
 
 /**
- * The builder's config is a function of ONE input: the manifest directory the controller writes
- * one manifest per work order into (the workspace, image, policy and permissions of that work
- * order's thread); its thread resolver is a function of ONE thread fact,
- * `metadata.factoryWorkOrderId`. These tests build both inputs themselves rather than
+ * The builder's config reads nothing per work order from disk: its thread resolver is a
+ * function of the thread's metadata (`factoryWorkOrderId`, and the work order's target in
+ * `factoryBuilder`) and of the workspace the thread was created with (`thread.staged`), which
+ * must be the one the handoff names. These tests build both inputs themselves rather than
  * importing the controller's catalog: this package must be understood, typechecked and
  * tested without the controller's source, and a test that imported it would hide a
  * regression.
@@ -30,51 +22,78 @@ const bundle = (text: string) =>
     { path: "src/cli.ts", bytes: Buffer.from(text), executable: false },
   ])
 
-const manifest = (
+interface WorkOrder {
+  readonly handoff: BuilderHandoff
+  readonly staged: CapturedWorkspaceDefinition
+}
+
+const workOrder = (
   workOrderId: string,
   text: string,
   targetId = "fixture-target",
   pin = "d".repeat(40),
-): BuilderManifest => ({
-  version: 2,
-  workOrderId,
-  taskId: "fixture-task",
-  targetId,
-  target: {
-    // The factory's tag shape, naming this manifest's own target and pin.
-    image: `b4-factory-${targetId}:${pin.slice(0, 12)}-0123456789ab`,
-    pin,
-    policy: {
-      network: { mode: "deny" },
-      env: { npm_config_cache: "/tmp/npm-cache" },
-      resources: { memoryMb: 2048, cpus: 2, timeoutMs: 120_000 },
+): WorkOrder => {
+  const staged: CapturedWorkspaceDefinition = {
+    version: 1,
+    source: bundle(text),
+    environmentLinks: [{ path: "node_modules", target: "/deps/node_modules" }],
+    baseline: "git",
+  }
+  return {
+    staged,
+    handoff: {
+      version: 3,
+      workOrderId,
+      taskId: "fixture-task",
+      targetId,
+      workspace: {
+        sourceDigest: staged.source.digest,
+        environmentLinks: [{ path: "node_modules", target: "/deps/node_modules" }],
+        baseline: "git",
+      },
+      target: {
+        // The factory's tag shape, naming this handoff's own target and pin.
+        image: `b4-factory-${targetId}:${pin.slice(0, 12)}-0123456789ab`,
+        pin,
+        policy: {
+          network: { mode: "deny" },
+          env: { npm_config_cache: "/tmp/npm-cache" },
+          resources: { memoryMb: 2048, cpus: 2, timeoutMs: 120_000 },
+        },
+        permissions: {
+          bash: ["npm test", "node ", "cat"],
+          readFile: ["/deps"],
+          listDir: ["/deps"],
+        },
+      },
     },
-    permissions: { bash: ["npm test", "node ", "cat"], readFile: ["/deps"], listDir: ["/deps"] },
-  },
-  workspace: { version: 1, source: bundle(text), environmentLinks: [] },
-})
+  }
+}
 
-let dir: string
-let manifestDir: string
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "builder-config-fixture-"))
-  manifestDir = join(dir, "manifests")
-  mkdirSync(manifestDir)
-  process.env.FACTORY_BUILDER_MANIFEST_DIR = manifestDir
   vi.resetModules()
 })
 afterEach(() => {
-  rmSync(dir, { recursive: true, force: true })
   delete process.env.FACTORY_BUILDER_MANIFEST_DIR
+  delete process.env.FACTORY_BUILDER_TARGET
 })
 
-const writeManifest = (value: unknown, workOrderId: string) =>
-  writeFileSync(join(manifestDir, `${workOrderId}.json`), JSON.stringify(value))
 const loadConfig = async () => (await import("../b4.config.ts")).default
-const thread = (metadata: Readonly<Record<string, unknown>>, threadId = "t") => ({
+/** A thread as the framework hands it to the resolver at first admission. */
+const thread = (
+  metadata: Readonly<Record<string, unknown>>,
+  staged?: CapturedWorkspaceDefinition,
+  threadId = "t",
+) => ({
   threadId,
   metadata,
   signal: new AbortController().signal,
+  ...(staged !== undefined ? { staged } : {}),
+})
+/** The metadata `dispatch` creates a builder thread with. */
+const metadataOf = (order: WorkOrder, handoff: unknown = order.handoff) => ({
+  factoryWorkOrderId: order.handoff.workOrderId,
+  factoryBuilder: handoff,
 })
 const resolver = async () => {
   const sandbox = (await loadConfig()).sandbox
@@ -92,6 +111,8 @@ describe("builder configuration", () => {
   it("serves its threads' workspaces over its own port, behind src/thread-access.ts", async () => {
     const config = await loadConfig()
     expect(config.sandbox?.workspaceRead).toBe("http")
+    // And takes each thread's workspace at creation, over the same port, behind the same policy.
+    expect(config.sandbox?.stagedWorkspaces).toBe(true)
     expect(existsSync(fileURLToPath(new URL("../src/thread-access.ts", import.meta.url)))).toBe(
       true,
     )
@@ -105,14 +126,14 @@ describe("builder configuration", () => {
 
   it("refuses an unlisted command as a tool error instead of parking it for nobody", async () => {
     // The first live run's builder parked on `sed -n` with no one to answer, and the
-    // controller blocked its only attempt. The mode is the builder app's, never a manifest's.
+    // controller blocked its only attempt. The mode is the builder app's, never a handoff's.
     const config = await loadConfig()
     expect(config.permissions?.mode).toBe("non-interactive")
-    // The allow-list is each thread's own, from its manifest; the app pre-approves nothing.
+    // The allow-list is each thread's own, from its handoff; the app pre-approves nothing.
     expect(config.permissions?.allow).toBeUndefined()
   })
 
-  it("has one scope and no default image: every thread runs the image its manifest names", () => {
+  it("has one scope and no default image: every thread runs the image its handoff names", () => {
     const text = readFileSync(new URL("../b4.config.ts", import.meta.url), "utf8")
     // Scope and allowed images, and no default image.
     expect(text).toContain(
@@ -122,116 +143,154 @@ describe("builder configuration", () => {
 })
 
 describe("the builder's thread resolver", () => {
-  it("serves each work order its own workspace, image, policy and permissions", async () => {
-    const alpha = manifest("wo-alpha", "export const run = () => 0\n")
-    const beta = manifest("wo-beta", "export const run = () => 1\n", "other-target", "e".repeat(40))
-    beta.target = {
-      ...beta.target,
-      policy: {
-        ...beta.target.policy,
-        resources: { memoryMb: 8192, cpus: 4, timeoutMs: 600_000 },
+  it("serves each work order its own staged workspace, image, policy and permissions", async () => {
+    const alpha = workOrder("wo-alpha", "export const run = () => 0\n")
+    const beta = workOrder(
+      "wo-beta",
+      "export const run = () => 1\n",
+      "other-target",
+      "e".repeat(40),
+    )
+    const betaHandoff: BuilderHandoff = {
+      ...beta.handoff,
+      target: {
+        ...beta.handoff.target,
+        policy: {
+          ...beta.handoff.target.policy,
+          resources: { memoryMb: 8192, cpus: 4, timeoutMs: 600_000 },
+        },
+        permissions: { bash: ["make"] },
       },
-      permissions: { bash: ["make"] },
     }
-    writeManifest(alpha, "wo-alpha")
-    writeManifest(beta, "wo-beta")
     const resolve = await resolver()
-    const first = await resolve(thread({ factoryWorkOrderId: "wo-alpha" }, "t-alpha"))
-    const second = await resolve(thread({ factoryWorkOrderId: "wo-beta" }, "t-beta"))
-    expect(digestOf(first)).toBe(digestOf({ workspace: alpha.workspace }))
-    expect(digestOf(second)).toBe(digestOf({ workspace: beta.workspace }))
+    const first = await resolve(thread(metadataOf(alpha), alpha.staged, "t-alpha"))
+    const second = await resolve(thread(metadataOf(beta, betaHandoff), beta.staged, "t-beta"))
+    expect(digestOf(first)).toBe(alpha.staged.source.digest)
+    expect(digestOf(second)).toBe(beta.staged.source.digest)
     expect(digestOf(first)).not.toBe(digestOf(second))
-    // One builder, two targets: each thread runs its own manifest's image under its own
+    // The staged workspace whole: its links and baseline, not only its files.
+    expect((first.workspace as CapturedWorkspaceDefinition).environmentLinks).toEqual(
+      alpha.staged.environmentLinks,
+    )
+    expect((first.workspace as CapturedWorkspaceDefinition).baseline).toBe("git")
+    // One builder, two targets: each thread runs its own handoff's image under its own
     // policy and allow-list, which the framework records at the thread's first admission.
-    expect(first.environment).toEqual({ image: alpha.target.image })
+    expect(first.environment).toEqual({ image: alpha.handoff.target.image })
     expect(second.environment).toEqual({
       image: `b4-factory-other-target:${"e".repeat(12)}-0123456789ab`,
     })
-    expect(first.policy).toEqual(alpha.target.policy)
+    expect(first.policy).toEqual(alpha.handoff.target.policy)
     expect(second.policy?.resources).toEqual({ memoryMb: 8192, cpus: 4, timeoutMs: 600_000 })
-    expect(first.permissions).toEqual({ allow: alpha.target.permissions })
+    expect(first.permissions).toEqual({ allow: alpha.handoff.target.permissions })
     expect(second.permissions).toEqual({ allow: { bash: ["make"] } })
   })
 
-  it("refuses a manifest whose image names another target or another pin", async () => {
-    const good = manifest("wo-alpha", "x\n")
-    writeManifest(
-      { ...good, target: { ...good.target, image: "b4-factory-devkit:dddddddddddd-0123456789ab" } },
-      "wo-alpha",
-    )
-    writeManifest(
-      {
-        ...manifest("wo-beta", "x\n"),
-        target: { ...good.target, image: "b4-factory-fixture-target:eeeeeeeeeeee-0123456789ab" },
-      },
-      "wo-beta",
-    )
+  it("refuses a handoff whose image names another target or another pin", async () => {
+    const order = workOrder("wo-alpha", "x\n")
     const resolve = await resolver()
     // Both are factory-shaped tags the provider's `images` predicate would admit; only the
-    // manifest's own target and pin make them wrong, and the thread is refused before any
+    // handoff's own target and pin make them wrong, and the thread is refused before any
     // image is resolved.
-    await expect(resolve(thread({ factoryWorkOrderId: "wo-alpha" }))).rejects.toThrow(
-      /is not target fixture-target at pin d{40}/,
-    )
-    await expect(resolve(thread({ factoryWorkOrderId: "wo-beta" }))).rejects.toThrow(
-      /is not target fixture-target at pin d{40}/,
-    )
+    for (const image of [
+      "b4-factory-devkit:dddddddddddd-0123456789ab",
+      "b4-factory-fixture-target:eeeeeeeeeeee-0123456789ab",
+    ])
+      await expect(
+        resolve(
+          thread(
+            metadataOf(order, { ...order.handoff, target: { ...order.handoff.target, image } }),
+            order.staged,
+          ),
+        ),
+      ).rejects.toThrow(/is not target fixture-target at pin d{40}/)
   })
 
   it("allows only the factory's own images", async () => {
-    const { isFactoryImage } = await import("../src/builder-manifest.ts")
+    const { isFactoryImage } = await import("../src/builder-handoff.ts")
     expect(isFactoryImage("b4-factory-devkit:6a59e00aed46-0123456789ab")).toBe(true)
     expect(isFactoryImage("alpine:latest")).toBe(false)
     expect(isFactoryImage("b4-factory-devkit:latest")).toBe(false)
   })
 
-  it("refuses a work order with no manifest, naming it and the directory", async () => {
+  it("refuses, by name, a thread created with no handoff or with no staged workspace", async () => {
+    const order = workOrder("wo-alpha", "x\n")
     const resolve = await resolver()
-    await expect(resolve(thread({ factoryWorkOrderId: "wo-none" }))).rejects.toThrow(
-      "no builder manifest for wo-none",
+    // A thread dispatched by an older controller (a manifest on disk, no handoff) is refused
+    // at admission: drain in-flight work orders before upgrading.
+    await expect(resolve(thread({ factoryWorkOrderId: "wo-alpha" }, order.staged))).rejects.toThrow(
+      /factoryBuilder is required/,
     )
-    await expect(resolve(thread({ factoryWorkOrderId: "wo-none" }))).rejects.toThrow(manifestDir)
+    await expect(resolve(thread(metadataOf(order)))).rejects.toThrow(
+      "work order wo-alpha's thread was created without a staged workspace",
+    )
   })
 
-  it("trusts nothing in the metadata beyond a catalog-id string", async () => {
-    writeManifest(manifest("wo-alpha", "x\n"), "wo-alpha")
+  it("refuses a staged workspace that is not the one the handoff names", async () => {
+    const order = workOrder("wo-alpha", "x\n")
+    const other = workOrder("wo-alpha", "y\n")
     const resolve = await resolver()
-    // Missing, a path that would escape the directory, and a non-string: each is refused
-    // before any file is read, and the refusal names the key the client got wrong.
+    for (const staged of [
+      // Other files.
+      other.staged,
+      // The same files, other links: they change what the thread runs.
+      { ...order.staged, environmentLinks: [] },
+      // The same files and links, no baseline.
+      {
+        version: 1 as const,
+        source: order.staged.source,
+        environmentLinks: order.staged.environmentLinks,
+      },
+    ])
+      await expect(resolve(thread(metadataOf(order), staged))).rejects.toThrow(
+        /is not the one work order wo-alpha names/,
+      )
+  })
+
+  it("trusts nothing in the metadata beyond a catalog-id string and a strictly parsed handoff", async () => {
+    const order = workOrder("wo-alpha", "x\n")
+    const resolve = await resolver()
+    // Missing, path-like, and a non-string: each is refused, and the refusal names the key.
     for (const metadata of [
-      {},
-      { factoryWorkOrderId: "../wo-alpha" },
-      { factoryWorkOrderId: ".hidden" },
-      { factoryWorkOrderId: 7 },
+      { factoryBuilder: order.handoff },
+      { factoryWorkOrderId: "../wo-alpha", factoryBuilder: order.handoff },
+      { factoryWorkOrderId: ".hidden", factoryBuilder: order.handoff },
+      { factoryWorkOrderId: 7, factoryBuilder: order.handoff },
     ]) {
-      await expect(resolve(thread(metadata))).rejects.toThrow(/factoryWorkOrderId/)
+      await expect(resolve(thread(metadata, order.staged))).rejects.toThrow(/factoryWorkOrderId/)
     }
   })
 
-  it("refuses a manifest written for a different work order", async () => {
-    writeManifest(manifest("wo-other", "x\n"), "wo-alpha")
+  it("refuses a handoff written for a different work order", async () => {
+    const order = workOrder("wo-other", "x\n")
     const resolve = await resolver()
-    await expect(resolve(thread({ factoryWorkOrderId: "wo-alpha" }))).rejects.toThrow(
-      /names workOrderId wo-other/,
-    )
+    await expect(
+      resolve(
+        thread({ factoryWorkOrderId: "wo-alpha", factoryBuilder: order.handoff }, order.staged),
+      ),
+    ).rejects.toThrow(/names work order wo-other, not wo-alpha/)
   })
 
-  it("refuses a manifest that still carries a prompt, or is of another version", async () => {
-    // The prompt is the run's user message now; a manifest carrying one is from an older
-    // controller and is refused rather than half-honoured.
-    writeManifest({ ...manifest("wo-alpha", "x\n"), prompt: "Read TASK.md." }, "wo-alpha")
-    writeManifest({ ...manifest("wo-beta", "x\n"), version: 1 }, "wo-beta")
+  it("refuses a handoff that carries a prompt, the workspace's files, or is of another version", async () => {
+    // The prompt is the run's user message, and the files travel as the upload: a handoff
+    // carrying either is from something else and is refused rather than half-honoured.
+    const order = workOrder("wo-alpha", "x\n")
     const resolve = await resolver()
-    await expect(resolve(thread({ factoryWorkOrderId: "wo-alpha" }))).rejects.toThrow(/prompt/)
-    await expect(resolve(thread({ factoryWorkOrderId: "wo-beta" }))).rejects.toThrow(/version/)
+    for (const handoff of [
+      { ...order.handoff, prompt: "Read TASK.md." },
+      { ...order.handoff, workspace: { ...order.handoff.workspace, source: order.staged.source } },
+      { ...order.handoff, version: 2 },
+    ])
+      await expect(resolve(thread(metadataOf(order, handoff), order.staged))).rejects.toThrow(
+        /factoryBuilder is invalid/,
+      )
   })
 
-  it("refuses a workspace whose bytes do not match its digest", async () => {
-    const tampered = JSON.parse(JSON.stringify(manifest("wo-alpha", "x\n")))
-    tampered.workspace.source.digest = "0".repeat(64)
-    writeManifest(tampered, "wo-alpha")
+  it("refuses a staged workspace whose bytes do not match its digest", async () => {
+    const order = workOrder("wo-alpha", "x\n")
+    const tampered = JSON.parse(JSON.stringify(order.staged))
+    tampered.source.files[0].base64 = Buffer.from("tampered").toString("base64")
     const resolve = await resolver()
-    await expect(resolve(thread({ factoryWorkOrderId: "wo-alpha" }))).rejects.toThrow()
+    await expect(resolve(thread(metadataOf(order), tampered))).rejects.toThrow()
   })
 })
 
@@ -250,7 +309,6 @@ describe("the builder route", () => {
     expect(builder.systemPrompt).toMatch(/user's message/)
     // Nothing of a work order's inputs reaches it: every target's work orders share it.
     expect(builder.systemPrompt).not.toContain("fixture-target")
-    delete process.env.FACTORY_BUILDER_MANIFEST_DIR
     vi.resetModules()
     const again = (await import("../src/app/build/index.ts")).default
     expect(again.systemPrompt).toBe(builder.systemPrompt)
@@ -259,11 +317,11 @@ describe("the builder route", () => {
 
 describe("the retired target file", () => {
   it("is a boot error naming FACTORY_BUILDER_TARGET, not a variable silently ignored", async () => {
-    process.env.FACTORY_BUILDER_TARGET = join(dir, "cli-flags.target.json")
+    process.env.FACTORY_BUILDER_TARGET = "/tmp/cli-flags.target.json"
     vi.resetModules()
     try {
       // An operator still pointing the builder at a target file would otherwise believe it
-      // chooses the builder's image, policy and permissions; each work order's manifest does.
+      // chooses the builder's image, policy and permissions; each work order's handoff does.
       await expect(loadConfig()).rejects.toThrow(
         /FACTORY_BUILDER_TARGET is retired: the builder boots with no target file/,
       )
@@ -273,27 +331,29 @@ describe("the retired target file", () => {
   })
 })
 
-describe("a missing manifest directory", () => {
-  it("is a boot error, but an empty one is not", async () => {
+describe("the retired manifest directory", () => {
+  it("is a boot error naming FACTORY_BUILDER_MANIFEST_DIR, and the builder boots without it", async () => {
     await expect(loadConfig()).resolves.toBeDefined()
-    delete process.env.FACTORY_BUILDER_MANIFEST_DIR
+    process.env.FACTORY_BUILDER_MANIFEST_DIR = "/tmp/builder-manifests"
     vi.resetModules()
-    await expect(loadConfig()).rejects.toThrow(/FACTORY_BUILDER_MANIFEST_DIR/)
+    // An operator still pointing the builder at a manifest directory would otherwise believe
+    // the controller shares one; nothing is read from it.
+    await expect(loadConfig()).rejects.toThrow(/FACTORY_BUILDER_MANIFEST_DIR is retired/)
   })
 })
 
-describe("a drifted manifest", () => {
+describe("a drifted handoff", () => {
   it("refuses the thread rather than silently losing the network denial", async () => {
-    const drifted = JSON.parse(JSON.stringify(manifest("wo-alpha", "x\n")))
+    const order = workOrder("wo-alpha", "x\n")
+    const drifted = JSON.parse(JSON.stringify(order.handoff))
     drifted.target.policy.netwrok = drifted.target.policy.network
     delete drifted.target.policy.network
-    writeManifest(drifted, "wo-alpha")
     const resolve = await resolver()
     // Without strict parsing the thread would run under the app's network rather than the
-    // one the controller wrote. The builder would rather refuse a thread than run it under a
+    // one the controller sent. The builder would rather refuse a thread than run it under a
     // policy it cannot account for.
-    await expect(resolve(thread({ factoryWorkOrderId: "wo-alpha" }))).rejects.toThrow(
-      /builder manifest .* is invalid/,
+    await expect(resolve(thread(metadataOf(order, drifted), order.staged))).rejects.toThrow(
+      /factoryBuilder is invalid/,
     )
   })
 })
@@ -312,7 +372,7 @@ describe("the package boundary", () => {
     walk(join(root, "src"))
     expect(files.length).toBeGreaterThan(1)
     for (const file of files) {
-      // The builder is the untrusted side. It reads a manifest; it never reaches across
+      // The builder is the untrusted side. It reads a handoff; it never reaches across
       // into the code that judges what it left behind.
       expect([file, readFileSync(file, "utf8").includes("../controller/")]).toEqual([file, false])
     }

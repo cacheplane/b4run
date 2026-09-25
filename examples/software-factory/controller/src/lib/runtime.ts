@@ -28,8 +28,8 @@ export type ControllerRuntimeOverrides = Partial<
     FactoryOptions,
     | "verifier"
     | "captureBaseline"
-    | "writeDrafterManifest"
-    | "writeBuilderManifest"
+    | "captureDrafterHandoff"
+    | "captureBuilderHandoff"
     | "allowBudgetBelowVerifierDeadline"
   >
 > & {

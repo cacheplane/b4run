@@ -15,7 +15,7 @@ import { READ_ONLY_BASH } from "../src/lib/targets/permissions.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
-import { fakeWorkerMap, noopBuilderManifestWriter } from "./fake-worker-map.ts"
+import { fakeBuilderHandoff, fakeWorkerMap } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader } from "./fake-workspace-reader.ts"
 import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
@@ -212,7 +212,7 @@ describe("the controller over a partly unprepared catalog", () => {
           reader: createFakeWorkspaceReader({}),
         },
       }),
-      writeBuilderManifest: noopBuilderManifestWriter,
+      captureBuilderHandoff: fakeBuilderHandoff,
       exportDir: join(dir, "out"),
       artifactsDir: join(dir, "artifacts"),
       verifier: createFakeVerifier({ verdict: "pass" }),
@@ -247,7 +247,7 @@ describe("the controller over a partly unprepared catalog", () => {
           reader: createFakeWorkspaceReader({}),
         },
       }),
-      writeBuilderManifest: noopBuilderManifestWriter,
+      captureBuilderHandoff: fakeBuilderHandoff,
       exportDir: join(dir, "out"),
       artifactsDir: join(dir, "artifacts"),
       verifier: createFakeVerifier({ verdict: "pass" }),

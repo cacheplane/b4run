@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { DRAFTER_UNCONFIGURED } from "../src/lib/controller/workers.ts"
 import { createControllerRuntime } from "../src/lib/runtime.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
-import { noopBuilderManifestWriter } from "./fake-worker-map.ts"
+import { fakeBuilderHandoff, fakeDrafterHandoff } from "./fake-worker-map.ts"
 import { repositoryHead } from "./temp-repo.ts"
 import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
@@ -76,7 +76,7 @@ describe("controller runtime", () => {
       FACTORY_WORKER_ROUTE: "/fix#agent",
     }
     const runtime = createControllerRuntime(env, {
-      writeBuilderManifest: noopBuilderManifestWriter,
+      captureBuilderHandoff: fakeBuilderHandoff,
     })
     expect(runtime.config.builder).toEqual({
       url: fake.baseUrl,
@@ -168,10 +168,7 @@ describe("controller runtime", () => {
       },
       {
         // The pin is no commit of any repository: the capture is stood in for.
-        writeDrafterManifest: async ({ dir: target, workOrderId }) => ({
-          path: join(target, `${workOrderId}.json`),
-          sourceDigest: "c".repeat(64),
-        }),
+        captureDrafterHandoff: fakeDrafterHandoff,
       },
     )
     // The manifest directory is made at boot.

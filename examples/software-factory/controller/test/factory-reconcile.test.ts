@@ -18,7 +18,7 @@ import type { Verifier } from "../src/lib/verification/verifier.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
-import { fakeWorkerMap, noopBuilderManifestWriter } from "./fake-worker-map.ts"
+import { fakeBuilderHandoff, fakeWorkerMap } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
 import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
@@ -68,7 +68,7 @@ async function bootFactory(overrides: Partial<FactoryOptions> = {}) {
         reader,
       },
     }),
-    writeBuilderManifest: noopBuilderManifestWriter,
+    captureBuilderHandoff: fakeBuilderHandoff,
     exportDir: out(),
     artifactsDir: join(dir, "artifacts"),
     verifier: createFakeVerifier({ verdict: "pass" }),
@@ -315,11 +315,11 @@ describe("reconciliation", () => {
       { command: "dispatch", args: {} },
       now(),
     )
-    // As dispatch journals it: the manifest's digest, then the thread that holds it.
+    // As dispatch journals it: the staged source's digest, then the thread that names it.
     createWorkOrderStore(registry.db).appendEvent(
       id,
-      "builder_manifest_written",
-      { path: `/unused/builder-manifests/${id}.json`, sourceDigest: "0".repeat(64) },
+      "builder_source_staged",
+      { sourceDigest: "0".repeat(64), status: "created" },
       now(),
     )
     createWorkOrderStore(registry.db).appendEvent(id, "thread_created", { threadId }, now())
@@ -361,11 +361,11 @@ describe("reconciliation", () => {
       { command: "dispatch", args: {} },
       now(),
     )
-    // As dispatch journals it: the manifest's digest, then the thread that holds it.
+    // As dispatch journals it: the staged source's digest, then the thread that names it.
     createWorkOrderStore(registry.db).appendEvent(
       id,
-      "builder_manifest_written",
-      { path: `/unused/builder-manifests/${id}.json`, sourceDigest: "0".repeat(64) },
+      "builder_source_staged",
+      { sourceDigest: "0".repeat(64), status: "created" },
       now(),
     )
     createWorkOrderStore(registry.db).appendEvent(id, "thread_created", { threadId }, now())

@@ -3,9 +3,10 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
 import {
-  type WrittenBuilderManifest,
-  writeBuilderManifest as writeBuilderManifestOnDisk,
-} from "../builder-manifest.js"
+  type CapturedBuilderHandoff,
+  captureBuilderHandoff as captureBuilderHandoffOfTask,
+  stagedReferenceOf,
+} from "../builder-handoff.js"
 import { DEFAULT_WORKER_ROUTE } from "../config.js"
 import { exportApproved } from "../delivery/export.js"
 import { canon } from "../domain/digest.js"
@@ -30,10 +31,10 @@ import {
   type WorkOrderRow,
 } from "../domain/work-order.js"
 import {
-  type WriteDrafterManifestOptions,
-  type WrittenDrafterManifest,
-  writeDrafterManifest as writeDrafterManifestOnDisk,
-} from "../drafter-manifest.js"
+  type CaptureDrafterHandoffOptions,
+  type CapturedDrafterHandoff,
+  captureDrafterHandoff as captureDrafterHandoffOfPin,
+} from "../drafter-handoff.js"
 import { digestGeneratedTask } from "../intake/generated-task.js"
 import { issueText } from "../intake/issue.js"
 import { oracleReceiptIdFor } from "../intake/oracle.js"
@@ -57,12 +58,7 @@ import type { CancelResult, WorkerClient } from "../worker/client.js"
 import type { InterruptFrame, StreamFrame } from "../worker/wire.js"
 import { type BudgetTicker, startBudgetTicker } from "./budget.js"
 import type { ControllerContext } from "./context.js"
-import { finishIntake, observeIntakeTurn, removeDrafterManifest, runIntake } from "./intake.js"
-import {
-  removeJournalledManifest,
-  removeOwnManifest,
-  removeUnhandedManifest,
-} from "./manifest-files.js"
+import { finishIntake, observeIntakeTurn, runIntake } from "./intake.js"
 import { reconcileAll, reconcileWorkOrder } from "./reconcile.js"
 import { denyPending, observeRun } from "./run-observer.js"
 import { consumeTurn } from "./turns.js"
@@ -95,7 +91,7 @@ export interface FactoryOptions {
    */
   readonly generatedTasksDir: string
   /**
-   * Where the default manifest writers stage the captures they take (`captures/<role>/...`):
+   * Where the default handoff captures stage what they capture (`captures/<role>/...`):
    * the runtime's `FACTORY_STATE_DIR`. Never the controller's app root: `b4 dev` watches that
    * directory and restarts the server on a write it does not ignore, which killed `intake`
    * mid-command the first time the factory ran under it.
@@ -103,25 +99,24 @@ export interface FactoryOptions {
   readonly captureRoot: string
   readonly verifier: Verifier
   /**
-   * Writes the drafter manifest `intake` hands the drafter before it creates the thread: the
-   * wide capture of the repository at the row's pin. Injected so tests need neither the
-   * repository at a real pin nor the capture; the runtime uses the real writer.
+   * Captures the workspace `intake` stages on the drafter before it creates the thread (the
+   * wide capture of the repository at the row's pin), with its handoff. Injected so tests
+   * need neither the repository at a real pin nor the capture; the runtime uses the real one.
    */
-  readonly writeDrafterManifest?: (
-    options: WriteDrafterManifestOptions,
-  ) => Promise<WrittenDrafterManifest>
+  readonly captureDrafterHandoff?: (
+    options: CaptureDrafterHandoffOptions,
+  ) => Promise<CapturedDrafterHandoff>
   /**
-   * Writes the builder manifest `dispatch` hands the target's builder before it creates the
-   * thread: the task's workspace, captured at the target's pin, named by the work order.
-   * Injected so a test can fail the write or count it; the runtime (and every test that does
-   * not inject one) uses the real writer over the process-wide catalog.
+   * Captures the workspace `dispatch` stages on the builder before it creates the thread (the
+   * task's workspace at the target's pin), with its handoff, named by the work order.
+   * Injected so a test can fail the capture or count it; the runtime (and every test that
+   * does not inject one) uses the real capture over the process-wide catalog.
    */
-  readonly writeBuilderManifest?: (input: {
+  readonly captureBuilderHandoff?: (input: {
     readonly taskId: string
     readonly workOrderId: string
-    readonly dir: string
     readonly signal: AbortSignal
-  }) => Promise<WrittenBuilderManifest>
+  }) => Promise<CapturedBuilderHandoff>
   /** The controller's own baseline for a task. Injected so tests need no container. */
   captureBaseline(
     taskId: string,
@@ -273,14 +268,14 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     }
   }
   /**
-   * The runtime's builder manifest writer: the task from the catalog the prompt came from
+   * The runtime's builder handoff: the task from the catalog the prompt came from
    * (`promptCatalog` when a test scopes one, the process-wide search path otherwise),
    * captured.
    */
-  const writeBuilderManifestFromCatalog: NonNullable<FactoryOptions["writeBuilderManifest"]> = (
+  const captureBuilderHandoffFromCatalog: NonNullable<FactoryOptions["captureBuilderHandoff"]> = (
     input,
   ) =>
-    writeBuilderManifestOnDisk(loadTask(input.taskId, options.promptCatalog ?? {}), input.dir, {
+    captureBuilderHandoffOfTask(loadTask(input.taskId, options.promptCatalog ?? {}), {
       workOrderId: input.workOrderId,
       captureRoot: options.captureRoot,
       signal: input.signal,
@@ -296,12 +291,6 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
    */
   const phases = new Map<string, AbortController>()
   const PHASE_STATES: ReadonlySet<WorkOrderRow["state"]> = new Set(["verifying", "intake_running"])
-  const INTAKE_STATES: ReadonlySet<WorkOrderRow["state"]> = new Set([
-    "intake_running",
-    "awaiting_intake_approval",
-  ])
-  /** Where a builder thread is before its first turn has certainly been admitted. */
-  const BUILD_STATES: ReadonlySet<WorkOrderRow["state"]> = new Set(["dispatched", "running"])
   let closed = false
   /** Started only once reconciliation has run, so no tick can race the boot rules. */
   let ticker: BudgetTicker | null = null
@@ -320,49 +309,13 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     log(type, { id, ...payload })
   }
 
-  /**
-   * Manifest removals a transition decided while a caller's own transaction was open. An
-   * `rm` cannot be rolled back, so it never runs inside a transaction: `transition` performs
-   * it after its own commits, and a caller that wraps `transition` in an outer transaction
-   * (`approveIntake`, `rejectIntake`) goes through `outerTransaction`, which flushes these
-   * once it has committed.
-   */
-  let outerDepth = 0
-  const pendingRemovals = new Set<string>()
-  const pendingBuilderRemovals = new Set<string>()
-  const flushRemovals = () => {
-    for (const id of [...pendingRemovals]) {
-      pendingRemovals.delete(id)
-      removeDrafterManifest(ctx, id)
-    }
-    for (const id of [...pendingBuilderRemovals]) {
-      pendingBuilderRemovals.delete(id)
-      removeBuilderManifest(id)
-    }
-  }
-  const outerTransaction = <T>(fn: () => T): T => {
-    outerDepth += 1
-    try {
-      return store.transaction(fn)
-    } finally {
-      outerDepth -= 1
-      if (outerDepth === 0) flushRemovals()
-    }
-  }
-  const leftIntakeStates = (from: WorkOrderRow["state"], to: WorkOrderRow["state"]) =>
-    INTAKE_STATES.has(from) && !INTAKE_STATES.has(to) && to !== "cancel_requested"
-  const leftBuildStates = (from: WorkOrderRow["state"], to: WorkOrderRow["state"]) =>
-    BUILD_STATES.has(from) && !BUILD_STATES.has(to) && to !== "cancel_requested"
-
   const transition = (
     id: string,
     event: TransitionEvent,
     patch: WorkOrderPatch = {},
     payload: Record<string, unknown> = {},
   ): WorkOrderRow => {
-    let leftIntake = false
-    let leftBuild = false
-    const updated = store.transaction(() => {
+    return store.transaction(() => {
       const row = mustGet(id)
       const to = nextState(row.state, event)
       const accounting: WorkOrderPatch = {}
@@ -388,31 +341,8 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         phases.get(id)?.abort()
         phases.delete(id)
       }
-      // Decided here, where the move is known; performed below, once it has committed.
-      leftIntake = leftIntakeStates(row.state, to)
-      leftBuild = leftBuildStates(row.state, to)
       return updated
     })
-    // The drafter manifest lives until the intake thread has been admitted or never will
-    // be: removed when the row leaves the intake states for good (a block, an approval),
-    // not on a redraft (`intake_retry`, `reject_intake` stay inside them) and not on a
-    // cancel, whose `finishCancel` removes it once the thread itself is settled. The removal
-    // follows the committed transition in the journal, and never runs inside a transaction:
-    // a caller's outer one defers it until that has committed too.
-    if (leftIntake) {
-      if (outerDepth === 0) removeDrafterManifest(ctx, id)
-      else pendingRemovals.add(id)
-    }
-    // The builder manifest likewise: the builder's resolver reads it once, when the thread's
-    // first run is admitted, which has happened (or never will) once the row leaves
-    // `dispatched`/`running` for anything but a cancel, whose `finishCancel` removes it once
-    // the thread is settled. Verification and approval read the workspace through the
-    // reader, never through the resolver.
-    if (leftBuild) {
-      if (outerDepth === 0) removeBuilderManifest(id)
-      else pendingBuilderRemovals.add(id)
-    }
-    return updated
   }
 
   const phaseSignal = (id: string): AbortSignal => {
@@ -564,12 +494,6 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     holdsIntakeThread(row) ? drafter() : workerFor(row)
 
   /**
-   * Remove the work order's builder manifest, the file `dispatch` wrote for the builder's
-   * resolver, at the path the journal recorded (see `removeJournalledManifest`).
-   */
-  const removeBuilderManifest = (id: string): void => removeJournalledManifest(ctx, id, "builder")
-
-  /**
    * Is there a turn on `threadId` for the cancel to interrupt, and is the thread there at
    * all? The worker is the authority, not the controller's in-memory `runs` map: after a
    * restart that map is empty, and while a run is draining its last frames the map still
@@ -617,7 +541,6 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       } catch (error) {
         recordEvent(id, "worker_unavailable", { phase: "cancel", error: String(error) })
       }
-      const intakeThread = holdsIntakeThread(row)
       const liveness = worker === undefined ? "missing" : await threadLiveness(id, worker, threadId)
       let result: CancelResult | null = null
       if (worker !== undefined && (liveness === "live" || liveness === "unknown")) {
@@ -641,15 +564,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           return mustGet(id)
         }
       }
-      // The thread is settled: whatever its manifest was for, it has been admitted or never
-      // will be.
-      if (intakeThread) removeDrafterManifest(ctx, id)
-      else removeBuilderManifest(id)
     }
-    // A command that wrote a manifest and was cancelled (or crashed) before it created the
-    // thread: from `received` there is no thread to settle, and nothing will ever read it.
-    removeUnhandedManifest(ctx, id, "builder")
-    removeUnhandedManifest(ctx, id, "drafter")
     try {
       return cause === "budget"
         ? transition(id, "run_ended_after_budget", { blockedReason: "budget_exhausted" })
@@ -896,10 +811,11 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       // the row (the same window `dispatch` leaves): a rerun adopts that thread rather than
       // leaving it idle on the worker and making a second one.
       let threadId = row.workerThreadId ?? journalledIntakeThreadId(id)
-      // The pin is the one transient precondition of the manifest write below: a commit the
+      // The pin is the one transient precondition of the capture below: a commit the
       // repository does not hold yet is fetched here, and a fetch that fails is refused
       // UNSPENT, so the same call after the network (or the operator) mends it is not the
-      // replay of this refusal. The write itself, under the key, then fails only on disk.
+      // replay of this refusal. The capture and the upload, under the key, then fail only on
+      // the disk or the drafter.
       let repository: string
       try {
         repository = options.promptCatalog?.repositoryRoot ?? repositoryRoot()
@@ -920,38 +836,37 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       if (row.state !== "received") return refuse(`Cannot intake from ${row.state}`)
       let created = false
       if (!threadId) {
-        // The manifest first: the drafter's resolver reads it when the thread's first run is
-        // admitted, so a thread created before it exists would be one nothing can serve. A
-        // redraft (the thread exists) writes nothing — the thread was admitted with its
-        // manifest, and the pin cannot change.
+        // The workspace first: the drafter serves only the staged source the thread names,
+        // and refuses a create naming one it does not hold. A redraft (the thread exists)
+        // stages nothing: the thread was admitted with its workspace, and the pin cannot
+        // change.
         if (row.pin === null) return refuse("An issue work order has no pin to draft at")
+        let captured: CapturedDrafterHandoff
         try {
-          const written = await (options.writeDrafterManifest ?? writeDrafterManifestOnDisk)({
+          captured = await (options.captureDrafterHandoff ?? captureDrafterHandoffOfPin)({
             workOrderId: id,
             pin: row.pin,
             repositoryRoot: repository,
-            dir: drafterWorker.manifestDir,
             captureRoot: options.captureRoot,
             signal: abort.signal,
           })
-          recordEvent(id, "drafter_manifest_written", {
-            path: written.path,
-            sourceDigest: written.sourceDigest,
+          const status = await drafterWorker.client.uploadSource(captured.workspace.source)
+          recordEvent(id, "drafter_source_staged", {
+            sourceDigest: captured.handoff.workspace.sourceDigest,
+            status,
           })
         } catch (error) {
-          recordEvent(id, "drafter_manifest_failed", { error: String(error) })
-          return refuse(`drafter manifest could not be written: ${String(error)}`)
+          recordEvent(id, "drafter_source_failed", { error: String(error) })
+          return refuse(`drafter workspace could not be staged: ${String(error)}`)
         }
         try {
-          threadId = await drafterWorker.client.createThread({
-            factoryWorkOrderId: id,
-            factoryStage: "intake",
-          })
+          threadId = await drafterWorker.client.createThread(
+            { factoryWorkOrderId: id, factoryStage: "intake", factoryDrafter: captured.handoff },
+            stagedReferenceOf(captured.workspace),
+          )
         } catch (error) {
-          // No thread will ever be admitted with this manifest: the next intake writes its own.
-          // Unless a concurrent intake under another key has committed a thread since, whose
-          // manifest this now is.
-          removeOwnManifest(ctx, id, "drafter", null)
+          // Nothing to remove: an upload no thread names is reclaimed by the drafter once it
+          // is older than its retention window.
           return refuse(`Thread creation failed: ${String(error)}`)
         }
         created = true
@@ -977,10 +892,6 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           } catch (cancelError) {
             recordEvent(id, "worker_cancel_failed", { threadId, error: String(cancelError) })
           }
-          // The cancel that moved the row found no thread on it, so it removed nothing: the
-          // manifest written a moment ago is this path's to remove, unless the row holds
-          // another command's thread by now.
-          removeOwnManifest(ctx, id, "drafter", threadId)
         }
         return refuse("Work order changed state while starting intake")
       }
@@ -1027,7 +938,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       if (taskDigest !== row.taskDigest)
         return refuse("Task digest does not match the work order's")
       try {
-        outerTransaction(() => {
+        store.transaction(() => {
           transition(id, "approve_intake", {}, { taskDigest, operationKey: key })
           recordEvent(id, "intake_approved", { taskDigest })
         })
@@ -1052,7 +963,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       // and the next drafter turn (if there is one) quotes it.
       let next: WorkOrderRow
       try {
-        next = outerTransaction(() => {
+        next = store.transaction(() => {
           recordEvent(id, "intake_rejected", { note, attempt: row.intakeAttempts })
           // The rejected draft is no longer the row's, whichever way the row goes: its digest
           // and target are cleared so nothing (a `show`, the evidence, a later approve-intake)
@@ -1136,7 +1047,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       // lookup is where the target's pin is fetched into a shallow checkout (`loadTarget`'s
       // `ensurePin`), and a fetch that fails is transient, not a function of the row's
       // revision; the dispatch after the network mends is not the replay of this refusal. It
-      // also makes the manifest write below depend on nothing but the disk. The cause rides
+      // also makes the capture below depend on nothing but the disk. The cause rides
       // along so an unprepared target is not reported as a task nobody has heard of.
       let input: string | Error | undefined
       if (row.state === "received") {
@@ -1189,39 +1100,41 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
             : `Unknown task ${row.taskId}: ${input.message}`,
         })
       // The prompt loaded, so the task loads and names its target; the one builder serves it
-      // at its pin, from the manifest written below.
+      // at its pin, from the workspace staged below.
       const worker = workerFor(row)
-      // The manifest first: the builder's resolver reads `<manifestDir>/<id>.json` when the
-      // thread's first run is admitted, so a thread created before it exists would be one
-      // nothing can serve. The pin is already in the object store (the prompt lookup above
-      // fetched it), so this fails only on the capture or the disk: under the key.
+      // The workspace first: the builder serves only the staged source the thread names, and
+      // refuses a create naming one it does not hold. The pin is already in the object store
+      // (the prompt lookup above fetched it), so this fails only on the capture or the
+      // upload: under the key.
+      let captured: CapturedBuilderHandoff
       try {
-        const written = await (options.writeBuilderManifest ?? writeBuilderManifestFromCatalog)({
+        captured = await (options.captureBuilderHandoff ?? captureBuilderHandoffFromCatalog)({
           taskId: row.taskId,
           workOrderId: id,
-          dir: worker.manifestDir,
           signal: abort.signal,
         })
-        recordEvent(id, "builder_manifest_written", {
-          path: written.path,
-          sourceDigest: written.sourceDigest,
+        const status = await worker.client.uploadSource(captured.workspace.source)
+        recordEvent(id, "builder_source_staged", {
+          sourceDigest: captured.handoff.workspace.sourceDigest,
+          status,
         })
       } catch (error) {
-        recordEvent(id, "builder_manifest_failed", { error: String(error) })
+        recordEvent(id, "builder_source_failed", { error: String(error) })
         return finish(key, {
           ok: false,
           state: row.state,
-          message: `builder manifest could not be written: ${String(error)}`,
+          message: `builder workspace could not be staged: ${String(error)}`,
         })
       }
       let threadId: string
       try {
-        threadId = await worker.client.createThread({ factoryWorkOrderId: id })
+        threadId = await worker.client.createThread(
+          { factoryWorkOrderId: id, factoryBuilder: captured.handoff },
+          stagedReferenceOf(captured.workspace),
+        )
       } catch (error) {
-        // No thread will ever be admitted with this manifest: the next dispatch writes its own.
-        // Unless a concurrent dispatch under another key has committed a thread since, whose
-        // manifest this now is.
-        removeOwnManifest(ctx, id, "builder", null, row.workerThreadId)
+        // Nothing to remove: an upload no thread names is reclaimed by the builder once it
+        // is older than its retention window.
         return finish(key, {
           ok: false,
           state: row.state,
@@ -1247,10 +1160,6 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         } catch (cancelError) {
           recordEvent(id, "worker_cancel_failed", { threadId, error: String(cancelError) })
         }
-        // The cancel that moved the row found no thread on it, so it removed nothing: the
-        // manifest written a moment ago is this path's to remove, unless the row holds
-        // another command's thread by now.
-        removeOwnManifest(ctx, id, "builder", threadId, row.workerThreadId)
         return finish(key, {
           ok: false,
           state: mustGet(id).state,

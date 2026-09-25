@@ -7,8 +7,8 @@
     "test": "vitest run",
     "typecheck": "tsc -p . --noEmit",
     "lint": "biome check .",
-    "check": "FACTORY_DRAFTER_MANIFEST_DIR=\"${FACTORY_DRAFTER_MANIFEST_DIR:-.factory/manifests}\" b4 check",
-    "build": "FACTORY_DRAFTER_MANIFEST_DIR=\"${FACTORY_DRAFTER_MANIFEST_DIR:-.factory/manifests}\" b4 build",
+    "check": "b4 check",
+    "build": "b4 build",
     "dev": "b4 dev"
   },
   "dependencies": {

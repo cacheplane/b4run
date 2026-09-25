@@ -23,8 +23,8 @@ import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 /**
  * Layer 3 for the monorepo target: the same join the `cli-flags` lane proves, over a real
  * package pinned out of this repository. The controller dispatches to the real builder app,
- * served for the `devkit` target, whose resolver serves the work order's manifest that
- * `dispatch` wrote; the builder's own tools write the reference repair into its managed
+ * served for the `devkit` target, whose resolver serves the workspace `dispatch` staged over
+ * its port, with the target the thread's handoff names; the builder's own tools write the reference repair into its managed
  * workspace; the controller reads those bytes over the builder's own port with the worker
  * token and the handed digest, assembles them against ITS OWN archive of the pin, verifies them in the prepared image,
  * freezes a bundle, approves and exports exactly those bytes.
@@ -79,8 +79,8 @@ it(
     // them is this lane's fault and not the candidate's.
     const repaired = await applyReference(TASK)
 
-    // The one builder, which serves every target: the manifest `dispatch` writes carries the
-    // devkit image, policy and permissions; its manifest directory starts empty.
+    // The one builder, which serves every target: the handoff `dispatch` sends carries the
+    // devkit image, policy and permissions, and the staged source is its workspace.
     builder = await serveBuilder()
     const served = builder
     const input = taskPrompt(task)
@@ -108,7 +108,6 @@ it(
         builder: {
           client: createHttpWorkerClient(served.url, { token: TEST_WORKER_TOKEN }),
           reader: reader(),
-          manifestDir: served.manifestDir,
         },
       }),
       exportDir,
@@ -157,18 +156,17 @@ it(
     expect(suiteOutput).toMatch(/Tests\s+\d+ passed/)
     expect(suiteOutput).toContain('"exitCode":0')
 
-    // Admitted through the resolver, from the manifest `dispatch` wrote for this work order;
-    // the manifest itself is gone once the turn ended.
-    const written = factory.events(id).find((e) => e.type === "builder_manifest_written")?.payload
+    // Admitted through the resolver, from the source `dispatch` staged for this work order.
+    const staged = factory.events(id).find((e) => e.type === "builder_source_staged")?.payload
+    expect(staged?.sourceDigest).toMatch(/^[0-9a-f]{64}$/)
     const installation = openWorkspaceInstallationReader(served.appRoot)
     try {
       expect(installation.associations.get(threadId)?.intent.sourceDigest).toBe(
-        written?.sourceDigest,
+        staged?.sourceDigest,
       )
     } finally {
       installation.close()
     }
-    expect(await readdir(served.manifestDir)).toEqual([])
 
     // The bytes are in the BUILDER'S workspace: read them through the same reader the
     // controller used, over the builder's own port, naming the source `dispatch` handed it.

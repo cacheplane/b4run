@@ -1,12 +1,13 @@
 import { config } from "@b4run/cli"
 import { dockerSandbox } from "@b4run/sandbox"
-import { verifyCapturedWorkspaceDefinition } from "@b4run/workspace/node"
+import {
+  drafterHandoffOf,
+  refuseRetiredVariables,
+  stagedDrafterWorkspace,
+} from "./src/drafter-handoff.js"
 import { DRAFTER_IMAGE } from "./src/drafter-image.js"
-import { drafterManifestDir, loadDrafterManifest, workOrderIdOf } from "./src/drafter-manifest.js"
 
-// Boot refuses without the directory; an empty one is fine, because a thread with no
-// manifest is refused at resolve time, by name.
-const manifestDir = drafterManifestDir()
+refuseRetiredVariables()
 
 export default config({
   appDir: "src/app",
@@ -21,15 +22,15 @@ export default config({
     // (`POST /threads/:id/workspace/inspect`), authorized by src/thread-access.ts, and
     // never opens this app's installation store or its volumes itself.
     workspaceRead: "http",
-    // Per thread: the controller writes `<dir>/<workOrderId>.json` before it creates the
-    // thread with `{ factoryWorkOrderId }`, and the thread serves that capture and no other.
-    workspace: async (thread) => {
-      const workOrderId = workOrderIdOf(thread.metadata)
-      const manifest = await loadDrafterManifest(manifestDir, workOrderId, {
-        signal: thread.signal,
-      })
-      return verifyCapturedWorkspaceDefinition(manifest.workspace)
-    },
+    // The controller uploads each intake's wide capture (`PUT /workspace/sources/:digest`,
+    // stamped as the controller's by src/thread-access.ts) and creates the thread naming it,
+    // with the work order's handoff in `factoryDrafter`. The framework verifies the source byte
+    // for byte and hands it to the resolver as `thread.staged`.
+    stagedWorkspaces: true,
+    // Per thread, at its first admission: the thread serves the staged capture its handoff
+    // names (digest and links, never a baseline) and no other; nothing is read from disk.
+    workspace: async (thread) =>
+      stagedDrafterWorkspace(thread.staged, drafterHandoffOf(thread.metadata)),
     // Same field names as the controller's `targetSandboxPolicy`; smaller than a builder's
     // because the drafter reads and writes files and runs nothing heavier than `grep`.
     network: { mode: "deny" },

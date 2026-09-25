@@ -2,10 +2,13 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { ThreadWorkspaceReadError } from "@b4run/cli/workspace"
+import { createSourceBundle } from "@b4run/workspace/node"
 import { afterEach, describe, expect, it } from "vitest"
+import { stagedReferenceOf } from "../src/lib/builder-handoff.ts"
 import { createFactory, type Factory, type FactoryOptions } from "../src/lib/controller/factory.ts"
 import { DRAFTER_UNCONFIGURED } from "../src/lib/controller/workers.ts"
 import type { IssueOrigin, WorkOrderRow } from "../src/lib/domain/work-order.ts"
+import { DrafterHandoffSchema } from "../src/lib/drafter-handoff.ts"
 import { digestGeneratedTask } from "../src/lib/intake/generated-task.ts"
 import { taskPrompt } from "../src/lib/prompts.ts"
 import { createCommandLog } from "../src/lib/registry/commands.ts"
@@ -22,7 +25,7 @@ import {
 } from "../src/lib/worker/workspace-reader.ts"
 import { createFakeVerifier, type FakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
-import { fakeWorkerMap, noopBuilderManifestWriter } from "./fake-worker-map.ts"
+import { fakeBuilderHandoff, fakeWorkerMap } from "./fake-worker-map.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
 import { BAD_DRAFTS, GOOD_DRAFT } from "./intake-fixtures.ts"
 import { createEmptyRepo, repositoryHead, shippedPin } from "./temp-repo.ts"
@@ -48,7 +51,7 @@ const ORIGIN: IssueOrigin = {
 }
 /**
  * The pin every issue here names: a commit this repository holds (`intake` checks the pin
- * is one the controller can find before it writes a manifest, and an invented sha would
+ * is one the controller can find before it captures the workspace, and an invented sha would
  * send it fetching), and the one the shipped targets hold images at (the draft's target is
  * looked up at the work order's pin).
  */
@@ -71,25 +74,29 @@ const repaired = () => ({
   [SOURCE]: "export const deadline = 'cleared'\n",
 })
 
-/** Where the controller writes the drafter's manifests: the drafter's `FACTORY_DRAFTER_MANIFEST_DIR`. */
-const manifestDir = () => join(dir, "drafter", "manifests")
-const manifestPath = (id: string) => join(manifestDir(), `${id}.json`)
-/** The manifests written this test, in order: what the drafter's resolver would be handed. */
-let manifestWrites: { workOrderId: string; pin: string; dir: string }[]
+/** The drafter's staged source in these tests: one small file, where the real one is tens of MiB. */
+const DRAFT_SOURCE = createSourceBundle([
+  { path: "repo/README.md", bytes: new TextEncoder().encode("# fixture\n"), executable: false },
+])
+/** The captures taken this test, in order: what the drafter would be handed. */
+let captures: { workOrderId: string; pin: string }[]
 /**
  * Stands in for the wide capture: the pin here is not a commit of any repository, and the
- * real writer's capture is tens of MiB. Writes the same file, at the same path.
+ * real capture is tens of MiB. Returns a real source and the handoff naming it, which intake
+ * uploads and creates the thread with, as it does the real one.
  */
-const fakeManifestWriter: NonNullable<FactoryOptions["writeDrafterManifest"]> = async ({
+const fakeDrafterHandoff: NonNullable<FactoryOptions["captureDrafterHandoff"]> = async ({
   workOrderId,
   pin,
-  dir: target,
 }) => {
-  manifestWrites.push({ workOrderId, pin, dir: target })
-  mkdirSync(target, { recursive: true })
-  const path = join(target, `${workOrderId}.json`)
-  writeFileSync(path, `${JSON.stringify({ version: 1, workOrderId, pin })}\n`)
-  return { path, sourceDigest: "c".repeat(64) }
+  captures.push({ workOrderId, pin })
+  const workspace = { version: 1 as const, source: DRAFT_SOURCE, environmentLinks: [] }
+  const handoff = DrafterHandoffSchema.parse({
+    version: 2,
+    workOrderId,
+    workspace: stagedReferenceOf(workspace),
+  })
+  return { handoff, workspace }
 }
 
 async function bootWorker(options: Omit<FakeWorkerOptions, "outboxDir"> = {}) {
@@ -111,7 +118,7 @@ async function bootWorker(options: Omit<FakeWorkerOptions, "outboxDir"> = {}) {
   // The reader outlives each factory, exactly as the drafter's sandbox outlives a restart.
   reader = createFakeWorkspaceReader({})
   verifier = createFakeVerifier({ independent: "fail" })
-  manifestWrites = []
+  captures = []
 }
 interface BootOverrides extends Partial<Omit<FactoryOptions, "workers">> {
   /** The drafter's reader; the shared fake by default. */
@@ -141,17 +148,16 @@ async function bootFactory(overrides: BootOverrides = {}) {
                 createHttpWorkerClient(fake.baseUrl, { token: TEST_WORKER_TOKEN }),
               ),
               reader: drafterReader ?? reader,
-              manifestDir: manifestDir(),
             },
           }
         : {}),
     }),
-    writeBuilderManifest: noopBuilderManifestWriter,
+    captureBuilderHandoff: fakeBuilderHandoff,
     exportDir: join(dir, "out"),
     artifactsDir: join(dir, "artifacts"),
     verifier,
     captureBaseline,
-    writeDrafterManifest: fakeManifestWriter,
+    captureDrafterHandoff: fakeDrafterHandoff,
     ...rest,
   })
   return factory
@@ -220,7 +226,7 @@ async function intake(
 
 /** Rewrite the row directly, the way a crash mid-phase would leave it. */
 /**
- * What intake journals when it hands a thread its workspace: the manifest's source digest,
+ * What intake journals when it hands a thread its workspace: the staged source's digest,
  * then the thread that holds it. A test that fakes a crash window journals both, as intake
  * does, because the controller reads the thread back only with the digest it handed.
  */
@@ -230,8 +236,8 @@ function journalHandoff(id: string, threadId: string): void {
   const at = new Date().toISOString()
   events.appendEvent(
     id,
-    "drafter_manifest_written",
-    { path: manifestPath(id), sourceDigest: "c".repeat(64) },
+    "drafter_source_staged",
+    { sourceDigest: DRAFT_SOURCE.digest, status: "created" },
     at,
   )
   events.appendEvent(id, "intake_thread_created", { threadId }, at)
@@ -271,7 +277,7 @@ describe("intake", () => {
 
     expect(eventTypes(id)).toEqual([
       "created:",
-      "drafter_manifest_written:",
+      "drafter_source_staged:",
       "intake_thread_created:",
       "transition:intake_started",
       "intake_run_started:",
@@ -288,21 +294,35 @@ describe("intake", () => {
     // The drafter thread is the intake stage's, on the DRAFTER and its route, prompted with
     // the issue and the four-file instruction; the builder heard nothing.
     expect(threadPosts()).toHaveLength(1)
-    expect(threadPosts()[0]?.body).toMatchObject({
-      metadata: { factoryWorkOrderId: id, factoryStage: "intake" },
+    // With its handoff, and the staged workspace the handoff names.
+    const created = threadPosts()[0]?.body as {
+      metadata: Record<string, unknown>
+      workspace: unknown
+    }
+    expect(created.metadata).toEqual({
+      factoryWorkOrderId: id,
+      factoryStage: "intake",
+      factoryDrafter: {
+        version: 2,
+        workOrderId: id,
+        workspace: { sourceDigest: DRAFT_SOURCE.digest, environmentLinks: [] },
+      },
     })
+    expect(created.workspace).toEqual({ sourceDigest: DRAFT_SOURCE.digest, environmentLinks: [] })
     expect(builder.requests).toEqual([])
     expect(row.workerRoute).toBe("/intake#agent")
     expect(runPosts()).toHaveLength(1)
     expect(runPosts()[0]?.body).toMatchObject({ route: "/intake#agent" })
-    // The manifest the drafter's resolver reads was written for this work order, at the
-    // row's pin, into the drafter's manifest directory, BEFORE the thread was created; it
-    // stays while the draft awaits a person (a rejection redrafts on the same thread).
-    expect(manifestWrites).toEqual([{ workOrderId: id, pin: PIN, dir: manifestDir() }])
-    expect(JSON.parse(readFileSync(manifestPath(id), "utf8"))).toMatchObject({ workOrderId: id })
-    expect(factory.events(id).find((e) => e.type === "drafter_manifest_written")?.payload).toEqual({
-      path: manifestPath(id),
-      sourceDigest: "c".repeat(64),
+    // The workspace was captured for this work order, at the row's pin, and uploaded to the
+    // drafter BEFORE the thread was created, with the token.
+    expect(captures).toEqual([{ workOrderId: id, pin: PIN }])
+    const upload = fake.requests.findIndex((r) => r.method === "PUT")
+    expect(fake.requests[upload]?.path).toBe(`/workspace/sources/${DRAFT_SOURCE.digest}`)
+    expect(fake.requests[upload]?.authorization).toBe(`Bearer ${TEST_WORKER_TOKEN}`)
+    expect(upload).toBeLessThan(fake.requests.findIndex((r) => r.path === "/threads"))
+    expect(factory.events(id).find((e) => e.type === "drafter_source_staged")?.payload).toEqual({
+      sourceDigest: DRAFT_SOURCE.digest,
+      status: "created",
     })
     expect(promptOf(0)).toContain(ISSUE.title)
     expect(promptOf(0)).toContain("draft/task.json")
@@ -317,7 +337,7 @@ describe("intake", () => {
     })
     expect(reader.reads).toEqual([threadId])
     // The read named the source intake handed the thread: the worker must answer with it.
-    expect(reader.targets).toEqual([{ threadId, sourceDigest: "c".repeat(64) }])
+    expect(reader.targets).toEqual([{ threadId, sourceDigest: DRAFT_SOURCE.digest }])
   })
 
   it("refuses a catalog work order, the wrong state, and an unconfigured intake", async () => {
@@ -345,11 +365,11 @@ describe("intake", () => {
       state: "received",
       message: DRAFTER_UNCONFIGURED,
     })
-    // Refused before a thread is spent, before a manifest is written, and before the key is:
+    // Refused before a thread is spent, before a workspace is staged, and before the key is:
     // the operator configures the drafter and restarts, and the same call under the default
     // key is not a replayed refusal.
     expect(threadPosts()).toHaveLength(1)
-    expect(manifestWrites).toHaveLength(1)
+    expect(captures).toHaveLength(1)
     await factory.close()
     await bootFactory()
     expect(await factory.intake(fresh.id)).toEqual({
@@ -380,11 +400,8 @@ describe("intake", () => {
     })
     expect(String(refusals(id)[0]?.payload.reason)).toMatch(/no-such-target/)
     expect(eventTypes(id)).not.toContain("transition:intake_retry")
-    // The block, then the manifest's removal: the removal follows the committed move.
-    expect(eventTypes(id).slice(-2)).toEqual([
-      "transition:intake_blocked",
-      "drafter_manifest_removed:",
-    ])
+    // The block is the last word: nothing was written for the drafter, so nothing is removed.
+    expect(eventTypes(id).at(-1)).toBe("transition:intake_blocked")
   })
 
   it("blocks image_unprepared after one attempt when the target has no image at the work order's pin", async () => {
@@ -512,44 +529,53 @@ describe("intake", () => {
         readFileSync(join(generated, ".refused", id, `attempt-${attempt}`, "reason.txt"), "utf8"),
       ).toMatch(new RegExp(`^attempt ${attempt}: draft/spec\\.md states \\[A1, A2\\]`))
     expect(eventTypes(id).filter((t) => t === "transition:intake_retry")).toHaveLength(1)
-    // The retry kept the manifest (the same thread redrafts); the block removed it: nothing
-    // will admit that thread again.
-    expect(manifestWrites).toHaveLength(1)
-    expect(existsSync(manifestPath(id))).toBe(false)
-    expect(factory.events(id).find((e) => e.type === "drafter_manifest_removed")?.payload).toEqual({
-      path: manifestPath(id),
-    })
-    const types = eventTypes(id)
-    expect(types.indexOf("drafter_manifest_removed:")).toBeGreaterThan(
-      types.indexOf("transition:intake_retry"),
-    )
+    // The retry redrafted on the same thread: one capture, one upload, for both attempts.
+    expect(captures).toHaveLength(1)
+    expect(fake.requests.filter((r) => r.method === "PUT")).toHaveLength(1)
   })
 
-  it("removes the manifest when the drafter thread cannot be created", async () => {
+  it("refuses the intake, with nothing to remove, when the drafter thread cannot be created", async () => {
     await boot()
     const { id } = await createIssue()
-    await fake.close()
+    await factory.close()
+    await bootFactory({
+      drafterClient: (client) => ({
+        ...client,
+        createThread: async () => {
+          throw new Error("drafter down")
+        },
+      }),
+    })
     expect(await factory.intake(id)).toMatchObject({
       ok: false,
       state: "received",
       message: expect.stringMatching(/^Thread creation failed/),
     })
-    expect(manifestWrites).toHaveLength(1)
-    expect(existsSync(manifestPath(id))).toBe(false)
-    expect(eventTypes(id)).toEqual([
-      "created:",
-      "drafter_manifest_written:",
-      "drafter_manifest_removed:",
-    ])
+    expect(captures).toHaveLength(1)
+    // The upload stays on the drafter, unnamed, until its retention window reclaims it.
+    expect(eventTypes(id)).toEqual(["created:", "drafter_source_staged:"])
   })
 
-  it("removes the manifest when a cancel lands before the intake thread is committed", async () => {
+  it("refuses the intake, with no thread, when the upload fails", async () => {
+    await boot()
+    const { id } = await createIssue()
+    fake.failNext("PUT", 507, "staged_quota_exceeded")
+    expect(await factory.intake(id)).toEqual({
+      ok: false,
+      state: "received",
+      message: expect.stringMatching(/^drafter workspace could not be staged: .*507/),
+    })
+    expect(threadPosts()).toHaveLength(0)
+    expect(factory.events(id).at(-1)?.type).toBe("drafter_source_failed")
+  })
+
+  it("cancels its orphaned thread when a cancel lands before the intake thread is committed", async () => {
     await bootWorker()
-    // The cancel arrives in the window after the manifest is written and before the thread
-    // is committed to the row: the writer is the one seam inside that window.
+    // The cancel arrives in the window after the workspace is captured and before the thread
+    // is committed to the row: the capture is the one seam inside that window.
     await bootFactory({
-      writeDrafterManifest: async (options) => {
-        const written = await fakeManifestWriter(options)
+      captureDrafterHandoff: async (options) => {
+        const written = await fakeDrafterHandoff(options)
         expect(await factory.cancel(options.workOrderId)).toMatchObject({
           ok: true,
           state: "cancelled",
@@ -563,14 +589,9 @@ describe("intake", () => {
       state: "cancelled",
       message: "Work order changed state while starting intake",
     })
-    // The thread was made, orphaned and cancelled on the drafter; the manifest went with it.
+    // The thread was made, orphaned and cancelled on the drafter.
     expect(threadPosts()).toHaveLength(1)
     expect(eventTypes(id)).toContain("thread_orphaned:")
-    expect(existsSync(manifestPath(id))).toBe(false)
-    const types = eventTypes(id)
-    expect(types.indexOf("drafter_manifest_removed:")).toBeGreaterThan(
-      types.indexOf("thread_orphaned:"),
-    )
     expect(factory.show(id)).toMatchObject({ state: "cancelled", workerThreadId: null })
   })
 
@@ -578,7 +599,7 @@ describe("intake", () => {
     await boot()
     const { id } = await createIssue()
     // The controller's repository does not hold the pin and may not fetch: the one transient
-    // precondition of the manifest write, refused before the key.
+    // precondition of the capture, refused before the key.
     const empty = createEmptyRepo(join(dir, "empty-"))
     process.env.FACTORY_REPO_ROOT = empty
     process.env.FACTORY_NO_FETCH = "1"
@@ -591,7 +612,7 @@ describe("intake", () => {
         ),
       ),
     })
-    expect(manifestWrites).toEqual([])
+    expect(captures).toEqual([])
     expect(threadPosts()).toHaveLength(0)
     expect(factory.events(id).at(-1)).toMatchObject({
       type: "pin_unavailable",
@@ -606,70 +627,29 @@ describe("intake", () => {
       state: "intake_running",
       message: "Intake started",
     })
-    expect(manifestWrites).toEqual([{ workOrderId: id, pin: PIN, dir: manifestDir() }])
+    expect(captures).toEqual([{ workOrderId: id, pin: PIN }])
     reader.set((factory.show(id) as WorkOrderRow).workerThreadId as string, GOOD_DRAFT)
     expect((await factory.settleIntake(id, 20_000)).state).toBe("awaiting_intake_approval")
   })
 
-  it("keeps the manifest when a failed intake finds another intake's thread on the row", async () => {
-    // Two intakes under two keys: the first's thread creation hangs until the second has
-    // committed its own thread (whose manifest is the same file), then fails. The failed one
-    // must not remove the manifest the committed thread is about to be admitted with.
-    let release!: () => void
-    const released = new Promise<void>((resolve) => {
-      release = resolve
-    })
-    let calls = 0
-    await bootWorker({ run: "hang" })
-    await bootFactory({
-      drafterClient: (client) => ({
-        ...client,
-        createThread: async (metadata) => {
-          calls += 1
-          if (calls === 1) {
-            await released
-            throw new Error("drafter down")
-          }
-          return client.createThread(metadata)
-        },
-      }),
-    })
-    const { id } = await createIssue()
-    const first = factory.intake(id, "intake-a")
-    await factory.waitFor(id, () => calls === 1)
-    expect(await factory.intake(id, "intake-b")).toMatchObject({ ok: true })
-    const holder = (factory.show(id) as WorkOrderRow).workerThreadId
-    release()
-    expect(await first).toMatchObject({
-      ok: false,
-      message: expect.stringContaining("drafter down"),
-    })
-    expect(existsSync(manifestPath(id))).toBe(true)
-    expect(factory.events(id).find((e) => e.type === "drafter_manifest_kept")?.payload).toEqual({
-      threadId: holder,
-    })
-    expect(eventSeen(id, "drafter_manifest_removed")).toBe(false)
-    await factory.cancel(id)
-  })
-
-  it("refuses the intake, key spent, when the drafter manifest cannot be written", async () => {
+  it("refuses the intake, key spent, when the drafter workspace cannot be captured", async () => {
     await boot()
     const { id } = await createIssue()
     await factory.close()
     await bootFactory({
-      writeDrafterManifest: async () => {
+      captureDrafterHandoff: async () => {
         throw new Error("git archive failed")
       },
     })
     expect(await factory.intake(id)).toEqual({
       ok: false,
       state: "received",
-      message: "drafter manifest could not be written: Error: git archive failed",
+      message: "drafter workspace could not be staged: Error: git archive failed",
     })
-    // No thread was spent on a manifest nothing can serve.
+    // No thread was spent on a workspace nothing can serve.
     expect(threadPosts()).toHaveLength(0)
     expect(factory.events(id).at(-1)).toMatchObject({
-      type: "drafter_manifest_failed",
+      type: "drafter_source_failed",
       payload: { error: "Error: git archive failed" },
     })
     // The key is spent: the same call replays the refusal, and a fresh key (a restart after
@@ -681,7 +661,7 @@ describe("intake", () => {
       ok: true,
       state: "intake_running",
     })
-    expect(existsSync(manifestPath(id))).toBe(true)
+    expect(eventTypes(id)).toContain("drafter_source_staged:")
   })
 
   it("refuses a check that does not fail on the baseline, and exhausts the attempts on it", async () => {
@@ -824,11 +804,10 @@ describe("intake", () => {
     const { id } = await intake()
     const row = await factory.settleIntake(id, 20_000)
     expect(row).toMatchObject({ state: "blocked", blockedReason: "intake_run_failed" })
-    expect(factory.events(id).at(-2)?.payload).toMatchObject({
+    expect(factory.events(id).at(-1)?.payload).toMatchObject({
       event: "intake_blocked",
       error: "route exploded",
     })
-    expect(factory.events(id).at(-1)?.type).toBe("drafter_manifest_removed")
     expect(reader.reads).toEqual([])
   })
 
@@ -939,10 +918,18 @@ describe("the drafter thread's draft/", () => {
     // made, and the row is a failed run, not a draft the drafter is charged for.
     await bootWorker()
     await bootFactory({
-      writeDrafterManifest: async (input) => ({
-        ...(await fakeManifestWriter(input)),
-        sourceDigest: "not-a-digest",
-      }),
+      // The workspace is staged and named as ever; only the digest the journal records is not
+      // one, as a journal written by something other than `intake` could leave it.
+      captureDrafterHandoff: async (input) => {
+        const captured = await fakeDrafterHandoff(input)
+        return {
+          ...captured,
+          handoff: {
+            ...captured.handoff,
+            workspace: { ...captured.handoff.workspace, sourceDigest: "not-a-digest" },
+          },
+        }
+      },
     })
     const { id } = await createIssue()
     expect(await factory.intake(id)).toMatchObject({ ok: true })
@@ -1023,15 +1010,15 @@ describe("the intake gate", () => {
     const approved = await factory.approveIntake(id, { revision: parked.revision, taskDigest })
     expect(approved).toEqual({ ok: true, state: "received", message: "Intake approved" })
     expect(factory.show(id)).toMatchObject({ state: "received", taskDigest, targetId: "devkit" })
-    // The approval's own transaction commits (the move and its journal line together), and
-    // only then is the manifest removed: nothing irreversible inside a unit that can roll back.
+    // The approval's own transaction commits the move and its journal line together, and
+    // leaves nothing after them: no file was written for the drafter.
     expect(
       factory
         .events(id)
-        .slice(-3)
+        .slice(-2)
         .map((e) => e.type),
-    ).toEqual(["transition", "intake_approved", "drafter_manifest_removed"])
-    expect(factory.events(id).at(-2)).toMatchObject({
+    ).toEqual(["transition", "intake_approved"])
+    expect(factory.events(id).at(-1)).toMatchObject({
       type: "intake_approved",
       payload: { taskDigest },
     })
@@ -1066,10 +1053,6 @@ describe("the intake gate", () => {
     })
     writeFileSync(spec, original)
     expect(threadPosts()).toHaveLength(1)
-    // The approval ended the manifest's life: the drafter thread was admitted with it, and
-    // no redraft can follow an approval.
-    expect(existsSync(manifestPath(id))).toBe(false)
-    expect(eventTypes(id)).toContain("drafter_manifest_removed:")
 
     // Rung 2 from here: the builder gets its own thread ON THE BUILDER, the generated task's
     // prompt, and the full verification of what it left behind. The drafter hears nothing
@@ -1175,17 +1158,16 @@ describe("the intake gate", () => {
     // its proof is no longer the row's evidence, until the redraft parks a new one.
     expect(factory.show(id)).toMatchObject({ taskDigest: null, targetId: null })
     expect(factory.evidence(id).oracleReceipt).toBeNull()
-    // The redraft reuses the admitted thread, so the manifest is kept and not rewritten.
-    expect(existsSync(manifestPath(id))).toBe(true)
     const row = await factory.settleIntake(id, 20_000)
     expect(row).toMatchObject({
       state: "awaiting_intake_approval",
       intakeAttempts: 2,
       workerThreadId: threadId,
     })
+    // The redraft reuses the admitted thread: nothing is captured or uploaded again.
     expect(threadPosts()).toHaveLength(1)
-    expect(manifestWrites).toHaveLength(1)
-    expect(existsSync(manifestPath(id))).toBe(true)
+    expect(captures).toHaveLength(1)
+    expect(fake.requests.filter((r) => r.method === "PUT")).toHaveLength(1)
     expect(runPosts()).toHaveLength(2)
     expect(promptOf(1)).toContain("Previous attempt was refused")
     expect(promptOf(1)).toContain(note)
@@ -1211,8 +1193,6 @@ describe("the intake gate", () => {
         .find((e) => e.type === "transition" && e.payload.event === "intake_blocked")?.payload,
     ).toMatchObject({ blockedReason: "intake_attempts_exhausted", lastRefusal: "intake_rejected" })
     expect(runPosts()).toHaveLength(2)
-    // Blocked with no attempts left: nothing will redraft on that thread, and the manifest goes.
-    expect(existsSync(manifestPath(id))).toBe(false)
     expect(await factory.rejectIntake(id, { note: "again" })).toMatchObject({
       ok: false,
       message: "Cannot reject intake from blocked",
@@ -1295,11 +1275,6 @@ describe("the intake gate", () => {
     expect(factory.show(id)).toMatchObject({ state: "cancelled", intakeAttempts: 0 })
     // The cancel went to the DRAFTER, which holds the thread; the builder was never asked.
     expect(builder.requests).toEqual([])
-    // A settled intake thread needs no manifest.
-    expect(existsSync(manifestPath(id))).toBe(false)
-    expect(types.indexOf("drafter_manifest_removed:")).toBeLessThan(
-      types.indexOf("transition:run_ended_after_cancel"),
-    )
     // Nothing was drafted: no read, no proof.
     expect(reader.reads).toEqual([])
     expect(verifier.calls).toEqual([])
@@ -1357,7 +1332,6 @@ describe("the intake gate", () => {
       body: { route: "/intake#agent" },
     })
     expect(builder.requests).toEqual([])
-    expect(existsSync(manifestPath(second.id))).toBe(false)
   })
 })
 
@@ -1387,8 +1361,8 @@ describe("intake reconciliation", () => {
     const registry = openRegistry(registryPath())
     createWorkOrderStore(registry.db).appendEvent(
       id,
-      "builder_manifest_written",
-      { path: `/unused/builder-manifests/${id}.json`, sourceDigest: "0".repeat(64) },
+      "builder_source_staged",
+      { sourceDigest: "0".repeat(64), status: "created" },
       new Date().toISOString(),
     )
     createWorkOrderStore(registry.db).appendEvent(
