@@ -136,6 +136,21 @@ describe("readSandboxFiles", () => {
     expect(Buffer.from(result[0] as Uint8Array).toString()).toBe("le-0.txt")
   })
 
+  it("sizes read batches in bytes, so non-ASCII paths stay under the argv cap", async () => {
+    const requests = Array.from({ length: 400 }, (_, i) => ({
+      path: `/workspace/${"日本語のディレクトリ/".repeat(6)}ファイル-${i}.txt`,
+      maxBytes: 10,
+    }))
+    const scripts: string[] = []
+    await readSandboxFiles(requests, async (script) => {
+      scripts.push(script)
+      const count = [...script.matchAll(/< '/g)].length
+      return ok(framed("x").repeat(count))
+    })
+    expect(scripts.length).toBeGreaterThan(1)
+    for (const script of scripts) expect(Buffer.byteLength(script)).toBeLessThanOrEqual(96 * 1024)
+  })
+
   it("keeps readBinaryFile's per-file bound and status checks", async () => {
     await expect(
       readSandboxFiles([{ path: "/w/a", maxBytes: 2 }], async () => ok(framed("abc"))),

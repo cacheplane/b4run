@@ -491,6 +491,19 @@ describe.skipIf(!enabled)("dockerSandbox (real Docker)", { timeout: 120_000 }, (
         )
 
         expect(batched).toEqual(single)
+        // Pruning is real in the container, not just skipped by the inspection loop.
+        const { walkTree } = h.filesystem
+        if (!walkTree) throw new Error("the Docker backend has no batch walk")
+        const walkedPaths = async (prune: readonly string[]) =>
+          (
+            await walkTree.call(h.filesystem, h.workspaceRoot, ctx(h.workspaceRoot), {
+              maxEntries: 100,
+              prune,
+            })
+          ).map((entry) => entry.path)
+        expect(await walkedPaths([".git"])).toContain(".git")
+        expect(await walkedPaths([".git"])).not.toContain(".git/objects")
+        expect(await walkedPaths([])).toContain(".git/objects/ignored")
         expect(Object.keys(batched.files)).toHaveLength(7)
         expect(batched.files["src/café.ts"]).toBe("café")
         expect(batched.files["src/bom.ts"]).toBe("\ufeffbom")

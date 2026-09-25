@@ -140,11 +140,16 @@ export async function readSandboxFiles(
   while (at < requests.length) {
     const batch: (typeof requests)[number][] = []
     let script = ""
+    let scriptBytes = 0
     while (at < requests.length) {
       const request = requests[at] as (typeof requests)[number]
       const line = `${boundedReadCommand(request.path, request.maxBytes)} | base64; printf '#\\n'\n`
-      if (batch.length && script.length + line.length > READ_SCRIPT_BYTES) break
+      // Bytes, not UTF-16 units: the kernel's argv cap counts bytes, and a non-ASCII
+      // name costs up to three bytes per character.
+      const lineBytes = Buffer.byteLength(line)
+      if (batch.length && scriptBytes + lineBytes > READ_SCRIPT_BYTES) break
       script += line
+      scriptBytes += lineBytes
       batch.push(request)
       at++
     }
