@@ -26,6 +26,9 @@ for (const provider of ["docker", "kube"] as const) {
           child.stdout.on("data", (chunk: Buffer) => out.push(chunk))
           child.stderr.on("data", (chunk: Buffer) => err.push(chunk))
           child.on("error", reject)
+          child.stdin.on("error", (error: NodeJS.ErrnoException) => {
+            if (error.code !== "EPIPE") reject(error)
+          })
           child.on("close", (code) => {
             const stdout = Buffer.concat(out).toString("utf8")
             outputSizes.push(Buffer.byteLength(stdout))
