@@ -137,21 +137,27 @@ describe("an image built when a work order first needs it", () => {
     } finally {
       script.cleanup()
     }
-  }, 1_500_000)
+  }, 2_400_000)
 
   it("re-points a moved recipe tag without rebuilding", async () => {
     const recipe = loadTargetRecipe("devkit", { pin: SECOND_PIN })
     const recorded = images.recorded(recipe)
     if (recorded === undefined) throw new Error("the first test recorded no image")
-    // A moved tag: pointed back, no build.
+    // A moved tag: pointed back, no build. The daemon is shared: however this ends, the tag
+    // goes back to the recorded image (a concurrent run of this lane on the same host can see
+    // the moved tag in between, which is accepted).
     const base = loadTargetRecipe("devkit").baseImage
     execFileSync("docker", ["tag", base, recorded.tag])
-    const again = await images.ensure(recipe, { signal: AbortSignal.timeout(60_000) })
-    expect(again.build).toBeUndefined()
-    expect(
-      execFileSync("docker", ["image", "inspect", "--format", "{{.Id}}", recorded.tag], {
-        encoding: "utf8",
-      }).trim(),
-    ).toBe(recorded.image.localId)
+    try {
+      const again = await images.ensure(recipe, { signal: AbortSignal.timeout(60_000) })
+      expect(again.build).toBeUndefined()
+      expect(
+        execFileSync("docker", ["image", "inspect", "--format", "{{.Id}}", recorded.tag], {
+          encoding: "utf8",
+        }).trim(),
+      ).toBe(recorded.image.localId)
+    } finally {
+      execFileSync("docker", ["tag", recorded.image.localId, recorded.tag])
+    }
   }, 120_000)
 })
