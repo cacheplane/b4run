@@ -1,0 +1,9 @@
+{
+  "index": "import { agent } from \"@b4run/sdk\"\n\nexport default agent({\n  model: \"gpt-5-mini\",\n  systemPrompt: \"You are a friendly assistant. Use greet to greet people by name.\",\n})\n",
+  "greet": "/** Greet someone by name. */\nexport default async (input: { readonly name: string }) => {\n  return { message: `Hello, ${input.name}!` }\n}\n",
+  "plan": "- [ ] Understand the customer request\n- [ ] Check account context\n- [ ] Decide whether to answer or escalate\n- [ ] Write the final response\n",
+  "memory": "import { defineMemory } from \"@b4run/sdk\"\nimport { z } from \"zod\"\n\nexport default defineMemory({\n  kind: \"semantic\",\n  scope: [\"workspace\", \"route\"],\n  schema: z.object({\n    subject: z.string(),\n    predicate: z.string(),\n    value: z.string(),\n  }),\n})\n",
+  "skill": "---\ndescription: How to greet someone formally or for the time of day.\n---\n\nUse this skill when the user asks for a formal greeting or one that fits the time of day.\n\n1. Say \"Good morning\", \"Good afternoon\" or \"Good evening\" for the local time.\n2. For a formal greeting, use the person's title and family name.\n3. Keep the greeting to one sentence.\n",
+  "subagent": "import { agent } from \"@b4run/sdk\"\n\nexport default agent({\n  model: \"gpt-5-mini\",\n  description: \"Translate a short greeting into the language the user asks for.\",\n  systemPrompt: \"You translate greetings. Reply with the translation only.\",\n})\n",
+  "eval": "import { contains, defineEval } from \"@b4run/evals\"\nimport { script } from \"@b4run/testing\"\n\nexport default defineEval({\n  name: \"greets by name\",\n  dataset: [\n    {\n      name: \"ada\",\n      input: \"Say hello to Ada\",\n      fixtures: script().user(\"Say hello to Ada\").replies(\"Hello, Ada!\"),\n    },\n  ],\n  scorers: [contains(\"Hello\", { threshold: 1 })],\n  threshold: 1,\n})\n"
+}
