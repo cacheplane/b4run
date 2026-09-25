@@ -2,9 +2,9 @@
   "version": 2,
   "routes": {
     "/": {
-      "lastModified": "2026-09-25T01:55:16.000Z",
-      "sourceDigest": "4e06f41061669ed686584a39865ae0e65f5b08c3942d43eeeba592dd229be9d5",
-      "recordDigest": "e43d4f48267ca9dcc83c48e97604db2c98391786b7ed44bedacd879c0c9bf4f1"
+      "lastModified": "2026-09-23T16:41:13.000Z",
+      "sourceDigest": "d8b19d75eb45594b399b8ee77598a0f22b33d48a33a57b43718f9093e717a307",
+      "recordDigest": "013908ae2f7447fd5f54b4fdbc6f392324180f129f976884268beefd9abae146"
     },
     "/blog": {
       "lastModified": "2026-09-23T17:27:43.000Z",
@@ -37,9 +37,9 @@
       "recordDigest": "7dee9366eab82b67c78ddef326af6ec1160936eb58dca928801b51e498241436"
     },
     "/docs/access-control": {
-      "lastModified": "2026-09-23T06:30:00.000Z",
-      "sourceDigest": "01e8e2105c2969ffbc55f024dc96785a8b039ca45a2c14ffaf0510cabfac329c",
-      "recordDigest": "f4a49cbe2faee98902a9e11c96fc67c5badc9ad24eb25b6b6ed5c21ed71c85b0"
+      "lastModified": "2026-09-24T01:19:36.000Z",
+      "sourceDigest": "1243c9fdafa4b2df637a967a8c537a84c9dd3670cccc3c26dddc747895f0585e",
+      "recordDigest": "9c823bb6e0c77817744984458823169e48c1921d1b3e3234569240927e23e8d1"
     },
     "/docs/ag-ui": {
       "lastModified": "2026-09-23T06:30:00.000Z",
@@ -47,9 +47,9 @@
       "recordDigest": "305875b0f52adebc090569e010efb872d6c0497049e1f588fd6818d291228e41"
     },
     "/docs/agents": {
-      "lastModified": "2026-09-23T17:27:43.000Z",
-      "sourceDigest": "26f6c0b68fbd1cb2ee89557a418bc3ec3d9ab5db42adc98efef4f87e13e347a7",
-      "recordDigest": "36874636b1837118a0431273f0814fdc1674f72b8efd75242b0f38f3e09d93d9"
+      "lastModified": "2026-09-24T01:19:36.000Z",
+      "sourceDigest": "72303e062fb82976a9ffc334714676aacb7e1b5b613871d6594df090f1c9b60a",
+      "recordDigest": "7a93c1b2b0db46bae60879d6b9895a66ce865e8970515bb10d97e28a442c24bc"
     },
     "/docs/api": {
       "lastModified": "2026-09-23T06:30:00.000Z",
@@ -67,9 +67,9 @@
       "recordDigest": "2718b02705745e05caf09a2c14081d38ee78829f19fb055ee8bf8562980efa61"
     },
     "/docs/api/core": {
-      "lastModified": "2026-09-23T17:27:43.000Z",
-      "sourceDigest": "60dc87eb9f5a8c8050e87988fa460a360621cb609c7b69152653894ed7a53861",
-      "recordDigest": "47cd0579307e0324ad15e025bc38ba637cc2ced2334789d7b8e8b3f24e4411cc"
+      "lastModified": "2026-09-24T01:19:36.000Z",
+      "sourceDigest": "1b5ff4b78055aa522f016bdcb879fbe5ec3d19ac14021e26e5ef6b4fc9ec5bc4",
+      "recordDigest": "7178066c617e693856fac026555323aef4f447d53857195bb07501199e111662"
     },
     "/docs/api/evals": {
       "lastModified": "2026-09-23T17:27:43.000Z",
@@ -132,9 +132,9 @@
       "recordDigest": "71608e32d0cfa81c91914e83efecfa6380fde4e819b406301511740c72aecdc3"
     },
     "/docs/api/workspace": {
-      "lastModified": "2026-09-23T17:27:43.000Z",
-      "sourceDigest": "861f41d03371417383e2e3f639e9fd4925f34b77aa4122427d283a910edac5b4",
-      "recordDigest": "f231af31f2c5c5b8ca04936bfdea7ac43a7668ee70f5b0b26b4cd911df7ea8c1"
+      "lastModified": "2026-09-25T00:00:07.000Z",
+      "sourceDigest": "a2586fcd365c186ebf0943e1ecf0763283ce42eeac0feea7bc129e09abb4d557",
+      "recordDigest": "5df8fb368e8e084af17b0b44e05fc1a717d6cdef6b75b068b1932810737f0470"
     },
     "/docs/blueprints": {
       "lastModified": "2026-09-23T17:16:40.000Z",
@@ -277,9 +277,9 @@
       "recordDigest": "469a26742d5ce45700de275fa7ffab78deb29e29c17b905a659973f196e152eb"
     },
     "/docs/permissions": {
-      "lastModified": "2026-09-23T06:30:00.000Z",
-      "sourceDigest": "085700326bdfb02436b14c580f41c8d60af520b410770ffca144f92533942dd1",
-      "recordDigest": "a994123f4007fd35f8f5010b427483e00b03509cb399347c0c434e5295c6f903"
+      "lastModified": "2026-09-24T01:19:36.000Z",
+      "sourceDigest": "23a78fe35cb4e8ed47fcbe3fb4e3d3c87d374fa13c5042230ca263177f51552c",
+      "recordDigest": "79c4850fe9d439361cbc9341de4dae6a3fc11838e81ec8dbbec97239faca7cc3"
     },
     "/docs/persistence": {
       "lastModified": "2026-09-23T06:30:00.000Z",
@@ -357,9 +357,9 @@
       "recordDigest": "bbf0376d97dcd10e65d7f02f0cbc25584fd834af8750b0759b55558ec517c2c0"
     },
     "/docs/sandbox": {
-      "lastModified": "2026-09-23T17:27:43.000Z",
-      "sourceDigest": "83443077933b9d324aa9abcc1e6ac627936f4eb28ef8dc2a9455ff2ff4567daa",
-      "recordDigest": "5a80506b62cd963f302a8942ac188db22bb7cd6ff1413f6e10402e1bb74f3eb3"
+      "lastModified": "2026-09-24T01:19:36.000Z",
+      "sourceDigest": "95b752d8770ef0509fcdf559895ebe8d7c46db04cc90ff2179d4f7ab9f54924b",
+      "recordDigest": "71d5d8e9518f9bc9141c752488910f038e3a43a89beb4952a53f5878c4f64d74"
     },
     "/docs/sandbox/kubernetes": {
       "lastModified": "2026-09-23T06:30:00.000Z",
@@ -412,9 +412,9 @@
       "recordDigest": "2d2515396129a1db351cdce48b3b26f5de14f76f0be90562d9ea6d31b1e44853"
     },
     "/docs/tools": {
-      "lastModified": "2026-09-23T20:35:34.000Z",
-      "sourceDigest": "0bf7827a44f337ba8d1d0b1baa448fbd9a4103c74a81254509913e3aa4fd50d3",
-      "recordDigest": "b473b7e0f8247f6cd850513e30a0ced947db1f0a7674937eb9cd97012a1cb9aa"
+      "lastModified": "2026-09-24T01:19:36.000Z",
+      "sourceDigest": "e457507440b502329ff4bb72f593133e886de9d2612394fbdb07c2171d281cbe",
+      "recordDigest": "fb3c19eb0591fc9f9f76e089ebfc9439f6b81867a95b2272f75c252d8ccc414a"
     },
     "/docs/troubleshooting": {
       "lastModified": "2026-09-23T18:32:41.000Z",
@@ -427,9 +427,9 @@
       "recordDigest": "90e34472c19400e76ca2f891787b3d3509dc200cf9d2c17aabacede1581a8b15"
     },
     "/docs/workspace": {
-      "lastModified": "2026-09-23T06:30:00.000Z",
-      "sourceDigest": "6b63068371492725fd63c705a5d0cffc368ed359a87cb9fca997e72319c96623",
-      "recordDigest": "1542da0b0e205a752a76a0d250e29f9310a07d2d7a14aac683883c0fbd0eb7d7"
+      "lastModified": "2026-09-24T01:19:36.000Z",
+      "sourceDigest": "b077925b305ba4e2ba9350fe6f64b27501fa974dd31506f478bcc1727c2d121a",
+      "recordDigest": "ff39d9940013f0967b1facef16bc081f66e0c3ee602ccbeff632705a7ed87819"
     }
   }
 }

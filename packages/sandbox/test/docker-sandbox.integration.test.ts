@@ -3,7 +3,7 @@ import { existsSync } from "node:fs"
 import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { inspectWorkspace, withWorkspaceReader } from "@b4run/workspace"
+import { type FilesystemBackend, inspectWorkspace, withWorkspaceReader } from "@b4run/workspace"
 import { describe, expect, test } from "vitest"
 import { createDocker, type Docker, type SpawnResult } from "../src/docker/docker-cli.ts"
 import { dockerSandbox } from "../src/index.ts"
@@ -432,6 +432,151 @@ describe.skipIf(!enabled)("dockerSandbox (real Docker)", { timeout: 120_000 }, (
   // The non-disturbance proof. A second, trusted process reads a thread's
   // workspace while the worker's keeper is live, and the keeper must come out
   // the other side byte-for-byte the same container.
+  describe("batched workspace inspection", () => {
+    // The same tree inspected through the batch methods (walkTree + readBinaryFiles, a few
+    // execs) and through the per-entry methods alone (one exec per listDir/lstat/read) must
+    // give the same inventory: the batch is only a transport, never a different policy.
+    const perEntry = (h: { workspaceRoot: string; filesystem: FilesystemBackend }) => {
+      const { lstat, readBinaryFile } = h.filesystem
+      if (!lstat || !readBinaryFile) throw new Error("the Docker backend lost a per-entry read")
+      return {
+        workspaceRoot: h.workspaceRoot,
+        filesystem: {
+          lstat: lstat.bind(h.filesystem),
+          readBinaryFile: readBinaryFile.bind(h.filesystem),
+          listDir: h.filesystem.listDir.bind(h.filesystem),
+        },
+      }
+    }
+    const tree = [
+      "mkdir -p src/deep/er .git/objects 'sp ace' \"[glob]*?\"",
+      "printf 'hello\\n' > src/a.ts",
+      "printf '\\357\\273\\277bom' > src/bom.ts",
+      "printf 'caf\\303\\251' > \"src/$(printf 'caf\\303\\251').ts\"",
+      ": > empty.txt",
+      'printf q > "it\'s.txt"',
+      "printf g > '[glob]*?/x.txt'",
+      "printf s > 'sp ace/y.txt'",
+      "printf git > .git/objects/ignored",
+      "ln -s /opt/deps deps",
+    ].join(" && ")
+    // Enough long paths that the batch read needs more than one exec.
+    const many =
+      'i=0; while [ $i -lt 1200 ]; do printf "$i" > src/deep/er/a-file-with-a-rather-long-name-$i.txt; i=$((i+1)); done'
+    const options = {
+      excludeRootDirectories: [".git"],
+      expectedRootSymlinks: { deps: "/opt/deps" },
+    }
+
+    test("matches the per-entry inventory, and reads many files in a few execs", {
+      timeout: 300_000,
+    }, async () => {
+      const p = dockerSandbox({ scope: "sandbox-test", image: IMAGE })
+      const threadId = `batch-${randomUUID()}`
+      try {
+        const h = await p.acquire({ threadId, policy: policyDeny, signal: ctx("/").signal })
+        const made = await h.exec.runCommand({ command: tree }, ctx(h.workspaceRoot))
+        expect(made.stderr).toBe("")
+        expect(made.exitCode).toBe(0)
+        expect(h.filesystem.walkTree).toBeTypeOf("function")
+
+        let started = performance.now()
+        const batched = await inspectWorkspace(h, options)
+        const batchedMs = performance.now() - started
+        started = performance.now()
+        const single = await inspectWorkspace(perEntry(h), options)
+        const singleMs = performance.now() - started
+        console.log(
+          `inspection of ${single.entries} entries: batched ${batchedMs.toFixed(0)} ms, per-entry ${singleMs.toFixed(0)} ms`,
+        )
+
+        expect(batched).toEqual(single)
+        // Pruning is real in the container, not just skipped by the inspection loop.
+        const { walkTree } = h.filesystem
+        if (!walkTree) throw new Error("the Docker backend has no batch walk")
+        const walkedPaths = async (prune: readonly string[]) =>
+          (
+            await walkTree.call(h.filesystem, h.workspaceRoot, ctx(h.workspaceRoot), {
+              maxEntries: 100,
+              prune,
+            })
+          ).map((entry) => entry.path)
+        expect(await walkedPaths([".git"])).toContain(".git")
+        expect(await walkedPaths([".git"])).not.toContain(".git/objects")
+        expect(await walkedPaths([])).toContain(".git/objects/ignored")
+        expect(Object.keys(batched.files)).toHaveLength(7)
+        expect(batched.files["src/café.ts"]).toBe("café")
+        expect(batched.files["src/bom.ts"]).toBe("\ufeffbom")
+        expect(batched.files["it's.txt"]).toBe("q")
+        expect(batched.files["[glob]*?/x.txt"]).toBe("g")
+        expect(batched.files["empty.txt"]).toBe("")
+        expect(batched.files[".git/objects/ignored"]).toBeUndefined()
+        expect(batched.symlinks).toEqual({ deps: "/opt/deps" })
+        expect(batchedMs).toBeLessThan(singleMs)
+
+        expect((await h.exec.runCommand({ command: many }, ctx(h.workspaceRoot))).exitCode).toBe(0)
+        started = performance.now()
+        const large = await inspectWorkspace(h, options)
+        console.log(
+          `batched inspection of ${large.entries} entries: ${(performance.now() - started).toFixed(0)} ms`,
+        )
+        expect(Object.keys(large.files)).toHaveLength(1207)
+        expect(large.files["src/deep/er/a-file-with-a-rather-long-name-1199.txt"]).toBe("1199")
+        expect(large.files["src/café.ts"]).toBe("café")
+      } finally {
+        await p.destroy(threadId)
+      }
+    })
+
+    test("refuses what the per-entry walk refuses", { timeout: 300_000 }, async () => {
+      const p = dockerSandbox({ scope: "sandbox-test", image: IMAGE })
+      const threadId = `batch-refuse-${randomUUID()}`
+      try {
+        const h = await p.acquire({ threadId, policy: policyDeny, signal: ctx("/").signal })
+        const run = (command: string) => h.exec.runCommand({ command }, ctx(h.workspaceRoot))
+        expect((await run("mkdir -p a/b && printf x > a/b/c && printf y > d")).exitCode).toBe(0)
+        // Over the entry limit: the walk is cut off in the container, never truncated silently.
+        await expect(inspectWorkspace(h, { maxEntries: 3 })).rejects.toThrow(/entries/)
+        await expect(inspectWorkspace(perEntry(h), { maxEntries: 3 })).rejects.toThrow(/entries/)
+        expect((await inspectWorkspace(h, { maxEntries: 4 })).entries).toBe(4)
+        // A newline in a name reaches the name check intact rather than splitting a line.
+        expect((await run("printf z > \"$(printf 'new\\nline')\"")).exitCode).toBe(0)
+        await expect(inspectWorkspace(h)).rejects.toThrow(/Invalid workspace entry name/)
+        await expect(inspectWorkspace(perEntry(h))).rejects.toThrow(/Invalid workspace entry name/)
+      } finally {
+        await p.destroy(threadId)
+      }
+    })
+
+    test("refuses a file that grew past its walked size", { timeout: 300_000 }, async () => {
+      const p = dockerSandbox({ scope: "sandbox-test", image: IMAGE })
+      const threadId = `batch-grow-${randomUUID()}`
+      try {
+        const h = await p.acquire({ threadId, policy: policyDeny, signal: ctx("/").signal })
+        await h.exec.runCommand({ command: "printf abc > f" }, ctx(h.workspaceRoot))
+        const { walkTree, readBinaryFiles } = h.filesystem
+        if (!walkTree || !readBinaryFiles) throw new Error("the Docker backend has no batch reads")
+        const grown = {
+          workspaceRoot: h.workspaceRoot,
+          filesystem: {
+            ...perEntry(h).filesystem,
+            walkTree: walkTree.bind(h.filesystem),
+            readBinaryFiles: async (
+              requests: readonly { path: string; maxBytes: number }[],
+              c: { signal: AbortSignal; workspaceRoot: string },
+            ) => {
+              await h.exec.runCommand({ command: "printf abcdef > f" }, ctx(h.workspaceRoot))
+              return readBinaryFiles.call(h.filesystem, requests, c)
+            },
+          },
+        }
+        await expect(inspectWorkspace(grown)).rejects.toThrow(/exceeds maxBytes/)
+      } finally {
+        await p.destroy(threadId)
+      }
+    })
+  })
+
   describe("openWorkspaceReader", () => {
     const readerScope = "sandbox-test"
     const keeperFor = (threadId: string) => `b4-sbx-${resourceScope(readerScope)(threadId)}`
