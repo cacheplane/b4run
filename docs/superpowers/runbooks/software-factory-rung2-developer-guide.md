@@ -4,11 +4,16 @@
 > below that write a builder target file (`factory builder-target`), set
 > `FACTORY_BUILDER_TARGET`, or map builders per target with `FACTORY_WORKERS` no longer
 > apply: the command is gone and both variables are refused by name. Each work order's
-> manifest carries its target's image, policy and permissions. The controller also reads each
+> handoff carries its target's image, policy and permissions. The controller also reads each
 > worker's threads over the worker's URL now (`sandbox.workspaceRead: "http"`), with the
 > worker token: `FACTORY_BUILDER_APP_ROOT` and `FACTORY_DRAFTER_APP_ROOT` are refused on the
-> controller by name (it ignores `FACTORY_DRAFTER_IMAGE`, the drafter's), and it needs
-> `FACTORY_BUILDER_MANIFEST_DIR` and `FACTORY_WORKER_TOKEN` instead. Follow the
+> controller by name (it ignores `FACTORY_DRAFTER_IMAGE`, the drafter's). And no manifest
+> directory is shared any more: `dispatch` and `intake` upload each work order's workspace
+> over the worker's port and create the thread naming it (`sandbox.stagedWorkspaces`), so
+> `FACTORY_BUILDER_MANIFEST_DIR` and `FACTORY_DRAFTER_MANIFEST_DIR` are refused by name on the
+> controller and on both workers, and the controller needs only each worker's URL and
+> `FACTORY_WORKER_TOKEN`. Drain in-flight work orders before upgrading past that change: a
+> thread dispatched with a manifest and not yet run is refused at admission. Follow the
 > [software factory README](../../../examples/software-factory/README.md#run-it) to run it.
 
 Reconciled against the implementation on branch `blove/software-factory-rung2-spec`.
@@ -231,9 +236,9 @@ Three processes: the builder, the controller, and the CLI that drives it.
 
 **1. Write the builder's target file.** The builder is a b4 app configured by two inputs the
 controller writes: a per-process target file (the target's image, scope, sandbox policy and
-permissions, which the framework fixes per app) and one manifest per work order (the
-captured workspace bytes), which `dispatch` writes into the builder's manifest directory
-before it creates the thread. The builder resolves no pin and reads no task catalog of its
+permissions, which the framework fixes per app) and, per work order, the captured workspace
+bytes, which `dispatch` now uploads over the builder's port before it creates the thread
+naming them (this guide's manifest directory is retired). The builder resolves no pin and reads no task catalog of its
 own. Writing the target file needs neither a controller nor a registry:
 
 ```bash
@@ -241,13 +246,12 @@ pnpm --filter @b4-example/software-factory-controller factory builder-target \
   --target devkit --out /tmp/factory-builder
 ```
 
-**2. Start the builder** (terminal 1). `b4.config.ts` reads `FACTORY_BUILDER_TARGET` and
-`FACTORY_BUILDER_MANIFEST_DIR` at module load, so both must be set before the process
-starts, and one builder process serves one target:
+**2. Start the builder** (terminal 1). `b4.config.ts` read `FACTORY_BUILDER_TARGET` at
+module load in this rung (both it and the manifest directory are refused by name now), and
+one builder process served one target:
 
 ```bash
 FACTORY_BUILDER_TARGET=/tmp/factory-builder/devkit.target.json \
-FACTORY_BUILDER_MANIFEST_DIR=/tmp/builder-manifests \
 OPENAI_API_KEY=... \
   pnpm --filter @b4-example/software-factory-server dev --port 4100
 ```
@@ -255,13 +259,12 @@ OPENAI_API_KEY=... \
 **3. Start the controller** (terminal 2). It is a b4 app too: its mutating commands are
 `workflow` routes, and it owns the targets, the task catalog and the registry. Its
 environment names the builder to dispatch to (it reads the builder's threads over that URL,
-with the worker token), where its state lives, and the builder's manifest directory:
+with the worker token) and where its state lives:
 
 ```bash
 FACTORY_WORKER_URL=http://127.0.0.1:4100 \
 FACTORY_STATE_DIR=$PWD/.factory \
 FACTORY_WORKER_TOKEN=$TOKEN \
-FACTORY_BUILDER_MANIFEST_DIR=/tmp/builder-manifests \
   pnpm --filter @b4-example/software-factory-controller dev --port 4300
 ```
 
