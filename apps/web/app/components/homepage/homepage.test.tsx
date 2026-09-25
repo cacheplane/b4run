@@ -244,3 +244,11 @@ it("renders the scaffold as a captioned figure a screen reader can follow", () =
   expect(new Set(orders).size).toBe(orders.length)
   expect(orders).toHaveLength(10)
 })
+
+it("marks the first-agent section with the dot the terminal's agent row carries", async () => {
+  const container = document.createElement("div")
+  container.innerHTML = renderToString(await DeveloperHome())
+  const eyebrow = container.querySelector('#first-agent [data-ui="eyebrow"]')
+  expect(eyebrow?.textContent).toBe("Your first agent")
+  expect(eyebrow?.querySelector('span[aria-hidden="true"]')).not.toBeNull()
+})
