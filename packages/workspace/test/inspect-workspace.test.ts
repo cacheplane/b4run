@@ -577,6 +577,25 @@ describe("inspectWorkspace root", () => {
     expect(f.calls).not.toContain("/workspace/a/link/x")
   })
 
+  for (const adapter of ["handle", "batched"] as const)
+    it(`refuses as changed a root segment swapped for a symlink during the read (${adapter})`, async () => {
+      const f = nested()
+      const backend = adapter === "handle" ? f.backend : f.batchedBackend
+      const lstat = backend.lstat?.bind(backend)
+      let draftChecks = 0
+      backend.lstat = async (path, ctx) => {
+        // The first two checks are the walk to the root and the inspection's own stat of it.
+        if (path === "/workspace/draft" && ++draftChecks > 2)
+          return { kind: "symlink", size: 4, executable: false, target: "/etc" }
+        return lstat?.(path, ctx) as ReturnType<NonNullable<typeof lstat>>
+      }
+      const error = await workspace
+        .inspectWorkspace(f[adapter], { root: "draft" })
+        .catch((caught: unknown) => caught)
+      expect(workspace.isWorkspaceInspectionError(error) && error.code).toBe("changed")
+      expect((error as Error).message).toContain('"draft"')
+    })
+
   it("re-roots a batch-only backend with lstat alone (its per-entry listDir refuses)", async () => {
     const f = nested()
     const result = await workspace.inspectWorkspace(f.batched, { root: "draft/checks" })

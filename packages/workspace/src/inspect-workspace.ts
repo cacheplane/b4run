@@ -27,8 +27,10 @@ export interface InspectWorkspaceOptions {
    * apply at it. Every segment is lstat'ed and must be a real directory: a root
    * that names nothing, or passes through or ends at a file or a symlink, is a
    * `root_missing` refusal naming the root and the segment, never a read that
-   * follows a link out of the workspace. Needs a sandbox handle or workspace
-   * reader (an absolute root).
+   * follows a link out of the workspace. Every segment is lstat'ed again after
+   * the read, and one that changed meanwhile is a `changed` refusal; a swap made
+   * and undone between the two checks is not detected (see `recheckRoot`). Needs a
+   * sandbox handle or workspace reader (an absolute root).
    */
   readonly root?: string
 }
@@ -321,6 +323,53 @@ async function atRoot(
 }
 
 /**
+ * The root's segments again, after everything under it was read: each must still be
+ * a directory. Without this, a process in the thread's session could swap a checked
+ * segment for a symlink between `atRoot`'s lstat and the reads, and the answer would
+ * describe wherever the link points. This narrows that race to the window between
+ * the last read and this check, and a swap undone inside it is still possible: paths
+ * are re-resolved per call, and no provider offers a descriptor-relative walk. What
+ * such a swap could reach is bounded by the reader itself, a read-only, networkless
+ * container over the workspace's own volume.
+ */
+async function recheckRoot(
+  source: WorkspaceFs | WorkspaceReadSource,
+  root: string,
+  signal: AbortSignal,
+): Promise<void> {
+  if (!("filesystem" in source)) return
+  const fs = source.filesystem
+  const lstat = fs.lstat?.bind(fs)
+  if (!lstat) return
+  const ctx = { workspaceRoot: source.workspaceRoot, signal }
+  let current = source.workspaceRoot.replace(/\/$/, "")
+  const walked: string[] = []
+  for (const segment of root.split("/")) {
+    signal.throwIfAborted()
+    current = `${current}/${segment}`
+    walked.push(segment)
+    let kind: string
+    try {
+      kind = (await lstat(current, ctx)).kind
+    } catch (error) {
+      signal.throwIfAborted()
+      throw new WorkspaceInspectionError(
+        "changed",
+        `Workspace root ${JSON.stringify(root)} changed during inspection (${JSON.stringify(walked.join("/"))} is gone)`,
+        { root },
+        { cause: error },
+      )
+    }
+    if (kind !== "directory")
+      throw new WorkspaceInspectionError(
+        "changed",
+        `Workspace root ${JSON.stringify(root)} changed during inspection (${JSON.stringify(walked.join("/"))} is now a ${kind})`,
+        { root },
+      )
+  }
+}
+
+/**
  * Inspect text without shell execution, preserving BOM bytes and rejecting unsupported
  * entries. Metadata and raw reads are mandatory. This is not an atomic snapshot:
  * callers must quiesce writers or revalidate before acting on the inventory.
@@ -426,5 +475,6 @@ export async function inspectWorkspace(
     if (!Object.hasOwn(symlinks, name))
       throw fail("refused", `Missing expected root symlink: ${name}`)
   }
+  if (options.root !== undefined) await recheckRoot(source, options.root, signal)
   return { files, symlinks, totalBytes, entries }
 }
