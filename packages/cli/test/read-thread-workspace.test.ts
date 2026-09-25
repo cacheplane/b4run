@@ -69,6 +69,24 @@ describe("readThreadWorkspace", () => {
     ).rejects.toMatchObject({ code: "thread_mismatch" })
   })
 
+  it("refuses an answer about another root than the one asked for", async () => {
+    await expect(
+      readThreadWorkspace("http://w", "t 1", { root: "other" }, { fetch: answering(200, good) }),
+    ).rejects.toMatchObject({ code: "root_mismatch" })
+    await expect(
+      readThreadWorkspace("http://w", "t 1", {}, { fetch: answering(200, good) }),
+    ).rejects.toMatchObject({ code: "root_mismatch" })
+    const { root: _root, ...rootless } = good
+    await expect(
+      readThreadWorkspace(
+        "http://w",
+        "t 1",
+        { root: "draft" },
+        { fetch: answering(200, rootless) },
+      ),
+    ).rejects.toMatchObject({ code: "root_mismatch" })
+  })
+
   for (const [label, body] of Object.entries({
     "an extra key": { ...good, extra: 1 },
     "a bad digest": { ...good, sourceDigest: "sha256:x" },

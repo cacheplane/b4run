@@ -37,7 +37,7 @@ export interface ThreadWorkspaceRead {
  * A read that did not produce a verified inventory. `status` is the HTTP status
  * (0 for a local refusal of the answer); `code` is the worker's
  * (`workspace_root_missing`, `run_in_flight`, `workspace_changed`, ...) or the
- * client's own (`source_mismatch`, `thread_mismatch`, `malformed_response`).
+ * client's own (`source_mismatch`, `thread_mismatch`, `root_mismatch`, `malformed_response`, `response_too_large`).
  */
 export class ThreadWorkspaceReadError extends Error {
   constructor(
@@ -145,6 +145,7 @@ function count(value: unknown, what: string): number {
 function verify(
   body: unknown,
   threadId: string,
+  requestedRoot: string | undefined,
   init: ReadThreadWorkspaceInit,
 ): ThreadWorkspaceRead {
   if (!isPlain(body)) throw malformed("not an object")
@@ -179,6 +180,14 @@ function verify(
       0,
       "source_mismatch",
       `Thread ${threadId}'s workspace was created from ${read.sourceDigest}, not the expected ${init.expectedSourceDigest}`,
+    )
+  // File keys are relative to the answer's root: one about another directory would be
+  // joined to the wrong place.
+  if (read.root !== requestedRoot)
+    throw new ThreadWorkspaceReadError(
+      0,
+      "root_mismatch",
+      `The worker answered for root ${JSON.stringify(read.root)}, not ${JSON.stringify(requestedRoot)}`,
     )
   return read
 }
@@ -235,5 +244,5 @@ export async function readThreadWorkspace(
   } catch {
     throw malformed("not JSON")
   }
-  return verify(body, threadId, init)
+  return verify(body, threadId, options.root, init)
 }
