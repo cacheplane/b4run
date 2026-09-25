@@ -9,9 +9,9 @@ import { type Aimock, createAimock, script } from "@b4run/testing"
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest"
 import type { Factory } from "../src/lib/controller/factory.ts"
 import { type ControllerRuntime, createControllerRuntime } from "../src/lib/runtime.ts"
-import { drafterInspectionOptions, drafterSandboxProvider } from "../src/lib/targets/workspace.ts"
+import { drafterInspectionOptions } from "../src/lib/targets/workspace.ts"
 import {
-  createThreadWorkspaceReader,
+  createHttpThreadWorkspaceReader,
   type WorkspaceReader,
 } from "../src/lib/worker/workspace-reader.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
@@ -171,17 +171,12 @@ async function bootController(
   return runtime.factory()
 }
 
-/** The real drafter reader, as the runtime builds it: the drafter's provider, re-rooted at `draft/`. */
+/** The real drafter reader, as the runtime builds it: the drafter's URL and the token, re-rooted at `draft/`. */
 function realDrafterReader(): WorkspaceReader {
-  return createThreadWorkspaceReader(
-    { providerFor: () => drafterSandboxProvider(runtimeImage()), appRoot: drafterRoot },
-    () => ({ ...drafterInspectionOptions(), root: "draft" }),
-  )
-}
-/** The image the drafter booted with, which is the image the controller must address it by. */
-function runtimeImage(): string {
-  if (runtime === undefined) throw new Error("boot the controller first")
-  return runtime.config.drafterImage
+  return createHttpThreadWorkspaceReader({ url: drafter.url, token: TEST_WORKER_TOKEN }, () => ({
+    ...drafterInspectionOptions(),
+    root: "draft",
+  }))
 }
 
 const eventTypes = (factory: Factory, id: string) => factory.events(id).map((e) => e.type)
@@ -447,7 +442,7 @@ it("refuses a three-file draft by name, and the redraft's prompt carries the rea
   expect(payload(factory, id, "drafter_manifest_removed")).toEqual({ path: manifestPath })
 }, 900_000)
 
-/** The real reader, built on first use: the controller (whose image it addresses) boots after the wrapper is made. */
+/** The real reader, built on first use. */
 function realDrafterReaderLazily(): () => WorkspaceReader {
   let reader: WorkspaceReader | undefined
   return () => {

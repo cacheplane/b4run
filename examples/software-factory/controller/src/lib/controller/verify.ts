@@ -3,7 +3,9 @@ import { oracleReceiptIdFor } from "../intake/oracle.js"
 import { freezeBundle } from "../review/bundle.js"
 import { AssemblyRejectedError, assembleCandidate } from "../verification/assemble.js"
 import { loadPolicy } from "../verification/policy.js"
+import { workspaceReadFailure } from "../worker/workspace-reader.js"
 import type { ControllerContext } from "./context.js"
+import { handedSourceDigest } from "./source-digest.js"
 
 /**
  * The verifying phase. Everything here is the controller's own view: its captured
@@ -56,7 +58,7 @@ async function verifyCandidate(
       ctx.recordEvent(id, "verification_aborted", { reason: String(signal.reason) })
       return
     }
-    ctx.recordEvent(id, type, { error: String(error) })
+    ctx.recordEvent(id, type, { error: String(error), ...workspaceReadFailure(error) })
     if (ctx.mustGet(id).state === "verifying")
       ctx.transition(id, "receipt_inconclusive", { blockedReason: "verification_inconclusive" })
   }
@@ -70,9 +72,18 @@ async function verifyCandidate(
   }
   let observed: ReadonlyMap<string, string>
   try {
-    // The one builder holds the thread; a read the controller cannot make (no installation,
-    // no record, a workspace gone) is what `inconclusive` means.
-    observed = await ctx.workerFor(row).reader.read({ threadId, taskId: row.taskId }, signal)
+    // The one builder holds the thread, and answers for it only with the source dispatch
+    // handed it. A read the controller cannot make is what `inconclusive` means, whatever the
+    // worker said: a thread or workspace it does not hold (`thread_not_found`,
+    // `workspace_lost`, `workspace_expired`), one it could not read now (`run_in_flight`,
+    // `workspace_changed` mid-read, `workspace_read_timeout`, `workspace_unavailable`), an
+    // inspection it refused (an unexpected link, a file over the limits), or an answer about
+    // another source (`source_mismatch`). None is a verdict on the candidate, and each is a
+    // retryable block. So is a thread with no handed digest in the journal.
+    const sourceDigest = handedSourceDigest(ctx.store.events(id), threadId, "builder")
+    observed = await ctx
+      .workerFor(row)
+      .reader.read({ threadId, taskId: row.taskId, sourceDigest }, signal)
   } catch (error) {
     unreadable("workspace_unreadable", error)
     return

@@ -5,14 +5,15 @@ import { openWorkspaceInstallationReader } from "@b4run/sqlite-storage"
 import { script } from "@b4run/testing"
 import { afterEach, expect, it } from "vitest"
 import { createFactory, type Factory } from "../src/lib/controller/factory.ts"
+import { handedSourceDigest } from "../src/lib/controller/source-digest.ts"
 import { taskPrompt } from "../src/lib/prompts.ts"
 import { createArtifactStore } from "../src/lib/storage/artifacts.ts"
 import { loadTask } from "../src/lib/targets/catalog.ts"
-import { builderSandboxProvider, targetInspectionOptions } from "../src/lib/targets/workspace.ts"
+import { targetInspectionOptions } from "../src/lib/targets/workspace.ts"
 import { captureTargetBaseline } from "../src/lib/verification/baseline.ts"
 import { createDockerVerifier } from "../src/lib/verification/docker-verifier.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
-import { createThreadWorkspaceReader } from "../src/lib/worker/workspace-reader.ts"
+import { createHttpThreadWorkspaceReader } from "../src/lib/worker/workspace-reader.ts"
 import { fakeWorkerMap } from "./fake-worker-map.ts"
 import { applyReference } from "./reference-repair.ts"
 import { type ServedBuilder, serveBuilder, toolCallsSeen, toolResults } from "./served-builder.ts"
@@ -74,10 +75,10 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
       .replies("Repair complete.")
       .build(),
   )
+  // The controller's half of this lane is built from `served.url` and the token alone.
   const reader = () =>
-    createThreadWorkspaceReader(
-      { providerFor: () => builderSandboxProvider(), appRoot: served.appRoot },
-      () => targetInspectionOptions(task),
+    createHttpThreadWorkspaceReader({ url: served.url, token: TEST_WORKER_TOKEN }, () =>
+      targetInspectionOptions(task),
     )
   factory = await createFactory({
     registryPath: join(dir, "registry.sqlite"),
@@ -134,11 +135,11 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
 
   // Read while the thread is IDLE BETWEEN TURNS, with its session container still alive:
   // one of the two states the read surface is specified for, and the one `docker exec` into
-  // the builder could never serve safely. A DIFFERENT provider instance, as the controller is
-  // a different process in production, addressing the same storage by scope, image and the
-  // builder's installation store.
+  // the builder could never serve safely. Over the builder's own port, as the controller
+  // reads in production, naming the source `dispatch` handed the thread.
+  const sourceDigest = handedSourceDigest(factory.events(id), threadId, "builder")
   const observed = await reader().read(
-    { threadId, taskId: "cli-flags" },
+    { threadId, taskId: "cli-flags", sourceDigest },
     AbortSignal.timeout(120_000),
   )
   expect(observed.get(source)).toBe(repaired)

@@ -315,6 +315,13 @@ describe("reconciliation", () => {
       { command: "dispatch", args: {} },
       now(),
     )
+    // As dispatch journals it: the manifest's digest, then the thread that holds it.
+    createWorkOrderStore(registry.db).appendEvent(
+      id,
+      "builder_manifest_written",
+      { path: `/unused/builder-manifests/${id}.json`, sourceDigest: "0".repeat(64) },
+      now(),
+    )
     createWorkOrderStore(registry.db).appendEvent(id, "thread_created", { threadId }, now())
     registry.close()
     // The worker map cannot serve the row at boot (this fake has no builder): the thread cannot
@@ -352,6 +359,13 @@ describe("reconciliation", () => {
       "dispatch-orphan",
       id,
       { command: "dispatch", args: {} },
+      now(),
+    )
+    // As dispatch journals it: the manifest's digest, then the thread that holds it.
+    createWorkOrderStore(registry.db).appendEvent(
+      id,
+      "builder_manifest_written",
+      { path: `/unused/builder-manifests/${id}.json`, sourceDigest: "0".repeat(64) },
       now(),
     )
     createWorkOrderStore(registry.db).appendEvent(id, "thread_created", { threadId }, now())

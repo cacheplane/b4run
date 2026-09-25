@@ -164,14 +164,23 @@ describe("controller runtime", () => {
     // The intake thread was created on the DRAFTER, not the builder.
     expect(drafter?.requests.filter((r) => r.path === "/threads")).toHaveLength(1)
     expect(fake.requests.filter((r) => r.path === "/threads")).toHaveLength(0)
-    // The real drafter reader finds no installation under the app root (the drafter app has
-    // not booted there): a failed run naming the variable to fix, and the row is blocked
-    // rather than left running when the runtime is disposed.
+    // The real drafter reader asks the DRAFTER's port, with the token and the handed digest's
+    // thread; this fake serves no workspace read, so its 404 is a failed run, not a spent
+    // attempt, and the row is blocked rather than left running when the runtime is disposed.
     expect((await factory.settleIntake(id, 20_000)).blockedReason).toBe("intake_run_failed")
+    const threadId = factory.show(id)?.workerThreadId as string
+    const inspects = drafter?.requests.filter((r) => r.path.endsWith("/workspace/inspect"))
+    expect(inspects).toEqual([
+      expect.objectContaining({
+        method: "POST",
+        path: `/threads/${threadId}/workspace/inspect`,
+        authorization: `Bearer ${TEST_WORKER_TOKEN}`,
+        body: expect.objectContaining({ root: "draft" }),
+      }),
+    ])
+    expect(fake.requests.filter((r) => r.path.endsWith("/workspace/inspect"))).toEqual([])
     const unreadable = factory.events(id).find((e) => e.type === "workspace_unreadable")
-    expect(String(unreadable?.payload.error)).toMatch(
-      /FACTORY_DRAFTER_APP_ROOT has no workspace installation/,
-    )
+    expect(unreadable?.payload).toMatchObject({ phase: "intake", status: 404 })
     await configured.dispose()
   })
 

@@ -9,10 +9,11 @@ import { intakePrompt } from "../prompts.js"
 import { relativePath } from "../targets/catalog.js"
 import { loadPolicy } from "../verification/policy.js"
 import { classifyDone, type StreamFrame } from "../worker/wire.js"
-import { WorkspaceRootMissingError } from "../worker/workspace-reader.js"
+import { WorkspaceRootMissingError, workspaceReadFailure } from "../worker/workspace-reader.js"
 import type { ControllerContext } from "./context.js"
 import { removeJournalledManifest } from "./manifest-files.js"
 import { reconcileWorkOrder } from "./reconcile.js"
+import { handedSourceDigest } from "./source-digest.js"
 import { consumeTurn } from "./turns.js"
 import type { DrafterWorker } from "./workers.js"
 
@@ -290,7 +291,11 @@ async function proveDraft(
       ctx.recordEvent(id, "intake_aborted", { reason: String(signal.reason) })
       return
     }
-    ctx.recordEvent(id, type, { phase: "intake", error: String(error) })
+    ctx.recordEvent(id, type, {
+      phase: "intake",
+      error: String(error),
+      ...workspaceReadFailure(error),
+    })
     block(ctx, id, "intake_run_failed", { reason, error: String(error) })
   }
 
@@ -309,7 +314,11 @@ async function proveDraft(
   let draft: ReadonlyMap<string, string>
   const readStarted = Date.now()
   try {
-    draft = await drafter.reader.read({ threadId }, signal)
+    // The drafter answers for the thread only with the source intake handed it; any other
+    // refusal (the thread or workspace gone, a turn in flight, a timeout, an answer about
+    // another source) is a read the controller could not make, not a verdict on the draft.
+    const sourceDigest = handedSourceDigest(ctx.store.events(id), threadId, "drafter")
+    draft = await drafter.reader.read({ threadId, sourceDigest }, signal)
   } catch (error) {
     // The one read failure that IS a verdict on the draft: the thread was reached and there
     // is nothing where the draft belongs. The drafter's fault, and an attempt spent on it.

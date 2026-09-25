@@ -5,15 +5,16 @@ import { openWorkspaceInstallationReader } from "@b4run/sqlite-storage"
 import { script } from "@b4run/testing"
 import { afterEach, expect, it } from "vitest"
 import { createFactory, type Factory } from "../src/lib/controller/factory.ts"
+import { handedSourceDigest } from "../src/lib/controller/source-digest.ts"
 import { taskPrompt } from "../src/lib/prompts.ts"
 import { createArtifactStore } from "../src/lib/storage/artifacts.ts"
 import { loadTask } from "../src/lib/targets/catalog.ts"
-import { builderSandboxProvider, targetInspectionOptions } from "../src/lib/targets/workspace.ts"
+import { targetInspectionOptions } from "../src/lib/targets/workspace.ts"
 import { captureTargetBaseline } from "../src/lib/verification/baseline.ts"
 import { createDockerVerifier } from "../src/lib/verification/docker-verifier.ts"
 import { loadPolicy } from "../src/lib/verification/policy.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
-import { createThreadWorkspaceReader } from "../src/lib/worker/workspace-reader.ts"
+import { createHttpThreadWorkspaceReader } from "../src/lib/worker/workspace-reader.ts"
 import { fakeWorkerMap } from "./fake-worker-map.ts"
 import { applyReference } from "./reference-repair.ts"
 import { type ServedBuilder, serveBuilder, toolCallsSeen, toolResults } from "./served-builder.ts"
@@ -94,10 +95,10 @@ it(
         .replies("Repair complete.")
         .build(),
     )
+    // The controller's half of this lane is built from `served.url` and the token alone.
     const reader = () =>
-      createThreadWorkspaceReader(
-        { providerFor: () => builderSandboxProvider(), appRoot: served.appRoot },
-        () => targetInspectionOptions(task),
+      createHttpThreadWorkspaceReader({ url: served.url, token: TEST_WORKER_TOKEN }, () =>
+        targetInspectionOptions(task),
       )
     factory = await createFactory({
       registryPath: join(dir, "registry.sqlite"),
@@ -171,9 +172,12 @@ it(
     expect(await readdir(served.manifestDir)).toEqual([])
 
     // The bytes are in the BUILDER'S workspace: read them through the same reader the
-    // controller used, from a different provider instance addressing the same storage by
-    // scope, image and installation store.
-    const observed = await reader().read({ threadId, taskId: TASK }, AbortSignal.timeout(120_000))
+    // controller used, over the builder's own port, naming the source `dispatch` handed it.
+    const sourceDigest = handedSourceDigest(factory.events(id), threadId, "builder")
+    const observed = await reader().read(
+      { threadId, taskId: TASK, sourceDigest },
+      AbortSignal.timeout(120_000),
+    )
     // The builder's build wrote `packages/devkit/dist/**` into the workspace; the reader drops
     // every path under the target's `snapshotIgnore` prefixes, because the assembly rule
     // rejects any path the baseline lacks and build output is not a candidate. Without the

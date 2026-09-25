@@ -1,10 +1,4 @@
-import { withManagedWorkspaceReader } from "@b4run/cli/workspace"
-import type {
-  SandboxProvider,
-  SandboxSecurityPolicy,
-  SandboxWorkspaceReader,
-} from "@b4run/workspace"
-import { inspectWorkspace } from "@b4run/workspace"
+import { readThreadWorkspace, ThreadWorkspaceReadError } from "@b4run/cli/workspace"
 
 /**
  * Read a builder thread's workspace after its turn has ended. The controller uses
@@ -26,6 +20,8 @@ export interface WorkspaceReader {
 export interface WorkspaceTarget {
   readonly threadId: string
   readonly taskId?: string
+  /** The source the controller handed this thread: the worker's answer must carry it. */
+  readonly sourceDigest: string
 }
 
 /**
@@ -43,20 +39,13 @@ export interface WorkspaceReadOptions {
   /** Required root symlinks and their exact targets, e.g. the dependency link. */
   readonly expectedRootSymlinks: Readonly<Record<string, string>>
   /**
-   * The identity the reader runs as, in the sandbox policy's own vocabulary. Absent means
-   * the provider's secure default, which owns a workspace produced under the default
-   * policy; it must mirror the BUILDER's policy, because a workspace whose files are
-   * root-owned under a relaxed policy is unreadable to a reader running as 1000:1000.
-   * Derived from the policy rather than restated here, for exactly that reason.
-   */
-  readonly runAsNonRoot?: SandboxSecurityPolicy["runAsNonRoot"]
-  /**
    * Root-relative directory prefixes the builder may legitimately write under (the target's
    * build output); paths under them are dropped from the observed set, because the assembly
    * rule rejects any path the baseline lacks and build output is not a candidate. Inspection
-   * cannot exclude nested directories, so this is a reader-side filter, the same prefixes the
-   * verifier's tamper comparison skips. Matched against the keys inspection produces, which
-   * are relative to `root` when one is set (not to the workspace root).
+   * cannot exclude nested directories, so this is a filter after the walk: the worker applies
+   * it to its answer and the reader applies it again, so the observed set does not depend on
+   * the worker's version. Matched against the keys inspection produces, which are relative to
+   * `root` when one is set (not to the workspace root).
    */
   readonly ignorePrefixes?: readonly string[]
   /**
@@ -126,118 +115,88 @@ function rootSegments(root: string): string[] {
   return segments
 }
 
-/**
- * Establish that `segments` names a directory under the reader's root without touching any
- * sibling: each level is found by LISTING its parent (a name in a listing, not a stat that
- * may fail for reasons other than absence), and only the final entry is stat'ed. A missing
- * name or a non-directory is the typed error; any other failure is the read's own.
- */
-async function requireDirectory(
-  reader: SandboxWorkspaceReader,
-  segments: readonly string[],
-  root: string,
-  signal: AbortSignal,
-): Promise<string> {
-  const ctx = { workspaceRoot: reader.workspaceRoot, signal }
-  let current = reader.workspaceRoot.replace(/\/$/, "")
-  for (const segment of segments) {
-    const names = await reader.filesystem.listDir(current, ctx)
-    if (!names.includes(segment))
-      throw new WorkspaceRootMissingError(root, reader.threadId, "absent")
-    current = `${current}/${segment}`
-  }
-  const metadata = await reader.filesystem.lstat(current, ctx)
-  if (metadata.kind !== "directory")
-    throw new WorkspaceRootMissingError(root, reader.threadId, "not_directory")
-  return current
+/** A worker as the reader reaches it: its Agent Protocol base URL and the worker token. */
+export interface ThreadWorkspaceEndpoint {
+  readonly url: string
+  readonly token: string
+  readonly fetch?: typeof fetch
 }
 
 /**
- * Where the builder's workspaces live, as seen from the controller's process.
- *
- * The builder declares `sandbox.workspace`, so its threads are MANAGED workspaces: their
- * bytes live in storage named by the worker's installation and operation ids, which no
- * function of the thread id can reproduce. Resolving a thread therefore needs the worker's
- * own installation store under `appRoot` (read-only, without the worker's owner lock) as
- * well as a provider of the same kind, scope and image, constructed here.
+ * What a failed read said, for the journal: the worker's HTTP status and code
+ * (`workspace_changed`, `workspace_read_timeout`, `run_in_flight`, ...) or the client's own
+ * (`source_mismatch`, `thread_mismatch`, ...). Empty for a failure that is neither.
  */
-export interface ThreadWorkspaceSource {
-  /**
-   * Same kind, scope and image as the builder's `b4.config.ts` for that task. The image is
-   * the one the builder booted with: its target's at the target's DEFAULT pin, whatever pin
-   * the task itself runs at (the verifier's image, not the builder's). A target is a property
-   * of the task, so the provider is resolved PER TASK rather than once for the process: one
-   * provider for every task would address the wrong image as soon as a second target exists.
-   * The drafter's source has one image and ignores the task; the builder's throws on an
-   * undefined one.
-   */
-  providerFor(taskId: string | undefined): SandboxProvider
-  /** The builder app's root: where `b4` keeps `.b4/workspaces` for that app. */
-  readonly appRoot: string
+export function workspaceReadFailure(error: unknown): { status?: number; code?: string } {
+  if (!(error instanceof ThreadWorkspaceReadError)) return {}
+  return { status: error.status, ...(error.code !== undefined ? { code: error.code } : {}) }
 }
 
 /**
- * The real reader, over the framework's managed-workspace read surface.
+ * The real reader: `POST /threads/:id/workspace/inspect` on the worker that holds the thread
+ * (`sandbox.workspaceRead: "http"`). The worker runs the read in a separate, networkless,
+ * read-only container that never touches the thread's session, holding the thread's run
+ * slot, so it is safe between turns and refused (`run_in_flight`) during one. This process
+ * holds only the URL, the token and the digest it handed over: no installation store, no
+ * volume, no daemon of the worker's.
  *
- * `withManagedWorkspaceReader` resolves the thread through the builder's installation store
- * to its published workspace record, then opens that record's storage read-only in a
- * separate, networkless container that never touches the builder's own session — which is
- * why this is safe to call while the builder sits idle between turns as well as after its
- * compute has been released. That is addressing, not authorization: naming a thread id is
- * not a claim of ownership, so the process holding the provider and the app root is the
- * boundary.
- *
- * The helper owns the reader's lifetime, including a close that fails: there is no `release`
- * for a caller to forget, and a close failure is aggregated with a read failure rather than
- * replacing it.
+ * Every refusal but one stays the client's `ThreadWorkspaceReadError`, whose status and code
+ * the phases journal ({@link workspaceReadFailure}) as a read they could not make. The one
+ * exception is a missing `root`, which is a verdict on the thread's output.
  */
-export function createThreadWorkspaceReader(
-  source: ThreadWorkspaceSource,
+export function createHttpThreadWorkspaceReader(
+  endpoint: ThreadWorkspaceEndpoint,
   optionsFor: WorkspaceInspectionOptions,
 ): WorkspaceReader {
   return {
     async read(target, signal) {
-      // Resolved before anything is opened: a task whose inspection options cannot be
-      // derived is a refusal that costs no container and no store lookup.
+      // Refused before a request: options that cannot be derived, or a malformed root.
       const options = optionsFor(target.taskId)
-      // Likewise a malformed root: refused before a store lookup or a container.
       const root = options.root
-      const segments = root === undefined ? undefined : rootSegments(root)
-      const inspection = await withManagedWorkspaceReader(
-        {
-          appRoot: source.appRoot,
-          provider: source.providerFor(target.taskId),
-          threadId: target.threadId,
-          signal,
-          ...(options.runAsNonRoot === undefined ? {} : { runAsNonRoot: options.runAsNonRoot }),
-        },
-        // A `SandboxWorkspaceReader` is a `WorkspaceReadSource`: filesystem and
-        // workspaceRoot, no exec backend and no write operation anywhere on it, which is
-        // all `inspectWorkspace` consumes. With a `root`, inspection is handed the SAME
-        // filesystem at a nested `workspaceRoot`: its walk starts there and never leaves it.
-        async (reader) => {
-          const workspaceRoot =
-            root === undefined || segments === undefined
-              ? reader.workspaceRoot
-              : await requireDirectory(reader, segments, root, signal)
-          return inspectWorkspace(
-            { filesystem: reader.filesystem, workspaceRoot },
-            {
-              signal,
-              maxEntries: options.maxEntries ?? 10_000,
-              maxFileBytes: options.maxFileBytes ?? 2 * 1024 * 1024,
-              maxTotalBytes: options.maxTotalBytes ?? 16 * 1024 * 1024,
-              excludeRootDirectories: options.excludeRootDirectories,
-              expectedRootSymlinks: options.expectedRootSymlinks,
-            },
-          )
-        },
-      )
+      if (root !== undefined) rootSegments(root)
       const ignored = options.ignorePrefixes ?? []
-      // Re-prefixed exactly once: inspection's keys are relative to the nested root.
+      let answer: Awaited<ReturnType<typeof readThreadWorkspace>>
+      try {
+        answer = await readThreadWorkspace(
+          endpoint.url,
+          target.threadId,
+          {
+            ...(root !== undefined ? { root } : {}),
+            excludeRootDirectories: options.excludeRootDirectories,
+            expectedRootSymlinks: options.expectedRootSymlinks,
+            ...(options.ignorePrefixes !== undefined
+              ? { ignorePrefixes: options.ignorePrefixes }
+              : {}),
+            maxEntries: options.maxEntries ?? 10_000,
+            maxFileBytes: options.maxFileBytes ?? 2 * 1024 * 1024,
+            maxTotalBytes: options.maxTotalBytes ?? 16 * 1024 * 1024,
+          },
+          {
+            headers: { authorization: `Bearer ${endpoint.token}` },
+            signal,
+            expectedSourceDigest: target.sourceDigest,
+            ...(endpoint.fetch ? { fetch: endpoint.fetch } : {}),
+          },
+        )
+      } catch (error) {
+        // The one refusal that is a verdict on the thread's output: the worker reached the
+        // workspace and found nothing (or not a directory) at `root`.
+        if (
+          root !== undefined &&
+          error instanceof ThreadWorkspaceReadError &&
+          error.code === "workspace_root_missing"
+        )
+          throw new WorkspaceRootMissingError(
+            root,
+            target.threadId,
+            error.details.kind === "not_directory" ? "not_directory" : "absent",
+          )
+        throw error
+      }
+      // Re-prefixed exactly once: the worker's keys are relative to the root.
       const rootPrefix = root === undefined ? "" : `${root}/`
       return new Map(
-        Object.entries(inspection.files)
+        Object.entries(answer.inspection.files)
           .filter(([path]) => !ignored.some((prefix) => path.startsWith(prefix)))
           .map(([path, content]) => [`${rootPrefix}${path}`, content]),
       )

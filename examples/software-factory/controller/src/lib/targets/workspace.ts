@@ -154,18 +154,9 @@ export function targetWorkspace(
 export function targetInspectionOptions(task: Task): WorkspaceReadOptions {
   const expectedRootSymlinks: Record<string, string> = {}
   for (const link of task.target.environmentLinks) expectedRootSymlinks[link.path] = link.target
-  const policy = targetSandboxPolicy(task.target)
   return {
     excludeRootDirectories: [".git"],
     expectedRootSymlinks,
     ignorePrefixes: [...task.target.snapshotIgnore],
-    // Mirrors the builder's own policy rather than trusting the reader's default to keep
-    // matching it: relax `security.runAsNonRoot` for the builder and its files change
-    // owner, and a reader still running as the secure default cannot read them. Inert today
-    // by construction (the policy sets no `security`), kept because the derivation is the
-    // point.
-    ...(policy.security?.runAsNonRoot === undefined
-      ? {}
-      : { runAsNonRoot: policy.security.runAsNonRoot }),
   }
 }

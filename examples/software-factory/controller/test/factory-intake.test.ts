@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { ThreadWorkspaceReadError } from "@b4run/cli/workspace"
 import { afterEach, describe, expect, it } from "vitest"
 import { createFactory, type Factory, type FactoryOptions } from "../src/lib/controller/factory.ts"
 import { DRAFTER_UNCONFIGURED } from "../src/lib/controller/workers.ts"
@@ -218,6 +219,25 @@ async function intake(
 }
 
 /** Rewrite the row directly, the way a crash mid-phase would leave it. */
+/**
+ * What intake journals when it hands a thread its workspace: the manifest's source digest,
+ * then the thread that holds it. A test that fakes a crash window journals both, as intake
+ * does, because the controller reads the thread back only with the digest it handed.
+ */
+function journalHandoff(id: string, threadId: string): void {
+  const registry = openRegistry(registryPath())
+  const events = createWorkOrderStore(registry.db)
+  const at = new Date().toISOString()
+  events.appendEvent(
+    id,
+    "drafter_manifest_written",
+    { path: manifestPath(id), sourceDigest: "c".repeat(64) },
+    at,
+  )
+  events.appendEvent(id, "intake_thread_created", { threadId }, at)
+  registry.close()
+}
+
 function forceRow(id: string, patch: WorkOrderPatch): void {
   const registry = openRegistry(registryPath())
   const rows = createWorkOrderStore(registry.db)
@@ -296,6 +316,8 @@ describe("intake", () => {
       candidateDigest: "a".repeat(64),
     })
     expect(reader.reads).toEqual([threadId])
+    // The read named the source intake handed the thread: the worker must answer with it.
+    expect(reader.targets).toEqual([{ threadId, sourceDigest: "c".repeat(64) }])
   })
 
   it("refuses a catalog work order, the wrong state, and an unconfigured intake", async () => {
@@ -774,14 +796,7 @@ describe("intake", () => {
       body: JSON.stringify({ metadata: { factoryWorkOrderId: id, factoryStage: "intake" } }),
     })
     const { thread_id: threadId } = (await created.json()) as { thread_id: string }
-    const registry = openRegistry(registryPath())
-    createWorkOrderStore(registry.db).appendEvent(
-      id,
-      "intake_thread_created",
-      { threadId },
-      new Date().toISOString(),
-    )
-    registry.close()
+    journalHandoff(id, threadId)
     expect(await factory.intake(id)).toMatchObject({ ok: true, state: "intake_running" })
     reader.set(threadId, GOOD_DRAFT)
     const row = await factory.settleIntake(id, 20_000)
@@ -915,6 +930,28 @@ describe("the drafter thread's draft/", () => {
       intakeAttempts: 0,
     })
     expect(eventSeen(id, "workspace_unreadable")).toBe(true)
+    expect(refusals(id)).toEqual([])
+  })
+
+  it("keeps a worker's timeout a failed run with its code on the record, not a spent attempt", async () => {
+    await bootWorker()
+    const timedOut: WorkspaceReader = {
+      async read() {
+        throw new ThreadWorkspaceReadError(504, "workspace_read_timeout", "Worker answered 504")
+      },
+    }
+    await bootFactory({ drafterReader: timedOut })
+    const { id } = await createIssue()
+    expect(await factory.intake(id)).toMatchObject({ ok: true })
+    const row = await factory.settleIntake(id, 20_000)
+    expect(row).toMatchObject({
+      state: "blocked",
+      blockedReason: "intake_run_failed",
+      intakeAttempts: 0,
+    })
+    expect(
+      factory.events(id).find((e) => e.type === "workspace_unreadable")?.payload,
+    ).toMatchObject({ phase: "intake", status: 504, code: "workspace_read_timeout" })
     expect(refusals(id)).toEqual([])
   })
 })
@@ -1322,6 +1359,12 @@ describe("intake reconciliation", () => {
     const registry = openRegistry(registryPath())
     createWorkOrderStore(registry.db).appendEvent(
       id,
+      "builder_manifest_written",
+      { path: `/unused/builder-manifests/${id}.json`, sourceDigest: "0".repeat(64) },
+      new Date().toISOString(),
+    )
+    createWorkOrderStore(registry.db).appendEvent(
+      id,
       "thread_created",
       { threadId: builderThread },
       new Date().toISOString(),
@@ -1368,6 +1411,7 @@ describe("intake reconciliation", () => {
       body: JSON.stringify({ metadata: { factoryWorkOrderId: id, factoryStage: "intake" } }),
     })
     const { thread_id: threadId } = (await created.json()) as { thread_id: string }
+    journalHandoff(id, threadId)
     forceRow(id, { state: "intake_running", workerThreadId: threadId })
     reader.set(threadId, GOOD_DRAFT)
     await bootFactory()
@@ -1432,6 +1476,7 @@ describe("intake reconciliation", () => {
       body: JSON.stringify({ route: "/intake#agent", input: { messages: [] } }),
     }).then((r) => r.text())
     expect(fake.thread(threadId)?.pending).not.toBeNull()
+    journalHandoff(id, threadId)
     forceRow(id, { state: "intake_running", workerThreadId: threadId })
     await bootFactory()
     const row = factory.show(id)
@@ -1470,6 +1515,7 @@ describe("intake reconciliation", () => {
     const created = await fetch(`${fake.baseUrl}/threads`, { method: "POST" })
     const { thread_id: threadId } = (await created.json()) as { thread_id: string }
     fake.markStaleBusy(threadId)
+    journalHandoff(id, threadId)
     forceRow(id, { state: "intake_running", workerThreadId: threadId })
     return { id, threadId }
   }
@@ -1516,6 +1562,7 @@ describe("intake reconciliation", () => {
     await crash()
     const created = await fetch(`${fake.baseUrl}/threads`, { method: "POST" })
     const { thread_id: threadId } = (await created.json()) as { thread_id: string }
+    journalHandoff(id, threadId)
     forceRow(id, { state: "intake_running", workerThreadId: threadId })
     // A read that holds until the factory's own signal aborts it: `finishIntake` is then
     // mid-phase when close() lands, which is exactly when a backstop would wrongly block.

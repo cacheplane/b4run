@@ -10,16 +10,11 @@ import { createFactory, type Factory, type FactoryOptions } from "./controller/f
 import { createWorkerMap } from "./controller/workers.js"
 import { createArtifactStore } from "./storage/artifacts.js"
 import { configureCatalog, loadTask, resetCatalogForTests } from "./targets/catalog.js"
-import {
-  builderSandboxProvider,
-  drafterInspectionOptions,
-  drafterSandboxProvider,
-  targetInspectionOptions,
-} from "./targets/workspace.js"
+import { drafterInspectionOptions, targetInspectionOptions } from "./targets/workspace.js"
 import { captureTargetBaseline } from "./verification/baseline.js"
 import { createDockerVerifier } from "./verification/docker-verifier.js"
 import { createHttpWorkerClient } from "./worker/client.js"
-import { createThreadWorkspaceReader, type WorkspaceReader } from "./worker/workspace-reader.js"
+import { createHttpThreadWorkspaceReader, type WorkspaceReader } from "./worker/workspace-reader.js"
 
 /**
  * The collaborators a test may replace. Everything else the runtime builds is real: only
@@ -123,9 +118,8 @@ export function createControllerRuntime(
     const workers = createWorkerMap(config, {
       createClient: (url) => createHttpWorkerClient(url, { token: config.workerToken }),
       createBuilderReader: (entry) => readers?.builder ?? builderReader(entry),
-      // The drafter's threads live under ITS app root, addressed by a provider of its scope
-      // and image, and are read re-rooted at `draft/`: the wide capture under `repo/` is
-      // never walked.
+      // Each worker is read over its own URL with the worker token; the drafter's threads are
+      // read re-rooted at `draft/`, so the wide capture under `repo/` is never walked.
       createDrafterReader: (entry) => readers?.drafter ?? drafterReader(entry),
     })
     return createFactory({
@@ -156,31 +150,22 @@ export function createControllerRuntime(
   }
 
   /**
-   * The builder's reader: the provider is the same for every task (the builder's scope, no
-   * default image: a managed workspace's image is in its own record), and the store is the
-   * builder's. The inspection options are the task's own.
+   * The builder's reader: `POST /threads/:id/workspace/inspect` on the builder's URL, with the
+   * worker token. The inspection options are the task's own.
    */
   function builderReader(entry: WorkerEndpoint): WorkspaceReader {
-    return createThreadWorkspaceReader(
-      {
-        providerFor: () => builderSandboxProvider(),
-        appRoot: entry.appRoot,
-      },
+    return createHttpThreadWorkspaceReader(
+      { url: entry.url, token: config.workerToken },
       (taskId) => targetInspectionOptions(loadTask(requireTaskId(taskId))),
     )
   }
 
+  /** The drafter's reader: the same, on the drafter's URL, re-rooted at `draft/`. */
   function drafterReader(entry: DrafterEndpoint): WorkspaceReader {
-    return namingDrafterAppRoot(
-      createThreadWorkspaceReader(
-        {
-          providerFor: () => drafterSandboxProvider(config.drafterImage),
-          appRoot: entry.appRoot,
-        },
-        () => ({ ...drafterInspectionOptions(), root: "draft" }),
-      ),
-      entry.appRoot,
-    )
+    return createHttpThreadWorkspaceReader({ url: entry.url, token: config.workerToken }, () => ({
+      ...drafterInspectionOptions(),
+      root: "draft",
+    }))
   }
 }
 
@@ -189,33 +174,6 @@ function isDirectory(path: string): boolean {
     return statSync(path).isDirectory()
   } catch {
     return false
-  }
-}
-
-/**
- * A drafter app root that exists but holds no installation store is the one read failure
- * whose cause is the operator's configuration (the drafter app never booted there, or it is
- * the wrong directory), not the thread's: the journal line names the variable to fix.
- */
-function namingDrafterAppRoot(reader: WorkspaceReader, appRoot: string): WorkspaceReader {
-  return {
-    async read(target, signal) {
-      try {
-        return await reader.read(target, signal)
-      } catch (error) {
-        // Matched by text: the framework throws a plain `Error` here
-        // (`openWorkspaceInstallationReader` in
-        // `packages/sqlite-storage/src/workspace/installation.ts`, "No workspace installation
-        // under <appRoot>"), with no class or code to test for.
-        if (error instanceof Error && /No workspace installation/.test(error.message)) {
-          throw new Error(
-            `FACTORY_DRAFTER_APP_ROOT has no workspace installation: has the drafter app booted under ${appRoot}? (${error.message})`,
-            { cause: error },
-          )
-        }
-        throw error
-      }
-    },
   }
 }
 
