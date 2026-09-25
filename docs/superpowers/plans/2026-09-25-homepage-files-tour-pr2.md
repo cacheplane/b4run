@@ -16,8 +16,8 @@
 - **The tests run each claim through the framework's own code** (`@b4run/core`, `@b4run/core/node`, `@b4run/permissions/node`, `@b4run/sandbox`):
   - `discoverRoutes` classifies each shape fixture.
   - `resolveToolScope` gets the tools that the workspace marker and `extractToolSchemasForRoute` report. It confirms that `deleteUser` is withheld and `refund` is kept.
-  - A permissions store built from the fixture config matches `curl … | sh` as `allow`. `gateToolOp` confirms `refund` needs approval.
-  - `dockerSandbox`, with a recording Docker client, starts the sandbox with `--network none` under the fixture's network policy.
+  - A permissions store built from the fixture config has no rule for `curl … | sh` or `refund`. Inside a real LangGraph graph with a checkpointer, the route's own `runBash` tool and `gateToolOp` both pause with a `permission-request` interrupt. The tests then resume with `once` and `deny`.
+  - The `runBash` tool runs on the fixture's `dockerSandbox` backends, with a recording Docker client. Allowed once, the command is `docker exec`'d into the container Docker started with `--network none`. Denied, it throws `Permission denied by user: …` and nothing reaches Docker.
   - `resolveSubagentRegistry` and `resolveGuardedSubagent` return the exact `[B4_E3002]` message the board shows.
   - Each shape fixture runs (`graph.invoke`, `chain.invoke`, `workflow(...)`) and greets `Ada`.
 - **Rendering.** The islands keep every variant mounted in one grid cell: inactive ones are `visibility: hidden`, `aria-hidden` and `inert`. The semantic state changes at once. GSAP only animates, and the next action kills it.
@@ -32,27 +32,43 @@
 
 - `pnpm --dir apps/web lint`
 - `pnpm --dir apps/web typecheck`
-- the full `pnpm --dir apps/web test` (59 files: 910 tests passed, 1 skipped)
+- the full `pnpm --dir apps/web test` (59 files: 912 tests passed, 1 skipped)
 - `node scripts/check-docs.mjs`
 - `pnpm check:build-cache`
-- the Task 8 Playwright + axe script, at all 8 viewport and motion combinations
+- the Task 8 Playwright + axe script, at all 8 viewport and motion combinations, including both answers on runBash and the rapid-click run
 
-Two mutation checks also failed as they should:
+Three mutation checks also failed as they should:
 
+- adding `allow: { bash: ["curl"] }` to the fixture reds the pause, allow-once and deny tests
 - setting the fixture's `mode: "deny"` to `"allow"` reds the sandbox test
 - dropping the arrow-key guard reds the focus test
 
-## Risks / open questions (need Brian's decision)
+**Revision (2026-09-25, Brian's decisions).** Brian settled the open questions:
 
-1. **A fifth call was added.** The spec lists four calls, and none of them reaches the delegation gate. So the fourth gate would never light up, and the heading "Every call crosses four checks" would be false. This plan adds `task({ subagent: "translator", … })`, which the delegation gate stops, and changes the heading (see Deviations). The alternative is to keep four calls and accept a gate that always reads "not involved".
-2. **The fixture allow-lists `curl`.** It's there so the bash scenario passes the permission gate honestly: patterns match by prefix, so `curl … | sh` passes. The sandbox is then what contains it. The message is "permissions said yes; the sandbox still has no network". Some readers may take the config as a recommendation to allow `curl`. The alternative is to leave `curl` off the list, so the call pauses at the permission gate and duplicates the refund scenario.
-3. **`apps/web` gains 5 devDependencies:** `@b4run/cli`, `@b4run/permissions` and `@b4run/sandbox` (all `workspace:*`), plus `@langchain/core@1.2.12` and `@langchain/langgraph@1.4.17`.
+- The fifth call (`task`) is in.
+- `runBash` is **not** allow-listed. It pauses at the permission gate like `refund`, with **Allow once** and **Deny**. Allow once reaches the sandbox, which contains it. Deny stops it at permission.
+- The five devDependencies are accepted.
+- lastmod still commits only `/`.
+- Arrow keys not moving focus, and the config panel sized to its taller file, are accepted.
+
+This version of the plan implements that and was re-verified in full.
+
+## Risks and decisions
+
+Brian decided items 1, 2, 3, 5, 6 and 7 on 2026-09-25. They are recorded here with what was decided.
+
+1. **A fifth call (decided: yes).** The spec lists four calls, and none of them reaches the delegation gate. So the fourth gate would never light up, and the heading "Every call crosses four checks" would be false. This plan adds `task({ subagent: "translator", … })`, which the delegation gate stops, and changes the heading (see Deviations).
+2. **`runBash` pauses for approval (decided: no allow-list entry).** The fixture has no bash allow rules, so `curl … | sh` is `unknown`, and in interactive mode the runtime pauses for a person.
+   - **Allow once:** the command runs in the sandbox, and Docker started that container with `--network none` because the config sets `network: { mode: "deny" }`. So curl has no network and the download fails.
+   - **Deny:** `runBash` throws `Permission denied by user: <command>`. The agent middleware turns that into an error tool message the model reads.
+   - **What the page doesn't claim.** It never shows a specific curl error message. The recording Docker client can't produce a real one, so the page only says "the download fails".
+3. **`apps/web` gains 5 devDependencies (decided: accepted):** `@b4run/cli`, `@b4run/permissions` and `@b4run/sandbox` (all `workspace:*`), plus `@langchain/core@1.2.12` and `@langchain/langgraph@1.4.17`.
    - **Lockfile.** The diff only adds lines to the `apps/web` importer. Every version is already in the lockfile, so no new packages or snapshots appear. Re-fetch main and run `pnpm install` just before merging (lockfile staleness trap).
    - **Build graph.** `@b4run/cli` makes `@b4run/web#build` depend on `@b4run/cli#build` in turbo's graph. `pnpm check:build-cache` passes. Vercel's build command already builds every `packages/*` package, so it does no extra work.
 4. **Nested `package.json` files** sit under `apps/web/app/components/homepage/{gates,shapes}/fixtures/`. B4's `findB4App` needs them, because `discoverRoutes` refuses an app root without `"type": "module"`. They aren't workspace members: `pnpm-workspace.yaml` matches only `apps/*`. Biome lints them, and they pass. If Brian would rather not have nested manifests, the fallback is to drop `discoverRoutes` from the shapes test and keep the in-process runs. The delegation test would then need its registry built by hand. That's weaker.
-5. **Arrow keys don't move focus to the decision buttons.** The instructions ask for focus to move to **Allow once** when the permission gate pauses. Doing that when the visitor arrows onto `refund` would pull focus out of the radio group mid-traversal and break arrow navigation (APG radio group). So focus moves on a click or Space, and the announcement names the buttons. **Tab** from the group then lands on **Allow once**, because every other board is inert. The Task 8 script measures this.
-6. **`seo:lastmod:check` is red before and after this PR.** Twenty docs routes on the base branch are stale. A full `pnpm --dir apps/web seo:lastmod` rewrites 21 entries, 20 of which are docs routes this PR doesn't touch. Task 8 splices in only the `/` entry, as instructed. The web suite's route-coverage test (the CI gate) passes either way.
-7. **The config panel is sized to its taller file.** That's the route file, 19 lines, which wrap at 375px. So when `b4.config.ts` shows, there's empty panel space below it. That's the price of no layout shift. It's visible in the 375px screenshot.
+5. **Arrow keys don't move focus to the decision buttons (decided: accepted).** Moving focus when the visitor arrows onto `refund` or `runBash` would pull it out of the radio group mid-traversal and break arrow navigation (APG radio group). So focus moves on a click or Space. The announcement names the buttons, and **Tab** from the group lands on **Allow once**, because every other board is inert. The Task 8 script measures this.
+6. **`seo:lastmod:check` is red before and after this PR (decided: commit only `/`).** Twenty docs routes on the base branch are stale, and a separate PR is regenerating them. A full `pnpm --dir apps/web seo:lastmod` rewrites 21 entries, 20 of which are docs routes this PR doesn't touch. Task 8 splices in only the `/` entry. The web suite's route-coverage test (the CI gate) passes either way.
+7. **The config panel is sized to its taller file (decided: accepted).** That's the route file, 19 lines, which wrap at 375px. So when `b4.config.ts` shows, there's empty panel space below it. That's the price of no layout shift. It's visible in the 375px screenshot.
 
 ## Deviations from the spec, and why
 
@@ -63,7 +79,9 @@ Two mutation checks also failed as they should:
   - The page may not contain an em dash (`homepage.test.tsx` forbids it), and `—` can't tell two cases apart. It becomes **`not involved`** (the check doesn't apply to this call) and **`not reached`** (an earlier check stopped it). Both are drawn with a dashed border.
   - **`contained`** is added for the sandbox, which never "stops" a call: the command runs, just without the network.
   - Each state is text first. A glyph (`✓ ‖ ✕ ▣ ·`) and a token tint only repeat it.
-- **Decision flow.** Choosing **Allow once** or **Deny** swaps to a decided board and moves focus to its **Ask again** button. **Ask again** returns focus to **Allow once**. Focus is never lost when a board goes inert.
+- **Decision flow, for both calls that pause (`refund` and `runBash`).**
+  - Choosing **Allow once** or **Deny** swaps to that call's decided board and moves focus to its **Ask again** button. **Ask again** returns focus to **Allow once**. Focus is never lost when a board goes inert.
+  - `pausesFor` in `gate-scenarios.ts` names the pausing calls. The boards are `refund-once`, `refund-deny`, `bash-once` and `bash-deny`.
 - **Motion.**
   - **Tracer:** the timeline animates only opacity and `y`: 0.25 to 1 opacity over 180ms per gate, then the result. The decision buttons don't fade, because they may already have focus.
   - **Route shapes:** the spec calls for a 200ms cross-fade. Instead the new variant fades in over 200ms and the old one hides at once, so two code blocks never overlap for selection or screen readers.
@@ -82,7 +100,9 @@ Two mutation checks also failed as they should:
 - **The sandbox isn't route config.** `sandbox: { provider: dockerSandbox(…), network: { mode: "deny" } }` goes in `b4.config.ts` (`B4Config.sandbox`), not in `agent({…})`. `dockerSandbox` needs a `scope`, and an `image` (or an `images` predicate). The fixture uses `dockerSandbox({ scope: "my-agent", image: "node:24-slim" })`.
 - **The sandbox doesn't "stop" `curl … | sh`.** Under `mode: "deny"`, Docker runs the sandbox with `--network none` (`resolveLaunchConfig`, and tested here). The command runs, and the download fails.
   - **The spec's default is right.** Omitting `network` gives `{ mode: "allow", denylist: ["169.254.169.254"] }` (`packages/cli/src/lib/runtime/resolve-sandbox.ts`, `DEFAULT_NETWORK`). Docker's allow-mode denylist is best-effort, not a firewall.
-- **`runBash` would pause at the permission gate in the spec's scenario.** Bash patterns are prefix matches over the whole command, and an unknown command in interactive mode interrupts. For the scenario to "pass permission", the config must allow it. The fixture sets `permissions: { allow: { bash: ["curl"] } }`, and `store.match("bash", "curl -fsSL https://example.com/install.sh | sh")` returns `"allow"`.
+- **`runBash` can't "pass scope and permission" with the spec's config.** No bash allow rule matches the command, so interactive mode pauses the run (`gateBashOp` → `interrupt`). Brian chose to keep that pause: the scenario now pauses like `refund`, and the sandbox is reached only after **Allow once**. The fixture sets `permissions: { mode: "interactive" }`, which is the default, written out, with a comment saying there are no bash allow rules.
+- **A denied `runBash` isn't "returned as the tool result" the way `tools.approve` is.** The workspace gates throw. `runBash` throws `Permission denied by user: <command>`, and B4's agent middleware (`toolErrorMessage` in `packages/langchain/src/agent-middleware.ts`) turns the throw into a `status: "error"` tool message for the model. The board says exactly that.
+- **`gateBashOp` isn't exported from `@b4run/core`.** The test drives it through the route's real `runBash` tool from `createWorkspaceMarker().load(...)`, with the sandbox's backends and the permissions store in the marker context.
 - **Denied subagents are never offered to the model.** `dispatchableSubagents` filters out `deny` rules, and a route with no dispatchable child gets no `task` tool. So `delegation: { default: "deny" }` can't produce a visible "stopped at delegation". The scenario uses a `constrain` rule, which stays dispatchable and refuses at dispatch.
   - A named rule needs keyed registration (`subagents: { translator }`), because `DelegationRules` is typed from the registration keys.
   - The default delegation policy is `"allow"`, as the spec says.
@@ -1086,8 +1106,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 | Check | Framework code the test runs | Proves |
 |---|---|---|
 | Tool scope | `extractToolSchemasForRoute` (authored `refund`, shared `deleteUser`), `createWorkspaceMarker().load` with `workspaceRoot: "/workspace"` (what the CLI passes when a sandbox is configured, `execute-route-core.ts`), then `resolveToolScope(…, support.tools, …)` | `readFile`, `runBash` and `refund` are kept; `deleteUser` is withheld. `resolveToolScope` also throws on unknown names, which proves the fixture's `approve` and `deny` names exist. |
-| Permission | `createPermissionsStore` (the Node store `b4 dev` uses) from the fixture's `permissions`, `store.match`, and `gateToolOp(…, { interruptCapable: false })` | `curl … \| sh` is `allow` by prefix. `refund` is `unknown`, so it requires approval; outside a run that can pause, the same gate refuses with "requires approval". |
-| Sandbox | `dockerSandbox({ docker })` with a recording client (the package's own unit-test pattern), `acquire` with the fixture's `network` | `--network none`. |
+| Permission | `createPermissionsStore` (the Node store `b4 dev` uses), built from the fixture's `permissions`. Then `gateToolOp` and the route's own `runBash` tool, each run as the node of a real `StateGraph` compiled with a `MemorySaver`, invoked, then resumed with `new Command({ resume })`. | Both `curl … \| sh` and `refund` are `unknown`. Each pauses with a `permission-request` interrupt (`kind: "command"` with the exact command, and `kind: "tool"`). Nothing reaches Docker while paused. `once` lets the call run and saves nothing; `deny` throws or returns `Permission denied by user`. |
+| Sandbox | `dockerSandbox({ docker })` with a recording client (the package's own unit-test pattern). `acquire` uses the fixture's `network`, and its `exec` and `filesystem` backends are handed to the workspace marker. | Allowed once, the command is `docker exec`'d into exactly the container `docker run` started with `--network none`. Denied, there's no `exec` at all. |
 | Delegation | `discoverRoutes`, `resolveSubagentRegistry`, `resolveGuardedSubagent` | 9,000 characters returns exactly `[B4_E3002] Send the translator one reply at a time.` (the string on the board), and a short input dispatches. |
 
 - [ ] **Step 1: Write the failing test**
@@ -1108,6 +1128,15 @@ import {
 import { discoverRoutes, extractToolSchemasForRoute, nodeMarkerFs } from "@b4run/core/node"
 import { createPermissionsStore } from "@b4run/permissions/node"
 import { dockerSandbox } from "@b4run/sandbox"
+import {
+  Annotation,
+  Command,
+  END,
+  isGraphInterrupt,
+  MemorySaver,
+  START,
+  StateGraph,
+} from "@langchain/langgraph"
 import { describe, expect, it } from "vitest"
 import { contrast } from "../../../../lib/design-system-checks"
 import { COLOR, SHIKI_FOREGROUNDS } from "../../../../lib/design-tokens"
@@ -1140,6 +1169,95 @@ const board = (id: BoardId) => {
 const stateOf = (id: BoardId, gate: string) =>
   board(id).steps.find((step) => step.gate === gate)?.state
 
+/** The Node permissions store `b4 dev` builds, from the fixture's `permissions`. */
+const permissionsStore = () =>
+  createPermissionsStore({
+    appRoot,
+    config: {
+      version: 1,
+      allow: appConfig.permissions?.allow ?? {},
+      deny: appConfig.permissions?.deny ?? {},
+    },
+    mode: appConfig.permissions?.mode ?? "interactive",
+  })
+
+const context = () => ({ signal: new AbortController().signal })
+
+/**
+ * Runs `call` as the one node of a real LangGraph graph with a checkpointer,
+ * the way an agent run executes a tool: `start` returns what the run paused
+ * with, and `resume` answers it and returns what the call produced.
+ */
+function pausable(call: () => unknown) {
+  const graph = new StateGraph(Annotation.Root({ outcome: Annotation<string> }))
+    .addNode("call", async () => {
+      try {
+        return { outcome: JSON.stringify(await call()) }
+      } catch (error) {
+        if (isGraphInterrupt(error)) throw error
+        return { outcome: `threw: ${error instanceof Error ? error.message : String(error)}` }
+      }
+    })
+    .addEdge(START, "call")
+    .addEdge("call", END)
+    .compile({ checkpointer: new MemorySaver() })
+  const config = { configurable: { thread_id: "thread-1" } }
+  return {
+    start: async () => {
+      const state = await graph.invoke({}, config)
+      return (state as { __interrupt__?: { value: unknown }[] }).__interrupt__?.[0]?.value
+    },
+    resume: async (decision: "once" | "deny") =>
+      (await graph.invoke(new Command({ resume: decision }), config)).outcome,
+  }
+}
+
+/**
+ * The route's real runBash, over the fixture's Docker sandbox: the workspace
+ * marker gets the sandbox's backends and workspace root, as the CLI hands them
+ * over when `sandbox` is configured. A recording Docker client stands in for
+ * the daemon, the way @b4run/sandbox's own unit tests do.
+ */
+async function sandboxedRunBash(store: ReturnType<typeof permissionsStore>) {
+  const runs: string[][] = []
+  const exec: { container: string; command: readonly string[] }[] = []
+  const network = appConfig.sandbox?.network
+  if (!network) throw new Error("The fixture sets a network policy")
+  const provider = dockerSandbox({
+    scope: "my-agent",
+    image: "node:24-slim",
+    docker: {
+      run: async (args) => {
+        runs.push([...args])
+        return { stdout: args[0] === "ps" ? "" : "ok", stderr: "", exitCode: 0 }
+      },
+      exec: async (container, command) => {
+        exec.push({ container, command })
+        // The exec backend checks that its started marker came back first.
+        const marker = /__B4_EXEC_STARTED_[0-9a-f-]+__/u.exec(command.join(" "))?.[0] ?? ""
+        return { stdout: `${marker}\n`, stderr: "", exitCode: 0 }
+      },
+    },
+  })
+  const handle = await provider.acquire({
+    threadId: "thread-1",
+    policy: { network },
+    signal: new AbortController().signal,
+  })
+  const workspace = await createWorkspaceMarker().load(supportDir, {
+    appRoot,
+    markerFs: nodeMarkerFs,
+    workspaceRoot: handle.workspaceRoot,
+    backends: { exec: handle.exec, filesystem: handle.filesystem },
+    permissions: store,
+    routeManifest: await discoverRoutes({ appRoot }),
+    descriptor: support,
+  })
+  const runBash = workspace.tools?.find((tool) => tool.name === "runBash")
+  if (!runBash) throw new Error("The workspace marker gives the route runBash")
+  return { runBash, exec, runs }
+}
+
 describe("the tracer shows real config", () => {
   it("shows each fixture exactly as it is on disk", () => {
     for (const [id, file] of Object.entries(CONFIG_FILES)) {
@@ -1159,7 +1277,17 @@ describe("the tracer shows real config", () => {
 
   it("has a board for every scenario and each answer, with the four checks in order", () => {
     expect(gateBoards.map((candidate) => candidate.id).sort()).toEqual(
-      ["bash", "delegate", "delete", "read", "refund", "refund-deny", "refund-once"].sort(),
+      [
+        "bash",
+        "bash-deny",
+        "bash-once",
+        "delegate",
+        "delete",
+        "read",
+        "refund",
+        "refund-deny",
+        "refund-once",
+      ].sort(),
     )
     for (const candidate of gateBoards) {
       expect(
@@ -1228,50 +1356,67 @@ describe("each check answers as the framework does", () => {
     expect(stateOf("delete", "scope")).toBe("stopped")
   }, 60_000)
 
-  it("permission: curl is allow-listed by prefix, and refund waits for a person", async () => {
-    const permissions = appConfig.permissions
-    const store = createPermissionsStore({
-      appRoot,
-      config: { version: 1, allow: permissions?.allow ?? {}, deny: permissions?.deny ?? {} },
-      mode: "interactive",
-    })
-    expect(store.match("bash", BASH_COMMAND)).toBe("allow")
+  it("permission: with no allow rule, runBash and refund both pause for a person", async () => {
+    // The fixture sets no allow or deny rules, so nothing matches either call.
+    expect(appConfig.permissions).toEqual({ mode: "interactive" })
+    const store = permissionsStore()
+    expect(store.match("bash", BASH_COMMAND)).toBe("unknown")
     expect(support.tools?.approve).toEqual(["refund"])
     expect(store.match("tool", "refund")).toBe("unknown")
-    // Outside a run that can pause, the same gate refuses: in a run, it asks.
-    const gate = await gateToolOp(store, "refund", '{"amount":500}', { interruptCapable: false })
-    expect(gate.allowed).toBe(false)
-    expect(gate.allowed === false && gate.reason).toContain("requires approval")
-    expect(stateOf("bash", "permission")).toBe("passed")
+
+    // In a real LangGraph run, the gate pauses with a permission-request interrupt.
+    const refund = pausable(() => gateToolOp(store, "refund", '{"amount":500}'))
+    const refundPause = await refund.start()
+    expect(refundPause).toMatchObject({ type: "permission-request", kind: "tool" })
+    expect(await refund.resume("once")).toBe('{"allowed":true}')
+    const refundDenied = pausable(() => gateToolOp(store, "refund", '{"amount":500}'))
+    await refundDenied.start()
+    expect(await refundDenied.resume("deny")).toContain("Permission denied by user: tool refund")
+
+    const { runBash, exec } = await sandboxedRunBash(store)
+    const bash = pausable(() => runBash.run({ command: BASH_COMMAND }, context()))
+    expect(await bash.start()).toMatchObject({
+      type: "permission-request",
+      kind: "command",
+      detail: { command: BASH_COMMAND },
+    })
+    // Nothing reached the sandbox while the run waited.
+    expect(exec).toEqual([])
+
+    expect(stateOf("bash", "permission")).toBe("waiting")
     expect(stateOf("refund", "permission")).toBe("waiting")
     expect(stateOf("refund-once", "permission")).toBe("passed")
     expect(stateOf("refund-deny", "permission")).toBe("stopped")
-  })
+  }, 60_000)
 
-  it("sandbox: this config closes egress, and Docker runs the sandbox with no network", async () => {
+  it("runBash, allowed once: the command runs in the sandbox Docker started with no network", async () => {
     expect(appConfig.sandbox?.network).toEqual({ mode: "deny" })
-    const runs: string[][] = []
-    const provider = dockerSandbox({
-      scope: "my-agent",
-      image: "node:24-slim",
-      docker: {
-        run: async (args) => {
-          runs.push([...args])
-          return { stdout: args[0] === "ps" ? "" : "ok", stderr: "", exitCode: 0 }
-        },
-        exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
-      },
-    })
-    const network = appConfig.sandbox?.network
-    if (!network) throw new Error("The fixture sets a network policy")
-    await provider.acquire({
-      threadId: "thread-1",
-      policy: { network },
-      signal: new AbortController().signal,
-    })
-    expect(runs.find((args) => args[0] === "run")?.join(" ")).toContain("--network none")
-    expect(stateOf("bash", "sandbox")).toBe("contained")
-  })
+    const store = permissionsStore()
+    const { runBash, exec, runs } = await sandboxedRunBash(store)
+    const bash = pausable(() => runBash.run({ command: BASH_COMMAND }, context()))
+    await bash.start()
+    await bash.resume("once")
+    const started = runs.find((args) => args[0] === "run") ?? []
+    expect(started.join(" ")).toContain("--network none")
+    const container = started[started.indexOf("--name") + 1]
+    expect(exec).toHaveLength(1)
+    expect(exec[0]?.container).toBe(container)
+    expect(exec[0]?.command.join(" ")).toContain(BASH_COMMAND)
+    // Allowed once: nothing is saved, so the next call asks again.
+    expect(store.match("bash", BASH_COMMAND)).toBe("unknown")
+    expect(stateOf("bash-once", "permission")).toBe("passed")
+    expect(stateOf("bash-once", "sandbox")).toBe("contained")
+  }, 60_000)
+
+  it("runBash, denied: the tool fails with the reason, and nothing reaches the sandbox", async () => {
+    const { runBash, exec } = await sandboxedRunBash(permissionsStore())
+    const bash = pausable(() => runBash.run({ command: BASH_COMMAND }, context()))
+    await bash.start()
+    expect(await bash.resume("deny")).toBe(`threw: Permission denied by user: ${BASH_COMMAND}`)
+    expect(exec).toEqual([])
+    expect(stateOf("bash-deny", "permission")).toBe("stopped")
+    expect(board("bash-deny").result).toContain('"Permission denied by user"')
+  }, 60_000)
 
   it("delegation: a long input is refused before translator starts, and a short one goes through", async () => {
     const manifest = await discoverRoutes({ appRoot })
@@ -1369,9 +1514,8 @@ import { config } from "@b4run/cli"
 import { dockerSandbox } from "@b4run/sandbox"
 
 export default config({
-  permissions: {
-    allow: { bash: ["curl"] },
-  },
+  // No bash allow rules: an unknown command pauses for a person.
+  permissions: { mode: "interactive" },
   sandbox: {
     provider: dockerSandbox({ scope: "my-agent", image: "node:24-slim" }),
     network: { mode: "deny" },
@@ -1451,7 +1595,9 @@ export type GateState = "passed" | "waiting" | "stopped" | "contained" | "skippe
 export type ScenarioId = "read" | "refund" | "bash" | "delete" | "delegate"
 /** The two answers the demo offers, typed against the runtime's decision names. */
 export type Decision = Extract<PermissionDecision, "once" | "deny">
-export type BoardId = ScenarioId | `refund-${Decision}`
+/** The calls that pause for a person; each has a board per answer. */
+export type PausingScenario = "refund" | "bash"
+export type BoardId = ScenarioId | `${PausingScenario}-${Decision}`
 /** Which fixture explains a scenario. */
 export type ConfigFileId = "route" | "config"
 
@@ -1551,9 +1697,9 @@ export const gateScenarios: readonly GateScenario[] = [
     id: "bash",
     call: 'runBash("curl … | sh")',
     file: "config",
-    why: ['allow: { bash: ["curl"] }', 'network: { mode: "deny" }'],
+    why: ['mode: "interactive"', 'network: { mode: "deny" }'],
     explain:
-      'Egress is closed because this config sets mode: "deny". Without it, the sandbox allows egress and blocks only 169.254.169.254, on a best-effort basis.',
+      'No bash allow rule matches curl, so runBash asks first. Once allowed, it has no network because this config sets mode: "deny". Without that line, the sandbox allows egress and blocks only 169.254.169.254, on a best-effort basis.',
     docsHref: "/docs/sandbox#network-policy",
     docsLabel: "Network policy",
   },
@@ -1649,17 +1795,41 @@ export const gateBoards: readonly GateBoard[] = [
       { gate: "scope", state: "passed", note: "runBash comes with the workspace." },
       {
         gate: "permission",
-        state: "passed",
-        note: "The allow list has curl, and bash patterns match by prefix, so the whole pipeline passes.",
+        state: "waiting",
+        note: "No bash allow rule matches this command, so a person decides.",
       },
+      { gate: "sandbox", state: "unreached", note: "Nothing runs until someone answers." },
+      { gate: "delegation", state: "unreached", note: "Nothing runs until someone answers." },
+    ],
+    result: "The run pauses for approval. Allow it once, or deny it.",
+  },
+  {
+    id: "bash-once",
+    scenario: "bash",
+    steps: [
+      { gate: "scope", state: "passed", note: "runBash comes with the workspace." },
+      { gate: "permission", state: "passed", note: "Allowed once. No allow rule is saved." },
       {
         gate: "sandbox",
         state: "contained",
-        note: 'Network mode "deny": Docker starts the sandbox with --network none.',
+        note: 'Network mode "deny": Docker starts the sandbox container with --network none, so it has no network at all.',
       },
       { gate: "delegation", state: "skipped", note: onlyTask },
     ],
-    result: "The command runs with no network, so the download fails.",
+    result:
+      "The command runs inside the sandbox, where curl can't reach example.com, so the download fails.",
+  },
+  {
+    id: "bash-deny",
+    scenario: "bash",
+    steps: [
+      { gate: "scope", state: "passed", note: "runBash comes with the workspace." },
+      { gate: "permission", state: "stopped", note: "Denied. No rule is saved." },
+      { gate: "sandbox", state: "unreached", note: "The command never runs." },
+      { gate: "delegation", state: "unreached", note: "The command never runs." },
+    ],
+    result:
+      'runBash fails with "Permission denied by user", and the model reads that as the tool\'s error.',
   },
   {
     id: "delete",
@@ -1706,8 +1876,12 @@ export function linesContaining(text: string, why: readonly string[]): readonly 
     .flatMap((line, index) => (why.some((part) => line.includes(part)) ? [index] : []))
 }
 
+/** Whether a call pauses at the permission check for a person to answer. */
+export const pausesFor = (scenario: ScenarioId): scenario is PausingScenario =>
+  scenario === "refund" || scenario === "bash"
+
 export const boardFor = (scenario: ScenarioId, decision: Decision | null): BoardId =>
-  scenario === "refund" && decision !== null ? `refund-${decision}` : scenario
+  pausesFor(scenario) && decision !== null ? `${scenario}-${decision}` : scenario
 
 /** What the live region says for a board: the checks that acted, then the result. */
 export function describeBoard(board: GateBoard): string {
@@ -1738,7 +1912,7 @@ Expected content:
 ```json
 {
   "route": "import { agent, type DelegationConstraintPredicate } from \"@b4run/sdk\"\nimport translator from \"./subagents/translator/index.js\"\n\n// The translator gets one reply at a time, never a whole thread.\nconst oneReply: DelegationConstraintPredicate = ({ input }) =>\n  input.length <= 2_000 || \"Send the translator one reply at a time.\"\n\nexport default agent({\n  model: \"gpt-5-mini\",\n  systemPrompt: \"You answer support questions. Refund an order only when the policy allows it.\",\n  tools: {\n    approve: [\"refund\"],\n    deny: [\"deleteUser\"],\n  },\n  subagents: { translator },\n  delegation: {\n    rules: { translator: { action: \"constrain\", predicate: oneReply } },\n  },\n})\n",
-  "config": "import { config } from \"@b4run/cli\"\nimport { dockerSandbox } from \"@b4run/sandbox\"\n\nexport default config({\n  permissions: {\n    allow: { bash: [\"curl\"] },\n  },\n  sandbox: {\n    provider: dockerSandbox({ scope: \"my-agent\", image: \"node:24-slim\" }),\n    network: { mode: \"deny\" },\n  },\n})\n"
+  "config": "import { config } from \"@b4run/cli\"\nimport { dockerSandbox } from \"@b4run/sandbox\"\n\nexport default config({\n  // No bash allow rules: an unknown command pauses for a person.\n  permissions: { mode: \"interactive\" },\n  sandbox: {\n    provider: dockerSandbox({ scope: \"my-agent\", image: \"node:24-slim\" }),\n    network: { mode: \"deny\" },\n  },\n})\n"
 }
 ```
 
@@ -1755,20 +1929,29 @@ export const gateSources: Readonly<Record<ConfigFileId, string>> = sources
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `pnpm --dir apps/web exec vitest --run --config vitest.config.ts app/components/homepage/gates/gate-scenarios.test.ts`
-Expected: PASS (10 tests).
+Expected: PASS (11 tests).
 
 Run: `pnpm --dir apps/web typecheck`
 Expected: exit 0. That covers the fixtures and the `Decision` type against `PermissionDecision`.
 
-- [ ] **Step 6: Mutation check: the sandbox test binds to the fixture**
+- [ ] **Step 6: Mutation checks: the permission and sandbox tests bind to the fixture**
 
 ```bash
+# An allow rule for curl must break the pause.
+sed -i '' 's/permissions: { mode: "interactive" },/permissions: { mode: "interactive", allow: { bash: ["curl"] } },/' apps/web/app/components/homepage/gates/fixtures/b4.config.ts
+pnpm --dir apps/web exec vitest --run --config vitest.config.ts app/components/homepage/gates/gate-scenarios.test.ts
+# expected: 4 failed: the snapshot pin, "permission: with no allow rule…", "runBash, allowed once…", "runBash, denied…"
+sed -i '' 's/permissions: { mode: "interactive", allow: { bash: \["curl"\] } },/permissions: { mode: "interactive" },/' apps/web/app/components/homepage/gates/fixtures/b4.config.ts
+
+# Allow-mode networking must break the containment claim.
 sed -i '' 's/network: { mode: "deny" }/network: { mode: "allow" }/' apps/web/app/components/homepage/gates/fixtures/b4.config.ts
 pnpm --dir apps/web exec vitest --run --config vitest.config.ts app/components/homepage/gates/gate-scenarios.test.ts
-# expected: 2 failed: "shows each fixture exactly as it is on disk" and "sandbox: this config closes egress…"
+# expected: 2 failed: the snapshot pin and "runBash, allowed once: … no network"
 sed -i '' 's/network: { mode: "allow" }/network: { mode: "deny" }/' apps/web/app/components/homepage/gates/fixtures/b4.config.ts
+
 pnpm --dir apps/web exec vitest --run --config vitest.config.ts app/components/homepage/gates/gate-scenarios.test.ts
-# expected: 10 passed
+# expected: 11 passed
+git status --short apps/web/app/components/homepage/gates/fixtures   # only untracked (??) files; the test writes nothing there
 ```
 
 - [ ] **Step 7: Commit**
@@ -1795,7 +1978,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - **Rapid picks.** Each pick kills the previous timeline and clears its inline styles.
 - **One announcement per action, none on mount.**
 - **Focus.**
-  - Clicking **refund** moves focus to **Allow once**. Arrowing onto it doesn't (Risk 5).
+  - Clicking **refund** or **runBash** moves focus to **Allow once**. Arrowing onto either doesn't (Risk 5).
+  - Both answers work on both calls, and runBash's allowed board shows the sandbox containing it.
   - A decision moves focus to **Ask again**, and **Ask again** returns focus to **Allow once**.
 - **Inert variants.** Every board, file and caption that isn't showing is `aria-hidden` and `inert`.
 - **Reduced motion.** Nothing tweens, and no inline styles are left.
@@ -1931,19 +2115,21 @@ it("traces a call at once: states, config, marks and one announcement", async ()
   expect(view.live()).toBe("")
   expect(view.hiddenAreInert()).toBe(true)
 
-  await view.pick("bash")
-  expect(view.board()).toBe("bash")
+  await view.pick("delegate")
+  expect(view.board()).toBe("delegate")
   expect(view.states()).toEqual([
-    "scope:passed",
-    "permission:passed",
-    "sandbox:contained",
-    "delegation:skipped",
+    "scope:skipped",
+    "permission:skipped",
+    "sandbox:skipped",
+    "delegation:stopped",
   ])
-  expect(view.file()).toBe("config")
-  expect(view.marked()).toEqual(['allow: { bash: ["curl"] },', 'network: { mode: "deny" },'])
-  expect(view.live()).toBe(say("bash"))
+  expect(view.file()).toBe("route")
+  expect(view.marked()).toEqual([
+    'input.length <= 2_000 || "Send the translator one reply at a time."',
+    'rules: { translator: { action: "constrain", predicate: oneReply } },',
+  ])
   expect(view.live()).toBe(
-    'runBash("curl … | sh"): Tool scope passed, Permission passed, Sandbox contained. The command runs with no network, so the download fails.',
+    'task({ subagent: "translator", … }): Delegation stopped. task returns "[B4_E3002] Send the translator one reply at a time." translator never starts.',
   )
   expect(view.hiddenAreInert()).toBe(true)
 
@@ -1957,6 +2143,8 @@ it("traces a call at once: states, config, marks and one announcement", async ()
   expect(view.file()).toBe("route")
   expect(view.marked()).toEqual(['deny: ["deleteUser"],'])
   expect(view.live()).toBe(say("delete"))
+  // Neither call pauses, so nothing moves focus to a button.
+  expect(document.activeElement?.tagName).not.toBe("BUTTON")
   // Reduced motion: final state, nothing moving, no inline styles left.
   expect(view.moving()).toEqual([])
   expect(view.styled()).toBe(0)
@@ -1998,28 +2186,93 @@ it("pauses refund for a person, moves focus to the answer, and announces the out
   expect(view.focused()).toBe("Ask again")
 })
 
-it("leaves focus in the radio group when the visitor arrows onto refund", async () => {
+it("pauses runBash too: allowed once it is contained by the sandbox, denied it never runs", async () => {
+  const view = await mount(true)
+  await view.pick("bash")
+  expect(view.board()).toBe("bash")
+  expect(view.states()).toEqual([
+    "scope:passed",
+    "permission:waiting",
+    "sandbox:unreached",
+    "delegation:unreached",
+  ])
+  expect(view.file()).toBe("config")
+  expect(view.marked()).toEqual([
+    'permissions: { mode: "interactive" },',
+    'network: { mode: "deny" },',
+  ])
+  expect(view.focused()).toBe("Allow once")
+  expect(view.live()).toBe(
+    'runBash("curl … | sh"): Tool scope passed, Permission waiting for approval. The run pauses for approval. Allow it once, or deny it.',
+  )
+
+  await view.press('[data-decision="once"]')
+  expect(view.board()).toBe("bash-once")
+  expect(view.states()).toEqual([
+    "scope:passed",
+    "permission:passed",
+    "sandbox:contained",
+    "delegation:skipped",
+  ])
+  expect(view.live()).toBe(
+    'runBash("curl … | sh"): Tool scope passed, Permission passed, Sandbox contained. The command runs inside the sandbox, where curl can\'t reach example.com, so the download fails.',
+  )
+  expect(view.focused()).toBe("Ask again")
+  expect(view.radio("bash").checked).toBe(true)
+
+  await view.press('[data-action="again"]')
+  expect(view.board()).toBe("bash")
+  expect(view.focused()).toBe("Allow once")
+  await view.press('[data-decision="deny"]')
+  expect(view.board()).toBe("bash-deny")
+  expect(view.states()).toEqual([
+    "scope:passed",
+    "permission:stopped",
+    "sandbox:unreached",
+    "delegation:unreached",
+  ])
+  expect(view.live()).toBe(say("bash-deny"))
+  expect(view.focused()).toBe("Ask again")
+})
+
+it("leaves focus in the radio group when the visitor arrows onto a call that pauses", async () => {
   const view = await mount(true)
   view.radio("read").focus()
   await view.arrowTo("refund")
   expect(view.board()).toBe("refund")
   expect(view.live()).toBe(say("refund"))
   expect(document.activeElement).toBe(view.radio("refund"))
+  await view.arrowTo("bash")
+  expect(view.board()).toBe("bash")
+  expect(view.live()).toBe(say("bash"))
+  expect(document.activeElement).toBe(view.radio("bash"))
 })
 
-it("with motion on, a second quick pick kills the first trace and the state is already final", async () => {
+it("with motion on, a quick pick or answer kills the running trace and the state is already final", async () => {
   const view = await mount(false)
   await view.pick("bash")
   expect(view.moving().length).toBeGreaterThan(0)
+  // Answer before the pause has finished tracing.
+  await view.press('[data-decision="once"]')
+  expect(view.board()).toBe("bash-once")
+  expect(view.live()).toBe(say("bash-once"))
   await view.pick("delegate")
   await view.pick("delete")
-  // Final semantic state straight away, from one announcement per pick.
+  // Final semantic state straight away, from one announcement per action.
   expect(view.board()).toBe("delete")
   expect(view.live()).toBe(say("delete"))
   // Only the delete board is moving; the killed traces left no inline styles.
-  const bash = [...view.container.querySelectorAll('[data-board="bash"] [data-gate]')]
-  expect(bash.flatMap((node) => gsap.getTweensOf(node))).toEqual([])
-  expect(bash.every((node) => (node as HTMLElement).style.opacity === "")).toBe(true)
+  for (const id of ["bash", "bash-once", "delegate"]) {
+    const gates = [...view.container.querySelectorAll(`[data-board="${id}"] [data-gate]`)]
+    expect(
+      gates.flatMap((node) => gsap.getTweensOf(node)),
+      id,
+    ).toEqual([])
+    expect(
+      gates.every((node) => (node as HTMLElement).style.opacity === ""),
+      id,
+    ).toBe(true)
+  }
   const deleteGates = [...view.container.querySelectorAll('[data-board="delete"] [data-gate]')]
   expect(deleteGates.flatMap((node) => gsap.getTweensOf(node)).length).toBe(4)
 })
@@ -2097,6 +2350,7 @@ import {
   GATES,
   gateBoards,
   gateScenarios,
+  pausesFor,
   type ScenarioId,
   STATE_GLYPH,
   STATE_LABEL,
@@ -2197,7 +2451,7 @@ export function GateTracer({ files, whyLines }: GatesData) {
     if (focusTarget === null) return
     const selector =
       focusTarget === "decision"
-        ? '[data-board="refund"] [data-decision="once"]'
+        ? `[data-board="${active}"] [data-decision="once"]`
         : `[data-board="${active}"] [data-action="again"]`
     rootRef.current?.querySelector<HTMLButtonElement>(selector)?.focus()
     setFocusTarget(null)
@@ -2215,7 +2469,7 @@ export function GateTracer({ files, whyLines }: GatesData) {
   function pick(next: ScenarioId) {
     const viaArrow = arrowRef.current
     arrowRef.current = false
-    show(next, null, next === "refund" && !viaArrow ? "decision" : null)
+    show(next, null, pausesFor(next) && !viaArrow ? "decision" : null)
   }
 
   function trackArrows(event: KeyboardEvent) {
@@ -2276,30 +2530,30 @@ export function GateTracer({ files, whyLines }: GatesData) {
               <p className={styles.result} data-result="">
                 {board.result}
               </p>
-              {board.id === "refund" && (
+              {pausesFor(board.scenario) && board.id === board.scenario && (
                 <div className={styles.actions}>
                   <button
                     type="button"
                     data-decision="once"
-                    onClick={() => show("refund", "once", "again")}
+                    onClick={() => show(board.scenario, "once", "again")}
                   >
                     Allow once
                   </button>
                   <button
                     type="button"
                     data-decision="deny"
-                    onClick={() => show("refund", "deny", "again")}
+                    onClick={() => show(board.scenario, "deny", "again")}
                   >
                     Deny
                   </button>
                 </div>
               )}
-              {board.scenario === "refund" && board.id !== "refund" && (
+              {pausesFor(board.scenario) && board.id !== board.scenario && (
                 <div className={styles.actions}>
                   <button
                     type="button"
                     data-action="again"
-                    onClick={() => show("refund", null, "decision")}
+                    onClick={() => show(board.scenario, null, "decision")}
                   >
                     Ask again
                   </button>
@@ -2678,14 +2932,14 @@ export function Guardrails(data: GatesData) {
 - [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `pnpm --dir apps/web exec vitest --run --config vitest.config.ts app/components/homepage/gates`
-Expected: PASS (2 files, 15 tests).
+Expected: PASS (2 files, 17 tests).
 
 - [ ] **Step 7: Mutation check: the arrow-key guard is tested**
 
-In `GateTracer.tsx`, replace `next === "refund" && !viaArrow ? "decision" : null` with `next === "refund" ? "decision" : null`.
+In `GateTracer.tsx`, replace `pausesFor(next) && !viaArrow ? "decision" : null` with `pausesFor(next) ? "decision" : null`.
 Run: `pnpm --dir apps/web exec vitest --run --config vitest.config.ts app/components/homepage/gates/GateTracer.test.tsx`
-Expected: 1 failed, "leaves focus in the radio group when the visitor arrows onto refund".
-Restore the line, rerun, and expect 5 passed.
+Expected: 1 failed, "leaves focus in the radio group when the visitor arrows onto a call that pauses".
+Restore the line, rerun, and expect 6 passed.
 
 - [ ] **Step 8: Commit**
 
@@ -2849,7 +3103,7 @@ Expected: exit 0.
 - [ ] **Step 3: The full web suite**
 
 Run: `pnpm --dir apps/web test`
-Expected: every file passes: 59 files and 910 tests passed, with 1 skipped, when this plan was verified. Don't pipe it through `tail`, because that hides the exit code.
+Expected: every file passes: 59 files and 912 tests passed, with 1 skipped, when this plan was verified. Don't pipe it through `tail`, because that hides the exit code.
 
 - [ ] **Step 4: The docs check and the build-cache check**
 
@@ -2894,10 +3148,10 @@ Create `<scratchpad>/verify-pr2.mjs`. It relies on `data-*` hooks and `input[val
 The script checks each of these at 375, 768, 1024 and 1440 px, with motion on and reduced:
 - no horizontal scroll
 - the smallest visible target in both sections
-- no layout shift below either demo across every call, the refund decision, and every shape
-- keyboard-only operation of both demos
+- no layout shift below either demo across every call, both answers on both pausing calls, and every shape
+- keyboard-only operation of both demos, including runBash's full path (Space, Allow once, Ask again, Tab, Deny)
 - focus after a click on refund
-- rapid clicks on the tracer
+- rapid clicks on the tracer: pick runBash, answer it before its trace ends, then pick two more calls
 - axe
 - screenshots
 
@@ -2955,10 +3209,15 @@ for (const [width, height] of [
       const now = await layout(page)
       shifts.push(now.shapesTop - before.shapesTop)
     }
-    await page.locator('#guardrails input[value="refund"]').check()
-    await page.locator('#guardrails [data-board="refund"] [data-decision="once"]').click()
-    shifts.push((await layout(page)).shapesTop - before.shapesTop)
-    await page.locator('#guardrails [data-board="refund-once"] [data-action="again"]').click()
+    // Both answers on both calls that pause.
+    for (const call of ["refund", "bash"]) {
+      for (const answer of ["once", "deny"]) {
+        await page.locator(`#guardrails input[value="${call}"]`).check()
+        await page.locator(`#guardrails [data-board="${call}"] [data-decision="${answer}"]`).click()
+        shifts.push((await layout(page)).shapesTop - before.shapesTop)
+        await page.locator(`#guardrails [data-board="${call}-${answer}"] [data-action="again"]`).click()
+      }
+    }
     await page.locator('#guardrails input[value="read"]').check()
     for (const id of ["workflow", "graph", "chain", "agent"]) {
       await page.locator(`#route-shapes input[value="${id}"]`).check()
@@ -2995,6 +3254,33 @@ for (const [width, height] of [
     await page.waitForTimeout(100)
     facts.clickRefundFocus = await page.evaluate(() => document.activeElement?.textContent)
 
+    // runBash by keyboard, both answers: Space picks it and focus moves to
+    // Allow once; Enter allows; Enter on Ask again asks again; Tab, Enter denies.
+    const tracerState = () =>
+      page.evaluate(() => ({
+        focused: document.activeElement?.textContent,
+        board: document
+          .querySelector('#guardrails [data-board][data-active="true"]')
+          ?.getAttribute("data-board"),
+        live: document.querySelector('#guardrails [aria-live="polite"]')?.textContent,
+      }))
+    await page.locator('#guardrails input[value="read"]').check()
+    await page.locator('#guardrails input[value="bash"]').focus()
+    await page.keyboard.press("Space")
+    await page.waitForTimeout(100)
+    const bashPaused = await tracerState()
+    await page.keyboard.press("Enter")
+    await page.waitForTimeout(100)
+    const bashOnce = await tracerState()
+    await page.keyboard.press("Enter")
+    await page.waitForTimeout(100)
+    const bashAgain = await tracerState()
+    await page.keyboard.press("Tab")
+    await page.keyboard.press("Enter")
+    await page.waitForTimeout(100)
+    const bashDeny = await tracerState()
+    facts.bashKeyboard = { bashPaused, bashOnce, bashAgain, bashDeny }
+
     // Rapid clicks: final state at once, one announcement per pick, no leftovers.
     await page.locator('#guardrails input[value="read"]').check()
     await page.waitForTimeout(1200)
@@ -3007,7 +3293,10 @@ for (const [width, height] of [
         subtree: true,
       })
     })
-    for (const id of ["bash", "delegate", "delete"]) {
+    // Pick runBash, answer before its trace ends, then pick two more calls.
+    await page.locator('#guardrails label:has(input[value="bash"])').click({ delay: 0 })
+    await page.locator('#guardrails [data-board="bash"] [data-decision="once"]').click({ delay: 0 })
+    for (const id of ["delegate", "delete"]) {
       await page.locator(`#guardrails label:has(input[value="${id}"])`).click({ delay: 0 })
     }
     const immediate = await page.evaluate(() =>
@@ -3070,6 +3359,8 @@ for (const x of require(process.argv[2]))
     JSON.stringify(x.tracerKeyboard),
     "\n  click",
     x.clickRefundFocus,
+    "\n  bash",
+    JSON.stringify(x.bashKeyboard),
     "\n  rapid",
     JSON.stringify(x.rapid),
     "\n  shapes",
@@ -3095,7 +3386,11 @@ Expected on **all 8 rows** (this is what the verification run printed):
 | `tracer.tabbed` | `"Allow once"` |
 | `tracer.answered` | `focused: "Ask again"`, `board: "refund-once"`, `live` = `refund({ amount: 500 }): Tool scope passed, Permission passed. refund runs. The next refund asks again.` |
 | `click` | `Allow once` |
-| `rapid` | `immediateBoard: "delete"` and `board: "delete"`; `announcements` is exactly three entries (bash, delegate, delete), one per click and none from a timeline; `leftovers: 0` |
+| `bash.bashPaused` | `focused: "Allow once"`, `board: "bash"`, `live` = `runBash("curl … \| sh"): Tool scope passed, Permission waiting for approval. The run pauses for approval. Allow it once, or deny it.` |
+| `bash.bashOnce` | `focused: "Ask again"`, `board: "bash-once"`, `live` = `runBash("curl … \| sh"): Tool scope passed, Permission passed, Sandbox contained. The command runs inside the sandbox, where curl can't reach example.com, so the download fails.` |
+| `bash.bashAgain` | `focused: "Allow once"`, `board: "bash"` |
+| `bash.bashDeny` | `focused: "Ask again"`, `board: "bash-deny"`, `live` = `runBash("curl … \| sh"): Tool scope passed, Permission stopped. runBash fails with "Permission denied by user", and the model reads that as the tool's error.` |
+| `rapid` | `immediateBoard: "delete"` and `board: "delete"`; `announcements` is exactly four entries (bash paused, bash allowed once, delegate, delete), one per action and none from a timeline; `leftovers: 0` |
 | `shapes` | `focused: "graph"`, `visible: "graph"`, `live` = `Showing src/app/hello/index.ts as a graph. Raw LangGraph, with your own state, nodes and edges.` |
 | `axe` | `[]` |
 
@@ -3104,9 +3399,9 @@ Expected on **all 8 rows** (this is what the verification run printed):
 Open each `guardrails-*.png` and `shapes-*.png` with the Read tool, and check:
 
 - **Tracer at 1024 and 1440:** the four gates sit in one row.
-  - `passed` and `contained` show green pills, with the `✓` and `▣` glyphs.
-  - "not involved" gates are dashed.
-  - The config panel marks `allow: { bash: ["curl"] },` and `network: { mode: "deny" },` with `›` and the tint.
+  - The screenshot is of the runBash board, paused. `passed` shows a green pill with `✓`, and `waiting for approval` a warn pill with `‖`. **Allow once** and **Deny** sit under the result.
+  - "not reached" gates are dashed.
+  - The config panel marks `permissions: { mode: "interactive" },` and `network: { mode: "deny" },` with `›` and the tint.
 - **Tracer at 768:** 2 × 2 gates. **At 375:** one column, and the calls wrap one per row.
 - **Wrapped code lines at 375** stay right of the gutter.
 - **Shapes:** a single segmented row; the code panel and the strip read `export const graph = new StateGraph(…).compile()`, then the sentence and **Graphs →**.
@@ -3161,12 +3456,12 @@ Expected: exit 0 for all four. Don't add `seo:lastmod:check`: it's red on the ba
 |---|---|
 | Section `#guardrails`, four gates in a row with text states and ok/warn/danger tints | Task 5 (`GateTracer`, `gates.module.css`); Task 4 contrast test; heading changed, see Deviations |
 | Call buttons (fixed to native radios in a fieldset) | Tasks 3 and 5; Deviations |
-| Refund: pauses at permission; **Allow once** (`once`) and **Deny** (`deny`); the model is told on deny | Task 4 (`gateToolOp`, `Decision` typed from `PermissionDecision`); Task 5 focus tests |
-| curl: passes scope and permission, contained by the sandbox; "because this config sets `mode: "deny"`"; the default is allow plus a metadata denylist | Task 4 (`store.match`, recording `dockerSandbox`); the scenario's `explain` copy |
+| Refund: pauses at permission; **Allow once** (`once`) and **Deny** (`deny`); the model is told on deny | Task 4 (`gateToolOp` paused and resumed in a real graph, `Decision` typed from `PermissionDecision`); Task 5 focus tests |
+| curl: pauses at permission (Brian's decision); Allow once is contained by the sandbox "because this config sets `mode: "deny"`"; Deny stops it and the model is told; the default is allow plus a metadata denylist | Task 4 (real-graph interrupt and resume through the route's `runBash`, recording `dockerSandbox`); Task 5 (both answers, focus); the scenario's `explain` copy |
 | deleteUser: stops at scope; "the model never sees it" | Task 4 (`resolveToolScope`) |
 | Delegation copy linked to `/docs/subagents#delegation-policy` | Task 4 (the delegate scenario, `resolveGuardedSubagent`) |
 | The config panel shows why | Task 5 (marked lines, `explain`); Task 4 (`why` text on real lines) |
-| Tracer motion: 180ms per gate, a new pick kills the timeline, reduced motion shows the final state | Task 5 tests; Task 8 `rapid` |
+| Tracer motion: 180ms per gate, a new pick or answer kills the timeline, reduced motion shows the final state | Task 5 tests; Task 8 `rapid` |
 | Section `#route-shapes`: `agent · workflow · graph · chain` segmented radio group | Task 3 |
 | Four real, typechecked fixtures with the four exports | Task 2 (typecheck mutation, `discoverRoutes`, runs) |
 | `@langchain/*` types reachable from `apps/web`, pinned | Task 1 (versions from `@b4run/cli` and `@b4run/langchain`; spec assumption corrected) |
