@@ -1,16 +1,19 @@
 import { readFileSync } from "node:fs"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { resolveSandboxManager } from "@b4run/cli/runtime"
 import {
   createWorkspaceMarker,
-  gateToolOp,
   resolveGuardedSubagent,
   resolveSubagentRegistry,
   resolveToolScope,
+  wrapToolWithApproval,
 } from "@b4run/core"
 import { discoverRoutes, extractToolSchemasForRoute, nodeMarkerFs } from "@b4run/core/node"
 import { createPermissionsStore } from "@b4run/permissions/node"
-import { dockerSandbox } from "@b4run/sandbox"
+import { type DockerSandboxOptions, dockerSandbox } from "@b4run/sandbox"
 import {
   Annotation,
   Command,
@@ -20,13 +23,14 @@ import {
   START,
   StateGraph,
 } from "@langchain/langgraph"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { contrast } from "../../../../lib/design-system-checks"
 import { COLOR, SHIKI_FOREGROUNDS } from "../../../../lib/design-tokens"
 import { DOCS_INDEX } from "../../docs/search-index"
 import appConfig from "./fixtures/b4.config"
 import support from "./fixtures/src/app/support/index"
 import translator from "./fixtures/src/app/support/subagents/translator/index"
+import refund from "./fixtures/src/app/support/tools/refund"
 import {
   BASH_COMMAND,
   type BoardId,
@@ -37,9 +41,27 @@ import {
   gateBoards,
   gateScenarios,
   linesContaining,
+  type ScenarioId,
   TASK_INPUT_LENGTH,
 } from "./gate-scenarios"
 import { gateSources } from "./gate-sources"
+
+/**
+ * The fixture config builds its provider with `dockerSandbox({ scope, image })`.
+ * The real function runs; this only records the options it was given, so the
+ * tests start their recording sandboxes with exactly the fixture's options.
+ */
+const fixtureDocker = vi.hoisted(() => [] as DockerSandboxOptions[])
+vi.mock("@b4run/sandbox", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@b4run/sandbox")>()
+  return {
+    ...actual,
+    dockerSandbox: (options: DockerSandboxOptions) => {
+      fixtureDocker.push(options)
+      return actual.dockerSandbox(options)
+    },
+  }
+})
 
 const repoRoot = fileURLToPath(new URL("../../../../../../", import.meta.url))
 const appRoot = resolve(repoRoot, FIXTURES_APP)
@@ -47,6 +69,11 @@ const supportDir = join(appRoot, "src/app/support")
 const board = (id: BoardId) => {
   const found = gateBoards.find((candidate) => candidate.id === id)
   if (!found) throw new Error(`No board ${id}`)
+  return found
+}
+const scenarioOf = (id: ScenarioId) => {
+  const found = gateScenarios.find((candidate) => candidate.id === id)
+  if (!found) throw new Error(`No scenario ${id}`)
   return found
 }
 const stateOf = (id: BoardId, gate: string) =>
@@ -66,16 +93,42 @@ const permissionsStore = () =>
 
 const context = () => ({ signal: new AbortController().signal })
 
+/** A tool as the runtime holds it: a name, and `run(input, context)`. */
+type RunContext = { readonly signal: AbortSignal }
+interface RuntimeToolShape {
+  readonly name: string
+  readonly run: (input: unknown, runContext: RunContext) => unknown
+}
+
+/**
+ * The fixture's refund tool as the runtime serves it under `approve`: a
+ * function default export becomes the tool's `run`, and execute-route-core
+ * wraps it with wrapToolWithApproval. `onRun` sees each call that gets through.
+ */
+const approvedRefund = (
+  store: ReturnType<typeof permissionsStore>,
+  onRun: (input: unknown) => void = () => {},
+) => {
+  const tool: RuntimeToolShape = {
+    name: "refund",
+    run: (input) => {
+      onRun(input)
+      return refund(input as Parameters<typeof refund>[0])
+    },
+  }
+  return wrapToolWithApproval<RunContext, RuntimeToolShape>(tool, store)
+}
+
 /**
  * Runs `call` as the one node of a real LangGraph graph with a checkpointer,
  * the way an agent run executes a tool: `start` returns what the run paused
  * with, and `resume` answers it and returns what the call produced.
  */
 function pausable(call: () => unknown) {
-  const graph = new StateGraph(Annotation.Root({ outcome: Annotation<string> }))
+  const graph = new StateGraph(Annotation.Root({ outcome: Annotation<unknown> }))
     .addNode("call", async () => {
       try {
-        return { outcome: JSON.stringify(await call()) }
+        return { outcome: await call() }
       } catch (error) {
         if (isGraphInterrupt(error)) throw error
         return { outcome: `threw: ${error instanceof Error ? error.message : String(error)}` }
@@ -92,36 +145,67 @@ function pausable(call: () => unknown) {
     },
     resume: async (decision: "once" | "deny") =>
       (await graph.invoke(new Command({ resume: decision }), config)).outcome,
+    /** What the call produced, for a run that finished without pausing. */
+    outcome: async () => (await graph.getState(config)).values.outcome as unknown,
   }
 }
 
+/** The options the fixture's `b4.config.ts` passed to `dockerSandbox`, taken before any test builds its own. */
+const fixtureOptions = [...fixtureDocker]
+function fixtureDockerOptions(): DockerSandboxOptions {
+  expect(appConfig.sandbox?.provider.name).toBe("docker")
+  const [options, ...rest] = fixtureOptions
+  if (!options || rest.length > 0) throw new Error("The fixture config builds one Docker sandbox")
+  return options
+}
+
+/** The contents the recording sandbox serves for any file read. */
+const NOTES = "Refunds over $1,000 need a manager.\n"
+
 /**
- * The route's real runBash, over the fixture's Docker sandbox: the workspace
- * marker gets the sandbox's backends and workspace root, as the CLI hands them
- * over when `sandbox` is configured. A recording Docker client stands in for
- * the daemon, the way @b4run/sandbox's own unit tests do.
+ * A Docker client that records every call instead of reaching a daemon, the
+ * way @b4run/sandbox's own unit tests do. Each `docker exec` answers with the
+ * started marker the backends check for. The filesystem backend's path jail
+ * runs `realpath -m <path>`, answered with the path itself (no symlinks), and
+ * `cat <path>` gets NOTES.
  */
-async function sandboxedRunBash(store: ReturnType<typeof permissionsStore>) {
+function recordingDocker() {
   const runs: string[][] = []
   const exec: { container: string; command: readonly string[] }[] = []
+  const docker: NonNullable<DockerSandboxOptions["docker"]> = {
+    run: async (args) => {
+      runs.push([...args])
+      return { stdout: args[0] === "ps" ? "" : "ok", stderr: "", exitCode: 0 }
+    },
+    exec: async (container, command) => {
+      exec.push({ container, command })
+      const script = command.join(" ")
+      const marker = /__B4_(?:EXEC|FILESYSTEM)_STARTED_[0-9a-f-]+__/u.exec(script)?.[0] ?? ""
+      const realpath = /; realpath -m '([^']*)'$/u.exec(script)?.[1]
+      const body =
+        realpath !== undefined ? `${realpath}\n` : /; cat '[^']*'$/u.test(script) ? NOTES : ""
+      return { stdout: `${marker}\n${body}`, stderr: "", exitCode: 0 }
+    },
+  }
+  /** The `docker run` that started the thread's keeper container. */
+  const keeper = () => {
+    const started = runs.filter((args) => args[0] === "run" && args.includes("--name"))
+    expect(started).toHaveLength(1)
+    return started[0] ?? []
+  }
+  return { docker, runs, exec, keeper }
+}
+
+/**
+ * The route's real workspace tools, over the fixture's Docker sandbox: the
+ * workspace marker gets the sandbox's backends and workspace root, as the CLI
+ * hands them over when `sandbox` is configured.
+ */
+async function sandboxedWorkspace(store: ReturnType<typeof permissionsStore>) {
+  const recorder = recordingDocker()
   const network = appConfig.sandbox?.network
   if (!network) throw new Error("The fixture sets a network policy")
-  const provider = dockerSandbox({
-    scope: "my-agent",
-    image: "node:24-slim",
-    docker: {
-      run: async (args) => {
-        runs.push([...args])
-        return { stdout: args[0] === "ps" ? "" : "ok", stderr: "", exitCode: 0 }
-      },
-      exec: async (container, command) => {
-        exec.push({ container, command })
-        // The exec backend checks that its started marker came back first.
-        const marker = /__B4_EXEC_STARTED_[0-9a-f-]+__/u.exec(command.join(" "))?.[0] ?? ""
-        return { stdout: `${marker}\n`, stderr: "", exitCode: 0 }
-      },
-    },
-  })
+  const provider = dockerSandbox({ ...fixtureDockerOptions(), docker: recorder.docker })
   const handle = await provider.acquire({
     threadId: "thread-1",
     policy: { network },
@@ -136,9 +220,12 @@ async function sandboxedRunBash(store: ReturnType<typeof permissionsStore>) {
     routeManifest: await discoverRoutes({ appRoot }),
     descriptor: support,
   })
-  const runBash = workspace.tools?.find((tool) => tool.name === "runBash")
-  if (!runBash) throw new Error("The workspace marker gives the route runBash")
-  return { runBash, exec, runs }
+  const tool = (name: string) => {
+    const found = workspace.tools?.find((candidate) => candidate.name === name)
+    if (!found) throw new Error(`The workspace marker gives the route ${name}`)
+    return found
+  }
+  return { runBash: tool("runBash"), readFile: tool("readFile"), ...recorder }
 }
 
 describe("the tracer shows real config", () => {
@@ -248,15 +335,13 @@ describe("each check answers as the framework does", () => {
     expect(store.match("tool", "refund")).toBe("unknown")
 
     // In a real LangGraph run, the gate pauses with a permission-request interrupt.
-    const refund = pausable(() => gateToolOp(store, "refund", '{"amount":500}'))
-    const refundPause = await refund.start()
-    expect(refundPause).toMatchObject({ type: "permission-request", kind: "tool" })
-    expect(await refund.resume("once")).toBe('{"allowed":true}')
-    const refundDenied = pausable(() => gateToolOp(store, "refund", '{"amount":500}'))
-    await refundDenied.start()
-    expect(await refundDenied.resume("deny")).toContain("Permission denied by user: tool refund")
-
-    const { runBash, exec } = await sandboxedRunBash(store)
+    const refundCall = pausable(() => approvedRefund(store).run({ amount: 500 }, context()))
+    expect(await refundCall.start()).toMatchObject({
+      type: "permission-request",
+      kind: "tool",
+      detail: { toolName: "refund" },
+    })
+    const { runBash, exec } = await sandboxedWorkspace(store)
     const bash = pausable(() => runBash.run({ command: BASH_COMMAND }, context()))
     expect(await bash.start()).toMatchObject({
       type: "permission-request",
@@ -272,15 +357,61 @@ describe("each check answers as the framework does", () => {
     expect(stateOf("refund-deny", "permission")).toBe("stopped")
   }, 60_000)
 
+  it("refund, allowed once: the tool runs and returns its result, and nothing is saved", async () => {
+    const store = permissionsStore()
+    const call = pausable(() => approvedRefund(store).run({ amount: 500 }, context()))
+    await call.start()
+    expect(await call.resume("once")).toEqual({ refunded: 500 })
+    // Nothing is saved, so the next refund asks again.
+    expect(store.match("tool", "refund")).toBe("unknown")
+    expect(stateOf("refund-once", "permission")).toBe("passed")
+    expect(board("refund-once").result).toBe("refund runs. The next refund asks again.")
+  }, 60_000)
+
+  it("refund, denied: the model gets the coded reason as the tool result, and refund never runs", async () => {
+    const store = permissionsStore()
+    const ran: unknown[] = []
+    const tool = approvedRefund(store, (input) => ran.push(input))
+    const call = pausable(() => tool.run({ amount: 500 }, context()))
+    await call.start()
+    const reason = await call.resume("deny")
+    expect(reason).toBe("[B4_E3001] Permission denied by user: tool refund")
+    expect(ran).toEqual([])
+    expect(store.match("tool", "refund")).toBe("unknown")
+    expect(stateOf("refund-deny", "permission")).toBe("stopped")
+    expect(board("refund-deny").result).toBe(
+      `refund doesn't run. The model gets "${reason}" as the tool result and can adapt.`,
+    )
+  }, 60_000)
+
+  it("readFile: a path inside the workspace asks no one, and the read runs in the sandbox container", async () => {
+    const store = permissionsStore()
+    const { readFile, exec, keeper } = await sandboxedWorkspace(store)
+    const read = pausable(() => readFile.run({ path: "notes.md" }, context()))
+    // No permission interrupt: the call runs straight through.
+    expect(await read.start()).toBeUndefined()
+    expect(await read.outcome()).toBe(NOTES)
+    const started = keeper()
+    const container = started[started.indexOf("--name") + 1]
+    expect(exec.length).toBeGreaterThan(0)
+    expect(exec.every((call) => call.container === container)).toBe(true)
+    expect(exec.at(-1)?.command.at(-1)).toContain("cat '/workspace/notes.md'")
+    expect(stateOf("read", "scope")).toBe("passed")
+    expect(stateOf("read", "permission")).toBe("passed")
+    expect(stateOf("read", "sandbox")).toBe("contained")
+    expect(board("read").steps[2]?.note).toBe("It reads the file inside the sandbox container.")
+    expect(board("read").result).toBe("readFile runs inside the sandbox, and no one is asked.")
+  }, 60_000)
+
   it("runBash, allowed once: the command runs in the sandbox Docker started with no network", async () => {
     expect(appConfig.sandbox?.network).toEqual({ mode: "deny" })
     const store = permissionsStore()
-    const { runBash, exec, runs } = await sandboxedRunBash(store)
+    const { runBash, exec, keeper } = await sandboxedWorkspace(store)
     const bash = pausable(() => runBash.run({ command: BASH_COMMAND }, context()))
     await bash.start()
     await bash.resume("once")
-    const started = runs.find((args) => args[0] === "run") ?? []
-    expect(started.join(" ")).toContain("--network none")
+    const started = keeper()
+    expect(started[started.indexOf("--network") + 1]).toBe("none")
     const container = started[started.indexOf("--name") + 1]
     expect(exec).toHaveLength(1)
     expect(exec[0]?.container).toBe(container)
@@ -291,8 +422,51 @@ describe("each check answers as the framework does", () => {
     expect(stateOf("bash-once", "sandbox")).toBe("contained")
   }, 60_000)
 
+  it("without a network line, the CLI's default policy gives the container Docker's ordinary network", async () => {
+    // The same app with the network line removed, resolved by the CLI's own
+    // sandbox resolution: the config file hands over a recording provider.
+    const recorder = recordingDocker()
+    const docker = dockerSandbox({ ...fixtureDockerOptions(), docker: recorder.docker })
+    const policies: unknown[] = []
+    const provider: typeof docker = {
+      ...docker,
+      acquire: (request) => {
+        policies.push(request.policy)
+        return docker.acquire(request)
+      },
+    }
+    const dir = await mkdtemp(join(tmpdir(), "b4-gates-default-network-"))
+    const slot = "__b4GatesDefaultNetworkProvider"
+    Object.assign(globalThis, { [slot]: provider })
+    try {
+      await writeFile(join(dir, "package.json"), '{ "type": "module" }\n')
+      await writeFile(
+        join(dir, "b4.config.ts"),
+        `export default { sandbox: { provider: (globalThis as Record<string, unknown>).${slot} } }\n`,
+      )
+      const manager = await resolveSandboxManager(dir)
+      if (!manager) throw new Error("The config has a sandbox")
+      await manager.getForThread("thread-1", new AbortController().signal)
+    } finally {
+      Reflect.deleteProperty(globalThis, slot)
+      await rm(dir, { recursive: true, force: true })
+    }
+    // The CLI falls back to allow mode, and Docker runs allow mode as a plain bridge network.
+    expect(policies).toEqual([
+      expect.objectContaining({ network: expect.objectContaining({ mode: "allow" }) }),
+    ])
+    const started = recorder.keeper()
+    expect(started[started.indexOf("--network") + 1]).toBe("bridge")
+    // No metadata-address block reaches Docker, in the keeper's args or anywhere else.
+    expect(recorder.runs.flat().join(" ")).not.toContain("169.254")
+    expect(scenarioOf("bash").explain).toBe(
+      'No bash allow rule matches curl, so runBash asks first. Once allowed, it has no network because this config sets mode: "deny". Without that line the sandbox falls back to allow mode, and Docker gives the container ordinary network access.',
+    )
+    expect(scenarioOf("bash").explain).not.toContain("169.254")
+  }, 60_000)
+
   it("runBash, denied: the tool fails with the reason, and nothing reaches the sandbox", async () => {
-    const { runBash, exec } = await sandboxedRunBash(permissionsStore())
+    const { runBash, exec } = await sandboxedWorkspace(permissionsStore())
     const bash = pausable(() => runBash.run({ command: BASH_COMMAND }, context()))
     await bash.start()
     expect(await bash.resume("deny")).toBe(`threw: Permission denied by user: ${BASH_COMMAND}`)

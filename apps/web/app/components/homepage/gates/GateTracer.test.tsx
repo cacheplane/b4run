@@ -113,7 +113,7 @@ it("renders the section on the server with the first call traced and nothing ann
   expect(shown?.getAttribute("data-board")).toBe("read")
   expect(shown?.textContent).toContain("1 · Tool scope")
   expect(shown?.textContent).toContain("passed")
-  expect(shown?.textContent).toContain("readFile runs inside the sandbox.")
+  expect(shown?.textContent).toContain("readFile runs inside the sandbox, and no one is asked.")
   expect(container.querySelector("[style]")).toBeNull()
   expect(container.querySelector('[aria-live="polite"]')?.textContent).toBe("")
   expect(section?.querySelector('a[href="/docs/access-control#how-they-compose"]')).not.toBeNull()
