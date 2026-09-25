@@ -303,8 +303,11 @@ describe("the deploy targets are the CLI's own, built for real", () => {
     const scaffold = JSON.parse(read(`${TEMPLATE}package.json.template`)).dependencies
     for (const target of deployTargets) {
       const edge = target.id === "hono" || target.id === "vercel"
+      // The dependency sentence lives in `requires`, not `summary`, so the
+      // announcement (built from `summary` alone) stays short.
       for (const name of EDGE_PACKAGES) {
-        expect(target.summary.includes(name), `${target.id} ${name}`).toBe(edge)
+        expect((target.requires ?? "").includes(name), `${target.id} ${name}`).toBe(edge)
+        expect(target.summary.includes(name), `${target.id} summary ${name}`).toBe(false)
       }
       if (!edge) continue
       const page = read(`apps/web/content/docs${target.docsHref.split("#")[0]?.slice(5)}.mdx`)
@@ -326,6 +329,16 @@ describe("the deploy targets are the CLI's own, built for real", () => {
       "Deploy target node. The full B4 HTTP runtime as a Node server, with a Dockerfile.",
     )
     for (const target of deployTargets) expect(describeTarget(target)).not.toMatch(/wrote|\.mjs/)
+  })
+
+  it("keeps the edge targets' announcements short: no dependency sentence", () => {
+    const vercel = deployTargets.find((target) => target.id === "vercel")
+    if (!vercel) throw new Error("No vercel target")
+    expect(describeTarget(vercel)).not.toContain("@b4run/postgres-storage")
+    for (const target of deployTargets) {
+      if (!target.requires) continue
+      expect(describeTarget(target)).not.toContain(target.requires)
+    }
   })
 
   it("links to docs headings that exist", () => {

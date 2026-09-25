@@ -172,10 +172,13 @@ export function DeployTargets({
                   ))}
                 </code>
               </pre>
-              <p className={styles.note}>
-                <span>{target.summary}</span>
-                <a href={target.docsHref}>{target.docsLabel} →</a>
-              </p>
+              <div className={styles.note}>
+                <p className={styles.noteRow}>
+                  <span>{target.summary}</span>
+                  <a href={target.docsHref}>{target.docsLabel} →</a>
+                </p>
+                {target.requires ? <p className={styles.requires}>{target.requires}</p> : null}
+              </div>
             </div>
           )
         })}

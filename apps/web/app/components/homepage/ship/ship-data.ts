@@ -68,6 +68,13 @@ export interface DeployTarget {
   readonly build: BuildTargetName
   /** One sentence under the output. */
   readonly summary: string
+  /**
+   * A second sentence, shown under the summary but left out of the
+   * announcement (`describeTarget` reads only `summary`), so arrowing
+   * across the radios keeps the live region short. Only the edge targets
+   * (hono, vercel) have one, naming the dependencies the app needs.
+   */
+  readonly requires?: string
   /** Commands after `b4 build`, verbatim from the docs page. */
   readonly after: readonly string[]
   readonly docsHref: string
@@ -96,8 +103,9 @@ export const deployTargets: readonly DeployTarget[] = [
   {
     id: "hono",
     build: "hono",
-    summary:
-      "A Hono app over the web-standard runtime. It serves the edge subset of B4. The app must also depend on @b4run/postgres-storage, @neondatabase/serverless, hono and its model provider, here @langchain/openai.",
+    summary: "A Hono app over the web-standard runtime. It serves the edge subset of B4.",
+    requires:
+      "The app must also depend on @b4run/postgres-storage, @neondatabase/serverless, hono and its model provider, here @langchain/openai.",
     after: [],
     docsHref: "/docs/deployment/edge#emitted-artifacts",
     docsLabel: "Edge and Hono",
@@ -106,7 +114,9 @@ export const deployTargets: readonly DeployTarget[] = [
     id: "vercel",
     build: "vercel",
     summary:
-      "A Build Output API tree with one streaming function. It serves the edge subset of B4. The app must also depend on @b4run/postgres-storage, @neondatabase/serverless, hono and its model provider, here @langchain/openai.",
+      "A Build Output API tree with one streaming function. It serves the edge subset of B4.",
+    requires:
+      "The app must also depend on @b4run/postgres-storage, @neondatabase/serverless, hono and its model provider, here @langchain/openai.",
     after: [],
     docsHref: "/docs/deployment/vercel#emitted-artifacts",
     docsLabel: "Vercel",
