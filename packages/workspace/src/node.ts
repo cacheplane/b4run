@@ -31,6 +31,7 @@ export {
   threadSandboxRecordBytes,
   verifyImageReference,
   verifyThreadSandbox,
+  verifyThreadSandboxPermissions,
   verifyThreadSandboxPolicy,
   verifyThreadSandboxRecord,
 } from "./thread-sandbox.js"

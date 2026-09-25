@@ -109,6 +109,10 @@ export class SandboxManager {
   getWorkspace(threadId: string): AdmittedWorkspace | undefined {
     return this.#managed?.getWorkspace(threadId)
   }
+  /** A thread's own permissions and grants, when its sandbox was resolved with them. */
+  threadPermissions(threadId: string) {
+    return this.#managed?.threadPermissions(threadId)
+  }
   async reconcileDeletions(cleanup: (threadId: string) => Promise<void>): Promise<void> {
     await this.#managed?.reconcileDeletions(cleanup)
   }

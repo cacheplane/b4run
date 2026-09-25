@@ -32,6 +32,7 @@ export type {
   SandboxSecurityPolicy,
   SandboxWorkspaceReader,
   ThreadSandbox,
+  ThreadSandboxPermissions,
   ThreadSandboxPolicy,
   ThreadSandboxRecord,
   ThreadSandboxResolver,

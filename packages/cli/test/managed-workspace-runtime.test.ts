@@ -1,11 +1,14 @@
+import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { seedB4Config } from "@b4run/core"
 import { THREAD_ACCESS_METADATA_KEY } from "@b4run/sdk"
-import { openWorkspaceInstallationReader } from "@b4run/sqlite-storage"
+import { openWorkspaceInstallation, openWorkspaceInstallationReader } from "@b4run/sqlite-storage"
 import { afterEach, expect, it } from "vitest"
+import { createAimock } from "../../testing/dist/aimock-runner.js"
+import { script } from "../../testing/dist/fixture-builder.js"
 import { runBuildCommand } from "../src/commands/build.ts"
 import {
   createRuntimeFetchHandler,
@@ -485,3 +488,211 @@ it("builds a thread-sandbox app to the thread artifact and resolves per thread f
     }),
   ).rejects.toThrow(/rebuild/i)
 })
+
+it("gates each thread's filesystem calls with its own permissions", async () => {
+  const { appRoot } = await fixture()
+  await mkdir(join(appRoot, "src/app/probe/tools"), { recursive: true })
+  await writeFile(
+    join(appRoot, "src/app/probe/index.ts"),
+    "export const workflow=async (input,ctx)=>ctx.tools.probe(input)",
+  )
+  await writeFile(
+    join(appRoot, "src/app/probe/tools/probe.ts"),
+    "export default async function probe(input:{path:string},ctx){try{await ctx.fs.writeFile(input.path,'x');return {ok:true}}catch(error){return {error:error instanceof Error?error.message:String(error)}}}",
+  )
+  const physical = managedProviderFixture()
+  const config = {
+    permissions: { mode: "non-interactive" as const, allow: { writeFile: ["/everyone/"] } },
+    sandbox: {
+      provider: physical.provider,
+      thread: async (thread: { metadata: Record<string, unknown> }) => ({
+        workspace: { source: { directory: "source", include: ["main.txt"] } },
+        permissions:
+          thread.metadata.role === "writer"
+            ? { allow: { writeFile: ["/outside/"] } }
+            : { allow: {} },
+      }),
+    },
+  }
+  const handler = await createRuntimeFetchHandler({ appRoot, config })
+  handlers.push(handler)
+  const probe = async (id: string, path: string) => {
+    const response = await handler.fetch(
+      new Request(`http://localhost/threads/${id}/runs/wait`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ route: "/probe#workflow", input: { path } }),
+      }),
+    )
+    return (await response.json()) as { ok?: true; error?: string }
+  }
+  const writer = await createThread(handler, { role: "writer" })
+  const reader = await createThread(handler, { role: "reader" })
+  expect(await probe(writer, "/outside/file.txt")).toEqual({ ok: true })
+  expect((await probe(reader, "/outside/file.txt")).error).toMatch(
+    /Permission denied \(fail-closed\)/,
+  )
+  // The app's own allow-list does not reach a thread with permissions of its own.
+  expect((await probe(writer, "/everyone/file.txt")).error).toMatch(
+    /Permission denied \(fail-closed\)/,
+  )
+})
+
+it("scopes a thread over a configured permissions store (e.g. Postgres): its denials apply, its allows and grants do not", async () => {
+  const { appRoot } = await fixture()
+  await mkdir(join(appRoot, "src/app/probe/tools"), { recursive: true })
+  await writeFile(
+    join(appRoot, "src/app/probe/index.ts"),
+    "export const workflow=async (input,ctx)=>ctx.tools.probe(input)",
+  )
+  await writeFile(
+    join(appRoot, "src/app/probe/tools/probe.ts"),
+    "export default async function probe(input:{path:string},ctx){try{await ctx.fs.writeFile(input.path,'x');return {ok:true}}catch(error){return {error:error instanceof Error?error.message:String(error)}}}",
+  )
+  const granted: string[] = []
+  // Stands in for any non-file store (the Postgres one): the thread store reads only its mode
+  // and deny verdicts, and never writes to it.
+  const store = {
+    mode: "non-interactive" as const,
+    async load() {},
+    match: (tool: string, candidate: string) =>
+      tool === "writeFile" && candidate.startsWith("/outside/secret")
+        ? ("deny" as const)
+        : tool === "writeFile" && candidate.startsWith("/everyone/")
+          ? ("allow" as const)
+          : ("unknown" as const),
+    async addAllow(tool: string, pattern: string) {
+      granted.push(`${tool} ${pattern}`)
+    },
+  }
+  const physical = managedProviderFixture()
+  const config = {
+    permissions: { store },
+    sandbox: {
+      provider: physical.provider,
+      thread: async () => ({
+        workspace: { source: { directory: "source", include: ["main.txt"] } },
+        permissions: { allow: { writeFile: ["/outside/"] } },
+      }),
+    },
+  }
+  const handler = await createRuntimeFetchHandler({ appRoot, config })
+  handlers.push(handler)
+  const probe = async (path: string) => {
+    const response = await handler.fetch(
+      new Request("http://localhost/threads/one/runs/wait", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ route: "/probe#workflow", input: { path } }),
+      }),
+    )
+    return (await response.json()) as { ok?: true; error?: string }
+  }
+  expect(await probe("/outside/file.txt")).toEqual({ ok: true })
+  // The app store's deny verdict wins over the thread's allow.
+  expect((await probe("/outside/secret.txt")).error).toMatch(/Permission denied by user/)
+  expect((await probe("/everyone/file.txt")).error).toMatch(/Permission denied \(fail-closed\)/)
+  expect(granted).toEqual([])
+})
+
+it("records an interactive Always resumed through /resume in the thread's grants, never in .b4/permissions.json", async () => {
+  const previousMode = process.env.B4_PERMISSIONS_MODE
+  delete process.env.B4_PERMISSIONS_MODE // the app's default mode, interactive
+  const aimock = await createAimock({ fixtures: [] })
+  const previousBaseUrl = process.env.OPENAI_BASE_URL
+  const previousKey = process.env.OPENAI_API_KEY
+  process.env.OPENAI_BASE_URL = aimock.baseUrl
+  process.env.OPENAI_API_KEY = previousKey ?? "test-not-used"
+  try {
+    // One turn, two calls to the approval-gated tool. "Once" would park again on the second
+    // call; "Always" records the grant, and the second call runs under it without asking.
+    aimock.addFixtures(
+      script()
+        .user("deploy twice")
+        .callsTool("deployProd", { env: "staging" })
+        .callsTool("deployProd", { env: "prod" })
+        .replies("Deployed twice.")
+        .build(),
+    )
+    const { appRoot } = await fixture()
+    const files = {
+      "src/app/park/index.ts": `import { agent } from "@b4run/sdk"\nexport default agent({ model: "gpt-5-mini", systemPrompt: "Use the tools.", tools: { approve: ["deployProd"] } })\n`,
+      "src/app/park/tools/deployProd.ts":
+        "/** Deploy to an environment. */\nexport default async function deployProd(input: { env: string }): Promise<string> { return 'deployed to ' + input.env }\n",
+    }
+    for (const [path, text] of Object.entries(files)) {
+      await mkdir(join(appRoot, path, ".."), { recursive: true })
+      await writeFile(join(appRoot, path), text)
+    }
+    const physical = managedProviderFixture()
+    const config = {
+      sandbox: {
+        provider: physical.provider,
+        thread: async () => ({
+          workspace: { source: { directory: "source", include: ["main.txt"] } },
+          permissions: { allow: {} },
+        }),
+      },
+    }
+    const handler = await createRuntimeFetchHandler({ appRoot, config })
+    handlers.push(handler)
+    const text = async (response: Response) => {
+      expect(response.status).toBe(200)
+      return await response.text()
+    }
+    const pending = async () => {
+      const response = await handler.fetch(
+        new Request("http://localhost/threads/one/pending_interrupts"),
+      )
+      return ((await response.json()) as { interrupts: { interruptId: string }[] }).interrupts
+    }
+    await text(
+      await handler.fetch(
+        new Request("http://localhost/threads/one/runs/stream", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            route: "/park#agent",
+            input: { messages: [{ role: "user", content: "deploy twice" }] },
+          }),
+        }),
+      ),
+    )
+    const parked = await pending()
+    expect(parked).toHaveLength(1)
+    const resumed = await text(
+      await handler.fetch(
+        new Request("http://localhost/threads/one/resume", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            route: "/park#agent",
+            resume: [
+              { interruptId: parked[0]?.interruptId, status: "resolved", payload: "always" },
+            ],
+          }),
+        }),
+      ),
+    )
+    // The second call was allowed by the recorded grant: no new park, and the turn finished.
+    expect(resumed).not.toContain("event: interrupt")
+    expect(resumed).toContain("deployed to prod")
+    expect(await pending()).toEqual([])
+    expect(existsSync(join(appRoot, ".b4", "permissions.json"))).toBe(false)
+    await handler.close()
+    const installation = openWorkspaceInstallation(appRoot)
+    try {
+      expect(installation.threadSandboxes.grants("one")).toEqual({ tool: ["deployProd"] })
+    } finally {
+      installation.close()
+    }
+  } finally {
+    await aimock.close()
+    if (previousBaseUrl === undefined) delete process.env.OPENAI_BASE_URL
+    else process.env.OPENAI_BASE_URL = previousBaseUrl
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY
+    else process.env.OPENAI_API_KEY = previousKey
+    if (previousMode === undefined) delete process.env.B4_PERMISSIONS_MODE
+    else process.env.B4_PERMISSIONS_MODE = previousMode
+  }
+}, 60_000)

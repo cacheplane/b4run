@@ -68,7 +68,11 @@ import {
   unsupportedResponseFormatMessage,
 } from "@b4run/langchain"
 import { routeNamespaceKey } from "@b4run/memory/namespace"
-import type { PermissionMode, PermissionsStore } from "@b4run/permissions"
+import {
+  createThreadPermissionsStore,
+  type PermissionMode,
+  type PermissionsStore,
+} from "@b4run/permissions"
 import type { B4Middleware, ThreadAccessPolicy } from "@b4run/sdk"
 import { type B4Agent, isB4Agent, type WorkspaceFs } from "@b4run/sdk"
 import type { ThreadsStore } from "@b4run/sqlite-storage"
@@ -344,6 +348,10 @@ export function toAgentInput(input: unknown, resume?: RouteResumePayload): unkno
  * immediately visible to the parent and its later turns. That sharing is
  * deliberate: it matches the process-wide `.b4/permissions.json` semantics
  * the per-request path has always had, without the per-child re-read.
+ * A thread whose sandbox carries its own permissions is the exception: each
+ * preparation (the parent's and every child's) builds its own thread-scoped
+ * store over the app's, so a child's "Always" goes to the thread's record and
+ * the parent sees it at its next preparation, not immediately.
  *
  * `config` is an already-constructed B4Config. When present it IS the
  * config — `b4.config.ts` is never read (and no memo consulted).
@@ -1072,6 +1080,27 @@ async function prepareRouteExecutionForInvocation(
       permissionsConfig,
     )
   }
+  // The app's store, before any thread scoping. A subagent's preparation is handed this,
+  // not the parent's thread-scoped store, and wraps it for itself: every thread-scoped
+  // store is built directly over the app's store, one layer deep.
+  const appPermissionsStore = permissionsStore
+  // A thread whose sandbox was resolved with its own permissions runs under a
+  // store built from that record: the app's mode and denials, the thread's own
+  // allow-list, and "Always" grants kept in the thread's record, never in
+  // `.b4/permissions.json`. Keyed by the SANDBOX key, so a subagent runs under
+  // its parent thread's permissions, as it runs in its parent's workspace. In
+  // thread mode a thread whose record is missing is refused by the manager
+  // here, never handed the app's store.
+  const threadPermissions = sandboxKey
+    ? options.sandboxManager?.threadPermissions(sandboxKey)
+    : undefined
+  if (threadPermissions) {
+    permissionsStore = createThreadPermissionsStore({
+      base: permissionsStore,
+      ...threadPermissions,
+    })
+    await permissionsStore.load()
+  }
 
   const workspaceFsOptions = {
     workspaceRoot: sandboxWorkspaceRoot ?? pureJoin(options.appRoot, "workspace"),
@@ -1454,7 +1483,7 @@ async function prepareRouteExecutionForInvocation(
           const childPrepared = await prepareRouteExecution({
             appRoot: options.appRoot,
             checkpointer: false,
-            permissionsStore,
+            permissionsStore: appPermissionsStore,
             routeManifest,
             ...(options.threadsStore ? { threadsStore: options.threadsStore } : {}),
             ...(options.memoryStore ? { memoryStore: options.memoryStore } : {}),

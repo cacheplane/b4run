@@ -44,7 +44,7 @@ The package uses Node's `node:sqlite` `DatabaseSync` and LangGraph checkpoint co
 | `WorkspaceSourceStore` | Persist and retrieve verified source bundles. |
 | `WorkspaceAssociation` | Describe creating, ready, deleting, or deleted state with its revision. |
 | `WorkspaceAssociationStore` | Insert source-backed intents, with an optional thread sandbox record in the same transaction, and transition associations by revision. |
-| `WorkspaceThreadSandboxStore` | Read the sandbox record a thread's first admission wrote. |
+| `WorkspaceThreadSandboxStore` | Read the sandbox record a thread's first admission wrote, and keep that thread's "Always" grants. |
 
 
 ## Key contracts

@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto"
-import { mkdtempSync, rmSync } from "node:fs"
+import { existsSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
+import { createThreadPermissionsStore } from "@b4run/permissions"
+import { createPermissionsStore } from "@b4run/permissions/node"
 import { fakeSandbox } from "@b4run/sandbox/testing"
 import { openWorkspaceInstallation, type WorkspaceInstallation } from "@b4run/sqlite-storage"
 import {
@@ -825,4 +827,116 @@ it("refuses a record too large to store before any provider call or source row",
   expect(calls).toEqual([])
   expect(installation.associations.get("one")).toBeUndefined()
   expect(installation.sources.get(bundle("big").digest)).toBeUndefined()
+})
+
+it("allows a command in one thread that it denies in the other", async () => {
+  const { manager } = threadFixture(async (thread) => ({
+    definition: captured(String(thread.metadata.target)),
+    permissions:
+      thread.metadata.target === "a"
+        ? { allow: { bash: ["npm test"] } }
+        : { allow: { bash: ["make"] } },
+  }))
+  const signal = new AbortController().signal
+  await manager.getForThread("one", signal, { metadata: async () => ({ target: "a" }) })
+  await manager.getForThread("two", signal, { metadata: async () => ({ target: "b" }) })
+  const app = createPermissionsStore({
+    appRoot: tmpdir(),
+    config: undefined,
+    mode: "non-interactive",
+  })
+  const storeFor = async (threadId: string) => {
+    const scoped = manager.threadPermissions(threadId)
+    if (!scoped) throw new Error(`no permissions recorded for ${threadId}`)
+    const store = createThreadPermissionsStore({ base: app, ...scoped })
+    await store.load()
+    return store
+  }
+  expect((await storeFor("one")).match("bash", "npm test")).toBe("allow")
+  expect((await storeFor("two")).match("bash", "npm test")).toBe("unknown")
+  expect((await storeFor("two")).match("bash", "make all")).toBe("allow")
+})
+
+it("keeps a thread's Always grant in its record across restart, never in .b4/permissions.json", async () => {
+  const first = threadFixture(async () => ({
+    definition: captured("a"),
+    permissions: { allow: {} },
+  }))
+  const signal = new AbortController().signal
+  await first.manager.getForThread("one", signal)
+  const app = createPermissionsStore({
+    appRoot: first.root,
+    config: undefined,
+    mode: "interactive",
+  })
+  await app.load()
+  const scoped = first.manager.threadPermissions("one")
+  if (!scoped) throw new Error("no permissions recorded")
+  const store = createThreadPermissionsStore({ base: app, ...scoped })
+  await store.load()
+  await store.addAllow("bash", "make")
+  expect(existsSync(join(first.root, ".b4", "permissions.json"))).toBe(false)
+  await first.manager.releaseAll()
+  const second = threadFixture(
+    async () => {
+      throw new Error("the resolver must not run on re-admission")
+    },
+    { root: first.root },
+  )
+  await second.manager.getForThread("one", signal)
+  expect(second.manager.threadPermissions("one")?.grants.list()).toEqual({ bash: ["make"] })
+})
+
+it("has no thread permissions for a thread whose resolver set none", async () => {
+  const { manager } = threadFixture(async () => ({ definition: captured("a") }))
+  await manager.getForThread("one", new AbortController().signal)
+  expect(manager.threadPermissions("one")).toBeUndefined()
+})
+
+it("refuses a thread's permissions when its record is gone, never falling back to the app's", async () => {
+  const { manager, root } = threadFixture(async () => ({
+    definition: captured("a"),
+    permissions: { allow: { bash: ["npm test"] } },
+  }))
+  await manager.getForThread("one", new AbortController().signal)
+  expect(manager.threadPermissions("one")?.permissions).toEqual({ allow: { bash: ["npm test"] } })
+  const db = new DatabaseSync(join(root, ".b4", "workspaces", "state.sqlite"))
+  db.exec("DELETE FROM workspace_thread_sandboxes WHERE thread_id='one'")
+  db.close()
+  // The cached session still serves getForThread; the permission read is what must refuse.
+  await manager.getForThread("one", new AbortController().signal)
+  expect(() => manager.threadPermissions("one")).toThrow(
+    expect.objectContaining({
+      code: "conflict",
+      message: expect.stringMatching(/thread one has no sandbox record/i),
+    }),
+  )
+  // A thread never admitted in thread mode has no record either: refused, not the app's store.
+  expect(() => manager.threadPermissions("never")).toThrow(/no sandbox record/)
+})
+
+it("refuses an empty permission pattern before any provider call", async () => {
+  const { manager, calls, installation } = threadFixture(async () => ({
+    definition: captured("a"),
+    permissions: { allow: { bash: [""] } },
+  }))
+  await expect(manager.getForThread("one", new AbortController().signal)).rejects.toThrow(
+    /empty pattern matches every candidate/,
+  )
+  expect(calls).toEqual([])
+  expect(installation.associations.get("one")).toBeUndefined()
+})
+
+it("counts a thread's permissions toward its record size", async () => {
+  const { manager, calls } = threadFixture(async () => ({
+    definition: captured("a"),
+    permissions: {
+      allow: { bash: Array.from({ length: 100 }, (_, i) => `${i}${"x".repeat(4000)}`) },
+    },
+  }))
+  await expect(manager.getForThread("one", new AbortController().signal)).rejects.toMatchObject({
+    code: "unsupported",
+    message: expect.stringMatching(/sandbox record exceeds/),
+  })
+  expect(calls).toEqual([])
 })

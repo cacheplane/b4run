@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import type { ThreadPermissionGrants } from "@b4run/permissions"
 import type { WorkspaceInstallation } from "@b4run/sqlite-storage"
 import {
   type CapturedWorkspaceDefinition,
@@ -7,6 +8,7 @@ import {
   type SandboxHandle,
   type SandboxPolicy,
   type SourceBundle,
+  type ThreadSandboxPermissions,
   type ThreadSandboxPolicy,
   type ThreadSandboxRecord,
   type WorkspaceEnvironment,
@@ -36,6 +38,8 @@ export interface ResolvedThreadSandbox {
   /** Handed to `provider.resolveImageEnvironment`; the identity it answers is recorded in the intent. */
   readonly image?: string
   readonly policy?: ThreadSandboxPolicy
+  /** Replaces the app's allow-list for this thread; recorded, with its grants beside it. */
+  readonly permissions?: ThreadSandboxPermissions
 }
 
 export interface ManagedWorkspaceManagerOptions {
@@ -75,6 +79,13 @@ export interface AdmittedWorkspace {
   readonly ready: ReadyWorkspace
   readonly source: SourceBundle
   readonly readInitialFile: (path: string) => Uint8Array
+}
+
+function missingRecord(threadId: string): WorkspaceLifecycleError {
+  return new WorkspaceLifecycleError(
+    "conflict",
+    `Thread ${threadId} has no sandbox record: it was admitted before sandbox.thread was configured, or its record was lost. Delete the thread to resolve its sandbox again.`,
+  )
 }
 
 /** B4 association/admission only; physical recovery belongs to the provider. */
@@ -147,13 +158,14 @@ export class ManagedWorkspaceManager {
         version: 1,
         ...(result.image !== undefined ? { image: result.image } : {}),
         ...(result.policy !== undefined ? { policy: result.policy } : {}),
+        ...(result.permissions !== undefined ? { permissions: result.permissions } : {}),
       })
       // Checked here, before any provider call or source row: a policy can pass every
       // per-field bound and still not fit the stored record.
       if (threadSandboxRecordBytes(sandbox) > MAX_THREAD_SANDBOX_RECORD_BYTES)
         throw new WorkspaceLifecycleError(
           "unsupported",
-          `Thread ${threadId}'s sandbox record exceeds ${MAX_THREAD_SANDBOX_RECORD_BYTES} bytes: its policy.env is too large`,
+          `Thread ${threadId}'s sandbox record exceeds ${MAX_THREAD_SANDBOX_RECORD_BYTES} bytes: its policy.env or permissions are too large`,
         )
       return { definition: result.definition, sandbox }
     }
@@ -229,11 +241,7 @@ export class ManagedWorkspaceManager {
       // re-admitting it would silently run the app's defaults. Refused before any resolver or
       // provider call. (The fast path above only serves a session this check already admitted.)
       let sandboxRecord = record ? installation.threadSandboxes.get(threadId) : undefined
-      if (record && this.#options.resolveThread && !sandboxRecord)
-        throw new WorkspaceLifecycleError(
-          "conflict",
-          `Thread ${threadId} has no sandbox record: it was admitted before sandbox.thread was configured, or its record was lost. Delete the thread to resolve its sandbox again.`,
-        )
+      if (record && this.#options.resolveThread && !sandboxRecord) throw missingRecord(threadId)
       if (!record) {
         // The resolver runs exactly here: a thread with no record. Every later
         // admission of this thread finds the record and never reaches this branch.
@@ -439,6 +447,35 @@ export class ManagedWorkspaceManager {
       workspaceRoot: shape.workspaceRoot,
       filesystem: wrap("filesystem", shape.filesystem),
       exec: wrap("exec", shape.exec),
+    }
+  }
+  /**
+   * The permissions a thread-sandbox resolver recorded for `threadId`, with the
+   * store its "Always" grants go to. Undefined for a thread whose record carries
+   * no permissions: it runs under the app's store unchanged. In thread mode a
+   * thread with no record at all is refused, never given the app's store: its
+   * record was lost, or it was never admitted in thread mode (D11).
+   */
+  threadPermissions(
+    threadId: string,
+  ):
+    | { readonly permissions: ThreadSandboxPermissions; readonly grants: ThreadPermissionGrants }
+    | undefined {
+    this.#assertOpen()
+    const sandboxes = this.#options.installation.threadSandboxes
+    const record = sandboxes.get(threadId)
+    if (!record) {
+      if (this.#options.resolveThread) throw missingRecord(threadId)
+      return undefined
+    }
+    const permissions = record.permissions
+    if (!permissions) return undefined
+    return {
+      permissions,
+      grants: {
+        list: () => sandboxes.grants(threadId),
+        add: (tool, pattern) => sandboxes.addGrant(threadId, tool, pattern),
+      },
     }
   }
   getWorkspace(threadId: string): AdmittedWorkspace | undefined {

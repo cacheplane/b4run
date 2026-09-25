@@ -1,6 +1,7 @@
 import type {
   SandboxPolicy,
   ThreadSandbox,
+  ThreadSandboxPermissions,
   ThreadSandboxPolicy,
   ThreadSandboxRecord,
 } from "./sandbox-types.js"
@@ -151,6 +152,66 @@ export function verifyThreadSandboxPolicy(value: unknown): ThreadSandboxPolicy {
   })
 }
 
+function patterns(value: unknown, what: string): Readonly<Record<string, readonly string[]>> {
+  const map = plainObject(value, what)
+  // Every own key, not only enumerable ones: a hidden tool is refused, never dropped.
+  const keys = Reflect.ownKeys(map)
+  if (keys.some((key) => typeof key !== "string"))
+    throw new Error(`${what} tool names must be strings`)
+  const tools = (keys as string[]).sort()
+  if (tools.length > 64) throw new Error(`${what} names more than 64 tools`)
+  const out: Record<string, readonly string[]> = {}
+  for (const tool of tools) {
+    // `__proto__` can be an own key (JSON.parse, a computed key) but not an ordinary one on the copy.
+    if (
+      !tool ||
+      tool.length > 256 ||
+      Array.from(tool).some((c) => c.charCodeAt(0) < 0x20) ||
+      tool === "__proto__"
+    )
+      throw new Error(`${what} tool name ${JSON.stringify(tool)} is invalid`)
+    if (!Object.getOwnPropertyDescriptor(map, tool)?.enumerable)
+      throw new Error(`${what}.${tool} must be an enumerable property`)
+    const list = own(map, tool, what)
+    if (
+      !Array.isArray(list) ||
+      Object.getPrototypeOf(list) !== Array.prototype ||
+      list.length > 1024 ||
+      Reflect.ownKeys(list).length !== list.length + 1
+    )
+      throw new Error(`${what}.${tool} must be a list of at most 1024 patterns without NUL`)
+    const copy: string[] = []
+    for (let index = 0; index < list.length; index++) {
+      const pattern = own(
+        list as unknown as Record<string, unknown>,
+        String(index),
+        `${what}.${tool}`,
+      )
+      if (typeof pattern !== "string" || pattern.length > 4096 || pattern.includes("\u0000"))
+        throw new Error(`${what}.${tool} must be a list of at most 1024 patterns without NUL`)
+      if (pattern.trim() === "")
+        throw new Error(
+          `${what}.${tool}: an empty pattern matches every candidate, and a whitespace-only pattern names nothing; name what to ${what.endsWith("deny") ? "deny" : "allow"}`,
+        )
+      copy.push(pattern)
+    }
+    out[tool] = Object.freeze(copy)
+  }
+  return Object.freeze(out)
+}
+
+/** A thread's own permission lists, normalized: fixed key order, sorted tool names, frozen. */
+export function verifyThreadSandboxPermissions(value: unknown): ThreadSandboxPermissions {
+  const permissions = plainObject(value, "A thread's permissions")
+  onlyKeys(permissions, ["allow", "deny"], "A thread's permissions")
+  const allow = own(permissions, "allow", "permissions")
+  const deny = own(permissions, "deny", "permissions")
+  return Object.freeze({
+    ...(allow !== undefined ? { allow: patterns(allow, "permissions.allow") } : {}),
+    ...(deny !== undefined ? { deny: patterns(deny, "permissions.deny") } : {}),
+  })
+}
+
 /**
  * What a `ThreadSandboxResolver` returned, checked. The workspace is left as
  * returned: the caller captures a `WorkspaceDefinition` or verifies a
@@ -158,7 +219,7 @@ export function verifyThreadSandboxPolicy(value: unknown): ThreadSandboxPolicy {
  */
 export function verifyThreadSandbox(value: unknown): ThreadSandbox {
   const sandbox = plainObject(value, "A thread sandbox")
-  onlyKeys(sandbox, ["workspace", "environment", "policy"], "A thread sandbox")
+  onlyKeys(sandbox, ["workspace", "environment", "policy", "permissions"], "A thread sandbox")
   const workspace = own(sandbox, "workspace", "A thread sandbox")
   if (workspace === null || typeof workspace !== "object" || Array.isArray(workspace))
     throw new Error("A thread sandbox must name its workspace")
@@ -171,24 +232,32 @@ export function verifyThreadSandbox(value: unknown): ThreadSandbox {
   }
   const rawPolicy = own(sandbox, "policy", "A thread sandbox")
   const policy = rawPolicy === undefined ? undefined : verifyThreadSandboxPolicy(rawPolicy)
+  const rawPermissions = own(sandbox, "permissions", "A thread sandbox")
+  const permissions =
+    rawPermissions === undefined ? undefined : verifyThreadSandboxPermissions(rawPermissions)
   return Object.freeze({
     workspace: workspace as ThreadSandbox["workspace"],
     ...(environment !== undefined ? { environment } : {}),
     ...(policy !== undefined ? { policy } : {}),
+    ...(permissions !== undefined ? { permissions } : {}),
   })
 }
 
 /** The stored record, normalized so `JSON.stringify` of it is its one canonical text. */
 export function verifyThreadSandboxRecord(value: unknown): ThreadSandboxRecord {
   const record = plainObject(value, "A thread sandbox record")
-  onlyKeys(record, ["version", "image", "policy"], "A thread sandbox record")
+  onlyKeys(record, ["version", "image", "policy", "permissions"], "A thread sandbox record")
   if (own(record, "version", "A thread sandbox record") !== 1)
     throw new Error("Unsupported thread sandbox record version")
   const image = own(record, "image", "A thread sandbox record")
   const policy = own(record, "policy", "A thread sandbox record")
+  const permissions = own(record, "permissions", "A thread sandbox record")
   return Object.freeze({
     version: 1,
     ...(image !== undefined ? { image: verifyImageReference(image) } : {}),
     ...(policy !== undefined ? { policy: verifyThreadSandboxPolicy(policy) } : {}),
+    ...(permissions !== undefined
+      ? { permissions: verifyThreadSandboxPermissions(permissions) }
+      : {}),
   })
 }

@@ -307,6 +307,14 @@ export function openWorkspaceInstallation(appRoot: string): WorkspaceInstallatio
           requireOpen()
           return sandboxes.get(threadId)
         },
+        grants(threadId) {
+          requireOpen()
+          return sandboxes.grants(threadId)
+        },
+        addGrant(threadId, tool, pattern) {
+          requireOpen()
+          sandboxes.addGrant(threadId, tool, pattern)
+        },
       },
       close,
     }
