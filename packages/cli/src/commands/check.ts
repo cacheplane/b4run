@@ -144,6 +144,8 @@ export async function runCheckCommand(options: CheckOptions, io: CommandIo): Pro
     }
     if (typeof loadedConfig.sandbox?.workspace === "function")
       writeLine(io.stdout, "sandbox: managed workspace is resolved per thread")
+    if (typeof loadedConfig.sandbox?.thread === "function")
+      writeLine(io.stdout, "sandbox: workspace, image and policy are resolved per thread")
 
     await checkStaticModuleManifests(manifest, {
       includeEdge: Boolean(buildTargets?.includes("hono")),

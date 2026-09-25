@@ -8,6 +8,7 @@ import {
 } from "@b4run/workspace"
 import {
   verifyCapturedWorkspaceDefinition,
+  verifyImageReference,
   verifyReadyWorkspace,
   verifyWorkspaceIntent,
 } from "@b4run/workspace/node"
@@ -49,7 +50,10 @@ const labelArgs = (values: Record<string, string>) =>
 type Inspected = { Labels?: Record<string, string>; Config?: { Labels?: Record<string, string> } }
 export function createDockerManagedWorkspaces(opts: {
   scope: string
-  image: string
+  /** The default image: what a thread that names none runs. Absent: every thread must name one. */
+  image?: string
+  /** Which other references a thread may name. The default image needs no entry. */
+  images?: (reference: string) => boolean
   docker: Docker
 }): ManagedWorkspaceProvider {
   const { docker } = opts
@@ -194,16 +198,39 @@ export function createDockerManagedWorkspaces(opts: {
     for (const id of ids) owned(await inspect("container", id, signal), intent)
     return ids
   }
+  async function environmentFor(reference: string, signal: AbortSignal) {
+    const account = (await run(["info", "--format", "{{.ID}}"], signal)).stdout.trim()
+    const identity = (
+      await run(["image", "inspect", "--format", "{{.Id}}", reference], signal)
+    ).stdout.trim()
+    if (!account || !/^sha256:[0-9a-f]{64}$/.test(identity))
+      fail("unsupported", "Docker daemon/image identity unavailable")
+    return { binding: { provider: "docker", scope: opts.scope, account }, identity }
+  }
   return {
     name: "docker",
     async resolveEnvironment(signal) {
-      const account = (await run(["info", "--format", "{{.ID}}"], signal)).stdout.trim()
-      const identity = (
-        await run(["image", "inspect", "--format", "{{.Id}}", opts.image], signal)
-      ).stdout.trim()
-      if (!account || !/^sha256:[0-9a-f]{64}$/.test(identity))
-        fail("unsupported", "Docker daemon/image identity unavailable")
-      return { binding: { provider: "docker", scope: opts.scope, account }, identity }
+      if (opts.image === undefined)
+        return fail(
+          "unsupported",
+          "This Docker provider has no default image: every thread must name its own (sandbox.thread)",
+        )
+      return environmentFor(opts.image, signal)
+    },
+    async resolveImageEnvironment(image, signal) {
+      let reference: string
+      try {
+        reference = verifyImageReference(image)
+      } catch (error) {
+        return fail("unsupported", error instanceof Error ? error.message : String(error))
+      }
+      // Checked before any Docker call: a refused image costs nothing and creates nothing.
+      if (reference !== opts.image && opts.images?.(reference) !== true)
+        return fail(
+          "unsupported",
+          `Image ${reference} is not one this provider may run: allow it with dockerSandbox({ images })`,
+        )
+      return environmentFor(reference, signal)
     },
     async create(input, source, signal) {
       const intent = verifyWorkspaceIntent(input)

@@ -3,6 +3,7 @@ import { join } from "node:path"
 import type { B4Config } from "@b4run/core"
 import type { SandboxProvider } from "@b4run/workspace"
 import { captureWorkspaceDefinition } from "@b4run/workspace/node"
+import { sandboxConfigShapeErrors } from "./sandbox-config-shape.js"
 
 /** Validate the b4.config.ts sandbox block + run the provider preflight. */
 export async function collectSandboxErrors(
@@ -11,6 +12,8 @@ export async function collectSandboxErrors(
 ): Promise<{ readonly errors: readonly string[]; readonly warnings: readonly string[] }> {
   const sandbox = config.sandbox
   if (!sandbox) return { errors: [], warnings: [] }
+  const shape = sandboxConfigShapeErrors(sandbox)
+  if (shape.length > 0) return { errors: shape, warnings: [] }
   const errors: string[] = []
   const warnings: string[] = []
   const p = sandbox.provider as Partial<SandboxProvider> | undefined
@@ -25,14 +28,14 @@ export async function collectSandboxErrors(
     )
     return { errors, warnings }
   }
-  if (sandbox.workspace) {
+  if (sandbox.workspace || sandbox.thread) {
     if (!p.workspaces) errors.push("Sandbox provider does not support managed workspaces")
     if (appRoot) {
       try {
         if (!(await stat(join(appRoot, "workspace"))).isDirectory())
           throw new Error("workspace/ must be a directory")
-        // A resolver's result exists only once a thread does; there is nothing to capture here.
-        if (typeof sandbox.workspace !== "function")
+        // A resolver's result, workspace or whole sandbox, exists only once a thread does.
+        if (sandbox.workspace !== undefined && typeof sandbox.workspace !== "function")
           await captureWorkspaceDefinition(appRoot, sandbox.workspace)
       } catch (error) {
         errors.push(

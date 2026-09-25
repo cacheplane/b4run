@@ -13,8 +13,17 @@ const ROOT = "/workspace"
 export interface DockerSandboxOptions {
   /** Stable application/environment identity. Changing it selects different storage. */
   readonly scope: string
-  /** Container image for the sandbox (must include a POSIX shell). */
-  readonly image: string
+  /**
+   * Container image for the sandbox (must include a POSIX shell). Optional only
+   * with `images`, for an app whose every thread names its own image
+   * (`sandbox.thread`); the per-app lifecycle then refuses to start.
+   */
+  readonly image?: string
+  /**
+   * Managed workspaces: which image references a per-thread sandbox may name.
+   * Called before any Docker call; anything but `true` refuses the thread.
+   */
+  readonly images?: (reference: string) => boolean
   /** Injected for tests; defaults to the real docker CLI. */
   readonly docker?: Docker
 }
@@ -110,6 +119,24 @@ const isB4CodedError = (error: unknown): error is Error & { readonly code: strin
  * honest-scope note). Host env is never inherited; only policy.env is passed.
  */
 export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
+  if (opts.images !== undefined && typeof opts.images !== "function")
+    throw new Error("dockerSandbox images must be a function of the image reference")
+  if (
+    opts.image === undefined
+      ? opts.images === undefined
+      : typeof opts.image !== "string" || !opts.image.trim()
+  )
+    throw new Error(
+      "dockerSandbox needs an image, or an images predicate when every thread names its own image",
+    )
+  /** The per-app image. Absent only when every thread names its own, and then nothing here may guess one. */
+  const defaultImage = (): string => {
+    if (opts.image === undefined)
+      throw sandboxUnavailable(
+        "Sandbox unavailable: this Docker provider has no default image. Configure sandbox.thread so each thread names one.",
+      )
+    return opts.image
+  }
   const resourceId = resourceScope(opts.scope)
   const containerName = (id: string) => `b4-sbx-${resourceId(id)}`
   const volumeName = (id: string) => `b4-sbx-vol-${resourceId(id)}`
@@ -122,7 +149,7 @@ export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
     recoverySignal: new AbortController().signal,
     launchConfig,
     launchConfigKey: launchConfigKey(launchConfig),
-    keeperIdentity: keeperIdentity(opts.image, launchConfig),
+    keeperIdentity: keeperIdentity(defaultImage(), launchConfig),
   })
 
   const isRecoveryAttempt = (token: unknown): token is DockerRecoveryAttempt =>
@@ -218,7 +245,7 @@ export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
             "0:0",
             "-v",
             `${volumeName(threadId)}:${ROOT}`,
-            opts.image,
+            defaultImage(),
             "sh",
             "-c",
             `mkdir -p ${ROOT} && chown ${user.uid}:${user.gid} ${ROOT}`,
@@ -249,7 +276,7 @@ export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
         ...envArgs,
         ...limits,
         ...hardening,
-        opts.image,
+        defaultImage(),
         "sleep",
         "infinity",
       ],
@@ -312,7 +339,12 @@ export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
 
   return {
     name: "docker",
-    workspaces: createDockerManagedWorkspaces({ scope: opts.scope, image: opts.image, docker }),
+    workspaces: createDockerManagedWorkspaces({
+      scope: opts.scope,
+      ...(opts.image !== undefined ? { image: opts.image } : {}),
+      ...(opts.images !== undefined ? { images: opts.images } : {}),
+      docker,
+    }),
     acquire({ threadId, policy, signal }): Promise<SandboxHandle> {
       return lifecycle.runExclusive(threadId, async () => {
         const requestedLaunchConfig = resolveLaunchConfig(policy)
@@ -366,10 +398,16 @@ export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
     openWorkspaceReader(input) {
       // Intentionally NOT inside lifecycle.runExclusive: a read must never wait
       // on (or be able to influence) the thread's keeper lifecycle.
+      let image: string
+      try {
+        image = defaultImage()
+      } catch (error) {
+        return Promise.reject(error)
+      }
       return openDockerWorkspaceReader(
         {
           docker,
-          image: opts.image,
+          image,
           volume: volumeName(input.threadId),
           resourceId: resourceId(input.threadId),
         },

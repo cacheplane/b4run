@@ -5,6 +5,7 @@ import type { SandboxPolicy } from "@b4run/workspace"
 import {
   captureWorkspaceDefinition,
   verifyCapturedWorkspaceDefinition,
+  verifyThreadSandbox,
 } from "@b4run/workspace/node"
 import {
   verifyWorkspaceArtifact,
@@ -12,6 +13,7 @@ import {
 } from "../build/workspace-artifact.js"
 import { loadOptionalB4Config } from "../node-config.js"
 import { ManagedWorkspaceManager } from "./managed-workspace-manager.js"
+import { sandboxConfigShapeErrors } from "./sandbox-config-shape.js"
 import { SandboxManager } from "./sandbox-manager.js"
 
 const DEFAULT_IDLE_MS = 600_000
@@ -28,7 +30,9 @@ export async function resolveSandboxManager(
       throw new Error("Built workspace configuration was removed; rebuild the app")
     return undefined
   }
-  if (!sandbox.workspace && options.artifact != null)
+  const shape = sandboxConfigShapeErrors(sandbox)
+  if (shape.length > 0) throw new Error(`Invalid sandbox config:\n${shape.join("\n")}`)
+  if (!sandbox.workspace && !sandbox.thread && options.artifact != null)
     throw new Error("Built workspace configuration was removed; rebuild the app")
   const policy: SandboxPolicy = {
     network: sandbox.network ?? DEFAULT_NETWORK,
@@ -37,8 +41,52 @@ export async function resolveSandboxManager(
     ...(sandbox.security ? { security: sandbox.security } : {}),
   }
   let managed: ManagedWorkspaceManager | undefined
+  const thread = sandbox.thread
   const workspace = sandbox.workspace
-  if (workspace) {
+  if (thread) {
+    if (!sandbox.provider.workspaces)
+      throw new Error("Sandbox provider does not support managed workspaces")
+    if (!(await stat(join(appRoot, "workspace"))).isDirectory())
+      throw new Error("Managed workspaces require app-root workspace/ capability")
+    // Verified before opening the installation, so a mismatched config never creates sqlite files.
+    if (options.built) verifyWorkspaceResolverArtifact(options.artifact, "thread")
+    const installation = openWorkspaceInstallation(appRoot)
+    try {
+      managed = new ManagedWorkspaceManager({
+        installation,
+        resolveThread: async (input) => {
+          // The workspace resolver's contract: name the thread when the host's
+          // result is unusable; rethrow a cancellation unwrapped.
+          try {
+            const result = verifyThreadSandbox(await thread(input))
+            const definition =
+              "version" in result.workspace
+                ? verifyCapturedWorkspaceDefinition(result.workspace)
+                : await captureWorkspaceDefinition(appRoot, result.workspace, {
+                    signal: input.signal,
+                  })
+            return {
+              definition,
+              ...(result.environment !== undefined ? { image: result.environment.image } : {}),
+              ...(result.policy !== undefined ? { policy: result.policy } : {}),
+            }
+          } catch (error) {
+            if (input.signal.aborted) throw error
+            throw new Error(
+              `Thread sandbox resolver for thread ${input.threadId}: ${error instanceof Error ? error.message : String(error)}`,
+              { cause: error },
+            )
+          }
+        },
+        provider: sandbox.provider.workspaces,
+        policy,
+        idleTimeoutMs: sandbox.idleTimeoutMs ?? DEFAULT_IDLE_MS,
+      })
+    } catch (error) {
+      installation.close()
+      throw error
+    }
+  } else if (workspace) {
     if (!sandbox.provider.workspaces)
       throw new Error("Sandbox provider does not support managed workspaces")
     if (!(await stat(join(appRoot, "workspace"))).isDirectory())
@@ -47,7 +95,7 @@ export async function resolveSandboxManager(
       // A resolver has nothing to capture at boot. In a built app the artifact
       // must say so, or the config changed form since the build. Verified before
       // opening the installation, so a mismatched config never creates sqlite files.
-      if (options.built) verifyWorkspaceResolverArtifact(options.artifact)
+      if (options.built) verifyWorkspaceResolverArtifact(options.artifact, "resolver")
       const installation = openWorkspaceInstallation(appRoot)
       try {
         managed = new ManagedWorkspaceManager({

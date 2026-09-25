@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { seedB4Config } from "@b4run/core"
 import { THREAD_ACCESS_METADATA_KEY } from "@b4run/sdk"
+import { openWorkspaceInstallationReader } from "@b4run/sqlite-storage"
 import { afterEach, expect, it } from "vitest"
 import { runBuildCommand } from "../src/commands/build.ts"
 import {
@@ -368,6 +369,118 @@ it("refuses to boot a static app from a stale resolver artifact", async () => {
     createRuntimeFetchHandler({
       appRoot,
       config: staticConfig,
+      modules: { ...modules, workspace },
+    }),
+  ).rejects.toThrow(/rebuild/i)
+})
+
+it("fails b4 build on a misspelt sandbox key even with no workspace or thread", async () => {
+  const { appRoot } = await fixture()
+  const physical = managedProviderFixture()
+  seedB4Config(appRoot, {
+    build: { targets: ["node"] },
+    sandbox: { provider: physical.provider, thred: async () => ({}) },
+  } as never)
+  await expect(
+    runBuildCommand({ cwd: appRoot, clean: true }, { stdout: () => {}, stderr: () => {} }),
+  ).rejects.toThrow(/sandbox.thred is not a sandbox option/)
+})
+
+function threadConfig(physical: ReturnType<typeof managedProviderFixture>, seen: string[]) {
+  return {
+    sandbox: {
+      provider: physical.provider,
+      network: { mode: "deny" as const },
+      thread: async (thread: { threadId: string; metadata: Record<string, unknown> }) => {
+        seen.push(thread.threadId)
+        const big = thread.metadata.size === "big"
+        return {
+          workspace: { source: { directory: "source", include: ["main.txt"] } },
+          environment: { image: big ? "factory:big" : "factory:small" },
+          policy: { resources: { memoryMb: big ? 8192 : 512 } },
+        }
+      },
+    },
+  }
+}
+function identityOf(appRoot: string, threadId: string): string | undefined {
+  const reader = openWorkspaceInstallationReader(appRoot)
+  try {
+    return reader.associations.get(threadId)?.intent.environment.identity
+  } finally {
+    reader.close()
+  }
+}
+
+it("resolves each thread's image, policy and workspace once, and keeps them across restart", async () => {
+  const { appRoot } = await fixture()
+  const seen: string[] = []
+  const physical = managedProviderFixture()
+  const config = threadConfig(physical, seen)
+  const boot = async () => {
+    const handler = await createRuntimeFetchHandler({ appRoot, config })
+    handlers.push(handler)
+    return handler
+  }
+  const first = await boot()
+  const small = await createThread(first, { size: "small" })
+  const big = await createThread(first, { size: "big" })
+  expect((await run(first, small)).body).toMatchObject({ source: "initial" })
+  expect((await run(first, big)).body).toMatchObject({ source: "initial" })
+  expect(identityOf(appRoot, small)).toBe("immutable-template@factory:small")
+  expect(identityOf(appRoot, big)).toBe("immutable-template@factory:big")
+  expect(physical.policies.get(small)).toEqual({
+    network: { mode: "deny" },
+    resources: { memoryMb: 512 },
+  })
+  expect(physical.policies.get(big)).toEqual({
+    network: { mode: "deny" },
+    resources: { memoryMb: 8192 },
+  })
+  await first.close()
+  physical.policies.clear()
+  const restarted = await boot()
+  expect((await run(restarted, big)).body).toMatchObject({ source: "initial" })
+  expect(physical.policies.get(big)).toEqual({
+    network: { mode: "deny" },
+    resources: { memoryMb: 8192 },
+  })
+  expect(seen).toEqual([small, big])
+})
+
+it("builds a thread-sandbox app to the thread artifact and resolves per thread from the built manifest", async () => {
+  const { appRoot } = await fixture()
+  await mkdir(join(appRoot, "node_modules/@b4run"), { recursive: true })
+  await symlink(new URL("..", import.meta.url), join(appRoot, "node_modules/@b4run/cli"), "dir")
+  const seen: string[] = []
+  const physical = managedProviderFixture()
+  const config = { build: { targets: ["node"] as const }, ...threadConfig(physical, seen) }
+  seedB4Config(appRoot, config)
+  await runBuildCommand({ cwd: appRoot, clean: true }, { stdout: () => {}, stderr: () => {} })
+  const workspace = JSON.parse(await readFile(join(appRoot, ".b4/build/workspace.json"), "utf8"))
+  expect(workspace).toEqual({ version: 2, kind: "thread" })
+  const modules = await loadStaticModules(pathToFileURL(join(appRoot, ".b4/build/modules.mjs")))
+  const handler = await createRuntimeFetchHandler({
+    appRoot,
+    config,
+    modules: { ...modules, workspace },
+  })
+  handlers.push(handler)
+  const big = await createThread(handler, { size: "big" })
+  expect((await run(handler, big)).body).toMatchObject({ source: "initial" })
+  expect(identityOf(appRoot, big)).toBe("immutable-template@factory:big")
+  expect(seen).toEqual([big])
+  await handler.close()
+  // The same build, booted with a workspace resolver instead: the form changed.
+  await expect(
+    createRuntimeFetchHandler({
+      appRoot,
+      config: {
+        sandbox: {
+          provider: physical.provider,
+          workspace: async () => ({ source: { directory: "source", include: ["main.txt"] } }),
+        },
+      },
       modules: { ...modules, workspace },
     }),
   ).rejects.toThrow(/rebuild/i)

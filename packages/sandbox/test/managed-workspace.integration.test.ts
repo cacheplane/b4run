@@ -1,4 +1,6 @@
+import { execFileSync } from "node:child_process"
 import { randomUUID } from "node:crypto"
+import type { WorkspaceEnvironment } from "@b4run/workspace"
 import { inspectWorkspace, scopedWorkspaceReader } from "@b4run/workspace"
 import { createSourceBundle, createWorkspaceIntent } from "@b4run/workspace/node"
 import { describe, expect, it } from "vitest"
@@ -301,6 +303,95 @@ describe.skipIf(process.env.B4_TEST_DOCKER !== "1")(
           ])
         ).stdout.trim(),
       ).toBe("")
+    })
+  },
+)
+
+describe.skipIf(process.env.B4_TEST_DOCKER !== "1")(
+  "managed Docker per-thread images",
+  { timeout: 180000 },
+  () => {
+    it("runs two threads of one provider in two images under two policies", async () => {
+      const docker = createDocker(),
+        signal = new AbortController().signal
+      const base = managedTestImage()
+      // A second image with its own id: the base plus labels, built from the local base only.
+      // The base carries org.b4run.code-fixer.project=cli-flags, which managedTestImage() selects
+      // by (newest first): override it, or every other Docker test file would pick this variant
+      // up as "the" managed image, and this test's cleanup would delete it under them.
+      const variant = `b4-managed-variant:${randomUUID().slice(0, 12)}`
+      execFileSync("docker", ["build", "-t", variant, "-"], {
+        input: `FROM ${base}\nLABEL org.b4run.code-fixer.project="b4-managed-variant" org.b4run.test.variant="${variant}"\n`,
+        stdio: ["pipe", "ignore", "inherit"],
+      })
+      const provider = createDockerManagedWorkspaces({
+        scope: `per-thread-${randomUUID()}`,
+        image: base,
+        images: (reference) => reference === variant,
+        docker,
+      })
+      const source = createSourceBundle([
+        { path: "main.txt", bytes: Buffer.from("x"), executable: false },
+      ])
+      const installationId = randomUUID()
+      const intentFor = (threadId: string, environment: WorkspaceEnvironment) =>
+        createWorkspaceIntent({
+          operationId: randomUUID(),
+          installationId,
+          threadId,
+          definition: { version: 1, source, environmentLinks: [] },
+          environment,
+        })
+      const one = intentFor("one", await provider.resolveEnvironment(signal))
+      const two = intentFor(
+        "two",
+        await (provider.resolveImageEnvironment?.(
+          variant,
+          signal,
+        ) as Promise<WorkspaceEnvironment>),
+      )
+      await expect(
+        provider.resolveImageEnvironment?.("b4-not-allowed:latest", signal),
+      ).rejects.toMatchObject({ code: "unsupported" })
+      try {
+        expect(two.environment.identity).not.toBe(one.environment.identity)
+        const a = await provider.reconnect(
+          await provider.create(one, source, signal),
+          { network: { mode: "deny" }, resources: { memoryMb: 256 } },
+          signal,
+        )
+        const b = await provider.reconnect(
+          await provider.create(two, source, signal),
+          { network: { mode: "deny" }, resources: { memoryMb: 512 } },
+          signal,
+        )
+        const session = async (incarnation: string) => {
+          const id = (
+            await docker.run([
+              "ps",
+              "-q",
+              "--filter",
+              `label=b4.workspace.incarnation=${incarnation}`,
+            ])
+          ).stdout.trim()
+          return JSON.parse(
+            (await docker.run(["inspect", "--format", "{{json .}}", id])).stdout,
+          ) as { Image: string; HostConfig: { Memory: number } }
+        }
+        const sa = await session(a.reference.incarnation)
+        const sb = await session(b.reference.incarnation)
+        expect(sa.Image).toBe(one.environment.identity)
+        expect(sb.Image).toBe(two.environment.identity)
+        expect(sa.HostConfig.Memory).toBe(256 * 1024 * 1024)
+        expect(sb.HostConfig.Memory).toBe(512 * 1024 * 1024)
+      } finally {
+        await provider.destroy({ intent: one }, signal)
+        await provider.destroy({ intent: two }, signal)
+        // Best effort: a failure to untag must not mask the test's own result.
+        try {
+          execFileSync("docker", ["image", "rm", variant], { stdio: "ignore" })
+        } catch {}
+      }
     })
   },
 )

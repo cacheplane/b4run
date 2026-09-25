@@ -21,7 +21,8 @@ export interface ManagedWorkspaceReadOptions {
 
 /**
  * Open a read-only view of a MANAGED workspace — one an app created through
- * `sandbox.workspace` — for a trusted, co-located host process.
+ * `sandbox.workspace` or `sandbox.thread`, whose image is read from the
+ * thread's own record — for a trusted, co-located host process.
  *
  * A managed workspace is addressed by its published record, not by its thread
  * id, so the thread id is resolved through the worker's own installation store

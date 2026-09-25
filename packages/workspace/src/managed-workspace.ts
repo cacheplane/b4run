@@ -91,6 +91,15 @@ export interface OpenManagedWorkspaceReaderInput {
 export interface ManagedWorkspaceProvider {
   readonly name: string
   resolveEnvironment(signal: AbortSignal): Promise<WorkspaceEnvironment>
+  /**
+   * OPTIONAL capability: the environment for a thread that names its own image
+   * (`SandboxConfig.thread` returning `environment.image`). Presence of the
+   * method IS the capability probe: B4.run refuses a per-thread image on a
+   * provider without it rather than run the thread in the default image. An
+   * implementation MUST refuse, before any side effect, an image its operator
+   * did not allow.
+   */
+  resolveImageEnvironment?(image: string, signal: AbortSignal): Promise<WorkspaceEnvironment>
   /** Small-source transport retains verified immutable exact bytes in a SourceBundle. */
   create(
     intent: WorkspaceCreateIntent,

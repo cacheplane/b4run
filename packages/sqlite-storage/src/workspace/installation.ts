@@ -7,11 +7,18 @@ import {
   type WorkspaceAssociationStore,
 } from "./association-store.js"
 import { makeWorkspaceSourceStore, type WorkspaceSourceStore } from "./source-store.js"
+import {
+  ensureWorkspaceThreadSandboxSchema,
+  makeWorkspaceThreadSandboxStore,
+  type WorkspaceThreadSandboxStore,
+} from "./thread-sandbox-store.js"
 
 export interface WorkspaceInstallation {
   readonly installationId: string
   readonly sources: WorkspaceSourceStore
   readonly associations: WorkspaceAssociationStore
+  /** Per-thread sandbox records (`sandbox.thread`). Written by `associations.create`. */
+  readonly threadSandboxes: WorkspaceThreadSandboxStore
   close(): void
 }
 /**
@@ -240,8 +247,11 @@ export function openWorkspaceInstallation(appRoot: string): WorkspaceInstallatio
       }
     }
     validateState(stateDb, id)
+    // Additive: an installation from before per-thread sandboxes gains the tables here.
+    ensureWorkspaceThreadSandboxSchema(stateDb)
     const sources = makeWorkspaceSourceStore(stateDb)
-    const associations = makeWorkspaceAssociationStore(stateDb, sources)
+    const sandboxes = makeWorkspaceThreadSandboxStore(stateDb)
+    const associations = makeWorkspaceAssociationStore(stateDb, sources, sandboxes)
     if (metadata.phase === "initializing") {
       admissionDb.exec("UPDATE workspace_admission SET phase='ready'; COMMIT; BEGIN IMMEDIATE")
       metadata = loadAdmission(admissionDb)
@@ -273,11 +283,11 @@ export function openWorkspaceInstallation(appRoot: string): WorkspaceInstallatio
           requireOpen()
           return associations.get(threadId)
         },
-        create(intent) {
+        create(intent, sandbox) {
           requireOpen()
           if (intent.installationId !== id)
             throw new Error("Workspace installation identity mismatch")
-          return associations.create(intent)
+          return associations.create(intent, sandbox)
         },
         markReady(threadId, revision, ready) {
           requireOpen()
@@ -290,6 +300,12 @@ export function openWorkspaceInstallation(appRoot: string): WorkspaceInstallatio
         completeDelete(threadId, revision) {
           requireOpen()
           return associations.completeDelete(threadId, revision)
+        },
+      },
+      threadSandboxes: {
+        get(threadId) {
+          requireOpen()
+          return sandboxes.get(threadId)
         },
       },
       close,

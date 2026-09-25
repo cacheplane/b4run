@@ -976,7 +976,10 @@ async function prepareRouteExecutionForInvocation(
   let sandboxBackends: { filesystem: FilesystemBackend; exec: ExecBackend } | undefined
   let sandboxWorkspaceRoot: string | undefined
   const sandboxKey = options.sandboxThreadId ?? options.threadId
-  if (loadedB4Config?.sandbox?.workspace && (!options.sandboxManager?.managed || !sandboxKey)) {
+  if (
+    (loadedB4Config?.sandbox?.workspace || loadedB4Config?.sandbox?.thread) &&
+    (!options.sandboxManager?.managed || !sandboxKey)
+  ) {
     throw new Error(
       "Managed workspace execution requires an admitted Node runtime and a thread identity",
     )

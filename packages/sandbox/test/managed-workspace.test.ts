@@ -47,7 +47,15 @@ const signal = new AbortController().signal
 const source = createSourceBundle([
   { path: "binary", bytes: new Uint8Array([0, 255]), executable: true },
 ])
-function fixture() {
+function fixture(
+  options: {
+    /** The provider's configured image. */
+    readonly image?: string
+    /** What `docker image inspect --format {{.Id}} <ref>` answers per reference. */
+    readonly identities?: Readonly<Record<string, string>>
+    readonly images?: (reference: string) => boolean
+  } = {},
+) {
   const objects = new Map<
     string,
     { Labels?: Record<string, string>; Config?: { Labels: Record<string, string> } }
@@ -60,7 +68,11 @@ function fixture() {
       const ok = (stdout = "") => ({ exitCode: 0, stdout, stderr: "" })
       if (args[0] === "info") return ok("daemon")
       if (args[0] === "image")
-        return ok(args.includes("{{json .Config.Volumes}}") ? "null" : `sha256:${"a".repeat(64)}`)
+        return ok(
+          args.includes("{{json .Config.Volumes}}")
+            ? "null"
+            : (options.identities?.[String(args.at(-1))] ?? `sha256:${"a".repeat(64)}`),
+        )
       if (args[0] === "ps")
         return ok([...objects.keys()].filter((k) => k.includes("session")).join("\n"))
       if (args.includes("inspect")) {
@@ -95,7 +107,15 @@ function fixture() {
       return { exitCode: 0, stderr: "", stdout: "{}" }
     },
   }
-  const provider = createDockerManagedWorkspaces({ scope: "app", image: "tag", docker })
+  /** A provider over the SAME daemon and scope, as another process would construct it. */
+  const providerFor = (image: string | undefined, images = options.images) =>
+    createDockerManagedWorkspaces({
+      scope: "app",
+      ...(image !== undefined ? { image } : {}),
+      ...(images !== undefined ? { images } : {}),
+      docker,
+    })
+  const provider = providerFor(options.image ?? "tag")
   const intent = async () =>
     createWorkspaceIntent({
       operationId: "00000000-0000-4000-8000-000000000001",
@@ -109,6 +129,7 @@ function fixture() {
     objects,
     calls,
     provider,
+    providerFor,
     intent,
     losePublication: () => {
       losePublication = true
@@ -408,5 +429,96 @@ describe("managed Docker workspace reader", () => {
     f.objects.set(ready.reference.resource.volume as string, { Labels: {} })
     await expect(open(f, ready)).rejects.toMatchObject({ code: "conflict" })
     expect(f.calls.some((c) => c[0] === "run" && c.join(" ").includes("b4-ws-reader-"))).toBe(false)
+  })
+})
+
+describe("managed Docker: the image is the intent's, not the provider's", () => {
+  const one = `sha256:${"a".repeat(64)}`
+  const two = `sha256:${"b".repeat(64)}`
+
+  it("reconnects, reads, releases and destroys in the recorded image, whatever image the provider was built with", async () => {
+    const f = fixture({
+      image: "factory:one",
+      identities: { "factory:one": one, "factory:two": two },
+    })
+    const intent = await f.intent()
+    expect(intent.environment.identity).toBe(one)
+    const ready = await f.provider.create(intent, source, signal)
+    // Another process's provider: same daemon, same scope, a different configured image.
+    const other = f.providerFor("factory:two")
+    const before = f.calls.length
+    const session = await other.reconnect(ready, { network: { mode: "deny" } }, signal)
+    const reader = (await other.openWorkspaceReader?.({
+      workspace: ready,
+      signal,
+    })) as SandboxWorkspaceReader
+    await reader.close()
+    await other.release(session.reference, signal)
+    await other.destroy({ intent, reference: ready.reference }, signal)
+    const after = f.calls.slice(before)
+    const started = after.filter((call) => call[0] === "run")
+    // The session and the reader: each started from the recorded identity.
+    expect(started.length).toBeGreaterThanOrEqual(2)
+    for (const call of started) expect(call).toContain(one)
+    // The other provider's image was never looked up, named or run.
+    expect(after.some((call) => call.includes("factory:two") || call.includes(two))).toBe(false)
+    expect(f.objects.size).toBe(0)
+  })
+})
+describe("managed Docker: per-thread images", () => {
+  const one = `sha256:${"a".repeat(64)}`
+  const two = `sha256:${"b".repeat(64)}`
+  const identities = { "factory:one": one, "factory:two": two }
+
+  it("resolves an allowed image to its own identity", async () => {
+    const f = fixture({ image: "factory:one", identities, images: (ref) => ref === "factory:two" })
+    const environment = await f.provider.resolveImageEnvironment?.("factory:two", signal)
+    expect(environment).toEqual({
+      binding: { provider: "docker", scope: "app", account: "daemon" },
+      identity: two,
+    })
+    expect(f.calls).toContainEqual(["image", "inspect", "--format", "{{.Id}}", "factory:two"])
+  })
+  it("needs no predicate for its own image", async () => {
+    const f = fixture({ image: "factory:one", identities })
+    expect((await f.provider.resolveImageEnvironment?.("factory:one", signal))?.identity).toBe(one)
+  })
+  it.each([
+    ["an image the predicate refuses", "factory:three"],
+    ["a reference that reads as a flag", "--privileged"],
+    ["a reference with whitespace", "factory two"],
+  ])("refuses %s before any Docker call", async (_why, reference) => {
+    const f = fixture({ image: "factory:one", identities, images: (ref) => ref === "factory:two" })
+    await expect(f.provider.resolveImageEnvironment?.(reference, signal)).rejects.toMatchObject({
+      code: "unsupported",
+    })
+    expect(f.calls).toEqual([])
+  })
+  it("refuses every other image when no predicate is configured", async () => {
+    const f = fixture({ image: "factory:one", identities })
+    await expect(f.provider.resolveImageEnvironment?.("factory:two", signal)).rejects.toMatchObject(
+      { code: "unsupported" },
+    )
+    expect(f.calls).toEqual([])
+  })
+  it("lets a throwing predicate fail the admission rather than allow", async () => {
+    const f = fixture({
+      image: "factory:one",
+      identities,
+      images: () => {
+        throw new Error("catalog unavailable")
+      },
+    })
+    await expect(f.provider.resolveImageEnvironment?.("factory:two", signal)).rejects.toThrow(
+      /catalog unavailable/,
+    )
+    expect(f.calls).toEqual([])
+  })
+  it("without a default image, refuses a thread that names none", async () => {
+    const f = fixture({ identities, images: () => true })
+    const bare = f.providerFor(undefined)
+    await expect(bare.resolveEnvironment(signal)).rejects.toMatchObject({ code: "unsupported" })
+    expect(f.calls).toEqual([])
+    expect((await bare.resolveImageEnvironment?.("factory:two", signal))?.identity).toBe(two)
   })
 })

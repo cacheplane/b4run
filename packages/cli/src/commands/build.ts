@@ -12,9 +12,14 @@ import {
 import { assertRouteMarkerFileLimits } from "../lib/build/targets/marker-files.js"
 import { resolveVercelOutputDir } from "../lib/build/targets/vercel.js"
 import { resolveVercelBuildConfig } from "../lib/build/targets/vercel-config.js"
-import { captureWorkspaceArtifact } from "../lib/build/workspace-artifact.js"
+import {
+  captureWorkspaceArtifact,
+  threadSandboxArtifact,
+  type WorkspaceBuildArtifact,
+} from "../lib/build/workspace-artifact.js"
 import { loadOptionalB4Config } from "../lib/node-config.js"
 import { CliError, type CommandIo, writeLine } from "../lib/output.js"
+import { sandboxConfigShapeErrors } from "../lib/runtime/sandbox-config-shape.js"
 import { runTypegen } from "../lib/typegen/run-typegen.js"
 
 interface BuildOptions {
@@ -90,15 +95,23 @@ export async function runBuildCommand(options: BuildOptions, io: CommandIo): Pro
     await assertRouteMarkerFileLimits({ appRoot: manifest.appRoot, manifest })
   }
 
-  let workspaceArtifact: Awaited<ReturnType<typeof captureWorkspaceArtifact>> | undefined
-  if (config?.sandbox?.workspace) {
+  let workspaceArtifact: WorkspaceBuildArtifact | undefined
+  const sandbox = config?.sandbox
+  // Every sandbox block, not only a managed one: a lone misspelt `thred:` must fail the build.
+  if (sandbox !== undefined) {
+    const shape = sandboxConfigShapeErrors(sandbox)
+    if (shape.length > 0) throw new CliError(`Invalid sandbox config:\n${shape.join("\n")}`)
+  }
+  if (sandbox && (sandbox.workspace || sandbox.thread)) {
     if (targetNames.some((name) => name !== "node"))
       throw new CliError('Managed workspaces require build.targets: ["node"]')
-    if (!config.sandbox.provider.workspaces)
+    if (!sandbox.provider.workspaces)
       throw new CliError("Sandbox provider does not support managed workspaces")
     if (!(await stat(join(manifest.appRoot, "workspace"))).isDirectory())
       throw new CliError("Managed workspaces require app-root workspace/ capability")
-    workspaceArtifact = await captureWorkspaceArtifact(manifest.appRoot, config.sandbox.workspace)
+    if (sandbox.thread) workspaceArtifact = threadSandboxArtifact()
+    else if (sandbox.workspace)
+      workspaceArtifact = await captureWorkspaceArtifact(manifest.appRoot, sandbox.workspace)
   }
 
   // Run typegen as pre-step to produce .b4/routes/<id>/tools.json and .b4/b4.generated.d.ts

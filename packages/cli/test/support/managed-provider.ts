@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import type {
   ManagedWorkspaceProvider,
   ReadyWorkspace,
+  SandboxPolicy,
   SandboxProvider,
   WorkspaceCreateIntent,
 } from "@b4run/workspace"
@@ -14,12 +15,20 @@ export function managedProviderFixture(options: { readonly reads?: boolean } = {
   >()
   const sessions = new Set<string>()
   const calls: string[] = []
+  const policies = new Map<string, SandboxPolicy>()
   const workspaces: ManagedWorkspaceProvider = {
     name: "test-service",
     async resolveEnvironment() {
       return {
         binding: { provider: "test-service", scope: "example", account: "account" },
         identity: "immutable-template",
+      }
+    },
+    async resolveImageEnvironment(image) {
+      calls.push(`image:${image}`)
+      return {
+        binding: { provider: "test-service", scope: "example", account: "account" },
+        identity: `immutable-template@${image}`,
       }
     },
     async inspectCreation(intent) {
@@ -58,8 +67,9 @@ export function managedProviderFixture(options: { readonly reads?: boolean } = {
       })
       return ready
     },
-    async reconnect(ready) {
+    async reconnect(ready, policy) {
       calls.push("reconnect")
+      policies.set(ready.reference.threadId, policy)
       const record = records.get(ready.reference.operationId)
       if (!record) throw new Error("Remote workspace lost")
       const incarnation = randomUUID()
@@ -196,5 +206,5 @@ export function managedProviderFixture(options: { readonly reads?: boolean } = {
       throw new Error("Legacy destroy must never be used")
     },
   }
-  return { provider, workspaces, records, calls }
+  return { provider, workspaces, records, calls, policies }
 }

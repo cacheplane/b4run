@@ -92,6 +92,47 @@ Let's quickly review:
 
 `b4 check` reports a resolver as "managed workspace is resolved per thread", and a built app carries a resolver marker instead of captured source.
 
+### Per-thread sandboxes
+
+When threads also need different images or limits (say, one toolchain per target), let `sandbox.thread` decide each thread's whole sandbox instead of `sandbox.workspace`:
+
+```ts title="b4.config.ts"
+const targets: Record<string, { image: string; memoryMb: number }> = {
+  small: { image: "builder-small:1a2b3c4d5e6f", memoryMb: 1024 },
+  large: { image: "builder-large:6f5e4d3c2b1a", memoryMb: 8192 },
+}
+
+export default config({
+  sandbox: {
+    provider: dockerSandbox({
+      scope: "builder",
+      images: (reference) => Object.values(targets).some((t) => t.image === reference),
+    }),
+    network: { mode: "deny" },
+    thread: async ({ threadId, metadata }) => {
+      const target = targets[String(metadata.target ?? "")]
+      if (!target) throw new Error(`thread ${threadId} names no known target`)
+      return {
+        workspace: { source: { directory: "project", include: ["package.json", "src/index.ts"] } },
+        environment: { image: target.image },
+        policy: { resources: { memoryMb: target.memoryMb } },
+      }
+    },
+  },
+})
+```
+
+Let's quickly review:
+
+- `sandbox.thread` and `sandbox.workspace` are exclusive. `b4 check`, `b4 build` and startup refuse both together, and refuse any key the `sandbox` block doesn't define.
+- The resolver runs once, when the thread is first admitted. B4.run records the image's immutable identity in the thread's creation intent, and the image reference and policy in a record written in the same transaction. Later turns, restarts and readers use the records, so changing the resolver or `images` never changes a thread that already exists.
+- `images` bounds what a resolver may name. The Docker provider refuses any other reference before it runs a Docker command, and always allows its own `image`. Without `image`, every thread must name one. Narrowing `images` later doesn't re-check existing threads: each keeps the image identity recorded at its first admission, so to revoke an image, delete the threads that use it.
+- A thread's `resources` merge over the app's key by key, and its `env` replaces the app's. Its `network` can keep or narrow the app's but never open a network the app denies. `security` stays the app's. Network allow and deny lists and `resources.diskGb` aren't accepted per thread, because managed workspaces don't enforce them.
+- Every thread admitted under `sandbox.thread` gets a record, even when the resolver chose no image or policy. A thread that has a workspace but no record (it was created before the app switched to `sandbox.thread`, or its record was lost) is refused rather than run with the app's defaults: delete it to resolve it again.
+- A provider supports per-thread images by implementing `resolveImageEnvironment`. A provider without it refuses a thread that names an image. Kubernetes has no managed workspaces, so it refuses `sandbox.thread` entirely.
+
+`b4 check` reports "workspace, image and policy are resolved per thread", and a built app carries a thread marker instead of captured source.
+
 ## Security hardening
 
 The Docker provider applies these defaults:

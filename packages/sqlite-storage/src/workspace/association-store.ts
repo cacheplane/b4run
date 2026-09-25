@@ -1,7 +1,12 @@
 import type { DatabaseSync } from "node:sqlite"
-import type { ReadyWorkspace, WorkspaceCreateIntent } from "@b4run/workspace"
-import { verifyReadyWorkspace, verifyWorkspaceIntent } from "@b4run/workspace/node"
+import type { ReadyWorkspace, ThreadSandboxRecord, WorkspaceCreateIntent } from "@b4run/workspace"
+import {
+  verifyReadyWorkspace,
+  verifyThreadSandboxRecord,
+  verifyWorkspaceIntent,
+} from "@b4run/workspace/node"
 import type { WorkspaceSourceStore } from "./source-store.js"
+import type { WorkspaceThreadSandboxWriter } from "./thread-sandbox-store.js"
 export interface WorkspaceAssociation {
   readonly revision: number
   readonly state: "creating" | "ready" | "deleting" | "deleted"
@@ -11,7 +16,8 @@ export interface WorkspaceAssociation {
 export interface WorkspaceAssociationStore {
   list(): readonly WorkspaceAssociation[]
   get(threadId: string): WorkspaceAssociation | undefined
-  create(intent: WorkspaceCreateIntent): WorkspaceAssociation
+  /** With `sandbox`, the thread's sandbox record is written in the same transaction. */
+  create(intent: WorkspaceCreateIntent, sandbox?: ThreadSandboxRecord): WorkspaceAssociation
   markReady(threadId: string, revision: number, ready: ReadyWorkspace): WorkspaceAssociation
   beginDelete(threadId: string): WorkspaceAssociation | undefined
   completeDelete(threadId: string, revision: number): WorkspaceAssociation
@@ -22,6 +28,7 @@ const MAX_RECORD_BYTES = 1024 * 1024
 export function makeWorkspaceAssociationStore(
   db: DatabaseSync,
   sources: WorkspaceSourceStore,
+  sandboxes?: WorkspaceThreadSandboxWriter,
 ): WorkspaceAssociationStore {
   const tables = db
     .prepare(
@@ -136,13 +143,18 @@ export function makeWorkspaceAssociationStore(
         .map((row) => get(String(row.thread_id)) as WorkspaceAssociation)
     },
     get,
-    create(input) {
+    create(input, sandbox) {
       return transaction(() => {
         const intent = verifyWorkspaceIntent(input)
+        const record = sandbox === undefined ? undefined : verifyThreadSandboxRecord(sandbox)
+        if (record !== undefined && sandboxes === undefined)
+          throw new Error("Workspace thread sandbox storage is unavailable")
         const existing = get(intent.threadId)
         if (existing) {
           if (JSON.stringify(existing.intent) !== JSON.stringify(intent))
             throw new Error("Workspace creation intent conflict")
+          if (JSON.stringify(sandboxes?.get(intent.threadId)) !== JSON.stringify(record))
+            throw new Error("Workspace thread sandbox conflict")
           return existing
         }
         if (!sources.get(intent.sourceDigest))
@@ -151,6 +163,7 @@ export function makeWorkspaceAssociationStore(
           intent.threadId,
           payload({ intent }),
         )
+        if (record !== undefined) sandboxes?.insert(intent.threadId, record)
         return get(intent.threadId) as WorkspaceAssociation
       })
     },
@@ -174,7 +187,9 @@ export function makeWorkspaceAssociationStore(
         const record = get(threadId)
         if (!record || record.state !== "deleting" || record.revision !== revision)
           throw new Error("Workspace deletion state/revision conflict")
-        return update(record, "deleted")
+        const deleted = update(record, "deleted")
+        sandboxes?.remove(threadId)
+        return deleted
       })
     },
   }
