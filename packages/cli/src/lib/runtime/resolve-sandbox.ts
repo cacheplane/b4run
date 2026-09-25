@@ -69,6 +69,7 @@ export async function resolveSandboxManager(
               definition,
               ...(result.environment !== undefined ? { image: result.environment.image } : {}),
               ...(result.policy !== undefined ? { policy: result.policy } : {}),
+              ...(result.permissions !== undefined ? { permissions: result.permissions } : {}),
             }
           } catch (error) {
             if (input.signal.aborted) throw error

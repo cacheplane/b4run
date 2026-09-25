@@ -171,16 +171,18 @@ describe("resolveSandboxManager", () => {
     await expect(stat(join(appRoot, ".b4", "workspaces"))).rejects.toThrow()
   })
 
-  test("refuses at admission a thread resolver that returns permissions (PR 1)", async () => {
+  test("records a thread resolver's permissions and refuses an empty pattern at admission", async () => {
     const appRoot = await writeThreadApp(
-      `{ provider: managedProviderFixture().provider, thread: async () => ({ workspace: { source: { directory: ".", include: ["b4.config.ts"], excludeDirectories: [".b4"] } }, permissions: { allow: { bash: ["*"] } } }) }`,
+      `{ provider: managedProviderFixture().provider, thread: async (thread) => ({ workspace: { source: { directory: ".", include: ["b4.config.ts"], excludeDirectories: [".b4"] } }, permissions: { allow: { bash: thread.threadId === "one" ? ["npm test"] : [""] } } }) }`,
     )
     const mgr = await resolveSandboxManager(appRoot)
     try {
-      await expect(mgr?.getForThread("one", new AbortController().signal)).rejects.toThrow(
-        /Thread sandbox resolver for thread one: .*unsupported key permissions/,
+      await mgr?.getForThread("one", new AbortController().signal)
+      expect(mgr?.threadPermissions("one")?.permissions).toEqual({ allow: { bash: ["npm test"] } })
+      await expect(mgr?.getForThread("two", new AbortController().signal)).rejects.toThrow(
+        /Thread sandbox resolver for thread two: .*empty pattern matches every candidate/,
       )
-      expect(mgr?.getWorkspace("one")).toBeUndefined()
+      expect(mgr?.getWorkspace("two")).toBeUndefined()
     } finally {
       await mgr?.releaseAll()
     }
