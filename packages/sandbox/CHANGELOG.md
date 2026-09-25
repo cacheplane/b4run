@@ -1,5 +1,30 @@
 # @dawn-ai/sandbox
 
+## 0.12.1
+
+### Patch Changes
+
+- f2ee6cf: `inspectWorkspace` no longer makes one backend call per entry when the backend can batch. Filesystem backends gain two optional methods. `walkTree` returns every entry below a directory with `lstat` metadata in one call, and `readBinaryFiles` reads many files with `readBinaryFile`'s per-file `maxBytes` bound. When a backend has both, inspection walks once, reads in a few calls, and applies exactly the same name, kind, size, and budget checks as before. A file that grew between the walk and the read is refused.
+
+  The Docker backend and the Docker workspace reader implement both methods. Inspecting a container workspace now costs a few `docker exec` calls instead of one per `listDir`, `lstat`, and read. Over 1,214 entries that took inspection from 143 s to about 1 s. The walk is bounded inside the container, names travel as exact bytes, and a walk over the entry limit fails rather than being truncated. `withFilesystemLogging` passes both methods through. Other backends are unchanged and keep the per-entry path.
+
+- 0781125: The Kubernetes sandbox backend now implements `walkTree` and `readBinaryFiles`, so `inspectWorkspace` over a pod's workspace costs a few execs instead of one per `listDir`, `lstat`, and read. Over 1,212 entries on a kind cluster, batched inspection took under a second, where each per-entry exec cost about 80 ms. The batch read's script goes to `sh -s` on stdin rather than in argv, because a Kubernetes exec carries its command in the request URL, where an API server or proxy may cap the length. Batch read scripts also redirect each read's stdin from `/dev/null`, so no command in a script fed on stdin can consume the rest of it.
+- 0dd8fff: `sandbox.thread` decides each thread's whole sandbox (workspace, image and policy) once, at the thread's first admission. The image goes through the new optional `ManagedWorkspaceProvider.resolveImageEnvironment`, and its identity is recorded in the thread's creation intent; the image reference and the policy overrides are recorded beside the association in the same transaction, and every reconnect runs the thread's recorded policy over the app's. `dockerSandbox({ images })` bounds which images a thread may name and refuses anything else before any Docker call; `image` is optional when `images` is given. A thread may not open a network the app denies, and `security` stays per app. `b4 check`, `b4 build` and startup refuse unknown `sandbox` keys and `thread` beside `workspace`; a thread-sandbox app builds to a `{ version: 2, kind: "thread" }` artifact. The installation now stores a workspace's source only after its environment resolves, so a refused image leaves no source behind.
+
+  **Behaviour change:** `b4 check`, `b4 build` and startup now refuse any key in the `sandbox` block other than `workspace`, `thread`, `provider`, `network`, `env`, `resources`, `security` and `idleTimeoutMs`. A misspelt key used to be ignored silently, which left every thread in a per-app sandbox; rename or remove any other key.
+
+- 1da86ae: A sandbox with no `network` setting now defaults to `{ mode: "allow" }`. The previous default was `{ mode: "allow", denylist: ["169.254.169.254"] }`, but neither the Docker nor the Kubernetes provider enforces an allow-mode `denylist`. The entry claimed a block on the cloud metadata endpoint that never took effect, and runtime behavior is unchanged: allow-mode egress was open before and is open now. On a cloud VM, set `network: { mode: "deny" }` when the sandbox does not need the network. Otherwise block the endpoint outside B4.run, with a host firewall or egress proxy for Docker, or with the `b4-sandbox-infra` chart's default-deny egress backstop or your own NetworkPolicy for Kubernetes. The `SandboxPolicy.network` JSDoc and the sandbox and configuration docs now say which lists each reference provider ignores.
+- 03795da: A Docker command that exits before reading its stdin no longer crashes the process with an uncaught `EPIPE`. The Docker client and the devkit test process helper now ignore `EPIPE` on the child's stdin, where the exit status already reports the failure, and still surface any other stdin error. Batched workspace reads send their scripts over stdin, which made this reachable.
+- fcf6d83: Read a thread's workspace over HTTP. `sandbox.workspaceRead: "http"` serves `POST /threads/:thread_id/workspace/inspect`, a bounded read-only inventory of a thread's managed workspace, authorized by the app's thread-access policy as the new `thread.workspace` operation; `b4 check`, `b4 build` and boot refuse it without a policy. `sandbox.workspaceReadTimeoutMs` bounds one read (default 120 s). `readThreadWorkspace` in `@b4run/cli/workspace` is the client. `inspectWorkspace` gains `root` and throws `WorkspaceInspectionError` with a code (`invalid_options`, `root_missing`, `refused`, `changed`); B4.run's bounded reads throw `WorkspaceReadLimitError` with their existing messages, and the Docker and Kubernetes batched walk's entry-limit refusal is a `WorkspaceInspectionError`. `ThreadOperation` gains a member, so an exhaustive `switch` over it needs a case. On Node, a request body a handler stops reading part-way is now discarded rather than resetting the connection, so a refusal such as a 413 reaches the client.
+- Updated dependencies [f2ee6cf]
+- Updated dependencies [3b489a5]
+- Updated dependencies [0dd8fff]
+- Updated dependencies [1da86ae]
+- Updated dependencies [79c5f63]
+- Updated dependencies [fcf6d83]
+  - @b4run/workspace@0.12.1
+  - @b4run/sdk@0.12.1
+
 ## 0.12.0
 
 ### Patch Changes
