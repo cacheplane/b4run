@@ -3470,3 +3470,19 @@ Expected: exit 0 for all four.
 | Playwright + axe at 375/768/1024/1440, motion on and reduced | Task 9, Steps 2–4 |
 | `pnpm --dir apps/web test`, `typecheck`, `lint`, then `seo:lastmod` committing only `/` | Tasks 8 and 9 |
 | `next dev` traps; explicit staging | Rules; Task 9, Step 5; every commit step |
+
+## Amendments (UI/UX Pro Max review, 2026-09-25)
+
+These were checked against the ui-ux-pro-max skill (`gsap` "scroll pin section",
+`ux` "scroll jacking pinned" and "smooth scroll") and apply on top of the tasks above.
+
+1. **Task 5: refresh the pin once web fonts load.** ScrollTrigger measures the pin's
+   start and end when it's created. A later font swap changes the tour's height, which
+   shifts the snap points. Inside the `full` branch, after `ScrollTrigger.create(...)`,
+   add `document.fonts?.ready.then(() => { if (triggerRef.current) ScrollTrigger.refresh() })`.
+   The test stubs `document.fonts` with an already-resolved `ready` and asserts `refresh`
+   was called once.
+2. **Task 5: stacked chip clicks scroll smoothly unless motion is reduced.** The unpinned
+   chip handler calls `scrollIntoView({ block: "start" })`, which jumps. Use
+   `behavior: window.matchMedia(REDUCE).matches ? "auto" : "smooth"`. The test checks both
+   branches through the media stub.
