@@ -4256,6 +4256,9 @@ git commit -m "feat(software-factory): dispatch prepares the task's image before
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+> **As landed:** also updated the `factory-cancel` and `factory-builder-handoff` test
+> expectations: a cancel during the image wait refuses the dispatch before any thread is created.
+
 ### Task 13a: The verifier, the oracle proof and approve's re-verification run the bound image by ID
 
 Moved into PR 1 after review (item 3), so identity is never half enforced: from this task on, every verdict is earned in the image the work order bound, by ID, and the receipt, the policy and the bundle all digest that image object. The binding is authoritative (D5): a registry record replaced by a later build of the key strands nothing while the bound image exists; a bound ID the daemon no longer holds is refused. PR 2 then only moves the builder.
@@ -4469,6 +4472,12 @@ git commit -m "feat(software-factory): every verdict is earned in the bound imag
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+> **As landed:** review added a guarded read of the binding in approve (an unreadable or missing
+> binding is `image_unbound`), `bindingMoved` (`image_changed`, reason `target_moved`, for a
+> binding naming another target or pin than the task), `ImageGoneError` journalled as
+> `image_changed` with reason `gone`, and a test that the bound image beats a later registry
+> record of the same key.
+
 ### Task 14: `factory dispatch` follows an image build past its request timeout
 
 A dispatch that builds holds its request for the build (minutes for `cli`), with the row in `received` at its revision: today's fallback reads that as "the request did not reach the controller" once its arrival window passes, and, had it arrived, as "settled" because `received` is not an active state. The journal can say both, if dispatch says when it ends without moving the row: `image_prepare_started` is arrival, and a dispatch that started preparing an image is working until it either moves the row (a `transition`) or refuses (`dispatch_refused`, new).
@@ -4678,6 +4687,12 @@ git commit -m "feat(software-factory): the CLI follows a dispatch through its im
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
+
+> **As landed:** review added: the follow ends when reconciliation aborts the build on a restart
+> (`image_prepare_aborted`, reason `restart`); `dispatch_refused` is journalled on a throw too,
+> except `CommandInFlightError` (the key holder journals its own end); the follow's wait is
+> clamped to the journalled `deadlineMs`; and a follow that runs out says the work order is
+> "still preparing its image".
 
 ### Task 15: The Docker proofs: an unprepared pin built at intake with the script's identity; a moved tag moves nothing
 
@@ -4894,6 +4909,10 @@ git commit -m "test(software-factory): an unprepared pin is built at intake; a m
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+> **As landed:** also updated `drafter-end-to-end.integration.test.ts`'s expected event list for
+> the fit-step build and binding, and added a verifier test that runs the bound image by id
+> whatever the recipe tag names.
+
 ### Task 16: CI builds on demand: the explicit prepare steps go
 
 **Files:**
@@ -4965,6 +4984,8 @@ git commit -m "ci(software-factory): the Docker lanes build target images on dem
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
+
+> **As landed:** no deviations.
 
 ### Task 17: The README, the developer guide and the spec say what changed
 

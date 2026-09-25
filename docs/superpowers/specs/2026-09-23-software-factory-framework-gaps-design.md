@@ -225,6 +225,28 @@ unprepared `devkit` pin builds it, and the recorded identity equals the script's
 
 **Size: M.**
 
+**As landed** ([plan](../plans/2026-09-25-images-built-on-demand.md), PR 1). `target.json`
+records no image; it pins its base by digest (`baseImage`). The registry key is the recipe
+digest (target, pin, platform, base, Dockerfile, `imageContext`, lockfile path, asserted
+modules, commands' cwd), not the lockfile hash, which the pin already decides. Intake builds
+at the fit step with the budget paused while a build runs (persisted; reconciliation resumes
+it after a restart); dispatch builds before its key with the row in `received`, honours the
+route's cancel, and re-checks the approved digest after the wait. A work order binds its image
+(`image_bound`; intake rebinds each attempt), and the binding is authoritative: the verifier,
+the oracle proof and approve's re-verification run the bound image by ID, and the policy and
+receipt digest it. A bound image gone from the daemon (`image_changed`, reason `gone`), a
+binding for another target or pin (`image_changed`, reason `target_moved`) and a missing
+binding (`image_unbound`) are refused on the record, never rebuilt. Tags are
+recipe-key-scoped and a build reads its own ID from `--iidfile`. The drafter is offered every
+target whose files exist at the pin. `FACTORY_MAX_IMAGE_BUILDS` (default 1) bounds builds and
+`FACTORY_IMAGE_BUILD_TIMEOUT_MS` (default 30 minutes) each one; the build log is evidence.
+`target:prepare` only warms the registry; `FACTORY_TARGETS_DIR` is retired. The CLI's
+`dispatch` follows a build past its request timeout, bounded by the journalled `deadlineMs`.
+CI's explicit prepares are gone: each lane run builds through a registry of its own. PR 2
+moves the builder to the bound ID, checked against the image's build labels. Deferred: the
+factory's own git object store (§9 finding 3) and budgets from measured verifier time (§9
+finding 5).
+
 ## 5. Targets generated from the package, reviewed by a person
 
 **Today.** `targets/<id>/target.json` and its Dockerfile are hand-written: `capture.include`,

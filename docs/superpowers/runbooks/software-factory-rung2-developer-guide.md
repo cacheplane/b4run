@@ -78,10 +78,10 @@ key is a load failure, not a warning):
 | `root` | Repository-relative root the capture paths are read under (`.` for a monorepo target) |
 | `capture.include` | The inventory: exactly what `git archive` takes at the pin |
 | `snapshotIgnore` | Root-relative directory prefixes the build legitimately writes (devkit: `packages/devkit/dist/`) |
-| `image` | Written by the prepare script; absent means the target does not load |
+| `baseImage` | The base image, pinned by digest (`node:24-slim@sha256:…`); pulled only when the daemon lacks it |
 | `imageContext` | The paths the image build context is archived from; must cover `lockfile` |
-| `lockfile` | The lockfile whose sha256 is recorded in `image` |
-| `imageAssertResolves` | Specifiers the prepare script `require.resolve`s inside the built image |
+| `lockfile` | The lockfile whose sha256 the built image records |
+| `imageAssertResolves` | Specifiers every image build `require.resolve`s inside the built image |
 | `environmentLinks` | Root symlinks the workspace gets, and their exact targets |
 | `commands.cwd` | Workspace-relative directory `build` and `test` run in |
 | `commands.build` | argv, run through a quoting join; empty means no build step |
@@ -128,10 +128,15 @@ them. That is deliberate.
 ### The image
 
 The image bakes the pnpm dependency closure for the target at the pin. It is
-built once per pin by the prepare script and recorded in `target.json` as an
+built the first time a work order needs it (intake at the fit step, dispatch
+before anything is spent) from the target's recipe: the Dockerfile, the
+`imageContext` and lockfile at the pin, and the base image `target.json` pins
+by digest (`baseImage`). `target.json` records no image. The host's registry,
+`<FACTORY_STATE_DIR>/images.sqlite`, records it under the recipe digest as an
 `image` object with exactly these fields: `localId`, `platform`,
 `baseManifestDigest`, `dockerfileSha256`, `lockfileSha256`, `pnpmVersion`. The
-verifier writes the digest of that object into every receipt as
+work order binds that object (`image_bound`), the verifier runs it by id, and
+writes the digest of it and the pin into every receipt as
 `environmentIdentity`, and every bundle binds it. Rebuild the image and every
 frozen bundle over the old identity becomes unapprovable, which is the intended
 behaviour: consent was given for a claim that named the old environment.
@@ -209,23 +214,31 @@ than expect exclusion.
   Docker lanes with "Cannot find package '@b4run/cli'"; that is an install
   problem, not a code problem.
 
-### Prepare a target
+### Warm a target's image (optional)
+
+The controller builds a target's image the first time a work order needs it,
+so nothing has to be prepared. To build one ahead of time, into the registry a
+controller with the same state directory reads:
 
 ```bash
-cd examples/software-factory/server
-pnpm target:prepare devkit
+FACTORY_STATE_DIR=$PWD/.factory \
+  pnpm --filter @b4-example/software-factory-controller target:prepare devkit
 ```
 
-This pulls the base image, builds `targets/devkit/Dockerfile` for the host's
-platform, `require.resolve`s each `imageAssertResolves` specifier inside the
-built image, and writes the `image` object into `targets/devkit/target.json`.
-Commit that change. Until the object is present the target does not load.
+This pulls the base image if the daemon lacks it, builds
+`targets/devkit/Dockerfile` for the host's platform, `require.resolve`s each
+`imageAssertResolves` specifier inside the built image, records the image in
+`<FACTORY_STATE_DIR>/images.sqlite` and prints it. It writes nothing under the
+target. `--pin <sha>` builds at another commit.
 
-`FACTORY_SKIP_BASE_PULL=1` skips the `docker pull` of `node:24-slim` and reads
-the digest of whatever copy the host already holds. It exists for a host whose
-Docker Desktop registry proxy is wedged and `docker pull` hangs. It is an
-explicit opt-in, never a fallback, because it records a base digest nobody
-refreshed.
+The base is pinned by digest in `target.json` (`baseImage`) and pulled only when
+the daemon lacks it. `FACTORY_SKIP_BASE_PULL=1` still works and now means
+"never pull": pull the base once by hand
+(`docker pull --platform <platform> <baseImage>`), then set it; an absent base
+then fails the build, naming it. It exists for a host whose Docker Desktop
+registry proxy is wedged and `docker pull` hangs. Whether pulling only when
+absent is enough on its own to avoid that wedge is unverified: BuildKit may
+still load registry metadata for a digest-pinned `FROM`.
 
 A shallow checkout that lacks the pin fetches that one commit from `origin` on
 first load; `FACTORY_NO_FETCH=1` turns a missing pin into a hard error.
@@ -305,7 +318,7 @@ The export lands in the configured export directory as `<digest>.json`,
 holding the bundle and the changed files. Approving again with the same key
 returns the recorded outcome and writes nothing.
 
-One unprepared target does not stop the controller: the task table is built per
+One target that does not load does not stop the controller: the task table is built per
 task and a task that cannot load is omitted and reported, so a work order
 naming it is refused as unknown while every other task keeps working.
 
@@ -330,16 +343,15 @@ naming it is refused as unknown while every other task keeps working.
 ### Add a target
 
 1. Create `targets/<id>/target.json` with the pin, the capture lists, the
-   environment links, the runner configuration files and the commands. Leave
-   `image` absent; the prepare script writes it.
+   environment links, the runner configuration files, the commands and the
+   base image pinned by digest (`baseImage`). It records no image.
 2. Write the Dockerfile. Copy only what the filtered install needs.
-3. Run `pnpm target:prepare <id>` and commit the `image` object it writes. You
-   do **not** need to run `biome check --write targets` afterwards: the script
-   writes the manifest and then runs `npx biome format --write <manifest>` from
-   the app root itself, keeping `image` last, so the tree is left lint-clean.
-4. Add the target to CI: the `sandbox-docker` job prepares every target the
-   factory's lanes need, before `test:sandbox`. A new target needs a line
-   there or its lanes fail on "has not been prepared".
+3. Optionally warm its image (`FACTORY_STATE_DIR=... pnpm --filter
+   @b4-example/software-factory-controller target:prepare <id>`) to see the
+   build succeed before a work order needs it. There is nothing to commit.
+4. If a Docker lane runs the target at its default pin, add it to the list
+   `test/lane-images.global.ts` builds once per `test:sandbox` run into the
+   run's own registry; CI prepares nothing itself.
 5. Measure `commands.build` and `commands.test` in the prepared container
    three times and set the memory, per-command ceiling and verifier deadline
    from the slowest run with real headroom.
@@ -362,8 +374,9 @@ allow-list admits each invocation both at the workspace root and under
 ### Advance a pin
 
 Edit `pin`, regenerate both patches if they no longer apply (layer 1 tells
-you), re-run the prepare script, commit all three changes together. Every
-bundle frozen under the old digest is now unapprovable, which is correct.
+you), commit the pin and the patches together. The image at the new pin is built the first
+time a work order needs it. Every bundle frozen under the old digest is now
+unapprovable, which is correct.
 
 ## Does it make sense?
 
@@ -464,13 +477,17 @@ writes, builds and tests before the controller ever looks.
   the sandbox and from which Vite tolerates only `EACCES`, so the devkit image
   links `node_modules/.vite-temp` to `/tmp`. A host whose Docker Desktop
   registry proxy is wedged hangs `docker pull`, which is what
-  `FACTORY_SKIP_BASE_PULL=1` is for. Each of these cost a rebuild to discover,
+  `FACTORY_SKIP_BASE_PULL=1` is for: the base is pinned by digest and pulled
+  only when absent, and with the variable set it is never pulled (pull it once
+  by hand, `docker pull --platform <platform> <baseImage>`). Whether
+  pull-only-when-absent alone avoids the wedge is unverified. Each of these cost a rebuild to discover,
   and none of them is visible from the manifest.
-- **The prepare step is a manual, out-of-band action** that mutates a
-  checked-in file. Forgetting it gives a target that will not load, which is
-  the right failure, but the error will be met by every new contributor. CI
-  runs it too, which means CI's `target.json` diff (its own `localId` and
-  `linux/amd64`) is expected and nothing in that job may assert a clean tree.
+- **The first work order at a new pin waits for a build.** Images are built
+  when first needed, so there is no manual prepare step and no checked-in
+  image, but the first intake or dispatch at a (target, pin) this host has
+  never built waits for the build (its budget paused), and a failed build
+  blocks or refuses it with the log in evidence. `target:prepare` warms the
+  registry ahead of time if that wait matters.
 - **Two containers per verification** on a developer laptop that is also
   running the test suite. Measured on this branch: the devkit layer 2 lane
   about 110 s, the devkit end-to-end lane about 130 s, the full Docker lane
