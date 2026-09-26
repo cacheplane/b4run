@@ -52,13 +52,18 @@ describe("the controller has no path to a worker's filesystem", () => {
     expect(new Set(imported)).toEqual(new Set(["readThreadWorkspace", "ThreadWorkspaceReadError"]))
   })
 
-  it("uses @b4run/sandbox only to build its own verifier's sessions", () => {
+  // target:measure's sessions are the verifier's shape on the controller's own daemon, over a
+  // target's image and a fresh capture: never a worker's session.
+  it("uses @b4run/sandbox only to build its own verifier's and measurement's sessions", () => {
     const users = sources(SRC)
       .filter((file) => /["']@b4run\/sandbox["']/.test(readFileSync(file, "utf8")))
       .map((file) => file.slice(SRC.length + 1))
-    expect(users).toEqual(["lib/verification/docker-verifier.ts"])
-    const verifier = readFileSync(join(SRC, "lib/verification/docker-verifier.ts"), "utf8")
-    expect(verifier).not.toMatch(/software-factory-(builder|drafter)/)
+      .sort()
+    expect(users).toEqual(["lib/targets/measure/session.ts", "lib/verification/docker-verifier.ts"])
+    for (const user of users)
+      expect(readFileSync(join(SRC, user), "utf8")).not.toMatch(
+        /software-factory-(builder|drafter)/,
+      )
   })
 
   it("would catch a dynamic import of the installation store (the patterns bind)", () => {
