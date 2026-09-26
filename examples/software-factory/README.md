@@ -339,11 +339,13 @@ capture (the root manifests; the package's manifest, tsconfig files, vitest conf
 the image context (every installed package's manifest), the build (one `tsc -b` over the
 dependency closure in dependency order, with `--builders 1` when the root's TypeScript is 7 or
 later), the test command, the runner configuration and the build outputs. It prints a diff and
-writes only with `--write`. Resources are placeholders and no test is excluded:
-`target:measure`, which measures both, comes in a follow-up, and until it has run a generated
-target must not be committed. The factory will not use one either: a target whose resources
-are the placeholders is never offered to the drafter, and a draft or task naming it is refused
-(`resources are placeholders: run target:measure`). Re-running `target:init` on an existing
+writes only with `--write`. Resources are placeholders and no test is excluded: `target:init`
+is the first of two commands, and `target:measure` (below) measures both. The flow is init,
+then measure, then review the diff and `measurement.md`, then commit; a generated target is not
+committed before it is measured. The factory keeps refusing one that skipped the second step,
+as a fail-safe: a target whose resources are the placeholders is never offered to the drafter,
+and a draft or task naming it is refused (`resources are placeholders: run target:measure`).
+Re-running `target:init` on an existing
 target keeps what was decided there (base image, resources, drafting notes, the test command's
 scope and excludes, the Dockerfile's promotion set), so an unchanged target prints an empty
 diff; it does not keep `--with-dev-builds`, which a re-generation must be given again. Its
@@ -355,6 +357,30 @@ the package's workspace devDependencies that have builds. A vitest `setupFiles` 
 `package.json` names `packageManager: pnpm@<x.y.z>`, and each built package's `build` script
 must run exactly one `tsc -b <tsconfig>` (anything else it runs is named in a note and not
 run); `cli-flags` stays hand-written.
+
+`pnpm --filter @b4-example/software-factory-controller target:measure <id> [--pin <sha>] [--write]`
+(with `FACTORY_STATE_DIR` set) builds the target's image through the same registry the
+controller uses (the target's files as they are on disk, so an uncommitted `target:init` output
+can be measured), lists the test files the target's vitest command selects, runs each one alone
+in the verifier's session shape (network denied, the workspace snapshotted before and after),
+and proposes an exclude for each file that fails, hangs, is killed, or passes but changes the
+workspace (which every verification would refuse as tampering); each non-pass runs once more in
+a fresh container, and a file that then passes is listed as flaky, never excluded. It then runs
+the suite with those excludes (`--runs`, default 3) in fresh containers, each graded as the
+verifier grades it, proposes resources from cgroup `memory.peak` and the wall clock, never below
+the target's own without `--allow-decrease`, and tries the proposal once at exactly those
+values. `memoryMb` is twice the highest `memory.peak` (256 MiB steps, at least 512);
+`commandTimeoutMs` is eight times the slower of build and suite (10 s steps, at least 60 s);
+`verifierDeadlineMs` is the larger of five times the slowest session and twice
+(`commandTimeoutMs` plus the slowest session), in minutes, at least 2: the verifier's visible and
+independent sessions share one deadline, and a candidate that hangs its suite must reach each
+session's command timeout (rejected) before that deadline (inconclusive), so the deadline is
+re-derived after a prior raises the timeout. `--write` writes `target.json` and `targets/<id>/measurement.md` (each exclude's class,
+reason and first error lines, committed with the target); the full evidence is in
+`<FACTORY_STATE_DIR>/measurements/<id>/<pin12>-<utc>/report.md`. When the build fails at the
+Dockerfile's promotion check (a nested dependency pnpm's hoisting left under a package), it
+proposes the set the build printed instead: review it, apply it with `--write`, and measure
+again. A target stays a reviewed, committed file: it is an input to every verification.
 
 A recorded image is re-checked on the daemon at every need and rebuilt if it is gone. Once
 bound, the binding is what counts: the verifier, the oracle proof and approve's

@@ -66,6 +66,12 @@ export function targetSandboxPolicy(target: TargetRecipe): SandboxPolicy {
 }
 
 /**
+ * What a workspace is built from: a task, or anything task-shaped. `target:measure` builds the
+ * verifier's session for a target with no task behind it (no defect, a placeholder spec).
+ */
+export type WorkspaceTask = Pick<TaskRecipe, "id" | "target" | "specText" | "defectPatch">
+
+/**
  * Pure declaration of what the workspace contains: the role's archive of the pinned subtree
  * with the defect applied, the task spec as TASK.md, and the image's dependency tree linked
  * at the root. The independent checks are not in the capture at all: the verifier writes them
@@ -73,7 +79,7 @@ export function targetSandboxPolicy(target: TargetRecipe): SandboxPolicy {
  * ran in.
  */
 export function targetWorkspace(
-  task: TaskRecipe,
+  task: WorkspaceTask,
   role: CaptureRole,
   options: CaptureTargetOptions,
 ): WorkspaceDefinition {
@@ -103,6 +109,18 @@ export function targetWorkspace(
 }
 
 /**
+ * The limits of the verifier's tamper snapshot: the framework's own defaults, restated so a
+ * change there is visible here. The verifier (`grade-suite.ts`) and `target:measure`
+ * (`measure/session.ts`) both snapshot with these, so a measurement sees exactly what a
+ * verification's tamper check sees.
+ */
+export const TAMPER_INSPECTION_LIMITS = {
+  maxEntries: 10_000,
+  maxFileBytes: 2 * 1024 * 1024,
+  maxTotalBytes: 16 * 1024 * 1024,
+} as const
+
+/**
  * How a workspace built from {@link targetWorkspace} must be inspected, derived from the
  * target rather than restated by each caller: `baseline: "git"` puts a `.git` directory in the
  * workspace that is not part of the capture, and each environment link is a root symlink
@@ -119,7 +137,7 @@ export function targetWorkspace(
  * directory the independent oracle reads. A target whose build output is large must still raise the reader's
  * limits rather than expect exclusion — the filter is applied after the walk.
  */
-export function targetInspectionOptions(task: TaskRecipe): WorkspaceReadOptions {
+export function targetInspectionOptions(task: Pick<TaskRecipe, "target">): WorkspaceReadOptions {
   const expectedRootSymlinks: Record<string, string> = {}
   for (const link of task.target.environmentLinks) expectedRootSymlinks[link.path] = link.target
   return {
