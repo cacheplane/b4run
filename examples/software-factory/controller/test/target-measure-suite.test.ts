@@ -269,6 +269,95 @@ describe("measureSuite", () => {
     expect(sessionOf("test/b.test.ts")).toEqual([3])
   })
 
+  it("classifies a file after which the verifier's inspection refuses the workspace as writes, and gives the next file a fresh container", async () => {
+    // packages/cli's check-command.test.ts chmods the built CLI 0755: every verification with
+    // it in the suite would be refused, so it is a file to exclude, not a stop.
+    const refusal = "Executable workspace file: packages/cli/dist/index.js"
+    const { fake, result } = measure({
+      files: {
+        "test/a.test.ts": {},
+        "test/b.test.ts": { refuses: refusal },
+        "test/c.test.ts": {},
+        "test/d.test.ts": { exitCode: 1, refuses: refusal },
+      },
+    })
+    const m = await result
+    expect(m.files.map((f) => [f.file, f.verdict])).toEqual([
+      ["test/a.test.ts", "pass"],
+      ["test/b.test.ts", "writes"],
+      ["test/c.test.ts", "pass"],
+      ["test/d.test.ts", "writes"],
+    ])
+    expect(m.excludes).toEqual(["test/b.test.ts", "test/d.test.ts"])
+    const b = m.files[1]
+    expect(b?.reason).toBe(
+      `the verifier's workspace inspection refuses the workspace after it: "${refusal}"`,
+    )
+    expect(b?.output).toContain("test/b.test.ts output")
+    // Two refusals keep the first verdict; the second run's is on the result.
+    expect(b?.secondRun).toMatch(/second run in a fresh container: writes/)
+    // A failing file that also leaves a refused workspace says both.
+    expect(m.files[3]?.reason).toBe(
+      `the verifier's workspace inspection refuses the workspace after it: "${refusal}"; fails run alone (exit 1)`,
+    )
+    const sessionOf = (file: string) =>
+      fake.sessionOf
+        .filter((run) => run.argv.at(-1) === file && !run.argv.includes("--exclude"))
+        .map((run) => run.session)
+    // Session 1 lists; a and b share one; c starts a fresh one after b's refusal; the re-runs
+    // of b and d each get their own.
+    expect(sessionOf("test/a.test.ts")).toEqual([2])
+    expect(sessionOf("test/b.test.ts")).toEqual([2, 4])
+    expect(sessionOf("test/c.test.ts")).toEqual([3])
+    expect(sessionOf("test/d.test.ts")).toEqual([3, 5])
+  })
+
+  it("sanitises a refusal before it reaches a reason", async () => {
+    const m = await measure({
+      files: {
+        "test/a.test.ts": {},
+        "test/b.test.ts": { refuses: "Executable workspace file: x\u001b[2J<!--\ny\n" },
+      },
+    }).result
+    expect(m.files[1]?.reason).toBe(
+      'the verifier\'s workspace inspection refuses the workspace after it: "Executable workspace file: x&lt;!-- y"',
+    )
+  })
+
+  it("stops, naming the target, when the inspection refuses the workspace before any test ran", async () => {
+    const error = await measure({
+      files: { "test/a.test.ts": {}, "test/b.test.ts": {} },
+      build: { refuses: "Binary workspace file: packages/app/dist/x.node" },
+    }).result.catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(MeasureError)
+    expect((error as MeasureError).message).toMatch(
+      /the verifier's workspace inspection refuses app's workspace after its build, before any test ran: "Binary workspace file: packages\/app\/dist\/x.node"/,
+    )
+  })
+
+  it("stops when the inspection refuses the workspace after the suite: no resources for a suite every verification refuses", async () => {
+    const error = await measure({
+      files: { "test/a.test.ts": {}, "test/b.test.ts": { exitCode: 1 } },
+      suite: { refuses: "Workspace entries limit exceeded" },
+    }).result.catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(MeasureError)
+    expect((error as MeasureError).message).toMatch(
+      /The suite with the proposed excludes left a workspace the verifier's inspection refuses \("Workspace entries limit exceeded"\), so every verification would be refused, on run 1/,
+    )
+    expect((error as MeasureError).files?.map((f) => f.verdict)).toEqual(["pass", "fail"])
+  })
+
+  it("stops, keeping the files, on a snapshot that fails for any other reason", async () => {
+    const error = await measure({
+      files: { "test/a.test.ts": {}, "test/b.test.ts": { snapshotFails: "EIO: i/o error" } },
+    }).result.catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(MeasureError)
+    expect((error as MeasureError).message).toMatch(
+      /The workspace snapshot after test\/b.test.ts failed: EIO: i\/o error/,
+    )
+    expect((error as MeasureError).files?.map((f) => f.verdict)).toEqual(["pass"])
+  })
+
   it("refuses a suite the verifier would not grade a pass: no report, no test, or every test skipped", async () => {
     const files = { "test/a.test.ts": {} }
     for (const [report, why] of [
