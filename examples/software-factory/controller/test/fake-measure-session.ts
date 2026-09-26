@@ -15,6 +15,8 @@ export interface FakeFile {
   readonly reports?: readonly string[]
   /** Fails its first run only (exit 1), then passes. */
   readonly flakyOnce?: boolean
+  /** What the run prints; `<file> output` and a scripted error when absent. */
+  readonly output?: string
 }
 
 export interface FakeScript {
@@ -99,7 +101,7 @@ export function fakeSessions(script: FakeScript) {
         const exitCode = scripted.flakyOnce ? (call === 1 ? 1 : 0) : (scripted.exitCode ?? 0)
         return {
           exitCode,
-          output: `${file} output\nError: scripted`,
+          output: scripted.output ?? `${file} output\nError: scripted`,
           timedOut: false,
           files: (scripted.reports ?? [file]).map((name) => ({
             file: name,
