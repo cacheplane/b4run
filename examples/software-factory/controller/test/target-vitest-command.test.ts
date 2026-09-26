@@ -54,6 +54,12 @@ describe("a package's test script as a target's test command", () => {
     expect(() => vitestTestArgv(pkg("vitest --run test/a.test.ts"))).toThrow(
       /passes "test\/a.test.ts"/,
     )
+
+    for (const script of [
+      "vitest --run --config ../x/vitest.config.ts",
+      "vitest --config=/etc/v.ts",
+    ])
+      expect(() => vitestTestArgv(pkg(script)), script).toThrow(/package-relative/)
   })
 })
 
@@ -112,5 +118,61 @@ describe("reading a test command back", () => {
     expect(() => parseVitestCommand(["pnpm", "exec", "vitest", "--project", "a"])).toThrow(
       /--project/,
     )
+  })
+  it("reads only the flags it knows, and refuses every other by name", () => {
+    const read =
+      (...args: string[]) =>
+      () =>
+        parseVitestCommand(["pnpm", "exec", "vitest", ...args])
+    for (const [args, flag] of [
+      [["--run", "test/a.test.ts", "-t", "streams"], "-t"],
+      [["--run", "-c", "vitest.config.ts"], "-c"],
+      [["--run", "--shard=1/3"], "--shard=1/3"],
+      [["--run", "--coverage"], "--coverage"],
+      [["--run", "--project", "a"], "--project"],
+      [["--run", "-r", "src"], "-r"],
+      [["--run", "run"], "run"],
+    ] as const)
+      expect(read(...args), args.join(" ")).toThrow(`passes ${JSON.stringify(flag)}`)
+    expect(read("run", "--no-cache", "--passWithNoTests", "--config=v.ts", "a.test.ts")()).toEqual({
+      base: ["pnpm", "exec", "vitest", "run", "--no-cache", "--passWithNoTests", "--config=v.ts"],
+      config: "v.ts",
+      files: ["a.test.ts"],
+      excludes: [],
+    })
+  })
+
+  it("refuses a --config or --exclude value it would have to guess at", () => {
+    const read =
+      (...args: string[]) =>
+      () =>
+        parseVitestCommand(["pnpm", "exec", "vitest", ...args])
+    expect(read("--config", "../vitest.config.ts")).toThrow(/package-relative/)
+    expect(read("--config=")).toThrow(/package-relative/)
+    expect(read("--config", "--run")).toThrow(/package-relative/)
+    expect(read("--exclude", "--run")).toThrow(/--exclude with no value/)
+  })
+
+  it("writes only literal, package-relative excludes", () => {
+    const command = parseVitestCommand(["pnpm", "exec", "vitest", "--run"])
+    for (const glob of [
+      "test/*.test.ts",
+      "test/{a,b}.ts",
+      "test/a?.ts",
+      "test/[ab].ts",
+      "-t",
+      "../x.ts",
+      "/abs.ts",
+      "",
+    ])
+      expect(() => withExcludes(command, [glob]), glob).toThrow(/literal, package-relative/)
+    expect(withExcludes(command, ["test/a.test.ts"])).toEqual([
+      "pnpm",
+      "exec",
+      "vitest",
+      "--run",
+      "--exclude",
+      "test/a.test.ts",
+    ])
   })
 })
