@@ -1,3 +1,18 @@
+import { randomUUID } from "node:crypto"
+import { rm } from "node:fs/promises"
+import { join, posix } from "node:path"
+import { withWorkspace } from "@b4run/cli"
+import { dockerSandbox } from "@b4run/sandbox"
+import { inspectWorkspace } from "@b4run/workspace"
+import { shellJoin } from "../../verification/checks-runner.js"
+import { captureDirectory } from "../archive.js"
+import type { TargetRecipe } from "../catalog.js"
+import {
+  targetInspectionOptions,
+  targetSandboxPolicy,
+  targetWorkspace,
+  type WorkspaceTask,
+} from "../workspace.js"
 import { MeasureError, type TestCounts, type VitestRun } from "./classify.js"
 
 /**
@@ -75,4 +90,198 @@ export function reportFiles(
     const tests: TestCounts = { passed, failed, skipped: statuses.length - passed - failed }
     return { file: relativeTo(directory, result.name), passed: result.status === "passed", tests }
   })
+}
+
+/** What a measurement session captures: the target with no task behind it, no defect. */
+export function measureTask(recipe: TargetRecipe): WorkspaceTask {
+  return {
+    id: `measure-${recipe.id.replace(/[^\w-]/g, "_")}`,
+    target: recipe,
+    specText: `target:measure of ${recipe.id} at ${recipe.pin}\n`,
+    defectPatch: null,
+  }
+}
+
+/** `text` as JSON, or the harness's failure naming `what` (a truncated report is not a verdict). */
+function parseReport(text: string, what: string, output: string): unknown {
+  try {
+    return JSON.parse(text)
+  } catch (error) {
+    throw new MeasureError(`${what} is not JSON: ${String(error)}`, output)
+  }
+}
+
+/**
+ * Sessions in `imageId` (by id, never by tag) over a fresh capture of `recipe` each, staged
+ * under `stagingRoot` (`FACTORY_STATE_DIR`, never the app root), with the network denied as in
+ * every target session and the measurement's own memory, CPUs and per-command timeout.
+ */
+export function dockerSessions(options: {
+  readonly recipe: TargetRecipe
+  readonly imageId: string
+  readonly stagingRoot: string
+  /** The repository the capture is archived from: the one the recipe's pin was read in. */
+  readonly repositoryRoot: string
+  readonly signal: AbortSignal
+}): OpenSession {
+  const { recipe, stagingRoot, signal } = options
+  const provider = dockerSandbox({ scope: "software-factory-measure", image: options.imageId })
+  const task = measureTask(recipe)
+  const inspection = targetInspectionOptions(task)
+  const cd = recipe.commands.cwd === "." ? "" : `${shellJoin(["cd", recipe.commands.cwd])} && `
+  return async (limits, use) => {
+    const instance = randomUUID()
+    const stateRoot = join(stagingRoot, "measurements", "sessions", randomUUID())
+    try {
+      return await withWorkspace(
+        {
+          appRoot: stagingRoot,
+          stateRoot,
+          provider,
+          workspace: targetWorkspace(task, "measure", {
+            instance,
+            captureRoot: stagingRoot,
+            repositoryRoot: options.repositoryRoot,
+          }),
+          policy: {
+            ...targetSandboxPolicy(recipe),
+            resources: {
+              memoryMb: limits.memoryMb,
+              cpus: limits.cpus,
+              timeoutMs: limits.commandTimeoutMs,
+            },
+          },
+          signal,
+        },
+        async (handle) => {
+          // The command directory in the container: vitest names files by absolute path in it.
+          const directory =
+            recipe.commands.cwd === "."
+              ? handle.workspaceRoot
+              : posix.join(handle.workspaceRoot, recipe.commands.cwd)
+          const shell = async (command: string) => {
+            const started = performance.now()
+            const result = await handle.exec.runCommand(
+              { command },
+              { workspaceRoot: handle.workspaceRoot, signal },
+            )
+            return { ...result, ms: Math.round(performance.now() - started) }
+          }
+          /** `line`, then a marker and the file at `path`: a report the run's output cannot forge. */
+          const withReport = async (line: string, path: string) => {
+            const marker = `B4_FACTORY_MEASURE_${randomUUID().replaceAll("-", "")}`
+            const result = await shell(
+              [
+                `rm -f ${path}`,
+                line,
+                "code=$?",
+                "echo",
+                `echo ${marker}`,
+                `cat ${path} 2>/dev/null`,
+                "exit $code",
+              ].join("; "),
+            )
+            const at = result.stdout.lastIndexOf(`${marker}\n`)
+            return {
+              ...result,
+              output: `${at === -1 ? result.stdout : result.stdout.slice(0, at)}\n${result.stderr}`,
+              report: at === -1 ? "" : result.stdout.slice(at + marker.length + 1),
+            }
+          }
+          return await use({
+            async build() {
+              if (recipe.commands.build.length === 0)
+                return { ok: true, output: "(no build step)\n", ms: 0 }
+              const result = await shell(`${cd}${shellJoin(recipe.commands.build)}`)
+              return {
+                ok: result.exitCode === 0,
+                output: `${result.stdout}\n${result.stderr}`,
+                ms: result.ms,
+              }
+            },
+            async listFiles(argv) {
+              const path = `/tmp/b4-factory-measure-list.${randomUUID()}.json`
+              const result = await withReport(
+                `${cd}${shellJoin([...argv, `--json=${path}`])}`,
+                path,
+              )
+              if (result.exitCode !== 0 || result.report.trim() === "")
+                throw new MeasureError(
+                  `vitest list failed (exit ${result.exitCode})`,
+                  result.output,
+                )
+              const listed = parseReport(result.report, "vitest list's report", result.output)
+              if (
+                !Array.isArray(listed) ||
+                !listed.every(
+                  (entry) =>
+                    typeof entry === "object" &&
+                    entry !== null &&
+                    typeof (entry as { file?: unknown }).file === "string",
+                )
+              )
+                throw new MeasureError("vitest list's report is not a list of files", result.output)
+              return (listed as { readonly file: string }[])
+                .map((entry) => relativeTo(directory, entry.file))
+                .sort()
+            },
+            async vitest(argv): Promise<VitestRun> {
+              const path = `/tmp/b4-factory-measure-report.${randomUUID()}.json`
+              const result = await withReport(
+                `${cd}${shellJoin([...argv, "--reporter=default", "--reporter=json", `--outputFile=${path}`])}`,
+                path,
+              )
+              const report =
+                result.report.trim() === ""
+                  ? null
+                  : (parseReport(
+                      result.report,
+                      "vitest's JSON report",
+                      result.output,
+                    ) as VitestJsonReport)
+              return {
+                exitCode: result.exitCode,
+                output: result.output,
+                timedOut: result.exitCode === 124 && /Command timed out after/.test(result.stderr),
+                files: report === null ? null : reportFiles(report, directory),
+                ms: result.ms,
+              }
+            },
+            async snapshot() {
+              return (
+                await inspectWorkspace(handle, {
+                  signal,
+                  // The verifier's own limits and options (grade-suite.ts), so a measurement
+                  // sees exactly what a verification's tamper check sees.
+                  maxEntries: 10_000,
+                  maxFileBytes: 2 * 1024 * 1024,
+                  maxTotalBytes: 16 * 1024 * 1024,
+                  ...inspection,
+                })
+              ).files
+            },
+            async memoryPeakBytes() {
+              const result = await shell("cat /sys/fs/cgroup/memory.peak")
+              const bytes = Number(result.stdout.trim())
+              if (result.exitCode !== 0 || !Number.isSafeInteger(bytes) || bytes <= 0)
+                throw new MeasureError(
+                  `Cannot read this session's cgroup v2 memory.peak (exit ${result.exitCode}): target:measure proposes memory from it and will not guess`,
+                  `${result.stdout}\n${result.stderr}`,
+                )
+              return bytes
+            },
+          })
+        },
+      )
+    } finally {
+      // Settled, never awaited alone: a failed cleanup must not replace the measurement's error.
+      await Promise.allSettled([
+        rm(stateRoot, { recursive: true, force: true }),
+        rm(join(stagingRoot, captureDirectory(task.id, "measure", instance)), {
+          recursive: true,
+          force: true,
+        }),
+      ])
+    }
+  }
 }
