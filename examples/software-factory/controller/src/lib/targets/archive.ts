@@ -35,7 +35,14 @@ export interface CaptureTargetOptions {
 }
 
 /** Who a capture is for: each captures into its own directory, never sharing one. */
-export type CaptureRole = "builder" | "controller" | "verifier" | "reference" | "test" | "drafter"
+export type CaptureRole =
+  | "builder"
+  | "controller"
+  | "verifier"
+  | "reference"
+  | "test"
+  | "drafter"
+  | "measure"
 
 const ROLE_PATTERN = /^[\w-]+$/
 const TASK_ID_PATTERN = /^[\w-]+$/
@@ -170,7 +177,7 @@ export function archiveTreeInto(
  * asserted present in the extracted tree before the defect patch is applied.
  */
 export function captureTarget(
-  task: TaskRecipe,
+  task: Pick<TaskRecipe, "id" | "target" | "defectPatch">,
   role: CaptureRole,
   options: CaptureTargetOptions,
 ): CapturedTarget {

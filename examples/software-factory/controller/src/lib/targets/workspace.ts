@@ -66,6 +66,12 @@ export function targetSandboxPolicy(target: TargetRecipe): SandboxPolicy {
 }
 
 /**
+ * What a workspace is built from: a task, or anything task-shaped. `target:measure` builds the
+ * verifier's session for a target with no task behind it (no defect, a placeholder spec).
+ */
+export type WorkspaceTask = Pick<TaskRecipe, "id" | "target" | "specText" | "defectPatch">
+
+/**
  * Pure declaration of what the workspace contains: the role's archive of the pinned subtree
  * with the defect applied, the task spec as TASK.md, and the image's dependency tree linked
  * at the root. The independent checks are not in the capture at all: the verifier writes them
@@ -73,7 +79,7 @@ export function targetSandboxPolicy(target: TargetRecipe): SandboxPolicy {
  * ran in.
  */
 export function targetWorkspace(
-  task: TaskRecipe,
+  task: WorkspaceTask,
   role: CaptureRole,
   options: CaptureTargetOptions,
 ): WorkspaceDefinition {
@@ -119,7 +125,7 @@ export function targetWorkspace(
  * directory the independent oracle reads. A target whose build output is large must still raise the reader's
  * limits rather than expect exclusion — the filter is applied after the walk.
  */
-export function targetInspectionOptions(task: TaskRecipe): WorkspaceReadOptions {
+export function targetInspectionOptions(task: Pick<TaskRecipe, "target">): WorkspaceReadOptions {
   const expectedRootSymlinks: Record<string, string> = {}
   for (const link of task.target.environmentLinks) expectedRootSymlinks[link.path] = link.target
   return {
