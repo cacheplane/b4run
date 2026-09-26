@@ -1,6 +1,7 @@
-import { join } from "node:path"
+import { isAbsolute, join, relative, resolve } from "node:path"
 import { parseArgs } from "node:util"
 import {
+  appRoot,
   commitSha,
   covers,
   ensurePin,
@@ -45,6 +46,10 @@ export interface InitResult {
  * before a build.
  */
 export function initTarget(options: InitOptions): InitResult {
+  if (!commitSha.safeParse(options.pin).success)
+    throw new Error(
+      `the pin must be a full lowercase commit sha, got ${JSON.stringify(options.pin)}`,
+    )
   ensurePin(options.repositoryRoot, "target:init", options.pin, {
     label: `target:init ${options.packageRef}`,
   })
@@ -59,7 +64,7 @@ export function initTarget(options: InitOptions): InitResult {
   const dockerfilePath = join(directory, "Dockerfile")
   const beforeManifest = readIfPresent(manifestPath)
   const beforeDockerfile = readIfPresent(dockerfilePath)
-  const carried = carriedFrom(beforeManifest, beforeDockerfile, pkg, id)
+  const carried = carriedFrom(beforeManifest, beforeDockerfile, pkg, shown(directory))
   const derived = deriveTarget(tree, graph, pkg, {
     id,
     carried: carried.fields,
@@ -103,37 +108,54 @@ function proposalProblem(
   return undefined
 }
 
+/** A target directory as notes and refusals name it: under the controller, relative to it. */
+function shown(directory: string): string {
+  const path = relative(appRoot, directory)
+  return path.startsWith("..") || isAbsolute(path) ? directory : path
+}
+
 /**
  * What the target already on disk decided and a re-generation keeps (plan D8). A target of
- * another package at this id is refused; one that does not parse carries nothing, and says so.
- * `deriveTarget` drops what names nothing at the pin, with a note each.
+ * another package at this id is refused, and so is one that does not parse: replacing it would
+ * throw away what it decided. `deriveTarget` drops what names nothing at the pin, with a note
+ * each, so the note here says what was read, not what is kept.
  */
 function carriedFrom(
   manifestText: string | null,
   dockerfileText: string | null,
   pkg: WorkspacePackage,
-  id: string,
+  directory: string,
 ): { readonly fields: CarriedFields; readonly notes: string[] } {
   const notes: string[] = []
   const promoted = dockerfileText === null ? undefined : expectedPromotedOf(dockerfileText)
   const fromDockerfile: CarriedFields = promoted === undefined ? {} : { expectedPromoted: promoted }
-  if (manifestText === null) return { fields: fromDockerfile, notes }
+  const promotes = promoted !== undefined && promoted.length > 0
+  if (manifestText === null) {
+    if (promotes)
+      notes.push(
+        `read from ${directory}/Dockerfile: EXPECTED_PROMOTED (${promoted.join(", ")}); there is no target.json to carry`,
+      )
+    return { fields: fromDockerfile, notes }
+  }
+  const refuse = (why: string) =>
+    new Error(`${directory}/target.json does not parse (${why}): fix it or remove it to regenerate`)
   let raw: unknown
   try {
     raw = JSON.parse(manifestText)
-  } catch {
-    notes.push(`targets/${id}/target.json is not JSON; nothing is carried from it`)
-    return { fields: fromDockerfile, notes }
+  } catch (error) {
+    throw refuse((error as Error).message)
   }
   const parsed = TargetSchema.safeParse(raw)
-  if (!parsed.success) {
-    notes.push(`targets/${id}/target.json does not parse; nothing is carried from it`)
-    return { fields: fromDockerfile, notes }
-  }
+  if (!parsed.success)
+    throw refuse(
+      parsed.error.issues
+        .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+        .join("; "),
+    )
   const existing = parsed.data
   if (existing.commands.cwd !== pkg.dir)
     throw new Error(
-      `targets/${id} is the target of ${existing.commands.cwd}, not ${pkg.dir}: pass --id to name another`,
+      `${directory} is the target of ${existing.commands.cwd}, not ${pkg.dir}: pass --id to name another`,
     )
   let scope: readonly string[] = []
   let excludes: readonly string[] = []
@@ -147,7 +169,7 @@ function carriedFrom(
     )
   }
   notes.push(
-    `carried from targets/${id}: baseImage, resources${existing.draftingNotes ? ", draftingNotes" : ""}, ${scope.length} scoped file(s), ${excludes.length} exclude(s), imageAssertResolves, capture.include and runnerConfig as supersets${promoted === undefined ? "" : ", EXPECTED_PROMOTED"}`,
+    `read from ${directory}: baseImage, resources${existing.draftingNotes?.length ? ", draftingNotes" : ""}, ${scope.length} scoped file(s), ${excludes.length} exclude(s), imageAssertResolves, capture.include and runnerConfig as supersets${promotes ? ", EXPECTED_PROMOTED" : ""}`,
   )
   return {
     notes,
@@ -173,6 +195,18 @@ export interface InitArgs {
   readonly targetsDir?: string
   readonly withDevBuilds: boolean
   readonly write: boolean
+}
+
+/**
+ * `--targets-dir` as the person meant it: a relative directory is relative to where they ran
+ * `pnpm target:init` (pnpm's `INIT_CWD`; the process's own directory is the controller's).
+ */
+export function resolveTargetsDir(
+  dir: string,
+  env: Readonly<Record<string, string | undefined>>,
+  cwd: string,
+): string {
+  return resolve(env.INIT_CWD ?? cwd, dir)
 }
 
 export function parseInitArgs(argv: readonly string[]): InitArgs {

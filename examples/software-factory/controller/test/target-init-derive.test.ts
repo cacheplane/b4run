@@ -267,6 +267,10 @@ describe("deriveTarget", () => {
       ]),
     )
     expect(notes.some((note) => note.startsWith("resources are placeholders"))).toBe(false)
+    expect(notes).toContain(
+      "the test scope is carried from the existing target (1 file); target:measure measures only those",
+    )
+    expect(notes.some((note) => note.startsWith("no test is excluded"))).toBe(false)
     expect(isPlaceholderResources(PLACEHOLDER_RESOURCES)).toBe(true)
     expect(isPlaceholderResources(resources)).toBe(false)
   })

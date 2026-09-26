@@ -1,10 +1,18 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { TargetSchema } from "../src/lib/targets/catalog.ts"
 import { expectedPromotedOf, withExpectedPromoted } from "../src/lib/targets/init/dockerfile.ts"
-import { initTarget, parseInitArgs } from "../src/lib/targets/init/init.ts"
+import { initTarget, parseInitArgs, resolveTargetsDir } from "../src/lib/targets/init/init.ts"
 import { formatManifest, renderDiff, writeProposal } from "../src/lib/targets/proposal.ts"
 import { cleanupPinRepos, MINI, pinRepo } from "./pin-repo.ts"
 
@@ -96,7 +104,88 @@ describe("initTarget", () => {
     })
     expect(renderDiff(again.files, targets)).toBe("")
     expect(expectedPromotedOf(again.files[1]?.after ?? "")).toEqual(["zod"])
-    expect(again.notes.some((note) => note.startsWith("carried from targets/app:"))).toBe(true)
+    expect(again.notes).toContain(
+      `read from ${join(targets, "app")}: baseImage, resources, draftingNotes, 0 scoped file(s), 1 exclude(s), imageAssertResolves, capture.include and runnerConfig as supersets, EXPECTED_PROMOTED`,
+    )
+  })
+
+  it("names only what the existing target holds: no empty draftingNotes or EXPECTED_PROMOTED", () => {
+    const { root, pin } = pinRepo(MINI)
+    const targets = targetsDir()
+    writeProposal(
+      initTarget({ packageRef: "@m/app", pin, repositoryRoot: root, targetsDir: targets }).files,
+    )
+    const again = initTarget({
+      packageRef: "@m/app",
+      pin,
+      repositoryRoot: root,
+      targetsDir: targets,
+    })
+    expect(again.notes).toContain(
+      `read from ${join(targets, "app")}: baseImage, resources, 0 scoped file(s), 0 exclude(s), imageAssertResolves, capture.include and runnerConfig as supersets`,
+    )
+  })
+
+  it("says so when only the Dockerfile's promotion set is carried", () => {
+    const { root, pin } = pinRepo(MINI)
+    const targets = targetsDir()
+    const first = initTarget({
+      packageRef: "@m/app",
+      pin,
+      repositoryRoot: root,
+      targetsDir: targets,
+    })
+    mkdirSync(join(targets, "app"))
+    writeFileSync(
+      join(targets, "app", "Dockerfile"),
+      withExpectedPromoted(first.files[1]?.after ?? "", ["zod"]),
+    )
+    const again = initTarget({
+      packageRef: "@m/app",
+      pin,
+      repositoryRoot: root,
+      targetsDir: targets,
+    })
+    expect(again.notes).toContain(
+      `read from ${join(targets, "app", "Dockerfile")}: EXPECTED_PROMOTED (zod); there is no target.json to carry`,
+    )
+    expect(expectedPromotedOf(again.files[1]?.after ?? "")).toEqual(["zod"])
+  })
+
+  it("refuses an existing target.json that is not JSON or not a target, rather than replace it", () => {
+    const { root, pin } = pinRepo(MINI)
+    const targets = targetsDir()
+    writeProposal(
+      initTarget({ packageRef: "@m/app", pin, repositoryRoot: root, targetsDir: targets }).files,
+    )
+    const manifestPath = join(targets, "app", "target.json")
+    const valid = readFileSync(manifestPath, "utf8")
+    const init = () =>
+      initTarget({ packageRef: "@m/app", pin, repositoryRoot: root, targetsDir: targets })
+    writeFileSync(manifestPath, `${valid.slice(0, -3)}`)
+    expect(init).toThrow(
+      new RegExp(
+        `^${join(targets, "app", "target.json")} does not parse \\(.*JSON.*\\): fix it or remove it to regenerate$`,
+      ),
+    )
+    writeFileSync(manifestPath, JSON.stringify({ ...JSON.parse(valid), resources: "lots" }))
+    expect(init).toThrow(
+      new RegExp(
+        `^${join(targets, "app", "target.json")} does not parse \\(resources: .+\\): fix it or remove it to regenerate$`,
+      ),
+    )
+  })
+
+  it("refuses a pin that is not a full commit sha", () => {
+    const { root } = pinRepo(MINI)
+    expect(() =>
+      initTarget({
+        packageRef: "@m/app",
+        pin: "HEAD",
+        repositoryRoot: root,
+        targetsDir: targetsDir(),
+      }),
+    ).toThrow(/pin must be a full lowercase commit sha, got "HEAD"/)
   })
 
   it("refuses a target directory that belongs to another package, and an id that is not a name", () => {
@@ -113,7 +202,7 @@ describe("initTarget", () => {
         repositoryRoot: root,
         targetsDir: targets,
       }),
-    ).toThrow(/targets\/app is the target of packages\/app, not packages\/util: pass --id/)
+    ).toThrow(`${join(targets, "app")} is the target of packages/app, not packages/util: pass --id`)
     expect(() =>
       initTarget({
         packageRef: "@m/util",
@@ -156,5 +245,69 @@ describe("target:init's arguments", () => {
     expect(() => parseInitArgs([])).toThrow(/usage: target-init.ts/)
     expect(() => parseInitArgs(["a", "b"])).toThrow(/usage: target-init.ts/)
     expect(() => parseInitArgs(["a", "--pin", "abc"])).toThrow(/full lowercase commit sha/)
+    expect(() => parseInitArgs(["a", "--force"])).toThrow(/Unknown option '--force'/)
+  })
+
+  it("resolves a relative catalog against the directory pnpm was invoked from", () => {
+    expect(resolveTargetsDir("/abs/t", { INIT_CWD: "/somewhere" }, "/cwd")).toBe("/abs/t")
+    expect(resolveTargetsDir("scratch/t", { INIT_CWD: "/somewhere" }, "/cwd")).toBe(
+      "/somewhere/scratch/t",
+    )
+    expect(resolveTargetsDir("scratch/t", {}, "/cwd")).toBe("/cwd/scratch/t")
+  })
+})
+
+describe("proposals", () => {
+  it("heads a modified file's diff a/ and b/", () => {
+    const base = targetsDir()
+    const diff = renderDiff([{ path: join(base, "x", "f"), before: "one\n", after: "two\n" }], base)
+    expect(diff).toContain("--- a/x/f\n+++ b/x/f\n")
+    expect(diff).toContain("-one\n+two\n")
+  })
+
+  it("writes each file whole, through a temporary file renamed into place", () => {
+    const base = targetsDir()
+    const path = join(base, "x", "f")
+    expect(writeProposal([{ path, before: null, after: "one\n" }])).toEqual([path])
+    expect(writeProposal([{ path, before: "one\n", after: "two\n" }])).toEqual([path])
+    expect(readFileSync(path, "utf8")).toBe("two\n")
+    expect(readdirSync(join(base, "x"))).toEqual(["f"])
+  })
+
+  it("refuses to write over a file that changed since the proposal was made, writing nothing", () => {
+    const base = targetsDir()
+    const a = join(base, "x", "a")
+    const b = join(base, "x", "b")
+    mkdirSync(join(base, "x"))
+    writeFileSync(b, "edited\n")
+    expect(() =>
+      writeProposal([
+        { path: a, before: null, after: "a\n" },
+        { path: b, before: null, after: "b\n" },
+      ]),
+    ).toThrow(`${b} changed since the proposal was made: run target:init again`)
+    expect(readdirSync(join(base, "x"))).toEqual(["b"])
+    writeFileSync(a, "x\n")
+    expect(() => writeProposal([{ path: a, before: "y\n", after: "a\n" }])).toThrow(
+      `${a} changed since the proposal was made`,
+    )
+  })
+
+  it("refuses a target directory that is a symbolic link", () => {
+    const base = targetsDir()
+    mkdirSync(join(base, "real"))
+    symlinkSync(join(base, "real"), join(base, "x"))
+    expect(() =>
+      writeProposal([{ path: join(base, "x", "f"), before: null, after: "f\n" }]),
+    ).toThrow(
+      `${join(base, "x")} is a symbolic link: target:init writes only into a real directory`,
+    )
+    expect(readdirSync(join(base, "real"))).toEqual([])
+  })
+
+  it("names a missing controller Biome instead of a bare ENOENT", () => {
+    expect(() => formatManifest("{}\n", targetsDir())).toThrow(
+      "the controller's Biome is not installed: run pnpm install",
+    )
   })
 })

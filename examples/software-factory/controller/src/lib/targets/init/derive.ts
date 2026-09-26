@@ -455,7 +455,11 @@ export function deriveTarget(
   const resources = { ...(carried.resources ?? PLACEHOLDER_RESOURCES) }
   if (isPlaceholderResources(resources))
     notes.push("resources are placeholders until target:measure proposes them")
-  if (parseVitestCommand(test).excludes.length === 0)
+  if (scope.length > 0)
+    notes.push(
+      `the test scope is carried from the existing target (${plural(scope.length, "file")}); target:measure measures only those`,
+    )
+  else if (parseVitestCommand(test).excludes.length === 0)
     notes.push(
       "no test is excluded: target:measure runs each file alone and proposes the excludes (none, if every file passes)",
     )
