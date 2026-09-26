@@ -4,6 +4,7 @@ import {
   captureOmissions,
   changedPaths,
   classifyFile,
+  coveringDeadline as covering,
   EXCLUDED,
   errorLines,
   MeasureError,
@@ -186,16 +187,53 @@ describe("the resources a measured suite proposes", () => {
         ],
         2,
       ),
-    ).toEqual({ memoryMb: 1024, cpus: 2, commandTimeoutMs: 130_000, verifierDeadlineMs: 300_000 })
+    ).toEqual({ memoryMb: 1024, cpus: 2, commandTimeoutMs: 130_000, verifierDeadlineMs: 420_000 })
     expect(
       proposeResources([{ buildMs: 1, suiteMs: 1, sessionMs: 1, memoryPeakBytes: 1 }], 1),
     ).toEqual({
       memoryMb: 512,
       cpus: 1,
       commandTimeoutMs: 60_000,
-      verifierDeadlineMs: 120_000,
+      // Twice (the 60 s timeout floor plus a 1 ms session), rounded up to a minute.
+      verifierDeadlineMs: 180_000,
     })
     expect(() => proposeResources([], 2)).toThrow(/no suite sample/)
+  })
+
+  it("gives a deadline that absorbs each of the verifier's two sessions running one command to its timeout", () => {
+    // The generated cli target's hand measurement at 765e6e16: a hung candidate must hit the
+    // per-command timeout (a rejection), never the whole verification's deadline (inconclusive).
+    const cli = { buildMs: 1_386, suiteMs: 51_363, sessionMs: 58_857, memoryPeakBytes: 606 * MiB }
+    const resources = proposeResources([cli], 2)
+    expect(resources).toEqual({
+      memoryMb: 1280,
+      cpus: 2,
+      commandTimeoutMs: 420_000,
+      verifierDeadlineMs: 960_000,
+    })
+    for (const samples of [
+      [cli],
+      [{ buildMs: 1, suiteMs: 1, sessionMs: 1, memoryPeakBytes: 1 }],
+      [{ buildMs: 90_000, suiteMs: 10_000, sessionMs: 100_000, memoryPeakBytes: MiB }],
+    ]) {
+      const r = proposeResources(samples, 2)
+      const session = Math.max(...samples.map((s) => s.sessionMs))
+      expect(r.verifierDeadlineMs).toBeGreaterThanOrEqual(2 * (r.commandTimeoutMs + session))
+    }
+  })
+
+  it("keeps that deadline when a prior raises the per-command timeout alone", () => {
+    const sample = { buildMs: 1_400, suiteMs: 8_900, sessionMs: 40_000, memoryPeakBytes: 369 * MiB }
+    const measured = proposeResources([sample], 2)
+    const prior = { memoryMb: 768, cpus: 2, commandTimeoutMs: 600_000, verifierDeadlineMs: 240_000 }
+    const settled = covering(settleResources(measured, prior, false), [sample])
+    expect(settled.commandTimeoutMs).toBe(600_000)
+    expect(settled.verifierDeadlineMs).toBe(1_320_000)
+    // Never lowered by it: a deadline already covering is kept as it is.
+    const wide = { ...prior, verifierDeadlineMs: 3_600_000 }
+    expect(covering(settleResources(measured, wide, false), [sample]).verifierDeadlineMs).toBe(
+      3_600_000,
+    )
   })
 
   it("never proposes below the target's own resources unless asked", () => {
@@ -287,6 +325,8 @@ describe("what a measurement writes", () => {
         "# Measured excludes: app",
         "",
         "Written by `target:measure --write` and reviewed with `target.json`. Each file below is excluded from the target's suite, and so from every verification of a task on this target. The measurement's `report.md` holds the full output.",
+        "",
+        "3 files measured, 1 pass, 1 proposed for exclusion, 1 flaky.",
         "",
         "- `test/b.test.ts`: fail. fails run alone (exit 1)",
         "  > `Error: boom`",
@@ -458,6 +498,88 @@ describe("what reaches report.md, measurement.md and the printed diff", () => {
     expect(record).not.toContain("second run")
     expect(record).not.toContain("tmp-8f3a")
     expect(renderFiles([settled]).join("\n")).toContain("tmp-8f3a")
+  })
+
+  // Real lines from the generated cli target's hand measurement at 765e6e16 (report.md).
+  const cliOutput = (a: string, b: string, uuid: string) =>
+    [
+      `Error: ENOENT: no such file or directory, copyfile '/workspace/packages/cli/bin/b4.js' -> '/tmp/b4-cold-bin-${a}/cli/bin/b4.js'`,
+      `Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/workspace/packages/cli/node_modules/tsx/dist/loader.mjs' imported from /tmp/b4-cli-dev-${b}/`,
+      `CliError: Eval-load failure: Cannot find package '@b4run/evals' imported from /workspace/packages/cli/.tmp-eval-apps/app-${a}/src/app/chat/evals/filter.eval.ts`,
+      `    1015|               new Error(`,
+      `Serialized Error: { errors: [ { detail: undefined, id: '', location: { column: 21, file: '.vercel/.b4-vercel-${uuid}/runtime/app.mjs', length: 6, line: 12, lineText: 'import { Hono } from "hono"', namespace: '', suggestion: '' }, notes: [ { location: null, text: 'You can mark the path "hono" as external to exclude it from the bundle, which will remove this error and leave the unresolved path in the bundle.' } ] } ] }`,
+    ].join("\n")
+
+  it("masks temporary names and UUIDs in error lines, drops code frames, and caps each line", () => {
+    const lines = errorLines(
+      cliOutput("FlOOPf", "TLqaHE", "0a69c245-b758-438c-bc31-5f898becd196"),
+      10,
+    )
+    expect(lines.slice(0, 3)).toEqual([
+      "Error: ENOENT: no such file or directory, copyfile '/workspace/packages/cli/bin/b4.js' -> '/tmp/b4-cold-bin-XXXXXX/cli/bin/b4.js'",
+      "Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/workspace/packages/cli/node_modules/tsx/dist/loader.mjs' imported from /tmp/b4-cli-dev-XXXXXX/",
+      "CliError: Eval-load failure: Cannot find package '@b4run/evals' imported from /workspace/packages/cli/.tmp-eval-apps/app-XXXXXX/src/app/chat/evals/filter.eval.ts",
+    ])
+    expect(lines).toHaveLength(4)
+    expect(lines.some((line) => /\d+\|/.test(line))).toBe(false)
+    expect(lines[3]).toContain(".vercel/.b4-vercel-UUID/runtime/app.mjs")
+    expect(lines[3]?.length).toBe(240)
+    expect(lines[3]?.endsWith("…")).toBe(true)
+  })
+
+  it("leaves ordinary words and paths alone", () => {
+    const output = [
+      "Error: Cannot find module '../../testing/dist/aimock-runner.js' imported from /workspace/packages/cli/test/agui-endpoint.test.ts",
+      "Error: ENOENT: no such file or directory, open '/workspace/packages/devkit/templates/app-basic/src/auth.ts.example'",
+      "Error: ENOENT: no such file or directory, scandir '/workspace/packages/docs-bundle/output'",
+      "Error: a docs-bundle failure-123456",
+    ].join("\n")
+    expect(errorLines(output, 10)).toEqual(output.split("\n"))
+  })
+
+  it("writes the same record whatever temporary names a run drew", () => {
+    const entry = (a: string, b: string, uuid: string) =>
+      classifyFile("test/a.test.ts", failing(cliOutput(a, b, uuid)), [])
+    const first = renderMeasurementRecord("cli", [
+      entry("FlOOPf", "TLqaHE", "0a69c245-b758-438c-bc31-5f898becd196"),
+    ])
+    expect(first).toBe(
+      renderMeasurementRecord("cli", [
+        entry("rOw8dD", "3DVw6Q", "051286b2-00e4-4465-be84-5812d1fe3daa"),
+      ]),
+    )
+    expect(first).toContain("b4-cold-bin-XXXXXX")
+  })
+
+  it("shows each entry's test counts and a count of every verdict", () => {
+    const loadFailure = classifyFile(
+      "test/b.test.ts",
+      run({
+        exitCode: 1,
+        output: "Error: Cannot find package '@b4run/sandbox/testing'\n",
+        files: [
+          { file: "test/b.test.ts", passed: false, tests: { passed: 0, failed: 0, skipped: 0 } },
+        ],
+      }),
+      [],
+    )
+    const record = renderMeasurementRecord("app", [
+      classifyFile("test/a.test.ts", failing("AssertionError: nope\n"), []),
+      loadFailure,
+      classifyFile(
+        "test/c.test.ts",
+        run({ files: [{ file: "test/c.test.ts", passed: true, tests: COUNTS }] }),
+        [],
+      ),
+      classifyFile("test/d.test.ts", run({ exitCode: 124, timedOut: true, files: null }), []),
+    ])
+    expect(record).toContain(
+      "\n4 files measured, 1 pass, 3 proposed for exclusion, 0 flaky.\n\n- `test/a.test.ts`: fail (2 of 3 tests failed). fails run alone (exit 1)\n",
+    )
+    expect(record).toContain(
+      "- `test/b.test.ts`: fail (failed to load). fails run alone (exit 1)\n",
+    )
+    expect(record).toContain("- `test/d.test.ts`: hang. did not finish")
   })
 
   it("does not claim every file passed when a flaky file is listed", () => {

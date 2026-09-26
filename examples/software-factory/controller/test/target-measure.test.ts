@@ -4,7 +4,12 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
 import { afterEach, describe, expect, it } from "vitest"
-import { appRoot, TargetSchema } from "../src/lib/targets/catalog.ts"
+import {
+  appRoot,
+  loadTargetRecipe,
+  TargetSchema,
+  unmeasuredProblem,
+} from "../src/lib/targets/catalog.ts"
 import { ImagePrepareError, type ImageRegistry } from "../src/lib/targets/images.ts"
 import {
   EXPECTED_MARKER,
@@ -14,6 +19,7 @@ import {
 import { initTarget } from "../src/lib/targets/init/init.ts"
 import { MeasureError } from "../src/lib/targets/measure/classify.ts"
 import { measureTarget, parseMeasureArgs } from "../src/lib/targets/measure/measure.ts"
+import { recipeProblem } from "../src/lib/targets/prepare.ts"
 import { formatManifest, writeProposal } from "../src/lib/targets/proposal.ts"
 import { fakeSessions } from "./fake-measure-session.ts"
 import { cleanupPinRepos, MINI, pinRepo } from "./pin-repo.ts"
@@ -146,7 +152,8 @@ describe("measureTarget", () => {
       memoryMb: 1024,
       cpus: 2,
       commandTimeoutMs: 80_000,
-      verifierDeadlineMs: 180_000,
+      // Twice the command timeout plus the fake clock's 30 s session, rounded up to a minute.
+      verifierDeadlineMs: 240_000,
     })
     expect(proposed.pin).toBe(pin)
     expect(outcome.files[1]?.path).toBe(join(targets, "app", "measurement.md"))
@@ -184,6 +191,56 @@ describe("measureTarget", () => {
       verifierDeadlineMs: 240_000,
     })
     expect(outcome.report).toContain("| memoryMb | 1536 | 1024 | 1536 |")
+  })
+
+  it("proposes a target the factory loads and accepts once written", async () => {
+    const { root, targets } = generated()
+    // Before the measurement the placeholders are refused.
+    expect(
+      unmeasuredProblem(loadTargetRecipe("app", { targetsDir: targets, repositoryRoot: root })),
+    ).toBeDefined()
+    const fake = fakeSessions({
+      files: { "test/app.test.ts": {}, "test/b.test.ts": { exitCode: 1, output: "Error: no\n" } },
+    })
+    const outcome = await measureTarget({
+      ...options(root, targets),
+      registry: built,
+      sessions: () => fake.open,
+    })
+    if (outcome.kind !== "measured") throw new Error(`expected a measurement, got ${outcome.kind}`)
+    writeProposal(outcome.files)
+    const recipe = loadTargetRecipe("app", { targetsDir: targets, repositoryRoot: root })
+    expect(unmeasuredProblem(recipe)).toBeUndefined()
+    expect(recipeProblem(recipe, root)).toBeUndefined()
+    expect(recipe.commands.test).toEqual(outcome.measurement.test)
+    expect(recipe.commands.test).toContain("test/b.test.ts")
+    expect(recipe.resources).toEqual(outcome.measurement.resources)
+  })
+
+  it("keeps the deadline covering a prior's longer per-command timeout", async () => {
+    const { root, targets } = generated()
+    const path = join(targets, "app", "target.json")
+    const text = readFileSync(path, "utf8")
+    const current = TargetSchema.parse(JSON.parse(text))
+    const own = { memoryMb: 512, cpus: 2, commandTimeoutMs: 600_000, verifierDeadlineMs: 240_000 }
+    writeProposal([
+      {
+        path,
+        before: text,
+        after: formatManifest(`${JSON.stringify({ ...current, resources: own }, null, 2)}\n`),
+      },
+    ])
+    const fake = fakeSessions({ files: { "test/app.test.ts": {} } })
+    const outcome = await measureTarget({
+      ...options(root, targets),
+      registry: built,
+      sessions: () => fake.open,
+    })
+    if (outcome.kind !== "measured") throw new Error(`expected a measurement, got ${outcome.kind}`)
+    const { resources, samples } = outcome.measurement
+    const session = Math.max(...samples.map((s) => s.sessionMs))
+    expect(resources.commandTimeoutMs).toBe(600_000)
+    expect(resources.verifierDeadlineMs).toBeGreaterThanOrEqual(2 * (600_000 + session))
   })
 
   it("names a capture omission from what exists at the measured pin", async () => {

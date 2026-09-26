@@ -101,7 +101,7 @@ describe("measureSuite", () => {
       memoryMb: 1024,
       cpus: 2,
       commandTimeoutMs: 80_000,
-      verifierDeadlineMs: 180_000,
+      verifierDeadlineMs: 240_000,
     })
     expect(m.resources).toEqual(m.measured)
     expect(m.confirmation.sessionMs).toBe(30_000)
@@ -156,7 +156,7 @@ describe("measureSuite", () => {
       memoryMb: 1024,
       cpus: 2,
       commandTimeoutMs: 80_000,
-      verifierDeadlineMs: 180_000,
+      verifierDeadlineMs: 240_000,
     })
   })
 
@@ -393,15 +393,16 @@ describe("measureSuite", () => {
       return () => (t += steps.shift() ?? 30_000)
     }
     const files = { "test/a.test.ts": {} }
-    // Measured: 2 x 2.5 x 30 s, up to a minute: 180 s. Two 80 s sessions fit; two 100 s do not.
+    // Measured: 2 x (the 80 s command timeout + a 30 s session), up to a minute: 240 s. Two
+    // 120 s sessions fit; two 130 s do not.
     expect(
-      (await measure({ files }, BASE, { now: slowConfirmation(80_000) }).result).confirmation
+      (await measure({ files }, BASE, { now: slowConfirmation(120_000) }).result).confirmation
         .sessionMs,
-    ).toBe(80_000)
+    ).toBe(120_000)
     await expect(
-      measure({ files }, BASE, { now: slowConfirmation(100_000) }).result,
+      measure({ files }, BASE, { now: slowConfirmation(130_000) }).result,
     ).rejects.toThrow(
-      /took 100000 ms; two of them do not fit the proposed verifierDeadlineMs 180000/,
+      /took 130000 ms; two of them do not fit the proposed verifierDeadlineMs 240000/,
     )
   })
 

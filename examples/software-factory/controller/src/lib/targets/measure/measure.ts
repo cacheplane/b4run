@@ -19,6 +19,7 @@ import {
 import {
   changedPaths,
   classifyFile,
+  coveringDeadline,
   EXCLUDED,
   type FileMeasurement,
   hasControl,
@@ -387,7 +388,12 @@ export async function measureSuite(options: MeasureSuiteOptions): Promise<Measur
       log(`suite run ${run}: ${JSON.stringify(sample)}`)
     }
     const measured = proposeResources(samples, options.cpus)
-    const resources = settleResources(measured, options.prior, options.allowDecrease)
+    // A prior, or --allow-decrease, can pair one side's timeout with the other's deadline: the
+    // deadline must still absorb a command timing out in each of the verifier's two sessions.
+    const resources = coveringDeadline(
+      settleResources(measured, options.prior, options.allowDecrease),
+      samples,
+    )
 
     // Phase 4: the proposal, tried. A verification session must also fit twice in the deadline.
     const confirmation = await sampleSuite(
