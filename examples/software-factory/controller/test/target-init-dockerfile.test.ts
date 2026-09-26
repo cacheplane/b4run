@@ -76,8 +76,11 @@ function installed(nested: Record<string, string>): string {
   return root
 }
 
+/** The image's /bin/sh is dash; run under it where the host has one, so its rules apply. */
+const SHELL = spawnSync("dash", ["-c", "true"]).status === 0 ? "dash" : "sh"
+
 const run = (dockerfile: string, cwd: string) =>
-  spawnSync("sh", ["-c", promotionStep(dockerfile)], { cwd, encoding: "utf8" })
+  spawnSync(SHELL, ["-c", promotionStep(dockerfile)], { cwd, encoding: "utf8" })
 
 const NESTED = {
   "packages/app/node_modules/commander/package.json": "app-commander",
@@ -164,6 +167,73 @@ describe("the generated Dockerfile", () => {
     expect(result.stderr).toContain("promoted twice: hono (again from packages/core)")
   })
 
+  it("fails the build when a promotion's move fails inside the loop", () => {
+    const root = installed(NESTED)
+    // `mkdir -p node_modules/@scope` cannot make a directory where a file stands.
+    file(root, "node_modules/@scope", "not a directory")
+    const text = renderDockerfile({
+      ...SPEC,
+      expectedPromoted: ["typescript", "commander", "@scope/pkg"],
+    })
+    const result = run(text, root)
+    expect(result.status, result.stdout).not.toBe(0)
+    expect(result.stdout).not.toContain(PROMOTED_MARKER)
+  })
+
+  it("fails the build when a workspace relink fails inside the loop", () => {
+    // Not the last link: the loop's own status is its last iteration's.
+    const root = installed({})
+    file(root, "node_modules/@x", "not a directory")
+    const captured = [{ dir: "a", name: "@x/a" }, ...SPEC.captured]
+    const result = run(renderDockerfile({ ...SPEC, captured }), root)
+    expect(result.status, result.stdout).not.toBe(0)
+    // It stopped at the failed link, before relinking the rest.
+    expect(() => readlinkSync(join(root, "node_modules/@m/core"))).toThrow()
+  })
+
+  it("does not shim tsc for a nested typescript that is only a symlink", () => {
+    const root = installed({})
+    mkdirSync(join(root, "elsewhere/typescript"), { recursive: true })
+    symlinkSync("../../../elsewhere/typescript", join(root, "packages/app/node_modules/typescript"))
+    const result = run(renderDockerfile(SPEC), root)
+    expect(result.status, result.stderr).toBe(0)
+    expect(existsSync(join(root, "tools"))).toBe(false)
+    expect(readFileSync(join(root, "node_modules/.bin/tsc"), "utf8")).toBe("root tsc")
+  })
+
+  it("fails the build when it would promote a name the workspace relinks", () => {
+    const root = installed({ "packages/app/node_modules/@m/util/package.json": "nested-util" })
+    const result = run(renderDockerfile({ ...SPEC, expectedPromoted: ["@m/util"] }), root)
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain(
+      "promoted @m/util is a workspace package the image relinks to /workspace/packages/util",
+    )
+  })
+
+  it("declares its captured packages sorted by directory, whatever order it is given", () => {
+    const text = renderDockerfile({ ...SPEC, captured: [...SPEC.captured].reverse() })
+    expect(text).toBe(renderDockerfile(SPEC))
+    expect(text).toContain('CAPTURED="app config core util"')
+  })
+
+  it("refuses a promotion set that names a package twice", () => {
+    expect(() =>
+      renderDockerfile({ ...SPEC, expectedPromoted: ["hono", "commander", "hono"] }),
+    ).toThrow(/names hono twice/)
+    expect(() => withExpectedPromoted(renderDockerfile(SPEC), ["hono", "hono"])).toThrow(
+      /names hono twice/,
+    )
+  })
+
+  it("refuses a name that would start with a dash", () => {
+    for (const name of ["-rf", "@-s/x", "@s/-x", "_x"]) {
+      expect(() => renderDockerfile({ ...SPEC, filter: name }), name).toThrow(/will not write/)
+      expect(() => withExpectedPromoted(renderDockerfile(SPEC), [name]), name).toThrow(
+        /will not write/,
+      )
+    }
+  })
+
   it("refuses to write a value the shell would read as syntax", () => {
     for (const bad of ["a b", "$(id)", "x;y", 'q"'])
       expect(() => renderDockerfile({ ...SPEC, expectedPromoted: [bad] }), bad).toThrow(
@@ -222,5 +292,18 @@ describe("the promotion set", () => {
     expect(promotionMismatch(`${echoed}\n#9 ERROR: exit code: 100\n`)).toBeUndefined()
     // A build that passed the check.
     expect(promotionMismatch(`${echoed}\n#9 0.4 ${PROMOTED_MARKER}  \n#10 DONE\n`)).toBeUndefined()
+    // The two markers from different steps are not one failed check.
+    expect(
+      promotionMismatch(
+        `#9 0.4 ${PROMOTED_MARKER} hono \n#9 DONE\n#12 0.1 ${EXPECTED_MARKER}  \n#12 ERROR: exit code: 1\n`,
+      ),
+    ).toBeUndefined()
+    // BuildKit's error summary repeats the step's output without step numbers; only the step's
+    // own numbered lines count.
+    expect(
+      promotionMismatch(
+        `${failed}------\n > [6/7] RUN set -eu ...:\n0.412 ${PROMOTED_MARKER} bogus \n0.413 ${EXPECTED_MARKER}  \n------\n`,
+      ),
+    ).toEqual(["@hono/node-server", "commander", "hono", "typescript"])
   })
 })
