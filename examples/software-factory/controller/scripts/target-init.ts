@@ -16,10 +16,12 @@ import { renderDiff, writeProposal } from "../src/lib/targets/proposal.js"
  * proposes into another catalog (a scratch measurement) instead of the controller's; a relative
  * one is relative to the directory `pnpm target:init` was run from (pnpm's INIT_CWD), else the
  * process's own. A refusal prints as one `target:init:` line and exits 1. A target is an
- * oracle input: the person reviews the diff and commits it, but only once its placeholder
- * resources and excludes are measured. `target:measure` does that and comes in a follow-up;
- * until then a generated target must not be committed, and the factory refuses to draft or
- * run a task on one whose resources are the placeholders (`unmeasuredProblem`).
+ * oracle input, and its resources are placeholders with no test excluded. The flow is two
+ * commands: `target:init --write`, then `target:measure <id> --write` (which measures the
+ * uncommitted files on disk and proposes excludes and resources), then the person reviews the
+ * diff and `targets/<id>/measurement.md` and commits. As a fail-safe for a target committed
+ * without the second step, the factory still refuses to draft or run a task on one whose
+ * resources are the placeholders (`unmeasuredProblem`).
  */
 try {
   const args = parseInitArgs(process.argv.slice(2))
