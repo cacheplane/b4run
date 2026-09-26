@@ -28,6 +28,26 @@ const targetsDir = () => {
 }
 
 describe("initTarget", () => {
+  it("names a missing pin by the package asked for, once (the script prefixes target:init)", () => {
+    const { root } = pinRepo(MINI)
+    const missing = "a".repeat(40)
+    const previous = process.env.FACTORY_NO_FETCH
+    process.env.FACTORY_NO_FETCH = "1"
+    try {
+      expect(() =>
+        initTarget({
+          packageRef: "packages/app",
+          pin: missing,
+          repositoryRoot: root,
+          targetsDir: targetsDir(),
+        }),
+      ).toThrow(new RegExp(`^packages/app pins ${missing}, which is not in the repository at `))
+    } finally {
+      if (previous === undefined) delete process.env.FACTORY_NO_FETCH
+      else process.env.FACTORY_NO_FETCH = previous
+    }
+  })
+
   it("proposes a new target as two added files, formatted as committed ones are, and writes nothing", () => {
     const { root, pin } = pinRepo(MINI)
     const targets = targetsDir()

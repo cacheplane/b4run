@@ -163,7 +163,7 @@ export function readWorkspace(tree: PinTree): WorkspaceGraph {
     if (manifest.name === undefined) continue
     const other = packages.get(manifest.name)
     if (other)
-      throw new Error(`Two workspace packages are named ${manifest.name}: ${other.dir} and ${dir}`)
+      throw new Error(`two workspace packages are named ${manifest.name}: ${other.dir} and ${dir}`)
     packages.set(manifest.name, { name: manifest.name, dir, manifest })
   }
   return { root, packages }
@@ -175,7 +175,7 @@ export function resolvePackage(graph: WorkspaceGraph, ref: string): WorkspacePac
   if (named) return named
   const dir = ref.replace(/^\.\//, "").replace(/\/+$/, "")
   for (const pkg of graph.packages.values()) if (pkg.dir === dir) return pkg
-  throw new Error(`No workspace package is named or lives at ${JSON.stringify(ref)}`)
+  throw new Error(`no workspace package is named or lives at ${JSON.stringify(ref)}`)
 }
 
 /** `pkg`'s `workspace:` dependencies of `kinds`, sorted by directory. */
@@ -279,7 +279,7 @@ export function topologicalOrder(
       .sort(byDir)[0]
     if (next === undefined)
       throw new Error(
-        `Workspace dependency cycle: none of ${packages
+        `workspace dependency cycle: none of ${packages
           .filter((p) => !done.has(p.name))
           .map((p) => p.name)
           .sort()

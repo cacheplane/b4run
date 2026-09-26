@@ -291,7 +291,9 @@ describe("deriveTarget", () => {
     const root = JSON.parse(MINI["package.json"] as string)
     expect(() =>
       derive({ ...MINI, "package.json": json({ ...root, packageManager: "npm@10.0.0" }) }),
-    ).toThrow(/generates pnpm targets only/)
+    ).toThrow(
+      /^the root package\.json at \S+ names packageManager "npm@10\.0\.0": .*pnpm targets only/,
+    )
     const app = JSON.parse(MINI["packages/app/package.json"] as string)
     expect(() =>
       derive({
@@ -302,8 +304,9 @@ describe("deriveTarget", () => {
         }),
       }),
     ).toThrow(/@m\/lint lives at tools\/lint: target:init captures packages under packages\/ only/)
+    // Lowercase-first, and unprefixed: the script adds the one `target:init:`.
     expect(() => derive({ ...MINI, "packages/app/test/[id].test.ts": "\n" })).toThrow(
-      /packages\/app\/test\/\[id\]\.test\.ts/,
+      /^cannot capture 1 path\(s\) .*: packages\/app\/test\/\[id\]\.test\.ts$/,
     )
     expect(() => derive(MINI, "@m/app", {}, { "packages/app/src/link.ts": "index.ts" })).toThrow(
       /packages\/app\/src\/link\.ts/,
@@ -473,8 +476,8 @@ describe("deriveTarget", () => {
     // None in the package: the repository root's, which is captured and kept immutable.
     const rootConfig = {
       ...MINI,
-      "vitest.config.ts": 'export default { test: { setupFiles: ["./vitest.setup.ts"] } }\n',
-      "vitest.setup.ts": "export {}\n",
+      "vitest.config.ts": 'export default { test: { alias: { s: "./vitest.shared.ts" } } }\n',
+      "vitest.shared.ts": "export {}\n",
     }
     const { manifest, notes } = derive(rootConfig, "@m/util")
     expect(manifest.capture.include).toContain("vitest.config.ts")
@@ -483,7 +486,7 @@ describe("deriveTarget", () => {
       "vitest.config.ts is the vitest config @m/util's tests load (none in packages/util; vitest looks up from there): captured and kept immutable",
     )
     expect(notes).toContain(
-      "vitest.config.ts reads ./vitest.setup.ts (vitest.setup.ts), which the capture omits: a test that reaches it fails, and target:measure proposes excluding it",
+      "vitest.config.ts reads ./vitest.shared.ts (vitest.shared.ts), which the capture omits: a test that reaches it fails, and target:measure proposes excluding it",
     )
     // A package's own config wins over the root's.
     const app = derive(rootConfig)
@@ -509,6 +512,32 @@ describe("deriveTarget", () => {
     })
     expect(notes).toContain("packages/app: files not captured: .env.test, vitest.setup.ts")
     expect(notes.some((note) => note.startsWith("packages/core: files not captured"))).toBe(false)
+  })
+
+  it("refuses a setup file or global setup the capture omits: every test would fail", () => {
+    const config = (test: string) => ({
+      ...MINI,
+      "fixtures/setup.ts": "export {}\n",
+      "packages/app/vitest.setup.ts": "export {}\n",
+      "packages/app/vitest.config.ts": `export default { test: ${test} }\n`,
+    })
+    expect(() => derive(config('{ globalSetup: "../../fixtures/setup.ts" }'))).toThrow(
+      /^packages\/app\/vitest\.config\.ts's globalSetup reads fixtures\/setup\.ts, which the capture omits: every test would fail$/,
+    )
+    expect(() => derive(config('{ setupFiles: ["./src/index.ts", "./vitest.setup.ts"] }'))).toThrow(
+      /^packages\/app\/vitest\.config\.ts's setupFiles reads packages\/app\/vitest\.setup\.ts, which the capture omits: every test would fail$/,
+    )
+    // Unprefixed, as vitest also accepts, and outside the repository.
+    expect(() => derive(config('{ setupFiles: "vitest.setup.ts" }'))).toThrow(
+      /setupFiles reads packages\/app\/vitest\.setup\.ts, which the capture omits/,
+    )
+    expect(() => derive(config('{ globalSetup: ["../../../setup.ts"] }'))).toThrow(
+      /^packages\/app\/vitest\.config\.ts's globalSetup reads \.\.\/\.\.\/\.\.\/setup\.ts, outside the repository: every test would fail$/,
+    )
+    // A captured setup file, or a package the image installs, is fine.
+    expect(() =>
+      derive(config('{ setupFiles: ["./src/index.ts", "@testing-library/jest-dom"] }')),
+    ).not.toThrow()
   })
 
   it("names every relative path the vitest config reads that the capture omits", () => {
@@ -551,7 +580,7 @@ describe("deriveTarget", () => {
     )
   })
 
-  it("reads the TypeScript the package resolves, and refuses a version it cannot read", () => {
+  it("reads the root's TypeScript, the one the image builds with, and refuses a version it cannot read", () => {
     const root = JSON.parse(MINI["package.json"] as string)
     const { typescript: _ts, ...devDependencies } = root.devDependencies
     const app = JSON.parse(MINI["packages/app/package.json"] as string)
@@ -567,21 +596,38 @@ describe("deriveTarget", () => {
           `typescript ${JSON.stringify(spec)}: target:init cannot tell its major version, which decides --builders`,
         ),
       )
-    expect(() => derive(withRoot({}))).toThrow(/name no typescript/)
+    expect(() => derive(withRoot({}))).toThrow(/^the root package\.json at \S+ names no typescript/)
+    // Nor does the package's own stand in for a root that names none.
+    expect(() =>
+      derive({
+        ...withRoot({}),
+        "packages/app/package.json": json({
+          ...app,
+          devDependencies: { ...app.devDependencies, typescript: "7.0.2" },
+        }),
+      }),
+    ).toThrow(/names no typescript/)
     // The root's dependencies count, not only its devDependencies.
     expect(
       derive(withRoot({ dependencies: { typescript: "^7.0.2" } })).manifest.commands.build,
     ).toContain("--builders")
-    // The package's own TypeScript resolves before the root's.
-    expect(
-      derive({
-        ...MINI,
-        "packages/app/package.json": json({
-          ...app,
-          devDependencies: { ...app.devDependencies, typescript: "5.9.3" },
-        }),
-      }).manifest.commands.build,
-    ).not.toContain("--builders")
+    // The package's own TypeScript is not the one that builds: the image shims `tsc` onto the
+    // root's whenever a captured package nests its own. A nested version it cannot read (an
+    // `npm:` alias, as `packages/core` declares) or an older one changes nothing.
+    for (const nested of ["5.9.3", "npm:@typescript/typescript6@6.0.2"])
+      expect(
+        derive({
+          ...MINI,
+          "packages/app/package.json": json({
+            ...app,
+            devDependencies: { ...app.devDependencies, typescript: nested },
+          }),
+        }).manifest.commands.build.slice(0, 6),
+      ).toEqual(["pnpm", "exec", "tsc", "-b", "--builders", "1"])
+    // The root's own refusal names the root.
+    expect(() =>
+      derive(withRoot({ devDependencies: { ...devDependencies, typescript: "latest" } })),
+    ).toThrow(/^the root package\.json at [0-9a-f]{40} declares typescript "latest"/)
   })
 
   it("names a carried test scope file the capture does not hold", () => {

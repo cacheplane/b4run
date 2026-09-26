@@ -51,7 +51,7 @@ export function initTarget(options: InitOptions): InitResult {
       `the pin must be a full lowercase commit sha, got ${JSON.stringify(options.pin)}`,
     )
   ensurePin(options.repositoryRoot, "target:init", options.pin, {
-    label: `target:init ${options.packageRef}`,
+    label: options.packageRef,
   })
   const tree = gitPinTree(options.repositoryRoot, options.pin)
   const graph = readWorkspace(tree)
@@ -100,11 +100,11 @@ function proposalProblem(
     (path) => tree.kind(path) !== undefined,
   )
   if (missing !== undefined)
-    return `The proposal names ${missing}, which does not exist at ${tree.pin}`
+    return `the proposal names ${missing}, which does not exist at ${tree.pin}`
   const captured = capturedListMismatch(manifest, dockerfile)
   if (captured !== undefined) return captured
   if (!covers(manifest.imageContext, manifest.lockfile))
-    return `The proposal's imageContext does not cover its lockfile ${manifest.lockfile}`
+    return `the proposal's imageContext does not cover its lockfile ${manifest.lockfile}`
   return undefined
 }
 

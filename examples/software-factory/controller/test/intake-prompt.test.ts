@@ -1,4 +1,12 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs"
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
@@ -18,9 +26,11 @@ import {
 } from "../src/lib/prompts.ts"
 import {
   environmentIdentity,
+  isPlaceholderResources,
   loadTarget,
   loadTargetIds,
   loadTargetRecipe,
+  PLACEHOLDER_RESOURCES,
   TargetSchema,
   targetsDir,
   tasksDir,
@@ -228,6 +238,31 @@ describe("intakePrompt", () => {
       ).toContain("- (none available)")
     } finally {
       rmSync(empty, { recursive: true, force: true })
+    }
+  })
+})
+
+describe("targets with placeholder resources", () => {
+  it("are never offered to the drafter: target:measure has not proposed their resources", () => {
+    const dir = mkdtempSync(join(tmpdir(), "factory-prompt-unmeasured-"))
+    try {
+      const shipped = JSON.parse(readFileSync(join(targetsDir, "devkit", "target.json"), "utf8"))
+      for (const [id, resources] of [
+        ["devkit", shipped.resources],
+        ["unmeasured", PLACEHOLDER_RESOURCES],
+      ] as const) {
+        mkdirSync(join(dir, id))
+        copyFileSync(join(targetsDir, "devkit", "Dockerfile"), join(dir, id, "Dockerfile"))
+        writeFileSync(join(dir, id, "target.json"), JSON.stringify({ ...shipped, id, resources }))
+      }
+      const lines = availableTargets(PIN, { targetsDir: dir })
+      expect(lines.some((line) => line.startsWith("- `devkit`"))).toBe(true)
+      expect(lines.some((line) => line.includes("unmeasured"))).toBe(false)
+      // Every shipped target is measured, so each is offered where its paths exist.
+      for (const id of loadTargetIds())
+        expect(isPlaceholderResources(loadTargetRecipe(id, { pin: PIN }).resources)).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
     }
   })
 })

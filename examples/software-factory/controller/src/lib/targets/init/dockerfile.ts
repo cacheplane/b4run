@@ -44,7 +44,7 @@ function refuseUnsafe(value: string, pattern: RegExp): void {
 function refuseRepeated(names: readonly string[]): void {
   const seen = new Set<string>()
   for (const name of names) {
-    if (seen.has(name)) throw new Error(`The promotion set names ${name} twice`)
+    if (seen.has(name)) throw new Error(`the promotion set names ${name} twice`)
     seen.add(name)
   }
 }
@@ -159,7 +159,7 @@ export function expectedPromotedOf(dockerfile: string): string[] | undefined {
 /** `dockerfile` declaring `names` as its promotion set. */
 export function withExpectedPromoted(dockerfile: string, names: readonly string[]): string {
   if (expectedPromotedOf(dockerfile) === undefined)
-    throw new Error("The Dockerfile declares no EXPECTED_PROMOTED to replace")
+    throw new Error("the Dockerfile declares no EXPECTED_PROMOTED to replace")
   for (const name of names) refuseUnsafe(name, NAME)
   refuseRepeated(names)
   return dockerfile.replace(

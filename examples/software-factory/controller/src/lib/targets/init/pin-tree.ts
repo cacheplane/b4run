@@ -78,7 +78,7 @@ export function gitPinTree(repositoryRoot: string, pin: string): PinTree {
   try {
     listing = git(["ls-tree", "-r", "-t", "-z", "-l", "--full-tree", sha])
   } catch (error) {
-    throw new Error(`Cannot list ${repositoryRoot} at ${sha}: ${gitError(error)}`)
+    throw new Error(`cannot list ${repositoryRoot} at ${sha}: ${gitError(error)}`)
   }
   const entries = new Map<string, Entry>([
     ["", { kind: "dir", mode: "040000", object: "", bytes: 0 }],
@@ -129,7 +129,7 @@ export function gitPinTree(repositoryRoot: string, pin: string): PinTree {
       try {
         return git(["cat-file", "blob", entry.object])
       } catch (error) {
-        throw new Error(`Cannot read ${path} at ${sha}: ${gitError(error)}`)
+        throw new Error(`cannot read ${path} at ${sha}: ${gitError(error)}`)
       }
     },
     children: (dir) => [...(children.get(clean(dir)) ?? [])],

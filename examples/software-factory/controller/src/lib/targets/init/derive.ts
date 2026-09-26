@@ -1,5 +1,5 @@
 import { posix } from "node:path"
-import type { TargetManifest } from "../catalog.js"
+import { isPlaceholderResources, PLACEHOLDER_RESOURCES, type TargetManifest } from "../catalog.js"
 import { parseVitestCommand, vitestTestArgv, withExcludes } from "../vitest-command.js"
 import type { DockerfileSpec } from "./dockerfile.js"
 import type { EntryKind, PinTree } from "./pin-tree.js"
@@ -15,24 +15,12 @@ import {
   workspaceDependencies,
 } from "./workspace-graph.js"
 
+/** Re-exported: `init` writes them; the catalog keeps a target that has them from work. */
+export { isPlaceholderResources, PLACEHOLDER_RESOURCES }
+
 /** The base every shipped target pins (`targets-catalog.test.ts`): the drafter's, by digest. */
 export const DEFAULT_BASE_IMAGE =
   "node:24-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6"
-
-/** Generous until `target:measure` replaces them: a person reviews the numbers it proposes. */
-export const PLACEHOLDER_RESOURCES: TargetManifest["resources"] = {
-  memoryMb: 2048,
-  cpus: 2,
-  commandTimeoutMs: 600_000,
-  verifierDeadlineMs: 3_600_000,
-}
-
-/** Are `resources` `init`'s placeholders, never measured? (Detected by value, not by origin.) */
-export function isPlaceholderResources(resources: TargetManifest["resources"]): boolean {
-  return (Object.keys(PLACEHOLDER_RESOURCES) as (keyof TargetManifest["resources"])[]).every(
-    (key) => resources[key] === PLACEHOLDER_RESOURCES[key],
-  )
-}
 
 /** What a re-generation keeps from the target already on disk (plan D8). */
 export interface CarriedFields {
@@ -117,29 +105,53 @@ function findVitestConfig(tree: PinTree, dir: string): string | undefined {
 }
 
 /**
- * The major version of the TypeScript `pnpm exec tsc` resolves from the package: its own
- * declaration first (a nested install), then the root's. An unreadable one is refused, since it
- * decides whether the build passes `--builders`.
+ * The major version of the root's TypeScript: the `tsc` the image builds with. A package's own
+ * declaration is not read: the generated Dockerfile shims `tsc` onto the root's whenever a
+ * captured package nests its own (`dockerfile.ts`, NESTED_TS), so a nested version, even one
+ * this cannot read (`packages/core`'s `npm:` alias), never builds (plan D5). An unreadable root
+ * version is refused, since it decides whether the build passes `--builders`.
  */
-function typescriptMajor(graph: WorkspaceGraph, pkg: WorkspacePackage, pin: string): number {
-  const declared = [
-    [`${pkg.dir}/package.json`, pkg.manifest.devDependencies],
-    [`${pkg.dir}/package.json`, pkg.manifest.dependencies],
-    ["The root package.json", graph.root.devDependencies],
-    ["The root package.json", graph.root.dependencies],
-  ] as const
-  const [where, deps] = declared.find(([, deps]) => deps?.typescript !== undefined) ?? []
-  const spec = deps?.typescript
+function typescriptMajor(graph: WorkspaceGraph, pin: string): number {
+  const spec = graph.root.devDependencies?.typescript ?? graph.root.dependencies?.typescript
   if (spec === undefined)
     throw new Error(
-      `${pkg.dir}/package.json and the root package.json at ${pin} name no typescript: target:init cannot tell which tsc builds several projects, and whether to pass --builders`,
+      `the root package.json at ${pin} names no typescript: target:init cannot tell which tsc builds several projects, and whether to pass --builders`,
     )
   const major = /^[\^~]?(\d+)\.(?:\d+|x|\*)/.exec(spec)?.[1]
   if (major === undefined)
     throw new Error(
-      `${where} at ${pin} declares typescript ${JSON.stringify(spec)}: target:init cannot tell its major version, which decides --builders (TypeScript 7 builds projects in parallel)`,
+      `the root package.json at ${pin} declares typescript ${JSON.stringify(spec)}: target:init cannot tell its major version, which decides --builders (TypeScript 7 builds projects in parallel)`,
     )
   return Number(major)
+}
+
+/**
+ * A `setupFiles` or `globalSetup` entry the capture does not hold is refused, by name: vitest
+ * loads it before every file, so no test could pass (a per-file note would understate it). Each
+ * string literal under either key is read as a path against the config's directory; one that
+ * is not `./`/`../`-prefixed and names nothing at the pin is a package, which the image installs.
+ */
+function assertSetupCaptured(tree: PinTree, runner: string, holds: (path: string) => boolean) {
+  const from = posix.dirname(runner) === "." ? "" : posix.dirname(runner)
+  const text = tree.read(runner) ?? ""
+  for (const [, key, value] of text.matchAll(
+    /\b(setupFiles|globalSetup)\s*:\s*(\[[^\]]*\]|["'`][^"'`]*["'`])/g,
+  ))
+    for (const [, reference] of (value as string).matchAll(/["'`]([^"'`\s]+)["'`]/g)) {
+      const ref = reference as string
+      if (ref.includes("${") || posix.isAbsolute(ref)) continue
+      const resolved = posix.normalize(posix.join(from, ref))
+      const relative = /^\.{1,2}\//.test(ref)
+      if (!relative && tree.kind(resolved) === undefined) continue
+      if (resolved.startsWith("../"))
+        throw new Error(
+          `${runner}'s ${key} reads ${ref}, outside the repository: every test would fail`,
+        )
+      if (!holds(resolved))
+        throw new Error(
+          `${runner}'s ${key} reads ${resolved}, which the capture omits: every test would fail`,
+        )
+    }
 }
 
 /**
@@ -199,7 +211,7 @@ export function deriveTarget(
   const manager = graph.root.packageManager ?? ""
   if (!/^pnpm@\d+\.\d+\.\d+$/.test(manager))
     throw new Error(
-      `The root package.json at ${tree.pin} names packageManager ${JSON.stringify(manager)}: target:init generates pnpm targets only, and the image installs the pnpm@<x.y.z> it names`,
+      `the root package.json at ${tree.pin} names packageManager ${JSON.stringify(manager)}: target:init generates pnpm targets only, and the image installs the pnpm@<x.y.z> it names`,
     )
   // A symlink here would be read by pnpm through the link; the image context copies the path.
   // Name what the pin holds rather than calling it absent.
@@ -290,7 +302,7 @@ export function deriveTarget(
           "exec",
           "tsc",
           "-b",
-          ...(projects.length > 1 && typescriptMajor(graph, pkg, tree.pin) >= 7
+          ...(projects.length > 1 && typescriptMajor(graph, tree.pin) >= 7
             ? ["--builders", "1"]
             : []),
           ...projects,
@@ -406,7 +418,7 @@ export function deriveTarget(
   )
   if (refused.length > 0)
     throw new Error(
-      `target:init cannot capture ${refused.length} path(s) the workspace capture refuses (portable ASCII names only; no symlinks or submodules): ${refused
+      `cannot capture ${refused.length} path(s) the workspace capture refuses (portable ASCII names only; no symlinks or submodules): ${refused
         .slice(0, 10)
         .map((f) => f.path)
         .join(", ")}${refused.length > 10 ? ", ..." : ""}`,
@@ -439,7 +451,10 @@ export function deriveTarget(
     .filter((entry) => entry.kind !== "dir" && !touches(`${pkg.dir}/${entry.name}`))
     .map((entry) => entry.name)
   if (looseFiles.length > 0) notes.push(`${pkg.dir}: files not captured: ${looseFiles.join(", ")}`)
-  if (runner !== undefined) notes.push(...runnerReads(tree, graph, runner, holds, touches))
+  if (runner !== undefined) {
+    assertSetupCaptured(tree, runner, holds)
+    notes.push(...runnerReads(tree, graph, runner, holds, touches))
+  }
 
   const typesNode = [
     graph.root.devDependencies,
@@ -493,7 +508,7 @@ export function deriveTarget(
       for (const prefix of snapshotIgnore)
         if (`${entry}/`.startsWith(prefix) || prefix.startsWith(`${entry}/`))
           throw new Error(
-            `The ${field} entry ${entry} overlaps snapshotIgnore ${prefix}: the snapshot passes over the build's output, so an edit to a captured or immutable file there would go unseen`,
+            `the ${field} entry ${entry} overlaps snapshotIgnore ${prefix}: the snapshot passes over the build's output, so an edit to a captured or immutable file there would go unseen`,
           )
 
   const manifest: TargetManifest = {

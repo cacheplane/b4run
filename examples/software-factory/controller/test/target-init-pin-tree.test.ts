@@ -95,7 +95,7 @@ describe("a pin tree", () => {
     expect(() => tree.read("b.txt")).toThrow(/b\.txt/)
     // A tree the object store lost: the pin cannot be listed at all.
     rmSync(loose(object(`${pin}:packages`)))
-    expect(() => gitPinTree(root, pin)).toThrow(/Cannot list .* at [0-9a-f]{40}:/)
+    expect(() => gitPinTree(root, pin)).toThrow(/cannot list .* at [0-9a-f]{40}:/)
   })
 
   it("names paths from the repository's top level whatever directory it is given", () => {

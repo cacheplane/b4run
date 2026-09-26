@@ -113,7 +113,7 @@ describe("the workspace graph", () => {
     expect(resolvePackage(graph, "packages/app/").name).toBe("@m/app")
     expect(resolvePackage(graph, "./packages/core").name).toBe("@m/core")
     expect(() => resolvePackage(graph, "@m/ghost")).toThrow(
-      /No workspace package is named or lives at/,
+      /no workspace package is named or lives at/,
     )
   })
 
@@ -241,7 +241,7 @@ describe("the workspace graph", () => {
   it("refuses two packages of one name, and skips a matched directory with no name", () => {
     expect(() =>
       graphOf({ ...MINI, "tools/lint/package.json": json({ name: "@m/util" }) }),
-    ).toThrow(/Two workspace packages are named @m\/util: packages\/util and tools\/lint/)
+    ).toThrow(/two workspace packages are named @m\/util: packages\/util and tools\/lint/)
     const { graph } = graphOf({ ...MINI, "tools/lint/package.json": json({ private: true }) })
     expect(graph.packages.has("@m/lint")).toBe(false)
   })
