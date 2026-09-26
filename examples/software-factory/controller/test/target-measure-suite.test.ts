@@ -123,7 +123,7 @@ describe("measureSuite", () => {
     const a = m.files[0]
     expect(a?.verdict).toBe("fail")
     expect(a?.changed).toEqual(["packages/app/tmp.txt"])
-    expect(a?.reason).toContain("it also changed the workspace: packages/app/tmp.txt")
+    expect(a?.reason).toContain('it also changed the workspace: "packages/app/tmp.txt"')
   })
 
   it("lists a file that fails once and then passes as flaky, and does not exclude it", async () => {
@@ -167,6 +167,23 @@ describe("measureSuite", () => {
     expect(error).toBeInstanceOf(MeasureError)
     expect((error as MeasureError).message).toMatch(/the proposed resources did not hold/)
     expect((error as MeasureError).files?.map((f) => f.verdict)).toEqual(["pass", "fail"])
+  })
+
+  it("keeps the files measured before a stop in the per-file pass, for a partial report", async () => {
+    const error = await measure({
+      files: { "test/a.test.ts": {}, "test/b.test.ts": { reports: ["test/x/test/b.test.ts"] } },
+    }).result.catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(MeasureError)
+    expect((error as MeasureError).message).toMatch(/must select exactly this file/)
+    expect((error as MeasureError).files?.map((f) => [f.file, f.verdict])).toEqual([
+      ["test/a.test.ts", "pass"],
+    ])
+  })
+
+  it("refuses a listed file whose name holds a control character", async () => {
+    await expect(
+      measure({ files: { "test/a.test.ts": {} }, listed: ["test/a\n## x.test.ts"] }).result,
+    ).rejects.toThrow(/control character/)
   })
 
   it("keeps a scope, and samples the suite as many times as asked, each in a fresh container", async () => {

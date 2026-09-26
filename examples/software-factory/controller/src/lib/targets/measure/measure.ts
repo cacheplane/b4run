@@ -5,6 +5,7 @@ import {
   classifyFile,
   EXCLUDED,
   type FileMeasurement,
+  hasControl,
   MeasureError,
   type Measurement,
   proposeResources,
@@ -27,7 +28,11 @@ import {
  */
 function listedFiles(listed: readonly string[]): string[] {
   const files = [...new Set(listed.map((name) => withoutProject(name.trim())))].sort()
-  for (const file of files)
+  for (const file of files) {
+    if (hasControl(file))
+      throw new MeasureError(
+        `vitest listed ${JSON.stringify(file)}, whose name holds a control character: it would reach the report and measurement.md as it is`,
+      )
     if (
       file === "" ||
       file.startsWith("/") ||
@@ -37,6 +42,7 @@ function listedFiles(listed: readonly string[]): string[] {
       throw new MeasureError(
         `vitest listed ${JSON.stringify(file)}; a measured file is a path relative to the command directory`,
       )
+  }
   return files
 }
 
@@ -77,7 +83,7 @@ async function measureFile(
   const before = await session.snapshot()
   const run = await session.vitest(argv)
   const after = await session.snapshot()
-  return classifyFile(file, run, changedPaths(before, after), options, options.existsAtPin)
+  return classifyFile(file, run, changedPaths(before, after), options.existsAtPin)
 }
 
 /** The whole `test` in a fresh session at `limits`: a sample, or a stop with the suite's output. */
@@ -138,7 +144,14 @@ export async function measureSuite(options: MeasureSuiteOptions): Promise<Measur
   // the container dirty or busy, so the next file gets a fresh one.
   const queue: { files: string[] | null } = { files: null }
   const first: FileMeasurement[] = []
-  while (queue.files === null || queue.files.length > 0) {
+  try {
+    while (queue.files === null || queue.files.length > 0) await measureQueue()
+  } catch (error) {
+    // The files measured before the stop, for a partial report.
+    if (error instanceof MeasureError && first.length > 0) error.files = [...first]
+    throw error
+  }
+  async function measureQueue() {
     await open(limits, async (session) => {
       await buildOrThrow(session)
       if (queue.files === null) {
