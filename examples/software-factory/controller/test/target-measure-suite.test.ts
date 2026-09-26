@@ -1,0 +1,285 @@
+import { describe, expect, it } from "vitest"
+import type { TargetRecipe } from "../src/lib/targets/catalog.ts"
+import { MeasureError } from "../src/lib/targets/measure/classify.ts"
+import { type MeasureSuiteOptions, measureSuite } from "../src/lib/targets/measure/measure.ts"
+import { relativeTo, reportFiles, withoutProject } from "../src/lib/targets/measure/session.ts"
+import { type FakeScript, fakeSessions } from "./fake-measure-session.ts"
+
+const BASE = ["pnpm", "exec", "vitest", "--run", "--no-cache", "--config", "vitest.config.ts"]
+const FILE_LIMITS = { memoryMb: 4096, cpus: 2, commandTimeoutMs: 180_000 }
+const recipe = (test: readonly string[] = BASE): Pick<TargetRecipe, "id" | "commands"> => ({
+  id: "app",
+  commands: {
+    cwd: "packages/app",
+    build: ["pnpm", "exec", "tsc", "-b", "tsconfig.json"],
+    test: [...test],
+    nodeTestExecArgv: [],
+  },
+})
+/** A clock that advances 30 s per reading: every sampled session lasts 30 s. */
+const clock = () => {
+  let t = 0
+  return () => (t += 30_000)
+}
+const measure = (
+  script: FakeScript,
+  test?: readonly string[],
+  extra: Partial<MeasureSuiteOptions> = {},
+) => {
+  const fake = fakeSessions(script)
+  return {
+    fake,
+    result: measureSuite({
+      recipe: recipe(test),
+      open: fake.open,
+      fileTimeoutMs: 180_000,
+      memoryMb: 4096,
+      cpus: 2,
+      runs: 1,
+      allowDecrease: false,
+      now: clock(),
+      ...extra,
+    }),
+  }
+}
+
+describe("measureSuite", () => {
+  it("runs each file alone, re-runs each non-pass, proposes an exclude per fail, hang or write, then samples and confirms the suite", async () => {
+    const { fake, result } = measure({
+      files: {
+        "test/a.test.ts": {},
+        "test/b.test.ts": { timedOut: true },
+        "test/c.test.ts": { exitCode: 1 },
+        "test/d.test.ts": { writes: ["packages/app/test/out.json"] },
+      },
+    })
+    const m = await result
+    expect(m.files.map((f) => [f.file, f.verdict])).toEqual([
+      ["test/a.test.ts", "pass"],
+      ["test/b.test.ts", "hang"],
+      ["test/c.test.ts", "fail"],
+      ["test/d.test.ts", "writes"],
+    ])
+    expect(m.excludes).toEqual(["test/b.test.ts", "test/c.test.ts", "test/d.test.ts"])
+    expect(m.test).toEqual([
+      ...BASE,
+      "--exclude",
+      "test/b.test.ts",
+      "--exclude",
+      "test/c.test.ts",
+      "--exclude",
+      "test/d.test.ts",
+    ])
+    // Two file sessions (fresh after the hang; d's write ends the second), three re-runs, one
+    // suite sample, one confirmation at the proposed resources.
+    expect(fake.opened).toEqual([
+      FILE_LIMITS,
+      FILE_LIMITS,
+      FILE_LIMITS,
+      FILE_LIMITS,
+      FILE_LIMITS,
+      FILE_LIMITS,
+      { memoryMb: 1024, cpus: 2, commandTimeoutMs: 80_000 },
+    ])
+    expect(fake.commands[0]).toEqual([
+      "pnpm",
+      "exec",
+      "vitest",
+      "list",
+      "--filesOnly",
+      "--run",
+      "--no-cache",
+      "--config",
+      "vitest.config.ts",
+    ])
+    expect(fake.commands.at(-1)).toEqual(m.test)
+    expect(m.samples).toEqual([
+      { buildMs: 1_000, suiteMs: 9_000, sessionMs: 30_000, memoryPeakBytes: 400 * 1024 * 1024 },
+    ])
+    expect(m.measured).toEqual({
+      memoryMb: 1024,
+      cpus: 2,
+      commandTimeoutMs: 80_000,
+      verifierDeadlineMs: 180_000,
+    })
+    expect(m.resources).toEqual(m.measured)
+    expect(m.confirmation.sessionMs).toBe(30_000)
+  })
+
+  it("gives the next file a fresh container after a file that writes, and reports a failing file's writes", async () => {
+    const { fake, result } = measure({
+      files: {
+        "test/a.test.ts": { exitCode: 1, writes: ["packages/app/tmp.txt"] },
+        "test/b.test.ts": {},
+        "test/c.test.ts": {},
+      },
+    })
+    const m = await result
+    const sessionOf = (file: string) =>
+      fake.sessionOf.find((run) => run.argv.at(-1) === file)?.session
+    expect(sessionOf("test/a.test.ts")).toBe(1)
+    expect(sessionOf("test/b.test.ts")).toBe(2)
+    expect(sessionOf("test/c.test.ts")).toBe(2)
+    const a = m.files[0]
+    expect(a?.verdict).toBe("fail")
+    expect(a?.changed).toEqual(["packages/app/tmp.txt"])
+    expect(a?.reason).toContain("it also changed the workspace: packages/app/tmp.txt")
+  })
+
+  it("lists a file that fails once and then passes as flaky, and does not exclude it", async () => {
+    const { result } = measure({
+      files: { "test/a.test.ts": { flakyOnce: true }, "test/b.test.ts": {} },
+    })
+    const m = await result
+    expect(m.files.map((f) => f.verdict)).toEqual(["flaky", "pass"])
+    expect(m.excludes).toEqual([])
+    expect(m.test).toEqual(BASE)
+  })
+
+  it("never proposes below the target's own resources unless asked, and confirms at what it proposes", async () => {
+    const prior = {
+      memoryMb: 2048,
+      cpus: 2,
+      commandTimeoutMs: 120_000,
+      verifierDeadlineMs: 3_600_000,
+    }
+    const kept = measure({ files: { "test/a.test.ts": {} } }, BASE, { prior })
+    expect((await kept.result).resources).toEqual(prior)
+    expect(kept.fake.opened.at(-1)).toEqual({ memoryMb: 2048, cpus: 2, commandTimeoutMs: 120_000 })
+    const shrunk = measure({ files: { "test/a.test.ts": {} } }, BASE, {
+      prior,
+      allowDecrease: true,
+    })
+    expect((await shrunk.result).resources).toEqual({
+      memoryMb: 1024,
+      cpus: 2,
+      commandTimeoutMs: 80_000,
+      verifierDeadlineMs: 180_000,
+    })
+  })
+
+  it("refuses a proposal that does not hold when tried, keeping the files for a partial report", async () => {
+    const { result } = measure({
+      files: { "test/a.test.ts": {}, "test/b.test.ts": { exitCode: 1 } },
+      suite: { minMemoryMb: 2000 },
+    })
+    const error = await result.catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(MeasureError)
+    expect((error as MeasureError).message).toMatch(/the proposed resources did not hold/)
+    expect((error as MeasureError).files?.map((f) => f.verdict)).toEqual(["pass", "fail"])
+  })
+
+  it("keeps a scope, and samples the suite as many times as asked, each in a fresh container", async () => {
+    const scope = ["test/a.test.ts", "test/b.test.ts"]
+    const { fake, result } = measure(
+      { files: { "test/a.test.ts": {}, "test/b.test.ts": { exitCode: 1 } } },
+      [...BASE, ...scope],
+      { runs: 3 },
+    )
+    const m = await result
+    expect(fake.commands[0]?.slice(-2)).toEqual(scope)
+    expect(m.test).toEqual([...BASE, ...scope, "--exclude", "test/b.test.ts"])
+    expect(m.samples).toHaveLength(3)
+    // One file session, b's re-run, three samples, one confirmation.
+    expect(fake.opened).toHaveLength(6)
+  })
+
+  it("stops, proposing nothing, when the harness or the target is at fault", async () => {
+    await expect(
+      measure({ files: { "test/a.test.ts": { reports: ["test/x/test/a.test.ts"] } } }).result,
+    ).rejects.toThrow(/must select exactly this file/)
+    await expect(
+      measure({ files: { "test/a.test.ts": {} }, build: { ok: false, output: "TS2307" } }).result,
+    ).rejects.toThrow(/target's build fails in its own image/)
+    await expect(
+      measure({ files: { "test/a.test.ts": {} }, suite: { exitCode: 1 } }).result,
+    ).rejects.toThrow(/The suite with the proposed excludes failed \(exit 1\) on run 1/)
+    await expect(
+      measure({ files: { "test/a.test.ts": {} }, suite: { writes: ["packages/app/x"] } }).result,
+    ).rejects.toThrow(/changed the workspace \(packages\/app\/x\)/)
+    await expect(measure({ files: { "test/a.test.ts": { exitCode: 1 } } }).result).rejects.toThrow(
+      /no test file passes run alone/,
+    )
+    await expect(measure({ files: {} }).result).rejects.toThrow(MeasureError)
+    await expect(measure({ files: {} }).result).rejects.toThrow(
+      /vitest lists no test file for app's command/,
+    )
+    await expect(
+      measure({
+        files: { "test/a.test.ts": {} },
+        listed: ["/workspace/packages/app/test/a.test.ts"],
+      }).result,
+    ).rejects.toThrow(/a measured file is a path relative to the command directory/)
+  })
+
+  it("runs each listed file by its name without vitest's [project] prefix", async () => {
+    const { fake, result } = measure({
+      files: { "test/a.test.ts": {}, "test/b.test.ts": {} },
+      listed: ["[app] test/b.test.ts", "[app] test/a.test.ts"],
+    })
+    const m = await result
+    expect(m.files.map((f) => f.file)).toEqual(["test/a.test.ts", "test/b.test.ts"])
+    expect(fake.sessionOf.slice(0, 2).map((run) => run.argv.at(-1))).toEqual([
+      "test/a.test.ts",
+      "test/b.test.ts",
+    ])
+  })
+})
+
+describe("reading what vitest printed", () => {
+  it("strips the [project] prefix of a listed file, and nothing else", () => {
+    expect(withoutProject("[software-factory-controller] test/a.test.ts")).toBe("test/a.test.ts")
+    expect(withoutProject("test/a.test.ts")).toBe("test/a.test.ts")
+    expect(withoutProject("test/[id]/a.test.ts")).toBe("test/[id]/a.test.ts")
+  })
+
+  it("makes vitest's absolute paths relative to the command directory, refusing any outside it", () => {
+    expect(relativeTo("/workspace/packages/app", "/workspace/packages/app/test/a.test.ts")).toBe(
+      "test/a.test.ts",
+    )
+    expect(relativeTo("/workspace/packages/app/", "/workspace/packages/app/test/a.test.ts")).toBe(
+      "test/a.test.ts",
+    )
+    expect(() =>
+      relativeTo("/workspace/packages/app", "/workspace/packages/app2/test/a.test.ts"),
+    ).toThrow(MeasureError)
+    expect(() => relativeTo("/workspace/packages/app", "/workspace/packages/app/")).toThrow(
+      MeasureError,
+    )
+  })
+
+  it("takes a file's pass from vitest's own status, exactly, and counts its tests", () => {
+    const at = (file: string) => `/workspace/packages/app/${file}`
+    expect(
+      reportFiles(
+        {
+          testResults: [
+            {
+              name: at("test/ok.test.ts"),
+              status: "passed",
+              assertionResults: [{ status: "passed" }, { status: "skipped" }],
+            },
+            {
+              name: at("test/skipped.test.ts"),
+              status: "passed",
+              assertionResults: [{ status: "skipped" }, { status: "todo" }],
+            },
+            { name: at("test/throws.test.ts"), status: "failed", assertionResults: [] },
+            {
+              name: at("test/bad.test.ts"),
+              status: "failed",
+              assertionResults: [{ status: "passed" }, { status: "failed" }],
+            },
+          ],
+        },
+        "/workspace/packages/app",
+      ),
+    ).toEqual([
+      { file: "test/ok.test.ts", passed: true, tests: { passed: 1, failed: 0, skipped: 1 } },
+      { file: "test/skipped.test.ts", passed: true, tests: { passed: 0, failed: 0, skipped: 2 } },
+      { file: "test/throws.test.ts", passed: false, tests: { passed: 0, failed: 0, skipped: 0 } },
+      { file: "test/bad.test.ts", passed: false, tests: { passed: 1, failed: 1, skipped: 0 } },
+    ])
+    expect(reportFiles({}, "/workspace/packages/app")).toEqual([])
+  })
+})
