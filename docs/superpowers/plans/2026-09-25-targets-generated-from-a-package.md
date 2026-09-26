@@ -5637,7 +5637,7 @@ git commit -m "test(software-factory): target:measure proposes devkit's committe
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-**As landed** (commit `cc1abc372`). On the generated `devkit` target, `target:measure` proposed exactly the nine committed excludes and the committed test command. Proposed resources: `memoryMb` 512, `cpus` 2, `commandTimeoutMs` 60000 to 70000 across runs, `verifierDeadlineMs` 120000; `commandTimeoutMs` sits on a rounding boundary (eight times a 7.49 s suite rounds up to 60 s, eight times 7.5 s to 70 s), so the lane does not assert it (only `cpus` and memory bounds). The lane took about 80 s; the full `test:sandbox` about 300 s locally.
+**As landed** (commit `cc1abc372`). On the generated `devkit` target, `target:measure` proposed exactly the nine committed excludes and the committed test command. Proposed resources: `memoryMb` 512, `cpus` 2, `commandTimeoutMs` 60000 to 70000 across runs, `verifierDeadlineMs` 120000; `commandTimeoutMs` sits on a 10 s rounding boundary (eight times a suite of 7.5 s or less rounds up to 60 s; a suite a few milliseconds longer rounds up to 70 s), so the lane does not assert it (only `cpus` and memory bounds). The lane took about 80 s; the full `test:sandbox` about 300 s locally.
 
 ### Task 18: A full measurement of the generated `cli` target, by hand
 
@@ -5659,6 +5659,27 @@ git status --short examples/software-factory/controller/targets   # expected: no
 - [ ] **Step 2: Record**
 
 In the PR description and in the spec's as-landed note (Task 19): the wall clock; how many of the 169 files pass alone and how many are flaky; the excludes grouped by the report's reasons (capture omissions naming `packages/sandbox` or `packages/testing`, the network, writes to the workspace); the measured and proposed resources beside the committed `1536/2/120000/3600000`; and whether the eight committed files are among those that pass. Nothing is committed in this task.
+
+**As landed** (not committed; run by hand on 2026-09-26 in a scratch catalog, `git status` on `targets/` clean afterwards). The generated `cli` target at `765e6e16` captures the whole test directory. Its first `--write` measurement learned the promotion set `@hono/node-server commander hono typescript`, the hand-written one. The first full run then stopped after 16 files: `check-command.test.ts` does `chmod(distEntry, 0o755)` on the built CLI, and the verifier's inspection refuses an executable workspace file. That exposed a defect, fixed in `993cbab3d`: a snapshot the inspection refuses after a file's run is now that file's `writes` verdict, not a stop. The rerun measured all 169 files in 1369 s (warm image):
+
+| Verdict | Files |
+|---|---|
+| pass | 114 |
+| proposed exclude | 55 |
+| flaky | 0 |
+
+The excludes by cause:
+
+| Cause | Files |
+|---|---|
+| imports `@b4run/testing`'s build output (a devDependency the build does not include; `--with-dev-builds` is the remedy to try) | 29 |
+| another module or package the image lacks | 11 |
+| packages the image does not install (pnpm, Vercel and Postgres lanes) | 5 |
+| assertion or other failure | 5 |
+| a capture omission (including one under `packages/devkit/templates`) | 3 |
+| writes the workspace (`check-command`, `import-diagnostics-integration`) | 2 |
+
+All eight files the hand-written target runs pass alone. Proposed resources are `1280/2/420000/300000` (no prior; placeholders) beside the committed `1536/2/120000/3600000`. `commandTimeoutMs` above `verifierDeadlineMs` is legal (the deadline bounds a whole verification, the timeout one command), but a reviewer should look at it; recorded as a follow-up.
 
 ### Task 19: Docs for PR 2
 
@@ -5767,6 +5788,8 @@ Push `blove/targets-measure` and open the PR only when Brian asks.
 | The promotion set, the one hand-written part `init` cannot derive (§9 finding 6) | Task 5 (`promotionMismatch` ignores BuildKit's echo); Task 16; Task 18 (the `cli` set learned equals the hand-written one) |
 
 ## Follow-ups recorded, not in this plan
+
+- **`commandTimeoutMs` can exceed `verifierDeadlineMs`** (the `cli` hand measurement proposed 420000 beside 300000): the two formulas are independent. Consider clamping the command timeout to the deadline, or deriving the deadline from both.
 
 - **The shipped `targets/cli/Dockerfile` ignores a failed move** in its promotion and relink loops (the `rm -rf … && mkdir -p … && mv …` chain, the `rm -rf "$nm"`, and the relink `rm -rf … && ln -s …`, lines ~52, 54, 61): inside the RUN's top-level `&&` list the shell ignores `set -e`, the bug the template fixed in Task 5 (`|| exit 1`). Not changed here (D14); fix it when `cli` is next re-pinned or regenerated.
 - **Regenerate the shipped targets** (D14) when each is next re-pinned: `devkit` gains the root manifests in `runnerConfig` and the template Dockerfile; `cli` gains the whole test directory if the full measurement (Task 18) says it is affordable, or keeps its scope (carried).
