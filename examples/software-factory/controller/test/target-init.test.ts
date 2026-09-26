@@ -305,7 +305,7 @@ describe("proposals", () => {
         { path: a, before: null, after: "a\n" },
         { path: b, before: null, after: "b\n" },
       ]),
-    ).toThrow(`${b} changed since the proposal was made: run target:init again`)
+    ).toThrow(`${b} changed since the proposal was made: run the command again`)
     expect(readdirSync(join(base, "x"))).toEqual(["b"])
     writeFileSync(a, "x\n")
     expect(() => writeProposal([{ path: a, before: "y\n", after: "a\n" }])).toThrow(
@@ -320,7 +320,7 @@ describe("proposals", () => {
     expect(() =>
       writeProposal([{ path: join(base, "x", "f"), before: null, after: "f\n" }]),
     ).toThrow(
-      `${join(base, "x")} is a symbolic link: target:init writes only into a real directory`,
+      `${join(base, "x")} is a symbolic link: a proposal is written only into a real directory`,
     )
     expect(readdirSync(join(base, "real"))).toEqual([])
   })

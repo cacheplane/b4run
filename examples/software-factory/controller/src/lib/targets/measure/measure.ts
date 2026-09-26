@@ -1,13 +1,20 @@
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { parseArgs } from "node:util"
+import { gradeVitestReport } from "../../verification/checks-runner.js"
 import { commitSha, loadTargetRecipe, type TargetRecipe, TargetSchema } from "../catalog.js"
 import { type EnsuredImage, ImagePrepareError, type ImageRegistry } from "../images.js"
 import { isPlaceholderResources } from "../init/derive.js"
 import { expectedPromotedOf, promotionMismatch, withExpectedPromoted } from "../init/dockerfile.js"
 import { gitPinTree } from "../init/pin-tree.js"
 import { type FileProposal, formatManifest, readIfPresent } from "../proposal.js"
-import { listArgv, parseVitestCommand, perFileArgv, withExcludes } from "../vitest-command.js"
+import {
+  listArgv,
+  packagePath,
+  parseVitestCommand,
+  perFileArgv,
+  withExcludes,
+} from "../vitest-command.js"
 import {
   changedPaths,
   classifyFile,
@@ -76,8 +83,18 @@ export interface MeasureSuiteOptions {
   readonly now?: () => number
 }
 
-async function buildOrThrow(session: MeasureSession) {
+/** What a session's limits are called in a refusal: the options, unless said otherwise. */
+const MEASUREMENT_LIMITS = "the measurement's limits (--memory-mb, --file-timeout-ms)"
+
+async function buildOrThrow(session: MeasureSession, limitsName: string = MEASUREMENT_LIMITS) {
   const build = await session.build()
+  // 124 is the sandbox's per-command timeout, 137 a kill (the memory limit): the limits, not
+  // the target, are what the build did not fit.
+  if (build.exitCode === 124 || build.exitCode === 137)
+    throw new MeasureError(
+      `The target's build exceeded ${limitsName} (exit ${build.exitCode}: ${build.exitCode === 124 ? "timed out" : "killed, likely out of memory"})`,
+      build.output,
+    )
   if (!build.ok)
     throw new MeasureError(
       "The target's build fails in its own image: a defect of the target (its Dockerfile, capture or build command) to fix before anything is measured, not a test to exclude",
@@ -99,6 +116,30 @@ async function measureFile(
   return classifyFile(file, run, changedPaths(before, after), options.existsAtPin)
 }
 
+/**
+ * Why the verifier's grader (`gradeVitestReport`, with no expected names, as a generated
+ * task's visible suite is graded) would not pass a run that exited 0; undefined if it would.
+ * A missing report, or a suite whose files are all skipped or todo, exits 0 and is graded
+ * `inconclusive` on every verification: a proposal for it holds nothing.
+ */
+function notGradedPass(exitCode: number, report: string): string | undefined {
+  if (gradeVitestReport(exitCode, report, []).verdict === "pass") return undefined
+  if (report.trim() === "") return "it wrote no JSON report"
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(report)
+  } catch {
+    return "its JSON report is not a vitest report"
+  }
+  const r = parsed as { numTotalTests?: unknown; numFailedTests?: unknown; testResults?: unknown }
+  if (typeof parsed !== "object" || parsed === null || !Array.isArray(r.testResults))
+    return "its JSON report is not a vitest report"
+  if (typeof r.numTotalTests !== "number" || typeof r.numFailedTests !== "number")
+    return "its JSON report has no test totals"
+  if (r.numFailedTests > 0) return "its JSON report names a failed test though it exited 0"
+  return "no test passed in it (none was selected, or every test was skipped or todo)"
+}
+
 /** The whole `test` in a fresh session at `limits`: a sample, or a stop with the suite's output. */
 async function sampleSuite(
   open: OpenSession,
@@ -106,10 +147,11 @@ async function sampleSuite(
   test: readonly string[],
   now: () => number,
   what: string,
+  limitsName?: string,
 ): Promise<SuiteSample> {
   const started = now()
   const sample = await open(limits, async (session) => {
-    const build = await buildOrThrow(session)
+    const build = await buildOrThrow(session, limitsName)
     const before = await session.snapshot()
     const suite = await session.vitest(test)
     const changed = changedPaths(before, await session.snapshot())
@@ -119,7 +161,12 @@ async function sampleSuite(
         ? `failed (exit ${suite.exitCode})`
         : changed.length > 0
           ? `changed the workspace (${changed.slice(0, 10).join(", ")})`
-          : undefined
+          : (() => {
+              const why = notGradedPass(suite.exitCode, suite.report)
+              return why === undefined
+                ? undefined
+                : `exited 0, but the verifier would not grade it a pass: ${why};`
+            })()
     if (failure !== undefined)
       throw new MeasureError(
         `The suite with the proposed excludes ${failure} ${what}`,
@@ -153,12 +200,35 @@ export async function measureSuite(options: MeasureSuiteOptions): Promise<Measur
     commandTimeoutMs: options.fileTimeoutMs,
   }
 
+  // The listing, in a session of its own: whatever `vitest list` leaves behind (in the
+  // workspace, /tmp or a process), the first file does not start from it, as no verification
+  // runs a listing first.
+  const listed = await open(limits, async (session) => {
+    await buildOrThrow(session)
+    return listedFiles(await session.listFiles(listArgv(command)))
+  })
+  if (listed.length === 0)
+    throw new MeasureError(
+      `vitest lists no test file for ${recipe.id}'s command (with --passWithNoTests an empty listing still exits 0): there is nothing to measure`,
+    )
+  log(`${listed.length} test files`)
+  const unexcludable = listed.filter((file) => !packagePath(file))
+  if (unexcludable.length > 0)
+    log(
+      `note: ${unexcludable.map((file) => JSON.stringify(file)).join(", ")} could not be excluded should it not pass: an exclude is written only as a literal path of portable characters`,
+    )
+
   // Phase 1: each file alone. A file that changed the workspace, hung or was killed leaves
-  // the container dirty or busy, so the next file gets a fresh one.
-  const queue: { files: string[] | null } = { files: null }
+  // the container dirty or busy, so the next file gets a fresh one. A file that passed keeps
+  // the container: anything it left outside the workspace (a /tmp file, a stray process) is
+  // carried to the next file. That is bounded: the workspace itself is compared before and
+  // after every file; a later file that fails from the carry-over is run again alone in a
+  // fresh container before it is proposed; and the proposed suite is then run whole in fresh
+  // containers, as the verifier runs it, so no proposal rests on what one file left another.
+  const pending = [...listed]
   const first: FileMeasurement[] = []
   try {
-    while (queue.files === null || queue.files.length > 0) await measureQueue()
+    while (pending.length > 0) await measureQueue()
   } catch (error) {
     // The files measured before the stop, for a partial report.
     if (error instanceof MeasureError && first.length > 0) error.files = [...first]
@@ -167,16 +237,6 @@ export async function measureSuite(options: MeasureSuiteOptions): Promise<Measur
   async function measureQueue() {
     await open(limits, async (session) => {
       await buildOrThrow(session)
-      if (queue.files === null) {
-        const listed = listedFiles(await session.listFiles(listArgv(command)))
-        if (listed.length === 0)
-          throw new MeasureError(
-            `vitest lists no test file for ${recipe.id}'s command (with --passWithNoTests an empty listing still exits 0): there is nothing to measure`,
-          )
-        log(`${listed.length} test files`)
-        queue.files = listed
-      }
-      const pending = queue.files
       for (let file = pending.shift(); file !== undefined; file = pending.shift()) {
         const result = await measureFile(session, file, perFileArgv(command, file), options)
         first.push(result)
@@ -204,10 +264,13 @@ export async function measureSuite(options: MeasureSuiteOptions): Promise<Measur
       log(`${settled.verdict.padEnd(6)} ${result.file} (second run: ${again.verdict})`)
     }
 
-    const excludes = files
-      .filter((m) => EXCLUDED.has(m.verdict))
-      .map((m) => m.file)
-      .sort()
+    const excluded = files.filter((m) => EXCLUDED.has(m.verdict))
+    for (const m of excluded)
+      if (!packagePath(m.file))
+        throw new MeasureError(
+          `${JSON.stringify(m.file)} (${m.verdict}) cannot be written as a literal --exclude (vitest reads an exclude as a glob; only portable characters are written): rename the file, or narrow the target's test command by hand`,
+        )
+    const excludes = excluded.map((m) => m.file).sort()
     if (excludes.length === files.length)
       throw new MeasureError(
         `no test file passes run alone (${files.length} measured): there is no suite to propose resources for; read each file's output in the report`,
@@ -246,6 +309,7 @@ export async function measureSuite(options: MeasureSuiteOptions): Promise<Measur
       test,
       now,
       `at the proposed resources ${JSON.stringify(resources)}: the proposed resources did not hold`,
+      `the proposed resources ${JSON.stringify(resources)}; they did not hold`,
     )
     if (2 * confirmation.sessionMs > resources.verifierDeadlineMs)
       throw new MeasureError(

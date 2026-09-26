@@ -17,6 +17,8 @@ export interface VitestRun {
   readonly output: string
   /** The sandbox's per-command timeout fired (exit 124). */
   readonly timedOut: boolean
+  /** The JSON report as vitest wrote it; empty when it wrote none. */
+  readonly report: string
   /** The files the JSON report names, relative to the command directory; null with no report. */
   readonly files:
     | readonly { readonly file: string; readonly passed: boolean; readonly tests: TestCounts }[]
@@ -431,7 +433,11 @@ export function renderMeasurementRecord(id: string, files: readonly FileMeasurem
     "Written by `target:measure --write` and reviewed with `target.json`. Each file below is excluded from the target's suite, and so from every verification of a task on this target. The measurement's `report.md` holds the full output.",
     "",
     ...(excluded.length === 0
-      ? ["No file is excluded: every file passed run alone."]
+      ? [
+          flaky.length === 0
+            ? "No file is excluded: every file passed run alone."
+            : "No file is excluded: each file passed at least one of its runs alone; the flaky ones below also failed one.",
+        ]
       : excluded.flatMap(entry)),
     ...(flaky.length === 0
       ? []

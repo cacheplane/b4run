@@ -66,6 +66,14 @@ describe("the controller has no path to a worker's filesystem", () => {
       )
   })
 
+  it("runs measurement sessions under their own scope, by a single image id", () => {
+    const session = readFileSync(join(SRC, "lib/targets/measure/session.ts"), "utf8")
+    expect(session).toMatch(
+      /dockerSandbox\(\{\s*scope: "software-factory-measure",\s*image: options\.imageId\s*\}\)/,
+    )
+    expect(session).not.toMatch(/\bimages:/)
+  })
+
   it("would catch a dynamic import of the installation store (the patterns bind)", () => {
     const probe = 'const s = await import("@b4run/sqlite-storage")'
     expect(/import\(\s*["']@b4run\/sqlite-storage["']\s*\)/.test(probe)).toBe(true)

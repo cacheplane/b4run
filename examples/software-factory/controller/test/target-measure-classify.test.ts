@@ -26,6 +26,7 @@ const run = (overrides: Partial<VitestRun> = {}): VitestRun => ({
   output: "\u001b[32m✓\u001b[0m test/a.test.ts (3 tests)\n",
   timedOut: false,
   files: [{ file: "test/a.test.ts", passed: true, tests: COUNTS }],
+  report: "",
   ms: 1_234,
   ...overrides,
 })
@@ -457,5 +458,25 @@ describe("what reaches report.md, measurement.md and the printed diff", () => {
     expect(record).not.toContain("second run")
     expect(record).not.toContain("tmp-8f3a")
     expect(renderFiles([settled]).join("\n")).toContain("tmp-8f3a")
+  })
+
+  it("does not claim every file passed when a flaky file is listed", () => {
+    const failing = run({
+      exitCode: 1,
+      files: [{ file: "test/a.test.ts", passed: false, tests: COUNTS }],
+    })
+    const flaky = settleFile(
+      classifyFile("test/a.test.ts", failing, []),
+      classifyFile("test/a.test.ts", run(), []),
+    )
+    expect(flaky.verdict).toBe("flaky")
+    const record = renderMeasurementRecord("app", [flaky])
+    expect(record).not.toContain("every file passed run alone")
+    expect(record).toContain(
+      "No file is excluded: each file passed at least one of its runs alone; the flaky ones below also failed one.",
+    )
+    expect(renderMeasurementRecord("app", [classifyFile("test/a.test.ts", run(), [])])).toContain(
+      "No file is excluded: every file passed run alone.",
+    )
   })
 })
