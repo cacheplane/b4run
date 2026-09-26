@@ -73,7 +73,12 @@ try {
     builder: dockerImageBuilder(),
   })
   const interrupted = new AbortController()
-  process.once("SIGINT", () => interrupted.abort(new Error("interrupted")))
+  // SIGINT (a person's ^C) and SIGTERM (a supervisor's stop) alike abort the signal every
+  // session runs under, so each is torn down (container, capture, session state) before exit.
+  // A SIGKILL leaves <FACTORY_STATE_DIR>/measurements/sessions/* behind: a startup sweep of
+  // abandoned sessions is a follow-up.
+  for (const name of ["SIGINT", "SIGTERM"] as const)
+    process.once(name, () => interrupted.abort(new Error(`interrupted (${name})`)))
   try {
     const outcome = await measureTarget({
       id: args.id,

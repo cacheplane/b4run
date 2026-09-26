@@ -24,8 +24,11 @@ const SHELL = /[&|;<>$`"'\\()]/
  */
 const SWITCHES = new Set(["--run", "--no-cache", "--passWithNoTests"])
 
-/** A literal path under the package: no glob, no flag, no `..`, nothing absolute. */
-function packagePath(value: string): boolean {
+/**
+ * A literal, package-relative path: portable characters only, no flag, no `.`/`..` segment.
+ * The only file names `withExcludes` writes (vitest reads an exclude as a glob).
+ */
+export function packagePath(value: string): boolean {
   return (
     /^[A-Za-z0-9._/-]+$/.test(value) &&
     !value.startsWith("-") &&

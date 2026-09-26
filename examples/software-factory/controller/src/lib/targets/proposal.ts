@@ -82,10 +82,10 @@ export function writeProposal(files: readonly FileProposal[]): string[] {
     const directory = dirname(file.path)
     if (lstatIfPresent(directory)?.isSymbolicLink())
       throw new Error(
-        `${directory} is a symbolic link: target:init writes only into a real directory`,
+        `${directory} is a symbolic link: a proposal is written only into a real directory`,
       )
     if (readIfPresent(file.path) !== file.before)
-      throw new Error(`${file.path} changed since the proposal was made: run target:init again`)
+      throw new Error(`${file.path} changed since the proposal was made: run the command again`)
   }
   const written: string[] = []
   for (const file of changing) {

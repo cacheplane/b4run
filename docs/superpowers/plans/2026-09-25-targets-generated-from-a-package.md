@@ -4729,6 +4729,8 @@ git commit -m "feat(software-factory): measure a target's suite file by file, th
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+**As landed** (review-driven; commits `a8b567ebb`, `a6d15df16`, and the review-fix commit after `cc1abc372`). The listing runs in a session of its own, so the first file starts from the verifier's state (not from whatever `vitest list` left); files are then run alone, and a file that passed keeps the container: its `/tmp` files and stray processes carry to the next file, which is bounded because the workspace is compared around every file, a non-pass is re-run alone in a fresh container, and the proposed suite is then sampled whole in fresh containers. A suite sample or the confirmation must be graded `pass` by the verifier's own `gradeVitestReport(exitCode, report, [])`, not merely exit 0 with the workspace unchanged: a missing report, a report with no totals, or a suite whose tests are all skipped or todo is refused by name (the verifier would grade it `inconclusive` on every verification). A proposed exclude that `withExcludes` cannot write (anything outside `[A-Za-z0-9._/-]`, e.g. `test/[id].test.ts`) is a `MeasureError` naming the file, raised in phase 2 so the partial report keeps every file; each such name is also logged as a note when it is listed. A build killed (137) or timed out (124) in a session says it exceeded that session's limits (the proposed resources, in the confirmation) instead of calling the target defective. Tests added: a `killed` fake file (a fresh session follows), a clock that slows only the confirmation (deleting the `2 × verifierDeadlineMs` refusal reds it), a suite that times out in the samples or only at the proposed resources.
+
 ### Task 15: Docker sessions
 
 The real `OpenSession`: the verifier's session machinery (`withWorkspace` over `dockerSandbox` by image id, the target's capture, `inspectWorkspace` with the verifier's options), with the measurement's own limits. Exercised end to end by Task 17's lane; its one pure helper is unit-tested here.
@@ -4971,6 +4973,8 @@ git commit -m "feat(software-factory): measurement sessions in the target's imag
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
+
+**As landed** (review-driven; commits `8c2dd6636` and the review-fix commit after `cc1abc372`). `vitest()` also returns the report's raw text (`VitestRun.report`) for the grade above, and `build()` its exit code. The report is read through a per-run nonce path and marker as the verifier's `runVitestSuite` reads it, with the same documented limitation: the nonce is in the run's argv, so a process the run leaves behind can write the report in `/tmp`. **Follow-up** (shared with the verifier): run the tests as a separate uid that cannot reach the report. `test/no-worker-filesystem.test.ts` pins the provider as `dockerSandbox({ scope: "software-factory-measure", image: options.imageId })`, never `images:`.
 
 ### Task 16: `measureTarget` and the `target:measure` script
 
@@ -5513,6 +5517,8 @@ git commit -m "feat(software-factory): target:measure proposes a target's exclud
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+**As landed** (review-driven; commits `a299a0959` and the review-fix commit after `cc1abc372`). `scripts/target-measure.ts` aborts its sessions on SIGTERM as on SIGINT, so a supervisor's stop tears down each container, capture and session state. **Follow-up**: a SIGKILL (or a crash) still leaves `<FACTORY_STATE_DIR>/measurements/sessions/*` and the measure captures behind; sweep abandoned ones at startup. `writeProposal`'s refusals are neutral, since `target:measure` calls it too ("run the command again"; "a proposal is written only into a real directory"). `measurement.md` no longer says every file passed run alone when flaky files are listed.
+
 ### Task 17: The proof: `measure` on a generated `devkit` proposes its committed excludes
 
 Spec §5's proof for `measure`, on the generated target (so it proves `init` and `measure` together) against the committed one.
@@ -5628,6 +5634,8 @@ git commit -m "test(software-factory): target:measure proposes devkit's committe
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
+
+**As landed** (commit `cc1abc372`). On the generated `devkit` target, `target:measure` proposed exactly the nine committed excludes and the committed test command. Proposed resources: `memoryMb` 512, `cpus` 2, `commandTimeoutMs` 60000 to 70000 across runs, `verifierDeadlineMs` 120000; `commandTimeoutMs` sits on a rounding boundary (eight times a 7.49 s suite rounds up to 60 s, eight times 7.5 s to 70 s), so the lane does not assert it (only `cpus` and memory bounds). The lane took about 80 s; the full `test:sandbox` about 300 s locally.
 
 ### Task 18: A full measurement of the generated `cli` target, by hand
 

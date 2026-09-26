@@ -3,7 +3,7 @@ import type { TargetRecipe } from "../src/lib/targets/catalog.ts"
 import { MeasureError } from "../src/lib/targets/measure/classify.ts"
 import { type MeasureSuiteOptions, measureSuite } from "../src/lib/targets/measure/measure.ts"
 import { relativeTo, reportFiles, withoutProject } from "../src/lib/targets/measure/session.ts"
-import { type FakeScript, fakeSessions } from "./fake-measure-session.ts"
+import { type FakeScript, fakeSessions, vitestReport } from "./fake-measure-session.ts"
 
 const BASE = ["pnpm", "exec", "vitest", "--run", "--no-cache", "--config", "vitest.config.ts"]
 const FILE_LIMITS = { memoryMb: 4096, cpus: 2, commandTimeoutMs: 180_000 }
@@ -70,9 +70,10 @@ describe("measureSuite", () => {
       "--exclude",
       "test/d.test.ts",
     ])
-    // Two file sessions (fresh after the hang; d's write ends the second), three re-runs, one
-    // suite sample, one confirmation at the proposed resources.
+    // The listing, two file sessions (fresh after the hang; d's write ends the second), three
+    // re-runs, one suite sample, one confirmation at the proposed resources.
     expect(fake.opened).toEqual([
+      FILE_LIMITS,
       FILE_LIMITS,
       FILE_LIMITS,
       FILE_LIMITS,
@@ -117,9 +118,10 @@ describe("measureSuite", () => {
     const m = await result
     const sessionOf = (file: string) =>
       fake.sessionOf.find((run) => run.argv.at(-1) === file)?.session
-    expect(sessionOf("test/a.test.ts")).toBe(1)
-    expect(sessionOf("test/b.test.ts")).toBe(2)
-    expect(sessionOf("test/c.test.ts")).toBe(2)
+    // Session 1 is the listing.
+    expect(sessionOf("test/a.test.ts")).toBe(2)
+    expect(sessionOf("test/b.test.ts")).toBe(3)
+    expect(sessionOf("test/c.test.ts")).toBe(3)
     const a = m.files[0]
     expect(a?.verdict).toBe("fail")
     expect(a?.changed).toEqual(["packages/app/tmp.txt"])
@@ -197,8 +199,8 @@ describe("measureSuite", () => {
     expect(fake.commands[0]?.slice(-2)).toEqual(scope)
     expect(m.test).toEqual([...BASE, ...scope, "--exclude", "test/b.test.ts"])
     expect(m.samples).toHaveLength(3)
-    // One file session, b's re-run, three samples, one confirmation.
-    expect(fake.opened).toHaveLength(6)
+    // The listing, one file session, b's re-run, three samples, one confirmation.
+    expect(fake.opened).toHaveLength(7)
   })
 
   it("stops, proposing nothing, when the harness or the target is at fault", async () => {
@@ -240,6 +242,110 @@ describe("measureSuite", () => {
       "test/a.test.ts",
       "test/b.test.ts",
     ])
+  })
+
+  it("lists the files in a session of its own, so the first file starts from the verifier's state", async () => {
+    const { fake, result } = measure({ files: { "test/a.test.ts": {}, "test/b.test.ts": {} } })
+    await result
+    expect(fake.listedIn).toEqual([1])
+    expect(fake.sessionOf[0]?.session).toBe(2)
+  })
+
+  it("gives the next file a fresh container after a file the kernel killed", async () => {
+    const { fake, result } = measure({
+      files: { "test/a.test.ts": { killed: true }, "test/b.test.ts": {} },
+    })
+    const m = await result
+    expect(m.files.map((f) => [f.file, f.verdict])).toEqual([
+      ["test/a.test.ts", "killed"],
+      ["test/b.test.ts", "pass"],
+    ])
+    const sessionOf = (file: string) =>
+      fake.sessionOf
+        .filter((run) => run.argv.at(-1) === file && !run.argv.includes("--exclude"))
+        .map((run) => run.session)
+    // a in the first file session, b in a fresh one, a's re-run in a third.
+    expect(sessionOf("test/a.test.ts")).toEqual([2, 4])
+    expect(sessionOf("test/b.test.ts")).toEqual([3])
+  })
+
+  it("refuses a suite the verifier would not grade a pass: no report, no test, or every test skipped", async () => {
+    const files = { "test/a.test.ts": {} }
+    for (const [report, why] of [
+      ["", /wrote no JSON report/],
+      ["{not json", /JSON report is not a vitest report/],
+      [JSON.stringify({ numTotalTests: 0, numFailedTests: 0, testResults: [] }), /no test passed/],
+      [vitestReport("skipped"), /no test passed/],
+    ] as const) {
+      const error = await measure({ files, suite: { report } }).result.catch((e: unknown) => e)
+      expect(error).toBeInstanceOf(MeasureError)
+      expect((error as MeasureError).message).toMatch(/would not grade it a pass/)
+      expect((error as MeasureError).message).toMatch(why)
+      expect((error as MeasureError).files?.map((f) => f.verdict)).toEqual(["pass"])
+    }
+  })
+
+  it("refuses a suite that times out, in the samples or only at the proposed resources", async () => {
+    const files = { "test/a.test.ts": {} }
+    await expect(measure({ files, suite: { minTimeoutMs: 1_000_000 } }).result).rejects.toThrow(
+      /did not finish within 180000 ms on run 1/,
+    )
+    // The samples run at 180 s; the proposal is 80 s.
+    await expect(measure({ files, suite: { minTimeoutMs: 100_000 } }).result).rejects.toThrow(
+      /did not finish within 80000 ms at the proposed resources/,
+    )
+  })
+
+  it("refuses a proposal whose session, tried, does not fit twice in the proposed deadline", async () => {
+    // Readings: sample start and end (30 s apart), then the confirmation's (at `last` s).
+    const slowConfirmation = (last: number) => {
+      const steps = [30_000, 30_000, 30_000, last]
+      let t = 0
+      return () => (t += steps.shift() ?? 30_000)
+    }
+    const files = { "test/a.test.ts": {} }
+    // Measured: 2 x 2.5 x 30 s, up to a minute: 180 s. Two 80 s sessions fit; two 100 s do not.
+    expect(
+      (await measure({ files }, BASE, { now: slowConfirmation(80_000) }).result).confirmation
+        .sessionMs,
+    ).toBe(80_000)
+    await expect(
+      measure({ files }, BASE, { now: slowConfirmation(100_000) }).result,
+    ).rejects.toThrow(
+      /took 100000 ms; two of them do not fit the proposed verifierDeadlineMs 180000/,
+    )
+  })
+
+  it("names a build killed or timed out at the proposed resources as the limits, not the target", async () => {
+    const error = await measure({
+      files: { "test/a.test.ts": {} },
+      build: { minMemoryMb: 2000 },
+    }).result.catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(MeasureError)
+    expect((error as MeasureError).message).toMatch(
+      /The target's build exceeded the proposed resources .*exit 137/,
+    )
+    expect((error as MeasureError).message).not.toMatch(/a defect of the target/)
+  })
+
+  it("refuses, keeping the files, an exclude that cannot be written literally; and says so when it is listed", async () => {
+    const lines: string[] = []
+    const error = await measure(
+      { files: { "test/a.test.ts": {}, "test/[id].test.ts": { exitCode: 1 } } },
+      BASE,
+      { log: (line) => lines.push(line) },
+    ).result.catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(MeasureError)
+    expect((error as MeasureError).message).toMatch(
+      /"test\/\[id\]\.test\.ts" \(fail\) cannot be written as a literal --exclude/,
+    )
+    expect((error as MeasureError).files?.map((f) => [f.file, f.verdict])).toEqual([
+      ["test/[id].test.ts", "fail"],
+      ["test/a.test.ts", "pass"],
+    ])
+    expect(lines).toContainEqual(
+      expect.stringMatching(/note: .*"test\/\[id\]\.test\.ts".* could not be excluded/),
+    )
   })
 })
 

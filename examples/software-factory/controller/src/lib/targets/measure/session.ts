@@ -21,10 +21,15 @@ import { MeasureError, type TestCounts, type VitestRun } from "./classify.js"
  */
 export interface MeasureSession {
   /** The target's build (`commands.build`) from its command directory. */
-  build(): Promise<{ readonly ok: boolean; readonly output: string; readonly ms: number }>
+  build(): Promise<{
+    readonly ok: boolean
+    readonly exitCode: number
+    readonly output: string
+    readonly ms: number
+  }>
   /** The files a `vitest list --filesOnly` argv lists, relative to the command directory, sorted. */
   listFiles(argv: readonly string[]): Promise<string[]>
-  /** A vitest argv run with a JSON report attached. */
+  /** A vitest argv run with a JSON report attached; the report's raw text is returned too. */
   vitest(argv: readonly string[]): Promise<VitestRun>
   /** The workspace's files and digests, as the verifier's tamper check sees them. */
   snapshot(): Promise<Readonly<Record<string, string>>>
@@ -167,7 +172,13 @@ export function dockerSessions(options: {
             )
             return { ...result, ms: Math.round(performance.now() - started) }
           }
-          /** `line`, then a marker and the file at `path`: a report the run's output cannot forge. */
+          /**
+           * `line`, then a marker and the file at `path`, both named with a per-run nonce, as the
+           * verifier's `runVitestSuite` does. The same limitation holds (checks-runner.ts): the
+           * nonce is in the run's argv, so a process the run leaves behind can read it and write
+           * the report at `path` in /tmp. Closing that needs the tests run as a uid that cannot
+           * reach the report, a follow-up shared with the verifier.
+           */
           const withReport = async (line: string, path: string) => {
             const marker = `B4_FACTORY_MEASURE_${randomUUID().replaceAll("-", "")}`
             const result = await shell(
@@ -191,10 +202,11 @@ export function dockerSessions(options: {
           return await use({
             async build() {
               if (recipe.commands.build.length === 0)
-                return { ok: true, output: "(no build step)\n", ms: 0 }
+                return { ok: true, exitCode: 0, output: "(no build step)\n", ms: 0 }
               const result = await shell(`${cd}${shellJoin(recipe.commands.build)}`)
               return {
                 ok: result.exitCode === 0,
+                exitCode: result.exitCode,
                 output: `${result.stdout}\n${result.stderr}`,
                 ms: result.ms,
               }
@@ -244,6 +256,7 @@ export function dockerSessions(options: {
                 output: result.output,
                 timedOut: result.exitCode === 124 && /Command timed out after/.test(result.stderr),
                 files: report === null ? null : reportFiles(report, directory),
+                report: result.report,
                 ms: result.ms,
               }
             },
