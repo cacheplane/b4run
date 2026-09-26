@@ -106,6 +106,88 @@ const withoutCovered = (paths: readonly string[]): string[] =>
   paths.filter((path) => !paths.some((other) => other !== path && path.startsWith(`${other}/`)))
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`
 
+/** The config vitest loads run from `dir`: each directory up to the repository root, names in order. */
+function findVitestConfig(tree: PinTree, dir: string): string | undefined {
+  for (let at = dir; ; at = posix.dirname(at) === "." ? "" : posix.dirname(at)) {
+    const found = VITEST_CONFIGS.map((name) => (at === "" ? name : `${at}/${name}`)).find(
+      (path) => tree.kind(path) !== undefined,
+    )
+    if (found !== undefined || at === "") return found
+  }
+}
+
+/**
+ * The major version of the TypeScript `pnpm exec tsc` resolves from the package: its own
+ * declaration first (a nested install), then the root's. An unreadable one is refused, since it
+ * decides whether the build passes `--builders`.
+ */
+function typescriptMajor(graph: WorkspaceGraph, pkg: WorkspacePackage, pin: string): number {
+  const declared = [
+    [`${pkg.dir}/package.json`, pkg.manifest.devDependencies],
+    [`${pkg.dir}/package.json`, pkg.manifest.dependencies],
+    ["The root package.json", graph.root.devDependencies],
+    ["The root package.json", graph.root.dependencies],
+  ] as const
+  const [where, deps] = declared.find(([, deps]) => deps?.typescript !== undefined) ?? []
+  const spec = deps?.typescript
+  if (spec === undefined)
+    throw new Error(
+      `${pkg.dir}/package.json and the root package.json at ${pin} name no typescript: target:init cannot tell which tsc builds several projects, and whether to pass --builders`,
+    )
+  const major = /^[\^~]?(\d+)\.(?:\d+|x|\*)/.exec(spec)?.[1]
+  if (major === undefined)
+    throw new Error(
+      `${where} at ${pin} declares typescript ${JSON.stringify(spec)}: target:init cannot tell its major version, which decides --builders (TypeScript 7 builds projects in parallel)`,
+    )
+  return Number(major)
+}
+
+/**
+ * Every relative path the vitest config's text names (`./x`, `../x`), resolved against the
+ * config's directory, that the capture does not hold: one note each, a workspace package once.
+ */
+function runnerReads(
+  tree: PinTree,
+  graph: WorkspaceGraph,
+  runner: string,
+  holds: (path: string) => boolean,
+  touches: (path: string) => boolean,
+): string[] {
+  const from = posix.dirname(runner) === "." ? "" : posix.dirname(runner)
+  const reads = new Map<string, string>()
+  for (const [, reference] of tree.read(runner)?.matchAll(/["'`](\.{1,2}\/[^"'`\s]*)["'`]/g) ??
+    []) {
+    const ref = reference as string
+    if (ref.includes("${")) continue
+    const resolved = posix.normalize(posix.join(from, ref)).replace(/\/+$/, "")
+    if (resolved === "." || resolved === "..") continue
+    if (resolved.startsWith("../")) {
+      reads.set(
+        ref,
+        `${runner} reads ${ref}, outside the repository: a test that reaches it fails, and target:measure proposes excluding it`,
+      )
+      continue
+    }
+    if (holds(resolved)) continue
+    // A workspace package the capture takes nothing of is named once, as the package.
+    const sibling = [...graph.packages.values()].find(
+      (p) => resolved === p.dir || resolved.startsWith(`${p.dir}/`),
+    )
+    if (sibling !== undefined && !touches(sibling.dir)) {
+      const relative = `${posix.relative(from || ".", sibling.dir)}/`
+      reads.set(
+        relative,
+        `${runner} reads ${relative} (${sibling.dir}), which the capture omits: a test that reaches it fails, and target:measure proposes excluding it`,
+      )
+    } else
+      reads.set(
+        ref,
+        `${runner} reads ${ref} (${resolved}), which the capture omits: a test that reaches it fails, and target:measure proposes excluding it`,
+      )
+  }
+  return [...reads].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, note]) => note)
+}
+
 export function deriveTarget(
   tree: PinTree,
   graph: WorkspaceGraph,
@@ -134,20 +216,17 @@ export function deriveTarget(
   for (const file of ["pnpm-workspace.yaml", "pnpm-lock.yaml"]) rootFile(file, true)
   const npmrc = rootFile(".npmrc", false)
   const rootManifests = ["package.json", "pnpm-workspace.yaml", ...(npmrc ? [".npmrc"] : [])]
-  const atPin = (path: string) => tree.kind(path) !== undefined
 
   // The closures (plan D4, D16).
   const installed = closure(graph, pkg, INSTALL)
   const configs = installed.filter((p) => p !== pkg && isConfigPackage(p))
-  const roots = [
-    pkg,
-    ...(options.withDevBuilds
-      ? workspaceDependencies(graph, pkg, ["devDependencies"]).filter((p) => !isConfigPackage(p))
-      : []),
-  ]
+  const devBuilt = new Set<WorkspacePackage>()
+  for (const dev of workspaceDependencies(graph, pkg, ["devDependencies"]))
+    if (!isConfigPackage(dev))
+      for (const p of closure(graph, dev, PROD)) if (!isConfigPackage(p)) devBuilt.add(p)
   const builtByName = new Map<string, WorkspacePackage>()
-  for (const root of roots)
-    for (const p of closure(graph, root, PROD)) if (!isConfigPackage(p)) builtByName.set(p.name, p)
+  for (const p of [...closure(graph, pkg, PROD), ...(options.withDevBuilds ? devBuilt : [])])
+    if (!isConfigPackage(p)) builtByName.set(p.name, p)
   // Runtime edges order the build (a devDependency edge never orders a compile); the target
   // itself compiles last, from its own directory.
   const ordered = topologicalOrder(graph, [...builtByName.values()], PROD)
@@ -163,7 +242,7 @@ export function deriveTarget(
   for (const p of installed)
     if (!captured.includes(p))
       notes.push(
-        `${p.name} (${p.dir}) is installed, not captured: a test importing it resolves the image's manifest-only copy and fails, and target:measure proposes excluding that test (or pass --with-dev-builds)`,
+        `${p.name} (${p.dir}) is installed, not captured: a test importing it resolves the image's manifest-only copy and fails, and target:measure proposes excluding that test${devBuilt.has(p) ? " (or pass --with-dev-builds)" : ""}`,
       )
 
   // The build (plan D5).
@@ -197,9 +276,6 @@ export function deriveTarget(
         `${p.name}'s build script does more than compile (${script}): the target runs only its \`tsc -b ${config.tsconfig}\``,
       )
   }
-  const typescript =
-    graph.root.devDependencies?.typescript ?? pkg.manifest.devDependencies?.typescript ?? ""
-  const typescriptMajor = Number(/(\d+)\./.exec(typescript)?.[1] ?? 0)
   const projects = built.map((p) => {
     const config = builds.get(p) as BuildConfig
     if (p === pkg) return config.tsconfig
@@ -214,7 +290,9 @@ export function deriveTarget(
           "exec",
           "tsc",
           "-b",
-          ...(projects.length > 1 && typescriptMajor >= 7 ? ["--builders", "1"] : []),
+          ...(projects.length > 1 && typescriptMajor(graph, pkg, tree.pin) >= 7
+            ? ["--builders", "1"]
+            : []),
           ...projects,
         ]
 
@@ -231,15 +309,26 @@ export function deriveTarget(
           : `${pkg.name}: its test script names --config ${command.config}, which at ${tree.pin} is a ${KIND_NAMES[kind]}, not a file`,
       )
   } else {
-    // The first name vitest looks for that the pin holds is the config it loads: a link there
-    // is refused rather than passed over for a later name vitest would never read.
-    const found = VITEST_CONFIGS.find((name) => tree.kind(`${pkg.dir}/${name}`) !== undefined)
-    runner = found === undefined ? undefined : `${pkg.dir}/${found}`
+    // vitest looks in the package directory, then each parent, trying every name in its order
+    // in one directory before the next: the first the pin holds is the config it loads. A link
+    // there is refused rather than passed over for a later name vitest would never read.
+    runner = findVitestConfig(tree, pkg.dir)
     const kind = runner === undefined ? undefined : tree.kind(runner)
     if (kind !== undefined && kind !== "file")
       throw new Error(
         `${runner} at ${tree.pin} is a ${KIND_NAMES[kind]}, not a file: vitest would load it as ${pkg.name}'s config, and target:init reads configs the pin holds as regular files only`,
       )
+    if (runner !== undefined && !runner.startsWith(`${pkg.dir}/`)) {
+      // A root file is captured like the root manifests; anywhere between the package and the
+      // root it would read as a package directory to the Dockerfile's CAPTURED check.
+      if (runner.includes("/"))
+        throw new Error(
+          `${runner} is the vitest config ${pkg.name}'s tests load, outside the package and not at the repository root: target:init captures a config there only at the root or inside the package`,
+        )
+      notes.push(
+        `${runner} is the vitest config ${pkg.name}'s tests load (none in ${pkg.dir}; vitest looks up from there): captured and kept immutable`,
+      )
+    }
   }
   const present = (file: string) => tree.kind(`${pkg.dir}/${file}`) === "file"
   for (const file of [...(carried.scope ?? []), ...(carried.excludes ?? [])])
@@ -292,7 +381,12 @@ export function deriveTarget(
   const carriedCapture = (carried.captureInclude ?? []).filter((path) => {
     if (rootManifests.includes(path)) return false
     const owner = captured.find((p) => path === p.dir || path.startsWith(`${p.dir}/`))
-    if (!atPin(path)) notes.push(`dropped ${path} from capture.include: not at the pin`)
+    const kind = tree.kind(path)
+    if (kind === undefined) notes.push(`dropped ${path} from capture.include: not at the pin`)
+    else if (kind === "link" || kind === "submodule")
+      notes.push(
+        `dropped ${path} from capture.include: at the pin it is a ${KIND_NAMES[kind]}, which the capture refuses`,
+      )
     else if (owner === undefined && path.includes("/"))
       notes.push(
         `dropped ${path} from capture.include: it belongs to no package this target captures`,
@@ -322,6 +416,12 @@ export function deriveTarget(
   // What the capture leaves out, so an omission is visible before a test trips on it (I5).
   const touches = (path: string) =>
     include.some((e) => e === path || e.startsWith(`${path}/`) || path.startsWith(`${e}/`))
+  const holds = (path: string) => include.some((e) => e === path || path.startsWith(`${e}/`))
+  for (const file of scope)
+    if (!holds(`${pkg.dir}/${file}`))
+      notes.push(
+        `${file} is in the test command, but the capture does not hold ${pkg.dir}/${file}: the suite cannot run it`,
+      )
   for (const p of captured.filter((c) => !configs.includes(c))) {
     const omitted = tree
       .children(p.dir)
@@ -332,19 +432,14 @@ export function deriveTarget(
       )
     if (omitted.length > 0) notes.push(`${p.dir}: not captured: ${omitted.join(", ")}`)
   }
-  if (runner !== undefined) {
-    const text = tree.read(runner) ?? ""
-    const siblings = new Set(
-      [...text.matchAll(/["'`]\.\.\/([A-Za-z0-9._-]+)\//g)].map((m) => m[1] as string),
-    )
-    for (const sibling of [...siblings].sort()) {
-      const path = `packages/${sibling}`
-      if (atPin(path) && !captured.some((p) => p.dir === path))
-        notes.push(
-          `${runner} reads ../${sibling}/ (${path}), which the capture omits: a test that reaches it fails, and target:measure proposes excluding it`,
-        )
-    }
-  }
+  // The target package's own top-level files: a setup file, an env file or a shared config a
+  // test or the vitest config reads is otherwise invisible.
+  const looseFiles = tree
+    .children(pkg.dir)
+    .filter((entry) => entry.kind !== "dir" && !touches(`${pkg.dir}/${entry.name}`))
+    .map((entry) => entry.name)
+  if (looseFiles.length > 0) notes.push(`${pkg.dir}: files not captured: ${looseFiles.join(", ")}`)
+  if (runner !== undefined) notes.push(...runnerReads(tree, graph, runner, holds, touches))
 
   const typesNode = [
     graph.root.devDependencies,
@@ -374,13 +469,35 @@ export function deriveTarget(
     )
     return false
   })
+  const runnerConfig = [
+    ...rootManifests,
+    ...sortPaths([
+      `${pkg.dir}/package.json`,
+      ...packageTsconfigs(tree, pkg),
+      ...(runner === undefined ? [] : [runner]),
+      ...configs.map((c) => c.dir),
+      ...carriedRunner,
+    ]).filter((path) => !rootManifests.includes(path)),
+  ]
+
+  const snapshotIgnore = sortPaths([...builds.values()].map((config) => config.outDir))
+  for (const [field, entries] of [
+    ["capture.include", include],
+    ["runnerConfig", runnerConfig],
+  ] as const)
+    for (const entry of entries)
+      for (const prefix of snapshotIgnore)
+        if (`${entry}/`.startsWith(prefix) || prefix.startsWith(`${entry}/`))
+          throw new Error(
+            `The ${field} entry ${entry} overlaps snapshotIgnore ${prefix}: the snapshot passes over the build's output, so an edit to a captured or immutable file there would go unseen`,
+          )
 
   const manifest: TargetManifest = {
     id,
     pin: tree.pin,
     root: ".",
     capture: { include },
-    snapshotIgnore: sortPaths([...builds.values()].map((config) => config.outDir)),
+    snapshotIgnore,
     baseImage: carried.baseImage ?? DEFAULT_BASE_IMAGE,
     imageContext: [
       "package.json",
@@ -396,16 +513,7 @@ export function deriveTarget(
     imageAssertResolves: [...new Set([...derivedAsserts, ...(carried.imageAssertResolves ?? [])])],
     environmentLinks: [{ path: "node_modules", target: `/opt/targets/${id}/node_modules` }],
     commands: { cwd: pkg.dir, build, test, nodeTestExecArgv: [] },
-    runnerConfig: [
-      ...rootManifests,
-      ...sortPaths([
-        `${pkg.dir}/package.json`,
-        ...packageTsconfigs(tree, pkg),
-        ...(runner === undefined ? [] : [runner]),
-        ...configs.map((c) => c.dir),
-        ...carriedRunner,
-      ]).filter((path) => !rootManifests.includes(path)),
-    ],
+    runnerConfig,
     ...(carried.draftingNotes !== undefined && carried.draftingNotes.length > 0
       ? { draftingNotes: [...carried.draftingNotes] }
       : {}),

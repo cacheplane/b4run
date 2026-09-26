@@ -451,4 +451,193 @@ describe("deriveTarget", () => {
       'dropped test/a b.test.ts from the test command: "test/a b.test.ts" is not a literal, package-relative path an exclude can name',
     )
   })
+
+  it("loads the vitest config vitest finds walking up from the package, in its order", () => {
+    // Per directory, vitest.config.* before vite.config.*: both present, the first is loaded.
+    const both = derive(
+      {
+        ...MINI,
+        "packages/util/vitest.config.ts": "export default {}\n",
+        "packages/util/vite.config.ts": "export default {}\n",
+      },
+      "@m/util",
+    )
+    expect(both.manifest.capture.include).toContain("packages/util/vitest.config.ts")
+    expect(both.manifest.capture.include).not.toContain("packages/util/vite.config.ts")
+    expect(both.manifest.runnerConfig).toContain("packages/util/vitest.config.ts")
+    expect(both.manifest.runnerConfig).not.toContain("packages/util/vite.config.ts")
+    // None in the package: the repository root's, which is captured and kept immutable.
+    const rootConfig = {
+      ...MINI,
+      "vitest.config.ts": 'export default { test: { setupFiles: ["./vitest.setup.ts"] } }\n',
+      "vitest.setup.ts": "export {}\n",
+    }
+    const { manifest, notes } = derive(rootConfig, "@m/util")
+    expect(manifest.capture.include).toContain("vitest.config.ts")
+    expect(manifest.runnerConfig).toContain("vitest.config.ts")
+    expect(notes).toContain(
+      "vitest.config.ts is the vitest config @m/util's tests load (none in packages/util; vitest looks up from there): captured and kept immutable",
+    )
+    expect(notes).toContain(
+      "vitest.config.ts reads ./vitest.setup.ts (vitest.setup.ts), which the capture omits: a test that reaches it fails, and target:measure proposes excluding it",
+    )
+    // A package's own config wins over the root's.
+    const app = derive(rootConfig)
+    expect(app.manifest.capture.include).not.toContain("vitest.config.ts")
+    expect(app.manifest.runnerConfig).not.toContain("vitest.config.ts")
+    // One in a directory between the package and the root cannot be captured cleanly.
+    expect(() =>
+      derive({ ...MINI, "packages/vite.config.mjs": "export default {}\n" }, "@m/util"),
+    ).toThrow(
+      /packages\/vite\.config\.mjs is the vitest config @m\/util's tests load, outside the package and not at the repository root/,
+    )
+    expect(() =>
+      derive({ ...MINI, "real.ts": "\n" }, "@m/util", {}, { "vitest.config.ts": "real.ts" }),
+    ).toThrow(/vitest\.config\.ts at [0-9a-f]{40} is a link \(a symlink\), not a file/)
+  })
+
+  it("names the target package's top-level files the capture leaves out", () => {
+    const { notes } = derive({
+      ...MINI,
+      "packages/app/vitest.setup.ts": "\n",
+      "packages/app/.env.test": "A=1\n",
+      "packages/core/README.md": "\n",
+    })
+    expect(notes).toContain("packages/app: files not captured: .env.test, vitest.setup.ts")
+    expect(notes.some((note) => note.startsWith("packages/core: files not captured"))).toBe(false)
+  })
+
+  it("names every relative path the vitest config reads that the capture omits", () => {
+    const { notes } = derive({
+      ...MINI,
+      "fixtures/data.json": "{}\n",
+      "packages/app/vitest.config.ts": [
+        'import shared from "./vitest.shared"',
+        'const data = "../../fixtures/data.json"',
+        'const tooling = "../tooling"',
+        'const core = "../core/src"',
+        'const own = "./src/index.ts"',
+        "export default { shared, data, tooling, core, own }",
+        "",
+      ].join("\n"),
+    })
+    const reads = notes.filter((note) => note.startsWith("packages/app/vitest.config.ts reads"))
+    expect(reads).toEqual([
+      "packages/app/vitest.config.ts reads ../../fixtures/data.json (fixtures/data.json), which the capture omits: a test that reaches it fails, and target:measure proposes excluding it",
+      "packages/app/vitest.config.ts reads ../tooling/ (packages/tooling), which the capture omits: a test that reaches it fails, and target:measure proposes excluding it",
+      "packages/app/vitest.config.ts reads ./vitest.shared (packages/app/vitest.shared), which the capture omits: a test that reaches it fails, and target:measure proposes excluding it",
+    ])
+  })
+
+  it("refuses a capture or runner entry a build output would hide", () => {
+    const files = {
+      ...MINI,
+      "packages/core/lib/keep.ts": "\n",
+      "packages/util/dist/keep.json": "{}\n",
+    }
+    expect(() =>
+      derive(files, "@m/app", { captureInclude: ["packages/core/lib/keep.ts"] }),
+    ).toThrow(
+      /capture\.include entry packages\/core\/lib\/keep\.ts overlaps snapshotIgnore packages\/core\/lib\//,
+    )
+    expect(() =>
+      derive(files, "@m/app", { runnerConfig: ["packages/util/dist/keep.json"] }),
+    ).toThrow(
+      /runnerConfig entry packages\/util\/dist\/keep\.json overlaps snapshotIgnore packages\/util\/dist\//,
+    )
+  })
+
+  it("reads the TypeScript the package resolves, and refuses a version it cannot read", () => {
+    const root = JSON.parse(MINI["package.json"] as string)
+    const { typescript: _ts, ...devDependencies } = root.devDependencies
+    const app = JSON.parse(MINI["packages/app/package.json"] as string)
+    const withRoot = (extra: Record<string, unknown>) => ({
+      ...MINI,
+      "package.json": json({ ...root, devDependencies, ...extra }),
+    })
+    for (const spec of ["catalog:", "npm:typescript@7.0.2", "latest"])
+      expect(() =>
+        derive(withRoot({ devDependencies: { ...devDependencies, typescript: spec } })),
+      ).toThrow(
+        new RegExp(
+          `typescript ${JSON.stringify(spec)}: target:init cannot tell its major version, which decides --builders`,
+        ),
+      )
+    expect(() => derive(withRoot({}))).toThrow(/name no typescript/)
+    // The root's dependencies count, not only its devDependencies.
+    expect(
+      derive(withRoot({ dependencies: { typescript: "^7.0.2" } })).manifest.commands.build,
+    ).toContain("--builders")
+    // The package's own TypeScript resolves before the root's.
+    expect(
+      derive({
+        ...MINI,
+        "packages/app/package.json": json({
+          ...app,
+          devDependencies: { ...app.devDependencies, typescript: "5.9.3" },
+        }),
+      }).manifest.commands.build,
+    ).not.toContain("--builders")
+  })
+
+  it("names a carried test scope file the capture does not hold", () => {
+    const { notes } = derive(MINI, "@m/app", {
+      scope: ["test/app.test.ts"],
+      captureInclude: ["packages/app/test/helpers/h.ts"],
+    })
+    expect(notes).toContain(
+      "test/app.test.ts is in the test command, but the capture does not hold packages/app/test/app.test.ts: the suite cannot run it",
+    )
+    expect(
+      derive(MINI, "@m/app", {
+        scope: ["test/app.test.ts"],
+        captureInclude: ["packages/app/test/app.test.ts"],
+      }).notes.some((note) => note.includes("is in the test command")),
+    ).toBe(false)
+  })
+
+  it("suggests --with-dev-builds only for a package the flag would capture", () => {
+    const tooling = JSON.parse(MINI["packages/tooling/package.json"] as string)
+    const { notes } = derive({
+      ...MINI,
+      "packages/tooling/package.json": json({
+        ...tooling,
+        devDependencies: { "@m/deep": "workspace:*" },
+      }),
+      // A build of its own (a package without one is a config package, captured whole).
+      "packages/deep/package.json": json({
+        name: "@m/deep",
+        scripts: { build: "tsc -b tsconfig.json" },
+      }),
+      "packages/deep/tsconfig.json": json({ compilerOptions: { outDir: "dist" } }),
+    })
+    expect(notes).toContain(
+      "@m/tooling (packages/tooling) is installed, not captured: a test importing it resolves the image's manifest-only copy and fails, and target:measure proposes excluding that test (or pass --with-dev-builds)",
+    )
+    expect(notes).toContain(
+      "@m/deep (packages/deep) is installed, not captured: a test importing it resolves the image's manifest-only copy and fails, and target:measure proposes excluding that test",
+    )
+  })
+
+  it("drops a carried capture entry the pin holds as a link, with a note", () => {
+    const { manifest, notes } = derive(
+      MINI,
+      "@m/app",
+      { captureInclude: ["packages/app/linked.json"] },
+      { "packages/app/linked.json": "tsconfig.json" },
+    )
+    expect(manifest.capture.include).not.toContain("packages/app/linked.json")
+    expect(notes).toContain(
+      "dropped packages/app/linked.json from capture.include: at the pin it is a link (a symlink), which the capture refuses",
+    )
+  })
+
+  it("keeps a carried root file, and a carried entry a captured directory covers only once", () => {
+    const { manifest } = derive({ ...MINI, "tsconfig.base.json": "{}\n" }, "@m/app", {
+      captureInclude: ["tsconfig.base.json", "packages/app/src/index.ts"],
+    })
+    expect(manifest.capture.include).toContain("tsconfig.base.json")
+    expect(manifest.capture.include).toContain("packages/app/src")
+    expect(manifest.capture.include).not.toContain("packages/app/src/index.ts")
+  })
 })
