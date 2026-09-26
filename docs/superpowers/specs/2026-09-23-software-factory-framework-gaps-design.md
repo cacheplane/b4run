@@ -319,7 +319,7 @@ proposes exactly the committed nine excludes and test command, each exclude name
 omission of `templates/` (`test/target-measure.integration.test.ts`); it proposed 512 MiB,
 2 cpus, 60000 to 70000 ms per command across runs (it sits on a 10 s rounding boundary, so the
 lane asserts only cpus and memory bounds) and a 120000 ms deadline, beside the committed 768/2/60000/240000.
-The generated cli target's full measurement: see the PR description. Deferred:
+The generated `cli` target measured by hand: 169 files in about 23 minutes; 114 pass alone, 55 are proposed for exclusion (29 need `@b4run/testing`'s build output, which `--with-dev-builds` would capture), none flaky; the eight files the hand-written target runs all pass. The run found and fixed one defect (a test that makes a built file executable now counts as writing the workspace). Deferred:
 `draftingNotes` stay hand-written (§9 finding 20); a startup sweep of the session state a
 SIGKILL leaves behind.
 
