@@ -330,22 +330,31 @@ retry); the next need builds again. `target.json` records no image:
 `pnpm --filter @b4-example/software-factory-controller target:prepare <id> [--pin <sha>]` (with
 `FACTORY_STATE_DIR` set) warms the registry by hand and prints the image; nothing requires it.
 
-Adding a target for a pnpm workspace package is two commands and a review.
-`pnpm --filter @b4-example/software-factory-controller target:init <package> [--pin <sha>] [--id <id>] [--write]`
+Adding a target for a pnpm workspace package starts with a generated proposal.
+`pnpm --filter @b4-example/software-factory-controller target:init <package> [--pin <sha>] [--id <id>] [--with-dev-builds] [--write]`
 derives `targets/<id>/target.json` and its `Dockerfile` from the package's manifests at the pin
 (read from the object store, never the working tree; the pin defaults to `origin/main`): the
 capture (the root manifests; the package's manifest, tsconfig files, vitest config, `src` and
 `test`; each runtime dependency's manifest, build tsconfig and `src`; config packages whole),
 the image context (every installed package's manifest), the build (one `tsc -b` over the
-dependency closure in dependency order), the test command, the runner configuration and the
-build outputs. It prints a diff and writes only with `--write`. Resources are placeholders and
-no test is excluded until `target:measure` proposes them. Re-running it on an existing target
-keeps what was decided there (base image, resources, drafting notes, the test command's scope
-and excludes, the Dockerfile's promotion set), so an unchanged target prints an empty diff.
-Its notes name what the capture leaves out (package subdirectories, a sibling the vitest config
-reads) and each package installed but not captured; `--with-dev-builds` captures and builds the
-package's workspace devDependencies that have builds. Only packages under `packages/` whose
-tests run with vitest are generated; `cli-flags` stays hand-written.
+dependency closure in dependency order, with `--builders 1` when the root's TypeScript is 7 or
+later), the test command, the runner configuration and the build outputs. It prints a diff and
+writes only with `--write`. Resources are placeholders and no test is excluded:
+`target:measure`, which measures both, comes in a follow-up, and until it has run a generated
+target must not be committed. The factory will not use one either: a target whose resources
+are the placeholders is never offered to the drafter, and a draft or task naming it is refused
+(`resources are placeholders: run target:measure`). Re-running `target:init` on an existing
+target keeps what was decided there (base image, resources, drafting notes, the test command's
+scope and excludes, the Dockerfile's promotion set), so an unchanged target prints an empty
+diff; it does not keep `--with-dev-builds`, which a re-generation must be given again. Its
+notes name what the capture leaves out (package subdirectories, a sibling the vitest config
+reads) and each package installed but not captured; `--with-dev-builds` captures and builds
+the package's workspace devDependencies that have builds. A vitest `setupFiles` or
+`globalSetup` the capture omits is refused, since every test would fail. Only packages under
+`packages/` whose tests run with vitest are generated, in a workspace whose root
+`package.json` names `packageManager: pnpm@<x.y.z>`, and each built package's `build` script
+must run exactly one `tsc -b <tsconfig>` (anything else it runs is named in a note and not
+run); `cli-flags` stays hand-written.
 
 A recorded image is re-checked on the daemon at every need and rebuilt if it is gone. Once
 bound, the binding is what counts: the verifier, the oracle proof and approve's

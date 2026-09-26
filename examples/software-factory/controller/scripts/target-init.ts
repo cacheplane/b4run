@@ -15,8 +15,11 @@ import { renderDiff, writeProposal } from "../src/lib/targets/proposal.js"
  * pins (FACTORY_NO_FETCH=1 reads the checkout's origin/main without fetching). --targets-dir
  * proposes into another catalog (a scratch measurement) instead of the controller's; a relative
  * one is relative to the directory `pnpm target:init` was run from (pnpm's INIT_CWD), else the
- * process's own. A refusal prints as one `target:init:` line and exits 1. A target
- * is an oracle input: the person reviews the diff and commits it; run target:measure first.
+ * process's own. A refusal prints as one `target:init:` line and exits 1. A target is an
+ * oracle input: the person reviews the diff and commits it, but only once its placeholder
+ * resources and excludes are measured. `target:measure` does that and comes in a follow-up;
+ * until then a generated target must not be committed, and the factory refuses to draft or
+ * run a task on one whose resources are the placeholders (`unmeasuredProblem`).
  */
 try {
   const args = parseInitArgs(process.argv.slice(2))

@@ -3396,6 +3396,8 @@ git commit -m "docs(software-factory): target:init in the README and the spec's 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+**As landed** (final review of PR 1). The README paragraph was reworded: `target:measure` comes in PR 2, so a generated target must not be committed until it is measured, a re-generation does not carry `--with-dev-builds`, and the scope also requires a root `packageManager: pnpm@x.y.z` and a build script of exactly one `tsc -b <file>`; `scripts/target-init.ts`'s header says the same. Final-review fixes: (1) `--builders` reads only the root's TypeScript, the `tsc` the image builds with (the Dockerfile shims nested copies onto it), superseding Task 8's "from the package, then the root's": `packages/core`, which nests `npm:@typescript/typescript6@6.0.2`, was refused and now generates (`--builders 1` from the root's 7.0.2); (2) a target whose resources are `PLACEHOLDER_RESOURCES` (moved to `catalog.ts`, re-exported from `derive.ts`) is never offered to the drafter, and a draft or task naming it is refused by `unmeasuredProblem` ("resources are placeholders: run target:measure"); `recipeProblem` is unchanged, so such a target still builds, which `target:measure` needs; every shipped target is measured and unaffected; (3) a vitest `setupFiles` or `globalSetup` entry the capture omits is refused by name ("every test would fail") instead of noted per file, which now refuses `create-b4-app` at `980ba8a3` (its `globalSetup` is the repository's `test/harness/registry-global-setup.ts`); (4) refusals no longer repeat `target:init` under the script's own prefix (the missing-pin label is the package asked for) and start lowercase.
+
 **PR 1 verification** (all from the repository root):
 
 ```bash
@@ -5763,6 +5765,7 @@ Push `blove/targets-measure` and open the PR only when Brian asks.
 - **The promotion set at later pins** (D7): a work order at a pin whose lockfile nests differently fails its build naming the set. Deriving the set from the lockfile (a YAML parser in the example) or measuring at the work order's pin automatically would remove that step.
 - **Packages outside `packages/`** (D3): generalise `capturedPackages` and the Dockerfile's `CAPTURED` to workspace directories, if an `examples/*/*` package ever becomes a target.
 - **npm and `node:test` targets** (D3), if a second `cli-flags`-shaped target appears.
+- **Share one core between `proposalProblem` and `recipeProblem`**: `init.ts`'s `proposalProblem` repeats `recipeProblem`'s checks (paths at the pin, the `CAPTURED` list, the lockfile inside `imageContext`) over a proposal, with different wording; one function over a manifest, a Dockerfile's text and an `exists` would keep them from drifting.
 - **Measure files in parallel**: 169 files one at a time is slow; several sessions at once would need a per-session memory budget that does not distort the per-file verdicts.
 - **Budgets from measured time** (spec §9 finding 5): `measure`'s session wall clock is the number a derived `FACTORY_MAX_ACTIVE_MS` would start from.
 
