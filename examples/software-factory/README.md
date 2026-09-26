@@ -330,6 +330,23 @@ retry); the next need builds again. `target.json` records no image:
 `pnpm --filter @b4-example/software-factory-controller target:prepare <id> [--pin <sha>]` (with
 `FACTORY_STATE_DIR` set) warms the registry by hand and prints the image; nothing requires it.
 
+Adding a target for a pnpm workspace package is two commands and a review.
+`pnpm --filter @b4-example/software-factory-controller target:init <package> [--pin <sha>] [--id <id>] [--write]`
+derives `targets/<id>/target.json` and its `Dockerfile` from the package's manifests at the pin
+(read from the object store, never the working tree; the pin defaults to `origin/main`): the
+capture (the root manifests; the package's manifest, tsconfig files, vitest config, `src` and
+`test`; each runtime dependency's manifest, build tsconfig and `src`; config packages whole),
+the image context (every installed package's manifest), the build (one `tsc -b` over the
+dependency closure in dependency order), the test command, the runner configuration and the
+build outputs. It prints a diff and writes only with `--write`. Resources are placeholders and
+no test is excluded until `target:measure` proposes them. Re-running it on an existing target
+keeps what was decided there (base image, resources, drafting notes, the test command's scope
+and excludes, the Dockerfile's promotion set), so an unchanged target prints an empty diff.
+Its notes name what the capture leaves out (package subdirectories, a sibling the vitest config
+reads) and each package installed but not captured; `--with-dev-builds` captures and builds the
+package's workspace devDependencies that have builds. Only packages under `packages/` whose
+tests run with vitest are generated; `cli-flags` stays hand-written.
+
 A recorded image is re-checked on the daemon at every need and rebuilt if it is gone. Once
 bound, the binding is what counts: the verifier, the oracle proof and approve's
 re-verification run the bound image by id, and a bound image that has left the daemon is

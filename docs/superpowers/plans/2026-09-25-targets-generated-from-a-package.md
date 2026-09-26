@@ -505,6 +505,8 @@ git commit -m "feat(software-factory): read a repository at a pin from the objec
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+**As landed** (review-driven; commits `2ee18d8af`, `5ab3e4fc4`). `gitPinTree` resolves the pin once to the full 40-hex sha (`tree.pin`) and lists the tree once (`git ls-tree -r -t -z -l --full-tree`), so paths are relative to the repository's top level whatever the working directory. `kind()` returns `"file" | "dir" | "link" | "submodule" | undefined`; `read()` returns `undefined` for an absent path and throws for a directory, link or submodule; a git failure throws rather than reading as "absent". `files()` still lists link (120000) and submodule (160000) entries, so the capture checks keep refusing those modes.
+
 ### Task 2: The workspace graph at a pin
 
 **Files:**
@@ -906,6 +908,8 @@ git commit -m "feat(software-factory): the pnpm workspace graph at a pin, its cl
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+**As landed** (review-driven; commits `8f0c71c77`, `516079afc`). Manifests read `peerDependencies`: INSTALL follows dependencies, devDependencies, optionalDependencies and peerDependencies, and PROD is `["dependencies", "peerDependencies"]`. This is an interpretation of D4, not a change of it: D4's reasoning (the build closure is what the build compiles against) covers workspace peers, which are imported, so they are built and captured. Globs are stricter: extglob characters are refused, `*` skips dot directories, `node_modules` and `bower_components`, and a symlink or submodule under a glob is refused. Dependency specs `init` cannot read are refused: workspace aliases, `workspace:./path`, and `link:`/`file:` specs pointing at workspace directories.
+
 ### Task 3: Which tsconfig each package builds with, and where it writes
 
 **Files:**
@@ -1158,6 +1162,8 @@ git commit -m "feat(software-factory): read which tsconfig a package builds with
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+**As landed** (review-driven; commits `84a881b56`, `d2742c528`). The build info lands where TypeScript puts it by default (its `getTsBuildInfoEmitOutputFilePath`; checked against a real `tsc -b` 7.0.2), and `declarationDir`, `outFile` and the build info are each refused outside `outDir`; an `outDir` overlapping `src` or `test` is refused. The whole `extends` chain is read: `externalExtends` lists every external file along it (at the pins, `config-typescript`'s `node.json`, `library.json` and `base.json`), and an `extends` naming a directory throws. Also refused: `${` values, a build script whose `tsc` is not `-b`, a `cd` in the chain, and anything after the one config. `BuildConfig` gains `references` (repository-relative), which Task 6 checks.
+
 ### Task 4: The vitest command
 
 A target's `commands.test` is a vitest argv: a base (the package's own `test` script, run through `pnpm exec`, with `--no-cache`), then positional files (a scope a person chose), then `--exclude` pairs (what `measure` proposed). One module builds it and reads it back, so `init`, the carry-over and `measure` agree on its shape.
@@ -1405,6 +1411,8 @@ git commit -m "feat(software-factory): build and read back a target's vitest com
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
+
+**As landed** (review-driven; commits `498a07e11`, `0da9c9134`). `parseVitestCommand` reads only the named flags (`run` first, `--run`, `--no-cache`, `--passWithNoTests`, `--config`, `--exclude`) and positionals; any other flag is refused by name (Task 7's catch turns that into the "not read" note). `withExcludes` accepts only literal paths: it throws on glob characters, a leading `-`, `..`, an absolute path or a character outside the portable set.
 
 ### Task 5: The Dockerfile template
 
@@ -1791,6 +1799,8 @@ git commit -m "feat(software-factory): one Dockerfile template for pnpm targets,
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
+
+**As landed** (review-driven; commits `05e2e6a72`, `4fffb54fc`). The plan's `SAFE` became two checks: `SEGMENT` (id, directory) and `NAME` (filter, captured names, promotion set; each segment starts with a letter or digit). The promotion and relink loops sit inside the RUN's top-level `&&` list, where the shell ignores `set -e`, so each chain in them ends `|| exit 1` (the shell tests run under dash where the host has it). A promoted name that is also a captured, relinked name fails the build by name; a repeated promotion name is refused by `renderDockerfile` and `withExpectedPromoted`; `CAPTURED` and the links are sorted by directory. `promotionMismatch` reads the promoted marker only from the BuildKit `#N` step that printed the expected one.
 
 ### Task 6: `deriveTarget`: every field from the graph
 
@@ -2448,6 +2458,8 @@ git commit -m "feat(software-factory): derive a target's fields from a package's
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+**As landed** (review-driven; commits `3b6dd1427`, `763387421`). The vitest config is found by walking up from the package to the repository root, per directory then per name, as vitest does; a root config is captured and kept immutable with a note, and one between the package and the root is refused. The target package's uncaptured top-level files are noted, as is every relative path the vitest config names that the capture does not hold. A capture or `runnerConfig` entry overlapping a build output (`snapshotIgnore` prefix) is refused. TypeScript's version is read from the package, then the root's devDependencies and dependencies, and a version whose major cannot be read is refused. Each build config's `references` must name a build config of a package the target builds, or it is refused (`tsc -b` would build it too). A carried capture entry that is a link or submodule is dropped with a note; a carried scope file the capture does not hold is noted; `--with-dev-builds` is suggested only for packages it would capture.
+
 ### Task 7: `initTarget`: carried, derived, checked, formatted, proposed
 
 **Files:**
@@ -2881,6 +2893,8 @@ git commit -m "feat(software-factory): propose a package's target as a diff, car
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+**As landed** (review-driven; commit `8050706c8`, shared with Task 8). A `target.json` that is not JSON or fails the schema is refused, naming the parse error, instead of being replaced with defaults that `--write` would have used to destroy decided resources, excludes and drafting notes. `writeProposal` re-reads each file and refuses one changed since the proposal, refuses a symlinked target directory, and writes through a temporary file renamed into place. A carried test scope replaces the "no test is excluded" note; notes say when only a Dockerfile's `EXPECTED_PROMOTED` is carried; `initTarget` validates the pin itself.
+
 ### Task 8: The `target:init` script
 
 **Files:**
@@ -2992,6 +3006,8 @@ git commit -m "feat(software-factory): target:init prints a package's target as 
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
+
+**As landed** (commits `c891cc06c`, `8050706c8`). A relative `--targets-dir` resolves against pnpm's `INIT_CWD`, else the working directory. A refusal prints as one `target:init: …` line and exits 1. The carried-scope and malformed-target behaviour is Task 7's as-landed note.
 
 ### Task 9: The proof: `init` reproduces `devkit` and `cli` at their pins
 
@@ -3184,6 +3200,8 @@ git commit -m "test(software-factory): target:init reproduces the devkit and cli
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+**As landed** (commit `f71622df1`). Passed on its first run. Bound by mutation: breaking the placeholder resources and the `cli` build order each reds the test.
+
 ### Task 10: Docker lanes: the generated `devkit` Dockerfile builds; the `cli` one, by hand, before PR 1 merges
 
 `devkit` exercises neither the nested-TypeScript shim nor a relink by a name other than its own; only `cli` does (review I9). So the `cli` build is part of PR 1, opt-in like the `cli` target's own lane, and run once by hand before the PR merges.
@@ -3309,6 +3327,8 @@ git commit -m "test(software-factory): generated devkit and (opt-in) cli Dockerf
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
+
+**As landed** (commit `5c03661dd`). The plan's log regex (`/b4-factory promoted:[^\n$"]*$/m`) did not handle BuildKit's `#N <seconds>` line prefixes or a cached step, which prints nothing; `promotionStepOutcome` finds the promotion step's number from its RUN line and returns the printed set, `cached` or `absent`. The `devkit` lane builds with the empty set `init` writes (it learns none). The `cli` lane was run once by hand (`FACTORY_TEST_CLI_TARGET=1`, `test:sandbox:cli`): the first build learned exactly `@hono/node-server commander hono typescript`, the hand-written `cli` set, and the second build succeeded. All timings recorded were on a warm cache.
 
 ### Task 11: Docs for PR 1
 
@@ -5734,6 +5754,7 @@ Push `blove/targets-measure` and open the PR only when Brian asks.
 
 ## Follow-ups recorded, not in this plan
 
+- **The shipped `targets/cli/Dockerfile` ignores a failed move** in its promotion and relink loops (the `rm -rf … && mkdir -p … && mv …` chain, the `rm -rf "$nm"`, and the relink `rm -rf … && ln -s …`, lines ~52, 54, 61): inside the RUN's top-level `&&` list the shell ignores `set -e`, the bug the template fixed in Task 5 (`|| exit 1`). Not changed here (D14); fix it when `cli` is next re-pinned or regenerated.
 - **Regenerate the shipped targets** (D14) when each is next re-pinned: `devkit` gains the root manifests in `runnerConfig` and the template Dockerfile; `cli` gains the whole test directory if the full measurement (Task 18) says it is affordable, or keeps its scope (carried).
 - **Drafting notes from a package's tests** (spec §9 finding 20). Nothing deterministic writes them; a model-drafted proposal reviewed like the rest of the target is its own item.
 - **Per-test exclusion** (D15): `--testNamePattern` or reviewed `.skip`s, if a file whose one failing test hides many passing ones proves common in the reports' per-test counts.

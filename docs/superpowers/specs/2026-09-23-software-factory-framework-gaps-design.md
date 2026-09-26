@@ -283,6 +283,24 @@ explains each difference.
 
 **Size: L.** Measuring is the hard part, as the `cli` target showed.
 
+**As landed** ([plan](../plans/2026-09-25-targets-generated-from-a-package.md), PR 1).
+`target:init` is a package script beside `target:prepare`, not a `factory` command (the CLI
+talks to a controller). It derives three closures, not one: the build closure over
+`dependencies` (captured), the install closure pnpm's `--filter <pkg>...` installs
+(`imageContext`; `cli`'s devDependency `@b4run/sandbox` is installed, not captured) and config
+packages (captured, in the image and in `runnerConfig` whole). The build is one `tsc -b` over
+each package's own build tsconfig in topological order with `--builders 1`, not references or
+`pnpm -r run build` (references are partial and build scripts do more than compile). The
+Dockerfile is one template, the `cli` Dockerfile generalised; its promotion set cannot be
+derived without pnpm, so `target:measure` learns it from a build. Proof: at their pins, `init`
+reproduces `devkit` except its nine excludes, its resources, its narrower `runnerConfig` and its
+Dockerfile, and `cli` except its eight-file scope, two extra module assertions, its build's
+project order and `--declarationMap false`, its resources, promotion set and drafting notes
+(`test/target-init-reproduces.test.ts`); the generated `devkit` Dockerfile builds with the
+empty promotion set `init` writes (`test/target-init.integration.test.ts`), and the generated
+`cli` Dockerfile, run once by hand, learned `@hono/node-server commander hono typescript` from
+its first build (the hand-written set) and then built.
+
 ## 6. The CLI shows what is approved and approves exactly that
 
 **Today.** The operator lists `<FACTORY_STATE_DIR>/tasks/<id>/`, copies `taskDigest` from
