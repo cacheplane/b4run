@@ -1,3 +1,4 @@
+import { WorkspaceInspectionError } from "@b4run/workspace"
 import type { VitestRun } from "../src/lib/targets/measure/classify.ts"
 import type {
   MeasureSession,
@@ -19,6 +20,13 @@ export interface FakeFile {
   readonly killed?: boolean
   /** What the run prints; `<file> output` and a scripted error when absent. */
   readonly output?: string
+  /**
+   * After the run, the verifier's workspace inspection refuses the session's workspace with
+   * this message (a `refused` WorkspaceInspectionError), as it does an executable file.
+   */
+  readonly refuses?: string
+  /** After the run, a snapshot fails with this message: an I/O error, not a refusal. */
+  readonly snapshotFails?: string
 }
 
 export interface FakeScript {
@@ -30,6 +38,8 @@ export interface FakeScript {
     readonly output?: string
     /** Killed (exit 137) in a session with less memory than this. */
     readonly minMemoryMb?: number
+    /** The workspace the build leaves is refused by the inspection, with this message. */
+    readonly refuses?: string
   }
   readonly suite?: {
     readonly exitCode?: number
@@ -41,6 +51,8 @@ export interface FakeScript {
     readonly minTimeoutMs?: number
     /** The suite's raw JSON report; one passing test when absent. */
     readonly report?: string
+    /** After the suite, the inspection refuses the workspace with this message. */
+    readonly refuses?: string
   }
   readonly peakBytes?: number
 }
@@ -75,6 +87,10 @@ export function fakeSessions(script: FakeScript) {
     const session = opened.length
     let workspace: Record<string, string> = { "packages/app/src/index.ts": "v0" }
     let version = 0
+    let broken: Error | undefined
+    const refuse = (message: string | undefined) => {
+      if (message !== undefined) broken = new WorkspaceInspectionError("refused", message)
+    }
     const write = (paths: readonly string[] = []) => {
       for (const path of paths) workspace = { ...workspace, [path]: `v${++version}` }
     }
@@ -87,6 +103,7 @@ export function fakeSessions(script: FakeScript) {
             : (script.build?.ok ?? true)
               ? 0
               : 1
+        refuse(script.build?.refuses)
         return {
           ok: exitCode === 0,
           exitCode,
@@ -109,6 +126,7 @@ export function fakeSessions(script: FakeScript) {
           positional.length === 1 && !argv.includes("--exclude") ? positional[0] : undefined
         if (file === undefined) {
           write(script.suite?.writes)
+          refuse(script.suite?.refuses)
           const killed =
             script.suite?.minMemoryMb !== undefined && limits.memoryMb < script.suite.minMemoryMb
           const timedOut =
@@ -131,6 +149,8 @@ export function fakeSessions(script: FakeScript) {
         const call = (calls.get(file) ?? 0) + 1
         calls.set(file, call)
         write(scripted.writes)
+        refuse(scripted.refuses)
+        if (scripted.snapshotFails !== undefined) broken = new Error(scripted.snapshotFails)
         if (scripted.timedOut)
           return {
             exitCode: 124,
@@ -163,7 +183,10 @@ export function fakeSessions(script: FakeScript) {
           ms: scripted.ms ?? 2_000,
         }
       },
-      snapshot: async () => ({ ...workspace }),
+      snapshot: async () => {
+        if (broken !== undefined) throw broken
+        return { ...workspace }
+      },
       memoryPeakBytes: async () => script.peakBytes ?? 400 * 1024 * 1024,
     }
     return await use(measure)

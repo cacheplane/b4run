@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { parseArgs } from "node:util"
+import { isWorkspaceInspectionError } from "@b4run/workspace"
 import { gradeVitestReport } from "../../verification/checks-runner.js"
 import { commitSha, loadTargetRecipe, type TargetRecipe, TargetSchema } from "../catalog.js"
 import { type EnsuredImage, ImagePrepareError, type ImageRegistry } from "../images.js"
@@ -23,6 +24,7 @@ import {
   hasControl,
   MeasureError,
   type Measurement,
+  outputTail,
   proposeResources,
   type Resources,
   renderFiles,
@@ -103,17 +105,87 @@ async function buildOrThrow(session: MeasureSession, limitsName: string = MEASUR
   return build
 }
 
-/** One file alone in `session`, snapshotted before and after with the verifier's options. */
+/**
+ * The inspection's refusal (`refused`: an executable, binary or non-UTF-8 file, an unexpected
+ * link, a limit exceeded), as one sanitised JSON-quoted line: the verifier's tamper check
+ * inspects with the same options, so it refuses the same workspace on every verification.
+ */
+function refusalOf(error: unknown): string | undefined {
+  if (!isWorkspaceInspectionError(error) || error.code !== "refused") return undefined
+  return JSON.stringify(sanitize(error.message).replace(/\s+/g, " ").trim())
+}
+
+/**
+ * `session`'s workspace as the verifier's tamper check sees it; `where` says when, for a
+ * snapshot that fails. A refusal is returned for the caller to classify; anything else the
+ * inspection throws (an I/O error, a workspace changing while read) stops the measurement.
+ */
+async function snapshotOf(
+  session: MeasureSession,
+  where: string,
+): Promise<{ readonly files: Readonly<Record<string, string>> } | { readonly refusal: string }> {
+  try {
+    return { files: await session.snapshot() }
+  } catch (error) {
+    const refusal = refusalOf(error)
+    if (refusal !== undefined) return { refusal }
+    if (error instanceof MeasureError || (error instanceof Error && error.name === "AbortError"))
+      throw error
+    throw new MeasureError(
+      `The workspace snapshot ${where} failed: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+}
+
+/** The workspace right after a session's build, before any test ran: a refusal is the target's. */
+async function baseline(
+  session: MeasureSession,
+  id: string,
+): Promise<Readonly<Record<string, string>>> {
+  const snapshot = await snapshotOf(session, "after the build")
+  if ("refusal" in snapshot)
+    throw new MeasureError(
+      `the verifier's workspace inspection refuses ${id}'s workspace after its build, before any test ran: ${snapshot.refusal}. Every verification of the target would be refused; fix the target (its build, capture or Dockerfile) before it is measured`,
+    )
+  return snapshot.files
+}
+
+/**
+ * One file alone in `session`, the workspace snapshotted before (`before`, when the caller
+ * has it) and after with the verifier's options. A workspace the inspection refuses after the
+ * run is the file's doing: `writes`, whatever else the run said (plan D11).
+ */
 async function measureFile(
   session: MeasureSession,
   file: string,
   argv: readonly string[],
   options: MeasureSuiteOptions,
+  before?: Readonly<Record<string, string>>,
 ): Promise<FileMeasurement> {
-  const before = await session.snapshot()
+  const start =
+    before ??
+    (await (async () => {
+      const snapshot = await snapshotOf(session, `before ${file}`)
+      if ("refusal" in snapshot)
+        throw new MeasureError(
+          `the verifier's workspace inspection refuses the workspace before ${file} ran, after its session's previous file passed without changing it: ${snapshot.refusal}. Something the previous file left running changed it`,
+        )
+      return snapshot.files
+    })())
   const run = await session.vitest(argv)
-  const after = await session.snapshot()
-  return classifyFile(file, run, changedPaths(before, after), options.existsAtPin)
+  const after = await snapshotOf(session, `after ${file}`)
+  if ("files" in after)
+    return classifyFile(file, run, changedPaths(start, after.files), options.existsAtPin)
+  const alone = classifyFile(file, run, [], options.existsAtPin)
+  return {
+    ...alone,
+    verdict: "writes",
+    reason: [
+      `the verifier's workspace inspection refuses the workspace after it: ${after.refusal}`,
+      ...(alone.verdict === "pass" ? [] : [alone.reason]),
+    ].join("; "),
+    output: outputTail(run.output),
+  }
 }
 
 /**
@@ -142,6 +214,7 @@ function notGradedPass(exitCode: number, report: string): string | undefined {
 
 /** The whole `test` in a fresh session at `limits`: a sample, or a stop with the suite's output. */
 async function sampleSuite(
+  id: string,
   open: OpenSession,
   limits: SessionLimits,
   test: readonly string[],
@@ -152,21 +225,24 @@ async function sampleSuite(
   const started = now()
   const sample = await open(limits, async (session) => {
     const build = await buildOrThrow(session, limitsName)
-    const before = await session.snapshot()
+    const before = await baseline(session, id)
     const suite = await session.vitest(test)
-    const changed = changedPaths(before, await session.snapshot())
+    const after = await snapshotOf(session, "after the suite")
+    const changed = "files" in after ? changedPaths(before, after.files) : []
     const failure = suite.timedOut
       ? `did not finish within ${limits.commandTimeoutMs} ms`
       : suite.exitCode !== 0
         ? `failed (exit ${suite.exitCode})`
-        : changed.length > 0
-          ? `changed the workspace (${changed.slice(0, 10).join(", ")})`
-          : (() => {
-              const why = notGradedPass(suite.exitCode, suite.report)
-              return why === undefined
-                ? undefined
-                : `exited 0, but the verifier would not grade it a pass: ${why};`
-            })()
+        : "refusal" in after
+          ? `left a workspace the verifier's inspection refuses (${after.refusal}), so every verification would be refused,`
+          : changed.length > 0
+            ? `changed the workspace (${changed.slice(0, 10).join(", ")})`
+            : (() => {
+                const why = notGradedPass(suite.exitCode, suite.report)
+                return why === undefined
+                  ? undefined
+                  : `exited 0, but the verifier would not grade it a pass: ${why};`
+              })()
     if (failure !== undefined)
       throw new MeasureError(
         `The suite with the proposed excludes ${failure} ${what}`,
@@ -237,11 +313,19 @@ export async function measureSuite(options: MeasureSuiteOptions): Promise<Measur
   async function measureQueue() {
     await open(limits, async (session) => {
       await buildOrThrow(session)
+      let before: Readonly<Record<string, string>> | undefined = await baseline(session, recipe.id)
       for (let file = pending.shift(); file !== undefined; file = pending.shift()) {
-        const result = await measureFile(session, file, perFileArgv(command, file), options)
+        const result = await measureFile(session, file, perFileArgv(command, file), options, before)
+        before = undefined
         first.push(result)
         log(`${result.verdict.padEnd(6)} ${file} (${result.ms} ms)`)
-        if (result.changed.length > 0 || result.verdict === "hang" || result.verdict === "killed")
+        // `writes` without a change is a workspace the inspection refused after the file.
+        if (
+          result.changed.length > 0 ||
+          result.verdict === "writes" ||
+          result.verdict === "hang" ||
+          result.verdict === "killed"
+        )
           return
       }
     })
@@ -257,7 +341,13 @@ export async function measureSuite(options: MeasureSuiteOptions): Promise<Measur
       }
       const again = await open(limits, async (session) => {
         await buildOrThrow(session)
-        return await measureFile(session, result.file, perFileArgv(command, result.file), options)
+        return await measureFile(
+          session,
+          result.file,
+          perFileArgv(command, result.file),
+          options,
+          await baseline(session, recipe.id),
+        )
       })
       const settled = settleFile(result, again)
       files.push(settled)
@@ -286,6 +376,7 @@ export async function measureSuite(options: MeasureSuiteOptions): Promise<Measur
     const samples: SuiteSample[] = []
     for (let run = 1; run <= options.runs; run++) {
       const sample = await sampleSuite(
+        recipe.id,
         open,
         suiteLimits,
         test,
@@ -300,6 +391,7 @@ export async function measureSuite(options: MeasureSuiteOptions): Promise<Measur
 
     // Phase 4: the proposal, tried. A verification session must also fit twice in the deadline.
     const confirmation = await sampleSuite(
+      recipe.id,
       open,
       {
         memoryMb: resources.memoryMb,
