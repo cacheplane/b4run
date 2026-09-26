@@ -7,6 +7,7 @@ import { inspectWorkspace } from "@b4run/workspace"
 import { captureDirectory } from "../targets/archive.js"
 import type { Task } from "../targets/catalog.js"
 import {
+  TAMPER_INSPECTION_LIMITS,
   targetInspectionOptions,
   targetSandboxPolicy,
   targetWorkspace,
@@ -96,12 +97,10 @@ export async function gradeSuite(input: GradeSuiteInput): Promise<SuiteSession> 
           (
             await inspectWorkspace(handle, {
               signal,
-              // The framework's defaults, restated so a change there is visible here; the
-              // reader's options spread after them so a target that raises the reader's
-              // limits raises these too.
-              maxEntries: 10_000,
-              maxFileBytes: 2 * 1024 * 1024,
-              maxTotalBytes: 16 * 1024 * 1024,
+              // The framework's defaults, restated (shared with target:measure); the reader's
+              // options spread after them so a target that raises the reader's limits raises
+              // these too.
+              ...TAMPER_INSPECTION_LIMITS,
               // The reader's own options, spread whole rather than picked apart: a new one
               // must not be silently dropped here. `ignorePrefixes`
               // rides along and is deliberately NOT honoured by this snapshot: it is

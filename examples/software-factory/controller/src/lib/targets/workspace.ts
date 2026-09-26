@@ -109,6 +109,18 @@ export function targetWorkspace(
 }
 
 /**
+ * The limits of the verifier's tamper snapshot: the framework's own defaults, restated so a
+ * change there is visible here. The verifier (`grade-suite.ts`) and `target:measure`
+ * (`measure/session.ts`) both snapshot with these, so a measurement sees exactly what a
+ * verification's tamper check sees.
+ */
+export const TAMPER_INSPECTION_LIMITS = {
+  maxEntries: 10_000,
+  maxFileBytes: 2 * 1024 * 1024,
+  maxTotalBytes: 16 * 1024 * 1024,
+} as const
+
+/**
  * How a workspace built from {@link targetWorkspace} must be inspected, derived from the
  * target rather than restated by each caller: `baseline: "git"` puts a `.git` directory in the
  * workspace that is not part of the capture, and each environment link is a root symlink

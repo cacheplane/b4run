@@ -8,6 +8,7 @@ import { shellJoin } from "../../verification/checks-runner.js"
 import { captureDirectory } from "../archive.js"
 import type { TargetRecipe } from "../catalog.js"
 import {
+  TAMPER_INSPECTION_LIMITS,
   targetInspectionOptions,
   targetSandboxPolicy,
   targetWorkspace,
@@ -266,9 +267,7 @@ export function dockerSessions(options: {
                   signal,
                   // The verifier's own limits and options (grade-suite.ts), so a measurement
                   // sees exactly what a verification's tamper check sees.
-                  maxEntries: 10_000,
-                  maxFileBytes: 2 * 1024 * 1024,
-                  maxTotalBytes: 16 * 1024 * 1024,
+                  ...TAMPER_INSPECTION_LIMITS,
                   ...inspection,
                 })
               ).files
