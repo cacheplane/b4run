@@ -369,7 +369,13 @@ a fresh container, and a file that then passes is listed as flaky, never exclude
 the suite with those excludes (`--runs`, default 3) in fresh containers, each graded as the
 verifier grades it, proposes resources from cgroup `memory.peak` and the wall clock, never below
 the target's own without `--allow-decrease`, and tries the proposal once at exactly those
-values. `--write` writes `target.json` and `targets/<id>/measurement.md` (each exclude's class,
+values. `memoryMb` is twice the highest `memory.peak` (256 MiB steps, at least 512);
+`commandTimeoutMs` is eight times the slower of build and suite (10 s steps, at least 60 s);
+`verifierDeadlineMs` is the larger of five times the slowest session and twice
+(`commandTimeoutMs` plus the slowest session), in minutes, at least 2: the verifier's visible and
+independent sessions share one deadline, and a candidate that hangs its suite must reach each
+session's command timeout (rejected) before that deadline (inconclusive), so the deadline is
+re-derived after a prior raises the timeout. `--write` writes `target.json` and `targets/<id>/measurement.md` (each exclude's class,
 reason and first error lines, committed with the target); the full evidence is in
 `<FACTORY_STATE_DIR>/measurements/<id>/<pin12>-<utc>/report.md`. When the build fails at the
 Dockerfile's promotion check (a nested dependency pnpm's hoisting left under a package), it

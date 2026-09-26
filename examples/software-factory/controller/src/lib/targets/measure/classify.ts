@@ -282,6 +282,25 @@ export function settleFile(first: FileMeasurement, second: FileMeasurement): Fil
 
 const roundUp = (value: number, step: number) => Math.ceil(value / step) * step
 
+const slowestSession = (samples: readonly SuiteSample[]) =>
+  Math.max(...samples.map((s) => s.sessionMs))
+
+/**
+ * `resources` with a `verifierDeadlineMs` that absorbs the verifier's worst honest case: in
+ * `full` mode it runs two sessions (visible, then independent) under one deadline
+ * (`docker-verifier.ts`), and a candidate that hangs its suite runs one command to its timeout
+ * in each (a hung build ends the session and skips the independent one). The deadline is
+ * therefore at least twice the command timeout plus the slowest session, rounded up to a
+ * minute, so a hung candidate is rejected by its command timeout instead of reaching the whole
+ * verification's deadline, which is `inconclusive`. Never lowered: a wider deadline is kept.
+ */
+export function coveringDeadline(resources: Resources, samples: readonly SuiteSample[]): Resources {
+  const floor = roundUp(2 * (resources.commandTimeoutMs + slowestSession(samples)), 60_000)
+  return resources.verifierDeadlineMs >= floor
+    ? resources
+    : { ...resources, verifierDeadlineMs: floor }
+}
+
 /** Resources from the worst of every whole-suite sample (plan D12). */
 export function proposeResources(samples: readonly SuiteSample[], cpus: number): Resources {
   if (samples.length === 0) throw new Error("There is no suite sample to propose resources from")
@@ -295,13 +314,15 @@ export function proposeResources(samples: readonly SuiteSample[], cpus: number):
       )
   const peakMiB = Math.max(...samples.map((s) => s.memoryPeakBytes)) / MiB
   const slowest = Math.max(...samples.flatMap((s) => [s.buildMs, s.suiteMs]))
-  const session = Math.max(...samples.map((s) => s.sessionMs))
-  return {
-    memoryMb: Math.max(512, roundUp(2 * peakMiB, 256)),
-    cpus,
-    commandTimeoutMs: Math.max(60_000, roundUp(8 * slowest, 10_000)),
-    verifierDeadlineMs: Math.max(120_000, roundUp(2 * 2.5 * session, 60_000)),
-  }
+  return coveringDeadline(
+    {
+      memoryMb: Math.max(512, roundUp(2 * peakMiB, 256)),
+      cpus,
+      commandTimeoutMs: Math.max(60_000, roundUp(8 * slowest, 10_000)),
+      verifierDeadlineMs: Math.max(120_000, roundUp(5 * slowestSession(samples), 60_000)),
+    },
+    samples,
+  )
 }
 
 /**
@@ -323,12 +344,46 @@ export function settleResources(
   }
 }
 
-/** The first lines of `output` that say what went wrong, sanitised, without durations: for measurement.md. */
+/** An error line longer than this is cut: measurement.md is read, not searched. */
+export const ERROR_LINE_LIMIT = 240
+const UUID = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi
+/** Absolute or relative paths: a run of non-space, non-quote characters holding a `/`. */
+const PATH = /[^\s'"`]*\/[^\s'"`]*/g
+/**
+ * An `mkdtemp` suffix: exactly six letters and digits after a `-` or `.`, ending a path segment,
+ * mixing at least two of lower case, upper case and digits (`FlOOPf`, `35z1ce`), so an ordinary
+ * word (`bundle`, `runner`) or a number stays. An all-lower-case draw is left as it is.
+ */
+const TEMP_SUFFIX = /([-.])([A-Za-z0-9]{6})(?=[/:]|$)/g
+const mixed = (text: string) =>
+  [/[a-z]/, /[A-Z]/, /[0-9]/].filter((kind) => kind.test(text)).length >= 2
+
+/** `line` without what differs from run to run: UUIDs and temporary names. */
+function stable(line: string): string {
+  return line
+    .replace(UUID, "UUID")
+    .replace(PATH, (path) =>
+      path.replace(TEMP_SUFFIX, (whole, lead: string, suffix: string) =>
+        mixed(suffix) ? `${lead}XXXXXX` : whole,
+      ),
+    )
+}
+
+/**
+ * The first lines of `output` that say what went wrong, sanitised, without durations, code-frame
+ * lines, temporary names or UUIDs, each cut to {@link ERROR_LINE_LIMIT}: for measurement.md,
+ * which a re-measurement that agrees rewrites byte for byte (plan D2).
+ */
 export function errorLines(output: string, count = 3): string[] {
   const lines = sanitize(output)
     .split("\n")
+    .filter((line) => !/^\s*\d+\|/.test(line))
     .map((line) => line.trim().replace(/\s+\d+(?:\.\d+)?m?s$/, ""))
     .filter((line) => /\b(?:\w*Error|ENOENT|EACCES|ECONNREFUSED|Command timed out)\b/.test(line))
+    .map(stable)
+    .map((line) =>
+      line.length > ERROR_LINE_LIMIT ? `${line.slice(0, ERROR_LINE_LIMIT - 1)}…` : line,
+    )
   return [...new Set(lines)].slice(0, count)
 }
 
@@ -408,10 +463,21 @@ export function renderReport(input: {
     row("commandTimeoutMs"),
     row("verifierDeadlineMs"),
     "",
-    "Measured: memoryMb is twice the highest memory.peak, rounded up to 256 MiB, at least 512 (memory.peak includes page cache, so it errs high); cpus is what the sessions ran with; commandTimeoutMs is eight times the slower of the build and the suite, rounded up to 10 s, at least 60 s; verifierDeadlineMs is two sessions (visible and independent) at 2.5 times the slowest, rounded up to a minute, at least 2 minutes. Proposed: never below before unless --allow-decrease, and confirmed by a whole-suite run at exactly these values.",
+    "Measured: memoryMb is twice the highest memory.peak, rounded up to 256 MiB, at least 512 (memory.peak includes page cache, so it errs high); cpus is what the sessions ran with; commandTimeoutMs is eight times the slower of the build and the suite, rounded up to 10 s, at least 60 s; verifierDeadlineMs is the larger of five times the slowest session and twice (commandTimeoutMs plus the slowest session), each rounded up to a minute, at least 2 minutes: the verifier runs two sessions (visible and independent) under one deadline, and a hung candidate must reach a command's timeout (a rejection) in each before the deadline (inconclusive). Proposed: never below before unless --allow-decrease, the deadline raised again to twice (commandTimeoutMs plus the slowest session) when a prior raised the timeout, and confirmed by a whole-suite run at exactly these values.",
     "",
   ]
   return lines.join("\n")
+}
+
+/**
+ * A record entry's test counts (plan D15: what an exclude hides), from the run the verdict is
+ * the first's: none when vitest wrote no report (a hang or a kill).
+ */
+function counts(f: FileMeasurement): string {
+  if (f.tests === undefined) return ""
+  const total = f.tests.passed + f.tests.failed + f.tests.skipped
+  if (total === 0) return f.verdict === "fail" ? " (failed to load)" : " (no tests)"
+  return ` (${f.tests.failed} of ${total} tests failed)`
 }
 
 /**
@@ -424,13 +490,15 @@ export function renderMeasurementRecord(id: string, files: readonly FileMeasurem
   const excluded = sorted.filter((f) => EXCLUDED.has(f.verdict))
   const flaky = sorted.filter((f) => f.verdict === "flaky")
   const entry = (f: FileMeasurement) => [
-    `- \`${f.file}\`: ${f.verdict}. ${f.reason}`,
+    `- \`${f.file}\`: ${f.verdict}${counts(f)}. ${f.reason}`,
     ...errorLines(f.output).map((line) => `  > ${codeSpan(line)}`),
   ]
   return `${[
     `# Measured excludes: ${id}`,
     "",
     "Written by `target:measure --write` and reviewed with `target.json`. Each file below is excluded from the target's suite, and so from every verification of a task on this target. The measurement's `report.md` holds the full output.",
+    "",
+    `${files.length} files measured, ${files.filter((f) => f.verdict === "pass").length} pass, ${excluded.length} proposed for exclusion, ${flaky.length} flaky.`,
     "",
     ...(excluded.length === 0
       ? [
