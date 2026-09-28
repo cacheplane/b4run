@@ -2,18 +2,26 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Revision 2 (2026-09-28).** This supersedes the first version of this plan (commit `37e1e2f5c`) and adds Brian's decisions on it:
+
+- **Kept as planned:** raw-runnable agent routes lose the run-level retry too; the attempt budget is per layer (documented); an invalid `retry` throws on first use.
+- **Changed, Retry-After:** a capacity 429 whose `retryAfterMs` is longer than the 10s cap is **not** retried. It surfaces at once and keeps its `retryAfterMs`. A headerless capacity 429 still retries with `baseDelay` backoff, and one whose `retryAfterMs` is within the cap waits exactly that.
+- **Changed, other models:** the route's `retry` now reaches the summarization model, and the `b4 memory consolidate`/`reflect` model gets `maxRetries` too (see Decision 1 for what "the route's retry" means there).
+
 **Goal:** Make `agent({ retry: { maxAttempts, baseDelay } })` do what it says, per model call:
 
-1. `maxAttempts` becomes the chat model's `maxRetries` (`maxAttempts - 1`, default 3 → 2) for every built-in provider, so LangChain's own request retry obeys the knob and `maxAttempts: 1` fails fast.
-2. A thin B4 layer in the agent middleware's `wrapModelCall` sends one model call again after a retryable capacity 429 (`RateLimitCapacityError`), with `min(baseDelay * 2^n + jitter, 10s)` or the error's `retryAfterMs` capped at 10s, within `maxAttempts`. This is the only place `baseDelay` applies.
+1. `maxAttempts` becomes the chat model's `maxRetries` (`maxAttempts - 1`, default 3 → 2) for every built-in provider, so LangChain's own request retry obeys the knob and `maxAttempts: 1` fails fast. The route's summarization model gets the same `maxRetries`; the `b4 memory` distillation model gets the default (2).
+2. A thin B4 layer in the agent middleware's `wrapModelCall` sends one model call again after a retryable capacity 429, within `maxAttempts`: with `min(baseDelay * 2^n + jitter, 10s)` when the error has no `retryAfterMs`, after exactly `retryAfterMs` when that is 10s or less, and not at all when it is longer (the error surfaces at once). This is the only place `baseDelay` applies.
 3. The run-level retry in `processEventStream` is removed: a run is never restarted.
 4. Docs, `RetryConfig` JSDoc, the homepage checklist tile and a patch changeset say exactly this.
 
 **Architecture:**
 
-- **One new module, `packages/langchain/src/model-call-retry.ts`.** Pure functions: `resolveModelRetryPolicy` (defaults and validation), `providerMaxRetries`, `isCapacityRateLimitError` (LangChain's stamps, never message text), `capacityRetryDelay`, and `retryCapacityErrors(call, policy, { signal, clock })`. The clock (`sleep`, `random`) is injectable for the unit tests; production uses `systemRetryClock` (an abortable `setTimeout`).
-- **Construction.** `materializeAgent` (`agent-adapter.ts`) resolves the policy once, passes `maxRetries: providerMaxRetries(policy)` to `createChatModel` (new optional `maxRetries` option, set on the constructor options only when given, so the summarization and `b4 memory` models keep LangChain's default), and passes the policy to `createB4AgentMiddleware`.
+- **One new module, `packages/langchain/src/model-call-retry.ts`.** Pure functions: `resolveModelRetryPolicy` (defaults and validation), `providerMaxRetries`, `modelMaxRetries(retry)` (the two composed; exported from `@b4run/langchain` for the CLI), `isCapacityRateLimitError` (LangChain's stamps, never message text), `capacityRetryDelay` (returns `undefined` for "don't retry"), and `retryCapacityErrors(call, policy, { signal, clock })`. The clock (`sleep`, `random`) is injectable for the unit tests; production uses `systemRetryClock` (an abortable `setTimeout`).
+- **Construction.** `materializeAgent` (`agent-adapter.ts`) resolves the policy once, passes `maxRetries: providerMaxRetries(policy)` to `createChatModel` (new optional `maxRetries` option, set on the constructor options only when given), and passes the policy to `createB4AgentMiddleware`.
 - **The capacity layer.** `B4ModelAndTools.wrapModelCall` wraps `handler(next)` in `retryCapacityErrors`, with `request.runtime.signal`. It re-runs only the model call; tools and earlier model calls never re-run. The fast path that returned `handler(request)` untouched now goes through the same wrapper.
+- **The summarizer.** `SummarizeFn`'s arguments gain an optional `maxRetries`. `buildSummarizationHook(cfg, { maxRetries })` forwards it to every `summarize` call, `defaultSummarize` passes it to `createChatModel`, and B4's loop-entry middleware builds the hook with `providerMaxRetries(route policy)`. A custom `summarize` receives it and may ignore it.
+- **`b4 memory consolidate` / `reflect`.** `createDistillModel` (`packages/cli/src/commands/memory.ts`) passes `maxRetries: modelMaxRetries(undefined)`, the default policy (Decision 1).
 - **No run-level retry.** `processEventStream` loses its attempt loop and the `isRetryableError` text match. The `withRetry` fallback for a runnable with no `streamEvents` is unchanged (it never applies to an `agent()` route: a `createAgent` graph always has `streamEvents`).
 
 **Tech Stack:** TypeScript (NodeNext ESM, `exactOptionalPropertyTypes`), `langchain` 1.5.12 `createAgent` middleware, `@langchain/core` 1.2.12 (`AsyncCaller`, `getRetryable` from `@langchain/core/errors`), `@langchain/openai` 1.5.13, Vitest 4 (fake timers for `setTimeout`, `clearTimeout` and `Date`), Biome, Next.js docs site (`apps/web`).
@@ -22,57 +30,63 @@
 
 **Branch:** `blove/retry-streaming-backoff` (origin/main at `980ba8a37` plus the spec commit `63e95ab73`).
 
-**How this plan was checked:** every code block below was written into the worktree on this branch and run before the plan was committed, then removed. New files are reproduced verbatim; changes to existing files are the exact `git diff` of the verified tree against `63e95ab73`, applied with `git apply`. These all passed on Node 24:
+**How this plan was checked:** every code block below was written into the worktree on this branch and run, then removed. New files are reproduced verbatim; changes to existing files are the exact `git diff` of the verified tree against `63e95ab73`, applied with `git apply`. After the gates passed, the tree was reset to `63e95ab73` and rebuilt from this plan's own code blocks, task by task: each "run red" step failed with exactly the output quoted, each "run green" step passed, and the rebuilt tree matched the verified one file for file. These all passed on Node 24:
 
 - `pnpm build`
-- `pnpm --filter @b4run/langchain test`: 48 files, 336 tests
+- `pnpm --filter @b4run/langchain test`: 49 files, 351 tests
 - `pnpm --filter @b4run/sdk test`: 14 files, 115 tests
-- `pnpm --filter @b4run/cli test`: 186 files, 2309 passed, 4 skipped. One run had `vercel-target.test.ts` time out waiting 180s for a testcontainers port while every other suite ran in parallel; alone it passed (133 tests). It never reaches the retry code.
+- `pnpm --filter @b4run/cli test`: 187 files (2 skipped), 2312 passed, 4 skipped. (In the first verification one run had the Docker-backed `vercel-target.test.ts` time out waiting 180s for a testcontainers port while every other suite ran in parallel; alone it passed. It never reaches the retry code.)
 - `pnpm lint`, `pnpm typecheck`
-- `pnpm --dir apps/web test`: 64 files, 979 passed, 1 skipped
-- `node scripts/check-docs.mjs`, `pnpm check:build-cache`, `BASE_REF=HEAD~1 node scripts/check-changesets.mjs`
+- `pnpm --dir apps/web test`: 64 files, 979 passed, 1 skipped (after Task 9)
+- `node scripts/check-docs.mjs`, `pnpm check:build-cache`, `BASE_REF=HEAD~1 node scripts/check-changesets.mjs` (9 user-facing changes, 1 changeset)
 - `pnpm verify:harness:runtime` with `OPENAI_API_KEY` unset: passed (aimock, no network)
-- the lastmod regeneration in Task 7, from a temporary commit of all the content
+- the lastmod regeneration in Task 9, from a temporary commit of all the content
 
-Nine mutation checks each turned tests red (see "Mutation checks" at the end): dropping the `maxRetries` mapping in `materializeAgent`, dropping it in `createChatModel`, dropping the capacity layer, retrying every error instead of capacity 429s, removing the 10s cap, ignoring `retryAfterMs`, not passing the abort signal to the wait, a fixed 1000ms base instead of `baseDelay`, and reintroducing the run-level retry.
+Fourteen mutation checks each turned tests red (see "Mutation checks" at the end).
 
 ## Risks and decisions
 
 Items marked **Decision** need Brian.
 
-1. **Decision: raw runnables lose the run-level retry too.** The spec says non-agent runnables keep their behaviour. The only runnables that reached the run-level retry are agent routes that export their own LangChain runnable instead of `agent()` (the "legacy path" in `streamAgent`): the CLI never passes `AgentOptions.retry`, so they got a hard-coded 3-attempt run restart, text-matched with `isRetryableError`, on top of their own model's LangChain retries. `graph`/`chain`/`workflow` routes never went through `streamFromRunnable`. This plan removes the restart for them as well, because it is the same `processEventStream` and the same double-retry and re-run-tools problem, and their model's own `maxRetries` (LangChain default 6) still applies. The one `withRetry` path left is the invoke fallback for a runnable without `streamEvents`. Alternative: keep an opt-in restart for the legacy path only (a flag on `streamFromRunnable`), which keeps a text-matched retry alive.
-2. **Decision: an invalid `retry` now throws.** `maxAttempts` that isn't a whole number ≥ 1, or a `baseDelay` that isn't a finite number ≥ 0, throws from `resolveModelRetryPolicy` when the route is first materialized (first request), before any model is built. Before, `maxAttempts: 0` ran the stream loop zero times and returned `done` with `undefined` output, and a negative `maxRetries` would make p-retry throw a `TypeError` at call time. B4Config has no runtime schema, so this is the only guard. Alternative: clamp silently.
-3. **Decision: "share the same budget" is per layer.** B4's capacity layer calls the model at most `maxAttempts` times; each of those calls goes through LangChain's `AsyncCaller` with `maxRetries = maxAttempts - 1`. A capacity 429 is thrown by LangChain on the first occurrence without retrying, so a call that keeps hitting capacity limits makes exactly `maxAttempts` requests. A call that alternates 503s and capacity 429s can make more (worst case `maxAttempts²`). A strict shared budget would need a per-call `maxRetries` (`request.modelSettings.maxRetries`, which LangChain's own `modelRetryMiddleware` uses), but only `@langchain/openai` and `@langchain/anthropic` read a per-call `maxRetries`; groq, google, mistral, xai-responses, openrouter and ollama ignore it. The docs say "both read `maxAttempts`", not "share one budget".
-4. **Decision: the 10s cap on `retryAfterMs` means B4 retries before the server said to.** A capacity 429 with a `Retry-After` exists only when the header is over 60s (shorter ones are waited out by LangChain), so the spec's "honoured, still capped" always resolves to 10s in practice: B4 re-sends after 10s when the server asked for 60s+, which will usually 429 again and spend an attempt. Alternatives: don't retry a capacity 429 that carries a `Retry-After` at all, or honour it uncapped (LangChain's `modelRetryMiddleware` treats it as a floor). The plan follows the spec.
-5. **Ollama isn't retried at all.** `ChatOllama` 1.3.0's chat path calls `this.client.chat` directly, not through its `AsyncCaller` (only `embeddings.js` and `llms.js` use the caller). `maxRetries` is accepted and set on `caller.maxRetries` (the test checks it) but has no effect on chat. Before this change it wasn't retried by LangChain either; only B4's run-level restart covered it. The docs' "Limits" section says so.
-6. **Default change, as the spec intends.** A route without `retry` goes from LangChain's 6 request retries plus up to 3 run restarts to 3 attempts per model call. The changeset says so.
-7. **Models B4 builds outside agent routes are unchanged.** The summarization model (`summarization/summarize.ts`) and the `b4 memory` distillation model (`packages/cli/src/commands/memory.ts`) call `createChatModel` without `maxRetries`, so they keep LangChain's default of 6. The spec scopes the change to agent routes; say if the route's `retry` should reach its summarization model too.
-8. **Errors keep the `MiddlewareError` wrapper they already had.** `createAgent` wraps any error thrown out of a `wrapModelCall` in `MiddlewareError` (message and `name` kept, the original on `.cause`). The old middleware already had `wrapModelCall`, so clients see the same shape as before; the tests unwrap `.cause` to compare identity.
+1. **Decision: the `b4 memory` model gets the default policy, not a route's.** `b4 memory consolidate` and `reflect` build **one** chat model per pass (`createModel()` is called once in `runConsolidation`/`runReflection`, `packages/cli/src/lib/memory/distill.ts`) and use it for every namespace the pass selects. There is no route in the command's context, and a namespace names a route only when that route's `memory.ts` declares the `route` scope (`buildMemoryContext` serializes only the declared dimensions, so a `scope: ["user"]` memory is shared by every route that declares it). The distillation model is also chosen separately (`memory.distill.model`, default `gpt-5-mini`), not the route's model. So the plan gives it an agent's default: `modelMaxRetries(undefined)`, 3 attempts per call (`maxRetries: 2`) instead of LangChain's 6. Alternatives if Brian wants it configurable: (a) a `memory.distill.retry: RetryConfig` key in `b4.config.ts` (needs its own shape validation, since `B4Config` has no runtime schema), or (b) per-namespace models keyed by the `route=` dimension, falling back to the default, which changes the engine's one-model-per-pass shape.
+2. **Decision: only `maxRetries` reaches the summarizer and distillation models, not B4's capacity-429 layer.** Their calls aren't model calls in the agent graph, so `wrapModelCall` never sees them. A capacity 429 on the summarizer makes the hook fall back to the full history for that turn (existing behaviour); on distillation it fails that batch, and the next cron pass picks it up. Wrapping `defaultSummarize`'s and the distill engine's `invoke` in `retryCapacityErrors` is small if wanted.
+3. **In practice, B4 retries only headerless capacity 429s.** LangChain 1.2.12 classifies a 429 as `capacity` with a `retryAfterMs` only when the `Retry-After` (or a "try again in …" message) is over 60s (`RETRY_AFTER_AUTO_RETRY_THRESHOLD_MS`); anything up to 60s it waits out itself. Every capacity 429 that carries a `retryAfterMs` is therefore over the 10s cap and now surfaces at once. The "within the cap → wait exactly `retryAfterMs`" branch exists and is tested (with a `retryAfterMs` set on the error directly), but LangChain never produces that shape today; it would matter only if the threshold changes or another layer sets `retryAfterMs`.
+4. **New public export `modelMaxRetries`** from `@b4run/langchain` (listed in `/docs/api/langchain`), used by the CLI. `@b4run/cli` joins the changeset. `SummarizeFn`'s args and `buildSummarizationHook` gain optional parameters (backward compatible).
+5. **Ollama isn't retried at all.** `ChatOllama` 1.3.0's chat path calls `this.client.chat` directly, not through its `AsyncCaller` (only `embeddings.js` and `llms.js` use the caller). `maxRetries` is accepted and set on `caller.maxRetries` (the test checks it) but has no effect on chat. Before this change only B4's run-level restart covered it. The docs' "Limits" section says so.
+6. **Default change, as the spec intends.** A route without `retry` goes from LangChain's 6 request retries plus up to 3 run restarts to 3 attempts per model call; the summarizer and distillation models go from 6 retries to 2. The changeset says so.
+7. **The memory embedder is unchanged.** `openaiEmbedder` builds `OpenAIEmbeddings`, which has its own `maxRetries` (default 6). It isn't a chat model and the spec doesn't cover it.
+8. **Errors keep the `MiddlewareError` wrapper they already had.** `createAgent` wraps any error thrown out of a `wrapModelCall` in `MiddlewareError` (message and `name` kept, the original on `.cause`, so `retryAfterMs` is on `error.cause`). The old middleware already had `wrapModelCall`, so clients see the same shape as before; the tests unwrap `.cause`.
 9. **No harness lane exercises retry.** `test/runtime`, `test/smoke` and `test/generated` contain no 429/5xx model fixtures (checked by grep). `pnpm verify:harness:runtime` passes with `OPENAI_API_KEY` unset (aimock). The framework and smoke lanes build generated apps against a local registry and weren't run; they don't touch retry.
 10. **`agent-adapter-retry.test.ts` is misnamed.** Its `describe` says "per-agent retry config wiring" but it only tests `withRetry`, which is unchanged. Left alone.
 
+Settled by Brian (for the record): raw-runnable agent routes lose the run-level retry; the budget is per layer, so a call that alternates 503s and capacity 429s can make up to `maxAttempts²` requests (a strict shared budget would need a per-call `maxRetries`, which only `@langchain/openai` and `@langchain/anthropic` read); an invalid `retry` (`maxAttempts` not a whole number ≥ 1, `baseDelay` not a finite number ≥ 0) throws from `resolveModelRetryPolicy` when the route is first materialized, before any model is built.
+
 ## Deviations from the spec, and why
 
-- **Raw-runnable agent routes lose the run-level retry** (Decision 1).
-- **`retry` values are validated** (Decision 2).
+- **A long `Retry-After` isn't retried** (Brian's decision), where the spec said "honoured, still capped".
+- **The summarizer and distillation models get `maxRetries`** (Brian's decision); the spec scoped the change to the route's model.
+- **Raw-runnable agent routes lose the run-level retry** (Brian accepted).
+- **`retry` values are validated** (Brian accepted).
 - **`createChatModel` takes `maxRetries` as an option** rather than reading `retry` itself, and sets it only when given. Existing factory tests that assert the exact constructor options stay unchanged; the three `agent-adapter.test.ts` and one `agent-descriptor-integration.test.ts` assertions that build through `agent()` gain `maxRetries: 2`.
 - **Capacity errors are recognised by `getRetryable(error) === true && error.rateLimitType === "capacity"`**, not by `name`. `coerceError` renames an error to `RateLimitCapacityError` only when its `name` is exactly `"Error"`; a provider SDK error with its own `name` keeps it. `getRetryable` reads a `Symbol.for` key, so the two copies of `@langchain/core` 1.2.12 in the lockfile (zod 4.4.3 and 4.6.5 peers) agree.
 - **The homepage "Model retries" tile changes.** Its test pinned the old run-level retry's source text in `agent-adapter.ts`; it now pins the new mapping and middleware, and the tile copy says "Each model call retries a rate limit, a server error or a network error with backoff, and no streamed token is sent twice."
 - **The retry page keeps a `## Backoff` section.** `search-index.test.ts` requires a section whose first 320 characters of prose contain "jitter"; the rewritten page's LangChain-backoff sentence opens that section.
-- **More docs than `retry.mdx` change**, because they repeated the old behaviour: the `retry-flaky-tools` recipe's notes, the `stream-output` recipe's retry bullet, the `RetryConfig` field table in `api/sdk.mdx`, and the `retry` line in `templates/AGENTS.md` (served at `/AGENTS.md`). `agents.mdx` and `testing.mdx` stay true and are unchanged.
-- **lastmod changes four routes, not one**: `/docs/retry`, `/docs/recipes/retry-flaky-tools`, `/docs/recipes/stream-output`, `/docs/api/sdk`. `/` doesn't move (the generator's digest for `/` doesn't include the checklist copy), and `/AGENTS.md` isn't in the manifest.
+- **More docs than `retry.mdx` change**, because they repeated the old behaviour or now need the new one: the `retry-flaky-tools` recipe's notes, the `stream-output` recipe's retry bullet, the `RetryConfig` field table in `api/sdk.mdx`, the `retry` line in `templates/AGENTS.md` (served at `/AGENTS.md`), the `summarize` row in `context-management.mdx`, the model flags in `memory/distillation.mdx`, and `api/langchain.mdx` (the `modelMaxRetries` row and `defaultSummarize`'s arguments). `agents.mdx` and `testing.mdx` stay true and are unchanged.
+- **lastmod changes seven routes**: `/docs/api/langchain`, `/docs/api/sdk`, `/docs/context-management`, `/docs/memory/distillation`, `/docs/recipes/retry-flaky-tools`, `/docs/recipes/stream-output`, `/docs/retry`. `/` doesn't move (the generator's digest for `/` doesn't include the checklist copy), and `/AGENTS.md` isn't in the manifest.
 
 ## Spec assumptions that are wrong in the code
 
 - **"Every LangChain chat model sends each request through `AsyncCaller`" is false for `ChatOllama`** (Risk 5). The other seven do, verified in the installed packages: openai (`completionWithRetry` → `caller.callWithOptions`, SDK `maxRetries: 0`; `ChatOpenAI` delegates to `completions` and `responses` inner models, which inherit `maxRetries`), anthropic (SDK `maxRetries: 0`, `caller.callWithOptions`), google-genai (`caller.callWithOptions`), mistral (a new `AsyncCaller({ maxRetries: this.maxRetries })` per request), groq (SDK `maxRetries: 0`, `caller.call`), xai (`ChatXAI extends ChatOpenAICompletions`), openrouter (`caller.callWithOptions`). All eight constructors accept `maxRetries`.
 - **A quota 429 is `InsufficientQuotaError` for OpenAI**, not `RateLimitQuotaExhaustedError`. `defaultFailedAttemptHandler` names an `insufficient_quota` code `InsufficientQuotaError`; `RateLimitQuotaExhaustedError` is only for a quota detected from the message text. Both carry `rateLimitType: "stop"` and `retryable: false`. Verified with the real `ChatOpenAI` and a fake `fetch`: headerless 429 → `name: "RateLimitCapacityError"`, `rateLimitType: "capacity"`, `rateLimitReason: "headerless_429"`, `retryable: true`, one request; `Retry-After: 120` → same plus `retryAfterMs: 120000`, `rateLimitReason: "retry_after_too_large"`; `insufficient_quota` → `InsufficientQuotaError`, `retryable: false`; 503 with `maxRetries: 1` → two requests.
 - **The capacity error is thrown before any token for streaming calls**: `_streamResponseChunks` awaits `completionWithRetry(...)` for the stream, and tokens are consumed outside it. Confirmed end to end above (one request, error thrown from `model.stream()` before any chunk).
+- **A capacity 429 with a `retryAfterMs` always has one over 60s** (Risk 3), so "`retryAfterMs` honoured, capped" had no in-cap case to honour.
 - **A 429 that LangChain waited on and then ran out of retries surfaces with `rateLimitType: "wait"`**, retryable. With `maxAttempts: 1` (`maxRetries: 0`) a 429 with `Retry-After: 5` is thrown immediately in that shape. B4's layer leaves it alone (only `"capacity"`), consistent with "`maxAttempts: 1` fails fast".
 - **`retryAfterMs` can also come from the message text** (`"try again in 20s"`), not only the header (`parseRetryAfterFromMessageMs`).
 - **LangChain's backoff is p-retry's with `minTimeout` 1000, `factor` 2, `randomize: true`**: each delay is between 1× and 2× of `1000 * 2^n`, raised to the error's `retryAfterMs` when that's larger.
 - **LangChain doesn't retry `400`–`407`, `409` or `413`** (`STATUS_NO_RETRY`); every other status, including `408`, `422` and other 4xx, is retried. The docs say exactly which.
 - **An error escaping B4's `wrapModelCall` reaches the client as a `MiddlewareError`** (Risk 8).
-- **The run-level retry also ran for raw runnables** exported from an agent route, with a hard-coded default of 3 (Decision 1).
+- **The run-level retry also ran for raw runnables** exported from an agent route, with a hard-coded default of 3.
+- **The `b4 memory` commands have no route context** (Decision 1), and B4 builds no other chat models: the only `createChatModel` callers are `materializeAgent`, `defaultSummarize` and `createDistillModel`. (The factory's JSDoc mentions a "memory extractor"; no such construction site exists.)
 - **The homepage checklist test pinned the old implementation's source text** (`retryConfig?.maxAttempts ?? 3`, the `hasYielded` line, `Math.min(1000 * 2 ** attempt`), and the search-index test needs "jitter" in a section's opening prose. The spec didn't list either.
 - **`@langchain/core/utils/async_caller` exports `AsyncCaller`, `classifyRateLimitError` and `parseRetryAfterMs`; `@langchain/core/errors` exports `getRetryable` and `stampRetryable`.** The metadata fields (`rateLimitType`, `rateLimitReason`, `retryAfterMs`) are plain properties with no exported accessor; the plan reads `rateLimitType` and `retryAfterMs` directly.
 - **LangChain ships `modelRetryMiddleware`** (`langchain/dist/agents/middleware/modelRetry.js`). It isn't used: its `sleep` ignores the abort signal, it treats `retryAfterMs` as an uncapped floor, its default `onFailure: "continue"` turns the final error into an `AIMessage`, and it sets `modelSettings.maxRetries: 0`, which only some providers read.
@@ -87,7 +101,8 @@ Items marked **Decision** need Brian.
 - Never `git stash`, never `pkill`, and never kill a process you didn't start. Stage explicit paths only and run `git status --short` before every commit.
 - Examples and docs use `gpt-5-mini`. (The existing `agent-adapter.test.ts` assertions use `gpt-4o-mini`; they're test fixtures and stay.)
 - Every commit message ends with a blank line and `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
-- To apply a diff block: save it to a file in your scratchpad (for example `<scratchpad>/task3-adapter.diff`) and run `git apply <file>` from the repo root. If it doesn't apply, the base has moved; apply the hunks by hand.
+- To apply a diff block: save it to a file in your scratchpad (for example `<scratchpad>/task4-adapter.diff`) and run `git apply <file>` from the repo root. If it doesn't apply, the base has moved; apply the hunks by hand.
+- When mutating a file to check a test binds, back it up first and restore from the backup. `git checkout -- <file>` restores the last **commit**, which throws away uncommitted work.
 
 ---
 
@@ -95,21 +110,26 @@ Items marked **Decision** need Brian.
 
 | File | Responsibility |
 |---|---|
-| Create `packages/langchain/src/model-call-retry.ts` | Policy defaults and validation, `maxRetries` mapping, capacity-429 recognition, backoff, `retryCapacityErrors`. |
+| Create `packages/langchain/src/model-call-retry.ts` | Policy defaults and validation, `maxRetries` mapping, capacity-429 recognition, backoff and the long-`Retry-After` rule, `retryCapacityErrors`. |
 | Create `packages/langchain/test/helpers/langchain-errors.ts` | Errors classified by a real `AsyncCaller`: headerless 429, long `Retry-After` 429, quota 429, 503. |
 | Create `packages/langchain/test/model-call-retry.test.ts` | Unit tests with a recording clock. |
 | Modify `packages/langchain/src/chat-model-factory.ts` | Optional `maxRetries` passed to the provider constructor. |
 | Create `packages/langchain/test/chat-model-factory-max-retries.test.ts` | Each of the eight providers, with a fake class and with the installed package's own request caller. |
+| Modify `packages/langchain/src/summarization/hook.ts`, `packages/langchain/src/summarization/summarize.ts` | `maxRetries` from the hook to `summarize` to the summarizer's model. |
+| Create `packages/langchain/test/summarization-max-retries.test.ts` | The hook forwards it; `defaultSummarize` builds its model with it. |
 | Modify `packages/langchain/src/agent-adapter.ts` | Resolve the policy, pass `maxRetries` and the policy; remove the run-level retry. |
-| Modify `packages/langchain/src/agent-middleware.ts` | `retry` option; `wrapModelCall` runs `retryCapacityErrors`. |
+| Modify `packages/langchain/src/agent-middleware.ts` | `retry` option; `wrapModelCall` runs `retryCapacityErrors`; the summarization hook gets the route's `maxRetries`. |
 | Create `packages/langchain/test/agent-retry-per-model-call.test.ts` | Real `createAgent` graph through `streamAgent` with a streaming fake model and fake timers. |
 | Modify `packages/langchain/test/agent-adapter.test.ts`, `packages/langchain/test/agent-descriptor-integration.test.ts` | Constructor options now include `maxRetries: 2`. |
+| Modify `packages/langchain/src/index.ts`, `apps/web/content/docs/api/langchain.mdx` | Export and document `modelMaxRetries`; `defaultSummarize`'s new argument. |
+| Modify `packages/cli/src/commands/memory.ts` | The distillation model gets `maxRetries: modelMaxRetries(undefined)`. |
+| Create `packages/cli/test/distill-model-retry.test.ts` | `consolidate` and `reflect` build their model with `maxRetries: 2`. |
 | Modify `packages/sdk/src/agent.ts` | `RetryConfig` JSDoc. |
-| Create `.changeset/agent-retry-per-model-call.md` | Patch for `@b4run/langchain` and `@b4run/sdk`. |
+| Create `.changeset/agent-retry-per-model-call.md` | Patch for `@b4run/langchain`, `@b4run/sdk` and `@b4run/cli`. |
 | Modify `apps/web/content/docs/retry.mdx` | Rewritten. |
-| Modify `apps/web/content/docs/recipes/retry-flaky-tools.mdx`, `apps/web/content/docs/recipes/stream-output.mdx`, `apps/web/content/docs/api/sdk.mdx`, `apps/web/content/templates/AGENTS.md` | Lines that repeated the old behaviour. |
+| Modify `apps/web/content/docs/recipes/retry-flaky-tools.mdx`, `recipes/stream-output.mdx`, `api/sdk.mdx`, `context-management.mdx`, `memory/distillation.mdx`, `apps/web/content/templates/AGENTS.md` | Lines that repeated the old behaviour or describe the new. |
 | Modify `apps/web/app/components/homepage/checklist/checklist.ts`, `checklist.test.ts` | Tile copy and its source pins. |
-| Modify `apps/web/app/seo/lastmod.generated.json` | Four routes (Task 7). |
+| Modify `apps/web/app/seo/lastmod.generated.json` | Seven routes (Task 9). |
 
 ---
 
@@ -202,6 +222,7 @@ import {
   capacityRetryDelay,
   isCapacityRateLimitError,
   MAX_RETRY_DELAY_MS,
+  modelMaxRetries,
   providerMaxRetries,
   type RetryClock,
   resolveModelRetryPolicy,
@@ -257,6 +278,19 @@ describe("providerMaxRetries", () => {
   })
 })
 
+describe("modelMaxRetries", () => {
+  test("maps an agent's retry, defaulting to 3 attempts", () => {
+    expect(modelMaxRetries(undefined)).toBe(2)
+    expect(modelMaxRetries({ baseDelay: 10 })).toBe(2)
+    expect(modelMaxRetries({ maxAttempts: 1 })).toBe(0)
+    expect(modelMaxRetries({ maxAttempts: 6 })).toBe(5)
+  })
+
+  test("rejects an invalid retry like the route does", () => {
+    expect(() => modelMaxRetries({ maxAttempts: 0 })).toThrow(/retry\.maxAttempts/)
+  })
+})
+
 describe("isCapacityRateLimitError", () => {
   test("recognises LangChain's capacity 429s by their stamps", async () => {
     const headerless = await headerlessRateLimit()
@@ -297,13 +331,19 @@ describe("capacityRetryDelay", () => {
     expect(capacityRetryDelay(error, 10, 1000, () => 0)).toBe(MAX_RETRY_DELAY_MS)
   })
 
-  test("uses the error's retryAfterMs when present, capped at 10 seconds", async () => {
-    const longWait = await longRetryAfterRateLimit(120)
-    expect((longWait as { retryAfterMs?: number }).retryAfterMs).toBe(120_000)
-    expect(capacityRetryDelay(longWait, 0, 200, () => 0)).toBe(MAX_RETRY_DELAY_MS)
-
+  test("waits exactly the error's retryAfterMs when it is within 10 seconds", async () => {
     const shortWait = Object.assign(await headerlessRateLimit(), { retryAfterMs: 3000 })
     expect(capacityRetryDelay(shortWait, 0, 200, () => 0.9)).toBe(3000)
+    const atCap = Object.assign(await headerlessRateLimit(), { retryAfterMs: MAX_RETRY_DELAY_MS })
+    expect(capacityRetryDelay(atCap, 2, 200, () => 0)).toBe(MAX_RETRY_DELAY_MS)
+  })
+
+  test("does not retry when retryAfterMs is longer than 10 seconds", async () => {
+    const longWait = await longRetryAfterRateLimit(120)
+    expect((longWait as { retryAfterMs?: number }).retryAfterMs).toBe(120_000)
+    expect(capacityRetryDelay(longWait, 0, 200, () => 0)).toBeUndefined()
+    const justOver = Object.assign(await headerlessRateLimit(), { retryAfterMs: 10_001 })
+    expect(capacityRetryDelay(justOver, 0, 200, () => 0)).toBeUndefined()
   })
 })
 
@@ -344,6 +384,42 @@ describe("retryCapacityErrors", () => {
     ).rejects.toBe(capacity)
     expect(calls).toBe(3)
     expect(clock.waits).toEqual([100, 200])
+  })
+
+  test("surfaces a capacity 429 with a Retry-After over the cap at once", async () => {
+    const clock = recordingClock()
+    const longWait = await longRetryAfterRateLimit(120)
+    let calls = 0
+    await expect(
+      retryCapacityErrors(
+        async () => {
+          calls += 1
+          throw longWait
+        },
+        policy,
+        { clock },
+      ),
+    ).rejects.toBe(longWait)
+    expect(calls).toBe(1)
+    expect(clock.waits).toEqual([])
+    expect((longWait as { retryAfterMs?: number }).retryAfterMs).toBe(120_000)
+  })
+
+  test("waits a within-cap retryAfterMs, then sends the call again", async () => {
+    const clock = recordingClock()
+    const shortWait = Object.assign(await headerlessRateLimit(), { retryAfterMs: 4000 })
+    let calls = 0
+    const result = await retryCapacityErrors(
+      async () => {
+        calls += 1
+        if (calls === 1) throw shortWait
+        return "ok"
+      },
+      policy,
+      { clock },
+    )
+    expect(result).toBe("ok")
+    expect(clock.waits).toEqual([4000])
   })
 
   test("maxAttempts 1 sends the call once", async () => {
@@ -453,7 +529,9 @@ Expected: FAIL, `Error: Cannot find module '../src/model-call-retry.ts'`, and `T
  *    classifies as a capacity limit (no `Retry-After`, or one over 60s). That
  *    error is raised when the request is made, before any token, so B4 can
  *    send the same model call again without repeating output
- *    ({@link retryCapacityErrors}).
+ *    ({@link retryCapacityErrors}). A capacity 429 whose `retryAfterMs` is
+ *    longer than B4's 10s cap is surfaced at once instead: retrying sooner
+ *    than the server asked would only spend an attempt on another 429.
  */
 import type { RetryConfig } from "@b4run/sdk"
 import { getRetryable } from "@langchain/core/errors"
@@ -497,6 +575,17 @@ export function providerMaxRetries(policy: ModelRetryPolicy): number {
 }
 
 /**
+ * The `maxRetries` for a chat model B4.run builds from an `agent()`'s
+ * `retry`: `maxAttempts - 1`, with `maxAttempts` defaulting to 3. Throws on an
+ * invalid `retry`, like the route itself. Used for the models B4 builds
+ * besides the route's own: the summarizer, and the `b4 memory` distillation
+ * model (which has no route and passes `undefined`, the default policy).
+ */
+export function modelMaxRetries(retry: RetryConfig | undefined): number {
+  return providerMaxRetries(resolveModelRetryPolicy(retry))
+}
+
+/**
  * A 429 LangChain classified as a capacity limit and stamped retryable.
  * Recognised by LangChain's own stamps, never by message text: the
  * `retryable` mark (`getRetryable`, a `Symbol.for` key, so duplicate copies
@@ -513,23 +602,27 @@ export function isCapacityRateLimitError(error: unknown): boolean {
 }
 
 /**
- * The wait before capacity retry `retryIndex` (0 for the first retry): the
- * error's `retryAfterMs` when LangChain parsed one, else
- * `baseDelay * 2^retryIndex` plus up to 500ms of jitter. Capped at 10s either
- * way, so a long `Retry-After` never holds a run open for minutes.
+ * The wait before capacity retry `retryIndex` (0 for the first retry), or
+ * `undefined` when B4 must not retry at all.
+ *
+ * - The error carries a `retryAfterMs` (LangChain parsed a `Retry-After`
+ *   header, or a "try again in …" message): wait exactly that when it is 10s
+ *   or less; otherwise `undefined`, so the error surfaces right away with its
+ *   `retryAfterMs` for the caller to act on.
+ * - No `retryAfterMs`: `baseDelay * 2^retryIndex` plus up to 500ms of jitter,
+ *   capped at 10s.
  */
 export function capacityRetryDelay(
   error: unknown,
   retryIndex: number,
   baseDelay: number,
   random: () => number,
-): number {
+): number | undefined {
   const retryAfterMs = (error as { retryAfterMs?: unknown }).retryAfterMs
-  const delay =
-    typeof retryAfterMs === "number" && Number.isFinite(retryAfterMs) && retryAfterMs >= 0
-      ? retryAfterMs
-      : baseDelay * 2 ** retryIndex + random() * JITTER_MS
-  return Math.min(delay, MAX_RETRY_DELAY_MS)
+  if (typeof retryAfterMs === "number" && Number.isFinite(retryAfterMs) && retryAfterMs >= 0) {
+    return retryAfterMs <= MAX_RETRY_DELAY_MS ? retryAfterMs : undefined
+  }
+  return Math.min(baseDelay * 2 ** retryIndex + random() * JITTER_MS, MAX_RETRY_DELAY_MS)
 }
 
 /** Time source for the backoff; replaced in tests. */
@@ -564,8 +657,9 @@ export const systemRetryClock: RetryClock = {
 
 /**
  * Run one model call, sending it again after a capacity 429 until it
- * succeeds, fails another way, or has used `maxAttempts` attempts. An abort
- * during the wait rejects with the signal's reason and sends nothing more.
+ * succeeds, fails another way, has used `maxAttempts` attempts, or hits a
+ * capacity 429 whose `retryAfterMs` is over the 10s cap. An abort during the
+ * wait rejects with the signal's reason and sends nothing more.
  */
 export async function retryCapacityErrors<T>(
   call: () => T | Promise<T>,
@@ -579,10 +673,9 @@ export async function retryCapacityErrors<T>(
     } catch (error) {
       if (!isCapacityRateLimitError(error) || attempt >= policy.maxAttempts) throw error
       if (options.signal?.aborted) throw error
-      await clock.sleep(
-        capacityRetryDelay(error, attempt - 1, policy.baseDelay, clock.random),
-        options.signal,
-      )
+      const delay = capacityRetryDelay(error, attempt - 1, policy.baseDelay, clock.random)
+      if (delay === undefined) throw error
+      await clock.sleep(delay, options.signal)
     }
   }
 }
@@ -593,7 +686,7 @@ export async function retryCapacityErrors<T>(
 - [ ] **Step 5: Run them green**
 
 Run: `pnpm --filter @b4run/langchain exec vitest --run --config vitest.config.ts test/model-call-retry.test.ts`
-Expected: PASS, 24 tests.
+Expected: PASS, 29 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -731,7 +824,7 @@ describe("createChatModel maxRetries", () => {
 - [ ] **Step 2: Run them red**
 
 Run: `pnpm --filter @b4run/langchain exec vitest --run --config vitest.config.ts test/chat-model-factory-max-retries.test.ts`
-Expected: FAIL: the 8 "passes maxRetries" cases (`expected undefined to be 0`) and the 8 "installed package" cases (`expected 6 to be 0`). "leaves maxRetries unset" passes.
+Expected: FAIL, 16 of 17: the 8 "passes maxRetries" cases (`expected undefined to be +0`) and the 8 "installed package" cases (`expected 6 to be +0`). "leaves maxRetries unset" passes.
 
 - [ ] **Step 3: Implement**
 
@@ -768,7 +861,7 @@ index 11a674487..cd65cdebf 100644
 - [ ] **Step 4: Run them green**
 
 Run: `pnpm --filter @b4run/langchain exec vitest --run --config vitest.config.ts test/chat-model-factory-max-retries.test.ts test/chat-model-factory.test.ts`
-Expected: PASS. `chat-model-factory.test.ts` is unchanged because nothing passes `maxRetries` there.
+Expected: PASS, 29 tests. `chat-model-factory.test.ts` is unchanged because nothing passes `maxRetries` there.
 
 - [ ] **Step 5: Commit**
 
@@ -782,7 +875,184 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 3: Agent routes retry per model call, and never restart the run
+### Task 3: The summarizer takes `maxRetries`
+
+**Files:**
+- Create: `packages/langchain/test/summarization-max-retries.test.ts`
+- Modify: `packages/langchain/src/summarization/hook.ts`, `packages/langchain/src/summarization/summarize.ts`
+
+- [ ] **Step 1: Write the failing tests**
+
+`@langchain/openai` is mocked, so `defaultSummarize`'s real `createChatModel` path builds a fake that records its constructor options.
+
+`packages/langchain/test/summarization-max-retries.test.ts`:
+
+```ts
+import { AIMessage, HumanMessage } from "@langchain/core/messages"
+import { afterEach, describe, expect, test, vi } from "vitest"
+import { buildSummarizationHook, type SummarizeFn } from "../src/summarization/hook.ts"
+import { defaultSummarize } from "../src/summarization/summarize.ts"
+
+let constructedWith: Record<string, unknown>[] = []
+
+class FakeChatOpenAI {
+  constructor(readonly options: Record<string, unknown>) {
+    constructedWith.push(options)
+  }
+  async invoke(): Promise<{ content: string }> {
+    return { content: "the summary" }
+  }
+}
+
+afterEach(() => {
+  vi.doUnmock("@langchain/openai")
+  constructedWith = []
+})
+
+describe("defaultSummarize maxRetries", () => {
+  test.each([0, 2, 4])("builds the summarizer model with maxRetries %i", async (maxRetries) => {
+    vi.doMock("@langchain/openai", () => ({ ChatOpenAI: FakeChatOpenAI }))
+    const summary = await defaultSummarize({
+      messages: [new HumanMessage("where is order 6?")],
+      model: "gpt-5-mini",
+      signal: new AbortController().signal,
+      maxRetries,
+    })
+    expect(summary).toBe("the summary")
+    expect(constructedWith.at(-1)?.maxRetries).toBe(maxRetries)
+  })
+
+  test("leaves maxRetries to the provider when none is given", async () => {
+    vi.doMock("@langchain/openai", () => ({ ChatOpenAI: FakeChatOpenAI }))
+    await defaultSummarize({
+      messages: [new HumanMessage("where is order 6?")],
+      model: "gpt-5-mini",
+      signal: new AbortController().signal,
+    })
+    expect("maxRetries" in (constructedWith.at(-1) ?? {})).toBe(false)
+  })
+})
+
+describe("buildSummarizationHook maxRetries", () => {
+  const messages = [new HumanMessage("u1"), new AIMessage("a1"), new HumanMessage("u2")]
+  const config = {
+    maxTokens: 1,
+    keepRecentTurns: 1,
+    model: "gpt-5-mini",
+    tokenCounter: (text: string) => text.length,
+  }
+
+  test("hands maxRetries to every summarize call", async () => {
+    const summarize = vi.fn<SummarizeFn>(async () => "S")
+    await buildSummarizationHook({ ...config, summarize }, { maxRetries: 4 })({ messages })
+    expect(summarize.mock.calls[0]?.[0].maxRetries).toBe(4)
+  })
+
+  test("passes no maxRetries when the hook was given none", async () => {
+    const summarize = vi.fn<SummarizeFn>(async () => "S")
+    await buildSummarizationHook({ ...config, summarize })({ messages })
+    expect("maxRetries" in (summarize.mock.calls[0]?.[0] ?? {})).toBe(false)
+  })
+})
+```
+
+- [ ] **Step 2: Run them red**
+
+Run: `pnpm --filter @b4run/langchain exec vitest --run --config vitest.config.ts test/summarization-max-retries.test.ts`
+Expected: FAIL, 4 of 6: the three "builds the summarizer model with maxRetries …" cases (`expected undefined to be +0`, `2`, `4`) and "hands maxRetries to every summarize call" (`expected undefined to be 4`). The two "no maxRetries" cases pass already.
+
+- [ ] **Step 3: Implement**
+
+Apply:
+
+```diff
+diff --git a/packages/langchain/src/summarization/hook.ts b/packages/langchain/src/summarization/hook.ts
+index 62751f2f7..5e93ca692 100644
+--- a/packages/langchain/src/summarization/hook.ts
++++ b/packages/langchain/src/summarization/hook.ts
+@@ -15,6 +15,12 @@ export type SummarizeFn = (args: {
+   readonly model: string
+   readonly previousSummary?: string
+   readonly signal: AbortSignal
++  /**
++   * The route's `retry` as the summarizer model's `maxRetries`
++   * (`maxAttempts - 1`). `defaultSummarize` passes it to the chat model it
++   * builds; a custom summarizer may use or ignore it.
++   */
++  readonly maxRetries?: number
+ }) => Promise<string>
+ 
+ export interface ResolvedSummarizationConfig {
+@@ -35,7 +41,14 @@ export interface PreModelHookResult {
+   runningSummary?: RunningSummary
+ }
+ 
+-export function buildSummarizationHook(cfg: ResolvedSummarizationConfig) {
++/**
++ * `options.maxRetries` is handed to every `summarize` call; see
++ * {@link SummarizeFn}.
++ */
++export function buildSummarizationHook(
++  cfg: ResolvedSummarizationConfig,
++  options: { readonly maxRetries?: number } = {},
++) {
+   return async (
+     state: PreModelHookState,
+     nodeConfig?: { readonly signal?: AbortSignal },
+@@ -57,6 +70,7 @@ export function buildSummarizationHook(cfg: ResolvedSummarizationConfig) {
+           model: cfg.model,
+           ...(prev?.summary ? { previousSummary: prev.summary } : {}),
+           signal: nodeConfig?.signal ?? new AbortController().signal,
++          ...(options.maxRetries !== undefined ? { maxRetries: options.maxRetries } : {}),
+         })
+       } catch (error) {
+         // Summarization failed this turn — fall back to the FULL history.
+diff --git a/packages/langchain/src/summarization/summarize.ts b/packages/langchain/src/summarization/summarize.ts
+index 5e0744fb4..008bf20c6 100644
+--- a/packages/langchain/src/summarization/summarize.ts
++++ b/packages/langchain/src/summarization/summarize.ts
+@@ -31,6 +31,8 @@ export async function defaultSummarize(args: {
+   readonly model: string
+   readonly previousSummary?: string
+   readonly signal: AbortSignal
++  /** The chat model's `maxRetries`; the route's `retry.maxAttempts - 1`. */
++  readonly maxRetries?: number
+   /** Test seam: override the model invocation. */
+   readonly invokeModel?: (prompt: string) => Promise<string>
+ }): Promise<string> {
+@@ -38,7 +40,11 @@ export async function defaultSummarize(args: {
+   if (args.invokeModel) return args.invokeModel(prompt)
+ 
+   const provider = resolveProvider({ model: args.model })
+-  const llm = (await createChatModel({ model: args.model, provider })) as {
++  const llm = (await createChatModel({
++    model: args.model,
++    provider,
++    ...(args.maxRetries !== undefined ? { maxRetries: args.maxRetries } : {}),
++  })) as {
+     invoke: (input: unknown, options?: unknown) => Promise<{ content: unknown }>
+   }
+   const res = await llm.invoke([{ role: "user", content: prompt }], { signal: args.signal })
+```
+
+- [ ] **Step 4: Run them green**
+
+Run: `pnpm --filter @b4run/langchain exec vitest --run --config vitest.config.ts test/summarization-max-retries.test.ts test/summarization-hook.test.ts test/summarization-summarize.test.ts`
+Expected: PASS, 13 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git status --short
+git add packages/langchain/src/summarization/hook.ts packages/langchain/src/summarization/summarize.ts packages/langchain/test/summarization-max-retries.test.ts
+git commit -m "feat(langchain): the summarizer's model takes maxRetries
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 4: Agent routes retry per model call, and never restart the run
 
 **Files:**
 - Create: `packages/langchain/test/agent-retry-per-model-call.test.ts`
@@ -791,7 +1061,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Write the failing integration tests**
 
-A real `createAgent` graph, through `streamAgent`. `@langchain/openai` is mocked with a streaming fake that plays one script step per model call and records the fake-clock time of each call; the capacity backoff then shows up as the gap between calls. Timers are faked for `setTimeout`, `clearTimeout` and `Date` only, and `settle` keeps advancing time until the turn resolves, because LangGraph's error path arms timers of its own. `Math.random` is pinned to 0, so the jitter is 0.
+A real `createAgent` graph, through `streamAgent`. `@langchain/openai` is mocked with a streaming fake that plays one script step per model call and records the fake-clock time of each call; the capacity backoff then shows up as the gap between calls. Timers are faked for `setTimeout`, `clearTimeout` and `Date` only, and `settle` keeps advancing time until the turn resolves, because LangGraph's error path arms timers of its own. `Math.random` is pinned to 0, so the jitter is 0. The summarizer cases turn summarization on with a one-token threshold and a spy `summarize`, and read the `maxRetries` it was handed.
 
 `packages/langchain/test/agent-retry-per-model-call.test.ts`:
 
@@ -818,6 +1088,7 @@ import {
   materializeAgentGraph,
   streamAgent,
 } from "../src/agent-adapter.ts"
+import type { ResolvedSummarizationConfig, SummarizeFn } from "../src/summarization/index.ts"
 import {
   headerlessRateLimit,
   longRetryAfterRateLimit,
@@ -907,6 +1178,8 @@ interface TurnResult {
 function startTurn(options: {
   readonly retry?: { maxAttempts?: number; baseDelay?: number }
   readonly signal?: AbortSignal
+  readonly summarization?: ResolvedSummarizationConfig
+  readonly userMessages?: readonly string[]
 }): Promise<TurnResult> {
   const chunks: AgentStreamChunk[] = []
   return (async () => {
@@ -918,11 +1191,17 @@ function startTurn(options: {
           systemPrompt: "Answer order questions.",
           ...(options.retry ? { retry: options.retry } : {}),
         }),
-        input: { messages: [{ role: "user", content: "where is order 7?" }] },
+        input: {
+          messages: (options.userMessages ?? ["where is order 7?"]).map((content) => ({
+            role: "user",
+            content,
+          })),
+        },
         routeParamNames: [],
         signal: options.signal ?? new AbortController().signal,
         threadId: `retry-${Math.random()}`,
         tools: [lookup],
+        ...(options.summarization ? { summarization: options.summarization } : {}),
       })) {
         chunks.push(chunk)
       }
@@ -1013,6 +1292,33 @@ describe("maxAttempts reaches the chat model as maxRetries", () => {
   })
 })
 
+describe("the route's retry reaches the summarizer", () => {
+  test.each([
+    [undefined, 2],
+    [{ maxAttempts: 1 }, 0],
+    [{ maxAttempts: 5 }, 4],
+  ])("retry %j → summarize gets maxRetries %i", async (retry, maxRetries) => {
+    const summarize = vi.fn<SummarizeFn>(async () => "earlier: asked about order 6")
+    script = [{ kind: "text", tokens: ["Order 7 has shipped."] }]
+    const { error } = await settle(
+      startTurn({
+        ...(retry ? { retry } : {}),
+        userMessages: ["where is order 6?", "where is order 7?"],
+        summarization: {
+          maxTokens: 1,
+          keepRecentTurns: 1,
+          model: "gpt-5-mini",
+          tokenCounter: (text) => text.length,
+          summarize,
+        },
+      }),
+    )
+    expect(error).toBeUndefined()
+    expect(summarize).toHaveBeenCalledTimes(1)
+    expect(summarize.mock.calls[0]?.[0].maxRetries).toBe(maxRetries)
+  })
+})
+
 describe("the capacity-429 layer", () => {
   test("retries a capacity 429 on the second model call of a tool loop with baseDelay backoff", async () => {
     script = [
@@ -1055,15 +1361,30 @@ describe("the capacity-429 layer", () => {
     expect(modelCalls).toBe(1)
   })
 
-  test("honours retryAfterMs, capped at 10 seconds", async () => {
+  test("a Retry-After longer than 10 seconds is surfaced at once, not retried", async () => {
+    const longWait = await longRetryAfterRateLimit(120)
     script = [
-      { kind: "fail", error: await longRetryAfterRateLimit(120) },
+      { kind: "fail", error: longWait },
+      { kind: "text", tokens: ["never"] },
+    ]
+    const { chunks, error } = await settle(startTurn({ retry: { maxAttempts: 3, baseDelay: 50 } }))
+    // Exactly one request, and the error keeps the server's wait.
+    expect(modelCalls).toBe(1)
+    expect(modelError(error)).toBe(longWait)
+    expect((modelError(error) as { retryAfterMs?: number }).retryAfterMs).toBe(120_000)
+    expect(tokens(chunks)).toEqual([])
+  })
+
+  test("a retryAfterMs within 10 seconds is waited out, then the call is sent again", async () => {
+    const shortWait = Object.assign(await headerlessRateLimit(), { retryAfterMs: 3000 })
+    script = [
+      { kind: "fail", error: shortWait },
       { kind: "text", tokens: ["done"] },
     ]
     const { chunks, error } = await settle(startTurn({ retry: { maxAttempts: 2, baseDelay: 50 } }))
     expect(error).toBeUndefined()
-    // Not the 50ms baseDelay, and not the 120s the header asked for.
-    expect(gapsBetweenCalls()).toEqual([10_000])
+    // The server's 3000ms, not the 50ms baseDelay.
+    expect(gapsBetweenCalls()).toEqual([3000])
     expect(tokens(chunks)).toEqual(["done"])
   })
 
@@ -1166,12 +1487,14 @@ describe("no run-level retry", () => {
 - [ ] **Step 2: Run them red**
 
 Run: `pnpm --filter @b4run/langchain exec vitest --run --config vitest.config.ts test/agent-retry-per-model-call.test.ts`
-Expected: FAIL, 9 of 12:
+Expected: FAIL, 13 of 16:
 
 - the three `retry … → maxRetries …` cases: `expected undefined to be 2` (then `+0`, `4`);
 - "an invalid maxAttempts…": `promise resolved "ReactAgent{ … }" instead of rejecting`;
+- the three `retry … → summarize gets maxRetries …` cases: `expected undefined to be 2` (then `+0`, `4`);
 - "retries a capacity 429 on the second model call…": the error surfaces (`expected RateLimitCapacityError … to be undefined`);
-- "gives up after maxAttempts…" and "honours retryAfterMs…": `expected [ 1000 ] to deeply equal [ 50 ]` / `[ 10000 ]`. The old run-level retry restarted the whole run after its fixed 1000ms, because the message contains "rate limit";
+- "gives up after maxAttempts…" and "a retryAfterMs within 10 seconds…": `expected [ 1000 ] to deeply equal [ 50 ]` / `[ 3000 ]`. The old run-level retry restarted the whole run after its fixed 1000ms, because the message contains "rate limit";
+- "a Retry-After longer than 10 seconds…": `expected 2 to be 1` (the old run-level retry restarted the run);
 - "a failure before anything streamed does not restart the run": `expected undefined to be Error: 503 Service Unavailable` (the restarted run succeeded);
 - "a raw runnable's stream is opened once…": `expected 3 to be 1`.
 
@@ -1183,22 +1506,23 @@ Apply:
 
 ```diff
 diff --git a/packages/langchain/src/agent-middleware.ts b/packages/langchain/src/agent-middleware.ts
-index f56239d10..18a0dcd3b 100644
+index f56239d10..615462941 100644
 --- a/packages/langchain/src/agent-middleware.ts
 +++ b/packages/langchain/src/agent-middleware.ts
-@@ -8,6 +8,11 @@ import {
+@@ -8,6 +8,12 @@ import {
  import { isGraphInterrupt } from "@langchain/langgraph"
  import { type AgentMiddleware, createMiddleware } from "langchain"
  import { z } from "zod"
 +import {
 +  type ModelRetryPolicy,
++  providerMaxRetries,
 +  resolveModelRetryPolicy,
 +  retryCapacityErrors,
 +} from "./model-call-retry.js"
  import {
    buildSummarizationHook,
    type ResolvedSummarizationConfig,
-@@ -33,6 +38,8 @@ export interface B4AgentMiddlewareOptions {
+@@ -33,6 +39,8 @@ export interface B4AgentMiddlewareOptions {
    readonly summarization?: ResolvedSummarizationConfig
    /** Tools that end the run on a successful result. */
    readonly returnDirectToolNames: ReadonlySet<string>
@@ -1207,7 +1531,7 @@ index f56239d10..18a0dcd3b 100644
  }
  
  /**
-@@ -62,6 +69,7 @@ function modelAndToolMiddleware(options: B4AgentMiddlewareOptions): AgentMiddlew
+@@ -62,6 +70,7 @@ function modelAndToolMiddleware(options: B4AgentMiddlewareOptions): AgentMiddlew
    const readable: Record<string, z.ZodTypeAny> = { [LLM_INPUT_MESSAGES]: z.any().optional() }
    for (const name of options.stateFieldNames) readable[name] = z.any().optional()
    const composesPrompt = options.promptFragments.length > 0
@@ -1215,7 +1539,7 @@ index f56239d10..18a0dcd3b 100644
  
    return createMiddleware({
      name: "B4ModelAndTools",
-@@ -70,7 +78,6 @@ function modelAndToolMiddleware(options: B4AgentMiddlewareOptions): AgentMiddlew
+@@ -70,7 +79,6 @@ function modelAndToolMiddleware(options: B4AgentMiddlewareOptions): AgentMiddlew
        const state = request.state as Record<string, unknown>
        const view = state[LLM_INPUT_MESSAGES]
        const messages = Array.isArray(view) ? (view as BaseMessage[]) : request.messages
@@ -1223,7 +1547,7 @@ index f56239d10..18a0dcd3b 100644
        const systemMessage = composesPrompt
          ? new SystemMessage(
              await composeSystemPrompt(options.systemPrompt, options.promptFragments, {
-@@ -79,7 +86,17 @@ function modelAndToolMiddleware(options: B4AgentMiddlewareOptions): AgentMiddlew
+@@ -79,7 +87,17 @@ function modelAndToolMiddleware(options: B4AgentMiddlewareOptions): AgentMiddlew
              }),
            )
          : request.systemMessage
@@ -1242,6 +1566,20 @@ index f56239d10..18a0dcd3b 100644
      },
      wrapToolCall: async (request, handler) => {
        try {
+@@ -119,7 +137,12 @@ export function toolErrorMessage(
+ function loopEntryMiddleware(options: B4AgentMiddlewareOptions): AgentMiddleware | undefined {
+   const { returnDirectToolNames, summarization } = options
+   if (returnDirectToolNames.size === 0 && !summarization) return undefined
+-  const summarize = summarization ? buildSummarizationHook(summarization) : undefined
++  // The summarizer's model gets the route's `retry` too, as its `maxRetries`.
++  const summarize = summarization
++    ? buildSummarizationHook(summarization, {
++        maxRetries: providerMaxRetries(options.retry ?? resolveModelRetryPolicy(undefined)),
++      })
++    : undefined
+ 
+   return createMiddleware({
+     name: "B4LoopEntry",
 ```
 
 - [ ] **Step 4: Resolve the policy in `materializeAgent`, and remove the run-level retry**
@@ -1510,7 +1848,7 @@ The whole `processEventStream` after the change, for reference (the diff above p
 - [ ] **Step 5: Run the new tests green**
 
 Run: `pnpm --filter @b4run/langchain exec vitest --run --config vitest.config.ts test/agent-retry-per-model-call.test.ts`
-Expected: PASS, 12 tests. Run it three times; it's deterministic (fake clock, pinned jitter).
+Expected: PASS, 16 tests. Run it three times; it's deterministic (fake clock, pinned jitter).
 
 - [ ] **Step 6: Run the package suite and fix the four constructor-options assertions**
 
@@ -1565,7 +1903,7 @@ index a1efe315a..0639ebef6 100644
 ```
 
 Run: `pnpm --filter @b4run/langchain test`
-Expected: PASS, 48 files, 336 tests.
+Expected: PASS, 49 files, 351 tests.
 
 - [ ] **Step 7: Lint and typecheck the package**
 
@@ -1582,8 +1920,9 @@ git status --short
 git add packages/langchain/src/agent-adapter.ts packages/langchain/src/agent-middleware.ts packages/langchain/test/agent-retry-per-model-call.test.ts packages/langchain/test/agent-adapter.test.ts packages/langchain/test/agent-descriptor-integration.test.ts
 git commit -m "fix(langchain): agent retry applies per model call, never to the whole run
 
-maxAttempts becomes the chat model's maxRetries; B4's middleware sends a
-model call again after a capacity 429 with baseDelay backoff; the
+maxAttempts becomes the chat model's maxRetries, and the summarizer's;
+B4's middleware sends a model call again after a capacity 429 with
+baseDelay backoff, and surfaces one whose Retry-After is over 10s; the
 run-level restart in processEventStream is gone.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -1591,7 +1930,214 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 4: `RetryConfig` JSDoc and the changeset
+### Task 5: `modelMaxRetries` for the `b4 memory` model
+
+**Files:**
+- Create: `packages/cli/test/distill-model-retry.test.ts`
+- Modify: `packages/langchain/src/index.ts`, `apps/web/content/docs/api/langchain.mdx`, `packages/cli/src/commands/memory.ts`
+
+- [ ] **Step 1: Write the failing test**
+
+The CLI's vitest config aliases `@b4run/langchain` to its `src` (no build needed between tasks), so the command's real `createChatModel` path runs, and `@langchain/openai` is mocked. The seeded episodes and the config's low thresholds give each command one batch; the scratch app lives under `packages/cli/.tmp-distill-retry-apps`, like the other CLI memory tests' scratch apps, and is removed after each test.
+
+`packages/cli/test/distill-model-retry.test.ts`:
+
+```ts
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { dirname, join, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
+
+import { type MemoryRecord, sqliteMemoryStore } from "@b4run/memory"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+import { runMemoryCommand } from "../src/commands/memory.js"
+
+/**
+ * `b4 memory consolidate` / `reflect` build their chat model with an agent's
+ * default retry (3 attempts per call → `maxRetries: 2`), not LangChain's 6:
+ * a distillation pass has no single route whose `retry` could apply.
+ * `@langchain/openai` is mocked, so no network and no API key.
+ */
+
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
+const scratchRoot = resolve(repoRoot, "packages", "cli", ".tmp-distill-retry-apps")
+
+let constructedWith: Record<string, unknown>[] = []
+
+class FakeChatOpenAI {
+  constructor(options: Record<string, unknown>) {
+    constructedWith.push(options)
+  }
+  async invoke(prompt: unknown): Promise<{ content: string }> {
+    return String(JSON.stringify(prompt)).includes("deriving durable insights")
+      ? { content: '{"insights":[]}' }
+      : { content: '{"summary":"five billing deploys"}' }
+  }
+}
+
+const cleanup: Array<() => Promise<void> | void> = []
+
+afterEach(async () => {
+  for (const fn of cleanup.splice(0).reverse()) await fn()
+  vi.doUnmock("@langchain/openai")
+  constructedWith = []
+})
+
+async function makeApp(): Promise<string> {
+  await mkdir(scratchRoot, { recursive: true })
+  const root = await mkdtemp(join(scratchRoot, "app-"))
+  cleanup.push(() => rm(root, { force: true, recursive: true }))
+  await writeFile(join(root, "package.json"), '{ "name": "distill-retry-app", "type": "module" }\n')
+  await writeFile(
+    join(root, "b4.config.ts"),
+    [
+      "export default {",
+      "  memory: {",
+      "    distill: {",
+      "      consolidate: { olderThanMs: 0, minBatchSize: 2, maxBatchSize: 50 },",
+      "      reflect: { minNewRecords: 2, maxRecords: 100 },",
+      "    },",
+      "  },",
+      "}",
+      "",
+    ].join("\n"),
+  )
+  const store = sqliteMemoryStore({ path: join(root, ".b4/memory.sqlite") })
+  for (const day of [6, 7, 8]) {
+    const at = `2026-07-0${day}T09:00:00.000Z`
+    const record: MemoryRecord = {
+      id: `e${day}`,
+      kind: "episodic",
+      namespace: "ws=app|route=/chat",
+      content: `run e${day}: deployed the billing service`,
+      data: {},
+      source: { type: "run", id: `e${day}` },
+      confidence: 1,
+      tags: [],
+      status: "active",
+      createdAt: at,
+      updatedAt: at,
+      effectiveAt: at,
+    }
+    await store.put(record)
+  }
+  return root
+}
+
+describe("distillation model retry", () => {
+  it.each(["consolidate", "reflect"])(
+    "%s builds its model with maxRetries 2",
+    async (command) => {
+      vi.doMock("@langchain/openai", () => ({ ChatOpenAI: FakeChatOpenAI }))
+      const appRoot = await makeApp()
+      const err: string[] = []
+      await runMemoryCommand(
+        [command],
+        { cwd: appRoot },
+        { stdout: () => {}, stderr: (m) => err.push(m) },
+      )
+      expect(err.join("")).toBe("")
+      expect(constructedWith).toHaveLength(1)
+      expect(constructedWith[0]?.maxRetries).toBe(2)
+    },
+    60_000,
+  )
+})
+```
+
+- [ ] **Step 2: Run it red**
+
+Run: `pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/distill-model-retry.test.ts`
+Expected: FAIL, 2 of 2, `expected undefined to be 2`.
+
+- [ ] **Step 3: Export `modelMaxRetries`, document it, and use it**
+
+Apply:
+
+```diff
+diff --git a/packages/langchain/src/index.ts b/packages/langchain/src/index.ts
+index cc8427998..33dadb506 100644
+--- a/packages/langchain/src/index.ts
++++ b/packages/langchain/src/index.ts
+@@ -22,6 +22,7 @@ export {
+   supportsJsonSchemaResponseFormat,
+   unsupportedResponseFormatMessage,
+ } from "./chat-model-factory.js"
++export { modelMaxRetries } from "./model-call-retry.js"
+ export { inferProvider, resolveProvider } from "./model-provider-resolver.js"
+ export type { OffloadStoreOptions } from "./offload/offload-store.js"
+ export { buildOffloadFileName, OffloadStore } from "./offload/offload-store.js"
+diff --git a/apps/web/content/docs/api/langchain.mdx b/apps/web/content/docs/api/langchain.mdx
+index 774eafeac..995164c71 100644
+--- a/apps/web/content/docs/api/langchain.mdx
++++ b/apps/web/content/docs/api/langchain.mdx
+@@ -56,6 +56,7 @@ The runtime root is edge-safe for B4.run's emitted Hono/workerd target. The evid
+ | `seedModelImporter` | Install the process-global fallback provider importer. |
+ | `inferProvider` | Re-export SDK provider inference. |
+ | `resolveProvider` | Resolve an explicit provider or infer one from a model ID. |
++| `modelMaxRetries` | Map an agent's `retry` to a chat model's `maxRetries` (`maxAttempts - 1`, default 2). |
+ | `RetryOptions` | Configure retry attempts, backoff, cap, and cancellation. |
+ | `isRetryableError` | Classify known transient error messages. |
+ | `withRetry` | Retry transient async failures with jittered exponential backoff. |
+@@ -224,7 +225,7 @@ type BuildStubArgs = {
+ }
+ ```
+ 
+-The larger inline `AgentOptions` shape used by `executeAgent` and `streamAgent` requires `checkpointer`, `entry`, `input`, `routeParamNames`, `signal`, and `tools`. It also accepts middleware, retry, state, prompt, offload, summarization, subagent, thread, sandbox, and cache-bypass controls. The subagent converter accepts a private `{ name, description?, schema? }` placeholder, and the tool converter accepts the same basic tool definition plus a `run` callback. `defaultSummarize` accepts messages, model, optional previous summary, and signal.
++The larger inline `AgentOptions` shape used by `executeAgent` and `streamAgent` requires `checkpointer`, `entry`, `input`, `routeParamNames`, `signal`, and `tools`. It also accepts middleware, retry, state, prompt, offload, summarization, subagent, thread, sandbox, and cache-bypass controls. The subagent converter accepts a private `{ name, description?, schema? }` placeholder, and the tool converter accepts the same basic tool definition plus a `run` callback. `defaultSummarize` accepts messages, model, optional previous summary, signal, and optional `maxRetries` for the model it builds.
+ 
+ Materialized graphs are cached by descriptor plus checkpointer. Sandbox-bound tools, subagents, stream transformers, and explicit bypass requests skip reuse. A checkpointer is mandatory at runtime. `threadId` is also required for an interrupted run to resume. Generated edge assembly must seed its static provider importer before model construction.
+ 
+diff --git a/packages/cli/src/commands/memory.ts b/packages/cli/src/commands/memory.ts
+index becb06888..de186f078 100644
+--- a/packages/cli/src/commands/memory.ts
++++ b/packages/cli/src/commands/memory.ts
+@@ -355,11 +355,21 @@ function selectProvider(
+  * exactly `ModelLike`'s shape (the engine normalizes string vs content-part
+  * array content). Imported lazily so `b4 memory list` never pays for the
+  * LangChain barrel.
++ *
++ * Retry: one model serves a whole pass, across every namespace it selects, and
++ * a namespace names a route only when that route's memory declares the
++ * `route` scope, so there is no single route whose `agent({ retry })` could
++ * apply. The model gets an agent's default instead: 3 attempts per call
++ * (`maxRetries: 2`), rather than LangChain's 6.
+  */
+ async function createDistillModel(config: ResolvedDistillConfig): Promise<ModelLike> {
+-  const { createChatModel, resolveProvider } = await import("@b4run/langchain")
++  const { createChatModel, modelMaxRetries, resolveProvider } = await import("@b4run/langchain")
+   const provider = resolveProvider({ model: config.model, provider: config.provider })
+-  const model = await createChatModel({ model: config.model, provider })
++  const model = await createChatModel({
++    model: config.model,
++    provider,
++    maxRetries: modelMaxRetries(undefined),
++  })
+   return model as ModelLike
+ }
+ 
+```
+
+The docs row goes in with the export: the API-reference tests fail on an exported name the page doesn't list.
+
+- [ ] **Step 4: Run it green**
+
+Run: `pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/distill-model-retry.test.ts test/memory-command.test.ts test/distill-aimock.test.ts`
+Expected: PASS, 33 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git status --short
+git add packages/langchain/src/index.ts apps/web/content/docs/api/langchain.mdx packages/cli/src/commands/memory.ts packages/cli/test/distill-model-retry.test.ts
+git commit -m "feat(cli): b4 memory distillation model gets maxRetries 2
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 6: `RetryConfig` JSDoc and the changeset
 
 **Files:**
 - Modify: `packages/sdk/src/agent.ts`
@@ -1603,10 +2149,10 @@ Apply:
 
 ```diff
 diff --git a/packages/sdk/src/agent.ts b/packages/sdk/src/agent.ts
-index 40be33798..5c93711f4 100644
+index 40be33798..e9f6686db 100644
 --- a/packages/sdk/src/agent.ts
 +++ b/packages/sdk/src/agent.ts
-@@ -5,8 +5,25 @@ const B4_AGENT: unique symbol = Symbol.for("b4.agent") as unknown as typeof B4_A
+@@ -5,8 +5,27 @@ const B4_AGENT: unique symbol = Symbol.for("b4.agent") as unknown as typeof B4_A
  
  declare const brand: unique symbol
  
@@ -1621,20 +2167,22 @@ index 40be33798..5c93711f4 100644
 +   * call once. Becomes the chat model's `maxRetries` (`maxAttempts - 1`),
 +   * which covers server errors, network errors and rate limits with a short
 +   * `Retry-After`, and also caps B4.run's retries of a capacity rate limit.
++   * The route's summarization model gets the same `maxRetries`.
 +   */
    readonly maxAttempts?: number
 +  /**
 +   * Milliseconds before the first retry of a capacity rate limit (a 429 with
-+   * no `Retry-After`, or one over 60 seconds); doubles each retry, plus up to
-+   * 500ms of jitter, capped at 10 seconds. Default `1000`. LangChain's own
-+   * backoff for other errors is fixed and doesn't read it.
++   * no `Retry-After`); doubles each retry, plus up to 500ms of jitter, capped
++   * at 10 seconds. Default `1000`. A 429 whose `Retry-After` is over 10
++   * seconds isn't retried. LangChain's own backoff for other errors is fixed
++   * and doesn't read it.
 +   */
    readonly baseDelay?: number
  }
  
 ```
 
-The `api-contract` block for `RetryConfig` in `apps/web/content/docs/api/sdk.mdx` compares declarations without comments, so it still matches (checked by `pnpm --dir apps/web test` and `node scripts/check-docs.mjs` in Task 6).
+The `api-contract` block for `RetryConfig` in `apps/web/content/docs/api/sdk.mdx` compares declarations without comments, so it still matches (checked by `pnpm --dir apps/web test` and `node scripts/check-docs.mjs` in Task 8).
 
 - [ ] **Step 2: Write the changeset**
 
@@ -1644,11 +2192,14 @@ The `api-contract` block for `RetryConfig` in `apps/web/content/docs/api/sdk.mdx
 ---
 "@b4run/langchain": patch
 "@b4run/sdk": patch
+"@b4run/cli": patch
 ---
 
 `agent({ retry })` now applies to each model call instead of the whole run. `maxAttempts` (default 3) becomes the chat model's `maxRetries` (`maxAttempts - 1`), so LangChain retries each model request, including later calls in a tool loop, up to that many times; `maxAttempts: 1` now fails fast. Before, LangChain's default of 6 retries applied whatever `retry` said, and B4.run restarted the whole run on top of it when nothing had streamed yet.
 
-B4.run also sends a model call again after a capacity rate limit that LangChain hands back without retrying (a `429` with no `Retry-After`, or one over 60 seconds), waiting `min(baseDelay * 2^n + jitter, 10s)`, or the `Retry-After` capped at 10 seconds. This is the only place `baseDelay` applies; it was previously never read on an agent route. A quota `429` isn't retried, an abort during the wait stops it, and a response that fails after part of it streamed isn't retried, so no token is sent twice. The run itself is never restarted, so tools never run twice.
+B4.run also sends a model call again after a capacity rate limit that LangChain hands back without retrying (a `429` with no `Retry-After`), waiting `min(baseDelay * 2^n + jitter, 10s)`. A `429` whose `Retry-After` is over 10 seconds isn't retried: the error surfaces at once, keeping the wait in `retryAfterMs`. This is the only place `baseDelay` applies; it was previously never read on an agent route. A quota `429` isn't retried, an abort during the wait stops it, and a response that fails after part of it streamed isn't retried, so no token is sent twice. The run itself is never restarted, so tools never run twice.
+
+The route's summarization model gets the same `maxRetries` (`defaultSummarize` and a custom `summarize` receive it as `maxRetries`), and the `b4 memory consolidate` / `reflect` model gets the default of 3 attempts per call instead of LangChain's 6. `modelMaxRetries(retry)` is exported for other code that builds a chat model from an agent's `retry`.
 
 An invalid `retry` (a `maxAttempts` below 1 or not a whole number, a negative `baseDelay`) now fails the route when it first runs. A route that exports its own LangChain runnable keeps its model's own `maxRetries`, and is no longer restarted on a failure either.
 ```
@@ -1670,11 +2221,11 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 5: The docs and the homepage tile
+### Task 7: The docs and the homepage tile
 
 **Files:**
 - Modify: `apps/web/content/docs/retry.mdx`
-- Modify: `apps/web/content/docs/recipes/retry-flaky-tools.mdx`, `apps/web/content/docs/recipes/stream-output.mdx`, `apps/web/content/docs/api/sdk.mdx`, `apps/web/content/templates/AGENTS.md`
+- Modify: `apps/web/content/docs/recipes/retry-flaky-tools.mdx`, `apps/web/content/docs/recipes/stream-output.mdx`, `apps/web/content/docs/api/sdk.mdx`, `apps/web/content/docs/context-management.mdx`, `apps/web/content/docs/memory/distillation.mdx`, `apps/web/content/templates/AGENTS.md`
 - Modify: `apps/web/app/components/homepage/checklist/checklist.ts`, `apps/web/app/components/homepage/checklist/checklist.test.ts`
 
 - [ ] **Step 1: Update the checklist test first (red)**
@@ -1732,7 +2283,7 @@ index 7198772d0..d476be821 100644
 ```
 
 Run: `pnpm --dir apps/web exec vitest --run app/components/homepage/checklist/checklist.test.ts`
-Expected: FAIL only "retries each model call, never the whole run", on `expected '…before anything has streamed…' to contain 'Each model call'`. (The source pins already pass after Task 3.)
+Expected: FAIL only "retries each model call, never the whole run", on `expected 'A model call that fails with a rate l…' to contain 'Each model call'`. (The source pins already pass after Task 4.)
 
 - [ ] **Step 2: Change the tile copy (green)**
 
@@ -1793,11 +2344,12 @@ Two layers retry a model call, and both read `maxAttempts`.
 - **Server and network errors:** `5xx` responses, dropped connections and timeouts.
 - **Rate limits with a short wait:** a `429` whose `Retry-After` is 60 seconds or less.
 
-**B4.run retries a capacity rate limit.** LangChain hands back, without retrying, a `429` with no `Retry-After` or with one over 60 seconds, and marks it retryable. B4.run sends that model call again, up to `maxAttempts` attempts of the call in all.
+**B4.run retries a capacity rate limit.** LangChain hands back, without retrying, a `429` with no `Retry-After` or with one over 60 seconds, and marks it retryable. B4.run sends that model call again, up to `maxAttempts` attempts of the call in all, unless the `Retry-After` is longer than 10 seconds.
 
 **These fail right away:**
 
 - A quota `429` (for example OpenAI's `insufficient_quota`). Waiting doesn't bring a quota back.
+- A `429` whose `Retry-After` is longer than 10 seconds. B4.run won't send the call sooner than the provider asked, or hold the run open that long, so the error comes back at once. It keeps the wait in `retryAfterMs` (milliseconds), so your client can retry the run once it's over.
 - An invalid API key, a model that doesn't exist, or a malformed request. LangChain doesn't retry `400` to `407`, `409` or `413`.
 - An aborted run.
 
@@ -1814,7 +2366,7 @@ delay = min(baseDelay * 2^n + jitter, 10s)
 jitter = random(0, 500ms)
 ```
 
-When the `429` carries a `Retry-After`, B4.run waits that long instead, but never more than 10 seconds.
+When the error carries a `Retry-After` of 10 seconds or less, B4.run waits exactly that long instead. Over 10 seconds, it doesn't retry (see above). LangChain itself waits out any `Retry-After` up to 60 seconds, so in practice the `429`s B4.run retries are the ones with no `Retry-After`.
 
 With the defaults (3 attempts, 1s base), a model call that keeps hitting capacity limits is sent three times:
 
@@ -1860,6 +2412,11 @@ export default agent({
 })
 ```
 
+## Other models B4.run builds
+
+- **Summarization.** When [summarization](/docs/context-management#conversation-summarization) is on, the model that writes the summary gets the route's `maxAttempts` as its `maxRetries` too. A custom `summarize` function receives it as `maxRetries`. B4.run's own capacity rate-limit retry covers only the route's model calls, not the summarizer; a failed summary falls back to the full history for that turn.
+- **Memory distillation.** `b4 memory consolidate` and `b4 memory reflect` run outside any route, over every namespace they select, so no route's `retry` applies. Their model gets the default: 3 attempts per call.
+
 ## Limits
 
 - **Your own model instance keeps its own settings.** `retry` applies to the chat model B4.run builds from `agent()`. A route that exports a LangChain runnable you built, with a model you constructed yourself, uses that model's `maxRetries` (LangChain's default is 6), and B4.run doesn't retry it.
@@ -1876,13 +2433,13 @@ export default agent({
 ]} />
 ````
 
-Every claim is checked against code: the defaults and validation (`resolveModelRetryPolicy`), the `maxRetries` mapping (`providerMaxRetries`), what LangChain retries and doesn't (`defaultFailedAttemptHandler`, `STATUS_NO_RETRY`, `RETRY_AFTER_AUTO_RETRY_THRESHOLD_MS = 60000` in `@langchain/core/dist/utils/async_caller.js`), LangChain's backoff (p-retry `minTimeout` 1000, `factor` 2, `randomize`), B4's formula and cap (`capacityRetryDelay`), streaming (the capacity error precedes the first token; no run restart), the abort (`systemRetryClock.sleep`), subagents (materialized from their own descriptor), and Ollama (Risk 5).
+Every claim is checked against code: the defaults and validation (`resolveModelRetryPolicy`), the `maxRetries` mapping (`providerMaxRetries`), what LangChain retries and doesn't (`defaultFailedAttemptHandler`, `STATUS_NO_RETRY`, `RETRY_AFTER_AUTO_RETRY_THRESHOLD_MS = 60000` in `@langchain/core/dist/utils/async_caller.js`), LangChain's backoff (p-retry `minTimeout` 1000, `factor` 2, `randomize`), B4's formula, cap and long-`Retry-After` rule (`capacityRetryDelay`), streaming (the capacity error precedes the first token; no run restart), the abort (`systemRetryClock.sleep`), subagents (materialized from their own descriptor), the summarizer and distillation models (Tasks 3–5), and Ollama (Risk 5). The `#other-models-b4run-builds` anchor is what `memory/distillation.mdx` links to.
 
-- [ ] **Step 4: The recipe, the stream-output bullet, the SDK field table and the AGENTS.md template**
+- [ ] **Step 4: The other pages**
 
 ```diff
 diff --git a/apps/web/content/docs/recipes/retry-flaky-tools.mdx b/apps/web/content/docs/recipes/retry-flaky-tools.mdx
-index acbbe8cc8..a706bcd37 100644
+index acbbe8cc8..229571f70 100644
 --- a/apps/web/content/docs/recipes/retry-flaky-tools.mdx
 +++ b/apps/web/content/docs/recipes/retry-flaky-tools.mdx
 @@ -51,16 +51,17 @@ export default agent({
@@ -1893,7 +2450,7 @@ index acbbe8cc8..a706bcd37 100644
 -- **Backoff is exponential with jitter, capped at 10s.** For non-stream fallback, `delay = min(baseDelay * 2^n + jitter, 10s)`. A lower `baseDelay` makes the first retry faster.
 +- **Each model call retries on its own.** `maxAttempts` is the attempts per model call, not per run. A failure in a later model call of the tool loop sends only that call again; tools that already ran don't run again.
 +- **Only temporary failures retry.** Server errors (`5xx`), network errors, timeouts and rate limits are retried. A quota `429`, an invalid API key, a missing model and a malformed request fail immediately.
-+- **`baseDelay` paces capacity rate limits.** A `429` with no `Retry-After`, or one over 60 seconds, waits `min(baseDelay * 2^n + jitter, 10s)` before the next attempt. LangChain paces the other retries with its own backoff, starting around 1 second.
++- **`baseDelay` paces capacity rate limits.** A `429` with no `Retry-After` waits `min(baseDelay * 2^n + jitter, 10s)` before the next attempt. A `429` whose `Retry-After` is over 10 seconds isn't retried: the error comes back at once with the wait in `retryAfterMs`. LangChain paces the other retries with its own backoff, starting around 1 second.
  - **`maxAttempts: 1` disables retry.** If you omit `retry`, the default is `3`.
 -- **Streaming routes only retry before the first event.** Once an event has streamed, the response is committed.
 +- **A response that fails partway isn't retried.** Retries happen before the model's response starts, so no token is ever sent twice. Once part of a response has streamed, an error comes through the stream.
@@ -1935,6 +2492,32 @@ index 02420ff82..bc6f790af 100644
  
  ```ts api-contract="@b4run/sdk#.:isB4Agent"
  export declare function isB4Agent(value: unknown): value is B4Agent
+diff --git a/apps/web/content/docs/context-management.mdx b/apps/web/content/docs/context-management.mdx
+index b68fca06f..38c9b0b42 100644
+--- a/apps/web/content/docs/context-management.mdx
++++ b/apps/web/content/docs/context-management.mdx
+@@ -86,7 +86,7 @@ export default {
+ | `keepRecentTurns` | `number` | `6` | Recent turns (each starting at a `HumanMessage`) that are never summarized. |
+ | `model` | `string` | Route's model | Model that writes the summary. |
+ | `tokenCounter` | `(text: string) => number \| Promise<number>` | `gpt-tokenizer` (o200k_base), loaded on demand | Your own token counter. |
+-| `summarize` | `(args) => Promise<string>` | One model call | Your own summarizer. Receives `messages`, `model`, `previousSummary`, and `signal`. |
++| `summarize` | `(args) => Promise<string>` | One model call | Your own summarizer. Receives `messages`, `model`, `previousSummary`, `signal`, and `maxRetries` (the route's [`retry.maxAttempts`](/docs/retry) minus one). |
+ 
+ Use `tokenCounter` to plug in a different tokenizer. `summarize` replaces the whole summary step, for example to use a cheaper model, compress in a way that suits your domain, or call a different provider.
+ 
+diff --git a/apps/web/content/docs/memory/distillation.mdx b/apps/web/content/docs/memory/distillation.mdx
+index 94d8d54ec..97d78b33b 100644
+--- a/apps/web/content/docs/memory/distillation.mdx
++++ b/apps/web/content/docs/memory/distillation.mdx
+@@ -20,7 +20,7 @@ b4 memory reflect --dry-run --namespace 'workspace=my-app|route=/support' --max-
+ 
+ - `--dry-run` selects and reports work, but constructs no model, makes no model calls, and writes nothing.
+ - `--namespace <prefix>` narrows the pass to matching namespaces.
+-- `--model <id>` and `--provider <id>` override model selection.
++- `--model <id>` and `--provider <id>` override model selection. The model gets 3 attempts per call, an agent's [default retry](/docs/retry#other-models-b4run-builds); no route's `retry` applies to a pass.
+ - `--max-batches <n>` caps batches for consolidation and namespaces for reflection.
+ - `--cwd <path>` selects another app root, as in other B4.run commands.
+ 
 diff --git a/apps/web/content/templates/AGENTS.md b/apps/web/content/templates/AGENTS.md
 index d8a30040c..7d2e78f7c 100644
 --- a/apps/web/content/templates/AGENTS.md
@@ -1955,16 +2538,16 @@ index d8a30040c..7d2e78f7c 100644
 Run: `pnpm --dir apps/web exec vitest --run app/components/docs app/components/homepage/checklist app/llms-full.txt`
 Expected: PASS. `search-index.test.ts` "finds body-text matches for jitter" needs "jitter" in the opening prose of the `## Backoff` section; if you reword that section, keep it in the first 320 characters.
 
-Run: `node scripts/check-docs.mjs`
+Run: `pnpm build && node scripts/check-docs.mjs`
 Expected: `Docs completeness check passed.` Don't run it while another package's tests are running: it reads `packages/cli/.tmp-eval-apps/*`, which the CLI tests create and delete (it failed with `ENOENT … .tmp-eval-apps/app-…/.b4/b4.generated.d.ts` once for that reason).
 
-`seo/generate-lastmod.test.ts` is expected to be red until Task 7.
+`seo/generate-lastmod.test.ts` is expected to be red until Task 9.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git status --short
-git add apps/web/content/docs/retry.mdx apps/web/content/docs/recipes/retry-flaky-tools.mdx apps/web/content/docs/recipes/stream-output.mdx apps/web/content/docs/api/sdk.mdx apps/web/content/templates/AGENTS.md apps/web/app/components/homepage/checklist/checklist.ts apps/web/app/components/homepage/checklist/checklist.test.ts
+git add apps/web/content/docs/retry.mdx apps/web/content/docs/recipes/retry-flaky-tools.mdx apps/web/content/docs/recipes/stream-output.mdx apps/web/content/docs/api/sdk.mdx apps/web/content/docs/context-management.mdx apps/web/content/docs/memory/distillation.mdx apps/web/content/templates/AGENTS.md apps/web/app/components/homepage/checklist/checklist.ts apps/web/app/components/homepage/checklist/checklist.test.ts
 git commit -m "docs(web): retry is per model call, with the two layers and their backoff
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -1972,7 +2555,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 6: Gates
+### Task 8: Gates
 
 **Files:** none new.
 
@@ -1983,7 +2566,7 @@ Expected: exit 0.
 
 - [ ] **Step 2: Package tests**
 
-Run each; don't pipe them:
+Run each, one at a time; don't pipe them:
 
 ```bash
 pnpm --filter @b4run/langchain test
@@ -1991,7 +2574,7 @@ pnpm --filter @b4run/sdk test
 pnpm --filter @b4run/cli test
 ```
 
-Expected: langchain 48 files / 336 tests; sdk 14 files / 115 tests; cli 186 files, 2309 passed, 4 skipped. The CLI suite runs the Docker-backed `vercel-target.test.ts`; if it times out waiting for a testcontainers port under load, rerun that file alone (`pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/vercel-target.test.ts`, 133 tests) before suspecting this change.
+Expected: langchain 49 files / 351 tests; sdk 14 files / 115 tests; cli 187 files (2 skipped), 2312 passed, 4 skipped. The CLI suite runs the Docker-backed `vercel-target.test.ts`; if it times out waiting for a testcontainers port under load, rerun that file alone (`pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/vercel-target.test.ts`, 133 tests) before suspecting this change.
 
 - [ ] **Step 3: Workspace lint and typecheck**
 
@@ -2012,7 +2595,7 @@ Expected: `Changesets check passed (… user-facing change(s), 1 changeset(s) ad
 - [ ] **Step 5: The web suite**
 
 Run: `pnpm --dir apps/web test`
-Expected: everything passes except the two lastmod cases in `app/seo/generate-lastmod.test.ts` ("covers every route the site renders…" and "exempts blog listings…"), which Task 7 fixes.
+Expected: everything passes except the two lastmod cases in `app/seo/generate-lastmod.test.ts` ("covers every route the site renders…" and "exempts blog listings…"), which Task 9 fixes.
 
 - [ ] **Step 6: The runtime harness lane**
 
@@ -2026,7 +2609,7 @@ If `pnpm lint` reported formatting in files this plan touched, fix with the scop
 ```bash
 git status --short
 git add <only the files Biome changed>
-git commit -m "style(langchain): format
+git commit -m "style: format
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -2035,21 +2618,21 @@ Skip this if nothing changed.
 
 ---
 
-### Task 7: Regenerate lastmod for the four changed routes
+### Task 9: Regenerate lastmod for the seven changed routes
 
 **Files:**
 - Modify: `apps/web/app/seo/lastmod.generated.json`
 
 - [ ] **Step 1: Regenerate**
 
-All content is committed (Task 5), so each changed route is dated by its newest commit.
+All content is committed (Tasks 5 and 7), so each changed route is dated by its newest commit.
 
 ```bash
 pnpm --dir apps/web seo:lastmod
 git diff --stat apps/web/app/seo/lastmod.generated.json
 ```
 
-Expected: `1 file changed, 12 insertions(+), 12 deletions(-)`: `lastModified`, `sourceDigest` and `recordDigest` for exactly `/docs/api/sdk`, `/docs/recipes/retry-flaky-tools`, `/docs/recipes/stream-output` and `/docs/retry`. List the changed routes to be sure:
+Expected: `1 file changed, 21 insertions(+), 21 deletions(-)`: `lastModified`, `sourceDigest` and `recordDigest` for exactly seven routes. List them to be sure:
 
 ```bash
 git show HEAD:apps/web/app/seo/lastmod.generated.json > <scratchpad>/lastmod-head.json
@@ -2064,13 +2647,16 @@ for (const k of new Set([...Object.keys(a), ...Object.keys(b)]))
 Expected output, exactly:
 
 ```
+/docs/api/langchain
 /docs/api/sdk
+/docs/context-management
+/docs/memory/distillation
 /docs/recipes/retry-flaky-tools
 /docs/recipes/stream-output
 /docs/retry
 ```
 
-If other routes appear, main's manifest was already stale for them: keep only these four by splicing them into `<scratchpad>/lastmod-head.json` and writing that back (as `2026-09-25-homepage-files-tour-pr3.md` Task 8 Step 7 does for `/`). If the manifest conflicts on a rebase, it's marked `-merge`; regenerate on top rather than hand-editing.
+If other routes appear, main's manifest was already stale for them: keep only these seven by splicing them into `<scratchpad>/lastmod-head.json` and writing that back (as `2026-09-25-homepage-files-tour-pr3.md` Task 8 Step 7 does for `/`). If the manifest conflicts on a rebase, it's marked `-merge`; regenerate on top rather than hand-editing.
 
 - [ ] **Step 2: Check**
 
@@ -2094,43 +2680,54 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ## Mutation checks
 
-Run from `packages/langchain` after Task 3, one mutation at a time, restoring the file between runs (`git checkout -- <file>`). The test command:
+Run after Task 5, one mutation at a time. Copy the file aside first and restore it from the copy afterwards (not `git checkout`, which would drop uncommitted work). For `packages/langchain` mutations, from `packages/langchain`:
 
 ```bash
-pnpm exec vitest --run --config vitest.config.ts test/agent-retry-per-model-call.test.ts test/model-call-retry.test.ts test/chat-model-factory-max-retries.test.ts test/agent-adapter.test.ts
+pnpm exec vitest --run --config vitest.config.ts test/agent-retry-per-model-call.test.ts test/model-call-retry.test.ts test/chat-model-factory-max-retries.test.ts test/agent-adapter.test.ts test/summarization-max-retries.test.ts
 ```
+
+For the CLI mutation, from `packages/cli`: `pnpm exec vitest --run --config vitest.config.ts test/distill-model-retry.test.ts`.
 
 | Mutation | Tests that go red (verified) |
 |---|---|
-| Delete `maxRetries: providerMaxRetries(retry),` in `materializeAgent` | the three `retry … → maxRetries …` cases, and the three `agent-adapter.test.ts` constructor-options cases |
-| Delete the `if (options.maxRetries !== undefined) …` line in `createChatModel` | 22: the above plus all 16 factory cases |
-| In `wrapModelCall`, `return handler(next)` instead of `retryCapacityErrors(...)` | the four capacity-layer integration cases (tool loop, gives up, `retryAfterMs`, abort) |
-| In `retryCapacityErrors`, drop `!isCapacityRateLimitError(error) \|\|` (retry everything) | quota 429 not retried; mid-stream failure (token emitted twice); failure before streaming; the three unit "does not retry" cases |
-| `capacityRetryDelay` returns `delay` uncapped | `retryAfterMs` integration case; two unit cases |
-| Ignore `retryAfterMs` (always use the backoff) | `retryAfterMs` integration case; one unit case |
-| Pass `undefined` instead of `options.signal` to `clock.sleep` | the abort integration case (a zombie retry makes a second model call after the run ended) and the unit abort case |
-| `1000 * 2 ** retryIndex` instead of `baseDelay * 2 ** retryIndex` | tool-loop gaps `[0, 200, 400]`, gives-up gap `[50]`, three unit cases |
-| Put back a run-level restart around `processEventStream` (3 attempts, `isRetryableError`, only before the first chunk) | failure before streaming (`expected 2 to be 1`); raw runnable opened once; gives-up (an extra run) |
+| Delete `maxRetries: providerMaxRetries(retry),` in `materializeAgent` | 6: the three `retry … → maxRetries …` cases and the three `agent-adapter.test.ts` constructor-options cases |
+| Delete the `if (options.maxRetries !== undefined) …` line in `createChatModel` | 25: the above, all 16 factory cases, and the three `defaultSummarize` cases |
+| In `wrapModelCall`, `return handler(next)` before `retryCapacityErrors(...)` | 4: tool loop, gives up, within-cap `retryAfterMs`, abort |
+| In `retryCapacityErrors`, drop `!isCapacityRateLimitError(error) \|\|` (retry everything) | 6: quota 429 not retried; mid-stream failure (token emitted twice); failure before streaming; the three unit "does not retry" cases |
+| In `capacityRetryDelay`, `Math.min(retryAfterMs, MAX_RETRY_DELAY_MS)` instead of `undefined` over the cap (the first plan's behaviour) | 3: the long-`Retry-After` integration case and two unit cases |
+| Remove the 10s cap on the `baseDelay` backoff | 1: "caps the backoff at 10 seconds" |
+| Ignore `retryAfterMs` (always use the backoff) | 6: both `Retry-After` integration cases and four unit cases |
+| Pass `undefined` instead of `options.signal` to `clock.sleep` | 2: the abort integration case (a zombie retry makes a second model call after the run ended) and the unit abort case |
+| `1000 * 2 ** retryIndex` instead of `baseDelay * 2 ** retryIndex` | 5: tool-loop gaps `[0, 200, 400]`, gives-up gap `[50]`, three unit cases |
+| Put back a run-level restart around `processEventStream` (3 attempts, `isRetryableError`, only before the first chunk) | 4: failure before streaming (`expected 2 to be 1`); raw runnable opened once; gives-up and long-`Retry-After` (an extra run) |
+| In `loopEntryMiddleware`, `buildSummarizationHook(summarization)` without the route's `maxRetries` | 3: the three "summarize gets maxRetries" cases |
+| In the hook, drop the `maxRetries` spread into `summarize` | 4: the three "summarize gets maxRetries" cases and "hands maxRetries to every summarize call" |
+| In `defaultSummarize`, drop the `maxRetries` spread into `createChatModel` | 3: the three "builds the summarizer model with maxRetries" cases |
+| In `createDistillModel`, drop `maxRetries: modelMaxRetries(undefined),` | 2: `consolidate` and `reflect` |
 
 ## Spec coverage checklist
 
-| Spec requirement | Where |
+| Requirement (spec, or Brian's decisions on the first plan) | Where |
 |---|---|
-| `maxAttempts` → the chat model's `maxRetries` (`maxAttempts - 1`, default 3 → 2) | Task 1 (`providerMaxRetries`), Task 2 (`createChatModel`), Task 3 (`materializeAgent`) |
-| Test: `maxRetries` reaches the constructed model for each built-in provider, incl. `maxAttempts: 1` → 0 | Task 2 (all eight, fake class and the installed package's `AsyncCaller`); Task 3 (`retry %j → maxRetries %i`, through `agent()`) |
-| An author-built model instance keeps its own `maxRetries` | `agent()` only accepts a model id; the only author-built models are raw runnables, which `createChatModel` never touches (Decision 1); docs "Limits" |
-| Thin B4 layer in `wrapModelCall` for a retryable `RateLimitCapacityError`, `baseDelay` backoff or `retryAfterMs`, capped at 10s, same `maxAttempts` | Task 1 (`retryCapacityErrors`, `capacityRetryDelay`), Task 3 (middleware); budget semantics: Decision 3 |
-| Test: capacity 429 on the second model call of a tool loop retried with `baseDelay` backoff; run completes | Task 3 "retries a capacity 429 on the second model call of a tool loop…" (gaps `[0, 200, 400]`, tool ran once) |
-| Test: a quota 429 isn't retried | Task 1 unit, Task 3 integration |
-| Test: `retryAfterMs` honoured and capped | Task 1 (`3000` honoured, `120000` → `10000`), Task 3 (gap `[10000]`) |
-| Test: a mid-stream failure after tokens isn't retried and no token is emitted twice | Task 3 "a failure after tokens streamed…" |
-| Test: the run-level retry is gone (no restart after or before streaming) | Task 3 "a failure before anything streamed…", "a raw runnable's stream is opened once…", plus the mid-stream case |
-| Test: abort during a backoff wait stops the retry | Task 1 unit; Task 3 integration (no timers left, one model call) |
-| Fake models throwing LangChain-shaped errors; fake clock; no network or keys | `helpers/langchain-errors.ts` (real `AsyncCaller`), `ScriptedStreamingModel`, fake timers, `vi.stubEnv` dummy keys |
-| No message-string matching where stamps exist; `isRetryableError` stays exported | `isCapacityRateLimitError` uses `getRetryable` + `rateLimitType`; `retry.ts` and `index.ts` unchanged |
-| Remove run-level retry for agent routes | Task 3 (`processEventStream`) |
-| `exactOptionalPropertyTypes` | conditional spreads in the middleware and `createChatModel`; `pnpm typecheck` |
-| Docs: what's retried and where, per call, no repeated tokens, mid-stream limit, `baseDelay`, quota, own model instance | Task 5 (`retry.mdx` and the four other pages) |
-| `RetryConfig` JSDoc matches | Task 4 |
-| Patch changeset | Task 4 |
-| Regenerate lastmod | Task 7 (four routes) |
+| `maxAttempts` → the chat model's `maxRetries` (`maxAttempts - 1`, default 3 → 2) | Task 1 (`providerMaxRetries`), Task 2 (`createChatModel`), Task 4 (`materializeAgent`) |
+| Test: `maxRetries` reaches the constructed model for each built-in provider, incl. `maxAttempts: 1` → 0 | Task 2 (all eight, fake class and the installed package's `AsyncCaller`); Task 4 (`retry %j → maxRetries %i`, through `agent()`) |
+| The route's `retry` reaches the summarization model | Task 3 (hook and `defaultSummarize`), Task 4 (loop-entry middleware; "summarize gets maxRetries" through `agent()`) |
+| The `b4 memory` models get `maxRetries`; no route context → default, flagged | Task 5; Decision 1 |
+| An author-built model instance keeps its own `maxRetries` | `agent()` only accepts a model id; the only author-built models are raw runnables, which `createChatModel` never touches; docs "Limits" |
+| Thin B4 layer in `wrapModelCall` for a retryable capacity 429, `baseDelay` backoff, same `maxAttempts` | Task 1 (`retryCapacityErrors`, `capacityRetryDelay`), Task 4 (middleware) |
+| A capacity 429 with `retryAfterMs` over the cap isn't retried; one request; error surfaced with `retryAfterMs` | Task 1 unit ("surfaces … at once", "does not retry when retryAfterMs is longer"), Task 4 ("a Retry-After longer than 10 seconds is surfaced at once") |
+| Within-cap `retryAfterMs` is waited | Task 1 ("waits exactly …", "waits a within-cap retryAfterMs …"), Task 4 (gap `[3000]`) |
+| Test: capacity 429 on the second model call of a tool loop retried with `baseDelay` backoff; run completes | Task 4 (gaps `[0, 200, 400]`, tool ran once) |
+| Test: a quota 429 isn't retried | Task 1 unit, Task 4 integration |
+| Test: a mid-stream failure after tokens isn't retried and no token is emitted twice | Task 4 "a failure after tokens streamed…" |
+| Test: the run-level retry is gone (no restart after or before streaming) | Task 4 "a failure before anything streamed…", "a raw runnable's stream is opened once…", plus the mid-stream case |
+| Test: abort during a backoff wait stops the retry | Task 1 unit; Task 4 integration (no timers left, one model call) |
+| Fake models throwing LangChain-shaped errors; fake clock; no network or keys | `helpers/langchain-errors.ts` (real `AsyncCaller`), `ScriptedStreamingModel`, fake timers, mocked `@langchain/openai`, `vi.stubEnv` dummy keys |
+| No message-string matching where stamps exist; `isRetryableError` stays exported | `isCapacityRateLimitError` uses `getRetryable` + `rateLimitType`; `retry.ts` unchanged, still exported |
+| Remove run-level retry for agent routes (and raw runnables, Brian) | Task 4 (`processEventStream`) |
+| Invalid `retry` throws on first use (Brian) | Task 1 (`resolveModelRetryPolicy`, `modelMaxRetries`), Task 4 ("an invalid maxAttempts fails the route…") |
+| `exactOptionalPropertyTypes` | conditional spreads in the middleware, hook, `defaultSummarize` and `createChatModel`; `pnpm typecheck` |
+| Docs: what's retried and where, per call, no repeated tokens, mid-stream limit, `baseDelay`, quota, long `Retry-After`, other models, own model instance | Task 7 (`retry.mdx` and six other pages), Task 5 (`api/langchain.mdx`) |
+| `RetryConfig` JSDoc matches | Task 6 |
+| Patch changeset | Task 6 |
+| Regenerate lastmod | Task 9 (seven routes) |
