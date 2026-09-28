@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process"
 import type { CapturedWorkspaceDefinition } from "@b4run/workspace"
 import { verifyCapturedWorkspaceDefinition } from "@b4run/workspace/node"
 import { z } from "zod"
@@ -10,15 +11,20 @@ import { z } from "zod"
 const CATALOG_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
 /**
- * A tag in the factory's shape: `b4-factory-<target>:<pin[:12]>-<key[:12]>`, the tag the
- * builder's sandbox runs (the verifier never runs a tag: it runs the work order's bound image
- * by its id), with the target and the pin prefix captured. The builder's provider allows no
- * other shape, and the handoff schema requires the captured target and pin prefix to be the
- * handoff's own `targetId` and `pin`. That bounds a handoff to an image present on the daemon
- * under a tag naming its own target and pin; it does not prove the image is the one the work
- * order bound (PR 2 moves the builder to the id).
+ * The recipe tag's shape: `b4-factory-<target>:<pin[:12]>-<key[:12]>`, with the target, the pin
+ * prefix and the key prefix captured. A handoff carries its bound image's tag beside the id, as
+ * its name; the handoff schema requires the captured target and pin prefix to be the handoff's
+ * own `targetId` and `pin`. Nothing runs the tag: a tag can move, so the builder runs the id.
  */
-const FACTORY_IMAGE = /^b4-factory-([A-Za-z0-9][A-Za-z0-9._-]*):([0-9a-f]{12})-[0-9a-f]{12}$/
+const FACTORY_IMAGE = /^b4-factory-([A-Za-z0-9][A-Za-z0-9._-]*):([0-9a-f]{12})-([0-9a-f]{12})$/
+
+/**
+ * An image by its id, `sha256:<64 hex>`: what a handoff names and the builder's provider runs.
+ * The framework records `docker image inspect <id>`'s `.Id` as the thread's environment
+ * identity, which for an id is the id itself, so the builder runs exactly the image the
+ * controller bound, whatever any tag names by then.
+ */
+const IMAGE_ID = /^sha256:[0-9a-f]{64}$/
 
 /**
  * The builder's one input per thread besides its staged workspace, carried in thread metadata
@@ -43,18 +49,22 @@ const FACTORY_IMAGE = /^b4-factory-([A-Za-z0-9][A-Za-z0-9._-]*):([0-9a-f]{12})-[
  * refusal at admission, never a silent drop to a broader default (a misspelled `netwrok` would
  * otherwise leave the thread under the app's network rather than the one the controller
  * wrote). The network is `deny` only (the builder app denies it too, and a thread may not open
- * what its app denies), with no `allowlist` or `denylist`; the image must be one the factory
- * prepared; a pattern that is empty or only whitespace, which names nothing, is refused.
+ * what its app denies), with no `allowlist` or `denylist`; the image is named by its id, never
+ * a tag, and the tag beside it must name the handoff's own target and pin; a pattern that is
+ * empty or only whitespace, which names nothing, is refused.
  */
 export const BuilderHandoffSchema = z
   .object({
-    version: z.literal(3),
+    version: z.literal(4),
     workOrderId: z.string().regex(CATALOG_ID),
     taskId: z.string().regex(CATALOG_ID),
     targetId: z.string().regex(CATALOG_ID),
     target: z
       .object({
-        image: z.string().regex(FACTORY_IMAGE),
+        /** The bound image, by id: the one the controller prepared and verifies in. */
+        image: z.string().regex(IMAGE_ID),
+        /** Its recipe tag; target and pin segments must be this handoff's own. */
+        tag: z.string().regex(FACTORY_IMAGE),
         /** The commit that image was prepared at. */
         pin: z.string().regex(/^[a-f0-9]{40}$/),
         policy: z
@@ -92,19 +102,19 @@ export const BuilderHandoffSchema = z
   .strict()
   .superRefine((handoff, ctx) => {
     // The tag's target and pin segments must be this handoff's own: a work order may not
-    // run in another target's image, or in its own target's image at another pin.
-    const [, target, pin] = FACTORY_IMAGE.exec(handoff.target.image) ?? []
+    // name another target's image, or its own target's image at another pin.
+    const [, target, pin] = FACTORY_IMAGE.exec(handoff.target.tag) ?? []
     if (target !== handoff.targetId || pin !== handoff.target.pin.slice(0, 12))
       ctx.addIssue({
         code: "custom",
-        path: ["target", "image"],
-        message: `image ${handoff.target.image} is not target ${handoff.targetId} at pin ${handoff.target.pin}: a factory tag names b4-factory-${handoff.targetId}:${handoff.target.pin.slice(0, 12)}-<key>`,
+        path: ["target", "tag"],
+        message: `tag ${handoff.target.tag} is not target ${handoff.targetId} at pin ${handoff.target.pin}: a factory tag names b4-factory-${handoff.targetId}:${handoff.target.pin.slice(0, 12)}-<key>`,
       })
   })
 export type BuilderHandoff = z.infer<typeof BuilderHandoffSchema>
 
-/** Whether `reference` is an image the factory prepared: the builder's `dockerSandbox({ images })`. */
-export const isFactoryImage = (reference: string): boolean => FACTORY_IMAGE.test(reference)
+/** Whether `reference` is an image id: the builder's `dockerSandbox({ images })`. */
+export const isFactoryImageId = (reference: string): boolean => IMAGE_ID.test(reference)
 
 const describe = (error: unknown) =>
   error instanceof z.ZodError
@@ -210,4 +220,129 @@ export function stagedBuilderWorkspace(
       `the staged workspace ${got} is not the one work order ${handoff.workOrderId} names (${named})`,
     )
   return verifyCapturedWorkspaceDefinition(staged)
+}
+
+/**
+ * The labels every factory image build stamps (the controller's `dockerImageBuilder`): the
+ * target and full pin the image was prepared for, and its full recipe key. They live in the
+ * image config, which the image id content-addresses.
+ */
+export const FACTORY_LABELS = {
+  target: "b4.factory.target",
+  pin: "b4.factory.pin",
+  key: "b4.factory.key",
+} as const
+
+/**
+ * An image id's labels (`{}` when it has none), or null when the daemon does not hold it.
+ * `signal` is the thread's: an abandoned admission stops asking.
+ */
+export type InspectLabels = (
+  id: string,
+  signal?: AbortSignal,
+) => Promise<Readonly<Record<string, string>> | null>
+
+/** Text from outside (a label value, the daemon's stderr) quoted into a refusal, capped. */
+const quoted = (value: unknown, max: number): string => {
+  const text = value === undefined ? "(none)" : JSON.stringify(value)
+  return text.length > max ? `${text.slice(0, max)}…` : text
+}
+
+/**
+ * The daemon's answer for `id`, read by id. Fails closed: any error other than the daemon
+ * saying it holds no such image, and any answer that is not a string-valued object, rejects.
+ */
+export const dockerLabels: InspectLabels = (id, signal) =>
+  new Promise((resolve, reject) => {
+    execFile(
+      "docker",
+      ["image", "inspect", "--format", "{{json .Config.Labels}}", "--", id],
+      { timeout: 30_000, ...(signal !== undefined ? { signal } : {}) },
+      (error, stdout, stderr) => {
+        if (error) {
+          if (/No such image/i.test(String(stderr))) resolve(null)
+          else
+            reject(
+              new Error(
+                `docker image inspect ${id} failed: ${quoted(String(stderr).trim() || error.message, 500)}`,
+                { cause: error },
+              ),
+            )
+          return
+        }
+        try {
+          const parsed: unknown = JSON.parse(stdout)
+          if (parsed === null) return resolve({})
+          if (
+            typeof parsed !== "object" ||
+            Array.isArray(parsed) ||
+            !Object.values(parsed).every((value) => typeof value === "string")
+          )
+            throw new Error("labels are not a string map")
+          resolve(parsed as Record<string, string>)
+        } catch (cause) {
+          reject(new Error(`docker image inspect ${id} answered unreadable labels`, { cause }))
+        }
+      },
+    )
+  })
+
+const RECIPE_KEY = /^[0-9a-f]{64}$/
+
+/**
+ * Refuse, by name, the handoff's image when its build labels are not the handoff's own target,
+ * full pin and a recipe key whose prefix is the tag's key segment. An id alone binds no target:
+ * the provider admits any id the daemon holds. Read by id, so the labels are the image's own
+ * (the id content-addresses the config they live in) and nothing can change between this check
+ * and the run. Whoever can build or load images on the daemon can forge labels; that is the
+ * bound the tag shape had before.
+ */
+export async function assertFactoryImage(
+  handoff: BuilderHandoff,
+  inspect: InspectLabels = dockerLabels,
+  signal?: AbortSignal,
+): Promise<void> {
+  const id = handoff.target.image
+  const labels = await inspect(id, signal)
+  if (labels === null) throw new Error(`image ${id} is not on this daemon`)
+  if (!Object.hasOwn(labels, FACTORY_LABELS.target))
+    throw new Error(`image ${id} carries no factory labels: it was not built by the factory`)
+  const label = (name: string) => (Object.hasOwn(labels, name) ? labels[name] : undefined)
+  const [, , , key] = FACTORY_IMAGE.exec(handoff.target.tag) ?? []
+  const problems: string[] = []
+  const target = label(FACTORY_LABELS.target)
+  if (target !== handoff.targetId)
+    problems.push(`target ${quoted(target, 80)}, not ${handoff.targetId}`)
+  const pin = label(FACTORY_LABELS.pin)
+  if (pin !== handoff.target.pin) problems.push(`pin ${quoted(pin, 80)}, not ${handoff.target.pin}`)
+  const built = label(FACTORY_LABELS.key)
+  if (key === undefined || built === undefined || !RECIPE_KEY.test(built) || !built.startsWith(key))
+    problems.push(`recipe key ${quoted(built, 80)}, not ${key ?? "(no key in the tag)"}…`)
+  if (problems.length > 0) throw new Error(`image ${id} was built for ${problems.join("; ")}`)
+}
+
+/**
+ * The builder's whole per-thread sandbox, from the thread's handoff: what `b4.config.ts`'s
+ * `sandbox.thread` returns. The handoff is parsed and the staged workspace verified first (no
+ * daemon needed to refuse either), then the image's build labels are checked against the
+ * handoff, all before the framework resolves the image or starts anything. `inspect` is a test
+ * seam; the config passes none, so the daemon is asked.
+ */
+export async function builderThreadSandbox(
+  thread: {
+    readonly metadata: Readonly<Record<string, unknown>>
+    readonly staged?: CapturedWorkspaceDefinition | undefined
+    readonly signal?: AbortSignal | undefined
+  },
+  options: { readonly inspect?: InspectLabels } = {},
+) {
+  const handoff = builderHandoffOf(thread.metadata)
+  const workspace = stagedBuilderWorkspace(thread.staged, handoff)
+  await assertFactoryImage(handoff, options.inspect, thread.signal)
+  return {
+    workspace,
+    environment: { image: handoff.target.image },
+    policy: handoff.target.policy,
+    permissions: { allow: handoff.target.permissions },
+  }
 }

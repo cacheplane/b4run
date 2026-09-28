@@ -1,11 +1,12 @@
 import { spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { CapturedWorkspaceDefinition } from "@b4run/workspace"
 import { createSourceBundle } from "@b4run/workspace/node"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import type { BuilderHandoff } from "../src/builder-handoff.ts"
+import type { BuilderHandoff, InspectLabels } from "../src/builder-handoff.ts"
 
 /**
  * The builder's config reads nothing per work order from disk: its thread resolver is a
@@ -21,6 +22,10 @@ const bundle = (text: string) =>
     { path: "TASK.md", bytes: Buffer.from("# Repair the flag parser\n"), executable: false },
     { path: "src/cli.ts", bytes: Buffer.from(text), executable: false },
   ])
+
+/** A stand-in image id, distinct per target and pin. */
+const imageIdOf = (targetId: string, pin: string) =>
+  `sha256:${createHash("sha256").update(`${targetId}@${pin}`).digest("hex")}`
 
 interface WorkOrder {
   readonly handoff: BuilderHandoff
@@ -42,7 +47,7 @@ const workOrder = (
   return {
     staged,
     handoff: {
-      version: 3,
+      version: 4,
       workOrderId,
       taskId: "fixture-task",
       targetId,
@@ -52,8 +57,10 @@ const workOrder = (
         baseline: "git",
       },
       target: {
-        // The factory's tag shape, naming this handoff's own target and pin.
-        image: `b4-factory-${targetId}:${pin.slice(0, 12)}-0123456789ab`,
+        // An image id, one per target and pin, and the factory's tag shape naming this
+        // handoff's own target and pin beside it.
+        image: imageIdOf(targetId, pin),
+        tag: `b4-factory-${targetId}:${pin.slice(0, 12)}-0123456789ab`,
         pin,
         policy: {
           network: { mode: "deny" },
@@ -95,6 +102,24 @@ const metadataOf = (order: WorkOrder, handoff: unknown = order.handoff) => ({
   factoryWorkOrderId: order.handoff.workOrderId,
   factoryBuilder: handoff,
 })
+/** The labels a factory build stamps, for `handoff`: what a fake daemon answers for its id. */
+const labelsOf = (handoff: BuilderHandoff): Record<string, string> => ({
+  "b4.factory.target": handoff.targetId,
+  "b4.factory.pin": handoff.target.pin,
+  "b4.factory.key": `${handoff.target.tag.slice(-12)}${"0".repeat(52)}`,
+})
+/** A fake daemon: each id's labels, or null (not held) for an id it was not given. */
+const inspectFor =
+  (answers: Record<string, Record<string, string> | null>): InspectLabels =>
+  async (id) =>
+    Object.hasOwn(answers, id) ? (answers[id] ?? null) : null
+type ResolverThread = ReturnType<typeof thread>
+/**
+ * The builder's thread resolver against an honest daemon: one holding, under each thread's
+ * handoff's image id, the labels the factory stamped for that handoff. The config's own
+ * resolver is `builderThreadSandbox` with the real daemon (asserted by text below), which a
+ * unit test does not reach.
+ */
 const resolver = async () => {
   const sandbox = (await loadConfig()).sandbox
   // A thread resolver, not a workspace resolver: the bytes, the image, the policy and the
@@ -102,7 +127,12 @@ const resolver = async () => {
   if (typeof sandbox?.thread !== "function")
     throw new Error("builder config must resolve each thread's whole sandbox")
   expect(sandbox.workspace).toBeUndefined()
-  return sandbox.thread
+  const { builderThreadSandbox } = await import("../src/builder-handoff.ts")
+  return (t: ResolverThread) => {
+    const raw = (t.metadata as { factoryBuilder?: BuilderHandoff }).factoryBuilder
+    const honest = raw?.target?.image !== undefined ? { [raw.target.image]: labelsOf(raw) } : {}
+    return builderThreadSandbox(t, { inspect: inspectFor(honest) })
+  }
 }
 const digestOf = (resolved: unknown) =>
   (resolved as { workspace: { source: { digest: string } } }).workspace.source.digest
@@ -137,7 +167,7 @@ describe("builder configuration", () => {
     const text = readFileSync(new URL("../b4.config.ts", import.meta.url), "utf8")
     // Scope and allowed images, and no default image.
     expect(text).toContain(
-      'dockerSandbox({ scope: "software-factory-builder", images: isFactoryImage })',
+      'dockerSandbox({ scope: "software-factory-builder", images: isFactoryImageId })',
     )
   })
 })
@@ -175,41 +205,42 @@ describe("the builder's thread resolver", () => {
     expect((first.workspace as CapturedWorkspaceDefinition).baseline).toBe("git")
     // One builder, two targets: each thread runs its own handoff's image under its own
     // policy and allow-list, which the framework records at the thread's first admission.
+    // By id: never a tag, which could have moved since the controller bound the image.
     expect(first.environment).toEqual({ image: alpha.handoff.target.image })
-    expect(second.environment).toEqual({
-      image: `b4-factory-other-target:${"e".repeat(12)}-0123456789ab`,
-    })
+    expect(first.environment?.image).toMatch(/^sha256:[0-9a-f]{64}$/)
+    expect(second.environment).toEqual({ image: imageIdOf("other-target", "e".repeat(40)) })
     expect(first.policy).toEqual(alpha.handoff.target.policy)
     expect(second.policy?.resources).toEqual({ memoryMb: 8192, cpus: 4, timeoutMs: 600_000 })
     expect(first.permissions).toEqual({ allow: alpha.handoff.target.permissions })
     expect(second.permissions).toEqual({ allow: { bash: ["make"] } })
   })
 
-  it("refuses a handoff whose image names another target or another pin", async () => {
+  it("refuses a handoff whose tag names another target or another pin", async () => {
     const order = workOrder("wo-alpha", "x\n")
     const resolve = await resolver()
-    // Both are factory-shaped tags the provider's `images` predicate would admit; only the
+    // Both are factory-shaped tags naming a real target and pin; only the
     // handoff's own target and pin make them wrong, and the thread is refused before any
     // image is resolved.
-    for (const image of [
+    for (const tag of [
       "b4-factory-devkit:dddddddddddd-0123456789ab",
       "b4-factory-fixture-target:eeeeeeeeeeee-0123456789ab",
     ])
       await expect(
         resolve(
           thread(
-            metadataOf(order, { ...order.handoff, target: { ...order.handoff.target, image } }),
+            metadataOf(order, { ...order.handoff, target: { ...order.handoff.target, tag } }),
             order.staged,
           ),
         ),
       ).rejects.toThrow(/is not target fixture-target at pin d{40}/)
   })
 
-  it("allows only the factory's own images", async () => {
-    const { isFactoryImage } = await import("../src/builder-handoff.ts")
-    expect(isFactoryImage("b4-factory-devkit:6a59e00aed46-0123456789ab")).toBe(true)
-    expect(isFactoryImage("alpine:latest")).toBe(false)
-    expect(isFactoryImage("b4-factory-devkit:latest")).toBe(false)
+  it("allows an image only by id, never by a tag, the factory's included", async () => {
+    const { isFactoryImageId } = await import("../src/builder-handoff.ts")
+    expect(isFactoryImageId(`sha256:${"0".repeat(64)}`)).toBe(true)
+    expect(isFactoryImageId("b4-factory-devkit:6a59e00aed46-0123456789ab")).toBe(false)
+    expect(isFactoryImageId("alpine:latest")).toBe(false)
+    expect(isFactoryImageId(`sha256:${"0".repeat(63)}`)).toBe(false)
   })
 
   it("refuses, by name, a thread created with no handoff or with no staged workspace", async () => {
@@ -291,6 +322,201 @@ describe("the builder's thread resolver", () => {
     tampered.source.files[0].base64 = Buffer.from("tampered").toString("base64")
     const resolve = await resolver()
     await expect(resolve(thread(metadataOf(order), tampered))).rejects.toThrow()
+  })
+})
+
+describe("the builder's image label check", () => {
+  it("refuses an image whose build labels are not the handoff's own target, pin and recipe", async () => {
+    const { builderThreadSandbox } = await import("../src/builder-handoff.ts")
+    const order = workOrder("wo-alpha", "x\n")
+    const good = labelsOf(order.handoff)
+    const id = order.handoff.target.image
+    const cases: [string, Record<string, string> | null, RegExp][] = [
+      ["absent", null, /is not on this daemon/],
+      ["unlabelled (a base image)", {}, /carries no factory labels/],
+      [
+        "another target",
+        { ...good, "b4.factory.target": "devkit" },
+        /target "devkit", not fixture-target/,
+      ],
+      ["another pin", { ...good, "b4.factory.pin": "e".repeat(40) }, /pin "e{40}", not d{40}/],
+      [
+        "another recipe",
+        { ...good, "b4.factory.key": "f".repeat(64) },
+        /recipe key "f{64}", not 0123456789ab…/,
+      ],
+      [
+        "a key label that is only the tag's prefix",
+        { ...good, "b4.factory.key": "0123456789ab" },
+        /recipe key "0123456789ab", not 0123456789ab…/,
+      ],
+      [
+        "a target label missing, the others present",
+        {
+          "b4.factory.pin": good["b4.factory.pin"] ?? "",
+          "b4.factory.key": good["b4.factory.key"] ?? "",
+        },
+        /carries no factory labels/,
+      ],
+      [
+        "a pin label missing",
+        { "b4.factory.target": "fixture-target", "b4.factory.key": good["b4.factory.key"] ?? "" },
+        /pin \(none\), not d{40}/,
+      ],
+    ]
+    for (const [name, labels, message] of cases)
+      await expect(
+        builderThreadSandbox(thread(metadataOf(order), order.staged), {
+          inspect: inspectFor({ [id]: labels }),
+        }),
+        name,
+      ).rejects.toThrow(message)
+    await expect(
+      builderThreadSandbox(thread(metadataOf(order), order.staged), {
+        inspect: inspectFor({ [id]: good }),
+      }),
+    ).resolves.toMatchObject({ environment: { image: id } })
+  })
+
+  it("fails closed when the daemon cannot be asked", async () => {
+    const { builderThreadSandbox } = await import("../src/builder-handoff.ts")
+    const order = workOrder("wo-alpha", "x\n")
+    await expect(
+      builderThreadSandbox(thread(metadataOf(order), order.staged), {
+        inspect: async () => {
+          throw new Error("Cannot connect to the Docker daemon")
+        },
+      }),
+    ).rejects.toThrow(/Cannot connect to the Docker daemon/)
+  })
+
+  it("asks the daemon about the handoff's image id, and only after the handoff parses", async () => {
+    const { builderThreadSandbox } = await import("../src/builder-handoff.ts")
+    const order = workOrder("wo-alpha", "x\n")
+    const asked: string[] = []
+    const inspect: InspectLabels = async (id) => {
+      asked.push(id)
+      return labelsOf(order.handoff)
+    }
+    await builderThreadSandbox(thread(metadataOf(order), order.staged), { inspect })
+    expect(asked).toEqual([order.handoff.target.image])
+    await expect(
+      builderThreadSandbox(thread({ factoryWorkOrderId: "wo-alpha" }, order.staged), { inspect }),
+    ).rejects.toThrow(/factoryBuilder is required/)
+    expect(asked).toHaveLength(1)
+  })
+
+  it("caps what the image and the daemon say when quoting them into a refusal", async () => {
+    const { builderThreadSandbox } = await import("../src/builder-handoff.ts")
+    const order = workOrder("wo-alpha", "x\n")
+    const long = "x".repeat(10_000)
+    const refusal = await builderThreadSandbox(thread(metadataOf(order), order.staged), {
+      inspect: inspectFor({
+        [order.handoff.target.image]: { ...labelsOf(order.handoff), "b4.factory.target": long },
+      }),
+    }).catch((error: Error) => error.message)
+    expect(refusal).toMatch(/target "x{79}…, not fixture-target/)
+    expect(String(refusal).length).toBeLessThan(400)
+  })
+})
+
+describe("the config's thread resolver, against the docker CLI", () => {
+  type Callback = (error: Error | null, stdout: string, stderr: string) => void
+  /** A `docker` that answers every call with `answer`, recording what it was asked. */
+  const fakeDocker = (answer: { stdout?: string; stderr?: string; exit?: number }) => {
+    const calls: { file: string; args: readonly string[]; options: Record<string, unknown> }[] = []
+    vi.doMock("node:child_process", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("node:child_process")>()),
+      execFile: (
+        file: string,
+        args: readonly string[],
+        options: Record<string, unknown>,
+        callback: Callback,
+      ) => {
+        calls.push({ file, args, options })
+        const error =
+          answer.exit !== undefined && answer.exit !== 0
+            ? Object.assign(new Error(`Command failed: docker ${args.join(" ")}`), {
+                code: answer.exit,
+              })
+            : null
+        queueMicrotask(() => callback(error, answer.stdout ?? "", answer.stderr ?? ""))
+      },
+    }))
+    return calls
+  }
+  afterEach(() => {
+    vi.doUnmock("node:child_process")
+  })
+
+  const resolveWith = async (answer: Parameters<typeof fakeDocker>[0]) => {
+    const calls = fakeDocker(answer)
+    const sandbox = (await loadConfig()).sandbox
+    if (typeof sandbox?.thread !== "function") throw new Error("no thread resolver")
+    const order = workOrder("wo-alpha", "x\n")
+    const admission = thread(metadataOf(order), order.staged)
+    const outcome = await Promise.resolve(sandbox.thread(admission)).then(
+      (resolved) => ({ resolved }),
+      (error: Error) => ({ error }),
+    )
+    return { calls, order, admission, outcome }
+  }
+
+  it("asks docker for the handoff's image labels, by id, under the thread's signal", async () => {
+    const order = workOrder("wo-alpha", "x\n")
+    const { calls, admission, outcome } = await resolveWith({
+      stdout: `${JSON.stringify(labelsOf(order.handoff))}\n`,
+    })
+    expect(outcome).toMatchObject({
+      resolved: { environment: { image: order.handoff.target.image } },
+    })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.file).toBe("docker")
+    expect(calls[0]?.args).toEqual([
+      "image",
+      "inspect",
+      "--format",
+      "{{json .Config.Labels}}",
+      "--",
+      order.handoff.target.image,
+    ])
+    expect(calls[0]?.options).toMatchObject({ timeout: 30_000, signal: admission.signal })
+  })
+
+  it("refuses every answer that is not this handoff's own labels", async () => {
+    const order = workOrder("wo-alpha", "x\n")
+    const cases: [string, Parameters<typeof fakeDocker>[0], RegExp][] = [
+      [
+        "another target's labels",
+        { stdout: JSON.stringify({ ...labelsOf(order.handoff), "b4.factory.target": "devkit" }) },
+        /target "devkit", not fixture-target/,
+      ],
+      ["no labels (null)", { stdout: "null\n" }, /carries no factory labels/],
+      ["an array", { stdout: "[]\n" }, /answered unreadable labels/],
+      ["a non-string value", { stdout: '{"b4.factory.target":1}\n' }, /answered unreadable labels/],
+      ["not JSON", { stdout: "<no value>\n" }, /answered unreadable labels/],
+      [
+        "no such image",
+        {
+          exit: 1,
+          stderr: `Error response from daemon: No such image: ${order.handoff.target.image}\n`,
+        },
+        /is not on this daemon/,
+      ],
+      [
+        "another daemon error",
+        { exit: 1, stderr: `Cannot connect to the Docker daemon ${"z".repeat(5_000)}` },
+        /docker image inspect sha256:[0-9a-f]{64} failed: "Cannot connect to the Docker daemon z+…$/,
+      ],
+    ]
+    for (const [name, answer, message] of cases) {
+      vi.resetModules()
+      const { outcome } = await resolveWith(answer)
+      expect("error" in outcome, name).toBe(true)
+      const error = (outcome as { error: Error }).error
+      expect(error.message, name).toMatch(message)
+      expect(error.message.length, name).toBeLessThan(700)
+    }
   })
 })
 

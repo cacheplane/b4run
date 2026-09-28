@@ -5314,6 +5314,8 @@ git commit -m "feat(software-factory): the builder handoff names the bound image
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+> **As landed:** `openImageRegistryReader` also refuses a registry that records no schema version (a file no factory finished creating), leaving it unmigrated, besides an absent path and a newer factory's registry. It creates and writes nothing, but SQLite may leave `-wal`/`-shm` files beside a quiescent WAL registry; its doc comment and test title say so. `fakeBuilderHandoff` takes the bound image's id but keeps its fixed fake tag (`b4-factory-fake-target:…`), because a handoff's tag must name its own target and pin and the fake's are the fake target's.
+
 ### Task 19: The builder checks the image's build labels against its handoff
 
 Added after review (item 7). An image ID alone binds no target: the provider's predicate admits any `sha256:` the daemon holds. PR 1's builds carry `b4.factory.target`, `b4.factory.pin` and `b4.factory.key` labels (Task 6); the builder's thread resolver reads them by ID and refuses an image whose labels are not the handoff's own target, pin and the tag's key. Labels are part of the image config the ID content-addresses, so a check by ID has no time-of-check gap. No framework hook is needed: the resolver is the builder app's own code, and the check runs there before the framework resolves the image. Trust impact, stated: the labels bind an ID to a target, pin and recipe as the controller built it; whoever can build or load images on the daemon can forge labels, which is the bound the handoff had before (anyone who can tag an image can already run anything as root there). Without this task, PR 2's ID-only predicate would be a narrower bound than the tag shape it replaces for the target and pin segments; with it, it is at least as narrow. A framework-level `images: (reference, inspected) => …` predicate would let the provider make the same check and is recorded as a follow-up.
@@ -5471,6 +5473,8 @@ git commit -m "feat(software-factory): the builder admits only an image built fo
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+> **As landed:** `builderThreadSandbox` parses the handoff and verifies the staged workspace before the label check, so neither refusal needs a daemon. Parsing is stricter than the plan's: an answer that is not a string-valued object is refused, and `null` labels read as none. Label values are JSON-quoted and capped (80 characters) in refusals, and the daemon's stderr is capped (500). The argv puts `--` before the id, and the thread's abort signal is forwarded to `execFile` beside the 30 s timeout. A behavioural test drives the real `b4.config.ts` thread resolver with `node:child_process` mocked: the argv, the signal, and a refusal for every malformed or mismatched answer (a follow-up commit).
+
 ### Task 20: The Docker proof: a moved tag moves nothing, and an image not built for the handoff is refused
 
 **Files:**
@@ -5540,6 +5544,8 @@ git commit -m "test(software-factory): a moved tag moves no builder, and an unla
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+> **As landed:** each refusal is asserted by its reason, not only that admission failed. A mutation removing the label check still made the plan's boolean assertion pass: the unlabelled base image was admitted and failed later, at workspace preparation. The recipe tag is put back on the bound image in a `finally`.
+
 ### Task 21: Docs: the follow-up is closed
 
 **Files:**
@@ -5561,6 +5567,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 PR 2 verification: the PR 1 table, plus `pnpm --filter @b4-example/software-factory-server test` and Task 20's lane. Push `blove/images-by-id` and open the PR only when Brian asks.
+
+> **As landed:** the README's second statement of the builder's image bound (the builder quick start) and its `builder-handoff` reference paragraph were corrected too (`--image-id`, or the registry read-only, refusing to guess), and the images plan gained As-landed notes for Tasks 18-20.
+>
+> **Final-review fixes:** dispatch's kept-binding test asserts the builder handoff names the bound id and tag, not the registry's newer build (mutation-checked); the CLI usage and comment say `builder-handoff` reads `images.sqlite` read-only unless `--image-id` is given, and a missing or unreadable registry carries the `--image-id` hint; the README says the handoff names the registry's current image (use `--image-id` from `image_bound` to reproduce a work order), states the full-pin/key-prefix label rule, and that controller and builder upgrade together; `FACTORY_LABELS` is exported from `controller/src/lib/targets/image-builder.ts` and a test pins the builder's copy to it. Follow-up: carry the full recipe key in the handoff so the builder's label check compares all 64 hex, not the tag's 12.
 
 ---
 

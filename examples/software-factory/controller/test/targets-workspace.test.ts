@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { isFactoryImage } from "../src/lib/builder-handoff.ts"
+import { isFactoryImageId } from "../src/lib/builder-handoff.ts"
 import { type Task, tagFor } from "../src/lib/targets/catalog.ts"
 import {
   drafterInspectionOptions,
@@ -169,10 +169,11 @@ describe("targetSandboxPolicy", () => {
 })
 
 describe("the factory's images", () => {
-  it("are every one an image the builder's provider allows", () => {
+  it("are every one named, to the builder's provider, by an id it allows", () => {
     const { target } = task("0".repeat(40))
-    expect(isFactoryImage(tagFor(target.id, target.pin, "c".repeat(64)))).toBe(true)
-    expect(isFactoryImage("alpine:latest")).toBe(false)
+    expect(isFactoryImageId(target.image.localId)).toBe(true)
+    expect(isFactoryImageId(tagFor(target.id, target.pin, "c".repeat(64)))).toBe(false)
+    expect(isFactoryImageId("alpine:latest")).toBe(false)
   })
 })
 

@@ -7,6 +7,17 @@ import { ImageSchema, idTagFor } from "./catalog.js"
 import { baseDigestOf, type ImageBuilder } from "./images.js"
 import { recipeProblem } from "./prepare.js"
 
+/**
+ * The labels every factory image build writes into the image config (which its id
+ * content-addresses), and the names the builder reads back to admit an image for its handoff.
+ * The builder's copy (`server/src/builder-handoff.ts`) is pinned to this one by a test.
+ */
+export const FACTORY_LABELS = {
+  target: "b4.factory.target",
+  pin: "b4.factory.pin",
+  key: "b4.factory.key",
+} as const
+
 /** Run a command to completion: its stdout, or an Error naming the exit and stderr's tail. */
 export type Run = (
   command: string,
@@ -135,11 +146,11 @@ export function dockerImageBuilder(options: DockerImageBuilderOptions = {}): Ima
             `PNPM_VERSION=${pnpmVersion}`,
             // Part of the image config the id content-addresses: PR 2's builder checks them.
             "--label",
-            `b4.factory.target=${recipe.id}`,
+            `${FACTORY_LABELS.target}=${recipe.id}`,
             "--label",
-            `b4.factory.pin=${recipe.pin}`,
+            `${FACTORY_LABELS.pin}=${recipe.pin}`,
             "--label",
-            `b4.factory.key=${key}`,
+            `${FACTORY_LABELS.key}=${key}`,
             // This build's own id, whatever any tag names by the time it is read (D10).
             "--iidfile",
             iidFile,

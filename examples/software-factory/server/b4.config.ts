@@ -1,10 +1,9 @@
 import { config } from "@b4run/cli"
 import { dockerSandbox } from "@b4run/sandbox"
 import {
-  builderHandoffOf,
-  isFactoryImage,
+  builderThreadSandbox,
+  isFactoryImageId,
   refuseRetiredVariables,
-  stagedBuilderWorkspace,
 } from "./src/builder-handoff.js"
 
 refuseRetiredVariables()
@@ -13,9 +12,10 @@ export default config({
   appDir: "src/app",
   build: { targets: ["node"] },
   sandbox: {
-    // No default image: every thread runs the image its handoff names, and only an image the
-    // factory prepared may be named. A managed workspace's image is read from its own record.
-    provider: dockerSandbox({ scope: "software-factory-builder", images: isFactoryImage }),
+    // No default image: every thread runs the image its handoff names, by id, never a tag
+    // that could have moved since the controller bound it. A managed workspace's image is read
+    // from its own record.
+    provider: dockerSandbox({ scope: "software-factory-builder", images: isFactoryImageId }),
     // The controller reads a thread's workspace through this app's own port
     // (`POST /threads/:id/workspace/inspect`), authorized by src/thread-access.ts, and
     // never opens this app's installation store or its volumes itself.
@@ -31,15 +31,9 @@ export default config({
     // Per thread, once, at its first admission: the thread runs the staged workspace, image,
     // policy and permissions, recorded, and no other. The handoff and the staged workspace must
     // name the same digest, links and baseline; nothing is read from disk.
-    thread: async (thread) => {
-      const handoff = builderHandoffOf(thread.metadata)
-      return {
-        workspace: stagedBuilderWorkspace(thread.staged, handoff),
-        environment: { image: handoff.target.image },
-        policy: handoff.target.policy,
-        permissions: { allow: handoff.target.permissions },
-      }
-    },
+    // After the image's build labels are checked against the handoff (by id, so the labels
+    // are the image's own): an image not built for this target, pin and recipe is refused.
+    thread: (thread) => builderThreadSandbox(thread),
   },
   toolOutput: {
     // The controller never reads a tool result, so nothing here is load-bearing

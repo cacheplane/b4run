@@ -243,7 +243,17 @@ target whose files exist at the pin. `FACTORY_MAX_IMAGE_BUILDS` (default 1) boun
 `target:prepare` only warms the registry; `FACTORY_TARGETS_DIR` is retired. The CLI's
 `dispatch` follows a build past its request timeout, bounded by the journalled `deadlineMs`.
 CI's explicit prepares are gone: each lane run builds through a registry of its own. PR 2
-moves the builder to the bound ID, checked against the image's build labels. Deferred: the
+moved the builder to the bound ID: the builder handoff is version 4 (`target.image` is the
+bound ID, `sha256:<64 hex>`, with its recipe tag beside it in `target.tag`; a version-3
+handoff is refused at first admission, and a thread admitted before the upgrade keeps its
+recorded image), the builder's `dockerSandbox({ images })` accepts only IDs, and its thread
+resolver reads the ID's build labels (`docker image inspect -- <id>`, 30 s, the thread's abort
+signal) and refuses, failing closed, unless `b4.factory.target`, the full `b4.factory.pin` and
+a 64-hex `b4.factory.key` whose prefix is the tag's key segment are the handoff's own. Whoever
+can build or load images on the daemon can forge labels, the bound the tag shape had before.
+`factory builder-handoff` takes `--image-id` or reads `images.sqlite` read-only, refusing to
+guess. The Docker lane proves a moved recipe tag moves no builder, and that a version-3
+handoff and an unlabelled image are each refused by their own reason. Deferred: the
 factory's own git object store (§9 finding 3) and budgets from measured verifier time (§9
 finding 5).
 
