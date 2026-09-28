@@ -1,5 +1,14 @@
 # @dawn-ai/permissions
 
+## 0.13.0
+
+### Patch Changes
+
+- 3b489a5: A `sandbox.thread` resolver may return `permissions`: that thread's permission gates then use its own allow-list in place of the app's, keep the app's mode and every denial (the app's and the thread's), and save an "Always" decision to the thread's record in the workspace installation, never to `.b4/permissions.json` or a configured `permissions.store`. A subagent runs under its parent thread's permissions. `createThreadPermissionsStore` builds such a store over any `PermissionsStore` and passes the store conformance suite. Empty and whitespace-only permission patterns are refused in a thread's lists. An "Always" whose pattern the thread's record cannot hold (longer than `MAX_THREAD_GRANT_LENGTH`, empty or containing NUL) allows that call once with a warning instead of failing the run.
+- Updated dependencies [79c5f63]
+- Updated dependencies [fcf6d83]
+  - @b4run/sdk@0.13.0
+
 ## 0.12.0
 
 ### Patch Changes

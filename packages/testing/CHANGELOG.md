@@ -1,5 +1,37 @@
 # @dawn-ai/testing
 
+## 0.13.0
+
+### Patch Changes
+
+- 81021b2: `@b4run/testing` now depends on `@copilotkit/aimock` `^1.43.0` (was `^1.37.4`, resolving to 1.38.0). Recording over the OpenAI Responses API now keeps tool calls. Before, a turn that only called a tool was recorded as an empty assistant message with the call dropped. Recorded fixtures now also carry the upstream's token `usage`, so a replay reports the recorded counts instead of a length-based estimate. Re-recording an existing tape therefore adds a `usage` field to each response.
+- 1f335b1: `createAgentHarness` and `defineEval` accept a `responseSchema`: the JSON Schema a Hashbrown client sends as `hashbrown.responseSchema`. The harness binds it on the root model exactly as the server does for an AG-UI run, with the same validation and provider-facing name. Scripted, live and recorded runs then send the model the same `response_format` production sends. Before, a recording made through the harness ran unconstrained, so it could capture replies production never produces, such as an empty final message. A route or provider that cannot constrain its output fails the run instead of running unconstrained. `@b4run/cli/runtime` now exports `readResponseFormat`, the server's parser for that field.
+- 90b68be: Recording now fails at record time when replay would reject the recording. Previously `getRecordedFixtures()` returned whatever aimock captured, while replay loads fixtures through aimock's validator. A turn whose assistant message came back empty therefore produced a tape that the next replay refused with `content is empty string`. `getRecordedFixtures()` now applies the same validation and throws an error naming each rejected turn and its user message, with the likely causes. `b4 eval --record` reports it as `Refused to record <eval> › <case>` with exit code 2 and does not write that case's fixture file. If the run's answer is a tool call, `returnDirect` on that tool ends the run on its result, so no empty closing turn is recorded.
+- 79c5f63: Hand a thread its workspace at creation. `sandbox.stagedWorkspaces` serves `PUT /workspace/sources/:digest` (a content-addressed `SourceBundle` upload, verified against its digest, one at a time per process with `429 upload_in_flight` to a second, within `uploadTimeoutMs`, default 120 s, `408` past it, and within `maxStagedBytes`, default 1 GiB, `507` past it) and accepts `workspace: { sourceDigest, environmentLinks?, baseline? }` on `POST /threads`, which may name only an uploaded source (never one an admission stored for another thread) and is checked against the upload's recorded file paths without re-reading its bytes; the app's resolver (`sandbox.thread`, or a function `sandbox.workspace`) receives it as `thread.staged` at the thread's first admission, and sources nothing references are reclaimed after `retentionMs` (default 24 hours), at boot and before each upload. The option needs a resolver and a thread-access policy; `b4 check`, `b4 build` and boot refuse it otherwise.
+
+  Behaviour changes:
+
+  - **`ThreadAccessRequest.requestedWorkspace` is a new required field** (`ThreadAccessRequestedWorkspace | undefined`, exported from `@b4run/sdk`): `{ sourceDigest }` on the new `workspace.source.put` operation (a `create` with no thread) and the whole reference plus `uploadedBy` on a `thread.create` that names a workspace, `undefined` everywhere else. A stamp a policy returns on `workspace.source.put` is kept as the upload's uploader and handed back in `uploadedBy`, so a policy can require a caller to choose only what it uploaded. Code that builds a `ThreadAccessRequest` by hand needs `requestedWorkspace: undefined`; `@b4run/testing`'s `createThreadAccessHarness` accepts it on a check. `ThreadOperation` gains `"workspace.source.put"`, so an exhaustive `switch` over it needs a case. Enabling `stagedWorkspaces` means auditing the policy's `create` handler.
+  - **`POST /threads` refuses a `workspace` field it will not serve** (`400 workspace_not_accepted`, after the policy's decision) instead of ignoring it, in every app. In an app with `stagedWorkspaces` it also refuses a body over 1 MiB (`413 payload_too_large`, after a policy that refuses the caller has answered), and runs at most four creates naming a workspace at once (`429 workspace_create_in_flight`); every other app reads its create body as before.
+  - **`DELETE /threads/:thread_id`** forgets the thread's staged workspace before its row, and boot forgets the staged workspace of any thread whose row is gone.
+
+- Updated dependencies [f2ee6cf]
+- Updated dependencies [1f335b1]
+- Updated dependencies [c301d77]
+- Updated dependencies [5260ecb]
+- Updated dependencies [3b489a5]
+- Updated dependencies [0dd8fff]
+- Updated dependencies [90b68be]
+- Updated dependencies [1da86ae]
+- Updated dependencies [79c5f63]
+- Updated dependencies [0d06d72]
+- Updated dependencies [fcf6d83]
+  - @b4run/workspace@0.13.0
+  - @b4run/cli@0.13.0
+  - @b4run/sdk@0.13.0
+  - @b4run/core@0.13.0
+  - @b4run/memory@0.13.0
+
 ## 0.12.0
 
 ### Patch Changes

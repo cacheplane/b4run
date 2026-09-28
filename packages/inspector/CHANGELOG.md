@@ -1,5 +1,13 @@
 # @dawn-ai/inspector
 
+## 0.13.0
+
+### Patch Changes
+
+- Updated dependencies [0d06d72]
+  - @b4run/core@0.13.0
+  - @b4run/memory@0.13.0
+
 ## 0.12.0
 
 ### Patch Changes
