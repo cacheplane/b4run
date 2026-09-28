@@ -2,15 +2,16 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Revision 2 (2026-09-28).** This supersedes the first version of this plan (commit `37e1e2f5c`) and adds Brian's decisions on it:
+**Revision 3 (2026-09-28).** This supersedes revisions 1 (`37e1e2f5c`) and 2 (`00d1fef6f`) and carries all of Brian's decisions on them:
 
-- **Kept as planned:** raw-runnable agent routes lose the run-level retry too; the attempt budget is per layer (documented); an invalid `retry` throws on first use.
-- **Changed, Retry-After:** a capacity 429 whose `retryAfterMs` is longer than the 10s cap is **not** retried. It surfaces at once and keeps its `retryAfterMs`. A headerless capacity 429 still retries with `baseDelay` backoff, and one whose `retryAfterMs` is within the cap waits exactly that.
-- **Changed, other models:** the route's `retry` now reaches the summarization model, and the `b4 memory consolidate`/`reflect` model gets `maxRetries` too (see Decision 1 for what "the route's retry" means there).
+- **Kept as planned:** raw-runnable agent routes lose the run-level retry too; the attempt budget is per layer (documented); an invalid `retry` throws on first use; the summarization and `b4 memory` models get `maxRetries` only, not B4's capacity-429 layer (documented).
+- **Retry-After (rev 2):** a capacity 429 whose `retryAfterMs` is longer than the 10s cap is **not** retried. It surfaces at once and keeps its `retryAfterMs`. A headerless capacity 429 still retries with `baseDelay` backoff, and one whose `retryAfterMs` is within the cap waits exactly that.
+- **Summarizer (rev 2):** the route's `retry` reaches the summarization model as its `maxRetries`.
+- **`memory.distill.retry` (rev 3):** a new `b4.config.ts` key, `memory.distill.retry: { maxAttempts? }`, sets the `b4 memory consolidate`/`reflect` model's `maxRetries` (`maxAttempts - 1`, default 3 attempts). It has its own shape validation with a new error code, `B4_E1009`, run by `b4 check` and by the commands. **`baseDelay` is rejected** there, with a message saying distillation has nothing for it to pace, rather than accepted and ignored.
 
 **Goal:** Make `agent({ retry: { maxAttempts, baseDelay } })` do what it says, per model call:
 
-1. `maxAttempts` becomes the chat model's `maxRetries` (`maxAttempts - 1`, default 3 → 2) for every built-in provider, so LangChain's own request retry obeys the knob and `maxAttempts: 1` fails fast. The route's summarization model gets the same `maxRetries`; the `b4 memory` distillation model gets the default (2).
+1. `maxAttempts` becomes the chat model's `maxRetries` (`maxAttempts - 1`, default 3 → 2) for every built-in provider, so LangChain's own request retry obeys the knob and `maxAttempts: 1` fails fast. The route's summarization model gets the same `maxRetries`; the `b4 memory` distillation model gets `memory.distill.retry.maxAttempts - 1` (default 2), validated so a near miss fails loudly.
 2. A thin B4 layer in the agent middleware's `wrapModelCall` sends one model call again after a retryable capacity 429, within `maxAttempts`: with `min(baseDelay * 2^n + jitter, 10s)` when the error has no `retryAfterMs`, after exactly `retryAfterMs` when that is 10s or less, and not at all when it is longer (the error surfaces at once). This is the only place `baseDelay` applies.
 3. The run-level retry in `processEventStream` is removed: a run is never restarted.
 4. Docs, `RetryConfig` JSDoc, the homepage checklist tile and a patch changeset say exactly this.
@@ -21,7 +22,7 @@
 - **Construction.** `materializeAgent` (`agent-adapter.ts`) resolves the policy once, passes `maxRetries: providerMaxRetries(policy)` to `createChatModel` (new optional `maxRetries` option, set on the constructor options only when given), and passes the policy to `createB4AgentMiddleware`.
 - **The capacity layer.** `B4ModelAndTools.wrapModelCall` wraps `handler(next)` in `retryCapacityErrors`, with `request.runtime.signal`. It re-runs only the model call; tools and earlier model calls never re-run. The fast path that returned `handler(request)` untouched now goes through the same wrapper.
 - **The summarizer.** `SummarizeFn`'s arguments gain an optional `maxRetries`. `buildSummarizationHook(cfg, { maxRetries })` forwards it to every `summarize` call, `defaultSummarize` passes it to `createChatModel`, and B4's loop-entry middleware builds the hook with `providerMaxRetries(route policy)`. A custom `summarize` receives it and may ignore it.
-- **`b4 memory consolidate` / `reflect`.** `createDistillModel` (`packages/cli/src/commands/memory.ts`) passes `maxRetries: modelMaxRetries(undefined)`, the default policy (Decision 1).
+- **`memory.distill.retry`.** One resolver, `resolveDistillRetry(memory)` (`packages/cli/src/lib/memory/distill-retry-config.ts`), validates the shape and returns `{ maxAttempts }`. `resolveDistillConfig` calls it outside its load-error `catch` and returns it as `retry`; `createDistillModel` builds the model with `maxRetries: modelMaxRetries({ maxAttempts: config.retry.maxAttempts })`; `b4 check` calls the same resolver. So the validated shape and the honored value can't diverge (the pattern `resolveVercelBuildConfig` set for `build.vercel`). Failures are `CliError`s with the new `B4_E1009` ("Invalid memory config", docs `/docs/configuration#memory`).
 - **No run-level retry.** `processEventStream` loses its attempt loop and the `isRetryableError` text match. The `withRetry` fallback for a runnable with no `streamEvents` is unchanged (it never applies to an `agent()` route: a `createAgent` graph always has `streamEvents`).
 
 **Tech Stack:** TypeScript (NodeNext ESM, `exactOptionalPropertyTypes`), `langchain` 1.5.12 `createAgent` middleware, `@langchain/core` 1.2.12 (`AsyncCaller`, `getRetryable` from `@langchain/core/errors`), `@langchain/openai` 1.5.13, Vitest 4 (fake timers for `setTimeout`, `clearTimeout` and `Date`), Biome, Next.js docs site (`apps/web`).
@@ -35,48 +36,51 @@
 - `pnpm build`
 - `pnpm --filter @b4run/langchain test`: 49 files, 351 tests
 - `pnpm --filter @b4run/sdk test`: 14 files, 115 tests
-- `pnpm --filter @b4run/cli test`: 187 files (2 skipped), 2312 passed, 4 skipped. (In the first verification one run had the Docker-backed `vercel-target.test.ts` time out waiting 180s for a testcontainers port while every other suite ran in parallel; alone it passed. It never reaches the retry code.)
+- `pnpm --filter @b4run/core test`: 596 tests
+- `pnpm --filter @b4run/cli test`: 188 files (2 skipped), 2340 passed, 4 skipped. (In the first verification one run had the Docker-backed `vercel-target.test.ts` time out waiting 180s for a testcontainers port while every other suite ran in parallel; alone it passed. It never reaches the retry code.)
 - `pnpm lint`, `pnpm typecheck`
 - `pnpm --dir apps/web test`: 64 files, 979 passed, 1 skipped (after Task 9)
-- `node scripts/check-docs.mjs`, `pnpm check:build-cache`, `BASE_REF=HEAD~1 node scripts/check-changesets.mjs` (9 user-facing changes, 1 changeset)
+- `node scripts/check-docs.mjs`, `pnpm check:build-cache`, `BASE_REF=HEAD~1 node scripts/check-changesets.mjs` (14 user-facing changes, 1 changeset)
 - `pnpm verify:harness:runtime` with `OPENAI_API_KEY` unset: passed (aimock, no network)
 - the lastmod regeneration in Task 9, from a temporary commit of all the content
 
-Fourteen mutation checks each turned tests red (see "Mutation checks" at the end).
+Twenty-seven of twenty-eight mutation checks turned tests red: the fourteen retry mutations and thirteen of the fourteen `memory.distill.retry` guard and wiring mutations. The remaining one (dropping the `typeof` clause) is an equivalent mutant: `Number.isInteger` already rejects every non-number. See "Mutation checks" at the end.
 
 ## Risks and decisions
 
 Items marked **Decision** need Brian.
 
-1. **Decision: the `b4 memory` model gets the default policy, not a route's.** `b4 memory consolidate` and `reflect` build **one** chat model per pass (`createModel()` is called once in `runConsolidation`/`runReflection`, `packages/cli/src/lib/memory/distill.ts`) and use it for every namespace the pass selects. There is no route in the command's context, and a namespace names a route only when that route's `memory.ts` declares the `route` scope (`buildMemoryContext` serializes only the declared dimensions, so a `scope: ["user"]` memory is shared by every route that declares it). The distillation model is also chosen separately (`memory.distill.model`, default `gpt-5-mini`), not the route's model. So the plan gives it an agent's default: `modelMaxRetries(undefined)`, 3 attempts per call (`maxRetries: 2`) instead of LangChain's 6. Alternatives if Brian wants it configurable: (a) a `memory.distill.retry: RetryConfig` key in `b4.config.ts` (needs its own shape validation, since `B4Config` has no runtime schema), or (b) per-namespace models keyed by the `route=` dimension, falling back to the default, which changes the engine's one-model-per-pass shape.
-2. **Decision: only `maxRetries` reaches the summarizer and distillation models, not B4's capacity-429 layer.** Their calls aren't model calls in the agent graph, so `wrapModelCall` never sees them. A capacity 429 on the summarizer makes the hook fall back to the full history for that turn (existing behaviour); on distillation it fails that batch, and the next cron pass picks it up. Wrapping `defaultSummarize`'s and the distill engine's `invoke` in `retryCapacityErrors` is small if wanted.
+1. **Decision: `memory.distill` now rejects unknown keys.** To catch a case typo such as `Retry`, `resolveDistillRetry` applies an own-key allow-list to all of `memory.distill` (`consolidate`, `maxBatches`, `model`, `provider`, `reflect`, `retry`), as `resolveVercelBuildConfig` does for `build.vercel`. That is broader than `retry`: an app with any stray key in `memory.distill` that used to be ignored now fails `b4 check` and `b4 memory consolidate`/`reflect` with `B4_E1009`. It also rejects a non-object `memory` (for example `memory: true`), which the other memory resolvers silently read as empty. Only `b4 check` and the two distillation commands run this validator; `b4 dev`, the runtime and the other `b4 memory` subcommands don't. The narrower alternative is to reject only case-insensitive matches of `retry` in `memory.distill`.
+2. **Decision: `B4_E1009` is a new registry code**, "Invalid memory config", docs `/docs/configuration#memory` (the registry's docs paths must be one segment, so it can't point at `/docs/memory/distillation`). `/docs/errors` is regenerated from the registry. Reusing an existing code didn't fit: `B4_E1003` is "Unknown build target".
 3. **In practice, B4 retries only headerless capacity 429s.** LangChain 1.2.12 classifies a 429 as `capacity` with a `retryAfterMs` only when the `Retry-After` (or a "try again in …" message) is over 60s (`RETRY_AFTER_AUTO_RETRY_THRESHOLD_MS`); anything up to 60s it waits out itself. Every capacity 429 that carries a `retryAfterMs` is therefore over the 10s cap and now surfaces at once. The "within the cap → wait exactly `retryAfterMs`" branch exists and is tested (with a `retryAfterMs` set on the error directly), but LangChain never produces that shape today; it would matter only if the threshold changes or another layer sets `retryAfterMs`.
-4. **New public export `modelMaxRetries`** from `@b4run/langchain` (listed in `/docs/api/langchain`), used by the CLI. `@b4run/cli` joins the changeset. `SummarizeFn`'s args and `buildSummarizationHook` gain optional parameters (backward compatible).
-5. **Ollama isn't retried at all.** `ChatOllama` 1.3.0's chat path calls `this.client.chat` directly, not through its `AsyncCaller` (only `embeddings.js` and `llms.js` use the caller). `maxRetries` is accepted and set on `caller.maxRetries` (the test checks it) but has no effect on chat. Before this change only B4's run-level restart covered it. The docs' "Limits" section says so.
-6. **Default change, as the spec intends.** A route without `retry` goes from LangChain's 6 request retries plus up to 3 run restarts to 3 attempts per model call; the summarizer and distillation models go from 6 retries to 2. The changeset says so.
-7. **The memory embedder is unchanged.** `openaiEmbedder` builds `OpenAIEmbeddings`, which has its own `maxRetries` (default 6). It isn't a chat model and the spec doesn't cover it.
-8. **Errors keep the `MiddlewareError` wrapper they already had.** `createAgent` wraps any error thrown out of a `wrapModelCall` in `MiddlewareError` (message and `name` kept, the original on `.cause`, so `retryAfterMs` is on `error.cause`). The old middleware already had `wrapModelCall`, so clients see the same shape as before; the tests unwrap `.cause`.
-9. **No harness lane exercises retry.** `test/runtime`, `test/smoke` and `test/generated` contain no 429/5xx model fixtures (checked by grep). `pnpm verify:harness:runtime` passes with `OPENAI_API_KEY` unset (aimock). The framework and smoke lanes build generated apps against a local registry and weren't run; they don't touch retry.
-10. **`agent-adapter-retry.test.ts` is misnamed.** Its `describe` says "per-agent retry config wiring" but it only tests `withRetry`, which is unchanged. Left alone.
+4. **New public export `modelMaxRetries`** from `@b4run/langchain` (listed in `/docs/api/langchain`), used by the CLI. `@b4run/cli` and `@b4run/core` (the `B4Config` type) join the changeset. `SummarizeFn`'s args and `buildSummarizationHook` gain optional parameters (backward compatible).
+5. **Only `maxRetries` reaches the summarizer and distillation models, not B4's capacity-429 layer** (Brian, kept). Their calls aren't model calls in the agent graph, so `wrapModelCall` never sees them. A capacity 429 on the summarizer makes the hook fall back to the full history for that turn; on distillation it fails that batch, and the next cron pass picks it up. This is why `memory.distill.retry` has no `baseDelay`.
+6. **Ollama isn't retried at all.** `ChatOllama` 1.3.0's chat path calls `this.client.chat` directly, not through its `AsyncCaller` (only `embeddings.js` and `llms.js` use the caller). `maxRetries` is accepted and set on `caller.maxRetries` (the test checks it) but has no effect on chat. Before this change only B4's run-level restart covered it. The docs' "Limits" section says so.
+7. **Default change, as the spec intends.** A route without `retry` goes from LangChain's 6 request retries plus up to 3 run restarts to 3 attempts per model call; the summarizer and distillation models go from 6 retries to 2. The changeset says so.
+8. **The memory embedder is unchanged.** `openaiEmbedder` builds `OpenAIEmbeddings`, which has its own `maxRetries` (default 6). It isn't a chat model and the spec doesn't cover it.
+9. **Errors keep the `MiddlewareError` wrapper they already had.** `createAgent` wraps any error thrown out of a `wrapModelCall` in `MiddlewareError` (message and `name` kept, the original on `.cause`, so `retryAfterMs` is on `error.cause`). The old middleware already had `wrapModelCall`, so clients see the same shape as before; the tests unwrap `.cause`.
+10. **No harness lane exercises retry.** `test/runtime`, `test/smoke` and `test/generated` contain no 429/5xx model fixtures (checked by grep). `pnpm verify:harness:runtime` passes with `OPENAI_API_KEY` unset (aimock). The framework and smoke lanes build generated apps against a local registry and weren't run; they don't touch retry.
+11. **`agent-adapter-retry.test.ts` is misnamed.** Its `describe` says "per-agent retry config wiring" but it only tests `withRetry`, which is unchanged. Left alone.
 
-Settled by Brian (for the record): raw-runnable agent routes lose the run-level retry; the budget is per layer, so a call that alternates 503s and capacity 429s can make up to `maxAttempts²` requests (a strict shared budget would need a per-call `maxRetries`, which only `@langchain/openai` and `@langchain/anthropic` read); an invalid `retry` (`maxAttempts` not a whole number ≥ 1, `baseDelay` not a finite number ≥ 0) throws from `resolveModelRetryPolicy` when the route is first materialized, before any model is built.
+Settled by Brian (for the record): the `b4 memory` model's attempts come from `memory.distill.retry` (a pass has no route: one model serves every namespace it selects, and a namespace names a route only when that route's memory declares the `route` scope); raw-runnable agent routes lose the run-level retry; the budget is per layer, so a call that alternates 503s and capacity 429s can make up to `maxAttempts²` requests (a strict shared budget would need a per-call `maxRetries`, which only `@langchain/openai` and `@langchain/anthropic` read); an invalid `retry` (`maxAttempts` not a whole number ≥ 1, `baseDelay` not a finite number ≥ 0) throws from `resolveModelRetryPolicy` when the route is first materialized, before any model is built.
 
 ## Deviations from the spec, and why
 
 - **A long `Retry-After` isn't retried** (Brian's decision), where the spec said "honoured, still capped".
-- **The summarizer and distillation models get `maxRetries`** (Brian's decision); the spec scoped the change to the route's model.
+- **The summarizer and distillation models get `maxRetries`** (Brian's decisions); the spec scoped the change to the route's model. The distillation model's comes from a new config key, `memory.distill.retry`, validated with a new error code `B4_E1009`.
+- **`memory.distill.retry` rejects `baseDelay`** rather than accepting an option nothing reads.
 - **Raw-runnable agent routes lose the run-level retry** (Brian accepted).
 - **`retry` values are validated** (Brian accepted).
 - **`createChatModel` takes `maxRetries` as an option** rather than reading `retry` itself, and sets it only when given. Existing factory tests that assert the exact constructor options stay unchanged; the three `agent-adapter.test.ts` and one `agent-descriptor-integration.test.ts` assertions that build through `agent()` gain `maxRetries: 2`.
 - **Capacity errors are recognised by `getRetryable(error) === true && error.rateLimitType === "capacity"`**, not by `name`. `coerceError` renames an error to `RateLimitCapacityError` only when its `name` is exactly `"Error"`; a provider SDK error with its own `name` keeps it. `getRetryable` reads a `Symbol.for` key, so the two copies of `@langchain/core` 1.2.12 in the lockfile (zod 4.4.3 and 4.6.5 peers) agree.
 - **The homepage "Model retries" tile changes.** Its test pinned the old run-level retry's source text in `agent-adapter.ts`; it now pins the new mapping and middleware, and the tile copy says "Each model call retries a rate limit, a server error or a network error with backoff, and no streamed token is sent twice."
 - **The retry page keeps a `## Backoff` section.** `search-index.test.ts` requires a section whose first 320 characters of prose contain "jitter"; the rewritten page's LangChain-backoff sentence opens that section.
-- **More docs than `retry.mdx` change**, because they repeated the old behaviour or now need the new one: the `retry-flaky-tools` recipe's notes, the `stream-output` recipe's retry bullet, the `RetryConfig` field table in `api/sdk.mdx`, the `retry` line in `templates/AGENTS.md` (served at `/AGENTS.md`), the `summarize` row in `context-management.mdx`, the model flags in `memory/distillation.mdx`, and `api/langchain.mdx` (the `modelMaxRetries` row and `defaultSummarize`'s arguments). `agents.mdx` and `testing.mdx` stay true and are unchanged.
-- **lastmod changes seven routes**: `/docs/api/langchain`, `/docs/api/sdk`, `/docs/context-management`, `/docs/memory/distillation`, `/docs/recipes/retry-flaky-tools`, `/docs/recipes/stream-output`, `/docs/retry`. `/` doesn't move (the generator's digest for `/` doesn't include the checklist copy), and `/AGENTS.md` isn't in the manifest.
+- **More docs than `retry.mdx` change**, because they repeated the old behaviour or now need the new one: the `retry-flaky-tools` recipe's notes, the `stream-output` recipe's retry bullet, the `RetryConfig` field table in `api/sdk.mdx`, the `retry` line in `templates/AGENTS.md` (served at `/AGENTS.md`), the `summarize` row in `context-management.mdx`, the model flags in `memory/distillation.mdx`, `configuration.mdx` (`memory.distill.retry` and its validation), `cli.mdx` (what `b4 check` reports), the generated `errors.mdx` (`B4_E1009`), and `api/langchain.mdx` (the `modelMaxRetries` row and `defaultSummarize`'s arguments). `scripts/check-docs.mjs` pins the `B4Config` path inventory, so it gains `memory.distill.retry` and `memory.distill.retry.maxAttempts`. `agents.mdx` and `testing.mdx` stay true and are unchanged.
+- **lastmod changes ten routes**: `/docs/api/langchain`, `/docs/api/sdk`, `/docs/cli`, `/docs/configuration`, `/docs/context-management`, `/docs/errors`, `/docs/memory/distillation`, `/docs/recipes/retry-flaky-tools`, `/docs/recipes/stream-output`, `/docs/retry`. `/` doesn't move (the generator's digest for `/` doesn't include the checklist copy), and `/AGENTS.md` isn't in the manifest.
 
 ## Spec assumptions that are wrong in the code
 
-- **"Every LangChain chat model sends each request through `AsyncCaller`" is false for `ChatOllama`** (Risk 5). The other seven do, verified in the installed packages: openai (`completionWithRetry` → `caller.callWithOptions`, SDK `maxRetries: 0`; `ChatOpenAI` delegates to `completions` and `responses` inner models, which inherit `maxRetries`), anthropic (SDK `maxRetries: 0`, `caller.callWithOptions`), google-genai (`caller.callWithOptions`), mistral (a new `AsyncCaller({ maxRetries: this.maxRetries })` per request), groq (SDK `maxRetries: 0`, `caller.call`), xai (`ChatXAI extends ChatOpenAICompletions`), openrouter (`caller.callWithOptions`). All eight constructors accept `maxRetries`.
+- **"Every LangChain chat model sends each request through `AsyncCaller`" is false for `ChatOllama`** (Risk 6). The other seven do, verified in the installed packages: openai (`completionWithRetry` → `caller.callWithOptions`, SDK `maxRetries: 0`; `ChatOpenAI` delegates to `completions` and `responses` inner models, which inherit `maxRetries`), anthropic (SDK `maxRetries: 0`, `caller.callWithOptions`), google-genai (`caller.callWithOptions`), mistral (a new `AsyncCaller({ maxRetries: this.maxRetries })` per request), groq (SDK `maxRetries: 0`, `caller.call`), xai (`ChatXAI extends ChatOpenAICompletions`), openrouter (`caller.callWithOptions`). All eight constructors accept `maxRetries`.
 - **A quota 429 is `InsufficientQuotaError` for OpenAI**, not `RateLimitQuotaExhaustedError`. `defaultFailedAttemptHandler` names an `insufficient_quota` code `InsufficientQuotaError`; `RateLimitQuotaExhaustedError` is only for a quota detected from the message text. Both carry `rateLimitType: "stop"` and `retryable: false`. Verified with the real `ChatOpenAI` and a fake `fetch`: headerless 429 → `name: "RateLimitCapacityError"`, `rateLimitType: "capacity"`, `rateLimitReason: "headerless_429"`, `retryable: true`, one request; `Retry-After: 120` → same plus `retryAfterMs: 120000`, `rateLimitReason: "retry_after_too_large"`; `insufficient_quota` → `InsufficientQuotaError`, `retryable: false`; 503 with `maxRetries: 1` → two requests.
 - **The capacity error is thrown before any token for streaming calls**: `_streamResponseChunks` awaits `completionWithRetry(...)` for the stream, and tokens are consumed outside it. Confirmed end to end above (one request, error thrown from `model.stream()` before any chunk).
 - **A capacity 429 with a `retryAfterMs` always has one over 60s** (Risk 3), so "`retryAfterMs` honoured, capped" had no in-cap case to honour.
@@ -84,9 +88,10 @@ Settled by Brian (for the record): raw-runnable agent routes lose the run-level 
 - **`retryAfterMs` can also come from the message text** (`"try again in 20s"`), not only the header (`parseRetryAfterFromMessageMs`).
 - **LangChain's backoff is p-retry's with `minTimeout` 1000, `factor` 2, `randomize: true`**: each delay is between 1× and 2× of `1000 * 2^n`, raised to the error's `retryAfterMs` when that's larger.
 - **LangChain doesn't retry `400`–`407`, `409` or `413`** (`STATUS_NO_RETRY`); every other status, including `408`, `422` and other 4xx, is retried. The docs say exactly which.
-- **An error escaping B4's `wrapModelCall` reaches the client as a `MiddlewareError`** (Risk 8).
+- **An error escaping B4's `wrapModelCall` reaches the client as a `MiddlewareError`** (Risk 9).
 - **The run-level retry also ran for raw runnables** exported from an agent route, with a hard-coded default of 3.
-- **The `b4 memory` commands have no route context** (Decision 1), and B4 builds no other chat models: the only `createChatModel` callers are `materializeAgent`, `defaultSummarize` and `createDistillModel`. (The factory's JSDoc mentions a "memory extractor"; no such construction site exists.)
+- **The `b4 memory` commands have no route context**, and B4 builds no other chat models: the only `createChatModel` callers are `materializeAgent`, `defaultSummarize` and `createDistillModel`. (The factory's JSDoc mentions a "memory extractor"; no such construction site exists.)
+- **`resolveDistillConfig` swallowed every config error** (`try { loadB4Config } catch {}`) and fell back to defaults. That stays for load failures, but `memory.distill.retry` is validated after the `catch`, so a malformed `retry` can't be swallowed with it.
 - **The homepage checklist test pinned the old implementation's source text** (`retryConfig?.maxAttempts ?? 3`, the `hasYielded` line, `Math.min(1000 * 2 ** attempt`), and the search-index test needs "jitter" in a section's opening prose. The spec didn't list either.
 - **`@langchain/core/utils/async_caller` exports `AsyncCaller`, `classifyRateLimitError` and `parseRetryAfterMs`; `@langchain/core/errors` exports `getRetryable` and `stampRetryable`.** The metadata fields (`rateLimitType`, `rateLimitReason`, `retryAfterMs`) are plain properties with no exported accessor; the plan reads `rateLimitType` and `retryAfterMs` directly.
 - **LangChain ships `modelRetryMiddleware`** (`langchain/dist/agents/middleware/modelRetry.js`). It isn't used: its `sleep` ignores the abort signal, it treats `retryAfterMs` as an uncapped floor, its default `onFailure: "continue"` turns the final error into an `AIMessage`, and it sets `modelSettings.maxRetries: 0`, which only some providers read.
@@ -122,14 +127,22 @@ Settled by Brian (for the record): raw-runnable agent routes lose the run-level 
 | Create `packages/langchain/test/agent-retry-per-model-call.test.ts` | Real `createAgent` graph through `streamAgent` with a streaming fake model and fake timers. |
 | Modify `packages/langchain/test/agent-adapter.test.ts`, `packages/langchain/test/agent-descriptor-integration.test.ts` | Constructor options now include `maxRetries: 2`. |
 | Modify `packages/langchain/src/index.ts`, `apps/web/content/docs/api/langchain.mdx` | Export and document `modelMaxRetries`; `defaultSummarize`'s new argument. |
-| Modify `packages/cli/src/commands/memory.ts` | The distillation model gets `maxRetries: modelMaxRetries(undefined)`. |
-| Create `packages/cli/test/distill-model-retry.test.ts` | `consolidate` and `reflect` build their model with `maxRetries: 2`. |
+| Modify `packages/sdk/src/errors.ts`, `apps/web/content/docs/errors.mdx` (generated) | `B4_E1009` "Invalid memory config". |
+| Modify `packages/core/src/types.ts` | `memory.distill.retry?: { maxAttempts?: number }` with its JSDoc. |
+| Create `packages/cli/src/lib/memory/distill-retry-config.ts` | `resolveDistillRetry`: validates `memory.distill.retry`, returns `{ maxAttempts }`. |
+| Create `packages/cli/test/distill-retry-config.test.ts` | Every accepted shape, every near miss (one test per guard). |
+| Modify `packages/cli/src/lib/runtime/resolve-memory.ts`, `packages/cli/test/resolve-memory.test.ts` | `ResolvedDistillConfig.retry`, validated outside the load-error `catch`. |
+| Modify `packages/cli/src/commands/check.ts`, `packages/cli/test/check-error-codes.test.ts` | `b4 check` runs the same resolver. |
+| Modify `packages/cli/src/commands/memory.ts` | The distillation model gets `maxRetries: modelMaxRetries({ maxAttempts: config.retry.maxAttempts })`. |
+| Create `packages/cli/test/distill-model-retry.test.ts` | `consolidate` and `reflect`: default `maxRetries: 2`, `maxAttempts: 5` → 4, and a malformed `retry` refused before any model is built. |
+| Modify `scripts/check-docs.mjs` | The `B4Config` path inventory gains the two new paths. |
 | Modify `packages/sdk/src/agent.ts` | `RetryConfig` JSDoc. |
 | Create `.changeset/agent-retry-per-model-call.md` | Patch for `@b4run/langchain`, `@b4run/sdk` and `@b4run/cli`. |
 | Modify `apps/web/content/docs/retry.mdx` | Rewritten. |
+| Modify `apps/web/content/docs/configuration.mdx`, `apps/web/content/docs/cli.mdx` | `memory.distill.retry` and its validation (Task 5). |
 | Modify `apps/web/content/docs/recipes/retry-flaky-tools.mdx`, `recipes/stream-output.mdx`, `api/sdk.mdx`, `context-management.mdx`, `memory/distillation.mdx`, `apps/web/content/templates/AGENTS.md` | Lines that repeated the old behaviour or describe the new. |
 | Modify `apps/web/app/components/homepage/checklist/checklist.ts`, `checklist.test.ts` | Tile copy and its source pins. |
-| Modify `apps/web/app/seo/lastmod.generated.json` | Seven routes (Task 9). |
+| Modify `apps/web/app/seo/lastmod.generated.json` | Ten routes (Task 9). |
 
 ---
 
@@ -1930,15 +1943,312 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 5: `modelMaxRetries` for the `b4 memory` model
+### Task 5: `memory.distill.retry` and the `b4 memory` model
 
 **Files:**
+- Create: `packages/cli/test/distill-retry-config.test.ts`, `packages/cli/src/lib/memory/distill-retry-config.ts`
+- Modify: `packages/sdk/src/errors.ts`, `packages/core/src/types.ts`
 - Create: `packages/cli/test/distill-model-retry.test.ts`
-- Modify: `packages/langchain/src/index.ts`, `apps/web/content/docs/api/langchain.mdx`, `packages/cli/src/commands/memory.ts`
+- Modify: `packages/cli/test/check-error-codes.test.ts`, `packages/cli/test/resolve-memory.test.ts`
+- Modify: `packages/langchain/src/index.ts`, `packages/cli/src/lib/runtime/resolve-memory.ts`, `packages/cli/src/commands/check.ts`, `packages/cli/src/commands/memory.ts`
+- Modify: `apps/web/content/docs/api/langchain.mdx`, `apps/web/content/docs/configuration.mdx`, `apps/web/content/docs/cli.mdx`, `apps/web/content/docs/errors.mdx` (generated), `scripts/check-docs.mjs`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing validator tests**
 
-The CLI's vitest config aliases `@b4run/langchain` to its `src` (no build needed between tasks), so the command's real `createChatModel` path runs, and `@langchain/openai` is mocked. The seeded episodes and the config's low thresholds give each command one batch; the scratch app lives under `packages/cli/.tmp-distill-retry-apps`, like the other CLI memory tests' scratch apps, and is removed after each test.
+One rejected case per guard in `resolveDistillRetry`; the mutation table at the end shows each one binds.
+
+`packages/cli/test/distill-retry-config.test.ts`:
+
+```ts
+import { describe, expect, test } from "vitest"
+
+import { resolveDistillRetry } from "../src/lib/memory/distill-retry-config.js"
+
+/**
+ * `memory.distill.retry` has no runtime schema behind it, so every near miss
+ * must fail with B4_E1009 rather than read as configured while the model keeps
+ * the default. Each rejected case below is one guard in `resolveDistillRetry`.
+ */
+
+function rejection(memory: unknown): unknown {
+  try {
+    resolveDistillRetry(memory as never)
+  } catch (error) {
+    return error
+  }
+  return undefined
+}
+
+describe("resolveDistillRetry", () => {
+  test.each([
+    ["no memory block", undefined],
+    ["memory without distill", {}],
+    ["distill without retry", { distill: { model: "gpt-5-mini" } }],
+    ["an empty retry", { distill: { retry: {} } }],
+  ])("defaults to 3 attempts with %s", (_label, memory) => {
+    expect(resolveDistillRetry(memory as never)).toEqual({ maxAttempts: 3 })
+  })
+
+  test.each([1, 3, 6])("honors maxAttempts %i", (maxAttempts) => {
+    expect(resolveDistillRetry({ distill: { retry: { maxAttempts } } })).toEqual({ maxAttempts })
+  })
+
+  test("accepts every other known distill option alongside retry", () => {
+    expect(
+      resolveDistillRetry({
+        distill: {
+          model: "gpt-5-mini",
+          provider: "openai",
+          maxBatches: 2,
+          consolidate: {},
+          reflect: {},
+          retry: { maxAttempts: 2 },
+        },
+      }),
+    ).toEqual({ maxAttempts: 2 })
+  })
+
+  test.each([
+    ["a non-object memory", "on", /memory must be an object; received "on"/],
+    ["a non-object distill", { distill: true }, /memory\.distill must be an object; received true/],
+    [
+      "a non-object retry",
+      { distill: { retry: 3 } },
+      /memory\.distill\.retry must be an object; received 3/,
+    ],
+    [
+      "retry misplaced on memory",
+      { retry: { maxAttempts: 2 } },
+      /retry belongs under memory\.distill, not memory directly/,
+    ],
+    [
+      "maxAttempts misplaced on distill",
+      { distill: { maxAttempts: 2 } },
+      /maxAttempts belongs under memory\.distill\.retry/,
+    ],
+    [
+      "a case typo of retry",
+      { distill: { Retry: { maxAttempts: 2 } } },
+      /Unknown memory\.distill option\(s\): Retry\. Known options: consolidate, maxBatches, model, provider, reflect, retry/,
+    ],
+    [
+      "a case typo of maxAttempts",
+      { distill: { retry: { maxattempts: 2 } } },
+      /Unknown memory\.distill\.retry option\(s\): maxattempts\. Known options: maxAttempts/,
+    ],
+    [
+      "baseDelay, which distillation never reads",
+      { distill: { retry: { maxAttempts: 2, baseDelay: 500 } } },
+      /memory\.distill\.retry\.baseDelay isn't supported/,
+    ],
+    [
+      "a string maxAttempts",
+      { distill: { retry: { maxAttempts: "3" } } },
+      /maxAttempts must be a whole number of at least 1; received "3"/,
+    ],
+    ["maxAttempts 0", { distill: { retry: { maxAttempts: 0 } } }, /received 0\./],
+    ["a fractional maxAttempts", { distill: { retry: { maxAttempts: 1.5 } } }, /received 1\.5\./],
+    ["a negative maxAttempts", { distill: { retry: { maxAttempts: -1 } } }, /received -1\./],
+    ["a NaN maxAttempts", { distill: { retry: { maxAttempts: Number.NaN } } }, /received NaN\./],
+  ])("rejects %s with B4_E1009", (_label, memory, message) => {
+    const error = rejection(memory)
+    expect(error).toMatchObject({ code: "B4_E1009", exitCode: 1 })
+    expect(String((error as Error).message)).toMatch(/^Invalid memory config:\n/)
+    expect(String((error as Error).message)).toMatch(message)
+  })
+})
+```
+
+Run: `pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/distill-retry-config.test.ts`
+Expected: FAIL, `Error: Cannot find module '../src/lib/memory/distill-retry-config.js'`, `Tests no tests`.
+
+- [ ] **Step 2: The error code, the config type and the validator**
+
+Apply:
+
+```diff
+diff --git a/packages/sdk/src/errors.ts b/packages/sdk/src/errors.ts
+index 300545a1e..e64564a9e 100644
+--- a/packages/sdk/src/errors.ts
++++ b/packages/sdk/src/errors.ts
+@@ -68,6 +68,11 @@ export const B4_ERRORS = {
+     title: "Route entry exports more than one route kind",
+     docsPath: "/docs/cli#b4-check",
+   },
++  B4_E1009: {
++    code: "B4_E1009",
++    title: "Invalid memory config",
++    docsPath: "/docs/configuration#memory",
++  },
+   B4_E2001: {
+     code: "B4_E2001",
+     title: "Sandbox unavailable",
+diff --git a/packages/core/src/types.ts b/packages/core/src/types.ts
+index bae107c04..237be24a5 100644
+--- a/packages/core/src/types.ts
++++ b/packages/core/src/types.ts
+@@ -258,7 +258,8 @@ export interface B4Config {
+      *  7 days, consolidate.minBatchSize 5, consolidate.maxBatchSize 50,
+      *  consolidate.ttlMs unset (summaries never expire),
+      *  consolidate.sourceTtlMs 7 days; reflect.minNewRecords
+-     *  10, reflect.maxRecords 100, reflect.writes "candidate". */
++     *  10, reflect.maxRecords 100, reflect.writes "candidate";
++     *  retry.maxAttempts 3. */
+     readonly distill?: {
+       /** Model id for the distillation pass. Default "gpt-5-mini". */
+       readonly model?: string
+@@ -266,6 +267,19 @@ export interface B4Config {
+       readonly provider?: ModelProviderId
+       /** Maximum batches processed per invocation. Default 5. */
+       readonly maxBatches?: number
++      /**
++       * Retry for the distillation model's calls: `maxAttempts` per call,
++       * counting the first (default 3; `1` sends each call once). It becomes
++       * the chat model's `maxRetries` (`maxAttempts - 1`), which LangChain
++       * applies to server errors, network errors and rate limits with a
++       * `Retry-After` of 60s or less. Unlike `agent({ retry })` there is no
++       * `baseDelay`: distillation has no capacity rate-limit retry for it to
++       * pace, so `b4 memory` rejects it. Any other key, or a `maxAttempts`
++       * that isn't a whole number of at least 1, is rejected too (B4_E1009).
++       */
++      readonly retry?: {
++        readonly maxAttempts?: number
++      }
+       readonly consolidate?: {
+         /** Only consolidate records older than this many ms. Default 604800000 (7d). */
+         readonly olderThanMs?: number
+```
+
+`packages/cli/src/lib/memory/distill-retry-config.ts`:
+
+```ts
+import type { B4Config } from "@b4run/core"
+import { CliError } from "../output.js"
+
+/** Every key `memory.distill` accepts. Anything else is an authoring error. */
+const DISTILL_KEYS: readonly string[] = [
+  "consolidate",
+  "maxBatches",
+  "model",
+  "provider",
+  "reflect",
+  "retry",
+]
+
+/** Every key `memory.distill.retry` accepts. */
+const DISTILL_RETRY_KEYS: readonly string[] = ["maxAttempts"]
+
+const DEFAULT_MAX_ATTEMPTS = 3
+
+export interface ResolvedDistillRetry {
+  /** Attempts per distillation model call, counting the first. */
+  readonly maxAttempts: number
+}
+
+function invalidMemoryConfig(detail: string): CliError {
+  return new CliError(`Invalid memory config:\n${detail}`, 1, { code: "B4_E1009" })
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/** A value as the author wrote it (`NaN` stays `NaN`, not JSON's `null`). */
+function describe(value: unknown): string {
+  return typeof value === "number" ? String(value) : JSON.stringify(value)
+}
+
+function ownProperty(record: Readonly<Record<string, unknown>>, key: string): unknown {
+  return Object.hasOwn(record, key) ? record[key] : undefined
+}
+
+/**
+ * Validates `memory.distill` far enough to honor `memory.distill.retry`, and
+ * returns the attempts the distillation model gets.
+ *
+ * `B4Config` has no runtime schema, and a `b4.config.js` (or an untyped
+ * `export default {}`) gets no excess-property check, so a near miss would
+ * otherwise read as configured while the model silently kept the default.
+ * Rejected, with B4_E1009: a non-object `memory`, `memory.distill` or
+ * `memory.distill.retry`; an unknown key in `memory.distill` (`Retry`) or in
+ * `retry` (`maxattempts`); `baseDelay`, which nothing in distillation reads;
+ * `retry` or `maxAttempts` one level too high; and a `maxAttempts` that isn't
+ * a whole number of at least 1.
+ *
+ * `b4 check` and `b4 memory consolidate`/`reflect` both call this, and the
+ * model is built from the value it returns, so the validated shape and the
+ * honored value cannot diverge.
+ */
+export function resolveDistillRetry(memory: B4Config["memory"] | undefined): ResolvedDistillRetry {
+  if (memory === undefined) return { maxAttempts: DEFAULT_MAX_ATTEMPTS }
+  if (!isRecord(memory)) {
+    throw invalidMemoryConfig(`memory must be an object; received ${describe(memory)}.`)
+  }
+  if (ownProperty(memory, "retry") !== undefined) {
+    throw invalidMemoryConfig(
+      "retry belongs under memory.distill, not memory directly. Use memory: { distill: { retry: { maxAttempts: 3 } } }.",
+    )
+  }
+
+  const distill = ownProperty(memory, "distill")
+  if (distill === undefined) return { maxAttempts: DEFAULT_MAX_ATTEMPTS }
+  if (!isRecord(distill)) {
+    throw invalidMemoryConfig(`memory.distill must be an object; received ${describe(distill)}.`)
+  }
+  if (ownProperty(distill, "maxAttempts") !== undefined) {
+    throw invalidMemoryConfig(
+      "maxAttempts belongs under memory.distill.retry, not memory.distill directly. Use memory: { distill: { retry: { maxAttempts: 3 } } }.",
+    )
+  }
+  const unknownDistillKeys = Object.keys(distill)
+    .filter((key) => !DISTILL_KEYS.includes(key))
+    .sort()
+  if (unknownDistillKeys.length > 0) {
+    throw invalidMemoryConfig(
+      `Unknown memory.distill option(s): ${unknownDistillKeys.join(", ")}. Known options: ${DISTILL_KEYS.join(", ")}.`,
+    )
+  }
+
+  const retry = ownProperty(distill, "retry")
+  if (retry === undefined) return { maxAttempts: DEFAULT_MAX_ATTEMPTS }
+  if (!isRecord(retry)) {
+    throw invalidMemoryConfig(
+      `memory.distill.retry must be an object; received ${describe(retry)}.`,
+    )
+  }
+  if (ownProperty(retry, "baseDelay") !== undefined) {
+    throw invalidMemoryConfig(
+      "memory.distill.retry.baseDelay isn't supported: distillation has no capacity rate-limit retry for it to pace. Remove it; maxAttempts is the only retry option here.",
+    )
+  }
+  const unknownRetryKeys = Object.keys(retry)
+    .filter((key) => !DISTILL_RETRY_KEYS.includes(key))
+    .sort()
+  if (unknownRetryKeys.length > 0) {
+    throw invalidMemoryConfig(
+      `Unknown memory.distill.retry option(s): ${unknownRetryKeys.join(", ")}. Known options: ${DISTILL_RETRY_KEYS.join(", ")}.`,
+    )
+  }
+
+  const maxAttempts = ownProperty(retry, "maxAttempts")
+  if (maxAttempts === undefined) return { maxAttempts: DEFAULT_MAX_ATTEMPTS }
+  if (typeof maxAttempts !== "number" || !Number.isInteger(maxAttempts) || maxAttempts < 1) {
+    throw invalidMemoryConfig(
+      `memory.distill.retry.maxAttempts must be a whole number of at least 1; received ${describe(maxAttempts)}.`,
+    )
+  }
+  return { maxAttempts }
+}
+```
+
+The `typeof maxAttempts !== "number"` clause narrows the type; `Number.isInteger` alone already rejects every non-number, so no test can tell it apart (see the mutation table).
+
+Run: `pnpm build && pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/distill-retry-config.test.ts`
+Expected: PASS, 21 tests. (`pnpm build` so `B4ErrorCode` includes `B4_E1009` for the CLI's typecheck later.)
+
+- [ ] **Step 3: Write the failing command and check tests**
+
+The CLI's vitest config aliases `@b4run/langchain` to its `src`, so the command's real `createChatModel` path runs, and `@langchain/openai` is mocked. The seeded episodes and the config's low thresholds give each command one batch; the scratch app lives under `packages/cli/.tmp-distill-retry-apps`, like the other CLI memory tests' scratch apps, and is removed after each test.
 
 `packages/cli/test/distill-model-retry.test.ts`:
 
@@ -1953,10 +2263,10 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { runMemoryCommand } from "../src/commands/memory.js"
 
 /**
- * `b4 memory consolidate` / `reflect` build their chat model with an agent's
- * default retry (3 attempts per call → `maxRetries: 2`), not LangChain's 6:
- * a distillation pass has no single route whose `retry` could apply.
- * `@langchain/openai` is mocked, so no network and no API key.
+ * `b4 memory consolidate` / `reflect` build their chat model with
+ * `maxRetries = memory.distill.retry.maxAttempts - 1` (default 3 attempts →
+ * 2), not LangChain's 6, and refuse a malformed `retry` before building any
+ * model. `@langchain/openai` is mocked, so no network and no API key.
  */
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
@@ -1983,7 +2293,7 @@ afterEach(async () => {
   constructedWith = []
 })
 
-async function makeApp(): Promise<string> {
+async function makeApp(distillRetry?: string): Promise<string> {
   await mkdir(scratchRoot, { recursive: true })
   const root = await mkdtemp(join(scratchRoot, "app-"))
   cleanup.push(() => rm(root, { force: true, recursive: true }))
@@ -1996,6 +2306,7 @@ async function makeApp(): Promise<string> {
       "    distill: {",
       "      consolidate: { olderThanMs: 0, minBatchSize: 2, maxBatchSize: 50 },",
       "      reflect: { minNewRecords: 2, maxRecords: 100 },",
+      ...(distillRetry === undefined ? [] : [`      retry: ${distillRetry},`]),
       "    },",
       "  },",
       "}",
@@ -2042,15 +2353,117 @@ describe("distillation model retry", () => {
     },
     60_000,
   )
+
+  it.each(["consolidate", "reflect"])(
+    "%s uses memory.distill.retry.maxAttempts",
+    async (command) => {
+      vi.doMock("@langchain/openai", () => ({ ChatOpenAI: FakeChatOpenAI }))
+      const appRoot = await makeApp("{ maxAttempts: 5 }")
+      await runMemoryCommand([command], { cwd: appRoot }, { stdout: () => {}, stderr: () => {} })
+      expect(constructedWith.map((options) => options.maxRetries)).toEqual([4])
+    },
+    60_000,
+  )
+
+  it.each([
+    ["consolidate", "{ maxAttempts: 0 }", /maxAttempts must be a whole number of at least 1/],
+    ["reflect", "{ baseDelay: 500 }", /baseDelay isn't supported/],
+    ["consolidate --dry-run", "{ maxattempts: 5 }", /Unknown memory\.distill\.retry option/],
+  ])(
+    "%s refuses retry %s before building a model",
+    async (command, retry, message) => {
+      vi.doMock("@langchain/openai", () => ({ ChatOpenAI: FakeChatOpenAI }))
+      const appRoot = await makeApp(retry)
+      const error = await runMemoryCommand(
+        command.split(" "),
+        { cwd: appRoot },
+        { stdout: () => {}, stderr: () => {} },
+      ).catch((caught: unknown) => caught)
+      expect(error).toMatchObject({ code: "B4_E1009" })
+      expect(String((error as Error).message)).toMatch(message)
+      expect(constructedWith).toEqual([])
+    },
+    60_000,
+  )
 })
 ```
 
-- [ ] **Step 2: Run it red**
+Apply:
 
-Run: `pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/distill-model-retry.test.ts`
-Expected: FAIL, 2 of 2, `expected undefined to be 2`.
+```diff
+diff --git a/packages/cli/test/check-error-codes.test.ts b/packages/cli/test/check-error-codes.test.ts
+index 3922dc39e..581fa747c 100644
+--- a/packages/cli/test/check-error-codes.test.ts
++++ b/packages/cli/test/check-error-codes.test.ts
+@@ -51,6 +51,26 @@ async function invoke(argv: readonly string[]) {
+ }
+ 
+ describe("b4 check emits error codes", () => {
++  test("a near-miss memory.distill.retry → [B4_E1009] with docs link", async () => {
++    const appRoot = await createFixtureApp({
++      "b4.config.ts": "export default { memory: { distill: { retry: { maxattempts: 5 } } } };\n",
++    })
++    const result = await invoke(["check", "--cwd", appRoot])
++    expect(result.exitCode).toBe(1)
++    expect(result.stderr).toContain("Unknown memory.distill.retry option(s): maxattempts")
++    expect(result.stderr).toContain("[B4_E1009]")
++    expect(result.stderr).toContain("https://b4.run/docs/configuration#memory")
++  })
++
++  test("a valid memory.distill.retry passes check", async () => {
++    const appRoot = await createFixtureApp({
++      "b4.config.ts": "export default { memory: { distill: { retry: { maxAttempts: 5 } } } };\n",
++    })
++    const result = await invoke(["check", "--cwd", appRoot])
++    expect(result.stderr).toBe("")
++    expect(result.exitCode).toBe(0)
++  })
++
+   test("invalid delegation policy → [B4_E1004] with docs link", async () => {
+     const appRoot = await createFixtureApp({
+       "src/app/hello/index.ts": `import { agent } from "@b4run/sdk"
+diff --git a/packages/cli/test/resolve-memory.test.ts b/packages/cli/test/resolve-memory.test.ts
+index 872696d75..ef028c5e4 100644
+--- a/packages/cli/test/resolve-memory.test.ts
++++ b/packages/cli/test/resolve-memory.test.ts
+@@ -187,6 +187,7 @@ describe("resolveDistillConfig", () => {
+       provider: "openai",
+       providerAuthored: false,
+       maxBatches: 5,
++      retry: { maxAttempts: 3 },
+       consolidate: {
+         olderThanMs: 7 * 86_400_000,
+         minBatchSize: 5,
+@@ -207,6 +208,7 @@ describe("resolveDistillConfig", () => {
+       provider: "openai",
+       providerAuthored: false,
+       maxBatches: 5,
++      retry: { maxAttempts: 3 },
+       consolidate: {
+         olderThanMs: 7 * 86_400_000,
+         minBatchSize: 5,
+@@ -327,6 +329,7 @@ describe("resolveDistillConfig", () => {
+       provider: "openai",
+       providerAuthored: false,
+       maxBatches: 5,
++      retry: { maxAttempts: 3 },
+       consolidate: {
+         olderThanMs: 7 * 86_400_000,
+         minBatchSize: 5,
+```
 
-- [ ] **Step 3: Export `modelMaxRetries`, document it, and use it**
+Run: `pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/distill-model-retry.test.ts test/check-error-codes.test.ts test/resolve-memory.test.ts`
+Expected: FAIL, 11 of 31:
+
+- the three `resolveDistillConfig` default cases in `resolve-memory.test.ts`: `expected { model: 'gpt-5-mini', …(5) } to deeply equal { model: 'gpt-5-mini', …(6) }` (no `retry` yet);
+- "consolidate/reflect builds its model with maxRetries 2": `expected undefined to be 2`;
+- "consolidate/reflect uses memory.distill.retry.maxAttempts": `expected [ undefined ] to deeply equal [ 4 ]`;
+- the three "refuses retry … before building a model" cases: `expected undefined to match object { code: 'B4_E1009' }`;
+- "a near-miss memory.distill.retry → [B4_E1009]": `expected +0 to be 1` (check passes it).
+
+"a valid memory.distill.retry passes check" already passes.
+
+- [ ] **Step 4: Wire it in**
 
 Apply:
 
@@ -2067,6 +2480,113 @@ index cc8427998..33dadb506 100644
  export { inferProvider, resolveProvider } from "./model-provider-resolver.js"
  export type { OffloadStoreOptions } from "./offload/offload-store.js"
  export { buildOffloadFileName, OffloadStore } from "./offload/offload-store.js"
+diff --git a/packages/cli/src/lib/runtime/resolve-memory.ts b/packages/cli/src/lib/runtime/resolve-memory.ts
+index c56fcc2f8..8e83bbe24 100644
+--- a/packages/cli/src/lib/runtime/resolve-memory.ts
++++ b/packages/cli/src/lib/runtime/resolve-memory.ts
+@@ -2,6 +2,7 @@ import type { B4Config, MemoryStoreLike, MemoryWritesMode } from "@b4run/core"
+ import type { RecallRankingOptions, VectorRankingOptions } from "@b4run/memory"
+ import type { ModelProviderId } from "@b4run/sdk"
+ import { inferProvider } from "@b4run/sdk"
++import { type ResolvedDistillRetry, resolveDistillRetry } from "../memory/distill-retry-config.js"
+ import { loadB4Config } from "../node-config.js"
+ import { pureJoin } from "./pure-path.js"
+ import { type ResolvedEpisodesConfig, resolveEpisodesFromConfig } from "./record-episode.js"
+@@ -105,6 +106,8 @@ export interface ResolvedDistillConfig {
+    */
+   readonly providerAuthored: boolean
+   readonly maxBatches: number
++  /** Validated `memory.distill.retry`; see `resolveDistillRetry`. */
++  readonly retry: ResolvedDistillRetry
+   readonly consolidate: {
+     readonly olderThanMs: number
+     readonly minBatchSize: number
+@@ -144,13 +147,17 @@ export interface ResolvedDistillConfig {
+  * `node:` import of its own, so the split would buy nothing.
+  */
+ export async function resolveDistillConfig(appRoot: string): Promise<ResolvedDistillConfig> {
+-  let distill: NonNullable<NonNullable<B4Config["memory"]>["distill"]> | undefined
++  let memory: B4Config["memory"] | undefined
+   try {
+     const loaded = await loadB4Config({ appRoot })
+-    distill = loaded.config.memory?.distill
++    memory = loaded.config.memory
+   } catch {
+     // No b4.config.ts or unreadable — use defaults.
+   }
++  // Outside the catch: a malformed `memory.distill.retry` must fail the
++  // command (B4_E1009), not quietly fall back to the default.
++  const retry = resolveDistillRetry(memory)
++  const distill = memory?.distill
+   const model = distill?.model ?? "gpt-5-mini"
+   const consolidate = distill?.consolidate
+   const reflect = distill?.reflect
+@@ -159,6 +166,7 @@ export async function resolveDistillConfig(appRoot: string): Promise<ResolvedDis
+     provider: distill?.provider ?? inferProvider(model) ?? "openai",
+     providerAuthored: distill?.provider !== undefined,
+     maxBatches: distill?.maxBatches ?? 5,
++    retry,
+     consolidate: {
+       olderThanMs: consolidate?.olderThanMs ?? 7 * 86_400_000,
+       minBatchSize: consolidate?.minBatchSize ?? 5,
+diff --git a/packages/cli/src/commands/check.ts b/packages/cli/src/commands/check.ts
+index d90ca043c..da50664d4 100644
+--- a/packages/cli/src/commands/check.ts
++++ b/packages/cli/src/commands/check.ts
+@@ -13,6 +13,7 @@ import {
+ import { knownTargetNames } from "../lib/build/targets/index.js"
+ import { assertRouteMarkerFileLimits } from "../lib/build/targets/marker-files.js"
+ import { assertVercelBuildConfig } from "../lib/build/targets/vercel-config.js"
++import { resolveDistillRetry } from "../lib/memory/distill-retry-config.js"
+ import { loadB4Config } from "../lib/node-config.js"
+ import { CliError, type CommandIo, formatErrorMessage, writeLine } from "../lib/output.js"
+ import { collectDelegationErrors } from "../lib/runtime/collect-delegation-errors.js"
+@@ -98,6 +99,9 @@ export async function runCheckCommand(options: CheckOptions, io: CommandIo): Pro
+ 
+     // Rejected target list or not: a mistyped opt-out must not pass check.
+     assertVercelBuildConfig(loadedConfig.build)
++    // The same validation `b4 memory consolidate`/`reflect` apply before
++    // building their model, surfaced here so a near miss fails check too.
++    resolveDistillRetry(loadedConfig.memory)
+ 
+     // Typed as known names, but a JS config arrives untyped — keep validating.
+     const buildTargets: readonly string[] | undefined = loadedConfig.build?.targets
+diff --git a/packages/cli/src/commands/memory.ts b/packages/cli/src/commands/memory.ts
+index becb06888..c5e835edc 100644
+--- a/packages/cli/src/commands/memory.ts
++++ b/packages/cli/src/commands/memory.ts
+@@ -355,11 +355,19 @@ function selectProvider(
+  * exactly `ModelLike`'s shape (the engine normalizes string vs content-part
+  * array content). Imported lazily so `b4 memory list` never pays for the
+  * LangChain barrel.
++ *
++ * Retry: one model serves a whole pass, across every namespace it selects, so
++ * no route's `agent({ retry })` applies. `memory.distill.retry.maxAttempts`
++ * (validated by `resolveDistillRetry`, default 3) becomes its `maxRetries`.
+  */
+ async function createDistillModel(config: ResolvedDistillConfig): Promise<ModelLike> {
+-  const { createChatModel, resolveProvider } = await import("@b4run/langchain")
++  const { createChatModel, modelMaxRetries, resolveProvider } = await import("@b4run/langchain")
+   const provider = resolveProvider({ model: config.model, provider: config.provider })
+-  const model = await createChatModel({ model: config.model, provider })
++  const model = await createChatModel({
++    model: config.model,
++    provider,
++    maxRetries: modelMaxRetries({ maxAttempts: config.retry.maxAttempts }),
++  })
+   return model as ModelLike
+ }
+ 
+```
+
+Run: `pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/distill-retry-config.test.ts test/distill-model-retry.test.ts test/check-error-codes.test.ts test/resolve-memory.test.ts test/memory-command.test.ts test/distill-aimock.test.ts`
+Expected: PASS, 83 tests.
+
+- [ ] **Step 5: The docs this task owns**
+
+The new export, the new config paths and the new error code each have a pinned docs surface, so they go in with the code:
+
+```diff
 diff --git a/apps/web/content/docs/api/langchain.mdx b/apps/web/content/docs/api/langchain.mdx
 index 774eafeac..995164c71 100644
 --- a/apps/web/content/docs/api/langchain.mdx
@@ -2088,49 +2608,117 @@ index 774eafeac..995164c71 100644
  
  Materialized graphs are cached by descriptor plus checkpointer. Sandbox-bound tools, subagents, stream transformers, and explicit bypass requests skip reuse. A checkpointer is mandatory at runtime. `threadId` is also required for an interrupted run to resume. Generated edge assembly must seed its static provider importer before model construction.
  
-diff --git a/packages/cli/src/commands/memory.ts b/packages/cli/src/commands/memory.ts
-index becb06888..de186f078 100644
---- a/packages/cli/src/commands/memory.ts
-+++ b/packages/cli/src/commands/memory.ts
-@@ -355,11 +355,21 @@ function selectProvider(
-  * exactly `ModelLike`'s shape (the engine normalizes string vs content-part
-  * array content). Imported lazily so `b4 memory list` never pays for the
-  * LangChain barrel.
-+ *
-+ * Retry: one model serves a whole pass, across every namespace it selects, and
-+ * a namespace names a route only when that route's memory declares the
-+ * `route` scope, so there is no single route whose `agent({ retry })` could
-+ * apply. The model gets an agent's default instead: 3 attempts per call
-+ * (`maxRetries: 2`), rather than LangChain's 6.
-  */
- async function createDistillModel(config: ResolvedDistillConfig): Promise<ModelLike> {
--  const { createChatModel, resolveProvider } = await import("@b4run/langchain")
-+  const { createChatModel, modelMaxRetries, resolveProvider } = await import("@b4run/langchain")
-   const provider = resolveProvider({ model: config.model, provider: config.provider })
--  const model = await createChatModel({ model: config.model, provider })
-+  const model = await createChatModel({
-+    model: config.model,
-+    provider,
-+    maxRetries: modelMaxRetries(undefined),
-+  })
-   return model as ModelLike
- }
+diff --git a/apps/web/content/docs/configuration.mdx b/apps/web/content/docs/configuration.mdx
+index 4de154360..080edb794 100644
+--- a/apps/web/content/docs/configuration.mdx
++++ b/apps/web/content/docs/configuration.mdx
+@@ -117,6 +117,7 @@ export default config({
+       model: "gpt-5-mini",
+       provider: "openai",
+       maxBatches: 5,
++      retry: { maxAttempts: 3 },
+       consolidate: {
+         olderThanMs: 604_800_000,
+         minBatchSize: 5,
+@@ -461,6 +462,7 @@ memory?: {
+     model?: string
+     provider?: ModelProviderId
+     maxBatches?: number
++    retry?: { maxAttempts?: number }
+     consolidate?: {
+       olderThanMs?: number
+       minBatchSize?: number
+@@ -493,11 +495,22 @@ The defaults are:
+ - **Episodes:** disabled, with a 30-day TTL, a cap of `500`, failed runs
+   included, and no embeddings (`embed: true` isn't supported).
+ - **Distillation:** runs only when you invoke it, with `gpt-5-mini`, the
+-  inferred provider (falling back to `openai`) and five batches.
++  inferred provider (falling back to `openai`), five batches, and 3 attempts
++  per model call.
+   Consolidation takes records older than seven days in batches of 5–50, sets
+   no summary TTL, and gives source records a seven-day TTL. Reflection waits
+   for 10 new records, reads at most 100, and writes candidates.
  
++`distill.retry.maxAttempts` is the attempts per distillation model call,
++counting the first. It becomes the model's `maxRetries` (`maxAttempts - 1`),
++as [`agent({ retry })`](/docs/retry) does for a route. There's no `baseDelay`
++here: distillation has no rate-limit retry of its own for it to pace. `b4
++check` and `b4 memory` reject, with `B4_E1009`, a `baseDelay`, any other
++unknown key in `distill` or `distill.retry` (a typo such as `Retry` or
++`maxattempts` included), a non-object `memory`, `distill` or `retry`,
++`retry` or `maxAttempts` one level too high, and a `maxAttempts` that isn't a
++whole number of at least 1. They never fall back to the default.
++
+ A custom store ignores these tuning blocks. `resolveScope` receives only
+ `routePath` and `appRoot`, so derive tenant or user dimensions from your own
+ application context.
+diff --git a/apps/web/content/docs/cli.mdx b/apps/web/content/docs/cli.mdx
+index dedd1f2e2..20848c3ae 100644
+--- a/apps/web/content/docs/cli.mdx
++++ b/apps/web/content/docs/cli.mdx
+@@ -26,6 +26,7 @@ It loads `b4.config.ts`, resolves the app root, runs `discoverRoutes`, and parse
+ - A route whose `index.ts` exports more than one of `agent`, `workflow`, `graph`, `chain` (`B4_E1008`), with the file path and the kinds it exported. For both codes, `b4 check` lists every offending route at once. When an app has both, it lists the unrecognised ones first, with a count of the multi-kind ones.
+ - A tool file that fails to parse.
+ - A stale build manifest (see below).
++- A `memory.distill.retry` that isn't exactly `{ maxAttempts }` with a whole number of at least 1, or an unknown key in `memory.distill` (`B4_E1009`). `b4 memory consolidate` and `reflect` refuse the same config before building a model.
+ - An unknown `build.targets` entry and, when `"hono"` is one of them, every feature that target [cannot serve](/docs/deployment/edge#what-the-edge-cannot-serve) (`B4_E1005`). `b4 build` applies the same gate, so you learn about all of them before you build.
+ 
+ When `.b4/build/modules.mjs` exists (the `node` target writes it), `b4 check` compares its routes with the routes on disk. A mismatch, such as a route renamed since the last build, fails with the missing and extra route ids and asks you to re-run `b4 build`.
+diff --git a/scripts/check-docs.mjs b/scripts/check-docs.mjs
+index 26f7a3358..5a94a4d64 100644
+--- a/scripts/check-docs.mjs
++++ b/scripts/check-docs.mjs
+@@ -3138,6 +3138,8 @@ const expectedB4ConfigSchemaPaths = [
+   "memory.distill.reflect.maxRecords",
+   "memory.distill.reflect.minNewRecords",
+   "memory.distill.reflect.writes",
++  "memory.distill.retry",
++  "memory.distill.retry.maxAttempts",
+   "memory.enabled",
+   "memory.episodes",
+   "memory.episodes.cap",
 ```
 
-The docs row goes in with the export: the API-reference tests fail on an exported name the page doesn't list.
+Regenerate the error-code page from the registry (it reads the built `@b4run/sdk`):
 
-- [ ] **Step 4: Run it green**
+```bash
+pnpm build
+pnpm docs:errors
+git diff apps/web/content/docs/errors.mdx
+```
 
-Run: `pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/distill-model-retry.test.ts test/memory-command.test.ts test/distill-aimock.test.ts`
-Expected: PASS, 33 tests.
+Expected: exactly this diff (one added row):
 
-- [ ] **Step 5: Commit**
+```diff
+diff --git a/apps/web/content/docs/errors.mdx b/apps/web/content/docs/errors.mdx
+index 89d788056..39af4b766 100644
+--- a/apps/web/content/docs/errors.mdx
++++ b/apps/web/content/docs/errors.mdx
+@@ -20,6 +20,7 @@ A code without a docs link is still a stable identifier you can search for.
+ | `B4_E1006` | App root package.json is not an ES module | [/docs/cli#b4-check](/docs/cli#b4-check) |
+ | `B4_E1007` | Route entry has no recognisable export | [/docs/cli#b4-check](/docs/cli#b4-check) |
+ | `B4_E1008` | Route entry exports more than one route kind | [/docs/cli#b4-check](/docs/cli#b4-check) |
++| `B4_E1009` | Invalid memory config | [/docs/configuration#memory](/docs/configuration#memory) |
+ | `B4_E2001` | Sandbox unavailable | [/docs/sandbox#what-it-is--and-isnt](/docs/sandbox#what-it-is--and-isnt) |
+ | `B4_E2002` | Sandbox preflight failed | [/docs/sandbox#quickstart](/docs/sandbox#quickstart) |
+ | `B4_E3001` | Permission denied | [/docs/permissions](/docs/permissions) |
+```
+
+Run: `node scripts/check-docs.mjs`
+Expected: `Docs completeness check passed.` Without the two `check-docs.mjs` lines it fails with `B4Config nested schema path inventory changed` and `configuration.mdx nested schema paths differ from B4Config`.
+
+Run: `pnpm --filter @b4run/cli typecheck && pnpm --filter @b4run/cli lint && pnpm --filter @b4run/core typecheck`
+Expected: exit 0.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git status --short
-git add packages/langchain/src/index.ts apps/web/content/docs/api/langchain.mdx packages/cli/src/commands/memory.ts packages/cli/test/distill-model-retry.test.ts
-git commit -m "feat(cli): b4 memory distillation model gets maxRetries 2
+git add packages/sdk/src/errors.ts packages/core/src/types.ts packages/cli/src/lib/memory/distill-retry-config.ts packages/cli/test/distill-retry-config.test.ts packages/cli/test/distill-model-retry.test.ts packages/cli/test/check-error-codes.test.ts packages/cli/test/resolve-memory.test.ts packages/langchain/src/index.ts packages/cli/src/lib/runtime/resolve-memory.ts packages/cli/src/commands/check.ts packages/cli/src/commands/memory.ts apps/web/content/docs/api/langchain.mdx apps/web/content/docs/configuration.mdx apps/web/content/docs/cli.mdx apps/web/content/docs/errors.mdx scripts/check-docs.mjs
+git commit -m "feat(cli): memory.distill.retry sets the b4 memory model's maxRetries
+
+Validated by b4 check and by consolidate/reflect; a near miss fails with
+B4_E1009 instead of falling back to the default.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -2193,13 +2781,14 @@ The `api-contract` block for `RetryConfig` in `apps/web/content/docs/api/sdk.mdx
 "@b4run/langchain": patch
 "@b4run/sdk": patch
 "@b4run/cli": patch
+"@b4run/core": patch
 ---
 
 `agent({ retry })` now applies to each model call instead of the whole run. `maxAttempts` (default 3) becomes the chat model's `maxRetries` (`maxAttempts - 1`), so LangChain retries each model request, including later calls in a tool loop, up to that many times; `maxAttempts: 1` now fails fast. Before, LangChain's default of 6 retries applied whatever `retry` said, and B4.run restarted the whole run on top of it when nothing had streamed yet.
 
 B4.run also sends a model call again after a capacity rate limit that LangChain hands back without retrying (a `429` with no `Retry-After`), waiting `min(baseDelay * 2^n + jitter, 10s)`. A `429` whose `Retry-After` is over 10 seconds isn't retried: the error surfaces at once, keeping the wait in `retryAfterMs`. This is the only place `baseDelay` applies; it was previously never read on an agent route. A quota `429` isn't retried, an abort during the wait stops it, and a response that fails after part of it streamed isn't retried, so no token is sent twice. The run itself is never restarted, so tools never run twice.
 
-The route's summarization model gets the same `maxRetries` (`defaultSummarize` and a custom `summarize` receive it as `maxRetries`), and the `b4 memory consolidate` / `reflect` model gets the default of 3 attempts per call instead of LangChain's 6. `modelMaxRetries(retry)` is exported for other code that builds a chat model from an agent's `retry`.
+The route's summarization model gets the same `maxRetries` (`defaultSummarize` and a custom `summarize` receive it as `maxRetries`), and the `b4 memory consolidate` / `reflect` model takes its attempts from a new `memory.distill.retry: { maxAttempts }` in `b4.config.ts` (default 3 per call, instead of LangChain's 6). `memory.distill.retry` is validated by `b4 check` and by the commands: a `baseDelay` (distillation has nothing for it to pace), an unknown key in `memory.distill` or its `retry`, a non-object parent, a misplaced `retry`/`maxAttempts`, or a `maxAttempts` that isn't a whole number of at least 1 fails with the new error code `B4_E1009` (Invalid memory config) instead of falling back to the default. `modelMaxRetries(retry)` is exported for other code that builds a chat model from an agent's `retry`.
 
 An invalid `retry` (a `maxAttempts` below 1 or not a whole number, a negative `baseDelay`) now fails the route when it first runs. A route that exports its own LangChain runnable keeps its model's own `maxRetries`, and is no longer restarted on a failure either.
 ```
@@ -2415,7 +3004,7 @@ export default agent({
 ## Other models B4.run builds
 
 - **Summarization.** When [summarization](/docs/context-management#conversation-summarization) is on, the model that writes the summary gets the route's `maxAttempts` as its `maxRetries` too. A custom `summarize` function receives it as `maxRetries`. B4.run's own capacity rate-limit retry covers only the route's model calls, not the summarizer; a failed summary falls back to the full history for that turn.
-- **Memory distillation.** `b4 memory consolidate` and `b4 memory reflect` run outside any route, over every namespace they select, so no route's `retry` applies. Their model gets the default: 3 attempts per call.
+- **Memory distillation.** `b4 memory consolidate` and `b4 memory reflect` run outside any route, over every namespace they select, so no route's `retry` applies. Their model's attempts come from [`memory.distill.retry.maxAttempts`](/docs/memory/distillation#distillation-configuration) in `b4.config.ts` (default 3). It has no `baseDelay`, because there's no capacity rate-limit retry there to pace.
 
 ## Limits
 
@@ -2433,7 +3022,7 @@ export default agent({
 ]} />
 ````
 
-Every claim is checked against code: the defaults and validation (`resolveModelRetryPolicy`), the `maxRetries` mapping (`providerMaxRetries`), what LangChain retries and doesn't (`defaultFailedAttemptHandler`, `STATUS_NO_RETRY`, `RETRY_AFTER_AUTO_RETRY_THRESHOLD_MS = 60000` in `@langchain/core/dist/utils/async_caller.js`), LangChain's backoff (p-retry `minTimeout` 1000, `factor` 2, `randomize`), B4's formula, cap and long-`Retry-After` rule (`capacityRetryDelay`), streaming (the capacity error precedes the first token; no run restart), the abort (`systemRetryClock.sleep`), subagents (materialized from their own descriptor), the summarizer and distillation models (Tasks 3–5), and Ollama (Risk 5). The `#other-models-b4run-builds` anchor is what `memory/distillation.mdx` links to.
+Every claim is checked against code: the defaults and validation (`resolveModelRetryPolicy`), the `maxRetries` mapping (`providerMaxRetries`), what LangChain retries and doesn't (`defaultFailedAttemptHandler`, `STATUS_NO_RETRY`, `RETRY_AFTER_AUTO_RETRY_THRESHOLD_MS = 60000` in `@langchain/core/dist/utils/async_caller.js`), LangChain's backoff (p-retry `minTimeout` 1000, `factor` 2, `randomize`), B4's formula, cap and long-`Retry-After` rule (`capacityRetryDelay`), streaming (the capacity error precedes the first token; no run restart), the abort (`systemRetryClock.sleep`), subagents (materialized from their own descriptor), the summarizer and distillation models (Tasks 3–5), and Ollama (Risk 6). The `#other-models-b4run-builds` anchor is what `memory/distillation.mdx` links to.
 
 - [ ] **Step 4: The other pages**
 
@@ -2506,18 +3095,26 @@ index b68fca06f..38c9b0b42 100644
  Use `tokenCounter` to plug in a different tokenizer. `summarize` replaces the whole summary step, for example to use a cheaper model, compress in a way that suits your domain, or call a different provider.
  
 diff --git a/apps/web/content/docs/memory/distillation.mdx b/apps/web/content/docs/memory/distillation.mdx
-index 94d8d54ec..97d78b33b 100644
+index 94d8d54ec..c733ab841 100644
 --- a/apps/web/content/docs/memory/distillation.mdx
 +++ b/apps/web/content/docs/memory/distillation.mdx
-@@ -20,7 +20,7 @@ b4 memory reflect --dry-run --namespace 'workspace=my-app|route=/support' --max-
+@@ -103,6 +103,7 @@ export default {
+     distill: {
+       model: "gpt-5-mini",
+       maxBatches: 5,
++      retry: { maxAttempts: 3 },
+       consolidate: {
+         olderThanMs: 7 * 24 * 60 * 60 * 1000,
+         minBatchSize: 5,
+@@ -119,6 +120,8 @@ export default {
+ } satisfies import("@b4run/core").B4Config
+ ```
  
- - `--dry-run` selects and reports work, but constructs no model, makes no model calls, and writes nothing.
- - `--namespace <prefix>` narrows the pass to matching namespaces.
--- `--model <id>` and `--provider <id>` override model selection.
-+- `--model <id>` and `--provider <id>` override model selection. The model gets 3 attempts per call, an agent's [default retry](/docs/retry#other-models-b4run-builds); no route's `retry` applies to a pass.
- - `--max-batches <n>` caps batches for consolidation and namespaces for reflection.
- - `--cwd <path>` selects another app root, as in other B4.run commands.
++`retry.maxAttempts` is the attempts per model call, counting the first; `1` sends each call once. It becomes the model's `maxRetries`, which LangChain applies to server errors, network errors and rate limits with a `Retry-After` of 60 seconds or less (see [Retry](/docs/retry#other-models-b4run-builds)). A pass runs outside any route, so no route's `agent({ retry })` applies. `retry` takes only `maxAttempts`: a `baseDelay`, a misspelled key, or a `maxAttempts` that isn't a whole number of at least 1 fails the command with `B4_E1009` before any model is built, and `b4 check` reports the same.
++
+ `consolidate.ttlMs` sets an expiry on summaries. Leave it unset to keep them. If a summary should outlive its evidence, make sure its TTL is longer than the source review window.
  
+ ## Testing
 diff --git a/apps/web/content/templates/AGENTS.md b/apps/web/content/templates/AGENTS.md
 index d8a30040c..7d2e78f7c 100644
 --- a/apps/web/content/templates/AGENTS.md
@@ -2574,7 +3171,7 @@ pnpm --filter @b4run/sdk test
 pnpm --filter @b4run/cli test
 ```
 
-Expected: langchain 49 files / 351 tests; sdk 14 files / 115 tests; cli 187 files (2 skipped), 2312 passed, 4 skipped. The CLI suite runs the Docker-backed `vercel-target.test.ts`; if it times out waiting for a testcontainers port under load, rerun that file alone (`pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/vercel-target.test.ts`, 133 tests) before suspecting this change.
+Expected: langchain 49 files / 351 tests; sdk 14 files / 115 tests; cli 188 files (2 skipped), 2340 passed, 4 skipped. Also run `pnpm --filter @b4run/core test` (596 tests): `B4Config` changed. The CLI suite runs the Docker-backed `vercel-target.test.ts`; if it times out waiting for a testcontainers port under load, rerun that file alone (`pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/vercel-target.test.ts`, 133 tests) before suspecting this change.
 
 - [ ] **Step 3: Workspace lint and typecheck**
 
@@ -2600,7 +3197,7 @@ Expected: everything passes except the two lastmod cases in `app/seo/generate-la
 - [ ] **Step 6: The runtime harness lane**
 
 Run: `env -u OPENAI_API_KEY pnpm verify:harness:runtime`
-Expected: `status: passed`. No lane exercises model retries (Risk 9); this is the smoke check that real agent routes still run end to end on aimock without an API key.
+Expected: `status: passed`. No lane exercises model retries (Risk 10); this is the smoke check that real agent routes still run end to end on aimock without an API key.
 
 - [ ] **Step 7: Commit any formatting fixes**
 
@@ -2618,7 +3215,7 @@ Skip this if nothing changed.
 
 ---
 
-### Task 9: Regenerate lastmod for the seven changed routes
+### Task 9: Regenerate lastmod for the ten changed routes
 
 **Files:**
 - Modify: `apps/web/app/seo/lastmod.generated.json`
@@ -2632,7 +3229,7 @@ pnpm --dir apps/web seo:lastmod
 git diff --stat apps/web/app/seo/lastmod.generated.json
 ```
 
-Expected: `1 file changed, 21 insertions(+), 21 deletions(-)`: `lastModified`, `sourceDigest` and `recordDigest` for exactly seven routes. List them to be sure:
+Expected: `1 file changed, 30 insertions(+), 30 deletions(-)`: `lastModified`, `sourceDigest` and `recordDigest` for exactly ten routes. List them to be sure:
 
 ```bash
 git show HEAD:apps/web/app/seo/lastmod.generated.json > <scratchpad>/lastmod-head.json
@@ -2649,14 +3246,17 @@ Expected output, exactly:
 ```
 /docs/api/langchain
 /docs/api/sdk
+/docs/cli
+/docs/configuration
 /docs/context-management
+/docs/errors
 /docs/memory/distillation
 /docs/recipes/retry-flaky-tools
 /docs/recipes/stream-output
 /docs/retry
 ```
 
-If other routes appear, main's manifest was already stale for them: keep only these seven by splicing them into `<scratchpad>/lastmod-head.json` and writing that back (as `2026-09-25-homepage-files-tour-pr3.md` Task 8 Step 7 does for `/`). If the manifest conflicts on a rebase, it's marked `-merge`; regenerate on top rather than hand-editing.
+If other routes appear, main's manifest was already stale for them: keep only these ten by splicing them into `<scratchpad>/lastmod-head.json` and writing that back (as `2026-09-25-homepage-files-tour-pr3.md` Task 8 Step 7 does for `/`). If the manifest conflicts on a rebase, it's marked `-merge`; regenerate on top rather than hand-editing.
 
 - [ ] **Step 2: Check**
 
@@ -2686,7 +3286,11 @@ Run after Task 5, one mutation at a time. Copy the file aside first and restore 
 pnpm exec vitest --run --config vitest.config.ts test/agent-retry-per-model-call.test.ts test/model-call-retry.test.ts test/chat-model-factory-max-retries.test.ts test/agent-adapter.test.ts test/summarization-max-retries.test.ts
 ```
 
-For the CLI mutation, from `packages/cli`: `pnpm exec vitest --run --config vitest.config.ts test/distill-model-retry.test.ts`.
+For the CLI mutations, from `packages/cli`:
+
+```bash
+pnpm exec vitest --run --config vitest.config.ts test/distill-retry-config.test.ts test/distill-model-retry.test.ts test/check-error-codes.test.ts test/resolve-memory.test.ts
+```
 
 | Mutation | Tests that go red (verified) |
 |---|---|
@@ -2703,7 +3307,26 @@ For the CLI mutation, from `packages/cli`: `pnpm exec vitest --run --config vite
 | In `loopEntryMiddleware`, `buildSummarizationHook(summarization)` without the route's `maxRetries` | 3: the three "summarize gets maxRetries" cases |
 | In the hook, drop the `maxRetries` spread into `summarize` | 4: the three "summarize gets maxRetries" cases and "hands maxRetries to every summarize call" |
 | In `defaultSummarize`, drop the `maxRetries` spread into `createChatModel` | 3: the three "builds the summarizer model with maxRetries" cases |
-| In `createDistillModel`, drop `maxRetries: modelMaxRetries(undefined),` | 2: `consolidate` and `reflect` |
+| In `createDistillModel`, drop the `maxRetries` line | 4: both commands' default-2 and `maxAttempts: 5` cases |
+| In `createDistillModel`, `modelMaxRetries(undefined)` instead of the configured attempts | 2: "`consolidate`/`reflect` uses memory.distill.retry.maxAttempts" |
+| `resolveDistillConfig` catches the validator's error and falls back to `{ maxAttempts: 3 }` | 3: the three "refuses retry … before building a model" cases |
+| `b4 check` doesn't call `resolveDistillRetry` | 1: "a near-miss memory.distill.retry → [B4_E1009]" |
+
+`memory.distill.retry` guards in `resolveDistillRetry`, each disabled by turning its `if` to `if (false)` (or dropping the clause):
+
+| Guard | Tests that go red (verified) |
+|---|---|
+| non-object `memory` | 1: "rejects a non-object memory" |
+| `retry` misplaced on `memory` | 1: "rejects retry misplaced on memory" |
+| non-object `memory.distill` | 1: "rejects a non-object distill" |
+| `maxAttempts` misplaced on `memory.distill` | 1: "rejects maxAttempts misplaced on distill" (the unknown-key guard still catches it, with the wrong message) |
+| unknown key in `memory.distill` | 1: "rejects a case typo of retry" |
+| non-object `memory.distill.retry` | 1: "rejects a non-object retry" |
+| `baseDelay` | 2: the unit case and "reflect refuses retry { baseDelay: 500 }" (the unknown-key guard still catches it, with the wrong message) |
+| unknown key in `memory.distill.retry` | 3: the unit case, `b4 check`'s near miss, and "consolidate --dry-run refuses retry { maxattempts: 5 }" |
+| `Number.isInteger(maxAttempts)` | 2: fractional and NaN |
+| `maxAttempts < 1` | 3: 0 and -1 (unit), and "consolidate refuses retry { maxAttempts: 0 }" |
+| `typeof maxAttempts !== "number"` | none: an equivalent mutant, because `Number.isInteger("3")` is already `false`; the clause stays for type narrowing |
 
 ## Spec coverage checklist
 
@@ -2712,7 +3335,10 @@ For the CLI mutation, from `packages/cli`: `pnpm exec vitest --run --config vite
 | `maxAttempts` → the chat model's `maxRetries` (`maxAttempts - 1`, default 3 → 2) | Task 1 (`providerMaxRetries`), Task 2 (`createChatModel`), Task 4 (`materializeAgent`) |
 | Test: `maxRetries` reaches the constructed model for each built-in provider, incl. `maxAttempts: 1` → 0 | Task 2 (all eight, fake class and the installed package's `AsyncCaller`); Task 4 (`retry %j → maxRetries %i`, through `agent()`) |
 | The route's `retry` reaches the summarization model | Task 3 (hook and `defaultSummarize`), Task 4 (loop-entry middleware; "summarize gets maxRetries" through `agent()`) |
-| The `b4 memory` models get `maxRetries`; no route context → default, flagged | Task 5; Decision 1 |
+| The `b4 memory` model's `maxRetries` comes from `memory.distill.retry.maxAttempts` (default 3) | Task 5 (`resolveDistillRetry`, `resolveDistillConfig`, `createDistillModel`) |
+| `memory.distill.retry` shape validation: non-object parents, misplaced keys, case typos, wrong types, `maxAttempts` 0/fraction/negative/NaN fail loudly, never fall back | Task 5 (`B4_E1009`; `b4 check` and both commands; one test per guard; guard mutations) |
+| `baseDelay` in `memory.distill.retry`: rejected, not silently unused | Task 5 ("rejects baseDelay, which distillation never reads") |
+| Types, config docs, check-docs pins, changeset for the new key | Task 5 (`types.ts`, `configuration.mdx`, `cli.mdx`, `errors.mdx`, `check-docs.mjs`), Task 6 (changeset), Task 7 (`memory/distillation.mdx`, `retry.mdx`) |
 | An author-built model instance keeps its own `maxRetries` | `agent()` only accepts a model id; the only author-built models are raw runnables, which `createChatModel` never touches; docs "Limits" |
 | Thin B4 layer in `wrapModelCall` for a retryable capacity 429, `baseDelay` backoff, same `maxAttempts` | Task 1 (`retryCapacityErrors`, `capacityRetryDelay`), Task 4 (middleware) |
 | A capacity 429 with `retryAfterMs` over the cap isn't retried; one request; error surfaced with `retryAfterMs` | Task 1 unit ("surfaces … at once", "does not retry when retryAfterMs is longer"), Task 4 ("a Retry-After longer than 10 seconds is surfaced at once") |
