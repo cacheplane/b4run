@@ -254,3 +254,62 @@ export const CHECKPOINTER_MIGRATIONS: readonly Migration[] = [
     `,
   },
 ]
+
+/**
+ * Approval grants: one row per parked tool call, holding the SHA-256 of the
+ * grant the client must echo to resume it. See `@b4run/sdk`'s
+ * `interrupt-grants.ts` for why the row exists at all — in short, consumption,
+ * not disclosure: nothing else in the system can say "this approval has
+ * already been answered" across processes and across a restart.
+ *
+ * Two rules govern this constant, and both are pinned by
+ * `test/interrupt-grants-ddl.test.ts` so neither can be lost to a refactor.
+ *
+ * 1. **A shipped migration is frozen.** Once a database has recorded
+ *    `version = 1` in the component's migrations table, `runMigrations` will
+ *    never issue this statement against it again. Editing version 1 therefore
+ *    changes only what a VIRGIN database gets: every existing deployment keeps
+ *    the old shape, silently, with no error and no drift signal — until a
+ *    query written for the new shape fails in production. Change the shape by
+ *    APPENDING `{ version: 2, up: (naming) => \`ALTER TABLE …\` }`, never by
+ *    editing version 1.
+ *
+ * 2. **No column default is load-bearing.** There is deliberately not a single
+ *    `DEFAULT` here, which is why `expires_at`, `consumed_at`,
+ *    `consumed_decision` and `voided_at` are plain nullable `text`. Every
+ *    INSERT this package issues against the table names all nine columns and
+ *    supplies all nine values, so a default could never be the thing that
+ *    filled a column in — it could only mask a wiring bug that dropped one,
+ *    and turn it into a row that looks plausible. It also makes the row's
+ *    meaning readable from the INSERT alone, rather than from the INSERT plus
+ *    whatever DDL some earlier migration happened to install.
+ *
+ * Every timestamp is app-generated ISO-8601 in `text`, for the same reason the
+ * threads table uses `text`: the string the store was handed is the string it
+ * hands back, unrounded and untranslated, and ISO-8601 sorts
+ * lexicographically. The index is on `thread_id` alone because both
+ * multi-row accesses — `listForThread` and `voidOutstanding` — are
+ * thread-scoped, and the primary key's leading column already serves them; the
+ * explicit index keeps that true if the key order is ever revisited.
+ */
+export const INTERRUPT_GRANTS_MIGRATIONS: readonly Migration[] = [
+  {
+    version: 1,
+    up: (naming) => `
+      CREATE TABLE IF NOT EXISTS ${qualify(naming, "interrupt_grants")} (
+        thread_id text NOT NULL,
+        interrupt_id text NOT NULL,
+        checkpoint_ns text NOT NULL,
+        token_hash text NOT NULL,
+        issued_at text NOT NULL,
+        expires_at text,
+        consumed_at text,
+        consumed_decision text,
+        voided_at text,
+        PRIMARY KEY (thread_id, interrupt_id)
+      );
+      CREATE INDEX IF NOT EXISTS ${naming.prefix}_interrupt_grants_thread_idx
+        ON ${qualify(naming, "interrupt_grants")} (thread_id);
+    `,
+  },
+]
