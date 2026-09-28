@@ -1,10 +1,12 @@
 # Factory `up` and `run` Implementation Plan
 
+> **Amended after review (2026-09-28).** An independent review found the gates hold and the plan executable after amendments: one Critical (children in `up`'s process group die by default action on a second signal mid-close; they are now detached and stopped by `up` alone, D11), seven Important and a list of minors, each applied in place and listed with where in "Review amendments (2026-09-28)" at the end. Three decisions were added (D23 test isolation, D24 the approval window, D25 the guarded test seam) and D6, D11, D12, D13, D14, D16, D18, D20 and D22 amended.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** One command starts the software factory and one command carries an issue from intake to export, stopping at the two gates where a person decides: `pnpm factory up` starts the controller, the builder and the drafter on loopback with a shared, generated worker token, waits until each is ready, reconciles the registry and multiplexes their logs; `pnpm factory run --issue 714 [--pin <sha>]` creates (or resumes) the issue's work order, runs intake, **stops at the draft for a person**, dispatches, and **stops at the bundle for a person**, following each long step through the journal. `run` never approves anything: at each gate it shows exactly what `factory review` shows and either takes the person's typed digest prefix at a terminal or exits with the command a person runs.
 
-**Architecture:** Example-level glue in `examples/software-factory/controller`, no framework change. A committed `examples/software-factory/factory.config.ts` (a plain object, validated at load by a strict zod schema that fails closed on near-misses) names the state directory and the three ports. `up` (`src/lib/operator/up.ts`) runs a preflight (config, conflicting environment, model key, ports, Docker, the drafter's base image, a lock on the state directory), spawns each app with `b4 start --host 127.0.0.1 --port <p>` in its own app root, waits for `/readyz` on all three, calls the controller's existing `/reconcile#workflow` route, and on a signal stops the controller first and the workers second, escalating to `SIGKILL` and verifying that nothing survives. `run` is a loop in `src/cli.ts` over a pure step table (`src/lib/operator/run-steps.ts`, `nextStep(row, events)`) whose step type has no approval member: it reuses the CLI's `awaiting`/`followRow` machinery for intake and dispatch, a journal follower for work it did not start, and `factory review`'s own display-and-prompt (refactored to return its outcome instead of printing it) at the gates. The CLI's two variables (`FACTORY_CONTROLLER_URL`, `FACTORY_STATE_DIR`) default from the config, so no `export` and no alias remain.
+**Architecture:** Example-level glue in `examples/software-factory/controller`, no framework change. A committed `examples/software-factory/factory.config.ts` (a plain object, validated at load by a strict zod schema that fails closed on near-misses) names the state directory and the three ports. `up` (`src/lib/operator/up.ts`) runs a preflight (config, conflicting environment, model key, ports, Docker, the drafter's base image, locks on the state directory and the checkout), spawns each app **detached** with `b4 start --host 127.0.0.1 --port <p>` in its own app root, waits for `/readyz` on all three, calls the controller's existing `/reconcile#workflow` route, and on `SIGINT`, `SIGTERM` or `SIGHUP` sends each child exactly one `SIGTERM`, the controller first and the workers second, escalating to `SIGKILL` of the child's group and verifying that every child exited with code 0. `run` is a loop in `src/cli.ts` over a pure step table (`src/lib/operator/run-steps.ts`, `nextStep(row, events)`) whose step type has no approval member: it reuses the CLI's `awaiting`/`followRow` machinery for intake and dispatch, a journal follower for work it did not start, and `factory review`'s own display-and-prompt (refactored to return its outcome instead of printing it) at the gates. The CLI's two variables (`FACTORY_CONTROLLER_URL`, `FACTORY_STATE_DIR`) default from the config, so no `export` and no alias remain.
 
 **Tech Stack:** TypeScript (NodeNext ESM, `exactOptionalPropertyTypes`), zod 4, `node:child_process`, `node:net`, `node:readline`, vitest 4, the B4 runtime's `b4 start`, Docker CLI (`docker info`, `docker image inspect`; nothing destructive).
 
@@ -39,39 +41,45 @@ Every object is `.strict()`: a misspelt or unknown key refuses, naming its path.
 
 **D5. The worker token.** *Recommend:* generated per `up` (`randomBytes(32).toString("hex")`), held in memory, and given only to the three children through their environment; never printed, logged, journalled or written (the lock file holds pids and ports, not the token). When `FACTORY_WORKER_TOKEN` is already set, `up` uses it after the same checks the workers make (at least 32 characters, no whitespace), so an operator who runs a worker by hand beside `up` can share it. Nothing needs the token to outlive `up`: the CLI never talks to a worker, only to the controller (README:464-467), and a worker's threads and uploads are not bound to a token value (uploads are stamped `controller`, `server/src/thread-access.ts:56-70`), so a restart under a new token keeps every thread reachable.
 
-**D6. The model key.** *Recommend:* `OPENAI_API_KEY` from `up`'s environment, else the one `OPENAI_API_KEY=` line of the repository's gitignored `.env` (nothing else in that file is read). It goes to the builder and the drafter only; `up` deletes it from the controller's environment (README:525-531). `up` refuses to start without it: both workers boot without a key and fail at their first model call (README:527), which costs a drafter turn and, on the builder, a candidate attempt. `up` prints where the key came from ("from the environment" or the file's path), never the value. The Docker lane passes a dummy literal.
+**D6. The model key.** *Recommend (amended):* `OPENAI_API_KEY` from `up`'s environment, else the one `OPENAI_API_KEY=` line of the first `.env` that exists among: the `.env` at the git toplevel of `EXAMPLE_ROOT` (`git -C examples/software-factory rev-parse --show-toplevel`), then the main worktree's (`dirname` of `git rev-parse --path-format=absolute --git-common-dir`), because a linked worktree has no `.env` of its own (this one does not; `/Users/blove/repos/dawn/.env` does). `FACTORY_REPO_ROOT` is ignored for this: it names the *target* repository, which may be a copy. Nothing else in the file is read. The key goes to the builder and the drafter only; `up` deletes it from the controller's environment (README:525-531). `up` refuses to start without it: both workers boot without a key and fail at their first model call (README:527), which costs a drafter turn and, on the builder, a candidate attempt. `up` prints where the key came from ("from the environment" or the file's path), never the value. The Docker lane passes a dummy literal.
 
 **D7. The children's environment.** *Recommend:* each child inherits `up`'s environment (so `PATH`, `HOME`, `DOCKER_HOST`/`DOCKER_CONTEXT` and the `FACTORY_*` knobs such as `FACTORY_MAX_ACTIVE_MS` pass through) minus `OPENAI_API_KEY`, `FACTORY_WORKER_TOKEN`, `HOST` and `PORT` (which `serveRuntime` reads as fallbacks, `serve-runtime.ts:94-95`), plus what `up` sets: all three get the token; the controller gets `FACTORY_WORKER_URL`, `FACTORY_DRAFTER_URL` and `FACTORY_STATE_DIR`; the workers get the key. `up` refuses, before spawning anything, when `B4_PERMISSIONS_MODE` is set (it would override both workers' `non-interactive` mode, README:414-416, 425-427) and when any of `FACTORY_STATE_DIR`, `FACTORY_CONTROLLER_URL`, `FACTORY_WORKER_URL`, `FACTORY_DRAFTER_URL` is exported with a value other than the one the config implies (a stale `export` from the manual runbook would otherwise point later CLI commands in the same shell at another registry). Retired variables need no check here: every app refuses them by name at boot (`config.ts:138-157`, loaded at `:164-168`, `server/src/builder-handoff.ts:139-148`), and `up` reports a child that exits before it is ready with its last output lines.
 
-**D8. Preflight refusals.** *Recommend:* `up` checks everything it can before it spawns anything and reports every problem in one message: the config; D7's environment; the key (D6); each app's `b4.js` present (else "run pnpm install"); each port free on `127.0.0.1` (a listen attempt, and a connect attempt for a process bound to the wildcard address); `docker info` answering within 15 s; the drafter's base image on the daemon (`docker image inspect -- <ref>`, the reference read from `drafter/src/drafter-image.ts` the way CI's `sandbox-docker` job reads it, `ci.yml:473`, or `FACTORY_DRAFTER_IMAGE` when set), refusing with the exact `docker pull` command. `up` never pulls (base-image pulls have wedged Docker Desktop before; the operator runs it once) and never removes anything from the daemon. Reading the drafter's image reference as text is not an import: the controller still shares no source with a worker.
+**D8. Preflight refusals.** *Recommend:* `up` checks everything it can before it spawns anything and reports every problem in one message: the config; D7's environment; the key (D6); each app's built `@b4run/cli` present (`node_modules/@b4run/cli/dist/index.js`; the committed `bin/b4.js` exists before any build, Trap 25); each port free on `127.0.0.1` (a listen attempt, and a connect attempt for a process bound to the wildcard address); `docker info` answering within 15 s; the drafter's base image on the daemon (`docker image inspect -- <ref>`, the reference read from `drafter/src/drafter-image.ts` the way CI's `sandbox-docker` job reads it, `ci.yml:473`, or `FACTORY_DRAFTER_IMAGE` when set), refusing with the exact `docker pull` command. `up` never pulls (base-image pulls have wedged Docker Desktop before; the operator runs it once) and never removes anything from the daemon. Reading the drafter's image reference as text is not an import: the controller still shares no source with a worker.
 
 **D9. Readiness, and reconcile at boot.** *Recommend:* yes, `up` reconciles. The controller app has no boot hook (rung 3 §4.5); its Factory opens (and runs `reconcileAll`, `factory.ts:1976-1979`) in middleware `setup` on the first route request (`middleware.ts:9-17`), so `/readyz` answering 200 says only that the stores answer. `up` polls `GET /readyz` on all three (250 ms, 120 s bound each, failing at once if that child exits), then sends the reconcile route once (`createControllerClient(url).reconcile()`, `client.ts:78`), which opens the Factory, reconciles, and proves the controller's own configuration loads. Workers are ready before the reconcile because reconciling reattaches to their threads. `up` says "ready" only after the reconcile answers `ok: true`; a 500 from `setup` (an invalid controller environment) stops everything with its message. This is the supervisor the README already names ("nothing walks the registry after a restart unless an operator or a supervisor asks it to", README:307-308), so the §7 row "`factory reconcile` after a controller restart" is removed for a controller `up` manages; the app still has no boot hook.
 
 **D10. Logs.** *Recommend:* every child line goes to `up`'s stdout as `<app, padded> │ <line>` and is appended to `<state>/logs/<app>.log` with a header line per start; `up`'s own lines are `${UP} …`. `up`'s stdout is a log stream, not the CLI's JSON contract (every other command keeps it). No colour, no rotation (the logs are for post-mortems like finding 8's).
 
-**D11. Signals, shutdown and failure.** *Recommend:* children are spawned in `up`'s own process group (not detached), with stdin ignored. A terminal's Ctrl-C then reaches every child directly, so nothing depends on `pnpm` and `tsx` relaying signals (Trap 8); `up` waits for them, and a child still running after the grace gets `SIGTERM` and then `SIGKILL`. On a `SIGTERM` to `up` alone (a service manager, `kill <pid>`), `up` stops the controller first (so it issues nothing more to the workers; its Factory's close is bounded at 10 s, `factory.ts:1961-1971`) and then both workers, each with a 20 s grace before `SIGKILL`, then verifies every child pid is gone and says so if one is not. A second signal more than one second after the first kills everything at once (a single Ctrl-C can arrive twice through the `pnpm → tsx → node` chain). A child that exits on its own stops the others and `up` exits 1: no automatic restart in this plan (restarting a controller safely means reconciling again, and restarting a worker mid-turn meets finding 7's persisted `busy`; a restarting supervisor is a follow-up). Work orders in flight when `up` stops are reconciled at the next `up` (D9).
+**D11. Signals, shutdown and failure.** *Recommend (reversed after review, C1):* children are spawned **detached** (`detached: true`: each its own process group), with stdin ignored, and `up` alone decides when and how they stop. The first draft put them in `up`'s group so a terminal's Ctrl-C reached them directly; that kills them. `b4 start` installs `process.once` handlers for `SIGINT` and `SIGTERM`, and its `close()` removes both (`packages/cli/src/lib/dev/serve-runtime.ts:116-137`), so a child that took the terminal's `SIGINT` and is still closing dies by default action on `up`'s follow-up `SIGTERM` (the reviewer's spike: exit `null`, signal `SIGTERM`), mid-close, before the controller's Factory has closed its registry. Detached, a child gets exactly one signal, from `up`: on `SIGINT`, `SIGTERM` or `SIGHUP` (a closed terminal) `up` stops the controller first (so it issues nothing more to the workers; its Factory's close is bounded at 10 s, `factory.ts:1961-1971`) and then both workers, each with one `SIGTERM` to the child's pid and a 20 s grace, then `SIGKILL` to the child's whole process group, and verifies every child is gone. Each child's exit is logged as `<app> exited with code <n>` or `… by signal <sig>`; a clean stop is every child exiting with code 0. A second signal more than one second after the first sends `SIGKILL` to every group at once (a single Ctrl-C can arrive twice through `pnpm → tsx → node`). A `SIGKILL` of `up` itself leaves the detached children running: D12's orphan check names them at the next `up`. `up` survives a closed stdout (`up | head`): an `EPIPE` on stdout switches its output to the log files only and never ends supervision, so a pipe cannot orphan the children. A child that exits on its own stops the others and `up` exits 1: no automatic restart in this plan (restarting a controller safely means reconciling again, and restarting a worker mid-turn meets finding 7's persisted `busy`; a restarting supervisor is a follow-up). Stopping `up` while a work order is mid-turn is not free: at the next `up`'s reconcile a drafter or builder thread that stopped mid-turn reads as a turn that ended (`reattach_not_live`, README:533-539), so a partial draft spends an intake attempt and a partial candidate is verified and usually spends a candidate attempt. `up`'s stop line lists the work orders in active states (read-only from the registry) so the person sees what that stop costs; prefer stopping between gates.
 
-**D12. A lock on the state directory.** *Recommend:* `<state>/up.lock`, created exclusively (`wx`), holding `up`'s pid, the ports, the start time and, once spawned, the children's pids; removed on exit. A lock whose `up` pid is alive refuses ("factory up is already running"): the registry takes no process lock (rung 3 §4.3, §4.5), so two controllers on one state directory would otherwise be possible. A stale lock (its `up` pid dead) whose recorded children are still alive refuses, naming them and the `ps -p … -o command=` check to run before `kill` (a pid may have been reused, so `up` does not kill them itself); a stale lock with no live children is replaced.
+**D12. A lock on the state directory and on the checkout.** *Recommend (amended):* two lock files with one record: `<state>/up.lock` (the registry takes no process lock, rung 3 §4.3, §4.5, so two controllers on one state directory would otherwise be possible) and `examples/software-factory/.up.lock` (each app's runtime stores, its `.b4/` threads, checkpoints and workspaces, live in its app root, so two `up`s in one checkout would share the workers' stores whatever their state directories: one `up` per checkout). Each is created exclusively (`wx`) and holds `up`'s pid, its command line and start time, the ports and, once spawned, each child's pid and command line; both are removed on a clean exit. A lock is **held** when its pid is alive *and* `ps -p <pid> -o command=` still shows the recorded command (a reused pid is not a holder). A held lock refuses ("factory up is already running"). A stale lock whose recorded children are still alive and still show their recorded `b4.js start … --port <p>` command refuses, naming them and the `ps` check to run before `kill`; `up` never kills them itself. Any other stale lock is taken over by `rename` to `up.lock.stale-<pid>` (atomic: of two `up`s racing, one rename wins and the other gets `ENOENT` and retries `wx`, which then finds the winner's lock held), never by remove-then-create. The checkout lock also means the Docker lane (Task 9) refuses beside a live `up` in the same checkout rather than sharing its stores.
 
-**D13. `run` never approves.** *Recommend:* the hard requirement, by construction and by test. `run` accepts no approval input: `--approve`, `--reject`, `--digest`, `--note`, `--revision`, `--bundle` are refused by name, and there is no `--yes`/`--auto-approve` (the CLI's `parseArgs` is strict, so an unknown option already throws). The step table's type has no approval member. At `awaiting_intake_approval` and `awaiting_approval`, `run` calls the same function `factory review <id>` calls, with no digest and no approval flag: it prints the same display to stderr, and at a terminal it asks for the digest's first eight hex digits and sends the revision and digest it displayed, exactly as `review` does; without a terminal, or on no answer or a wrong prefix, it sends nothing and exits 3 (D16) with the commands a person runs. The printed commands never carry a digest: `pnpm factory review <id>` (which shows it again and asks), `pnpm factory review <id> --reject --note "…"`, then `pnpm factory run <id>`; the scripting form is named ("`--approve --digest <the digest shown above>`") but not filled in, so approving always means taking the digest from the display a person read. `--allow-missing-evidence` is forwarded to both reviews: it approves nothing (the prefix is still typed) and only lets a review show a draft or bundle whose evidence a fake verifier never wrote, with its loud warning. `FACTORY_CLI_INTERACTIVE=1` remains a test-only seam.
+**D13. `run` never approves.** *Recommend (amended):* the hard requirement, by construction and by test. `run` accepts no approval input: `--approve`, `--reject`, `--digest`, `--note`, `--revision`, `--bundle` are refused by name, and there is no `--yes`/`--auto-approve` (the CLI's `parseArgs` is strict, so an unknown option already throws). The step table's type has no approval member. At `awaiting_intake_approval` and `awaiting_approval`, `run` calls the same function `factory review <id>` calls, with no digest and no approval flag: it prints the same display to stderr, and asks for the digest's first eight hex digits only when **both stdin and stderr are TTYs** (a person reading the display at a terminal), then sends the revision and digest it displayed, exactly as `review` does; otherwise, or on no answer or a wrong prefix, it sends nothing and exits 3 (D16) with the commands a person runs. The printed **next commands** are digest-free: `pnpm factory review <id>` (which shows it again and asks), `pnpm factory review <id> --reject --note "…"`, then `pnpm factory run <id>`; the scripting form is named ("`--approve --digest <the digest shown above>`") but not filled in. (The outcome JSON's `row` does carry `taskDigest`/`bundleDigest`, as `show` always has; approving still needs a person to run a review.) `--allow-missing-evidence` is forwarded to **both** gates' reviews (it cannot be scoped to one): it approves nothing (the prefix is still typed) and only lets a review show a draft or bundle whose evidence a fake verifier never wrote, with its loud warning. The test seam is guarded (D25).
 
-**D14. Which work order `run` works on, and resuming.** *Recommend:* `run <workOrderId>` works on that work order. `run --issue <n> [--repo o/n] [--pin <sha>]` first reads the registry (no `gh` call, no fetch): among the issue's work orders (same repository and number, and the same pin when `--pin` is given), exactly one non-terminal work order is resumed (and `run` says which, with its pin and state); more than one refuses and lists them; none, with the newest `exported`, prints it and exits 0; otherwise it creates one. `--new` always creates (with a warning if one is still live). A create uses the operation key `factory-run:issue:<repo>#<n>@<pin>:<g>`, where `g` is the number of the issue's work orders at that pin already in the registry, so two `run`s racing to create land on one row (`insertWorkOrder` derives the id from the key, `factory.ts:843-853`) and a later `--new` gets a fresh key. So Ctrl-C and `run` again (with the same arguments or the id) resumes the same work order: a row in an active state is followed, not re-sent. `run --task <id>` does the same for a catalog task (D19).
+**D14. Which work order `run` works on, and resuming.** *Recommend:* `run <workOrderId>` works on that work order. `run --issue <n> [--repo o/n] [--pin <sha>]` first reads the registry (no `gh` call, no fetch): among the issue's work orders (same repository and number, and the same pin when `--pin` is given), exactly one non-terminal work order is resumed (and `run` says which, with its pin and state); more than one refuses and lists them; none, with the newest `exported`, prints it and exits 0; otherwise it creates one. `--new` always creates (with a warning if one is still live). A create uses the operation key `factory-run:issue:<repo>#<n>@<pin>:<g>`, where `g` is the number of the issue's work orders at that pin already in the registry, so two `run`s racing to create land on one row (`insertWorkOrder` derives the id from the key, `factory.ts:843-853`) and a later `--new` gets a fresh key. So Ctrl-C and `run` again (with the same arguments or the id) resumes the same work order: a row in an active state is followed, not re-sent. `run --task <id>` does the same for a catalog task (D19). A pinless `run --issue <n>` matches the issue's work orders at **every** pin, a replay's included: after `run --issue 714 --pin 765e6e16…` was exported, a pinless `run --issue 714` answers "already exported" with the replay's row (it cannot tell a replay pin from an `origin/main` pin); `--new` starts a live run at `origin/main`. The README says so.
 
 **D15. `run` stops at a block; it never retries or cancels.** *Recommend:* a `blocked` row stops `run` with exit 1, its reason and the next commands: for a retryable candidate block with attempts left (`RETRYABLE_BLOCKED_REASONS`, `states.ts`), `pnpm factory retry <id>` then `pnpm factory run <id>`; otherwise `pnpm factory events <id>` and `pnpm factory cancel <id>`. A retry spends a candidate attempt and budget; that is the person's call. `denied`, `cancelled` and `failed` stop with the `run … --new` command. `run` resumes a `received` row after a person's `retry` by dispatching it, since the retry was the decision.
 
-**D16. Exit codes.** *Recommend:* `run` exits **0** only when the work order is `exported`; **3** when it stopped at a gate and nothing was approved (no terminal, no answer, a wrong or short prefix): "waiting on a person", distinct so a script never reads it as either success or breakage; **130** on Ctrl-C (the work goes on in the controller; `run` prints how to resume and how to cancel); **1** for everything else (a refusal, a review that refuses what it displayed, a block, a terminal state, a follow that outlived its bound). `up` exits 0 after a requested stop and 1 when it refused to start, a child failed to become ready, a child exited, or a child survived `SIGKILL`.
+**D16. Exit codes.** *Recommend:* `run` exits **0** only when the work order is `exported`; **3** when it stopped at a gate and nothing was approved (no terminal, no answer, a wrong or short prefix): "waiting on a person", distinct so a script never reads it as either success or breakage; **130** on Ctrl-C (the work goes on in the controller; `run` prints how to resume and how to cancel); **1** for everything else (a refusal, a review that refuses what it displayed, a block, a terminal state, an expired bundle (D24), a follow that outlived its bound). Through `pnpm --silent` (D18) the code reaches the shell unchanged (the reviewer's spike: 3 propagates). `up` exits 0 after a requested stop in which every child exited with code 0, and 1 when it refused to start, a child failed to become ready, a child exited on its own, or a child had to be killed or survived `SIGKILL`.
 
 **D17. The CLI reads the config.** *Recommend:* every `factory` command except `up` fills `FACTORY_CONTROLLER_URL` and `FACTORY_STATE_DIR` from the config when the environment leaves them unset; the environment wins when set, and a disagreement prints one `stderr` line naming both values. The config is `--config <path>`, else `FACTORY_CONFIG`, else `examples/software-factory/factory.config.ts` when it exists; `FACTORY_CONFIG=none` reads none (the existing CLI tests set it, so the committed file never leaks into them); a named file that is missing or invalid refuses. `up` does not fill: it refuses a disagreement (D7). This removes the §7 row "export of URL and state dir, an alias", with D18's script.
 
-**D18. How `pnpm factory` is spelled.** *Recommend:* a new orchestration-only `examples/software-factory/package.json` (`private: true`, not a workspace member, the precedent of `examples/chat` and `examples/research`) whose `factory` script is `pnpm --filter @b4-example/software-factory-controller factory`. So from `examples/software-factory`, `pnpm factory up` and `pnpm factory run …` are exactly the spec's commands, and from the repository root `pnpm --dir examples/software-factory factory …`. Not a root `package.json` script: the root scripts feed the release-owner reachability analysis (AGENTS.md, "Every final-workflow-reachable release script is content-pinned") and gain nothing here. The state directory `examples/software-factory/.factory` gets a new `.gitignore` (the repository root's `.factory`, which the manual runbook creates, is not ignored today: Today, row 8).
+**D18. How `pnpm factory` is spelled.** *Recommend (amended):* a new orchestration-only `examples/software-factory/package.json` (`private: true`, not a workspace member, the precedent of `examples/chat` and `examples/research`) whose `factory` script is `pnpm --silent --filter @b4-example/software-factory-controller factory`. `--silent` matters: without it pnpm prints its `> … factory` banner onto stdout ahead of the JSON and an `ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL` block on any non-zero exit (the reviewer's spike). So from `examples/software-factory`, `pnpm factory up` and `pnpm factory run …` are exactly the spec's commands, and from the repository root `pnpm --dir examples/software-factory factory …`. Not a root `package.json` script: the root scripts feed the release-owner reachability analysis (AGENTS.md, "Every final-workflow-reachable release script is content-pinned") and gain nothing here. The state directory `examples/software-factory/.factory` and the checkout lock `.up.lock` get a new `.gitignore` (the repository root's `.factory`, which the manual runbook creates, is not ignored today: Today, row 8), and so does `factory.config.local.ts`: two checkouts (worktrees) on one host need different ports, and the README tells the second to copy the config there and point `FACTORY_CONFIG` at it.
 
 **D19. `run --task <id>`.** *Recommend:* include it. A catalog work order skips intake (rung 3 §6.1), so it is the same loop with one gate, and it is how the export gate, resuming and the "done" answer are tested against the served controller without a devkit build. Cost: a dozen lines.
 
-**D20. A budget warning at the intake gate.** *Recommend:* `factory review` (and so `run`) prints a loud warning at an intake review when the work order's remaining active budget is below twice its drafted target's `verifierDeadlineMs`: `dispatch` will refuse that work order after the person approves (`factory.ts:488-531`), and an issue work order learns its target only at intake, so `create` cannot warn (it journals the shortfall for catalog tasks only). The quickstart's own issue is the case: the `cli` target verifies for up to an hour, so a default 20-minute budget is refused at dispatch after a person spent a review on the draft. The rule is extracted from `factory.ts` into `budget.ts` (`budgetShortfallFor`) so both use one function. A warning, not a refusal: approving is still the person's call, and the README sizes the budget. `up` does not set `FACTORY_MAX_ACTIVE_MS`; the README's quickstart sets it for the `cli` target.
+**D20. A budget warning at the intake gate.** *Recommend:* `factory review` (and so `run`) prints a loud warning at an intake review when the work order's remaining active budget is below twice its drafted target's `verifierDeadlineMs`: `dispatch` will refuse that work order after the person approves (`factory.ts:488-531`), and an issue work order learns its target only at intake, so `create` cannot warn (it journals the shortfall for catalog tasks only). The quickstart's own issue is the case: the `cli` target verifies for up to an hour, so a default 20-minute budget is refused at dispatch after a person spent a review on the draft. The rule is extracted from `factory.ts` into `budget.ts` (`budgetShortfallFor`) so both use one function. A warning, not a refusal: approving is still the person's call. Its remedy reads "reject or cancel it, restart `pnpm factory up` with `FACTORY_MAX_ACTIVE_MS=<n>` or more, and run it again with `--new`" (the budget is the controller's, fixed on the row at create). `up` does not set `FACTORY_MAX_ACTIVE_MS`; the README's quickstart sets it for the `cli` target.
 
 **D21. One PR.** *Recommend:* one PR, `blove/factory-up-run`, Tasks 1-11 (M: two new modules and a CLI command in one package, plus docs). It could split after Task 6 (`run` without `up`, the config and the CLI defaults) if review prefers; the halves share only the config module.
 
-**D22. A live replay before merge.** *Recommend:* yes, by hand (Task 12): `pnpm factory up` with `FACTORY_MAX_ACTIVE_MS=18000000`, then `pnpm factory run --issue 714 --pin 765e6e16fec86bba0859d3f85edf7136f663f720`, **Brian at both gates**. It costs one drafter intake and one builder turn of model tokens (finding 27's run was 17 builder calls; findings 11 and 15 put a drafter attempt at up to ~1.5M input tokens) and about an hour of verification, and it is the only proof that the quickstart the spec promises works as typed. An agent executing Task 12 stops at each gate and shows Brian the display; it never approves (Trap 4).
+**D22. A live replay before merge.** *Recommend (amended):* yes, by hand (Task 12): `pnpm factory up` with `FACTORY_MAX_ACTIVE_MS=18000000` and `FACTORY_APPROVAL_TTL_MS=86400000` (D24), then `pnpm factory run --issue 714 --pin 765e6e16fec86bba0859d3f85edf7136f663f720`, **Brian at both gates**. It costs one drafter intake and one builder turn of model tokens (finding 27's run was 17 builder calls; findings 11 and 15 put a drafter attempt at up to ~1.5M input tokens) and about an hour of verification, and it is the only proof that the quickstart the spec promises works as typed. An agent executing Task 12 stops at each gate and shows Brian the display; it never approves (Trap 4). It must not share a checkout with another live `up` (D12).
+
+**D23. Test-environment isolation.** *Recommend (added after review):* both controller vitest configs set `test.env: { FACTORY_CONFIG: "none" }`, so no test process, and no CLI a test spawns (they inherit the worker's environment), ever reads the committed `factory.config.ts`. `boot`'s own `FACTORY_CONFIG: "none"` alone was not enough: the `builder-handoff` tests (`test/cli.test.ts:~1183`, `~1280`) spawn the CLI without `FACTORY_STATE_DIR` on purpose, and the committed config would fill it and stage captures into the developer's live `examples/software-factory/.factory`. A test that wants a config names one (`FACTORY_CONFIG=<temp file>`), as Task 3's and Task 9's do.
+
+**D24. The export bundle's approval window.** *Recommend (added after review):* a frozen bundle expires `FACTORY_APPROVAL_TTL_MS` after it parked (default 15 minutes; `approve` refuses "Review bundle has expired; deny or cancel it", `factory.ts:1525-1528`), and there is no re-freeze (README:630-634). A person who steps away from `run` for 16 minutes loses a verified candidate. So: the quickstart and Task 12 set `FACTORY_APPROVAL_TTL_MS=86400000` beside `FACTORY_MAX_ACTIVE_MS` (waiting on a person is not active time, so a long window costs no budget); `up` records the controller's effective `approvalTtlMs` and `maxActiveMs` (the environment's value or the controller's default; no secrets) in its lock, where `run` reads them; the export gate prints when the bundle parked (`awaitingSince`) and when it expires (or "the controller's window is unknown; its default is 15 minutes" without a lock); and `run` never prompts for an expired bundle: `nextStep` answers `stop` with the deny and cancel commands when the known window has passed, and an approval refused as expired (a window `run` did not know) stops the same way instead of prompting again.
+
+**D25. The interactive test seam is guarded.** *Recommend (added after review):* `interactive()` (shared by `review` and `run`) is true when stdin **and stderr** are TTYs; `FACTORY_CLI_INTERACTIVE=1` makes it true only when `VITEST` is also set (vitest sets it in its workers, and the CLI children the tests spawn inherit it), and then the CLI prints `!!! TEST SEAM: FACTORY_CLI_INTERACTIVE answers the approval prompt from a pipe !!!` on stderr. So an exported `FACTORY_CLI_INTERACTIVE=1` in an operator's shell cannot turn a piped `run` into one that reads an approval from a script.
 
 ## Today, verified
 
@@ -84,7 +92,7 @@ Each §7 claim, and each fact `up` and `run` rest on, re-located at `17f16ea6`. 
 | 3 | `worker: { url, token: { env } }` | The token is only a bearer check: workers require `FACTORY_WORKER_TOKEN` (≥ 32 characters, no whitespace; `server/src/thread-access.ts:26-37`, same copy in `drafter/`), the controller the same (`config.ts:75-80`). Uploads are stamped `controller`, not by token value. The CLI talks only to the controller, which has no authorization (README:163-166) | Yes; nothing needs a persisted token (D5) |
 | 4 | "`factory reconcile` after a controller restart (no boot hook): not removed" | No boot hook (`controller/src/app/reconcile/index.ts:5`); `setup` opens the Factory on the first route request (`controller/src/middleware.ts:9-17`, `lib/runtime.ts:78-82`), and opening runs `reconcileAll` (`factory.ts:1976-1979`); the route runs it again (`reconcile/index.ts:6-17`). README:533-539 tells the operator to run it after a restart | Yes for the app; `up` removes the operator step (D9) |
 | 5 | Items 1-3 landed ("possible only once items 1 to 3 land") | README:28-33 (one builder for every target and pin), :43-51 (staged workspaces over the worker's port), :244-254 (`sandbox.workspaceRead: "http"`); retired variables refused by name (`config.ts:138-157`, loaded at `:164-168`). Spec §1-§3 carry no "As landed" note; the README is the record | Yes |
-| 6 | `b4 start` can serve each app | `packages/cli/src/commands/start.ts:15-17` (binds `0.0.0.0:8000` by default), `:44-51` (`serveRuntime`, `installSignalHandlers: true`); `serve-runtime.ts:94-95` (`HOST`/`PORT` fallbacks); no `.env` loading (`b4 dev` loads one, `dev.ts:16-19`). **Spike at `17f16ea6`:** each app started with `node_modules/.bin/b4 start --host 127.0.0.1 --port <p>` from its root; `/readyz` answered 200 with `checkpointer`, `permissionsStore`, `threadsStore` ok on all three; the builder booted without `FACTORY_BUILDER_LANE`; the drafter answered 403 to an unauthenticated `POST /threads`; `POST /threads/controller/runs/wait {"route":"/reconcile#workflow"}` answered `{"ok":true,"message":"Reconciled"}` and created `registry.sqlite` and `images.sqlite`; after `SIGTERM` the drafter and builder exited within 2 s and the controller in about 6 to 7 s; no process or listener survived | Yes |
+| 6 | `b4 start` can serve each app | `packages/cli/src/commands/start.ts:15-17` (binds `0.0.0.0:8000` by default), `:44-51` (`serveRuntime`, `installSignalHandlers: true`); `serve-runtime.ts:94-95` (`HOST`/`PORT` fallbacks); no `.env` loading (`b4 dev` loads one, `dev.ts:16-19`). **Spike at `17f16ea6`:** each app started with `node_modules/.bin/b4 start --host 127.0.0.1 --port <p>` from its root; `/readyz` answered 200 with `checkpointer`, `permissionsStore`, `threadsStore` ok on all three; the builder booted without `FACTORY_BUILDER_LANE`; the drafter answered 403 to an unauthenticated `POST /threads`; `POST /threads/controller/runs/wait {"route":"/reconcile#workflow"}` answered `{"ok":true,"message":"Reconciled"}` and created `registry.sqlite` and `images.sqlite`; after `SIGTERM` the drafter and builder exited within 2 s and the controller in about 6 to 7 s; no process or listener survived. The controller's `.b4/` held only its stores (no `build/`) and `b4 start` served it: it reads source, not build output (`apps/web/content/docs/cli.mdx:125`), so no `b4 build` is needed; a checkout with no `.b4/` at all was not tried (Task 9 Step 3). The spike sent SIGTERM only; the review then showed a SIGINT followed by a SIGTERM kills a closing child (Trap 8) | Yes |
 | 7 | Liveness and readiness | `GET /healthz` touches no store; `GET /readyz` probes the durable stores (`packages/cli/src/lib/dev/runtime-fetch-core.ts:1456-1485`). The controller's Factory is not opened by either | Yes (so D9 sends the reconcile) |
 | 8 | The state directory | README:435 and :470 use `$PWD/.factory` from the repository root; `git check-ignore .factory` finds no rule at the root. Only `controller/.gitignore`, `server/.gitignore`, `drafter/.gitignore` ignore `.factory/` | Gap: the manual runbook's state is untracked-but-not-ignored (D18) |
 | 9 | `pnpm factory` | No `factory` script at the root (`package.json:20-69`); the controller's `factory` script is `tsx src/cli.ts` (`controller/package.json:12`). `examples/chat/package.json` and `examples/research/package.json` are orchestration-only and not workspace members (`pnpm-workspace.yaml`: `examples/*/*`) | No root script (D18) |
@@ -114,7 +122,7 @@ Each §7 claim, and each fact `up` and `run` rest on, re-located at `17f16ea6`. 
 
 ## PR split
 
-- **One PR — `up` and `run`** (`blove/factory-up-run`, Tasks 1-11; Task 12 by hand before merge). Example-only: `controller/src/lib/operator/{factory-config,run-steps,up}.ts` (new), `controller/src/cli.ts`, `controller/src/lib/controller/{budget,factory}.ts` (the extracted budget rule), `controller/tsconfig.json`, tests, `examples/software-factory/{factory.config.ts,package.json,.gitignore}` (new), the README and the spec's §7 as-landed note.
+- **One PR — `up` and `run`** (`blove/factory-up-run`, Tasks 1-11; Task 12 by hand before merge). Example-only: `controller/src/lib/operator/{factory-config,run-steps,up}.ts` (new), `controller/src/cli.ts`, `controller/src/lib/controller/{budget,factory}.ts` (the extracted budget rule), `controller/tsconfig.json`, both controller vitest configs, tests, `examples/software-factory/{factory.config.ts,package.json,.gitignore}` (new), the README and the spec's §7 as-landed note.
 
 No changeset: examples only. No release-pinned script and no workflow file is touched (the new Docker lane is picked up by `test:sandbox`'s `test/**/*.integration.test.ts` glob, `controller/vitest.sandbox.config.ts:6`). No `apps/web` content, so no `seo:lastmod`.
 
@@ -126,14 +134,15 @@ All paths are relative to `examples/software-factory/controller/` unless they st
 |---|---|
 | `examples/software-factory/factory.config.ts` (new) | The committed config (D1, D2) |
 | `examples/software-factory/package.json` (new) | Orchestration-only `factory` script (D18) |
-| `examples/software-factory/.gitignore` (new) | `.factory/` |
+| `examples/software-factory/.gitignore` (new) | `.factory/`, `.up.lock`, `factory.config.local.ts` |
 | `src/lib/operator/factory-config.ts` (new) | `FactoryUpConfig`, `parseFactoryConfig`, `loadFactoryConfig`, `factoryConfigPath`, `applyConfigDefaults`, `ownedVariableConflicts`, the example's paths and app names |
-| `src/lib/operator/run-steps.ts` (new) | `RunStep`, `nextStep`, `chooseWorkOrder`, `runAgainArgs`, `RUN_WAITING_ON_A_PERSON` |
-| `src/lib/operator/up.ts` (new) | `workerTokenFor`, `openaiKeyFor`, `appProcesses`, `b4Start`, `preflight`, the lock, `up`, `realUpDeps`, `portFree` |
+| `src/lib/operator/run-steps.ts` (new) | `RunStep`, `RunContext`, `bundleExpired`, `nextStep`, `chooseWorkOrder`, `runAgainArgs`, `RUN_WAITING_ON_A_PERSON` |
+| `src/lib/operator/up.ts` (new) | `UP`, `workerTokenFor`, `openaiKeyFor`, `dotenvCandidates`, `appProcesses`, `b4Start`, `preflight`, `commandOf`, the locks, `controllerSettings`, `up`, `realUpDeps`, `portFree` |
 | `src/lib/controller/budget.ts` | `budgetShortfallFor` (extracted) |
 | `src/lib/controller/factory.ts` | `budgetShortfall` calls it |
 | `src/cli.ts` | Config defaults at start; `reviewOutcome` (review returns its outcome); the intake budget warning; `run`; `up`; usage |
 | `tsconfig.json` | Includes `../factory.config.ts` |
+| `vitest.config.ts`, `vitest.sandbox.config.ts` | `test.env: { FACTORY_CONFIG: "none" }` (D23) |
 | `test/factory-config.test.ts` (new) | The schema, near-misses, paths, defaults, conflicts, the committed file |
 | `test/run-steps.test.ts` (new) | Every state's step; no approval step exists; `chooseWorkOrder` |
 | `test/cli.test.ts` | `FACTORY_CONFIG=none` in `boot`; `run` and the budget warning, in the existing `describe("cli")` |
@@ -152,7 +161,7 @@ All paths are relative to `examples/software-factory/controller/` unless they st
 5. **The OpenAI key.** Never printed, logged, written to the lock, echoed in a test assertion's failure message, or committed. `up` reads only the `OPENAI_API_KEY=` line of `.env`. Tests use the literal `sk-not-a-real-key-for-tests` and assert it never reaches stdout, stderr or the controller's environment. Do not `cat` `.env`.
 6. **`b4 start` binds `0.0.0.0` by default and reads `HOST`/`PORT`.** Always pass `--host 127.0.0.1 --port <p>`, and delete `HOST` and `PORT` from the children's environment. The controller has no authorization.
 7. **Do not use `b4 dev` under `up`.** It loads `./.env` from the app root and restarts on writes it does not ignore (spec §9 findings 4, 21).
-8. **One Ctrl-C, several recipients.** Under `pnpm factory up` the foreground process group holds `pnpm`, `pnpm`, `tsx`, `up` and the three children; a terminal's `SIGINT` reaches all of them, and a relay may deliver it to `up` twice. Hence D11: children in `up`'s group (they stop on the terminal's signal even if `up` is killed), and "second signal" means more than a second after the first. Verify by hand in Task 12 that one Ctrl-C leaves no survivor (`ps -Ao pid,command | grep -E 'b4.js start'`).
+8. **One signal per child, and only from `up` (review C1).** `b4 start`'s handlers are `process.once`, and its `close()` removes both (`packages/cli/src/lib/dev/serve-runtime.ts:116-137`): a second signal while it closes takes the default action and kills it mid-close. So children are detached (their own process groups, out of the terminal's reach), `up` sends each exactly one `SIGTERM` to its pid and, only after the grace, `SIGKILL` to its group. Under `pnpm factory up` the terminal's foreground group holds `pnpm`, `pnpm`, `tsx` and `up`; a relay may deliver one Ctrl-C to `up` twice, hence "second signal" means more than a second after the first. If `pnpm` or `tsx` kills `up` outright, the detached children survive: D12's orphan check is the net. Verify by hand in Task 12 that one Ctrl-C through `pnpm factory up` lets `up` finish its ordered stop and every child exits with code 0 (`ps -Ao pid,command | grep -E 'b4.js start'` shows nothing of this checkout's).
 9. **The controller exits slowly.** About 6 to 7 s after `SIGTERM` in the spike (its Factory's close is bounded at 10 s): the stop grace is 20 s, and tests that stop the real controller budget 60 s.
 10. **Kill by pid, verify, never `pkill -f`.** Other sessions on this host run B4 processes. `up` signals only the pids it spawned and checks each with `process.kill(pid, 0)`. Tests do the same.
 11. **`readline` over a pipe.** `ask` opens one interface per prompt; on a pipe the first interface can buffer the second answer and drop it on close. Tests that answer two gates write each answer only after its prompt appears on stderr (the existing `interactive` helper's pattern, `test/cli.test.ts:816-846`).
@@ -165,6 +174,11 @@ All paths are relative to `examples/software-factory/controller/` unless they st
 18. **No destructive Docker.** `up` runs `docker info` and `docker image inspect` only. It never pulls, prunes or removes; the lanes do not either.
 19. **CI's 30-minute `sandbox-docker` budget.** The new lane starts three apps and stops them (about a minute). Record its wall clock in the PR description; if the job nears its budget, stop and ask (raising `timeout-minutes` edits `ci.yml`, which moves both audited workflow fixtures).
 20. **`openRegistryReader` throws on a missing file.** `run`'s first lookup on a fresh state directory must treat "no registry" as "no work orders", not an error.
+21. **The apps' runtime stores live in their app roots.** Each app's `.b4/` (threads, checkpoints, managed workspaces) is under its own root, whatever `state` says; the spike created them there on first boot. So one `up` per checkout (D12's checkout lock), and never run Task 9's lane beside a live `up` in the same checkout (the lock refuses it).
+22. **The committed config reaches every CLI a test spawns unless the tests say otherwise.** Both vitest configs set `FACTORY_CONFIG=none` (D23); a test that forgets to name its own config then gets today's behaviour, never the developer's live `.factory`.
+23. **A frozen bundle expires** after `FACTORY_APPROVAL_TTL_MS` (15 minutes by default) and cannot be re-frozen (D24). Set `FACTORY_APPROVAL_TTL_MS=86400000` for any run a person will review.
+24. **A closed stdout must not end `up`.** `up | head` gets `EPIPE` on the next write; an unhandled `'error'` on `process.stdout` would crash `up` and orphan the detached children. `up` handles it by writing to the log files only (Task 8).
+25. **`b4.js` exists before the package is built.** The bin is a committed file that imports `../dist/index.js`; preflight checks each app's `node_modules/@b4run/cli/dist/index.js`, which only a build produces.
 
 ---
 
@@ -611,11 +625,22 @@ git commit -m "feat(software-factory): the CLI's controller and state default fr
 
 **Files:**
 - Modify: `src/cli.ts`
+- Modify: `vitest.config.ts`, `vitest.sandbox.config.ts` (`test.env`, D23)
 - Modify: `test/cli.test.ts` (`boot` sets `FACTORY_CONFIG=none`; one new test)
 
 - [ ] **Step 1: Write the failing test**
 
-In `test/cli.test.ts`, change `boot`'s environment (`:71-75`) so no committed config reaches any existing test:
+First isolate every test process, and every CLI a test spawns, from the committed config (D23). In **both** `vitest.config.ts` and `vitest.sandbox.config.ts`, add to `test`:
+
+```ts
+    // No test, and no CLI a test spawns (it inherits this environment), reads the committed
+    // factory.config.ts: the builder-handoff tests spawn the CLI without FACTORY_STATE_DIR on
+    // purpose, and the config would fill it with the developer's live .factory. A test that
+    // wants a config names its own.
+    env: { FACTORY_CONFIG: "none" },
+```
+
+Then, belt and braces for a file run outside vitest's config, in `test/cli.test.ts`, change `boot`'s environment (`:71-75`):
 
 ```ts
   const env = {
@@ -722,18 +747,18 @@ examples/software-factory/factory.config.ts when it exists (FACTORY_CONFIG=none 
 
 - [ ] **Step 4: Run the CLI tests**
 
-Run: `pnpm --filter @b4-example/software-factory-controller exec vitest run test/cli.test.ts`
-Expected: PASS, every existing test unchanged plus the new one.
+Run: `pnpm --filter @b4-example/software-factory-controller exec vitest run test/cli.test.ts && git status --short examples/software-factory/.factory`
+Expected: PASS, every existing test unchanged plus the new one; and `git status` shows nothing new (no test wrote into the live state directory; it is ignored after Task 10, so before Task 10 check `ls examples/software-factory/.factory` reports no such directory).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 pnpm --filter @b4-example/software-factory-controller exec biome check --write src/cli.ts test/cli.test.ts
-git add examples/software-factory/controller/src/cli.ts examples/software-factory/controller/test/cli.test.ts
+git add examples/software-factory/controller/src/cli.ts examples/software-factory/controller/test/cli.test.ts examples/software-factory/controller/vitest.config.ts examples/software-factory/controller/vitest.sandbox.config.ts
 git commit -m "feat(software-factory): every factory command reads the config's controller and state"
 ```
 
-### Task 4: `review` returns its outcome, and warns about a budget dispatch would refuse
+### Task 4: `review` returns its outcome, warns about a budget dispatch would refuse, and guards its test seam
 
 **Files:**
 - Modify: `src/lib/controller/budget.ts`, `src/lib/controller/factory.ts:488-512`
@@ -774,6 +799,24 @@ In `test/cli.test.ts`, inside `describe("cli", …)` next to the intake review t
     expect(shown.stderr).toContain("dispatch will refuse it after you approve")
     // Only a warning: the review still says what a person must do to approve.
     expect(JSON.parse(shown.stdout).message).toContain("--approve --digest")
+  }, 90_000)
+
+  it("honours the interactive test seam only under vitest, and says so loudly (D25)", async () => {
+    const { cli, env } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
+    const { id } = await parkedIntake(cli, "create-cli-seam")
+    const { VITEST, ...outsideVitest } = env
+    // An operator's exported seam on a pipe: no prompt, nothing sent.
+    const piped = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "review", id, "--allow-missing-evidence"], {
+        env: { ...outsideVitest, FACTORY_CLI_INTERACTIVE: "1" },
+        cwd: packageRoot,
+      }),
+    )
+    expect(piped.stderr).not.toContain("first eight hex digits")
+    expect(JSON.parse(piped.stdout).message).toContain("--approve --digest")
+    // Under vitest the seam works, and announces itself.
+    const seam = await interactive(env, ["review", id, "--allow-missing-evidence"], "00000000")
+    expect(seam.stderr).toContain("!!! TEST SEAM: FACTORY_CLI_INTERACTIVE")
   }, 90_000)
 ```
 
@@ -914,7 +957,27 @@ function intakeBudgetWarning(row: WorkOrderRow): string | undefined {
   }
   const shortfall = budgetShortfallFor(row, verifierDeadlineMs)
   if (shortfall === undefined) return undefined
-  return `This work order has ${Math.max(0, shortfall.remainingMs)} ms of active budget left, below twice target ${row.targetId}'s verifier deadline (${verifierDeadlineMs} ms): dispatch will refuse it after you approve. Reject it (or cancel it) and create it again under FACTORY_MAX_ACTIVE_MS=${shortfall.neededMs} or more (the README sizes it per target)`
+  return `This work order has ${Math.max(0, shortfall.remainingMs)} ms of active budget left, below twice target ${row.targetId}'s verifier deadline (${verifierDeadlineMs} ms): dispatch will refuse it after you approve. Reject or cancel it, restart pnpm factory up with FACTORY_MAX_ACTIVE_MS=${shortfall.neededMs} or more (the README sizes it per target), and run it again with --new`
+}
+```
+
+Guard the seam (D25): replace `interactive()` (`cli.ts:634-636`) with
+
+```ts
+/**
+ * Whether a review may ask: a person at a terminal, reading the display on stderr, types the
+ * prefix. `FACTORY_CLI_INTERACTIVE=1` answers from a pipe only inside vitest (whose workers set
+ * VITEST, which the CLIs they spawn inherit), and says so, so an exported seam in an operator's
+ * shell never lets a script answer an approval prompt.
+ */
+function interactive(): boolean {
+  if (process.env.FACTORY_CLI_INTERACTIVE === "1" && process.env.VITEST) {
+    process.stderr.write(
+      "!!! TEST SEAM: FACTORY_CLI_INTERACTIVE answers the approval prompt from a pipe !!!\n",
+    )
+    return true
+  }
+  return process.stdin.isTTY === true && process.stderr.isTTY === true
 }
 ```
 
@@ -928,7 +991,7 @@ Expected: PASS, every existing `review` test unchanged (their stdout JSON and ex
 ```bash
 pnpm --filter @b4-example/software-factory-controller exec biome check --write src/cli.ts src/lib/controller/budget.ts src/lib/controller/factory.ts test/budget.test.ts test/cli.test.ts
 git add examples/software-factory/controller/src/cli.ts examples/software-factory/controller/src/lib/controller/budget.ts examples/software-factory/controller/src/lib/controller/factory.ts examples/software-factory/controller/test/budget.test.ts examples/software-factory/controller/test/cli.test.ts
-git commit -m "feat(software-factory): review returns its outcome and warns of a budget dispatch would refuse"
+git commit -m "feat(software-factory): review returns its outcome, warns of a doomed budget, guards its test seam"
 ```
 
 ### Task 5: The step table: what `run` does next, with no way to approve
@@ -1018,6 +1081,27 @@ describe("nextStep", () => {
       "cancel_requested",
     ] as const)
       expect(at(state).kind).toBe("follow")
+  })
+
+  it("never prompts for an expired bundle (D24)", () => {
+    const parked = issueRow({ state: "awaiting_approval", awaitingSince: "2026-09-28T00:00:00.000Z" })
+    const t0 = Date.parse("2026-09-28T00:00:00.000Z")
+    expect(nextStep(parked, [], { now: t0 + 1_000, approvalTtlMs: 900_000 })).toEqual({
+      kind: "gate",
+      gate: "export",
+    })
+    const late = nextStep(parked, [], { now: t0 + 900_001, approvalTtlMs: 900_000 })
+    expect(late).toMatchObject({ kind: "stop", message: expect.stringContaining("has expired") })
+    expect(JSON.stringify(late)).toContain("--reject")
+    expect(JSON.stringify(late)).toContain("pnpm factory cancel")
+    // A window run did not know: the controller's refusal says so, and run stops asking.
+    const refused = [
+      { type: "transition", payload: { event: "receipt_passed", to: "awaiting_approval" } },
+      { type: "approve_refused", payload: { message: "Review bundle has expired; deny or cancel it" } },
+    ]
+    expect(nextStep(parked, refused, { now: t0 }).kind).toBe("stop")
+    // A refusal from an earlier parking does not count once the row parked again.
+    expect(nextStep(parked, [...refused, refused[0] as (typeof refused)[number]], { now: t0 }).kind).toBe("gate")
   })
 
   it("is done only when exported", () => {
@@ -1114,9 +1198,44 @@ export function runAgainArgs(row: Pick<WorkOrderRow, "origin" | "pin" | "taskId"
   return `--issue ${row.origin.number} --repo ${row.origin.repository}${pin}`
 }
 
+/** What `run` knows besides the row: the time, and the controller's approval window if `up` recorded it. */
+export interface RunContext {
+  readonly now: number
+  /** The controller's `FACTORY_APPROVAL_TTL_MS` as `up` recorded it; undefined when unknown. */
+  readonly approvalTtlMs?: number
+}
+
+/**
+ * Whether the parked bundle can no longer be approved (D24): the known window has passed, or an
+ * approval was refused as expired since the row last entered `awaiting_approval` (a window run
+ * did not know). Either way prompting a person again would only be refused.
+ */
+export function bundleExpired(
+  row: Pick<WorkOrderRow, "awaitingSince">,
+  events: readonly Pick<FactoryEvent, "type" | "payload">[],
+  context: RunContext,
+): boolean {
+  const since = row.awaitingSince === null ? Number.NaN : Date.parse(row.awaitingSince)
+  if (context.approvalTtlMs !== undefined && Number.isFinite(since))
+    if (context.now > since + context.approvalTtlMs) return true
+  let parked = -1
+  events.forEach((event, index) => {
+    if (event.type === "transition" && event.payload.to === "awaiting_approval") parked = index
+  })
+  return events
+    .slice(parked + 1)
+    .some(
+      (e) =>
+        e.type === "approve_refused" &&
+        typeof e.payload.message === "string" &&
+        e.payload.message.includes("has expired"),
+    )
+}
+
 export function nextStep(
   row: WorkOrderRow,
   events: readonly Pick<FactoryEvent, "type" | "payload">[],
+  context: RunContext = { now: Date.now() },
 ): RunStep {
   const id = row.id
   const state = row.state
@@ -1138,6 +1257,16 @@ export function nextStep(
     case "awaiting_intake_approval":
       return { kind: "gate", gate: "intake" }
     case "awaiting_approval":
+      if (bundleExpired(row, events, context))
+        return {
+          kind: "stop",
+          message: `The review bundle parked at ${row.awaitingSince ?? "an unknown time"} has expired (FACTORY_APPROVAL_TTL_MS) and cannot be re-frozen`,
+          next: [
+            `pnpm factory review ${id} --reject --note "expired"`,
+            `pnpm factory cancel ${id}`,
+            `pnpm factory run ${runAgainArgs(row)} --new`,
+          ],
+        }
       return { kind: "gate", gate: "export" }
     case "exported":
       return { kind: "done" }
@@ -1197,7 +1326,7 @@ export function chooseWorkOrder(rows: readonly WorkOrderRow[], fresh: boolean): 
 - [ ] **Step 4: Run the test**
 
 Run: `pnpm --filter @b4-example/software-factory-controller exec vitest run test/run-steps.test.ts && pnpm --filter @b4-example/software-factory-controller typecheck`
-Expected: PASS (12 tests); typecheck clean (the `never` default proves the switch covers `STATES`).
+Expected: PASS (13 tests); typecheck clean (the `never` default proves the switch covers `STATES`). Check the `transition` payload's key for the target state against `factory.ts:389` (`{ event, from, to, ...payload }`): it is `to`.
 
 - [ ] **Step 5: Commit**
 
@@ -1312,7 +1441,8 @@ Then the tests:
     expect(out).toMatchObject({ ok: false, state: "awaiting_intake_approval", gate: "intake" })
     const id = out.row.id as string
     expect(out.next).toContain(`pnpm factory review ${id}`)
-    // No command run prints carries a digest: approving means reading it off the display.
+    // The NEXT commands run prints are digest-free (the row in the JSON carries the digest, as
+    // `show` does): approving means a person running a review.
     expect(JSON.stringify(out.next)).not.toMatch(/[a-f0-9]{64}/)
     // The display is review's own, and so is the digest it names.
     const shown = await failing(spawn("review", id, "--allow-missing-evidence").promise)
@@ -1415,6 +1545,42 @@ Then the tests:
     expect(rows(stateDir)).toHaveLength(2)
   }, 120_000)
 
+  it("run stops at an expired bundle with the deny and cancel commands, and never asks again (D24)", async () => {
+    // A 1 ms window: the bundle has expired by the time anyone could type.
+    const { env, stateDir } = await boot({}, {}, { FACTORY_APPROVAL_TTL_MS: "1" })
+    const target = loadTask("cli-flags").target
+    const { stdout: pinned } = await run("git", [
+      "-C",
+      packageRoot,
+      "show",
+      `${target.pin}:${target.root}/src/cli.ts`,
+    ])
+    served?.workspace.set(FIRST_THREAD, {
+      "src/cli.ts": pinned.replace(
+        "await program.parseAsync(process.argv)",
+        'await program.parseAsync(process.argv, { from: "node" })',
+      ),
+      "test/cli.test.ts": "spec\n",
+      "TASK.md": "task\n",
+    })
+    let prompts = 0
+    const expired = await interactiveRun(
+      env,
+      ["--task", "cli-flags", "--allow-missing-evidence"],
+      () => {
+        prompts += 1
+        return (rows(stateDir)[0]?.bundleDigest ?? "").slice(0, 8)
+      },
+    )
+    expect(prompts).toBe(1)
+    expect(expired.code).toBe(1)
+    expect(expired.stderr).toContain("the controller's approval window is unknown")
+    const out = JSON.parse(expired.stdout)
+    expect(out.message).toContain("has expired")
+    expect(out.next).toEqual(expect.arrayContaining([`pnpm factory cancel ${out.row.id}`]))
+    expect(out.row.state).toBe("awaiting_approval")
+  }, 120_000)
+
   it("run, interrupted, leaves the work going, and resumes following the same work order", async () => {
     const { env, stateDir } = await boot({}, { verifier: createFakeVerifier({ delayMs: 4_000 }) })
     const child = spawnChild(process.execPath, [tsxBin, cliEntry, "run", "--task", "cli-flags"], {
@@ -1463,7 +1629,7 @@ Expected: FAIL: `Unknown command run`.
 
 - [ ] **Step 3: Implement `run` in `src/cli.ts`**
 
-Imports:
+Imports (add `readFileSync` to the existing `node:fs` import):
 
 ```ts
 import {
@@ -1627,6 +1793,24 @@ function howToApprove(id: string): string {
   return `At a terminal, pnpm factory review ${id} shows it again and asks for the digest's first eight hex digits; without one, pnpm factory review ${id} --approve --digest <the digest shown above>. Then pnpm factory run ${id} carries on.`
 }
 
+/**
+ * The controller's approval window as `factory up` recorded it in its lock (D24), or undefined
+ * (no `up`, or a controller started by hand): `run` then learns an expiry from the refusal.
+ */
+function recordedApprovalTtlMs(): number | undefined {
+  const stateDir = process.env.FACTORY_STATE_DIR
+  if (!stateDir) return undefined
+  try {
+    const lock = JSON.parse(readFileSync(join(stateDir, "up.lock"), "utf8")) as {
+      controller?: { approvalTtlMs?: unknown }
+    }
+    const ttl = lock.controller?.approvalTtlMs
+    return typeof ttl === "number" && Number.isInteger(ttl) && ttl > 0 ? ttl : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** Where `run` ends: one JSON document on stdout, and the exit code. */
 function finish(outcome: unknown, code: number): number {
   print(outcome)
@@ -1684,7 +1868,11 @@ async function runCommand(
       if (!row) throw new Error(`Unknown work order ${workOrder}`)
       return { row, events: reader.events(workOrder) }
     })
-    const step = nextStep(row, events)
+    const approvalTtlMs = recordedApprovalTtlMs()
+    const step = nextStep(row, events, {
+      now: Date.now(),
+      ...(approvalTtlMs !== undefined ? { approvalTtlMs } : {}),
+    })
     /** A command that refused and moved nothing would be sent again forever (Trap 15). */
     const unmoved = () => read((reader) => reader.show(workOrder))?.revision === row.revision
     try {
@@ -1736,6 +1924,14 @@ async function runCommand(
           continue
         }
         case "gate": {
+          if (step.gate === "export") {
+            const since = row.awaitingSince ?? "an unknown time"
+            const expires =
+              approvalTtlMs !== undefined && row.awaitingSince !== null
+                ? `expires at ${new Date(Date.parse(row.awaitingSince) + approvalTtlMs).toISOString()} (FACTORY_APPROVAL_TTL_MS ${approvalTtlMs})`
+                : "the controller's approval window is unknown (FACTORY_APPROVAL_TTL_MS; its default is 15 minutes)"
+            process.stderr.write(`factory run: this bundle parked at ${since}; it ${expires}\n`)
+          }
           // The same function `factory review <id>` runs, with no digest and no approval flag:
           // the display, and at a terminal the person's typed prefix. Nothing else approves.
           const result = await reviewOutcome(workOrder, {
@@ -1747,7 +1943,11 @@ async function runCommand(
             allowMissingEvidence: values["allow-missing-evidence"],
           })
           if (result.kind === "sent") {
-            if (result.code !== 0) return finish(result.outcome, 1)
+            // Refused as expired: the journal now says so, and the next step is a stop with the
+            // deny and cancel commands, never another prompt (D24).
+            const refusal = (result.outcome as { message?: unknown }).message
+            if (result.code !== 0 && !(typeof refusal === "string" && refusal.includes("has expired")))
+              return finish(result.outcome, 1)
             continue
           }
           if (result.kind === "refused") return finish(result.outcome, 1)
@@ -1814,7 +2014,7 @@ and in `main`'s `switch`:
 - [ ] **Step 4: Run the tests**
 
 Run: `pnpm --filter @b4-example/software-factory-controller exec vitest run test/cli.test.ts`
-Expected: PASS, the four `run` tests and every existing test. If the interrupted-run test's resumed run settles at `awaiting_approval` on your machine (the reader stand-in answering for the thread), it exits 3; the assertion allows 1 or 3.
+Expected: PASS, the five `run` tests and every existing test. If the interrupted-run test's resumed run settles at `awaiting_approval` on your machine (the reader stand-in answering for the thread), it exits 3; the assertion allows 1 or 3.
 
 - [ ] **Step 5: Pin that `run` reaches approval only through the review** (append to `test/run-steps.test.ts`)
 
@@ -1858,7 +2058,7 @@ git commit -m "feat(software-factory): factory run carries a work order to each 
 
 ```ts
 // test/factory-up.test.ts
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
@@ -1866,6 +2066,8 @@ import { parseFactoryConfig } from "../src/lib/operator/factory-config.ts"
 import {
   acquireLock,
   appProcesses,
+  commandOf,
+  dotenvCandidates,
   openaiKeyFor,
   preflight,
   type UpDeps,
@@ -1873,25 +2075,28 @@ import {
 } from "../src/lib/operator/up.ts"
 
 const KEY = "sk-not-a-real-key-for-tests"
-let dir: string
+let dir: string | undefined
 afterEach(() => {
-  rmSync(dir, { recursive: true, force: true })
+  if (dir) rmSync(dir, { recursive: true, force: true })
+  dir = undefined
 })
 const fresh = () => {
-  dir = mkdtempSync(join(tmpdir(), "factory-up-"))
+  const root = mkdtempSync(join(tmpdir(), "factory-up-"))
+  dir = root
   return parseFactoryConfig(
     {
-      state: join(dir, "state"),
+      state: join(root, "state"),
       controller: { port: 47300 },
       builder: { port: 47100 },
       drafter: { port: 47200 },
     },
-    join(dir, "factory.config.ts"),
+    join(root, "factory.config.ts"),
   )
 }
 const deps = (patch: Partial<UpDeps> = {}): UpDeps => ({
   env: { OPENAI_API_KEY: KEY },
-  dotenvPath: join(dir, ".env"),
+  dotenvPaths: [join(dir ?? tmpdir(), ".env")],
+  checkoutLock: join(dir ?? tmpdir(), ".up.lock"),
   docker: { info: async () => undefined, imagePresent: async () => true },
   drafterImage: `node:24-slim@sha256:${"0".repeat(64)}`,
   portFree: async () => true,
@@ -1921,15 +2126,24 @@ describe("the worker token", () => {
 })
 
 describe("the model key", () => {
-  it("comes from the environment, else only its own line of .env", () => {
-    dir = mkdtempSync(join(tmpdir(), "factory-up-"))
-    const dotenv = join(dir, ".env")
-    expect(openaiKeyFor({ OPENAI_API_KEY: KEY }, dotenv)).toEqual({ key: KEY, source: "the environment" })
-    expect(openaiKeyFor({}, dotenv)).toBeUndefined()
-    writeFileSync(dotenv, `OTHER_SECRET=nope\nexport OPENAI_API_KEY="${KEY}"\n`)
-    expect(openaiKeyFor({}, dotenv)).toEqual({ key: KEY, source: dotenv })
-    writeFileSync(dotenv, "OPENAI_API_KEY=\n")
-    expect(openaiKeyFor({}, dotenv)).toBeUndefined()
+  it("comes from the environment, else only its own line of the first .env that exists", () => {
+    const root = mkdtempSync(join(tmpdir(), "factory-up-"))
+    dir = root
+    const linked = join(root, "linked.env") // a linked worktree's: absent
+    const main = join(root, "main.env") // the main worktree's
+    const paths = [linked, main]
+    expect(openaiKeyFor({ OPENAI_API_KEY: KEY }, paths)).toEqual({ key: KEY, source: "the environment" })
+    expect(openaiKeyFor({}, paths)).toBeUndefined()
+    writeFileSync(main, `OTHER_SECRET=nope\nexport OPENAI_API_KEY="${KEY}"\n`)
+    expect(openaiKeyFor({}, paths)).toEqual({ key: KEY, source: main })
+    writeFileSync(main, "OPENAI_API_KEY=\n")
+    expect(openaiKeyFor({}, paths)).toBeUndefined()
+  })
+
+  it("looks in this checkout, then the main worktree, never FACTORY_REPO_ROOT", () => {
+    const candidates = dotenvCandidates()
+    expect(candidates[0]).toMatch(/\.env$/)
+    expect(candidates.every((c) => !c.includes(process.env.FACTORY_REPO_ROOT ?? "\0"))).toBe(true)
   })
 })
 
@@ -2012,36 +2226,79 @@ describe("preflight", () => {
   })
 })
 
-describe("the state directory's lock", () => {
-  it("admits one up, refuses a second, and replaces a stale one", () => {
+describe("the locks", () => {
+  const settings = { approvalTtlMs: 86_400_000, maxActiveMs: 18_000_000 }
+  const stale = (config: ReturnType<typeof fresh>, children: Record<string, unknown>) =>
+    JSON.stringify({
+      up: { pid: 2 ** 22 + 1, command: "cli.ts up", startedAt: "x" },
+      ports: config.ports,
+      controller: settings,
+      children,
+    })
+
+  it("admits one up per state directory and per checkout, and records the controller's settings", () => {
     const config = fresh()
-    const first = acquireLock(config)
+    const checkout = join(dir as string, ".up.lock")
+    const first = acquireLock(config, settings, checkout)
     if ("refused" in first) throw new Error(first.refused)
-    const second = acquireLock(config)
-    expect(second).toMatchObject({ refused: expect.stringContaining("already running") })
+    // A second up on the same state, or in the same checkout with another state, refuses.
+    expect(acquireLock(config, settings, join(dir as string, "other.lock"))).toMatchObject({
+      refused: expect.stringContaining("already running"),
+    })
+    const elsewhere = parseFactoryConfig(
+      { state: join(dir as string, "state2"), controller: { port: 47301 }, builder: { port: 47101 }, drafter: { port: 47201 } },
+      join(dir as string, "factory.config.ts"),
+    )
+    expect(acquireLock(elsewhere, settings, checkout)).toMatchObject({
+      refused: expect.stringContaining("already running"),
+    })
+    // The refused second attempt released the state lock it had taken.
+    expect(existsSync(join(elsewhere.stateDir, "up.lock"))).toBe(false)
     const lock = join(config.stateDir, "up.lock")
+    const recorded = JSON.parse(readFileSync(lock, "utf8"))
+    expect(recorded.controller).toEqual(settings)
+    expect(recorded.up.pid).toBe(process.pid)
     expect(readFileSync(lock, "utf8")).not.toMatch(/[a-f0-9]{64}/)
     first.release()
     expect(existsSync(lock)).toBe(false)
-    // A dead up's lock with no live children is replaced.
-    writeFileSync(lock, JSON.stringify({ pid: 2 ** 22 + 1, startedAt: "x", ports: config.ports, children: {} }))
-    const third = acquireLock(config)
-    expect("refused" in third).toBe(false)
-    if (!("refused" in third)) third.release()
+    expect(existsSync(checkout)).toBe(false)
   })
 
-  it("refuses a stale lock whose children still run, naming them and never killing them", () => {
+  it("takes over a stale lock by rename, and treats a reused pid as not holding it", () => {
     const config = fresh()
+    const checkout = join(dir as string, ".up.lock")
     const lock = join(config.stateDir, "up.lock")
-    acquireLock(config) // creates the directory
-    rmSync(lock)
+    const first = acquireLock(config, settings, checkout)
+    if ("refused" in first) throw new Error(first.refused)
+    first.release()
+    // Dead pid.
+    writeFileSync(lock, stale(config, {}))
+    const second = acquireLock(config, settings, checkout)
+    if ("refused" in second) throw new Error(second.refused)
+    second.release()
+    // A live pid (this process) whose command line is not the recorded one: reused, not held.
     writeFileSync(
       lock,
-      JSON.stringify({ pid: 2 ** 22 + 1, startedAt: "x", ports: config.ports, children: { builder: process.pid } }),
+      JSON.stringify({ ...JSON.parse(stale(config, {})), up: { pid: process.pid, command: "no such command line", startedAt: "x" } }),
     )
-    const refused = acquireLock(config)
+    const third = acquireLock(config, settings, checkout)
+    if ("refused" in third) throw new Error(third.refused)
+    third.release()
+    expect(readdirSync(config.stateDir).filter((n) => n.includes("stale"))).toEqual([])
+  })
+
+  it("refuses a stale lock whose children still run as recorded, naming them and never killing them", () => {
+    const config = fresh()
+    const checkout = join(dir as string, ".up.lock")
+    const lock = join(config.stateDir, "up.lock")
+    const probe = acquireLock(config, settings, checkout) // creates the directory
+    if (!("refused" in probe)) probe.release()
+    const me = commandOf(process.pid) ?? ""
+    writeFileSync(lock, stale(config, { builder: { pid: process.pid, command: me.slice(0, 40) } }))
+    const refused = acquireLock(config, settings, checkout)
     expect(refused).toMatchObject({ refused: expect.stringContaining(`builder pid ${process.pid}`) })
-    expect(refused).toMatchObject({ refused: expect.stringContaining(`ps -p ${process.pid} -o command=`) })
+    expect(refused).toMatchObject({ refused: expect.stringContaining(`ps -ww -p ${process.pid} -o command=`) })
+    expect(process.kill(process.pid, 0)).toBe(true)
   })
 })
 ```
@@ -2142,7 +2399,7 @@ Expected: `factory-up.test.ts` FAILS (`up.ts` does not exist); `operator-boundar
 
 ```ts
 // src/lib/operator/up.ts
-import { type ChildProcess, execFile, spawn } from "node:child_process"
+import { type ChildProcess, execFile, execFileSync, spawn } from "node:child_process"
 import { randomBytes } from "node:crypto"
 import {
   appendFileSync,
@@ -2151,17 +2408,18 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
   writeSync,
 } from "node:fs"
 import { connect, createServer } from "node:net"
-import { join, resolve } from "node:path"
+import { basename, dirname, join, resolve } from "node:path"
 import { createInterface } from "node:readline"
 import { setTimeout as sleep } from "node:timers/promises"
 import { promisify } from "node:util"
 import { ControllerHttpError, createControllerClient } from "../client.js"
-import { repositoryRoot } from "../targets/catalog.js"
+import { openRegistryReader } from "../registry/reader.js"
 import {
   APP_DIRS,
   APP_NAMES,
@@ -2197,16 +2455,17 @@ export function workerTokenFor(
 }
 
 /**
- * `OPENAI_API_KEY` from the environment, else that one line of the repository's `.env`.
- * Nothing else in the file is read, and the value is never returned in a message.
+ * `OPENAI_API_KEY` from the environment, else that one line of the first `.env` in `dotenvPaths`
+ * that exists (D6). Nothing else in the file is read, and the value is never in a message.
  */
 export function openaiKeyFor(
   env: Readonly<Record<string, string | undefined>>,
-  dotenvPath: string,
+  dotenvPaths: readonly string[],
 ): { readonly key: string; readonly source: string } | undefined {
   const set = env.OPENAI_API_KEY
   if (set !== undefined && set !== "") return { key: set, source: "the environment" }
-  if (!existsSync(dotenvPath)) return undefined
+  const dotenvPath = dotenvPaths.find((path) => existsSync(path))
+  if (dotenvPath === undefined) return undefined
   for (const line of readFileSync(dotenvPath, "utf8").split(/\r?\n/)) {
     const match = /^\s*(?:export\s+)?OPENAI_API_KEY\s*=\s*(.*)$/.exec(line)
     if (!match) continue
@@ -2214,6 +2473,24 @@ export function openaiKeyFor(
     return value === "" ? undefined : { key: value, source: dotenvPath }
   }
   return undefined
+}
+
+/**
+ * Where the key's `.env` may be (D6): this checkout's toplevel, then the main worktree's (a
+ * linked worktree has none of its own). Never `FACTORY_REPO_ROOT`, which names the target
+ * repository, possibly a copy.
+ */
+export function dotenvCandidates(): string[] {
+  const git = (...args: string[]) =>
+    execFileSync("git", ["-C", EXAMPLE_ROOT, ...args], { encoding: "utf8", timeout: 10_000 }).trim()
+  const candidates: string[] = []
+  try {
+    candidates.push(join(git("rev-parse", "--show-toplevel"), ".env"))
+    candidates.push(join(dirname(git("rev-parse", "--path-format=absolute", "--git-common-dir")), ".env"))
+  } catch {
+    // Not a git checkout: only the environment can supply the key.
+  }
+  return [...new Set(candidates)]
 }
 
 /** How one app is started. Tests substitute `launch` to start a stand-in instead. */
@@ -2287,8 +2564,10 @@ export function appProcesses(
 
 export interface UpDeps {
   readonly env: Readonly<Record<string, string | undefined>>
-  /** The repository's `.env`; only its `OPENAI_API_KEY` line is read. */
-  readonly dotenvPath: string
+  /** Where the key's `.env` may be, in order (D6); only its `OPENAI_API_KEY` line is read. */
+  readonly dotenvPaths: readonly string[]
+  /** The checkout's lock (D12): `examples/software-factory/.up.lock`; tests use their own. */
+  readonly checkoutLock: string
   readonly docker: {
     info(): Promise<void>
     imagePresent(reference: string): Promise<boolean>
@@ -2296,7 +2575,7 @@ export interface UpDeps {
   /** The drafter's base image reference, which must already be on the daemon. */
   readonly drafterImage: string
   readonly portFree: (port: number) => Promise<boolean>
-  /** Absent: `b4Start`, and each app's `b4.js` must exist. */
+  /** Absent: `b4Start`, and each app's built `@b4run/cli` must exist. */
   readonly launch?: Launch
   readonly fetch: typeof fetch
   readonly out: (line: string) => void
@@ -2322,16 +2601,18 @@ export async function preflight(
   } catch (error) {
     problems.push(message(error))
   }
-  const key = openaiKeyFor(deps.env, deps.dotenvPath)
+  const key = openaiKeyFor(deps.env, deps.dotenvPaths)
   if (key === undefined)
     problems.push(
-      `OPENAI_API_KEY is not set and ${deps.dotenvPath} has no OPENAI_API_KEY line: the builder and the drafter need it (only they receive it)`,
+      `OPENAI_API_KEY is not set and no OPENAI_API_KEY line was found in ${deps.dotenvPaths.join(" or ") || "a .env (not a git checkout)"}: the builder and the drafter need it (only they receive it)`,
     )
   else deps.out(`${UP} OPENAI_API_KEY: from ${key.source} (builder and drafter only)`)
   for (const name of APP_NAMES) {
     if (deps.launch === undefined) {
-      const bin = join(resolve(EXAMPLE_ROOT, APP_DIRS[name]), "node_modules/@b4run/cli/bin/b4.js")
-      if (!existsSync(bin)) problems.push(`${bin} is missing: run pnpm install, then build (README, Quickstart)`)
+      // The bin is a committed file; only a build produces what it imports (Trap 25).
+      const built = join(resolve(EXAMPLE_ROOT, APP_DIRS[name]), "node_modules/@b4run/cli/dist/index.js")
+      if (!existsSync(built))
+        problems.push(`${built} is missing: run pnpm install, then build the closure (README, Quickstart)`)
     }
     if (!(await deps.portFree(config.ports[name])))
       problems.push(
@@ -2365,28 +2646,53 @@ export function pidAlive(pid: number): boolean {
   }
 }
 
-interface LockRecord {
+/** A process a lock names: its pid, and a piece of its command line that a reused pid would not show. */
+interface LockHolder {
   readonly pid: number
-  readonly startedAt: string
+  readonly command: string
+}
+
+interface LockRecord {
+  readonly up: LockHolder & { readonly startedAt: string }
   readonly ports: Readonly<Record<AppName, number>>
-  readonly children: Readonly<Partial<Record<AppName, number>>>
+  /** The controller's effective settings, which `run` reads (D24). No secrets. */
+  readonly controller: { readonly approvalTtlMs: number; readonly maxActiveMs: number }
+  readonly children: Readonly<Partial<Record<AppName, LockHolder>>>
 }
 
 export interface UpLock {
-  recordChildren(children: Partial<Record<AppName, number>>): void
+  recordChildren(children: Partial<Record<AppName, LockHolder>>): void
   release(): void
 }
 
-/**
- * `<state>/up.lock` (D12): the registry takes no process lock, so this is what keeps two
- * `up`s, and so two controllers, off one state directory. Holds pids and ports, never a secret.
- */
-export function acquireLock(config: ResolvedFactoryConfig): UpLock | { readonly refused: string } {
-  mkdirSync(config.stateDir, { recursive: true })
-  const path = join(config.stateDir, "up.lock")
-  const record = (children: LockRecord["children"]): string =>
-    `${JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString(), ports: config.ports, children } satisfies LockRecord)}\n`
-  for (let attempt = 0; attempt < 2; attempt++) {
+/** `ps`'s whole command line for `pid` (`-ww`: never truncated), or undefined when ps cannot say. */
+export function commandOf(pid: number): string | undefined {
+  try {
+    return execFileSync("ps", ["-ww", "-p", String(pid), "-o", "command="], {
+      encoding: "utf8",
+      timeout: 5_000,
+    }).trim()
+  } catch {
+    return undefined
+  }
+}
+
+/** Alive and still the process the lock recorded; a reused pid is not a holder (D12). */
+function holds(holder: LockHolder): boolean {
+  if (!pidAlive(holder.pid)) return false
+  const command = commandOf(holder.pid)
+  return command === undefined || command.includes(holder.command)
+}
+
+/** The piece of `up`'s own command line a later `up` looks for under its pid. */
+const UP_COMMAND = `${basename(process.argv[1] ?? "")} ${process.argv.slice(2).join(" ")}`.trim()
+
+/** One lock file: taken by `wx`, a stale one taken over by rename (D12). */
+function acquireOne(
+  path: string,
+  record: (children: LockRecord["children"]) => string,
+): UpLock | { readonly refused: string } {
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const fd = openSync(path, "wx")
       writeSync(fd, record({}))
@@ -2398,26 +2704,74 @@ export function acquireLock(config: ResolvedFactoryConfig): UpLock | { readonly 
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
     }
+    let text: string
     let held: LockRecord
     try {
-      held = JSON.parse(readFileSync(path, "utf8")) as LockRecord
-    } catch {
+      text = readFileSync(path, "utf8")
+      held = JSON.parse(text) as LockRecord
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue
       return { refused: `${path} is not a lock up wrote; remove it if no factory up is running` }
     }
-    if (pidAlive(held.pid))
+    if (holds(held.up))
       return {
-        refused: `factory up is already running for ${config.stateDir} (pid ${held.pid}, since ${held.startedAt}); stop it first, or remove ${path} if that pid is not an up`,
+        refused: `factory up is already running (pid ${held.up.pid}, since ${held.up.startedAt}, lock ${path}); stop it first`,
       }
     const orphans = Object.entries(held.children).filter(
-      (entry): entry is [string, number] => typeof entry[1] === "number" && pidAlive(entry[1]),
+      (entry): entry is [string, LockHolder] => entry[1] !== undefined && holds(entry[1]),
     )
     if (orphans.length > 0)
       return {
-        refused: `a previous up (pid ${held.pid}) is gone but its ${orphans.map(([n, p]) => `${n} pid ${p}`).join(", ")} still run. Check each with ps -p ${orphans.map(([, p]) => p).join(",")} -o command= and stop the ones that are b4 start, then remove ${path}`,
+        refused: `a previous up (pid ${held.up.pid}) is gone but its ${orphans.map(([n, h]) => `${n} pid ${h.pid}`).join(", ")} still run. Check each with ps -ww -p ${orphans.map(([, h]) => h.pid).join(",")} -o command= and stop the ones that are b4 start, then run up again`,
       }
-    rmSync(path, { force: true })
+    // Take the stale lock over by rename, never remove-then-create: of two ups racing here one
+    // rename wins and the other finds no file (ENOENT) and retries wx.
+    const aside = `${path}.stale-${process.pid}`
+    try {
+      renameSync(path, aside)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue
+      throw error
+    }
+    // The file renamed must be the stale one judged above; if another up replaced it meanwhile,
+    // put its live lock back and let the next attempt find it held.
+    if (readFileSync(aside, "utf8") !== text) renameSync(aside, path)
+    else rmSync(aside, { force: true })
   }
   return { refused: `could not take ${path}` }
+}
+
+/**
+ * `<state>/up.lock` and the checkout's `.up.lock` (D12): the registry takes no process lock, and
+ * the apps' own stores live in their app roots, so one up per state directory and per checkout.
+ * Records pids, command lines, ports and the controller's settings; never a secret.
+ */
+export function acquireLock(
+  config: ResolvedFactoryConfig,
+  controller: LockRecord["controller"] = { approvalTtlMs: 900_000, maxActiveMs: 1_200_000 },
+  checkoutLock: string = join(EXAMPLE_ROOT, ".up.lock"),
+): UpLock | { readonly refused: string } {
+  mkdirSync(config.stateDir, { recursive: true })
+  const startedAt = new Date().toISOString()
+  const record = (children: LockRecord["children"]): string =>
+    `${JSON.stringify({ up: { pid: process.pid, command: UP_COMMAND, startedAt }, ports: config.ports, controller, children } satisfies LockRecord)}\n`
+  const taken: UpLock[] = []
+  for (const path of [join(config.stateDir, "up.lock"), checkoutLock]) {
+    const lock = acquireOne(path, record)
+    if ("refused" in lock) {
+      for (const held of taken) held.release()
+      return lock
+    }
+    taken.push(lock)
+  }
+  return {
+    recordChildren: (children) => {
+      for (const lock of taken) lock.recordChildren(children)
+    },
+    release: () => {
+      for (const lock of taken) lock.release()
+    },
+  }
 }
 
 /** Free on loopback: nothing accepts a connection there, and a listen there succeeds. */
@@ -2439,12 +2793,12 @@ export async function portFree(port: number): Promise<boolean> {
 }
 ```
 
-(`appendFileSync`, `ChildProcess`, `spawn`, `sleep`, `createInterface`, `ControllerHttpError`, `createControllerClient`, `run` and `repositoryRoot` are used by Task 8's half; Biome will flag them as unused until then, so write both halves before linting.)
+(`appendFileSync`, `ChildProcess`, `spawn`, `sleep`, `createInterface`, `ControllerHttpError`, `createControllerClient`, `run` and `openRegistryReader` are used by Task 8's half; Biome will flag them as unused until then, so write both halves before linting.)
 
 - [ ] **Step 4: Run the tests**
 
 Run: `pnpm --filter @b4-example/software-factory-controller exec vitest run test/factory-up.test.ts test/operator-boundary.test.ts`
-Expected: PASS (10 tests).
+Expected: PASS (13 tests).
 
 - [ ] **Step 5: Commit** (with Task 8, which completes the module; see Task 8 Step 6)
 
@@ -2457,7 +2811,7 @@ Expected: PASS (10 tests).
 - [ ] **Step 1: Write the failing tests** (append to `test/factory-up.test.ts`)
 
 ```ts
-import { up } from "../src/lib/operator/up.ts"
+import { UP, up } from "../src/lib/operator/up.ts"
 
 const FAKE_APP = join(import.meta.dirname, "fixtures/fake-factory-app.mjs")
 const reports = (path: string) =>
@@ -2467,7 +2821,7 @@ const reports = (path: string) =>
 /** Three stand-in apps on free ports, and what they report. */
 async function fakeUp(extraEnv: Record<string, string> = {}, patch: Partial<UpDeps> = {}) {
   const config = fresh()
-  const report = join(dir, "report.jsonl")
+  const report = join(dir as string, "report.jsonl")
   const lines: string[] = []
   const stop = new AbortController()
   const force = new AbortController()
@@ -2527,9 +2881,18 @@ describe("up", () => {
     expect(lines).toContain("builder    │ builder listening on 127.0.0.1:47100")
     expect(readFileSync(join(config.stateDir, "logs", "drafter.log"), "utf8")).toContain("drafter listening")
     expect(existsSync(join(config.stateDir, "up.lock"))).toBe(true)
+    // Detached: each stand-in leads its own process group, out of a terminal's reach (D11).
+    for (const r of started) expect(process.kill(-r.pid, 0)).toBe(true)
     stop.abort()
     expect(await done).toBe(0)
     for (const r of started) expect(gone(r.pid)).toBe(true)
+    // Each got one SIGTERM from up and exited with code 0; the controller stopped first.
+    for (const name of ["controller", "builder", "drafter"])
+      expect(lines).toContain(`${UP} ${name} exited with code 0`)
+    expect(lines.indexOf(`${UP} controller exited with code 0`)).toBeLessThan(
+      Math.min(lines.indexOf(`${UP} builder exited with code 0`), lines.indexOf(`${UP} drafter exited with code 0`)),
+    )
+    expect(lines).toContain(`${UP} stopped (clean)`)
     expect(existsSync(join(config.stateDir, "up.lock"))).toBe(false)
     // No secret in anything up printed.
     const printed = lines.join("\n")
@@ -2540,16 +2903,18 @@ describe("up", () => {
   it("stops the rest and exits 1 when a child exits before it is ready", async () => {
     const { report, lines, done } = await fakeUp({ FAKE_APP_EXIT_EARLY: "drafter" })
     expect(await done).toBe(1)
-    expect(lines.join("\n")).toMatch(/drafter exited with 7 before it was ready/)
+    expect(lines.join("\n")).toMatch(/drafter exited with code 7 before it was ready/)
     for (const r of reports(report).filter((r) => r.pid)) expect(gone(r.pid)).toBe(true)
   }, 30_000)
 
-  it("kills a child that ignores SIGTERM after the grace, and says so", async () => {
+  it("kills a child that ignores SIGTERM after the grace, and does not call that clean", async () => {
     const { report, lines, stop, done } = await fakeUp({ FAKE_APP_IGNORE_TERM: "builder" })
     await until(() => lines.some((l) => l.includes("│ ready:")))
     stop.abort()
-    expect(await done).toBe(0)
+    expect(await done).toBe(1)
     expect(lines.join("\n")).toContain("builder did not stop within 2 s: SIGKILL")
+    expect(lines).toContain(`${UP} builder exited by signal SIGKILL`)
+    expect(lines).toContain(`${UP} stopped (with errors)`)
     for (const r of reports(report).filter((r) => r.pid)) expect(gone(r.pid)).toBe(true)
   }, 30_000)
 
@@ -2574,6 +2939,27 @@ describe("up", () => {
     expect(lines.join("\n")).toContain("reconcile failed: Invalid factory configuration")
     for (const r of reports(report).filter((r) => r.pid)) expect(gone(r.pid)).toBe(true)
   }, 30_000)
+
+  it("abandons a reconcile that never answers when asked to stop (review I4)", async () => {
+    const { report, lines, stop, done } = await fakeUp(
+      {},
+      {
+        fetch: (async (input: string | URL | Request, init?: RequestInit) =>
+          String(input).includes("/runs/wait")
+            ? new Promise<Response>((_, reject) =>
+                init?.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
+              )
+            : fetch(input, init)) as typeof fetch,
+      },
+    )
+    await until(() => reports(report).filter((r) => r.pid).length === 3)
+    await new Promise((r) => setTimeout(r, 500))
+    const asked = Date.now()
+    stop.abort()
+    expect(await done).toBe(0)
+    expect(Date.now() - asked).toBeLessThan(10_000)
+    expect(lines.join("\n")).not.toContain("│ ready:")
+  }, 30_000)
 })
 ```
 
@@ -2590,21 +2976,28 @@ Expected: FAIL: `up is not a function`.
 interface Running {
   readonly app: AppProcess
   readonly child: ChildProcess
-  /** The exit code, or 128 + the signal number; -1 when the process could not start. */
-  readonly exited: Promise<number>
+  /** How it ended: its code, or the signal that ended it; code -1 when it could not start. */
+  readonly exited: Promise<{ readonly code: number | null; readonly signal: string | null }>
   readonly tail: string[]
   hasExited: boolean
+  /** Set when up had to SIGKILL it: never a clean stop. */
+  killed: boolean
 }
 
 const pad = (name: string) => name.padEnd(10)
+const describeExit = (exit: { code: number | null; signal: string | null }) =>
+  exit.signal !== null ? `by signal ${exit.signal}` : `with code ${exit.code}`
 
 function start(app: AppProcess, stateDir: string, out: (line: string) => void): Running {
   const log = join(stateDir, "logs", `${app.name}.log`)
   appendFileSync(log, `--- up started ${app.name} at ${new Date().toISOString()} ---\n`)
-  // In up's own process group (D11), stdin closed: a terminal's Ctrl-C reaches it directly.
+  // Detached (D11, review C1): its own process group, out of the terminal's reach, so the only
+  // signal it ever gets is up's one SIGTERM. b4 start's handlers are process.once and close()
+  // removes both, so a second signal mid-close would kill it by default action.
   const child = spawn(app.command, [...app.args], {
     cwd: app.cwd,
     env: app.env,
+    detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   })
   const running: Running = {
@@ -2612,15 +3005,19 @@ function start(app: AppProcess, stateDir: string, out: (line: string) => void): 
     child,
     tail: [],
     hasExited: false,
-    exited: new Promise<number>((done) => {
+    killed: false,
+    exited: new Promise((done) => {
       child.once("error", (error) => {
         out(`${UP} ${app.name} could not start: ${message(error)}`)
         running.hasExited = true
-        done(-1)
+        done({ code: -1, signal: null })
       })
       child.once("exit", (code, signal) => {
         running.hasExited = true
-        done(code ?? (signal ? 128 + (osSignals[signal] ?? 0) : -1))
+        const exit = { code, signal }
+        out(`${UP} ${app.name} exited ${describeExit(exit)}`)
+        appendFileSync(log, `--- ${app.name} exited ${describeExit(exit)} ---\n`)
+        done(exit)
       })
     }),
   }
@@ -2635,8 +3032,6 @@ function start(app: AppProcess, stateDir: string, out: (line: string) => void): 
   return running
 }
 
-const osSignals: Readonly<Record<string, number>> = { SIGINT: 2, SIGKILL: 9, SIGTERM: 15 }
-
 /** Resolves when the signal aborts (never rejects). */
 const aborted = (signal: AbortSignal) =>
   new Promise<void>((done) => {
@@ -2649,9 +3044,9 @@ async function waitReady(running: Running, deps: UpDeps): Promise<void> {
   const deadline = Date.now() + deps.readyTimeoutMs
   for (;;) {
     if (running.hasExited) {
-      const code = await running.exited
+      const exit = await running.exited
       throw new Error(
-        `${running.app.name} exited with ${code} before it was ready:\n${running.tail.map((l) => `  ${l}`).join("\n")}`,
+        `${running.app.name} exited ${describeExit(exit)} before it was ready:\n${running.tail.map((l) => `  ${l}`).join("\n")}`,
       )
     }
     try {
@@ -2668,7 +3063,22 @@ async function waitReady(running: Running, deps: UpDeps): Promise<void> {
   }
 }
 
-/** SIGTERM, the grace, then SIGKILL; a no-op for a child already gone. */
+/** SIGKILL a detached child's whole group (its own `docker` clients included). */
+function killGroup(running: Running): void {
+  const pid = running.child.pid
+  if (pid === undefined || running.hasExited) return
+  running.killed = true
+  try {
+    process.kill(-pid, "SIGKILL")
+  } catch {
+    running.child.kill("SIGKILL")
+  }
+}
+
+/**
+ * Exactly one SIGTERM to the child's own pid (it closes gracefully, and a second signal would
+ * kill it mid-close: Trap 8), the grace, then SIGKILL to its group. No-op for a child gone.
+ */
 async function stopOne(running: Running, deps: UpDeps, force: AbortSignal): Promise<void> {
   if (running.hasExited) return
   running.child.kill("SIGTERM")
@@ -2681,11 +3091,14 @@ async function stopOne(running: Running, deps: UpDeps, force: AbortSignal): Prom
   deps.out(
     `${UP} ${running.app.name} did not stop within ${deps.stopTimeoutMs / 1_000} s: SIGKILL`,
   )
-  running.child.kill("SIGKILL")
+  killGroup(running)
   await running.exited
 }
 
-/** The controller first, so it sends the workers nothing more; then both workers (D11). */
+/**
+ * The controller first, so it sends the workers nothing more; then both workers (D11). Clean
+ * means every child exited with code 0 and none had to be killed.
+ */
 async function stopAll(
   running: ReadonlyMap<AppName, Running>,
   deps: UpDeps,
@@ -2705,14 +3118,50 @@ async function stopAll(
     if (pid !== undefined && pidAlive(pid)) {
       deps.out(`${UP} WARNING: ${r.app.name} (pid ${pid}) is still running`)
       clean = false
+      continue
     }
+    const exit = await r.exited
+    if (r.killed || exit.code !== 0) clean = false
   }
   return clean
 }
 
+/** The controller's settings `run` reads from the lock (D24): the environment's, else its defaults. */
+export function controllerSettings(env: Readonly<Record<string, string | undefined>>): {
+  readonly approvalTtlMs: number
+  readonly maxActiveMs: number
+} {
+  const positive = (raw: string | undefined, fallback: number) => {
+    const value = Number(raw)
+    return raw !== undefined && Number.isInteger(value) && value > 0 ? value : fallback
+  }
+  return {
+    approvalTtlMs: positive(env.FACTORY_APPROVAL_TTL_MS, 900_000),
+    maxActiveMs: positive(env.FACTORY_MAX_ACTIVE_MS, 1_200_000),
+  }
+}
+
+/** Work orders the controller is working on, for the stop line (D11); read-only, never fatal. */
+function activeWorkOrders(stateDir: string): string[] {
+  try {
+    const reader = openRegistryReader(join(stateDir, "registry.sqlite"))
+    try {
+      return reader
+        .list()
+        .filter((row) => ACTIVE_STATES.has(row.state))
+        .map((row) => `${row.id} (${row.state})`)
+    } finally {
+      reader.close()
+    }
+  } catch {
+    return []
+  }
+}
+
 /**
  * `factory up`: preflight, lock, start, wait for ready, reconcile, then supervise until `stop`
- * aborts (0) or a child exits (1). `force` (a second signal) cuts every grace short.
+ * aborts (0 when every child then exits with code 0) or a child exits (1). `force` (a second
+ * signal) cuts every grace short.
  */
 export async function up(
   config: ResolvedFactoryConfig,
@@ -2725,7 +3174,7 @@ export async function up(
     for (const problem of problems) deps.out(`${UP} refused: ${problem}`)
     return 1
   }
-  const lock = acquireLock(config)
+  const lock = acquireLock(config, controllerSettings(deps.env), deps.checkoutLock)
   if ("refused" in lock) {
     deps.out(`${UP} refused: ${lock.refused}`)
     return 1
@@ -2737,7 +3186,9 @@ export async function up(
     for (const app of appProcesses(config, secrets, deps.env, deps.launch))
       running.set(app.name, start(app, config.stateDir, deps.out))
     lock.recordChildren(
-      Object.fromEntries([...running].map(([name, r]) => [name, r.child.pid ?? -1])),
+      Object.fromEntries(
+        [...running].map(([name, r]) => [name, { pid: r.child.pid ?? -1, command: r.app.args.join(" ") }]),
+      ),
     )
     const readiness = Promise.all([...running.values()].map((r) => waitReady(r, deps)))
     const first = await Promise.race([
@@ -2745,14 +3196,25 @@ export async function up(
       aborted(stop).then(() => "stopped" as const),
     ])
     if (first === "stopped") return (code = 0)
-    try {
-      const outcome = await createControllerClient(config.urls.controller, deps.fetch).reconcile()
-      if (!outcome.ok) throw new Error(outcome.message ?? "not ok")
-    } catch (error) {
-      throw new Error(
-        `reconcile failed: ${error instanceof ControllerHttpError ? error.message : message(error)}`,
+    // Bounded, and abandoned on a stop (review I4): a controller that never answers must not
+    // hold up past a Ctrl-C.
+    const reconcileSignal = AbortSignal.any([AbortSignal.timeout(120_000), stop])
+    const reconciled = await Promise.race([
+      createControllerClient(config.urls.controller, (input, init) =>
+        deps.fetch(input, { ...init, signal: reconcileSignal }),
       )
-    }
+        .reconcile()
+        .then(
+          (outcome) => (outcome.ok ? "ok" : `reconcile failed: ${outcome.message ?? "not ok"}`),
+          (error: unknown) =>
+            stop.aborted
+              ? "stopped"
+              : `reconcile failed: ${error instanceof ControllerHttpError ? error.message : message(error)}`,
+        ),
+      aborted(stop).then(() => "stopped"),
+    ])
+    if (reconciled === "stopped") return (code = 0)
+    if (reconciled !== "ok") throw new Error(reconciled)
     deps.out(
       `${UP} ready: controller ${config.urls.controller} (reconciled), builder ${config.urls.builder}, drafter ${config.urls.drafter}; state ${config.stateDir}`,
     )
@@ -2762,18 +3224,22 @@ export async function up(
       ...[...running.values()].map((r) => r.exited.then((exit) => ({ name: r.app.name, exit }))),
     ])
     if (ended === undefined) {
-      deps.out(`${UP} stopping: the controller, then the workers (work in flight is reconciled at the next up)`)
+      const active = activeWorkOrders(config.stateDir)
+      deps.out(
+        `${UP} stopping: the controller, then the workers.${active.length > 0 ? ` In flight, reconciled at the next up (a turn cut short can spend an attempt): ${active.join(", ")}` : " No work order is in flight."}`,
+      )
       return (code = 0)
     }
-    deps.out(`${UP} ${ended.name} exited with ${ended.exit}; stopping the others`)
+    deps.out(`${UP} ${ended.name} exited ${describeExit(ended.exit)}; stopping the others`)
     return (code = 1)
   } catch (error) {
     deps.out(`${UP} ${message(error)}`)
     return (code = 1)
   } finally {
     const clean = await stopAll(running, deps, force)
-    if (clean) lock.release()
-    // A survivor keeps the lock, so the next up names it instead of starting beside it.
+    // A survivor keeps the locks, so the next up names it instead of starting beside it.
+    if (running.size === 0 || [...running.values()].every((r) => !pidAlive(r.child.pid ?? -1)))
+      lock.release()
     if (!clean) code = 1
     deps.out(`${UP} stopped (${code === 0 ? "clean" : "with errors"})`)
   }
@@ -2791,7 +3257,8 @@ export function drafterImageReference(env: Readonly<Record<string, string | unde
 export function realUpDeps(out: (line: string) => void): UpDeps {
   return {
     env: process.env,
-    dotenvPath: join(repositoryRoot(), ".env"),
+    dotenvPaths: dotenvCandidates(),
+    checkoutLock: join(EXAMPLE_ROOT, ".up.lock"),
     docker: {
       info: async () => {
         await run("docker", ["info", "--format", "{{.ServerVersion}}"], { timeout: 15_000 })
@@ -2814,7 +3281,7 @@ export function realUpDeps(out: (line: string) => void): UpDeps {
 }
 ```
 
-(`return (code = 0)` inside `try` keeps `finally`'s view of the code; Biome may prefer assigning then returning; either is fine.)
+(Import `ACTIVE_STATES` from `../domain/states.js`. `return (code = 0)` inside `try` keeps `finally`'s view of the code; Biome may prefer assigning then returning; either is fine.)
 
 - [ ] **Step 4: Wire `factory up` in `src/cli.ts`**
 
@@ -2835,12 +3302,22 @@ Before the `builder-handoff` branch in `main`:
         `factory up needs a config: ${DEFAULT_CONFIG_PATH} (or --config <path>; FACTORY_CONFIG=none reads none)`,
       )
     const config = await loadFactoryConfig(located.path)
-    const out = (line: string) => process.stdout.write(`${line}\n`)
+    // A closed stdout (`up | head`) must not end up and orphan its detached children (Trap 24):
+    // after an EPIPE, up's own lines go nowhere and each child's still go to its log file.
+    let stdoutOpen = true
+    process.stdout.on("error", (error: NodeJS.ErrnoException) => {
+      if (error.code === "EPIPE") stdoutOpen = false
+      else throw error
+    })
+    const out = (line: string) => {
+      if (stdoutOpen) process.stdout.write(`${line}\n`)
+    }
     const stop = new AbortController()
     const force = new AbortController()
     let firstAt = 0
     // One Ctrl-C can arrive more than once through pnpm and tsx (Trap 8): only a signal more
-    // than a second after the first means "stop waiting".
+    // than a second after the first means "stop waiting". SIGHUP is a closed terminal: the
+    // detached children would otherwise outlive it.
     const onSignal = (name: string) => () => {
       if (!stop.signal.aborted) {
         firstAt = Date.now()
@@ -2851,8 +3328,7 @@ Before the `builder-handoff` branch in `main`:
         force.abort()
       }
     }
-    process.on("SIGINT", onSignal("SIGINT"))
-    process.on("SIGTERM", onSignal("SIGTERM"))
+    for (const name of ["SIGINT", "SIGTERM", "SIGHUP"] as const) process.on(name, onSignal(name))
     return await up(config, realUpDeps(out), stop.signal, force.signal)
   }
 ```
@@ -2860,7 +3336,7 @@ Before the `builder-handoff` branch in `main`:
 - [ ] **Step 5: Run the tests and the typecheck**
 
 Run: `pnpm --filter @b4-example/software-factory-controller exec vitest run test/factory-up.test.ts test/operator-boundary.test.ts && pnpm --filter @b4-example/software-factory-controller typecheck`
-Expected: PASS (15 tests); typecheck clean.
+Expected: PASS (19 tests); typecheck clean.
 
 - [ ] **Step 6: Commit Tasks 7 and 8**
 
@@ -2880,7 +3356,7 @@ git commit -m "feat(software-factory): factory up starts, readies, reconciles an
 ```ts
 // test/factory-up.integration.test.ts
 import { execFile, spawn } from "node:child_process"
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -2892,6 +3368,8 @@ const tsxBin = join(import.meta.dirname, "../node_modules/tsx/dist/cli.mjs")
 const cliEntry = join(import.meta.dirname, "../src/cli.ts")
 const packageRoot = join(import.meta.dirname, "..")
 const KEY = "sk-not-a-real-key-for-tests"
+/** A known token, so the lane can prove it never leaves the three processes' environments. */
+const TOKEN = "7".repeat(64)
 
 /** Ports the kernel hands out now; `up`'s preflight re-checks them. */
 async function freePorts(n: number): Promise<number[]> {
@@ -2923,17 +3401,22 @@ describe("factory up with the real controller, builder and drafter", () => {
       config,
       `export default ${JSON.stringify({ state, controller: { port: controller }, builder: { port: builder }, drafter: { port: drafter } })}\n`,
     )
-    const env: NodeJS.ProcessEnv = { ...process.env, FACTORY_CONFIG: config, OPENAI_API_KEY: KEY }
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      FACTORY_CONFIG: config,
+      OPENAI_API_KEY: KEY,
+      FACTORY_WORKER_TOKEN: TOKEN,
+    }
     for (const name of [
       "FACTORY_STATE_DIR",
       "FACTORY_CONTROLLER_URL",
       "FACTORY_WORKER_URL",
       "FACTORY_DRAFTER_URL",
-      "FACTORY_WORKER_TOKEN",
       "B4_PERMISSIONS_MODE",
     ])
       delete env[name]
-    // Its own process group, standing in for a terminal's foreground group.
+    // Its own process group, as a terminal's foreground group would be. The apps are detached
+    // from it, so the SIGINT below reaches tsx and up only: up stops the apps itself.
     const upProcess = spawn(process.execPath, [tsxBin, cliEntry, "up"], {
       env,
       cwd: packageRoot,
@@ -2967,7 +3450,10 @@ describe("factory up with the real controller, builder and drafter", () => {
         ).status,
       ).toBe(403)
     expect(output).not.toContain(KEY)
-    expect(output).not.toMatch(/Bearer [a-f0-9]{64}/)
+    expect(output).not.toContain(TOKEN)
+    // The lock records pids, commands, ports and the controller's settings; read it while held.
+    const lockText = readFileSync(join(state, "up.lock"), "utf8")
+    expect(JSON.parse(lockText).controller).toEqual({ approvalTtlMs: 900_000, maxActiveMs: 1_200_000 })
     // The CLI reads the same config: the registry the reconcile opened is there to read.
     const { stdout } = await run(process.execPath, [tsxBin, cliEntry, "list"], {
       env,
@@ -2978,8 +3464,22 @@ describe("factory up with the real controller, builder and drafter", () => {
     const started = Date.now()
     process.kill(-(upProcess.pid as number), "SIGINT")
     const code = await new Promise<number | null>((done) => upProcess.once("exit", done))
-    expect(code).toBe(0)
+    expect(code, output).toBe(0)
     expect(Date.now() - started).toBeLessThan(60_000)
+    // Detached, each app got exactly one SIGTERM from up and closed cleanly (review C1): exit
+    // code 0, never "by signal". A child killed mid-close is a finding, not a flake: read its log.
+    for (const name of ["controller", "builder", "drafter"])
+      expect(output, output).toContain(`${name} exited with code 0`)
+    expect(output).toContain("stopped (clean)")
+    // Nothing secret in what up printed, in any log, or in the lock (read before it is removed:
+    // the lane records its contents from the "ready" moment below).
+    for (const log of readdirSync(join(state, "logs"))) {
+      const text = readFileSync(join(state, "logs", log), "utf8")
+      expect(text).not.toContain(KEY)
+      expect(text).not.toContain(TOKEN)
+    }
+    expect(lockText).not.toContain(TOKEN)
+    expect(lockText).not.toContain(KEY)
     for (const port of [controller, builder, drafter])
       await expect(fetch(`http://127.0.0.1:${port}/healthz`)).rejects.toThrow()
     expect(existsSync(join(state, "up.lock"))).toBe(false)
@@ -2999,7 +3499,9 @@ docker pull "$(grep -oE '[a-z0-9.:/-]+@sha256:[a-f0-9]{64}' examples/software-fa
 pnpm --filter @b4-example/software-factory-controller exec vitest run --config vitest.sandbox.config.ts test/factory-up.integration.test.ts
 ```
 
-Expected: PASS in about a minute plus the lane's global image setup. Record the file's own duration for the PR (Trap 19). If a child survives, do not widen the grace first: read `<state>/logs/<app>.log` for why it ignored the signal.
+Expected: PASS in about a minute plus the lane's global image setup. Record the file's own duration for the PR (Trap 19). If a child survives or exits by signal, do not widen the grace first: read `<state>/logs/<app>.log` for why. The lane takes this checkout's `.up.lock` (D12): it refuses, by design, beside a live `up` in the same checkout (Trap 21); run it with none.
+
+- [ ] **Step 3: Once, by hand, from a fresh checkout** (no `.b4/` anywhere under the three apps), confirm `b4 start` needs no `b4 build` or typegen output: `git worktree add ../factory-fresh origin/main` (or the branch), install and build the closure there (Trap 1), then run this lane in it. The spike saw the controller serve with a `.b4/` holding only its stores; if any app in a fresh checkout refuses to start without a build, add that build (or a refusal naming it) to `preflight` and to the README's quickstart before merging. Remove the worktree with `git worktree remove` afterwards.
 
 - [ ] **Step 3: Commit**
 
@@ -3022,26 +3524,32 @@ git commit -m "test(software-factory): factory up with the real apps, stopped by
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "factory": "pnpm --filter @b4-example/software-factory-controller factory"
+    "factory": "pnpm --silent --filter @b4-example/software-factory-controller factory"
   }
 }
 ```
 
+(`--silent`, D18: no `> … factory` banner ahead of the JSON on stdout, no `ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL` block on a non-zero exit, and the exit code, 3 included, reaches the shell.)
+
 ```gitignore
 # factory up's state directory (factory.config.ts): the registry, images, evidence, exports and logs.
 .factory/
+# factory up's checkout lock (one up per checkout: the apps' own stores live in their app roots).
+.up.lock
+# A second checkout's own ports: copy factory.config.ts here and point FACTORY_CONFIG at it.
+factory.config.local.ts
 ```
 
 - [ ] **Step 2: Verify the spelling works and changes nothing else**
 
 ```bash
-cd examples/software-factory && pnpm factory --help | head -3 && cd ../..
+cd examples/software-factory && pnpm factory --help | head -3 && (FACTORY_CONFIG=none FACTORY_STATE_DIR=/nonexistent pnpm factory show wo-none; echo "exit $?") && cd ../..
 pnpm -r list --depth -1 | grep -c software-factory   # still 3: the new package.json is not a workspace member
 git check-ignore -v examples/software-factory/.factory/registry.sqlite
 pnpm install --frozen-lockfile                       # the lockfile does not move
 ```
 
-Expected: the usage's first lines; `3`; the new rule named; install clean.
+Expected: the usage's first lines; then only the CLI's own error line and `exit 1` (no pnpm banner, no `ERR_PNPM_…` block); `3`; the new rule named; install clean.
 
 - [ ] **Step 3: Commit**
 
@@ -3064,11 +3572,13 @@ From `examples/software-factory`, with Docker running, the drafter's base image 
 (`docker pull <the reference in drafter/src/drafter-image.ts>`) and the workspace built
 (`pnpm turbo run build --filter=@b4-example/software-factory-controller^... --filter=@b4-example/software-factory-server^... --filter=@b4-example/software-factory-drafter^...`):
 
-    FACTORY_MAX_ACTIVE_MS=18000000 pnpm factory up        # terminal 1
+    FACTORY_MAX_ACTIVE_MS=18000000 FACTORY_APPROVAL_TTL_MS=86400000 pnpm factory up   # terminal 1
     pnpm factory run --issue 714 --pin 765e6e16fec86bba0859d3f85edf7136f663f720   # terminal 2
 ```
 
-Then explain, in prose: `up` reads `factory.config.ts` (the three ports and the state directory, validated strictly; `examples/software-factory/.factory` by default, ignored); refuses to start beside another `up`, on a port in use, without Docker, without the drafter's base image, with `B4_PERMISSIONS_MODE` set, or with an exported `FACTORY_*` URL or state that disagrees with the config; generates the worker token for each start (or uses `FACTORY_WORKER_TOKEN`) and gives it only to the three processes; takes `OPENAI_API_KEY` from the environment or from that one line of the repository's `.env` and gives it to the builder and drafter only; starts each app with `b4 start` on 127.0.0.1 (no file watching: restart `up` after editing an app); waits for `/readyz` on all three, reconciles, and prefixes and tees each process's output to `<state>/logs/`; stops the controller first on `SIGTERM`, and everything on Ctrl-C, killing whatever has not stopped after 20 s. `run` creates or resumes the issue's work order (one live work order per issue, or per issue and pin with `--pin`; `--new` starts another; `run <id>` works on one), runs intake, and **stops at the draft**: it shows exactly what `factory review` shows and, at a terminal, asks for the task digest's first eight hex digits; then it dispatches, follows the builder's turn and the verification, and **stops at the bundle** the same way; after the person's prefix it follows the approval's re-verification to the export. It never approves on its own: without a terminal, or on no or a wrong answer, it exits 3 and prints the commands a person runs (`pnpm factory review <id>`, then `pnpm factory run <id>`). It stops at a block with the next commands and never retries or cancels. Exit codes: 0 exported, 3 waiting on a person, 130 interrupted (the controller keeps working; `run` again resumes), 1 anything else. Why `FACTORY_MAX_ACTIVE_MS=18000000`: the `cli` target (the one #714 is drafted onto) verifies for up to an hour, and `review` warns at the draft when the budget is too small.
+Then explain, in prose: `up` reads `factory.config.ts` (the three ports and the state directory, validated strictly; `examples/software-factory/.factory` by default, ignored); refuses to start beside another `up`, on a port in use, without Docker, without the drafter's base image, with `B4_PERMISSIONS_MODE` set, or with an exported `FACTORY_*` URL or state that disagrees with the config; generates the worker token for each start (or uses `FACTORY_WORKER_TOKEN`) and gives it only to the three processes; takes `OPENAI_API_KEY` from the environment or from that one line of the repository's `.env` and gives it to the builder and drafter only; starts each app with `b4 start` on 127.0.0.1 (no file watching: restart `up` after editing an app); waits for `/readyz` on all three, reconciles, and prefixes and tees each process's output to `<state>/logs/`; stops the controller first on `SIGTERM`, and everything on Ctrl-C, killing whatever has not stopped after 20 s. `run` creates or resumes the issue's work order (one live work order per issue, or per issue and pin with `--pin`; `--new` starts another; `run <id>` works on one), runs intake, and **stops at the draft**: it shows exactly what `factory review` shows and, at a terminal, asks for the task digest's first eight hex digits; then it dispatches, follows the builder's turn and the verification, and **stops at the bundle** the same way; after the person's prefix it follows the approval's re-verification to the export. It never approves on its own: without a terminal, or on no or a wrong answer, it exits 3 and prints the commands a person runs (`pnpm factory review <id>`, then `pnpm factory run <id>`). It stops at a block with the next commands and never retries or cancels. Exit codes: 0 exported, 3 waiting on a person, 130 interrupted (the controller keeps working; `run` again resumes), 1 anything else. Why `FACTORY_MAX_ACTIVE_MS=18000000`: the `cli` target (the one #714 is drafted onto) verifies for up to an hour, and `review` warns at the draft when the budget is too small. Why `FACTORY_APPROVAL_TTL_MS=86400000`: a frozen bundle expires 15 minutes after it parks by default and cannot be re-frozen, so a person who steps away loses a verified candidate; the export gate prints when the bundle parked and when it expires, and `run` stops at an expired one with the deny and cancel commands instead of asking.
+
+Also say: the key's `.env` is this checkout's, else the main worktree's (a linked worktree has none), never the target repository's; the apps' own stores live in their app roots, so one `up` per checkout (a lock enforces it), and a second checkout on the same host copies `factory.config.ts` to the ignored `factory.config.local.ts` with other ports and sets `FACTORY_CONFIG` to it; stopping `up` while a turn runs cuts the turn short, and the next `up`'s reconcile treats it as ended (a partial draft or candidate usually spends an attempt), so the stop line lists what is in flight and the time to stop is between gates; `--allow-missing-evidence` applies to both gates of a `run`; a pinless `run --issue <n>` also matches an exported replay of that issue at a pin (it answers "already exported"; `--new` starts a live run); the prompt appears only at a real terminal (stdin and stderr both TTYs), and `FACTORY_CLI_INTERACTIVE` is a test seam that works only under vitest.
 
 Update the Environment section: add `FACTORY_CONFIG` (the CLI's config file; `none` reads none) to the CLI paragraph (`:702-712`), and say that `FACTORY_CONTROLLER_URL` and `FACTORY_STATE_DIR` default from the config.
 
@@ -3090,7 +3600,9 @@ has no boot hook). It does not restart a process that exits (finding 8's supervi
 and typed prefix (exit 3 without a terminal; it takes no approval flag), follows long steps
 through the journal and a 409 `run_in_flight` alike, and stops at blocks. `review` now warns
 at a draft when dispatch would refuse the work order's budget: #714's quickstart needs
-`FACTORY_MAX_ACTIVE_MS=18000000`. Proof: `factory-config.test.ts`, `run-steps.test.ts`, the
+`FACTORY_MAX_ACTIVE_MS=18000000`, and `FACTORY_APPROVAL_TTL_MS=86400000` so a bundle does not
+expire while its person is away. The apps are detached and stopped by `up` alone, one
+`SIGTERM` each (`b4 start` dies by default action on a second signal mid-close). Proof: `factory-config.test.ts`, `run-steps.test.ts`, the
 `run` cases in `cli.test.ts`, `factory-up.test.ts` against stand-in apps, and
 `factory-up.integration.test.ts` with the real three (<wall clock>). Live: <Task 12's result>.
 ```
@@ -3123,10 +3635,10 @@ Not a CI lane. Brian decides at both gates (Trap 4).
 
 ```bash
 source ~/.nvm/nvm.sh && nvm use 24
-FACTORY_MAX_ACTIVE_MS=18000000 pnpm factory up
+FACTORY_MAX_ACTIVE_MS=18000000 FACTORY_APPROVAL_TTL_MS=86400000 pnpm factory up
 ```
 
-Expected: the three `listening` lines, `worker token: generated for this start`, `OPENAI_API_KEY: from <repo>/.env (builder and drafter only)`, then `ready … (reconciled)`.
+Expected: the three `listening` lines, `worker token: generated for this start`, `OPENAI_API_KEY: from /Users/blove/repos/dawn/.env (builder and drafter only)` (the main worktree's, from a linked worktree), then `ready … (reconciled)`. No other `up` may be live in this checkout (D12).
 
 - [ ] **Step 2: Run the issue** (terminal B, Brian at a real terminal)
 
@@ -3138,7 +3650,7 @@ At the draft, Brian reads the display and types the prefix (or rejects with `pnp
 
 - [ ] **Step 3: Interrupt and resume once**, during the builder's turn or the verification: Ctrl-C in terminal B (expect exit 130 and the resume line), then `pnpm factory run --issue 714 --pin 765e6e16…` again (expect `resuming <id>` and no second work order in `pnpm factory list`).
 
-- [ ] **Step 4: Stop the factory** with one Ctrl-C in terminal A; expect `stopped (clean)` within about 20 s, and `ps -Ao pid,command | grep -E 'b4.js start'` to show nothing of this factory's.
+- [ ] **Step 4: Stop the factory** with one Ctrl-C in terminal A, between gates (D11); expect the stop line to list no work order in flight, `controller exited with code 0` before both workers' `exited with code 0`, `stopped (clean)` within about 20 s, and `ps -Ao pid,command | grep -E 'b4.js start'` to show nothing of this checkout's. This is the check that one Ctrl-C through `pnpm → pnpm → tsx → up` lets `up` finish its ordered stop (Trap 8). Once, also start `pnpm factory up | head -5`, wait for `ready` in `<state>/logs/controller.log`, and confirm `up` keeps supervising after `head` exits (Trap 24) and stops cleanly on a Ctrl-C.
 
 - [ ] **Step 5: Record** in the spec's §7 as-landed note and the PR: the work order id, each phase's wall clock, the gate decisions, whether the candidate passes the reference test (b090ad42's `runs-wait-output.test.ts`, as sub-project 4 graded it), and every operator step that needed knowledge the quickstart does not give.
 
@@ -3148,7 +3660,7 @@ At the draft, Brian reads the display and types the prefix (or rejects with `pnp
 
 | Proof | Where |
 |---|---|
-| `run` never approves without a person's typed prefix (the hard requirement) | Task 5 (no approval step; every state mapped); Task 6 ("stops at the draft for a person": exit 3, no `intake_approved`, no digest in any printed command; a wrong prefix sends nothing), ("refuses every way of approving by argument": `--approve`, `--digest`, `--reject`, `--note`, `--revision`, `--bundle` by name, `--yes`/`--auto-approve` unknown, nothing created), Step 5 (the only call into approval is `reviewOutcome` with no digest and no approval flag) |
+| `run` never approves without a person's typed prefix (the hard requirement) | Task 5 (no approval step; every state mapped); Task 6 ("stops at the draft for a person": exit 3, no `intake_approved`, no digest in the printed next commands (the JSON row carries it, as `show` does); a wrong prefix sends nothing), Task 4 (the prompt needs stdin and stderr TTYs; the seam only under vitest, D25), ("refuses every way of approving by argument": `--approve`, `--digest`, `--reject`, `--note`, `--revision`, `--bundle` by name, `--yes`/`--auto-approve` unknown, nothing created), Step 5 (the only call into approval is `reviewOutcome` with no digest and no approval flag) |
 | At each gate `run` prints what `factory review` prints | Task 6 (the same sections and the same digest line as a `review` of the same row) |
 | The typed prefix does approve, and the export follows to `exported` | Task 6 ("takes a catalog task to its bundle, and exports only on the person's typed prefix") |
 | Resuming: same work order, no second create, no re-dispatch; Ctrl-C leaves the work going | Task 5 (`chooseWorkOrder`); Task 6 (the second `run` "resuming"; the interrupted run: exit 130, one `dispatch_committed`) |
@@ -3163,6 +3675,17 @@ At the draft, Brian reads the display and types the prefix (or rejects with `pnp
 | Logs prefixed and teed | Task 8 |
 | Shutdown: ordered on `SIGTERM`, one Ctrl-C stops all, `SIGKILL` after the grace, nothing survives, lock removed | Task 8; Task 9 (real apps, process-group `SIGINT`, `ps` shows no survivor) |
 | The controller app never imports the operator's tooling | Task 7 (`operator-boundary.test.ts`); `no-worker-filesystem.test.ts` unchanged |
+| Children detached; each gets one `SIGTERM` from `up`, the controller first; every child exits with code 0 on a clean stop, and a killed one is not called clean (review C1) | Task 8 ("starts all three …": process groups, exit lines, order, `stopped (clean)`; "kills a child that ignores SIGTERM …": exit 1, `by signal SIGKILL`); Task 9 (real apps: `exited with code 0` for all three after one process-group `SIGINT`); Task 12 Step 4 (through `pnpm`) |
+| A reconcile that never answers does not hold `up` past a stop (review I4) | Task 8 ("abandons a reconcile …") |
+| One `up` per state directory and per checkout; a stale lock taken over by rename; a reused pid is not a holder; the controller's settings recorded (review minor) | Task 7 ("the locks") |
+| No test reads the committed config or writes the live state directory (D23) | Task 3 (both vitest configs; `git status` after the CLI tests) |
+| An expired bundle is never prompted for; the gate says when it parked and expires (D24) | Task 5 ("never prompts for an expired bundle"); Task 6 ("run stops at an expired bundle …": one prompt, exit 1, deny and cancel commands) |
+| The interactive seam only under vitest, announced; no prompt without TTYs (D25) | Task 4 ("honours the interactive test seam only under vitest …") |
+| The key's `.env`: this checkout's, else the main worktree's, never `FACTORY_REPO_ROOT` (D6) | Task 7 ("the model key") |
+| The token and key never reach output, logs or the lock (review minor) | Task 8 (printed lines); Task 9 (a known token and key, scanned in output, every log and the lock) |
+| `pnpm factory` prints clean JSON and passes the exit code through (D18) | Task 10 Step 2 |
+| A closed stdout does not orphan the children (Trap 24) | Task 12 Step 4 (by hand: `up \| head`) |
+| `b4 start` needs no build output (review minor) | Today, row 6 (spike); Task 9 Step 3 (a fresh checkout, by hand) |
 | The quickstart works as typed | Task 12 |
 
 ## Follow-ups recorded, not in this plan
@@ -3179,7 +3702,34 @@ At the draft, Brian reads the display and types the prefix (or rejects with `pnp
 ## Self-review
 
 - **Spec coverage.** §7's quickstart: the config file (Task 1, as corrected by D2, D3), `pnpm factory up` (Tasks 7-10, D18), `pnpm factory run --issue 714 [--pin <sha>]` (Tasks 5-6); the table's last two rows: "four terminals, export of URL and state dir, an alias" (D17, D18, Task 3, Task 10), "`factory reconcile` after a controller restart" (D9, Task 8). §8 item 7 is this plan. The findings `up` touches (4, 8, 21) are addressed or recorded (Spec corrections 9, 10; Follow-ups).
-- **The hard requirement** is in D13, Trap 4, Task 5's type, Task 6's four tests and source pin, and Task 12's procedure. `run` has no approval flag; the one path to an approval is `review`'s prompt, which needs a terminal (or the test-only seam) and a typed prefix of the digest it displayed; every printed command leaves the digest for the person to read off the display.
+- **The hard requirement** is in D13, Trap 4, Task 4's seam guard, Task 5's type, Task 6's tests and source pin, and Task 12's procedure. `run` has no approval flag; the one path to an approval is `review`'s prompt, which needs stdin and stderr at a terminal (or the vitest-only seam, D25) and a typed prefix of the digest it displayed; the printed next commands leave the digest for the person to read off the display (the JSON row carries it, as `show` always has).
 - **Placeholder scan.** Every code step carries its code and every run step its command and expected result. Two slots are for numbers only a run produces (the lane's wall clock, Task 12's result), named where they go. Two instructions ask the implementer to check a name against the code before running (the dispatch transition's journal name in Task 6; the `rootDir` fallback in Task 1).
 - **Type consistency.** `ResolvedFactoryConfig` (Task 1) is what `applyConfigDefaults`, `ownedVariableConflicts` (Task 2), `appProcesses`, `preflight`, `acquireLock` and `up` (Tasks 7-8) take. `RunStep` and `chooseWorkOrder` (Task 5) are what `runCommand` (Task 6) switches on. `ReviewResult` (Task 4) is what `runCommand`'s gate reads. `UpDeps.launch` is the seam the unit tests and `b4Start` share.
 - **YAGNI.** No framework change; no new dependency (zod, `diff` and tsx are already the controller's); no restart logic; no remote workers; no colour or rotation in the logs.
+
+## Review amendments (2026-09-28)
+
+| # | Finding | Where addressed |
+|---|---|---|
+| C1 | Children in `up`'s process group get the terminal's `SIGINT`; `b4 start`'s `process.once` handlers are removed by `close()` (`serve-runtime.ts:116-137`), so `up`'s follow-up `SIGTERM` killed them by default action mid-close | D11 reversed: `detached: true`, one `SIGTERM` per child from `up` (controller first), `SIGKILL` to the group after the grace, `SIGHUP` handled, each child's exit logged by code or signal, clean only when all exit 0; Trap 8 rewritten; Task 8 Step 3 (`start`, `stopOne`, `killGroup`, `stopAll`) and Step 4 (signals); Task 8 tests (process groups, exit lines, order, killed ≠ clean); Task 9 asserts `exited with code 0` for all three; D12's orphan check kept for a `SIGKILL`ed `up`; Today row 6 notes the spike sent `SIGTERM` only |
+| I1 | The committed config would reach CLI tests that spawn without `FACTORY_STATE_DIR` (`builder-handoff`) and write into the live `.factory` | D23; Task 3 Step 1 (`test.env` in both vitest configs) and Step 4 (`git status` check); Trap 22; File structure |
+| I2 | `afterEach` `rmSync(dir)` with `dir` undefined | Task 7 test preamble (`if (dir)`; `fresh()` assigns a local root) |
+| I3 | The bundle expires after `FACTORY_APPROVAL_TTL_MS` (15 min, `factory.ts:1525-1528`) with no re-freeze | D24; D22 and the quickstart set `FACTORY_APPROVAL_TTL_MS=86400000`; `up` records the controller's settings in its lock (Task 7 `acquireLock`, Task 8 `controllerSettings`); Task 5 `bundleExpired` and the `stop` step, with tests; Task 6 export-gate line, the expired-refusal path and its test; Trap 23; Task 11 README and spec note |
+| I4 | Boot reconcile could hang `up` past a stop | Task 8 Step 3 (`AbortSignal.any([timeout(120 s), stop])`, raced with the stop) and the "abandons a reconcile …" test |
+| I5 | `.env` from `FACTORY_REPO_ROOT` is wrong and a linked worktree has none | D6 amended; Task 7 `openaiKeyFor` over `dotenvCandidates()` (this checkout's toplevel, then the main worktree via `--git-common-dir`), with tests; Task 11 README; Task 12 expected line |
+| I6 | The orchestration script needs `--silent` for clean JSON and exit codes | D18, D16; Task 10 (script and an exit-code check) |
+| I7 | Gate hardening: seam only under a test marker, loud; prompt needs stderr TTY too; don't claim no digest is printed | D25; D13 amended (stdin and stderr TTYs; the *next commands* are digest-free, the JSON row carries the digest); Task 4 (`interactive()` and its test); Task 6 test comment; Proof map; Self-review |
+| m1 | Lock takeover raced (remove-then-create) and pids can be reused | D12; Task 7 `acquireOne` (rename aside, compare, restore if not the stale record; `holds` checks `ps -ww … -o command=`), with tests |
+| m2 | Apps' runtime stores live in their app roots | D12 (a checkout lock: one `up` per checkout); Trap 21; Task 9 Step 2 note; Task 11 README |
+| m3 | Stopping `up` mid-turn spends an attempt at the next reconcile | D11; the stop line lists active work orders (Task 8 `activeWorkOrders`); Task 11 README; Task 12 Step 4 (stop between gates) |
+| m4 | Preflight checked the committed `bin/b4.js`, not the build | Task 7 preflight checks `node_modules/@b4run/cli/dist/index.js`; Trap 25 |
+| m5 | `b4 start` in a fresh checkout without `.b4/` | Today row 6 (the controller served with a `.b4/` of stores only; `b4 start` reads source); Task 9 Step 3 (a fresh worktree, by hand; add a build to preflight if one is needed) |
+| m6 | Secrets: assert a known token absent from output, logs and lock; scan logs for the key | Task 9 (known `FACTORY_WORKER_TOKEN`, scans of output, every log and the lock) |
+| m7 | D20's remedy wording | D20 and `intakeBudgetWarning`: "restart `pnpm factory up` with `FACTORY_MAX_ACTIVE_MS=…` … run it again with `--new`" |
+| m8 | Pinless runs vs an old exported replay | D14; Task 11 README |
+| m9 | Ports for several worktrees | D18 (`factory.config.local.ts`, ignored, via `FACTORY_CONFIG`); Task 10 `.gitignore`; Task 11 README |
+| m10 | `--allow-missing-evidence` applies to both gates | D13; Task 11 README |
+| m11 | `up \| head` must not orphan children | D11; Trap 24; Task 8 Step 4 (`EPIPE` switches output off, supervision continues); Task 12 Step 4 by hand |
+
+**Where I applied a finding differently.** None disagreed with. Two notes on scope: the `EPIPE` path is proved by hand (Task 12 Step 4) rather than by a unit test, because it lives in the CLI's wiring of `process.stdout`, which the in-process `up` tests do not use and a spawned test would need to close its read end at a precise moment; and the fresh-checkout check (m5) is a by-hand step, since CI's `sandbox-docker` job builds both workers before `test:sandbox` and so cannot show it. The approval window reaches `run` through `up`'s lock rather than a new controller endpoint: example-only, and a controller started by hand still gets the safe behaviour (the expiry learned from the refusal, no second prompt).
+
