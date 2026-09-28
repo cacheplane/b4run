@@ -1,11 +1,11 @@
 ---
-"@b4run/ag-ui": minor
-"@b4run/cli": minor
-"@b4run/core": minor
-"@b4run/langchain": minor
-"@b4run/postgres-storage": minor
-"@b4run/sdk": minor
-"@b4run/sqlite-storage": minor
+"@b4run/ag-ui": patch
+"@b4run/cli": patch
+"@b4run/core": patch
+"@b4run/langchain": patch
+"@b4run/postgres-storage": patch
+"@b4run/sdk": patch
+"@b4run/sqlite-storage": patch
 ---
 
 Add **approval grants**: a single-use capability bound to one parked tool call, minted when B4.run parks a human-in-the-loop approval and required when that approval is answered.
