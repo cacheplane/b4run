@@ -136,6 +136,11 @@ export const B4_ERRORS = {
     title: "Runtime store not provided",
     docsPath: "/docs/deployment",
   },
+  B4_E5401: {
+    code: "B4_E5401",
+    title: "Invalid AG-UI run envelope",
+    docsPath: "/docs/ag-ui#envelope-validation",
+  },
   B4_E5402: {
     code: "B4_E5402",
     title: "AG-UI response schema rejected",
