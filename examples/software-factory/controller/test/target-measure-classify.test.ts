@@ -439,10 +439,7 @@ describe("what reaches report.md, measurement.md and the printed diff", () => {
       "pkg/<!--y",
     ])
     expect(f.reason).toBe(
-      'fails run alone (exit 1); it also changed the workspace: "pkg/x\\n## injected\\n- `test/z.test.ts`: fine", "pkg/<!--y"'.replace(
-        "<",
-        "\\u003c",
-      ),
+      'fails run alone (exit 1); it also changed the workspace: "pkg/x\\n## injected\\n- `test/z.test.ts`: fine", "pkg/\\u003c!--y"',
     )
     for (const text of [renderMeasurementRecord("app", [f]), renderFiles([f]).join("\n")]) {
       expect(text).not.toMatch(CONTROL)
