@@ -17,6 +17,7 @@ import {
   type TaskManifest,
   TaskSchema,
   UnknownTargetError,
+  unmeasuredProblem,
 } from "../targets/catalog.js"
 import { recipeProblem } from "../targets/prepare.js"
 import { describePrecheck, precheckDraftedCheck } from "./check-precheck.js"
@@ -263,7 +264,9 @@ export function parseDraft(
       blockedReason: "intake_run_failed",
     }
   }
-  const inapplicable = recipeProblem(target, input.catalog?.repositoryRoot ?? repositoryRoot())
+  const inapplicable =
+    unmeasuredProblem(target) ??
+    recipeProblem(target, input.catalog?.repositoryRoot ?? repositoryRoot())
   if (inapplicable !== undefined)
     return {
       ok: false,

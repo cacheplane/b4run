@@ -6,11 +6,12 @@
   "scripts": {
     "test": "vitest run",
     "test:sandbox": "vitest run --config vitest.sandbox.config.ts",
-    "test:sandbox:cli": "FACTORY_TEST_CLI_TARGET=1 vitest run --config vitest.sandbox.config.ts test/target-cli.integration.test.ts",
+    "test:sandbox:cli": "FACTORY_TEST_CLI_TARGET=1 vitest run --config vitest.sandbox.config.ts test/target-cli.integration.test.ts test/target-init.integration.test.ts",
     "typecheck": "tsc -p . --noEmit",
     "lint": "biome check .",
     "factory": "tsx src/cli.ts",
     "target:prepare": "tsx scripts/prepare-target.ts",
+    "target:init": "tsx scripts/target-init.ts",
     "check": "b4 check",
     "build": "b4 build",
     "dev": "b4 dev"

@@ -17,6 +17,7 @@ import { digestGeneratedTask, writeGeneratedTask } from "../src/lib/intake/gener
 import {
   configureCatalog,
   loadTask,
+  PLACEHOLDER_RESOURCES,
   repositoryRoot,
   resetCatalogForTests,
   targetsDir,
@@ -341,6 +342,27 @@ describe("parseDraft", () => {
       catalog: { targetsDir: dir },
     })
     expect(accepted.ok).toBe(true)
+  })
+
+  it("refuses a target whose resources are target:init's placeholders as no_target_for_package", () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-draft-unmeasured-"))
+    const shipped = JSON.parse(readFileSync(join(targetsDir, "devkit", "target.json"), "utf8"))
+    mkdirSync(join(dir, "devkit"))
+    copyFileSync(join(targetsDir, "devkit", "Dockerfile"), join(dir, "devkit", "Dockerfile"))
+    writeFileSync(
+      join(dir, "devkit", "target.json"),
+      JSON.stringify({ ...shipped, resources: PLACEHOLDER_RESOURCES }),
+    )
+    const refused = parseDraft(files(GOOD_DRAFT), {
+      workOrderId: WO,
+      pin: PIN,
+      catalog: { targetsDir: dir },
+    })
+    expect(refused).toMatchObject({ ok: false, blockedReason: "no_target_for_package" })
+    if (refused.ok) return
+    expect(refused.reason).toMatch(
+      /^draft\/task\.json names target devkit, which is not available at [0-9a-f]{40}: Target "devkit"'s resources are placeholders: run target:measure/,
+    )
   })
 
   it("blocks as intake_run_failed, not a verdict on the draft, when the catalog fails the controller", () => {

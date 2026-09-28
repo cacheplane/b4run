@@ -193,6 +193,38 @@ export const TargetSchema = z.preprocess((raw, ctx) => {
 export type TargetManifest = z.infer<typeof TargetObjectSchema>
 
 /**
+ * The resources `target:init` writes, generous until `target:measure` replaces them: a person
+ * reviews the numbers it proposes.
+ */
+export const PLACEHOLDER_RESOURCES: TargetManifest["resources"] = {
+  memoryMb: 2048,
+  cpus: 2,
+  commandTimeoutMs: 600_000,
+  verifierDeadlineMs: 3_600_000,
+}
+
+/** Are `resources` `init`'s placeholders, never measured? (Detected by value, not by origin.) */
+export function isPlaceholderResources(resources: TargetManifest["resources"]): boolean {
+  return (Object.keys(PLACEHOLDER_RESOURCES) as (keyof TargetManifest["resources"])[]).every(
+    (key) => resources[key] === PLACEHOLDER_RESOURCES[key],
+  )
+}
+
+/**
+ * Why a target may carry no work yet: its resources are `target:init`'s placeholders, which no
+ * measurement proposed. Such a target still loads, builds and runs (`target:measure` measures
+ * it that way); it is only kept from the drafter (`availableTargets`), from a draft
+ * (`parseDraft`) and from a task (`loadTaskRecipe`), so it is never dispatched unmeasured.
+ */
+export function unmeasuredProblem(
+  target: Pick<TargetManifest, "id" | "resources">,
+): string | undefined {
+  return isPlaceholderResources(target.resources)
+    ? `Target "${target.id}"'s resources are placeholders: run target:measure and commit the resources it proposes`
+    : undefined
+}
+
+/**
  * A target AT one pin, without its image: what the capture, the prompt, the fit checks and
  * the image recipe read. `pin` is the chosen pin (the work order's, or the manifest's default).
  */
@@ -724,6 +756,8 @@ export function loadTaskRecipe(id: string, options: CatalogOptions = {}): TaskRe
     id,
     "checks.json",
   )
+  const unmeasured = unmeasuredProblem(target)
+  if (unmeasured !== undefined) throw new Error(`Task ${id}: ${unmeasured}`)
   assertTaskFitsTarget(id, manifest, checks, target)
   const checkFile = join(directory, checks.independent.file)
   if (!existsSync(checkFile))

@@ -7,6 +7,7 @@ import {
   repositoryRoot,
   type TargetRecipe,
   type TaskRecipe,
+  unmeasuredProblem,
 } from "./targets/catalog.js"
 import { builderPermissions } from "./targets/permissions.js"
 import { recipeProblem } from "./targets/prepare.js"
@@ -161,7 +162,8 @@ export function availableTargets(
     } catch {
       continue
     }
-    if (recipeProblem(target, repo) !== undefined) continue
+    // A target whose resources are placeholders is left out too: no task may run on it yet.
+    if ((unmeasuredProblem(target) ?? recipeProblem(target, repo)) !== undefined) continue
     lines.push(targetLine(target), ...targetNotes(target))
   }
   return lines

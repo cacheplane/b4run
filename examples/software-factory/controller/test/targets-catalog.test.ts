@@ -19,6 +19,7 @@ import {
   loadTaskIds,
   loadTaskRecipe,
   overlaps,
+  PLACEHOLDER_RESOURCES,
   repositoryRoot,
   targetsDir as shippedTargetsDir,
   type TargetRecipe,
@@ -552,6 +553,17 @@ describe("task catalog", () => {
     expect(recipe.target).not.toHaveProperty("image")
     expect(recipe.checks.independent.file).toBe("checks/k.test.ts")
     expect(recipe.specText).toContain("A1:")
+  })
+
+  it("refuses a task on a target whose resources are target:init's placeholders", () => {
+    const { root, pin } = repo()
+    const targets = targetsDir(pin, { resources: PLACEHOLDER_RESOURCES })
+    const options = { targetsDir: targets, tasksDir: tasksDirFor(), repositoryRoot: root }
+    expect(() => loadTaskRecipe("k", options)).toThrow(
+      'Task k: Target "t"\'s resources are placeholders: run target:measure',
+    )
+    // The target itself still loads: target:measure builds and runs it to measure them.
+    expect(loadTargetRecipe("t", options).resources).toEqual(PLACEHOLDER_RESOURCES)
   })
 
   it("lists the tasks shipped with the factory", () => {
