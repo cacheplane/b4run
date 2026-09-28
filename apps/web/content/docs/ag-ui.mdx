@@ -57,6 +57,12 @@ nothing to add — is always accepted, so an ordinary client is unaffected.
   any client that sends frontend tools (a CopilotKit frontend action, for
   instance), now gets a `422` where it used to get a silently narrower run.
   Name the route in `server.agui` to keep accepting them.
+
+  In CopilotKit, `useFrontendTool` adds its tool to `tools` on every run, and
+  generated suggestions run with `tools: [copilotkitSuggest]` and
+  `forwardedProps: { toolChoice }`. Static suggestion lists
+  (`useConfigureSuggestions` with `{ title, message }` entries) and
+  render-only hooks (`useRenderTool`) send neither.
 </Callout>
 
 ### Where the check runs

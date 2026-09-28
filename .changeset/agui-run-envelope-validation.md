@@ -1,7 +1,7 @@
 ---
-"@b4run/cli": minor
-"@b4run/core": minor
-"@b4run/sdk": minor
+"@b4run/cli": patch
+"@b4run/core": patch
+"@b4run/sdk": patch
 ---
 
 Validate the AG-UI run envelope in the runtime, and close client-supplied `tools` and `forwardedProps` by default.
@@ -15,6 +15,8 @@ server: { agui: { clientTools: ["/chat"], clientForwardedProps: ["/chat"] } }
 ```
 
 This turns a silent narrowing into a loud one. `fromRunAgentInput` has never interpreted client `tools`, so a client that sent frontend tools — a CopilotKit frontend action, for instance — already got a run that ignored them; it now gets a `422` instead, which is the point.
+
+CopilotKit clients to check before upgrading: `useFrontendTool` (and any other hook that registers a tool definition) puts it in `tools` on every run, and CopilotKit's generated suggestions run with `tools: [copilotkitSuggest]` and `forwardedProps: { toolChoice }`. Static suggestion lists (`useConfigureSuggestions` with `{ title, message }` entries) and render-only hooks (`useRenderTool`) send neither, so B4.run's own examples and scaffolds are unaffected.
 
 The check runs before route middleware and before the thread-access policy: it needs no I/O, takes no resume claim and reads no thread row, so no app middleware is handed an envelope the runtime has already refused, and no policy is asked to authorize — or create a row for — a request that is about to be rejected. `resume` is deliberately not decided there, because whether a turn genuinely resumes depends on what is parked in the checkpointer, which is only readable once the policy has authorized this caller for that thread; `resolvePendingResume` still rejects a resume that matches no pending interrupt (`409`, `stale_interrupt`) at the point where the answer is known.
 
