@@ -55,6 +55,7 @@ describe("parseFactoryConfig", () => {
     expect(refusal({ ...good, builder: { port: 80 } })).toMatch(/builder\.port/)
     expect(refusal({ ...good, builder: { port: 4100.5 } })).toMatch(/builder\.port/)
     expect(refusal({ ...good, state: "" })).toMatch(/state/)
+    expect(refusal({ ...good, state: "  \t" })).toMatch(/state: must name a directory/)
     expect(refusal(null)).toMatch(/default export must be an object, got null/)
     expect(refusal([good])).toMatch(/got an array/)
   })
@@ -104,5 +105,21 @@ describe("the config file", () => {
     })
     expect(factoryConfigPath({ FACTORY_CONFIG: "a.ts" }, "b.ts")?.path).toBe(resolve("b.ts"))
     expect(factoryConfigPath({ FACTORY_CONFIG: "none" }, undefined)).toBeUndefined()
+  })
+
+  it("resolves a relative name against where pnpm was run (INIT_CWD), else the cwd", () => {
+    const at = { INIT_CWD: "/where/typed" }
+    expect(factoryConfigPath(at, "c.ts", "/controller")?.path).toBe("/where/typed/c.ts")
+    expect(factoryConfigPath({ ...at, FACTORY_CONFIG: "e.ts" }, undefined, "/controller")).toEqual({
+      path: "/where/typed/e.ts",
+      named: true,
+    })
+    expect(factoryConfigPath({}, "c.ts", "/controller")?.path).toBe("/controller/c.ts")
+    expect(factoryConfigPath(at, "/abs/c.ts", "/controller")?.path).toBe("/abs/c.ts")
+  })
+
+  it("refuses an empty --config rather than falling back", () => {
+    expect(() => factoryConfigPath({}, "")).toThrow("--config needs a path")
+    expect(() => factoryConfigPath({ FACTORY_CONFIG: "a.ts" }, "")).toThrow("--config needs a path")
   })
 })

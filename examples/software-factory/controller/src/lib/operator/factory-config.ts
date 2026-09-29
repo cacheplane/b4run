@@ -43,7 +43,12 @@ export interface ResolvedFactoryConfig {
 const Port = z.number().int().min(1024).max(65535)
 const App = z.object({ port: Port }).strict()
 const ConfigSchema = z
-  .object({ state: z.string().min(1), controller: App, builder: App, drafter: App })
+  .object({
+    state: z.string().refine((s) => s.trim() !== "", "must name a directory"),
+    controller: App,
+    builder: App,
+    drafter: App,
+  })
   .strict()
 
 /**
@@ -124,14 +129,22 @@ export async function loadFactoryConfig(path: string): Promise<ResolvedFactoryCo
 /**
  * Which config a command reads: `--config`, else `FACTORY_CONFIG`, else the example's own when
  * it exists. `none` reads none. A named file must exist (the loader refuses otherwise); the
- * default is optional, so the CLI still works where the example's file is absent.
+ * default is optional, so the CLI still works where the example's file is absent. A relative
+ * name is relative to where the person ran `pnpm factory` (pnpm's `INIT_CWD`; the process's own
+ * directory is the controller's), else `cwd`. An empty `--config` is refused, not a fallback:
+ * `--config "$UNSET_VAR"` must not silently read another file.
  */
 export function factoryConfigPath(
   env: Readonly<Record<string, string | undefined>>,
   flag: string | undefined,
+  cwd: string = process.cwd(),
 ): { readonly path: string; readonly named: boolean } | undefined {
+  if (flag === "") throw new Error("--config needs a path")
   const named = flag ?? env.FACTORY_CONFIG
   if (named === "none") return undefined
-  if (named !== undefined && named !== "") return { path: resolve(named), named: true }
+  if (named !== undefined && named !== "") {
+    const base = env.INIT_CWD !== undefined && env.INIT_CWD !== "" ? env.INIT_CWD : cwd
+    return { path: resolve(base, named), named: true }
+  }
   return existsSync(DEFAULT_CONFIG_PATH) ? { path: DEFAULT_CONFIG_PATH, named: false } : undefined
 }
