@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
@@ -55,11 +55,39 @@ describe("parseFactoryConfig", () => {
     expect(refusal({ ...good, controller: { port: "4300" } })).toMatch(/controller\.port/)
     expect(refusal({ ...good, drafter: undefined })).toMatch(/drafter/)
     expect(refusal({ ...good, builder: { port: 80 } })).toMatch(/builder\.port/)
+    expect(refusal({ ...good, builder: { port: 1023 } })).toMatch(/builder\.port/)
+    expect(refusal({ ...good, builder: { port: 65536 } })).toMatch(/builder\.port/)
     expect(refusal({ ...good, builder: { port: 4100.5 } })).toMatch(/builder\.port/)
     expect(refusal({ ...good, state: "" })).toMatch(/state/)
     expect(refusal({ ...good, state: "  \t" })).toMatch(/state: must name a directory/)
-    expect(refusal(null)).toMatch(/default export must be an object, got null/)
+    expect(refusal(null)).toMatch(/default export must be a plain object, got null/)
     expect(refusal([good])).toMatch(/got an array/)
+  })
+
+  it("accepts the port bounds", () => {
+    expect(parseFactoryConfig({ ...good, builder: { port: 1024 } }, PATH).ports.builder).toBe(1024)
+    expect(parseFactoryConfig({ ...good, builder: { port: 65535 } }, PATH).ports.builder).toBe(
+      65535,
+    )
+  })
+
+  it("refuses a default export that is not a plain object", () => {
+    expect(refusal(new Map())).toMatch(/must be a plain object/)
+    expect(refusal(Object.assign(Object.create({ inherited: 1 }), good))).toMatch(
+      /must be a plain object/,
+    )
+    expect(refusal(Promise.resolve(good))).toMatch(
+      /a promise: export the object itself \(top-level await is allowed\)/,
+    )
+    expect(parseFactoryConfig(Object.assign(Object.create(null), good), PATH).ports.builder).toBe(
+      4100,
+    )
+  })
+
+  it("does not read the replaced-key table through the prototype chain", () => {
+    const message = refusal({ ...good, toString: 1, constructor: 2 })
+    expect(message).not.toMatch(/function|\[native code\]/)
+    expect(message).toMatch(/Unrecognized key/)
   })
 
   it("refuses the spec's draft keys with what replaced them", () => {
@@ -81,6 +109,35 @@ describe("parseFactoryConfig", () => {
     for (const inside of ["controller/.factory", "server", "drafter/state"])
       expect(refusal({ ...good, state: inside })).toMatch(/inside the \w+'s app root/)
   })
+
+  it("refuses a name that only starts with two dots", () => {
+    for (const inside of ["controller/..x", "server/..cache/state"])
+      expect(refusal({ ...good, state: inside })).toMatch(/inside the \w+'s app root/)
+    expect(parseFactoryConfig({ ...good, state: "..x" }, PATH).stateDir).toBe(
+      resolve(EXAMPLE_ROOT, "..x"),
+    )
+  })
+
+  it("refuses a state directory reached through a symlink into an app root", () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-config-"))
+    symlinkSync(join(EXAMPLE_ROOT, "drafter"), join(dir, "link"))
+    expect(refusal({ ...good, state: join(dir, "link") })).toMatch(/inside the drafter's app root/)
+    expect(refusal({ ...good, state: join(dir, "link", "not", "yet") })).toMatch(
+      /inside the drafter's app root/,
+    )
+  })
+
+  const caseInsensitive = (() => {
+    const upper = join(EXAMPLE_ROOT, "CONTROLLER")
+    if (!existsSync(upper)) return false
+    const a = statSync(upper)
+    const b = statSync(join(EXAMPLE_ROOT, "controller"))
+    return a.dev === b.dev && a.ino === b.ino
+  })()
+  it.skipIf(!caseInsensitive)("refuses a case variant on a case-insensitive filesystem", () => {
+    for (const inside of ["Controller/.factory", "SERVER", "dRaFtEr/x"])
+      expect(refusal({ ...good, state: inside })).toMatch(/inside the \w+'s app root/)
+  })
 })
 
 describe("the config file", () => {
@@ -97,6 +154,15 @@ describe("the config file", () => {
     const bare = join(dir, "bare.ts")
     writeFileSync(bare, "export const config = {}\n")
     await expect(loadFactoryConfig(bare)).rejects.toThrow(/has no default export/)
+  })
+
+  it("names the file when importing it fails", async () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-config-"))
+    const broken = join(dir, "broken.ts")
+    writeFileSync(broken, 'throw new Error("boom")\nexport default {}\n')
+    await expect(loadFactoryConfig(broken)).rejects.toThrow(
+      `factory config ${broken} failed to load: boom`,
+    )
   })
 
   it("is named by --config, else FACTORY_CONFIG, else the example's own; none reads none", () => {
@@ -162,6 +228,26 @@ describe("the environment and the config", () => {
       ownedVariableConflicts({ FACTORY_STATE_DIR: "/old", FACTORY_CONTROLLER_URL: "" }, config),
     ).toEqual([
       `FACTORY_STATE_DIR is /old in the environment but up keeps the controller's state in ${join(EXAMPLE_ROOT, ".factory")}: unset it (the CLI reads ${PATH}) or make them equal`,
+    ])
+  })
+
+  it("names all four owned variables, in order, when every one disagrees", () => {
+    const tail = `: unset it (the CLI reads ${PATH}) or make them equal`
+    expect(
+      ownedVariableConflicts(
+        {
+          FACTORY_STATE_DIR: "/s",
+          FACTORY_DRAFTER_URL: "http://d",
+          FACTORY_WORKER_URL: "http://w",
+          FACTORY_CONTROLLER_URL: "http://c",
+        },
+        config,
+      ),
+    ).toEqual([
+      `FACTORY_CONTROLLER_URL is http://c in the environment but up starts the controller at http://127.0.0.1:4300${tail}`,
+      `FACTORY_WORKER_URL is http://w in the environment but up starts the builder at http://127.0.0.1:4100${tail}`,
+      `FACTORY_DRAFTER_URL is http://d in the environment but up starts the drafter at http://127.0.0.1:4200${tail}`,
+      `FACTORY_STATE_DIR is /s in the environment but up keeps the controller's state in ${join(EXAMPLE_ROOT, ".factory")}${tail}`,
     ])
   })
 })

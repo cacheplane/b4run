@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs"
-import { dirname, isAbsolute, relative, resolve } from "node:path"
+import { existsSync, realpathSync, statSync } from "node:fs"
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
 import { pathToFileURL } from "node:url"
 import { z } from "zod"
 
@@ -67,17 +67,70 @@ const REPLACED: Readonly<Record<string, string>> = {
 function describeValue(value: unknown): string {
   if (value === null) return "null"
   if (Array.isArray(value)) return "an array"
+  if (value instanceof Promise)
+    return "a promise: export the object itself (top-level await is allowed)"
+  if (typeof value === "object") {
+    const name = (Object.getPrototypeOf(value) as { constructor?: { name?: unknown } } | null)
+      ?.constructor?.name
+    return typeof name === "string" && name !== "" ? `an instance of ${name}` : "an object"
+  }
   return typeof value
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null) return false
+  const proto: unknown = Object.getPrototypeOf(value)
+  return proto === Object.prototype || proto === null
+}
+
+/** Lexically inside (or equal to) `root`: `..x` is a child, only `..` or `../…` leaves. */
+function lexicallyInside(root: string, path: string): boolean {
+  const rel = relative(root, path)
+  return !(rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel))
+}
+
+/**
+ * Whether `path` (absolute, normalized, possibly not yet existing) is `root` or under it on
+ * disk. Compared by identity (device and inode), not by name: the nearest existing ancestor
+ * of `path` is resolved through its symlinks, then it and each of its ancestors is compared
+ * with `root`. The components below that ancestor do not exist, so none is a link, and
+ * `resolve` has already removed every `..`. Identity rather than a case-folded string compare
+ * because case sensitivity is a property of each volume (APFS and NTFS can be either, and a
+ * case-sensitive volume can be mounted under a case-insensitive one), and folding cannot see
+ * Unicode normalization; the inode answers for whichever volume the path is on. A root that
+ * does not exist cannot contain anything on disk.
+ */
+function physicallyInside(root: string, path: string): boolean {
+  let rootStat: ReturnType<typeof statSync>
+  try {
+    rootStat = statSync(root)
+  } catch {
+    return false
+  }
+  let existing = path
+  while (!existsSync(existing)) {
+    const parent = dirname(existing)
+    if (parent === existing) return false
+    existing = parent
+  }
+  let at = realpathSync.native(existing)
+  for (;;) {
+    const here = statSync(at)
+    if (here.dev === rootStat.dev && here.ino === rootStat.ino) return true
+    const parent = dirname(at)
+    if (parent === at) return false
+    at = parent
+  }
 }
 
 /** Validate a config's default export, failing closed on anything but the exact shape. */
 export function parseFactoryConfig(value: unknown, path: string): ResolvedFactoryConfig {
   const fail = (problems: readonly string[]) =>
     new Error(`Invalid factory config ${path}:\n${problems.join("\n")}`)
-  if (typeof value !== "object" || value === null || Array.isArray(value))
-    throw fail([`the default export must be an object, got ${describeValue(value)}`])
+  if (!isPlainObject(value))
+    throw fail([`the default export must be a plain object, got ${describeValue(value)}`])
   const problems = Object.keys(value)
-    .filter((key) => key in REPLACED)
+    .filter((key) => Object.hasOwn(REPLACED, key))
     .map((key) => `${key}: ${REPLACED[key]}`)
   const parsed = ConfigSchema.safeParse(value)
   if (!parsed.success)
@@ -103,8 +156,7 @@ export function parseFactoryConfig(value: unknown, path: string): ResolvedFactor
   const stateDir = isAbsolute(state) ? resolve(state) : resolve(dirname(path), state)
   for (const name of APP_NAMES) {
     const appRoot = resolve(EXAMPLE_ROOT, APP_DIRS[name])
-    const rel = relative(appRoot, stateDir)
-    if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel)))
+    if (lexicallyInside(appRoot, stateDir) || physicallyInside(appRoot, stateDir))
       problems.push(
         `state: ${stateDir} is inside the ${name}'s app root ${appRoot}; keep run-time files out of every app root`,
       )
@@ -120,7 +172,13 @@ export function parseFactoryConfig(value: unknown, path: string): ResolvedFactor
 export async function loadFactoryConfig(path: string): Promise<ResolvedFactoryConfig> {
   const absolute = resolve(path)
   if (!existsSync(absolute)) throw new Error(`No factory config at ${absolute}`)
-  const loaded = (await import(pathToFileURL(absolute).href)) as Record<string, unknown>
+  let loaded: Record<string, unknown>
+  try {
+    loaded = (await import(pathToFileURL(absolute).href)) as Record<string, unknown>
+  } catch (error) {
+    const cause = error instanceof Error ? error.message : String(error)
+    throw new Error(`factory config ${absolute} failed to load: ${cause}`, { cause: error })
+  }
   if (!("default" in loaded))
     throw new Error(`Invalid factory config ${absolute}:\nit has no default export`)
   return parseFactoryConfig(loaded.default, absolute)

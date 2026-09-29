@@ -142,7 +142,9 @@ reject-intake settles anywhere but awaiting_intake_approval.
 
 Every command reads FACTORY_CONTROLLER_URL and FACTORY_STATE_DIR from the environment, else
 from the factory config: --config <path>, else FACTORY_CONFIG, else
-examples/software-factory/factory.config.ts when it exists (FACTORY_CONFIG=none reads none).`
+examples/software-factory/factory.config.ts when it exists. --config none and
+FACTORY_CONFIG=none read none. A relative --config or FACTORY_CONFIG path resolves against
+INIT_CWD (where you ran pnpm) when it is set, else the current directory.`
 
 function print(value: unknown) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`)

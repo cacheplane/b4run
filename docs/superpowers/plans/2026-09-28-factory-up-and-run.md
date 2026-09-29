@@ -3697,6 +3697,7 @@ At the draft, Brian reads the display and types the prefix (or rejects with `pnp
 - **Drain on stop**: `up` could wait for in-flight dispatches before stopping the controller; today they are aborted and reconciled at the next `up`.
 - **Remote workers**: a config `url` for a worker `up` does not start (the spec's original shape), once someone runs one elsewhere.
 - **`run --retry`**, if people find themselves always retrying: the decision stays explicit.
+- **Run-time files in an app root through other variables**: the config refuses a state directory inside any app root (compared by device and inode, so symlinks and case variants are caught), but `FACTORY_ARTIFACTS_DIR` and `FACTORY_EXPORT_DIR` are read from the environment unchecked and can still place run-time files in an app root (spec §9 finding 4). Give them the same check where they are read.
 - **Framework**: `b4 dev`'s hard-coded watch ignore list (findings 4, 21) still bites the manual runbook.
 
 ## Self-review
