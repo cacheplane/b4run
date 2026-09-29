@@ -234,6 +234,12 @@ export async function createChatModel(options: {
    * providers can. Any other provider rejects BEFORE its package is imported.
    */
   readonly responseFormat?: JsonSchemaResponseFormat
+  /**
+   * The chat model's `maxRetries`: how many times LangChain's `AsyncCaller`
+   * re-sends one failed request. Agent routes pass `retry.maxAttempts - 1`;
+   * left unset, the provider package's own default applies (6).
+   */
+  readonly maxRetries?: number
 }): Promise<unknown> {
   if (options.responseFormat && !supportsJsonSchemaResponseFormat(options.provider)) {
     throw new Error(unsupportedResponseFormatMessage(options.provider))
@@ -260,6 +266,7 @@ export async function createChatModel(options: {
   }
 
   const constructorOptions: Record<string, unknown> = { model: options.model }
+  if (options.maxRetries !== undefined) constructorOptions.maxRetries = options.maxRetries
   if (options.provider === "openai" && options.reasoning?.effort) {
     constructorOptions.reasoningEffort = options.reasoning.effort
   }
