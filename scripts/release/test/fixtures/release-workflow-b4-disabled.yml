@@ -186,6 +186,20 @@ jobs:
 
           WORKFLOW_PATH=".github/workflows/release.yml"
           WORKFLOW_ID="$(node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "$WORKFLOW_PATH")"
+          # A tag run that is still waiting or running needs no second relay: runs
+          # are serialized, and a queued run has no jobs, which escrow refuses.
+          STATUS="$(curl --silent --show-error --output "$RUNNER_TEMP/tag-runs.json" --write-out '%{http_code}' \
+            --header 'Accept: application/vnd.github+json' \
+            --header "Authorization: Bearer $GITHUB_TOKEN" \
+            --header 'X-GitHub-Api-Version: 2026-03-10' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW_ID/runs?branch=v${VERSION}&per_page=100")"
+          test "$STATUS" = "200"
+          TAG_RUNS="$(node -e 'const b=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));const r=b.workflow_runs;if(!Number.isSafeInteger(b.total_count)||!Array.isArray(r)||r.length!==b.total_count||r.length>=100||r.some((x)=>x.head_branch!=="v"+process.env.VERSION||typeof x.status!=="string"))process.exit(1);process.stdout.write(r.some((x)=>x.status!=="completed")?"waiting":"clear")' "$RUNNER_TEMP/tag-runs.json")"
+          if [[ "$TAG_RUNS" == "waiting" ]]; then
+            printf 'continue=false\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          test "$TAG_RUNS" = "clear"
           BODY="$(node -e 'process.stdout.write(JSON.stringify({ref:"v"+process.env.VERSION,inputs:{version:process.env.VERSION,commitSha:process.env.COMMIT_SHA,operation:"reconcile",npmBootstrap:process.env.NPM_BOOTSTRAP==="true"}}))')"
           STATUS="$(curl --silent --show-error --output "$RUNNER_TEMP/dispatch.json" --write-out '%{http_code}' \
             --request POST \
