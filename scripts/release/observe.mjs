@@ -3240,7 +3240,7 @@ async function observeReleaseTerminal({
     }
     downloaded.push({ name: asset.name, bytes, result, sha256: asset.sha256 })
   }
-  validateAuditAssetPhase({ marker, downloaded })
+  validateAuditAssetPhase({ marker, downloaded, run })
   const status =
     marker.phase === "AUDIT_VERIFIED"
       ? "success"
@@ -3401,7 +3401,7 @@ export function validateProductionAuditRun({ value, jobs, candidate, marker, exe
   }
 }
 
-function validateAuditAssetPhase({ marker, downloaded }) {
+function validateAuditAssetPhase({ marker, downloaded, run }) {
   if (marker.phase === "AUDIT_VERIFIED") {
     validatePublicationAuditAssets(
       downloaded.map((asset) => ({ name: asset.name, bytes: asset.bytes })),
@@ -3440,9 +3440,26 @@ function validateAuditAssetPhase({ marker, downloaded }) {
     ) {
       throw observationError("RELEASE_AUDIT_RETRYABLE_EVIDENCE_INVALID")
     }
-  } else if (current !== null) {
+  } else if (current !== null && !isResumableSuccessfulAttempt({ marker, current, run })) {
     throw observationError("RELEASE_AUDIT_DISPATCH_EVIDENCE_PREMATURE")
   }
+}
+
+// correlate-audit attaches a successful attempt before verifyAuditSuccess
+// canonicalizes it and advances the marker; both steps are idempotent, so a
+// job that stops between them must stay resumable by complete-release-audit.
+// Only the exact successful terminal attempt of the recorded dispatch
+// qualifies; a failure attempt is recorded together with AUDIT_RETRYABLE.
+function isResumableSuccessfulAttempt({ marker, current, run }) {
+  return (
+    marker.phase === "AUDIT_DISPATCHED" &&
+    run.status === "completed" &&
+    run.conclusion === "success" &&
+    current.result.conclusion === "success" &&
+    current.result.workflowRunId === marker.audit.workflowRunId &&
+    current.result.runAttempt === run.runAttempt &&
+    current.name === `audit-attempt-${marker.audit.workflowRunId}-${run.runAttempt}.json`
+  )
 }
 
 function parseCanonicalAuditBytes(bytes) {

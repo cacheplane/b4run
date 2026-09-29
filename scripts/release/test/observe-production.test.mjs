@@ -2954,6 +2954,142 @@ test("production observation maps allowlisted non-success audit conclusions to a
   assert.deepEqual(plan.conflicts, [])
 })
 
+async function observeDispatchedAttempt(fixture) {
+  const npmFixture = publishedNpmFixture(fixture.manifest)
+  const github = releaseFixtureReader(fixture, {
+    async getActionsRun({ runId }) {
+      assert.equal(runId, fixture.marker.audit.workflowRunId)
+      return present("actions-run", fixture.run)
+    },
+    async getActionsRunAttempt({ runId, attempt }) {
+      assert.equal(Number(runId), fixture.marker.attestationSet.workflowRunId)
+      assert.equal(attempt, fixture.marker.attestationSet.runAttempt)
+      return present("actions-run-attempt", prepareRun({ id: runId }))
+    },
+    async listActionsRunJobs({ runId }) {
+      return present(
+        "actions-run-jobs",
+        Number(runId) === fixture.marker.attestationSet.workflowRunId
+          ? [publisherJob({ startedAt: null })]
+          : fixture.jobs,
+      )
+    },
+  })
+  const { observation, diagnostics } = await observeProductionCandidate({
+    terminalRecordRef: "HEAD",
+    candidate: candidate(),
+    inventory: inventory(),
+    marker: MARKER,
+    git: gitReader(),
+    github,
+    npm: npmFixture.npm,
+    npmAuditFactory: npmFixture.npmAuditFactory,
+    attestations: attestationVerifier([]),
+  })
+  const plan = planRelease({
+    candidate: candidate(),
+    observation,
+    mode: "controller",
+  })
+  return { observation, diagnostics, plan }
+}
+
+test("production observation resumes complete-release-audit from a successful attempt attached under AUDIT_DISPATCHED", async () => {
+  // v0.13.0: correlate-audit attached the successful attempt and then failed on a
+  // transient asset read before verifyAuditSuccess advanced the marker.
+  const fixture = dispatchedAttemptFixture()
+  const { observation, diagnostics, plan } = await observeDispatchedAttempt(fixture)
+
+  assert.deepEqual(diagnostics, [])
+  assert.equal(observation.release.status, "draft")
+  assert.equal(observation.release.marker.phase, "AUDIT_DISPATCHED")
+  assert.deepEqual(observation.audit, {
+    status: "dispatched",
+    version: VERSION,
+    commitSha: COMMIT_SHA,
+    manifestSha256: fixture.marker.manifestSha256,
+    workflowRunId: fixture.auditResult.workflowRunId,
+    runAttempt: fixture.auditResult.runAttempt,
+    conclusion: null,
+  })
+  assert.equal(plan.state, "AUDIT_DISPATCHED")
+  assert.equal(plan.nextTransition, "complete-release-audit")
+  assert.deepEqual(plan.conflicts, [])
+})
+
+for (const [label, overrides, code] of [
+  [
+    "a failure-conclusion attempt",
+    {
+      auditResult: { conclusion: "failure" },
+      run: { conclusion: "timed_out" },
+    },
+    "RELEASE_AUDIT_DISPATCH_EVIDENCE_PREMATURE",
+  ],
+  [
+    "a successful attempt while the audit run is still in progress",
+    { run: { status: "in_progress", conclusion: null } },
+    "RELEASE_AUDIT_DISPATCH_EVIDENCE_PREMATURE",
+  ],
+  [
+    "a successful attempt superseded by a later terminal run attempt",
+    { run: { run_attempt: 3 }, extraJobs: true },
+    "RELEASE_AUDIT_DISPATCH_EVIDENCE_PREMATURE",
+  ],
+  [
+    "a successful attempt whose run concluded unsuccessfully",
+    { run: { conclusion: "failure" } },
+    "RELEASE_AUDIT_DISPATCH_EVIDENCE_PREMATURE",
+  ],
+  [
+    "a successful attempt for a different manifest digest",
+    { auditResult: { manifestSha256: "e".repeat(64) } },
+    "RELEASE_AUDIT_RECEIPT_IDENTITY_MISMATCH",
+  ],
+  [
+    "a successful attempt for a different candidate commit",
+    { auditResult: { commitSha: "d".repeat(40) } },
+    "RELEASE_AUDIT_RECEIPT_IDENTITY_MISMATCH",
+  ],
+  [
+    "a successful attempt whose filename names another run attempt",
+    { assetName: "audit-attempt-700-1.json" },
+    "RELEASE_AUDIT_ATTEMPT_IDENTITY_MISMATCH",
+  ],
+  [
+    "a successful attempt whose bytes differ from the listed digest",
+    { listedDigest: "c".repeat(64) },
+    "RELEASE_AUDIT_ASSET_DIGEST_MISMATCH",
+  ],
+  [
+    "a successful attempt with noncanonical bytes",
+    { noncanonical: true },
+    "RELEASE_AUDIT_ASSET_NONCANONICAL",
+  ],
+  [
+    "a canonical audit-result.json without AUDIT_VERIFIED",
+    { canonical: true },
+    "RELEASE_AUDIT_CANONICAL_PREMATURE",
+  ],
+  [
+    "duplicate current-dispatch attempts",
+    { duplicateAttempt: true },
+    "RELEASE_AUDIT_CURRENT_ATTEMPT_AMBIGUOUS",
+  ],
+]) {
+  test(`production observation stays fail-closed under AUDIT_DISPATCHED for ${label}`, async () => {
+    const fixture = dispatchedAttemptFixture(overrides)
+    const { observation, diagnostics, plan } = await observeDispatchedAttempt(fixture)
+
+    assert.equal(observation.release.status, "ambiguous")
+    assert.ok(
+      diagnostics.some((entry) => entry.code === code),
+      `${label}: ${JSON.stringify(diagnostics.map((entry) => entry.code))}`,
+    )
+    assert.equal(plan.nextTransition, null)
+  })
+}
+
 test("production observation blocks a published Release whose terminal marker is incomplete or mutable", async () => {
   const escrow = attestedReleaseFixture()
   const unsafeRelease = { ...escrow.release, draft: false, immutable: false }
@@ -4862,6 +4998,119 @@ function retryableReleaseFixture() {
     jobs: audited.jobs.map((job) =>
       job.runAttempt === auditResult.runAttempt ? { ...job, conclusion: "cancelled" } : job,
     ),
+  }
+}
+
+function dispatchedAttemptFixture({
+  auditResult: resultOverrides = {},
+  run: runOverrides = {},
+  extraJobs = false,
+  assetName = null,
+  listedDigest = null,
+  noncanonical = false,
+  canonical = false,
+  duplicateAttempt = false,
+} = {}) {
+  const audited = auditedReleaseFixture()
+  const auditResult = { ...audited.auditResult, ...resultOverrides }
+  if (auditResult.conclusion === "failure") {
+    auditResult.checks = [{ name: "published-artifacts", conclusion: "failure", detail: "failed" }]
+  }
+  const canonicalBytes = canonicalAuditResultBytes(auditResult)
+  const auditBytes = noncanonical
+    ? Buffer.from(`${JSON.stringify(auditResult, null, 2)}\n`)
+    : canonicalBytes
+  const marker = {
+    ...audited.marker,
+    revision: 6,
+    phase: "AUDIT_DISPATCHED",
+    audit: {
+      ...audited.marker.audit,
+      runAttempt: null,
+      attemptAssetName: null,
+      attemptSha256: null,
+      canonicalSha256: null,
+      conclusion: null,
+    },
+  }
+  const bytesById = new Map(audited.bytesById)
+  const baseAssets = audited.assets.filter(
+    (asset) =>
+      asset.name !== audited.marker.audit.attemptAssetName && asset.name !== "audit-result.json",
+  )
+  const terminal = [
+    [
+      2_000,
+      assetName ?? `audit-attempt-${auditResult.workflowRunId}-${auditResult.runAttempt}.json`,
+      auditBytes,
+    ],
+  ]
+  if (canonical) terminal.push([2_001, "audit-result.json", canonicalBytes])
+  if (duplicateAttempt) {
+    const earlier = { ...auditResult, runAttempt: 1, conclusion: "failure" }
+    earlier.checks = [{ name: "published-artifacts", conclusion: "failure", detail: "failed" }]
+    terminal.push([
+      2_002,
+      `audit-attempt-${earlier.workflowRunId}-1.json`,
+      canonicalAuditResultBytes(earlier),
+    ])
+  }
+  const assets = [
+    ...baseAssets,
+    ...terminal.map(([id, name, bytes], index) => {
+      bytesById.set(id, bytes)
+      return {
+        id,
+        name,
+        digest: `sha256:${index === 0 && listedDigest !== null ? listedDigest : digest(bytes)}`,
+        size: bytes.length,
+      }
+    }),
+  ]
+  const run = { ...audited.run, ...runOverrides }
+  let jobs = audited.jobs
+  if (auditResult.conclusion === "failure" || run.conclusion === "failure") {
+    jobs = jobs.map((job) =>
+      job.runAttempt === auditResult.runAttempt ? { ...job, conclusion: "failure" } : job,
+    )
+  }
+  if (run.status === "in_progress") {
+    jobs = jobs.map((job) =>
+      job.runAttempt === auditResult.runAttempt
+        ? { ...job, status: "in_progress", conclusion: null, completedAt: null }
+        : job,
+    )
+  }
+  if (extraJobs) {
+    jobs = [
+      ...jobs.map((job) =>
+        job.runAttempt === auditResult.runAttempt ? { ...job, conclusion: "failure" } : job,
+      ),
+      {
+        id: 7_003,
+        runAttempt: 3,
+        name: "verify",
+        status: "completed",
+        conclusion: "success",
+        startedAt: "2026-08-25T11:00:00.000Z",
+        completedAt: "2026-08-25T11:01:00.000Z",
+      },
+    ]
+  }
+  return {
+    ...audited,
+    marker,
+    auditResult,
+    assets,
+    bytesById,
+    release: {
+      ...audited.release,
+      draft: true,
+      immutable: false,
+      body: canonicalReleaseBody({ marker, manifest: null }),
+    },
+    run,
+    jobs,
   }
 }
 
