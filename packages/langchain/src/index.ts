@@ -22,6 +22,7 @@ export {
   supportsJsonSchemaResponseFormat,
   unsupportedResponseFormatMessage,
 } from "./chat-model-factory.js"
+export { modelMaxRetries } from "./model-call-retry.js"
 export { inferProvider, resolveProvider } from "./model-provider-resolver.js"
 export type { OffloadStoreOptions } from "./offload/offload-store.js"
 export { buildOffloadFileName, OffloadStore } from "./offload/offload-store.js"

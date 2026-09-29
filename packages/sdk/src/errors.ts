@@ -68,6 +68,11 @@ export const B4_ERRORS = {
     title: "Route entry exports more than one route kind",
     docsPath: "/docs/cli#b4-check",
   },
+  B4_E1009: {
+    code: "B4_E1009",
+    title: "Invalid memory config",
+    docsPath: "/docs/configuration#memory",
+  },
   B4_E2001: {
     code: "B4_E2001",
     title: "Sandbox unavailable",

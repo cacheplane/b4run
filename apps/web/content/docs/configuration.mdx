@@ -123,6 +123,7 @@ export default config({
       model: "gpt-5-mini",
       provider: "openai",
       maxBatches: 5,
+      retry: { maxAttempts: 3 },
       consolidate: {
         olderThanMs: 604_800_000,
         minBatchSize: 5,
@@ -491,6 +492,7 @@ memory?: {
     model?: string
     provider?: ModelProviderId
     maxBatches?: number
+    retry?: { maxAttempts?: number }
     consolidate?: {
       olderThanMs?: number
       minBatchSize?: number
@@ -523,10 +525,34 @@ The defaults are:
 - **Episodes:** disabled, with a 30-day TTL, a cap of `500`, failed runs
   included, and no embeddings (`embed: true` isn't supported).
 - **Distillation:** runs only when you invoke it, with `gpt-5-mini`, the
-  inferred provider (falling back to `openai`) and five batches.
+  inferred provider (falling back to `openai`), five batches, and 3 attempts
+  per model call.
   Consolidation takes records older than seven days in batches of 5–50, sets
   no summary TTL, and gives source records a seven-day TTL. Reflection waits
   for 10 new records, reads at most 100, and writes candidates.
+
+`distill.retry.maxAttempts` is the attempts per distillation model call,
+counting the first. It becomes the model's `maxRetries` (`maxAttempts - 1`),
+as [`agent({ retry })`](/docs/retry) does for a route. There's no `baseDelay`
+here: distillation has no rate-limit retry of its own for it to pace. On the
+`ollama` provider `maxAttempts` has no effect, because Ollama's chat requests
+bypass LangChain's retry (see [Retry limits](/docs/retry#limits)).
+
+`b4 check`, `b4 memory consolidate` and `b4 memory reflect` reject, with
+`B4_E1009`:
+
+- a non-object `memory`, `distill` or `retry`;
+- a key on `memory` that is `distill` up to case and one character, such as
+  `Distill`, `distil` or `distills`;
+- `retry` or `maxAttempts` in any casing directly on `memory`, and
+  `maxAttempts` directly on `distill`;
+- any other unknown key in `distill` or `distill.retry`, a typo such as
+  `Retry` or `maxattempts` included;
+- a `baseDelay`, and a `maxAttempts` that isn't a whole number of at least 1.
+
+They never fall back to the default. Only the top-level keys of `distill`
+and `distill.retry` are checked, not the keys inside `consolidate` or
+`reflect`.
 
 A custom store ignores these tuning blocks. `resolveScope` receives only
 `routePath` and `appRoot`, so derive tenant or user dimensions from your own

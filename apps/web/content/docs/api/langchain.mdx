@@ -56,6 +56,7 @@ The runtime root is edge-safe for B4.run's emitted Hono/workerd target. The evid
 | `seedModelImporter` | Install the process-global fallback provider importer. |
 | `inferProvider` | Re-export SDK provider inference. |
 | `resolveProvider` | Resolve an explicit provider or infer one from a model ID. |
+| `modelMaxRetries` | Map an agent's `retry` to a chat model's `maxRetries` (`maxAttempts - 1`, default 2). |
 | `RetryOptions` | Configure retry attempts, backoff, cap, and cancellation. |
 | `isRetryableError` | Classify known transient error messages. |
 | `withRetry` | Retry transient async failures with jittered exponential backoff. |
@@ -224,7 +225,7 @@ type BuildStubArgs = {
 }
 ```
 
-The larger inline `AgentOptions` shape used by `executeAgent` and `streamAgent` requires `checkpointer`, `entry`, `input`, `routeParamNames`, `signal`, and `tools`. It also accepts middleware, retry, state, prompt, offload, summarization, subagent, thread, sandbox, and cache-bypass controls. The subagent converter accepts a private `{ name, description?, schema? }` placeholder, and the tool converter accepts the same basic tool definition plus a `run` callback. `defaultSummarize` accepts messages, model, optional previous summary, and signal.
+The larger inline `AgentOptions` shape used by `executeAgent` and `streamAgent` requires `checkpointer`, `entry`, `input`, `routeParamNames`, `signal`, and `tools`. It also accepts middleware, retry, state, prompt, offload, summarization, subagent, thread, sandbox, and cache-bypass controls. The subagent converter accepts a private `{ name, description?, schema? }` placeholder, and the tool converter accepts the same basic tool definition plus a `run` callback. `defaultSummarize` accepts messages, model, optional previous summary, signal, and optional `maxRetries` for the model it builds.
 
 Materialized graphs are cached by descriptor plus checkpointer. Sandbox-bound tools, subagents, stream transformers, and explicit bypass requests skip reuse. A checkpointer is mandatory at runtime. `threadId` is also required for an interrupted run to resume. Generated edge assembly must seed its static provider importer before model construction.
 

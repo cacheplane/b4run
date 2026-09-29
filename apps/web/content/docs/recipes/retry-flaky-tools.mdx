@@ -51,16 +51,17 @@ export default agent({
 ## Notes
 
 - **Retry is per route.** Each `agent()` declares its own `retry`, so different routes can have different policies.
-- **Only transient model/provider errors retry.** Rate limits (`429`), server errors (`500`/`502`/`503`), network timeouts, and OpenAI `overloaded`/`server_error` are retried. Invalid API keys, missing models, and schema validation errors fail immediately.
-- **Backoff is exponential with jitter, capped at 10s.** For non-stream fallback, `delay = min(baseDelay * 2^n + jitter, 10s)`. A lower `baseDelay` makes the first retry faster.
+- **Each model call retries on its own.** `maxAttempts` is the attempts per model call, not per run. A failure in a later model call of the tool loop sends only that call again; tools that already ran don't run again.
+- **Only temporary failures retry.** Server errors (`5xx`), network errors, timeouts and rate limits are retried. A quota `429`, an invalid API key, a missing model and a malformed request fail immediately.
+- **`baseDelay` paces capacity rate limits.** A `429` with no `Retry-After` waits `min(baseDelay * 2^n + jitter, 10s)` before the next attempt. A `429` whose `Retry-After` is 60 seconds or less is waited out by LangChain; one over 60 seconds isn't retried, and the run fails at once. LangChain paces the other retries with its own backoff, starting at 1 to 2 seconds.
 - **`maxAttempts: 1` disables retry.** If you omit `retry`, the default is `3`.
-- **Streaming routes only retry before the first event.** Once an event has streamed, the response is committed.
+- **A response that fails partway isn't retried.** Retries happen before the model's response starts, so no token is ever sent twice. Once part of a response has streamed, an error comes through the stream.
 - **Tool retry lives in the tool.** Agent retry covers model and provider calls. For a tool, write the loop yourself, as `fetch-doc.ts` does above.
 
 ## Related
 
 <RelatedCards items={[
-  { href: "/docs/retry", title: "Retry", subtitle: "the full backoff formula and the list of retryable errors" },
+  { href: "/docs/retry", title: "Retry", subtitle: "what each retry layer covers, and the backoff" },
   { href: "/docs/routes", title: "Routes", subtitle: "agent() and the other route kinds" },
   { href: "/docs/recipes/stream-output", title: "Stream Output", subtitle: "the streaming retry caveat in context" },
   { href: "/docs/api/sdk#agent-and-agentconfig", title: "SDK Reference", subtitle: "agent() and the RetryConfig type" },

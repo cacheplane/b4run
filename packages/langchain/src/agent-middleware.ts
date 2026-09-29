@@ -9,6 +9,12 @@ import { isGraphInterrupt } from "@langchain/langgraph"
 import { type AgentMiddleware, createMiddleware } from "langchain"
 import { z } from "zod"
 import {
+  type ModelRetryPolicy,
+  providerMaxRetries,
+  resolveModelRetryPolicy,
+  retryCapacityErrors,
+} from "./model-call-retry.js"
+import {
   buildSummarizationHook,
   type ResolvedSummarizationConfig,
   type RunningSummary,
@@ -33,6 +39,8 @@ export interface B4AgentMiddlewareOptions {
   readonly summarization?: ResolvedSummarizationConfig
   /** Tools that end the run on a successful result. */
   readonly returnDirectToolNames: ReadonlySet<string>
+  /** The route's `retry`, resolved; defaults to 3 attempts and a 1s base delay. */
+  readonly retry?: ModelRetryPolicy
 }
 
 /**
@@ -52,6 +60,13 @@ export interface B4AgentMiddlewareOptions {
  * keeps the two-node loop it had under `createReactAgent`.
  */
 export function createB4AgentMiddleware(options: B4AgentMiddlewareOptions): AgentMiddleware[] {
+  // Keep B4ModelAndTools first and the only `wrapModelCall` here (the
+  // loop-entry middleware has just a `beforeModel`). `createAgent` composes
+  // `wrapModelCall` hooks with the first listed outermost, and wraps an error
+  // thrown out of each one in a `MiddlewareError`. As the outermost, B4's
+  // capacity retry sees the provider's 429 as LangChain stamped it; a
+  // `wrapModelCall` middleware added after it would hand it that 429 inside
+  // a `MiddlewareError`, which `isCapacityRateLimitError` looks through.
   const middleware: AgentMiddleware[] = [modelAndToolMiddleware(options)]
   const loopEntry = loopEntryMiddleware(options)
   if (loopEntry) middleware.push(loopEntry)
@@ -62,6 +77,7 @@ function modelAndToolMiddleware(options: B4AgentMiddlewareOptions): AgentMiddlew
   const readable: Record<string, z.ZodTypeAny> = { [LLM_INPUT_MESSAGES]: z.any().optional() }
   for (const name of options.stateFieldNames) readable[name] = z.any().optional()
   const composesPrompt = options.promptFragments.length > 0
+  const retry = options.retry ?? resolveModelRetryPolicy(undefined)
 
   return createMiddleware({
     name: "B4ModelAndTools",
@@ -70,7 +86,6 @@ function modelAndToolMiddleware(options: B4AgentMiddlewareOptions): AgentMiddlew
       const state = request.state as Record<string, unknown>
       const view = state[LLM_INPUT_MESSAGES]
       const messages = Array.isArray(view) ? (view as BaseMessage[]) : request.messages
-      if (!composesPrompt && messages === request.messages) return handler(request)
       const systemMessage = composesPrompt
         ? new SystemMessage(
             await composeSystemPrompt(options.systemPrompt, options.promptFragments, {
@@ -79,7 +94,17 @@ function modelAndToolMiddleware(options: B4AgentMiddlewareOptions): AgentMiddlew
             }),
           )
         : request.systemMessage
-      return handler({ ...request, messages, systemMessage })
+      const next =
+        !composesPrompt && messages === request.messages
+          ? request
+          : { ...request, messages, systemMessage }
+      // Only this model call is sent again, never the tools around it, and
+      // only for a capacity 429, which fails before the first token streams.
+      return retryCapacityErrors(
+        () => handler(next),
+        retry,
+        request.runtime.signal ? { signal: request.runtime.signal } : {},
+      )
     },
     wrapToolCall: async (request, handler) => {
       try {
@@ -119,7 +144,12 @@ export function toolErrorMessage(
 function loopEntryMiddleware(options: B4AgentMiddlewareOptions): AgentMiddleware | undefined {
   const { returnDirectToolNames, summarization } = options
   if (returnDirectToolNames.size === 0 && !summarization) return undefined
-  const summarize = summarization ? buildSummarizationHook(summarization) : undefined
+  // The summarizer's model gets the route's `retry` too, as its `maxRetries`.
+  const summarize = summarization
+    ? buildSummarizationHook(summarization, {
+        maxRetries: providerMaxRetries(options.retry ?? resolveModelRetryPolicy(undefined)),
+      })
+    : undefined
 
   return createMiddleware({
     name: "B4LoopEntry",

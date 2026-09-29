@@ -26,6 +26,7 @@ It loads `b4.config.ts`, resolves the app root, runs `discoverRoutes`, and parse
 - A route whose `index.ts` exports more than one of `agent`, `workflow`, `graph`, `chain` (`B4_E1008`), with the file path and the kinds it exported. For both codes, `b4 check` lists every offending route at once. When an app has both, it lists the unrecognised ones first, with a count of the multi-kind ones.
 - A tool file that fails to parse.
 - A stale build manifest (see below).
+- A `memory.distill.retry` with a key other than `maxAttempts`, or a `maxAttempts` that isn't a whole number of at least 1; an unknown key in `memory.distill`; a non-object `memory` or `memory.distill`; and a near miss on `memory` itself, such as `Distill`, `distil`, or a `retry` or `maxAttempts` placed there (`B4_E1009`). `b4 memory consolidate` and `reflect` refuse the same config before building a model.
 - An unknown `build.targets` entry and, when `"hono"` is one of them, every feature that target [cannot serve](/docs/deployment/edge#what-the-edge-cannot-serve) (`B4_E1005`). `b4 build` applies the same gate, so you learn about all of them before you build.
 
 When `.b4/build/modules.mjs` exists (the `node` target writes it), `b4 check` compares its routes with the routes on disk. A mismatch, such as a route renamed since the last build, fails with the missing and extra route ids and asks you to re-run `b4 build`.

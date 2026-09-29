@@ -5,8 +5,28 @@ const B4_AGENT: unique symbol = Symbol.for("b4.agent") as unknown as typeof B4_A
 
 declare const brand: unique symbol
 
+/**
+ * How an agent route retries a failed model call. Each model call in the
+ * tool loop retries on its own; B4.run never restarts the run, so tools don't
+ * run twice and streamed tokens are never sent again. See docs/retry.
+ */
 export interface RetryConfig {
+  /**
+   * Attempts per model call, counting the first. Default `3`; `1` sends each
+   * call once. Becomes the chat model's `maxRetries` (`maxAttempts - 1`),
+   * which covers server errors, network errors and rate limits with a short
+   * `Retry-After`, and also caps B4.run's retries of a capacity rate limit.
+   * The route's summarization model gets the same `maxRetries`.
+   */
   readonly maxAttempts?: number
+  /**
+   * Milliseconds before the first retry of a capacity rate limit (a 429 with
+   * no `Retry-After`); doubles each retry, plus up to 500ms of jitter, capped
+   * at 10 seconds. Default `1000`. A 429 whose `Retry-After` is over 60
+   * seconds (LangChain waits out shorter ones itself) isn't retried: the
+   * error surfaces at once, keeping the wait in `retryAfterMs`. LangChain's
+   * own backoff for other errors is fixed and doesn't read it.
+   */
   readonly baseDelay?: number
 }
 

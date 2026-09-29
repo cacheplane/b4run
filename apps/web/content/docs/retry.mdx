@@ -1,6 +1,6 @@
 # Retry
 
-The `retry` option on `agent()` retries model calls that fail for temporary reasons: rate limits, server errors, network timeouts and OpenAI overload responses. Errors like an invalid API key or an unknown model fail right away.
+The `retry` option on `agent()` sets how many times each model call is tried when it fails for a temporary reason: a server error, a network error or a rate limit. Every model call in the tool loop retries on its own. B4.run never restarts the run, so tools never run twice and the client never sees a token twice.
 
 ## Configuring retry
 
@@ -18,56 +18,69 @@ export default agent({
 
 | Field | Default | Notes |
 |---|---|---|
-| `maxAttempts` | `3` | Total attempts, counting the first call. `1` turns retry off. |
-| `baseDelay` | `1000` (ms) | Delay before the first retry. It doubles each time, plus some random jitter. |
+| `maxAttempts` | `3` | Attempts per model call, counting the first. `1` sends each call once. |
+| `baseDelay` | `1000` (ms) | Wait before the first retry of a capacity rate limit (see below). It doubles each retry. |
 
-If you omit `retry`, the agent uses the defaults (3 attempts, 1s base delay).
+If you omit `retry`, each model call gets 3 attempts. `retry` must be an object whose only keys are `maxAttempts` and `baseDelay`. `maxAttempts` must be a whole number of at least 1, and `baseDelay` a number of milliseconds of at least 0. Anything else, such as a misspelled `maxAttemps`, fails the route the first time it runs, with an error that names the valid keys or the bad value, rather than quietly changing how often it retries.
 
 ## What's retried
 
-B4.run retries an error when its message matches one of these patterns:
+Two layers retry a model call, and both read `maxAttempts`.
 
-- **Rate limits:** `429`, `rate limit`
-- **Server errors:** `500`, `502`, `503`
-- **Network errors:** `ECONNRESET`, `ECONNREFUSED`, `ETIMEDOUT`, `timeout`, `network`
-- **OpenAI transient:** `overloaded`, `server_error`
+**LangChain retries the request.** B4.run builds the route's chat model with `maxRetries: maxAttempts - 1`, and LangChain re-sends a failed request up to that many times:
 
-Anything else (invalid API key, model not found, schema validation errors, abort) fails right away.
+- **Server and network errors, and other transient failures:** `5xx` responses, dropped connections, timeouts, and any other error that isn't one of the fail-fast cases below.
+- **Rate limits with a short wait:** a `429` whose `Retry-After` header, or a "try again in …" hint in its message, is 60 seconds or less.
+
+**B4.run retries a capacity rate limit.** LangChain hands back, without retrying, a `429` with no `Retry-After` or hint or with one over 60 seconds, and marks it retryable. B4.run sends that model call again, up to `maxAttempts` attempts of the call in all. In practice that is a `429` with no `Retry-After`: one that carries a wait is always over 60 seconds by then, past B4.run's 10-second cap, so it fails at once (see below).
+
+**These fail right away:**
+
+- A quota `429` (for example OpenAI's `insufficient_quota`). Waiting doesn't bring a quota back.
+- A `429` whose `Retry-After` is longer than 60 seconds. LangChain waits out a `Retry-After` of up to 60 seconds itself and hands back a longer one; B4.run won't wait more than 10 seconds, or send the call sooner than the provider asked, so the run fails at once. The provider's error keeps the wait in `retryAfterMs` (milliseconds), on the `cause` of the error the run ends with, for code that runs the agent in process. Over HTTP the client gets the error's message.
+- An invalid API key, a model that doesn't exist, or a malformed request. LangChain doesn't retry `400` to `407`, `409` or `413`.
+- An aborted run.
+
+When a model call runs out of attempts, the run fails with that call's error.
 
 ## Backoff
 
-The delay before retry `n` (counting from zero) is:
+Each layer waits in its own way. LangChain waits 1 to 2 seconds before its first retry (1 second times a random jitter factor) and doubles that each time, or waits out the `Retry-After` when that's longer. `baseDelay` doesn't change LangChain's waits.
+
+Before B4.run sends a call again after a capacity rate limit, the wait before retry `n` (counting from zero) is:
 
 ```
 delay = min(baseDelay * 2^n + jitter, 10s)
 jitter = random(0, 500ms)
 ```
 
-With the defaults (1s base, 3 attempts):
+When the error carries a `Retry-After` of 10 seconds or less, B4.run waits exactly that long instead. Over 10 seconds, it doesn't retry (see above). LangChain itself waits out any `Retry-After` up to 60 seconds, so in practice the `429`s B4.run retries are the ones with no `Retry-After`.
 
-| Attempt | Delay before this attempt |
+With the defaults (3 attempts, 1s base), a model call that keeps hitting capacity limits is sent three times:
+
+| Attempt | Wait before this attempt |
 |---|---|
 | 1 (initial) | 0 |
 | 2 | ~1000–1500 ms |
 | 3 | ~2000–2500 ms |
 
-Non-streaming calls use your `baseDelay`. The 10 second cap keeps long retry chains from waiting longer and longer.
-
 ## Streaming behavior
 
-For streaming routes, B4.run retries only if the call fails **before any token or event reaches the client**. Streaming always uses a 1-second base delay, whatever your `baseDelay` is. Once content has streamed, the client has already seen it, so B4.run can't retry. The error comes through the stream.
+Every retry happens before the model's response starts. A failed request never produced a token, so sending it again can't repeat anything the client has seen.
 
-If you need more than that, retry in your client, or use `/threads/:id/runs/wait` when partial output is no use to you.
+A response that fails partway through, after some of it has streamed, isn't retried. The client already has the first part, and resending the call would show it twice. The error comes through the stream. If partial output is no use to you, retry the run from your client.
+
+Each model call in a tool loop is retried on its own. If the third model call of a run hits a rate limit, only that call is sent again: the earlier model calls and the tools they called don't run again.
 
 ## Abort signals
 
 Three things abort a run: an AG-UI client disconnecting, an Agent Protocol cancel (`POST /threads/:id/cancel`), and server shutdown. An Agent Protocol client disconnecting leaves the run going, so the thread can pick it up again.
 
-The abort signal reaches the agent and its tools as `ctx.signal`. Provider calls and tools have to listen to it for pending I/O to stop quickly.
+An abort during B4.run's wait before a retry ends the wait at once, and the call isn't sent again: the model call fails with the abort's reason. The same happens when the run was already aborted by the time the rate limit came back. LangChain's own wait between retries (up to 60 seconds for a `Retry-After`) isn't cut short on the OpenAI provider; the abort takes effect on the next request. The abort signal also reaches the agent and its tools as `ctx.signal`. Provider calls and tools have to listen to it for pending I/O to stop quickly.
 
 ## Per-route, not global
 
-Each `agent()` sets its own retry policy. There's no global setting:
+Each `agent()` sets its own retry policy, and a [subagent](/docs/subagents) uses its own `agent()`'s. There's no global setting:
 
 ```ts
 // Critical billing route: fail fast on transient errors
@@ -86,6 +99,21 @@ export default agent({
   systemPrompt: "...",
 })
 ```
+
+## Other models B4.run builds
+
+- **Summarization.** When [summarization](/docs/context-management#conversation-summarization) is on, the model that writes the summary gets the route's `maxAttempts - 1` as its `maxRetries` too, and a custom `summarize` function receives that value as `maxRetries`. B4.run's own capacity rate-limit retry covers only the route's model calls, not the summarizer; a failed summary falls back to the full history for that turn.
+- **Memory distillation.** `b4 memory consolidate` and `b4 memory reflect` run outside any route, over every namespace they select, so no route's `retry` applies. Their model's attempts come from [`memory.distill.retry.maxAttempts`](/docs/memory/distillation#distillation-configuration) in `b4.config.ts` (default 3). It has no `baseDelay`, because there's no capacity rate-limit retry there to pace. `b4 check` and those two commands reject a `baseDelay`, an unknown or misplaced key, or a bad `maxAttempts` there with `B4_E1009`; see [Configuration](/docs/configuration#memory) for the full list.
+
+## Limits
+
+- **Only the model call is retried, never the run.** An error outside a model call fails the turn, even a temporary one: for example, a checkpointer connection reset before the first event. Nothing sends the turn again; retry it from your client.
+- **A response that drops mid-stream isn't retried.** Once part of a response has streamed, the error comes through the stream (see [Streaming behavior](#streaming-behavior)).
+- **The attempt budget is per layer.** Each of B4.run's attempts is one LangChain request with its own `maxRetries`. A call whose failures mix server errors and capacity rate limits can make up to `maxAttempts²` requests before it fails.
+- **Ollama isn't retried by LangChain.** `ChatOllama` sends its chat requests without LangChain's retry layer, so its `maxRetries` has no effect and server and network errors on the `ollama` provider fail the call at once.
+- **Your own model instance keeps its own settings.** `retry` applies to the chat model B4.run builds from `agent()`. A route that exports a LangChain runnable you built, with a model you constructed yourself, uses that model's `maxRetries` (LangChain's default is 6); B4.run's capacity rate-limit retry doesn't apply to it. A runnable that streams is never re-run. One with only `invoke` (no `streamEvents`) is still re-run whole by a legacy fallback, up to 3 times, when its error message looks transient (a `429`, a `5xx`, a timeout or a network error).
+- **The summarizer and distillation models get `maxRetries` only.** B4.run's capacity rate-limit retry runs inside the agent's model calls, so it doesn't cover them (see [Other models B4.run builds](#other-models-b4run-builds)).
+- **Tools aren't retried.** `retry` covers model calls. For a tool, write the loop yourself; see [Retry Transient Model Calls](/docs/recipes/retry-flaky-tools).
 
 ## Related
 

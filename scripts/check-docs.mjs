@@ -3142,6 +3142,8 @@ const expectedB4ConfigSchemaPaths = [
   "memory.distill.reflect.maxRecords",
   "memory.distill.reflect.minNewRecords",
   "memory.distill.reflect.writes",
+  "memory.distill.retry",
+  "memory.distill.retry.maxAttempts",
   "memory.enabled",
   "memory.episodes",
   "memory.episodes.cap",
