@@ -164,6 +164,30 @@ const B4_POSTPUBLICATION_ROUTE_STEP = Object.freeze({
   ].join("\n"),
 })
 
+// The reviewed relay dedupe reads the tag's runs once before dispatching and
+// relays nothing while one is still waiting or running; it adds no input or job.
+const B4_RELAY_DEDUPE_ROUTE_STEP = Object.freeze({
+  ...B4_POSTPUBLICATION_ROUTE_STEP,
+  run: insertAfterWorkflowIdLine(B4_POSTPUBLICATION_ROUTE_STEP.run, [
+    "# A tag run that is still waiting or running needs no second relay: runs",
+    "# are serialized, and a queued run has no jobs, which escrow refuses.",
+    'STATUS="$(curl --silent --show-error --output "$RUNNER_TEMP/tag-runs.json" --write-out \'%{http_code}\' \\',
+    "  --header 'Accept: application/vnd.github+json' \\",
+    '  --header "Authorization: Bearer $GITHUB_TOKEN" \\',
+    "  --header 'X-GitHub-Api-Version: 2026-03-10' \\",
+    '  "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW_ID/runs?branch=v' +
+      shellVariable("VERSION") +
+      '&per_page=100")"',
+    'test "$STATUS" = "200"',
+    'TAG_RUNS="$(node -e \'const b=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));const r=b.workflow_runs;if(!Number.isSafeInteger(b.total_count)||!Array.isArray(r)||r.length!==b.total_count||r.length>=100||r.some((x)=>x.head_branch!=="v"+process.env.VERSION||typeof x.status!=="string"))process.exit(1);process.stdout.write(r.some((x)=>x.status!=="completed")?"waiting":"clear")\' "$RUNNER_TEMP/tag-runs.json")"',
+    'if [[ "$TAG_RUNS" == "waiting" ]]; then',
+    "  printf 'continue=false\\n' >> \"$GITHUB_OUTPUT\"",
+    "  exit 0",
+    "fi",
+    'test "$TAG_RUNS" = "clear"',
+  ]),
+})
+
 const PROTECTED_ABANDON_IF = [
   "github.event_name == 'workflow_dispatch'",
   "needs.tag.outputs.continue == 'true'",
@@ -345,7 +369,8 @@ function assertDisabledTopology(jobs, tag, routeStep) {
     !(
       sameValue(tag.steps[4], routeStep) ||
       (routeStep === B4_DISABLED_ROUTE_STEP &&
-        sameValue(tag.steps[4], B4_POSTPUBLICATION_ROUTE_STEP))
+        (sameValue(tag.steps[4], B4_POSTPUBLICATION_ROUTE_STEP) ||
+          sameValue(tag.steps[4], B4_RELAY_DEDUPE_ROUTE_STEP)))
     )
   ) {
     throw invalidTopology()
@@ -443,6 +468,18 @@ function workflowExpression(value) {
 
 function shellVariable(value) {
   return "$" + "{" + value + "}"
+}
+
+function insertAfterWorkflowIdLine(run, lines) {
+  const source = run.split("\n")
+  const index = source.findIndex((line) => line.startsWith('WORKFLOW_ID="'))
+  if (
+    index === -1 ||
+    source.findIndex((line, i) => i > index && line.startsWith('WORKFLOW_ID="')) !== -1
+  ) {
+    throw new TypeError("Reviewed route step must have exactly one workflow identity line")
+  }
+  return [...source.slice(0, index + 1), ...lines, ...source.slice(index + 1)].join("\n")
 }
 
 function isRecord(value) {

@@ -1055,7 +1055,11 @@ test("tag is the sole coordinator relay and exact-tag identity requires both ref
   assert.match(relay.run, /operation[\s"'=:]+reconcile/iu)
   assert.deepEqual(relay.env?.GITHUB_TOKEN, workflowExpression("github.token"))
   assert.equal(relay.env?.OPERATION, undefined)
-  assert.doesNotMatch(relay.run, /list.*runs|runs\/\?|poll|wait|sleep/iu)
+  // The relay reads the tag's runs exactly once so it never queues a second
+  // run behind a waiting one; it still never polls.
+  assert.equal(relay.run.match(/\/actions\/workflows\/\$WORKFLOW_ID\/runs\b/gu)?.length, 1)
+  assert.match(relay.run, /\/runs\?branch=v\$\{VERSION\}&per_page=100"/u)
+  assert.doesNotMatch(relay.run, /poll|sleep|\bwhile\b|\buntil\b|\bfor\b/iu)
   assert.doesNotMatch(relay.run, /abandon/iu)
   assert.doesNotMatch(source, /target_commitish|git\s+tag\s+(?!-a|-s)|createGithubReleases/iu)
 
