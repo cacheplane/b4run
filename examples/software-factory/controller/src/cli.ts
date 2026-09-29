@@ -21,6 +21,11 @@ import {
   repositoryFromRemoteUrl,
   resolvePin,
 } from "./lib/intake/issue.js"
+import {
+  applyConfigDefaults,
+  factoryConfigPath,
+  loadFactoryConfig,
+} from "./lib/operator/factory-config.js"
 import { openRegistryReader } from "./lib/registry/reader.js"
 import { exportReview, intakeReview, type OperatorReview } from "./lib/review/operator-review.js"
 import { pinDiffBase } from "./lib/review/pin-diff-base.js"
@@ -55,6 +60,10 @@ const USAGE = `factory <command> [options]
   events    <workOrderId>
   evidence  <workOrderId>
   list
+  run       --issue <n> [--repo <owner/name>] [--pin <sha>] [--new] [--allow-missing-evidence]
+  run       --task <id> [--new] [--allow-missing-evidence]
+  run       <workOrderId> [--allow-missing-evidence]
+  up        [--config <path>]
   builder-handoff --task <id> --out <dir> [--work-order <workOrderId>] [--image-id sha256:<64 hex>]
 
 The commands that change something are requests to a running controller:
@@ -78,6 +87,7 @@ both with the worker token.
 create --issue reads the issue through gh (FACTORY_GH names the executable; default gh) and pins
 the work order to origin/main of the target checkout (FACTORY_REPO_ROOT; FACTORY_NO_FETCH=1 skips
 the fetch). The repository is --repo, else FACTORY_REPOSITORY, else the checkout's origin remote.
+
 create --issue --pin <sha> replays the issue at that commit instead: origin/main is neither
 fetched nor read. The pin is a full sha, or a short one the checkout resolves; a full sha not in
 the object store is fetched from origin by sha, unless FACTORY_NO_FETCH=1, which refuses it.
@@ -128,7 +138,11 @@ attempt's draft/ files and its reason.txt, under
 
 Output is JSON on stdout; diagnostics go to stderr. Exit code 1 when a command is refused,
 when a dispatch settles somewhere that still owes the operator work, and when an intake or a
-reject-intake settles anywhere but awaiting_intake_approval.`
+reject-intake settles anywhere but awaiting_intake_approval.
+
+Every command reads FACTORY_CONTROLLER_URL and FACTORY_STATE_DIR from the environment, else
+from the factory config: --config <path>, else FACTORY_CONFIG, else
+examples/software-factory/factory.config.ts when it exists (FACTORY_CONFIG=none reads none).`
 
 function print(value: unknown) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
@@ -843,6 +857,7 @@ async function main(argv: string[]): Promise<number> {
       pin: { type: "string" },
       "work-order": { type: "string" },
       "image-id": { type: "string" },
+      config: { type: "string" },
       approve: { type: "boolean", default: false },
       reject: { type: "boolean", default: false },
       "allow-missing-evidence": { type: "boolean", default: false },
@@ -861,6 +876,16 @@ async function main(argv: string[]): Promise<number> {
   const needId = () => {
     if (!id) throw new Error(`${command} requires a work order id`)
     return id
+  }
+  // Every command but `up` (which refuses a disagreement instead) reads the controller's URL
+  // and the state directory from the config where the environment leaves them unset.
+  if (command !== "up") {
+    const located = factoryConfigPath(process.env, values.config)
+    if (located) {
+      const config = await loadFactoryConfig(located.path)
+      for (const warning of applyConfigDefaults(process.env, config))
+        process.stderr.write(`factory: ${warning}\n`)
+    }
   }
   // Answered before anything is opened: writing a builder handoff reads the catalog and
   // captures an archive, and needs no controller; it opens the image registry read-only only

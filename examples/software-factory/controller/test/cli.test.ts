@@ -72,6 +72,8 @@ async function boot(
     ...process.env,
     FACTORY_CONTROLLER_URL: served.url,
     FACTORY_STATE_DIR: served.stateDir,
+    // The committed factory.config.ts would otherwise fill what a test deliberately unsets.
+    FACTORY_CONFIG: "none",
   }
   const spawn = (...args: string[]): Spawned => {
     const promise = run(process.execPath, [tsxBin, cliEntry, ...args], { env, cwd: packageRoot })
@@ -281,6 +283,45 @@ describe("cli", () => {
       images.close()
       rmSync(imagesDir, { recursive: true, force: true })
     }
+  }, 90_000)
+
+  it("reads the controller and the state directory from a config when the environment has neither", async () => {
+    const { cli, env } = await boot()
+    const { json: created } = await cli("create", "--task", "cli-flags")
+    const port = Number(new URL(served?.url ?? "").port)
+    const config = join(dir, "factory.config.ts")
+    // Only the controller's port is read by these commands; the workers' need only be distinct.
+    const [builder, drafter] = [65001, 65002].map((p) => (p === port ? p + 2 : p))
+    writeFileSync(
+      config,
+      `export default ${JSON.stringify({
+        state: served?.stateDir,
+        controller: { port },
+        builder: { port: builder },
+        drafter: { port: drafter },
+      })}\n`,
+    )
+    const { FACTORY_CONTROLLER_URL, FACTORY_STATE_DIR, ...bare } = env
+    const configured = { ...bare, FACTORY_CONFIG: config }
+    const { stdout } = await run(process.execPath, [tsxBin, cliEntry, "show", created.row.id], {
+      env: configured,
+      cwd: packageRoot,
+    })
+    expect(JSON.parse(stdout).id).toBe(created.row.id)
+    // The environment wins, and the disagreement is said once on stderr.
+    const { stderr } = await run(process.execPath, [tsxBin, cliEntry, "show", created.row.id], {
+      env: { ...configured, FACTORY_CONTROLLER_URL: "http://127.0.0.1:1" },
+      cwd: packageRoot,
+    })
+    expect(stderr).toContain("FACTORY_CONTROLLER_URL is http://127.0.0.1:1 in the environment")
+    // A named config that is not there refuses.
+    const missing = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "list"], {
+        env: { ...bare, FACTORY_CONFIG: join(dir, "absent.ts") },
+        cwd: packageRoot,
+      }),
+    )
+    expect(missing.stderr).toContain("No factory config at")
   }, 90_000)
 
   it("reads without a controller, and refuses to write without one", async () => {
