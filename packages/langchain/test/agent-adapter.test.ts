@@ -822,6 +822,8 @@ describe("executeAgent with B4Agent descriptors", () => {
     expect((result as AIMessage).content).toBe("OpenAI!")
     expect((openAIModel as { options: Record<string, unknown> }).options).toEqual({
       model: "gpt-4o-mini",
+      // No `retry` on the descriptor: 3 attempts per model call.
+      maxRetries: 2,
     })
   })
 
@@ -876,6 +878,8 @@ describe("executeAgent with B4Agent descriptors", () => {
     expect((result as AIMessage).content).toBe("Groq!")
     expect((groqModel as { options: Record<string, unknown> }).options).toEqual({
       model: "gpt-4o-mini",
+      // No `retry` on the descriptor: 3 attempts per model call.
+      maxRetries: 2,
     })
   })
 
@@ -962,6 +966,8 @@ describe("executeAgent with B4Agent descriptors", () => {
     expect((result as AIMessage).content).toBe("Anthropic!")
     expect((anthropicModel as { options: Record<string, unknown> }).options).toEqual({
       model: "claude-sonnet-4-5",
+      // No `retry` on the descriptor: 3 attempts per model call.
+      maxRetries: 2,
     })
   })
 

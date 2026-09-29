@@ -9,8 +9,9 @@ import { type CanonicalJsonStream, createCanonicalJsonStream } from "./canonical
 import { createChatModel, type JsonSchemaResponseFormat } from "./chat-model-factory.js"
 import { trackCheckpointWrites } from "./checkpoint-writes.js"
 import { readLogicalToolCallId } from "./logical-tool-call-id.js"
+import { providerMaxRetries, resolveModelRetryPolicy } from "./model-call-retry.js"
 import { resolveProvider } from "./model-provider-resolver.js"
-import { isRetryableError, withRetry } from "./retry.js"
+import { withRetry } from "./retry.js"
 import { materializeAgentStateSchema, type ResolvedStateField } from "./state-adapter.js"
 import { convertSubagentTaskToLangChain, type SubagentResolver } from "./subagent-tool-bridge.js"
 import type { ResolvedSummarizationConfig } from "./summarization/index.js"
@@ -159,9 +160,11 @@ async function materializeAgent(
     model: descriptor.model,
     ...(descriptor.provider !== undefined ? { provider: descriptor.provider } : {}),
   })
+  const retry = resolveModelRetryPolicy(descriptor.retry)
   const llm = await createChatModel({
     model: descriptor.model,
     provider,
+    maxRetries: providerMaxRetries(retry),
     ...(descriptor.reasoning ? { reasoning: descriptor.reasoning } : {}),
     ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
   })
@@ -185,6 +188,7 @@ async function materializeAgent(
     returnDirectToolNames: new Set(
       tools.filter((tool) => tool.returnDirect === true).map((tool) => tool.name),
     ),
+    retry,
   })
 
   const agentOptions: Record<string, unknown> = {
@@ -1226,10 +1230,11 @@ export async function* streamAgent(options: AgentOptions): AsyncGenerator<AgentS
         ...(options.responseFormat ? { responseFormat: options.responseFormat } : {}),
       },
     )
-    const retryConfig = options.entry.retry
+    // `retry` is applied per model call inside the graph (the model's
+    // `maxRetries` and B4's capacity-429 middleware), never to the whole run.
     const runnableInput = isCommandInput ? options.input : { messages }
     const checkpointWrites = trackCheckpointWrites(options.checkpointer)
-    yield* streamFromRunnable(materializedAgent, runnableInput, config, retryConfig, () =>
+    yield* streamFromRunnable(materializedAgent, runnableInput, config, undefined, () =>
       checkpointWrites.settled(),
     )
     return
@@ -1348,93 +1353,74 @@ async function* streamFromRunnable(
 
   // Process a single streamEvents iterator: yield AgentStreamChunks and
   // return whatever __interrupt__ entries appeared in the graph's final
-  // on_chain_end output.
+  // on_chain_end output. A failure ends the run: the run is never started
+  // again, because retry belongs to each model call (see `model-call-retry`),
+  // and a restarted run would re-run tools and re-stream output.
   async function* processEventStream(
     invocationInput: unknown,
     invocationConfig: Record<string, unknown>,
-    allowRetryOnError: boolean,
   ): AsyncGenerator<AgentStreamChunk, PassResult, void> {
     let finalOutput: unknown
     let capturedInterrupts: readonly RawInterruptEntry[] = []
-    let emittedInterruptIds = new Set<string>()
-    let hasYielded = false
-
-    const maxStreamAttempts = allowRetryOnError ? (retryConfig?.maxAttempts ?? 3) : 1
-
-    for (let attempt = 0; attempt < maxStreamAttempts; attempt++) {
-      hasYielded = false
-      finalOutput = undefined
-      capturedInterrupts = []
-      emittedInterruptIds = new Set()
-      const subagentToolRuns: SubagentToolRunContexts = { contextsByToolRunId: new Map() }
-      const rootTools: RootToolProjectionState = {
-        textModelRunIds: new Set(),
-        announcedToolCallIds: new Set(),
-        heldRootToolStarts: new Map(),
-        pendingRootToolErrors: [],
-        streamingArgs: new Map(),
-      }
-
-      try {
-        for await (const event of streamEventsFn(invocationInput, {
-          ...invocationConfig,
-          version: "v2",
-        })) {
-          const projection = classifyStreamEvent(event, subagentToolRuns, rootTools)
-          if (projection.capturesFinalOutput) {
-            finalOutput = projection.finalOutput
-          }
-          for (const chunk of projection.chunks) {
-            hasYielded = true
-            yield chunk
-          }
-          if (projection.interrupts.length > 0) {
-            capturedInterrupts = projection.interrupts
-          }
-          for (const entry of projection.interrupts) {
-            if (entry.id && emittedInterruptIds.has(entry.id)) continue
-            if (entry.id) emittedInterruptIds.add(entry.id)
-            hasYielded = true
-            if (readRuntimeEnv("B4_DEBUG_INTERRUPTS") === "1") {
-              if (!isRecord(entry.value) || typeof entry.value.interruptId !== "string") {
-                console.warn(
-                  "[b4] interrupt entry.value missing interruptId — capability bug:",
-                  JSON.stringify(entry).slice(0, 300),
-                )
-              }
-            }
-            yield {
-              type: "interrupt",
-              data: projectInterruptValue(entry, projection.child),
-            }
-          }
-        }
-        // Stream completed successfully
-        return { finalOutput, interrupts: capturedInterrupts }
-      } catch (error) {
-        const err = error instanceof Error ? error : new Error(String(error))
-        if (hasYielded || !isRetryableError(error) || attempt === maxStreamAttempts - 1) {
-          // Not on cancellation: a cancelled turn's settle already waits for
-          // the abandoned route to unwind, and the writes chained behind a
-          // still-running tool would hold the turn open until it finishes.
-          if (!(invocationConfig.signal as AbortSignal | undefined)?.aborted) {
-            await drainWrites?.()
-          }
-          throw err
-        }
-        const delay = Math.min(1000 * 2 ** attempt + Math.random() * 500, 10_000)
-        await new Promise((resolve) => setTimeout(resolve, delay))
-      }
+    const emittedInterruptIds = new Set<string>()
+    const subagentToolRuns: SubagentToolRunContexts = { contextsByToolRunId: new Map() }
+    const rootTools: RootToolProjectionState = {
+      textModelRunIds: new Set(),
+      announcedToolCallIds: new Set(),
+      heldRootToolStarts: new Map(),
+      pendingRootToolErrors: [],
+      streamingArgs: new Map(),
     }
-    // Unreachable: the loop either returns or throws.
-    return { finalOutput, interrupts: capturedInterrupts }
+
+    try {
+      for await (const event of streamEventsFn(invocationInput, {
+        ...invocationConfig,
+        version: "v2",
+      })) {
+        const projection = classifyStreamEvent(event, subagentToolRuns, rootTools)
+        if (projection.capturesFinalOutput) {
+          finalOutput = projection.finalOutput
+        }
+        for (const chunk of projection.chunks) {
+          yield chunk
+        }
+        if (projection.interrupts.length > 0) {
+          capturedInterrupts = projection.interrupts
+        }
+        for (const entry of projection.interrupts) {
+          if (entry.id && emittedInterruptIds.has(entry.id)) continue
+          if (entry.id) emittedInterruptIds.add(entry.id)
+          if (readRuntimeEnv("B4_DEBUG_INTERRUPTS") === "1") {
+            if (!isRecord(entry.value) || typeof entry.value.interruptId !== "string") {
+              console.warn(
+                "[b4] interrupt entry.value missing interruptId — capability bug:",
+                JSON.stringify(entry).slice(0, 300),
+              )
+            }
+          }
+          yield {
+            type: "interrupt",
+            data: projectInterruptValue(entry, projection.child),
+          }
+        }
+      }
+      return { finalOutput, interrupts: capturedInterrupts }
+    } catch (error) {
+      // Not on cancellation: a cancelled turn's settle already waits for
+      // the abandoned route to unwind, and the writes chained behind a
+      // still-running tool would hold the turn open until it finishes.
+      if (!(invocationConfig.signal as AbortSignal | undefined)?.aborted) {
+        await drainWrites?.()
+      }
+      throw error instanceof Error ? error : new Error(String(error))
+    }
   }
 
   // Invoke the stream. After yielding any interrupt envelopes, return cleanly.
   // Resume is state-based: the caller posts to /threads/:id/resume with the
   // decision, which opens a new SSE stream with Command({resume: decision}) as
   // input. The adapter does NOT park here waiting for an in-process promise.
-  const pass = yield* processEventStream(input, config, /* allowRetryOnError */ true)
+  const pass = yield* processEventStream(input, config)
 
   yield { type: "done", data: pass.finalOutput }
 }

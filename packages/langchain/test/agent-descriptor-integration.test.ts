@@ -47,6 +47,8 @@ describe("agent() descriptor integration", () => {
     expect((result as AIMessage).content).toBe("Descriptor!")
     expect((openAIModel as { options: Record<string, unknown> }).options).toEqual({
       model: "gpt-4o-mini",
+      // No `retry` on the descriptor: 3 attempts per model call.
+      maxRetries: 2,
     })
   })
 
