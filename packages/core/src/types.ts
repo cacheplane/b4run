@@ -334,8 +334,10 @@ export interface B4Config {
        * applies to server errors, network errors and rate limits with a
        * `Retry-After` of 60s or less. Unlike `agent({ retry })` there is no
        * `baseDelay`: distillation has no capacity rate-limit retry for it to
-       * pace, so `b4 memory` rejects it. Any other key, or a `maxAttempts`
-       * that isn't a whole number of at least 1, is rejected too (B4_E1009).
+       * pace, so `b4 memory consolidate`/`reflect` and `b4 check` reject it.
+       * Any other key, or a `maxAttempts` that isn't a whole number of at
+       * least 1, is rejected too (B4_E1009). Has no effect on the `ollama`
+       * provider, whose chat requests bypass LangChain's retry.
        */
       readonly retry?: {
         readonly maxAttempts?: number

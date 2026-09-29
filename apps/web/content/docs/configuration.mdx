@@ -534,12 +534,25 @@ The defaults are:
 `distill.retry.maxAttempts` is the attempts per distillation model call,
 counting the first. It becomes the model's `maxRetries` (`maxAttempts - 1`),
 as [`agent({ retry })`](/docs/retry) does for a route. There's no `baseDelay`
-here: distillation has no rate-limit retry of its own for it to pace. `b4
-check` and `b4 memory` reject, with `B4_E1009`, a `baseDelay`, any other
-unknown key in `distill` or `distill.retry` (a typo such as `Retry` or
-`maxattempts` included), a non-object `memory`, `distill` or `retry`,
-`retry` or `maxAttempts` one level too high, and a `maxAttempts` that isn't a
-whole number of at least 1. They never fall back to the default.
+here: distillation has no rate-limit retry of its own for it to pace. On the
+`ollama` provider `maxAttempts` has no effect, because Ollama's chat requests
+bypass LangChain's retry (see [Retry limits](/docs/retry#limits)).
+
+`b4 check`, `b4 memory consolidate` and `b4 memory reflect` reject, with
+`B4_E1009`:
+
+- a non-object `memory`, `distill` or `retry`;
+- a key on `memory` that is `distill` up to case and one character, such as
+  `Distill`, `distil` or `distills`;
+- `retry` or `maxAttempts` in any casing directly on `memory`, and
+  `maxAttempts` directly on `distill`;
+- any other unknown key in `distill` or `distill.retry`, a typo such as
+  `Retry` or `maxattempts` included;
+- a `baseDelay`, and a `maxAttempts` that isn't a whole number of at least 1.
+
+They never fall back to the default. Only the top-level keys of `distill`
+and `distill.retry` are checked, not the keys inside `consolidate` or
+`reflect`.
 
 A custom store ignores these tuning blocks. `resolveScope` receives only
 `routePath` and `appRoot`, so derive tenant or user dimensions from your own
