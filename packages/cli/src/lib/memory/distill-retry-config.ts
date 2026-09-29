@@ -39,6 +39,23 @@ function ownProperty(record: Readonly<Record<string, unknown>>, key: string): un
 }
 
 /**
+ * Whether `candidate` (already lower-cased) is `target` up to one inserted,
+ * deleted or substituted character: `distil`, `distills`, `distiIl`. Paired
+ * with case folding, this catches the spellings of `distill` an author could
+ * plausibly mean, without an allow-list of every `memory` key.
+ */
+function isNearMiss(candidate: string, target: string): boolean {
+  if (candidate === target) return true
+  const lengthGap = candidate.length - target.length
+  if (Math.abs(lengthGap) > 1) return false
+  const [longer, shorter] = lengthGap >= 0 ? [candidate, target] : [target, candidate]
+  let i = 0
+  while (i < shorter.length && longer[i] === shorter[i]) i += 1
+  const tail = longer.length === shorter.length ? i + 1 : i
+  return longer.slice(i + 1) === shorter.slice(tail)
+}
+
+/**
  * Validates `memory.distill` far enough to honor `memory.distill.retry`, and
  * returns the attempts the distillation model gets.
  *
@@ -48,8 +65,10 @@ function ownProperty(record: Readonly<Record<string, unknown>>, key: string): un
  * Rejected, with B4_E1009: a non-object `memory`, `memory.distill` or
  * `memory.distill.retry`; an unknown key in `memory.distill` (`Retry`) or in
  * `retry` (`maxattempts`); `baseDelay`, which nothing in distillation reads;
- * `retry` or `maxAttempts` one level too high; and a `maxAttempts` that isn't
- * a whole number of at least 1.
+ * `retry` or `maxAttempts` (in any casing) directly on `memory`, or
+ * `maxAttempts` directly on `memory.distill`; a key on `memory` that is
+ * `distill` up to case and one character (`Distill`, `distil`, `distills`);
+ * and a `maxAttempts` that isn't a whole number of at least 1.
  *
  * `b4 check` and `b4 memory consolidate`/`reflect` both call this, and the
  * model is built from the value it returns, so the validated shape and the
@@ -60,10 +79,23 @@ export function resolveDistillRetry(memory: B4Config["memory"] | undefined): Res
   if (!isRecord(memory)) {
     throw invalidMemoryConfig(`memory must be an object; received ${describe(memory)}.`)
   }
-  if (ownProperty(memory, "retry") !== undefined) {
-    throw invalidMemoryConfig(
-      "retry belongs under memory.distill, not memory directly. Use memory: { distill: { retry: { maxAttempts: 3 } } }.",
-    )
+  for (const key of Object.keys(memory)) {
+    const folded = key.toLowerCase()
+    if (folded === "retry") {
+      throw invalidMemoryConfig(
+        `${key} belongs under memory.distill, not memory directly. Use memory: { distill: { retry: { maxAttempts: 3 } } }.`,
+      )
+    }
+    if (folded === "maxattempts") {
+      throw invalidMemoryConfig(
+        `${key} belongs under memory.distill.retry, not memory directly. Use memory: { distill: { retry: { maxAttempts: 3 } } }.`,
+      )
+    }
+    if (key !== "distill" && isNearMiss(folded, "distill")) {
+      throw invalidMemoryConfig(
+        `Unknown memory option: ${key}. Did you mean memory.distill? Rename it to distill, e.g. memory: { distill: { retry: { maxAttempts: 3 } } }.`,
+      )
+    }
   }
 
   const distill = ownProperty(memory, "distill")

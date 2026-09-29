@@ -1,9 +1,9 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, rmdir, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { type MemoryRecord, sqliteMemoryStore } from "@b4run/memory"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
 
 import { runMemoryCommand } from "../src/commands/memory.js"
 
@@ -37,6 +37,10 @@ afterEach(async () => {
   vi.doUnmock("@langchain/openai")
   constructedWith = []
 })
+
+// Each app dir is removed after its test; drop the shared parent too.
+// `rmdir` removes only an empty directory, so a concurrent run's apps survive.
+afterAll(() => rmdir(scratchRoot).catch(() => {}))
 
 async function makeApp(distillRetry?: string): Promise<string> {
   await mkdir(scratchRoot, { recursive: true })

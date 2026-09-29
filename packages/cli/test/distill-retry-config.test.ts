@@ -27,6 +27,21 @@ describe("resolveDistillRetry", () => {
     expect(resolveDistillRetry(memory as never)).toEqual({ maxAttempts: 3 })
   })
 
+  test("leaves other memory keys, including unrelated short ones, to their own readers", () => {
+    expect(resolveDistillRetry({ recall: {}, dist: 1, instill: 1, distilled: 1 } as never)).toEqual(
+      { maxAttempts: 3 },
+    )
+  })
+
+  test.each(["dstill", "distiil", "xdistill", "DISTIL"])(
+    "rejects %s on memory as a near miss of distill (mid-word delete, substitute, insert)",
+    (key) => {
+      const error = rejection({ [key]: { retry: { maxAttempts: 2 } } })
+      expect(error).toMatchObject({ code: "B4_E1009", exitCode: 1 })
+      expect(String((error as Error).message)).toMatch(/Did you mean memory\.distill\?/)
+    },
+  )
+
   test.each([1, 3, 6])("honors maxAttempts %i", (maxAttempts) => {
     expect(resolveDistillRetry({ distill: { retry: { maxAttempts } } })).toEqual({ maxAttempts })
   })
@@ -58,6 +73,41 @@ describe("resolveDistillRetry", () => {
       "retry misplaced on memory",
       { retry: { maxAttempts: 2 } },
       /retry belongs under memory\.distill, not memory directly/,
+    ],
+    [
+      "a case typo of distill on memory",
+      { Distill: { retry: { maxAttempts: 2 } } },
+      /Unknown memory option: Distill\. Did you mean memory\.distill\?/,
+    ],
+    [
+      "a one-letter misspelling of distill on memory",
+      { distil: { retry: { maxAttempts: 2 } } },
+      /Unknown memory option: distil\. Did you mean memory\.distill\?/,
+    ],
+    [
+      "a one-letter extension of distill on memory",
+      { distills: { retry: { maxAttempts: 2 } } },
+      /Unknown memory option: distills\. Did you mean memory\.distill\?/,
+    ],
+    [
+      "a near miss of distill alongside the real distill",
+      { distill: {}, DISTILL: { retry: { maxAttempts: 2 } } },
+      /Unknown memory option: DISTILL\. Did you mean memory\.distill\?/,
+    ],
+    [
+      "a case typo of retry misplaced on memory",
+      { Retry: { maxAttempts: 2 } },
+      /Retry belongs under memory\.distill, not memory directly/,
+    ],
+    [
+      "maxAttempts misplaced on memory",
+      { maxAttempts: 1 },
+      /maxAttempts belongs under memory\.distill\.retry, not memory directly/,
+    ],
+    [
+      "a case typo of maxAttempts misplaced on memory",
+      { maxattempts: 1 },
+      /maxattempts belongs under memory\.distill\.retry, not memory directly/,
     ],
     [
       "maxAttempts misplaced on distill",
