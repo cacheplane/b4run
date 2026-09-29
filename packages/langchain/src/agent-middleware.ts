@@ -60,6 +60,13 @@ export interface B4AgentMiddlewareOptions {
  * keeps the two-node loop it had under `createReactAgent`.
  */
 export function createB4AgentMiddleware(options: B4AgentMiddlewareOptions): AgentMiddleware[] {
+  // Keep B4ModelAndTools first and the only `wrapModelCall` here (the
+  // loop-entry middleware has just a `beforeModel`). `createAgent` composes
+  // `wrapModelCall` hooks with the first listed outermost, and wraps an error
+  // thrown out of each one in a `MiddlewareError`. As the outermost, B4's
+  // capacity retry sees the provider's 429 as LangChain stamped it; a
+  // `wrapModelCall` middleware added after it would hand it that 429 inside
+  // a `MiddlewareError`, which `isCapacityRateLimitError` looks through.
   const middleware: AgentMiddleware[] = [modelAndToolMiddleware(options)]
   const loopEntry = loopEntryMiddleware(options)
   if (loopEntry) middleware.push(loopEntry)

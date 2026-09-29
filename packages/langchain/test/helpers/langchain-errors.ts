@@ -56,7 +56,19 @@ export function quotaExhausted(): Promise<Error> {
   })
 }
 
+/**
+ * A 429 whose `Retry-After` LangChain waits out itself: stamped retryable
+ * with `rateLimitType: "wait"`, which B4's own layer must leave alone.
+ */
+export function shortRetryAfterRateLimit(seconds: number): Promise<Error> {
+  return classify({
+    status: 429,
+    message: "Rate limit reached for requests",
+    headers: { "retry-after": String(seconds) },
+  })
+}
+
 /** A 503, which LangChain retries itself; B4's own layer must leave it alone. */
-export function serviceUnavailable(): Error {
-  return httpError({ status: 503, message: "503 Service Unavailable" })
+export function serviceUnavailable(): Promise<Error> {
+  return classify({ status: 503, message: "503 Service Unavailable" })
 }

@@ -346,7 +346,7 @@ describe("the capacity-429 layer", () => {
 
 describe("no run-level retry", () => {
   test("a failure after tokens streamed is not retried, and no token is emitted twice", async () => {
-    const dropped = serviceUnavailable()
+    const dropped = await serviceUnavailable()
     script = [
       { kind: "text-then-fail", tokens: ["Order ", "7 "], error: dropped },
       { kind: "text", tokens: ["Order ", "7 ", "has shipped."] },

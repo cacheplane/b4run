@@ -31,12 +31,32 @@ export interface ModelRetryPolicy {
   readonly baseDelay: number
 }
 
+const RETRY_KEYS: readonly string[] = [
+  "maxAttempts",
+  "baseDelay",
+] satisfies readonly (keyof RetryConfig)[]
+
 /**
  * The route's retry policy, defaulted and checked. Throws on a value that
- * cannot mean anything (zero or fractional attempts, a negative delay), so a
- * typo fails the route instead of silently changing how often it retries.
+ * cannot mean anything (not an object, an unknown key such as `maxAttemps`,
+ * zero or fractional attempts, a negative delay), so a typo fails the route
+ * instead of silently changing how often it retries.
  */
 export function resolveModelRetryPolicy(retry: RetryConfig | undefined): ModelRetryPolicy {
+  if (retry !== undefined) {
+    if (typeof retry !== "object" || retry === null || Array.isArray(retry)) {
+      throw new Error(
+        `agent() retry must be an object with maxAttempts and/or baseDelay, got ${describeValue(retry)}.`,
+      )
+    }
+    for (const key of Object.keys(retry)) {
+      if (!RETRY_KEYS.includes(key)) {
+        throw new Error(
+          `agent() retry has an unknown key "${key}"; valid keys are ${RETRY_KEYS.join(", ")}.`,
+        )
+      }
+    }
+  }
   const maxAttempts = retry?.maxAttempts ?? DEFAULT_MAX_ATTEMPTS
   const baseDelay = retry?.baseDelay ?? DEFAULT_BASE_DELAY_MS
   if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
@@ -52,36 +72,80 @@ export function resolveModelRetryPolicy(retry: RetryConfig | undefined): ModelRe
   return { maxAttempts, baseDelay }
 }
 
+function describeValue(value: unknown): string {
+  if (value === null) return "null"
+  if (Array.isArray(value)) return "an array"
+  return `${typeof value} ${String(value)}`
+}
+
 /** The chat model's `maxRetries`: the attempts after the first. */
 export function providerMaxRetries(policy: ModelRetryPolicy): number {
   return policy.maxAttempts - 1
 }
 
 /**
- * The `maxRetries` for a chat model B4.run builds from an `agent()`'s
- * `retry`: `maxAttempts - 1`, with `maxAttempts` defaulting to 3. Throws on an
+ * The `maxRetries` for a chat model B4.run builds from a `retry` config:
+ * `maxAttempts - 1`, with `maxAttempts` defaulting to 3. Throws on an
  * invalid `retry`, like the route itself. Used for the models B4 builds
- * besides the route's own: the summarizer, and the `b4 memory` distillation
- * model (which has no route and passes `undefined`, the default policy).
+ * besides the route's own: the summarizer, which gets its route's `retry`,
+ * and the `b4 memory consolidate`/`reflect` distillation model, which has no
+ * route and gets `{ maxAttempts }` from `b4.config.ts`'s
+ * `memory.distill.retry` (validated by the CLI; unset means 3 attempts).
+ *
+ * `maxRetries` only reaches models whose requests go through
+ * `@langchain/core`'s `AsyncCaller`. `ChatOllama`'s chat requests bypass it,
+ * so on an Ollama model this has no effect.
  */
 export function modelMaxRetries(retry: RetryConfig | undefined): number {
   return providerMaxRetries(resolveModelRetryPolicy(retry))
 }
 
+/** How many `MiddlewareError` layers {@link capacityRateLimitError} looks through. */
+const MAX_MIDDLEWARE_WRAPPERS = 8
+
 /**
- * A 429 LangChain classified as a capacity limit and stamped retryable.
- * Recognised by LangChain's own stamps, never by message text: the
- * `retryable` mark (`getRetryable`, a `Symbol.for` key, so duplicate copies
- * of `@langchain/core` agree) and the `rateLimitType` it sets alongside.
- * A quota 429 carries `rateLimitType: "stop"` and `retryable: false`.
+ * `langchain`'s `MiddlewareError`, recognised by its `~brand` rather than by
+ * `instanceof` (so a duplicate copy of `langchain` agrees) or by `name`
+ * (which it copies from the error it wraps).
+ */
+function isMiddlewareError(error: object): error is Error {
+  return error instanceof Error && (error as { "~brand"?: unknown })["~brand"] === "MiddlewareError"
+}
+
+/**
+ * The capacity 429 LangChain raised, or `undefined`. `createAgent` wraps an
+ * error thrown out of a `wrapModelCall` in a `MiddlewareError` whose `cause`
+ * is the original. B4's middleware is the outermost `wrapModelCall`, so it
+ * normally sees the provider's error as is; this also looks through those
+ * wrappers so the retry does not depend on that ordering.
+ */
+function capacityRateLimitError(error: unknown): object | undefined {
+  let current = error
+  for (let depth = 0; depth <= MAX_MIDDLEWARE_WRAPPERS; depth += 1) {
+    if (typeof current !== "object" || current === null) return undefined
+    if (
+      getRetryable(current) === true &&
+      (current as { rateLimitType?: unknown }).rateLimitType === "capacity"
+    ) {
+      return current
+    }
+    if (!isMiddlewareError(current)) return undefined
+    current = current.cause
+  }
+  return undefined
+}
+
+/**
+ * A 429 LangChain classified as a capacity limit and stamped retryable,
+ * bare or inside `MiddlewareError`s. Recognised by LangChain's own stamps,
+ * never by message text: the `retryable` mark (`getRetryable`, a
+ * `Symbol.for` key, so duplicate copies of `@langchain/core` agree) and the
+ * `rateLimitType` it sets alongside. A quota 429 carries
+ * `rateLimitType: "stop"` and `retryable: false`; a 429 LangChain waited out
+ * itself carries `rateLimitType: "wait"`.
  */
 export function isCapacityRateLimitError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    getRetryable(error) === true &&
-    (error as { rateLimitType?: unknown }).rateLimitType === "capacity"
-  )
+  return capacityRateLimitError(error) !== undefined
 }
 
 /**
@@ -101,7 +165,11 @@ export function capacityRetryDelay(
   baseDelay: number,
   random: () => number,
 ): number | undefined {
-  const retryAfterMs = (error as { retryAfterMs?: unknown }).retryAfterMs
+  const source = capacityRateLimitError(error) ?? error
+  const retryAfterMs =
+    typeof source === "object" && source !== null
+      ? (source as { retryAfterMs?: unknown }).retryAfterMs
+      : undefined
   if (typeof retryAfterMs === "number" && Number.isFinite(retryAfterMs) && retryAfterMs >= 0) {
     return retryAfterMs <= MAX_RETRY_DELAY_MS ? retryAfterMs : undefined
   }
@@ -141,8 +209,15 @@ export const systemRetryClock: RetryClock = {
 /**
  * Run one model call, sending it again after a capacity 429 until it
  * succeeds, fails another way, has used `maxAttempts` attempts, or hits a
- * capacity 429 whose `retryAfterMs` is over the 10s cap. An abort during the
- * wait rejects with the signal's reason and sends nothing more.
+ * capacity 429 whose `retryAfterMs` is over the 10s cap. An abort, whether
+ * the signal was already aborted when the 429 arrived or fires during the
+ * wait, rejects with the signal's reason and sends nothing more.
+ *
+ * Invariant: it only ever retries an error LangChain stamps when the request
+ * is made (a capacity 429 is the response to the request itself, raised
+ * before any token streams), so sending the call again cannot duplicate
+ * streamed output. A failure mid-stream is never a capacity 429 and is
+ * rethrown untouched. Widening what this retries would break that.
  */
 export async function retryCapacityErrors<T>(
   call: () => T | Promise<T>,
@@ -155,7 +230,7 @@ export async function retryCapacityErrors<T>(
       return await call()
     } catch (error) {
       if (!isCapacityRateLimitError(error) || attempt >= policy.maxAttempts) throw error
-      if (options.signal?.aborted) throw error
+      if (options.signal?.aborted) throw abortReason(options.signal)
       const delay = capacityRetryDelay(error, attempt - 1, policy.baseDelay, clock.random)
       if (delay === undefined) throw error
       await clock.sleep(delay, options.signal)

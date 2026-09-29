@@ -1105,6 +1105,13 @@ export interface AgentOptions {
   readonly input: unknown
   readonly middlewareContext?: Readonly<Record<string, unknown>>
   readonly offload?: OffloadFn
+  /**
+   * Run-level retry for a legacy raw runnable that has no `streamEvents`: the
+   * `withRetry` fallback re-invokes the whole runnable. Nothing else reads
+   * it. An `agent()` descriptor route ignores this field and takes its retry
+   * from the descriptor's own `retry`, applied per model call (see
+   * `model-call-retry`); a raw runnable that streams is never retried.
+   */
   readonly retry?: RetryConfig
   readonly routeParamNames: readonly string[]
   readonly signal: AbortSignal

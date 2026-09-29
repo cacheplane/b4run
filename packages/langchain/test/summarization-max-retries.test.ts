@@ -54,8 +54,15 @@ describe("buildSummarizationHook maxRetries", () => {
 
   test("hands maxRetries to every summarize call", async () => {
     const summarize = vi.fn<SummarizeFn>(async () => "S")
-    await buildSummarizationHook({ ...config, summarize }, { maxRetries: 4 })({ messages })
-    expect(summarize.mock.calls[0]?.[0].maxRetries).toBe(4)
+    const hook = buildSummarizationHook({ ...config, summarize }, { maxRetries: 4 })
+    const first = await hook({ messages })
+    // A later turn ages more messages out, so the hook summarizes again.
+    await hook({
+      messages: [...messages, new AIMessage("a2"), new HumanMessage("u3")],
+      ...(first.runningSummary ? { runningSummary: first.runningSummary } : {}),
+    })
+    expect(summarize).toHaveBeenCalledTimes(2)
+    expect(summarize.mock.calls.map(([args]) => args.maxRetries)).toEqual([4, 4])
   })
 
   test("passes no maxRetries when the hook was given none", async () => {
