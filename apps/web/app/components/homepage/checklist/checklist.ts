@@ -125,7 +125,7 @@ export const checklist: readonly ChecklistItem[] = [
     title: "Model retries",
     chore: "Retry the model after a rate limit or a server error.",
     handledBy:
-      "A model call that fails with a rate limit, a server error or a network error, before anything has streamed, retries with backoff.",
+      "Each model call retries a rate limit, a server error or a network error with backoff, and no streamed token is sent twice.",
     file: "src/app/support/index.ts",
     code: "retry: { maxAttempts: 5 },",
     origin: `${CHECKLIST_FIXTURES}src/app/support/index.ts`,

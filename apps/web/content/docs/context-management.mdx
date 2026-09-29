@@ -86,7 +86,7 @@ export default {
 | `keepRecentTurns` | `number` | `6` | Recent turns (each starting at a `HumanMessage`) that are never summarized. |
 | `model` | `string` | Route's model | Model that writes the summary. |
 | `tokenCounter` | `(text: string) => number \| Promise<number>` | `gpt-tokenizer` (o200k_base), loaded on demand | Your own token counter. |
-| `summarize` | `(args) => Promise<string>` | One model call | Your own summarizer. Receives `messages`, `model`, `previousSummary`, and `signal`. |
+| `summarize` | `(args) => Promise<string>` | One model call | Your own summarizer. Receives `messages`, `model`, `previousSummary`, `signal`, and `maxRetries` (the route's [`retry.maxAttempts`](/docs/retry) minus one). |
 
 Use `tokenCounter` to plug in a different tokenizer. `summarize` replaces the whole summary step, for example to use a cheaper model, compress in a way that suits your domain, or call a different provider.
 

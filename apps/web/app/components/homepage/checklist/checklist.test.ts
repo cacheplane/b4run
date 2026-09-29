@@ -108,26 +108,29 @@ describe("the checklist shows real code", () => {
     )
   })
 
-  it("retries a failed model call only before anything has streamed", () => {
-    const retry = read("packages/langchain/src/retry.ts")
-    const classify = retry.slice(
-      retry.indexOf("export function isRetryableError"),
-      retry.indexOf("export async function withRetry"),
-    )
-    for (const needle of ["429", "rate limit", "503", "econnreset"]) {
-      expect(classify).toContain(`message.includes("${needle}")`)
-    }
+  it("retries each model call, never the whole run", () => {
+    // maxAttempts becomes the chat model's own maxRetries...
     const adapter = read("packages/langchain/src/agent-adapter.ts")
-    expect(adapter).toContain("retryConfig?.maxAttempts ?? 3")
-    expect(adapter).toContain(
-      "if (hasYielded || !isRetryableError(error) || attempt === maxStreamAttempts - 1) {",
+    expect(adapter).toContain("maxRetries: providerMaxRetries(retry),")
+    expect(adapter).not.toContain("isRetryableError")
+    expect(adapter).not.toContain("hasYielded")
+    const retry = read("packages/langchain/src/model-call-retry.ts")
+    expect(retry).toContain("return policy.maxAttempts - 1")
+    // ...and B4 sends one model call again after a capacity 429, recognised
+    // by LangChain's stamps, before any token of that call has streamed.
+    expect(retry).toContain("getRetryable(current) === true")
+    expect(retry).toContain('rateLimitType === "capacity"')
+    const middleware = read("packages/langchain/src/agent-middleware.ts")
+    expect(middleware).toContain(
+      "retryCapacityErrors(\n        () => handler(next),\n        retry,",
     )
-    // The streaming path's backoff is fixed, so the excerpt sets no baseDelay.
-    expect(adapter).toContain("const delay = Math.min(1000 * 2 ** attempt")
+    // The excerpt sets no baseDelay: the tile's claim is about attempts, and
+    // baseDelay paces only the capacity 429s.
     const retries = itemOf("retries")
-    expect(retries.code).not.toContain("baseDelay")
-    expect(read(`${CHECKLIST_FIXTURES}src/app/support/index.ts`)).not.toContain("baseDelay")
-    expect(retries.handledBy).toContain("before anything has streamed")
+    expect(retries.code).toBe("retry: { maxAttempts: 5 },")
+    expect(read(`${CHECKLIST_FIXTURES}src/app/support/index.ts`)).toContain(retries.code)
+    expect(retries.handledBy).toContain("Each model call")
+    expect(retries.handledBy).toContain("no streamed token is sent twice")
   })
 
   it("moves the three durable stores to Postgres, which the defaults keep on local disk", () => {

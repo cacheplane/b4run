@@ -98,7 +98,7 @@ Every event frame is `event: <type>\ndata: <json>\n\n`. Parse the `event:` line 
 - **The response is `text/event-stream`.** Parse the `event:` and `data:` lines in each frame, or use a client like `eventsource-parser`.
 - **Heartbeats are comments.** A `: ping` heartbeat has no `event:` or `data:` line, so clients skip it.
 - **Use `/threads/:id/runs/wait` when you don't need progress.** It returns one JSON result, which is less to parse. Pick `runs/stream` when partial output is useful: long agent reasoning, token-by-token text, intermediate workflow states, [planning](/docs/planning) updates, or [subagent](/docs/subagents) activity.
-- **Retry stops at the first event.** Retry is available only before the first stream event. Any emitted token or event commits the response. See [Retry](/docs/retry).
+- **Retry never repeats a token.** Each model call is retried only before its response starts. A response that fails after part of it has streamed isn't retried; the error comes through the stream. See [Retry](/docs/retry).
 
 ## Related
 

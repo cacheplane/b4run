@@ -57,7 +57,7 @@ export default agent({
 
 - `model` is a `KnownModelId` (autocomplete for listed ids, plus any custom string).
 - `provider?: ModelProviderId` is optional. B4.run infers providers for known model families; set it explicitly to one of the supported built-in provider ids for aliases, ambiguous model names, local models, or provider-router model ids. Raw graph/chain routes can still instantiate any provider directly.
-- `retry?: { maxAttempts?: number, baseDelay?: number }`: applied per agent call.
+- `retry?: { maxAttempts?: number, baseDelay?: number }`: attempts and backoff for each model call.
 - Tools in the same route's `tools/` directory (and shared tools in `src/tools/`) are automatically wired into the generated agent graph at `b4 build` time.
 
 ## Tool Authoring

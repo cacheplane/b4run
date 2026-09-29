@@ -241,8 +241,8 @@ export interface RetryConfig {
 **Fields: `@b4run/sdk#.:RetryConfig`**
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `readonly maxAttempts` | `number` | no | Cap attempts for a model call. |
-| `readonly baseDelay` | `number` | no | Set the base retry delay. |
+| `readonly maxAttempts` | `number` | no | Set attempts per model call; defaults to `3`. |
+| `readonly baseDelay` | `number` | no | Set the first capacity rate-limit backoff; defaults to `1000`. |
 
 ```ts api-contract="@b4run/sdk#.:isB4Agent"
 export declare function isB4Agent(value: unknown): value is B4Agent
