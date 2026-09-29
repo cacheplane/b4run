@@ -24,8 +24,11 @@ const SHELL = /[&|;<>$`"'\\()]/
  */
 const SWITCHES = new Set(["--run", "--no-cache", "--passWithNoTests"])
 
-/** A literal path under the package: no glob, no flag, no `..`, nothing absolute. */
-function packagePath(value: string): boolean {
+/**
+ * A literal, package-relative path: portable characters only, no flag, no `.`/`..` segment.
+ * The only file names `withExcludes` writes (vitest reads an exclude as a glob).
+ */
+export function packagePath(value: string): boolean {
   return (
     /^[A-Za-z0-9._/-]+$/.test(value) &&
     !value.startsWith("-") &&
@@ -130,5 +133,28 @@ export function withExcludes(command: VitestCommand, excludes: readonly string[]
     ...command.base,
     ...command.files,
     ...[...new Set(excludes)].sort().flatMap((glob) => ["--exclude", glob]),
+  ]
+}
+
+/** `file` run alone: the base and the file. The scope and the excludes do not apply to it. */
+export function perFileArgv(command: VitestCommand, file: string): string[] {
+  return [...command.base, file]
+}
+
+/**
+ * `vitest list --filesOnly` over what `command` runs, its excludes ignored: `measure` measures
+ * every file the config and the scope select, and proposes the excludes from scratch (a
+ * person's own additions show as removed in the diff, to be restored by hand if intended).
+ */
+export function listArgv(command: VitestCommand): string[] {
+  const flags = command.base.slice(3)
+  return [
+    "pnpm",
+    "exec",
+    "vitest",
+    "list",
+    "--filesOnly",
+    ...(flags[0] === "run" ? flags.slice(1) : flags),
+    ...command.files,
   ]
 }

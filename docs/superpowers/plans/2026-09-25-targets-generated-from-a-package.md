@@ -4199,6 +4199,8 @@ git commit -m "feat(software-factory): classify a test file run alone and propos
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+**As landed** (review-driven, with small changes to Task 14's `measure.ts`). Test output reaches `report.md`, `measurement.md` and the printed diff only through one `sanitize()` (used by `outputTail` and `errorLines`): every escape sequence (CSI with any parameter and intermediate bytes, 7-bit or C1; OSC ending in BEL or ST; DCS/SOS/PM/APC strings; single-character escapes such as `ESC M`) and every C0/C1 control but `\n` and `\t` are stripped (a NUL made git show `measurement.md` as binary; `\r` and OSC links rewrote what a terminal shows), and `<` is escaped (`<!--` hid the rest of a rendered page). Workspace paths in a `reason` are JSON-quoted with `<` escaped, so a path holding a newline cannot inject a heading; `measureSuite` refuses a listed file name holding a control character. The error lines in `measurement.md` are code spans (`codeSpan`, whatever backticks they hold). `classifyFile` drops its `limits` parameter: a hang or kill reason names the option (`--file-timeout-ms`, `--memory-mb`), not its value, so the committed record does not change with the run's limits; the report's header still states them. A second run's verdict and the paths only it changed move from `reason` to a new `secondRun` field that the report prints and the record does not; the record sorts its entries by file, and the dead `/ \(\d+ ms\)/g` strip is gone. Exit 0 with the file reported as not passed throws `MeasureError` (a contradiction is the harness's), never an exclude. `proposeResources` throws `MeasureError` unless every sample field and `cpus` is a finite positive number; `settleResources` treats placeholder resources as no prior however passed. `captureOmissions` normalises each path (`posix.normalize`), ignores `/workspace` itself and paths leaving it, and still names only paths that exist at the pin. A `MeasureError` in the first per-file pass now carries the files measured so far (`MeasureError.files`), for the partial report. Guard tests bind each by mutation: a report naming one different file, exit 0 with the file failed, `settleResources` lowering `cpus` or `commandTimeoutMs`, an exit 137 with a report (fail, not killed), placeholder priors, and the 512 MiB memory floor. Not solved: a file that writes a differently named temporary path on every run still changes the `writes` or "also changed" paths its record entry lists.
+
 ### Task 14: `measureSuite` over sessions
 
 The orchestration is pure over an injected `OpenSession`, so every rule (the list, one file at a time, a fresh container after a hang, the suite samples, every stop) is tested without Docker. Task 15 supplies the Docker sessions.
@@ -4727,6 +4729,8 @@ git commit -m "feat(software-factory): measure a target's suite file by file, th
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+**As landed** (review-driven; commits `a8b567ebb`, `a6d15df16`, and the review-fix commit after `cc1abc372`). The listing runs in a session of its own, so the first file starts from the verifier's state (not from whatever `vitest list` left); files are then run alone, and a file that passed keeps the container: its `/tmp` files and stray processes carry to the next file, which is bounded because the workspace is compared around every file, a non-pass is re-run alone in a fresh container, and the proposed suite is then sampled whole in fresh containers. A suite sample or the confirmation must be graded `pass` by the verifier's own `gradeVitestReport(exitCode, report, [])`, not merely exit 0 with the workspace unchanged: a missing report, a report with no totals, or a suite whose tests are all skipped or todo is refused by name (the verifier would grade it `inconclusive` on every verification). A proposed exclude that `withExcludes` cannot write (anything outside `[A-Za-z0-9._/-]`, e.g. `test/[id].test.ts`) is a `MeasureError` naming the file, raised in phase 2 so the partial report keeps every file; each such name is also logged as a note when it is listed. A build killed (137) or timed out (124) in a session says it exceeded that session's limits (the proposed resources, in the confirmation) instead of calling the target defective. Tests added: a `killed` fake file (a fresh session follows), a clock that slows only the confirmation (deleting the `2 × verifierDeadlineMs` refusal reds it), a suite that times out in the samples or only at the proposed resources.
+
 ### Task 15: Docker sessions
 
 The real `OpenSession`: the verifier's session machinery (`withWorkspace` over `dockerSandbox` by image id, the target's capture, `inspectWorkspace` with the verifier's options), with the measurement's own limits. Exercised end to end by Task 17's lane; its one pure helper is unit-tested here.
@@ -4969,6 +4973,8 @@ git commit -m "feat(software-factory): measurement sessions in the target's imag
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
+
+**As landed** (review-driven; commits `8c2dd6636` and the review-fix commit after `cc1abc372`). `vitest()` also returns the report's raw text (`VitestRun.report`) for the grade above, and `build()` its exit code. The report is read through a per-run nonce path and marker as the verifier's `runVitestSuite` reads it, with the same documented limitation: the nonce is in the run's argv, so a process the run leaves behind can write the report in `/tmp`. **Follow-up** (shared with the verifier): run the tests as a separate uid that cannot reach the report. `test/no-worker-filesystem.test.ts` pins the provider as `dockerSandbox({ scope: "software-factory-measure", image: options.imageId })`, never `images:`.
 
 ### Task 16: `measureTarget` and the `target:measure` script
 
@@ -5511,6 +5517,12 @@ git commit -m "feat(software-factory): target:measure proposes a target's exclud
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+**As landed** (review-driven; commits `a299a0959` and the review-fix commit after `cc1abc372`). `scripts/target-measure.ts` aborts its sessions on SIGTERM as on SIGINT, so a supervisor's stop tears down each container, capture and session state. **Follow-up**: a SIGKILL (or a crash) still leaves `<FACTORY_STATE_DIR>/measurements/sessions/*` and the measure captures behind; sweep abandoned ones at startup. `writeProposal`'s refusals are neutral, since `target:measure` calls it too ("run the command again"; "a proposal is written only into a real directory"). `measurement.md` no longer says every file passed run alone when flaky files are listed.
+
+**As landed** (found by the hand measurement of the generated `cli` target at `765e6e16`, which stopped after 16 files on `Executable workspace file: packages/cli/dist/index.js`). `packages/cli/test/check-command.test.ts` chmods the built CLI `0755`, and the verifier's inspection (the same `targetInspectionOptions`; the tamper check excludes nothing since #767) refuses an executable file, so every verification with that file in the suite would be refused. A snapshot refused by the inspection (`isWorkspaceInspectionError` with code `refused`: an executable, binary or non-UTF-8 file, an unexpected link, or a limit exceeded) after a file's run makes the file `writes`, whatever else the run said, with the reason `the verifier's workspace inspection refuses the workspace after it: "<message>"` (sanitised, one line, JSON-quoted; a failing run's own reason follows it), and the next file gets a fresh session; its re-run follows the usual rules. A refusal right after a session's build, before any test ran, is a `MeasureError` naming the target; a refusal after the suite, in the samples or the confirmation, is a `MeasureError` (no resources for a suite every verification would refuse). Any other snapshot failure (I/O, the workspace changing while read) is a `MeasureError` naming when it happened, so the partial report keeps the files measured. The fake session gained `refuses` (build, file, suite) and `snapshotFails`.
+
+**As landed** (final review). `verifierDeadlineMs` absorbs the verifier's worst honest case: `createDockerVerifier` runs the visible and the independent session under one deadline created before the first (`docker-verifier.ts`), and within a session a hung build ends it (no suite, no independent session) while a hung suite runs to its timeout and the next session still runs, so at most one command per session reaches its timeout, two in all. The deadline is therefore `max(120000, roundUp(5 × session, 60000), roundUp(2 × (commandTimeoutMs + session), 60000))` over the slowest session (`coveringDeadline`), and `measureSuite` applies `coveringDeadline` again after `settleResources`, because a prior (or `--allow-decrease`) can pair one side's timeout with the other's deadline; it never lowers a wider deadline. A unit test pins `verifierDeadlineMs >= 2 × (commandTimeoutMs + session)` and the `cli` sample's `960000`. In practice the third term now dominates (its floor is `180000`: twice the 60 s timeout floor plus any session), so the fake measurements' 180000 became 240000. `errorLines` makes `measurement.md` stable across runs: UUIDs become `UUID`, an `mkdtemp` suffix ending a path segment (six letters and digits after a `-` or `.`, mixing at least two of lower case, upper case and digits: `b4-cold-bin-FlOOPf`, `app-rOw8dD`) becomes `XXXXXX` (an all-lower-case draw is left alone, as are words such as `bundle`), code-frame lines (`  1015|  …`) are dropped, and each line is cut to 240 characters; every temporary name in the `cli` report's 62 error lines is masked and no ordinary path changed. Each record entry shows its test counts (`(2 of 3 tests failed)`, `(failed to load)` for a failing file with no test, none for a hang or kill), and the record opens with `<n> files measured, <p> pass, <e> proposed for exclusion, <f> flaky.` (D15's visibility). The verifier's tamper-snapshot limits are one constant, `TAMPER_INSPECTION_LIMITS` in `targets/workspace.ts`, spread by `grade-suite.ts` and `measure/session.ts`. A round-trip test writes a measured proposal for a generated target and loads it: `loadTargetRecipe` reads it, `unmeasuredProblem` and `recipeProblem` return nothing, and its test command is the proposal's.
+
 ### Task 17: The proof: `measure` on a generated `devkit` proposes its committed excludes
 
 Spec §5's proof for `measure`, on the generated target (so it proves `init` and `measure` together) against the committed one.
@@ -5627,6 +5639,10 @@ git commit -m "test(software-factory): target:measure proposes devkit's committe
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+**As landed** (commit `cc1abc372`). On the generated `devkit` target, `target:measure` proposed exactly the nine committed excludes and the committed test command. Proposed resources: `memoryMb` 512, `cpus` 2, `commandTimeoutMs` 60000 to 70000 across runs, `verifierDeadlineMs` 120000; `commandTimeoutMs` sits on a 10 s rounding boundary (eight times a suite of 7.5 s or less rounds up to 60 s; a suite a few milliseconds longer rounds up to 70 s), so the lane does not assert it (only `cpus` and memory bounds). The lane took about 80 s; the full `test:sandbox` about 300 s locally.
+
+**As landed** (final review). The lane's signal is 14 minutes and its test timeout 15, both under CI's 30-minute `sandbox-docker` job (it was 40 minutes, above the job). Run once after the deadline rule and the record changed: the nine committed excludes and test command again, proposed `512/2/60000/180000` (suite 7.5 s, session 9.9 s; the deadline is twice 60000 plus 9944, rounded up to a minute, where it was 120000) beside the committed `768/2/60000/240000`; about 86 s.
+
 ### Task 18: A full measurement of the generated `cli` target, by hand
 
 No code: the `cli` template build moved into PR 1 (Task 10 Step 3), and `measureTarget`'s promotion path is unit-tested (Task 16). What remains is one measurement of the generated `cli` target (the whole test directory, where the committed target runs eight hand-picked files), recorded, in a scratch catalog so the real one is never written (review minor: `--targets-dir`).
@@ -5647,6 +5663,29 @@ git status --short examples/software-factory/controller/targets   # expected: no
 - [ ] **Step 2: Record**
 
 In the PR description and in the spec's as-landed note (Task 19): the wall clock; how many of the 169 files pass alone and how many are flaky; the excludes grouped by the report's reasons (capture omissions naming `packages/sandbox` or `packages/testing`, the network, writes to the workspace); the measured and proposed resources beside the committed `1536/2/120000/3600000`; and whether the eight committed files are among those that pass. Nothing is committed in this task.
+
+**As landed** (not committed; run by hand on 2026-09-26 in a scratch catalog, `git status` on `targets/` clean afterwards). The generated `cli` target at `765e6e16` captures the whole test directory. Its first `--write` measurement learned the promotion set `@hono/node-server commander hono typescript`, the hand-written one. The first full run then stopped after 16 files: `check-command.test.ts` does `chmod(distEntry, 0o755)` on the built CLI, and the verifier's inspection refuses an executable workspace file. That exposed a defect, fixed in `993cbab3d`: a snapshot the inspection refuses after a file's run is now that file's `writes` verdict, not a stop. The rerun measured all 169 files in 1369 s (warm image):
+
+| Verdict | Files |
+|---|---|
+| pass | 114 |
+| proposed exclude | 55 |
+| flaky | 0 |
+
+The excludes by cause:
+
+| Cause | Files |
+|---|---|
+| imports `@b4run/testing`'s build output by relative path (`../../testing/dist/...`); `@b4run/testing` is not in `cli`'s dependency graph at `765e6e16` (its workspace devDependencies are only `config-typescript` and `sandbox`), so `--with-dev-builds` does not reach it: running these needs a hand-edited capture and build of `packages/testing` | 29 |
+| another module or package the image lacks (4 of them `@b4run/sandbox`, which `--with-dev-builds` would capture) | 11 |
+| packages the image does not install (pnpm, Vercel and Postgres lanes) | 5 |
+| assertion or other failure | 3 |
+| a capture omission (including one under `packages/devkit/templates`); two of the five the detector did not name (below) | 5 |
+| writes the workspace (`check-command`, `import-diagnostics-integration`) | 2 |
+
+Two of the capture omissions are not labelled as such in the report: `run-typegen.test.ts` asserts `existsSync` on `packages/devkit/templates/<name>/.b4/...` (no `ENOENT` is printed), and `verify-command.test.ts` resolves `test/fixtures/contracts/invalid-config/b4.config.ts` at the repository root, which exists at the pin but is not captured (the failure says `Could not find b4.config.ts`). `captureOmissions` reads only `ENOENT` lines with a quoted path; recorded as a follow-up.
+
+All eight files the hand-written target runs pass alone. Measured at the time: `1280/2/420000/300000` (no prior; placeholders) beside the committed `1536/2/120000/3600000`. The 300000 ms deadline was below one 420000 ms command timeout, so a candidate that hung the suite would have reached the whole verification's deadline (`inconclusive`, blocked) instead of its command timeout (rejected). The final review's fix (Task 16's second as-landed note) derives the deadline from both: from the same sample (build 1386 ms, suite 51363 ms, session 58857 ms) the rule now gives `1280/2/420000/960000` (twice 420000 plus 58857, rounded up to a minute).
 
 ### Task 19: Docs for PR 2
 
@@ -5756,6 +5795,8 @@ Push `blove/targets-measure` and open the PR only when Brian asks.
 
 ## Follow-ups recorded, not in this plan
 
+- **Name capture omissions that print no `ENOENT`**: `captureOmissions` reads only `ENOENT … '<path>'` lines, so the generated `cli` target's `run-typegen.test.ts` (an `existsSync` assertion on `packages/devkit/templates/…`) and `verify-command.test.ts` (`Could not find b4.config.ts from /workspace/test/fixtures/contracts/…`, a repository-root fixture the capture omits) were recorded as plain failures. Candidates: any `/workspace/<path>` in a failing file's output that exists at the pin but not in the capture, labelled as a possible omission.
+
 - **The shipped `targets/cli/Dockerfile` ignores a failed move** in its promotion and relink loops (the `rm -rf … && mkdir -p … && mv …` chain, the `rm -rf "$nm"`, and the relink `rm -rf … && ln -s …`, lines ~52, 54, 61): inside the RUN's top-level `&&` list the shell ignores `set -e`, the bug the template fixed in Task 5 (`|| exit 1`). Not changed here (D14); fix it when `cli` is next re-pinned or regenerated.
 - **Regenerate the shipped targets** (D14) when each is next re-pinned: `devkit` gains the root manifests in `runnerConfig` and the template Dockerfile; `cli` gains the whole test directory if the full measurement (Task 18) says it is affordable, or keeps its scope (carried).
 - **Drafting notes from a package's tests** (spec §9 finding 20). Nothing deterministic writes them; a model-drafted proposal reviewed like the rest of the target is its own item.
@@ -5767,6 +5808,8 @@ Push `blove/targets-measure` and open the PR only when Brian asks.
 - **npm and `node:test` targets** (D3), if a second `cli-flags`-shaped target appears.
 - **Share one core between `proposalProblem` and `recipeProblem`**: `init.ts`'s `proposalProblem` repeats `recipeProblem`'s checks (paths at the pin, the `CAPTURED` list, the lockfile inside `imageContext`) over a proposal, with different wording; one function over a manifest, a Dockerfile's text and an `exists` would keep them from drifting.
 - **Measure files in parallel**: 169 files one at a time is slow; several sessions at once would need a per-session memory budget that does not distort the per-file verdicts.
+- **A capture omission could stop `measure`** instead of proposing an exclude: an `ENOENT` on a path that exists at the pin is the capture's defect, not the test's; D11 keeps it as a labelled exclude (the reason names the omission) so one missing template does not block measuring the rest.
+- **Tell a memory kill from a test's own SIGKILL**: exit 137 with no report is `killed` whichever it was; the container's cgroup `memory.events` `oom_kill` count would say whether the memory limit did it.
 - **Budgets from measured time** (spec §9 finding 5): `measure`'s session wall clock is the number a derived `FACTORY_MAX_ACTIVE_MS` would start from.
 
 ## Self-review

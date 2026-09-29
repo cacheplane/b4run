@@ -3,7 +3,9 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { TargetSchema, targetsDir } from "../src/lib/targets/catalog.ts"
 import {
+  listArgv,
   parseVitestCommand,
+  perFileArgv,
   vitestTestArgv,
   withExcludes,
 } from "../src/lib/targets/vitest-command.ts"
@@ -173,6 +175,37 @@ describe("reading a test command back", () => {
       "--run",
       "--exclude",
       "test/a.test.ts",
+    ])
+  })
+})
+
+describe("the commands target:measure runs", () => {
+  it("lists what the command would run, excludes ignored, and runs one file with the base alone", () => {
+    const devkit = parseVitestCommand(shipped("devkit").commands.test)
+    expect(listArgv(devkit)).toEqual([
+      "pnpm",
+      "exec",
+      "vitest",
+      "list",
+      "--filesOnly",
+      "--run",
+      "--no-cache",
+      "--config",
+      "vitest.config.ts",
+    ])
+    expect(perFileArgv(devkit, "test/reporting.test.ts")).toEqual([
+      ...devkit.base,
+      "test/reporting.test.ts",
+    ])
+    const cli = parseVitestCommand(shipped("cli").commands.test)
+    expect(listArgv(cli).slice(-8)).toEqual(cli.files)
+    expect(listArgv(parseVitestCommand(["pnpm", "exec", "vitest", "run", "--no-cache"]))).toEqual([
+      "pnpm",
+      "exec",
+      "vitest",
+      "list",
+      "--filesOnly",
+      "--no-cache",
     ])
   })
 })
