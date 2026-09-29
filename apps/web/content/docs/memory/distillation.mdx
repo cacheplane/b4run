@@ -120,7 +120,7 @@ export default {
 } satisfies import("@b4run/core").B4Config
 ```
 
-`retry.maxAttempts` is the attempts per model call, counting the first; `1` sends each call once. It becomes the model's `maxRetries`, which LangChain applies to server errors, network errors and rate limits with a `Retry-After` of 60 seconds or less (see [Retry](/docs/retry#other-models-b4run-builds)). A pass runs outside any route, so no route's `agent({ retry })` applies. `retry` takes only `maxAttempts`: a `baseDelay`, a misspelled or misplaced key, or a `maxAttempts` that isn't a whole number of at least 1 fails the command with `B4_E1009` before any model is built, and `b4 check` reports the same. [Configuration](/docs/configuration#memory) lists every shape it rejects.
+`retry.maxAttempts` is the attempts per model call, counting the first; `1` sends each call once. `maxAttempts - 1` becomes the model's `maxRetries`, which LangChain applies to server errors, network errors and rate limits with a `Retry-After` of 60 seconds or less (see [Retry](/docs/retry#other-models-b4run-builds)). A pass runs outside any route, so no route's `agent({ retry })` applies. `retry` takes only `maxAttempts`: a `baseDelay`, a misspelled or misplaced key, or a `maxAttempts` that isn't a whole number of at least 1 fails the command with `B4_E1009` before any model is built, and `b4 check` reports the same. [Configuration](/docs/configuration#memory) lists every shape it rejects.
 
 `consolidate.ttlMs` sets an expiry on summaries. Leave it unset to keep them. If a summary should outlive its evidence, make sure its TTL is longer than the source review window.
 

@@ -22,9 +22,10 @@ export interface RetryConfig {
   /**
    * Milliseconds before the first retry of a capacity rate limit (a 429 with
    * no `Retry-After`); doubles each retry, plus up to 500ms of jitter, capped
-   * at 10 seconds. Default `1000`. A 429 whose `Retry-After` is over 10
-   * seconds isn't retried. LangChain's own backoff for other errors is fixed
-   * and doesn't read it.
+   * at 10 seconds. Default `1000`. A 429 whose `Retry-After` is over 60
+   * seconds (LangChain waits out shorter ones itself) isn't retried: the
+   * error surfaces at once, keeping the wait in `retryAfterMs`. LangChain's
+   * own backoff for other errors is fixed and doesn't read it.
    */
   readonly baseDelay?: number
 }
