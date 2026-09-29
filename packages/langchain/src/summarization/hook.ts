@@ -15,6 +15,12 @@ export type SummarizeFn = (args: {
   readonly model: string
   readonly previousSummary?: string
   readonly signal: AbortSignal
+  /**
+   * The route's `retry` as the summarizer model's `maxRetries`
+   * (`maxAttempts - 1`). `defaultSummarize` passes it to the chat model it
+   * builds; a custom summarizer may use or ignore it.
+   */
+  readonly maxRetries?: number
 }) => Promise<string>
 
 export interface ResolvedSummarizationConfig {
@@ -35,7 +41,14 @@ export interface PreModelHookResult {
   runningSummary?: RunningSummary
 }
 
-export function buildSummarizationHook(cfg: ResolvedSummarizationConfig) {
+/**
+ * `options.maxRetries` is handed to every `summarize` call; see
+ * {@link SummarizeFn}.
+ */
+export function buildSummarizationHook(
+  cfg: ResolvedSummarizationConfig,
+  options: { readonly maxRetries?: number } = {},
+) {
   return async (
     state: PreModelHookState,
     nodeConfig?: { readonly signal?: AbortSignal },
@@ -57,6 +70,7 @@ export function buildSummarizationHook(cfg: ResolvedSummarizationConfig) {
           model: cfg.model,
           ...(prev?.summary ? { previousSummary: prev.summary } : {}),
           signal: nodeConfig?.signal ?? new AbortController().signal,
+          ...(options.maxRetries !== undefined ? { maxRetries: options.maxRetries } : {}),
         })
       } catch (error) {
         // Summarization failed this turn — fall back to the FULL history.
