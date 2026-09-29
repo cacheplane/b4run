@@ -7,6 +7,7 @@ import { parseArgs } from "node:util"
 import { captureBuilderHandoff, isFactoryImageId } from "./lib/builder-handoff.js"
 import { type ControllerClient, ControllerHttpError, createControllerClient } from "./lib/client.js"
 import { generatedTasksDirFor } from "./lib/config.js"
+import { budgetShortfallFor } from "./lib/controller/budget.js"
 import { dispatchPreparing, imageWaitBoundMs } from "./lib/controller/images.js"
 import type { WorkOrderState } from "./lib/domain/states.js"
 import {
@@ -643,12 +644,20 @@ async function repositoryFromOrigin(root: string): Promise<string | null> {
 }
 
 /**
- * Whether `review` may ask. A person at a terminal types the digest's prefix; anything else
- * must name the digest with `--digest`. Tests set `FACTORY_CLI_INTERACTIVE=1` to answer on a
- * pipe; nothing an operator runs sets it.
+ * Whether a review may ask: a person at a terminal, reading the display on stderr, types the
+ * prefix; anything else must name the digest with `--digest`. `FACTORY_CLI_INTERACTIVE=1`
+ * answers from a pipe only inside vitest (whose workers set VITEST, which the CLIs they spawn
+ * inherit), and says so, so an exported seam in an operator's shell never lets a script answer
+ * an approval prompt.
  */
 function interactive(): boolean {
-  return process.env.FACTORY_CLI_INTERACTIVE === "1" || process.stdin.isTTY === true
+  if (process.env.FACTORY_CLI_INTERACTIVE === "1" && process.env.VITEST) {
+    process.stderr.write(
+      "!!! TEST SEAM: FACTORY_CLI_INTERACTIVE answers the approval prompt from a pipe !!!\n",
+    )
+    return true
+  }
+  return process.stdin.isTTY === true && process.stderr.isTTY === true
 }
 
 /** One line from stdin after `question` on stderr, or null when stdin ends first. */
@@ -705,6 +714,27 @@ async function buildReview(
   })
 }
 
+/**
+ * An intake review of a work order that dispatch would refuse for its budget: the drafted
+ * target is known only now (`targetId`), so nothing could say so at create. A warning, never a
+ * refusal: approving stays the person's call. Undefined when the task does not load.
+ */
+function intakeBudgetWarning(row: WorkOrderRow): string | undefined {
+  if (row.targetId === null) return undefined
+  const stateDir = process.env.FACTORY_STATE_DIR
+  if (!stateDir) return undefined
+  let verifierDeadlineMs: number
+  try {
+    configureCatalog({ generatedTasksDir: generatedTasksDirFor(stateDir) })
+    verifierDeadlineMs = loadTaskRecipe(row.taskId).target.resources.verifierDeadlineMs
+  } catch {
+    return undefined
+  }
+  const shortfall = budgetShortfallFor(row, verifierDeadlineMs)
+  if (shortfall === undefined) return undefined
+  return `This work order has ${Math.max(0, shortfall.remainingMs)} ms of active budget left, below twice target ${row.targetId}'s verifier deadline (${verifierDeadlineMs} ms): dispatch will refuse it after you approve. Reject or cancel it, restart pnpm factory up with FACTORY_MAX_ACTIVE_MS=${shortfall.neededMs} or more (the README sizes it per target), and run it again with --new`
+}
+
 /** Send an export approval and follow it as `approve` does: re-verification outlives the request. */
 function approveExport(
   id: string,
@@ -729,23 +759,49 @@ function rejectDraft(id: string, note: string, key: string | undefined): Promise
   )
 }
 
+interface ReviewOptions {
+  readonly approve: boolean
+  readonly reject: boolean
+  readonly digest: string | undefined
+  readonly note: string | undefined
+  readonly key: string | undefined
+  readonly allowMissingEvidence: boolean
+}
+
+/** The JSON body of a review that sent nothing. */
+interface NotSent {
+  readonly ok: false
+  readonly state?: WorkOrderState
+  readonly message: string
+  readonly row?: WorkOrderRow
+}
+
 /**
- * `factory review <id>`: show what the approval covers, digest exactly what was shown, and
- * approve that digest at the revision the display was built from. The routes are unchanged:
- * `approve-intake` still recomputes the task digest from disk at call time and `approve`
- * still compares the frozen bundle, so a file edited after the display is refused there.
+ * What a review did. `sent`: a command went to the controller, with the exit code `review` has
+ * always given it. `declined`: no person approved (no terminal, no answer, nothing or the wrong
+ * prefix typed), so nothing was sent and the draft or bundle still waits. `refused`: what the
+ * review would display cannot be approved, or there is nothing to review.
  */
-async function review(
-  id: string,
-  options: {
-    readonly approve: boolean
-    readonly reject: boolean
-    readonly digest: string | undefined
-    readonly note: string | undefined
-    readonly key: string | undefined
-    readonly allowMissingEvidence: boolean
-  },
-): Promise<number> {
+type ReviewResult =
+  | { readonly kind: "sent"; readonly outcome: unknown; readonly code: number }
+  | { readonly kind: "declined"; readonly outcome: NotSent }
+  | { readonly kind: "refused"; readonly outcome: NotSent }
+
+/** `factory review <id>`: the outcome on stdout, the exit code as before this split. */
+async function review(id: string, options: ReviewOptions): Promise<number> {
+  const result = await reviewOutcome(id, options)
+  print(result.outcome)
+  return result.kind === "sent" ? result.code : 1
+}
+
+/**
+ * Show what the approval covers, digest exactly what was shown, and approve that digest at the
+ * revision the display was built from, returning what happened without printing it (`review`
+ * prints it; `run` folds it into its own outcome). The routes are unchanged: `approve-intake`
+ * still recomputes the task digest from disk at call time and `approve` still compares the
+ * frozen bundle, so a file edited after the display is refused there.
+ */
+async function reviewOutcome(id: string, options: ReviewOptions): Promise<ReviewResult> {
   const { approve, reject, digest, note, key, allowMissingEvidence } = options
   if (approve && reject) throw new Error("review takes --approve or --reject, not both")
   if (digest !== undefined && reject) throw new Error("review --reject takes --note, not --digest")
@@ -759,46 +815,60 @@ async function review(
     )
   if (note !== undefined && !reject) throw new Error("review --note goes with --reject")
   if (reject && !note) throw new Error('review --reject requires --note "<text>"')
-  const refuse = (message: string, row?: WorkOrderRow) => {
-    print({ ok: false, ...(row ? { state: row.state } : {}), message, ...(row ? { row } : {}) })
-    return 1
-  }
+  const body = (message: string, row?: WorkOrderRow): NotSent => ({
+    ok: false,
+    ...(row ? { state: row.state } : {}),
+    message,
+    ...(row ? { row } : {}),
+  })
+  const refused = (message: string, row?: WorkOrderRow): ReviewResult => ({
+    kind: "refused",
+    outcome: body(message, row),
+  })
+  const declined = (message: string, row: WorkOrderRow): ReviewResult => ({
+    kind: "declined",
+    outcome: body(message, row),
+  })
 
   if (reject && note) {
     const row = read((reader) => reader.show(id))
     if (!row) throw new Error(`Unknown work order ${id}`)
     if (row.state === "awaiting_intake_approval") {
       const outcome = await rejectDraft(id, note, key)
-      print(outcome)
-      return outcome.ok && outcome.row && INTAKE_SUCCESS.has(outcome.row.state) ? 0 : 1
+      return {
+        kind: "sent",
+        outcome,
+        code: outcome.ok && outcome.row && INTAKE_SUCCESS.has(outcome.row.state) ? 0 : 1,
+      }
     }
     if (row.state === "awaiting_approval") {
       const outcome = await client().deny(id, key)
-      print({ ...outcome, note })
-      return outcome.ok ? 0 : 1
+      return { kind: "sent", outcome: { ...outcome, note }, code: outcome.ok ? 0 : 1 }
     }
-    return refuse(nothingToReview(id, row), row)
+    return refused(nothingToReview(id, row), row)
   }
 
   const built = await buildReview(id, allowMissingEvidence)
-  if (!("digest" in built)) return refuse(nothingToReview(id, built.row), built.row)
+  if (!("digest" in built)) return refused(nothingToReview(id, built.row), built.row)
   process.stderr.write(`${built.text}\n`)
   if (built.problems.length > 0)
-    return refuse(
+    return refused(
       `Not approvable as displayed: ${built.problems.join("; ")}. Nothing was sent`,
       built.row,
     )
   for (const warning of built.warnings) process.stderr.write(`\n!!! WARNING: ${warning} !!!\n\n`)
+  const budget = built.kind === "intake" ? intakeBudgetWarning(built.row) : undefined
+  if (budget !== undefined) process.stderr.write(`\n!!! WARNING: ${budget} !!!\n\n`)
 
   if (digest !== undefined) {
     if (digest !== built.digest)
-      return refuse(
+      return refused(
         `--digest ${digest} is not the ${built.label} review displayed (${built.digest}); nothing was sent`,
         built.row,
       )
   } else {
     if (!interactive())
-      return refuse(
+      return declined(
         `There is no terminal to type the ${built.label}'s prefix into; pass --approve --digest <sha256> with the ${built.label} displayed above`,
         built.row,
       )
@@ -806,12 +876,12 @@ async function review(
       `Approve ${built.kind === "intake" ? "this draft" : "this export"} at revision ${built.revision}? Type at least the first eight hex digits of the ${built.label} (or paste all of it) to approve; anything else sends nothing: `,
     )
     if (answer === null)
-      return refuse("No answer: stdin ended before one was typed; nothing was sent", built.row)
+      return declined("No answer: stdin ended before one was typed; nothing was sent", built.row)
     const typed = answer.trim().toLowerCase()
     // At least eight hex digits, and a prefix of the digest displayed: pasting the whole digest
     // works, and a short or mistyped answer sends nothing.
     if (!(/^[0-9a-f]{8,64}$/.test(typed) && built.digest.startsWith(typed)))
-      return refuse(
+      return declined(
         typed === ""
           ? "Nothing typed; nothing was sent"
           : `The typed prefix ${JSON.stringify(typed)} does not match the ${built.label} displayed (at least eight hex digits of it are needed); nothing was sent`,
@@ -826,16 +896,14 @@ async function review(
       taskDigest: built.digest,
       ...operationKey,
     })
-    print(outcome)
-    return outcome.ok ? 0 : 1
+    return { kind: "sent", outcome, code: outcome.ok ? 0 : 1 }
   }
   const outcome = await approveExport(id, {
     revision: built.revision,
     bundleDigest: built.digest,
     ...operationKey,
   })
-  print(outcome)
-  return outcome.ok ? 0 : 1
+  return { kind: "sent", outcome, code: outcome.ok ? 0 : 1 }
 }
 
 function nothingToReview(id: string, row: WorkOrderRow): string {

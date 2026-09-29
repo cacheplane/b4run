@@ -1009,6 +1009,43 @@ esac
     expect(JSON.parse(nothing.stdout).message).toMatch(/^Nothing to review: .* is received/)
   }, 120_000)
 
+  it("warns at an intake review when dispatch would refuse the work order's budget", async () => {
+    // devkit verifies for up to 240 s, so dispatch needs 480 s left; this row has 400 s in all.
+    const { cli, spawn } = await boot(
+      {},
+      { verifier: createFakeVerifier({ independent: "fail" }) },
+      { FACTORY_MAX_ACTIVE_MS: "400000" },
+    )
+    const { id } = await parkedIntake(cli, "create-cli-budget")
+    const shown = await failing(spawn("review", id, "--allow-missing-evidence").promise)
+    expect(shown.stderr).toContain("!!! WARNING: This work order has")
+    expect(shown.stderr).toContain("dispatch will refuse it after you approve")
+    // Only a warning: the review still says what a person must do to approve.
+    expect(JSON.parse(shown.stdout).message).toContain("--approve --digest")
+  }, 90_000)
+
+  it("honours the interactive test seam only under vitest, and says so loudly (D25)", async () => {
+    const { cli, env } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
+    const { id } = await parkedIntake(cli, "create-cli-seam")
+    const outsideVitest: NodeJS.ProcessEnv = { ...env }
+    delete outsideVitest.VITEST
+    // An operator's exported seam on a pipe: no prompt, nothing sent. Stdin is closed at once,
+    // so a CLI that did ask ends on "No answer" instead of waiting out the test's timeout.
+    const pipedRun = run(
+      process.execPath,
+      [tsxBin, cliEntry, "review", id, "--allow-missing-evidence"],
+      { env: { ...outsideVitest, FACTORY_CLI_INTERACTIVE: "1" }, cwd: packageRoot },
+    )
+    pipedRun.child.stdin?.end()
+    const piped = await failing(pipedRun)
+    expect(piped.stderr).not.toContain("TEST SEAM")
+    expect(piped.stderr).not.toContain("first eight hex digits")
+    expect(JSON.parse(piped.stdout).message).toContain("--approve --digest")
+    // Under vitest the seam works, and announces itself.
+    const seam = await interactive(env, ["review", id, "--allow-missing-evidence"], "00000000")
+    expect(seam.stderr).toContain("!!! TEST SEAM: FACTORY_CLI_INTERACTIVE")
+  }, 90_000)
+
   it("reviews an intake for scripts, and rejects one with a note", async () => {
     const { cli, spawn } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
     if (!served) throw new Error("no controller")
