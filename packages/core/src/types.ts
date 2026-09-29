@@ -318,7 +318,8 @@ export interface B4Config {
      *  7 days, consolidate.minBatchSize 5, consolidate.maxBatchSize 50,
      *  consolidate.ttlMs unset (summaries never expire),
      *  consolidate.sourceTtlMs 7 days; reflect.minNewRecords
-     *  10, reflect.maxRecords 100, reflect.writes "candidate". */
+     *  10, reflect.maxRecords 100, reflect.writes "candidate";
+     *  retry.maxAttempts 3. */
     readonly distill?: {
       /** Model id for the distillation pass. Default "gpt-5-mini". */
       readonly model?: string
@@ -326,6 +327,19 @@ export interface B4Config {
       readonly provider?: ModelProviderId
       /** Maximum batches processed per invocation. Default 5. */
       readonly maxBatches?: number
+      /**
+       * Retry for the distillation model's calls: `maxAttempts` per call,
+       * counting the first (default 3; `1` sends each call once). It becomes
+       * the chat model's `maxRetries` (`maxAttempts - 1`), which LangChain
+       * applies to server errors, network errors and rate limits with a
+       * `Retry-After` of 60s or less. Unlike `agent({ retry })` there is no
+       * `baseDelay`: distillation has no capacity rate-limit retry for it to
+       * pace, so `b4 memory` rejects it. Any other key, or a `maxAttempts`
+       * that isn't a whole number of at least 1, is rejected too (B4_E1009).
+       */
+      readonly retry?: {
+        readonly maxAttempts?: number
+      }
       readonly consolidate?: {
         /** Only consolidate records older than this many ms. Default 604800000 (7d). */
         readonly olderThanMs?: number

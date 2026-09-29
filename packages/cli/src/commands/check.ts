@@ -13,6 +13,7 @@ import {
 import { knownTargetNames } from "../lib/build/targets/index.js"
 import { assertRouteMarkerFileLimits } from "../lib/build/targets/marker-files.js"
 import { assertVercelBuildConfig } from "../lib/build/targets/vercel-config.js"
+import { resolveDistillRetry } from "../lib/memory/distill-retry-config.js"
 import { loadB4Config } from "../lib/node-config.js"
 import { CliError, type CommandIo, formatErrorMessage, writeLine } from "../lib/output.js"
 import { collectDelegationErrors } from "../lib/runtime/collect-delegation-errors.js"
@@ -98,6 +99,9 @@ export async function runCheckCommand(options: CheckOptions, io: CommandIo): Pro
 
     // Rejected target list or not: a mistyped opt-out must not pass check.
     assertVercelBuildConfig(loadedConfig.build)
+    // The same validation `b4 memory consolidate`/`reflect` apply before
+    // building their model, surfaced here so a near miss fails check too.
+    resolveDistillRetry(loadedConfig.memory)
 
     // Typed as known names, but a JS config arrives untyped — keep validating.
     const buildTargets: readonly string[] | undefined = loadedConfig.build?.targets

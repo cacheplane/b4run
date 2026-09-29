@@ -51,6 +51,26 @@ async function invoke(argv: readonly string[]) {
 }
 
 describe("b4 check emits error codes", () => {
+  test("a near-miss memory.distill.retry → [B4_E1009] with docs link", async () => {
+    const appRoot = await createFixtureApp({
+      "b4.config.ts": "export default { memory: { distill: { retry: { maxattempts: 5 } } } };\n",
+    })
+    const result = await invoke(["check", "--cwd", appRoot])
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("Unknown memory.distill.retry option(s): maxattempts")
+    expect(result.stderr).toContain("[B4_E1009]")
+    expect(result.stderr).toContain("https://b4.run/docs/configuration#memory")
+  })
+
+  test("a valid memory.distill.retry passes check", async () => {
+    const appRoot = await createFixtureApp({
+      "b4.config.ts": "export default { memory: { distill: { retry: { maxAttempts: 5 } } } };\n",
+    })
+    const result = await invoke(["check", "--cwd", appRoot])
+    expect(result.stderr).toBe("")
+    expect(result.exitCode).toBe(0)
+  })
+
   test("invalid delegation policy → [B4_E1004] with docs link", async () => {
     const appRoot = await createFixtureApp({
       "src/app/hello/index.ts": `import { agent } from "@b4run/sdk"

@@ -187,6 +187,7 @@ describe("resolveDistillConfig", () => {
       provider: "openai",
       providerAuthored: false,
       maxBatches: 5,
+      retry: { maxAttempts: 3 },
       consolidate: {
         olderThanMs: 7 * 86_400_000,
         minBatchSize: 5,
@@ -207,6 +208,7 @@ describe("resolveDistillConfig", () => {
       provider: "openai",
       providerAuthored: false,
       maxBatches: 5,
+      retry: { maxAttempts: 3 },
       consolidate: {
         olderThanMs: 7 * 86_400_000,
         minBatchSize: 5,
@@ -327,6 +329,7 @@ describe("resolveDistillConfig", () => {
       provider: "openai",
       providerAuthored: false,
       maxBatches: 5,
+      retry: { maxAttempts: 3 },
       consolidate: {
         olderThanMs: 7 * 86_400_000,
         minBatchSize: 5,

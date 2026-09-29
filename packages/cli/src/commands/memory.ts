@@ -355,11 +355,19 @@ function selectProvider(
  * exactly `ModelLike`'s shape (the engine normalizes string vs content-part
  * array content). Imported lazily so `b4 memory list` never pays for the
  * LangChain barrel.
+ *
+ * Retry: one model serves a whole pass, across every namespace it selects, so
+ * no route's `agent({ retry })` applies. `memory.distill.retry.maxAttempts`
+ * (validated by `resolveDistillRetry`, default 3) becomes its `maxRetries`.
  */
 async function createDistillModel(config: ResolvedDistillConfig): Promise<ModelLike> {
-  const { createChatModel, resolveProvider } = await import("@b4run/langchain")
+  const { createChatModel, modelMaxRetries, resolveProvider } = await import("@b4run/langchain")
   const provider = resolveProvider({ model: config.model, provider: config.provider })
-  const model = await createChatModel({ model: config.model, provider })
+  const model = await createChatModel({
+    model: config.model,
+    provider,
+    maxRetries: modelMaxRetries({ maxAttempts: config.retry.maxAttempts }),
+  })
   return model as ModelLike
 }
 
