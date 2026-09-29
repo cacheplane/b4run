@@ -148,3 +148,58 @@ export function factoryConfigPath(
   }
   return existsSync(DEFAULT_CONFIG_PATH) ? { path: DEFAULT_CONFIG_PATH, named: false } : undefined
 }
+
+const sameUrl = (a: string, b: string) => a.replace(/\/+$/, "") === b.replace(/\/+$/, "")
+const sameDir = (a: string, b: string) => resolve(a) === resolve(b)
+
+/**
+ * The CLI's two variables, filled from the config where the environment leaves them unset.
+ * The environment wins where it sets one (the manual runbook's exports keep working); each
+ * disagreement is returned as a line for stderr, so a stale export is seen, not guessed at.
+ * Mutates `env`, which is `process.env` in the CLI: every command reads it there.
+ */
+export function applyConfigDefaults(
+  env: Record<string, string | undefined>,
+  config: ResolvedFactoryConfig,
+): string[] {
+  const wanted = [
+    ["FACTORY_CONTROLLER_URL", config.urls.controller, sameUrl],
+    ["FACTORY_STATE_DIR", config.stateDir, sameDir],
+  ] as const
+  const warnings: string[] = []
+  for (const [name, value, same] of wanted) {
+    const set = env[name]
+    if (set === undefined || set === "") env[name] = value
+    else if (!same(set, value))
+      warnings.push(
+        `${name} is ${set} in the environment but ${value} in ${config.path}; using the environment's`,
+      )
+  }
+  return warnings
+}
+
+/**
+ * Variables `up` decides from the config, set in its environment to something else. `up`
+ * refuses them rather than override: a later command in the same shell would read the stale
+ * one (the environment wins in the CLI) and talk to another controller or registry.
+ */
+export function ownedVariableConflicts(
+  env: Readonly<Record<string, string | undefined>>,
+  config: ResolvedFactoryConfig,
+): string[] {
+  const owned = [
+    ["FACTORY_CONTROLLER_URL", config.urls.controller, "starts the controller at", sameUrl],
+    ["FACTORY_WORKER_URL", config.urls.builder, "starts the builder at", sameUrl],
+    ["FACTORY_DRAFTER_URL", config.urls.drafter, "starts the drafter at", sameUrl],
+    ["FACTORY_STATE_DIR", config.stateDir, "keeps the controller's state in", sameDir],
+  ] as const
+  return owned
+    .filter(([name, value, , same]) => {
+      const set = env[name]
+      return set !== undefined && set !== "" && !same(set, value)
+    })
+    .map(
+      ([name, value, what]) =>
+        `${name} is ${env[name]} in the environment but up ${what} ${value}: unset it (the CLI reads ${config.path}) or make them equal`,
+    )
+}

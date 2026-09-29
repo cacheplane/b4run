@@ -3,10 +3,12 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
+  applyConfigDefaults,
   DEFAULT_CONFIG_PATH,
   EXAMPLE_ROOT,
   factoryConfigPath,
   loadFactoryConfig,
+  ownedVariableConflicts,
   parseFactoryConfig,
 } from "../src/lib/operator/factory-config.ts"
 
@@ -121,5 +123,45 @@ describe("the config file", () => {
   it("refuses an empty --config rather than falling back", () => {
     expect(() => factoryConfigPath({}, "")).toThrow("--config needs a path")
     expect(() => factoryConfigPath({ FACTORY_CONFIG: "a.ts" }, "")).toThrow("--config needs a path")
+  })
+})
+
+describe("the environment and the config", () => {
+  const config = parseFactoryConfig(good, PATH)
+
+  it("fills the CLI's two variables when unset, and keeps the environment's when set", () => {
+    const env: Record<string, string | undefined> = {}
+    expect(applyConfigDefaults(env, config)).toEqual([])
+    expect(env).toEqual({
+      FACTORY_CONTROLLER_URL: "http://127.0.0.1:4300",
+      FACTORY_STATE_DIR: join(EXAMPLE_ROOT, ".factory"),
+    })
+    const exported = { FACTORY_CONTROLLER_URL: "http://127.0.0.1:4300/", FACTORY_STATE_DIR: "/old" }
+    const warnings = applyConfigDefaults(exported, config)
+    expect(exported.FACTORY_STATE_DIR).toBe("/old")
+    expect(warnings).toEqual([
+      `FACTORY_STATE_DIR is /old in the environment but ${join(EXAMPLE_ROOT, ".factory")} in ${PATH}; using the environment's`,
+    ])
+  })
+
+  it("names every variable up owns that the environment sets otherwise", () => {
+    expect(ownedVariableConflicts({}, config)).toEqual([])
+    expect(
+      ownedVariableConflicts(
+        {
+          FACTORY_STATE_DIR: join(EXAMPLE_ROOT, ".factory"),
+          FACTORY_WORKER_URL: "http://127.0.0.1:9999",
+          FACTORY_DRAFTER_URL: "http://127.0.0.1:4200/",
+        },
+        config,
+      ),
+    ).toEqual([
+      `FACTORY_WORKER_URL is http://127.0.0.1:9999 in the environment but up starts the builder at http://127.0.0.1:4100: unset it (the CLI reads ${PATH}) or make them equal`,
+    ])
+    expect(
+      ownedVariableConflicts({ FACTORY_STATE_DIR: "/old", FACTORY_CONTROLLER_URL: "" }, config),
+    ).toEqual([
+      `FACTORY_STATE_DIR is /old in the environment but up keeps the controller's state in ${join(EXAMPLE_ROOT, ".factory")}: unset it (the CLI reads ${PATH}) or make them equal`,
+    ])
   })
 })
