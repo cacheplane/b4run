@@ -20,6 +20,7 @@ import {
   materializeAgentGraph,
   streamAgent,
 } from "../src/agent-adapter.ts"
+import { seedModelImporter } from "../src/chat-model-factory.ts"
 import type { ResolvedSummarizationConfig, SummarizeFn } from "../src/summarization/index.ts"
 import {
   headerlessRateLimit,
@@ -148,10 +149,30 @@ function tokens(chunks: readonly AgentStreamChunk[]): string[] {
   return chunks.filter((c) => c.type === "token").map((c) => String(c.data))
 }
 
+/**
+ * The real time the helpers below may wait. Fake-timer steps take almost no real
+ * time (a thousand of them run in ~20ms), so a bound counted in steps gives up
+ * before real work (a module import on a loaded CI runner) finishes. Bound them
+ * in real time instead, and yield a real macrotask on every step.
+ */
+const REAL_WAIT_LIMIT_MS = 30_000
+
+/** Let real macrotasks (I/O, `setImmediate`) run; the fake clock doesn't drive them. */
+function realTurn(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve))
+}
+
 /** Advance fake time 1ms at a time until `modelCalls` reaches `calls`. */
 async function advanceUntilCalls(calls: number, limitMs: number): Promise<void> {
-  for (let elapsed = 0; modelCalls < calls && elapsed < limitMs; elapsed += 1) {
+  const deadline = performance.now() + REAL_WAIT_LIMIT_MS
+  for (let elapsed = 0; modelCalls < calls && elapsed < limitMs; ) {
+    if (performance.now() > deadline) break
+    await realTurn()
+    // Hold fake time still until the turn has made its first model call, so the
+    // fake-time budget measures only the retry's own waits.
+    if (modelCalls === 0) continue
     await vi.advanceTimersByTimeAsync(1)
+    elapsed += 1
   }
 }
 
@@ -173,7 +194,9 @@ async function settle<T>(turn: Promise<T>): Promise<T> {
     settled = true
     result = r
   })
-  for (let i = 0; !settled && i < 1000; i += 1) {
+  const deadline = performance.now() + REAL_WAIT_LIMIT_MS
+  while (!settled && performance.now() < deadline) {
+    await realTurn()
     await vi.advanceTimersByTimeAsync(100)
   }
   if (!settled) throw new Error("the turn never settled")
@@ -181,7 +204,8 @@ async function settle<T>(turn: Promise<T>): Promise<T> {
 }
 
 beforeEach(() => {
-  vi.doMock("@langchain/openai", () => ({ ChatOpenAI: ScriptedStreamingModel }))
+  // The factory's own importer seam, so no test waits on a real module import.
+  seedModelImporter(async () => ({ ChatOpenAI: ScriptedStreamingModel }))
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] })
   vi.spyOn(Math, "random").mockReturnValue(0)
 })
@@ -189,7 +213,6 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers()
   vi.restoreAllMocks()
-  vi.doUnmock("@langchain/openai")
   script = []
   modelCalls = 0
   callTimes = []
@@ -412,5 +435,20 @@ describe("no run-level retry", () => {
       expect(opened).toBe(1)
       expect(tokens(chunks)).toEqual(yieldFirst ? ["partial"] : [])
     }
+  })
+})
+
+describe("the test's own waiting", () => {
+  test("settles a turn whose model takes real time to load", async () => {
+    // A slow module import on a loaded CI runner: real time, not fake time.
+    seedModelImporter(async () => {
+      const start = performance.now()
+      while (performance.now() - start < 250) await realTurn()
+      return { ChatOpenAI: ScriptedStreamingModel }
+    })
+    script = [{ kind: "text", tokens: ["on its way"] }]
+    const { chunks, error } = await settle(startTurn({}))
+    expect(error).toBeUndefined()
+    expect(tokens(chunks)).toEqual(["on its way"])
   })
 })
