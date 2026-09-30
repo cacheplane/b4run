@@ -1,4 +1,4 @@
-import { execFile, spawn as spawnChild } from "node:child_process"
+import { execFile, execFileSync, spawn as spawnChild } from "node:child_process"
 import {
   appendFileSync,
   chmodSync,
@@ -45,7 +45,10 @@ let dir: string
 // Undefined for the tests that serve nothing, and cleared after every test so a later one
 // cannot close an already-closed controller.
 let served: ServedController | undefined
+/** Processes a test started to hold a lock: killed by pid after every test, even a failed one. */
+const holders: { kill(): void }[] = []
 afterEach(async () => {
+  for (const holder of holders.splice(0)) holder.kill()
   await served?.close()
   served = undefined
   rmSync(dir, { recursive: true, force: true })
@@ -932,6 +935,58 @@ esac
     )
   }
 
+  /** The one-line candidate the export review tests use, left on the builder's thread. */
+  function repairedCandidate(): void {
+    const target = loadTask("cli-flags").target
+    const pinned = execFileSync(
+      "git",
+      ["-C", packageRoot, "show", `${target.pin}:${target.root}/src/cli.ts`],
+      { encoding: "utf8" },
+    )
+    served?.workspace.set(FIRST_THREAD, {
+      "src/cli.ts": pinned.replace(
+        "await program.parseAsync(process.argv)",
+        'await program.parseAsync(process.argv, { from: "node" })',
+      ),
+      "test/cli.test.ts": "spec\n",
+      "TASK.md": "task\n",
+    })
+  }
+
+  /** A live process a test lock can name as its `up`, with a command line `ps` shows. */
+  async function lockHolder() {
+    const marker = `factory-up-lock-holder-${process.pid}-${Date.now()}`
+    const child = spawnChild(process.execPath, ["-e", "setInterval(() => {}, 1000)", marker], {
+      stdio: "ignore",
+    })
+    await new Promise((resolve) => child.once("spawn", resolve))
+    holders.push({ kill: () => child.kill("SIGKILL") })
+    return {
+      child,
+      pid: child.pid as number,
+      command: marker,
+      kill: () => child.kill("SIGKILL"),
+    }
+  }
+
+  /** `<state>/up.lock` as `up` writes it, naming `holder` and the controller's approval window. */
+  function writeUpLock(
+    stateDir: string,
+    holder: { readonly pid: number; readonly command: string },
+    approvalTtlMs: number,
+  ): void {
+    mkdirSync(stateDir, { recursive: true })
+    writeFileSync(
+      join(stateDir, "up.lock"),
+      `${JSON.stringify({
+        up: { pid: holder.pid, command: holder.command, startedAt: new Date().toISOString() },
+        ports: { controller: 1, builder: 2, drafter: 3 },
+        controller: { approvalTtlMs, maxActiveMs: 1_200_000 },
+        children: {},
+      })}\n`,
+    )
+  }
+
   const journal = (stateDir: string, id: string) => {
     const reader = openRegistryReader(join(stateDir, "registry.sqlite"))
     try {
@@ -1692,12 +1747,10 @@ esac
       "test/cli.test.ts": "spec\n",
       "TASK.md": "task\n",
     })
-    // A lock as `up` writes it, naming a 1 ms window: expired before run reaches the gate.
-    mkdirSync(stateDir, { recursive: true })
-    writeFileSync(
-      join(stateDir, "up.lock"),
-      JSON.stringify({ pid: 1, controller: { approvalTtlMs: 1 } }),
-    )
+    // A lock as `up` writes it, held by a live process, naming a 1 ms window: expired before
+    // run reaches the gate.
+    const holder = await lockHolder()
+    writeUpLock(stateDir, holder, 1)
     let prompts = 0
     const expired = await interactiveRun(
       env,
@@ -1714,6 +1767,163 @@ esac
     expect(out.next).toEqual(expect.arrayContaining([`pnpm factory cancel ${out.row.id}`]))
     expect(types(stateDir, out.row.id)).not.toContain("approve_started")
   }, 120_000)
+
+  it("run trusts an approval window only from a lock whose up still runs (a stale one is unknown)", async () => {
+    const { env, stateDir } = await boot()
+    repairedCandidate()
+    // The lock an `up` that was SIGKILLed left behind, naming a 1 ms window: its pid is gone.
+    const holder = await lockHolder()
+    holder.kill()
+    await new Promise((resolve) => holder.child.on("close", resolve))
+    writeUpLock(stateDir, holder, 1)
+    let prompts = 0
+    const waiting = await interactiveRun(
+      env,
+      ["--task", "cli-flags", "--allow-missing-evidence"],
+      () => {
+        prompts += 1
+        return undefined
+      },
+    )
+    // It asks (the bundle is not known to have expired), and waits on a person.
+    expect(prompts).toBe(1)
+    expect(waiting.code).toBe(3)
+    expect(waiting.stderr).toContain("the controller's approval window is unknown")
+    const out = JSON.parse(waiting.stdout)
+    expect(out.message).not.toContain("has expired")
+    expect(out.message).toContain("Waiting on a person")
+  }, 120_000)
+
+  it("run follows an approval another run sent that is still re-verifying, instead of asking again", async () => {
+    const { env, stateDir } = await boot({}, { verifier: createFakeVerifier({ delayMs: 3_000 }) })
+    repairedCandidate()
+    // A person approves at a terminal, then Ctrl-C's that run while the approval re-verifies.
+    const child = spawnChild(
+      process.execPath,
+      [tsxBin, cliEntry, "run", "--task", "cli-flags", "--allow-missing-evidence"],
+      { env: { ...env, FACTORY_CLI_INTERACTIVE: "1" }, cwd: packageRoot, stdio: "pipe" },
+    )
+    let stderr = ""
+    child.stdout.resume()
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString()
+      if (stderr.includes("first eight hex digits") && !child.stdin.writableEnded)
+        child.stdin.end(`${(rows(stateDir)[0]?.bundleDigest ?? "").slice(0, 8)}\n`)
+    })
+    const id = await (async () => {
+      for (let i = 0; i < 2_400; i++) {
+        const row = rows(stateDir)[0]
+        if (row && types(stateDir, row.id).includes("approve_started")) return row.id
+        await new Promise((r) => setTimeout(r, 25))
+      }
+      throw new Error("the approval never started")
+    })()
+    child.kill("SIGINT")
+    expect(await new Promise((resolve) => child.on("close", resolve))).toBe(130)
+    expect(rows(stateDir)[0]?.state).toBe("awaiting_approval")
+    // Resumed, run sees the approval in flight: it follows it to the export, and never says
+    // nothing was approved.
+    const resumed = await settled(
+      run(process.execPath, [tsxBin, cliEntry, "run", id], { env, cwd: packageRoot }),
+    )
+    expect(resumed.stdout).not.toContain("Nothing was approved")
+    expect(resumed.stderr).toContain("an approval re-verifying, sent earlier")
+    expect(resumed.stderr).not.toContain("first eight hex digits")
+    expect(resumed.code).toBe(0)
+    expect(JSON.parse(resumed.stdout)).toMatchObject({ ok: true, state: "exported" })
+    expect(types(stateDir, id).filter((t) => t === "approve_started")).toHaveLength(1)
+  }, 120_000)
+
+  it("run says a person is being waited on when Ctrl-C lands at a gate", async () => {
+    const { env, stateDir } = await boot()
+    repairedCandidate()
+    const child = spawnChild(
+      process.execPath,
+      [tsxBin, cliEntry, "run", "--task", "cli-flags", "--allow-missing-evidence"],
+      { env: { ...env, FACTORY_CLI_INTERACTIVE: "1" }, cwd: packageRoot, stdio: "pipe" },
+    )
+    let stderr = ""
+    child.stdout.resume()
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString()
+      if (stderr.includes("first eight hex digits") && !child.killed) child.kill("SIGINT")
+    })
+    expect(await new Promise((resolve) => child.on("close", resolve))).toBe(130)
+    const id = rows(stateDir)[0]?.id as string
+    expect(stderr).toContain("waiting on a person")
+    expect(stderr).not.toContain("the controller keeps working")
+    expect(stderr).toContain(`pnpm factory review ${id}`)
+    expect(types(stateDir, id)).not.toContain("approve_started")
+  }, 120_000)
+
+  it("run prints how to resume when Ctrl-C lands before it has chosen a work order", async () => {
+    // A controller that accepts the connection and never answers: run is in its health check.
+    const silent: Server = createServer(() => undefined)
+    await new Promise<void>((resolve) => silent.listen(0, "127.0.0.1", resolve))
+    const address = silent.address()
+    if (address === null || typeof address === "string") throw new Error("no port")
+    dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
+    try {
+      const child = spawnChild(process.execPath, [tsxBin, cliEntry, "run", "--task", "cli-flags"], {
+        env: {
+          ...process.env,
+          FACTORY_CONFIG: "none",
+          FACTORY_CONTROLLER_URL: `http://127.0.0.1:${address.port}`,
+          FACTORY_STATE_DIR: join(dir, "state"),
+        },
+        cwd: packageRoot,
+        stdio: ["ignore", "pipe", "pipe"],
+      })
+      let stderr = ""
+      child.stderr.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString()
+      })
+      // Once the child has connected, it is past installing its handlers.
+      await new Promise<void>((resolve) => silent.once("connection", () => resolve()))
+      child.kill("SIGINT")
+      expect(await new Promise((resolve) => child.on("close", resolve))).toBe(130)
+      expect(stderr).toContain("pnpm factory run --task cli-flags")
+    } finally {
+      silent.close()
+    }
+  }, 60_000)
+
+  it("run follows a create another run is sending on the same key, rather than failing", async () => {
+    const { cli, env, stateDir } = await boot(
+      {},
+      { verifier: createFakeVerifier({ delayMs: 4_000 }) },
+    )
+    repairedCandidate()
+    // One cli-flags work order already exists, so `run --new` creates generation 1. Hold that
+    // create's thread with a slow dispatch of the first, as a second run racing on the key would.
+    const { json: first } = await cli("create", "--task", "cli-flags", "--key", "first")
+    const key = "factory-run:task:cli-flags:1"
+    const held = served?.run(`create:${key}`, "/work-orders/dispatch#workflow", {
+      id: first.row.id,
+    })
+    for (let i = 0; i < 400 && rows(stateDir)[0]?.state === "received"; i++)
+      await new Promise((r) => setTimeout(r, 25))
+    const raced = await settled(
+      run(process.execPath, [tsxBin, cliEntry, "run", "--task", "cli-flags", "--new"], {
+        env,
+        cwd: packageRoot,
+      }),
+    )
+    await held
+    expect(raced.stderr).not.toMatch(/already in flight/)
+    expect(raced.stderr).toContain("being created")
+    expect(rows(stateDir)).toHaveLength(2)
+    expect(raced.stdout).not.toContain("run_in_flight")
+  }, 120_000)
+
+  it("run refuses a stray argument, and points a bare issue number at --issue", async () => {
+    const { spawn, stateDir } = await boot()
+    const bare = await failing(spawn("run", "714").promise)
+    expect(bare.stderr).toContain("--issue 714")
+    const extra = await failing(spawn("run", "--task", "cli-flags", "extra").promise)
+    expect(extra.stderr).toContain("extra")
+    expect(rows(stateDir)).toEqual([])
+  }, 60_000)
 
   it("run, interrupted, leaves the work going, and resumes following the same work order", async () => {
     const { env, stateDir } = await boot({}, { verifier: createFakeVerifier({ delayMs: 4_000 }) })
@@ -1739,6 +1949,9 @@ esac
     expect(code).toBe(130)
     expect(stderr).toContain(`pnpm factory run ${id}`)
     expect(stderr).toContain(`pnpm factory cancel ${id}`)
+    // Ctrl-C ended the following, not the work: nothing asked the controller to cancel.
+    expect(transitions(stateDir, id, "cancel")).toEqual([])
+    expect(["cancel_requested", "cancelled"]).not.toContain(rows(stateDir)[0]?.state)
     // The controller finishes what run was following; a second run finds it and stops at the gate.
     const resumed = await settled(
       run(process.execPath, [tsxBin, cliEntry, "run", "--task", "cli-flags"], {

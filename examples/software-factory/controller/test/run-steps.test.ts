@@ -3,7 +3,12 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { STATES, type WorkOrderState } from "../src/lib/domain/states.ts"
 import type { WorkOrderRow } from "../src/lib/domain/work-order.ts"
-import { chooseWorkOrder, nextStep, type RunStep } from "../src/lib/operator/run-steps.ts"
+import {
+  approvalStartedSinceParked,
+  chooseWorkOrder,
+  nextStep,
+  type RunStep,
+} from "../src/lib/operator/run-steps.ts"
 
 const issueRow = (patch: Partial<WorkOrderRow> = {}): WorkOrderRow => ({
   id: "wo-0000000000000001",
@@ -173,18 +178,113 @@ describe("chooseWorkOrder", () => {
   })
 })
 
+describe("approvalStartedSinceParked", () => {
+  const parked = { type: "transition", payload: { to: "awaiting_approval" } }
+  const started = { type: "approve_started", payload: {} }
+  const refused = { type: "approve_refused", payload: { message: "Stale revision" } }
+  it("is an approval started since the bundle parked with no refusal after it", () => {
+    expect(approvalStartedSinceParked([parked])).toBe(false)
+    expect(approvalStartedSinceParked([parked, started])).toBe(true)
+    expect(approvalStartedSinceParked([parked, started, refused])).toBe(false)
+    expect(approvalStartedSinceParked([parked, started, refused, started])).toBe(true)
+    // One from before the row last parked is another bundle's.
+    expect(approvalStartedSinceParked([parked, started, parked])).toBe(false)
+  })
+})
+
+/** Calls and inputs that approve or reject, or make a pipe answer the prompt. */
+const FORBIDDEN = [
+  /\bapprove(Intake|Export)\b/,
+  /\.(approve|deny|rejectIntake|cancel|interrupt)\b/,
+  /\brejectDraft\b/,
+  /--approve|--digest/,
+  /\bvalues\.(approve|reject|digest|key|note|revision|bundle)\b/,
+  /\bapprove: true\b/,
+  /FACTORY_CLI_INTERACTIVE/,
+] as const
+
+/**
+ * Source with comments removed, and string text too unless `keepStrings` (template expressions
+ * are always kept).
+ */
+function code(src: string, keepStrings = false): string {
+  let out = ""
+  const stack: ("template" | "expression")[] = []
+  const depth: number[] = []
+  let i = 0
+  while (i < src.length) {
+    const c = src[i] as string
+    const top = stack.at(-1)
+    if (top === "template") {
+      if (c === "\\") {
+        if (keepStrings) out += src.slice(i, i + 2)
+        i += 2
+      } else if (c === "`") {
+        stack.pop()
+        out += keepStrings ? "`" : " "
+        i += 1
+      } else if (c === "$" && src[i + 1] === "{") {
+        stack.push("expression")
+        depth.push(0)
+        out += keepStrings ? "${" : " "
+        i += 2
+      } else {
+        if (keepStrings) out += c
+        i += 1
+      }
+      continue
+    }
+    if (c === "/" && src[i + 1] === "/") {
+      while (i < src.length && src[i] !== "\n") i += 1
+      continue
+    }
+    if (c === "/" && src[i + 1] === "*") {
+      const end = src.indexOf("*/", i + 2)
+      i = end === -1 ? src.length : end + 2
+      continue
+    }
+    if (c === '"' || c === "'") {
+      const from = i
+      i += 1
+      while (i < src.length && src[i] !== c) i += src[i] === "\\" ? 2 : 1
+      i += 1
+      out += keepStrings ? src.slice(from, i) : " "
+      continue
+    }
+    if (c === "`") {
+      stack.push("template")
+      if (keepStrings) out += c
+      i += 1
+      continue
+    }
+    if (top === "expression" && (c === "{" || c === "}")) {
+      const at = depth.length - 1
+      if (c === "}" && depth[at] === 0) {
+        stack.pop()
+        depth.pop()
+        out += keepStrings ? "}" : " "
+        i += 1
+        continue
+      }
+      depth[at] = (depth[at] ?? 0) + (c === "{" ? 1 : -1)
+    }
+    out += c
+    i += 1
+  }
+  return out
+}
+
 describe("run's only way to an approval", () => {
   const cli = readFileSync(join(import.meta.dirname, "../src/cli.ts"), "utf8")
   /** The source of the top-level function `name`, up to the next top-level declaration. */
   const body = (name: string) => {
-    const found = [`\nasync function ${name}(`, `\nfunction ${name}(`]
-      .map((head) => cli.indexOf(head))
-      .find((at) => at !== -1)
-    const start = found ?? -1
+    const start = cli.search(
+      new RegExp(`\\n(?:async function|function|const|let) ${name.replace(/\$/g, "\\$")}\\b`),
+    )
     expect(start, name).toBeGreaterThan(0)
     const next = cli
       .slice(start + 1)
-      .search(/\n(async function|function|const|interface|type|main)\b/)
+      .search(/\n(async function|function|const|let|interface|type|main)\b/)
     return cli.slice(start, next === -1 ? undefined : start + 1 + next)
   }
 
@@ -197,27 +297,103 @@ describe("run's only way to an approval", () => {
     )
     // Never the commands that approve or reject underneath review, and never the flags or the
     // test seam that would make a pipe answer the prompt.
-    for (const forbidden of [
-      /\bapprove(Intake|Export)\b/,
-      /\.(approve|deny|rejectIntake)\b/,
-      /\brejectDraft\b/,
-      /--approve|--digest/,
-      /\bvalues\.(approve|reject|digest|key|note|revision|bundle)\b/,
-      /\bapprove: true\b/,
-      /FACTORY_CLI_INTERACTIVE/,
-    ])
-      expect(run, String(forbidden)).not.toMatch(forbidden)
+    for (const forbidden of FORBIDDEN) expect(run, String(forbidden)).not.toMatch(forbidden)
   })
 
   it("refuses every approving option by name, and main hands run nothing else to approve with", () => {
     expect(cli).toMatch(
       /const RUN_REFUSES = \["approve", "reject", "digest", "note", "revision", "bundle"\] as const/,
     )
-    expect(cli).toMatch(/case "run":\s*return await runCommand\(id, values\)/)
-    // Neither the standalone approve commands nor review's own dispatch are reachable from run.
-    for (const helper of ["runWorkOrder", "followJournal", "requireController", "listRows"])
-      expect(body(helper), helper).not.toMatch(
-        /\bapprove(Intake|Export)\b|\.(approve|deny|rejectIntake)\b|\brejectDraft\b|\breviewOutcome\b/,
-      )
+    expect(cli).toMatch(
+      /case "run":\s*return await runCommand\(id, values, positionals\.slice\(2\)\)/,
+    )
+  })
+
+  /**
+   * Every top-level name `runCommand` reaches, transitively, through the code (comments and
+   * string text removed). `reviewOutcome` is the one door to an approval, pinned above by its
+   * exact arguments, so the walk stops there.
+   */
+  const reached = () => {
+    const names = new Set(
+      [...cli.matchAll(/\n(?:async function|function|const|let) ([A-Za-z_$][\w$]*)/g)].map(
+        (m) => m[1] as string,
+      ),
+    )
+    const seen = new Set<string>()
+    const todo = ["runCommand"]
+    while (todo.length > 0) {
+      const name = todo.pop() as string
+      if (seen.has(name)) continue
+      seen.add(name)
+      if (name === "reviewOutcome") continue
+      for (const m of code(body(name)).matchAll(/(?<![.\w$])([A-Za-z_$][\w$]*)/g)) {
+        const used = m[1] as string
+        if (names.has(used) && !seen.has(used)) todo.push(used)
+      }
+    }
+    return seen
+  }
+
+  /** The local helpers run may reach: adding one is a reviewed change to this list. */
+  const RUN_REACHES: readonly string[] = [
+    "CREATE_RACE_MS",
+    "DISPATCH_ACTIVE",
+    "DISPATCH_FOLLOW",
+    "DISPATCH_SUCCESS",
+    "INTAKE_ACTIVE",
+    "INTAKE_SUCCESS",
+    "NEVER_SENT",
+    "POLL_GRACE_MS",
+    "RUN_IGNORES",
+    "RUN_REFUSES",
+    "arrivalWindowMs",
+    "awaiting",
+    "client",
+    "createRacing",
+    "finish",
+    "followBusyThread",
+    "followJournal",
+    "followRow",
+    "howToApprove",
+    "interrupted",
+    "issueCreateInput",
+    "listRows",
+    "markRow",
+    "pollRow",
+    "print",
+    "read",
+    "recordedApprovalTtlMs",
+    "registryPath",
+    "replayPinOf",
+    "repositoryFromOrigin",
+    "requestFetch",
+    "requireController",
+    "reviewOutcome",
+    "runCommand",
+    "runWorkOrder",
+    "tailEvents",
+    "threadBusy",
+    "transportFailure",
+  ]
+
+  it("reaches only the helpers it names, and none of them approves (transitively)", () => {
+    const seen = reached()
+    expect([...seen].sort()).toEqual([...RUN_REACHES].sort())
+    for (const name of seen) {
+      if (name === "reviewOutcome") continue
+      const text = code(body(name), true)
+      for (const forbidden of FORBIDDEN) {
+        // The one string that names the scripting flags, never filled in: a person reads the
+        // digest off the display (D13). Pinned below.
+        if (name === "howToApprove" && String(forbidden) === String(/--approve|--digest/)) continue
+        expect(text, `${name}: ${String(forbidden)}`).not.toMatch(forbidden)
+      }
+      if (name !== "runCommand") expect(text, name).not.toMatch(/\breviewOutcome\b/)
+    }
+    expect(body("howToApprove")).toContain("--approve --digest <the digest shown above>")
+    // It interpolates the work order's id and nothing else: never a digest.
+    const interpolated = [...body("howToApprove").matchAll(/\$\{([^}]*)\}/g)].map((m) => m[1])
+    expect(new Set(interpolated)).toEqual(new Set(["id"]))
   })
 })

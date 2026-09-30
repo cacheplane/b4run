@@ -59,6 +59,25 @@ export function bundleExpired(
     )
 }
 
+/**
+ * Whether the journal shows an approval started since the row last entered
+ * `awaiting_approval` with no refusal after it. While the row still waits, that is an approval
+ * re-verifying, or one a controller restart cut off (Trap 13): only the runtime can say which,
+ * so this is a reason not to claim "nothing was approved", never a reason to follow.
+ */
+export function approvalStartedSinceParked(
+  events: readonly Pick<FactoryEvent, "type" | "payload">[],
+): boolean {
+  let parked = -1
+  events.forEach((event, index) => {
+    if (event.type === "transition" && event.payload.to === "awaiting_approval") parked = index
+  })
+  const marks = events
+    .slice(parked + 1)
+    .filter((e) => e.type === "approve_started" || e.type === "approve_refused")
+  return marks.at(-1)?.type === "approve_started"
+}
+
 export function nextStep(
   row: WorkOrderRow,
   events: readonly Pick<FactoryEvent, "type" | "payload">[],

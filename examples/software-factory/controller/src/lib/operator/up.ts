@@ -338,6 +338,26 @@ function isLockRecord(value: unknown): value is LockRecord {
   )
 }
 
+/**
+ * The controller settings a lock records, only while the `up` that wrote it still runs (D12's
+ * held check: its pid alive and still showing its command). A stale lock (an `up` that was
+ * SIGKILLed, then a controller started by hand with other settings) says nothing about the
+ * controller now answering, so it answers undefined, as does anything that is not up's lock.
+ */
+export function heldLockController(path: string): LockRecord["controller"] | undefined {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(readFileSync(path, "utf8"))
+  } catch {
+    return undefined
+  }
+  if (!isLockRecord(parsed) || !holds(parsed.up)) return undefined
+  const controller = (parsed as { controller?: unknown }).controller
+  return typeof controller === "object" && controller !== null
+    ? (controller as LockRecord["controller"])
+    : undefined
+}
+
 /** One lock file: taken by `wx`, a stale one taken over by rename (D12). */
 function acquireOne(
   path: string,
