@@ -313,3 +313,47 @@ export const INTERRUPT_GRANTS_MIGRATIONS: readonly Migration[] = [
     `,
   },
 ]
+
+/**
+ * Migrations for the client-tool-call store (`client_tool_calls` table).
+ *
+ * Two rules govern this constant, both pinned by
+ * `test/client-tool-calls-ddl.test.ts`.
+ *
+ * 1. **A shipped migration is frozen.** Once a database has recorded
+ *    `version = 1` in the component's migrations table, `runMigrations` never
+ *    issues this statement against it again, so editing version 1 changes only
+ *    what a virgin database gets. Change the shape by APPENDING
+ *    `{ version: 2, up: (naming) => \`ALTER TABLE …\` }`.
+ *
+ * 2. **No column default is load-bearing.** There is deliberately not a single
+ *    `DEFAULT` here: every INSERT names all ten columns and supplies all ten
+ *    values, so a default could only mask a wiring bug.
+ *
+ * Timestamps are app-generated ISO-8601 `text`, as in the other tables. The
+ * primary key is `(thread_id, tool_call_id)` — the provider's tool-call id is
+ * only unique within a thread — and it is what makes `issue` idempotent. The
+ * store never enforces `expires_at`; expiry is the caller's job.
+ */
+export const CLIENT_TOOL_CALLS_MIGRATIONS: readonly Migration[] = [
+  {
+    version: 1,
+    up: (naming) => `
+      CREATE TABLE IF NOT EXISTS ${qualify(naming, "client_tool_calls")} (
+        thread_id text NOT NULL,
+        tool_call_id text NOT NULL,
+        interrupt_id text NOT NULL,
+        tool_name text NOT NULL,
+        run_id text NOT NULL,
+        issued_at text NOT NULL,
+        expires_at text,
+        answered_at text,
+        result text,
+        voided_at text,
+        PRIMARY KEY (thread_id, tool_call_id)
+      );
+      CREATE INDEX IF NOT EXISTS ${naming.prefix}_client_tool_calls_thread_idx
+        ON ${qualify(naming, "client_tool_calls")} (thread_id);
+    `,
+  },
+]

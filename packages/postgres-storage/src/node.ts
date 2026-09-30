@@ -14,6 +14,10 @@
 import { Pool, type PoolConfig } from "pg"
 import { type B4PostgresSaver, postgresCheckpointer as baseCheckpointer } from "./checkpointer.js"
 import {
+  createPostgresClientToolCallStore as baseCreateClientToolCallStore,
+  type PostgresClientToolCallStore,
+} from "./client-tool-calls.js"
+import {
   createPostgresInterruptGrantStore as baseCreateInterruptGrantStore,
   type PostgresInterruptGrantStore,
 } from "./interrupt-grants.js"
@@ -122,6 +126,13 @@ export function createPostgresInterruptGrantStore(
   options: NodePostgresStoreOptions = {},
 ): PostgresInterruptGrantStore {
   return baseCreateInterruptGrantStore({ ...options, ...poolFor(options) })
+}
+
+/** Build a Postgres-backed client tool call store, optionally from a connection string. */
+export function createPostgresClientToolCallStore(
+  options: NodePostgresStoreOptions = {},
+): PostgresClientToolCallStore {
+  return baseCreateClientToolCallStore({ ...options, ...poolFor(options) })
 }
 
 export * from "./index.js"
