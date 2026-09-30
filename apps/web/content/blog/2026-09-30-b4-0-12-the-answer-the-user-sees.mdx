@@ -1,0 +1,171 @@
+---
+title: "B4.run 0.9 to 0.12: The answer the user sees"
+description: "Learn what 0.9 through 0.12 changed about an agent's final answer: schema-constrained replies, an after hook, returnDirect tools, streamed tool arguments and a smaller starter."
+date: 2026-09-30
+tags: [typescript, agents]
+type: release
+version: 0.12.0
+author: brian
+---
+
+The last release roundup covered everything through 0.8. Since then we've shipped four minor releases, 0.9 through 0.12, in four days. That was a busy week.
+
+Most of those changes are about one thing: the answer the user actually sees. Is it shaped the way the client expects? Can we check it before it's shown? Does it stream, or does the user stare at a spinner?
+
+Let's walk through them with an assistant that answers by rendering UI components instead of prose.
+
+**Version note:** These releases are superseded by [0.13](/blog/b4-0-13-a-sandbox-per-thread). Upgrade straight to the current release rather than stopping at 0.12.
+
+## Goals
+
+We want our assistant to:
+
+1. Reply in a shape the client can render, every time.
+2. Check the reply before the client sees it.
+3. End the run as soon as the answer is ready.
+4. Show progress while the model is still working.
+
+Let's dive in.
+
+## Constrain the final message
+
+[Hashbrown](https://hashbrown.dev) renders an assistant's reply as UI. Its client sends a JSON Schema as `hashbrown.responseSchema` on every run, and the final message must match it.
+
+Before 0.9, `POST /agui/:routeId` accepted that field and quietly ignored it. The client thought its schema was honored, right up until a reply failed to parse.
+
+Now the runtime either applies the schema or rejects the run. On an `agent` route, the schema is bound on the root model as the provider's native structured output: OpenAI's `response_format` or Anthropic's `output_config.format`. Tool-calling turns are untouched, and only the answering turn is constrained.
+
+Anywhere it can't be applied, like a `workflow` route or a provider without a schema mode that works alongside tool calls, the run is refused with `422` and `B4_E5402`. That's a much better failure than a reply that doesn't parse.
+
+The [AG-UI guide](/docs/ag-ui#response-schema) lists which providers support it.
+
+## Check the answer before it's shown
+
+A schema tells us the reply has the right shape. It can't tell us whether the reply is allowed. Maybe a component needs a permission the current user doesn't have.
+
+Middleware used to run only before the route. In 0.9, the object form of `defineMiddleware()` gains an `after` hook that runs on the final assistant message:
+
+```ts
+// src/middleware.ts
+import { allow, defineMiddleware, reject } from "@b4run/sdk"
+import { validateUi } from "../assistant-ui"
+
+export default defineMiddleware({
+  async handle(req) {
+    const session = await loadSession(req.headers.authorization)
+    if (!session) return reject(401)
+    return allow({ session })
+  },
+  async after({ context, finalMessage }) {
+    const verdict = validateUi(finalMessage, context?.session)
+    if (!verdict.ok) return reject(422, { error: verdict.reason })
+    return { finalMessage: JSON.stringify(verdict.ui) }
+  },
+})
+```
+
+A few things to note:
+
+1. `after` receives whatever `handle` passed to `allow()`, so the session is right there.
+2. Return nothing to keep the message, `{ finalMessage }` to replace it, or `reject()` to end the run with a `RUN_ERROR`.
+3. `after` only runs on AG-UI runs.
+
+There's a tradeoff. AG-UI has no way to take back text a client already received, so with `after` defined, the final message is buffered on the server and delivered whole. Text before a tool call still streams. An app without the hook streams exactly as before. The [Middleware guide](/docs/middleware#validating-the-final-assistant-message) covers the details.
+
+## End the run on a tool's result
+
+Sometimes a tool's result *is* the answer. In our assistant, a `render` tool validates the components and shows them. Handing that result back to the model just so it can say "Here you go!" costs a turn, tokens and seconds.
+
+In 0.11, a tool module can export `returnDirect`:
+
+```ts
+// src/app/(public)/assistant/tools/render.ts
+export const returnDirect = true
+
+const COMPONENTS = new Set(["Table", "Chart", "Summary"])
+
+/** Show the composed answer to the user. Call exactly once, last. */
+export default async (input: { readonly ui: readonly string[] }) => {
+  const unknown = input.ui.filter((name) => !COMPONENTS.has(name))
+  if (unknown.length > 0) throw new Error(`invalid_ui: unknown components ${unknown.join(", ")}`)
+  return { rendered: true }
+}
+```
+
+The run ends on the tool's result. The AG-UI stream ends after `TOOL_CALL_RESULT`, and an `after` hook sees an empty final message.
+
+Did you notice that this tool throws on bad input? In 0.11, that would have ended the run on the error, because LangGraph's prebuilt agent routed a `returnDirect` tool to the end by name without checking whether it failed. That made `returnDirect` a poor fit for exactly the kind of tool that wants it.
+
+0.12 fixes that. Only a successful call ends the run. A thrown error, or arguments that fail the tool's schema, go back to the model so it can correct the call and try again.
+
+## Run on `createAgent`
+
+That fix came with a bigger change under the hood. In 0.12, agent routes run on LangChain's `createAgent` instead of LangGraph's deprecated `createReactAgent`.
+
+B4.run now installs its own `createAgent` middleware for the things it used to pass as options: prompt fragments rendered from live state, summarization's condensed history, and tool errors returned to the model. For most routes nothing should change, but it's the kind of thing worth covering with your evals when you upgrade.
+
+LangChain packages moved to their current releases in 0.11, too, and every workspace package now resolves a single copy of `@langchain/core` and `@langchain/langgraph`.
+
+## Stream more of the run
+
+An answer that takes ten seconds feels a lot faster when the user can see it forming.
+
+### Tool-call arguments
+
+In 0.10, tool-call arguments stream as the model generates them. The AG-UI translator emits one `TOOL_CALL_START`, a series of `TOOL_CALL_ARGS` deltas and one `TOOL_CALL_END`. A client that renders from a tool call's arguments, like our `render` tool, can paint progressively instead of waiting for the whole call.
+
+The tool itself still receives the complete, parsed arguments.
+
+### Assistant text on Anthropic
+
+This one is a little embarrassing. LangChain's Anthropic integration only flattens a chunk's content to a string when the request binds no tools, and every B4.run agent binds tools. So an Anthropic-backed agent streamed no assistant text at all. The same shape came from OpenAI's Responses API.
+
+In 0.11, the adapter reads a chunk's `text` blocks, skipping thinking, citation and tool-input deltas, so those models stream their prose like any other.
+
+### Tool errors
+
+In 0.9, a tool that throws emits a `tool_result`, so AG-UI clients see a `TOOL_CALL_RESULT` instead of a call that never finishes.
+
+## Tools and types
+
+A tool's input type becomes the schema the model sees. Two changes make that more reliable.
+
+First, in 0.9, schema extraction reads your app's `tsconfig.json`, including `extends`, `paths` and `baseUrl`. An input type imported through a path alias used to resolve to `any` and produce a permissive schema. Now it gets its real schema, and a type that still can't be resolved fails `b4 typegen` with an error naming the tool and the type.
+
+Second, in 0.11, `b4 run` and `b4 test` regenerate tool schemas before they execute a route. A tool you changed since the last `b4 typegen` is bound with its current schema, not a stale one.
+
+## Workspaces per thread
+
+This is where [0.13](/blog/b4-0-13-a-sandbox-per-thread) picks up, and 0.9 and 0.10 laid the groundwork:
+
+- In 0.10, `sandbox.workspace` can be a function. It runs once per thread, at first admission, and returns that thread's starting files.
+- In 0.9, a trusted host process can open a read-only view of a thread's managed workspace without touching its live sandbox. A controller can check what an agent produced.
+- In 0.10, the Docker sandbox starts its container with `--init`, so orphaned processes are reaped instead of lingering as zombies.
+
+## A smaller starter
+
+`npm create b4-app` now scaffolds a single `/hello` agent route with one typed `greet` tool. The route group, the `[tenant]` segment and `state.ts` are gone. A new app starts with the smallest agent that works, and you add the rest when you need it.
+
+A few rough edges around getting started are smoother, too:
+
+- `@b4run/cli` exports the `B4Config` type, so `export default config({})` type-checks under pnpm's isolated `node_modules`.
+- The missing model provider error, `B4_E4001`, suggests the install command for the package manager you're using instead of always printing `pnpm add`.
+
+## Testing
+
+`createAgentHarness` and `defineEval` accept a `middlewareContext`, either a value or a function of the run. Tools that read `ctx.middleware` can now be tested in-process, even though the harness bypasses `middleware.ts`.
+
+## Upgrading
+
+Use Node.js 24 or later, and pin every direct `@b4run/*` dependency to the same release. Since these releases are superseded, upgrade to the current one:
+
+1. Read the [Upgrading guide](/docs/upgrading) and the release notes in between, including the [0.13 upgrade notes](/blog/b4-0-13-a-sandbox-per-thread#upgrade-notes).
+2. Update all direct B4.run dependencies together.
+3. Run `npx b4 verify`.
+4. Run your route tests and evals, especially for agent routes, since they now run on `createAgent`.
+
+## Conclusion
+
+The user doesn't see your routes, your tools or your middleware. They see the answer, and how long it took to show up.
+
+These releases give you more control over that answer. You can constrain its shape, check it before it's shown, end the run as soon as it's ready and stream the work in between. Pick the one your app needs first.
