@@ -1024,6 +1024,30 @@ esac
     expect(JSON.parse(shown.stdout).message).toContain("--approve --digest")
   }, 90_000)
 
+  it("says budget not checked, with the reason, rather than staying silent when the task fails to load", async () => {
+    const { cli, env } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
+    const { id } = await parkedIntake(cli, "create-cli-budget-unloadable")
+    // A repository that cannot possibly hold the drafted task's pin: loadTaskRecipe's target
+    // load calls ensurePin, which throws instead of the budget check silently doing nothing.
+    // FACTORY_NO_FETCH=1 keeps it from trying (and failing slowly) to fetch from origin.
+    const emptyRepo = mkdtempSync(join(tmpdir(), "factory-cli-empty-repo-"))
+    try {
+      const shown = await failing(
+        run(process.execPath, [tsxBin, cliEntry, "review", id, "--allow-missing-evidence"], {
+          env: { ...env, FACTORY_REPO_ROOT: emptyRepo, FACTORY_NO_FETCH: "1" },
+          cwd: packageRoot,
+        }),
+      )
+      expect(shown.stderr).toContain("budget not checked: ")
+      expect(shown.stderr).toContain(`is not in the repository at ${emptyRepo}`)
+      // Still shown and still approvable: a budget check that could not run is not a refusal.
+      expect(shown.stderr).toContain("==> spec.md")
+      expect(JSON.parse(shown.stdout).message).toContain("--approve --digest")
+    } finally {
+      rmSync(emptyRepo, { recursive: true, force: true })
+    }
+  }, 90_000)
+
   it("honours the interactive test seam only under vitest, and says so loudly (D25)", async () => {
     const { cli, env } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
     const { id } = await parkedIntake(cli, "create-cli-seam")
@@ -1044,6 +1068,19 @@ esac
     // Under vitest the seam works, and announces itself.
     const seam = await interactive(env, ["review", id, "--allow-missing-evidence"], "00000000")
     expect(seam.stderr).toContain("!!! TEST SEAM: FACTORY_CLI_INTERACTIVE")
+
+    // A falsy-looking string is still truthy in JS: the seam must compare the exact value
+    // vitest sets, not just check the variable is present.
+    const falsyVitest = run(
+      process.execPath,
+      [tsxBin, cliEntry, "review", id, "--allow-missing-evidence"],
+      { env: { ...env, VITEST: "false", FACTORY_CLI_INTERACTIVE: "1" }, cwd: packageRoot },
+    )
+    falsyVitest.child.stdin?.end()
+    const falsy = await failing(falsyVitest)
+    expect(falsy.stderr).not.toContain("TEST SEAM")
+    expect(falsy.stderr).not.toContain("first eight hex digits")
+    expect(JSON.parse(falsy.stdout).message).toContain("--approve --digest")
   }, 90_000)
 
   it("reviews an intake for scripts, and rejects one with a note", async () => {

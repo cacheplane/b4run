@@ -210,6 +210,20 @@ describe("the environment and the config", () => {
     ])
   })
 
+  it("warns when only one of the two variables is set in the environment, naming both sources", () => {
+    const env: Record<string, string | undefined> = {
+      FACTORY_CONTROLLER_URL: "http://127.0.0.1:4300",
+    }
+    const warnings = applyConfigDefaults(env, config)
+    expect(env).toEqual({
+      FACTORY_CONTROLLER_URL: "http://127.0.0.1:4300",
+      FACTORY_STATE_DIR: join(EXAMPLE_ROOT, ".factory"),
+    })
+    expect(warnings).toEqual([
+      `FACTORY_CONTROLLER_URL is from the environment but FACTORY_STATE_DIR is from ${PATH}: reads may come from one registry and writes go to another controller`,
+    ])
+  })
+
   it("names every variable up owns that the environment sets otherwise", () => {
     expect(ownedVariableConflicts({}, config)).toEqual([])
     expect(

@@ -225,13 +225,27 @@ export function applyConfigDefaults(
     ["FACTORY_STATE_DIR", config.stateDir, sameDir],
   ] as const
   const warnings: string[] = []
+  const origins: Record<string, "environment" | "config"> = {}
   for (const [name, value, same] of wanted) {
     const set = env[name]
-    if (set === undefined || set === "") env[name] = value
-    else if (!same(set, value))
-      warnings.push(
-        `${name} is ${set} in the environment but ${value} in ${config.path}; using the environment's`,
-      )
+    if (set === undefined || set === "") {
+      env[name] = value
+      origins[name] = "config"
+    } else {
+      origins[name] = "environment"
+      if (!same(set, value))
+        warnings.push(
+          `${name} is ${set} in the environment but ${value} in ${config.path}; using the environment's`,
+        )
+    }
+  }
+  const [[firstName], [secondName]] = wanted
+  if (origins[firstName] !== origins[secondName]) {
+    const describe = (name: string) =>
+      origins[name] === "environment" ? "the environment" : config.path
+    warnings.push(
+      `${firstName} is from ${describe(firstName)} but ${secondName} is from ${describe(secondName)}: reads may come from one registry and writes go to another controller`,
+    )
   }
   return warnings
 }

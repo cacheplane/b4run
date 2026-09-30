@@ -88,7 +88,6 @@ both with the worker token.
 create --issue reads the issue through gh (FACTORY_GH names the executable; default gh) and pins
 the work order to origin/main of the target checkout (FACTORY_REPO_ROOT; FACTORY_NO_FETCH=1 skips
 the fetch). The repository is --repo, else FACTORY_REPOSITORY, else the checkout's origin remote.
-
 create --issue --pin <sha> replays the issue at that commit instead: origin/main is neither
 fetched nor read. The pin is a full sha, or a short one the checkout resolves; a full sha not in
 the object store is fetched from origin by sha, unless FACTORY_NO_FETCH=1, which refuses it.
@@ -651,7 +650,7 @@ async function repositoryFromOrigin(root: string): Promise<string | null> {
  * an approval prompt.
  */
 function interactive(): boolean {
-  if (process.env.FACTORY_CLI_INTERACTIVE === "1" && process.env.VITEST) {
+  if (process.env.FACTORY_CLI_INTERACTIVE === "1" && process.env.VITEST === "true") {
     process.stderr.write(
       "!!! TEST SEAM: FACTORY_CLI_INTERACTIVE answers the approval prompt from a pipe !!!\n",
     )
@@ -727,7 +726,9 @@ function intakeBudgetWarning(row: WorkOrderRow): string | undefined {
   try {
     configureCatalog({ generatedTasksDir: generatedTasksDirFor(stateDir) })
     verifierDeadlineMs = loadTaskRecipe(row.taskId).target.resources.verifierDeadlineMs
-  } catch {
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    process.stderr.write(`budget not checked: ${reason}\n`)
     return undefined
   }
   const shortfall = budgetShortfallFor(row, verifierDeadlineMs)
