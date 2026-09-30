@@ -20,7 +20,7 @@
       "sha256": "2a191340bdc3bf63c9c8b195515fcd9d62be4384f7a7710c6e847f8383b41eee"
     },
     "scripts/release/abandonment-authority.mjs": {
-      "sha256": "cdd47ef2fb12a03cc382cfe9c3d7b0ef1890b8076bf8752c415b80c0698efe35"
+      "sha256": "7819174b1f235dd2d60ec503fa3dd879b9fca872c5b7880735d75706a2d755a4"
     },
     "scripts/release/abandonment-handoff.mjs": {
       "sha256": "88cabf205ab7dc3ae7a604258256be3d7c5c14f3e3da6e94e672ada396d1704c"
@@ -29,7 +29,7 @@
       "sha256": "42bbcc540e602e495091caa8d3b1d3461f47fa4400db24eabed1c4fdb2e762d8"
     },
     "scripts/release/adapter-normalize.mjs": {
-      "sha256": "465beffc12678ec5bd6d6e5ef6dc4f4c9cc1d76e622b4ed27c35dd231f2e0dda"
+      "sha256": "5a6cde2b3487302ed3ebee749019e36e06d3bb382e14d0022046551a420b1671"
     },
     "scripts/release/adapters/conditional-json.mjs": {
       "sha256": "d67f832e1e19f07fb6236e4f880327995aeb90d5594de7c9fdea15de7ba4f7f6"
@@ -68,7 +68,7 @@
       "sha256": "143a3e535fa07f8da74a66ae624661422add8c9974dc0b46603762d4b86ed815"
     },
     "scripts/release/cli.mjs": {
-      "sha256": "cd335a30886413e9c296188efc501a9344f1dc6f691526d2d60d15014f77c34c"
+      "sha256": "69e86ec9b67fcbff4101dd979298c9772955f50767893f4faed2b6e5d3b4e6aa"
     },
     "scripts/release/conflicts.mjs": {
       "sha256": "9fb3ff5154dab04d975b56baf29255493ece213824801e3504fad534ae81db7f"
@@ -116,7 +116,7 @@
       "sha256": "af7d96c07b54fed86de038f7fb51d910577227910f819bce64253ca752f24efb"
     },
     "scripts/release/observe.mjs": {
-      "sha256": "45e7646dfa47b4077b8f224f77fc4c45bb97d85938f9d269618be0e4ecb12a3e"
+      "sha256": "3e3fa7683731dcb6302969314da308140e4e531a515d08339b0f7e3f42f86aa6"
     },
     "scripts/release/planner.mjs": {
       "sha256": "2e09281ff952da69e985de7802307b849b76525e838e4cab49516a3d05793433"

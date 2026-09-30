@@ -6,6 +6,7 @@ import * as defaultFileSystem from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { isUnstartedFirstAttempt } from "./adapter-normalize.mjs"
 import { parseSmokeResult, REQUIRED_RELEASE_SMOKE_LANES } from "./smoke-result.mjs"
 
 const COMMANDS = Object.freeze({
@@ -1117,17 +1118,30 @@ async function capturePublicationState({
   if (new Set(normalizedRuns.map(({ runId }) => runId)).size !== normalizedRuns.length) {
     throw new Error("Release CLI candidate Actions history contains duplicate run IDs")
   }
+  const listedById = new Map(
+    runs.map((run) => {
+      const listed = snapshotCliData(run, "candidate Actions run")
+      return [listed.id, listed]
+    }),
+  )
   const withJobs = await Promise.all(
-    normalizedRuns.map(async (run) => ({
-      ...run,
-      jobs: normalizeCandidateJobs(
-        await readPresentValue(listActionsRunJobs({ runId: run.runId }), "actions-run-jobs"),
-        run.runAttempt,
-      ),
-    })),
+    normalizedRuns.map(async (run) => {
+      // A run queued behind this one, or cancelled before it started, has no
+      // jobs and so no publication history; it is left out of candidateRuns.
+      const listed = listedById.get(run.runId)
+      if (isUnstartedFirstAttempt(listed) && (await runNeverStarted(github, listed))) return null
+      return {
+        ...run,
+        jobs: normalizeCandidateJobs(
+          await readPresentValue(listActionsRunJobs({ runId: run.runId }), "actions-run-jobs"),
+          run.runAttempt,
+        ),
+      }
+    }),
   )
   const candidateRuns = []
   for (const run of withJobs) {
+    if (run === null) continue
     const publishStarted = run.jobs.some(publisherJobExecuted)
     if (publishStarted) {
       throw new Error("Release CLI publication history shows that publish-npm already started")
@@ -1182,6 +1196,29 @@ async function capturePublicationState({
     registryMutationReceipts: [],
     packages,
   })
+}
+
+async function runNeverStarted(github, listed) {
+  const getActionsRun = requiredMethod(github, "getActionsRun", "GitHub reader")
+  const listActionsRunJobsComplete = requiredMethod(
+    github,
+    "listActionsRunJobsComplete",
+    "GitHub reader",
+  )
+  const before = await readPresentValue(getActionsRun({ runId: listed.id }), "actions-run")
+  const jobs = await readPresentValue(
+    listActionsRunJobsComplete({ runId: listed.id }, { allowEmptyFirstAttempt: true }),
+    "actions-run-jobs-complete",
+  )
+  const after = await readPresentValue(getActionsRun({ runId: listed.id }), "actions-run")
+  if (!Array.isArray(jobs)) {
+    throw new Error("Release CLI candidate job history is malformed")
+  }
+  if (jobs.length !== 0) return false
+  if (!isUnstartedFirstAttempt(before, listed) || !isUnstartedFirstAttempt(after, listed)) {
+    throw new Error("Release CLI candidate run without jobs is not proven unstarted")
+  }
+  return true
 }
 
 function normalizeCandidateRun(value, candidate) {

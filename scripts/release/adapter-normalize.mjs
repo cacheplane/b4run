@@ -112,3 +112,30 @@ function malformed() {
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value)
 }
+
+// Runs share one queued concurrency group, so a Release run can sit queued
+// behind the current one, or be cancelled before it ever starts. Either way
+// GitHub reports zero jobs for it, and its run_started_at still equals
+// created_at, so neither the job listing's absence of evidence nor the run
+// timestamps prove anything alone. A caller may treat such a run as having no
+// job history only when the listed run and two exact reads of its latest
+// attempt, taken before and after an exact empty job listing, all satisfy
+// isUnstartedFirstAttempt. Only first attempts qualify: a rerun keeps the
+// jobs of the attempts before it.
+const UNSTARTED_RUN_STATUSES = new Set(["queued", "pending", "requested"])
+
+export function isUnstartedFirstAttempt(run, listed = run) {
+  return (
+    isRecord(run) &&
+    isRecord(listed) &&
+    run.id === listed.id &&
+    run.run_attempt === 1 &&
+    run.head_sha === listed.head_sha &&
+    run.head_branch === listed.head_branch &&
+    run.path === listed.path &&
+    run.status === listed.status &&
+    run.conclusion === listed.conclusion &&
+    ((UNSTARTED_RUN_STATUSES.has(run.status) && run.conclusion === null) ||
+      (run.status === "completed" && run.conclusion === "cancelled"))
+  )
+}

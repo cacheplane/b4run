@@ -2144,6 +2144,258 @@ test("escrow reads one canonical attestation set and its exact pinned 22-bundle 
   assert.equal(received, null)
 })
 
+async function runEscrowWithSiblingRun(t, { sibling, siblingJobs, siblingReads }) {
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-escrow-sibling-"))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const artifactDirectory = join(directory, "artifact")
+  const bundlesDirectory = join(directory, "attestation-bundles")
+  await mkdir(artifactDirectory)
+  await mkdir(bundlesDirectory)
+  const { manifest, record } = await materializeArtifactFixture(artifactDirectory)
+  const paths = {
+    candidate: join(directory, "candidate.json"),
+    record: join(directory, "record.json"),
+    attestationSet: join(directory, "attestation-set.json"),
+  }
+  const bundle = Buffer.from('{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}\n')
+  const attestationSet = attestationSetFixture(manifest, bundle, {
+    workflowRunId: 701,
+    runAttempt: 1,
+  })
+  await Promise.all([
+    writeFile(paths.candidate, JSON.stringify(CANDIDATE)),
+    writeFile(paths.record, canonicalReleaseRecordBytes(record)),
+    writeFile(paths.attestationSet, canonicalTestJsonBytes(attestationSet)),
+    ...attestationSet.subjects.map(({ bundleName }) =>
+      writeFile(join(bundlesDirectory, bundleName), bundle),
+    ),
+  ])
+  const current = {
+    id: 701,
+    run_attempt: 1,
+    head_sha: CANDIDATE.commitSha,
+    head_branch: `v${CANDIDATE.version}`,
+    path: ".github/workflows/release.yml",
+    event: "workflow_dispatch",
+    status: "in_progress",
+    conclusion: null,
+  }
+  const listedSibling = {
+    id: 702,
+    run_attempt: 1,
+    head_sha: CANDIDATE.commitSha,
+    head_branch: `v${CANDIDATE.version}`,
+    path: ".github/workflows/release.yml",
+    event: "workflow_dispatch",
+    ...sibling,
+  }
+  const calls = []
+  const reads = [...(siblingReads ?? [listedSibling, listedSibling])]
+  const job = (id, name, overrides = {}) => ({
+    id,
+    runAttempt: 1,
+    name,
+    status: "completed",
+    conclusion: "skipped",
+    startedAt: "2026-08-25T09:00:00Z",
+    completedAt: "2026-08-25T09:00:01Z",
+    ...overrides,
+  })
+  const github = {
+    reader: {
+      async listWorkflowRuns(input) {
+        calls.push(["runs", input.commitSha])
+        return presentEnvelope("workflow-runs", [current, listedSibling])
+      },
+      async getActionsRun({ runId }) {
+        calls.push(["run", runId])
+        assert.equal(runId, 702)
+        return presentEnvelope("actions-run", reads.shift())
+      },
+      async listActionsRunJobsComplete({ runId }, options) {
+        calls.push(["jobs-complete", runId, options])
+        assert.equal(runId, 702)
+        return presentEnvelope("actions-run-jobs-complete", siblingJobs)
+      },
+      async listActionsRunJobs({ runId }) {
+        calls.push(["jobs", runId])
+        if (runId === 702) return presentEnvelope("actions-run-jobs", siblingJobs)
+        return presentEnvelope("actions-run-jobs", [
+          job(801, "tag", { conclusion: "success" }),
+          job(802, "escrow", {
+            status: "in_progress",
+            conclusion: null,
+            startedAt: "2026-08-25T09:02:00Z",
+            completedAt: null,
+          }),
+          job(803, "publish-npm"),
+        ])
+      },
+    },
+    writer: {},
+  }
+  const npm = {
+    async observePackageVersion() {
+      return { status: "ABSENT", operation: "package-version", httpStatus: 404, code: "E404" }
+    },
+  }
+  let received = null
+  const importModule = async (specifier) => {
+    const name = new URL(specifier).pathname.split("/").at(-1)
+    if (name !== "metadata.mjs") return import(specifier)
+    return {
+      parseAttestationSet,
+      async escrowCandidate(input) {
+        received = input
+        return { phase: "ESCROWED", status: "escrowed" }
+      },
+    }
+  }
+  const run = () =>
+    runReleaseCli(
+      [
+        "escrow",
+        "--candidate",
+        paths.candidate,
+        "--record",
+        paths.record,
+        "--artifact-dir",
+        artifactDirectory,
+        "--attestation-set",
+        paths.attestationSet,
+        "--attestation-bundles-dir",
+        bundlesDirectory,
+      ],
+      {
+        cwd: directory,
+        github,
+        npm,
+        attestations: {
+          async verify() {
+            assert.fail("the route delegates bundle verification to escrowCandidate")
+          },
+        },
+        now: () => Date.parse("2026-08-25T09:03:00Z"),
+        environment: Object.freeze({
+          GITHUB_TOKEN: "token",
+          GITHUB_REPOSITORY: "cacheplane/b4run",
+          GITHUB_REF: `refs/tags/v${CANDIDATE.version}`,
+          GITHUB_SHA: CANDIDATE.commitSha,
+          GITHUB_RUN_ID: "701",
+          GITHUB_RUN_ATTEMPT: "1",
+          GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/release.yml@refs/tags/v${CANDIDATE.version}`,
+        }),
+        importModule,
+      },
+    )
+  return { run, calls, manifest, received: () => received }
+}
+
+for (const [label, sibling] of [
+  ["queued behind this run", { status: "queued", conclusion: null }],
+  ["pending behind this run", { status: "pending", conclusion: null }],
+  ["cancelled before it started", { status: "completed", conclusion: "cancelled" }],
+]) {
+  test(`escrow leaves out a zero-job sibling tag run ${label}`, async (t) => {
+    // v0.13.0: run 36469630250 sat queued behind the escrow run 36467560000.
+    const fixture = await runEscrowWithSiblingRun(t, { sibling, siblingJobs: [] })
+    assert.deepEqual(await fixture.run(), { phase: "ESCROWED", status: "escrowed" })
+    const state = fixture.received().publicationState
+    assert.deepEqual(
+      state.candidateRuns.map(({ runId }) => runId),
+      [701],
+    )
+    assert.equal(
+      JSON.stringify(
+        parsePublicationState(state, {
+          candidate: CANDIDATE,
+          inventory: { packages: fixture.manifest.packages.map(({ name }) => ({ name })) },
+        }),
+      ),
+      JSON.stringify(state),
+    )
+    // The empty listing is bracketed by two reads of the sibling's latest
+    // attempt, and its all-attempt job history is never read.
+    assert.deepEqual(
+      fixture.calls.filter(([kind, runId]) => kind !== "runs" && runId === 702),
+      [
+        ["run", 702],
+        ["jobs-complete", 702, { allowEmptyFirstAttempt: true }],
+        ["run", 702],
+      ],
+    )
+    assert.ok(fixture.calls.some(([kind, runId]) => kind === "jobs" && runId === 701))
+  })
+}
+
+test("escrow proves a started sibling run's history instead of skipping it", async (t) => {
+  const jobs = [
+    {
+      id: 900,
+      runAttempt: 1,
+      name: "detect",
+      status: "completed",
+      conclusion: "cancelled",
+      startedAt: "2026-08-25T08:59:00Z",
+      completedAt: "2026-08-25T08:59:30Z",
+    },
+  ]
+  const fixture = await runEscrowWithSiblingRun(t, {
+    sibling: { status: "completed", conclusion: "cancelled" },
+    siblingJobs: jobs,
+  })
+  await fixture.run()
+  assert.deepEqual(
+    fixture.received().publicationState.candidateRuns.map(({ runId }) => runId),
+    [701, 702],
+  )
+})
+
+test("escrow stays fail-closed for a zero-job sibling run it cannot prove unstarted", async (t) => {
+  const listed = {
+    id: 702,
+    run_attempt: 1,
+    head_sha: CANDIDATE.commitSha,
+    head_branch: `v${CANDIDATE.version}`,
+    path: ".github/workflows/release.yml",
+    event: "workflow_dispatch",
+    status: "queued",
+    conclusion: null,
+  }
+  for (const [label, options, pattern] of [
+    [
+      "a run that starts between the bracketing reads",
+      {
+        sibling: { status: "queued", conclusion: null },
+        siblingReads: [listed, { ...listed, status: "in_progress" }],
+      },
+      /not proven unstarted/u,
+    ],
+    [
+      "a rerun whose latest attempt is newer than the listing",
+      {
+        sibling: { status: "queued", conclusion: null },
+        siblingReads: [listed, { ...listed, run_attempt: 2 }],
+      },
+      /not proven unstarted/u,
+    ],
+    [
+      "a cancelled rerun attempt",
+      { sibling: { status: "completed", conclusion: "cancelled", run_attempt: 2 } },
+      /candidate job history is empty/u,
+    ],
+    [
+      "a zero-job run that failed at startup",
+      { sibling: { status: "completed", conclusion: "startup_failure" } },
+      /candidate job history is empty/u,
+    ],
+  ]) {
+    const fixture = await runEscrowWithSiblingRun(t, { siblingJobs: [], ...options })
+    await assert.rejects(fixture.run(), pattern, label)
+    assert.equal(fixture.received(), null, label)
+  }
+})
+
 test("escrow rejects attestation-set and bundle-directory drift before publication reads", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "b4-release-escrow-inputs-cli-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
