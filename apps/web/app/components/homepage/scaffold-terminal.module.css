@@ -54,6 +54,10 @@
   border-left: 2px solid var(--color-panel-accent);
   background: color-mix(in srgb, var(--color-panel-accent) 14%, var(--color-panel));
   color: var(--color-panel-ink);
+}
+/* The row is a link but reads as a tree row: no underline until hover or
+   focus (below). Two parts, so it outranks the homepage's `.home a`. */
+.agent[href] {
   text-decoration: none;
 }
 .agent .note {

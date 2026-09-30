@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 import { renderToString } from "react-dom/server"
 import { expect, it, vi } from "vitest"
 import { HeaderInner } from "../HeaderInner"
+import styles from "./header.module.css"
 
 const location = vi.hoisted(() => ({ pathname: "/" }))
 vi.mock("next/navigation", () => ({
@@ -69,5 +72,26 @@ it("suppresses the ↗ on the desktop GitHub icon link", () => {
   const html = renderToString(<HeaderInner repoUrl="https://github.com/cacheplane/b4run" />)
   expect(html).toMatch(
     /<a[^>]*data-no-arrow[^>]*aria-label="GitHub"|<a[^>]*aria-label="GitHub"[^>]*data-no-arrow/,
+  )
+})
+
+it("keeps the desktop bar on one line at tablet widths", () => {
+  // The full bar needs ~910px; the $ npm create chip alone is ~340px of that.
+  // Below 1024px the chip is hidden (the hero, mobile menu and takeaway still
+  // show the command), and nothing in the nav may wrap.
+  location.pathname = "/"
+  const html = renderToString(<HeaderInner repoUrl="https://github.com/cacheplane/b4run" />)
+  const nav = /<nav[^>]*aria-label="Main"[^>]*>([\s\S]*?)<\/nav>/.exec(html)
+  expect(styles.nav).toBeTruthy()
+  expect(styles.chip).toBeTruthy()
+  expect(/<nav[^>]*class="([^"]*)"/.exec(nav?.[0] ?? "")?.[1]?.split(" ")).toContain(styles.nav)
+  expect(
+    /data-ui="copy-command"[^>]*class="([^"]*)"/.exec(nav?.[1] ?? "")?.[1]?.split(" "),
+  ).toContain(styles.chip)
+
+  const css = readFileSync(resolve(__dirname, "header.module.css"), "utf8")
+  expect(css).toMatch(/\.nav\s*\{[^}]*white-space:\s*nowrap/)
+  expect(css).toMatch(
+    /@media \(max-width: 1023\.98px\)\s*\{\s*\.chip\s*\{\s*display:\s*none;?\s*\}\s*\}/,
   )
 })

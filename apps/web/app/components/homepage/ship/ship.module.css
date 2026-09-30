@@ -84,6 +84,10 @@
   /* The global focus ring is tuned for paper; on the panel it uses the accent. */
   --color-focus: var(--color-panel-accent);
 }
+/* Links on the dark panel: the panel accent, not the olive (see homepage.module.css). */
+.panel a[href] {
+  text-decoration-color: var(--color-panel-accent);
+}
 .bar,
 .path {
   margin: 0;
@@ -125,6 +129,12 @@
 .line {
   display: block;
   min-height: 1lh;
+}
+/* A command line is [2ch prompt][command], so a wrapped command's hang
+   (data-hang, ui.css) starts at the command, right of the prompt. */
+.prompted {
+  display: grid;
+  grid-template-columns: 2ch minmax(0, 1fr);
 }
 .prompt {
   color: var(--color-panel-accent);

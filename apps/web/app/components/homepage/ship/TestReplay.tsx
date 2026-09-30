@@ -1,5 +1,6 @@
 "use client"
 import { type MouseEvent, useEffect, useLayoutEffect, useRef, useState } from "react"
+import { hangFor, keepContinuation, withPathBreaks } from "../code-hang"
 import { gsap, withMotion } from "../motion/gsap"
 import styles from "./ship.module.css"
 import { describeReplay, REPLAY_LABEL, type ReplayId, testReplay } from "./ship-data"
@@ -129,16 +130,23 @@ export function TestReplay() {
           <code>
             {testReplay.runs.map((run) => (
               <span key={run.id} className={styles.run} data-run={run.id}>
-                <span className={styles.line} data-replay-line="">
+                <span className={`${styles.line} ${styles.prompted}`} data-replay-line="">
                   <span className={styles.prompt} aria-hidden="true">
                     ${" "}
                   </span>
-                  {run.command}
+                  <span data-hang={hangFor(run.command)}>
+                    {withPathBreaks(keepContinuation(run.command))}
+                  </span>
                 </span>
                 {run.lines.map((line, index) => {
                   const lineKey = `${run.id}:${index}`
                   return (
-                    <span key={lineKey} className={styles.line} data-replay-line="">
+                    <span
+                      key={lineKey}
+                      className={styles.line}
+                      data-replay-line=""
+                      data-hang={hangFor(line)}
+                    >
                       {line || " "}
                     </span>
                   )

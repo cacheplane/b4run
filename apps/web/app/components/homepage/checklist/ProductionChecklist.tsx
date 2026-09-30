@@ -1,5 +1,6 @@
 "use client"
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react"
+import { hangFor } from "../code-hang"
 import { gsap, withMotion } from "../motion/gsap"
 import { type ChecklistId, type ChecklistItem, checklist, describeToggle } from "./checklist"
 import styles from "./checklist.module.css"
@@ -164,7 +165,17 @@ export function ProductionChecklist() {
                   <p className={styles.answer}>{item.handledBy}</p>
                   {item.file && <p className={styles.file}>{item.file}</p>}
                   <pre className={styles.code}>
-                    <code>{item.code}</code>
+                    <code>
+                      {item.code.split("\n").map((line, lineIndex) => (
+                        // biome-ignore lint/suspicious/noArrayIndexKey: An excerpt is static; a line's index is its identity.
+                        <Fragment key={lineIndex}>
+                          {lineIndex > 0 && "\n"}
+                          <span className={styles.codeLine} data-hang={hangFor(line)}>
+                            {line}
+                          </span>
+                        </Fragment>
+                      ))}
+                    </code>
                   </pre>
                   <a href={item.docsHref}>{item.docsLabel} →</a>
                 </div>

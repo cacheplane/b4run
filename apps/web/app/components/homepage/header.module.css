@@ -35,3 +35,15 @@
   max-width: none;
   padding-inline: 24px;
 }
+
+/* The desktop nav needs ~910px on one line, and the $ npm create chip is
+   ~340px of that. Nothing in it may wrap; below 1024px the chip gives way
+   (the homepage hero, the mobile menu and the takeaway all show the command). */
+.nav {
+  white-space: nowrap;
+}
+@media (max-width: 1023.98px) {
+  .chip {
+    display: none;
+  }
+}

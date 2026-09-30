@@ -95,7 +95,10 @@ export function HeaderInner({ repoUrl }: HeaderInnerProps) {
     <header data-layout={layout} className={`sticky top-0 z-50 border-b ${homepageStyles.header}`}>
       <div className={`${homepageStyles.bar} flex justify-between items-center`}>
         <BrandLogo imageClassName="h-8" variant="dark" />
-        <nav aria-label="Main" className="hidden md:flex items-center gap-6 text-sm">
+        <nav
+          aria-label="Main"
+          className={`hidden md:flex items-center gap-6 text-sm ${homepageStyles.nav}`}
+        >
           <Link
             href="/docs/getting-started"
             className={linkClass(docsActive)}
@@ -119,7 +122,10 @@ export function HeaderInner({ repoUrl }: HeaderInnerProps) {
           >
             <GitHubIcon />
           </SiteLink>
-          <CopyCommand command="npm create b4-app@latest my-agent" />
+          <CopyCommand
+            command="npm create b4-app@latest my-agent"
+            className={homepageStyles.chip ?? ""}
+          />
         </nav>
         <div className="flex items-center gap-1 md:hidden">
           <MobileDocsSearchButton />
