@@ -15,7 +15,9 @@
  * writes and drops its `__interrupt__` writes, then applies ours. So:
  *   - a sibling SERVER tool that completed in the same superstep keeps its
  *     ToolMessage (it was only a pending write), ahead of ours;
- *   - no park remains pending; the checkpoint's next node is the model.
+ *   - no park remains pending; the checkpoint's next node is the agent
+ *     loop's entry — the first before-model middleware node when the route
+ *     has one, else `model_request` — exactly as after a completed tools step.
  * The stub is never re-executed and no resume key is needed, so a park whose
  * resume key or envelope is unusable (the "unanswerable" abandon) closes the
  * same way. Chosen over resuming the parks under a runtime `interruptBefore`
@@ -42,17 +44,33 @@
  *     write the parser could not identify counts as non-client (fail closed).
  *   - at least one client park is pending (`no_client_park`).
  *   - `calls` names exactly the latest assistant message's unresolved tool
- *     calls, each a `client_`-prefixed one: an id that is not unresolved there
- *     is `unknown_call` (a server tool's call, a stale id, a duplicate); an
+ *     calls, each a `client_`-prefixed one whose name is `client_<toolName>`:
+ *     an id that is not unresolved there, a non-client call, or a name that
+ *     does not match is `unknown_call` (a server tool's call, a stale id, a
+ *     spoofed name, a duplicate); an
  *     unresolved call left out is `unclosed_call` — including a client park
  *     whose envelope lost its tool-call id, and a task that failed rather than
  *     parked. Either would leave a tool call with no ToolMessage, which the
  *     provider rejects on the next model call.
- * Postcondition, re-read after the write: no park pending and no unresolved
- * tool call (`close_incomplete` otherwise).
+ *
+ * Race guard: the checkpoint id read with the parks must be the one the
+ * state read sees, or nothing is written (`close_incomplete`). After the
+ * write, the new checkpoint's parent must be that same id, no park may be
+ * pending and no tool call unresolved (`close_incomplete` otherwise). The
+ * write itself does not pin `checkpoint_id`: pinning it stops `updateState`
+ * folding the parked superstep's pending writes in.
+ *
+ * A `close_incomplete` thrown AFTER the write means the thread's state WAS
+ * mutated (or raced) and is not known to be sound: the caller must not retry
+ * the close and must not run the turn; it fails the request. Before the
+ * write, every throw leaves the checkpoint untouched.
+ *
+ * Error messages are fixed strings (at most a count): they never echo a
+ * client-derived id, name or result.
  *
  * Not atomic against a concurrent run on the same thread: the caller holds
- * the thread's run slot across the close and the turn that follows.
+ * the thread's run slot across the close and the turn that follows; the race
+ * guard above detects, rather than prevents, a violation of that.
  */
 import { CLIENT_TOOL_PREFIX } from "@b4run/core"
 import { type BaseMessage, ToolMessage } from "@langchain/core/messages"
@@ -79,7 +97,10 @@ export interface AbandonedClientToolCall {
 export interface ClosableAgentGraph {
   getState(config: { readonly configurable: Record<string, unknown> }): Promise<{
     readonly values: unknown
+    /** The snapshot's own checkpoint config; its `checkpoint_id` is compared for the race guard. */
+    readonly config?: { readonly configurable?: Record<string, unknown> }
   }>
+  /** Resolves to the NEW checkpoint's config. */
   updateState(
     config: { readonly configurable: Record<string, unknown> },
     values: Record<string, unknown>,
@@ -128,6 +149,7 @@ export async function closeAbandonedClientToolCalls(
   const config = { configurable: { thread_id: threadId, checkpoint_ns: "" } }
 
   const parks = await readParks(checkpointer, threadId)
+  const checkpointId = parks.checkpointId
   if (parks.unidentified > 0 || parks.nonClient > 0) {
     throw new ClientToolAbandonError(
       "non_client_park_pending",
@@ -141,17 +163,28 @@ export async function closeAbandonedClientToolCalls(
     )
   }
 
-  const unresolved = unresolvedToolCalls(await readMessages(graph, config))
+  const before = await readState(graph, config)
+  if (checkpointId === undefined || before.checkpointId !== checkpointId) {
+    throw new ClientToolAbandonError(
+      "close_incomplete",
+      "The thread's checkpoint changed while the close was being prepared; nothing was written",
+    )
+  }
+  const unresolved = unresolvedToolCalls(before.messages)
   const byId = new Map(
     unresolved.flatMap((call) => (call.id === undefined ? [] : [[call.id, call] as const])),
   )
   const given = new Map<string, AbandonedClientToolCall>()
   for (const call of calls) {
     const target = byId.get(call.toolCallId)
-    if (!target?.name.startsWith(CLIENT_TOOL_PREFIX) || given.has(call.toolCallId)) {
+    if (
+      !target?.name.startsWith(CLIENT_TOOL_PREFIX) ||
+      target.name !== `${CLIENT_TOOL_PREFIX}${call.toolName}` ||
+      given.has(call.toolCallId)
+    ) {
       throw new ClientToolAbandonError(
         "unknown_call",
-        `Tool call ${call.toolCallId} is not an unresolved client tool call on this thread`,
+        "A call to close is not an unresolved client tool call of this name on this thread",
       )
     }
     given.set(call.toolCallId, call)
@@ -160,7 +193,7 @@ export async function closeAbandonedClientToolCalls(
   if (missing.length > 0) {
     throw new ClientToolAbandonError(
       "unclosed_call",
-      `Unresolved tool call(s) not closed: ${missing.map((call) => call.id ?? call.name).join(", ")}`,
+      `${missing.length} unresolved tool call(s) not named in the calls to close`,
     )
   }
 
@@ -172,20 +205,32 @@ export async function closeAbandonedClientToolCalls(
         tool_call_id: call.id as string,
       }),
   )
-  await graph.updateState(config, { messages }, "tools")
+  const written = await graph.updateState(config, { messages }, "tools")
 
+  // Post-write: the checkpoint written must be a child of the one we read.
+  const writtenTuple = isCheckpointConfig(written)
+    ? await checkpointer.getTuple(written)
+    : undefined
+  const parentId = writtenTuple?.parentConfig?.configurable?.checkpoint_id
   const after = await readParks(checkpointer, threadId)
-  const stillUnresolved = unresolvedToolCalls(await readMessages(graph, config))
-  if (after.total > 0 || stillUnresolved.length > 0) {
+  const stillUnresolved = unresolvedToolCalls((await readState(graph, config)).messages)
+  if (
+    parentId !== checkpointId ||
+    after.checkpointId !== writtenTuple?.config.configurable?.checkpoint_id ||
+    after.total > 0 ||
+    stillUnresolved.length > 0
+  ) {
     throw new ClientToolAbandonError(
       "close_incomplete",
-      "Closing the client tool calls left a park pending or a tool call unresolved",
+      "The close was written but the thread is not in the expected state; do not retry or run the turn",
     )
   }
   return { closedToolCallIds: unresolved.map((call) => call.id as string) }
 }
 
 interface ParkCounts {
+  /** The latest checkpoint's id; `undefined` when the thread has none. */
+  readonly checkpointId: string | undefined
   readonly total: number
   readonly client: number
   readonly nonClient: number
@@ -197,7 +242,9 @@ async function readParks(checkpointer: BaseCheckpointSaver, threadId: string): P
   const tuple = await checkpointer.getTuple({
     configurable: { thread_id: threadId, checkpoint_ns: "" },
   })
-  if (!tuple) return { total: 0, client: 0, nonClient: 0, unidentified: 0 }
+  if (!tuple) {
+    return { checkpointId: undefined, total: 0, client: 0, nonClient: 0, unidentified: 0 }
+  }
   const raw = (tuple.pendingWrites ?? []).filter(
     (write) => Array.isArray(write) && write[1] === "__interrupt__",
   ).length
@@ -205,7 +252,9 @@ async function readParks(checkpointer: BaseCheckpointSaver, threadId: string): P
   // Client-typed but envelope-malformed still counts as client: that is the
   // "unanswerable" abandon, and its call is matched by id below or refused.
   const client = interrupts.filter((entry) => isClientToolPark(entry.value)).length
+  const id = tuple.config.configurable?.checkpoint_id
   return {
+    checkpointId: typeof id === "string" ? id : undefined,
     total: raw,
     client,
     nonClient: interrupts.length - client,
@@ -213,15 +262,34 @@ async function readParks(checkpointer: BaseCheckpointSaver, threadId: string): P
   }
 }
 
-async function readMessages(
+async function readState(
   graph: ClosableAgentGraph,
   config: { readonly configurable: Record<string, unknown> },
-): Promise<readonly BaseMessage[]> {
+): Promise<{
+  readonly checkpointId: string | undefined
+  readonly messages: readonly BaseMessage[]
+}> {
   // getState folds the parked superstep's successful pending writes into
   // `values`, so a completed sibling tool's ToolMessage is visible here.
   const state = await graph.getState(config)
   const messages = (state.values as { messages?: unknown } | undefined)?.messages
-  return Array.isArray(messages) ? (messages as BaseMessage[]) : []
+  const id = state.config?.configurable?.checkpoint_id
+  return {
+    checkpointId: typeof id === "string" ? id : undefined,
+    messages: Array.isArray(messages) ? (messages as BaseMessage[]) : [],
+  }
+}
+
+function isCheckpointConfig(
+  value: unknown,
+): value is { configurable: { thread_id: string; checkpoint_id: string } } {
+  if (typeof value !== "object" || value === null) return false
+  const configurable = (value as { configurable?: unknown }).configurable
+  return (
+    typeof configurable === "object" &&
+    configurable !== null &&
+    typeof (configurable as { checkpoint_id?: unknown }).checkpoint_id === "string"
+  )
 }
 
 interface ToolCallRef {

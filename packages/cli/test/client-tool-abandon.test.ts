@@ -3,8 +3,10 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { ABANDONED_CLIENT_TOOL_RESULT, type ClientToolDefinition } from "@b4run/core"
 import { type ClientToolRecorder, createMemoryClientToolCallStore } from "@b4run/sdk"
+import { AIMessage, HumanMessage } from "@langchain/core/messages"
 import { MemorySaver } from "@langchain/langgraph"
-import { afterEach, describe, expect, it } from "vitest"
+import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { createAimock } from "../../testing/dist/aimock-runner.js"
 import {
   type AbandonedClientToolCall,
@@ -74,6 +76,11 @@ type ToolCallSpec = { id: string; name: string; arguments: Record<string, unknow
 
 const PING_CALL: ToolCallSpec = { id: "call_ping", name: "ping", arguments: { host: "h" } }
 const OPEN_CALL: ToolCallSpec = { id: "call_open", name: "client_openPanel", arguments: { id: 1 } }
+const OPEN_CALL_2: ToolCallSpec = {
+  id: "call_open_2",
+  name: "client_openPanel",
+  arguments: { id: 2 },
+}
 const DEPLOY_CALL: ToolCallSpec = { id: "call_deploy", name: "deployProd", arguments: { env: "p" } }
 
 async function fixtureApp(): Promise<string> {
@@ -349,5 +356,169 @@ describe("closeAbandonedClientToolCalls — results and preconditions", () => {
       calls: [abandonedOpen],
     }).catch((caught: unknown) => caught)
     expect((error as ClientToolAbandonError).code).toBe("no_client_park")
+  })
+})
+
+describe("closeAbandonedClientToolCalls — spoofed names, unidentified parks, races", () => {
+  const rootConfig = (threadId: string) => ({
+    configurable: { thread_id: threadId, checkpoint_ns: "" },
+  })
+
+  it("refuses an unresolved SERVER call passed as a client call, and writes nothing", async () => {
+    // A server call left unresolved (as after a tool that failed without a
+    // ToolMessage), presented next to the real client park.
+    const t = await parkedThread([OPEN_CALL])
+    const updateState = vi.fn(t.graph.updateState.bind(t.graph))
+    const graph: ClosableAgentGraph = {
+      async getState(config) {
+        const real = await t.graph.getState(config)
+        return {
+          ...real,
+          values: {
+            messages: [
+              new HumanMessage("go"),
+              new AIMessage({
+                content: "",
+                tool_calls: [
+                  { id: "call_ping", name: "ping", args: {} },
+                  { id: "call_open", name: "client_openPanel", args: {} },
+                ],
+              }),
+            ],
+          },
+        }
+      },
+      updateState,
+    }
+    const error = await closeAbandonedClientToolCalls({
+      checkpointer: t.checkpointer,
+      graph,
+      threadId: t.threadId,
+      calls: [abandonedOpen, { toolCallId: "call_ping", toolName: "ping", result: "forged" }],
+    }).catch((caught: unknown) => caught)
+    expect((error as ClientToolAbandonError).code).toBe("unknown_call")
+    expect((error as Error).message).not.toContain("call_ping")
+    expect(updateState).not.toHaveBeenCalled()
+  })
+
+  it("refuses a call whose client tool name does not match the parked call", async () => {
+    const t = await parkedThread([OPEN_CALL])
+    const error = await closeAbandonedClientToolCalls({
+      checkpointer: t.checkpointer,
+      graph: t.graph,
+      threadId: t.threadId,
+      calls: [{ ...abandonedOpen, toolName: "closePanel" }],
+    }).catch((caught: unknown) => caught)
+    expect((error as ClientToolAbandonError).code).toBe("unknown_call")
+    expect((error as Error).message).not.toContain("call_open")
+    expect(await t.pending()).toHaveLength(1)
+  })
+
+  it("treats an unidentifiable __interrupt__ write as a non-client park", async () => {
+    const t = await parkedThread([OPEN_CALL])
+    const checkpointer = {
+      getTuple: async (config: Parameters<MemorySaver["getTuple"]>[0]) => {
+        const tuple = await t.checkpointer.getTuple(config)
+        return tuple
+          ? {
+              ...tuple,
+              pendingWrites: [
+                ...(tuple.pendingWrites ?? []),
+                ["task-x", "__interrupt__", "not-an-interrupt"],
+              ],
+            }
+          : tuple
+      },
+    } as unknown as BaseCheckpointSaver
+    const error = await closeAbandonedClientToolCalls({
+      checkpointer,
+      graph: t.graph,
+      threadId: t.threadId,
+      calls: [abandonedOpen],
+    }).catch((caught: unknown) => caught)
+    expect((error as ClientToolAbandonError).code).toBe("non_client_park_pending")
+    expect(await t.pending()).toHaveLength(1)
+  })
+
+  it("closes two parked client calls in one pass", async () => {
+    const t = await parkedThread([OPEN_CALL, OPEN_CALL_2])
+    expect(await t.pending()).toHaveLength(2)
+    const closed = await closeAbandonedClientToolCalls({
+      checkpointer: t.checkpointer,
+      graph: t.graph,
+      threadId: t.threadId,
+      calls: [
+        { toolCallId: "call_open_2", toolName: "openPanel", result: "panel 2 opened" },
+        abandonedOpen,
+      ],
+    })
+    expect(closed.closedToolCallIds).toEqual(["call_open", "call_open_2"])
+    expect(await t.pending()).toEqual([])
+    await t.turn({ input: { messages: [{ role: "user", content: "next" }] } })
+    expect(requestSequence(t.aimock.getRequests()[1]).slice(2)).toEqual([
+      "assistant:call_open,call_open_2",
+      `tool:call_open=${ABANDONED_CLIENT_TOOL_RESULT}`,
+      "tool:call_open_2=panel 2 opened",
+      "user:next",
+    ])
+  })
+
+  it("fails close_incomplete when the write did not land", async () => {
+    const t = await parkedThread([OPEN_CALL])
+    const graph: ClosableAgentGraph = {
+      getState: (config) => t.graph.getState(config),
+      // A no-op write that reports the unchanged latest checkpoint.
+      updateState: async () => (await t.checkpointer.getTuple(rootConfig(t.threadId)))?.config,
+    }
+    const error = await closeAbandonedClientToolCalls({
+      checkpointer: t.checkpointer,
+      graph,
+      threadId: t.threadId,
+      calls: [abandonedOpen],
+    }).catch((caught: unknown) => caught)
+    expect((error as ClientToolAbandonError).code).toBe("close_incomplete")
+  })
+
+  it("fails close_incomplete when another write landed between the read and the write", async () => {
+    const t = await parkedThread([OPEN_CALL])
+    const graph: ClosableAgentGraph = {
+      getState: (config) => t.graph.getState(config),
+      async updateState(config, values, asNode) {
+        // An intervening write on the thread; ours then lands on top of it.
+        await t.graph.updateState(config, { messages: [] }, "tools")
+        return await t.graph.updateState(config, values, asNode)
+      },
+    }
+    const error = await closeAbandonedClientToolCalls({
+      checkpointer: t.checkpointer,
+      graph,
+      threadId: t.threadId,
+      calls: [abandonedOpen],
+    }).catch((caught: unknown) => caught)
+    expect((error as ClientToolAbandonError).code).toBe("close_incomplete")
+  })
+
+  it("fails close_incomplete without writing when the checkpoint moved between reads", async () => {
+    const t = await parkedThread([OPEN_CALL])
+    const updateState = vi.fn(t.graph.updateState.bind(t.graph))
+    const graph: ClosableAgentGraph = {
+      async getState(config) {
+        const real = await t.graph.getState(config)
+        return {
+          ...real,
+          config: { configurable: { ...real.config?.configurable, checkpoint_id: "moved" } },
+        }
+      },
+      updateState,
+    }
+    const error = await closeAbandonedClientToolCalls({
+      checkpointer: t.checkpointer,
+      graph,
+      threadId: t.threadId,
+      calls: [abandonedOpen],
+    }).catch((caught: unknown) => caught)
+    expect((error as ClientToolAbandonError).code).toBe("close_incomplete")
+    expect(updateState).not.toHaveBeenCalled()
+    expect(await t.pending()).toHaveLength(1)
   })
 })
