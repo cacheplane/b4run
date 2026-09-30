@@ -3663,6 +3663,8 @@ At the draft, Brian reads the display and types the prefix (or rejects with `pnp
 
 - [ ] **Step 5: Record** in the spec's §7 as-landed note and the PR: the work order id, each phase's wall clock, the gate decisions, whether the candidate passes the reference test (b090ad42's `runs-wait-output.test.ts`, as sub-project 4 graded it), and every operator step that needed knowledge the quickstart does not give.
 
+*As found in the live replay:* the controller stopped answering, `/healthz` included, for 15-20 s at a time during intake's oracle proof, the first verification and approve's re-verification. The cause was `captureTargetBaseline` (`controller/src/lib/verification/baseline.ts`), which decoded each captured file through `readSourceFile` from `@b4run/workspace/node`. That function verifies the entire bundle on every call (`packages/workspace/src/source-bundle.ts`, `readSourceFile`), so the cli target's 343 files cost ~57 ms × 343 of one synchronous block (13.1 s measured on the probe; a synthetic 400 × 6 KB capture blocked for 26 s). The framework's own managed-workspace path already avoids the per-file re-verify. Now the controller verifies the bundle once with `verifySourceBundle` (~40 ms) and decodes each verified entry's base64 directly (~3 ms for all of them), producing the same digest and the same file text as before; the probe compared the two paths over the cli target (345 files, identical). With the fix, the longest block in a whole `captureTargetBaseline` of the cli target is ~150-170 ms, from the synchronous target archive below, down from 13.3 s. `test/baseline-event-loop.test.ts` binds it: the whole bundle is verified at most once per capture, not once per file, and a 400-file capture never blocks the loop for 250 ms. The framework fix to `readSourceFile` is separate.
+
 ---
 
 ## Proof map
@@ -3708,6 +3710,7 @@ At the draft, Brian reads the display and types the prefix (or rejects with `pnp
 - **`run --retry`**, if people find themselves always retrying: the decision stays explicit.
 - **Run-time files in an app root through other variables**: the config refuses a state directory inside any app root (compared by device and inode, so symlinks and case variants are caught), but `FACTORY_ARTIFACTS_DIR` and `FACTORY_EXPORT_DIR` are read from the environment unchecked and can still place run-time files in an app root (spec §9 finding 4). Give them the same check where they are read.
 - **Framework**: `b4 dev`'s hard-coded watch ignore list (findings 4, 21) still bites the manual runbook.
+- **The controller's remaining synchronous calls** (found with the event-loop stall above; each blocks `/healthz` for its length): `controller/src/lib/targets/archive.ts`'s `execFileSync`/`spawnSync` (`git archive`, `tar`, the defect's apply) at ~110-130 ms per capture, about three captures per approve; the catalog's synchronous `git` calls in `loadTaskRecipe` (~45 ms); `changedDuringSuite`'s `JSON.stringify` of the capture (~40 ms); and the image builder's synchronous `cpSync` at dispatch. Move them to the async forms, or off the request path.
 
 ## Self-review
 
