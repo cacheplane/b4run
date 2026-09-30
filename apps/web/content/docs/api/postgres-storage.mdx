@@ -57,6 +57,12 @@ The edge-safe classification covers the root's import graph. It is tested on loc
 | `PostgresInterruptGrantStore` | Define a durable approval-grant store. |
 | `PostgresInterruptGrantStoreOptions` | Configure approval-grant storage. |
 | `createPostgresInterruptGrantStore` | Create an approval-grant store. |
+| `ClientToolCallRecord` | Describe a stored client tool call row. |
+| `ClientToolCallAnswer` | Describe an answer attempt's outcome. |
+| `ClientToolCallStore` | Define the client tool call store contract. |
+| `PostgresClientToolCallStore` | Define a durable client tool call store. |
+| `PostgresClientToolCallStoreOptions` | Configure client tool call storage. |
+| `createPostgresClientToolCallStore` | Create a client tool call store. |
 
 ### `@b4run/postgres-storage/node`
 
@@ -94,6 +100,12 @@ The `/node` entry also re-exports every root export. The rows below list them ag
 | `PostgresInterruptGrantStore` | Re-export the approval-grant store type. |
 | `PostgresInterruptGrantStoreOptions` | Re-export approval-grant options. |
 | `createPostgresInterruptGrantStore` | Create a Node approval-grant store. |
+| `ClientToolCallRecord` | Re-export the client tool call row type. |
+| `ClientToolCallAnswer` | Re-export the answer outcome type. |
+| `ClientToolCallStore` | Re-export the client tool call store contract. |
+| `PostgresClientToolCallStore` | Re-export the client tool call store type. |
+| `PostgresClientToolCallStoreOptions` | Re-export client tool call options. |
+| `createPostgresClientToolCallStore` | Create a Node client tool call store. |
 
 ## Key contracts
 
