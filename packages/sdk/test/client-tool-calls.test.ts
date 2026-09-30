@@ -96,7 +96,7 @@ describe("createMemoryClientToolCallStore", () => {
     expect((await store.listOutstanding("t1")).map((r) => r.toolCallId)).toEqual(["call_1"])
   })
 
-  it("lists answered-but-unconsumed calls for the resume", async () => {
+  it("listForThread includes answered calls with their result", async () => {
     const store = createMemoryClientToolCallStore()
     await store.issue(call())
     await store.answer({
@@ -108,5 +108,72 @@ describe("createMemoryClientToolCallStore", () => {
     expect((await store.listForThread("t1")).map((r) => [r.toolCallId, r.result])).toEqual([
       ["call_1", "ok"],
     ])
+  })
+
+  it("does not collide ids containing NUL across threads", async () => {
+    const store = createMemoryClientToolCallStore()
+    await store.issue(call({ threadId: "a", toolCallId: "b\u0000c" }))
+    expect(await store.get("a\u0000b", "c")).toBeUndefined()
+    const res = await store.answer({
+      threadId: "a\u0000b",
+      toolCallId: "c",
+      result: "x",
+      at: "2026-09-30T00:01:00.000Z",
+    })
+    expect(res.outcome).toBe("missing")
+  })
+
+  it("voidOutstanding with an empty list voids nothing", async () => {
+    const store = createMemoryClientToolCallStore()
+    await store.issue(call())
+    expect(
+      await store.voidOutstanding({
+        threadId: "t1",
+        toolCallIds: [],
+        at: "2026-09-30T00:01:00.000Z",
+      }),
+    ).toBe(0)
+    expect((await store.listOutstanding("t1")).length).toBe(1)
+  })
+
+  it("never voids an answered row", async () => {
+    const store = createMemoryClientToolCallStore()
+    await store.issue(call())
+    await store.answer({
+      threadId: "t1",
+      toolCallId: "call_1",
+      result: "ok",
+      at: "2026-09-30T00:01:00.000Z",
+    })
+    expect(await store.voidOutstanding({ threadId: "t1", at: "2026-09-30T00:02:00.000Z" })).toBe(0)
+    const row = await store.get("t1", "call_1")
+    expect(row?.voidedAt).toBeNull()
+    expect(row?.answeredAt).toBe("2026-09-30T00:01:00.000Z")
+  })
+
+  it("leaves a same-id row on another thread unaffected", async () => {
+    const store = createMemoryClientToolCallStore()
+    await store.issue(call())
+    await store.issue(call({ threadId: "t2" }))
+    await store.answer({
+      threadId: "t1",
+      toolCallId: "call_1",
+      result: "ok",
+      at: "2026-09-30T00:01:00.000Z",
+    })
+    expect((await store.get("t2", "call_1"))?.answeredAt).toBeNull()
+    await store.voidOutstanding({ threadId: "t1", at: "2026-09-30T00:02:00.000Z" })
+    expect((await store.get("t2", "call_1"))?.voidedAt).toBeNull()
+    await store.voidOutstanding({ threadId: "t2", at: "2026-09-30T00:03:00.000Z" })
+    expect((await store.get("t1", "call_1"))?.voidedAt).toBeNull()
+  })
+
+  it("does not let callers mutate stored rows through returned records", async () => {
+    const store = createMemoryClientToolCallStore()
+    await store.issue(call())
+    const got = (await store.get("t1", "call_1")) as { runId: string }
+    got.runId = "mutated"
+    ;((await store.listForThread("t1"))[0] as { runId: string }).runId = "mutated"
+    expect((await store.get("t1", "call_1"))?.runId).toBe("r1")
   })
 })

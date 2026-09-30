@@ -43,14 +43,25 @@ export type ClientToolCallAnswer =
   | { readonly outcome: "missing" }
 
 export interface ClientToolCallStore {
-  /** Idempotent: a row with the same `(threadId, toolCallId)` is left untouched. */
+  /**
+   * Idempotent: a row with the same `(threadId, toolCallId)` is left untouched.
+   * Records are expected fresh (`answeredAt`, `result` and `voidedAt` null).
+   */
   issue(record: ClientToolCallRecord): Promise<void>
   get(threadId: string, toolCallId: string): Promise<ClientToolCallRecord | undefined>
   /** Every row for the thread, in issue order. */
   listForThread(threadId: string): Promise<readonly ClientToolCallRecord[]>
-  /** Rows neither answered nor voided, in issue order. */
+  /**
+   * Rows neither answered nor voided, in issue order. Does NOT enforce
+   * `expiresAt`: expiry is the caller's job (the AG-UI handler treats expired
+   * outstanding calls as abandoned and voids them).
+   */
   listOutstanding(threadId: string): Promise<readonly ClientToolCallRecord[]>
-  /** Single-use: only a row neither answered nor voided can be answered. */
+  /**
+   * Single-use: only a row neither answered nor voided can be answered. Does
+   * NOT enforce `expiresAt`: expiry is the caller's job (the AG-UI handler
+   * treats expired outstanding calls as abandoned and voids them).
+   */
   answer(options: {
     readonly threadId: string
     readonly toolCallId: string
@@ -89,17 +100,21 @@ function compareIssue(a: ClientToolCallRecord, b: ClientToolCallRecord): number 
 
 /** In-process store for tests and embedders. Not durable. */
 export function createMemoryClientToolCallStore(): ClientToolCallStore {
-  const rows = new Map<string, ClientToolCallRecord>()
-  const key = (threadId: string, toolCallId: string) => `${threadId}\u0000${toolCallId}`
+  // Nested by thread so distinct (threadId, toolCallId) pairs can never collide.
+  const threads = new Map<string, Map<string, ClientToolCallRecord>>()
   const forThread = (threadId: string) =>
-    [...rows.values()].filter((row) => row.threadId === threadId).sort(compareIssue)
+    [...(threads.get(threadId)?.values() ?? [])].sort(compareIssue)
   return {
     async issue(record) {
-      const k = key(record.threadId, record.toolCallId)
-      if (!rows.has(k)) rows.set(k, { ...record })
+      let rows = threads.get(record.threadId)
+      if (!rows) {
+        rows = new Map()
+        threads.set(record.threadId, rows)
+      }
+      if (!rows.has(record.toolCallId)) rows.set(record.toolCallId, { ...record })
     },
     async get(threadId, toolCallId) {
-      const row = rows.get(key(threadId, toolCallId))
+      const row = threads.get(threadId)?.get(toolCallId)
       return row ? { ...row } : undefined
     },
     async listForThread(threadId) {
@@ -111,22 +126,24 @@ export function createMemoryClientToolCallStore(): ClientToolCallStore {
         .map((row) => ({ ...row }))
     },
     async answer({ threadId, toolCallId, result, at }) {
-      const k = key(threadId, toolCallId)
-      const row = rows.get(k)
-      if (!row) return { outcome: "missing" }
+      const rows = threads.get(threadId)
+      const row = rows?.get(toolCallId)
+      if (!rows || !row) return { outcome: "missing" }
       if (row.voidedAt !== null) return { outcome: "voided", record: { ...row } }
       if (row.answeredAt !== null) return { outcome: "already_answered", record: { ...row } }
       const next = { ...row, answeredAt: at, result }
-      rows.set(k, next)
+      rows.set(toolCallId, next)
       return { outcome: "answered", record: { ...next } }
     },
     async voidOutstanding({ threadId, toolCallIds, at }) {
+      const rows = threads.get(threadId)
+      if (!rows) return 0
       const only = toolCallIds === undefined ? undefined : new Set(toolCallIds)
       let count = 0
-      for (const [k, row] of rows) {
-        if (row.threadId !== threadId || row.answeredAt !== null || row.voidedAt !== null) continue
-        if (only && !only.has(row.toolCallId)) continue
-        rows.set(k, { ...row, voidedAt: at })
+      for (const [id, row] of rows) {
+        if (row.answeredAt !== null || row.voidedAt !== null) continue
+        if (only && !only.has(id)) continue
+        rows.set(id, { ...row, voidedAt: at })
         count += 1
       }
       return count
