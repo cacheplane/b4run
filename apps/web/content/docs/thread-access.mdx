@@ -60,11 +60,13 @@ B4.run probes four paths, in order: `src/thread-access.ts`, `src/thread-access.j
 | `method`, `url` | The originating request's method, and its path plus query. |
 | `requestedMetadata` | Client-supplied metadata on a create, already stripped of B4.run's reserved key. `undefined` everywhere else. |
 | `requestedWorkspace` | The workspace the request stages or chooses: `{ sourceDigest }` on `workspace.source.put`, the whole reference `{ sourceDigest, environmentLinks?, baseline? }` plus `uploadedBy` on a `thread.create` that names one. `undefined` everywhere else, including the create's recheck. |
-| `resuming` | `true` when this request carries a resume credential and will continue a parked turn. Always a boolean. See below. |
+| `resuming` | `true` when this request carries a resume credential or a client tool result, and may continue a parked turn. Always a boolean. See below. |
 
 ### `resuming`: which requests continue a parked turn
 
-`resuming` is `true` when the request answers a parked human-approval prompt. It carries an `interruptId`/`resumeKey` credential and continues an already-interrupted run instead of starting a fresh one. It's `false` on every other request and never absent, so a policy writes `if (req.resuming)` and never `?? false`.
+`resuming` is `true` when the request answers a parked human-approval prompt — it carries an `interruptId`/`resumeKey` credential and continues an already-interrupted run instead of starting a fresh one — or when an AG-UI request ends in a `role: "tool"` message, which is how a client answers a parked [client-provided tool](/docs/ag-ui) call. It's `false` on every other request and never absent, so a policy writes `if (req.resuming)` and never `?? false`.
+
+The trailing tool message counts on every AG-UI route, whether or not the route takes client tools, and whether or not a call is actually parked: the policy runs before B4.run reads the thread, so `resuming` describes the request, not the thread. It can therefore be `true` on a request that turns out to resume nothing — the safe direction for a rule that holds resumes to a higher bar.
 
 **Both doors resume.** Two different endpoints continue a parked turn, and only one of them says so in its `operation`:
 
@@ -72,7 +74,8 @@ B4.run probes four paths, in order: `src/thread-access.ts`, `src/thread-access.j
 |---|---|---|
 | `POST /threads/:thread_id/resume` | `run.resume` | always `true` |
 | `POST /agui/{routeId}` carrying a `resume` array | `run.agui` | `true` |
-| `POST /agui/{routeId}` with no `resume` | `run.agui` | `false` |
+| `POST /agui/{routeId}` whose last message has `role: "tool"` | `run.agui` | `true` |
+| `POST /agui/{routeId}` with neither | `run.agui` | `false` |
 | everything else | any | `false` |
 
 The middle rows are why this field exists. An AG-UI resume reports `run.agui`, just like an ordinary AG-UI turn. Only the request body tells them apart, and a policy never sees it. So **a policy that holds resumes to a higher bar (step-up auth, a second approver, extra logging) must check `req.resuming`, not `req.operation`.** Keying that rule on `operation === "run.resume"` leaves every CopilotKit-driven resume ungoverned.

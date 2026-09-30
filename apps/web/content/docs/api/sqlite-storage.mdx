@@ -42,6 +42,11 @@ The package uses Node's `node:sqlite` `DatabaseSync` and LangGraph checkpoint co
 | `InterruptGrantConsumption` | Describe a conditional consume's outcome. |
 | `InterruptGrantStoreOptions` | Select the approval-grant database path. |
 | `createInterruptGrantStore` | Open, migrate, and return an approval-grant store. |
+| `ClientToolCallRecord` | Describe a stored client tool call row. |
+| `ClientToolCallAnswer` | Describe an answer attempt's outcome. |
+| `ClientToolCallStore` | Define the client tool call store contract. |
+| `ClientToolCallStoreOptions` | Select the client tool call database path. |
+| `createClientToolCallStore` | Open, migrate, and return a client tool call store. |
 | `openWorkspaceInstallation` | Own a local installation's durable source and association storage. |
 | `WorkspaceInstallation` | Hold installation identity, guarded stores, per-thread sandbox records, staged workspace sources, and close. |
 | `openWorkspaceInstallationReader` | Open a read-only view of an installation another process owns, without its admission lock. |

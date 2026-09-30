@@ -42,6 +42,8 @@ export default {
 | `"optional"` | A grant is minted and disclosed whenever the run can mint one. | An interrupt that **has** a grant **requires** it. An interrupt with no grant row resumes as before. |
 | `"required"` | A park that cannot mint a grant aborts the turn. | A resume with no grant is refused. |
 
+Grants cover **approval parks** only — the prompts a human answers. Even under `"required"`, a [client-provided tool](/docs/ag-ui#client-provided-tools) call parks with no grant and is never grant-protected: the park is invisible to the client, so there is nothing to disclose a grant on. Its protection is the retained record of the call — answerable once, only by the route that issued it, only while it is outstanding and unexpired.
+
 The setting is process-wide and **ratchets up only**: one process can prepare routes for more than one app root, and a second config with a weaker setting must not be able to weaken a stricter one already in force — that would be a downgrade attack expressible as an ordinary config file. Two app roots in one process therefore share the strictest mode either of them asks for. A process that needs two different modes needs two processes.
 
 ### The `"optional"` rule, which is load-bearing

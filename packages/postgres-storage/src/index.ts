@@ -1,6 +1,14 @@
 export type { PostgresCheckpointerOptions } from "./checkpointer.js"
 export { B4PostgresSaver, postgresCheckpointer } from "./checkpointer.js"
 export type {
+  ClientToolCallAnswer,
+  ClientToolCallRecord,
+  ClientToolCallStore,
+  PostgresClientToolCallStore,
+  PostgresClientToolCallStoreOptions,
+} from "./client-tool-calls.js"
+export { createPostgresClientToolCallStore } from "./client-tool-calls.js"
+export type {
   InterruptGrantConsumption,
   InterruptGrantRecord,
   InterruptGrantStore,

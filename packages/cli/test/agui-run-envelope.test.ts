@@ -274,12 +274,23 @@ describe("POST /agui/:routeId envelope validation", () => {
 
     const allowed = await handler.fetch(
       aguiPost(HELLO_ROUTE, {
-        tools: [{ name: "wire", description: "", parameters: { type: "object" } }],
         forwardedProps: { role: "admin" },
       }),
     )
     expect(allowed.status).toBe(200)
     await drain(allowed)
+
+    // The `tools` opt-in is honored too: the envelope admits them, and they
+    // reach the route-capability check — which a graph route fails, because
+    // only an agent route can bind client tools.
+    const admitted = await handler.fetch(
+      aguiPost(HELLO_ROUTE, {
+        threadId: "t-3",
+        tools: [{ name: "wire", description: "", parameters: { type: "object" } }],
+      }),
+    )
+    expect(admitted.status).toBe(422)
+    expect((await rejection(admitted)).details?.code).toBe("client_tools_not_supported")
 
     // The opt-in is keyed on the route that asked for it, not on the app.
     const denied = await handler.fetch(

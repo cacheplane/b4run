@@ -1,3 +1,4 @@
+import { CLIENT_TOOL_CALL_TYPE, isClientToolCallEnvelope } from "@b4run/core"
 import type { BaseCheckpointSaver, CheckpointTuple } from "@langchain/langgraph-checkpoint"
 
 export type PermissionDecision = "once" | "always" | "deny"
@@ -151,6 +152,43 @@ export function parsePendingInterrupts(tuple: CheckpointTuple): PendingInterrupt
     }
   }
 
+  return { interrupts, malformed }
+}
+
+/**
+ * Whether a parked `__interrupt__` value is a client tool call, by its `type`
+ * ALONE. Deliberately looser than `isClientToolCallEnvelope`: an envelope that
+ * says it is a client tool call but is missing its ids is still not a
+ * permission prompt, and must never be listed or answered as one.
+ */
+export function isClientToolPark(value: unknown): boolean {
+  return isRecord(value) && value.type === CLIENT_TOOL_CALL_TYPE
+}
+
+/**
+ * The snapshot minus client tool parks — the view the approval listings use.
+ *
+ * A client tool call parks with LangGraph `interrupt()` just like a permission
+ * prompt, but it is not a prompt: the client answers it by sending the tool's
+ * result as a `role: "tool"` message on its next run through the AG-UI
+ * endpoint, never through an approval endpoint. So it is not listed and not
+ * re-rendered on attach. `POST /threads/:id/resume` goes further and refuses
+ * outright while one is pending (`client_tool_pending`), because a partial
+ * resume of the permission parks alone is unsafe — see `handleResumeRequest`.
+ *
+ * `malformed` is carried over from the full set, and is also set when a
+ * client-typed envelope is missing its string `interruptId`/`toolCallId`:
+ * fail closed rather than let a broken park be addressed.
+ */
+export function withoutClientToolParks(
+  snapshot: PendingInterruptSnapshot,
+): PendingInterruptSnapshot {
+  let malformed = snapshot.malformed
+  const interrupts = snapshot.interrupts.filter((entry) => {
+    if (!isClientToolPark(entry.value)) return true
+    if (!isClientToolCallEnvelope(entry.value)) malformed = true
+    return false
+  })
   return { interrupts, malformed }
 }
 

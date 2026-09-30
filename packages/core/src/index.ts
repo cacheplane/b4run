@@ -18,6 +18,23 @@ export { createSubagentsMarker } from "./capabilities/built-in/subagents.js"
 export { createWorkspaceMarker } from "./capabilities/built-in/workspace.js"
 export { BUILT_IN_TOOL_NAMES } from "./capabilities/built-in-tool-names.js"
 export type {
+  ClientToolCallEnvelope,
+  ClientToolDefinition,
+  ClientToolResumeValue,
+  ClientToolStubOptions,
+} from "./capabilities/client-tools.js"
+export {
+  ABANDONED_CLIENT_TOOL_RESULT,
+  CLIENT_TOOL_CALL_TYPE,
+  CLIENT_TOOL_PREFIX,
+  CLIENT_TOOL_UNAVAILABLE_RESULT,
+  clientToolInterruptId,
+  createClientToolStub,
+  gateClientToolOp,
+  isClientToolCallEnvelope,
+  MissingClientToolRecorderError,
+} from "./capabilities/client-tools.js"
+export type {
   MemorySupersedeDetail,
   SubagentGateRequest,
 } from "./capabilities/permission-gate.js"

@@ -44,8 +44,9 @@ Matching depends on the gate:
 | Memory write | `memory` | Workspace-and-route namespace with a trailing pipe character | Prefix |
 | Authored or capability tool approval | Reserved `tool` | Tool name | Exact |
 | Subagent approval | Reserved `subagent` | Serialized parent route id and parent-local child name | Exact |
+| Client-provided tool | Reserved `clientTool` | None (never prompts) | Exact |
 
-Thus `"ls"` covers `ls`, `ls -la`, and `ls workspace/corpus`. Use longer bash, path, and memory prefixes to be more specific. Reserved `tool` and `subagent` entries never prefix-match.
+Thus `"ls"` covers `ls`, `ls -la`, and `ls workspace/corpus`. Use longer bash, path, and memory prefixes to be more specific. Reserved `tool`, `subagent` and `clientTool` entries never prefix-match.
 
 ## Modes
 
@@ -184,6 +185,26 @@ export default {
 The `subagent` key uses exact matching, like the reserved `tool` key. Explicit deny entries win. In `non-interactive` mode, an unapproved dispatch fails closed. `bypass` skips the approval gate, but static and constraint denials still apply.
 
 `task` is internal and is invalid in every tool-policy field: `tools.allow`, `tools.deny`, `tools.approve` and `tools.constrain`. Configure dispatch only through `delegation`. `b4 check` and route preparation report `B4_E1004` for any `tools.*.task` reference.
+
+## Client-provided tools
+
+A route opted in to [client-provided tools](/docs/ag-ui#client-provided-tools) gates each call the model makes to one under the reserved `clientTool` key, matched against the name the client registered (`openPanel`, not `client_openPanel`).
+
+- **Allowed by default.** The gate never prompts, so an unmatched name is allowed in every mode, `non-interactive` included. There is no prompt whose absence could fail closed.
+- **`deny` refuses.** A matching `permissions.deny.clientTool` entry refuses the call: it is never recorded or parked, and the model gets the denial (`B4_E3001`) as the tool result, as it does for a denied server tool.
+- **Exact match**, like `tool` and `subagent`: `deny: { clientTool: ["open"] }` does not cover `openEverything`.
+- **Never inherits `tool:<name>`.** A client tool named `deployProd` is not covered by an `allow.tool` or `deny.tool` entry for the server's own `deployProd`. The name is caller-authored, so it must not borrow a decision made about a server tool.
+- **`always` is never offered.** Its pattern would be a caller-authored string saved into the operator's permissions.
+- `bypass` allows every call.
+
+```ts title="b4.config.ts"
+export default {
+  permissions: { deny: { clientTool: ["deleteAccount"] } },
+  server: { agui: { clientTools: ["/chat"] } },
+}
+```
+
+The decision is taken once, before the call parks. A `deny` added while a call is parked does not discard a result the client already produced.
 
 ## Memory write approval (`writes: "ask"`)
 

@@ -15,7 +15,7 @@ export type PathOperation = "readFile" | "writeFile" | "listDir"
 export type GateResult = { allowed: true } | { allowed: false; reason: string; code?: B4ErrorCode }
 
 /** Prefix a denial reason with its error code when the tool result is returned to the model. */
-function codedReason(gate: { reason: string; code?: B4ErrorCode }): string {
+export function codedReason(gate: { reason: string; code?: B4ErrorCode }): string {
   return gate.code ? `[${gate.code}] ${gate.reason}` : gate.reason
 }
 

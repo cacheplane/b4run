@@ -18,6 +18,16 @@ export type {
 } from "./agent.js"
 export { agent, isB4Agent } from "./agent.js"
 export type { BackendAdapter } from "./backend-adapter.js"
+export type {
+  ClientToolCallAnswer,
+  ClientToolCallRecord,
+  ClientToolCallStore,
+  ClientToolRecorder,
+} from "./client-tool-calls.js"
+export {
+  CLIENT_TOOL_RECORDER_KEY,
+  createMemoryClientToolCallStore,
+} from "./client-tool-calls.js"
 export type { B4ErrorCode, B4ErrorDescriptor } from "./errors.js"
 export { B4_ERRORS, describeError, errorDocsUrl } from "./errors.js"
 export type {

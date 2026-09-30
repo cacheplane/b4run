@@ -29,6 +29,12 @@ interface B4ToolDefinition {
       readonly signal: AbortSignal
       readonly threadId?: string
       readonly params?: Readonly<Record<string, string>>
+      /**
+       * The provider's id for this call, stable across LangGraph's re-execution
+       * of an interrupted tool node. Absent when the tool is invoked outside a
+       * model tool call.
+       */
+      readonly toolCallId?: string
     },
   ) => Promise<unknown> | unknown
   readonly schema?: unknown
@@ -80,14 +86,15 @@ export function convertToolToLangChain(
       for (const [key, value] of Object.entries(configurable)) {
         if (paramNameSet.has(key) && typeof value === "string") params[key] = value
       }
+      const toolCallId = extractToolCallId(liveConfig)
       const rawResult = await tool.run(input, {
         ...(middlewareContext ? { middleware: middlewareContext } : {}),
         signal,
         ...(threadId ? { threadId } : {}),
         ...(Object.keys(params).length > 0 ? { params } : {}),
+        ...(toolCallId !== "" ? { toolCallId } : {}),
       })
       const { content, stateUpdates } = unwrapToolResult(rawResult)
-      const toolCallId = extractToolCallId(liveConfig)
       const finalContent = offload
         ? await offload(content, tool.name, toolCallId || undefined, signal)
         : content

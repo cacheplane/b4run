@@ -125,3 +125,21 @@ describe("memory key (prefix + terminator convention)", () => {
     expect(matchPermission("memory", "workspace=app|route=/a|", allow, deny)).toBe("deny")
   })
 })
+
+describe("matchPermission clientTool key", () => {
+  it("matches exactly, never by prefix", () => {
+    const allow = { clientTool: ["open"] }
+    expect(matchPermission("clientTool", "open", allow, {})).toBe("allow")
+    expect(matchPermission("clientTool", "openEverything", allow, {})).toBe("unknown")
+  })
+
+  it("is not answered by a tool entry of the same name", () => {
+    expect(matchPermission("clientTool", "readFile", { tool: ["readFile"] }, {})).toBe("unknown")
+  })
+
+  it("denies exactly, not by prefix", () => {
+    const deny = { clientTool: ["open"] }
+    expect(matchPermission("clientTool", "open", {}, deny)).toBe("deny")
+    expect(matchPermission("clientTool", "openEverything", {}, deny)).toBe("unknown")
+  })
+})

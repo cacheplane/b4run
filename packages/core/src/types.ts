@@ -1,5 +1,11 @@
 import type { PermissionMode, PermissionsStore } from "@b4run/permissions"
-import type { ApprovalGrantMode, InterruptGrantStore, ModelProviderId, RouteKind } from "@b4run/sdk"
+import type {
+  ApprovalGrantMode,
+  ClientToolCallStore,
+  InterruptGrantStore,
+  ModelProviderId,
+  RouteKind,
+} from "@b4run/sdk"
 import type { ThreadsStore } from "@b4run/sqlite-storage"
 import type { ExecBackend, FilesystemBackend, SandboxConfig } from "@b4run/workspace"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
@@ -266,6 +272,22 @@ export interface B4Config {
       readonly clientTools?: readonly string[]
       /** Route ids whose callers may send a non-empty `forwardedProps` object. */
       readonly clientForwardedProps?: readonly string[]
+      /**
+       * How long, in milliseconds, a client tool call waits for the client's
+       * result before it is abandoned. Default `600000` (10 minutes). Must be a
+       * positive integer no greater than one year (`31536000000`); anything
+       * else fails the boot rather than being silently replaced.
+       */
+      readonly clientToolTtlMs?: number
+      /**
+       * Where outstanding client tool calls are recorded, so a later
+       * `role: "tool"` message can be matched to a call this server issued.
+       * Defaults to a SQLite store at `<appRoot>/.b4/client-tool-calls.sqlite`
+       * on node — opened only when some route is listed in `clientTools`.
+       * Multi-replica deployments need a shared one
+       * (`@b4run/postgres-storage`'s `createPostgresClientToolCallStore`).
+       */
+      readonly clientToolStore?: ClientToolCallStore
     }
   }
   readonly memory?: {

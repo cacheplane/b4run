@@ -50,6 +50,12 @@ import {
   RequestBodyTooLargeError,
   readBoundedText,
 } from "./bounded-body.js"
+import {
+  anyRouteOptsInToClientTools,
+  type ClientToolRuntime,
+  resolveClientToolTtlMs,
+  validateClientToolStore,
+} from "./client-tool-runtime.js"
 import type { CorsConfig } from "./cors.js"
 import { applyCorsHeaders, corsPreflightResponse, resolveCorsPolicy } from "./cors.js"
 import { createLiveTurnHub, type LiveTurnHub, type LiveTurnProducer } from "./live-turn-hub.js"
@@ -64,10 +70,12 @@ import {
   type B4ResumeEntry,
   createPendingResumeClaims,
   grantOf,
+  isClientToolPark,
   type PendingResumeClaims,
   parsePendingInterrupts,
   readPendingInterrupts,
   resolvePendingResume,
+  withoutClientToolParks,
 } from "./pending-interrupts.js"
 import { extractRouteParams } from "./request-context.js"
 import { createRunRegistry, type RunRegistry } from "./run-registry.js"
@@ -600,6 +608,32 @@ export async function createRuntimeFetchHandler(
     ...(interruptGrantStore ? { store: interruptGrantStore } : {}),
     ...(approvalConfig?.grantTtlMs !== undefined ? { ttlMs: approvalConfig.grantTtlMs } : {}),
   }
+  // ── Client-provided tools ────────────────────────────────────────────────
+  //
+  // Resolved once, at boot, like the grant store. The TTL and a configured
+  // store are shape-checked here because `B4Config` has no runtime schema: a
+  // mistyped value fails the boot rather than reading as configured while it
+  // is ignored. A missing store is not fatal — the AG-UI handler refuses the
+  // runs that would need one (`503 client_tool_store_unavailable`) — but it
+  // is loud, once, here.
+  const aguiConfig = bootConfig?.server?.agui
+  const clientToolTtlMs = resolveClientToolTtlMs(aguiConfig?.clientToolTtlMs)
+  // A config store is validated HERE, before the fallback — which would
+  // otherwise hand the same unchecked config value back — is consulted.
+  const clientToolStore =
+    validateClientToolStore(aguiConfig?.clientToolStore) ??
+    (await fallbacks?.resolveClientToolCallStore?.(options.appRoot))
+  if (anyRouteOptsInToClientTools(bootConfig) && !clientToolStore) {
+    console.warn(
+      `B4: server.agui.clientTools names routes but no client tool store could be resolved for ` +
+        `${options.appRoot}. Runs that send client tools will be refused with a 503. Set ` +
+        `server.agui.clientToolStore in b4.config.ts, or run on a runtime with the node fallbacks.`,
+    )
+  }
+  const clientTools: ClientToolRuntime = {
+    ...(clientToolStore ? { store: clientToolStore } : {}),
+    ttlMs: clientToolTtlMs,
+  }
   // Degrades rather than throws HERE: sandboxing is opt-in, so no fallbacks
   // means no sandbox provider — the same result as an app with no `sandbox`
   // config, and the right answer for every node app. What was missing is the
@@ -979,6 +1013,7 @@ export async function createRuntimeFetchHandler(
       apSseHeartbeatIntervalMs,
       boot,
       bootConfig,
+      clientTools,
       getCheckpointer,
       getMemoryStoreFor,
       getPermissionsStore,
@@ -1379,6 +1414,8 @@ export function buildRouteTable(ctx: {
    * Read for `server.agui`, the AG-UI run envelope's per-route opt-ins.
    */
   readonly bootConfig: B4Config | undefined
+  /** Boot-resolved client tool store and TTL. See client-tool-runtime.ts. */
+  readonly clientTools: ClientToolRuntime
   readonly getCheckpointer: (request: Request) => BaseCheckpointSaver
   readonly getMemoryStoreFor: (request: Request) => Promise<MemoryStore>
   readonly getPermissionsStore: (
@@ -1424,6 +1461,7 @@ export function buildRouteTable(ctx: {
     apSseHeartbeatIntervalMs,
     boot,
     bootConfig,
+    clientTools,
     getCheckpointer,
     getMemoryStoreFor,
     getPermissionsStore,
@@ -1934,6 +1972,7 @@ export function buildRouteTable(ctx: {
           boot,
           ...(bootConfig ? { config: bootConfig } : {}),
           checkpointer: getCheckpointer(request),
+          clientTools,
           getMemoryStore: () => getMemoryStoreFor(request),
           liveTurnHub,
           middleware,
@@ -2396,6 +2435,39 @@ async function dispatch(
 // AP stream handler
 // ---------------------------------------------------------------------------
 
+/**
+ * The Agent Protocol refusal while a client-provided tool call is parked. It
+ * is answered, or abandoned, only through the AG-UI endpoint.
+ */
+function clientToolPendingOnAgentProtocol(): Response {
+  return Response.json(
+    createRequestErrorBody(
+      "A client-provided tool call is pending on this thread; it is answered or abandoned through the AG-UI endpoint.",
+      { code: "client_tool_pending" },
+    ),
+    { status: 409 },
+  )
+}
+
+/**
+ * `409 client_tool_pending` when a client tool call is parked on the thread,
+ * for the Agent Protocol run endpoints (`runs/stream`, `runs/wait`). A new
+ * run's input makes LangGraph discard the park, which would leave the model's
+ * tool call with no ToolMessage: every later model call on the thread is then
+ * rejected by the provider, and no park remains for an AG-UI abandon to close.
+ * Only the AG-UI endpoint can answer or close the call. Read after the
+ * thread-access gate (never an oracle on another caller's thread), under the
+ * run slot. A thread with no checkpoint has nothing parked.
+ */
+async function refuseOverParkedClientToolCall(
+  checkpointer: BaseCheckpointSaver,
+  threadId: string,
+): Promise<Response | undefined> {
+  const snapshot = await readPendingInterrupts(checkpointer, threadId)
+  if (!snapshot?.interrupts.some((entry) => isClientToolPark(entry.value))) return undefined
+  return clientToolPendingOnAgentProtocol()
+}
+
 async function handleApStreamRequest(options: {
   readonly approvalGrants: ApprovalGrantRuntime
   readonly appRoot: string
@@ -2547,6 +2619,19 @@ async function handleApStreamRequest(options: {
       }),
       { status: 409 },
     )
+  }
+  // Under the run slot, so no AG-UI turn can park between this read and the
+  // run. See refuseOverParkedClientToolCall.
+  let parkedClientCall: Response | undefined
+  try {
+    parkedClientCall = await refuseOverParkedClientToolCall(checkpointer, threadId)
+  } catch (error) {
+    run.release()
+    throw error
+  }
+  if (parkedClientCall) {
+    run.release()
+    return parkedClientCall
   }
 
   // Taken from the thread already loaded above, so the turn's own settle call
@@ -2942,6 +3027,19 @@ async function handleApWaitRequest(options: {
       }),
       { status: 409 },
     )
+  }
+  // Under the run slot, so no AG-UI turn can park between this read and the
+  // run. See refuseOverParkedClientToolCall.
+  let parkedClientCall: Response | undefined
+  try {
+    parkedClientCall = await refuseOverParkedClientToolCall(checkpointer, threadId)
+  } catch (error) {
+    run.release()
+    throw error
+  }
+  if (parkedClientCall) {
+    run.release()
+    return parkedClientCall
   }
 
   // See handleApStreamRequest: taken from the thread already loaded above.
@@ -3450,7 +3548,10 @@ async function handleApPendingInterruptsRequest(options: {
   // A malformed pending-write set is still listed — this endpoint reports what
   // is parked, and POST /resume is the surface that refuses to act on writes it
   // cannot address safely (malformed_checkpoint).
-  const snapshot = await readPendingInterrupts(checkpointer, threadId)
+  // Client tool parks are not prompts: the client answers them with a tool
+  // message on its next run, so they are never listed here.
+  const pendingSnapshot = await readPendingInterrupts(checkpointer, threadId)
+  const snapshot = pendingSnapshot ? withoutClientToolParks(pendingSnapshot) : null
   // `grant` is lifted alongside the verbatim `value` so a reconnecting client
   // can answer the prompt without knowing the envelope's shape. Re-readable by
   // design: single-use is a property of CONSUMPTION, not of disclosure, and a
@@ -3658,14 +3759,14 @@ async function handleApAttachRequest(options: {
       // Same lift as GET /threads/:id/pending_interrupts, and gated the same
       // way (`thread.attach`). Both are channels that already carry the
       // prompt, which is the whole reason the grant rides on them.
-      const interrupts = (durableTuple ? parsePendingInterrupts(durableTuple).interrupts : []).map(
-        ({ interruptId, resumeKey, value }) => ({
-          interruptId,
-          resumeKey,
-          value,
-          ...(grantOf(value) !== undefined ? { grant: grantOf(value) } : {}),
-        }),
-      )
+      const interrupts = (
+        durableTuple ? withoutClientToolParks(parsePendingInterrupts(durableTuple)).interrupts : []
+      ).map(({ interruptId, resumeKey, value }) => ({
+        interruptId,
+        resumeKey,
+        value,
+        ...(grantOf(value) !== undefined ? { grant: grantOf(value) } : {}),
+      }))
       yield encodeEvent("state", {
         anchor: null,
         input: null,
@@ -3850,8 +3951,8 @@ async function handleResumeRequest(options: {
 
   let claimTransferredToStream = false
   try {
-    const pendingInterrupts = await readPendingInterrupts(checkpointer, threadId)
-    if (!pendingInterrupts) {
+    const pendingSnapshot = await readPendingInterrupts(checkpointer, threadId)
+    if (!pendingSnapshot) {
       return Response.json(
         createRequestErrorBody("Thread not found", {
           code: "thread_not_found",
@@ -3860,6 +3961,19 @@ async function handleResumeRequest(options: {
       )
     }
 
+    // One clear refusal whenever a client tool call is parked, alone or beside
+    // a permission park. It is answered by a `role: "tool"` message through
+    // the AG-UI endpoint, never here — and a PARTIAL resume answering only the
+    // permission parks is unsafe: the permission task's `__interrupt__` write
+    // survives until the superstep completes (so it is re-listed and
+    // re-demanded), and the client task re-runs on this path with no client
+    // tool stubs bound, so ToolNode resolves the park destructively as an
+    // invalid tool. Mixed parks must be answered in ONE resume covering every
+    // pending park, which only the AG-UI path can do.
+    if (pendingSnapshot.interrupts.some((entry) => isClientToolPark(entry.value))) {
+      return clientToolPendingOnAgentProtocol()
+    }
+    const pendingInterrupts = pendingSnapshot
     const resumeResolution = resolvePendingResume(body.resume, pendingInterrupts)
     if (!resumeResolution.ok) {
       return Response.json(

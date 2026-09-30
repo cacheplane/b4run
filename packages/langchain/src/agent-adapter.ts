@@ -1,7 +1,7 @@
 import type { PromptFragment, StreamTransformer } from "@b4run/core"
 import { readRuntimeEnv } from "@b4run/core"
-import type { ApprovalGrantMinter, B4Agent, RetryConfig } from "@b4run/sdk"
-import { APPROVAL_GRANT_MINTER_KEY, isB4Agent } from "@b4run/sdk"
+import type { ApprovalGrantMinter, B4Agent, ClientToolRecorder, RetryConfig } from "@b4run/sdk"
+import { APPROVAL_GRANT_MINTER_KEY, CLIENT_TOOL_RECORDER_KEY, isB4Agent } from "@b4run/sdk"
 import { type BaseMessageLike, HumanMessage, SystemMessage } from "@langchain/core/messages"
 import { Command } from "@langchain/langgraph"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
@@ -26,6 +26,12 @@ export interface B4ToolDefinition {
     context: {
       readonly middleware?: Readonly<Record<string, unknown>>
       readonly signal: AbortSignal
+      /**
+       * The provider's id for this call, stable across LangGraph's re-execution
+       * of an interrupted tool node. Absent when the tool is invoked outside a
+       * model tool call.
+       */
+      readonly toolCallId?: string
     },
   ) => Promise<unknown> | unknown
   readonly schema?: unknown
@@ -1141,6 +1147,13 @@ export interface AgentOptions {
    * prevent.
    */
   readonly approvalGrantMinter?: ApprovalGrantMinter
+  /**
+   * Per-run client tool recorder, forwarded into
+   * `config.configurable[CLIENT_TOOL_RECORDER_KEY]` so a client tool stub in
+   * `@b4run/core` can record the call it parks. Same channel and optionality
+   * as the minter: the stub refuses to park without one, so do NOT default it.
+   */
+  readonly clientToolRecorder?: ClientToolRecorder
   readonly summarization?: ResolvedSummarizationConfig
   /**
    * A JSON schema the ROOT model's final message must match, bound as the
@@ -1308,6 +1321,11 @@ function prepareAgentCall(options: AgentOptions): {
   // params come from the URL, this does not.
   if (options.approvalGrantMinter !== undefined) {
     configurable[APPROVAL_GRANT_MINTER_KEY] = options.approvalGrantMinter
+  }
+  // Likewise after `params`: the recorder is how a parked client tool call is
+  // later recognized as answerable, so a URL param must never stand in for it.
+  if (options.clientToolRecorder !== undefined) {
+    configurable[CLIENT_TOOL_RECORDER_KEY] = options.clientToolRecorder
   }
   if (Object.keys(configurable).length > 0) {
     config.configurable = configurable

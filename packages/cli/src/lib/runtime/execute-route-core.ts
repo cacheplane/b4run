@@ -23,9 +23,13 @@ import {
   applyCapabilities,
   type B4Config,
   type CapabilityContribution,
+  CLIENT_TOOL_PREFIX,
+  type ClientToolDefinition,
+  type ClientToolResumeValue,
   configureApprovalGrants,
   createAgentsMdMarker,
   createCapabilityRegistry,
+  createClientToolStub,
   createMemoryMarker,
   createMemoryMdMarker,
   createPlanningMarker,
@@ -77,6 +81,8 @@ import {
 import type {
   ApprovalGrantMinter,
   B4Middleware,
+  ClientToolCallStore,
+  ClientToolRecorder,
   InterruptGrantStore,
   ThreadAccessPolicy,
 } from "@b4run/sdk"
@@ -174,6 +180,18 @@ export interface RuntimeBootFallbacks {
   readonly resolveInterruptGrantStore?: (
     appRoot: string,
   ) => Promise<InterruptGrantStore | undefined>
+  /**
+   * Where outstanding client tool calls are recorded (cacheplane/b4run#743).
+   *
+   * OPTIONAL for the same exported-interface reason as
+   * `resolveInterruptGrantStore`. Absence is not an ungating: the AG-UI
+   * handler answers `503 client_tool_store_unavailable` to any run that sends
+   * client tools or answers a parked one, rather than parking a call nobody
+   * could match. Returns `undefined` when no route opts in to client tools.
+   */
+  readonly resolveClientToolCallStore?: (
+    appRoot: string,
+  ) => Promise<ClientToolCallStore | undefined>
   /** Config threads store, else the default sqlite store (boot-level resolution). */
   readonly resolveThreadsStore: (appRoot: string) => Promise<ThreadsStore>
   /** Config permissions + `.b4/permissions.json` (boot-level resolution). */
@@ -325,7 +343,15 @@ function resolveWorkspaceFsBackend(
   return () => requireFallbacks(fallbacks, "workspace filesystem backend").defaultFilesystem()
 }
 
-export type RouteResumePayload = Readonly<Record<string, "once" | "always" | "deny">>
+/**
+ * What `Command({ resume })` delivers, keyed by interrupt id: a permission
+ * decision, or a client tool's result. Internal only — the HTTP resume body
+ * (`isB4ResumeBody`) still admits decisions alone; a client tool result
+ * reaches a park only through the AG-UI handler's own resume.
+ */
+export type RouteResumePayload = Readonly<
+  Record<string, "once" | "always" | "deny" | ClientToolResumeValue>
+>
 
 export function toAgentInput(input: unknown, resume?: RouteResumePayload): unknown {
   return resume === undefined ? input : new Command({ resume })
@@ -411,6 +437,12 @@ export type PrepareRouteExecutionOptions = Omit<BootResolvedInstances, "checkpoi
    */
   readonly sandboxThreadId?: string
   readonly subagentDepth?: number
+  /**
+   * Client-provided tool definitions for this run (already envelope-
+   * validated). Each becomes a `client_<name>` stub on an agent route; any
+   * other route kind refuses them. Never inherited by subagents.
+   */
+  readonly clientTools?: readonly ClientToolDefinition[]
 }
 
 interface ScenarioRouteInvocation {
@@ -455,6 +487,18 @@ export type MaterializeResolvedRouteGraphOptions = Omit<BootResolvedInstances, "
   readonly sandboxManager?: SandboxManager
   readonly sandboxThreadId?: string
   readonly signal?: AbortSignal
+  /**
+   * The thread the graph is materialized for, when it is one thread's (the
+   * AG-UI handler's close of abandoned client tool calls): prepared as that
+   * thread's turn is, so the graph matches the one that parked. Omitted for a
+   * deployment graph, which is thread-independent.
+   */
+  readonly threadId?: string
+  /**
+   * The client tools the run being materialized was prepared with, so the
+   * graph (and so its checkpoint's tool set) matches the parked run's.
+   */
+  readonly clientTools?: readonly ClientToolDefinition[]
 }
 
 /**
@@ -543,6 +587,17 @@ export async function* streamResolvedRoute(
      * that absence means under the configured mode.
      */
     readonly approvalGrantMinter?: ApprovalGrantMinter
+    /**
+     * Client-provided tool definitions for this run; see
+     * `PrepareRouteExecutionOptions.clientTools`.
+     */
+    readonly clientTools?: readonly ClientToolDefinition[]
+    /**
+     * Per-run client tool recorder, forwarded to the agent-adapter, which puts
+     * it in `config.configurable` for the client tool stubs to record their
+     * parks through. A stub that parks without one throws.
+     */
+    readonly clientToolRecorder?: ClientToolRecorder
   },
 ): AsyncGenerator<StreamChunk> {
   const sandboxRunKey = options.sandboxThreadId ?? options.threadId
@@ -641,6 +696,7 @@ export async function* streamResolvedRoute(
         ...(options.approvalGrantMinter
           ? { approvalGrantMinter: options.approvalGrantMinter }
           : {}),
+        ...(options.clientToolRecorder ? { clientToolRecorder: options.clientToolRecorder } : {}),
         ...(bypassCache ? { bypassCache: true } : {}),
         ...(sandboxed ? { sandboxed: true } : {}),
         ...(options.responseFormat ? { responseFormat: options.responseFormat } : {}),
@@ -785,6 +841,51 @@ function responseFormatSupport(
     return { ok: false, message: unsupportedResponseFormatMessage(provider) }
   }
   return undefined
+}
+
+/**
+ * Why a route cannot take client-provided tools: only an `agent()` descriptor
+ * route binds its tool set to a model the runtime drives.
+ */
+function clientToolsSupport(
+  routeId: string,
+  normalized: Pick<NormalizedRouteModule, "entry" | "kind">,
+): PreparedRouteError | undefined {
+  if (normalized.kind !== "agent") {
+    return { ok: false, message: nonAgentClientToolsMessage(routeId, normalized.kind) }
+  }
+  if (!isB4Agent(normalized.entry)) {
+    return {
+      ok: false,
+      message: `Route "${routeId}" exports an agent runnable rather than an agent() descriptor; client-provided tools can only be added to an agent() route.`,
+    }
+  }
+  return undefined
+}
+
+/**
+ * Request-time preflight for client-provided tools, like
+ * `checkRouteResponseFormatSupport`: turns a route that cannot take them into
+ * a request error BEFORE any run side effect. `prepareRouteExecution`
+ * re-checks, so a caller that skips this still never gets a run that silently
+ * dropped the client's tools.
+ */
+export async function checkRouteClientToolsSupport(options: {
+  readonly appRoot: string
+  readonly bootFallbacks: RuntimeBootFallbacks | undefined
+  readonly routeFile: string
+  readonly routeId: string
+}): Promise<{ readonly ok: true } | PreparedRouteError> {
+  const prepared = await getPreparedRouteModules(
+    { appRoot: options.appRoot, routeFile: options.routeFile, routeId: options.routeId },
+    options.bootFallbacks,
+  )
+  return clientToolsSupport(options.routeId, prepared.module) ?? { ok: true }
+}
+
+/** Why a chain/graph/workflow route cannot take client-provided tools. */
+export function nonAgentClientToolsMessage(routeId: string, kind: string): string {
+  return `Route "${routeId}" is a ${kind} route; client-provided tools can only be added to an agent route.`
 }
 
 /** Why a chain/graph/workflow route cannot take a response schema. */
@@ -958,6 +1059,11 @@ async function prepareRouteExecutionForInvocation(
     fallbacks,
   )
   const normalized = prepared.module
+  const clientTools = options.clientTools ?? []
+  if (clientTools.length > 0) {
+    const unsupported = clientToolsSupport(options.routeId, normalized)
+    if (unsupported) return unsupported
+  }
   let tools = prepared.tools
   let bypassCache = false
   if (scenarioInvocation && scenarioInvocation.overrides.length > 0) {
@@ -1422,6 +1528,16 @@ async function prepareRouteExecutionForInvocation(
     if (!check.ok) {
       return { message: check.message, ok: false }
     }
+    // `client_` names belong to the per-run client tool stubs injected below;
+    // an authored or capability tool there could be shadowed by, or shadow, a
+    // caller-defined tool.
+    const prefixed = [...tools, ...capTools].find((t) => t.name.startsWith(CLIENT_TOOL_PREFIX))
+    if (prefixed) {
+      return {
+        message: `Reserved tool name prefix: "${CLIENT_TOOL_PREFIX}" is reserved for client-provided tools (tool "${prefixed.name}").`,
+        ok: false,
+      }
+    }
 
     // Use the effective set so overridden tools are dropped before merging.
     const effectiveCapNames = new Set(check.effectiveCapabilityTools.map((t) => t.name))
@@ -1501,6 +1617,26 @@ async function prepareRouteExecutionForInvocation(
             >(t, predicate, permissionsStore, options.routeId)
           : t
       })
+    }
+    // Client-provided tools: appended AFTER scoping and the approve/constrain
+    // wrapping — `descriptor.tools` names the route's own tools, never a
+    // caller's, and each stub carries its own `clientTool` gate. The compiled-
+    // agent cache is keyed without tools, so a run with stubs must never read
+    // or seed it: bypass, or request N+1 reuses request N's tool set.
+    if (clientTools.length > 0) {
+      tools = [
+        ...tools,
+        ...clientTools.map(
+          (definition): DiscoveredToolDefinition => ({
+            ...createClientToolStub(definition, permissionsStore, {
+              replayOnly: definition.replayOnly === true,
+            }),
+            filePath: `<client:${definition.name}>`,
+            scope: "route-local",
+          }),
+        ),
+      ]
+      bypassCache = true
     }
     stateFields = stateFields ? [...stateFields, ...capStateFields] : capStateFields
     promptFragments = capPromptFragments
