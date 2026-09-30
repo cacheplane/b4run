@@ -57,7 +57,7 @@ limits, and what the opt-in does and does not protect against.
 <Callout type="warn" title="Behavior change">
   Before this, a non-empty `tools` or `forwardedProps` was accepted and passed
   through to the route as `raw` — and, for `tools`, never acted on: the adapter
-  has never interpreted client tools. An app that read either from `raw`, and
+  did not interpret client tools then. An app that read either from `raw`, and
   any client that sends frontend tools (a CopilotKit frontend action, for
   instance), now gets a `422` where it used to get a silently narrower run,
   unless the route is opted in to `clientTools`. Name the route in
@@ -67,9 +67,14 @@ limits, and what the opt-in does and does not protect against.
   generated suggestions run with `tools: [copilotkitSuggest]` and
   `forwardedProps: { toolChoice }`. Static suggestion lists
   (`useConfigureSuggestions` with `{ title, message }` entries) and
-  render-only hooks (`useRenderTool`) send neither. B4.run does not interpret
-  `toolChoice`: `clientForwardedProps` accepts it without acting on it, so the
-  model is not forced to call the suggestion tool.
+  render-only hooks (`useRenderTool`) send neither.
+
+  On a route opted in to `clientTools`, a generated-suggestion run's
+  `copilotkitSuggest` is a client tool like any other: the model can call it
+  as `client_copilotkitSuggest`, and the call parks like any client tool call.
+  B4.run does not force that call: it does not interpret `toolChoice`, and
+  `clientForwardedProps` accepts it without acting on it. On opted-in routes,
+  prefer static suggestion lists.
 </Callout>
 
 ### Where the check runs
@@ -130,7 +135,10 @@ Every AG-UI client resends its whole history on every run, so a tool message
 that matches nothing outstanding — an already-answered call, or one the
 server never issued — is treated as history and ignored, never as an error.
 A result is used exactly once: the resume value comes from the stored record,
-not from the message.
+not from the message. On an opted-in route, a run whose last message is a
+tool message that matches nothing answers nothing: it returns an empty
+`RUN_STARTED` / `RUN_FINISHED`, and the model does not run. That makes a
+client's retry of a run that already resumed a harmless no-op.
 
 When the model calls several client tools in one turn, the client can answer
 them in one run or across several. A run that answers only some of them
@@ -144,6 +152,12 @@ The thread's pending call is answered through this endpoint only.
 `POST /threads/:thread_id/resume` refuses with `409` `client_tool_pending`
 while a client tool call is parked.
 
+A permission prompt and a client tool call can park in the same model turn.
+Both are then answered in **one** AG-UI run: the tool message plus the
+`resume` entries for the prompt. A run that carries only the tool message is
+refused with `409` `resume_required`; the result it carried stays stored, so
+the next run only has to add the `resume` entries.
+
 ### Abandoned calls
 
 A client that never answers must not leave the thread stuck, and because the
@@ -152,18 +166,26 @@ when:
 
 - the client sends a new user message while the call is unanswered, or
 - the call has expired. The default lifetime is 10 minutes; set
-  `server.agui.clientToolTtlMs` to change it.
+  `server.agui.clientToolTtlMs` to change it. Expiry is checked when the
+  thread is next used, not by a background sweep.
 
 Abandoning closes each parked call with a tool result — the one the client
 already sent, if it did, otherwise
 `The client did not return a result for this tool call.` — and then runs the
 new user message as an ordinary turn. With no new message, the model replies
-to the closed calls. A route that does not take client tools can still abandon
-a parked call with a new user message, so the thread is never a dead end.
+to the closed calls. A result stored before the call expired is used; one
+that arrives after it expired is discarded.
 
-A permission prompt pending on the same thread must be answered first: the
-abandon is refused with `409` `resume_required`, as any new turn over a
-pending prompt is.
+The closing tool results are written straight into the thread's checkpoint.
+No tool-result frame is streamed for them, and the route's result offloading
+and stream transformers do not see them.
+
+Any route on the thread can abandon a parked call with a new user message,
+including a route that did not issue it or does not take client tools, so the
+thread is never a dead end. A permission prompt pending on the same thread
+must be answered first. On the route that issued the call, the abandon is
+refused with `409` `resume_required`, as any new turn over a pending prompt
+is; on any other route, with `409` `client_tool_pending`.
 
 ### Limits
 
@@ -176,9 +198,15 @@ definition that breaks one is refused with a `422` before the run starts.
 | Tool name | matches `^[a-zA-Z0-9_-]{1,64}$` and does not start with `client_` |
 | Description | at most 1,024 characters |
 | `parameters` | a JSON object schema (`type` omitted or `"object"`), at most 8,192 characters serialized and at most 8 schema levels deep |
-| All definitions together | at most 32 KiB |
-| Each tool result | at most 64 KiB (UTF-8) |
+| All definitions together | at most 32,768 characters, counting each tool's name, description and serialized `parameters` |
+| Each tool result | at most 64 KiB (65,536 bytes of UTF-8) |
 | AG-UI request body | at most 8 MiB |
+
+An over-cap result is refused with `413` only when the run is answering —
+its last message is the tool message, for a call that is outstanding and not
+expired. Anywhere else, such as a resend of that history with a new user
+message, the over-cap result is dropped before anything is stored, and the
+call is abandoned like any unanswered one.
 
 The 8 MiB body ceiling applies to every `POST /agui/:routeId` request, opted
 in or not, because every AG-UI client resends the thread's history on each
@@ -238,8 +266,8 @@ than one instance needs a shared store for the same reason.
 | `422` | `duplicate_client_tool` | two definitions share a name |
 | `422` | `client_tool_too_large` | a description or `parameters` is over its limit |
 | `422` | `client_tool_too_deep` | `parameters` nests more than 8 schema levels |
-| `422` | `client_tool_budget_exceeded` | more than 32 tools, or more than 32 KiB of definitions |
-| `413` | `client_tool_result_too_large` | a result for an outstanding call is over 64 KiB; nothing is recorded |
+| `422` | `client_tool_budget_exceeded` | more than 32 tools, or more than 32,768 characters of definitions |
+| `413` | `client_tool_result_too_large` | a run whose last message is a tool message answers an outstanding, unexpired call with a result over 64 KiB; nothing is recorded |
 | `503` | `client_tool_store_unavailable` | no client tool store is configured |
 | `409` | `client_tool_pending` | a client tool call is parked and this request can neither answer nor abandon it |
 | `409` | `client_tool_close_failed` | the parked calls could not be closed, for example because the route that issued them cannot be resolved |
