@@ -2,6 +2,7 @@ import { type ChildProcess, execFile, execFileSync, spawn } from "node:child_pro
 import { randomBytes } from "node:crypto"
 import {
   appendFileSync,
+  chmodSync,
   existsSync,
   linkSync,
   mkdirSync,
@@ -65,7 +66,10 @@ export function workerTokenFor(env: Readonly<Record<string, string | undefined>>
 
 /**
  * `OPENAI_API_KEY` from the environment, else that one line of the first `.env` in `dotenvPaths`
- * that exists (D6). Nothing else in the file is read, and the value is never in a message.
+ * that exists (D6). Nothing else in the file is read, and the value is never in a message. Two
+ * `OPENAI_API_KEY` lines are refused (review of Task 8): dotenv keeps the last, a first-match
+ * reader the first, and a key that differs from the one the person meant fails only at the first
+ * model call.
  */
 export function openaiKeyFor(
   env: Readonly<Record<string, string | undefined>>,
@@ -82,25 +86,31 @@ export function openaiKeyFor(
     // The code only: a message from a read names the path, but nothing here risks more.
     throw new Error(`could not read ${dotenvPath} (${(error as NodeJS.ErrnoException).code})`)
   }
-  for (const line of text.split(/\r?\n/)) {
-    const match = /^\s*(?:export\s+)?OPENAI_API_KEY\s*=(.*)$/.exec(line)
-    if (!match) continue
-    const value = dotenvValue(match[1] ?? "", dotenvPath)
-    return value === "" ? undefined : { key: value, source: dotenvPath }
-  }
-  return undefined
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => /^\s*(?:export\s+)?OPENAI_API_KEY\s*=(.*)$/.exec(line))
+    .filter((match) => match !== null)
+  if (lines.length > 1)
+    throw new Error(
+      `${dotenvPath} has more than one OPENAI_API_KEY line; keep exactly one (dotenv would read the last)`,
+    )
+  const [match] = lines
+  if (match === undefined) return undefined
+  const value = dotenvValue(match[1] ?? "", dotenvPath)
+  return value === "" ? undefined : { key: value, source: dotenvPath }
 }
 
 /**
  * One `.env` value as dotenv reads it: wholly in matching single or double quotes (a comment may
- * follow), or bare up to a ` #` comment. A value still holding whitespace or a quote is refused:
+ * follow), or bare up to a ` #` comment. A value still holding whitespace or a quote (a backtick
+ * included: dotenv unquotes backticks too, this reader does not) is refused:
  * it is not one key, and a key sent mangled fails only at the first model call. The message
  * never carries the value.
  */
 function dotenvValue(raw: string, path: string): string {
   const quoted = /^\s*(['"])(.*?)\1\s*(?:#.*)?$/.exec(raw)
   const value = quoted ? (quoted[2] ?? "") : raw.replace(/(?:^|\s)#.*$/, "").trim()
-  if (/[\s'"]/.test(value))
+  if (/[\s'"`]/.test(value))
     throw new Error(
       `the OPENAI_API_KEY line of ${path} is not one value (it holds whitespace or a stray quote); fix that line`,
     )
@@ -476,6 +486,24 @@ function judgeLock(path: string): Judged {
 }
 
 /**
+ * Both locks judged read-only, before anything else (review I2): a held lock or a previous up's
+ * orphans are what explain busy ports, so they are reported first, and the port check's advice
+ * ("choose another port") never reaches a person whose second set of apps would share the app
+ * roots' stores with the first.
+ */
+function lockRefusals(paths: readonly string[]): string[] {
+  const refusals: string[] = []
+  for (const path of paths)
+    try {
+      const judged = judgeLock(path)
+      if (judged.kind === "refused") refusals.push(judged.refused)
+    } catch (error) {
+      refusals.push(`cannot read ${path}: ${message(error)}`)
+    }
+  return refusals
+}
+
+/**
  * The takeover mutex `${lock}.takeover`, which serializes takeovers of one stale lock (of three
  * ups racing, two could otherwise both judge it stale and each replace the other's new lock).
  * Created like the lock; one a crashed up left behind is judged by its pid and command like the
@@ -599,15 +627,28 @@ export function acquireLock(
   const record = (children: LockRecord["children"]): string =>
     `${JSON.stringify({ up: { pid: process.pid, command: UP_COMMAND, startedAt }, ports: config.ports, controller, children } satisfies LockRecord)}\n`
   const taken: UpLock[] = []
+  // Every lock, even when removing one throws: a lock left behind by a partial release would
+  // refuse the next up for a reason no longer true. The first failure is rethrown after.
   const releaseTaken = () => {
-    for (const held of taken) held.release()
+    const failures: unknown[] = []
+    for (const held of taken)
+      try {
+        held.release()
+      } catch (error) {
+        failures.push(error)
+      }
+    if (failures.length > 0) throw failures[0]
   }
   for (const path of [join(config.stateDir, "up.lock"), checkoutLock]) {
     let lock: UpLock | { readonly refused: string }
     try {
       lock = acquireOne(path, record)
     } catch (error) {
-      releaseTaken()
+      try {
+        releaseTaken()
+      } catch {
+        // The acquisition's own failure is the one to report.
+      }
       throw error
     }
     if ("refused" in lock) {
@@ -657,24 +698,60 @@ const pad = (name: string) => name.padEnd(10)
 const describeExit = (exit: { code: number | null; signal: string | null }) =>
   exit.signal !== null ? `by signal ${exit.signal}` : `with code ${exit.code}`
 
-/** Appends to a log file; a log that cannot be written never ends supervision. */
+/** Appends to a log file (private to its owner); a log that cannot be written never ends supervision. */
 function appendLog(path: string, text: string): void {
   try {
-    appendFileSync(path, text)
+    appendFileSync(path, text, { mode: 0o600 })
   } catch {
     // The line still went to stdout, while stdout is open.
   }
 }
 
 /**
- * Spawns one app. Its lines go to `childOut` prefixed with its name and to `<state>/logs/<app>.log`;
- * up's own lines about it go to `say`.
+ * Replaces the token and the key wherever they appear in a line (review I3): a child that prints
+ * its environment, or a stack that quotes a request, must not put a secret on up's stdout, in its
+ * logs or in the tail up prints when a child dies. The longer secret first, in case one holds the
+ * other.
+ */
+export function redactor(secrets: UpSecrets): (line: string) => string {
+  const pairs = (
+    [
+      [secrets.token, "[FACTORY_WORKER_TOKEN]"],
+      [secrets.openaiApiKey, "[OPENAI_API_KEY]"],
+    ] as const
+  )
+    .filter(([secret]) => secret.length > 0)
+    .sort((a, b) => b[0].length - a[0].length)
+  return (line) =>
+    pairs.reduce((redacted, [secret, name]) => redacted.split(secret).join(name), line)
+}
+
+/**
+ * Each line of `stream` to `onLine`. A read error on the pipe (on the stream, or re-emitted by the
+ * readline interface) goes to `onError` and never throws: an unhandled 'error' would crash up and
+ * orphan its detached children.
+ */
+export function followLines(
+  stream: NodeJS.ReadableStream,
+  onLine: (line: string) => void,
+  onError: (error: Error) => void,
+): void {
+  stream.on("error", onError)
+  const lines = createInterface({ input: stream, crlfDelay: Number.POSITIVE_INFINITY })
+  lines.on("line", onLine)
+  lines.on("error", onError)
+}
+
+/**
+ * Spawns one app. Its lines, redacted, go to `childOut` prefixed with its name and to
+ * `<state>/logs/<app>.log`; up's own lines about it go to `say`.
  */
 function start(
   app: AppProcess,
   stateDir: string,
   childOut: (line: string) => void,
   say: (line: string) => void,
+  redact: (line: string) => string,
 ): Running {
   const log = join(stateDir, "logs", `${app.name}.log`)
   appendLog(log, `--- up started ${app.name} at ${new Date().toISOString()} ---\n`)
@@ -708,15 +785,23 @@ function start(
       })
     }),
   }
-  const onLine = (line: string) => {
+  const onLine = (raw: string) => {
+    const line = redact(raw)
     appendLog(log, `${line}\n`)
     running.tail.push(line)
     if (running.tail.length > 20) running.tail.shift()
     childOut(`${pad(app.name)} │ ${line}`)
   }
+  let readFailed = false
+  const onReadError = (error: Error) => {
+    if (readFailed) return
+    readFailed = true
+    say(
+      `${UP} WARNING: reading ${app.name}'s output failed (${message(error)}); it is still supervised`,
+    )
+  }
   for (const stream of [child.stdout, child.stderr])
-    if (stream)
-      createInterface({ input: stream, crlfDelay: Number.POSITIVE_INFINITY }).on("line", onLine)
+    if (stream) followLines(stream, onLine, onReadError)
   return running
 }
 
@@ -733,8 +818,9 @@ async function waitReady(running: Running, deps: UpDeps): Promise<void> {
   for (;;) {
     if (running.hasExited) {
       const exit = await running.exited
+      const tail = running.tail.map((l) => `  ${l}`).join("\n")
       throw new Error(
-        `${running.app.name} exited ${describeExit(exit)} before it was ready:\n${running.tail.map((l) => `  ${l}`).join("\n")}`,
+        `${running.app.name} exited ${describeExit(exit)} before it was ready${tail === "" ? "" : `:\n${tail}`}`,
       )
     }
     try {
@@ -749,6 +835,16 @@ async function waitReady(running: Running, deps: UpDeps): Promise<void> {
     if (Date.now() > deadline)
       throw new Error(`${running.app.name} was not ready within ${deps.readyTimeoutMs / 1_000} s`)
     await sleep(250)
+  }
+}
+
+/** Anything left in the process group `pgid` (a detached child's pid): alive, or someone else's. */
+function groupAlive(pgid: number): boolean {
+  try {
+    process.kill(-pgid, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM"
   }
 }
 
@@ -831,14 +927,33 @@ async function stopAll(
   }
   let clean = true
   for (const r of running.values()) {
-    const pid = r.child.pid
-    if (pid !== undefined && pidAlive(pid)) {
-      say(`${UP} WARNING: ${r.app.name} (pid ${pid}) is still running`)
+    // Whether it exited, never pidAlive(pid): a child that could not be spawned has no pid, and
+    // kill(-1, 0) (or kill(undefined)) would answer for other processes (review I1).
+    if (!r.hasExited) {
+      say(`${UP} WARNING: ${r.app.name} (pid ${r.child.pid ?? "unknown"}) is still running`)
       clean = false
       continue
     }
     const exit = await r.exited
     if (r.killed || exit.code !== 0) clean = false
+    const pid = r.child.pid
+    if (pid === undefined) continue
+    // A leader that exited can leave members in its group (review I4): a helper it spawned, a
+    // docker client. A group already SIGKILLed is given a moment to empty first.
+    const settle = Date.now() + 250
+    while (groupAlive(pid) && Date.now() < settle) await sleep(25)
+    if (!groupAlive(pid)) continue
+    clean = false
+    say(`${UP} ${r.app.name} left processes in its group (pgid ${pid}): SIGKILL`)
+    try {
+      process.kill(-pid, "SIGKILL")
+    } catch {
+      // Emptied meanwhile.
+    }
+    const deadline = Date.now() + 2_000
+    while (groupAlive(pid) && Date.now() < deadline) await sleep(25)
+    if (groupAlive(pid))
+      say(`${UP} WARNING: process group ${pid} (${r.app.name}) still has members: ps -g ${pid}`)
   }
   return clean
 }
@@ -875,6 +990,17 @@ function activeWorkOrders(stateDir: string): string[] {
   }
 }
 
+/** Releases both locks; a failure is said, never thrown (up is stopping). False when one stayed. */
+function releaseLock(lock: UpLock, say: (line: string) => void): boolean {
+  try {
+    lock.release()
+    return true
+  } catch (error) {
+    say(`${UP} WARNING: could not remove a lock (${message(error)}); remove it by hand`)
+    return false
+  }
+}
+
 /** Bound on the reconcile at boot (review I4): a controller that never answers must not hold up. */
 const RECONCILE_TIMEOUT_MS = 120_000
 
@@ -889,6 +1015,13 @@ export async function up(
   stop: AbortSignal,
   force: AbortSignal,
 ): Promise<number> {
+  // The locks first, read-only (review I2): a held lock or a previous up's orphans explain busy
+  // ports, and must be named before the port check suggests another port.
+  const refusals = lockRefusals([join(config.stateDir, "up.lock"), deps.checkoutLock])
+  if (refusals.length > 0) {
+    for (const refusal of refusals) deps.out(`${UP} refused: ${refusal}`)
+    return 1
+  }
   const { problems, secrets } = await preflight(config, deps)
   if (secrets === undefined) {
     for (const problem of problems) deps.out(`${UP} refused: ${problem}`)
@@ -899,12 +1032,22 @@ export async function up(
     deps.out(`${UP} refused: ${lock.refused}`)
     return 1
   }
+  const redact = redactor(secrets)
   const logs = join(config.stateDir, "logs")
-  mkdirSync(logs, { recursive: true })
+  try {
+    // Private to the operator (review I3): the logs are post-mortems of processes holding secrets.
+    mkdirSync(logs, { recursive: true, mode: 0o700 })
+    chmodSync(logs, 0o700)
+  } catch (error) {
+    deps.out(`${UP} refused: cannot create ${logs} (${message(error)})`)
+    releaseLock(lock, deps.out)
+    return 1
+  }
   // up's own lines are kept beside the apps' logs, so they survive a stdout that closed (D10).
   const upLog = join(logs, "up.log")
   appendLog(upLog, `--- up started at ${new Date().toISOString()} (pid ${process.pid}) ---\n`)
-  const say = (line: string) => {
+  const say = (raw: string) => {
+    const line = redact(raw)
     deps.out(line)
     appendLog(upLog, `${line}\n`)
   }
@@ -916,13 +1059,16 @@ export async function up(
       return 0
     }
     for (const app of appProcesses(config, secrets, deps.env, deps.launch))
-      running.set(app.name, start(app, config.stateDir, deps.out, say))
+      running.set(app.name, start(app, config.stateDir, deps.out, say, redact))
+    // Only children that have a pid (review I1): one that could not be spawned has none, and a
+    // made-up pid would make the lock one no later up recognises.
     lock.recordChildren(
       Object.fromEntries(
-        [...running].map(([name, r]) => [
-          name,
-          { pid: r.child.pid ?? -1, command: r.app.args.join(" ") },
-        ]),
+        [...running].flatMap(([name, r]) =>
+          r.child.pid === undefined
+            ? []
+            : [[name, { pid: r.child.pid, command: r.app.args.join(" ") }]],
+        ),
       ),
     )
     const readiness = Promise.all([...running.values()].map((r) => waitReady(r, deps)))
@@ -977,8 +1123,9 @@ export async function up(
     )
   }
   const clean = await stopAll(running, deps, force, say)
-  // A survivor keeps the locks, so the next up names it instead of starting beside it.
-  if ([...running.values()].every((r) => !pidAlive(r.child.pid ?? -1))) lock.release()
+  // A survivor keeps the locks, so the next up names it instead of starting beside it. Whether
+  // each exited, never pidAlive of a pid it may not have (review I1).
+  if ([...running.values()].every((r) => r.hasExited) && !releaseLock(lock, say)) code = 1
   if (!clean) code = 1
   say(`${UP} stopped (${code === 0 ? "clean" : "with errors"})`)
   return code

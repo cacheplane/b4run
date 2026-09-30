@@ -2,15 +2,18 @@ import { EventEmitter } from "node:events"
 import {
   chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs"
+import { type AddressInfo, createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Writable } from "node:stream"
+import { PassThrough, Writable } from "node:stream"
 import { afterEach, describe, expect, it } from "vitest"
 import type { WorkOrderRow } from "../src/lib/domain/work-order.ts"
 import { parseFactoryConfig } from "../src/lib/operator/factory-config.ts"
@@ -19,6 +22,7 @@ import {
   appProcesses,
   commandOf,
   dotenvCandidates,
+  followLines,
   lineWriter,
   openaiKeyFor,
   ownSubprocessEnv,
@@ -38,18 +42,34 @@ afterEach(() => {
   if (dir) rmSync(dir, { recursive: true, force: true })
   dir = undefined
 })
-const fresh = () => {
+const fresh = (ports = { controller: 47300, builder: 47100, drafter: 47200 }) => {
   const root = mkdtempSync(join(tmpdir(), "factory-up-"))
   dir = root
   return parseFactoryConfig(
     {
       state: join(root, "state"),
-      controller: { port: 47300 },
-      builder: { port: 47100 },
-      drafter: { port: 47200 },
+      controller: { port: ports.controller },
+      builder: { port: ports.builder },
+      drafter: { port: ports.drafter },
     },
     join(root, "factory.config.ts"),
   )
+}
+/** Three ports free on loopback right now, chosen by the kernel: two runs never share them. */
+async function freePorts(): Promise<{ controller: number; builder: number; drafter: number }> {
+  const servers = [createServer(), createServer(), createServer()]
+  const ports = await Promise.all(
+    servers.map(
+      (server) =>
+        new Promise<number>((done, fail) => {
+          server.once("error", fail)
+          server.listen(0, "127.0.0.1", () => done((server.address() as AddressInfo).port))
+        }),
+    ),
+  )
+  await Promise.all(servers.map((server) => new Promise((done) => server.close(done))))
+  const [controller, builder, drafter] = ports as [number, number, number]
+  return { controller, builder, drafter }
 }
 const deps = (patch: Partial<UpDeps> = {}): UpDeps => ({
   env: { OPENAI_API_KEY: KEY },
@@ -152,6 +172,41 @@ describe("the model key", () => {
       expect(text).not.toContain(KEY)
       expect(text).not.toContain("sk-not-a-real")
     }
+  })
+
+  it("refuses a backtick-quoted value, which dotenv would unquote and this reader would not", () => {
+    const root = mkdtempSync(join(tmpdir(), "factory-up-"))
+    dir = root
+    const path = join(root, ".env")
+    for (const line of [`OPENAI_API_KEY=\`${KEY}\``, `OPENAI_API_KEY=${KEY}\``]) {
+      writeFileSync(path, `${line}\n`)
+      expect(() => openaiKeyFor({}, [path]), line).toThrow(path)
+      try {
+        openaiKeyFor({}, [path])
+      } catch (error) {
+        expect((error as Error).message).not.toContain(KEY)
+      }
+    }
+  })
+
+  it("refuses a .env with two OPENAI_API_KEY lines, naming the file and never a value", () => {
+    const root = mkdtempSync(join(tmpdir(), "factory-up-"))
+    dir = root
+    const path = join(root, ".env")
+    // dotenv keeps the last, this reader would keep the first: neither guess is safe.
+    writeFileSync(path, `OPENAI_API_KEY=${KEY}\nA=1\nexport OPENAI_API_KEY=sk-other-not-real\n`)
+    let thrown: unknown
+    try {
+      openaiKeyFor({}, [path])
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(Error)
+    const text = (thrown as Error).message
+    expect(text).toContain(path)
+    expect(text).toMatch(/more than one OPENAI_API_KEY line/)
+    expect(text).not.toContain(KEY)
+    expect(text).not.toContain("sk-other")
   })
 
   it("looks in this checkout, then the main worktree, never FACTORY_REPO_ROOT", () => {
@@ -540,6 +595,19 @@ describe("the locks", () => {
     expect(readdirSync(config.stateDir)).toEqual([])
   })
 
+  it("releases the checkout lock even when removing the state lock fails", () => {
+    const config = fresh()
+    const checkout = join(dir as string, ".up.lock")
+    const lock = acquireLock(config, settings, checkout)
+    if ("refused" in lock) throw new Error(lock.refused)
+    // A directory where the state lock was: rmSync without recursive refuses it.
+    const state = join(config.stateDir, "up.lock")
+    rmSync(state)
+    mkdirSync(state)
+    expect(() => lock.release()).toThrow()
+    expect(existsSync(checkout)).toBe(false)
+  })
+
   it("rewrites the lock whole when it records the children", () => {
     const config = fresh()
     const checkout = join(dir as string, ".up.lock")
@@ -621,6 +689,25 @@ describe("up's stdout", () => {
   })
 })
 
+describe("a child's output streams", () => {
+  it("a read error on a pipe is reported, never thrown (it would crash up and orphan the children)", async () => {
+    const stream = new PassThrough()
+    const lines: string[] = []
+    const errors: string[] = []
+    followLines(
+      stream,
+      (line) => lines.push(line),
+      (error) => errors.push(error.message),
+    )
+    stream.write("one\ntwo\n")
+    await new Promise((r) => setImmediate(r))
+    stream.destroy(Object.assign(new Error("read EIO"), { code: "EIO" }))
+    await new Promise((r) => setTimeout(r, 50))
+    expect(lines).toEqual(["one", "two"])
+    expect(errors[0]).toContain("read EIO")
+  })
+})
+
 describe("up's signals", () => {
   it("SIGINT, SIGTERM or SIGHUP stops; only a second one more than a second later kills", () => {
     for (const first of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
@@ -657,9 +744,13 @@ const reports = (path: string) =>
         .filter(Boolean)
         .map((l) => JSON.parse(l))
     : []
-/** Three stand-in apps on fixed test ports, and what they report. */
-function fakeUp(extraEnv: Record<string, string> = {}, patch: Partial<UpDeps> = {}) {
-  const config = fresh()
+/** Three stand-in apps on ports free for this test alone, and what they report. */
+async function fakeUp(
+  extraEnv: Record<string, string> = {},
+  patch: Partial<UpDeps> = {},
+  existing?: ReturnType<typeof fresh>,
+) {
+  const config = existing ?? fresh(await freePorts())
   const report = join(dir as string, "report.jsonl")
   const lines: string[] = []
   const stop = new AbortController()
@@ -729,7 +820,7 @@ const pidsOf = (report: string) => {
 
 describe("up", () => {
   it("starts all three, reconciles once when all are ready, and stops them all", async () => {
-    const { config, report, lines, stop, done } = fakeUp()
+    const { config, report, lines, stop, done } = await fakeUp()
     await until(() => lines.some((l) => l.includes("│ ready:")))
     const started = reports(report).filter((r) => r.pid)
     pidsOf(report)
@@ -738,8 +829,8 @@ describe("up", () => {
     const byName = Object.fromEntries(started.map((r) => [r.name, r]))
     expect(byName.controller).toMatchObject({
       hasOpenaiKey: false,
-      workerUrl: "http://127.0.0.1:47100",
-      drafterUrl: "http://127.0.0.1:47200",
+      workerUrl: config.urls.builder,
+      drafterUrl: config.urls.drafter,
       stateDir: config.stateDir,
       host: "127.0.0.1",
     })
@@ -747,7 +838,7 @@ describe("up", () => {
     expect(byName.drafter?.hasOpenaiKey).toBe(true)
     expect(reports(report).filter((r) => r.reconciled)).toHaveLength(1)
     // Each child's output is prefixed and teed.
-    expect(lines).toContain("builder    │ builder listening on 127.0.0.1:47100")
+    expect(lines).toContain(`builder    │ builder listening on 127.0.0.1:${config.ports.builder}`)
     expect(readFileSync(join(config.stateDir, "logs", "drafter.log"), "utf8")).toContain(
       "drafter listening",
     )
@@ -789,7 +880,7 @@ describe("up", () => {
   }, 30_000)
 
   it("names the work orders in flight when it stops", async () => {
-    const { config, lines, stop, done, report } = fakeUp()
+    const { config, lines, stop, done, report } = await fakeUp()
     const registry = openRegistry(join(config.stateDir, "registry.sqlite"))
     const store = createWorkOrderStore(registry.db)
     store.insert(row("wo-running", "running"))
@@ -805,15 +896,16 @@ describe("up", () => {
   }, 30_000)
 
   it("stops the rest and exits 1 when a child exits before it is ready", async () => {
-    const { report, lines, done } = fakeUp({ FAKE_APP_EXIT_EARLY: "drafter" })
+    const { report, lines, done } = await fakeUp({ FAKE_APP_EXIT_EARLY: "drafter" })
     expect(await done).toBe(1)
-    expect(lines.join("\n")).toMatch(/drafter exited with code 7 before it was ready/)
+    // It printed nothing: no dangling "before it was ready:" with an empty tail under it.
+    expect(lines).toContain(`${UP} drafter exited with code 7 before it was ready`)
     for (const pid of pidsOf(report)) expect(gone(pid)).toBe(true)
     expect(lines).toContain(`${UP} stopped (with errors)`)
   }, 30_000)
 
   it("stops the rest and exits 1 when a child exits on its own after ready", async () => {
-    const { report, lines, done } = fakeUp({ FAKE_APP_EXIT_AFTER_READY: "builder" })
+    const { report, lines, done } = await fakeUp({ FAKE_APP_EXIT_AFTER_READY: "builder" })
     expect(await done).toBe(1)
     expect(lines.join("\n")).toContain("builder exited with code 9; stopping the others")
     for (const pid of pidsOf(report)) expect(gone(pid)).toBe(true)
@@ -822,7 +914,7 @@ describe("up", () => {
   }, 30_000)
 
   it("kills a child that ignores SIGTERM after the grace, and does not call that clean", async () => {
-    const { report, lines, stop, done } = fakeUp({ FAKE_APP_IGNORE_TERM: "builder" })
+    const { report, lines, stop, done } = await fakeUp({ FAKE_APP_IGNORE_TERM: "builder" })
     await until(() => lines.some((l) => l.includes("│ ready:")))
     pidsOf(report)
     stop.abort()
@@ -834,7 +926,7 @@ describe("up", () => {
   }, 30_000)
 
   it("a second signal cuts the grace short and kills at once", async () => {
-    const { report, lines, stop, force, done } = fakeUp(
+    const { report, lines, stop, force, done } = await fakeUp(
       { FAKE_APP_IGNORE_TERM: "controller" },
       { stopTimeoutMs: 20_000 },
     )
@@ -851,14 +943,14 @@ describe("up", () => {
   }, 30_000)
 
   it("starts nothing when the preflight refuses", async () => {
-    const { report, lines, done } = fakeUp({}, { portFree: async () => false })
+    const { report, lines, done } = await fakeUp({}, { portFree: async () => false })
     expect(await done).toBe(1)
     expect(reports(report)).toEqual([])
     expect(lines.join("\n")).toContain("refused:")
   }, 30_000)
 
   it("starts nothing when another up holds the lock", async () => {
-    const { config, report, lines, stop, done } = fakeUp()
+    const { config, report, lines, stop, done } = await fakeUp()
     // (The first fakeUp's own lock is what the second meets.)
     await until(() => lines.some((l) => l.includes("│ ready:")))
     pidsOf(report)
@@ -877,7 +969,7 @@ describe("up", () => {
   }, 30_000)
 
   it("stops everything when the controller's reconcile fails", async () => {
-    const { report, lines, done } = fakeUp(
+    const { report, lines, done } = await fakeUp(
       {},
       {
         fetch: (async (input: string | URL | Request, init?: RequestInit) =>
@@ -894,7 +986,7 @@ describe("up", () => {
   }, 30_000)
 
   it("abandons a reconcile that never answers when asked to stop (review I4)", async () => {
-    const { report, lines, stop, done } = fakeUp(
+    const { report, lines, stop, done } = await fakeUp(
       {},
       {
         fetch: (async (input: string | URL | Request, init?: RequestInit) =>
@@ -914,5 +1006,136 @@ describe("up", () => {
     expect(Date.now() - asked).toBeLessThan(10_000)
     expect(lines.join("\n")).not.toContain("│ ready:")
     for (const pid of pidsOf(report)) expect(gone(pid)).toBe(true)
+  }, 30_000)
+  it("releases both locks when an app cannot be spawned at all, so the next up starts (review I1)", async () => {
+    const config = fresh(await freePorts())
+    const lines: string[] = []
+    const code = await up(
+      config,
+      deps({
+        launch: () => ({ command: join(dir as string, "no-such-command"), args: ["start"] }),
+        out: (line) => lines.push(line),
+      }),
+      new AbortController().signal,
+      new AbortController().signal,
+    )
+    expect(code).toBe(1)
+    expect(lines.join("\n")).toContain("could not start")
+    expect(existsSync(join(config.stateDir, "up.lock"))).toBe(false)
+    expect(existsSync(join(dir as string, ".up.lock"))).toBe(false)
+    // The next up on the same state and checkout starts, readies and stops.
+    const next = await fakeUp({}, {}, config)
+    await until(() => next.lines.some((l) => l.includes("│ ready:")))
+    pidsOf(next.report)
+    next.stop.abort()
+    expect(await next.done).toBe(0)
+  }, 30_000)
+
+  it("names a previous up's orphans before any port they hold (review I2)", async () => {
+    const config = fresh(await freePorts())
+    mkdirSync(config.stateDir, { recursive: true })
+    const me = commandOf(process.pid) ?? ""
+    writeFileSync(
+      join(config.stateDir, "up.lock"),
+      JSON.stringify({
+        up: { pid: 2 ** 22 + 1, command: "cli.ts up", startedAt: "x" },
+        ports: config.ports,
+        controller: { approvalTtlMs: 1, maxActiveMs: 1 },
+        children: { builder: { pid: process.pid, command: me.slice(0, 40) } },
+      }),
+    )
+    const lines: string[] = []
+    const code = await up(
+      config,
+      deps({ portFree: async () => false, out: (line) => lines.push(line) }),
+      new AbortController().signal,
+      new AbortController().signal,
+    )
+    expect(code).toBe(1)
+    const text = lines.join("\n")
+    expect(text).toContain(`builder pid ${process.pid}`)
+    expect(text).toContain(`ps -ww -p ${process.pid} -o command=`)
+    // Not "choose another port": a second set of apps would share the app roots' stores.
+    expect(text).not.toContain("is in use")
+    expect(process.kill(process.pid, 0)).toBe(true)
+  }, 30_000)
+
+  it("redacts the token and the key from every line it copies, and keeps its logs private (review I3)", async () => {
+    const token = "operator-token-0123456789abcdef-0123-redact"
+    const { config, report, lines, stop, done } = await fakeUp({
+      FACTORY_WORKER_TOKEN: token,
+      FAKE_APP_PRINT_SECRETS: "builder",
+    })
+    await until(() => lines.some((l) => l.includes("│ ready:")))
+    pidsOf(report)
+    stop.abort()
+    expect(await done).toBe(0)
+    const logs = join(config.stateDir, "logs")
+    const printed = [
+      ...lines,
+      ...readdirSync(logs).map((name) => readFileSync(join(logs, name), "utf8")),
+    ].join("\n")
+    expect(printed).toContain("token=[FACTORY_WORKER_TOKEN] key=[OPENAI_API_KEY]")
+    expect(printed).toContain("stderr token [FACTORY_WORKER_TOKEN] and key [OPENAI_API_KEY]")
+    expect(printed).not.toContain(KEY)
+    expect(printed).not.toContain(token)
+    expect(statSync(logs).mode & 0o777).toBe(0o700)
+  }, 30_000)
+
+  it("SIGKILLs what a child left in its process group, and does not call that clean (review I4)", async () => {
+    const { report, lines, stop, done } = await fakeUp({ FAKE_APP_SLEEPER: "drafter" })
+    await until(() => lines.some((l) => l.includes("│ ready:")))
+    pidsOf(report)
+    const sleeper = reports(report).find((r) => r.sleeper)?.sleeper as number
+    expect(sleeper).toBeGreaterThan(0)
+    try {
+      stop.abort()
+      expect(await done).toBe(1)
+      expect(lines).toContain(`${UP} drafter exited with code 0`)
+      expect(lines.join("\n")).toMatch(/drafter left processes in its group \(pgid \d+\): SIGKILL/)
+      expect(lines).toContain(`${UP} stopped (with errors)`)
+      await until(() => gone(sleeper), 5_000)
+    } finally {
+      if (!gone(sleeper)) process.kill(sleeper, "SIGKILL")
+    }
+  }, 30_000)
+
+  it("sends the workers SIGTERM only after the controller has exited", async () => {
+    const { report, lines, stop, done } = await fakeUp({ FAKE_APP_SLOW_EXIT: "controller" })
+    await until(() => lines.some((l) => l.includes("│ ready:")))
+    pidsOf(report)
+    stop.abort()
+    expect(await done).toBe(0)
+    const all = reports(report)
+    const controllerExit = all.find((r) => r.name === "controller" && r.exitingAt)?.exitingAt
+    expect(controllerExit).toBeGreaterThan(0)
+    for (const name of ["builder", "drafter"]) {
+      const term = all.find((r) => r.name === name && r.sigtermAt)?.sigtermAt
+      expect(term, name).toBeGreaterThanOrEqual(controllerExit)
+    }
+  }, 30_000)
+
+  it("stops everything and exits 1 when an app is never ready within the bound", async () => {
+    const { config, report, lines, done } = await fakeUp(
+      { FAKE_APP_NEVER_READY: "drafter" },
+      { readyTimeoutMs: 1_500 },
+    )
+    expect(await done).toBe(1)
+    expect(lines.join("\n")).toContain("drafter was not ready within 1.5 s")
+    for (const pid of pidsOf(report)) expect(gone(pid)).toBe(true)
+    expect(reports(report).filter((r) => r.reconciled)).toEqual([])
+    expect(existsSync(join(config.stateDir, "up.lock"))).toBe(false)
+  }, 30_000)
+
+  it("releases both locks and starts nothing when it cannot create its log directory", async () => {
+    const config = fresh(await freePorts())
+    mkdirSync(config.stateDir, { recursive: true })
+    writeFileSync(join(config.stateDir, "logs"), "a file where the directory goes")
+    const { report, lines, done } = await fakeUp({}, {}, config)
+    expect(await done).toBe(1)
+    expect(lines.join("\n")).toContain("refused: cannot create")
+    expect(reports(report)).toEqual([])
+    expect(existsSync(join(config.stateDir, "up.lock"))).toBe(false)
+    expect(existsSync(join(dir as string, ".up.lock"))).toBe(false)
   }, 30_000)
 })

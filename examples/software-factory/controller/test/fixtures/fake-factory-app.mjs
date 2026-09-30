@@ -1,6 +1,8 @@
 // A stand-in for one factory app under `up`: answers /readyz and the controller's reconcile
 // route, and appends to FAKE_APP_REPORT what it was started with. Secrets are reported as
-// sha256 or presence, never as values.
+// sha256 or presence, never as values (only FAKE_APP_PRINT_SECRETS prints them, to prove up
+// redacts its children's output).
+import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { appendFileSync, readFileSync } from "node:fs"
 import { createServer } from "node:http"
@@ -24,9 +26,25 @@ report({
   drafterUrl: process.env.FACTORY_DRAFTER_URL ?? null,
   stateDir: process.env.FACTORY_STATE_DIR ?? null,
 })
+// A careless app that prints its secrets: up must redact them everywhere it copies the line.
+if (process.env.FAKE_APP_PRINT_SECRETS === name) {
+  console.log(`token=${token} key=${process.env.OPENAI_API_KEY}`)
+  console.error(`stderr token ${token} and key ${process.env.OPENAI_API_KEY}`)
+}
+// A helper left in the app's process group (not detached), which outlives the app itself.
+if (process.env.FAKE_APP_SLEEPER === name) {
+  const sleeper = spawn("sleep", ["300"], { stdio: "ignore" })
+  sleeper.unref()
+  report({ sleeper: sleeper.pid })
+}
 if (process.env.FAKE_APP_EXIT_EARLY === name) process.exit(7)
 const server = createServer((request, response) => {
   if (request.url === "/readyz") {
+    if (process.env.FAKE_APP_NEVER_READY === name) {
+      response.writeHead(503)
+      response.end()
+      return
+    }
     response.writeHead(200, { "content-type": "application/json" })
     response.end('{"status":"ready"}')
     return
@@ -45,8 +63,14 @@ if (process.env.FAKE_APP_IGNORE_TERM === name) {
   process.on("SIGTERM", () => console.log(`${name} ignores SIGTERM`))
 } else {
   process.on("SIGTERM", () => {
+    report({ sigtermAt: Date.now() })
     console.log(`${name} stopping`)
-    server.close(() => process.exit(0))
+    // A slow closer (the real controller takes seconds): what up does meanwhile is observable.
+    const delay = process.env.FAKE_APP_SLOW_EXIT === name ? 1_000 : 0
+    setTimeout(() => {
+      report({ exitingAt: Date.now() })
+      server.close(() => process.exit(0))
+    }, delay)
   })
 }
 // Exits on its own once the controller has been reconciled: a child that dies after ready.
