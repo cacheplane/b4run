@@ -116,7 +116,7 @@
       "sha256": "fc3847533cbf01b8fa2420f484680a7576b8b2b4edf4d6f41f56df925f4914c3"
     },
     "scripts/release/observe.mjs": {
-      "sha256": "773e85634657e392b58fa5c8b94ca9b5d43205b13320d73cb103828a849eb627"
+      "sha256": "285f86c0b5f3a067b2d357472c7291cf21a9929acf2e01e20ea42e783d05d51a"
     },
     "scripts/release/planner.mjs": {
       "sha256": "2e09281ff952da69e985de7802307b849b76525e838e4cab49516a3d05793433"
