@@ -618,6 +618,8 @@ export async function createRuntimeFetchHandler(
   // is loud, once, here.
   const aguiConfig = bootConfig?.server?.agui
   const clientToolTtlMs = resolveClientToolTtlMs(aguiConfig?.clientToolTtlMs)
+  // A config store is validated HERE, before the fallback — which would
+  // otherwise hand the same unchecked config value back — is consulted.
   const clientToolStore =
     validateClientToolStore(aguiConfig?.clientToolStore) ??
     (await fallbacks?.resolveClientToolCallStore?.(options.appRoot))

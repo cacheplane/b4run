@@ -4,6 +4,7 @@ import { Annotation, Command, END, MemorySaver, START, StateGraph } from "@langc
 import { describe, expect, it } from "vitest"
 import {
   ABANDONED_CLIENT_TOOL_RESULT,
+  CLIENT_TOOL_UNAVAILABLE_RESULT,
   type ClientToolDefinition,
   createClientToolStub,
   isClientToolCallEnvelope,
@@ -64,8 +65,9 @@ function store(
 function stubGraph(
   permissions: PermissionsStore | undefined,
   context: { toolCallId?: string } = { toolCallId: "call_1" },
+  options: { replayOnly?: boolean } = {},
 ) {
-  const stub = createClientToolStub(definition, permissions)
+  const stub = createClientToolStub(definition, permissions, options)
   return new StateGraph(State)
     .addNode("tool", async () => {
       const output = await stub.run({ id: 7 }, { signal: new AbortController().signal, ...context })
@@ -171,6 +173,33 @@ describe("client tool stub", () => {
     expect((resumed as { output?: unknown }).output).toEqual({
       result: ABANDONED_CLIENT_TOOL_RESULT,
     })
+  })
+
+  it("replay-only: a NEW call is refused as unavailable, without gating, recording or parking", async () => {
+    const recorder = recordingRecorder()
+    const app = stubGraph(store({ "clientTool:openPanel": "deny" }), undefined, {
+      replayOnly: true,
+    })
+    const config = configFor(recorder)
+    const result = await app.invoke({}, config)
+
+    expect((result as { output?: unknown }).output).toBe(CLIENT_TOOL_UNAVAILABLE_RESULT)
+    expect(await pendingInterrupts(app, config)).toEqual([])
+    expect(recorder.calls).toEqual([])
+  })
+
+  it("replay-only: a call already recorded replays its park and resumes as usual", async () => {
+    const recorder = recordingRecorder()
+    await recorder.record({
+      toolCallId: "call_1",
+      interruptId: "client-call_1",
+      toolName: "openPanel",
+    })
+    const app = stubGraph(undefined, undefined, { replayOnly: true })
+    const config = configFor(recorder)
+    const resumed = await parkThenResume(app, config, { clientToolResult: "opened" })
+    expect((resumed as { output?: unknown }).output).toEqual({ result: "opened" })
+    expect(recorder.calls).toHaveLength(1)
   })
 
   it("returns the coded denial under a clientTool deny, without parking or recording", async () => {

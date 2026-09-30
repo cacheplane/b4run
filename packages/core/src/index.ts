@@ -21,11 +21,13 @@ export type {
   ClientToolCallEnvelope,
   ClientToolDefinition,
   ClientToolResumeValue,
+  ClientToolStubOptions,
 } from "./capabilities/client-tools.js"
 export {
   ABANDONED_CLIENT_TOOL_RESULT,
   CLIENT_TOOL_CALL_TYPE,
   CLIENT_TOOL_PREFIX,
+  CLIENT_TOOL_UNAVAILABLE_RESULT,
   clientToolInterruptId,
   createClientToolStub,
   gateClientToolOp,

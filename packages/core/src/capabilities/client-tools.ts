@@ -19,6 +19,9 @@ import type { B4ToolDefinition } from "./types.js"
 export const CLIENT_TOOL_PREFIX = "client_"
 /** Interrupt envelope `type` for a parked client tool call — never projected to the client. */
 export const CLIENT_TOOL_CALL_TYPE = "client-tool-call"
+/** Tool result for a new call to a replay-only stub: the tool was not offered on this run. */
+export const CLIENT_TOOL_UNAVAILABLE_RESULT =
+  "[client tool unavailable] This client tool was not offered on this run."
 /** Tool result recorded for a call the client never answered. */
 export const ABANDONED_CLIENT_TOOL_RESULT = "The client did not return a result for this tool call."
 
@@ -29,6 +32,22 @@ export interface ClientToolDefinition {
   readonly description: string
   /** Caller-authored JSON Schema, already bounded by envelope validation. */
   readonly parameters: Record<string, unknown>
+  /**
+   * Set by the runtime — never read from a client — for a stub rebuilt only so
+   * a parked call can replay: see `ClientToolStubOptions.replayOnly`.
+   */
+  readonly replayOnly?: boolean
+}
+
+export interface ClientToolStubOptions {
+  /**
+   * The stub exists only to replay a call that already parked, because this
+   * run's request did not offer the tool. A NEW call to it (nothing recorded
+   * for its tool-call id) is refused with {@link CLIENT_TOOL_UNAVAILABLE_RESULT}
+   * — no gate, no record, no park — since the client never offered the tool
+   * on this run and could not answer it.
+   */
+  readonly replayOnly?: boolean
 }
 
 export interface ClientToolCallEnvelope {
@@ -121,6 +140,7 @@ function readRecorder(): ClientToolRecorder | undefined {
 export function createClientToolStub(
   definition: ClientToolDefinition,
   permissions: PermissionsStore | undefined,
+  options: ClientToolStubOptions = {},
 ): B4ToolDefinition {
   return {
     name: `${CLIENT_TOOL_PREFIX}${definition.name}`,
@@ -133,6 +153,7 @@ export function createClientToolStub(
       if (!recorder) throw new MissingClientToolRecorderError()
       const interruptId = clientToolInterruptId(toolCallId)
       if (!(await recorder.has(toolCallId))) {
+        if (options.replayOnly) return CLIENT_TOOL_UNAVAILABLE_RESULT
         const gate = await gateClientToolOp(permissions, definition.name)
         if (!gate.allowed) return codedReason(gate)
         await recorder.record({ toolCallId, interruptId, toolName: definition.name })

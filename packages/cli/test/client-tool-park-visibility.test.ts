@@ -242,33 +242,32 @@ describe("approval surfaces never show a client tool park", () => {
   })
 })
 
-describe("the AG-UI path never answers a client park without the retained record", () => {
-  // Neither fixture opts a route in to client tools, so no client tool store
-  // is resolved: a pending client park then fails closed with a 503 — never a
-  // run past it, never a `resume_required` that would invite a partial,
-  // permission-only resume. (With a store, matching is covered end to end in
-  // agui-client-tools.test.ts.)
-  test("client park only: refused with 503 client_tool_store_unavailable", async () => {
+describe("the AG-UI path never answers a client park from a route without client tools", () => {
+  // Neither fixture opts a route in to client tools: a pending client park is
+  // then refused with 409 client_tool_pending — never run past, never a
+  // `resume_required` that would invite a partial, permission-only resume.
+  // (Opted-in matching is covered end to end in agui-client-tools.test.ts.)
+  test("client park only: refused with 409 client_tool_pending", async () => {
     const { url } = await startFixture([clientWrite])
     const response = await postAgui(url, { threadId: "thread-agui-client-only" })
-    expect(response.status).toBe(503)
-    expect(await codeOf(response)).toBe("client_tool_store_unavailable")
+    expect(response.status).toBe(409)
+    expect(await codeOf(response)).toBe("client_tool_pending")
   })
 
-  test("permission + client park: refused with 503, even with the permission resume", async () => {
+  test("permission + client park: refused, even with the permission resume", async () => {
     const { url } = await startFixture([permissionWrite, clientWrite])
     const threadId = "thread-agui-mixed"
 
     const bare = await postAgui(url, { threadId })
-    expect(bare.status).toBe(503)
-    expect(await codeOf(bare)).toBe("client_tool_store_unavailable")
+    expect(bare.status).toBe(409)
+    expect(await codeOf(bare)).toBe("client_tool_pending")
 
     const partial = await postAgui(url, {
       threadId,
       resume: [{ interruptId: "perm-1", status: "resolved", payload: "once" }],
     })
-    expect(partial.status).toBe(503)
-    expect(await codeOf(partial)).toBe("client_tool_store_unavailable")
+    expect(partial.status).toBe(409)
+    expect(await codeOf(partial)).toBe("client_tool_pending")
   })
 })
 

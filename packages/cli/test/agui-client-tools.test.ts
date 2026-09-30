@@ -1,7 +1,10 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { CLIENT_TOOL_UNAVAILABLE_RESULT } from "@b4run/core"
 import { type ClientToolCallStore, createMemoryClientToolCallStore } from "@b4run/sdk"
+import { createClientToolCallStore } from "@b4run/sqlite-storage"
+import { MemorySaver } from "@langchain/langgraph"
 import { afterEach, describe, expect, it } from "vitest"
 import { createAimock } from "../../testing/dist/aimock-runner.js"
 import {
@@ -14,7 +17,7 @@ import {
   validateClientToolStore,
 } from "../src/lib/dev/client-tool-runtime.ts"
 import { createRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-handler.ts"
-import { nodeBootFallbacks } from "../src/lib/runtime/execute-route.ts"
+import { nodeBootFallbacks, resolveClientToolCallStore } from "../src/lib/runtime/execute-route.ts"
 
 /**
  * Client-provided tools over `POST /agui/:routeId`, end to end
@@ -106,15 +109,19 @@ function toolTurnFixtures(toolCalls: readonly ToolCallSpec[]): unknown[] {
   ]
 }
 
+type HandlerOptions = Parameters<typeof createRuntimeFetchHandler>[0]
+
 async function createHandler(
   appRoot: string,
-  bootFallbacks?: Parameters<typeof createRuntimeFetchHandler>[0]["bootFallbacks"],
+  bootFallbacks?: HandlerOptions["bootFallbacks"],
+  extra: Partial<Pick<HandlerOptions, "checkpointer" | "threadAccess">> = {},
 ) {
   const handler = await createRuntimeFetchHandler({
     appRoot,
     apSseHeartbeatIntervalMs: 60_000,
     drainDeadlineMs: 250,
     ...(bootFallbacks ? { bootFallbacks } : {}),
+    ...extra,
   })
   cleanup.push(() => handler.close())
   return handler
@@ -404,10 +411,168 @@ describe("POST /agui/:route with client-provided tools", () => {
       ]),
     )
     expect(forged.status).toBe(200)
-    const requests = aimock.getRequests()
-    expect(requests).toHaveLength(2)
-    expect(requestSequence(requests[1]).some((entry) => entry.includes("call_forged"))).toBe(false)
-    expect(JSON.stringify(requests[1]?.body)).not.toContain("trust me")
+    // No turn at all: the trailing tool message answers nothing and carries
+    // no new user input, so the last user turn is NOT re-run.
+    expect(forged.events.map((event) => event.type)).toEqual(["RUN_STARTED", "RUN_FINISHED"])
+    expect(finished(forged.events)?.outcome?.type).toBe("success")
+    expect(aimock.getRequests()).toHaveLength(1)
+  })
+
+  it("a retried resume (history resent after the round trip) is an idempotent no-op", async () => {
+    const t = await parkedRun([CALL_A])
+    const history = [
+      USER_HELLO,
+      assistantCalls(["call_a"]),
+      toolResult("m3", "call_a", "panel opened"),
+    ]
+    expect((await run(t.handler, aguiRequest(t.threadId, "run-2", history))).status).toBe(200)
+    const before = t.aimock.getRequests().length
+    const retry = await run(t.handler, aguiRequest(t.threadId, "run-2b", history))
+    expect(retry.status).toBe(200)
+    expect(retry.events.map((event) => event.type)).toEqual(["RUN_STARTED", "RUN_FINISHED"])
+    expect(t.aimock.getRequests()).toHaveLength(before)
+  })
+
+  it("a route that does not take client tools can neither answer nor resume another route's park", async () => {
+    const t = await parkedRun([CALL_A])
+    const response = await run(
+      t.handler,
+      aguiRequest(
+        t.threadId,
+        "run-2",
+        [USER_HELLO, assistantCalls(["call_a"]), toolResult("m3", "call_a", "panel opened")],
+        { route: "/other#agent", tools: [] },
+      ),
+    )
+    expect(response.status).toBe(409)
+    expect(response.json().code).toBe("client_tool_pending")
+    expect(t.aimock.getRequests()).toHaveLength(1)
+    expect((await t.store.get(t.threadId, "call_a"))?.answeredAt).toBeNull()
+  })
+
+  it("a trailing tool message reports resuming to the thread-access policy on every route", async () => {
+    await withModel([{ match: { userMessage: "hi" }, response: { content: "Hi." } }])
+    const appRoot = await fixtureApp({ store: createMemoryClientToolCallStore() })
+    const seen: Array<{ operation: string; resuming: boolean }> = []
+    const handler = await createHandler(appRoot, undefined, {
+      threadAccess: {
+        fallback: (request) => {
+          seen.push({ operation: request.operation, resuming: request.resuming })
+          return { decision: "allow" }
+        },
+      },
+    })
+    const hi = { id: "m1", role: "user", content: "hi" }
+    await run(
+      handler,
+      aguiRequest("t-resuming", "r1", [hi, toolResult("m2", "call_x", "x")], {
+        route: "/other#agent",
+        tools: [],
+      }),
+    )
+    expect(seen.filter((entry) => entry.operation === "run.agui").map((e) => e.resuming)).toContain(
+      true,
+    )
+    expect(
+      seen.filter((entry) => entry.operation === "run.agui").every((entry) => entry.resuming),
+    ).toBe(true)
+  })
+
+  it("a rebuilt stub replays its park but never parks a NEW call the client did not offer", async () => {
+    const CALL_C: ToolCallSpec = { id: "call_c", name: "client_openPanel", arguments: { id: 9 } }
+    const aimock = await withModel([
+      { match: { toolCallId: "call_c" }, response: { content: "Done." } },
+      { match: { toolCallId: "call_a" }, response: { toolCalls: [CALL_C] } },
+      { match: { userMessage: "hello" }, response: { toolCalls: [CALL_A] } },
+      { match: { userMessage: "again" }, response: { content: "Again." } },
+    ])
+    const store = createMemoryClientToolCallStore()
+    const appRoot = await fixtureApp({ store })
+    const handler = await createHandler(appRoot)
+    const threadId = `thread-${crypto.randomUUID()}`
+    expect((await run(handler, aguiRequest(threadId, "run-1", [USER_HELLO]))).status).toBe(200)
+
+    const second = await run(
+      handler,
+      aguiRequest(
+        threadId,
+        "run-2",
+        [USER_HELLO, assistantCalls(["call_a"]), toolResult("m3", "call_a", "panel opened")],
+        { tools: [] },
+      ),
+    )
+    expect(second.status).toBe(200)
+    expect(second.text).toContain("Done.")
+    // A string tool result reaches the model JSON-encoded.
+    expect(requestSequence(aimock.getRequests().at(-1))).toContain(
+      `tool:call_c=${JSON.stringify(CLIENT_TOOL_UNAVAILABLE_RESULT)}`,
+    )
+    expect(await store.get(threadId, "call_c")).toBeUndefined()
+
+    // Nothing is parked: a new user message is an ordinary turn, not a 409.
+    const third = await run(
+      handler,
+      aguiRequest(threadId, "run-3", [USER_HELLO, { id: "m9", role: "user", content: "again" }]),
+    )
+    expect(third.status).toBe(200)
+    expect(third.text).toContain("Again.")
+  })
+
+  it("a client park that appears after the decision is caught under the run slot", async () => {
+    const aimock = await withModel([
+      { match: { userMessage: "hello" }, response: { content: "Hi." } },
+    ])
+    const appRoot = await fixtureApp({ store: createMemoryClientToolCallStore() })
+    const saver = new MemorySaver()
+    const parkedTuple = {
+      config: { configurable: { thread_id: "t-race", checkpoint_ns: "" } },
+      checkpoint: { channel_values: {}, id: "cp-1" },
+      metadata: {},
+      pendingWrites: [
+        [
+          "33a12321-3ec2-56a7-b4d7-0337886c4386",
+          "__interrupt__",
+          {
+            id: "3336d0e0a2d4f198ef9aecd09cd7ac27",
+            value: {
+              type: "client-tool-call",
+              interruptId: "client-call_race",
+              toolCallId: "call_race",
+              name: "openPanel",
+              input: {},
+            },
+          },
+        ],
+      ],
+    }
+    // Armed per request: the first read (the unclaimed decision) sees no
+    // park; every later read — the recheck under the run slot — sees one.
+    let reads: number | undefined
+    const checkpointer = new Proxy(saver, {
+      get(target, key, receiver) {
+        if (key === "getTuple") {
+          return async (config: Parameters<MemorySaver["getTuple"]>[0]) => {
+            if (reads === undefined) return target.getTuple(config)
+            reads += 1
+            return reads === 1 ? undefined : parkedTuple
+          }
+        }
+        return Reflect.get(target, key, receiver)
+      },
+    })
+    const handler = await createHandler(appRoot, undefined, { checkpointer })
+
+    reads = 0
+    const raced = await run(handler, aguiRequest("t-race", "r1", [USER_HELLO]))
+    expect(raced.status).toBe(409)
+    expect(raced.json().code).toBe("client_tool_pending")
+    expect(aimock.getRequests()).toHaveLength(0)
+
+    // The run slot was released: the next request on the thread runs.
+    reads = undefined
+    const next = await run(handler, aguiRequest("t-race", "r2", [USER_HELLO]))
+    expect(next.status).toBe(200)
+    expect(next.text).toContain("Hi.")
   })
 
   it("an operator deny on the client tool never parks; the model sees the denial", async () => {
@@ -494,6 +659,28 @@ describe("client tool boot settings and request bounds", () => {
     expect(validateClientToolStore(store)).toBe(store)
     expect(() => validateClientToolStore({ issue() {} })).toThrow(/missing get/)
     expect(() => validateClientToolStore("sqlite")).toThrow(ClientToolConfigError)
+  })
+
+  it("the node fallback reopens an existing store after the opt-in is removed", async () => {
+    const appRoot = await fixtureApp({ config: "export default {}\n" })
+    expect(await resolveClientToolCallStore(appRoot)).toBeUndefined()
+    const path = join(appRoot, ".b4/client-tool-calls.sqlite")
+    await mkdir(dirname(path), { recursive: true })
+    const seeded = createClientToolCallStore({ path })
+    await seeded.issue({
+      threadId: "t",
+      toolCallId: "call_1",
+      interruptId: "client-call_1",
+      toolName: "openPanel",
+      runId: "r",
+      issuedAt: new Date().toISOString(),
+      expiresAt: null,
+      answeredAt: null,
+      result: null,
+      voidedAt: null,
+    })
+    const reopened = await resolveClientToolCallStore(appRoot)
+    expect((await reopened?.listOutstanding("t"))?.map((row) => row.toolCallId)).toEqual(["call_1"])
   })
 
   it("a bad clientToolTtlMs fails the boot", async () => {

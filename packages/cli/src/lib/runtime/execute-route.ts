@@ -313,8 +313,14 @@ export async function resolveInterruptGrantStore(
  *
  * `config.server.agui.clientToolStore` if `b4.config.ts` provides one,
  * otherwise the default SQLite store at `<appRoot>/.b4/client-tool-calls.sqlite`.
- * Returns `undefined` when no route opts in to client tools, so an app that
- * never uses the feature never grows a file.
+ * Returns `undefined` when no route opts in to client tools AND no store file
+ * exists, so an app that never uses the feature never grows a file. An
+ * existing file is opened even after the opt-in is removed: it may hold the
+ * records of calls still parked from before, and without it those threads
+ * could only answer `503 client_tool_store_unavailable`.
+ *
+ * A config store is returned as is; the fetch core shape-checks it at boot
+ * (`validateClientToolStore`) before it would ever reach this resolver.
  */
 export async function resolveClientToolCallStore(
   appRoot: string,
@@ -326,10 +332,10 @@ export async function resolveClientToolCallStore(
     // No b4.config.ts or unreadable — no route can have opted in.
   }
   if (agui?.clientToolStore) return agui.clientToolStore
-  if (!Array.isArray(agui?.clientTools) || agui.clientTools.length === 0) return undefined
-  return createClientToolCallStore({
-    path: pureJoin(appRoot, ".b4/client-tool-calls.sqlite"),
-  })
+  const path = pureJoin(appRoot, ".b4/client-tool-calls.sqlite")
+  const optedIn = Array.isArray(agui?.clientTools) && agui.clientTools.length > 0
+  if (!optedIn && !existsSync(path)) return undefined
+  return createClientToolCallStore({ path })
 }
 
 /**

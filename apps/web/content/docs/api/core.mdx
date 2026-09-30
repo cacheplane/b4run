@@ -49,9 +49,11 @@ Importing `/node` registers the disk-backed `b4.config.ts` loader. The root stay
 | `ClientToolCallEnvelope` | Describe the interrupt envelope a parked client tool call leaves in the checkpoint. |
 | `ClientToolDefinition` | Describe a client-provided tool definition after envelope validation. |
 | `ClientToolResumeValue` | Describe the value the internal resume delivers to a parked client tool call. |
+| `ClientToolStubOptions` | Options for `createClientToolStub`, such as a replay-only stub. |
 | `ABANDONED_CLIENT_TOOL_RESULT` | The tool result recorded for a client tool call the client never answered. |
 | `CLIENT_TOOL_CALL_TYPE` | The interrupt envelope `type` of a parked client tool call. |
 | `CLIENT_TOOL_PREFIX` | The model-visible prefix of every client tool name (`client_`). |
+| `CLIENT_TOOL_UNAVAILABLE_RESULT` | The tool result for a new call to a replay-only stub whose tool was not offered on this run. |
 | `clientToolInterruptId` | Derive the stable interrupt id of a client tool call from its provider tool-call id. |
 | `createClientToolStub` | Create the stub tool that gates, records and parks a client tool call. |
 | `gateClientToolOp` | Gate a client tool call under the `clientTool` permission key. |

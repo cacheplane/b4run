@@ -471,14 +471,16 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     // `resume` undefined for an absent OR empty array, so this is exactly the
     // condition the resume claim below takes itself on.
     //
-    // A trailing `role: "tool"` message on a route that opted in to client
-    // tools is the other resume: it is how a client answers a parked client
-    // tool call. Judged from the request SHAPE alone, as `resuming` is
-    // everywhere — whether it really answers a park takes a checkpoint read,
-    // and that read must not happen before the thread-access gate (it would
-    // make the policy's decision an oracle on someone else's thread).
-    const answersClientTool = envelopePolicy.clientTools && b4Input.messages.at(-1)?.role === "tool"
-    const resuming = b4Input.resume !== undefined || answersClientTool
+    // A trailing `role: "tool"` message is the other resume: it is how a
+    // client answers a parked client tool call. Judged from the request SHAPE
+    // alone, as `resuming` is everywhere — whether it really answers a park
+    // takes a checkpoint read, and that read must not happen before the
+    // thread-access gate (it would make the policy's decision an oracle on
+    // someone else's thread). Counted on EVERY route, opted in or not:
+    // over-reporting a resume only holds the request to a policy's higher
+    // bar, while under-reporting one would let it skip that bar.
+    const trailingToolMessage = b4Input.messages.at(-1)?.role === "tool"
+    const resuming = b4Input.resume !== undefined || trailingToolMessage
     const middlewareRequest: MiddlewareRequest = {
       ...(middleware ? { body: structuredClone(parsedJson) } : {}),
       assistantId: route.assistantId,
@@ -643,6 +645,12 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     // rather than guessed at.
     const clientParks = snapshot.interrupts.filter((park) => isClientToolPark(park.value))
     let clientTurn: ClientToolTurn = { mode: "none" }
+    if (clientParks.length > 0 && !envelopePolicy.clientTools) {
+      // A client park on a route that does not (or no longer does) take
+      // client tools: this route may not answer it, resume it, or re-offer
+      // its stub. Refused, never run past. (12b decides abandonment here.)
+      return clientToolPending()
+    }
     if (clientParks.length > 0) {
       const store = clientToolRuntime.store
       if (!store) return clientToolStoreUnavailable()
@@ -665,13 +673,23 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       // INTERIM (Task 12a): closing abandoned calls in the checkpoint lands in
       // 12b. Until then a run that does not answer a parked client tool call
       // is refused, never run past it.
-      return Response.json(
-        createRequestErrorBody(
-          "A client tool call is waiting for its result on this thread; send the tool result before a new message.",
-          { code: "client_tool_pending" },
-        ),
-        { status: 409 },
-      )
+      return clientToolPending()
+    }
+    const approvalParksOnly = withoutClientToolParks(snapshot)
+    if (
+      clientTurn.mode === "none" &&
+      envelopePolicy.clientTools &&
+      trailingToolMessage &&
+      b4Input.resume === undefined &&
+      approvalParksOnly.interrupts.length === 0 &&
+      !approvalParksOnly.malformed
+    ) {
+      // A trailing tool message that answers nothing pending: resent history
+      // (a client retrying a run that already resumed), or a forgery. It
+      // carries no new user input, so there is no turn to run — re-running
+      // the last user message would answer it twice. Same no-op as `partial`,
+      // which makes client retries idempotent.
+      return clientToolPartialResponse(threadId, input.runId, request.headers.get("accept"))
     }
     if (clientTurn.mode === "partial") {
       // Some parked calls answered, others not yet: the results are recorded,
@@ -691,7 +709,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     const pending: PendingInterruptSnapshot =
       clientTurn.mode === "resume"
         ? { interrupts: clientTurn.others, malformed: snapshot.malformed }
-        : withoutClientToolParks(snapshot)
+        : approvalParksOnly
     const resumeResolution = resolvePendingResume(b4Input.resume, pending)
     if (!resumeResolution.ok) {
       return Response.json(
@@ -821,6 +839,17 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       )
     }
     releaseRunBeforeStream = run.release
+
+    // A request that decided WITHOUT the resume claim saw no client park; one
+    // may have appeared since (a run on this thread parked and released its
+    // slot in between). Running now would take a new turn past it, so re-read
+    // under the run slot and refuse. The outer finally releases the slot.
+    if (!releaseResumeClaim) {
+      const recheck = await readSnapshot()
+      if (recheck.interrupts.some((park) => isClientToolPark(park.value))) {
+        return clientToolPending()
+      }
+    }
 
     // Live-turn anchor: one latest-tuple read, taken before the route stream
     // begins executing so it races nothing the run itself writes. A failed
@@ -1071,6 +1100,16 @@ export async function handleAgUiRequest(options: AgUiRequestOptions): Promise<vo
   await writeNodeResponse(response, webResponse)
 }
 
+function clientToolPending(): Response {
+  return Response.json(
+    createRequestErrorBody(
+      "A client tool call is waiting for its result on this thread; send the tool result before a new message.",
+      { code: "client_tool_pending" },
+    ),
+    { status: 409 },
+  )
+}
+
 function clientToolStoreUnavailable(): Response {
   return Response.json(
     createRequestErrorBody(
@@ -1129,7 +1168,8 @@ async function oversizedClientToolResult(
  * The request's client tools plus a stub definition for each parked call
  * whose tool the request did not send. The rebuilt definition only has to
  * carry the name: the call is already made, and the stub's replay reads its
- * result from the resume value, not from its schema.
+ * result from the resume value, not from its schema. It is replay-only, so a
+ * NEW call to it is refused instead of parked.
  */
 function withParkedClientTools(
   requested: readonly ClientToolDefinition[],
@@ -1142,7 +1182,15 @@ function withParkedClientTools(
     const name = park.value.name
     if (typeof name !== "string" || names.has(name)) continue
     names.add(name)
-    rebuilt.push({ name, description: "", parameters: { type: "object", properties: {} } })
+    // Replay-only: the model may still call the rebuilt stub anew in the
+    // resumed turn, and that call must not park on a tool the client did not
+    // offer on this run.
+    rebuilt.push({
+      name,
+      description: "",
+      parameters: { type: "object", properties: {} },
+      replayOnly: true,
+    })
   }
   return rebuilt.length === 0 ? requested : [...requested, ...rebuilt]
 }

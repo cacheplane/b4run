@@ -1621,7 +1621,9 @@ async function prepareRouteExecutionForInvocation(
         ...tools,
         ...clientTools.map(
           (definition): DiscoveredToolDefinition => ({
-            ...createClientToolStub(definition, permissionsStore),
+            ...createClientToolStub(definition, permissionsStore, {
+              replayOnly: definition.replayOnly === true,
+            }),
             filePath: `<client:${definition.name}>`,
             scope: "route-local",
           }),
