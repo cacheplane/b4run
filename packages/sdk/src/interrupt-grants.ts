@@ -255,46 +255,49 @@ export function isApprovalGrantShape(value: unknown): value is string {
  * runtime with no durable store configured.
  */
 export function createMemoryInterruptGrantStore(): InterruptGrantStore {
-  const rows = new Map<string, InterruptGrantRecord>()
-  const key = (threadId: string, interruptId: string) => `${threadId} ${interruptId}`
+  // Nested by thread so distinct (threadId, interruptId) pairs can never collide.
+  const threads = new Map<string, Map<string, InterruptGrantRecord>>()
 
   return {
     async issue(record) {
-      const k = key(record.threadId, record.interruptId)
-      if (rows.has(k)) {
+      let rows = threads.get(record.threadId)
+      if (!rows) {
+        rows = new Map()
+        threads.set(record.threadId, rows)
+      }
+      if (rows.has(record.interruptId)) {
         throw new Error(
           `interrupt-grants: a grant already exists for (${record.threadId}, ${record.interruptId})`,
         )
       }
-      rows.set(k, { ...record })
+      rows.set(record.interruptId, { ...record })
     },
     async get(threadId, interruptId) {
-      const row = rows.get(key(threadId, interruptId))
+      const row = threads.get(threadId)?.get(interruptId)
       return row ? { ...row } : undefined
     },
     async listForThread(threadId) {
-      return [...rows.values()]
-        .filter((row) => row.threadId === threadId)
-        .map((row) => ({ ...row }))
+      return [...(threads.get(threadId)?.values() ?? [])].map((row) => ({ ...row }))
     },
     async consume({ threadId, interruptId, decision, at }) {
-      const k = key(threadId, interruptId)
-      const row = rows.get(k)
-      if (!row) return { outcome: "missing" }
+      const rows = threads.get(threadId)
+      const row = rows?.get(interruptId)
+      if (!rows || !row) return { outcome: "missing" }
       if (row.voidedAt !== null) return { outcome: "voided", record: { ...row } }
       if (row.consumedAt !== null) return { outcome: "already_consumed", record: { ...row } }
       const next: InterruptGrantRecord = { ...row, consumedAt: at, consumedDecision: decision }
-      rows.set(k, next)
+      rows.set(interruptId, next)
       return { outcome: "consumed", record: { ...next } }
     },
     async voidOutstanding({ threadId, keepInterruptIds, at }) {
+      const rows = threads.get(threadId)
+      if (!rows) return 0
       const keep = new Set(keepInterruptIds)
       let voided = 0
-      for (const [k, row] of rows) {
-        if (row.threadId !== threadId) continue
-        if (keep.has(row.interruptId)) continue
+      for (const [interruptId, row] of rows) {
+        if (keep.has(interruptId)) continue
         if (row.consumedAt !== null || row.voidedAt !== null) continue
-        rows.set(k, { ...row, voidedAt: at })
+        rows.set(interruptId, { ...row, voidedAt: at })
         voided++
       }
       return voided
