@@ -104,12 +104,17 @@ function safeInput(input, fields) {
   }
   return result
 }
-function readerContext({ github, git }) {
-  const now = Date.now
-  const deps = {
-    now,
-    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-  }
+// Production readers run on the wall clock. A caller may inject a complete
+// clock (the HTTP rehearsal does) so read deadlines follow its time source.
+function readerContext({ github, git, clock }) {
+  const deps =
+    clock === undefined
+      ? {
+          now: Date.now,
+          sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+        }
+      : recoveryMethods(clock, ["now", "sleep", "setTimer", "clearTimer"])
+  const now = deps.now
   const phaseDeadline = now() + RECOVERY_RETRY.phaseDeadlineMs
   const envelope = async (fn, key = "value", responseBytes) => {
     const result = await runRecoveryRead(
@@ -122,11 +127,16 @@ function readerContext({ github, git }) {
     )
     requireThat(
       result.status === "PRESENT" && Object.hasOwn(result, key),
-      `exact ${key} read unavailable`,
+      `exact ${key} read unavailable (${result.status} ${result.code ?? "no code"}${
+        result.operation === undefined ? "" : ` ${result.operation}`
+      })`,
     )
     return result[key]
   }
-  const budget = createRecoveryWorkBudget({ phaseDeadline })
+  const budget =
+    clock === undefined
+      ? createRecoveryWorkBudget({ phaseDeadline })
+      : createRecoveryWorkBudget({ phaseDeadline }, deps)
   return {
     now,
     read: (name, args) =>
@@ -1045,16 +1055,23 @@ async function originalPayloadProof(context, c, npm, npmAuditFactory, attestatio
 
 // Diagnostic only: the proposal is never an admission or a writer-model observation.
 export async function inspectRecoveryOriginalPayload(input) {
-  const { candidate, github, git, npm, npmAuditFactory, attestations, controllerRef } = safeInput(
-    input,
-    ["candidate", "github", "git", "npm", "npmAuditFactory", "attestations", "controllerRef"],
-  )
+  const { candidate, github, git, npm, npmAuditFactory, attestations, controllerRef, clock } =
+    safeInput(input, [
+      "candidate",
+      "github",
+      "git",
+      "npm",
+      "npmAuditFactory",
+      "attestations",
+      "controllerRef",
+      "clock",
+    ])
   let originalPayload = null
   try {
     const c = snapshotRecoveryData(candidate, 16384)
     validateIdentity(c)
     requireThat(/^[a-f0-9]{40}$/u.test(controllerRef), "exact inspected controller SHA required")
-    const context = readerContext({ github, git })
+    const context = readerContext({ github, git, clock })
     const proof = await originalPayloadProof(context, c, npm, npmAuditFactory, attestations)
     requireThat(proof.release.draft === true, "pre-adoption inspection requires draft")
     const marker = parseReleaseMarker(proof.release.body)
@@ -1161,22 +1178,32 @@ export async function inspectRecoveryOriginalPayload(input) {
 }
 
 export async function observeRecoveryCandidate(input) {
-  const { candidate, github, git, npm, npmAuditFactory, attestations, controllerRef, intentPath } =
-    safeInput(input, [
-      "candidate",
-      "github",
-      "git",
-      "npm",
-      "npmAuditFactory",
-      "attestations",
-      "controllerRef",
-      "intentPath",
-    ])
+  const {
+    candidate,
+    github,
+    git,
+    npm,
+    npmAuditFactory,
+    attestations,
+    controllerRef,
+    intentPath,
+    clock,
+  } = safeInput(input, [
+    "candidate",
+    "github",
+    "git",
+    "npm",
+    "npmAuditFactory",
+    "attestations",
+    "controllerRef",
+    "intentPath",
+    "clock",
+  ])
   let phase = "UNKNOWN"
   try {
     const c = snapshotRecoveryData(candidate, 16384)
     validateIdentity(c)
-    const context = readerContext({ github, git })
+    const context = readerContext({ github, git, clock })
     const { release, tag, refs, bytes, base, npmEvidence } = await originalPayloadProof(
       context,
       c,
@@ -1421,10 +1448,10 @@ async function readFixedFinalization(context, assets) {
 // Discover ownership independently of current tags, intents, and display labels.
 // This only supplies routing subjects; observation must still prove each identity.
 export async function discoverRecoveryReleaseCandidates(input) {
-  const { github, releaseRecords } = safeInput(input, ["github", "releaseRecords"])
+  const { github, releaseRecords, clock } = safeInput(input, ["github", "releaseRecords", "clock"])
   const releases = snapshotRecoveryData(releaseRecords, RELEASE_INVENTORY_BYTES)
   requireThat(Array.isArray(releases), "release discovery unavailable")
-  const context = readerContext({ github })
+  const context = readerContext({ github, clock })
   const inspect = async (release) => {
     let assets
     if (release.draft === false) {
@@ -1518,6 +1545,7 @@ export async function routeRecoveryCandidate(input) {
     npmAuditFactory,
     attestations,
     releaseRecords,
+    clock,
   } = safeInput(input, [
     "candidate",
     "git",
@@ -1527,14 +1555,16 @@ export async function routeRecoveryCandidate(input) {
     "npmAuditFactory",
     "attestations",
     "releaseRecords",
+    "clock",
   ])
   candidate = snapshotRecoveryData(candidate, 16384)
-  const context = readerContext({ git, github })
+  const context = readerContext({ git, github, clock })
   let reservation = null
   let reservationPath = null
   const reservations = await readRecoveryReservations({
     git,
     terminalRecordRef,
+    ...(clock === undefined ? {} : { clock }),
   })
   for (const { intent, path } of reservations) {
     if (intent.candidate.version !== candidate.version) continue
@@ -1550,6 +1580,7 @@ export async function routeRecoveryCandidate(input) {
   const tag = `v${candidate.version}`
   const opaqueOwnership = await discoverRecoveryReleaseCandidates({
     github,
+    ...(clock === undefined ? {} : { clock }),
     releaseRecords: releases.filter(
       (release) =>
         release.draft === false ||
@@ -1667,6 +1698,7 @@ export async function routeRecoveryCandidate(input) {
     npm,
     npmAuditFactory,
     attestations,
+    ...(clock === undefined ? {} : { clock }),
     controllerRef: terminalRecordRef,
     ...(reservationPath === null ? {} : { intentPath: reservationPath }),
   })
@@ -1688,8 +1720,8 @@ export async function routeRecoveryCandidate(input) {
 // Legacy audit entrypoints explicitly refuse v2; only the independent recovery
 // audit contract may audit or dispatch work for these releases.
 export async function assertLegacyAuditCompatibleRelease(input) {
-  const { release, github } = safeInput(input, ["release", "github"])
-  const context = readerContext({ github })
+  const { release, github, clock } = safeInput(input, ["release", "github", "clock"])
+  const context = readerContext({ github, clock })
   const assets = await context.read("listReleaseAssets", {
     releaseId: release.id,
   })
@@ -1715,8 +1747,8 @@ export async function assertLegacyAuditCompatibleRelease(input) {
 }
 
 export async function readRecoveryReservations(input) {
-  const { git, terminalRecordRef } = safeInput(input, ["git", "terminalRecordRef"])
-  return readReservations(readerContext({ git }), terminalRecordRef)
+  const { git, terminalRecordRef, clock } = safeInput(input, ["git", "terminalRecordRef", "clock"])
+  return readReservations(readerContext({ git, clock }), terminalRecordRef)
 }
 async function readReservations(context, terminalRecordRef) {
   const tree = await context.git("listTree", { ref: terminalRecordRef })
