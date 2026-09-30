@@ -163,11 +163,27 @@ describe("factory up with the real controller, builder and drafter", () => {
     expect(JSON.parse(stdout)).toEqual([])
 
     const stopStarted = Date.now()
-    const exited = new Promise<number | null>((done) => started.once("exit", done))
+    // "close", not "exit": the outer pnpm can end before up does (below), and up holds the
+    // pipes until it exits, so its last line is read before anything is asserted.
+    const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((done) =>
+      started.once("close", (code, signal) => done({ code, signal })),
+    )
     process.kill(-(started.pid as number), "SIGINT")
-    const code = await exited
+    const wrapper = await closed
     const stopMs = Date.now() - stopStarted
-    expect(code, redacted(output)).toBe(0)
+    // How the outer pnpm itself ends is the platform's Ctrl-C convention, not up's outcome: 0
+    // where sh is bash (macOS: every layer execs or waits, up's 0 comes back), but on Debian and
+    // Ubuntu sh is dash, which forks up and dies of the terminal's SIGINT, and pnpm reports a
+    // child ended by SIGINT as 130 or ends by SIGINT itself. Only those three; up's own outcome
+    // is asserted below, on what it printed, the lock and the processes.
+    expect(
+      [
+        { code: 0, signal: null },
+        { code: 130, signal: null },
+        { code: null, signal: "SIGINT" },
+      ],
+      redacted(output),
+    ).toContainEqual(wrapper)
     expect(stopMs).toBeLessThan(60_000)
     // Detached, each app got exactly one SIGTERM from up and closed cleanly (review C1): exit
     // code 0, never "by signal". A child killed mid-close is a finding, not a flake: read its log.

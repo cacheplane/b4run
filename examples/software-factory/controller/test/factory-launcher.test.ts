@@ -38,10 +38,20 @@ describe("the factory script's launcher", () => {
   // relay within about 30 ms, and up is busy for longer than that while it starts its ordered
   // stop: its detached workers were orphaned. up must be the process the script starts.
   it("lets a busy child that handles one Ctrl-C, relayed as pnpm relays it, exit by its own hand", async () => {
-    expect(factoryScript).toContain("src/cli.ts")
+    // pnpm runs the script with `sh -c`. bash (macOS's sh) execs a lone command, so the
+    // script's command is the process pnpm relays to and all three signals reach it. dash
+    // (Debian's and Ubuntu's sh) forks it instead and dies of the terminal's SIGINT itself, so
+    // pnpm's relays land on a dead sh and the command sees one SIGINT only. The test starts the
+    // command as bash does, without a shell, so every platform drives the harder case: and a
+    // shell exiting first can never end the wait before the stand-in has. That needs the script
+    // to be plain words, which splitting on spaces then reads exactly as sh would.
+    expect(factoryScript).toMatch(/^[\w@./=:+-]+( [\w@./=:+-]+)*$/)
+    const argv = factoryScript.split(" ")
+    expect(argv).toContain("src/cli.ts")
     dir = mkdtempSync(join(tmpdir(), "factory-launcher-"))
     const report = join(dir, "report")
-    const child = spawn("/bin/sh", ["-c", factoryScript.replace("src/cli.ts", probe)], {
+    const [command, ...args] = argv.map((word) => (word === "src/cli.ts" ? probe : word))
+    const child = spawn(command as string, args, {
       cwd: packageRoot,
       env: {
         ...process.env,
