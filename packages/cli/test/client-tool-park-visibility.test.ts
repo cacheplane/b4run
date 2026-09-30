@@ -242,6 +242,40 @@ describe("approval surfaces never show a client tool park", () => {
   })
 })
 
+describe("Agent Protocol runs never run over a parked client call", () => {
+  // A new run's input would make LangGraph discard the park, leaving the
+  // model's tool call with no ToolMessage and nothing for AG-UI to close.
+  for (const endpoint of ["stream", "wait"] as const) {
+    test(`POST runs/${endpoint} is refused with 409 client_tool_pending, and frees the run slot`, async () => {
+      const { url } = await startFixture([clientWrite])
+      const threadId = `thread-ap-${endpoint}`
+      await seedRoute(url, threadId)
+
+      const refused = await postRun(url, threadId, endpoint)
+      expect(refused.status).toBe(409)
+      expect(await codeOf(refused)).toBe("client_tool_pending")
+      // The slot is released: a second attempt gets the same refusal, not run_in_flight.
+      const again = await postRun(url, threadId, endpoint)
+      expect(await codeOf(again)).toBe("client_tool_pending")
+    })
+
+    test(`POST runs/${endpoint} beside a permission park is refused as client_tool_pending too`, async () => {
+      const { url } = await startFixture([permissionWrite, clientWrite])
+      const threadId = `thread-ap-mixed-${endpoint}`
+      await seedRoute(url, threadId)
+      const refused = await postRun(url, threadId, endpoint)
+      expect(refused.status).toBe(409)
+      expect(await codeOf(refused)).toBe("client_tool_pending")
+    })
+  }
+
+  test("a permission park alone does not trip the client-park refusal", async () => {
+    const { url } = await startFixture([permissionWrite])
+    const response = await postRun(url, "thread-ap-permission-only", "wait")
+    expect(await codeOf(response)).not.toBe("client_tool_pending")
+  })
+})
+
 describe("the AG-UI path never answers a client park from a route without client tools", () => {
   // Neither fixture opts a route in to client tools. A trailing tool message
   // is refused with 409 client_tool_pending: this route never answers a
@@ -419,7 +453,12 @@ async function startFixture(writes: readonly unknown[]): Promise<{ url: string }
       export default {
         approvals: { grants: "off" },
         checkpointer: {
-          getTuple: async () => (${JSON.stringify(tuple)}),
+          // The park is hidden while seedRoute records the thread's route:
+          // an Agent Protocol run over a parked client call is refused.
+          getTuple: async () =>
+            globalThis.__b4HideClientPark
+              ? { ...${JSON.stringify(tuple)}, pendingWrites: [] }
+              : (${JSON.stringify(tuple)}),
         },
       };
     `,
@@ -434,12 +473,26 @@ async function startFixture(writes: readonly unknown[]): Promise<{ url: string }
 }
 
 async function seedRoute(serverUrl: string, threadId: string): Promise<void> {
-  const response = await fetch(new URL(`/threads/${threadId}/runs/wait`, serverUrl), {
+  const flags = globalThis as { __b4HideClientPark?: boolean }
+  flags.__b4HideClientPark = true
+  try {
+    const response = await postRun(serverUrl, threadId, "wait")
+    expect(response.status).toBe(200)
+  } finally {
+    flags.__b4HideClientPark = false
+  }
+}
+
+async function postRun(
+  serverUrl: string,
+  threadId: string,
+  endpoint: "stream" | "wait",
+): Promise<Response> {
+  return fetch(new URL(`/threads/${threadId}/runs/${endpoint}`, serverUrl), {
     body: JSON.stringify({ input: {}, route: "/noop#graph" }),
     headers: { "content-type": "application/json" },
     method: "POST",
   })
-  expect(response.status).toBe(200)
 }
 
 async function postResume(serverUrl: string, threadId: string, body: unknown): Promise<Response> {

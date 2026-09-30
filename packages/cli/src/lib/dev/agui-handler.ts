@@ -841,13 +841,8 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     const clientToolStore = clientToolRuntime.store
     // The calls this request resumes: the only ones whose ANSWERED record
     // may still stand behind a replayed stub.
-    const resumingToolCallIds: ReadonlySet<string> = new Set(
-      clientTurn.mode === "resume"
-        ? clientParks.flatMap((park) =>
-            isClientToolCallEnvelope(park.value) ? [park.value.toolCallId] : [],
-          )
-        : [],
-    )
+    const resumingToolCallIds: ReadonlySet<string> =
+      clientTurn.mode === "resume" ? clientToolCallIds(clientParks) : new Set()
     const clientToolRecorder: ClientToolRecorder | undefined =
       runClientTools.length > 0 && clientToolStore
         ? {
@@ -1449,10 +1444,8 @@ async function voidSettledClientToolCalls(
   try {
     const outstanding = await store.listOutstanding(threadId)
     if (outstanding.length === 0) return
-    const stillParked = new Set(
-      ((await readPendingInterrupts(checkpointer, threadId))?.interrupts ?? []).flatMap((park) =>
-        isClientToolCallEnvelope(park.value) ? [park.value.toolCallId] : [],
-      ),
+    const stillParked = clientToolCallIds(
+      (await readPendingInterrupts(checkpointer, threadId))?.interrupts ?? [],
     )
     const toolCallIds = outstanding
       .map((row) => row.toolCallId)

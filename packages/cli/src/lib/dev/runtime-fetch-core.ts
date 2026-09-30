@@ -2435,6 +2435,39 @@ async function dispatch(
 // AP stream handler
 // ---------------------------------------------------------------------------
 
+/**
+ * The Agent Protocol refusal while a client-provided tool call is parked. It
+ * is answered, or abandoned, only through the AG-UI endpoint.
+ */
+function clientToolPendingOnAgentProtocol(): Response {
+  return Response.json(
+    createRequestErrorBody(
+      "A client-provided tool call is pending on this thread; it is answered or abandoned through the AG-UI endpoint.",
+      { code: "client_tool_pending" },
+    ),
+    { status: 409 },
+  )
+}
+
+/**
+ * `409 client_tool_pending` when a client tool call is parked on the thread,
+ * for the Agent Protocol run endpoints (`runs/stream`, `runs/wait`). A new
+ * run's input makes LangGraph discard the park, which would leave the model's
+ * tool call with no ToolMessage: every later model call on the thread is then
+ * rejected by the provider, and no park remains for an AG-UI abandon to close.
+ * Only the AG-UI endpoint can answer or close the call. Read after the
+ * thread-access gate (never an oracle on another caller's thread), under the
+ * run slot. A thread with no checkpoint has nothing parked.
+ */
+async function refuseOverParkedClientToolCall(
+  checkpointer: BaseCheckpointSaver,
+  threadId: string,
+): Promise<Response | undefined> {
+  const snapshot = await readPendingInterrupts(checkpointer, threadId)
+  if (!snapshot?.interrupts.some((entry) => isClientToolPark(entry.value))) return undefined
+  return clientToolPendingOnAgentProtocol()
+}
+
 async function handleApStreamRequest(options: {
   readonly approvalGrants: ApprovalGrantRuntime
   readonly appRoot: string
@@ -2586,6 +2619,19 @@ async function handleApStreamRequest(options: {
       }),
       { status: 409 },
     )
+  }
+  // Under the run slot, so no AG-UI turn can park between this read and the
+  // run. See refuseOverParkedClientToolCall.
+  let parkedClientCall: Response | undefined
+  try {
+    parkedClientCall = await refuseOverParkedClientToolCall(checkpointer, threadId)
+  } catch (error) {
+    run.release()
+    throw error
+  }
+  if (parkedClientCall) {
+    run.release()
+    return parkedClientCall
   }
 
   // Taken from the thread already loaded above, so the turn's own settle call
@@ -2981,6 +3027,19 @@ async function handleApWaitRequest(options: {
       }),
       { status: 409 },
     )
+  }
+  // Under the run slot, so no AG-UI turn can park between this read and the
+  // run. See refuseOverParkedClientToolCall.
+  let parkedClientCall: Response | undefined
+  try {
+    parkedClientCall = await refuseOverParkedClientToolCall(checkpointer, threadId)
+  } catch (error) {
+    run.release()
+    throw error
+  }
+  if (parkedClientCall) {
+    run.release()
+    return parkedClientCall
   }
 
   // See handleApStreamRequest: taken from the thread already loaded above.
@@ -3912,13 +3971,7 @@ async function handleResumeRequest(options: {
     // invalid tool. Mixed parks must be answered in ONE resume covering every
     // pending park, which only the AG-UI path can do.
     if (pendingSnapshot.interrupts.some((entry) => isClientToolPark(entry.value))) {
-      return Response.json(
-        createRequestErrorBody(
-          "A client-provided tool call is pending on this thread; it is answered through the AG-UI endpoint, not the resume endpoint.",
-          { code: "client_tool_pending" },
-        ),
-        { status: 409 },
-      )
+      return clientToolPendingOnAgentProtocol()
     }
     const pendingInterrupts = pendingSnapshot
     const resumeResolution = resolvePendingResume(body.resume, pendingInterrupts)
