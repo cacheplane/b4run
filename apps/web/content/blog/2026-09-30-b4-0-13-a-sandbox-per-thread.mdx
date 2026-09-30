@@ -1,0 +1,179 @@
+---
+title: "B4.run 0.13: A sandbox per thread"
+description: "Learn what 0.13 adds for agents that each need their own environment: per-thread images, limits and permissions, workspaces handed over at creation and read back over HTTP."
+date: 2026-09-30
+tags: [typescript, agents]
+type: release
+version: 0.13.0
+author: brian
+---
+
+Until now, a B4.run app had one sandbox configuration. Every thread got the same image, the same limits and the same allow-list. That's fine for a chat assistant. It falls apart when each thread is a different job.
+
+I ran into this building a software factory on B4.run. A controller hands a work order to a worker agent, the worker fixes a bug in its own container, and the controller checks the result. Each work order needs its own repository snapshot, and some need a different toolchain. The controller runs somewhere else, so it can't just drop files onto the worker's disk.
+
+B4.run 0.13 moves those decisions from the app to the thread. Let's walk through what that looks like.
+
+## Goals
+
+We want each thread to:
+
+1. Run in its own image, with its own resource limits.
+2. Have its own allow-list for the shell and filesystem.
+3. Start from a workspace that another process chose.
+4. Be readable from that other process when the work is done.
+
+If your app gives every thread the same environment, you don't need any of this. Your configuration keeps working as it is, with a few upgrade notes at the end.
+
+## Decide the sandbox per thread
+
+Since 0.10 you could make `sandbox.workspace` a function of the thread, so each thread started from different files. In 0.13, `sandbox.thread` goes further and decides the whole sandbox: workspace, image, policy and permissions.
+
+Here's a builder app where each thread names a target in its metadata:
+
+```ts
+// b4.config.ts
+const targets: Record<string, { image: string; memoryMb: number }> = {
+  small: { image: "builder-small:1a2b3c4d5e6f", memoryMb: 1024 },
+  large: { image: "builder-large:6f5e4d3c2b1a", memoryMb: 8192 },
+}
+
+export default config({
+  sandbox: {
+    provider: dockerSandbox({
+      scope: "builder",
+      images: (reference) => Object.values(targets).some((t) => t.image === reference),
+    }),
+    network: { mode: "deny" },
+    thread: async ({ threadId, metadata }) => {
+      const target = targets[String(metadata.target ?? "")]
+      if (!target) throw new Error(`thread ${threadId} names no known target`)
+      return {
+        workspace: { source: { directory: "project", include: ["package.json", "src/index.ts"] } },
+        environment: { image: target.image },
+        policy: { resources: { memoryMb: target.memoryMb } },
+        permissions: { allow: { bash: ["npm test"] } },
+      }
+    },
+  },
+})
+```
+
+A few things to note:
+
+1. The resolver runs once, when the thread is first admitted. B4.run records what it returned, so later turns, restarts and readers all see the same sandbox. Changing the resolver never changes a thread that already exists.
+2. `images` on `dockerSandbox()` bounds what a resolver can name. Any other image is refused before a single Docker command runs.
+3. A thread can narrow the app's network, but it can't open a network the app denies. `security` stays the app's.
+4. `sandbox.thread` and `sandbox.workspace` are exclusive, and `b4 check` refuses both together.
+
+One limit to be upfront about: the Kubernetes provider doesn't have managed workspaces, so it refuses `sandbox.thread`. Per-thread sandboxes are Docker-only for now. The [Sandbox guide](/docs/sandbox#per-thread-sandboxes) has the full rules.
+
+## Give each thread its own permissions
+
+Did you notice the `permissions` in that resolver? When a resolver returns them, that thread gets its own allow-list in place of the app's.
+
+Let's quickly review how the two combine:
+
+- The thread's `allow` replaces the app's. A thread that sets only `deny` starts with nothing allowed.
+- Denials add up. The app's denials and the thread's both apply, and a denial always wins.
+- The mode stays the app's.
+- An **Always** decision is saved to that thread's record, not to `.b4/permissions.json`. It applies to later turns and subagents of that thread, and it goes away when the thread is deleted.
+
+Why does this matter? Before, a reviewer clicking **Always** on `npm install` in one thread granted it to every thread in the app. Now that grant stays where it was given. See [Per-thread permissions](/docs/permissions#per-thread-permissions) for the details.
+
+## Hand a thread its workspace
+
+So far the worker's own config decides the files. In a factory, the controller should decide, and it may live on another host with no shared filesystem.
+
+`sandbox.stagedWorkspaces` solves that. The creator uploads a content-addressed bundle of files, then names it when it creates the thread:
+
+```ts
+// b4.config.ts
+export default config({
+  sandbox: {
+    provider: dockerSandbox({ scope: "my-app", image: "node:24-slim" }),
+    stagedWorkspaces: true,
+    thread: async (thread) => {
+      if (!thread.staged) throw new Error("create threads with a staged workspace")
+      return { workspace: thread.staged }
+    },
+  },
+})
+```
+
+```bash
+curl -X PUT "$WORKER/workspace/sources/$DIGEST" -H "authorization: Bearer $TOKEN" --data-binary @source.json
+curl -X POST "$WORKER/threads" -H "authorization: Bearer $TOKEN" \
+  -d '{"metadata":{},"workspace":{"sourceDigest":"'$DIGEST'","environmentLinks":[],"baseline":"git"}}'
+```
+
+Let's break that down:
+
+1. The upload is verified byte for byte against the digest in its path.
+2. The create names that digest. A thread can only name a source that was uploaded, never one stored for another thread.
+3. At the thread's first run, the bytes are verified again and the resolver receives them as `thread.staged`. It can accept them, check them or refuse them.
+
+Handing the staged workspace straight back, as the example does, trusts the creator with more than files. `environmentLinks` can point at any absolute path in the image. If not every creator should choose those, check them in the resolver.
+
+This option also requires a thread-access policy, and `b4 check` refuses it without one. Uploads arrive as a new `workspace.source.put` operation, so turning this on means reviewing your policy's `create` handler. A handler written before 0.13 lets both through unless it checks `req.requestedWorkspace`. The [Thread access guide](/docs/thread-access#workspace-endpoints) shows how to keep one caller from choosing another caller's upload.
+
+## Read the workspace back
+
+The last piece closes the loop. The worker is done, and the controller wants to see what it produced.
+
+Turn on `sandbox.workspaceRead: "http"` and the worker serves a bounded, read-only inventory of a thread's workspace. The client lives in `@b4run/cli/workspace`:
+
+```ts
+import { readThreadWorkspace } from "@b4run/cli/workspace"
+
+const read = await readThreadWorkspace(
+  "http://worker:4100",
+  threadId,
+  { root: "draft", excludeRootDirectories: [".git"] },
+  { headers: { authorization: `Bearer ${token}` }, expectedSourceDigest },
+)
+
+read.inspection.files // relative to `root`
+```
+
+The read happens in a separate, networkless container that mounts the workspace read-only. It holds the thread's run slot, so it never overlaps a turn. Pass `expectedSourceDigest` and the client refuses an answer about a different workspace.
+
+Like staged workspaces, this needs a thread-access policy, which sees the read as the new `thread.workspace` operation.
+
+## Smaller things
+
+A few more changes I think you'll notice.
+
+### `editFile` and ranged reads
+
+Workspace agents get an `editFile` tool. It replaces an exact span of text in an existing file, and refuses when the text is missing or appears more than once instead of guessing. `readFile` also accepts `startLine` and `endLine`.
+
+Together they steer models away from rewriting a whole large file to change one line, which is how files got truncated. A route that denies `writeFile` loses `editFile` too, so read-only routes stay read-only.
+
+### Recordings that match production
+
+`b4 eval --record` now refuses to write a fixture that replay would reject, such as a turn with an empty assistant message. You get `Refused to record <eval> › <case>` at record time instead of a confusing replay failure later.
+
+`createAgentHarness` and `defineEval` also accept a `responseSchema`, so a harness run sends the model the same structured-output constraint a Hashbrown client sends in production. A recording made without it could capture replies production never produces.
+
+### Faster workspaces
+
+Inspecting a container workspace used to cost one `docker exec` per file. Batched walks and reads bring 1,214 entries from 143 seconds to about 1 second on Docker, and the Kubernetes backend gets the same treatment. Warm calls on a managed workspace no longer re-verify the entire source bundle each time, which took a 951-file workspace from about 340 ms per call to about 0.1 ms.
+
+## Upgrade notes
+
+Pin every direct `@b4run/*` dependency to `0.13.0` together, then check these:
+
+1. **Rebuild `node` target apps that have a thread-access policy.** This is a security fix. A built `node` app looked for `src/thread-access.ts` on disk at boot, and a missing file read as "no policy", so every thread endpoint served ungated. The policy is now part of the build, and a missing one stops the server from starting. The `hono` and `vercel` targets already worked this way.
+2. **Unknown `sandbox` keys are refused.** A misspelled key used to be ignored silently. `b4 check`, `b4 build` and startup now reject it.
+3. **The default sandbox network is plain `{ mode: "allow" }`.** The old default listed the cloud metadata endpoint in a `denylist` that neither provider enforced. Nothing changed at runtime, but the config no longer claims a block that never happened. On a cloud VM, set `network: { mode: "deny" }` or block that endpoint outside B4.run.
+4. **`ThreadAccessRequest.requestedWorkspace` is a new required field**, and `ThreadOperation` gains `"workspace.source.put"` and `"thread.workspace"`. An exhaustive `switch` needs the new cases, and code that builds a request by hand needs `requestedWorkspace: undefined`.
+5. **`POST /threads` refuses a `workspace` field it won't serve** with `400 workspace_not_accepted`, instead of ignoring it.
+
+Then run `npx b4 verify`, your tests and your evals. The [Upgrading guide](/docs/upgrading) covers the general process.
+
+## Conclusion
+
+An app with one sandbox is a great place to start. Once each thread is a different job, the environment belongs to the thread: its image, its limits, its permissions and its files.
+
+0.13 gives you each of those pieces separately, so you can adopt only what you need. Start with `sandbox.thread` if your threads need different toolchains. Add staged workspaces and HTTP reads when another process is choosing the work and checking the result.
