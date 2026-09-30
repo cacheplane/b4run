@@ -1,3 +1,4 @@
+import { isClientToolCallEnvelope } from "@b4run/core"
 import type { BaseCheckpointSaver, CheckpointTuple } from "@langchain/langgraph-checkpoint"
 
 export type PermissionDecision = "once" | "always" | "deny"
@@ -152,6 +153,31 @@ export function parsePendingInterrupts(tuple: CheckpointTuple): PendingInterrupt
   }
 
   return { interrupts, malformed }
+}
+
+/**
+ * The snapshot minus client tool parks — the view every approval surface uses.
+ *
+ * A client tool call parks with LangGraph `interrupt()` just like a permission
+ * prompt, but it is not a prompt: the client answers it by sending the tool's
+ * result as a `role: "tool"` message on its next run, never through an
+ * approval endpoint. So it is not listed, not re-rendered on attach, and not
+ * addressable by `POST /threads/:id/resume` — which also means that
+ * endpoint's exact-set rule is over the permission parks alone: with a
+ * permission park and a client park both pending, a resume naming only the
+ * permission park is the complete answer to what that endpoint owns. The
+ * client park stays parked (LangGraph re-raises it when the node re-runs).
+ *
+ * `malformed` is carried over from the full set: a malformed write anywhere
+ * still makes the checkpoint unsafe to address.
+ */
+export function withoutClientToolParks(
+  snapshot: PendingInterruptSnapshot,
+): PendingInterruptSnapshot {
+  return {
+    interrupts: snapshot.interrupts.filter((entry) => !isClientToolCallEnvelope(entry.value)),
+    malformed: snapshot.malformed,
+  }
 }
 
 export async function readPendingInterrupts(

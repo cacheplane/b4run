@@ -68,6 +68,7 @@ import {
   parsePendingInterrupts,
   readPendingInterrupts,
   resolvePendingResume,
+  withoutClientToolParks,
 } from "./pending-interrupts.js"
 import { extractRouteParams } from "./request-context.js"
 import { createRunRegistry, type RunRegistry } from "./run-registry.js"
@@ -3450,7 +3451,10 @@ async function handleApPendingInterruptsRequest(options: {
   // A malformed pending-write set is still listed — this endpoint reports what
   // is parked, and POST /resume is the surface that refuses to act on writes it
   // cannot address safely (malformed_checkpoint).
-  const snapshot = await readPendingInterrupts(checkpointer, threadId)
+  // Client tool parks are not prompts: the client answers them with a tool
+  // message on its next run, so they are never listed here.
+  const pendingSnapshot = await readPendingInterrupts(checkpointer, threadId)
+  const snapshot = pendingSnapshot ? withoutClientToolParks(pendingSnapshot) : null
   // `grant` is lifted alongside the verbatim `value` so a reconnecting client
   // can answer the prompt without knowing the envelope's shape. Re-readable by
   // design: single-use is a property of CONSUMPTION, not of disclosure, and a
@@ -3658,14 +3662,14 @@ async function handleApAttachRequest(options: {
       // Same lift as GET /threads/:id/pending_interrupts, and gated the same
       // way (`thread.attach`). Both are channels that already carry the
       // prompt, which is the whole reason the grant rides on them.
-      const interrupts = (durableTuple ? parsePendingInterrupts(durableTuple).interrupts : []).map(
-        ({ interruptId, resumeKey, value }) => ({
-          interruptId,
-          resumeKey,
-          value,
-          ...(grantOf(value) !== undefined ? { grant: grantOf(value) } : {}),
-        }),
-      )
+      const interrupts = (
+        durableTuple ? withoutClientToolParks(parsePendingInterrupts(durableTuple)).interrupts : []
+      ).map(({ interruptId, resumeKey, value }) => ({
+        interruptId,
+        resumeKey,
+        value,
+        ...(grantOf(value) !== undefined ? { grant: grantOf(value) } : {}),
+      }))
       yield encodeEvent("state", {
         anchor: null,
         input: null,
@@ -3850,8 +3854,8 @@ async function handleResumeRequest(options: {
 
   let claimTransferredToStream = false
   try {
-    const pendingInterrupts = await readPendingInterrupts(checkpointer, threadId)
-    if (!pendingInterrupts) {
+    const pendingSnapshot = await readPendingInterrupts(checkpointer, threadId)
+    if (!pendingSnapshot) {
       return Response.json(
         createRequestErrorBody("Thread not found", {
           code: "thread_not_found",
@@ -3860,6 +3864,11 @@ async function handleResumeRequest(options: {
       )
     }
 
+    // A client tool park is not this endpoint's to answer: excluded before the
+    // exact-set match, so naming one is stale (alone) or a set mismatch (with a
+    // permission park), and a permission park pending beside one is answerable
+    // on its own. See `withoutClientToolParks`.
+    const pendingInterrupts = withoutClientToolParks(pendingSnapshot)
     const resumeResolution = resolvePendingResume(body.resume, pendingInterrupts)
     if (!resumeResolution.ok) {
       return Response.json(

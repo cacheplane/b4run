@@ -3,6 +3,7 @@ import { RunAgentInputSchema } from "@ag-ui/core"
 import { type B4AgentStreamChunk, fromRunAgentInput, toAguiEvents } from "@b4run/ag-ui"
 import { encodeAgUiSse } from "@b4run/ag-ui/sse"
 import type { B4Config, MemoryStoreLike } from "@b4run/core"
+import { CLIENT_TOOL_PREFIX, isClientToolCallEnvelope } from "@b4run/core"
 import type { PermissionsStore } from "@b4run/permissions"
 import type {
   MiddlewareAfterHook,
@@ -34,6 +35,7 @@ import {
   type PendingResumeClaims,
   readPendingInterrupts,
   resolvePendingResume,
+  withoutClientToolParks,
 } from "./pending-interrupts.js"
 import { extractRouteParams } from "./request-context.js"
 import { readResponseFormat, rejectResponseSchema } from "./response-schema.js"
@@ -160,8 +162,32 @@ async function* tapLiveTurn(
   }
 }
 
+/**
+ * The name the client registered for a model-visible tool name: `client_<n>`
+ * becomes `<n>` only when `<n>` is one of THIS run's client tools, because
+ * CopilotKit dispatches a frontend tool by the name it registered. Any other
+ * name — a server tool that merely starts with the prefix included — is left
+ * alone.
+ */
+function clientFacingToolName(name: string, clientToolNames: ReadonlySet<string>): string {
+  if (!name.startsWith(CLIENT_TOOL_PREFIX)) return name
+  const bare = name.slice(CLIENT_TOOL_PREFIX.length)
+  return clientToolNames.has(bare) ? bare : name
+}
+
+/**
+ * StreamChunk → the AG-UI mapper's vocabulary.
+ *
+ * Also where a client tool call stops looking like a park: its `interrupt`
+ * chunk is dropped here, so `toAguiEvents` never collects it and the turn
+ * ends with an ordinary `RUN_FINISHED` — the client runs the tool from the
+ * tool-call frames and answers with a `role: "tool"` message next run.
+ * `observeInterrupts` sits upstream and still sees it, so the turn is still
+ * recorded as parked. Permission parks pass through untouched.
+ */
 async function* normalizeB4Stream(
   chunks: AsyncIterable<StreamChunk>,
+  clientToolNames: ReadonlySet<string> = new Set(),
 ): AsyncGenerator<B4AgentStreamChunk> {
   for await (const chunk of chunks) {
     switch (chunk.type) {
@@ -180,7 +206,7 @@ async function* normalizeB4Stream(
           type: "tool_call",
           data: {
             ...(toolCall.id ? { id: toolCall.id } : {}),
-            name: toolCall.name,
+            name: clientFacingToolName(toolCall.name, clientToolNames),
             input: toolCall.input,
           },
         }
@@ -192,10 +218,29 @@ async function* normalizeB4Stream(
           type: "tool_result",
           data: {
             ...(toolResult.id ? { id: toolResult.id } : {}),
-            name: toolResult.name,
+            name: clientFacingToolName(toolResult.name, clientToolNames),
             output: toolResult.output,
           },
         }
+        break
+      }
+      case "tool_call_args": {
+        // Streamed argument deltas open TOOL_CALL_START ahead of the announce,
+        // so they must carry the same client-facing name the announce does.
+        const data = (chunk as { readonly data: unknown }).data
+        yield {
+          type: "tool_call_args",
+          data:
+            isRecord(data) && typeof data.name === "string"
+              ? { ...data, name: clientFacingToolName(data.name, clientToolNames) }
+              : data,
+        }
+        break
+      }
+      case "interrupt": {
+        const data = (chunk as { readonly data: unknown }).data
+        if (isClientToolCallEnvelope(data)) break
+        yield { type: "interrupt", data }
         break
       }
       case "done":
@@ -212,6 +257,13 @@ async function* normalizeB4Stream(
     }
   }
 }
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/** Test seam: the stream normalizer, exported only for unit tests. */
+export const __normalizeB4StreamForTests = normalizeB4Stream
 
 export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): Promise<Response> {
   const {
@@ -438,10 +490,15 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     const newestUserMessage = [...b4Input.messages]
       .reverse()
       .find((message) => message.role === "user")
-    const pending = (await readPendingInterrupts(checkpointer, input.threadId)) ?? {
-      interrupts: [],
-      malformed: false,
-    }
+    // Client tool parks are excluded from the permission resolution and the
+    // grant gate: they are answered by a `role: "tool"` message, not by a
+    // resume entry. (Matching those messages to their parks is separate.)
+    const pending = withoutClientToolParks(
+      (await readPendingInterrupts(checkpointer, input.threadId)) ?? {
+        interrupts: [],
+        malformed: false,
+      },
+    )
     const resumeResolution = resolvePendingResume(b4Input.resume, pending)
     if (!resumeResolution.ok) {
       return Response.json(
