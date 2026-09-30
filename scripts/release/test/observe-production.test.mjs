@@ -5935,8 +5935,15 @@ test("the production observer and resolver both require an explicit terminal rec
   )
 })
 
-for (const status of ["queued", "pending", "requested"]) {
-  test(`unstarted first publisher attempt accepts complete empty jobs: ${status}`, async () => {
+for (const [status, conclusion] of [
+  ["queued", null],
+  ["pending", null],
+  ["requested", null],
+  // Cancelled before it started: 21 of the 27 cancelled release.yml runs
+  // (e.g. 31356940801) report exactly zero jobs on attempt 1.
+  ["completed", "cancelled"],
+]) {
+  test(`unstarted first publisher attempt accepts complete empty jobs: ${status}/${conclusion}`, async () => {
     const run = {
       id: 400,
       run_attempt: 1,
@@ -5944,7 +5951,7 @@ for (const status of ["queued", "pending", "requested"]) {
       path: candidate().publisherWorkflow,
       head_branch: `v${VERSION}`,
       status,
-      conclusion: null,
+      conclusion,
     }
     const calls = []
     const github = githubReader({
@@ -6001,6 +6008,10 @@ test("ordinary no-candidate push skips remote arbitration after immutable mainte
 })
 
 for (const [label, change] of [
+  [
+    "cancelled while the listing shows it pending",
+    { status: "completed", conclusion: "cancelled" },
+  ],
   ["started", { status: "in_progress" }],
   ["retried", { run_attempt: 2 }],
   ["completed", { status: "completed", conclusion: "success" }],
@@ -6043,6 +6054,46 @@ for (const [label, change] of [
       })
       assert.ok(diagnostics.some((entry) => entry.code === "PUBLISHER_JOB_HISTORY_INVALID"))
     }
+  })
+}
+for (const [label, change] of [
+  ["a zero-job startup failure", { status: "completed", conclusion: "startup_failure" }],
+  ["a cancelled rerun attempt", { status: "completed", conclusion: "cancelled", run_attempt: 2 }],
+  ["a waiting run", { status: "waiting", conclusion: null }],
+]) {
+  test(`empty publisher jobs stay fail-closed for ${label}`, async () => {
+    const run = {
+      id: 400,
+      run_attempt: 1,
+      head_sha: COMMIT_SHA,
+      path: candidate().publisherWorkflow,
+      head_branch: `v${VERSION}`,
+      ...change,
+    }
+    const github = githubReader({
+      async listWorkflowRuns({ workflow }) {
+        return present("workflow-runs", workflow === "ci.yml" ? ciRuns() : [run])
+      },
+      async getActionsRun() {
+        return present("actions-run", run)
+      },
+      async listActionsRunJobsComplete() {
+        return present("actions-run-jobs-complete", [])
+      },
+      async listActionsRunJobs() {
+        return envelope("ERROR", "actions-run-jobs", 200, "ATTEMPT_COVERAGE_INCOMPLETE")
+      },
+    })
+    const { diagnostics } = await observeProductionCandidate({
+      terminalRecordRef: "HEAD",
+      candidate: candidate(),
+      inventory: inventory(),
+      marker: MARKER,
+      git: gitReader(),
+      github,
+      npm: npmReader(),
+    })
+    assert.ok(diagnostics.some((entry) => entry.code === "PUBLISHER_JOB_HISTORY_INVALID"))
   })
 }
 for (const mode of ["unavailable", "nonempty", "started", "retried", "completed"]) {

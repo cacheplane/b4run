@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto"
 import { canonicalAbandonmentBytes, parseAbandonmentReleaseBody } from "./abandonment.mjs"
-import { normalizeAdapterEnvelope, snapshotJson } from "./adapter-normalize.mjs"
+import {
+  isUnstartedFirstAttempt,
+  normalizeAdapterEnvelope,
+  snapshotJson,
+} from "./adapter-normalize.mjs"
 import { extractActionsArtifactZip } from "./artifact-store.mjs"
 import { auditExecutorIdentity, authorizeAuditExecutor } from "./audit-executor.mjs"
 import { discoverManagedCandidate, discoverScheduledCandidate } from "./candidate.mjs"
@@ -4580,25 +4584,18 @@ async function observeProductionPublicationHistory({
         runAttempt: value.run_attempt,
         status: value.status,
         conclusion: value.conclusion,
+        listed: value,
       })
     }
   }
 
   let started = false
   for (const run of runs) {
-    const unstartedFirstAttempt =
-      run.runAttempt === 1 &&
-      run.conclusion === null &&
-      ["queued", "pending", "requested"].includes(run.status)
+    // Queued behind this run, or cancelled before it started: no jobs, and so
+    // no publication history, once the empty listing is bracketed exactly.
+    const unstartedFirstAttempt = isUnstartedFirstAttempt(run.listed)
     const matchesUnstartedRun = (result) =>
-      result.status === "PRESENT" &&
-      result.value?.id === run.id &&
-      result.value.run_attempt === 1 &&
-      result.value.head_sha === candidate.commitSha &&
-      result.value.path === candidate.publisherWorkflow &&
-      result.value.head_branch === `v${candidate.version}` &&
-      result.value.status === run.status &&
-      result.value.conclusion === null
+      result.status === "PRESENT" && isUnstartedFirstAttempt(result.value, run.listed)
     if (unstartedFirstAttempt) {
       const readRun = () =>
         observeAdapter(() => github.getActionsRun({ runId: run.id }), {

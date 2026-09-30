@@ -172,6 +172,93 @@ test("rejects incomplete normalized job-attempt coverage for any candidate workf
   assert.equal(fixture.npmCalls.length, 42)
 })
 
+function withSiblingRun(fixture, sibling, { reads, jobs = [] } = {}) {
+  const listed = {
+    id: 702,
+    run_attempt: 1,
+    event: "workflow_dispatch",
+    head_sha: COMMIT_SHA,
+    head_branch: `v${VERSION}`,
+    path: ".github/workflows/release.yml",
+    actor: { id: 7_002, login: "release-bot" },
+    ...sibling,
+  }
+  const pending = reads === undefined ? [listed, listed] : reads(listed)
+  const calls = []
+  fixture.setWorkflowRuns([fixture.run, listed])
+  fixture.input.github.getActionsRun = async ({ runId }) => {
+    calls.push(["run", runId])
+    return present("actions-run", pending.shift())
+  }
+  fixture.input.github.listActionsRunJobsComplete = async ({ runId }, options) => {
+    calls.push(["jobs-complete", runId, options])
+    return present("actions-run-jobs-complete", jobs)
+  }
+  return { listed, calls }
+}
+
+for (const [label, sibling] of [
+  ["queued behind the abandonment run", { status: "queued", conclusion: null }],
+  ["cancelled before it started", { status: "completed", conclusion: "cancelled" }],
+]) {
+  test(`accepts a zero-job sibling release run ${label}`, async () => {
+    const fixture = authorityFixture()
+    const { calls } = withSiblingRun(fixture, sibling)
+
+    const result = await captureFreshAbandonmentEvidence(fixture.input)
+
+    assert.equal(result.actionsHistory.publishJobStarted, false)
+    assert.deepEqual(calls, [
+      ["run", 702],
+      ["jobs-complete", 702, { allowEmptyFirstAttempt: true }],
+      ["run", 702],
+    ])
+    assert.equal(fixture.actionsJobReads, 1)
+  })
+}
+
+test("rejects a zero-job sibling release run it cannot prove unstarted", async (t) => {
+  const queued = { status: "queued", conclusion: null }
+  const cases = [
+    [
+      "starts between the bracketing reads",
+      queued,
+      (listed) => [listed, { ...listed, status: "in_progress" }],
+    ],
+    [
+      "reruns between the bracketing reads",
+      queued,
+      (listed) => [listed, { ...listed, run_attempt: 2 }],
+    ],
+  ]
+  for (const [name, sibling, reads] of cases) {
+    await t.test(name, async () => {
+      const fixture = authorityFixture()
+      withSiblingRun(fixture, sibling, { reads })
+      await assert.rejects(captureFreshAbandonmentEvidence(fixture.input), /not proven unstarted/u)
+    })
+  }
+  await t.test("a zero-job startup failure", async () => {
+    const fixture = authorityFixture()
+    withSiblingRun(fixture, { status: "completed", conclusion: "startup_failure" })
+    const original = fixture.input.github.listActionsRunJobs
+    fixture.input.github.listActionsRunJobs = async ({ runId }) =>
+      runId === 702 ? present("actions-run-jobs", []) : original({ runId })
+    await assert.rejects(captureFreshAbandonmentEvidence(fixture.input), /job history/iu)
+  })
+})
+
+test("proves a started sibling release run's job history instead of skipping it", async () => {
+  const fixture = authorityFixture()
+  withSiblingRun(
+    fixture,
+    { status: "completed", conclusion: "cancelled" },
+    { jobs: [normalizedJob({ id: 950 })] },
+  )
+  await captureFreshAbandonmentEvidence(fixture.input)
+  assert.equal(fixture.actionsJobReads, 2)
+})
+
 test("rejects missing, duplicate, or unstably ordered normalized job identities", async (t) => {
   const cases = [
     ["missing", []],
