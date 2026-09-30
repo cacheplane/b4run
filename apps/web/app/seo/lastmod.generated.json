@@ -42,9 +42,9 @@
       "recordDigest": "9c823bb6e0c77817744984458823169e48c1921d1b3e3234569240927e23e8d1"
     },
     "/docs/ag-ui": {
-      "lastModified": "2026-09-30T17:17:41.000Z",
-      "sourceDigest": "43a68bda51ae37d174222da930844dbe2a038641f876339ad1f1213d4a562853",
-      "recordDigest": "60ad9825e948598f0dc06ae782b8306286ae1b74d5ee0b22079e9f92ca7e486c"
+      "lastModified": "2026-09-30T21:52:21.000Z",
+      "sourceDigest": "0c56facab872746d9e92d3d9c5c744e7d8b27e0dc400708f86d258a5d4a6180a",
+      "recordDigest": "0201944a91cd8e8e2d56ea6adf52b2f3c9ff7a88d83a1f665f608dba44b28abf"
     },
     "/docs/agents": {
       "lastModified": "2026-09-24T01:19:36.000Z",
@@ -67,9 +67,9 @@
       "recordDigest": "edf34457e56757de73d69ee1750f9e6611dfa787a1158bb6b7202eb21c4a1208"
     },
     "/docs/api/core": {
-      "lastModified": "2026-09-28T18:58:36.000Z",
-      "sourceDigest": "b715c0276087bd64b489841dec2ddcceca74a3d6a23bcdbae8419b44f5571fe5",
-      "recordDigest": "69a230f3d47950d4db940ca47f54ed3e1088ee71571ae237b08c69146d301176"
+      "lastModified": "2026-09-30T21:52:21.000Z",
+      "sourceDigest": "8650c275ad21c38d79f2555da3fe4d3017bf4bc363e89a53a79955e3c9986969",
+      "recordDigest": "f0d3d2d832076e29165ba2db0fd427d13da03043f4d22671ad32b0b6c3e93772"
     },
     "/docs/api/evals": {
       "lastModified": "2026-09-25T17:07:15.000Z",
@@ -102,14 +102,14 @@
       "recordDigest": "053560636f547b7f7557b5b280c4112c061054b39af8fdb7126b50074702527e"
     },
     "/docs/api/permissions": {
-      "lastModified": "2026-09-25T03:54:34.000Z",
-      "sourceDigest": "ee6b8620d06fc4e59c22ca38881e31ae67cb410080f539714f50869647520b00",
-      "recordDigest": "5a68b9a27da39b1a9cd2f8bcebdc6e35ec95eab5f5e0de31f892639aac23b776"
+      "lastModified": "2026-09-30T21:52:21.000Z",
+      "sourceDigest": "0145d4b67032b761fd889d2a7274e7fb9ad8dd9607a43d102dc4da42ba10f154",
+      "recordDigest": "2d6970bbaa1310cb3680e42aed843d3eeb19a7bed2a1d09469c21499e6742275"
     },
     "/docs/api/postgres-storage": {
-      "lastModified": "2026-09-28T18:58:36.000Z",
-      "sourceDigest": "2e6c8440ed04f1322d54ff76a7716eae3a689427b870caa914f5401067b99a68",
-      "recordDigest": "be5f0294c0480ead4af18127d3a8ef35dc89ab5b8d3a888109e57ec0e6dad548"
+      "lastModified": "2026-09-30T21:52:20.000Z",
+      "sourceDigest": "022ee75ccf490b50cdc7689c72553756fda8139ce33fbd85c9b0085dc1fd6b2c",
+      "recordDigest": "810436e1dd5689af5276cf4d5c77e0893087ba7f215b1585ab583d4984491ef1"
     },
     "/docs/api/sandbox": {
       "lastModified": "2026-09-25T03:18:16.000Z",
@@ -117,14 +117,14 @@
       "recordDigest": "ed335a186f36d246daff928e95c194150092f40122f7eaf3724a3929cc65f5b9"
     },
     "/docs/api/sdk": {
-      "lastModified": "2026-09-29T18:42:00.000Z",
-      "sourceDigest": "83ae44df5e91e4c7ab05d4ef164d845d708225c465c9e7ece7cd107f3b66b8fe",
-      "recordDigest": "92f28388acb07d03b7f4b6cbe7343f30025039c36baa14ec0071807f34e811fe"
+      "lastModified": "2026-09-30T21:52:20.000Z",
+      "sourceDigest": "c744f401e57d0d7a8f6bdad56b448e2c974f97bbdf97d9a68e1985725b252aea",
+      "recordDigest": "085062e65730baed4c68f6724d8aa26c2e590481880cb1e9867e377c302bc6a4"
     },
     "/docs/api/sqlite-storage": {
-      "lastModified": "2026-09-28T18:58:36.000Z",
-      "sourceDigest": "4a8132f76b8c3ad9954ca99af647f38a87f322c7afa70daea0a5b5124a755f02",
-      "recordDigest": "ea92537a05ca7fda7ddf56e885b1a03e9732d4b8a23b518cb19de7688531c998"
+      "lastModified": "2026-09-30T21:52:20.000Z",
+      "sourceDigest": "a5a2794b3b2ece9ae94167cf5cc5fb4ddfa849bf02fd127f980b36447fadb306",
+      "recordDigest": "b94b872602274973c52375889b3fce2a71bccfb96827418e7d46039a2502d3e5"
     },
     "/docs/api/testing": {
       "lastModified": "2026-09-25T17:07:15.000Z",
@@ -137,9 +137,9 @@
       "recordDigest": "292ebc4a939c14b381da1af65e22e97b55df9ecbe48323a8fbe6de457a9afdc7"
     },
     "/docs/approval-grants": {
-      "lastModified": "2026-09-28T18:58:36.000Z",
-      "sourceDigest": "516291dcaee9b3e4683a3ef9acd180de2e484b3f3850f89438376fc3d47f9a88",
-      "recordDigest": "b14dad050a9df7f76a460811157eba68b39e31cc30195781903b9e68a4037177"
+      "lastModified": "2026-09-30T21:52:21.000Z",
+      "sourceDigest": "70592d2602e5012d981327954fbfa48fa3464d77e0129ea46fe80db86699def6",
+      "recordDigest": "69d453c7f5ac21570837109b410229befee2b8752f22091845d775d828386325"
     },
     "/docs/blueprints": {
       "lastModified": "2026-09-23T17:16:40.000Z",
@@ -147,14 +147,14 @@
       "recordDigest": "fbd8a797655a538b9b346d8599f16e88a7764828f45b2628a910f2df1f1e2a53"
     },
     "/docs/cli": {
-      "lastModified": "2026-09-29T18:42:00.000Z",
-      "sourceDigest": "b66f981b85ee9448b9e2f17bf76c31898ebb7f7ebfad094a9362a108bf8eea9b",
-      "recordDigest": "4ef97d586a678a7ff15ea8b32d2e621a8c0bca51b68beab42a2e1094385e0928"
+      "lastModified": "2026-09-30T21:52:21.000Z",
+      "sourceDigest": "fab7fe884cc34b96c73d1201f0c61554a33019365f956362b38502b2a26a0891",
+      "recordDigest": "0cdac7d400ced278d47e392680b7d47474f95a2271b594d44fab61b9d94c2616"
     },
     "/docs/configuration": {
-      "lastModified": "2026-09-30T17:17:41.000Z",
-      "sourceDigest": "1009f416435269335d69245beab5a5c0ec800ce4592e5385b4f5c7ac5f065f49",
-      "recordDigest": "337723ebc7ff4eb4a5c1d6a01f9e97e8720df1c6a3e7a3f00a0a90831317dc38"
+      "lastModified": "2026-09-30T21:52:21.000Z",
+      "sourceDigest": "d0ff1eccb37f1f54c9e9b126d3dfed9ee4e20cb99b2044971588216b2d4b395c",
+      "recordDigest": "2e4f007374430fbbbf49bd8b00ad591c38a0f25862152088f71b877dbab399fa"
     },
     "/docs/context-management": {
       "lastModified": "2026-09-29T18:42:00.000Z",
@@ -282,9 +282,9 @@
       "recordDigest": "469a26742d5ce45700de275fa7ffab78deb29e29c17b905a659973f196e152eb"
     },
     "/docs/permissions": {
-      "lastModified": "2026-09-25T03:54:34.000Z",
-      "sourceDigest": "cb6bf5ab58ffec780332d6577d9dae3f481501f100997f73ce3635f47c1cf66e",
-      "recordDigest": "4366c7a92471ca74f7481bed6be0d6686cf31132600a3ae535d42fcb2249850c"
+      "lastModified": "2026-09-30T21:52:21.000Z",
+      "sourceDigest": "343254fdff8c6a9785500f552b99cb3cbb6585a2adf22c6d440b5904b5289995",
+      "recordDigest": "3641dea65a440c52c5a1b8786122d76f4e4b2749646533fc2d8ec514105a2540"
     },
     "/docs/persistence": {
       "lastModified": "2026-09-23T06:30:00.000Z",
@@ -412,9 +412,9 @@
       "recordDigest": "6bf2f28ea5b29816e1c058b2503e21d8fde5c6684904ddac827f179345e38853"
     },
     "/docs/thread-access": {
-      "lastModified": "2026-09-25T09:33:24.000Z",
-      "sourceDigest": "e25b6154ee5d2b0a8ac5eecfb332b079bedcbc262a419137f6b09b08063a371c",
-      "recordDigest": "c5462e659f255bd52a4e6bf73ad80ec4912640f6b48381ae51a2b7359c5b9f65"
+      "lastModified": "2026-09-30T21:52:21.000Z",
+      "sourceDigest": "ac10ce955b46f3b0d77e41ee9ac7dbd0473b7a2560456901320281de54af1a10",
+      "recordDigest": "171870a2f8984f99910b5f6cde51ae89e10bc25ce8b37ea10b19b6969c941b77"
     },
     "/docs/tools": {
       "lastModified": "2026-09-24T01:19:36.000Z",
