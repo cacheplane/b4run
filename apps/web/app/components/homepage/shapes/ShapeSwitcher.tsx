@@ -1,5 +1,6 @@
 "use client"
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react"
+import { hangForHtml } from "../code-hang"
 import { gsap, withMotion } from "../motion/gsap"
 import { routeShapes, SHAPE_PATH, type ShapeId } from "./route-shapes"
 import styles from "./shapes.module.css"
@@ -121,6 +122,7 @@ export function ShapeSwitcher({
                       <span
                         key={lineKey}
                         className={styles.line}
+                        data-hang={hangForHtml(html)}
                         // biome-ignore lint/security/noDangerouslySetInnerHtml: Only server-produced Shiki tokens; highlightCode escapes all source text.
                         dangerouslySetInnerHTML={{ __html: html }}
                       />

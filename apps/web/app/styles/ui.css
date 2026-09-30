@@ -80,6 +80,78 @@
   pre > code {
     display: grid;
   }
+  /* Hanging indent for a wrapped homepage code line (components/homepage/
+     code-hang.ts): the line's text element carries data-hang = its leading
+     spaces + 4, so a continuation starts 4ch deeper than the line itself
+     instead of at column 0. The element must be a block (or a flex/grid item). */
+  [data-hang="4"] {
+    padding-left: 4ch;
+    text-indent: -4ch;
+  }
+  [data-hang="5"] {
+    padding-left: 5ch;
+    text-indent: -5ch;
+  }
+  [data-hang="6"] {
+    padding-left: 6ch;
+    text-indent: -6ch;
+  }
+  [data-hang="7"] {
+    padding-left: 7ch;
+    text-indent: -7ch;
+  }
+  [data-hang="8"] {
+    padding-left: 8ch;
+    text-indent: -8ch;
+  }
+  [data-hang="9"] {
+    padding-left: 9ch;
+    text-indent: -9ch;
+  }
+  [data-hang="10"] {
+    padding-left: 10ch;
+    text-indent: -10ch;
+  }
+  [data-hang="11"] {
+    padding-left: 11ch;
+    text-indent: -11ch;
+  }
+  [data-hang="12"] {
+    padding-left: 12ch;
+    text-indent: -12ch;
+  }
+  [data-hang="13"] {
+    padding-left: 13ch;
+    text-indent: -13ch;
+  }
+  [data-hang="14"] {
+    padding-left: 14ch;
+    text-indent: -14ch;
+  }
+  [data-hang="15"] {
+    padding-left: 15ch;
+    text-indent: -15ch;
+  }
+  [data-hang="16"] {
+    padding-left: 16ch;
+    text-indent: -16ch;
+  }
+  [data-hang="17"] {
+    padding-left: 17ch;
+    text-indent: -17ch;
+  }
+  [data-hang="18"] {
+    padding-left: 18ch;
+    text-indent: -18ch;
+  }
+  [data-hang="19"] {
+    padding-left: 19ch;
+    text-indent: -19ch;
+  }
+  [data-hang="20"] {
+    padding-left: 20ch;
+    text-indent: -20ch;
+  }
   /* Scope to <pre> only so inline-code <code> chips (which also receive a [data-line]
      wrapper from rehype-pretty-code) don't get block-level line styling. */
   pre [data-line] {

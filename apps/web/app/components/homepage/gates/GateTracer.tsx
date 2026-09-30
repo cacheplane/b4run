@@ -1,5 +1,6 @@
 "use client"
 import { type KeyboardEvent, useEffect, useId, useLayoutEffect, useRef, useState } from "react"
+import { hangForHtml } from "../code-hang"
 import { gsap, withMotion } from "../motion/gsap"
 import {
   boardFor,
@@ -270,8 +271,11 @@ export function GateTracer({ files, whyLines }: GatesData) {
                           <span className={styles.gutter} aria-hidden="true">
                             {why ? "›" : " "}
                           </span>
-                          {/* biome-ignore lint/security/noDangerouslySetInnerHtml: Only server-produced Shiki tokens; highlightCode escapes all source text. */}
-                          <span dangerouslySetInnerHTML={{ __html: html }} />
+                          <span
+                            data-hang={hangForHtml(html)}
+                            // biome-ignore lint/security/noDangerouslySetInnerHtml: Only server-produced Shiki tokens; highlightCode escapes all source text.
+                            dangerouslySetInnerHTML={{ __html: html }}
+                          />
                         </span>
                       )
                     })}

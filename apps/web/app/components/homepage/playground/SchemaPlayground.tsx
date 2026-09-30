@@ -1,5 +1,6 @@
 "use client"
 import { useState } from "react"
+import { hangForHtml } from "../code-hang"
 import styles from "./playground.module.css"
 import type { PlaygroundVariant } from "./types"
 
@@ -99,8 +100,12 @@ export function SchemaPlayground({
                       const lineKey = `${item.id}:source:${index}`
                       return (
                         <span key={lineKey} className={styles.line}>
-                          {/* biome-ignore lint/security/noDangerouslySetInnerHtml: Only server-produced Shiki tokens; highlightCode escapes all source text. */}
-                          <span dangerouslySetInnerHTML={{ __html: html }} />
+                          <span
+                            className={styles.text}
+                            data-hang={hangForHtml(html)}
+                            // biome-ignore lint/security/noDangerouslySetInnerHtml: Only server-produced Shiki tokens; highlightCode escapes all source text.
+                            dangerouslySetInnerHTML={{ __html: html }}
+                          />
                         </span>
                       )
                     })}
@@ -131,12 +136,20 @@ export function SchemaPlayground({
                         previous !== null &&
                         !previous.has(bare(item.schemaText[index] ?? ""))
                       return (
-                        <span key={lineKey} className={styles.line} data-changed={changed}>
+                        <span
+                          key={lineKey}
+                          className={`${styles.line} ${styles.guttered}`}
+                          data-changed={changed}
+                        >
                           <span className={styles.gutter} aria-hidden="true">
                             {changed ? "+" : " "}
                           </span>
-                          {/* biome-ignore lint/security/noDangerouslySetInnerHtml: Only server-produced Shiki tokens; highlightCode escapes all source text. */}
-                          <span dangerouslySetInnerHTML={{ __html: html }} />
+                          <span
+                            className={styles.text}
+                            data-hang={hangForHtml(html)}
+                            // biome-ignore lint/security/noDangerouslySetInnerHtml: Only server-produced Shiki tokens; highlightCode escapes all source text.
+                            dangerouslySetInnerHTML={{ __html: html }}
+                          />
                         </span>
                       )
                     })}

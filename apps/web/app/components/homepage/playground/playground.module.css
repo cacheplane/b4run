@@ -87,10 +87,20 @@
 .line {
   display: block;
 }
+/* A schema line is [2ch gutter][text], so a wrapped line's hang (data-hang,
+   ui.css) starts at the text, and the gutter keeps its own column. */
+.guttered {
+  display: grid;
+  grid-template-columns: 2ch minmax(0, 1fr);
+}
 .gutter {
   display: inline-block;
   width: 2ch;
   color: var(--color-panel-accent);
+}
+/* The text holds the hang; text-indent needs a block. */
+.text {
+  display: block;
 }
 /* A changed line keeps a faint tint (and its + in the gutter) until the next
    toggle. Full-strength relay-tint under light panel text would be unreadable,

@@ -1,5 +1,6 @@
 "use client"
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react"
+import { hangFor, hangForHtml, keepContinuation } from "../code-hang"
 import { gsap, withMotion } from "../motion/gsap"
 import styles from "./ship.module.css"
 import { buildFor, buildOutputs, deployTargets, describeTarget, type TargetId } from "./ship-data"
@@ -137,6 +138,7 @@ export function DeployTargets({
                       <span
                         key={lineKey}
                         className={styles.line}
+                        data-hang={hangForHtml(html)}
                         // biome-ignore lint/security/noDangerouslySetInnerHtml: Only server-produced Shiki tokens; highlightCode escapes all source text.
                         dangerouslySetInnerHTML={{ __html: html }}
                       />
@@ -151,11 +153,11 @@ export function DeployTargets({
                       {command.split("\n").map((part, index) => {
                         const partKey = `${command}:${index}`
                         return (
-                          <span key={partKey} className={styles.line}>
+                          <span key={partKey} className={`${styles.line} ${styles.prompted}`}>
                             <span className={styles.prompt} aria-hidden="true">
                               {index === 0 ? "$ " : "  "}
                             </span>
-                            {part}
+                            <span data-hang={hangFor(part)}>{keepContinuation(part)}</span>
                           </span>
                         )
                       })}
@@ -163,7 +165,7 @@ export function DeployTargets({
                         build.lines.map((line, index) => {
                           const lineKey = `${target.id}:out:${index}`
                           return (
-                            <span key={lineKey} className={styles.line}>
+                            <span key={lineKey} className={styles.line} data-hang={hangFor(line)}>
                               {line}
                             </span>
                           )

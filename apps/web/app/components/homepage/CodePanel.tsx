@@ -1,5 +1,6 @@
 "use client"
 import { useState } from "react"
+import { hangForHtml } from "./code-hang"
 import styles from "./homepage.module.css"
 import type { DisplayCode } from "./types"
 
@@ -66,7 +67,7 @@ export function CodePanel({
                   {line}
                 </span>
                 {/* biome-ignore lint/security/noDangerouslySetInnerHtml: Only server-produced Shiki tokens; highlightCode escapes all source text. */}
-                <span dangerouslySetInnerHTML={{ __html: html }} />
+                <span data-hang={hangForHtml(html)} dangerouslySetInnerHTML={{ __html: html }} />
               </span>
             )
           })}

@@ -173,6 +173,10 @@ p.face {
 .code code {
   font: inherit;
 }
+/* One block per excerpt line, so a wrapped line can hang (data-hang, ui.css). */
+.codeLine {
+  display: block;
+}
 .face a {
   display: inline-flex;
   align-items: center;
