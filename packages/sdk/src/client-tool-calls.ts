@@ -1,0 +1,135 @@
+/**
+ * The retained record behind client-provided tools (cacheplane/b4run#743).
+ *
+ * A client tool call parks the turn; this record is how the server knows,
+ * later, that a `role: "tool"` message answers a call it issued and is still
+ * waiting on. It is bookkeeping the client never sees; it carries no
+ * credential.
+ *
+ * Keyed on `(threadId, toolCallId)`: the provider's tool-call id is stable
+ * across LangGraph's re-execution of an interrupted tool node, which re-runs
+ * the stub and therefore the `issue` call, so a replayed `issue` is a no-op
+ * rather than an orphan row.
+ *
+ * Edge-safe: no Node built-ins — `@b4run/sdk`'s main entry is loaded by the
+ * edge targets.
+ */
+
+/** `config.configurable` key the adapter injects the per-run recorder under. */
+export const CLIENT_TOOL_RECORDER_KEY = "__b4ClientToolRecorder"
+
+export interface ClientToolCallRecord {
+  readonly threadId: string
+  /** The provider's tool-call id — what the client echoes back as `toolCallId`. */
+  readonly toolCallId: string
+  /** The park this call's result answers (`client-${toolCallId}`). */
+  readonly interruptId: string
+  /** The un-prefixed name the client registered, for auditing. */
+  readonly toolName: string
+  readonly runId: string
+  readonly issuedAt: string
+  /** ISO time after which the call is abandoned; `null` means no expiry. */
+  readonly expiresAt: string | null
+  readonly answeredAt: string | null
+  /** The client's result text, set together with `answeredAt`. */
+  readonly result: string | null
+  readonly voidedAt: string | null
+}
+
+export type ClientToolCallAnswer =
+  | { readonly outcome: "answered"; readonly record: ClientToolCallRecord }
+  | { readonly outcome: "already_answered"; readonly record: ClientToolCallRecord }
+  | { readonly outcome: "voided"; readonly record: ClientToolCallRecord }
+  | { readonly outcome: "missing" }
+
+export interface ClientToolCallStore {
+  /** Idempotent: a row with the same `(threadId, toolCallId)` is left untouched. */
+  issue(record: ClientToolCallRecord): Promise<void>
+  get(threadId: string, toolCallId: string): Promise<ClientToolCallRecord | undefined>
+  /** Every row for the thread, in issue order. */
+  listForThread(threadId: string): Promise<readonly ClientToolCallRecord[]>
+  /** Rows neither answered nor voided, in issue order. */
+  listOutstanding(threadId: string): Promise<readonly ClientToolCallRecord[]>
+  /** Single-use: only a row neither answered nor voided can be answered. */
+  answer(options: {
+    readonly threadId: string
+    readonly toolCallId: string
+    readonly result: string
+    readonly at: string
+  }): Promise<ClientToolCallAnswer>
+  /**
+   * Voids outstanding rows — those named, or all of the thread's when
+   * `toolCallIds` is omitted. Answered rows are never voided. Returns how
+   * many were voided.
+   */
+  voidOutstanding(options: {
+    readonly threadId: string
+    readonly toolCallIds?: readonly string[]
+    readonly at: string
+  }): Promise<number>
+}
+
+/**
+ * What the stub tool in `@b4run/core` calls to write the record before it
+ * parks. Per-run: it closes over the thread and run whose AG-UI endpoint will
+ * receive the answer.
+ */
+export interface ClientToolRecorder {
+  record(call: {
+    readonly toolCallId: string
+    readonly interruptId: string
+    readonly toolName: string
+  }): Promise<void>
+}
+
+function compareIssue(a: ClientToolCallRecord, b: ClientToolCallRecord): number {
+  if (a.issuedAt !== b.issuedAt) return a.issuedAt < b.issuedAt ? -1 : 1
+  return a.toolCallId < b.toolCallId ? -1 : a.toolCallId > b.toolCallId ? 1 : 0
+}
+
+/** In-process store for tests and embedders. Not durable. */
+export function createMemoryClientToolCallStore(): ClientToolCallStore {
+  const rows = new Map<string, ClientToolCallRecord>()
+  const key = (threadId: string, toolCallId: string) => `${threadId}\u0000${toolCallId}`
+  const forThread = (threadId: string) =>
+    [...rows.values()].filter((row) => row.threadId === threadId).sort(compareIssue)
+  return {
+    async issue(record) {
+      const k = key(record.threadId, record.toolCallId)
+      if (!rows.has(k)) rows.set(k, { ...record })
+    },
+    async get(threadId, toolCallId) {
+      const row = rows.get(key(threadId, toolCallId))
+      return row ? { ...row } : undefined
+    },
+    async listForThread(threadId) {
+      return forThread(threadId).map((row) => ({ ...row }))
+    },
+    async listOutstanding(threadId) {
+      return forThread(threadId)
+        .filter((row) => row.answeredAt === null && row.voidedAt === null)
+        .map((row) => ({ ...row }))
+    },
+    async answer({ threadId, toolCallId, result, at }) {
+      const k = key(threadId, toolCallId)
+      const row = rows.get(k)
+      if (!row) return { outcome: "missing" }
+      if (row.voidedAt !== null) return { outcome: "voided", record: { ...row } }
+      if (row.answeredAt !== null) return { outcome: "already_answered", record: { ...row } }
+      const next = { ...row, answeredAt: at, result }
+      rows.set(k, next)
+      return { outcome: "answered", record: { ...next } }
+    },
+    async voidOutstanding({ threadId, toolCallIds, at }) {
+      const only = toolCallIds === undefined ? undefined : new Set(toolCallIds)
+      let count = 0
+      for (const [k, row] of rows) {
+        if (row.threadId !== threadId || row.answeredAt !== null || row.voidedAt !== null) continue
+        if (only && !only.has(row.toolCallId)) continue
+        rows.set(k, { ...row, voidedAt: at })
+        count += 1
+      }
+      return count
+    },
+  }
+}
