@@ -7,14 +7,14 @@
       "recordDigest": "5f72ea5c9b78f0529d73de62fd7710b59298fd2a09b3fdca900d1615232b738b"
     },
     "/blog": {
-      "lastModified": "2026-09-30T20:14:09.000Z",
-      "sourceDigest": "ef751e4e8a28e145f12ec5b474ab59f3434a3373de530399f3470127a9702d2c",
-      "recordDigest": "b6bdcecc4dc84b73913f8bf0daf6ea5738ef7c119bcd59edc4814df7d4fc9afd"
+      "lastModified": "2026-09-30T21:07:34.000Z",
+      "sourceDigest": "a8a33df8855723dd130ce823984fc66f186193842df6fa702d5dbe476249d736",
+      "recordDigest": "8dca77070752a8051d230d5b2a81f0683695ec5e60d7ddb254d0263f3ac9a437"
     },
     "/blog/tags/agents": {
-      "lastModified": "2026-09-30T20:14:09.000Z",
-      "sourceDigest": "f79e4f6186aecadf46b796ae141d0e9ce6404fea24d86a97b14bcd8731c17ccf",
-      "recordDigest": "75bf2b49a5b2caa173d98578a9712f7700abee36a2533be5d486cffeefba0767"
+      "lastModified": "2026-09-30T21:07:34.000Z",
+      "sourceDigest": "74ceb146b7efa8f28065f4a5076a25819632724701dc8e68abe65df3c920cc76",
+      "recordDigest": "eed24ab2bb5b98bafa159e6de35c702bd73146049b4c4acc45af03d0f96a1586"
     },
     "/blog/tags/patterns": {
       "lastModified": "2026-09-23T17:27:43.000Z",
@@ -27,14 +27,14 @@
       "recordDigest": "1102b1428a29490c1deb947fdcce8c8011ba4b51d39884ba1acc55566a26d939"
     },
     "/blog/tags/releases": {
-      "lastModified": "2026-09-30T20:14:09.000Z",
-      "sourceDigest": "44bab74a85f01cbc19a4a6740dea11d8c2f4a25f4e2758481306a33ec662e8f0",
-      "recordDigest": "f2e2162233a09d0f1dfb4656ae86f67aaf7f0719d4eef6858a0b965ed7920969"
+      "lastModified": "2026-09-30T21:07:34.000Z",
+      "sourceDigest": "86a0f00979ec9c40c12494c37c5bd3da6bb76d74cc32ef147df53b5a9e6659a6",
+      "recordDigest": "078432dccb113682304bd1da8114b10defab0c4e8bb1aa5f007df2880f9c7f2b"
     },
     "/blog/tags/typescript": {
-      "lastModified": "2026-09-30T20:14:09.000Z",
-      "sourceDigest": "4460df54e743d7c630533c7249b5198c7fe84ebcc28383fa1ac33ef003b41573",
-      "recordDigest": "39f1bda9a41b6c089809800737d99ba987e59a7f0e0344235effdb9035434893"
+      "lastModified": "2026-09-30T21:07:34.000Z",
+      "sourceDigest": "7e9871bcddac898f549b3a33ff50a003e23a6552ad7cfe9e218ae5ad9b6f864f",
+      "recordDigest": "307496c3d233d6120e0bf7a29aba770c8032ff34c83b044f3e78cf8d65a935ac"
     },
     "/docs/access-control": {
       "lastModified": "2026-09-24T01:19:36.000Z",
