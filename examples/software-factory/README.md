@@ -322,7 +322,113 @@ a worker URL cannot bounce the token elsewhere. The same token reads every threa
 and chooses what a new thread runs on (it uploads sources and creates threads naming them), so
 it is as sensitive as the candidate bytes themselves.
 
-## Run it
+## Quickstart
+
+From `examples/software-factory`, with Docker running, the drafter's base image pulled
+(`docker pull` the reference in `drafter/src/drafter-image.ts`) and the workspace built
+(`pnpm turbo run build --filter=@b4-example/software-factory-controller^... --filter=@b4-example/software-factory-server^... --filter=@b4-example/software-factory-drafter^...`
+from the repository root):
+
+    FACTORY_MAX_ACTIVE_MS=18000000 FACTORY_APPROVAL_TTL_MS=86400000 pnpm factory up   # terminal 1
+    pnpm factory run --issue 714 --pin 765e6e16fec86bba0859d3f85edf7136f663f720       # terminal 2
+
+From the repository root the spelling is `pnpm --dir examples/software-factory factory …`.
+`pnpm factory` is an orchestration-only `package.json` here (not a workspace member) that runs
+the controller package's CLI silently, so stdout carries only the CLI's JSON and its exit code
+reaches the shell.
+
+**`up`** reads `factory.config.ts`: the state directory (`.factory` here, gitignored) and the
+three ports, validated strictly (an unknown or misspelt key refuses, naming it). It starts
+three processes, not two: the controller, the builder and the drafter, each with
+`b4 start --host 127.0.0.1 --port <port>` in its own app root. `b4 start` watches nothing, so
+edit an app and restart `up`; and it loads no `.env`. Before it starts anything it refuses,
+naming every problem at once: another `up` holding the state directory or this checkout, a
+port in use, a Docker daemon that does not answer, the drafter's base image missing (with the
+`docker pull` to run: `up` never pulls or removes anything from the daemon), an app whose
+`@b4run/cli` is not built, `B4_PERMISSIONS_MODE` set (it would override both workers'
+`non-interactive` mode), or an exported `FACTORY_CONTROLLER_URL`, `FACTORY_WORKER_URL`,
+`FACTORY_DRAFTER_URL` or `FACTORY_STATE_DIR` that disagrees with the config.
+
+It generates the worker token at each start (or uses `FACTORY_WORKER_TOKEN` when it is set, so
+a worker run by hand can share it) and gives it to the three processes only; it is never
+printed, logged or written. It takes `OPENAI_API_KEY` from its environment, else from the one
+`OPENAI_API_KEY=` line of this checkout's `.env`, else the main worktree's (a linked worktree
+has none of its own); never from `FACTORY_REPO_ROOT`'s, which names the target repository. It
+says where the key came from, never its value, and refuses without one. The key goes to the
+builder and the drafter only: the controller's environment drops it, with every other model
+and cloud credential. Each process's output is redacted (the token and the key never appear),
+prefixed with its name on `up`'s stdout, and appended to `<state>/logs/<app>.log`; `up`'s own
+lines go to `<state>/logs/up.log` too. `up`'s stdout is a log stream, not the CLI's JSON.
+
+`up` waits for `/readyz` on all three (two minutes each), then calls the controller's
+reconcile route once (bounded at two minutes), which opens its Factory and reattaches to the
+workers' threads: after a restart under `up` there is no `factory reconcile` to run. It says
+`ready` only after the reconcile answers. The processes are detached from the terminal, so
+they take signals from `up` alone: on Ctrl-C, `SIGTERM` or a closed terminal, `up` stops the
+controller first (so it issues nothing more to the workers) and then the workers, one
+`SIGTERM` each and 20 seconds' grace before `SIGKILL` to the process's group; a second signal
+kills them all at once. A clean stop is every process exiting with code 0, and `up` exits 0;
+it exits 1 when it refused to start, a process never became ready, a process exited on its
+own (it stops the others; nothing is restarted) or one had to be killed. A `SIGKILL`ed `up`
+leaves the processes running; the next `up` names them, with the `ps` check to make before
+killing them.
+
+`up` takes two locks: `<state>/up.lock` (the registry takes no process lock of its own) and
+`examples/software-factory/.up.lock`, because each app's own stores (its `.b4/` threads,
+checkpoints and workspaces) live in its app root whatever the state directory says. So one
+`up` per checkout. A second checkout on the same host copies `factory.config.ts` to the
+gitignored `factory.config.local.ts`, changes its ports and sets `FACTORY_CONFIG` to it.
+
+Stopping `up` while a turn runs cuts the turn short, and the next `up`'s reconcile treats it as
+a turn that ended: a partial draft or candidate usually spends an attempt. The stop line lists
+the work orders in flight; the time to stop is between gates.
+
+**`run`** creates or resumes the issue's work order and carries it to each person's gate. With
+`--issue <n>` it reads the registry first: one live work order for the issue (and pin, with
+`--pin`) is resumed, and `run` says which; more than one refuses and lists them; none, with
+the newest exported, answers "already exported"; otherwise it creates one, under an operation
+key two racing `run`s share. `--new` starts another, `run <id>` works on one, `run --task <id>`
+does the same for a catalog task (no intake, one gate). A pinless `run --issue <n>` also
+matches an exported replay of that issue at a pin, so it answers "already exported"; `--new`
+starts a live run at `origin/main`. Ctrl-C and `run` again resumes: a work order already
+running a step is followed, not sent the step again.
+
+It runs intake and **stops at the draft**: it shows exactly what `factory review` shows and, at
+a terminal (stdin and stderr both TTYs), asks for the task digest's first eight hex digits.
+Then it dispatches, follows the builder's turn and the verification, and **stops at the
+bundle** the same way; after the person's prefix it follows the approval's re-verification to
+the export. `run` never approves on its own: it takes no approval option (`--approve`,
+`--reject`, `--digest`, `--note`, `--revision` and `--bundle` are refused by name), and
+without a terminal, or on no answer or a wrong one, it sends nothing, exits 3 and prints the
+commands a person runs (`pnpm factory review <id>`, then `pnpm factory run <id>`).
+`FACTORY_CLI_INTERACTIVE` is a test seam that works only under vitest. `--allow-missing-evidence`
+applies to both gates' reviews: it approves nothing, and only lets a review show evidence a
+fake verifier never wrote, with its warning. `run` stops at a block with the next commands
+(`retry` then `run` when attempts are left, else `events` and `cancel`) and never retries or
+cancels. Exit codes: **0** exported, **3** waiting on a person, **130** interrupted (the
+controller keeps working; `run` again resumes), **1** anything else (a refusal, a block, an
+ended work order, an expired bundle, a follow past its bound).
+
+Why `FACTORY_MAX_ACTIVE_MS=18000000`: #714 is drafted onto the `cli` target, which verifies
+for up to an hour, and `dispatch` refuses a work order whose remaining budget is below twice
+that; the budget is fixed at create, before intake knows the target, so `review` (and `run`)
+warns at the draft when dispatch would refuse it. Why `FACTORY_APPROVAL_TTL_MS=86400000`: a
+frozen bundle expires 15 minutes after it parks by default and cannot be re-frozen, so a
+person who steps away loses a verified candidate (waiting on a person is not active time, so
+a long window costs no budget). `up` records the controller's effective window in its lock, and
+`run` trusts it only from a lock a live `up` holds: the export gate prints when the bundle
+parked and when it expires, and `run` stops at an expired one with the deny and cancel
+commands instead of asking.
+
+One known limitation: after a controller that was `SIGKILL`ed, a work order's thread can read
+`busy` with nothing running it, and `run` then follows it until its bound; `factory events
+<id>` shows whether anything is moving.
+
+## Run it by hand
+
+The steps below are what `pnpm factory up` (the Quickstart) does for steps 1 to 3, and the CLI
+reads the controller's URL and the state directory from `factory.config.ts`, so step 4's
+`export`s and alias are optional.
 
 The builder and the verifier both run in the target's image, so this needs Docker.
 
@@ -557,8 +663,8 @@ substitution, `source <(...)`, is silently ignored by macOS's bash 3.2):
     export OPENAI_API_KEY="$(sed -n 's/^OPENAI_API_KEY=//p' .env)"
 
 **After a restart.** The controller reconciles on its first request, not when the process
-starts (b4 has no boot hook), so after restarting it run `factory reconcile` before anything
-else. A work order interrupted mid-intake is reconciled then: a drafter thread that is idle,
+starts (b4 has no boot hook), so after restarting it by hand run `factory reconcile` before
+anything else (`pnpm factory up` does this itself once the controller is ready). A work order interrupted mid-intake is reconciled then: a drafter thread that is idle,
 or that the restarted drafter still calls `busy` with no run behind it (a reattach answers
 `live: false`; the runtime persists `busy` across a crash), has its turn treated as ended, and
 its `draft/` is read and proved like any other: a missing or partial draft is refused and
@@ -725,6 +831,13 @@ The controller app reads:
 | `FACTORY_DRAFTER_IMAGE` | ignored | The drafter's, not the controller's: ignored here with one `config_ignored` line at boot, so a shared environment still starts |
 | `FACTORY_REPO_ROOT` | no | The repository the targets pin into and the wide capture is taken from; default `git rev-parse --show-toplevel` from the package. Set by the Docker-lane tests, which copy the app outside the repository. |
 
+The CLI reads `FACTORY_CONTROLLER_URL` and `FACTORY_STATE_DIR` from the environment, else from
+the factory config: `--config <path>`, else `FACTORY_CONFIG`, else `factory.config.ts` in this
+directory when it exists (`FACTORY_CONFIG=none` or `--config none` reads none; a relative path
+resolves against where you ran `pnpm`). When both are set and disagree the environment wins,
+with one stderr line naming both. `factory up` needs a config and refuses an exported value
+that disagrees with it.
+
 The CLI's `create --issue` reads `FACTORY_GH` (default `gh`: the executable that answers
 `issue view`), `FACTORY_REPOSITORY` (the `owner/name` to read from, else `--repo`, else the
 checkout's `origin` remote) and `FACTORY_NO_FETCH` (`1` skips the `git fetch origin main`
@@ -734,7 +847,7 @@ there is no `origin/main` to fetch or read at all: the named commit is used, fet
 pin, naming it, instead of fetching. `FACTORY_CLI_REQUEST_TIMEOUT_MS`,
 `FACTORY_CLI_ARRIVAL_WINDOW_MS` and `FACTORY_CLI_INTERACTIVE` are test-only (they shorten the
 request timeout and the arrival window the long-wait fallback measures, and let `review` ask on
-a pipe as it would at a terminal); an operator sets none of them. `review` reads evidence from
+a pipe as it would at a terminal, and only under vitest); an operator sets none of them. `review` reads evidence from
 `FACTORY_ARTIFACTS_DIR` when it is set, as the controller does.
 
 Both worker apps read `FACTORY_WORKER_TOKEN` (required: the same value the controller sends; a
