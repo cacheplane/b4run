@@ -563,6 +563,56 @@ test("scheduled discovery fails closed on duplicate marker-backed candidate draf
   )
 })
 
+test("scheduled discovery admits a premarker canonical receipt identical to its AUDIT_DISPATCHED attempt", async () => {
+  const repository = repositoryFixture([
+    commit(BASE_SHA, "0.8.20"),
+    commit(SHA_21, "0.8.21", { parent: BASE_SHA, marker: true }),
+  ])
+  const release = premarkerCanonicalDraftRelease(21, "0.8.21", SHA_21)
+  const github = githubFixture({
+    tags: [tagRef("0.8.21", SHA_21)],
+    releases: [release],
+  })
+
+  const result = await discoverScheduledCandidate({
+    terminalRecordRef: RECORD_REF,
+    inventory: repository.inventory,
+    git: repository.git,
+    github,
+    marker: ACTIVE_MARKER,
+  })
+
+  assert.deepEqual(result, selectedCandidate("0.8.21", SHA_21, "CANDIDATE_TAGGED"))
+})
+
+test("scheduled discovery rejects a premarker canonical receipt without its exact attempt", async () => {
+  for (const [name, options, pattern] of [
+    ["missing attempt", { attempt: "missing" }, /precedes its exact attempt/u],
+    ["different attempt bytes", { attempt: "different" }, /differs from its attempt/u],
+    ["duplicate attempt", { attempt: "duplicate" }, /precedes its exact attempt/u],
+    ["another dispatch", { workflowRunId: 999 }, /does not match its AUDIT_DISPATCHED draft/u],
+  ]) {
+    const repository = repositoryFixture([
+      commit(BASE_SHA, "0.8.20"),
+      commit(SHA_21, "0.8.21", { parent: BASE_SHA, marker: true }),
+    ])
+    await assert.rejects(
+      discoverScheduledCandidate({
+        terminalRecordRef: RECORD_REF,
+        inventory: repository.inventory,
+        git: repository.git,
+        github: githubFixture({
+          tags: [tagRef("0.8.21", SHA_21)],
+          releases: [premarkerCanonicalDraftRelease(21, "0.8.21", SHA_21, options)],
+        }),
+        marker: ACTIVE_MARKER,
+      }),
+      pattern,
+      name,
+    )
+  }
+})
+
 test("scheduled discovery rejects successful audit evidence on any inexact draft", async () => {
   const cases = [
     {
@@ -1690,6 +1740,52 @@ function auditVerifiedDraftRelease(id, version, commitSha) {
   const auditAsset = release.assets.find((asset) => asset.name === "audit-result.json")
   release.body = canonicalReleaseBody({ marker, manifest: null })
   release.assetBytes = new Map([[auditAsset.id, auditBytes]])
+  return release
+}
+
+function premarkerCanonicalDraftRelease(
+  id,
+  version,
+  commitSha,
+  { attempt = "identical", workflowRunId = null } = {},
+) {
+  const release = auditVerifiedDraftRelease(id, version, commitSha)
+  const verified = parseReleaseMarker(release.body)
+  const runId = workflowRunId ?? verified.audit.workflowRunId
+  const marker = {
+    ...verified,
+    revision: 6,
+    phase: "AUDIT_DISPATCHED",
+    audit: {
+      ...verified.audit,
+      workflowRunId: runId,
+      runUrl: `https://api.github.com/repos/cacheplane/b4run/actions/runs/${runId}`,
+      htmlUrl: `https://github.com/cacheplane/b4run/actions/runs/${runId}`,
+      runAttempt: null,
+      attemptAssetName: null,
+      attemptSha256: null,
+      canonicalSha256: null,
+      conclusion: null,
+    },
+  }
+  release.body = canonicalReleaseBody({ marker, manifest: null })
+  const auditBytes = canonicalAuditResultBytes(release.auditResult)
+  const attemptName = `audit-attempt-${release.auditResult.workflowRunId}-${release.auditResult.runAttempt}.json`
+  const attemptBytes =
+    attempt === "different"
+      ? canonicalAuditResultBytes({
+          ...release.auditResult,
+          finishedAt: "2026-08-25T10:59:00.000Z",
+        })
+      : auditBytes
+  if (attempt !== "missing") {
+    const copies = attempt === "duplicate" ? 2 : 1
+    for (let index = 0; index < copies; index += 1) {
+      const assetId = id * 10 + 4 + index
+      release.assets.push({ id: assetId, name: attemptName })
+      release.assetBytes.set(assetId, attemptBytes)
+    }
+  }
   return release
 }
 

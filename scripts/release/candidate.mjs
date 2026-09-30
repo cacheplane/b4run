@@ -766,12 +766,14 @@ async function releaseStateFromAssets({ release, releaseRecord, assets, tagIdent
     })
     if (record.conclusion === "success") {
       if (release.draft === true) {
-        assertExactAuditVerifiedDraft({
+        await assertExactAuditVerifiedDraft({
           release,
           releaseRecord,
           auditResult: record,
           auditBytes: downloaded.bytes,
+          assets,
           tagIdentity,
+          github,
         })
       } else if (release.draft !== false) {
         throw new Error(`Managed audit result for ${tagIdentity.tag} has an invalid Release state`)
@@ -787,12 +789,14 @@ async function releaseStateFromAssets({ release, releaseRecord, assets, tagIdent
   return ReleaseState.CANDIDATE_TAGGED
 }
 
-function assertExactAuditVerifiedDraft({
+async function assertExactAuditVerifiedDraft({
   release,
   releaseRecord,
   auditResult,
   auditBytes,
+  assets,
   tagIdentity,
+  github,
 }) {
   if (
     release.name !== `B4 v${tagIdentity.version}` ||
@@ -813,6 +817,42 @@ function assertExactAuditVerifiedDraft({
   if (!auditBytes.equals(canonicalAuditBytes)) {
     throw new Error(`Managed audit result for ${tagIdentity.tag} is not canonical`)
   }
+  const attemptAssetName = `audit-attempt-${auditResult.workflowRunId}-${auditResult.runAttempt}.json`
+  if (marker.phase === "AUDIT_DISPATCHED") {
+    // verifyAuditSuccess uploads audit-result.json before its marker CAS. That
+    // premarker copy stays nonterminal and discoverable only when it is the
+    // byte-identical twin of the recorded dispatch's attempt; the production
+    // observer then proves the run and the complete namespace.
+    if (
+      marker.version !== tagIdentity.version ||
+      marker.commitSha !== tagIdentity.commitSha ||
+      marker.tag !== tagIdentity.tag ||
+      marker.manifestSha256 !== releaseRecord.manifestSha256 ||
+      marker.releaseRecordSha256 !== releaseRecordSha256(releaseRecord) ||
+      marker.audit?.workflowRunId !== auditResult.workflowRunId
+    ) {
+      throw new Error(
+        `Managed audit result for ${tagIdentity.tag} does not match its AUDIT_DISPATCHED draft`,
+      )
+    }
+    const attempts = assets.filter((asset) => asset?.name === attemptAssetName)
+    if (attempts.length !== 1) {
+      throw new Error(`Managed audit result for ${tagIdentity.tag} precedes its exact attempt`)
+    }
+    const attempt = await downloadJsonAsset(
+      github,
+      attempts[0],
+      `audit attempt for ${tagIdentity.tag}`,
+      {
+        maximumBytes: RELEASE_PAYLOAD_LIMITS.auditReceiptBytes,
+        includeBytes: true,
+      },
+    )
+    if (!attempt.bytes.equals(canonicalAuditBytes)) {
+      throw new Error(`Managed audit result for ${tagIdentity.tag} differs from its attempt`)
+    }
+    return
+  }
   if (
     marker.phase !== "AUDIT_VERIFIED" ||
     marker.version !== tagIdentity.version ||
@@ -822,8 +862,7 @@ function assertExactAuditVerifiedDraft({
     marker.releaseRecordSha256 !== releaseRecordSha256(releaseRecord) ||
     marker.audit?.workflowRunId !== auditResult.workflowRunId ||
     marker.audit?.runAttempt !== auditResult.runAttempt ||
-    marker.audit?.attemptAssetName !==
-      `audit-attempt-${auditResult.workflowRunId}-${auditResult.runAttempt}.json` ||
+    marker.audit?.attemptAssetName !== attemptAssetName ||
     marker.audit?.attemptSha256 !== auditSha256 ||
     marker.audit?.canonicalSha256 !== auditSha256 ||
     marker.audit?.conclusion !== "success"

@@ -3017,6 +3017,103 @@ test("production observation resumes complete-release-audit from a successful at
   assert.deepEqual(plan.conflicts, [])
 })
 
+test("production observation resumes complete-release-audit from a premarker canonical receipt identical to its attempt", async () => {
+  // verifyAuditSuccess uploads audit-result.json before its marker CAS; a runner
+  // lost between the two leaves this state behind.
+  const fixture = dispatchedAttemptFixture({ canonical: "identical" })
+  const { observation, diagnostics, plan } = await observeDispatchedAttempt(fixture)
+
+  assert.deepEqual(diagnostics, [])
+  assert.equal(observation.release.status, "draft")
+  assert.equal(observation.release.marker.phase, "AUDIT_DISPATCHED")
+  assert.equal(observation.audit.status, "dispatched")
+  assert.equal(observation.audit.conclusion, null)
+  const canonical = observation.release.assets.find(({ name }) => name === "audit-result.json")
+  const attempt = observation.release.assets.find(
+    ({ name }) => name === `audit-attempt-${fixture.auditResult.workflowRunId}-2.json`,
+  )
+  assert.equal(canonical.sha256, attempt.sha256)
+  assert.equal(plan.state, "AUDIT_DISPATCHED")
+  assert.equal(plan.nextTransition, "complete-release-audit")
+  assert.deepEqual(plan.conflicts, [])
+
+  // The planner's own schema and evidence checks stay fail-closed on the same
+  // structural rule, independently of the observer's byte proof.
+  for (const [label, mutate] of [
+    [
+      "canonical digest differs from the attempt",
+      (assets) =>
+        assets.map((asset) =>
+          asset.name === "audit-result.json" ? { ...asset, sha256: "c".repeat(64) } : asset,
+        ),
+    ],
+    [
+      "canonical without a current-dispatch attempt",
+      (assets) => assets.filter(({ name }) => !name.startsWith("audit-attempt-")),
+    ],
+    [
+      "canonical matching only a historical dispatch's attempt",
+      (assets) =>
+        assets.map((asset) =>
+          asset.name.startsWith("audit-attempt-")
+            ? { ...asset, name: "audit-attempt-699-1.json" }
+            : asset,
+        ),
+    ],
+  ]) {
+    const mutated = structuredClone(observation)
+    mutated.release.assets = mutate(mutated.release.assets)
+    const blocked = planRelease({
+      candidate: candidate(),
+      observation: mutated,
+      mode: "controller",
+    })
+    assert.equal(blocked.nextTransition, null, label)
+    assert.ok(blocked.conflicts.length > 0, label)
+  }
+})
+
+test("production observation keeps a canonical receipt under AUDIT_RETRYABLE fail-closed", async () => {
+  const retryable = retryableReleaseFixture()
+  const bytes = retryable.bytesById.get(2_000)
+  retryable.bytesById.set(2_001, bytes)
+  retryable.assets = [
+    ...retryable.assets,
+    { id: 2_001, name: "audit-result.json", digest: `sha256:${digest(bytes)}`, size: bytes.length },
+  ]
+  const npmFixture = publishedNpmFixture(retryable.manifest)
+  const github = releaseFixtureReader(retryable, {
+    async getActionsRunAttempt({ runId, attempt }) {
+      if (Number(runId) === retryable.marker.attestationSet.workflowRunId) {
+        return present("actions-run-attempt", prepareRun({ id: runId }))
+      }
+      assert.equal(attempt, retryable.auditResult.runAttempt)
+      return present("actions-run-attempt", retryable.run)
+    },
+    async listActionsRunJobs({ runId }) {
+      return present(
+        "actions-run-jobs",
+        Number(runId) === retryable.marker.attestationSet.workflowRunId
+          ? [publisherJob({ startedAt: null })]
+          : retryable.jobs,
+      )
+    },
+  })
+  const { observation, diagnostics } = await observeProductionCandidate({
+    terminalRecordRef: "HEAD",
+    candidate: candidate(),
+    inventory: inventory(),
+    marker: MARKER,
+    git: gitReader(),
+    github,
+    npm: npmFixture.npm,
+    npmAuditFactory: npmFixture.npmAuditFactory,
+    attestations: attestationVerifier([]),
+  })
+  assert.equal(observation.release.status, "ambiguous")
+  assert.ok(diagnostics.some(({ code }) => code === "RELEASE_AUDIT_CANONICAL_PREMATURE"))
+})
+
 for (const [label, overrides, code] of [
   [
     "a failure-conclusion attempt",
@@ -3067,9 +3164,33 @@ for (const [label, overrides, code] of [
     "RELEASE_AUDIT_ASSET_NONCANONICAL",
   ],
   [
-    "a canonical audit-result.json without AUDIT_VERIFIED",
-    { canonical: true },
+    "a premarker audit-result.json that differs from its attempt",
+    { canonical: "different" },
     "RELEASE_AUDIT_CANONICAL_PREMATURE",
+  ],
+  [
+    "duplicate premarker audit-result.json receipts",
+    { canonical: "duplicate" },
+    "RELEASE_ASSET_IDENTITY_INVALID",
+  ],
+  [
+    "a premarker audit-result.json without its attempt",
+    { canonical: "identical", omitAttempt: true },
+    "RELEASE_AUDIT_CANONICAL_PREMATURE",
+  ],
+  [
+    "a premarker audit-result.json beside a failure attempt",
+    {
+      canonical: "identical",
+      auditResult: { conclusion: "failure" },
+      run: { conclusion: "timed_out" },
+    },
+    "RELEASE_AUDIT_DISPATCH_EVIDENCE_PREMATURE",
+  ],
+  [
+    "a premarker audit-result.json whose run is still in progress",
+    { canonical: "identical", run: { status: "in_progress", conclusion: null } },
+    "RELEASE_AUDIT_DISPATCH_EVIDENCE_PREMATURE",
   ],
   [
     "duplicate current-dispatch attempts",
@@ -5008,7 +5129,8 @@ function dispatchedAttemptFixture({
   assetName = null,
   listedDigest = null,
   noncanonical = false,
-  canonical = false,
+  canonical = null,
+  omitAttempt = false,
   duplicateAttempt = false,
 } = {}) {
   const audited = auditedReleaseFixture()
@@ -5045,7 +5167,18 @@ function dispatchedAttemptFixture({
       auditBytes,
     ],
   ]
-  if (canonical) terminal.push([2_001, "audit-result.json", canonicalBytes])
+  if (omitAttempt) terminal.pop()
+  if (canonical === "identical" || canonical === "duplicate") {
+    terminal.push([2_001, "audit-result.json", canonicalBytes])
+  }
+  if (canonical === "duplicate") terminal.push([2_003, "audit-result.json", canonicalBytes])
+  if (canonical === "different") {
+    terminal.push([
+      2_001,
+      "audit-result.json",
+      canonicalAuditResultBytes({ ...auditResult, finishedAt: "2026-08-25T10:02:00.000Z" }),
+    ])
+  }
   if (duplicateAttempt) {
     const earlier = { ...auditResult, runAttempt: 1, conclusion: "failure" }
     earlier.checks = [{ name: "published-artifacts", conclusion: "failure", detail: "failed" }]

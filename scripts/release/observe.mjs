@@ -3270,7 +3270,10 @@ async function observeReleaseTerminal({
       runAttempt: run.runAttempt,
       conclusion,
     },
-    auditResult: downloaded.find((asset) => asset.name === "audit-result.json")?.result ?? null,
+    auditResult:
+      marker.phase === "AUDIT_VERIFIED"
+        ? (downloaded.find((asset) => asset.name === "audit-result.json")?.result ?? null)
+        : null,
     abandonment: { requested: false, recorded: false, predecessor: null },
     assets: downloaded.map((asset) => ({
       name: asset.name,
@@ -3409,12 +3412,14 @@ function validateAuditAssetPhase({ marker, downloaded, run }) {
     )
     return
   }
-  if (downloaded.some((asset) => asset.name === "audit-result.json")) {
+  const canonical = downloaded.find((asset) => asset.name === "audit-result.json")
+  if (canonical !== undefined && marker.phase !== "AUDIT_DISPATCHED") {
     throw observationError("RELEASE_AUDIT_CANONICAL_PREMATURE")
   }
   const identities = new Set()
   let current = null
   for (const asset of downloaded) {
+    if (asset === canonical) continue
     const match = /^audit-attempt-([1-9][0-9]*)-([1-9][0-9]*)\.json$/u.exec(asset.name)
     if (
       match === null ||
@@ -3442,6 +3447,12 @@ function validateAuditAssetPhase({ marker, downloaded, run }) {
     }
   } else if (current !== null && !isResumableSuccessfulAttempt({ marker, current, run })) {
     throw observationError("RELEASE_AUDIT_DISPATCH_EVIDENCE_PREMATURE")
+  }
+  // verifyAuditSuccess uploads audit-result.json before its marker CAS, so a
+  // premarker canonical receipt is resumable only as a byte-identical copy of
+  // the exact successful attempt accepted above.
+  if (canonical !== undefined && (current === null || !canonical.bytes.equals(current.bytes))) {
+    throw observationError("RELEASE_AUDIT_CANONICAL_PREMATURE")
   }
 }
 
