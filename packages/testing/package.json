@@ -64,8 +64,8 @@
     "@b4run/sqlite-storage": "workspace:*",
     "@b4run/workspace": "workspace:*",
     "@langchain/langgraph-checkpoint": "^1.1.5",
-    "@testcontainers/postgresql": "^12.0.4",
-    "@types/node": "26.1.2",
-    "zod": "^4.4.3"
+    "@testcontainers/postgresql": "^12.1.0",
+    "@types/node": "26.6.3",
+    "zod": "^4.6.5"
   }
 }

@@ -57,11 +57,11 @@
     "@b4run/sdk": "workspace:*",
     "@b4run/sqlite-storage": "workspace:*",
     "@b4run/workspace": "workspace:*",
-    "@langchain/langgraph": "^1.4.17",
+    "@langchain/langgraph": "^1.4.18",
     "@typescript/old": "npm:typescript@6.0.2",
-    "tsx": "^4.23.5",
+    "tsx": "^4.23.15",
     "typescript": "npm:@typescript/typescript6@6.0.2",
-    "zod": "^4.4.3"
+    "zod": "^4.6.5"
   },
   "peerDependencies": {
     "@langchain/langgraph-checkpoint": "^1.1.5"
@@ -70,6 +70,6 @@
     "@b4run/config-typescript": "workspace:*",
     "@b4run/sqlite-storage": "workspace:*",
     "@langchain/langgraph-checkpoint": "^1.1.5",
-    "@types/node": "26.1.2"
+    "@types/node": "26.6.3"
   }
 }
