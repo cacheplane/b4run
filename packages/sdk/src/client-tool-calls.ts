@@ -27,6 +27,12 @@ export interface ClientToolCallRecord {
   /** The un-prefixed name the client registered, for auditing. */
   readonly toolName: string
   readonly runId: string
+  /**
+   * The route key (`<routeId>#<mode>`, e.g. `/chat#agent`) whose run issued
+   * the call. Only that route may answer or resume it; recorded here, while
+   * the call is issued, so it is never behind the park.
+   */
+  readonly routeId: string
   readonly issuedAt: string
   /** ISO time after which the call is abandoned; `null` means no expiry. */
   readonly expiresAt: string | null

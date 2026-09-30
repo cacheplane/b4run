@@ -7,6 +7,7 @@ interface ClientToolCallRow {
   interrupt_id: string
   tool_name: string
   run_id: string
+  route_id: string
   issued_at: string
   expires_at: string | null
   answered_at: string | null
@@ -15,7 +16,7 @@ interface ClientToolCallRow {
 }
 
 const SELECT_COLUMNS =
-  "thread_id, tool_call_id, interrupt_id, tool_name, run_id, issued_at, expires_at, answered_at, result, voided_at"
+  "thread_id, tool_call_id, interrupt_id, tool_name, run_id, route_id, issued_at, expires_at, answered_at, result, voided_at"
 
 function rowToRecord(row: ClientToolCallRow): ClientToolCallRecord {
   return {
@@ -24,6 +25,7 @@ function rowToRecord(row: ClientToolCallRow): ClientToolCallRecord {
     interruptId: row.interrupt_id,
     toolName: row.tool_name,
     runId: row.run_id,
+    routeId: row.route_id,
     issuedAt: row.issued_at,
     expiresAt: row.expires_at,
     answeredAt: row.answered_at,
@@ -61,7 +63,7 @@ export function makeClientToolCallStore(db: Db): ClientToolCallStore {
       // The PRIMARY KEY decides: a replayed issue (LangGraph re-runs the stub
       // when it resumes) leaves the existing row untouched.
       db.prepare(
-        `INSERT INTO client_tool_calls(${SELECT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO client_tool_calls(${SELECT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(thread_id, tool_call_id) DO NOTHING`,
       ).run(
         record.threadId,
@@ -69,6 +71,7 @@ export function makeClientToolCallStore(db: Db): ClientToolCallStore {
         record.interruptId,
         record.toolName,
         record.runId,
+        record.routeId,
         record.issuedAt,
         record.expiresAt,
         record.answeredAt,

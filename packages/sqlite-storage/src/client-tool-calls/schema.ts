@@ -16,6 +16,7 @@ export const CLIENT_TOOL_CALLS_MIGRATIONS: readonly Migration[] = [
         interrupt_id TEXT NOT NULL,
         tool_name    TEXT NOT NULL,
         run_id       TEXT NOT NULL,
+        route_id     TEXT NOT NULL,
         issued_at    TEXT NOT NULL,
         expires_at   TEXT,
         answered_at  TEXT,

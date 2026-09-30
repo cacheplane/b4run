@@ -327,7 +327,7 @@ export const INTERRUPT_GRANTS_MIGRATIONS: readonly Migration[] = [
  *    `{ version: 2, up: (naming) => \`ALTER TABLE …\` }`.
  *
  * 2. **No column default is load-bearing.** There is deliberately not a single
- *    `DEFAULT` here: every INSERT names all ten columns and supplies all ten
+ *    `DEFAULT` here: every INSERT names all eleven columns and supplies all eleven
  *    values, so a default could only mask a wiring bug.
  *
  * Timestamps are app-generated ISO-8601 `text`, as in the other tables. The
@@ -345,6 +345,7 @@ export const CLIENT_TOOL_CALLS_MIGRATIONS: readonly Migration[] = [
         interrupt_id text NOT NULL,
         tool_name text NOT NULL,
         run_id text NOT NULL,
+        route_id text NOT NULL,
         issued_at text NOT NULL,
         expires_at text,
         answered_at text,

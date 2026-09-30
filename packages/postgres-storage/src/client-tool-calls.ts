@@ -26,6 +26,12 @@ export interface ClientToolCallRecord {
   /** The un-prefixed name the client registered, for auditing. */
   readonly toolName: string
   readonly runId: string
+  /**
+   * The route key (`<routeId>#<mode>`, e.g. `/chat#agent`) whose run issued
+   * the call. Only that route may answer or resume it; recorded here, while
+   * the call is issued, so it is never behind the park.
+   */
+  readonly routeId: string
   readonly issuedAt: string
   /** ISO time after which the call is abandoned; `null` means no expiry. */
   readonly expiresAt: string | null
@@ -87,9 +93,9 @@ export interface PostgresClientToolCallStore extends ClientToolCallStore {
 
 export type PostgresClientToolCallStoreOptions = PostgresStoreOptions
 
-/** Every column, in migration order. The INSERT names and binds all ten. */
+/** Every column, in migration order. The INSERT names and binds all eleven. */
 const COLUMNS =
-  "thread_id, tool_call_id, interrupt_id, tool_name, run_id, issued_at, expires_at, answered_at, result, voided_at"
+  "thread_id, tool_call_id, interrupt_id, tool_name, run_id, route_id, issued_at, expires_at, answered_at, result, voided_at"
 
 interface CallRow {
   thread_id: string
@@ -97,6 +103,7 @@ interface CallRow {
   interrupt_id: string
   tool_name: string
   run_id: string
+  route_id: string
   issued_at: string
   expires_at: string | null
   answered_at: string | null
@@ -111,6 +118,7 @@ function rowToRecord(row: CallRow): ClientToolCallRecord {
     interruptId: row.interrupt_id,
     toolName: row.tool_name,
     runId: row.run_id,
+    routeId: row.route_id,
     issuedAt: row.issued_at,
     expiresAt: row.expires_at ?? null,
     answeredAt: row.answered_at ?? null,
@@ -182,7 +190,7 @@ export function createPostgresClientToolCallStore(
       // when it resumes) leaves the existing row untouched.
       await pool.query(
         `INSERT INTO ${table} (${COLUMNS})
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          ON CONFLICT (thread_id, tool_call_id) DO NOTHING`,
         [
           record.threadId,
@@ -190,6 +198,7 @@ export function createPostgresClientToolCallStore(
           record.interruptId,
           record.toolName,
           record.runId,
+          record.routeId,
           record.issuedAt,
           record.expiresAt,
           record.answeredAt,

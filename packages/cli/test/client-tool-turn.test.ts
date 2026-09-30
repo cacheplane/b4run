@@ -56,6 +56,7 @@ function record(
     interruptId: `client-${toolCallId}`,
     toolName: "open_panel",
     runId: "run-1",
+    routeId: "/park#agent",
     issuedAt: "2026-09-30T11:59:00.000Z",
     expiresAt: null,
     answeredAt: null,

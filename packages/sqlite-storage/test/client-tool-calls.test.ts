@@ -29,6 +29,7 @@ describe("createClientToolCallStore", () => {
       interruptId: "client-call-1",
       toolName: "getLocation",
       runId: "r1",
+      routeId: "/park#agent",
       issuedAt: "2026-09-30T00:00:00.000Z",
       expiresAt: null,
       answeredAt: null,

@@ -298,6 +298,7 @@ describe("POST /agui/:route with client-provided tools", () => {
     expect(await t.store.get(t.threadId, toolCallId)).toMatchObject({
       toolName: "openPanel",
       runId: "run-1",
+      routeId: "/park#agent",
       answeredAt: null,
     })
 
@@ -853,12 +854,20 @@ describe("abandoning parked client tool calls over AG-UI", () => {
     expect(await t.pending()).toEqual([])
   })
 
-  it("the parked route cannot be resolved: 409, nothing closed and nothing voided", async () => {
-    const appDir = await mkdtemp(join(tmpdir(), "b4-agui-threads-"))
-    cleanup.push(() => rm(appDir, { force: true, recursive: true }))
-    const threadsStore = createThreadsStore({ path: join(appDir, "threads.sqlite") })
-    const t = await parkedRun([CALL_A], { threadsStore })
-    await threadsStore.updateMetadata(t.threadId, { parked_route: "/missing#agent" })
+  it("the issuing route cannot be resolved: 409, nothing closed and nothing voided", async () => {
+    // The record's route is rewritten on read, as if the route it names had
+    // since been removed from the app.
+    const inner = createMemoryClientToolCallStore()
+    let rewrite = false
+    const store: ClientToolCallStore = {
+      ...inner,
+      listForThread: async (threadId) =>
+        (await inner.listForThread(threadId)).map((row) =>
+          rewrite ? { ...row, routeId: "/missing#agent" } : row,
+        ),
+    }
+    const t = await parkedRun([CALL_A], { store })
+    rewrite = true
     const before = t.aimock.getRequests().length
 
     const response = await run(
@@ -876,13 +885,102 @@ describe("abandoning parked client tool calls over AG-UI", () => {
     })
 
     // The slot and the claim were released: a retry is decided afresh.
-    await threadsStore.updateMetadata(t.threadId, { parked_route: "/park#agent" })
+    rewrite = false
     const retry = await run(
       t.handler,
       aguiRequest(t.threadId, "run-3", [USER_HELLO, assistantCalls(["call_a"]), USER_AGAIN]),
     )
     expect(retry.status).toBe(200)
     expect(retry.text).toContain("Again.")
+  })
+})
+
+describe("a client park is bound to its route on the record, not on parked_route", () => {
+  /** A sqlite threads store whose `parked_route` writes can be withheld. */
+  async function threadsStoreWithParkedRoute() {
+    const dir = await mkdtemp(join(tmpdir(), "b4-agui-threads-"))
+    cleanup.push(() => rm(dir, { force: true, recursive: true }))
+    const inner = createThreadsStore({ path: join(dir, "threads.sqlite") })
+    const control = { withhold: false }
+    const store = new Proxy(inner, {
+      get(target, key, receiver) {
+        if (key === "updateMetadata") {
+          return async (threadId: string, patch: Record<string, unknown>) => {
+            if (control.withhold && "parked_route" in patch) return
+            return target.updateMetadata(threadId, patch)
+          }
+        }
+        return Reflect.get(target, key, receiver)
+      },
+    })
+    return { control, inner, store }
+  }
+
+  it("a same-route answer that beats the settle's parked_route write is accepted", async () => {
+    const threads = await threadsStoreWithParkedRoute()
+    threads.control.withhold = true
+    const t = await parkedRun([CALL_A], { threadsStore: threads.store })
+    expect((await threads.inner.getThread(t.threadId))?.metadata.parked_route).toBeUndefined()
+    const response = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-2", [
+        USER_HELLO,
+        assistantCalls(["call_a"]),
+        toolResult("m3", "call_a", "panel opened"),
+      ]),
+    )
+    expect(response.status).toBe(200)
+    expect(response.text).toContain("Opened.")
+    expect(requestSequence(t.aimock.getRequests().at(-1))).toContain("tool:call_a=panel opened")
+    expect(await t.pending()).toEqual([])
+  })
+
+  it("a park with no parked_route recorded (the abort path) can still be abandoned on its route", async () => {
+    const threads = await threadsStoreWithParkedRoute()
+    threads.control.withhold = true
+    const t = await parkedRun([CALL_A], { threadsStore: threads.store })
+    const response = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-2", [USER_HELLO, assistantCalls(["call_a"]), USER_AGAIN]),
+    )
+    expect(response.status).toBe(200)
+    expect(response.text).toContain("Again.")
+    expect(await t.pending()).toEqual([])
+  })
+
+  it("a stale parked_route naming another opted-in route does not let that route answer", async () => {
+    const threads = await threadsStoreWithParkedRoute()
+    const t = await parkedRun([CALL_A], { threadsStore: threads.store })
+    await threads.inner.updateMetadata(t.threadId, { parked_route: "/mixed#agent" })
+    const before = t.aimock.getRequests().length
+    const answered = [
+      USER_HELLO,
+      assistantCalls(["call_a"]),
+      toolResult("m3", "call_a", "INJECTED"),
+    ]
+
+    const wrong = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-2", answered, { route: "/mixed#agent" }),
+    )
+    expect(wrong.status).toBe(409)
+    expect(wrong.json().code).toBe("client_tool_pending")
+    expect(t.aimock.getRequests()).toHaveLength(before)
+    expect(await t.store.get(t.threadId, "call_a")).toMatchObject({
+      answeredAt: null,
+      result: null,
+    })
+
+    const right = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-3", [
+        USER_HELLO,
+        assistantCalls(["call_a"]),
+        toolResult("m3", "call_a", "panel opened"),
+      ]),
+    )
+    expect(right.status).toBe(200)
+    expect(right.text).toContain("Opened.")
   })
 })
 
@@ -1124,6 +1222,7 @@ describe("the settle-time client record void", () => {
       interruptId: `client-${toolCallId}`,
       toolName: "openPanel",
       runId: "r",
+      routeId: "/park#agent",
       issuedAt: new Date().toISOString(),
       expiresAt: null,
       answeredAt: null,
@@ -1176,6 +1275,7 @@ describe("settling an AG-UI turn", () => {
       interruptId: "client-call_stray",
       toolName: "openPanel",
       runId: "run-0",
+      routeId: "/park#agent",
       issuedAt: new Date().toISOString(),
       expiresAt: null,
       answeredAt: null,
@@ -1307,6 +1407,7 @@ describe("client tool boot settings and request bounds", () => {
       interruptId: "client-call_1",
       toolName: "openPanel",
       runId: "r",
+      routeId: "/park#agent",
       issuedAt: new Date().toISOString(),
       expiresAt: null,
       answeredAt: null,

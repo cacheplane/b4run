@@ -38,6 +38,7 @@ describe("CLIENT_TOOL_CALLS_MIGRATIONS", () => {
         "interrupt_id text NOT NULL, " +
         "tool_name text NOT NULL, " +
         "run_id text NOT NULL, " +
+        "route_id text NOT NULL, " +
         "issued_at text NOT NULL, " +
         "expires_at text, " +
         "answered_at text, " +
@@ -71,7 +72,7 @@ describe("CLIENT_TOOL_CALLS_MIGRATIONS", () => {
 })
 
 describe("the statements the store issues", () => {
-  it("names all ten columns in every INSERT", async () => {
+  it("names all eleven columns in every INSERT", async () => {
     const { pool, sql } = recordingPool()
     const store = createPostgresClientToolCallStore({ pool, assumeMigrated: true })
     await store.issue({
@@ -80,6 +81,7 @@ describe("the statements the store issues", () => {
       interruptId: "client-c-1",
       toolName: "pick",
       runId: "r-1",
+      routeId: "/pick#agent",
       issuedAt: "2026-09-18T00:00:00.000Z",
       expiresAt: null,
       answeredAt: null,
@@ -97,13 +99,14 @@ describe("the statements the store issues", () => {
         "interrupt_id",
         "tool_name",
         "run_id",
+        "route_id",
         "issued_at",
         "expires_at",
         "answered_at",
         "result",
         "voided_at",
       ])
-      expect(insert.match(/\$\d+/g)).toHaveLength(10)
+      expect(insert.match(/\$\d+/g)).toHaveLength(11)
       expect(insert).toMatch(/ON CONFLICT \(thread_id, tool_call_id\) DO NOTHING/)
     }
   })

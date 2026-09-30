@@ -140,6 +140,7 @@ async function parkedThread(toolCalls: readonly ToolCallSpec[]) {
         ...call,
         threadId,
         runId: "run-1",
+        routeId: "/park#agent",
         issuedAt: new Date().toISOString(),
         expiresAt: null,
         answeredAt: null,

@@ -8,6 +8,7 @@ function call(over: Partial<ClientToolCallRecord> = {}): ClientToolCallRecord {
     interruptId: "client-call_1",
     toolName: "openPanel",
     runId: "r1",
+    routeId: "/park#agent",
     issuedAt: "2026-09-30T00:00:00.000Z",
     expiresAt: "2026-09-30T00:10:00.000Z",
     answeredAt: null,

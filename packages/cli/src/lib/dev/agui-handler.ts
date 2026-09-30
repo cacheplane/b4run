@@ -659,18 +659,29 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     const approvalParksOnly = withoutClientToolParks(snapshot)
     const trailingUserMessage = b4Input.messages.at(-1)?.role === "user"
     let clientTurn: ClientToolTurn = { mode: "none" }
-    // Only the route that PARKED the client calls may answer or resume them:
+    // Only the route that ISSUED a client call may answer or resume it:
     // resuming another route's park on this route's graph would run it with
     // the wrong prompt, tools and middleware, and let a caller admitted only
-    // to this route supply that route's result. Read BEFORE anything is
-    // stored, under the claim the snapshot was read under.
-    const answersHere =
-      clientParks.length > 0 &&
-      envelopePolicy.clientTools &&
-      readParkedRoute(await threadsStore.getThread(threadId)) === routeKey
+    // to this route supply that route's result. Judged from each call's
+    // record, whose `routeId` is written while the call is issued — before
+    // the client can see it, so never behind the park (the thread's
+    // `parked_route` is written only once the turn has settled). Read BEFORE
+    // anything is stored, under the claim the snapshot was read under. A
+    // park with no record at all is answerable by no route (the resolver
+    // finds it unanswerable), so it does not make the request foreign.
+    let foreignClientPark = false
+    if (clientParks.length > 0 && envelopePolicy.clientTools) {
+      const store = clientToolRuntime.store
+      if (!store) return clientToolStoreUnavailable()
+      const parkedIds = clientToolCallIds(clientParks)
+      foreignClientPark = (await store.listForThread(threadId)).some(
+        (row) => parkedIds.has(row.toolCallId) && row.routeId !== routeKey,
+      )
+    }
+    const answersHere = clientParks.length > 0 && envelopePolicy.clientTools && !foreignClientPark
     if (clientParks.length > 0 && !answersHere) {
       // A client park this route may not answer: the route does not (or no
-      // longer does) take client tools, or another route parked it. This
+      // longer does) take client tools, or another route issued it. This
       // route never answers, resumes or re-offers a client call, so a
       // trailing tool message stays refused. A new user
       // message abandons the parked calls exactly as on an opted-in route,
@@ -861,6 +872,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                 interruptId: call.interruptId,
                 toolName: call.toolName,
                 runId: input.runId,
+                routeId: routeKey,
                 issuedAt: issued.toISOString(),
                 expiresAt: new Date(issued.getTime() + clientToolRuntime.ttlMs).toISOString(),
                 answeredAt: null,
@@ -973,6 +985,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
         clientParks,
         currentRouteKey: routeKey,
         instances: routeInstances,
+        store: clientToolStore,
         middlewareContext: middlewareResult.context,
         registry,
         signal: run.signal,
@@ -1285,10 +1298,20 @@ function clientToolPending(): Response {
   )
 }
 
+/** The provider tool-call ids of these client parks (envelopes that carry one). */
+function clientToolCallIds(parks: readonly PendingInterrupt[]): ReadonlySet<string> {
+  return new Set(
+    parks.flatMap((park) => (isClientToolCallEnvelope(park.value) ? [park.value.toolCallId] : [])),
+  )
+}
+
 /**
  * Close the parked client calls in the checkpoint, on a graph materialized
- * for the route that PARKED them (thread metadata, re-read under the run
- * slot) with a stub for each parked call, bound to the thread's checkpointer.
+ * for the route that ISSUED them, with a stub for each parked call, bound to
+ * the thread's checkpointer. That route is the one on the parks' records,
+ * re-read under the run slot: they must agree on one. Only when no parked
+ * call has a record at all (an unanswerable park) does the thread's
+ * `parked_route` stand in — the close itself still verifies every call.
  * Returns a refusal, or `undefined` once closed. Every message is fixed: no
  * id, name or result from the request (or the store) is echoed.
  */
@@ -1308,18 +1331,34 @@ async function closeAbandonedClientParks(options: {
   readonly middlewareContext: Readonly<Record<string, unknown>> | undefined
   readonly registry: RuntimeRegistry
   readonly signal: AbortSignal
+  readonly store: ClientToolRuntime["store"]
 }): Promise<Response | undefined> {
   const { instances } = options
   const { checkpointer, threadId } = instances
-  const parkedRouteKey = readParkedRoute(await instances.threadsStore.getThread(threadId))
+  const parkedIds = clientToolCallIds(options.clientParks)
+  const recordedRoutes = new Set(
+    ((await options.store?.listForThread(threadId)) ?? [])
+      .filter((row) => parkedIds.has(row.toolCallId))
+      .map((row) => row.routeId),
+  )
+  const parkedRouteKey =
+    recordedRoutes.size === 0
+      ? readParkedRoute(await instances.threadsStore.getThread(threadId))
+      : recordedRoutes.size === 1
+        ? [...recordedRoutes][0]
+        : undefined
   const parkedRoute =
     parkedRouteKey === undefined ? undefined : options.registry.lookup(parkedRouteKey)
   if (parkedRoute?.mode !== "agent") {
-    // Fail closed, but loudly: until an operator repairs the thread's
-    // metadata, every abandon on it is refused here.
+    // Fail closed, but loudly: until an operator repairs the thread, every
+    // abandon on it is refused here.
     console.warn(
-      `B4: cannot close abandoned client tool calls on ${threadId}: the parking route is ${
-        parkedRouteKey === undefined ? "not recorded" : "not a resolvable agent route"
+      `B4: cannot close abandoned client tool calls on ${threadId}: ${
+        recordedRoutes.size > 1
+          ? "the parked calls were issued by different routes"
+          : parkedRouteKey === undefined
+            ? "the issuing route is not recorded"
+            : "the issuing route is not a resolvable agent route"
       }.`,
     )
     return clientToolCloseFailed(
@@ -1328,7 +1367,7 @@ async function closeAbandonedClientParks(options: {
   }
   try {
     // The request's middleware context was computed for THIS request's
-    // route, so it is reused only when that is the route that parked; a
+    // route, so it is reused only when that is the route that issued; a
     // cross-route close materializes the parked route without it.
     const sameRoute = parkedRouteKey === options.currentRouteKey
     const graph = (await materializeResolvedRouteGraph({

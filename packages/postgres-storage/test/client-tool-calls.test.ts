@@ -16,6 +16,7 @@ const call = (over: Partial<ClientToolCallRecord> = {}): ClientToolCallRecord =>
   interruptId: "client-c-1",
   toolName: "pick_color",
   runId: "run-1",
+  routeId: "/park#agent",
   issuedAt: "2026-09-18T10:00:00.000Z",
   expiresAt: null,
   answeredAt: null,
