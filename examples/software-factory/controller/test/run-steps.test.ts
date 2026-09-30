@@ -284,7 +284,9 @@ describe("run's only way to an approval", () => {
     "(?:export\\s+)?(?:default\\s+)?(?:async\\s+)?(?:function\\*?|const|let|var|class)\\s+"
   /** The source of the top-level declaration `name`, up to the next top-level declaration. */
   const body = (name: string) => {
-    const start = cli.search(new RegExp(`\\n${DECLARATION}${name.replace(/\$/g, "\\$")}\\b`))
+    const start = cli.search(
+      new RegExp(`\\n${DECLARATION}${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`),
+    )
     expect(start, name).toBeGreaterThan(0)
     const next = cli
       .slice(start + 1)

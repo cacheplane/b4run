@@ -26,10 +26,17 @@ report({
   drafterUrl: process.env.FACTORY_DRAFTER_URL ?? null,
   stateDir: process.env.FACTORY_STATE_DIR ?? null,
 })
-// A careless app that prints its secrets: up must redact them everywhere it copies the line.
+// A careless app that prints variables it was given: up must redact the secrets among them
+// everywhere it copies the line. The test names the variables (FAKE_APP_ECHO), so this stand-in
+// never names a secret itself; the values it prints are the test's fakes.
 if (process.env.FAKE_APP_PRINT_SECRETS === name) {
-  console.log(`token=${token} key=${process.env.OPENAI_API_KEY}`)
-  console.error(`stderr token ${token} and key ${process.env.OPENAI_API_KEY}`)
+  const echoed = (process.env.FAKE_APP_ECHO ?? "")
+    .split(",")
+    .filter((variable) => variable !== "")
+    .map((variable) => `${variable}=${process.env[variable] ?? ""}`)
+    .join(" ")
+  console.log(`echo ${echoed}`)
+  console.error(`stderr echo ${echoed}`)
 }
 // A helper left in the app's process group (not detached), which outlives the app itself.
 if (process.env.FAKE_APP_SLEEPER === name) {

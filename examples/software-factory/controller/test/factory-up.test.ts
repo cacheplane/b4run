@@ -1065,6 +1065,7 @@ describe("up", () => {
     const { config, report, lines, stop, done } = await fakeUp({
       FACTORY_WORKER_TOKEN: token,
       FAKE_APP_PRINT_SECRETS: "builder",
+      FAKE_APP_ECHO: "FACTORY_WORKER_TOKEN,OPENAI_API_KEY",
     })
     await until(() => lines.some((l) => l.includes("│ ready:")))
     pidsOf(report)
@@ -1075,8 +1076,12 @@ describe("up", () => {
       ...lines,
       ...readdirSync(logs).map((name) => readFileSync(join(logs, name), "utf8")),
     ].join("\n")
-    expect(printed).toContain("token=[FACTORY_WORKER_TOKEN] key=[OPENAI_API_KEY]")
-    expect(printed).toContain("stderr token [FACTORY_WORKER_TOKEN] and key [OPENAI_API_KEY]")
+    expect(printed).toContain(
+      "echo FACTORY_WORKER_TOKEN=[FACTORY_WORKER_TOKEN] OPENAI_API_KEY=[OPENAI_API_KEY]",
+    )
+    expect(printed).toContain(
+      "stderr echo FACTORY_WORKER_TOKEN=[FACTORY_WORKER_TOKEN] OPENAI_API_KEY=[OPENAI_API_KEY]",
+    )
     expect(printed).not.toContain(KEY)
     expect(printed).not.toContain(token)
     expect(statSync(logs).mode & 0o777).toBe(0o700)
