@@ -3,7 +3,7 @@ import { RunAgentInputSchema } from "@ag-ui/core"
 import { type B4AgentStreamChunk, fromRunAgentInput, toAguiEvents } from "@b4run/ag-ui"
 import { encodeAgUiSse } from "@b4run/ag-ui/sse"
 import type { B4Config, MemoryStoreLike } from "@b4run/core"
-import { CLIENT_TOOL_PREFIX, isClientToolCallEnvelope } from "@b4run/core"
+import { CLIENT_TOOL_PREFIX } from "@b4run/core"
 import type { PermissionsStore } from "@b4run/permissions"
 import type {
   MiddlewareAfterHook,
@@ -32,6 +32,7 @@ import { applyMiddlewareAfter } from "./middleware-after.js"
 import { toWebRequest, writeNodeResponse } from "./node-web-adapter.js"
 import { readParkedRoute, settleParkedRoute } from "./parked-route.js"
 import {
+  isClientToolPark,
   type PendingResumeClaims,
   readPendingInterrupts,
   resolvePendingResume,
@@ -149,18 +150,30 @@ async function* observeInterrupts(
  * longer carries the vocabulary the hub stores. The terminal `done` chunk is
  * captured rather than published — see the `liveTurn?.close` call site for
  * why it is delivered exactly once, never through the digest.
+ *
+ * What it publishes is the client-facing view (`clientFacingChunk`): an
+ * attacher must no more see a client tool park, or a `client_`-prefixed name,
+ * than the primary client does. The raw chunk is still yielded downstream,
+ * where `normalizeB4Stream` applies the same view exactly once.
  */
 async function* tapLiveTurn(
   chunks: AsyncIterable<StreamChunk>,
   liveTurn: LiveTurnProducer | undefined,
   onTerminal: (chunk: StreamChunk) => void,
+  clientToolNames: ReadonlySet<string> = new Set(),
 ): AsyncGenerator<StreamChunk> {
   for await (const chunk of chunks) {
     if (chunk.type === "done") onTerminal(chunk)
-    else liveTurn?.publish(chunk)
+    else {
+      const visible = clientFacingChunk(chunk, clientToolNames)
+      if (visible !== undefined) liveTurn?.publish(visible)
+    }
     yield chunk
   }
 }
+
+/** Test seam: the live-turn tap, exported only for unit tests. */
+export const __tapLiveTurnForTests = tapLiveTurn
 
 /**
  * The name the client registered for a model-visible tool name: `client_<n>`
@@ -173,6 +186,40 @@ function clientFacingToolName(name: string, clientToolNames: ReadonlySet<string>
   if (!name.startsWith(CLIENT_TOOL_PREFIX)) return name
   const bare = name.slice(CLIENT_TOOL_PREFIX.length)
   return clientToolNames.has(bare) ? bare : name
+}
+
+/**
+ * The client's view of one raw chunk, shared by every client-facing wire (the
+ * AG-UI translation and the live-turn tap), so they cannot drift apart:
+ * `undefined` for a client tool park — dropped by its `type` alone, so a
+ * malformed one is not passed on as a prompt either — and `client_<n>`
+ * un-prefixed on `tool_call`, `tool_result` and `tool_call_args` for this
+ * run's client tools. Everything else is returned as is.
+ */
+function clientFacingChunk(
+  chunk: StreamChunk,
+  clientToolNames: ReadonlySet<string>,
+): StreamChunk | undefined {
+  switch (chunk.type) {
+    case "interrupt":
+      return isClientToolPark((chunk as { readonly data: unknown }).data) ? undefined : chunk
+    case "tool_call":
+    case "tool_result": {
+      const named = chunk as Extract<StreamChunk, { readonly type: "tool_call" | "tool_result" }>
+      const name = clientFacingToolName(named.name, clientToolNames)
+      return name === named.name ? chunk : { ...named, name }
+    }
+    case "tool_call_args": {
+      // Streamed argument deltas open TOOL_CALL_START ahead of the announce,
+      // so they must carry the same client-facing name the announce does.
+      const data = (chunk as { readonly data: unknown }).data
+      if (!isRecord(data) || typeof data.name !== "string") return chunk
+      const name = clientFacingToolName(data.name, clientToolNames)
+      return name === data.name ? chunk : { type: chunk.type, data: { ...data, name } }
+    }
+    default:
+      return chunk
+  }
 }
 
 /**
@@ -189,7 +236,9 @@ async function* normalizeB4Stream(
   chunks: AsyncIterable<StreamChunk>,
   clientToolNames: ReadonlySet<string> = new Set(),
 ): AsyncGenerator<B4AgentStreamChunk> {
-  for await (const chunk of chunks) {
+  for await (const raw of chunks) {
+    const chunk = clientFacingChunk(raw, clientToolNames)
+    if (chunk === undefined) continue
     switch (chunk.type) {
       case "chunk":
         yield {
@@ -206,7 +255,7 @@ async function* normalizeB4Stream(
           type: "tool_call",
           data: {
             ...(toolCall.id ? { id: toolCall.id } : {}),
-            name: clientFacingToolName(toolCall.name, clientToolNames),
+            name: toolCall.name,
             input: toolCall.input,
           },
         }
@@ -218,29 +267,10 @@ async function* normalizeB4Stream(
           type: "tool_result",
           data: {
             ...(toolResult.id ? { id: toolResult.id } : {}),
-            name: clientFacingToolName(toolResult.name, clientToolNames),
+            name: toolResult.name,
             output: toolResult.output,
           },
         }
-        break
-      }
-      case "tool_call_args": {
-        // Streamed argument deltas open TOOL_CALL_START ahead of the announce,
-        // so they must carry the same client-facing name the announce does.
-        const data = (chunk as { readonly data: unknown }).data
-        yield {
-          type: "tool_call_args",
-          data:
-            isRecord(data) && typeof data.name === "string"
-              ? { ...data, name: clientFacingToolName(data.name, clientToolNames) }
-              : data,
-        }
-        break
-      }
-      case "interrupt": {
-        const data = (chunk as { readonly data: unknown }).data
-        if (isClientToolCallEnvelope(data)) break
-        yield { type: "interrupt", data }
         break
       }
       case "done":
@@ -493,6 +523,14 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     // Client tool parks are excluded from the permission resolution and the
     // grant gate: they are answered by a `role: "tool"` message, not by a
     // resume entry. (Matching those messages to their parks is separate.)
+    //
+    // INTERIM. Mixed parks — a permission park beside a client park — must be
+    // resolved in ONE Command resume map covering EVERY pending park (the
+    // client-tool matching adds the client entries), never partially: a
+    // partial resume leaves the answered park's `__interrupt__` write in the
+    // checkpoint until the superstep completes, so it is re-demanded, and
+    // re-runs the unanswered client task. See `handleResumeRequest`, which
+    // refuses outright (`client_tool_pending`) for the same reason.
     const pending = withoutClientToolParks(
       (await readPendingInterrupts(checkpointer, input.threadId)) ?? {
         interrupts: [],
@@ -706,13 +744,25 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                   threadId,
                 })
               : observedRouteStream
-            const liveTappedStream = tapLiveTurn(guardedRouteStream, liveTurn, (chunk) => {
-              terminalChunk = chunk
-            })
-            for await (const event of toAguiEvents(normalizeB4Stream(liveTappedStream), {
-              threadId,
-              runId: input.runId,
-            })) {
+            // This run's client tool names, shared by both client-facing
+            // wires so an attacher and the primary client see the same names.
+            // Empty until the handler accepts client tools.
+            const clientToolNames: ReadonlySet<string> = new Set()
+            const liveTappedStream = tapLiveTurn(
+              guardedRouteStream,
+              liveTurn,
+              (chunk) => {
+                terminalChunk = chunk
+              },
+              clientToolNames,
+            )
+            for await (const event of toAguiEvents(
+              normalizeB4Stream(liveTappedStream, clientToolNames),
+              {
+                threadId,
+                runId: input.runId,
+              },
+            )) {
               // The translator catches upstream errors and aborts as RUN_ERROR,
               // so the raw stream may never produce a terminal chunk. Preserve
               // that outcome for AP viewers instead of reporting null success.

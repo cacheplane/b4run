@@ -5,7 +5,8 @@ import { join } from "node:path"
 import { type B4AgentStreamChunk, toAguiEvents } from "@b4run/ag-ui"
 import { afterEach, describe, expect, test } from "vitest"
 
-import { __normalizeB4StreamForTests } from "../src/lib/dev/agui-handler.js"
+import { __normalizeB4StreamForTests, __tapLiveTurnForTests } from "../src/lib/dev/agui-handler.js"
+import { withoutClientToolParks } from "../src/lib/dev/pending-interrupts.js"
 import { startRuntimeServer } from "../src/lib/dev/runtime-server.js"
 import type { StreamChunk } from "../src/lib/runtime/stream-types.js"
 
@@ -187,7 +188,7 @@ const permissionWrite = [
 ] as const
 
 describe("approval surfaces never show a client tool park", () => {
-  test("client park only: listing is empty, attach state lists nothing, resume is stale", async () => {
+  test("client park only: listing is empty, attach state lists nothing, resume is refused", async () => {
     const { url } = await startFixture([clientWrite])
     const threadId = "thread-client-only"
     await seedRoute(url, threadId)
@@ -206,10 +207,10 @@ describe("approval surfaces never show a client tool park", () => {
       route: "/noop#graph",
     })
     expect(resume.status).toBe(409)
-    expect(await codeOf(resume)).toBe("stale_interrupt")
+    expect(await codeOf(resume)).toBe("client_tool_pending")
   })
 
-  test("permission + client park: only the permission park is listed and answerable", async () => {
+  test("permission + client park: only the permission park is listed; /resume refuses outright", async () => {
     const { url } = await startFixture([permissionWrite, clientWrite])
     const threadId = "thread-mixed"
     await seedRoute(url, threadId)
@@ -226,15 +227,141 @@ describe("approval surfaces never show a client tool park", () => {
       route: "/noop#graph",
     })
     expect(clientAnswer.status).toBe(409)
-    expect(await codeOf(clientAnswer)).toBe("interrupt_set_mismatch")
+    expect(await codeOf(clientAnswer)).toBe("client_tool_pending")
 
-    const resume = await postResume(url, threadId, {
+    // A partial resume of the permission park alone is unsafe (the answered
+    // park is re-demanded, and the client task re-runs with no stubs bound),
+    // so it is refused too — one clear refusal whenever a client park is
+    // pending.
+    const partial = await postResume(url, threadId, {
       resume: [{ interruptId: "perm-1", status: "resolved", payload: "once" }],
       route: "/noop#graph",
     })
-    expect(resume.status).toBe(200)
+    expect(partial.status).toBe(409)
+    expect(await codeOf(partial)).toBe("client_tool_pending")
   })
 })
+
+describe("the AG-UI resume path excludes client tool parks from the permission set", () => {
+  test("client park only: an AG-UI run is not refused as resume_required", async () => {
+    const { url } = await startFixture([clientWrite])
+    const response = await postAgui(url, { threadId: "thread-agui-client-only" })
+    expect(response.status).toBe(200)
+    await response.body?.cancel()
+  })
+
+  test("permission + client park: the permission park alone is still required", async () => {
+    const { url } = await startFixture([permissionWrite, clientWrite])
+    const threadId = "thread-agui-mixed"
+
+    const bare = await postAgui(url, { threadId })
+    expect(bare.status).toBe(409)
+    expect(await codeOf(bare)).toBe("resume_required")
+
+    // The client park is not in the set a resume entry can name.
+    const naming = await postAgui(url, {
+      threadId,
+      resume: [
+        { interruptId: "perm-1", status: "resolved", payload: "once" },
+        { interruptId: "client-call_1", status: "resolved", payload: "once" },
+      ],
+    })
+    expect(naming.status).toBe(409)
+    expect(await codeOf(naming)).toBe("interrupt_set_mismatch")
+  })
+})
+
+describe("the live-turn tap publishes the client's view", () => {
+  test("no client park, and un-prefixed names for this run's client tools", async () => {
+    const published: StreamChunk[] = []
+    const producer = { publish: (chunk: StreamChunk) => published.push(chunk) }
+    const raw: StreamChunk[] = [
+      { type: "tool_call_args", data: { id: "call_1", name: "client_openPanel", delta: "{}" } },
+      { type: "tool_call", id: "call_1", name: "client_openPanel", input: {} },
+      { type: "tool_result", id: "call_0", name: "client_openPanel", output: "ok" },
+      { type: "tool_call", id: "call_2", name: "client_other", input: {} },
+      { type: "interrupt", data: clientPark },
+      { type: "interrupt", data: { type: "client-tool-call", interruptId: "client-x" } },
+      { type: "interrupt", data: permissionPark },
+      { type: "done", output: null },
+    ]
+    let terminal: StreamChunk | undefined
+    const yielded = await collect(
+      __tapLiveTurnForTests(
+        from(raw),
+        producer as unknown as Parameters<typeof __tapLiveTurnForTests>[1],
+        (chunk) => {
+          terminal = chunk
+        },
+        new Set(["openPanel"]),
+      ),
+    )
+    expect(published).toEqual([
+      { type: "tool_call_args", data: { id: "call_1", name: "openPanel", delta: "{}" } },
+      { type: "tool_call", id: "call_1", name: "openPanel", input: {} },
+      { type: "tool_result", id: "call_0", name: "openPanel", output: "ok" },
+      { type: "tool_call", id: "call_2", name: "client_other", input: {} },
+      { type: "interrupt", data: permissionPark },
+    ])
+    // Downstream still gets the raw stream: normalizeB4Stream applies the
+    // same view there exactly once, and observeInterrupts has already seen it.
+    expect(yielded).toEqual(raw)
+    expect(terminal).toEqual({ type: "done", output: null })
+  })
+})
+
+describe("withoutClientToolParks", () => {
+  const entry = (interruptId: string, value: unknown) => ({
+    aliases: [interruptId],
+    interruptId,
+    resumeKey: null,
+    value,
+  })
+
+  test("filters a client park and keeps a permission park", () => {
+    const result = withoutClientToolParks({
+      interrupts: [entry("perm-1", permissionPark), entry("client-call_1", clientPark)],
+      malformed: false,
+    })
+    expect(result.interrupts.map((i) => i.interruptId)).toEqual(["perm-1"])
+    expect(result.malformed).toBe(false)
+  })
+
+  test("a client-typed envelope missing its ids is dropped AND fails closed", () => {
+    const result = withoutClientToolParks({
+      interrupts: [
+        entry("perm-1", permissionPark),
+        entry("client-broken", { type: "client-tool-call", interruptId: "client-broken" }),
+      ],
+      malformed: false,
+    })
+    expect(result.interrupts.map((i) => i.interruptId)).toEqual(["perm-1"])
+    expect(result.malformed).toBe(true)
+  })
+
+  test("carries malformed over from the full set", () => {
+    expect(withoutClientToolParks({ interrupts: [], malformed: true }).malformed).toBe(true)
+  })
+})
+
+async function postAgui(
+  serverUrl: string,
+  body: { threadId: string; resume?: unknown[] },
+): Promise<Response> {
+  return fetch(new URL(`/agui/${encodeURIComponent("/noop#graph")}`, serverUrl), {
+    body: JSON.stringify({
+      context: [],
+      forwardedProps: {},
+      messages: [{ content: "hi", id: "m-1", role: "user" }],
+      runId: "run-1",
+      state: {},
+      tools: [],
+      ...body,
+    }),
+    headers: { accept: "text/event-stream", "content-type": "application/json" },
+    method: "POST",
+  })
+}
 
 async function codeOf(response: Response): Promise<unknown> {
   const body = (await response.json()) as { error?: { details?: { code?: unknown } } }

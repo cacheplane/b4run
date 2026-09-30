@@ -64,6 +64,7 @@ import {
   type B4ResumeEntry,
   createPendingResumeClaims,
   grantOf,
+  isClientToolPark,
   type PendingResumeClaims,
   parsePendingInterrupts,
   readPendingInterrupts,
@@ -3864,11 +3865,25 @@ async function handleResumeRequest(options: {
       )
     }
 
-    // A client tool park is not this endpoint's to answer: excluded before the
-    // exact-set match, so naming one is stale (alone) or a set mismatch (with a
-    // permission park), and a permission park pending beside one is answerable
-    // on its own. See `withoutClientToolParks`.
-    const pendingInterrupts = withoutClientToolParks(pendingSnapshot)
+    // One clear refusal whenever a client tool call is parked, alone or beside
+    // a permission park. It is answered by a `role: "tool"` message through
+    // the AG-UI endpoint, never here — and a PARTIAL resume answering only the
+    // permission parks is unsafe: the permission task's `__interrupt__` write
+    // survives until the superstep completes (so it is re-listed and
+    // re-demanded), and the client task re-runs on this path with no client
+    // tool stubs bound, so ToolNode resolves the park destructively as an
+    // invalid tool. Mixed parks must be answered in ONE resume covering every
+    // pending park, which only the AG-UI path can do.
+    if (pendingSnapshot.interrupts.some((entry) => isClientToolPark(entry.value))) {
+      return Response.json(
+        createRequestErrorBody(
+          "A client-provided tool call is pending on this thread; it is answered through the AG-UI endpoint, not the resume endpoint.",
+          { code: "client_tool_pending" },
+        ),
+        { status: 409 },
+      )
+    }
+    const pendingInterrupts = pendingSnapshot
     const resumeResolution = resolvePendingResume(body.resume, pendingInterrupts)
     if (!resumeResolution.ok) {
       return Response.json(
