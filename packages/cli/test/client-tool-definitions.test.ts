@@ -41,7 +41,8 @@ describe("readClientToolDefinitions", () => {
   it("defaults description and parameters; allows absent top-level type", () => {
     const result = readClientToolDefinitions([
       { name: "bare" },
-      { name: "untyped", parameters: { properties: {} } },
+      { name: "untyped", parameters: { properties: { q: { type: "string" } } } },
+      { name: "noprops", parameters: { type: "object" } },
     ])
     expect(result).toEqual({
       ok: true,
@@ -51,7 +52,12 @@ describe("readClientToolDefinitions", () => {
           description: "",
           parameters: { type: "object", properties: {} },
         },
-        { name: "untyped", description: "", parameters: { properties: {} } },
+        {
+          name: "untyped",
+          description: "",
+          parameters: { type: "object", properties: { q: { type: "string" } } },
+        },
+        { name: "noprops", description: "", parameters: { type: "object", properties: {} } },
       ],
     })
   })
@@ -64,6 +70,7 @@ describe("readClientToolDefinitions", () => {
     reject([tool({ parameters: [] })], "invalid_client_tool")
     reject([tool({ parameters: "x" })], "invalid_client_tool")
     reject([tool({ parameters: { type: "string" } })], "invalid_client_tool")
+    reject([tool({ parameters: { type: "object", properties: [] } })], "invalid_client_tool")
   })
 
   it("rejects bad names", () => {
@@ -156,5 +163,41 @@ describe("readClientToolDefinitions", () => {
       ],
       "client_tool_too_deep",
     )
+  })
+
+  it("accepts a 64-char name and rejects 65", () => {
+    expect(readClientToolDefinitions([tool({ name: "a".repeat(64) })]).ok).toBe(true)
+    reject([tool({ name: "a".repeat(65) })], "invalid_client_tool_name")
+  })
+
+  it("bounds parameters at exactly 8192 serialized characters", () => {
+    const base = JSON.stringify({ type: "object", properties: { d: { description: "" } } }).length
+    const withPad = (n: number) => ({
+      type: "object",
+      properties: { d: { description: "p".repeat(n) } },
+    })
+    const fit = 8192 - base
+    expect(JSON.stringify(withPad(fit)).length).toBe(8192)
+    expect(readClientToolDefinitions([tool({ parameters: withPad(fit) })]).ok).toBe(true)
+    reject([tool({ parameters: withPad(fit + 1) })], "client_tool_too_large")
+  })
+
+  it("counts name length toward the block total", () => {
+    const params = { type: "object", properties: {} }
+    const paramLen = JSON.stringify(params).length
+    const desc = "d".repeat(960)
+    const mk = (nameLen: number) =>
+      Array.from({ length: 32 }, (_, i) =>
+        tool({
+          name: `${String(i).padStart(2, "0")}${"n".repeat(nameLen - 2)}`,
+          description: desc,
+          parameters: params,
+        }),
+      )
+    // Short names fit; 64-char names tip the same tools over the block budget.
+    expect(32 * (2 + 960 + paramLen)).toBeLessThanOrEqual(MAX_CLIENT_TOOL_BLOCK)
+    expect(32 * (64 + 960 + paramLen)).toBeGreaterThan(MAX_CLIENT_TOOL_BLOCK)
+    expect(readClientToolDefinitions(mk(2)).ok).toBe(true)
+    reject(mk(64), "client_tool_budget_exceeded")
   })
 })

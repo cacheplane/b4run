@@ -10,10 +10,19 @@
  * Depth: the top-level schema is level 1; each schema object nested under
  * `properties.<x>`, `items`, `additionalProperties` (when an object), or a
  * member of `anyOf`/`oneOf`/`allOf` adds one level. Up to
- * MAX_CLIENT_TOOL_DEPTH (8) levels are accepted (top + 7 nested), matching the
- * tool converter's MAX_ZOD_DEPTH, below which fields are silently degraded.
- * The converter also turns any non-`{type:"object", properties}` schema into a
- * permissive record, so a top-level `type` other than "object" is rejected.
+ * MAX_CLIENT_TOOL_DEPTH (8) levels are accepted (top + 7 nested). The tool
+ * converter (MAX_ZOD_DEPTH = 8) counts the top level as depth 0 and degrades
+ * fields at depth > 8, i.e. level 10, so this validator is deliberately one
+ * level stricter than the converter's cutoff: nothing it accepts is degraded.
+ *
+ * The converter only builds a real zod object for `{type:"object",
+ * properties:{...}}`; anything else becomes a permissive record that silently
+ * drops fields. So parameters are normalized: an absent `type` becomes
+ * "object", an absent `properties` becomes `{}`, a non-"object" `type` or a
+ * non-object `properties` is rejected. Size, depth, and the block total are
+ * computed on the normalized form. `$ref` and `oneOf`/`allOf` constraints are
+ * accepted but not enforced by the converter; they are bounded, not a
+ * security issue.
  *
  * Pure and edge-safe (no node: imports).
  */
@@ -115,15 +124,26 @@ export function readClientToolDefinitions(tools: unknown): ReadClientToolsResult
       )
     }
 
-    const parameters = entry.parameters ?? { type: "object", properties: {} }
-    if (!isPlainObject(parameters)) {
+    const rawParameters = entry.parameters ?? { type: "object", properties: {} }
+    if (!isPlainObject(rawParameters)) {
       return reject("invalid_client_tool", `client tool "${name}" parameters must be an object`)
     }
-    if (parameters.type !== undefined && parameters.type !== "object") {
+    if (rawParameters.type !== undefined && rawParameters.type !== "object") {
       return reject(
         "invalid_client_tool",
         `client tool "${name}" parameters must be an object schema`,
       )
+    }
+    if (rawParameters.properties !== undefined && !isPlainObject(rawParameters.properties)) {
+      return reject(
+        "invalid_client_tool",
+        `client tool "${name}" parameters.properties must be an object`,
+      )
+    }
+    const parameters: Record<string, unknown> = {
+      ...rawParameters,
+      type: "object",
+      properties: rawParameters.properties ?? {},
     }
     let serialized: string
     try {
