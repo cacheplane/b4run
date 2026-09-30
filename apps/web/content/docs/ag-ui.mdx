@@ -152,6 +152,10 @@ The thread's pending call is answered through this endpoint only.
 `POST /threads/:thread_id/resume` refuses with `409` `client_tool_pending`
 while a client tool call is parked.
 
+`GET /threads/:thread_id/state` shows the raw graph state. While a call is
+parked, `values` holds the model's tool call under its `client_`-prefixed
+name, and `next` lists the pending `__interrupt__` write.
+
 A permission prompt and a client tool call can park in the same model turn.
 Both are then answered in **one** AG-UI run: the tool message plus the
 `resume` entries for the prompt. A run that carries only the tool message is
@@ -186,6 +190,21 @@ thread is never a dead end. A permission prompt pending on the same thread
 must be answered first. On the route that issued the call, the abandon is
 refused with `409` `resume_required`, as any new turn over a pending prompt
 is; on any other route, with `409` `client_tool_pending`.
+
+Abandon a parked call over AG-UI. While one is parked, the Agent Protocol run
+endpoints (`POST /threads/:thread_id/runs/stream` and `/runs/wait`) and
+`/resume` refuse with `409` `client_tool_pending`: a new run there would drop
+the park and leave the model's tool call with no result, which the provider
+rejects on every later turn.
+
+#### Repairing a thread after a deployment change
+
+Closing a parked call needs the route that issued it and the store that
+recorded it. If a deployment removes or renames that route, or removes the
+configured `clientToolStore`, while a call is parked, requests on the thread
+fail closed: `409` `client_tool_close_failed` for the route, `503`
+`client_tool_store_unavailable` for the store. Restore the route or the store
+so the call can be abandoned, or start a new thread.
 
 ### Limits
 
