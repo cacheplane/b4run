@@ -468,8 +468,10 @@ its app root under `up`'s own Node, not `b4 dev`, so §9 findings 4 and 21 do no
 it. It generates the worker token per start (or takes `FACTORY_WORKER_TOKEN`) and gives it to
 the three children only; it takes `OPENAI_API_KEY` from its environment or the one line of the
 checkout's `.env`, else the main worktree's (never `FACTORY_REPO_ROOT`'s), and gives it to the
-builder and the drafter only (the controller's environment drops every model and cloud
-credential). Every child line is redacted before it reaches stdout or `<state>/logs/`. It takes
+builder and the drafter only (the controller's environment also drops, by a deny-list, every
+variable ending in `_API_KEY` or starting `OPENAI_`, `ANTHROPIC_` or `AWS_`, and `GH_TOKEN` and
+`GITHUB_TOKEN`; any other variable, another provider's credential included, still reaches it).
+Every child line is redacted before it reaches stdout or `<state>/logs/`. It takes
 two locks, on the state directory and on the checkout (each app's stores live in its app root,
 so one `up` per checkout), judged by pid and recorded command, and names orphans a
 `SIGKILL`ed `up` left before anything else. It waits for `/readyz` on all three and then calls

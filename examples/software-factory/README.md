@@ -335,7 +335,10 @@ from the repository root):
 From the repository root the spelling is `pnpm --dir examples/software-factory factory …`.
 `pnpm factory` is an orchestration-only `package.json` here (not a workspace member) that runs
 the controller package's CLI silently, so stdout carries only the CLI's JSON and its exit code
-reaches the shell.
+reaches the shell. Clean stdout takes both the script's `--silent` and this directory's
+`.npmrc` (`reporter=silent`), and that `.npmrc` silences every pnpm command run in
+`examples/software-factory`, pnpm's own errors included: run `pnpm install` and any other pnpm
+command from the repository root.
 
 **`up`** reads `factory.config.ts`: the state directory (`.factory` here, gitignored) and the
 three ports, validated strictly (an unknown or misspelt key refuses, naming it). It starts
@@ -355,8 +358,11 @@ printed, logged or written. It takes `OPENAI_API_KEY` from its environment, else
 `OPENAI_API_KEY=` line of this checkout's `.env`, else the main worktree's (a linked worktree
 has none of its own); never from `FACTORY_REPO_ROOT`'s, which names the target repository. It
 says where the key came from, never its value, and refuses without one. The key goes to the
-builder and the drafter only: the controller's environment drops it, with every other model
-and cloud credential. Each process's output is redacted (the token and the key never appear),
+builder and the drafter only: the controller's environment drops it, and by a deny-list also
+every variable ending in `_API_KEY` or starting `OPENAI_`, `ANTHROPIC_` or `AWS_`, plus
+`GH_TOKEN` and `GITHUB_TOKEN`. Any other variable of `up`'s environment (a credential by another
+name included) still reaches all three processes, so do not export secrets `up` has no use for.
+Each process's output is redacted (the token and the key never appear),
 prefixed with its name on `up`'s stdout, and appended to `<state>/logs/<app>.log`; `up`'s own
 lines go to `<state>/logs/up.log` too. `up`'s stdout is a log stream, not the CLI's JSON.
 
@@ -426,9 +432,12 @@ One known limitation: after a controller that was `SIGKILL`ed, a work order's th
 
 ## Run it by hand
 
-The steps below are what `pnpm factory up` (the Quickstart) does for steps 1 to 3, and the CLI
-reads the controller's URL and the state directory from `factory.config.ts`, so step 4's
-`export`s and alias are optional.
+The steps below are what `pnpm factory up` (the Quickstart) does for steps 1 to 3. The state
+directory here is `examples/software-factory/.factory` (gitignored), the one
+`factory.config.ts` names, and the ports are its ports; the CLI reads the controller's URL and
+the state directory from that file, so step 4's `export`s are optional only while steps 3 and 4
+keep to them. Change either and export both, or the CLI reads a registry the controller never
+wrote.
 
 The builder and the verifier both run in the target's image, so this needs Docker.
 
@@ -564,7 +573,7 @@ worker's URL, so it needs no worker's app root and no directory of a worker's:
 
     FACTORY_WORKER_URL=http://127.0.0.1:4100 \
     FACTORY_DRAFTER_URL=http://127.0.0.1:4200 \
-    FACTORY_STATE_DIR=$PWD/.factory \
+    FACTORY_STATE_DIR=$PWD/examples/software-factory/.factory \
     FACTORY_WORKER_TOKEN=$TOKEN \
       pnpm --filter @b4-example/software-factory-controller dev --port 4300
 
@@ -599,7 +608,7 @@ The CLI's write commands are requests to the running controller
 `<FACTORY_STATE_DIR>/registry.sqlite` read-only. So both variables are set:
 
     export FACTORY_CONTROLLER_URL=http://127.0.0.1:4300
-    export FACTORY_STATE_DIR=$PWD/.factory
+    export FACTORY_STATE_DIR=$PWD/examples/software-factory/.factory
     alias factory='pnpm --filter @b4-example/software-factory-controller factory'
 
     factory create --task cli-flags
@@ -834,7 +843,9 @@ The controller app reads:
 The CLI reads `FACTORY_CONTROLLER_URL` and `FACTORY_STATE_DIR` from the environment, else from
 the factory config: `--config <path>`, else `FACTORY_CONFIG`, else `factory.config.ts` in this
 directory when it exists (`FACTORY_CONFIG=none` or `--config none` reads none; a relative path
-resolves against where you ran `pnpm`). When both are set and disagree the environment wins,
+resolves against pnpm's `INIT_CWD`, which is the directory you ran `pnpm` in, except under
+`pnpm --dir <dir>`, where it is `<dir>`: from the root, `pnpm --dir examples/software-factory
+factory up --config factory.config.local.ts` names `examples/software-factory/factory.config.local.ts`). When both are set and disagree the environment wins,
 with one stderr line naming both. `factory up` needs a config and refuses an exported value
 that disagrees with it.
 
@@ -900,7 +911,7 @@ config.
 
     # the controller
     pnpm --filter @b4-example/software-factory-controller test
-    pnpm --filter @b4-example/software-factory-controller test:sandbox
+    pnpm --filter @b4-example/software-factory-controller test:sandbox   # not beside a live `up` in this checkout
 
     # the builder
     pnpm --filter @b4-example/software-factory-server test
@@ -918,7 +929,10 @@ them already built) into a registry of the run's own, which every lane file shar
 teardown removes (the file, never an image). Layer 2 needs Docker even though its model is scripted: the app configures a
 sandbox, so the run acquires a real container — which is the point, since the permission
 config and `runBash` are exactly what that layer exists to exercise. Both fail rather than
-skip when Docker is absent. The controller's `builder.integration.test.ts` serves the builder
+skip when Docker is absent. Its `factory-up.integration.test.ts` runs the real `up` on a
+private state directory but takes this checkout's real `examples/software-factory/.up.lock`
+(each app's stores live in its app root), so it refuses beside a live `pnpm factory up` in the
+same checkout: stop that `up` first, or run the lane from another checkout. The controller's `builder.integration.test.ts` serves the builder
 app from a private copy and proves its resolver: two work orders on one process, each thread
 admitted with its own staged workspace; a `cli-flags` thread and two `devkit` threads at
 two pins on that same process, each thread's intent recording its own target's image at its
