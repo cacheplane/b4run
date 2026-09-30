@@ -221,3 +221,22 @@ test("clean constrain produces no issues", async () => {
   expect(result.errors).toEqual([])
   expect(result.warnings).toEqual([])
 })
+
+test("flags an authored tool that uses the reserved client_ prefix, scope or not", async () => {
+  const result = await collectToolScopeIssues(manifest, {
+    loadScope: async () => undefined,
+    routeLocalToolNames: async () => ["search", "client_lookup"],
+  })
+  expect(result.errors.join("\n")).toMatch(
+    /\/research.*"client_lookup".*reserved "client_" prefix/s,
+  )
+  expect(result.errors.join("\n")).not.toMatch(/"search"/)
+})
+
+test("does not flag a tool that merely contains client_", async () => {
+  const result = await collectToolScopeIssues(manifest, {
+    loadScope: async () => undefined,
+    routeLocalToolNames: async () => ["get_client_record"],
+  })
+  expect(result.errors).toEqual([])
+})
