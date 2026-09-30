@@ -346,6 +346,12 @@ export interface B4ToolDefinition {
       // it. Read by the argument-constraint wrapper to build ConstraintContext.
       readonly threadId?: string
       readonly params?: Readonly<Record<string, string>>
+      /**
+       * The provider's id for this call, stable across LangGraph's re-execution
+       * of an interrupted tool node. Absent when the tool is invoked outside a
+       * model tool call.
+       */
+      readonly toolCallId?: string
     },
   ) => Promise<unknown> | unknown
   readonly schema?: unknown

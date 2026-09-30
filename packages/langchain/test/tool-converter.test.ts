@@ -638,3 +638,31 @@ describe("convertToolToLangChain offloading", () => {
     expect(result).toBe(JSON.stringify(big))
   })
 })
+
+describe("convertToolToLangChain tool-call id in the run context", () => {
+  const probe = () => {
+    const seen: { ctx?: Record<string, unknown> } = {}
+    const tool = convertToolToLangChain({
+      name: "probe",
+      schema: { type: "object", properties: {} },
+      run: async (_input, ctx) => {
+        seen.ctx = ctx as Record<string, unknown>
+        return { result: "ok" }
+      },
+    })
+    return { seen, tool }
+  }
+
+  it("passes the provider tool-call id into run", async () => {
+    const { seen, tool } = probe()
+    await tool.invoke({ args: {}, id: "call_abc", name: "probe", type: "tool_call" })
+    expect(seen.ctx?.toolCallId).toBe("call_abc")
+  })
+
+  it("omits toolCallId when invoked outside a model tool call", async () => {
+    const { seen, tool } = probe()
+    await tool.invoke({})
+    expect(seen.ctx).toBeDefined()
+    expect("toolCallId" in (seen.ctx ?? {})).toBe(false)
+  })
+})

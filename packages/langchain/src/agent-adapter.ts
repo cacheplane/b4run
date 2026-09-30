@@ -26,6 +26,12 @@ export interface B4ToolDefinition {
     context: {
       readonly middleware?: Readonly<Record<string, unknown>>
       readonly signal: AbortSignal
+      /**
+       * The provider's id for this call, stable across LangGraph's re-execution
+       * of an interrupted tool node. Absent when the tool is invoked outside a
+       * model tool call.
+       */
+      readonly toolCallId?: string
     },
   ) => Promise<unknown> | unknown
   readonly schema?: unknown
