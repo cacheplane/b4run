@@ -25,10 +25,26 @@ export function hangFor(text: string): number {
 /**
  * The hang for a line of highlighted HTML (highlightCode's spans). Only the
  * leading whitespace counts, and highlightCode never escapes whitespace, so
- * dropping the tags is enough.
+ * this reads the text between tags until the first other character. It builds
+ * no string from the HTML; it only counts.
  */
 export function hangForHtml(html: string): number {
-  return hangFor(html.replace(/<[^>]*>/g, ""))
+  let columns = 0
+  let inTag = false
+  for (const character of html) {
+    if (inTag) {
+      if (character === ">") inTag = false
+    } else if (character === "<") {
+      inTag = true
+    } else if (character === " ") {
+      columns += 1
+    } else if (character === "\t") {
+      columns += 2
+    } else {
+      break
+    }
+  }
+  return Math.min(columns + HANG_STEP, HANG_MAX)
 }
 
 /**

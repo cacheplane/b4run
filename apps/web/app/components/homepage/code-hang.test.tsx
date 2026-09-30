@@ -66,6 +66,9 @@ describe("hangFor", () => {
   it("reads the indentation through highlightCode's spans", () => {
     expect(hangForHtml('<span class="a">    </span><span class="b">x</span>')).toBe(8)
     expect(hangForHtml('<span class="a">&lt;x</span>')).toBe(HANG_STEP)
+    // Spaces inside a tag (its attributes) aren't indentation.
+    expect(hangForHtml('<span class="a b c" style="x: y">  z</span>')).toBe(6)
+    expect(hangForHtml("<span>\tz</span>")).toBe(6)
   })
 })
 
