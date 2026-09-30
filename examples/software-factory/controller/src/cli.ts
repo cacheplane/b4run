@@ -24,6 +24,7 @@ import {
 } from "./lib/intake/issue.js"
 import {
   applyConfigDefaults,
+  DEFAULT_CONFIG_PATH,
   factoryConfigPath,
   loadFactoryConfig,
 } from "./lib/operator/factory-config.js"
@@ -33,7 +34,7 @@ import {
   nextStep,
   RUN_WAITING_ON_A_PERSON,
 } from "./lib/operator/run-steps.js"
-import { heldLockController } from "./lib/operator/up.js"
+import { heldLockController, lineWriter, realUpDeps, stopOnSignals, up } from "./lib/operator/up.js"
 import { openRegistryReader } from "./lib/registry/reader.js"
 import { exportReview, intakeReview, type OperatorReview } from "./lib/review/operator-review.js"
 import { pinDiffBase } from "./lib/review/pin-diff-base.js"
@@ -1483,6 +1484,25 @@ async function main(argv: string[]): Promise<number> {
       for (const warning of applyConfigDefaults(process.env, config))
         process.stderr.write(`factory: ${warning}\n`)
     }
+  }
+  if (command === "up") {
+    const stray = Object.entries(values)
+      .filter(([name, value]) => name !== "config" && value !== undefined && value !== false)
+      .map(([name]) => `--${name}`)
+    if (stray.length > 0) throw new Error(`factory up takes only --config; not ${stray.join(", ")}`)
+    if (id !== undefined) throw new Error("factory up takes no positional argument")
+    const located = factoryConfigPath(process.env, values.config)
+    if (!located)
+      throw new Error(
+        `factory up needs a config: ${DEFAULT_CONFIG_PATH} (or --config <path>; FACTORY_CONFIG=none reads none)`,
+      )
+    const config = await loadFactoryConfig(located.path)
+    // A closed stdout (`up | head`) must not end up and orphan its detached children (Trap 24):
+    // after an error there, up's own lines go to <state>/logs/up.log and each child's to its log.
+    const out = lineWriter(process.stdout)
+    // SIGHUP too: a closed terminal would otherwise leave the detached children running.
+    const { stop, force } = stopOnSignals(process, out)
+    return await up(config, realUpDeps(out), stop, force)
   }
   // Answered before anything is opened: writing a builder handoff reads the catalog and
   // captures an archive, and needs no controller; it opens the image registry read-only only

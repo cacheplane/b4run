@@ -1966,4 +1966,24 @@ esac
     expect(transitions(stateDir, id, "dispatch_committed")).toHaveLength(1)
     expect([1, 3]).toContain(resumed.code)
   }, 120_000)
+
+  it("up takes only --config, and needs a config to start anything", async () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-cli-")) // for afterEach; up refuses before using it
+    const env = { ...process.env, FACTORY_CONFIG: "none" }
+    const stray = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "up", "--task", "cli-flags"], {
+        env,
+        cwd: packageRoot,
+      }),
+    )
+    expect(stray.stderr).toContain("factory up takes only --config; not --task")
+    const positional = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "up", "extra"], { env, cwd: packageRoot }),
+    )
+    expect(positional.stderr).toContain("factory up takes no positional argument")
+    const none = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "up"], { env, cwd: packageRoot }),
+    )
+    expect(none.stderr).toContain("factory up needs a config")
+  }, 60_000)
 })

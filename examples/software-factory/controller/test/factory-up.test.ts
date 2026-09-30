@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events"
 import {
   chmodSync,
   existsSync,
@@ -9,19 +10,27 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { Writable } from "node:stream"
 import { afterEach, describe, expect, it } from "vitest"
+import type { WorkOrderRow } from "../src/lib/domain/work-order.ts"
 import { parseFactoryConfig } from "../src/lib/operator/factory-config.ts"
 import {
   acquireLock,
   appProcesses,
   commandOf,
   dotenvCandidates,
+  lineWriter,
   openaiKeyFor,
   ownSubprocessEnv,
   preflight,
+  stopOnSignals,
+  UP,
   type UpDeps,
+  up,
   workerTokenFor,
 } from "../src/lib/operator/up.ts"
+import { openRegistry } from "../src/lib/registry/db.ts"
+import { createWorkOrderStore } from "../src/lib/registry/work-orders.ts"
 
 const KEY = "sk-not-a-real-key-for-tests"
 let dir: string | undefined
@@ -237,7 +246,7 @@ describe("up's own subprocesses", () => {
     const calls = [
       ...source.matchAll(/\b(?:execFileSync|execFile|run|spawnSync|spawn)\(\s*"(git|ps|docker)"/g),
     ]
-    expect(calls.map((c) => c[1]).sort()).toEqual(["git", "ps"])
+    expect(calls.map((c) => c[1]).sort()).toEqual(["docker", "docker", "git", "ps"])
     for (const call of calls) {
       // The whole call, to its matching parenthesis.
       let depth = 0
@@ -545,4 +554,365 @@ describe("the locks", () => {
     expect(readdirSync(config.stateDir)).toEqual(["up.lock"])
     lock.release()
   })
+})
+
+function row(id: string, state: WorkOrderRow["state"]): WorkOrderRow {
+  const at = "2026-09-29T00:00:00.000Z"
+  return {
+    id,
+    revision: 0,
+    state,
+    taskId: "cli-flags",
+    workerRoute: "/fix#agent",
+    workerThreadId: null,
+    interruptId: null,
+    candidateDigest: null,
+    bundleDigest: null,
+    blockedReason: null,
+    failureReason: null,
+    candidateAttempts: 0,
+    maxCandidateAttempts: 1,
+    maxActiveMs: 60_000,
+    activeMs: 0,
+    activeStartedAt: null,
+    awaitingSince: null,
+    origin: { kind: "catalog" },
+    pin: null,
+    targetId: null,
+    taskDigest: null,
+    intakeAttempts: 0,
+    maxIntakeAttempts: 2,
+    createdAt: at,
+    updatedAt: at,
+  }
+}
+
+describe("up's stdout", () => {
+  it("survives a closed pipe (EPIPE): it stops writing there and never throws", async () => {
+    let writes = 0
+    const stream = new Writable({
+      write(_chunk, _encoding, callback) {
+        writes++
+        callback(Object.assign(new Error("write EPIPE"), { code: "EPIPE" }))
+      },
+    })
+    const out = lineWriter(stream)
+    out("first")
+    await new Promise((r) => setImmediate(r))
+    out("second")
+    out("third")
+    await new Promise((r) => setImmediate(r))
+    expect(writes).toBe(1)
+  })
+
+  it("writes each line while the pipe is open", () => {
+    const chunks: string[] = []
+    const out = lineWriter(
+      new Writable({
+        write(chunk, _encoding, callback) {
+          chunks.push(String(chunk))
+          callback()
+        },
+      }),
+    )
+    out("a")
+    out("b")
+    expect(chunks).toEqual(["a\n", "b\n"])
+  })
+})
+
+describe("up's signals", () => {
+  it("SIGINT, SIGTERM or SIGHUP stops; only a second one more than a second later kills", () => {
+    for (const first of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+      const source = new EventEmitter()
+      let now = 1_000
+      const said: string[] = []
+      const { stop, force } = stopOnSignals(
+        source,
+        (line) => said.push(line),
+        () => now,
+      )
+      expect(stop.aborted).toBe(false)
+      source.emit(first)
+      expect(stop.aborted).toBe(true)
+      expect(force.aborted).toBe(false)
+      // One Ctrl-C relayed twice through pnpm and tsx arrives within the second.
+      now += 400
+      source.emit("SIGINT")
+      expect(force.aborted).toBe(false)
+      now += 1_000
+      source.emit("SIGTERM")
+      expect(force.aborted).toBe(true)
+      expect(said.join("\n")).toContain(`${first}: stopping`)
+    }
+  })
+})
+
+const FAKE_APP = join(import.meta.dirname, "fixtures/fake-factory-app.mjs")
+const reports = (path: string) =>
+  existsSync(path)
+    ? readFileSync(path, "utf8")
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .map((l) => JSON.parse(l))
+    : []
+/** Three stand-in apps on fixed test ports, and what they report. */
+function fakeUp(extraEnv: Record<string, string> = {}, patch: Partial<UpDeps> = {}) {
+  const config = fresh()
+  const report = join(dir as string, "report.jsonl")
+  const lines: string[] = []
+  const stop = new AbortController()
+  const force = new AbortController()
+  const done = up(
+    config,
+    deps({
+      env: {
+        PATH: process.env.PATH ?? "",
+        OPENAI_API_KEY: KEY,
+        FAKE_APP_REPORT: report,
+        ...extraEnv,
+      },
+      launch: (name, _cwd, port) => ({
+        command: "/usr/bin/env",
+        args: [
+          `FAKE_APP_NAME=${name}`,
+          process.execPath,
+          FAKE_APP,
+          "--host",
+          "127.0.0.1",
+          "--port",
+          String(port),
+        ],
+      }),
+      out: (line) => lines.push(line),
+      ...patch,
+    }),
+    stop.signal,
+    force.signal,
+  )
+  return { config, report, lines, stop, force, done }
+}
+const until = async (check: () => boolean, ms = 10_000) => {
+  const deadline = Date.now() + ms
+  while (!check()) {
+    if (Date.now() > deadline) throw new Error("timed out")
+    await new Promise((r) => setTimeout(r, 25))
+  }
+}
+const gone = (pid: number) => {
+  try {
+    process.kill(pid, 0)
+    return false
+  } catch {
+    return true
+  }
+}
+/** Every stand-in a test started is gone, whatever the test asserted (Trap 10: by pid only). */
+const startedPids: number[] = []
+afterEach(() => {
+  for (const pid of startedPids.splice(0))
+    if (!gone(pid))
+      try {
+        process.kill(-pid, "SIGKILL")
+      } catch {
+        // Already gone.
+      }
+})
+const pidsOf = (report: string) => {
+  const pids = reports(report)
+    .filter((r) => r.pid)
+    .map((r) => r.pid as number)
+  startedPids.push(...pids.filter((p) => !startedPids.includes(p)))
+  return pids
+}
+
+describe("up", () => {
+  it("starts all three, reconciles once when all are ready, and stops them all", async () => {
+    const { config, report, lines, stop, done } = fakeUp()
+    await until(() => lines.some((l) => l.includes("│ ready:")))
+    const started = reports(report).filter((r) => r.pid)
+    pidsOf(report)
+    expect(started.map((r) => r.name).sort()).toEqual(["builder", "controller", "drafter"])
+    expect(new Set(started.map((r) => r.token)).size).toBe(1)
+    const byName = Object.fromEntries(started.map((r) => [r.name, r]))
+    expect(byName.controller).toMatchObject({
+      hasOpenaiKey: false,
+      workerUrl: "http://127.0.0.1:47100",
+      drafterUrl: "http://127.0.0.1:47200",
+      stateDir: config.stateDir,
+      host: "127.0.0.1",
+    })
+    expect(byName.builder?.hasOpenaiKey).toBe(true)
+    expect(byName.drafter?.hasOpenaiKey).toBe(true)
+    expect(reports(report).filter((r) => r.reconciled)).toHaveLength(1)
+    // Each child's output is prefixed and teed.
+    expect(lines).toContain("builder    │ builder listening on 127.0.0.1:47100")
+    expect(readFileSync(join(config.stateDir, "logs", "drafter.log"), "utf8")).toContain(
+      "drafter listening",
+    )
+    // The lock records each child, and never a secret.
+    const lock = JSON.parse(readFileSync(join(config.stateDir, "up.lock"), "utf8"))
+    expect(Object.keys(lock.children).sort()).toEqual(["builder", "controller", "drafter"])
+    expect(lock.children.builder.pid).toBe(byName.builder?.pid)
+    // Detached: each stand-in leads its own process group, out of a terminal's reach (D11).
+    for (const r of started) expect(process.kill(-r.pid, 0)).toBe(true)
+    stop.abort()
+    expect(await done).toBe(0)
+    for (const r of started) expect(gone(r.pid)).toBe(true)
+    // Each got one SIGTERM from up and exited with code 0; the controller stopped first.
+    for (const name of ["controller", "builder", "drafter"])
+      expect(lines).toContain(`${UP} ${name} exited with code 0`)
+    expect(lines.indexOf(`${UP} controller exited with code 0`)).toBeLessThan(
+      Math.min(
+        lines.indexOf(`${UP} builder exited with code 0`),
+        lines.indexOf(`${UP} drafter exited with code 0`),
+      ),
+    )
+    expect(lines.join("\n")).toContain("No work order is in flight.")
+    expect(lines).toContain(`${UP} stopped (clean)`)
+    expect(existsSync(join(config.stateDir, "up.lock"))).toBe(false)
+    expect(existsSync(join(dir as string, ".up.lock"))).toBe(false)
+    // up's own lines are kept in its own log too, for a stdout that closed.
+    expect(readFileSync(join(config.stateDir, "logs", "up.log"), "utf8")).toContain(
+      "stopped (clean)",
+    )
+    // No secret in anything up printed or logged.
+    const printed = [
+      ...lines,
+      ...["controller", "builder", "drafter", "up"].map((name) =>
+        readFileSync(join(config.stateDir, "logs", `${name}.log`), "utf8"),
+      ),
+    ].join("\n")
+    expect(printed).not.toContain(KEY)
+    expect(printed).not.toMatch(/[a-f0-9]{64}/)
+  }, 30_000)
+
+  it("names the work orders in flight when it stops", async () => {
+    const { config, lines, stop, done, report } = fakeUp()
+    const registry = openRegistry(join(config.stateDir, "registry.sqlite"))
+    const store = createWorkOrderStore(registry.db)
+    store.insert(row("wo-running", "running"))
+    store.insert(row("wo-waiting", "awaiting_approval"))
+    registry.close()
+    await until(() => lines.some((l) => l.includes("│ ready:")))
+    pidsOf(report)
+    stop.abort()
+    expect(await done).toBe(0)
+    const stopping = lines.find((l) => l.includes("stopping: the controller, then the workers"))
+    expect(stopping).toContain("wo-running (running)")
+    expect(stopping).not.toContain("wo-waiting")
+  }, 30_000)
+
+  it("stops the rest and exits 1 when a child exits before it is ready", async () => {
+    const { report, lines, done } = fakeUp({ FAKE_APP_EXIT_EARLY: "drafter" })
+    expect(await done).toBe(1)
+    expect(lines.join("\n")).toMatch(/drafter exited with code 7 before it was ready/)
+    for (const pid of pidsOf(report)) expect(gone(pid)).toBe(true)
+    expect(lines).toContain(`${UP} stopped (with errors)`)
+  }, 30_000)
+
+  it("stops the rest and exits 1 when a child exits on its own after ready", async () => {
+    const { report, lines, done } = fakeUp({ FAKE_APP_EXIT_AFTER_READY: "builder" })
+    expect(await done).toBe(1)
+    expect(lines.join("\n")).toContain("builder exited with code 9; stopping the others")
+    for (const pid of pidsOf(report)) expect(gone(pid)).toBe(true)
+    expect(lines).toContain(`${UP} controller exited with code 0`)
+    expect(lines).toContain(`${UP} stopped (with errors)`)
+  }, 30_000)
+
+  it("kills a child that ignores SIGTERM after the grace, and does not call that clean", async () => {
+    const { report, lines, stop, done } = fakeUp({ FAKE_APP_IGNORE_TERM: "builder" })
+    await until(() => lines.some((l) => l.includes("│ ready:")))
+    pidsOf(report)
+    stop.abort()
+    expect(await done).toBe(1)
+    expect(lines.join("\n")).toContain("builder did not stop within 2 s: SIGKILL")
+    expect(lines).toContain(`${UP} builder exited by signal SIGKILL`)
+    expect(lines).toContain(`${UP} stopped (with errors)`)
+    for (const pid of pidsOf(report)) expect(gone(pid)).toBe(true)
+  }, 30_000)
+
+  it("a second signal cuts the grace short and kills at once", async () => {
+    const { report, lines, stop, force, done } = fakeUp(
+      { FAKE_APP_IGNORE_TERM: "controller" },
+      { stopTimeoutMs: 20_000 },
+    )
+    await until(() => lines.some((l) => l.includes("│ ready:")))
+    pidsOf(report)
+    const asked = Date.now()
+    stop.abort()
+    await until(() => lines.some((l) => l.includes("controller ignores SIGTERM")))
+    force.abort()
+    expect(await done).toBe(1)
+    expect(Date.now() - asked).toBeLessThan(10_000)
+    expect(lines).toContain(`${UP} controller exited by signal SIGKILL`)
+    for (const pid of pidsOf(report)) expect(gone(pid)).toBe(true)
+  }, 30_000)
+
+  it("starts nothing when the preflight refuses", async () => {
+    const { report, lines, done } = fakeUp({}, { portFree: async () => false })
+    expect(await done).toBe(1)
+    expect(reports(report)).toEqual([])
+    expect(lines.join("\n")).toContain("refused:")
+  }, 30_000)
+
+  it("starts nothing when another up holds the lock", async () => {
+    const { config, report, lines, stop, done } = fakeUp()
+    // (The first fakeUp's own lock is what the second meets.)
+    await until(() => lines.some((l) => l.includes("│ ready:")))
+    pidsOf(report)
+    const second: string[] = []
+    const code = await up(
+      config,
+      deps({ out: (line) => second.push(line) }),
+      new AbortController().signal,
+      new AbortController().signal,
+    )
+    expect(code).toBe(1)
+    expect(second.join("\n")).toContain("factory up is already running")
+    expect(reports(report).filter((r) => r.pid)).toHaveLength(3)
+    stop.abort()
+    expect(await done).toBe(0)
+  }, 30_000)
+
+  it("stops everything when the controller's reconcile fails", async () => {
+    const { report, lines, done } = fakeUp(
+      {},
+      {
+        fetch: (async (input: string | URL | Request, init?: RequestInit) =>
+          String(input).includes("/runs/wait")
+            ? new Response('{"error":{"message":"Invalid factory configuration"}}', {
+                status: 500,
+              })
+            : fetch(input, init)) as typeof fetch,
+      },
+    )
+    expect(await done).toBe(1)
+    expect(lines.join("\n")).toContain("reconcile failed: Invalid factory configuration")
+    for (const pid of pidsOf(report)) expect(gone(pid)).toBe(true)
+  }, 30_000)
+
+  it("abandons a reconcile that never answers when asked to stop (review I4)", async () => {
+    const { report, lines, stop, done } = fakeUp(
+      {},
+      {
+        fetch: (async (input: string | URL | Request, init?: RequestInit) =>
+          String(input).includes("/runs/wait")
+            ? new Promise<Response>((_, reject) =>
+                init?.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
+              )
+            : fetch(input, init)) as typeof fetch,
+      },
+    )
+    await until(() => reports(report).filter((r) => r.pid).length === 3)
+    pidsOf(report)
+    await new Promise((r) => setTimeout(r, 500))
+    const asked = Date.now()
+    stop.abort()
+    expect(await done).toBe(0)
+    expect(Date.now() - asked).toBeLessThan(10_000)
+    expect(lines.join("\n")).not.toContain("│ ready:")
+    for (const pid of pidsOf(report)) expect(gone(pid)).toBe(true)
+  }, 30_000)
 })

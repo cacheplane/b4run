@@ -2,7 +2,7 @@
 // route, and appends to FAKE_APP_REPORT what it was started with. Secrets are reported as
 // sha256 or presence, never as values.
 import { createHash } from "node:crypto"
-import { appendFileSync } from "node:fs"
+import { appendFileSync, readFileSync } from "node:fs"
 import { createServer } from "node:http"
 
 const args = process.argv.slice(2)
@@ -48,4 +48,13 @@ if (process.env.FAKE_APP_IGNORE_TERM === name) {
     console.log(`${name} stopping`)
     server.close(() => process.exit(0))
   })
+}
+// Exits on its own once the controller has been reconciled: a child that dies after ready.
+if (process.env.FAKE_APP_EXIT_AFTER_READY === name) {
+  const watch = setInterval(() => {
+    if (readFileSync(process.env.FAKE_APP_REPORT, "utf8").includes('"reconciled":true')) {
+      clearInterval(watch)
+      process.exit(9)
+    }
+  }, 50)
 }

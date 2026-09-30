@@ -1,6 +1,7 @@
-import { execFileSync } from "node:child_process"
+import { type ChildProcess, execFile, execFileSync, spawn } from "node:child_process"
 import { randomBytes } from "node:crypto"
 import {
+  appendFileSync,
   existsSync,
   linkSync,
   mkdirSync,
@@ -11,6 +12,12 @@ import {
 } from "node:fs"
 import { connect, createServer } from "node:net"
 import { basename, dirname, join, resolve } from "node:path"
+import { createInterface } from "node:readline"
+import { setTimeout as sleep } from "node:timers/promises"
+import { promisify } from "node:util"
+import { ControllerHttpError, createControllerClient } from "../client.js"
+import { ACTIVE_STATES } from "../domain/states.js"
+import { openRegistryReader } from "../registry/reader.js"
 import {
   APP_DIRS,
   APP_NAMES,
@@ -21,6 +28,7 @@ import {
   type ResolvedFactoryConfig,
 } from "./factory-config.js"
 
+const run = promisify(execFile)
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
 /** The prefix of up's own lines, padded like each app's (D10). */
 export const UP = `${"up".padEnd(10)} │`
@@ -632,4 +640,433 @@ export async function portFree(port: number): Promise<boolean> {
     server.once("error", () => done(false))
     server.listen(port, LOOPBACK, () => server.close(() => done(true)))
   })
+}
+
+interface Running {
+  readonly app: AppProcess
+  readonly child: ChildProcess
+  /** How it ended: its code, or the signal that ended it; code -1 when it could not start. */
+  readonly exited: Promise<{ readonly code: number | null; readonly signal: string | null }>
+  readonly tail: string[]
+  hasExited: boolean
+  /** Set when up had to SIGKILL it: never a clean stop. */
+  killed: boolean
+}
+
+const pad = (name: string) => name.padEnd(10)
+const describeExit = (exit: { code: number | null; signal: string | null }) =>
+  exit.signal !== null ? `by signal ${exit.signal}` : `with code ${exit.code}`
+
+/** Appends to a log file; a log that cannot be written never ends supervision. */
+function appendLog(path: string, text: string): void {
+  try {
+    appendFileSync(path, text)
+  } catch {
+    // The line still went to stdout, while stdout is open.
+  }
+}
+
+/**
+ * Spawns one app. Its lines go to `childOut` prefixed with its name and to `<state>/logs/<app>.log`;
+ * up's own lines about it go to `say`.
+ */
+function start(
+  app: AppProcess,
+  stateDir: string,
+  childOut: (line: string) => void,
+  say: (line: string) => void,
+): Running {
+  const log = join(stateDir, "logs", `${app.name}.log`)
+  appendLog(log, `--- up started ${app.name} at ${new Date().toISOString()} ---\n`)
+  // Detached (D11, review C1): its own process group, out of the terminal's reach, so the only
+  // signal it ever gets is up's one SIGTERM. b4 start's handlers are process.once and close()
+  // removes both, so a second signal mid-close would kill it by default action.
+  const child = spawn(app.command, [...app.args], {
+    cwd: app.cwd,
+    env: app.env,
+    detached: true,
+    stdio: ["ignore", "pipe", "pipe"],
+  })
+  const running: Running = {
+    app,
+    child,
+    tail: [],
+    hasExited: false,
+    killed: false,
+    exited: new Promise((done) => {
+      child.once("error", (error) => {
+        running.hasExited = true
+        say(`${UP} ${app.name} could not start: ${message(error)}`)
+        done({ code: -1, signal: null })
+      })
+      child.once("exit", (code, signal) => {
+        running.hasExited = true
+        const exit = { code, signal }
+        say(`${UP} ${app.name} exited ${describeExit(exit)}`)
+        appendLog(log, `--- ${app.name} exited ${describeExit(exit)} ---\n`)
+        done(exit)
+      })
+    }),
+  }
+  const onLine = (line: string) => {
+    appendLog(log, `${line}\n`)
+    running.tail.push(line)
+    if (running.tail.length > 20) running.tail.shift()
+    childOut(`${pad(app.name)} │ ${line}`)
+  }
+  for (const stream of [child.stdout, child.stderr])
+    if (stream)
+      createInterface({ input: stream, crlfDelay: Number.POSITIVE_INFINITY }).on("line", onLine)
+  return running
+}
+
+/** Resolves when the signal aborts (never rejects). */
+const aborted = (signal: AbortSignal) =>
+  new Promise<void>((done) => {
+    if (signal.aborted) done()
+    else signal.addEventListener("abort", () => done(), { once: true })
+  })
+
+/** `/readyz` answers 200, or why not: the child exited, or the bound passed. */
+async function waitReady(running: Running, deps: UpDeps): Promise<void> {
+  const deadline = Date.now() + deps.readyTimeoutMs
+  for (;;) {
+    if (running.hasExited) {
+      const exit = await running.exited
+      throw new Error(
+        `${running.app.name} exited ${describeExit(exit)} before it was ready:\n${running.tail.map((l) => `  ${l}`).join("\n")}`,
+      )
+    }
+    try {
+      const response = await deps.fetch(`${running.app.url}/readyz`, {
+        signal: AbortSignal.timeout(2_000),
+      })
+      await response.body?.cancel()
+      if (response.status === 200) return
+    } catch {
+      // Not listening yet.
+    }
+    if (Date.now() > deadline)
+      throw new Error(`${running.app.name} was not ready within ${deps.readyTimeoutMs / 1_000} s`)
+    await sleep(250)
+  }
+}
+
+/** SIGKILL a detached child's whole group (its own `docker` clients included). */
+function killGroup(running: Running): void {
+  const pid = running.child.pid
+  if (pid === undefined || running.hasExited) return
+  running.killed = true
+  try {
+    process.kill(-pid, "SIGKILL")
+  } catch {
+    running.child.kill("SIGKILL")
+  }
+}
+
+/**
+ * Exactly one SIGTERM to the child's own pid (it closes gracefully, and a second signal would
+ * kill it mid-close: Trap 8), the grace, then SIGKILL to its group. No-op for a child gone or
+ * already killed.
+ */
+async function stopOne(
+  running: Running,
+  deps: UpDeps,
+  force: AbortSignal,
+  say: (line: string) => void,
+): Promise<void> {
+  if (running.hasExited || running.killed || force.aborted) {
+    killGroup(running)
+    await running.exited
+    return
+  }
+  running.child.kill("SIGTERM")
+  const grace = new AbortController()
+  const stopped = await Promise.race([
+    running.exited.then(() => true),
+    sleep(deps.stopTimeoutMs, undefined, { signal: grace.signal }).then(
+      () => false,
+      () => true,
+    ),
+    aborted(force).then(() => false),
+  ])
+  grace.abort()
+  if (stopped) return
+  if (!force.aborted)
+    say(`${UP} ${running.app.name} did not stop within ${deps.stopTimeoutMs / 1_000} s: SIGKILL`)
+  killGroup(running)
+  await running.exited
+}
+
+/**
+ * The controller first, so it sends the workers nothing more; then both workers (D11). A second
+ * signal (`force`) SIGKILLs every group still running at once. Clean means every child exited
+ * with code 0 and none had to be killed.
+ */
+async function stopAll(
+  running: ReadonlyMap<AppName, Running>,
+  deps: UpDeps,
+  force: AbortSignal,
+  say: (line: string) => void,
+): Promise<boolean> {
+  const killAll = () => {
+    const alive = [...running.values()].filter((r) => !r.hasExited)
+    if (alive.length === 0) return
+    say(`${UP} second signal: SIGKILL to ${alive.map((r) => r.app.name).join(", ")}`)
+    for (const r of alive) killGroup(r)
+  }
+  if (force.aborted) killAll()
+  else force.addEventListener("abort", killAll, { once: true })
+  try {
+    const controller = running.get("controller")
+    if (controller) await stopOne(controller, deps, force, say)
+    await Promise.all(
+      (["builder", "drafter"] as const)
+        .map((name) => running.get(name))
+        .filter((r): r is Running => r !== undefined)
+        .map((r) => stopOne(r, deps, force, say)),
+    )
+  } finally {
+    force.removeEventListener("abort", killAll)
+  }
+  let clean = true
+  for (const r of running.values()) {
+    const pid = r.child.pid
+    if (pid !== undefined && pidAlive(pid)) {
+      say(`${UP} WARNING: ${r.app.name} (pid ${pid}) is still running`)
+      clean = false
+      continue
+    }
+    const exit = await r.exited
+    if (r.killed || exit.code !== 0) clean = false
+  }
+  return clean
+}
+
+/** The controller's settings `run` reads from the lock (D24): the environment's, else its defaults. */
+export function controllerSettings(env: Readonly<Record<string, string | undefined>>): {
+  readonly approvalTtlMs: number
+  readonly maxActiveMs: number
+} {
+  const positive = (raw: string | undefined, fallback: number) => {
+    const value = Number(raw)
+    return raw !== undefined && Number.isInteger(value) && value > 0 ? value : fallback
+  }
+  return {
+    approvalTtlMs: positive(env.FACTORY_APPROVAL_TTL_MS, 900_000),
+    maxActiveMs: positive(env.FACTORY_MAX_ACTIVE_MS, 1_200_000),
+  }
+}
+
+/** Work orders the controller is working on, for the stop line (D11); read-only, never fatal. */
+function activeWorkOrders(stateDir: string): string[] {
+  try {
+    const reader = openRegistryReader(join(stateDir, "registry.sqlite"))
+    try {
+      return reader
+        .list()
+        .filter((row) => ACTIVE_STATES.has(row.state))
+        .map((row) => `${row.id} (${row.state})`)
+    } finally {
+      reader.close()
+    }
+  } catch {
+    return []
+  }
+}
+
+/** Bound on the reconcile at boot (review I4): a controller that never answers must not hold up. */
+const RECONCILE_TIMEOUT_MS = 120_000
+
+/**
+ * `factory up`: preflight, lock, start, wait for ready, reconcile, then supervise until `stop`
+ * aborts (0 when every child then exits with code 0) or a child exits (1). `force` (a second
+ * signal) cuts every grace short.
+ */
+export async function up(
+  config: ResolvedFactoryConfig,
+  deps: UpDeps,
+  stop: AbortSignal,
+  force: AbortSignal,
+): Promise<number> {
+  const { problems, secrets } = await preflight(config, deps)
+  if (secrets === undefined) {
+    for (const problem of problems) deps.out(`${UP} refused: ${problem}`)
+    return 1
+  }
+  const lock = acquireLock(config, controllerSettings(deps.env), deps.checkoutLock)
+  if ("refused" in lock) {
+    deps.out(`${UP} refused: ${lock.refused}`)
+    return 1
+  }
+  const logs = join(config.stateDir, "logs")
+  mkdirSync(logs, { recursive: true })
+  // up's own lines are kept beside the apps' logs, so they survive a stdout that closed (D10).
+  const upLog = join(logs, "up.log")
+  appendLog(upLog, `--- up started at ${new Date().toISOString()} (pid ${process.pid}) ---\n`)
+  const say = (line: string) => {
+    deps.out(line)
+    appendLog(upLog, `${line}\n`)
+  }
+  const running = new Map<AppName, Running>()
+  // Until stop aborts (0) or something fails (1); the stop below runs after either.
+  const supervise = async (): Promise<number> => {
+    if (stop.aborted) {
+      say(`${UP} asked to stop before anything started`)
+      return 0
+    }
+    for (const app of appProcesses(config, secrets, deps.env, deps.launch))
+      running.set(app.name, start(app, config.stateDir, deps.out, say))
+    lock.recordChildren(
+      Object.fromEntries(
+        [...running].map(([name, r]) => [
+          name,
+          { pid: r.child.pid ?? -1, command: r.app.args.join(" ") },
+        ]),
+      ),
+    )
+    const readiness = Promise.all([...running.values()].map((r) => waitReady(r, deps)))
+    readiness.catch(() => undefined) // Its failure is read below, unless a stop came first.
+    const first = await Promise.race([
+      readiness.then(() => "ready" as const),
+      aborted(stop).then(() => "stopped" as const),
+    ])
+    if (first === "stopped") return 0
+    // Bounded, and abandoned on a stop (review I4): a controller that never answers must not
+    // hold up past a Ctrl-C.
+    const reconcileSignal = AbortSignal.any([AbortSignal.timeout(RECONCILE_TIMEOUT_MS), stop])
+    const reconciled = await Promise.race([
+      createControllerClient(config.urls.controller, (input, init) =>
+        deps.fetch(input, { ...init, signal: reconcileSignal }),
+      )
+        .reconcile()
+        .then(
+          (outcome) => (outcome.ok ? "ok" : `reconcile failed: ${outcome.message ?? "not ok"}`),
+          (error: unknown) =>
+            stop.aborted
+              ? "stopped"
+              : `reconcile failed: ${error instanceof ControllerHttpError ? error.message : message(error)}`,
+        ),
+      aborted(stop).then(() => "stopped"),
+    ])
+    if (reconciled === "stopped") return 0
+    if (reconciled !== "ok") throw new Error(reconciled)
+    say(
+      `${UP} ready: controller ${config.urls.controller} (reconciled), builder ${config.urls.builder}, drafter ${config.urls.drafter}; state ${config.stateDir}`,
+    )
+    say(`${UP} next, in another terminal: pnpm factory run --issue <n> [--pin <sha>]`)
+    const ended = await Promise.race([
+      aborted(stop).then(() => undefined),
+      ...[...running.values()].map((r) => r.exited.then((exit) => ({ name: r.app.name, exit }))),
+    ])
+    if (ended === undefined) return 0
+    say(`${UP} ${ended.name} exited ${describeExit(ended.exit)}; stopping the others`)
+    return 1
+  }
+  let code: number
+  try {
+    code = await supervise()
+  } catch (error) {
+    say(`${UP} ${message(error)}`)
+    code = 1
+  }
+  if (running.size > 0) {
+    const active = activeWorkOrders(config.stateDir)
+    say(
+      `${UP} stopping: the controller, then the workers.${active.length > 0 ? ` In flight, reconciled at the next up (a turn cut short can spend an attempt): ${active.join(", ")}` : " No work order is in flight."}`,
+    )
+  }
+  const clean = await stopAll(running, deps, force, say)
+  // A survivor keeps the locks, so the next up names it instead of starting beside it.
+  if ([...running.values()].every((r) => !pidAlive(r.child.pid ?? -1))) lock.release()
+  if (!clean) code = 1
+  say(`${UP} stopped (${code === 0 ? "clean" : "with errors"})`)
+  return code
+}
+
+/**
+ * up's stdout as a line sink that survives a closed pipe (`up | head`, Trap 24): after any error
+ * on the stream it stops writing there, and up's lines still reach `<state>/logs/`. Never throws,
+ * so a pipe cannot end supervision and orphan the detached children.
+ */
+export function lineWriter(stream: NodeJS.WritableStream): (line: string) => void {
+  let open = true
+  stream.on("error", () => {
+    open = false
+  })
+  return (line) => {
+    if (!open) return
+    try {
+      stream.write(`${line}\n`)
+    } catch {
+      open = false
+    }
+  }
+}
+
+/**
+ * `stop` on the first SIGINT, SIGTERM or SIGHUP (a closed terminal: the detached children would
+ * otherwise outlive it); `force` on another more than a second later. One Ctrl-C can arrive more
+ * than once through pnpm and tsx (Trap 8), and must not kill.
+ */
+export function stopOnSignals(
+  source: { on(event: "SIGINT" | "SIGTERM" | "SIGHUP", listener: () => void): unknown },
+  out: (line: string) => void,
+  now: () => number = Date.now,
+): { readonly stop: AbortSignal; readonly force: AbortSignal } {
+  const stop = new AbortController()
+  const force = new AbortController()
+  let firstAt = 0
+  for (const name of ["SIGINT", "SIGTERM", "SIGHUP"] as const)
+    source.on(name, () => {
+      if (!stop.signal.aborted) {
+        firstAt = now()
+        out(`${UP} ${name}: stopping (again, after a second, to kill)`)
+        stop.abort()
+      } else if (now() - firstAt > 1_000 && !force.signal.aborted) {
+        out(`${UP} ${name} again: killing`)
+        force.abort()
+      }
+    })
+  return { stop: stop.signal, force: force.signal }
+}
+
+/** The drafter's pinned base image, read as text (not imported: the controller shares no source with a worker). */
+export function drafterImageReference(env: Readonly<Record<string, string | undefined>>): string {
+  if (env.FACTORY_DRAFTER_IMAGE) return env.FACTORY_DRAFTER_IMAGE
+  const source = readFileSync(resolve(EXAMPLE_ROOT, "drafter/src/drafter-image.ts"), "utf8")
+  const match = /"([a-z0-9.:/_-]+@sha256:[a-f0-9]{64})"/.exec(source)
+  if (!match?.[1])
+    throw new Error("cannot read the drafter's base image from drafter/src/drafter-image.ts")
+  return match[1]
+}
+
+export function realUpDeps(out: (line: string) => void): UpDeps {
+  return {
+    env: process.env,
+    dotenvPaths: dotenvCandidates(),
+    checkoutLock: join(EXAMPLE_ROOT, ".up.lock"),
+    docker: {
+      info: async () => {
+        await run("docker", ["info", "--format", "{{.ServerVersion}}"], {
+          timeout: 15_000,
+          env: ownSubprocessEnv(),
+        })
+      },
+      imagePresent: (reference) =>
+        run("docker", ["image", "inspect", "--format", "{{.Id}}", "--", reference], {
+          timeout: 15_000,
+          env: ownSubprocessEnv(),
+        }).then(
+          () => true,
+          () => false,
+        ),
+    },
+    drafterImage: drafterImageReference(process.env),
+    portFree,
+    fetch,
+    out,
+    readyTimeoutMs: 120_000,
+    stopTimeoutMs: 20_000,
+  }
 }
