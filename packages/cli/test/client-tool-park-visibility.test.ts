@@ -242,32 +242,33 @@ describe("approval surfaces never show a client tool park", () => {
   })
 })
 
-describe("the AG-UI resume path excludes client tool parks from the permission set", () => {
-  test("client park only: an AG-UI run is not refused as resume_required", async () => {
+describe("the AG-UI path never answers a client park without the retained record", () => {
+  // Neither fixture opts a route in to client tools, so no client tool store
+  // is resolved: a pending client park then fails closed with a 503 — never a
+  // run past it, never a `resume_required` that would invite a partial,
+  // permission-only resume. (With a store, matching is covered end to end in
+  // agui-client-tools.test.ts.)
+  test("client park only: refused with 503 client_tool_store_unavailable", async () => {
     const { url } = await startFixture([clientWrite])
     const response = await postAgui(url, { threadId: "thread-agui-client-only" })
-    expect(response.status).toBe(200)
-    await response.body?.cancel()
+    expect(response.status).toBe(503)
+    expect(await codeOf(response)).toBe("client_tool_store_unavailable")
   })
 
-  test("permission + client park: the permission park alone is still required", async () => {
+  test("permission + client park: refused with 503, even with the permission resume", async () => {
     const { url } = await startFixture([permissionWrite, clientWrite])
     const threadId = "thread-agui-mixed"
 
     const bare = await postAgui(url, { threadId })
-    expect(bare.status).toBe(409)
-    expect(await codeOf(bare)).toBe("resume_required")
+    expect(bare.status).toBe(503)
+    expect(await codeOf(bare)).toBe("client_tool_store_unavailable")
 
-    // The client park is not in the set a resume entry can name.
-    const naming = await postAgui(url, {
+    const partial = await postAgui(url, {
       threadId,
-      resume: [
-        { interruptId: "perm-1", status: "resolved", payload: "once" },
-        { interruptId: "client-call_1", status: "resolved", payload: "once" },
-      ],
+      resume: [{ interruptId: "perm-1", status: "resolved", payload: "once" }],
     })
-    expect(naming.status).toBe(409)
-    expect(await codeOf(naming)).toBe("interrupt_set_mismatch")
+    expect(partial.status).toBe(503)
+    expect(await codeOf(partial)).toBe("client_tool_store_unavailable")
   })
 })
 

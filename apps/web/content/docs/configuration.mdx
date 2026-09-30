@@ -578,6 +578,8 @@ server?: {
   agui?: {
     clientTools?: readonly string[]
     clientForwardedProps?: readonly string[]
+    clientToolTtlMs?: number
+    clientToolStore?: ClientToolCallStore
   }
 }
 ```
@@ -645,14 +647,17 @@ An empty `tools: []` or `forwardedProps: {}` — what an AG-UI client sends when
 it has nothing to add — is accepted with or without the opt-in, so the default
 costs an ordinary client nothing.
 
-<Callout type="warn" title="`clientTools` does not yet execute client tools">
-  Opting a route in to `clientTools` today means the runtime **accepts** the
-  field and passes it through to route code as `raw` — it does not merge those
-  definitions into the agent's tool set, and the model cannot call them. A
-  route that opts in and registers a frontend action gets a run in which that
-  tool does not exist. `clientForwardedProps` is different: `forwardedProps` is
-  genuinely delivered to route code, which is what it is for.
-</Callout>
+A client tool call the model makes on an opted-in route is recorded before the
+turn ends, so the client's `role: "tool"` result on its next run can be matched
+to a call this server actually issued. `clientToolTtlMs` is how long that call
+waits for its result — `600000` (10 minutes) by default; it must be a positive
+integer of at most one year, and anything else fails the boot.
+`clientToolStore` is where the calls are recorded. On node it defaults to a
+SQLite file at `.b4/client-tool-calls.sqlite`, created only when some route is
+listed in `clientTools`; a deployment with more than one instance needs a
+shared store such as `createPostgresClientToolCallStore` from
+`@b4run/postgres-storage`. With no store at all, a run that sends client tools
+is refused with a `503` rather than parked on a call nobody could answer.
 
 
 ## Postgres backend

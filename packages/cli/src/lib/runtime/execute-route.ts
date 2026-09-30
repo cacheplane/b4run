@@ -23,9 +23,10 @@ import {
 import { discoverRoutes, findB4App } from "@b4run/core/node"
 import type { PermissionMode, PermissionsStore } from "@b4run/permissions"
 import { createPermissionsStore } from "@b4run/permissions/node"
-import type { InterruptGrantStore } from "@b4run/sdk"
+import type { ClientToolCallStore, InterruptGrantStore } from "@b4run/sdk"
 import { isB4Agent } from "@b4run/sdk"
 import {
+  createClientToolCallStore,
   createInterruptGrantStore,
   createThreadsStore,
   sqliteCheckpointer,
@@ -307,6 +308,31 @@ export async function resolveInterruptGrantStore(
 }
 
 /**
+ * Resolves the {@link ClientToolCallStore} — the retained record behind
+ * client-provided tools (cacheplane/b4run#743) — for the given appRoot.
+ *
+ * `config.server.agui.clientToolStore` if `b4.config.ts` provides one,
+ * otherwise the default SQLite store at `<appRoot>/.b4/client-tool-calls.sqlite`.
+ * Returns `undefined` when no route opts in to client tools, so an app that
+ * never uses the feature never grows a file.
+ */
+export async function resolveClientToolCallStore(
+  appRoot: string,
+): Promise<ClientToolCallStore | undefined> {
+  let agui: NonNullable<B4Config["server"]>["agui"] | undefined
+  try {
+    agui = (await loadB4Config({ appRoot })).config.server?.agui
+  } catch {
+    // No b4.config.ts or unreadable — no route can have opted in.
+  }
+  if (agui?.clientToolStore) return agui.clientToolStore
+  if (!Array.isArray(agui?.clientTools) || agui.clientTools.length === 0) return undefined
+  return createClientToolCallStore({
+    path: pureJoin(appRoot, ".b4/client-tool-calls.sqlite"),
+  })
+}
+
+/**
  * Resolves a loaded PermissionsStore for the given appRoot: `config.permissions.store`
  * if the user's `b4.config.ts` provides one, otherwise config-seeded
  * allow/deny + mode (env override wins) over `.b4/permissions.json`. Either
@@ -392,6 +418,7 @@ export const nodeBootFallbacks: RuntimeBootFallbacks = {
   markerFs: nodeMarkerFs,
   resolveIdentityKeys,
   resolveCheckpointer,
+  resolveClientToolCallStore,
   resolveInterruptGrantStore,
   resolveMemoryStore,
   resolveMemoryWrites,

@@ -2,10 +2,11 @@ import type { IncomingMessage, ServerResponse } from "node:http"
 import { RunAgentInputSchema } from "@ag-ui/core"
 import { type B4AgentStreamChunk, fromRunAgentInput, toAguiEvents } from "@b4run/ag-ui"
 import { encodeAgUiSse } from "@b4run/ag-ui/sse"
-import type { B4Config, MemoryStoreLike } from "@b4run/core"
-import { CLIENT_TOOL_PREFIX } from "@b4run/core"
+import type { B4Config, ClientToolDefinition, MemoryStoreLike } from "@b4run/core"
+import { CLIENT_TOOL_PREFIX, isClientToolCallEnvelope } from "@b4run/core"
 import type { PermissionsStore } from "@b4run/permissions"
 import type {
+  ClientToolRecorder,
   MiddlewareAfterHook,
   MiddlewareAfterMessage,
   MiddlewareHandler,
@@ -17,8 +18,11 @@ import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import { checkpointRoutes } from "../runtime/checkpoint-route-provenance.js"
 import {
   type BootResolvedInstances,
+  checkRouteClientToolsSupport,
   checkRouteResponseFormatSupport,
+  nonAgentClientToolsMessage,
   nonAgentResponseFormatMessage,
+  type RouteResumePayload,
   streamResolvedRoute,
 } from "../runtime/execute-route-core.js"
 import type { SandboxManager } from "../runtime/sandbox-manager.js"
@@ -26,6 +30,15 @@ import type { B4StaticModules } from "../runtime/static-modules-core.js"
 import type { StreamChunk } from "../runtime/stream-types.js"
 import { abortableAsyncIterable } from "./abortable-iterable.js"
 import { type ApprovalGrantRuntime, gateResumeWithGrants, minterFor } from "./approval-grants.js"
+import { payloadTooLarge, RequestBodyTooLargeError, readBoundedText } from "./bounded-body.js"
+import { readClientToolDefinitions } from "./client-tool-definitions.js"
+import {
+  AGUI_BODY_MAX_BYTES,
+  type ClientToolRuntime,
+  DEFAULT_CLIENT_TOOL_TTL_MS,
+  MAX_CLIENT_TOOL_RESULT,
+} from "./client-tool-runtime.js"
+import { type ClientToolTurn, resolveClientToolTurn } from "./client-tool-turn.js"
 import type { LiveTurnHub, LiveTurnProducer } from "./live-turn-hub.js"
 import { headersToRecord, runMiddleware } from "./middleware.js"
 import { applyMiddlewareAfter } from "./middleware-after.js"
@@ -33,6 +46,8 @@ import { toWebRequest, writeNodeResponse } from "./node-web-adapter.js"
 import { readParkedRoute, settleParkedRoute } from "./parked-route.js"
 import {
   isClientToolPark,
+  type PendingInterrupt,
+  type PendingInterruptSnapshot,
   type PendingResumeClaims,
   readPendingInterrupts,
   resolvePendingResume,
@@ -65,6 +80,13 @@ export interface AgUiFetchRequestOptions {
   /** Boot state (supplied config + node fallbacks) forwarded to route execution. */
   readonly boot?: Pick<BootResolvedInstances, "bootFallbacks" | "config">
   readonly checkpointer: BaseCheckpointSaver
+  /**
+   * Boot-resolved client tool store and TTL (cacheplane/b4run#743). Optional
+   * so direct callers keep their existing behavior; absent means no store,
+   * which fails closed: a run that sends client tools, or answers a parked
+   * one, is refused with `503 client_tool_store_unavailable`.
+   */
+  readonly clientTools?: ClientToolRuntime
   /**
    * The boot-resolved `b4.config.ts`, read here only for `server.agui` — which
    * routes opted in to client-supplied `tools` / `forwardedProps`. Optional so
@@ -300,6 +322,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     appRoot,
     boot,
     checkpointer,
+    clientTools: clientToolRuntime = { ttlMs: DEFAULT_CLIENT_TOOL_TTL_MS },
     config,
     getMemoryStore,
     liveTurnHub,
@@ -352,7 +375,15 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
   let runTransferredToStream = false
   let streamOwnsSignalCleanup = false
   try {
-    const raw = await request.text()
+    // Bounded: every AG-UI client resends the whole history on every run, so
+    // the ceiling is generous (AGUI_BODY_MAX_BYTES), but it is a ceiling.
+    let raw: string
+    try {
+      raw = await readBoundedText(request, AGUI_BODY_MAX_BYTES)
+    } catch (error) {
+      if (error instanceof RequestBodyTooLargeError) return payloadTooLarge(error)
+      throw error
+    }
     let parsedJson: unknown
     try {
       parsedJson = JSON.parse(raw)
@@ -383,10 +414,8 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     // and a thread-access policy is never asked to authorize (or stamp a new
     // row for) a request that is about to be rejected anyway. It cannot leak
     // thread existence, because it never looks.
-    const envelopeRejection = validateRunEnvelope(
-      parsedJson,
-      resolveRunEnvelopePolicy(config ?? boot?.config, route.routeId),
-    )
+    const envelopePolicy = resolveRunEnvelopePolicy(config ?? boot?.config, route.routeId)
+    const envelopeRejection = validateRunEnvelope(parsedJson, envelopePolicy)
     if (envelopeRejection) {
       return Response.json(
         createRequestErrorBody(
@@ -416,6 +445,23 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     }
     const responseFormat = responseSchema.responseFormat
 
+    // The caller's client tool definitions, bounded and validated from the
+    // ORIGINAL JSON, like the envelope. Only on a route that opted in: for any
+    // other, a non-empty `tools` was already refused above, and an empty one
+    // carries nothing.
+    let requestClientTools: readonly ClientToolDefinition[] = []
+    const rawTools = isRecord(parsedJson) ? parsedJson.tools : undefined
+    if (envelopePolicy.clientTools && Array.isArray(rawTools) && rawTools.length > 0) {
+      const read = readClientToolDefinitions(rawTools)
+      if (!read.ok) {
+        return Response.json(
+          createRequestErrorBody(read.message, { code: read.code }, { code: "B4_E5401" }),
+          { status: read.status },
+        )
+      }
+      requestClientTools = read.tools
+    }
+
     const requestUrl = new URL(request.url)
     const b4Input = fromRunAgentInput(input)
     // The one place this turn decides it is a resume. Computed HERE, above
@@ -424,7 +470,15 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     // would be describing two different requests. `fromRunAgentInput` leaves
     // `resume` undefined for an absent OR empty array, so this is exactly the
     // condition the resume claim below takes itself on.
-    const resuming = b4Input.resume !== undefined
+    //
+    // A trailing `role: "tool"` message on a route that opted in to client
+    // tools is the other resume: it is how a client answers a parked client
+    // tool call. Judged from the request SHAPE alone, as `resuming` is
+    // everywhere — whether it really answers a park takes a checkpoint read,
+    // and that read must not happen before the thread-access gate (it would
+    // make the policy's decision an oracle on someone else's thread).
+    const answersClientTool = envelopePolicy.clientTools && b4Input.messages.at(-1)?.role === "tool"
+    const resuming = b4Input.resume !== undefined || answersClientTool
     const middlewareRequest: MiddlewareRequest = {
       ...(middleware ? { body: structuredClone(parsedJson) } : {}),
       assistantId: route.assistantId,
@@ -471,6 +525,37 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       }
     }
 
+    // Can this route take the client's tools, and is there anywhere to record
+    // the calls? Same placement and reasoning as the response-schema check:
+    // after middleware, before the thread gate and every side effect.
+    if (requestClientTools.length > 0) {
+      const unsupported =
+        route.mode !== "agent"
+          ? {
+              ok: false as const,
+              message: nonAgentClientToolsMessage(route.routeId, route.mode),
+            }
+          : boot?.bootFallbacks
+            ? await checkRouteClientToolsSupport({
+                appRoot,
+                bootFallbacks: boot.bootFallbacks,
+                routeFile: route.routeFile,
+                routeId: route.routeId,
+              })
+            : { ok: true as const }
+      if (!unsupported.ok) {
+        return Response.json(
+          createRequestErrorBody(
+            unsupported.message,
+            { code: "client_tools_not_supported" },
+            { code: "B4_E5401" },
+          ),
+          { status: 422 },
+        )
+      }
+      if (!clientToolRuntime.store) return clientToolStoreUnavailable()
+    }
+
     // `update` on a row that exists, `create` on one this turn is about to
     // make — see ThreadOperation. AFTER the middleware reject above and BEFORE
     // every side effect below (`resumeClaims.tryClaim`, `runRegistry.begin`,
@@ -505,38 +590,108 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       }
     }
 
-    if (resuming) {
+    // ── Serialization ────────────────────────────────────────────────────
+    //
+    // A resume — an approval resume, or a trailing tool message on a
+    // client-tools route — takes the thread's resume claim BEFORE it reads the
+    // pending snapshot it decides on. So does any turn on a thread with a
+    // client park pending: the client-tool decision answers records in the
+    // store, and two requests deciding over the same parks at once could
+    // answer one and resume with the other's view. The snapshot read before
+    // such a claim is only a peek; the decision uses the one read after it.
+    //
+    // The run slot (`runRegistry.begin`) is taken later, as before, so a
+    // request can answer a record and then lose the slot to a run still
+    // draining (409 `run_in_flight`). That is safe: an answer is single-use
+    // and durable, and the client's retry resends the same history, which
+    // finds the record answered and resumes with the stored result.
+    const takeResumeClaim = (): Response | undefined => {
       releaseResumeClaim = resumeClaims.tryClaim(input.threadId)
-      if (!releaseResumeClaim) {
-        return Response.json(
-          createRequestErrorBody("A resume is already in progress for this thread", {
-            code: "resume_in_progress",
-          }),
-          { status: 409 },
-        )
+      if (releaseResumeClaim) return undefined
+      return Response.json(
+        createRequestErrorBody("A resume is already in progress for this thread", {
+          code: "resume_in_progress",
+        }),
+        { status: 409 },
+      )
+    }
+    const readSnapshot = async (): Promise<PendingInterruptSnapshot> =>
+      (await readPendingInterrupts(checkpointer, input.threadId)) ?? {
+        interrupts: [],
+        malformed: false,
       }
+    if (resuming) {
+      const refused = takeResumeClaim()
+      if (refused) return refused
+    }
+    let snapshot = await readSnapshot()
+    if (!releaseResumeClaim && snapshot.interrupts.some((park) => isClientToolPark(park.value))) {
+      const refused = takeResumeClaim()
+      if (refused) return refused
+      snapshot = await readSnapshot()
     }
 
     const newestUserMessage = [...b4Input.messages]
       .reverse()
       .find((message) => message.role === "user")
-    // Client tool parks are excluded from the permission resolution and the
-    // grant gate: they are answered by a `role: "tool"` message, not by a
-    // resume entry. (Matching those messages to their parks is separate.)
+    const threadId = input.threadId
+
+    // ── Client tool parks ────────────────────────────────────────────────
     //
-    // INTERIM. Mixed parks — a permission park beside a client park — must be
-    // resolved in ONE Command resume map covering EVERY pending park (the
-    // client-tool matching adds the client entries), never partially: a
-    // partial resume leaves the answered park's `__interrupt__` write in the
-    // checkpoint until the superstep completes, so it is re-demanded, and
-    // re-runs the unanswered client task. See `handleResumeRequest`, which
-    // refuses outright (`client_tool_pending`) for the same reason.
-    const pending = withoutClientToolParks(
-      (await readPendingInterrupts(checkpointer, input.threadId)) ?? {
-        interrupts: [],
-        malformed: false,
-      },
-    )
+    // Matched against the retained record by `resolveClientToolTurn`, over the
+    // FULL snapshot. Never without a store: a park nobody can match is refused
+    // rather than guessed at.
+    const clientParks = snapshot.interrupts.filter((park) => isClientToolPark(park.value))
+    let clientTurn: ClientToolTurn = { mode: "none" }
+    if (clientParks.length > 0) {
+      const store = clientToolRuntime.store
+      if (!store) return clientToolStoreUnavailable()
+      const tooLarge = await oversizedClientToolResult(
+        store,
+        threadId,
+        clientParks,
+        b4Input.messages,
+      )
+      if (tooLarge) return tooLarge
+      clientTurn = await resolveClientToolTurn({
+        store,
+        threadId,
+        pending: snapshot,
+        messages: b4Input.messages,
+        now: new Date(),
+      })
+    }
+    if (clientTurn.mode === "abandon") {
+      // INTERIM (Task 12a): closing abandoned calls in the checkpoint lands in
+      // 12b. Until then a run that does not answer a parked client tool call
+      // is refused, never run past it.
+      return Response.json(
+        createRequestErrorBody(
+          "A client tool call is waiting for its result on this thread; send the tool result before a new message.",
+          { code: "client_tool_pending" },
+        ),
+        { status: 409 },
+      )
+    }
+    if (clientTurn.mode === "partial") {
+      // Some parked calls answered, others not yet: the results are recorded,
+      // the graph is not touched, and the run ends as an ordinary success so
+      // the client goes on to send the rest.
+      return clientToolPartialResponse(threadId, input.runId, request.headers.get("accept"))
+    }
+
+    // The permission parks this run must resolve through the envelope's
+    // `resume` entries: every non-client park. On a client resume these are
+    // the resolver's `others`, and they resolve in the SAME Command as the
+    // client results — never partially: a partial resume leaves the answered
+    // park's `__interrupt__` write in the checkpoint until the superstep
+    // completes, so it is re-demanded, and re-runs the unanswered task. See
+    // `handleResumeRequest`, which refuses outright (`client_tool_pending`)
+    // for the same reason.
+    const pending: PendingInterruptSnapshot =
+      clientTurn.mode === "resume"
+        ? { interrupts: clientTurn.others, malformed: snapshot.malformed }
+        : withoutClientToolParks(snapshot)
     const resumeResolution = resolvePendingResume(b4Input.resume, pending)
     if (!resumeResolution.ok) {
       return Response.json(
@@ -547,7 +702,6 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       )
     }
 
-    const threadId = input.threadId
     const approvalGrantMinter = minterFor(approvalGrants, threadId)
 
     // Grant checks run HERE: after the thread-access gate, after the resume
@@ -564,6 +718,51 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       })
       if (refused) return refused
     }
+
+    // ONE resume map for every pending park: the client results keyed by
+    // their resumeKey, plus the approval decisions for the rest.
+    const routeResume: RouteResumePayload | undefined =
+      clientTurn.mode === "resume"
+        ? {
+            ...clientTurn.resume,
+            ...(resumeResolution.mode === "resume" ? resumeResolution.resume : {}),
+          }
+        : resumeResolution.mode === "resume"
+          ? resumeResolution.resume
+          : undefined
+
+    // This run's client tools: the request's, plus a stub for every parked
+    // call being resumed whose tool the request did not (re)send — a
+    // follow-up that omits `tools` must still resume the stub that parked.
+    const runClientTools = withParkedClientTools(
+      requestClientTools,
+      clientTurn.mode === "resume" ? clientParks : [],
+    )
+    const clientToolStore = clientToolRuntime.store
+    const clientToolRecorder: ClientToolRecorder | undefined =
+      runClientTools.length > 0 && clientToolStore
+        ? {
+            has: async (toolCallId) => Boolean(await clientToolStore.get(threadId, toolCallId)),
+            record: async (call) => {
+              const issued = new Date()
+              await clientToolStore.issue({
+                threadId,
+                toolCallId: call.toolCallId,
+                interruptId: call.interruptId,
+                toolName: call.toolName,
+                runId: input.runId,
+                issuedAt: issued.toISOString(),
+                expiresAt: new Date(issued.getTime() + clientToolRuntime.ttlMs).toISOString(),
+                answeredAt: null,
+                result: null,
+                voidedAt: null,
+              })
+            },
+          }
+        : undefined
+    // Un-prefixed names, shared by both client-facing wires so an attacher and
+    // the primary client see the same names.
+    const clientToolNames: ReadonlySet<string> = new Set(runClientTools.map((tool) => tool.name))
 
     // Authorize — and, when this turn must, create — the concrete row BEFORE
     // claiming the run slot, mirroring the Agent Protocol run handlers. Doing it
@@ -636,8 +835,8 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
         routeKey,
         anchorRouteKeys: checkpointRoutes(anchorTuple) ?? [],
         anchorCheckpointId: anchorTuple?.checkpoint?.id ?? null,
-        input: resumeResolution.mode === "resume" ? resumeResolution.resume : b4Input,
-        resume: resumeResolution.mode === "resume",
+        input: routeResume ?? b4Input,
+        resume: routeResume !== undefined,
         runStartedAt: new Date().toISOString(),
         threadId,
       })
@@ -701,8 +900,10 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                   ? [{ role: "user", content: newestUserMessage.content }]
                   : [],
               },
-              ...(resumeResolution.mode === "resume" ? { resume: resumeResolution.resume } : {}),
+              ...(routeResume ? { resume: routeResume } : {}),
               ...(responseFormat ? { responseFormat } : {}),
+              ...(runClientTools.length > 0 ? { clientTools: runClientTools } : {}),
+              ...(clientToolRecorder ? { clientToolRecorder } : {}),
               // Injected into config.configurable by the agent-adapter, for the
               // park site to read. `undefined` when grants are off or no store
               // resolved — never a no-op minter, which would satisfy the park
@@ -744,10 +945,6 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                   threadId,
                 })
               : observedRouteStream
-            // This run's client tool names, shared by both client-facing
-            // wires so an attacher and the primary client see the same names.
-            // Empty until the handler accepts client tools.
-            const clientToolNames: ReadonlySet<string> = new Set()
             const liveTappedStream = tapLiveTurn(
               guardedRouteStream,
               liveTurn,
@@ -872,6 +1069,109 @@ export async function handleAgUiRequest(options: AgUiRequestOptions): Promise<vo
     request: toWebRequest(request, response),
   })
   await writeNodeResponse(response, webResponse)
+}
+
+function clientToolStoreUnavailable(): Response {
+  return Response.json(
+    createRequestErrorBody(
+      "Client tools are unavailable: no client tool store is configured (server.agui.clientToolStore).",
+      { code: "client_tool_store_unavailable" },
+    ),
+    { status: 503 },
+  )
+}
+
+/**
+ * 413 when a `role: "tool"` message answering an OUTSTANDING parked call is
+ * over MAX_CLIENT_TOOL_RESULT — checked before `resolveClientToolTurn`, so an
+ * over-cap result is never recorded. Messages for anything else are history
+ * (or forgeries) the resolver ignores, so their size is not judged here.
+ */
+async function oversizedClientToolResult(
+  store: NonNullable<ClientToolRuntime["store"]>,
+  threadId: string,
+  clientParks: readonly PendingInterrupt[],
+  messages: ReadonlyArray<{
+    readonly role: string
+    readonly content: string
+    readonly toolCallId?: string
+  }>,
+): Promise<Response | undefined> {
+  const parked = new Set(
+    clientParks.flatMap((park) =>
+      isClientToolCallEnvelope(park.value) ? [park.value.toolCallId] : [],
+    ),
+  )
+  const candidates = messages.filter(
+    (message) =>
+      message.role === "tool" &&
+      typeof message.toolCallId === "string" &&
+      parked.has(message.toolCallId),
+  )
+  if (candidates.length === 0) return undefined
+  const outstanding = new Set((await store.listOutstanding(threadId)).map((row) => row.toolCallId))
+  const encoder = new TextEncoder()
+  for (const message of candidates) {
+    if (!outstanding.has(message.toolCallId as string)) continue
+    if (encoder.encode(message.content).byteLength <= MAX_CLIENT_TOOL_RESULT) continue
+    return Response.json(
+      createRequestErrorBody(`Client tool result exceeds ${MAX_CLIENT_TOOL_RESULT} bytes`, {
+        code: "client_tool_result_too_large",
+        maxBytes: MAX_CLIENT_TOOL_RESULT,
+      }),
+      { status: 413 },
+    )
+  }
+  return undefined
+}
+
+/**
+ * The request's client tools plus a stub definition for each parked call
+ * whose tool the request did not send. The rebuilt definition only has to
+ * carry the name: the call is already made, and the stub's replay reads its
+ * result from the resume value, not from its schema.
+ */
+function withParkedClientTools(
+  requested: readonly ClientToolDefinition[],
+  parks: readonly PendingInterrupt[],
+): readonly ClientToolDefinition[] {
+  const names = new Set(requested.map((tool) => tool.name))
+  const rebuilt: ClientToolDefinition[] = []
+  for (const park of parks) {
+    if (!isClientToolCallEnvelope(park.value)) continue
+    const name = park.value.name
+    if (typeof name !== "string" || names.has(name)) continue
+    names.add(name)
+    rebuilt.push({ name, description: "", parameters: { type: "object", properties: {} } })
+  }
+  return rebuilt.length === 0 ? requested : [...requested, ...rebuilt]
+}
+
+/**
+ * The whole AG-UI answer to a run that recorded some parked results but not
+ * all: RUN_STARTED, then RUN_FINISHED with a success outcome. The graph is not
+ * touched and nothing is published to the live turn — there is no turn.
+ */
+async function clientToolPartialResponse(
+  threadId: string,
+  runId: string,
+  accept: string | null,
+): Promise<Response> {
+  async function* done(): AsyncGenerator<B4AgentStreamChunk> {
+    yield { type: "done", data: null }
+  }
+  let body = ""
+  for await (const event of toAguiEvents(done(), { threadId, runId })) {
+    body += encodeAgUiSse(event, accept ?? undefined)
+  }
+  return new Response(body, {
+    headers: {
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+      "content-type": "text/event-stream",
+    },
+    status: 200,
+  })
 }
 
 /** The SDK-facing view of one inbound message: role, text, and the client's id when it sent one. */

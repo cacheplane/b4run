@@ -81,6 +81,7 @@ import {
 import type {
   ApprovalGrantMinter,
   B4Middleware,
+  ClientToolCallStore,
   ClientToolRecorder,
   InterruptGrantStore,
   ThreadAccessPolicy,
@@ -179,6 +180,18 @@ export interface RuntimeBootFallbacks {
   readonly resolveInterruptGrantStore?: (
     appRoot: string,
   ) => Promise<InterruptGrantStore | undefined>
+  /**
+   * Where outstanding client tool calls are recorded (cacheplane/b4run#743).
+   *
+   * OPTIONAL for the same exported-interface reason as
+   * `resolveInterruptGrantStore`. Absence is not an ungating: the AG-UI
+   * handler answers `503 client_tool_store_unavailable` to any run that sends
+   * client tools or answers a parked one, rather than parking a call nobody
+   * could match. Returns `undefined` when no route opts in to client tools.
+   */
+  readonly resolveClientToolCallStore?: (
+    appRoot: string,
+  ) => Promise<ClientToolCallStore | undefined>
   /** Config threads store, else the default sqlite store (boot-level resolution). */
   readonly resolveThreadsStore: (appRoot: string) => Promise<ThreadsStore>
   /** Config permissions + `.b4/permissions.json` (boot-level resolution). */
@@ -841,6 +854,26 @@ function clientToolsSupport(
     }
   }
   return undefined
+}
+
+/**
+ * Request-time preflight for client-provided tools, like
+ * `checkRouteResponseFormatSupport`: turns a route that cannot take them into
+ * a request error BEFORE any run side effect. `prepareRouteExecution`
+ * re-checks, so a caller that skips this still never gets a run that silently
+ * dropped the client's tools.
+ */
+export async function checkRouteClientToolsSupport(options: {
+  readonly appRoot: string
+  readonly bootFallbacks: RuntimeBootFallbacks | undefined
+  readonly routeFile: string
+  readonly routeId: string
+}): Promise<{ readonly ok: true } | PreparedRouteError> {
+  const prepared = await getPreparedRouteModules(
+    { appRoot: options.appRoot, routeFile: options.routeFile, routeId: options.routeId },
+    options.bootFallbacks,
+  )
+  return clientToolsSupport(options.routeId, prepared.module) ?? { ok: true }
 }
 
 /** Why a chain/graph/workflow route cannot take client-provided tools. */

@@ -50,6 +50,12 @@ import {
   RequestBodyTooLargeError,
   readBoundedText,
 } from "./bounded-body.js"
+import {
+  anyRouteOptsInToClientTools,
+  type ClientToolRuntime,
+  resolveClientToolTtlMs,
+  validateClientToolStore,
+} from "./client-tool-runtime.js"
 import type { CorsConfig } from "./cors.js"
 import { applyCorsHeaders, corsPreflightResponse, resolveCorsPolicy } from "./cors.js"
 import { createLiveTurnHub, type LiveTurnHub, type LiveTurnProducer } from "./live-turn-hub.js"
@@ -602,6 +608,30 @@ export async function createRuntimeFetchHandler(
     ...(interruptGrantStore ? { store: interruptGrantStore } : {}),
     ...(approvalConfig?.grantTtlMs !== undefined ? { ttlMs: approvalConfig.grantTtlMs } : {}),
   }
+  // ── Client-provided tools ────────────────────────────────────────────────
+  //
+  // Resolved once, at boot, like the grant store. The TTL and a configured
+  // store are shape-checked here because `B4Config` has no runtime schema: a
+  // mistyped value fails the boot rather than reading as configured while it
+  // is ignored. A missing store is not fatal — the AG-UI handler refuses the
+  // runs that would need one (`503 client_tool_store_unavailable`) — but it
+  // is loud, once, here.
+  const aguiConfig = bootConfig?.server?.agui
+  const clientToolTtlMs = resolveClientToolTtlMs(aguiConfig?.clientToolTtlMs)
+  const clientToolStore =
+    validateClientToolStore(aguiConfig?.clientToolStore) ??
+    (await fallbacks?.resolveClientToolCallStore?.(options.appRoot))
+  if (anyRouteOptsInToClientTools(bootConfig) && !clientToolStore) {
+    console.warn(
+      `B4: server.agui.clientTools names routes but no client tool store could be resolved for ` +
+        `${options.appRoot}. Runs that send client tools will be refused with a 503. Set ` +
+        `server.agui.clientToolStore in b4.config.ts, or run on a runtime with the node fallbacks.`,
+    )
+  }
+  const clientTools: ClientToolRuntime = {
+    ...(clientToolStore ? { store: clientToolStore } : {}),
+    ttlMs: clientToolTtlMs,
+  }
   // Degrades rather than throws HERE: sandboxing is opt-in, so no fallbacks
   // means no sandbox provider — the same result as an app with no `sandbox`
   // config, and the right answer for every node app. What was missing is the
@@ -981,6 +1011,7 @@ export async function createRuntimeFetchHandler(
       apSseHeartbeatIntervalMs,
       boot,
       bootConfig,
+      clientTools,
       getCheckpointer,
       getMemoryStoreFor,
       getPermissionsStore,
@@ -1381,6 +1412,8 @@ export function buildRouteTable(ctx: {
    * Read for `server.agui`, the AG-UI run envelope's per-route opt-ins.
    */
   readonly bootConfig: B4Config | undefined
+  /** Boot-resolved client tool store and TTL. See client-tool-runtime.ts. */
+  readonly clientTools: ClientToolRuntime
   readonly getCheckpointer: (request: Request) => BaseCheckpointSaver
   readonly getMemoryStoreFor: (request: Request) => Promise<MemoryStore>
   readonly getPermissionsStore: (
@@ -1426,6 +1459,7 @@ export function buildRouteTable(ctx: {
     apSseHeartbeatIntervalMs,
     boot,
     bootConfig,
+    clientTools,
     getCheckpointer,
     getMemoryStoreFor,
     getPermissionsStore,
@@ -1936,6 +1970,7 @@ export function buildRouteTable(ctx: {
           boot,
           ...(bootConfig ? { config: bootConfig } : {}),
           checkpointer: getCheckpointer(request),
+          clientTools,
           getMemoryStore: () => getMemoryStoreFor(request),
           liveTurnHub,
           middleware,
