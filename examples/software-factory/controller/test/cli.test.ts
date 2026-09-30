@@ -1,4 +1,4 @@
-import { execFile, spawn as spawnChild } from "node:child_process"
+import { execFile, execFileSync, spawn as spawnChild } from "node:child_process"
 import {
   appendFileSync,
   chmodSync,
@@ -45,7 +45,10 @@ let dir: string
 // Undefined for the tests that serve nothing, and cleared after every test so a later one
 // cannot close an already-closed controller.
 let served: ServedController | undefined
+/** Processes a test started to hold a lock: killed by pid after every test, even a failed one. */
+const holders: { kill(): void }[] = []
 afterEach(async () => {
+  for (const holder of holders.splice(0)) holder.kill()
   await served?.close()
   served = undefined
   rmSync(dir, { recursive: true, force: true })
@@ -72,6 +75,8 @@ async function boot(
     ...process.env,
     FACTORY_CONTROLLER_URL: served.url,
     FACTORY_STATE_DIR: served.stateDir,
+    // The committed factory.config.ts would otherwise fill what a test deliberately unsets.
+    FACTORY_CONFIG: "none",
   }
   const spawn = (...args: string[]): Spawned => {
     const promise = run(process.execPath, [tsxBin, cliEntry, ...args], { env, cwd: packageRoot })
@@ -281,6 +286,45 @@ describe("cli", () => {
       images.close()
       rmSync(imagesDir, { recursive: true, force: true })
     }
+  }, 90_000)
+
+  it("reads the controller and the state directory from a config when the environment has neither", async () => {
+    const { cli, env } = await boot()
+    const { json: created } = await cli("create", "--task", "cli-flags")
+    const port = Number(new URL(served?.url ?? "").port)
+    const config = join(dir, "factory.config.ts")
+    // Only the controller's port is read by these commands; the workers' need only be distinct.
+    const [builder, drafter] = [65001, 65002].map((p) => (p === port ? p + 2 : p))
+    writeFileSync(
+      config,
+      `export default ${JSON.stringify({
+        state: served?.stateDir,
+        controller: { port },
+        builder: { port: builder },
+        drafter: { port: drafter },
+      })}\n`,
+    )
+    const { FACTORY_CONTROLLER_URL, FACTORY_STATE_DIR, ...bare } = env
+    const configured = { ...bare, FACTORY_CONFIG: config }
+    const { stdout } = await run(process.execPath, [tsxBin, cliEntry, "show", created.row.id], {
+      env: configured,
+      cwd: packageRoot,
+    })
+    expect(JSON.parse(stdout).id).toBe(created.row.id)
+    // The environment wins, and the disagreement is said once on stderr.
+    const { stderr } = await run(process.execPath, [tsxBin, cliEntry, "show", created.row.id], {
+      env: { ...configured, FACTORY_CONTROLLER_URL: "http://127.0.0.1:1" },
+      cwd: packageRoot,
+    })
+    expect(stderr).toContain("FACTORY_CONTROLLER_URL is http://127.0.0.1:1 in the environment")
+    // A named config that is not there refuses.
+    const missing = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "list"], {
+        env: { ...bare, FACTORY_CONFIG: join(dir, "absent.ts") },
+        cwd: packageRoot,
+      }),
+    )
+    expect(missing.stderr).toContain("No factory config at")
   }, 90_000)
 
   it("reads without a controller, and refuses to write without one", async () => {
@@ -845,6 +889,126 @@ esac
     const code = await new Promise<number | null>((resolve) => child.on("close", resolve))
     return { code, stdout, stderr }
   }
+  /**
+   * `run` at a terminal: `FACTORY_CLI_INTERACTIVE=1` stands in for a TTY. Each time the review
+   * prompt appears on stderr, `answer(n)` (n from 0) is typed, or stdin is closed when it
+   * returns undefined. One answer per prompt, written only after it (Trap 11).
+   */
+  async function interactiveRun(
+    env: NodeJS.ProcessEnv,
+    args: readonly string[],
+    answer: (prompt: number) => string | undefined,
+  ): Promise<{ code: number | null; stdout: string; stderr: string }> {
+    const child = spawnChild(process.execPath, [tsxBin, cliEntry, "run", ...args], {
+      env: { ...env, FACTORY_CLI_INTERACTIVE: "1" },
+      cwd: packageRoot,
+      stdio: ["pipe", "pipe", "pipe"],
+    })
+    let stdout = ""
+    let stderr = ""
+    let prompts = 0
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString()
+    })
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString()
+      while (stderr.split("first eight hex digits").length - 1 > prompts) {
+        const typed = answer(prompts)
+        prompts += 1
+        if (typed === undefined) child.stdin.end()
+        else child.stdin.write(`${typed}\n`)
+      }
+    })
+    const code = await new Promise<number | null>((resolve) => child.on("close", resolve))
+    return { code, stdout, stderr }
+  }
+
+  /** Exit code and output of a spawned command, whatever the code. */
+  async function settled(promise: Promise<{ stdout: string; stderr: string }>) {
+    return promise.then(
+      ({ stdout, stderr }) => ({ code: 0, stdout, stderr }),
+      (e: { code?: number; stdout?: string; stderr?: string }) => ({
+        code: e.code ?? -1,
+        stdout: e.stdout ?? "",
+        stderr: e.stderr ?? "",
+      }),
+    )
+  }
+
+  /** The one-line candidate the export review tests use, left on the builder's thread. */
+  function repairedCandidate(): void {
+    const target = loadTask("cli-flags").target
+    const pinned = execFileSync(
+      "git",
+      ["-C", packageRoot, "show", `${target.pin}:${target.root}/src/cli.ts`],
+      { encoding: "utf8" },
+    )
+    served?.workspace.set(FIRST_THREAD, {
+      "src/cli.ts": pinned.replace(
+        "await program.parseAsync(process.argv)",
+        'await program.parseAsync(process.argv, { from: "node" })',
+      ),
+      "test/cli.test.ts": "spec\n",
+      "TASK.md": "task\n",
+    })
+  }
+
+  /** A live process a test lock can name as its `up`, with a command line `ps` shows. */
+  async function lockHolder() {
+    const marker = `factory-up-lock-holder-${process.pid}-${Date.now()}`
+    const child = spawnChild(process.execPath, ["-e", "setInterval(() => {}, 1000)", marker], {
+      stdio: "ignore",
+    })
+    await new Promise((resolve) => child.once("spawn", resolve))
+    holders.push({ kill: () => child.kill("SIGKILL") })
+    return {
+      child,
+      pid: child.pid as number,
+      command: marker,
+      kill: () => child.kill("SIGKILL"),
+    }
+  }
+
+  /** `<state>/up.lock` as `up` writes it, naming `holder` and the controller's approval window. */
+  function writeUpLock(
+    stateDir: string,
+    holder: { readonly pid: number; readonly command: string },
+    approvalTtlMs: number,
+  ): void {
+    mkdirSync(stateDir, { recursive: true })
+    writeFileSync(
+      join(stateDir, "up.lock"),
+      `${JSON.stringify({
+        up: { pid: holder.pid, command: holder.command, startedAt: new Date().toISOString() },
+        ports: { controller: 1, builder: 2, drafter: 3 },
+        controller: { approvalTtlMs, maxActiveMs: 1_200_000 },
+        children: {},
+      })}\n`,
+    )
+  }
+
+  const journal = (stateDir: string, id: string) => {
+    const reader = openRegistryReader(join(stateDir, "registry.sqlite"))
+    try {
+      return reader.events(id)
+    } finally {
+      reader.close()
+    }
+  }
+  const types = (stateDir: string, id: string) => journal(stateDir, id).map((e) => e.type)
+  /** Transitions are journalled as `transition` with the event in the payload. */
+  const transitions = (stateDir: string, id: string, event: string) =>
+    journal(stateDir, id).filter((e) => e.type === "transition" && e.payload.event === event)
+  /** Every work order, or none when the registry does not exist yet. */
+  const rows = (stateDir: string) => {
+    if (!existsSync(join(stateDir, "registry.sqlite"))) return []
+    const reader = openRegistryReader(join(stateDir, "registry.sqlite"))
+    try {
+      return reader.list()
+    } finally {
+      reader.close()
+    }
+  }
 
   it("reviews an intake: shows the draft and its proof, and approves the digest of what it showed", async () => {
     const { cli, spawn, env, stateDir } = await boot(
@@ -967,6 +1131,80 @@ esac
     expect(JSON.parse(nothing.stdout)).toMatchObject({ ok: false, state: "received" })
     expect(JSON.parse(nothing.stdout).message).toMatch(/^Nothing to review: .* is received/)
   }, 120_000)
+
+  it("warns at an intake review when dispatch would refuse the work order's budget", async () => {
+    // devkit verifies for up to 240 s, so dispatch needs 480 s left; this row has 400 s in all.
+    const { cli, spawn } = await boot(
+      {},
+      { verifier: createFakeVerifier({ independent: "fail" }) },
+      { FACTORY_MAX_ACTIVE_MS: "400000" },
+    )
+    const { id } = await parkedIntake(cli, "create-cli-budget")
+    const shown = await failing(spawn("review", id, "--allow-missing-evidence").promise)
+    expect(shown.stderr).toContain("!!! WARNING: This work order has")
+    expect(shown.stderr).toContain("dispatch will refuse it after you approve")
+    // Only a warning: the review still says what a person must do to approve.
+    expect(JSON.parse(shown.stdout).message).toContain("--approve --digest")
+  }, 90_000)
+
+  it("says budget not checked, with the reason, rather than staying silent when the task fails to load", async () => {
+    const { cli, env } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
+    const { id } = await parkedIntake(cli, "create-cli-budget-unloadable")
+    // A repository that cannot possibly hold the drafted task's pin: loadTaskRecipe's target
+    // load calls ensurePin, which throws instead of the budget check silently doing nothing.
+    // FACTORY_NO_FETCH=1 keeps it from trying (and failing slowly) to fetch from origin.
+    const emptyRepo = mkdtempSync(join(tmpdir(), "factory-cli-empty-repo-"))
+    try {
+      const shown = await failing(
+        run(process.execPath, [tsxBin, cliEntry, "review", id, "--allow-missing-evidence"], {
+          env: { ...env, FACTORY_REPO_ROOT: emptyRepo, FACTORY_NO_FETCH: "1" },
+          cwd: packageRoot,
+        }),
+      )
+      expect(shown.stderr).toContain("budget not checked: ")
+      expect(shown.stderr).toContain(`is not in the repository at ${emptyRepo}`)
+      // Still shown and still approvable: a budget check that could not run is not a refusal.
+      expect(shown.stderr).toContain("==> spec.md")
+      expect(JSON.parse(shown.stdout).message).toContain("--approve --digest")
+    } finally {
+      rmSync(emptyRepo, { recursive: true, force: true })
+    }
+  }, 90_000)
+
+  it("honours the interactive test seam only under vitest, and says so loudly (D25)", async () => {
+    const { cli, env } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
+    const { id } = await parkedIntake(cli, "create-cli-seam")
+    const outsideVitest: NodeJS.ProcessEnv = { ...env }
+    delete outsideVitest.VITEST
+    // An operator's exported seam on a pipe: no prompt, nothing sent. Stdin is closed at once,
+    // so a CLI that did ask ends on "No answer" instead of waiting out the test's timeout.
+    const pipedRun = run(
+      process.execPath,
+      [tsxBin, cliEntry, "review", id, "--allow-missing-evidence"],
+      { env: { ...outsideVitest, FACTORY_CLI_INTERACTIVE: "1" }, cwd: packageRoot },
+    )
+    pipedRun.child.stdin?.end()
+    const piped = await failing(pipedRun)
+    expect(piped.stderr).not.toContain("TEST SEAM")
+    expect(piped.stderr).not.toContain("first eight hex digits")
+    expect(JSON.parse(piped.stdout).message).toContain("--approve --digest")
+    // Under vitest the seam works, and announces itself.
+    const seam = await interactive(env, ["review", id, "--allow-missing-evidence"], "00000000")
+    expect(seam.stderr).toContain("!!! TEST SEAM: FACTORY_CLI_INTERACTIVE")
+
+    // A falsy-looking string is still truthy in JS: the seam must compare the exact value
+    // vitest sets, not just check the variable is present.
+    const falsyVitest = run(
+      process.execPath,
+      [tsxBin, cliEntry, "review", id, "--allow-missing-evidence"],
+      { env: { ...env, VITEST: "false", FACTORY_CLI_INTERACTIVE: "1" }, cwd: packageRoot },
+    )
+    falsyVitest.child.stdin?.end()
+    const falsy = await failing(falsyVitest)
+    expect(falsy.stderr).not.toContain("TEST SEAM")
+    expect(falsy.stderr).not.toContain("first eight hex digits")
+    expect(JSON.parse(falsy.stdout).message).toContain("--approve --digest")
+  }, 90_000)
 
   it("reviews an intake for scripts, and rejects one with a note", async () => {
     const { cli, spawn } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
@@ -1327,5 +1565,425 @@ esac
       JSON.parse(readFileSync(JSON.parse(stdout).handoff, "utf8")),
     )
     expect(handoff.target).toMatchObject({ image: ensured.image.localId, tag: ensured.tag })
+  }, 60_000)
+
+  it("run stops at the draft for a person: it shows what review shows, approves nothing, and names the commands", async () => {
+    const { env, spawn, stateDir } = await boot(
+      {},
+      { verifier: createFakeVerifier({ independent: "fail" }) },
+    )
+    if (!served) throw new Error("no controller")
+    served.workspace.queue(FIRST_DRAFTER_THREAD, [GOOD_DRAFT])
+    const gh = stubGh({ title: "spawnProcess leaks", body: "B\n", url: "https://github.com/x/778" })
+    const runEnv = { ...env, FACTORY_GH: gh, FACTORY_NO_FETCH: "1" }
+    const args = ["run", "--issue", "778", "--repo", "cacheplane/b4run", "--pin", served.pin]
+    const stopped = await settled(
+      run(process.execPath, [tsxBin, cliEntry, ...args, "--allow-missing-evidence"], {
+        env: runEnv,
+        cwd: packageRoot,
+      }),
+    )
+    expect(stopped.code).toBe(3)
+    const out = JSON.parse(stopped.stdout)
+    expect(out).toMatchObject({ ok: false, state: "awaiting_intake_approval", gate: "intake" })
+    const id = out.row.id as string
+    expect(out.next).toContain(`pnpm factory review ${id}`)
+    // The NEXT commands run prints are digest-free (the row in the JSON carries the digest, as
+    // `show` does): approving means a person running a review.
+    expect(JSON.stringify(out.next)).not.toMatch(/[a-f0-9]{64}/)
+    expect(out.howToApprove).not.toMatch(/[a-f0-9]{64}/)
+    // The display is review's own, and so is the digest it names.
+    const shown = await failing(spawn("review", id, "--allow-missing-evidence").promise)
+    for (const section of ["==> issue.md", "==> spec.md", "==> task.json", "Oracle proof"])
+      expect(stopped.stderr).toContain(section)
+    expect(stopped.stderr).toContain(`Task digest of the 5 files above: ${out.row.taskDigest}`)
+    expect(shown.stderr).toContain(`Task digest of the 5 files above: ${out.row.taskDigest}`)
+    expect(await pollState(stateDir, id, () => true)).toBe("awaiting_intake_approval")
+    expect(types(stateDir, id)).not.toContain("intake_approved")
+
+    // Run again: it resumes the same work order (no second create), and stops again.
+    const again = await settled(
+      run(process.execPath, [tsxBin, cliEntry, ...args, "--allow-missing-evidence"], {
+        env: runEnv,
+        cwd: packageRoot,
+      }),
+    )
+    expect(again.code).toBe(3)
+    expect(again.stderr).toContain(`resuming ${id}`)
+    expect(rows(stateDir)).toHaveLength(1)
+
+    // A wrong prefix at a terminal sends nothing, and says it is still waiting on a person.
+    const digest = out.row.taskDigest as string
+    const wrong = await interactiveRun(runEnv, [id, "--allow-missing-evidence"], () =>
+      digest.startsWith("0") ? "11111111" : "00000000",
+    )
+    expect(wrong.code).toBe(3)
+    expect(JSON.parse(wrong.stdout).message).toContain("Nothing was approved")
+    expect(types(stateDir, id)).not.toContain("intake_approved")
+    expect(await pollState(stateDir, id, () => true)).toBe("awaiting_intake_approval")
+  }, 120_000)
+
+  it("run refuses every way of approving by argument", async () => {
+    const { spawn, stateDir } = await boot()
+    for (const flags of [
+      ["--approve"],
+      ["--digest", "a".repeat(64)],
+      ["--reject"],
+      ["--note", "x"],
+      ["--revision", "1"],
+      ["--bundle", "a".repeat(64)],
+    ]) {
+      const refused = await failing(spawn("run", "--task", "cli-flags", ...flags).promise)
+      expect(refused.stderr).toContain("run never approves")
+    }
+    for (const flag of ["--yes", "--auto-approve"]) {
+      const unknown = await failing(spawn("run", "--task", "cli-flags", flag).promise)
+      expect(unknown.stderr).toMatch(/Unknown option/)
+    }
+    // Refused before anything was created.
+    expect(rows(stateDir)).toEqual([])
+  }, 60_000)
+
+  it("run takes a catalog task to its bundle, and exports only on the person's typed prefix", async () => {
+    const { env, stateDir } = await boot()
+    // The candidate the export review test uses: one changed line.
+    const target = loadTask("cli-flags").target
+    const { stdout: pinned } = await run("git", [
+      "-C",
+      packageRoot,
+      "show",
+      `${target.pin}:${target.root}/src/cli.ts`,
+    ])
+    served?.workspace.set(FIRST_THREAD, {
+      "src/cli.ts": pinned.replace(
+        "await program.parseAsync(process.argv)",
+        'await program.parseAsync(process.argv, { from: "node" })',
+      ),
+      "test/cli.test.ts": "spec\n",
+      "TASK.md": "task\n",
+    })
+    const bundle = () => rows(stateDir)[0]?.bundleDigest ?? ""
+    const done = await interactiveRun(
+      env,
+      ["--task", "cli-flags", "--allow-missing-evidence"],
+      (prompt) => (prompt === 0 ? bundle().slice(0, 8) : undefined),
+    )
+    expect(done.code).toBe(0)
+    expect(JSON.parse(done.stdout)).toMatchObject({ ok: true, state: "exported" })
+    expect(done.stderr).toContain("first eight hex digits")
+    const id = rows(stateDir)[0]?.id as string
+    expect(types(stateDir, id)).toContain("approve_started")
+
+    // Done is done: running it again creates nothing and answers from the registry.
+    const again = await settled(
+      run(process.execPath, [tsxBin, cliEntry, "run", "--task", "cli-flags"], {
+        env,
+        cwd: packageRoot,
+      }),
+    )
+    expect(again.code).toBe(0)
+    expect(JSON.parse(again.stdout)).toMatchObject({ ok: true, state: "exported" })
+    expect(rows(stateDir)).toHaveLength(1)
+    // --new starts another.
+    await settled(
+      run(process.execPath, [tsxBin, cliEntry, "run", "--task", "cli-flags", "--new"], {
+        env,
+        cwd: packageRoot,
+      }),
+    )
+    expect(rows(stateDir)).toHaveLength(2)
+  }, 120_000)
+
+  it("run stops at an expired bundle with the deny and cancel commands, and never asks again (D24)", async () => {
+    // A 1 ms window: the bundle has expired by the time anyone could type.
+    const { env, stateDir } = await boot({}, {}, { FACTORY_APPROVAL_TTL_MS: "1" })
+    const target = loadTask("cli-flags").target
+    const { stdout: pinned } = await run("git", [
+      "-C",
+      packageRoot,
+      "show",
+      `${target.pin}:${target.root}/src/cli.ts`,
+    ])
+    served?.workspace.set(FIRST_THREAD, {
+      "src/cli.ts": pinned.replace(
+        "await program.parseAsync(process.argv)",
+        'await program.parseAsync(process.argv, { from: "node" })',
+      ),
+      "test/cli.test.ts": "spec\n",
+      "TASK.md": "task\n",
+    })
+    let prompts = 0
+    const expired = await interactiveRun(
+      env,
+      ["--task", "cli-flags", "--allow-missing-evidence"],
+      () => {
+        prompts += 1
+        return (rows(stateDir)[0]?.bundleDigest ?? "").slice(0, 8)
+      },
+    )
+    expect(prompts).toBe(1)
+    expect(expired.code).toBe(1)
+    expect(expired.stderr).toContain("the controller's approval window is unknown")
+    const out = JSON.parse(expired.stdout)
+    expect(out.message).toContain("has expired")
+    expect(out.next).toEqual(expect.arrayContaining([`pnpm factory cancel ${out.row.id}`]))
+    expect(out.row.state).toBe("awaiting_approval")
+  }, 120_000)
+
+  it("run never prompts for a bundle the window `up` recorded says has expired (D24)", async () => {
+    const { env, stateDir } = await boot()
+    const target = loadTask("cli-flags").target
+    const { stdout: pinned } = await run("git", [
+      "-C",
+      packageRoot,
+      "show",
+      `${target.pin}:${target.root}/src/cli.ts`,
+    ])
+    served?.workspace.set(FIRST_THREAD, {
+      "src/cli.ts": pinned.replace(
+        "await program.parseAsync(process.argv)",
+        'await program.parseAsync(process.argv, { from: "node" })',
+      ),
+      "test/cli.test.ts": "spec\n",
+      "TASK.md": "task\n",
+    })
+    // A lock as `up` writes it, held by a live process, naming a 1 ms window: expired before
+    // run reaches the gate.
+    const holder = await lockHolder()
+    writeUpLock(stateDir, holder, 1)
+    let prompts = 0
+    const expired = await interactiveRun(
+      env,
+      ["--task", "cli-flags", "--allow-missing-evidence"],
+      () => {
+        prompts += 1
+        return undefined
+      },
+    )
+    expect(prompts).toBe(0)
+    expect(expired.code).toBe(1)
+    const out = JSON.parse(expired.stdout)
+    expect(out.message).toContain("has expired")
+    expect(out.next).toEqual(expect.arrayContaining([`pnpm factory cancel ${out.row.id}`]))
+    expect(types(stateDir, out.row.id)).not.toContain("approve_started")
+  }, 120_000)
+
+  it("run trusts an approval window only from a lock whose up still runs (a stale one is unknown)", async () => {
+    const { env, stateDir } = await boot()
+    repairedCandidate()
+    // The lock an `up` that was SIGKILLed left behind, naming a 1 ms window: its pid is gone.
+    const holder = await lockHolder()
+    holder.kill()
+    await new Promise((resolve) => holder.child.on("close", resolve))
+    writeUpLock(stateDir, holder, 1)
+    let prompts = 0
+    const waiting = await interactiveRun(
+      env,
+      ["--task", "cli-flags", "--allow-missing-evidence"],
+      () => {
+        prompts += 1
+        return undefined
+      },
+    )
+    // It asks (the bundle is not known to have expired), and waits on a person.
+    expect(prompts).toBe(1)
+    expect(waiting.code).toBe(3)
+    expect(waiting.stderr).toContain("the controller's approval window is unknown")
+    const out = JSON.parse(waiting.stdout)
+    expect(out.message).not.toContain("has expired")
+    expect(out.message).toContain("Waiting on a person")
+  }, 120_000)
+
+  it("run follows an approval another run sent that is still re-verifying, instead of asking again", async () => {
+    const { env, stateDir } = await boot({}, { verifier: createFakeVerifier({ delayMs: 3_000 }) })
+    repairedCandidate()
+    // A person approves at a terminal, then Ctrl-C's that run while the approval re-verifies.
+    const child = spawnChild(
+      process.execPath,
+      [tsxBin, cliEntry, "run", "--task", "cli-flags", "--allow-missing-evidence"],
+      { env: { ...env, FACTORY_CLI_INTERACTIVE: "1" }, cwd: packageRoot, stdio: "pipe" },
+    )
+    let stderr = ""
+    child.stdout.resume()
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString()
+      if (stderr.includes("first eight hex digits") && !child.stdin.writableEnded)
+        child.stdin.end(`${(rows(stateDir)[0]?.bundleDigest ?? "").slice(0, 8)}\n`)
+    })
+    const id = await (async () => {
+      for (let i = 0; i < 2_400; i++) {
+        const row = rows(stateDir)[0]
+        if (row && types(stateDir, row.id).includes("approve_started")) return row.id
+        await new Promise((r) => setTimeout(r, 25))
+      }
+      throw new Error("the approval never started")
+    })()
+    child.kill("SIGINT")
+    expect(await new Promise((resolve) => child.on("close", resolve))).toBe(130)
+    expect(rows(stateDir)[0]?.state).toBe("awaiting_approval")
+    // Resumed, run sees the approval in flight: it follows it to the export, and never says
+    // nothing was approved.
+    const resumed = await settled(
+      run(process.execPath, [tsxBin, cliEntry, "run", id], { env, cwd: packageRoot }),
+    )
+    expect(resumed.stdout).not.toContain("Nothing was approved")
+    expect(resumed.stderr).toContain("an approval re-verifying, sent earlier")
+    expect(resumed.stderr).not.toContain("first eight hex digits")
+    expect(resumed.code).toBe(0)
+    expect(JSON.parse(resumed.stdout)).toMatchObject({ ok: true, state: "exported" })
+    expect(types(stateDir, id).filter((t) => t === "approve_started")).toHaveLength(1)
+  }, 120_000)
+
+  it("run says a person is being waited on when Ctrl-C lands at a gate", async () => {
+    const { env, stateDir } = await boot()
+    repairedCandidate()
+    const child = spawnChild(
+      process.execPath,
+      [tsxBin, cliEntry, "run", "--task", "cli-flags", "--allow-missing-evidence"],
+      { env: { ...env, FACTORY_CLI_INTERACTIVE: "1" }, cwd: packageRoot, stdio: "pipe" },
+    )
+    let stderr = ""
+    child.stdout.resume()
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString()
+      if (stderr.includes("first eight hex digits") && !child.killed) child.kill("SIGINT")
+    })
+    expect(await new Promise((resolve) => child.on("close", resolve))).toBe(130)
+    const id = rows(stateDir)[0]?.id as string
+    expect(stderr).toContain("waiting on a person")
+    expect(stderr).not.toContain("the controller keeps working")
+    expect(stderr).toContain(`pnpm factory review ${id}`)
+    expect(types(stateDir, id)).not.toContain("approve_started")
+  }, 120_000)
+
+  it("run prints how to resume when Ctrl-C lands before it has chosen a work order", async () => {
+    // A controller that accepts the connection and never answers: run is in its health check.
+    const silent: Server = createServer(() => undefined)
+    await new Promise<void>((resolve) => silent.listen(0, "127.0.0.1", resolve))
+    const address = silent.address()
+    if (address === null || typeof address === "string") throw new Error("no port")
+    dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
+    try {
+      const child = spawnChild(process.execPath, [tsxBin, cliEntry, "run", "--task", "cli-flags"], {
+        env: {
+          ...process.env,
+          FACTORY_CONFIG: "none",
+          FACTORY_CONTROLLER_URL: `http://127.0.0.1:${address.port}`,
+          FACTORY_STATE_DIR: join(dir, "state"),
+        },
+        cwd: packageRoot,
+        stdio: ["ignore", "pipe", "pipe"],
+      })
+      let stderr = ""
+      child.stderr.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString()
+      })
+      // Once the child has connected, it is past installing its handlers.
+      await new Promise<void>((resolve) => silent.once("connection", () => resolve()))
+      child.kill("SIGINT")
+      expect(await new Promise((resolve) => child.on("close", resolve))).toBe(130)
+      expect(stderr).toContain("pnpm factory run --task cli-flags")
+    } finally {
+      silent.close()
+    }
+  }, 60_000)
+
+  it("run follows a create another run is sending on the same key, rather than failing", async () => {
+    const { cli, env, stateDir } = await boot(
+      {},
+      { verifier: createFakeVerifier({ delayMs: 4_000 }) },
+    )
+    repairedCandidate()
+    // One cli-flags work order already exists, so `run --new` creates generation 1. Hold that
+    // create's thread with a slow dispatch of the first, as a second run racing on the key would.
+    const { json: first } = await cli("create", "--task", "cli-flags", "--key", "first")
+    const key = "factory-run:task:cli-flags:1"
+    const held = served?.run(`create:${key}`, "/work-orders/dispatch#workflow", {
+      id: first.row.id,
+    })
+    for (let i = 0; i < 400 && rows(stateDir)[0]?.state === "received"; i++)
+      await new Promise((r) => setTimeout(r, 25))
+    const raced = await settled(
+      run(process.execPath, [tsxBin, cliEntry, "run", "--task", "cli-flags", "--new"], {
+        env,
+        cwd: packageRoot,
+      }),
+    )
+    await held
+    expect(raced.stderr).not.toMatch(/already in flight/)
+    expect(raced.stderr).toContain("being created")
+    expect(rows(stateDir)).toHaveLength(2)
+    expect(raced.stdout).not.toContain("run_in_flight")
+  }, 120_000)
+
+  it("run refuses a stray argument, and points a bare issue number at --issue", async () => {
+    const { spawn, stateDir } = await boot()
+    const bare = await failing(spawn("run", "714").promise)
+    expect(bare.stderr).toContain("--issue 714")
+    const extra = await failing(spawn("run", "--task", "cli-flags", "extra").promise)
+    expect(extra.stderr).toContain("extra")
+    expect(rows(stateDir)).toEqual([])
+  }, 60_000)
+
+  it("run, interrupted, leaves the work going, and resumes following the same work order", async () => {
+    const { env, stateDir } = await boot({}, { verifier: createFakeVerifier({ delayMs: 4_000 }) })
+    const child = spawnChild(process.execPath, [tsxBin, cliEntry, "run", "--task", "cli-flags"], {
+      env,
+      cwd: packageRoot,
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+    let stderr = ""
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString()
+    })
+    const id = await (async () => {
+      for (let i = 0; i < 400; i++) {
+        const row = rows(stateDir)[0]
+        if (row?.state === "verifying") return row.id
+        await new Promise((r) => setTimeout(r, 25))
+      }
+      throw new Error("never reached verifying")
+    })()
+    child.kill("SIGINT")
+    const code = await new Promise<number | null>((resolve) => child.on("close", resolve))
+    expect(code).toBe(130)
+    expect(stderr).toContain(`pnpm factory run ${id}`)
+    expect(stderr).toContain(`pnpm factory cancel ${id}`)
+    // Ctrl-C ended the following, not the work: nothing asked the controller to cancel.
+    expect(transitions(stateDir, id, "cancel")).toEqual([])
+    expect(["cancel_requested", "cancelled"]).not.toContain(rows(stateDir)[0]?.state)
+    // The controller finishes what run was following; a second run finds it and stops at the gate.
+    const resumed = await settled(
+      run(process.execPath, [tsxBin, cliEntry, "run", "--task", "cli-flags"], {
+        env,
+        cwd: packageRoot,
+      }),
+    )
+    expect(resumed.stderr).toContain(`resuming ${id}`)
+    expect(rows(stateDir)).toHaveLength(1)
+    // Where it settles is the stand-ins' business; what matters is that run followed the
+    // dispatch it did not send, and never sent a second.
+    expect(transitions(stateDir, id, "dispatch_committed")).toHaveLength(1)
+    expect([1, 3]).toContain(resumed.code)
+  }, 120_000)
+
+  it("up takes only --config, and needs a config to start anything", async () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-cli-")) // for afterEach; up refuses before using it
+    const env = { ...process.env, FACTORY_CONFIG: "none" }
+    const stray = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "up", "--task", "cli-flags"], {
+        env,
+        cwd: packageRoot,
+      }),
+    )
+    expect(stray.stderr).toContain("factory up takes only --config; not --task")
+    const positional = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "up", "extra"], { env, cwd: packageRoot }),
+    )
+    expect(positional.stderr).toContain("factory up takes no positional argument")
+    const none = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "up"], { env, cwd: packageRoot }),
+    )
+    expect(none.stderr).toContain("factory up needs a config")
   }, 60_000)
 })

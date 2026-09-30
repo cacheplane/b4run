@@ -58,7 +58,7 @@ import { loadPolicy } from "../verification/policy.js"
 import type { Verifier } from "../verification/verifier.js"
 import type { CancelResult, WorkerClient } from "../worker/client.js"
 import type { InterruptFrame, StreamFrame } from "../worker/wire.js"
-import { type BudgetTicker, startBudgetTicker } from "./budget.js"
+import { type BudgetTicker, budgetShortfallFor, startBudgetTicker } from "./budget.js"
 import type { ControllerContext } from "./context.js"
 import { type BoundImage, bindingMoved, boundImageOf, prepareWorkOrderImage } from "./images.js"
 import { finishIntake, observeIntakeTurn, runIntake } from "./intake.js"
@@ -502,12 +502,12 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       return undefined
     }
     const verifierDeadlineMs = target.resources.verifierDeadlineMs
-    const remainingMs = row.maxActiveMs - row.activeMs
-    if (remainingMs >= 2 * verifierDeadlineMs) return undefined
+    const shortfall = budgetShortfallFor(row, verifierDeadlineMs)
+    if (shortfall === undefined) return undefined
     return {
       maxActiveMs: row.maxActiveMs,
       activeMs: row.activeMs,
-      remainingMs,
+      remainingMs: shortfall.remainingMs,
       verifierDeadlineMs,
       targetId: target.id,
     }

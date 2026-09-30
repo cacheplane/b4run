@@ -76,6 +76,26 @@ export function createControllerClient(baseUrl: string, fetchImpl: typeof fetch 
     cancel: (id: string, operationKey?: string) =>
       run(id, "/work-orders/cancel#workflow", withKey(id, operationKey)),
     reconcile: () => run("controller", "/reconcile#workflow", {}),
+    /**
+     * The runtime's status for the work order's thread, read-only (`GET /threads/<id>`):
+     * `busy` while a command runs on it, `none` when the runtime has no thread for it. The
+     * runtime persists the status, so a controller killed mid-run leaves `busy` behind.
+     */
+    async threadStatus(id: string): Promise<string> {
+      const response = await fetchImpl(`${base}/threads/${encodeURIComponent(id)}`)
+      if (response.status === 404) return "none"
+      const body: unknown = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        const failed = body as { error?: { message?: string; details?: { code?: string } } }
+        throw new ControllerHttpError(
+          response.status,
+          failed.error?.details?.code,
+          failed.error?.message ?? `HTTP ${response.status}`,
+        )
+      }
+      const status = (body as { status?: unknown }).status
+      return typeof status === "string" ? status : "unknown"
+    },
     /** The runtime's cancel of the work order's in-flight run, for a dispatch that is still awaiting. */
     async interrupt(id: string): Promise<"interrupted" | "no_run_in_flight"> {
       const response = await fetchImpl(`${base}/threads/${encodeURIComponent(id)}/cancel`, {

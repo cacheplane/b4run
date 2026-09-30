@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { createInterface } from "node:readline"
@@ -7,8 +7,9 @@ import { parseArgs } from "node:util"
 import { captureBuilderHandoff, isFactoryImageId } from "./lib/builder-handoff.js"
 import { type ControllerClient, ControllerHttpError, createControllerClient } from "./lib/client.js"
 import { generatedTasksDirFor } from "./lib/config.js"
+import { budgetShortfallFor } from "./lib/controller/budget.js"
 import { dispatchPreparing, imageWaitBoundMs } from "./lib/controller/images.js"
-import type { WorkOrderState } from "./lib/domain/states.js"
+import { TERMINAL_STATES, type WorkOrderState } from "./lib/domain/states.js"
 import {
   COMMIT_PATTERN,
   DIGEST_PATTERN,
@@ -21,6 +22,19 @@ import {
   repositoryFromRemoteUrl,
   resolvePin,
 } from "./lib/intake/issue.js"
+import {
+  applyConfigDefaults,
+  DEFAULT_CONFIG_PATH,
+  factoryConfigPath,
+  loadFactoryConfig,
+} from "./lib/operator/factory-config.js"
+import {
+  approvalStartedSinceParked,
+  chooseWorkOrder,
+  nextStep,
+  RUN_WAITING_ON_A_PERSON,
+} from "./lib/operator/run-steps.js"
+import { heldLockController, lineWriter, realUpDeps, stopOnSignals, up } from "./lib/operator/up.js"
 import { openRegistryReader } from "./lib/registry/reader.js"
 import { exportReview, intakeReview, type OperatorReview } from "./lib/review/operator-review.js"
 import { pinDiffBase } from "./lib/review/pin-diff-base.js"
@@ -55,6 +69,10 @@ const USAGE = `factory <command> [options]
   events    <workOrderId>
   evidence  <workOrderId>
   list
+  run       --issue <n> [--repo <owner/name>] [--pin <sha>] [--new] [--allow-missing-evidence]
+  run       --task <id> [--new] [--allow-missing-evidence]
+  run       <workOrderId> [--allow-missing-evidence]
+  up        [--config <path>]
   builder-handoff --task <id> --out <dir> [--work-order <workOrderId>] [--image-id sha256:<64 hex>]
 
 The commands that change something are requests to a running controller:
@@ -126,9 +144,22 @@ A draft intake refuses is kept for reading after the retry overwrites it: each r
 attempt's draft/ files and its reason.txt, under
 <FACTORY_STATE_DIR>/tasks/.refused/<workOrderId>/attempt-<n>/ (journalled as keptAt).
 
+run carries one work order (created, or the issue's or task's live one resumed) through intake
+and dispatch and STOPS at each review for a person: it never approves, rejects or names a
+digest, and takes none of those options. At a terminal it shows exactly what review shows and
+takes the person's typed prefix; otherwise it exits 3 with the commands a person runs. It exits
+0 only when the work order is exported, 130 on Ctrl-C (the controller keeps working; run it
+again to resume), and 1 at a block, a refusal, an ended work order or an expired bundle.
+
 Output is JSON on stdout; diagnostics go to stderr. Exit code 1 when a command is refused,
 when a dispatch settles somewhere that still owes the operator work, and when an intake or a
-reject-intake settles anywhere but awaiting_intake_approval.`
+reject-intake settles anywhere but awaiting_intake_approval.
+
+Every command reads FACTORY_CONTROLLER_URL and FACTORY_STATE_DIR from the environment, else
+from the factory config: --config <path>, else FACTORY_CONFIG, else
+examples/software-factory/factory.config.ts when it exists. --config none and
+FACTORY_CONFIG=none read none. A relative --config or FACTORY_CONFIG path resolves against
+INIT_CWD (where you ran pnpm) when it is set, else the current directory.`
 
 function print(value: unknown) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
@@ -324,6 +355,19 @@ interface FollowEvents {
    */
   readonly working?: (events: readonly FactoryEvent[]) => boolean
   readonly workingGraceMs?: (events: readonly FactoryEvent[]) => number
+}
+
+/**
+ * How a dispatch is followed when its request ends first: an image build is its arrival and a
+ * refusal after the build its end. Shared by `dispatch` and `run`.
+ */
+const DISPATCH_FOLLOW: FollowEvents = {
+  arrived: "image_prepare_started",
+  refused: "dispatch_refused",
+  working: dispatchPreparing,
+  // The controller journals each wait's own bound (queue and build, from ITS configuration),
+  // so the CLI never guesses the controller's settings.
+  workingGraceMs: imageWaitBoundMs,
 }
 
 /** Connection errors that mean nothing was sent: there is no work to wait for. */
@@ -627,12 +671,20 @@ async function repositoryFromOrigin(root: string): Promise<string | null> {
 }
 
 /**
- * Whether `review` may ask. A person at a terminal types the digest's prefix; anything else
- * must name the digest with `--digest`. Tests set `FACTORY_CLI_INTERACTIVE=1` to answer on a
- * pipe; nothing an operator runs sets it.
+ * Whether a review may ask: a person at a terminal, reading the display on stderr, types the
+ * prefix; anything else must name the digest with `--digest`. `FACTORY_CLI_INTERACTIVE=1`
+ * answers from a pipe only inside vitest (whose workers set VITEST, which the CLIs they spawn
+ * inherit), and says so, so an exported seam in an operator's shell never lets a script answer
+ * an approval prompt.
  */
 function interactive(): boolean {
-  return process.env.FACTORY_CLI_INTERACTIVE === "1" || process.stdin.isTTY === true
+  if (process.env.FACTORY_CLI_INTERACTIVE === "1" && process.env.VITEST === "true") {
+    process.stderr.write(
+      "!!! TEST SEAM: FACTORY_CLI_INTERACTIVE answers the approval prompt from a pipe !!!\n",
+    )
+    return true
+  }
+  return process.stdin.isTTY === true && process.stderr.isTTY === true
 }
 
 /** One line from stdin after `question` on stderr, or null when stdin ends first. */
@@ -689,6 +741,29 @@ async function buildReview(
   })
 }
 
+/**
+ * An intake review of a work order that dispatch would refuse for its budget: the drafted
+ * target is known only now (`targetId`), so nothing could say so at create. A warning, never a
+ * refusal: approving stays the person's call. Undefined when the task does not load.
+ */
+function intakeBudgetWarning(row: WorkOrderRow): string | undefined {
+  if (row.targetId === null) return undefined
+  const stateDir = process.env.FACTORY_STATE_DIR
+  if (!stateDir) return undefined
+  let verifierDeadlineMs: number
+  try {
+    configureCatalog({ generatedTasksDir: generatedTasksDirFor(stateDir) })
+    verifierDeadlineMs = loadTaskRecipe(row.taskId).target.resources.verifierDeadlineMs
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    process.stderr.write(`budget not checked: ${reason}\n`)
+    return undefined
+  }
+  const shortfall = budgetShortfallFor(row, verifierDeadlineMs)
+  if (shortfall === undefined) return undefined
+  return `This work order has ${Math.max(0, shortfall.remainingMs)} ms of active budget left, below twice target ${row.targetId}'s verifier deadline (${verifierDeadlineMs} ms): dispatch will refuse it after you approve. Reject or cancel it, restart pnpm factory up with FACTORY_MAX_ACTIVE_MS=${shortfall.neededMs} or more (the README sizes it per target), and run it again with --new`
+}
+
 /** Send an export approval and follow it as `approve` does: re-verification outlives the request. */
 function approveExport(
   id: string,
@@ -713,23 +788,49 @@ function rejectDraft(id: string, note: string, key: string | undefined): Promise
   )
 }
 
+interface ReviewOptions {
+  readonly approve: boolean
+  readonly reject: boolean
+  readonly digest: string | undefined
+  readonly note: string | undefined
+  readonly key: string | undefined
+  readonly allowMissingEvidence: boolean
+}
+
+/** The JSON body of a review that sent nothing. */
+interface NotSent {
+  readonly ok: false
+  readonly state?: WorkOrderState
+  readonly message: string
+  readonly row?: WorkOrderRow
+}
+
 /**
- * `factory review <id>`: show what the approval covers, digest exactly what was shown, and
- * approve that digest at the revision the display was built from. The routes are unchanged:
- * `approve-intake` still recomputes the task digest from disk at call time and `approve`
- * still compares the frozen bundle, so a file edited after the display is refused there.
+ * What a review did. `sent`: a command went to the controller, with the exit code `review` has
+ * always given it. `declined`: no person approved (no terminal, no answer, nothing or the wrong
+ * prefix typed), so nothing was sent and the draft or bundle still waits. `refused`: what the
+ * review would display cannot be approved, or there is nothing to review.
  */
-async function review(
-  id: string,
-  options: {
-    readonly approve: boolean
-    readonly reject: boolean
-    readonly digest: string | undefined
-    readonly note: string | undefined
-    readonly key: string | undefined
-    readonly allowMissingEvidence: boolean
-  },
-): Promise<number> {
+type ReviewResult =
+  | { readonly kind: "sent"; readonly outcome: unknown; readonly code: number }
+  | { readonly kind: "declined"; readonly outcome: NotSent }
+  | { readonly kind: "refused"; readonly outcome: NotSent }
+
+/** `factory review <id>`: the outcome on stdout, the exit code as before this split. */
+async function review(id: string, options: ReviewOptions): Promise<number> {
+  const result = await reviewOutcome(id, options)
+  print(result.outcome)
+  return result.kind === "sent" ? result.code : 1
+}
+
+/**
+ * Show what the approval covers, digest exactly what was shown, and approve that digest at the
+ * revision the display was built from, returning what happened without printing it (`review`
+ * prints it; `run` folds it into its own outcome). The routes are unchanged: `approve-intake`
+ * still recomputes the task digest from disk at call time and `approve` still compares the
+ * frozen bundle, so a file edited after the display is refused there.
+ */
+async function reviewOutcome(id: string, options: ReviewOptions): Promise<ReviewResult> {
   const { approve, reject, digest, note, key, allowMissingEvidence } = options
   if (approve && reject) throw new Error("review takes --approve or --reject, not both")
   if (digest !== undefined && reject) throw new Error("review --reject takes --note, not --digest")
@@ -743,46 +844,60 @@ async function review(
     )
   if (note !== undefined && !reject) throw new Error("review --note goes with --reject")
   if (reject && !note) throw new Error('review --reject requires --note "<text>"')
-  const refuse = (message: string, row?: WorkOrderRow) => {
-    print({ ok: false, ...(row ? { state: row.state } : {}), message, ...(row ? { row } : {}) })
-    return 1
-  }
+  const body = (message: string, row?: WorkOrderRow): NotSent => ({
+    ok: false,
+    ...(row ? { state: row.state } : {}),
+    message,
+    ...(row ? { row } : {}),
+  })
+  const refused = (message: string, row?: WorkOrderRow): ReviewResult => ({
+    kind: "refused",
+    outcome: body(message, row),
+  })
+  const declined = (message: string, row: WorkOrderRow): ReviewResult => ({
+    kind: "declined",
+    outcome: body(message, row),
+  })
 
   if (reject && note) {
     const row = read((reader) => reader.show(id))
     if (!row) throw new Error(`Unknown work order ${id}`)
     if (row.state === "awaiting_intake_approval") {
       const outcome = await rejectDraft(id, note, key)
-      print(outcome)
-      return outcome.ok && outcome.row && INTAKE_SUCCESS.has(outcome.row.state) ? 0 : 1
+      return {
+        kind: "sent",
+        outcome,
+        code: outcome.ok && outcome.row && INTAKE_SUCCESS.has(outcome.row.state) ? 0 : 1,
+      }
     }
     if (row.state === "awaiting_approval") {
       const outcome = await client().deny(id, key)
-      print({ ...outcome, note })
-      return outcome.ok ? 0 : 1
+      return { kind: "sent", outcome: { ...outcome, note }, code: outcome.ok ? 0 : 1 }
     }
-    return refuse(nothingToReview(id, row), row)
+    return refused(nothingToReview(id, row), row)
   }
 
   const built = await buildReview(id, allowMissingEvidence)
-  if (!("digest" in built)) return refuse(nothingToReview(id, built.row), built.row)
+  if (!("digest" in built)) return refused(nothingToReview(id, built.row), built.row)
   process.stderr.write(`${built.text}\n`)
   if (built.problems.length > 0)
-    return refuse(
+    return refused(
       `Not approvable as displayed: ${built.problems.join("; ")}. Nothing was sent`,
       built.row,
     )
   for (const warning of built.warnings) process.stderr.write(`\n!!! WARNING: ${warning} !!!\n\n`)
+  const budget = built.kind === "intake" ? intakeBudgetWarning(built.row) : undefined
+  if (budget !== undefined) process.stderr.write(`\n!!! WARNING: ${budget} !!!\n\n`)
 
   if (digest !== undefined) {
     if (digest !== built.digest)
-      return refuse(
+      return refused(
         `--digest ${digest} is not the ${built.label} review displayed (${built.digest}); nothing was sent`,
         built.row,
       )
   } else {
     if (!interactive())
-      return refuse(
+      return declined(
         `There is no terminal to type the ${built.label}'s prefix into; pass --approve --digest <sha256> with the ${built.label} displayed above`,
         built.row,
       )
@@ -790,12 +905,12 @@ async function review(
       `Approve ${built.kind === "intake" ? "this draft" : "this export"} at revision ${built.revision}? Type at least the first eight hex digits of the ${built.label} (or paste all of it) to approve; anything else sends nothing: `,
     )
     if (answer === null)
-      return refuse("No answer: stdin ended before one was typed; nothing was sent", built.row)
+      return declined("No answer: stdin ended before one was typed; nothing was sent", built.row)
     const typed = answer.trim().toLowerCase()
     // At least eight hex digits, and a prefix of the digest displayed: pasting the whole digest
     // works, and a short or mistyped answer sends nothing.
     if (!(/^[0-9a-f]{8,64}$/.test(typed) && built.digest.startsWith(typed)))
-      return refuse(
+      return declined(
         typed === ""
           ? "Nothing typed; nothing was sent"
           : `The typed prefix ${JSON.stringify(typed)} does not match the ${built.label} displayed (at least eight hex digits of it are needed); nothing was sent`,
@@ -810,20 +925,516 @@ async function review(
       taskDigest: built.digest,
       ...operationKey,
     })
-    print(outcome)
-    return outcome.ok ? 0 : 1
+    return { kind: "sent", outcome, code: outcome.ok ? 0 : 1 }
   }
   const outcome = await approveExport(id, {
     revision: built.revision,
     bundleDigest: built.digest,
     ...operationKey,
   })
-  print(outcome)
-  return outcome.ok ? 0 : 1
+  return { kind: "sent", outcome, code: outcome.ok ? 0 : 1 }
 }
 
 function nothingToReview(id: string, row: WorkOrderRow): string {
   return `Nothing to review: ${id} is ${row.state}. review reads a draft parked in awaiting_intake_approval or a bundle parked in awaiting_approval`
+}
+
+/** Options that would approve, reject or name a digest: `run` takes none of them (D13). */
+const RUN_REFUSES = ["approve", "reject", "digest", "note", "revision", "bundle"] as const
+/**
+ * Options other commands take that `run` does not: refused rather than silently ignored (`run`
+ * sends every command with its default operation key).
+ */
+const RUN_IGNORES = ["key", "out", "work-order", "image-id"] as const
+
+/** The work orders the registry holds, or none when it does not exist yet (a fresh state). */
+function listRows(): WorkOrderRow[] {
+  if (!existsSync(registryPath())) return []
+  return read((reader) => reader.list())
+}
+
+/** `run` needs a controller to send anything; say so before reading or creating. */
+async function requireController(): Promise<void> {
+  const url = process.env.FACTORY_CONTROLLER_URL
+  if (!url)
+    throw new Error("FACTORY_CONTROLLER_URL is required: start the factory with pnpm factory up")
+  try {
+    const response = await fetch(`${url.replace(/\/$/, "")}/healthz`, {
+      signal: AbortSignal.timeout(5_000),
+    })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  } catch (error) {
+    throw new Error(
+      `No controller answers at ${url} (${error instanceof Error ? error.message : String(error)}): start it with pnpm factory up`,
+    )
+  }
+}
+
+/**
+ * The work order `run --issue` or `run --task` works on (D14), or the answer when there is
+ * nothing to do (done) or no way to choose (ambiguous).
+ */
+async function runWorkOrder(options: {
+  readonly issue: string | undefined
+  readonly task: string | undefined
+  readonly repo: string | undefined
+  readonly pin: string | undefined
+  readonly fresh: boolean
+}): Promise<string | { readonly outcome: unknown; readonly code: number }> {
+  const rows = listRows()
+  let matching: WorkOrderRow[]
+  let create: () => Promise<RouteOutcome>
+  if (options.task !== undefined) {
+    const task = options.task
+    matching = rows.filter((r) => r.origin.kind === "catalog" && r.taskId === task)
+    const generation = matching.length
+    create = () =>
+      client().create({ taskId: task, operationKey: `factory-run:task:${task}:${generation}` })
+  } else {
+    const issueArg = options.issue as string
+    const number = Number(issueArg)
+    if (!/^\d+$/.test(issueArg) || !Number.isInteger(number) || number <= 0)
+      throw new Error(`--issue must be a positive integer, got ${JSON.stringify(issueArg)}`)
+    const root = repositoryRoot()
+    const repository =
+      options.repo ?? process.env.FACTORY_REPOSITORY ?? (await repositoryFromOrigin(root))
+    if (!repository) throw new Error("cannot determine the repository; pass --repo <owner/name>")
+    const pin = options.pin !== undefined ? await replayPinOf(root, options.pin) : undefined
+    const sameIssue = (r: WorkOrderRow) =>
+      r.origin.kind === "issue" && r.origin.repository === repository && r.origin.number === number
+    matching = rows.filter((r) => sameIssue(r) && (pin === undefined || r.pin === pin))
+    let fetched: Awaited<ReturnType<typeof issueCreateInput>> | undefined
+    create = async () => {
+      // Fetched once: a create retried after a racing run's (below) sends the same input.
+      fetched ??= await issueCreateInput(issueArg, repository, options.pin)
+      const input = fetched
+      const generation = rows.filter((r) => sameIssue(r) && r.pin === input.pin).length
+      return client().create({
+        ...input,
+        operationKey: `factory-run:issue:${repository}#${number}@${input.pin}:${generation}`,
+      })
+    }
+  }
+  const choice = chooseWorkOrder(matching, options.fresh)
+  switch (choice.kind) {
+    case "resume":
+      process.stderr.write(
+        `factory run: resuming ${choice.row.id} (${choice.row.state}${choice.row.pin ? ` at ${choice.row.pin}` : ""}); --new starts another\n`,
+      )
+      return choice.row.id
+    case "done":
+      return {
+        code: 0,
+        outcome: {
+          ok: true,
+          state: choice.row.state,
+          message: `Already exported as ${choice.row.id}; --new starts another`,
+          row: choice.row,
+        },
+      }
+    case "ambiguous":
+      return {
+        code: 1,
+        outcome: {
+          ok: false,
+          message: `More than one work order is live: ${choice.rows.map((r) => `${r.id} (${r.state})`).join(", ")}; run one by id`,
+          next: choice.rows.map((r) => `pnpm factory run ${r.id}`),
+        },
+      }
+    case "create": {
+      for (const r of matching.filter((r) => !TERMINAL_STATES.has(r.state)))
+        process.stderr.write(
+          `factory run: ${r.id} is still ${r.state}; cancel it if it is abandoned (pnpm factory cancel ${r.id})\n`,
+        )
+      const outcome = await createRacing(create)
+      if (!outcome.ok || !outcome.row) return { code: 1, outcome }
+      process.stderr.write(`factory run: created ${outcome.row.id}\n`)
+      return outcome.row.id
+    }
+  }
+}
+
+/** How long `run` waits on a create another run is sending on the same key. */
+const CREATE_RACE_MS = 5 * 60_000
+
+/**
+ * Send a create, and when another run is sending the same one (two runs racing on one
+ * operation key: the runtime's 409 `run_in_flight` on the key's thread), wait and send it
+ * again: a spent key answers with the row the other run created, so both runs land on it.
+ */
+async function createRacing(create: () => Promise<RouteOutcome>): Promise<RouteOutcome> {
+  const started = Date.now()
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await create()
+    } catch (error) {
+      const racing = error instanceof ControllerHttpError && error.code === "run_in_flight"
+      if (!racing || Date.now() - started > CREATE_RACE_MS) throw error
+      if (attempt === 0)
+        process.stderr.write(
+          "factory run: this work order is already being created (another run on the same key); waiting for it\n",
+        )
+      await sleep(1_000)
+    }
+  }
+}
+
+/**
+ * Follow a work order the controller is working on that this process did not start (a
+ * resumed run, or a command an interrupted run sent): tail the journal until `done` accepts
+ * the row, its whole journal and the events after the mark, within the row's budget plus the
+ * poll grace plus any image wait journalled. Returns false when that bound passed first.
+ */
+async function followJournal(
+  id: string,
+  done: (
+    row: WorkOrderRow,
+    events: readonly FactoryEvent[],
+    afterMark: readonly FactoryEvent[],
+  ) => boolean,
+): Promise<boolean> {
+  const mark = markRow(id)
+  let seq = mark?.seq ?? 0
+  const started = Date.now()
+  for (;;) {
+    seq = tailEvents(id, seq)
+    const { row, events } = read((reader) => ({
+      row: reader.show(id),
+      events: reader.events(id),
+    }))
+    if (!row) throw new Error(`Unknown work order ${id}`)
+    const afterMark = events.filter((e) => e.seq > (mark?.seq ?? 0))
+    if (done(row, events, afterMark)) return true
+    if (Date.now() - started > row.maxActiveMs + POLL_GRACE_MS + imageWaitBoundMs(events))
+      return false
+    await sleep(1_000)
+  }
+}
+
+/**
+ * What a person does at a gate `run` stopped at. The digest is never filled in: approving means
+ * reading it off the display (D13). Outside `runCommand`, which the source pin reads.
+ */
+function howToApprove(id: string): string {
+  return `At a terminal, pnpm factory review ${id} shows it again and asks for the digest's first eight hex digits; without one, pnpm factory review ${id} --approve --digest <the digest shown above>. Then pnpm factory run ${id} carries on.`
+}
+
+/**
+ * The controller's approval window as `factory up` recorded it in its lock (D24), or undefined
+ * (no `up`, or a controller started by hand): `run` then learns an expiry from the refusal.
+ */
+function recordedApprovalTtlMs(): number | undefined {
+  const stateDir = process.env.FACTORY_STATE_DIR
+  if (!stateDir) return undefined
+  // Only while the `up` that wrote the lock still runs: a stale lock's window may not be the
+  // controller's now, and a shorter one would call a live bundle expired (D12, D24).
+  const ttl: unknown = heldLockController(join(stateDir, "up.lock"))?.approvalTtlMs
+  return typeof ttl === "number" && Number.isInteger(ttl) && ttl > 0 ? ttl : undefined
+}
+
+/**
+ * Whether a command is running on the work order's thread, as the runtime says (read-only):
+ * `busy`, `idle` (anything else it answers), or `unknown` when it could not be asked.
+ */
+async function threadBusy(id: string): Promise<"busy" | "idle" | "unknown"> {
+  try {
+    return (await client().threadStatus(id)) === "busy" ? "busy" : "idle"
+  } catch {
+    return "unknown"
+  }
+}
+
+/**
+ * Follow a command running on a parked work order's thread (an approval re-verifying, sent by
+ * an earlier run) until the row moves, an approval is refused, or the thread is no longer busy;
+ * false when the row's budget and the poll grace passed first.
+ */
+async function followBusyThread(id: string, row: WorkOrderRow): Promise<boolean> {
+  const mark = markRow(id)
+  let seq = mark?.seq ?? 0
+  const started = Date.now()
+  for (;;) {
+    seq = tailEvents(id, seq)
+    const now = read((reader) => ({ row: reader.show(id), events: reader.events(id) }))
+    if (!now.row) throw new Error(`Unknown work order ${id}`)
+    const refused = now.events.some((e) => e.seq > (mark?.seq ?? 0) && e.type === "approve_refused")
+    if (now.row.revision !== row.revision || now.row.state !== row.state || refused) return true
+    if ((await threadBusy(id)) !== "busy") return true
+    if (Date.now() - started > row.maxActiveMs + POLL_GRACE_MS) return false
+    await sleep(1_000)
+  }
+}
+
+/**
+ * What `run` says when Ctrl-C stops it: at a gate where nothing was sent, that the work order
+ * waits on a person; otherwise that the controller keeps working. Either way, how to resume.
+ */
+function interrupted(
+  id: string | undefined,
+  gate: { readonly gate: string; readonly seq: number } | undefined,
+  again: string,
+): string {
+  if (id === undefined)
+    return `factory run: stopped before choosing a work order; anything already sent goes on in the controller.\n  resume: pnpm factory run ${again}\n`
+  let sent = true
+  if (gate !== undefined)
+    try {
+      sent = read((reader) => reader.events(id)).some((e) => e.seq > gate.seq)
+    } catch {
+      sent = true
+    }
+  if (gate !== undefined && !sent)
+    return `factory run: stopped; ${id} is waiting on a person at its ${gate.gate} review. Nothing was approved.\n  review: pnpm factory review ${id}\n  resume: pnpm factory run ${id}\n`
+  return `factory run: stopped following ${id}; the controller keeps working on it.\n  resume:  pnpm factory run ${id}\n  stop it: pnpm factory cancel ${id}\n`
+}
+
+/** Where `run` ends: one JSON document on stdout, and the exit code. */
+function finish(outcome: unknown, code: number): number {
+  print(outcome)
+  return code
+}
+
+/**
+ * `factory run`: carry one work order to each person's gate and stop there (D13-D16). The
+ * step table has no approval step; at a gate the only call is the review's own display and
+ * typed-prefix prompt, with every approving input absent. A source pin reads this body.
+ */
+async function runCommand(
+  id: string | undefined,
+  values: {
+    readonly issue?: string | undefined
+    readonly task?: string | undefined
+    readonly repo?: string | undefined
+    readonly pin?: string | undefined
+    readonly new: boolean
+    readonly "allow-missing-evidence": boolean
+  } & Readonly<
+    Partial<Record<(typeof RUN_REFUSES)[number] | (typeof RUN_IGNORES)[number], unknown>>
+  >,
+  extra: readonly string[] = [],
+): Promise<number> {
+  const given = RUN_REFUSES.filter((name) => values[name] !== undefined && values[name] !== false)
+  if (given.length > 0)
+    throw new Error(
+      `run never approves, rejects or names a digest (${given.map((n) => `--${n}`).join(", ")}): it stops at each review for a person. Use pnpm factory review <id>`,
+    )
+  const ignored = RUN_IGNORES.filter((name) => values[name] !== undefined)
+  if (ignored.length > 0)
+    throw new Error(`run does not take ${ignored.map((n) => `--${n}`).join(", ")}`)
+  if (id !== undefined && /^\d+$/.test(id))
+    throw new Error(
+      `run ${id}: a work order id looks like wo-…; for issue ${id}, use pnpm factory run --issue ${id}`,
+    )
+  if (extra.length > 0)
+    throw new Error(
+      `run takes one work order id, --issue <n> or --task <id>; unexpected ${extra.map((a) => JSON.stringify(a)).join(" ")}`,
+    )
+  const targets = [id, values.issue, values.task].filter((v) => v !== undefined)
+  if (targets.length !== 1) {
+    const given = [
+      ...(id !== undefined ? [JSON.stringify(id)] : []),
+      ...(values.issue !== undefined ? [`--issue ${values.issue}`] : []),
+      ...(values.task !== undefined ? [`--task ${values.task}`] : []),
+    ]
+    throw new Error(
+      `run takes exactly one of <workOrderId>, --issue <n> or --task <id>${given.length > 0 ? `; got ${given.join(" and ")}` : ""}`,
+    )
+  }
+  if (values.pin !== undefined && values.issue === undefined)
+    throw new Error("run --pin replays an issue: it takes --issue")
+  if (values.repo !== undefined && values.issue === undefined)
+    throw new Error("run --repo names an issue's repository: it takes --issue")
+  if (values.new && id !== undefined)
+    throw new Error("run --new starts a new work order: it takes --issue or --task, not an id")
+  // Ctrl-C ends the following, never the work: the controller carries on without this process.
+  // Installed before anything is asked or sent, so an early Ctrl-C also says how to resume;
+  // without --new, which would start yet another work order.
+  const again =
+    values.issue !== undefined
+      ? `--issue ${values.issue}${values.repo !== undefined ? ` --repo ${values.repo}` : ""}${values.pin !== undefined ? ` --pin ${values.pin}` : ""}`
+      : `--task ${values.task ?? ""}`
+  let following: string | undefined = id
+  /** The journal's last seq when `run` reached a person's gate; undefined away from one. */
+  let atGate: { readonly gate: string; readonly seq: number } | undefined
+  process.once("SIGINT", () => {
+    process.stderr.write(`\n${interrupted(following, atGate, again)}`)
+    process.exit(130)
+  })
+
+  await requireController()
+  const chosen =
+    id ??
+    (await runWorkOrder({
+      issue: values.issue,
+      task: values.task,
+      repo: values.repo,
+      pin: values.pin,
+      fresh: values.new,
+    }))
+  if (typeof chosen !== "string") return finish(chosen.outcome, chosen.code)
+  following = chosen
+  const workOrder = chosen
+
+  let conflicts = 0
+  for (;;) {
+    const { row, events } = read((reader) => {
+      const row = reader.show(workOrder)
+      if (!row) throw new Error(`Unknown work order ${workOrder}`)
+      return { row, events: reader.events(workOrder) }
+    })
+    const approvalTtlMs = recordedApprovalTtlMs()
+    const step = nextStep(row, events, {
+      now: Date.now(),
+      ...(approvalTtlMs !== undefined ? { approvalTtlMs } : {}),
+    })
+    /** A command that refused and moved nothing would be sent again forever (Trap 15). */
+    const unmoved = () => read((reader) => reader.show(workOrder))?.revision === row.revision
+    try {
+      switch (step.kind) {
+        case "done":
+          return finish(
+            { ok: true, state: row.state, message: `Exported under ${row.bundleDigest}`, row },
+            0,
+          )
+        case "stop":
+          return finish(
+            { ok: false, state: row.state, message: step.message, next: step.next, row },
+            1,
+          )
+        case "follow": {
+          process.stderr.write(`factory run: following ${workOrder}: ${step.why}\n`)
+          const followed = await followJournal(
+            workOrder,
+            (r, all) => nextStep(r, all).kind !== "follow",
+          )
+          if (!followed)
+            return finish(
+              {
+                ok: false,
+                state: row.state,
+                message: `Still ${row.state} after the work order's budget and ${POLL_GRACE_MS / 60_000} minutes more; pnpm factory show ${workOrder}`,
+                row,
+              },
+              1,
+            )
+          continue
+        }
+        case "intake": {
+          const outcome = await awaiting(
+            workOrder,
+            (controller) => controller.intake(workOrder),
+            INTAKE_ACTIVE,
+            INTAKE_SUCCESS,
+          )
+          if (!outcome.ok && unmoved()) return finish(outcome, 1)
+          continue
+        }
+        case "dispatch": {
+          const outcome = await awaiting(
+            workOrder,
+            (controller) => controller.dispatch(workOrder),
+            DISPATCH_ACTIVE,
+            DISPATCH_SUCCESS,
+            DISPATCH_FOLLOW,
+          )
+          if (!outcome.ok && unmoved()) return finish(outcome, 1)
+          continue
+        }
+        case "gate": {
+          if (step.gate === "export") {
+            // An approval an earlier run sent may still be re-verifying, with the row parked at
+            // its revision (Trap 13): ask the runtime, and follow it rather than ask again.
+            const busy = await threadBusy(workOrder)
+            if (busy === "busy") {
+              process.stderr.write(
+                `factory run: a command is running on ${workOrder} (an approval re-verifying, sent earlier); following it. If the controller was killed since, its thread can read busy with nothing running: pnpm factory events ${workOrder}\n`,
+              )
+              if (!(await followBusyThread(workOrder, row)))
+                return finish(
+                  {
+                    ok: false,
+                    state: row.state,
+                    message: `The thread of ${workOrder} is still busy after the work order's budget and ${POLL_GRACE_MS / 60_000} minutes more; pnpm factory events ${workOrder}`,
+                    row,
+                  },
+                  1,
+                )
+              continue
+            }
+            if (busy === "unknown" && approvalStartedSinceParked(events))
+              return finish(
+                {
+                  ok: false,
+                  state: row.state,
+                  message: `An approval may be in flight on ${workOrder} (one started since the bundle parked and has not ended, and the controller could not say whether it still runs); pnpm factory events ${workOrder}`,
+                  next: [`pnpm factory events ${workOrder}`, `pnpm factory run ${workOrder}`],
+                  row,
+                },
+                1,
+              )
+            const since = row.awaitingSince ?? "an unknown time"
+            const expires =
+              approvalTtlMs !== undefined && row.awaitingSince !== null
+                ? `expires at ${new Date(Date.parse(row.awaitingSince) + approvalTtlMs).toISOString()} (FACTORY_APPROVAL_TTL_MS ${approvalTtlMs})`
+                : "the controller's approval window is unknown (FACTORY_APPROVAL_TTL_MS; its default is 15 minutes)"
+            process.stderr.write(`factory run: this bundle parked at ${since}; it ${expires}\n`)
+          }
+          // The same function `factory review <id>` runs, with no digest and no approval flag:
+          // the display, and at a terminal the person's typed prefix. Nothing else approves.
+          atGate = { gate: step.gate, seq: events.at(-1)?.seq ?? 0 }
+          const result = await reviewOutcome(workOrder, {
+            approve: false,
+            reject: false,
+            digest: undefined,
+            note: undefined,
+            key: undefined,
+            allowMissingEvidence: values["allow-missing-evidence"],
+          })
+          atGate = undefined
+          if (result.kind === "sent") {
+            // Refused as expired: the journal now says so, and the next step is a stop with the
+            // deny and cancel commands, never another prompt (D24).
+            const refusal = (result.outcome as { message?: unknown }).message
+            const expired = typeof refusal === "string" && refusal.includes("has expired")
+            if (result.code !== 0 && !expired) return finish(result.outcome, 1)
+            continue
+          }
+          if (result.kind === "refused") return finish(result.outcome, 1)
+          return finish(
+            {
+              ...result.outcome,
+              gate: step.gate,
+              message: `Waiting on a person: ${result.outcome.message}. Nothing was approved`,
+              next: [
+                `pnpm factory review ${workOrder}`,
+                `pnpm factory review ${workOrder} --reject --note "<why>"`,
+                `pnpm factory run ${workOrder}`,
+              ],
+              howToApprove: howToApprove(workOrder),
+            },
+            RUN_WAITING_ON_A_PERSON,
+          )
+        }
+      }
+    } catch (error) {
+      // The command this run would send is already running on the work order's thread: the
+      // one an interrupted run sent (Trap 13). Follow it until the row moves or it refuses.
+      if (error instanceof ControllerHttpError && error.code === "run_in_flight" && conflicts < 3) {
+        conflicts += 1
+        process.stderr.write(
+          `factory run: a command on ${workOrder} is already running (an earlier run's); following it\n`,
+        )
+        await followJournal(
+          workOrder,
+          (r, _all, afterMark) =>
+            r.revision > row.revision ||
+            afterMark.some((e) => e.type === "dispatch_refused" || e.type === "approve_refused"),
+        )
+        continue
+      }
+      throw error
+    }
+  }
 }
 
 async function main(argv: string[]): Promise<number> {
@@ -843,9 +1454,11 @@ async function main(argv: string[]): Promise<number> {
       pin: { type: "string" },
       "work-order": { type: "string" },
       "image-id": { type: "string" },
+      config: { type: "string" },
       approve: { type: "boolean", default: false },
       reject: { type: "boolean", default: false },
       "allow-missing-evidence": { type: "boolean", default: false },
+      new: { type: "boolean", default: false },
       help: { type: "boolean", default: false },
     },
   })
@@ -861,6 +1474,35 @@ async function main(argv: string[]): Promise<number> {
   const needId = () => {
     if (!id) throw new Error(`${command} requires a work order id`)
     return id
+  }
+  // Every command but `up` (which refuses a disagreement instead) reads the controller's URL
+  // and the state directory from the config where the environment leaves them unset.
+  if (command !== "up") {
+    const located = factoryConfigPath(process.env, values.config)
+    if (located) {
+      const config = await loadFactoryConfig(located.path)
+      for (const warning of applyConfigDefaults(process.env, config))
+        process.stderr.write(`factory: ${warning}\n`)
+    }
+  }
+  if (command === "up") {
+    const stray = Object.entries(values)
+      .filter(([name, value]) => name !== "config" && value !== undefined && value !== false)
+      .map(([name]) => `--${name}`)
+    if (stray.length > 0) throw new Error(`factory up takes only --config; not ${stray.join(", ")}`)
+    if (id !== undefined) throw new Error("factory up takes no positional argument")
+    const located = factoryConfigPath(process.env, values.config)
+    if (!located)
+      throw new Error(
+        `factory up needs a config: ${DEFAULT_CONFIG_PATH} (or --config <path>; FACTORY_CONFIG=none reads none)`,
+      )
+    const config = await loadFactoryConfig(located.path)
+    // A closed stdout (`up | head`) must not end up and orphan its detached children (Trap 24):
+    // after an error there, up's own lines go to <state>/logs/up.log and each child's to its log.
+    const out = lineWriter(process.stdout)
+    // SIGHUP too: a closed terminal would otherwise leave the detached children running.
+    const { stop, force } = stopOnSignals(process, out)
+    return await up(config, realUpDeps(out), stop, force)
   }
   // Answered before anything is opened: writing a builder handoff reads the catalog and
   // captures an archive, and needs no controller; it opens the image registry read-only only
@@ -927,14 +1569,7 @@ async function main(argv: string[]): Promise<number> {
           (controller) => controller.dispatch(id, values.key),
           DISPATCH_ACTIVE,
           DISPATCH_SUCCESS,
-          {
-            arrived: "image_prepare_started",
-            refused: "dispatch_refused",
-            working: dispatchPreparing,
-            // The controller journals each wait's own bound (queue and build, from ITS
-            // configuration), so the CLI never guesses the controller's settings.
-            workingGraceMs: imageWaitBoundMs,
-          },
+          DISPATCH_FOLLOW,
         )
         print(outcome)
         return outcome.ok && outcome.row && DISPATCH_SUCCESS.has(outcome.row.state) ? 0 : 1
@@ -993,6 +1628,8 @@ async function main(argv: string[]): Promise<number> {
           key: values.key,
           allowMissingEvidence: values["allow-missing-evidence"],
         })
+      case "run":
+        return await runCommand(id, values, positionals.slice(2))
       case "retry": {
         const outcome = await client().retry(needId(), values.key)
         print(outcome)

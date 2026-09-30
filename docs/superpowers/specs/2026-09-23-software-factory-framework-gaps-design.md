@@ -452,8 +452,57 @@ manifest, manifest directory, app root, installation store.
 | Hand-writing `target.json` and the Dockerfile | 5 (`target:init`, `target:measure`; a person still reviews and commits) |
 | `ls tasks/<id>`, copy revision and digest into `approve-intake` | 6 |
 | Copy revision and bundle into `approve` | 6 |
-| Four terminals, `export` of URL and state dir, an alias | `up`/`run` glue |
-| `factory reconcile` after a controller restart (no boot hook) | Not removed; rung 3 §4.5 |
+| Four terminals, `export` of URL and state dir, an alias (and a token exported into three) | `up`/`run` glue, as landed: `pnpm factory up` and `pnpm factory run`; the CLI reads URL and state from `factory.config.ts` |
+| `factory reconcile` after a controller restart (no boot hook) | Removed for a controller `up` manages (`up` calls the reconcile route once all three are ready); the app still has no boot hook (rung 3 §4.5), so a controller started by hand still needs it |
+
+**As landed** ([plan](../plans/2026-09-28-factory-up-and-run.md)). Three processes, not two:
+the builder and the drafter are still separate apps (item 1's fold was not done, and is not
+glue), so `factory.config.ts` names `state` and three ports (`controller`, `builder`,
+`drafter`), all on 127.0.0.1, validated strictly (the sketch's `worker`, `token` and `host`
+keys are refused by name, and a state directory inside an app root is refused). The spelling
+is `pnpm factory …` from `examples/software-factory` (an orchestration-only `package.json`
+whose script runs the controller's CLI under `pnpm --silent`, with a local `.npmrc` silencing
+the outer run, so stdout is the CLI's JSON alone and exit 3 reaches the shell; the root has no
+`factory` script). `up` spawns each app detached, as `b4 start --host 127.0.0.1 --port <p>` in
+its app root under `up`'s own Node, not `b4 dev`, so §9 findings 4 and 21 do not arise under
+it. It generates the worker token per start (or takes `FACTORY_WORKER_TOKEN`) and gives it to
+the three children only; it takes `OPENAI_API_KEY` from its environment or the one line of the
+checkout's `.env`, else the main worktree's (never `FACTORY_REPO_ROOT`'s), and gives it to the
+builder and the drafter only (the controller's environment also drops, by a deny-list, every
+variable ending in `_API_KEY` or starting `OPENAI_`, `ANTHROPIC_` or `AWS_`, and `GH_TOKEN` and
+`GITHUB_TOKEN`; any other variable, another provider's credential included, still reaches it).
+Every child line is redacted before it reaches stdout or `<state>/logs/`. It takes
+two locks, on the state directory and on the checkout (each app's stores live in its app root,
+so one `up` per checkout), judged by pid and recorded command, and names orphans a
+`SIGKILL`ed `up` left before anything else. It waits for `/readyz` on all three and then calls
+the reconcile route, bounded, so the last table row is removed for a controller `up` manages
+(the app still has no boot hook). It stops the controller first, then the workers, one
+`SIGTERM` each and 20 s grace before `SIGKILL` to the group (`b4 start` dies by default action
+on a second signal mid-close), and a clean stop is every child exiting with code 0. It does
+not restart a process that exits (finding 8's supervisor, in part). `run` resumes by the issue
+(and pin), stops at each person's gate with `review`'s own display and typed prefix at a TTY
+only (exit 3 otherwise; it takes no approval flag and refuses the approve flags by name),
+follows long steps through the journal and a 409 `run_in_flight` alike, and stops at blocks;
+it exits 0 exported, 3 waiting on a person, 130 interrupted, 1 otherwise. It trusts the
+controller's approval window only from an `up.lock` a live `up` holds. `review` now warns at a
+draft when dispatch would refuse the work order's budget: #714's quickstart needs
+`FACTORY_MAX_ACTIVE_MS=18000000`, and `FACTORY_APPROVAL_TTL_MS=86400000` so a bundle does not
+expire while its person is away. Known limitation: after a controller `SIGKILL` a thread can
+read stale-busy, and `run` then waits until its bound. Proof: `factory-config.test.ts`,
+`run-steps.test.ts` (including a source pin that nothing `run` reaches can approve), the `run`
+cases in `cli.test.ts`, `factory-up.test.ts` against stand-in apps, and
+`factory-up.integration.test.ts` with the real three under `test:sandbox` (about 15 s).
+Live replay of #714 through `up` and `run` (2026-09-30, work order `wo-90261db33dd81830`, pin `765e6e16`, Brian at both gates). `up` started all three apps, took the key from the main worktree's `.env` for the builder and drafter only, and reconciled. `run` stopped at both gates with exit 3 and approved nothing itself. The first draft asserted an empty body, which the issue left open; Brian rejected it with the decision his fix made (JSON `null`, because `normalizeServerResult` reads an empty body as malformed), and the redraft asserted `null`, proven against the unpatched pin. After approval the builder made a six-line change in 67 s; the visible suite (175 tests) and the independent check passed; approval re-verified and exported (about 2 min). The candidate passes 5 of 6 of the reference test b090ad42 shipped; the miss (naming the route for an unserializable output) is beyond the issue, as in sub-project 4. Rerunning `run --issue 714` answered "Already exported" with no second work order. Two defects the replay found were fixed before merge: one Ctrl-C through `pnpm factory up` let the tsx CLI's signal relay SIGKILL `up` mid-stop, orphaning the workers (the next `up` named them, as designed); the `factory` script now runs `node --import tsx`, and the real-apps lane starts through `pnpm factory up`. And the controller stalled 13-26 s during every verification, because the baseline capture re-verified the whole source bundle once per file; it now verifies once (longest block about 170 ms), and #878 makes the framework's base64 check one pass. Not exercised live: interrupting `run` mid-dispatch (the builder's turn took about a minute).
+
+Follow-ups, recorded in the plan and not done: fold the drafter into the builder app (a trust
+review of one process holding both policies); a restarting supervisor, after the framework
+marks orphaned `busy` threads idle at startup (finding 7); sweep orphaned sandbox containers at
+worker startup (finding 17); per-work-order budgets sized from the drafted target (finding 5),
+replacing the intake warning and the quickstart's variable; drain in-flight dispatches on
+stop; a config `url` for a remote worker `up` does not start; `run --retry` if people always
+retry; the same app-root check for `FACTORY_ARTIFACTS_DIR` and `FACTORY_EXPORT_DIR` (finding
+4); and `b4 dev`'s hard-coded watch ignore list (findings 4, 21), which still bites the manual
+runbook.
 
 ## 8. Order
 

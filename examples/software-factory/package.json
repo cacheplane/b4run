@@ -1,0 +1,8 @@
+{
+  "name": "@b4-example/software-factory",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "factory": "pnpm --silent --filter @b4-example/software-factory-controller factory"
+  }
+}

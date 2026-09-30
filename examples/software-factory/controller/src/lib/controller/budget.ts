@@ -31,3 +31,18 @@ export function startBudgetTicker(options: {
   timer.unref()
   return { stop: () => clearInterval(timer) }
 }
+
+/**
+ * The dispatch budget rule, in one place: an attempt started on less than twice the target's
+ * verifier deadline (a verification, and as long again for the turn) can run out
+ * mid-verification. Undefined when enough is left; otherwise what is left and the budget a new
+ * work order would need to have the same active time spent and still pass the rule.
+ */
+export function budgetShortfallFor(
+  row: Pick<WorkOrderRow, "maxActiveMs" | "activeMs">,
+  verifierDeadlineMs: number,
+): { readonly remainingMs: number; readonly neededMs: number } | undefined {
+  const remainingMs = row.maxActiveMs - row.activeMs
+  if (remainingMs >= 2 * verifierDeadlineMs) return undefined
+  return { remainingMs, neededMs: row.activeMs + 2 * verifierDeadlineMs }
+}

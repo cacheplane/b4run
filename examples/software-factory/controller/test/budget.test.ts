@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest"
-import { activeElapsedMs, startBudgetTicker } from "../src/lib/controller/budget.ts"
+import {
+  activeElapsedMs,
+  budgetShortfallFor,
+  startBudgetTicker,
+} from "../src/lib/controller/budget.ts"
 import type { WorkOrderRow } from "../src/lib/domain/work-order.ts"
 import { openRegistry } from "../src/lib/registry/db.ts"
 import { createWorkOrderStore } from "../src/lib/registry/work-orders.ts"
@@ -65,5 +69,15 @@ describe("budget", () => {
     await new Promise((resolve) => setTimeout(resolve, 30))
     ticker.stop()
     expect(fired).toEqual(["over"])
+  })
+})
+
+describe("budgetShortfallFor", () => {
+  it("is the dispatch rule: at least twice the verifier deadline left", () => {
+    expect(budgetShortfallFor({ maxActiveMs: 480_000, activeMs: 0 }, 240_000)).toBeUndefined()
+    expect(budgetShortfallFor({ maxActiveMs: 480_000, activeMs: 1 }, 240_000)).toEqual({
+      remainingMs: 479_999,
+      neededMs: 480_001,
+    })
   })
 })
