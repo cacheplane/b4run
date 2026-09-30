@@ -17,6 +17,7 @@ import {
   commandOf,
   dotenvCandidates,
   openaiKeyFor,
+  ownSubprocessEnv,
   preflight,
   type UpDeps,
   workerTokenFor,
@@ -96,6 +97,54 @@ describe("the model key", () => {
     expect(openaiKeyFor({}, paths)).toBeUndefined()
   })
 
+  it("reads a .env line as dotenv does: a comment tail, either quote, CRLF", () => {
+    const root = mkdtempSync(join(tmpdir(), "factory-up-"))
+    dir = root
+    const path = join(root, ".env")
+    const read = (text: string) => {
+      writeFileSync(path, text)
+      return openaiKeyFor({}, [path])?.key
+    }
+    expect(read(`OPENAI_API_KEY=${KEY} # the team's key\n`)).toBe(KEY)
+    expect(read(`OPENAI_API_KEY=${KEY}\t#tabbed comment\n`)).toBe(KEY)
+    expect(read(`OPENAI_API_KEY='${KEY}'\n`)).toBe(KEY)
+    expect(read(`OPENAI_API_KEY="${KEY}"  # quoted, then a comment\n`)).toBe(KEY)
+    expect(read(`A=1\r\nOPENAI_API_KEY=${KEY}\r\nB=2\r\n`)).toBe(KEY)
+    expect(read(`OPENAI_API_KEY="${KEY}"\r\n`)).toBe(KEY)
+    // A # with no space before it is part of the value, as dotenv reads it.
+    expect(read(`OPENAI_API_KEY=${KEY}#x\n`)).toBe(`${KEY}#x`)
+    expect(read("OPENAI_API_KEY= # nothing yet\n")).toBeUndefined()
+  })
+
+  it("refuses a .env value with whitespace or a stray quote, never echoing it", () => {
+    const root = mkdtempSync(join(tmpdir(), "factory-up-"))
+    dir = root
+    const path = join(root, ".env")
+    for (const line of [
+      `OPENAI_API_KEY=${KEY} trailing-word`,
+      `OPENAI_API_KEY="${KEY}`,
+      `OPENAI_API_KEY=${KEY}'`,
+      `OPENAI_API_KEY="${KEY}'`,
+      `OPENAI_API_KEY='${KEY}"`,
+      `OPENAI_API_KEY="sk-not-a-real "key""`,
+      `OPENAI_API_KEY="${KEY} inner space"`,
+    ]) {
+      writeFileSync(path, `${line}\n`)
+      let thrown: unknown
+      try {
+        openaiKeyFor({}, [path])
+      } catch (error) {
+        thrown = error
+      }
+      expect(thrown, line).toBeInstanceOf(Error)
+      const text = (thrown as Error).message
+      expect(text).toContain(path)
+      expect(text).toMatch(/whitespace or a stray quote/)
+      expect(text).not.toContain(KEY)
+      expect(text).not.toContain("sk-not-a-real")
+    }
+  })
+
   it("looks in this checkout, then the main worktree, never FACTORY_REPO_ROOT", () => {
     const candidates = dotenvCandidates()
     expect(candidates[0]).toMatch(/\.env$/)
@@ -144,20 +193,81 @@ describe("each app's environment", () => {
     })
     expect(byName.builder?.cwd).toMatch(/software-factory\/server$/)
   })
+
+  it("keeps every provider key and cloud or GitHub credential out of the controller's", () => {
+    const secretsLike = {
+      ANTHROPIC_API_KEY: "a",
+      ANTHROPIC_BASE_URL: "b",
+      SOME_VENDOR_API_KEY: "c",
+      OPENAI_ORG_ID: "d",
+      OPENAI_BASE_URL: "e",
+      AWS_SECRET_ACCESS_KEY: "f",
+      AWS_PROFILE: "g",
+      GH_TOKEN: "h",
+      GITHUB_TOKEN: "i",
+    }
+    const apps = appProcesses(
+      fresh(),
+      { token: "t".repeat(64), openaiApiKey: KEY },
+      { PATH: "/bin", FACTORY_MAX_ACTIVE_MS: "18000000", ...secretsLike },
+    )
+    const byName = Object.fromEntries(apps.map((a) => [a.name, a]))
+    for (const name of Object.keys(secretsLike))
+      expect(byName.controller?.env[name], name).toBeUndefined()
+    expect(byName.controller?.env.PATH).toBe("/bin")
+    expect(byName.controller?.env.FACTORY_MAX_ACTIVE_MS).toBe("18000000")
+    // A deny-list, by design (D7 as landed): the workers still inherit the operator's other variables.
+    expect(byName.builder?.env).toMatchObject(secretsLike)
+    expect(byName.drafter?.env).toMatchObject(secretsLike)
+  })
+})
+
+describe("up's own subprocesses", () => {
+  it("never receive the key or the token", () => {
+    const env = ownSubprocessEnv({
+      PATH: "/bin",
+      OPENAI_API_KEY: KEY,
+      FACTORY_WORKER_TOKEN: "t".repeat(64),
+    })
+    expect(env).toEqual({ PATH: "/bin" })
+  })
+
+  it("git, ps and docker are each run with that environment", () => {
+    const source = readFileSync(join(import.meta.dirname, "../src/lib/operator/up.ts"), "utf8")
+    const calls = [
+      ...source.matchAll(/\b(?:execFileSync|execFile|run|spawnSync|spawn)\(\s*"(git|ps|docker)"/g),
+    ]
+    expect(calls.map((c) => c[1]).sort()).toEqual(["git", "ps"])
+    for (const call of calls) {
+      // The whole call, to its matching parenthesis.
+      let depth = 0
+      let end = call.index
+      for (; end < source.length; end++) {
+        if (source[end] === "(") depth++
+        else if (source[end] === ")" && --depth === 0) break
+      }
+      expect(source.slice(call.index, end), call[0]).toMatch(
+        /env: (?:ownSubprocessEnv\(\)|gitEnv\b)/,
+      )
+    }
+  })
 })
 
 describe("preflight", () => {
   it("reports every problem at once, before anything starts", async () => {
     const config = fresh()
+    const printed: string[] = []
     const { problems, secrets } = await preflight(
       config,
       deps({
         env: { B4_PERMISSIONS_MODE: "interactive", FACTORY_STATE_DIR: "/elsewhere" },
         portFree: async (port) => port !== 47100,
         docker: { info: async () => undefined, imagePresent: async () => false },
+        out: (line) => printed.push(line),
       }),
     )
     expect(secrets).toBeUndefined()
+    expect(printed.join("\n")).not.toMatch(/[a-f0-9]{64}/)
     const text = problems.join("\n")
     expect(text).toContain("B4_PERMISSIONS_MODE is set")
     expect(text).toContain("FACTORY_STATE_DIR is /elsewhere")
@@ -188,23 +298,61 @@ describe("preflight", () => {
     expect(asked).toBe(false)
   })
 
-  it("passes a clean start and hands back the secrets", async () => {
-    const { problems, secrets } = await preflight(fresh(), deps())
+  it("passes a clean start and hands back the secrets, printing neither", async () => {
+    const printed: string[] = []
+    const { problems, secrets } = await preflight(
+      fresh(),
+      deps({ out: (line) => printed.push(line) }),
+    )
     expect(problems).toEqual([])
     expect(secrets?.openaiApiKey).toBe(KEY)
     expect(secrets?.token).toMatch(/^[a-f0-9]{64}$/)
+    const text = printed.join("\n")
+    expect(text).toContain("OPENAI_API_KEY: from the environment")
+    expect(text).not.toContain(KEY)
+    expect(text).not.toContain(secrets?.token ?? "\0")
+    expect(text).not.toMatch(/[a-f0-9]{64}/)
   })
 
-  it("reports an unreadable .env as a problem, naming the file and never a value", async () => {
+  it("never prints an operator's own token or a key read from a .env", async () => {
     const config = fresh()
     const dotenv = join(dir as string, ".env")
     writeFileSync(dotenv, `OPENAI_API_KEY=${KEY}\n`)
-    chmodSync(dotenv, 0o000)
-    const { problems, secrets } = await preflight(config, deps({ env: {}, dotenvPaths: [dotenv] }))
-    expect(secrets).toBeUndefined()
-    expect(problems.join("\n")).toContain(`could not read ${dotenv}`)
-    expect(problems.join("\n")).not.toContain(KEY)
+    const token = "operator-token-0123456789abcdef-0123"
+    const printed: string[] = []
+    const { secrets } = await preflight(
+      config,
+      deps({
+        env: { FACTORY_WORKER_TOKEN: token },
+        dotenvPaths: [dotenv],
+        out: (line) => printed.push(line),
+      }),
+    )
+    expect(secrets).toEqual({ token, openaiApiKey: KEY })
+    const text = printed.join("\n")
+    expect(text).toContain(`OPENAI_API_KEY: from ${dotenv}`)
+    expect(text).not.toContain(KEY)
+    expect(text).not.toContain(token)
   })
+
+  // root reads a mode-000 file anyway, so the refusal cannot be provoked there.
+  it.skipIf(process.getuid?.() === 0)(
+    "reports an unreadable .env as a problem, naming the file and never a value",
+    async () => {
+      const config = fresh()
+      const dotenv = join(dir as string, ".env")
+      writeFileSync(dotenv, `OPENAI_API_KEY=${KEY}\n`)
+      chmodSync(dotenv, 0o000)
+      const printed: string[] = []
+      const { problems, secrets } = await preflight(
+        config,
+        deps({ env: {}, dotenvPaths: [dotenv], out: (line) => printed.push(line) }),
+      )
+      expect(secrets).toBeUndefined()
+      expect(problems.join("\n")).toContain(`could not read ${dotenv}`)
+      expect([...problems, ...printed].join("\n")).not.toContain(KEY)
+    },
+  )
 })
 
 describe("the locks", () => {
@@ -308,6 +456,79 @@ describe("the locks", () => {
       expect(readFileSync(lock, "utf8")).toBe(text)
     }
     expect(existsSync(checkout)).toBe(false)
+  })
+
+  it("serializes takeovers: a live takeover mutex holds the stale lock where it is", () => {
+    const config = fresh()
+    const checkout = join(dir as string, ".up.lock")
+    const lock = join(config.stateDir, "up.lock")
+    const probe = acquireLock(config, settings, checkout)
+    if (!("refused" in probe)) probe.release()
+    writeFileSync(lock, stale(config, {}))
+    const me = commandOf(process.pid) ?? ""
+    const mutex = `${lock}.takeover`
+    const held = JSON.stringify({ pid: process.pid, command: me.slice(0, 40), startedAt: "x" })
+    writeFileSync(mutex, held)
+    expect(acquireLock(config, settings, checkout)).toMatchObject({
+      refused: expect.stringContaining("another up is taking it over"),
+    })
+    // Neither the stale lock nor the other up's mutex was touched.
+    expect(readFileSync(lock, "utf8")).toBe(stale(config, {}))
+    expect(readFileSync(mutex, "utf8")).toBe(held)
+    expect(existsSync(checkout)).toBe(false)
+  })
+
+  it("takes over a takeover mutex a crashed up left behind, then the stale lock", () => {
+    const config = fresh()
+    const checkout = join(dir as string, ".up.lock")
+    const lock = join(config.stateDir, "up.lock")
+    const probe = acquireLock(config, settings, checkout)
+    if (!("refused" in probe)) probe.release()
+    writeFileSync(lock, stale(config, {}))
+    writeFileSync(
+      `${lock}.takeover`,
+      JSON.stringify({ pid: 2 ** 22 + 3, command: "cli.ts up", startedAt: "x" }),
+    )
+    const taken = acquireLock(config, settings, checkout)
+    if ("refused" in taken) throw new Error(taken.refused)
+    expect(JSON.parse(readFileSync(lock, "utf8")).up.pid).toBe(process.pid)
+    // No mutex, temp or aside file is left behind.
+    expect(readdirSync(config.stateDir)).toEqual(["up.lock"])
+    taken.release()
+  })
+
+  it("refuses a takeover mutex of the wrong shape, leaving it and the lock in place", () => {
+    const config = fresh()
+    const checkout = join(dir as string, ".up.lock")
+    const lock = join(config.stateDir, "up.lock")
+    const probe = acquireLock(config, settings, checkout)
+    if (!("refused" in probe)) probe.release()
+    writeFileSync(lock, stale(config, {}))
+    writeFileSync(`${lock}.takeover`, "garbage")
+    expect(acquireLock(config, settings, checkout)).toMatchObject({
+      refused: expect.stringContaining(`${lock}.takeover is not a lock up wrote`),
+    })
+    expect(readFileSync(`${lock}.takeover`, "utf8")).toBe("garbage")
+    expect(readFileSync(lock, "utf8")).toBe(stale(config, {}))
+  })
+
+  it("never overwrites a lock that appears while it creates its own", () => {
+    const config = fresh()
+    const checkout = join(dir as string, ".up.lock")
+    const first = acquireLock(config, settings, checkout)
+    if ("refused" in first) throw new Error(first.refused)
+    // No temporary file is left beside a lock it created.
+    expect(readdirSync(config.stateDir)).toEqual(["up.lock"])
+    expect(readdirSync(dir as string).filter((n) => n.startsWith(".up.lock"))).toEqual([".up.lock"])
+    first.release()
+  })
+
+  it("releases the state lock when the checkout lock fails for another reason", () => {
+    const config = fresh()
+    const checkout = join(dir as string, "no-such-dir", ".up.lock")
+    expect(() => acquireLock(config, settings, checkout)).toThrow(/ENOENT/)
+    expect(existsSync(join(config.stateDir, "up.lock"))).toBe(false)
+    expect(readdirSync(config.stateDir)).toEqual([])
   })
 
   it("rewrites the lock whole when it records the children", () => {

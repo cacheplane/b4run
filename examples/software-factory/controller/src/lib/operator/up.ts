@@ -1,15 +1,13 @@
 import { execFileSync } from "node:child_process"
 import { randomBytes } from "node:crypto"
 import {
-  closeSync,
   existsSync,
+  linkSync,
   mkdirSync,
-  openSync,
   readFileSync,
   renameSync,
   rmSync,
   writeFileSync,
-  writeSync,
 } from "node:fs"
 import { connect, createServer } from "node:net"
 import { basename, dirname, join, resolve } from "node:path"
@@ -26,6 +24,16 @@ import {
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
 /** The prefix of up's own lines, padded like each app's (D10). */
 export const UP = `${"up".padEnd(10)} │`
+
+/** The environment of up's own subprocesses (git, ps, docker): neither secret, which none needs. */
+export function ownSubprocessEnv(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): Record<string, string | undefined> {
+  const own: Record<string, string | undefined> = { ...env }
+  delete own.OPENAI_API_KEY
+  delete own.FACTORY_WORKER_TOKEN
+  return own
+}
 
 export interface UpSecrets {
   /** Every child gets it; nothing prints, logs or writes it. */
@@ -67,12 +75,28 @@ export function openaiKeyFor(
     throw new Error(`could not read ${dotenvPath} (${(error as NodeJS.ErrnoException).code})`)
   }
   for (const line of text.split(/\r?\n/)) {
-    const match = /^\s*(?:export\s+)?OPENAI_API_KEY\s*=\s*(.*)$/.exec(line)
+    const match = /^\s*(?:export\s+)?OPENAI_API_KEY\s*=(.*)$/.exec(line)
     if (!match) continue
-    const value = (match[1] ?? "").trim().replace(/^(['"])(.*)\1$/, "$2")
+    const value = dotenvValue(match[1] ?? "", dotenvPath)
     return value === "" ? undefined : { key: value, source: dotenvPath }
   }
   return undefined
+}
+
+/**
+ * One `.env` value as dotenv reads it: wholly in matching single or double quotes (a comment may
+ * follow), or bare up to a ` #` comment. A value still holding whitespace or a quote is refused:
+ * it is not one key, and a key sent mangled fails only at the first model call. The message
+ * never carries the value.
+ */
+function dotenvValue(raw: string, path: string): string {
+  const quoted = /^\s*(['"])(.*?)\1\s*(?:#.*)?$/.exec(raw)
+  const value = quoted ? (quoted[2] ?? "") : raw.replace(/(?:^|\s)#.*$/, "").trim()
+  if (/[\s'"]/.test(value))
+    throw new Error(
+      `the OPENAI_API_KEY line of ${path} is not one value (it holds whitespace or a stray quote); fix that line`,
+    )
+  return value
 }
 
 /**
@@ -82,14 +106,14 @@ export function openaiKeyFor(
  */
 export function dotenvCandidates(): string[] {
   // Not GIT_DIR and friends: a stray export would answer for another repository.
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_")),
+  const gitEnv = Object.fromEntries(
+    Object.entries(ownSubprocessEnv()).filter(([name]) => !name.startsWith("GIT_")),
   )
   const git = (...args: string[]) =>
     execFileSync("git", ["-C", EXAMPLE_ROOT, ...args], {
       encoding: "utf8",
       timeout: 10_000,
-      env,
+      env: gitEnv,
       stdio: ["ignore", "pipe", "ignore"],
     }).trim()
   const candidates: string[] = []
@@ -139,6 +163,14 @@ export interface AppProcess {
 /** Inherited by every child except these: the key and token are set per app, HOST and PORT would move the bind. */
 const NOT_INHERITED = ["OPENAI_API_KEY", "FACTORY_WORKER_TOKEN", "HOST", "PORT"] as const
 
+/**
+ * Never in the controller's environment (D7 as landed): it calls no model and no cloud, so any
+ * provider key or cloud or GitHub credential in up's environment stays out of it. A deny-list by
+ * design: the workers still inherit the operator's other variables.
+ */
+const controllerMayNotSee = (name: string) =>
+  /_API_KEY$|^(?:OPENAI|ANTHROPIC|AWS)_|^(?:GH|GITHUB)_TOKEN$/i.test(name)
+
 export function appProcesses(
   config: ResolvedFactoryConfig,
   secrets: UpSecrets,
@@ -148,7 +180,7 @@ export function appProcesses(
   const base: Record<string, string | undefined> = { ...env }
   for (const name of NOT_INHERITED) delete base[name]
   const controllerEnv = {
-    ...base,
+    ...Object.fromEntries(Object.entries(base).filter(([name]) => !controllerMayNotSee(name))),
     FACTORY_WORKER_TOKEN: secrets.token,
     FACTORY_WORKER_URL: config.urls.builder,
     FACTORY_DRAFTER_URL: config.urls.drafter,
@@ -302,6 +334,8 @@ export function commandOf(pid: number): string | undefined {
     return execFileSync("ps", ["-ww", "-p", String(pid), "-o", "command="], {
       encoding: "utf8",
       timeout: 5_000,
+      env: ownSubprocessEnv(),
+      stdio: ["ignore", "pipe", "ignore"],
     }).trim()
   } catch {
     return undefined
@@ -358,72 +392,188 @@ export function heldLockController(path: string): LockRecord["controller"] | und
     : undefined
 }
 
-/** One lock file: taken by `wx`, a stale one taken over by rename (D12). */
+let written = 0
+/** A temporary sibling of `path` no other writer names. */
+const tempFor = (path: string) => `${path}.new-${process.pid}-${written++}`
+
+/**
+ * Creates `path` holding `text` whole, or fails with EEXIST: the text goes to a temporary file
+ * first and a hard link makes it `path`, so no reader ever sees a half-written lock, and a lock
+ * that appeared meanwhile is never overwritten (a link, unlike a rename, refuses).
+ */
+function createWhole(path: string, text: string): void {
+  const temp = tempFor(path)
+  writeFileSync(temp, text, { flag: "wx" })
+  try {
+    linkSync(temp, path)
+  } finally {
+    rmSync(temp, { force: true })
+  }
+}
+
+/** Replaces `path` with `text` whole: a temporary file renamed over it. */
+function replaceWhole(path: string, text: string): void {
+  const temp = tempFor(path)
+  try {
+    writeFileSync(temp, text, { flag: "wx" })
+    renameSync(temp, path)
+  } finally {
+    rmSync(temp, { force: true })
+  }
+}
+
+/** Blocks this thread for `ms`: the locks are taken before anything else runs. */
+const pause = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+
+const notOurs = (path: string) => ({
+  refused: `${path} is not a lock up wrote; remove it if no factory up is running`,
+})
+
+type Judged =
+  | { readonly kind: "gone" }
+  | { readonly kind: "refused"; readonly refused: string }
+  | { readonly kind: "stale" }
+
+/** What the lock file at `path` says: gone, a reason to refuse (held, orphans, not ours), or stale. */
+function judgeLock(path: string): Judged {
+  let text: string
+  try {
+    text = readFileSync(path, "utf8")
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { kind: "gone" }
+    throw error
+  }
+  let held: LockRecord
+  try {
+    const parsed: unknown = JSON.parse(text)
+    if (!isLockRecord(parsed)) return { kind: "refused", ...notOurs(path) }
+    held = parsed
+  } catch {
+    return { kind: "refused", ...notOurs(path) }
+  }
+  if (holds(held.up))
+    return {
+      kind: "refused",
+      refused: `factory up is already running (pid ${held.up.pid}, since ${held.up.startedAt}, lock ${path}); stop it first`,
+    }
+  const orphans = Object.entries(held.children).filter(
+    (entry): entry is [string, LockHolder] => entry[1] !== undefined && holds(entry[1]),
+  )
+  if (orphans.length > 0)
+    return {
+      kind: "refused",
+      refused: `a previous up (pid ${held.up.pid}) is gone but its ${orphans.map(([n, h]) => `${n} pid ${h.pid}`).join(", ")} still run. Check each with ps -ww -p ${orphans.map(([, h]) => h.pid).join(",")} -o command= and stop the ones that are b4 start, then run up again`,
+    }
+  return { kind: "stale" }
+}
+
+/**
+ * The takeover mutex `${lock}.takeover`, which serializes takeovers of one stale lock (of three
+ * ups racing, two could otherwise both judge it stale and each replace the other's new lock).
+ * Created like the lock; one a crashed up left behind is judged by its pid and command like the
+ * lock, and taken over by rename. "busy": another up holds it, or it moved under us; try again.
+ */
+function takeMutex(
+  path: string,
+): { readonly release: () => void } | "busy" | { readonly refused: string } {
+  const mine = `${JSON.stringify({ pid: process.pid, command: UP_COMMAND, startedAt: new Date().toISOString() })}\n`
+  try {
+    createWhole(path, mine)
+    return {
+      release: () => {
+        // Only our own: one we did not write is some other up's to remove.
+        try {
+          if (readFileSync(path, "utf8") === mine) rmSync(path, { force: true })
+        } catch {
+          // Already gone.
+        }
+      },
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
+  }
+  let text: string
+  try {
+    text = readFileSync(path, "utf8")
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "busy"
+    throw error
+  }
+  let holder: unknown
+  try {
+    holder = JSON.parse(text)
+  } catch {
+    return notOurs(path)
+  }
+  if (!isHolder(holder)) return notOurs(path)
+  if (holds(holder)) return "busy"
+  const aside = `${path}.stale-${process.pid}-${written++}`
+  try {
+    renameSync(path, aside)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "busy"
+    throw error
+  }
+  // Renamed a live mutex some other up created after our read: put it back (a link, so it
+  // never overwrites a third one), and wait our turn.
+  if (readFileSync(aside, "utf8") !== text)
+    try {
+      linkSync(aside, path)
+    } catch {
+      // A third up already holds a fresh one; the renamed one's owner re-judges under it.
+    }
+  rmSync(aside, { force: true })
+  return "busy"
+}
+
+/** How long a live takeover by another up is waited for before refusing. */
+const TAKEOVER_WAIT_MS = 1_000
+
+/**
+ * One lock file (D12, amended after the Task 7 review): created whole and exclusively; a stale
+ * one is taken over only under its takeover mutex, re-judged there, and replaced by a rename of
+ * a whole record over it, never by remove-then-create.
+ */
 function acquireOne(
   path: string,
   record: (children: LockRecord["children"]) => string,
 ): UpLock | { readonly refused: string } {
-  for (let attempt = 0; attempt < 3; attempt++) {
+  const ours = (): UpLock => ({
+    recordChildren: (children) => replaceWhole(path, record(children)),
+    release: () => rmSync(path, { force: true }),
+  })
+  const deadline = Date.now() + TAKEOVER_WAIT_MS
+  for (;;) {
     try {
-      const fd = openSync(path, "wx")
-      writeSync(fd, record({}))
-      closeSync(fd)
-      return {
-        recordChildren: (children) => {
-          // Whole or not at all: a reader must never judge a half-written lock.
-          const next = `${path}.next-${process.pid}`
-          writeFileSync(next, record(children))
-          renameSync(next, path)
-        },
-        release: () => rmSync(path, { force: true }),
-      }
+      createWhole(path, record({}))
+      return ours()
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
     }
-    let text: string
-    let held: LockRecord
-    const notOurs = {
-      refused: `${path} is not a lock up wrote (or another up is writing it this instant); remove it if no factory up is running`,
+    const judged = judgeLock(path)
+    if (judged.kind === "refused") return judged
+    if (judged.kind === "stale") {
+      const mutex = takeMutex(`${path}.takeover`)
+      if (typeof mutex === "object" && "refused" in mutex) return mutex
+      if (mutex !== "busy")
+        try {
+          // Under the mutex, judge again: another up may have taken it over and released since.
+          const again = judgeLock(path)
+          if (again.kind === "refused") return again
+          if (again.kind === "stale") {
+            replaceWhole(path, record({}))
+            return ours()
+          }
+        } finally {
+          mutex.release()
+        }
     }
-    try {
-      text = readFileSync(path, "utf8")
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue
-      throw error
-    }
-    try {
-      const parsed: unknown = JSON.parse(text)
-      if (!isLockRecord(parsed)) return notOurs
-      held = parsed
-    } catch {
-      return notOurs
-    }
-    if (holds(held.up))
+    if (Date.now() > deadline)
       return {
-        refused: `factory up is already running (pid ${held.up.pid}, since ${held.up.startedAt}, lock ${path}); stop it first`,
+        refused: `${path} is stale but another up is taking it over (${path}.takeover); run up again in a moment, or remove that file if no factory up is running`,
       }
-    const orphans = Object.entries(held.children).filter(
-      (entry): entry is [string, LockHolder] => entry[1] !== undefined && holds(entry[1]),
-    )
-    if (orphans.length > 0)
-      return {
-        refused: `a previous up (pid ${held.up.pid}) is gone but its ${orphans.map(([n, h]) => `${n} pid ${h.pid}`).join(", ")} still run. Check each with ps -ww -p ${orphans.map(([, h]) => h.pid).join(",")} -o command= and stop the ones that are b4 start, then run up again`,
-      }
-    // Take the stale lock over by rename, never remove-then-create: of two ups racing here one
-    // rename wins and the other finds no file (ENOENT) and retries wx.
-    const aside = `${path}.stale-${process.pid}`
-    try {
-      renameSync(path, aside)
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue
-      throw error
-    }
-    // The file renamed must be the stale one judged above; if another up replaced it meanwhile,
-    // put its live lock back and let the next attempt find it held.
-    if (readFileSync(aside, "utf8") !== text) renameSync(aside, path)
-    else rmSync(aside, { force: true })
+    pause(25)
   }
-  return { refused: `could not take ${path}` }
 }
 
 /**
@@ -441,10 +591,19 @@ export function acquireLock(
   const record = (children: LockRecord["children"]): string =>
     `${JSON.stringify({ up: { pid: process.pid, command: UP_COMMAND, startedAt }, ports: config.ports, controller, children } satisfies LockRecord)}\n`
   const taken: UpLock[] = []
+  const releaseTaken = () => {
+    for (const held of taken) held.release()
+  }
   for (const path of [join(config.stateDir, "up.lock"), checkoutLock]) {
-    const lock = acquireOne(path, record)
+    let lock: UpLock | { readonly refused: string }
+    try {
+      lock = acquireOne(path, record)
+    } catch (error) {
+      releaseTaken()
+      throw error
+    }
     if ("refused" in lock) {
-      for (const held of taken) held.release()
+      releaseTaken()
       return lock
     }
     taken.push(lock)
@@ -453,9 +612,7 @@ export function acquireLock(
     recordChildren: (children) => {
       for (const lock of taken) lock.recordChildren(children)
     },
-    release: () => {
-      for (const lock of taken) lock.release()
-    },
+    release: releaseTaken,
   }
 }
 
