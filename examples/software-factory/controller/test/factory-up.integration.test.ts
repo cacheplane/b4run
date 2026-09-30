@@ -10,6 +10,8 @@ const run = promisify(execFile)
 const tsxBin = join(import.meta.dirname, "../node_modules/tsx/dist/cli.mjs")
 const cliEntry = join(import.meta.dirname, "../src/cli.ts")
 const packageRoot = join(import.meta.dirname, "..")
+/** Where a person types `pnpm factory up` (the example's own script, D18). */
+const exampleRoot = join(packageRoot, "..")
 const KEY = "sk-not-a-real-key-for-tests"
 /** A known token, so the lane can prove it never leaves the three processes' environments. */
 const TOKEN = "7".repeat(64)
@@ -101,11 +103,14 @@ describe("factory up with the real controller, builder and drafter", () => {
       "B4_PERMISSIONS_MODE",
     ])
       delete env[name]
-    // Its own process group, as a terminal's foreground group would be. The apps are detached
-    // from it, so the SIGINT below reaches tsx and up only: up stops the apps itself.
-    const started = spawn(process.execPath, [tsxBin, cliEntry, "up"], {
+    // Exactly as a person starts it: `pnpm factory up` from the example, so the outer pnpm, the
+    // inner `pnpm --silent --filter` and the controller's `factory` script all stand between the
+    // terminal and up, and relay the Ctrl-C below as they do in a terminal. Its own process
+    // group, as a terminal's foreground group would be. The apps are detached from it, so the
+    // SIGINT below reaches that chain and up only: up stops the apps itself.
+    const started = spawn("pnpm", ["factory", "up"], {
       env,
-      cwd: packageRoot,
+      cwd: exampleRoot,
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
     })
@@ -185,6 +190,7 @@ describe("factory up with the real controller, builder and drafter", () => {
     for (const port of [controller, builder, drafter])
       await expect(fetch(`http://127.0.0.1:${port}/healthz`)).rejects.toThrow()
     expect(existsSync(join(state, "up.lock"))).toBe(false)
+    expect(existsSync(join(exampleRoot, ".up.lock"))).toBe(false)
     for (const pid of children) expect(alive(pid), `child ${pid} survived`).toBe(false)
     const { stdout: ps } = await run("ps", ["-Ao", "pid=,command="])
     const survivors = ps

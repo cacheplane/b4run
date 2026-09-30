@@ -1153,8 +1153,11 @@ export function lineWriter(stream: NodeJS.WritableStream): (line: string) => voi
 
 /**
  * `stop` on the first SIGINT, SIGTERM or SIGHUP (a closed terminal: the detached children would
- * otherwise outlive it); `force` on another more than a second later. One Ctrl-C can arrive more
- * than once through pnpm and tsx (Trap 8), and must not kill.
+ * otherwise outlive it); `force` on another more than a second later. One Ctrl-C under
+ * `pnpm factory up` arrives three times within milliseconds (Trap 8): the terminal's SIGINT, the
+ * inner pnpm's relayed SIGINT, and the SIGTERM that pnpm sends when the outer pnpm relays its
+ * SIGINT too. None of those may kill. The `factory` script runs up as `node --import tsx`, never
+ * under the tsx CLI, whose own relay SIGKILLs a child busy for more than about 30 ms.
  */
 export function stopOnSignals(
   source: { on(event: "SIGINT" | "SIGTERM" | "SIGHUP", listener: () => void): unknown },

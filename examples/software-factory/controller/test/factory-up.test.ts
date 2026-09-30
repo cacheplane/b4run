@@ -723,7 +723,7 @@ describe("up's signals", () => {
       source.emit(first)
       expect(stop.aborted).toBe(true)
       expect(force.aborted).toBe(false)
-      // One Ctrl-C relayed twice through pnpm and tsx arrives within the second.
+      // One Ctrl-C relayed through the two pnpm layers (a SIGINT, a SIGTERM) arrives within the second.
       now += 400
       source.emit("SIGINT")
       expect(force.aborted).toBe(false)
