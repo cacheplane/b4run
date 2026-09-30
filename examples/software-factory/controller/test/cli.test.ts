@@ -886,6 +886,74 @@ esac
     const code = await new Promise<number | null>((resolve) => child.on("close", resolve))
     return { code, stdout, stderr }
   }
+  /**
+   * `run` at a terminal: `FACTORY_CLI_INTERACTIVE=1` stands in for a TTY. Each time the review
+   * prompt appears on stderr, `answer(n)` (n from 0) is typed, or stdin is closed when it
+   * returns undefined. One answer per prompt, written only after it (Trap 11).
+   */
+  async function interactiveRun(
+    env: NodeJS.ProcessEnv,
+    args: readonly string[],
+    answer: (prompt: number) => string | undefined,
+  ): Promise<{ code: number | null; stdout: string; stderr: string }> {
+    const child = spawnChild(process.execPath, [tsxBin, cliEntry, "run", ...args], {
+      env: { ...env, FACTORY_CLI_INTERACTIVE: "1" },
+      cwd: packageRoot,
+      stdio: ["pipe", "pipe", "pipe"],
+    })
+    let stdout = ""
+    let stderr = ""
+    let prompts = 0
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString()
+    })
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString()
+      while (stderr.split("first eight hex digits").length - 1 > prompts) {
+        const typed = answer(prompts)
+        prompts += 1
+        if (typed === undefined) child.stdin.end()
+        else child.stdin.write(`${typed}\n`)
+      }
+    })
+    const code = await new Promise<number | null>((resolve) => child.on("close", resolve))
+    return { code, stdout, stderr }
+  }
+
+  /** Exit code and output of a spawned command, whatever the code. */
+  async function settled(promise: Promise<{ stdout: string; stderr: string }>) {
+    return promise.then(
+      ({ stdout, stderr }) => ({ code: 0, stdout, stderr }),
+      (e: { code?: number; stdout?: string; stderr?: string }) => ({
+        code: e.code ?? -1,
+        stdout: e.stdout ?? "",
+        stderr: e.stderr ?? "",
+      }),
+    )
+  }
+
+  const journal = (stateDir: string, id: string) => {
+    const reader = openRegistryReader(join(stateDir, "registry.sqlite"))
+    try {
+      return reader.events(id)
+    } finally {
+      reader.close()
+    }
+  }
+  const types = (stateDir: string, id: string) => journal(stateDir, id).map((e) => e.type)
+  /** Transitions are journalled as `transition` with the event in the payload. */
+  const transitions = (stateDir: string, id: string, event: string) =>
+    journal(stateDir, id).filter((e) => e.type === "transition" && e.payload.event === event)
+  /** Every work order, or none when the registry does not exist yet. */
+  const rows = (stateDir: string) => {
+    if (!existsSync(join(stateDir, "registry.sqlite"))) return []
+    const reader = openRegistryReader(join(stateDir, "registry.sqlite"))
+    try {
+      return reader.list()
+    } finally {
+      reader.close()
+    }
+  }
 
   it("reviews an intake: shows the draft and its proof, and approves the digest of what it showed", async () => {
     const { cli, spawn, env, stateDir } = await boot(
@@ -1443,4 +1511,246 @@ esac
     )
     expect(handoff.target).toMatchObject({ image: ensured.image.localId, tag: ensured.tag })
   }, 60_000)
+
+  it("run stops at the draft for a person: it shows what review shows, approves nothing, and names the commands", async () => {
+    const { env, spawn, stateDir } = await boot(
+      {},
+      { verifier: createFakeVerifier({ independent: "fail" }) },
+    )
+    if (!served) throw new Error("no controller")
+    served.workspace.queue(FIRST_DRAFTER_THREAD, [GOOD_DRAFT])
+    const gh = stubGh({ title: "spawnProcess leaks", body: "B\n", url: "https://github.com/x/778" })
+    const runEnv = { ...env, FACTORY_GH: gh, FACTORY_NO_FETCH: "1" }
+    const args = ["run", "--issue", "778", "--repo", "cacheplane/b4run", "--pin", served.pin]
+    const stopped = await settled(
+      run(process.execPath, [tsxBin, cliEntry, ...args, "--allow-missing-evidence"], {
+        env: runEnv,
+        cwd: packageRoot,
+      }),
+    )
+    expect(stopped.code).toBe(3)
+    const out = JSON.parse(stopped.stdout)
+    expect(out).toMatchObject({ ok: false, state: "awaiting_intake_approval", gate: "intake" })
+    const id = out.row.id as string
+    expect(out.next).toContain(`pnpm factory review ${id}`)
+    // The NEXT commands run prints are digest-free (the row in the JSON carries the digest, as
+    // `show` does): approving means a person running a review.
+    expect(JSON.stringify(out.next)).not.toMatch(/[a-f0-9]{64}/)
+    expect(out.howToApprove).not.toMatch(/[a-f0-9]{64}/)
+    // The display is review's own, and so is the digest it names.
+    const shown = await failing(spawn("review", id, "--allow-missing-evidence").promise)
+    for (const section of ["==> issue.md", "==> spec.md", "==> task.json", "Oracle proof"])
+      expect(stopped.stderr).toContain(section)
+    expect(stopped.stderr).toContain(`Task digest of the 5 files above: ${out.row.taskDigest}`)
+    expect(shown.stderr).toContain(`Task digest of the 5 files above: ${out.row.taskDigest}`)
+    expect(await pollState(stateDir, id, () => true)).toBe("awaiting_intake_approval")
+    expect(types(stateDir, id)).not.toContain("intake_approved")
+
+    // Run again: it resumes the same work order (no second create), and stops again.
+    const again = await settled(
+      run(process.execPath, [tsxBin, cliEntry, ...args, "--allow-missing-evidence"], {
+        env: runEnv,
+        cwd: packageRoot,
+      }),
+    )
+    expect(again.code).toBe(3)
+    expect(again.stderr).toContain(`resuming ${id}`)
+    expect(rows(stateDir)).toHaveLength(1)
+
+    // A wrong prefix at a terminal sends nothing, and says it is still waiting on a person.
+    const digest = out.row.taskDigest as string
+    const wrong = await interactiveRun(runEnv, [id, "--allow-missing-evidence"], () =>
+      digest.startsWith("0") ? "11111111" : "00000000",
+    )
+    expect(wrong.code).toBe(3)
+    expect(JSON.parse(wrong.stdout).message).toContain("Nothing was approved")
+    expect(types(stateDir, id)).not.toContain("intake_approved")
+    expect(await pollState(stateDir, id, () => true)).toBe("awaiting_intake_approval")
+  }, 120_000)
+
+  it("run refuses every way of approving by argument", async () => {
+    const { spawn, stateDir } = await boot()
+    for (const flags of [
+      ["--approve"],
+      ["--digest", "a".repeat(64)],
+      ["--reject"],
+      ["--note", "x"],
+      ["--revision", "1"],
+      ["--bundle", "a".repeat(64)],
+    ]) {
+      const refused = await failing(spawn("run", "--task", "cli-flags", ...flags).promise)
+      expect(refused.stderr).toContain("run never approves")
+    }
+    for (const flag of ["--yes", "--auto-approve"]) {
+      const unknown = await failing(spawn("run", "--task", "cli-flags", flag).promise)
+      expect(unknown.stderr).toMatch(/Unknown option/)
+    }
+    // Refused before anything was created.
+    expect(rows(stateDir)).toEqual([])
+  }, 60_000)
+
+  it("run takes a catalog task to its bundle, and exports only on the person's typed prefix", async () => {
+    const { env, stateDir } = await boot()
+    // The candidate the export review test uses: one changed line.
+    const target = loadTask("cli-flags").target
+    const { stdout: pinned } = await run("git", [
+      "-C",
+      packageRoot,
+      "show",
+      `${target.pin}:${target.root}/src/cli.ts`,
+    ])
+    served?.workspace.set(FIRST_THREAD, {
+      "src/cli.ts": pinned.replace(
+        "await program.parseAsync(process.argv)",
+        'await program.parseAsync(process.argv, { from: "node" })',
+      ),
+      "test/cli.test.ts": "spec\n",
+      "TASK.md": "task\n",
+    })
+    const bundle = () => rows(stateDir)[0]?.bundleDigest ?? ""
+    const done = await interactiveRun(
+      env,
+      ["--task", "cli-flags", "--allow-missing-evidence"],
+      (prompt) => (prompt === 0 ? bundle().slice(0, 8) : undefined),
+    )
+    expect(done.code).toBe(0)
+    expect(JSON.parse(done.stdout)).toMatchObject({ ok: true, state: "exported" })
+    expect(done.stderr).toContain("first eight hex digits")
+    const id = rows(stateDir)[0]?.id as string
+    expect(types(stateDir, id)).toContain("approve_started")
+
+    // Done is done: running it again creates nothing and answers from the registry.
+    const again = await settled(
+      run(process.execPath, [tsxBin, cliEntry, "run", "--task", "cli-flags"], {
+        env,
+        cwd: packageRoot,
+      }),
+    )
+    expect(again.code).toBe(0)
+    expect(JSON.parse(again.stdout)).toMatchObject({ ok: true, state: "exported" })
+    expect(rows(stateDir)).toHaveLength(1)
+    // --new starts another.
+    await settled(
+      run(process.execPath, [tsxBin, cliEntry, "run", "--task", "cli-flags", "--new"], {
+        env,
+        cwd: packageRoot,
+      }),
+    )
+    expect(rows(stateDir)).toHaveLength(2)
+  }, 120_000)
+
+  it("run stops at an expired bundle with the deny and cancel commands, and never asks again (D24)", async () => {
+    // A 1 ms window: the bundle has expired by the time anyone could type.
+    const { env, stateDir } = await boot({}, {}, { FACTORY_APPROVAL_TTL_MS: "1" })
+    const target = loadTask("cli-flags").target
+    const { stdout: pinned } = await run("git", [
+      "-C",
+      packageRoot,
+      "show",
+      `${target.pin}:${target.root}/src/cli.ts`,
+    ])
+    served?.workspace.set(FIRST_THREAD, {
+      "src/cli.ts": pinned.replace(
+        "await program.parseAsync(process.argv)",
+        'await program.parseAsync(process.argv, { from: "node" })',
+      ),
+      "test/cli.test.ts": "spec\n",
+      "TASK.md": "task\n",
+    })
+    let prompts = 0
+    const expired = await interactiveRun(
+      env,
+      ["--task", "cli-flags", "--allow-missing-evidence"],
+      () => {
+        prompts += 1
+        return (rows(stateDir)[0]?.bundleDigest ?? "").slice(0, 8)
+      },
+    )
+    expect(prompts).toBe(1)
+    expect(expired.code).toBe(1)
+    expect(expired.stderr).toContain("the controller's approval window is unknown")
+    const out = JSON.parse(expired.stdout)
+    expect(out.message).toContain("has expired")
+    expect(out.next).toEqual(expect.arrayContaining([`pnpm factory cancel ${out.row.id}`]))
+    expect(out.row.state).toBe("awaiting_approval")
+  }, 120_000)
+
+  it("run never prompts for a bundle the window `up` recorded says has expired (D24)", async () => {
+    const { env, stateDir } = await boot()
+    const target = loadTask("cli-flags").target
+    const { stdout: pinned } = await run("git", [
+      "-C",
+      packageRoot,
+      "show",
+      `${target.pin}:${target.root}/src/cli.ts`,
+    ])
+    served?.workspace.set(FIRST_THREAD, {
+      "src/cli.ts": pinned.replace(
+        "await program.parseAsync(process.argv)",
+        'await program.parseAsync(process.argv, { from: "node" })',
+      ),
+      "test/cli.test.ts": "spec\n",
+      "TASK.md": "task\n",
+    })
+    // A lock as `up` writes it, naming a 1 ms window: expired before run reaches the gate.
+    mkdirSync(stateDir, { recursive: true })
+    writeFileSync(
+      join(stateDir, "up.lock"),
+      JSON.stringify({ pid: 1, controller: { approvalTtlMs: 1 } }),
+    )
+    let prompts = 0
+    const expired = await interactiveRun(
+      env,
+      ["--task", "cli-flags", "--allow-missing-evidence"],
+      () => {
+        prompts += 1
+        return undefined
+      },
+    )
+    expect(prompts).toBe(0)
+    expect(expired.code).toBe(1)
+    const out = JSON.parse(expired.stdout)
+    expect(out.message).toContain("has expired")
+    expect(out.next).toEqual(expect.arrayContaining([`pnpm factory cancel ${out.row.id}`]))
+    expect(types(stateDir, out.row.id)).not.toContain("approve_started")
+  }, 120_000)
+
+  it("run, interrupted, leaves the work going, and resumes following the same work order", async () => {
+    const { env, stateDir } = await boot({}, { verifier: createFakeVerifier({ delayMs: 4_000 }) })
+    const child = spawnChild(process.execPath, [tsxBin, cliEntry, "run", "--task", "cli-flags"], {
+      env,
+      cwd: packageRoot,
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+    let stderr = ""
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString()
+    })
+    const id = await (async () => {
+      for (let i = 0; i < 400; i++) {
+        const row = rows(stateDir)[0]
+        if (row?.state === "verifying") return row.id
+        await new Promise((r) => setTimeout(r, 25))
+      }
+      throw new Error("never reached verifying")
+    })()
+    child.kill("SIGINT")
+    const code = await new Promise<number | null>((resolve) => child.on("close", resolve))
+    expect(code).toBe(130)
+    expect(stderr).toContain(`pnpm factory run ${id}`)
+    expect(stderr).toContain(`pnpm factory cancel ${id}`)
+    // The controller finishes what run was following; a second run finds it and stops at the gate.
+    const resumed = await settled(
+      run(process.execPath, [tsxBin, cliEntry, "run", "--task", "cli-flags"], {
+        env,
+        cwd: packageRoot,
+      }),
+    )
+    expect(resumed.stderr).toContain(`resuming ${id}`)
+    expect(rows(stateDir)).toHaveLength(1)
+    // Where it settles is the stand-ins' business; what matters is that run followed the
+    // dispatch it did not send, and never sent a second.
+    expect(transitions(stateDir, id, "dispatch_committed")).toHaveLength(1)
+    expect([1, 3]).toContain(resumed.code)
+  }, 120_000)
 })

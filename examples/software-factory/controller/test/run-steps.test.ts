@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { STATES, type WorkOrderState } from "../src/lib/domain/states.ts"
 import type { WorkOrderRow } from "../src/lib/domain/work-order.ts"
@@ -168,5 +170,54 @@ describe("chooseWorkOrder", () => {
   it("creates when there is nothing, or only ended work orders", () => {
     expect(chooseWorkOrder([], false)).toEqual({ kind: "create" })
     expect(chooseWorkOrder([row("wo-a", "cancelled", "1")], false)).toEqual({ kind: "create" })
+  })
+})
+
+describe("run's only way to an approval", () => {
+  const cli = readFileSync(join(import.meta.dirname, "../src/cli.ts"), "utf8")
+  /** The source of the top-level function `name`, up to the next top-level declaration. */
+  const body = (name: string) => {
+    const found = [`\nasync function ${name}(`, `\nfunction ${name}(`]
+      .map((head) => cli.indexOf(head))
+      .find((at) => at !== -1)
+    const start = found ?? -1
+    expect(start, name).toBeGreaterThan(0)
+    const next = cli
+      .slice(start + 1)
+      .search(/\n(async function|function|const|interface|type|main)\b/)
+    return cli.slice(start, next === -1 ? undefined : start + 1 + next)
+  }
+
+  it("is reviewOutcome with no digest, no approval flag, no key and no note", () => {
+    const run = body("runCommand")
+    // The one call to the review, with every approving input spelt out as absent.
+    expect(run.match(/reviewOutcome\(/g)).toHaveLength(1)
+    expect(run).toMatch(
+      /reviewOutcome\(workOrder, \{\s*approve: false,\s*reject: false,\s*digest: undefined,\s*note: undefined,\s*key: undefined,\s*allowMissingEvidence: values\["allow-missing-evidence"\],\s*\}\)/,
+    )
+    // Never the commands that approve or reject underneath review, and never the flags or the
+    // test seam that would make a pipe answer the prompt.
+    for (const forbidden of [
+      /\bapprove(Intake|Export)\b/,
+      /\.(approve|deny|rejectIntake)\b/,
+      /\brejectDraft\b/,
+      /--approve|--digest/,
+      /\bvalues\.(approve|reject|digest|key|note|revision|bundle)\b/,
+      /\bapprove: true\b/,
+      /FACTORY_CLI_INTERACTIVE/,
+    ])
+      expect(run, String(forbidden)).not.toMatch(forbidden)
+  })
+
+  it("refuses every approving option by name, and main hands run nothing else to approve with", () => {
+    expect(cli).toMatch(
+      /const RUN_REFUSES = \["approve", "reject", "digest", "note", "revision", "bundle"\] as const/,
+    )
+    expect(cli).toMatch(/case "run":\s*return await runCommand\(id, values\)/)
+    // Neither the standalone approve commands nor review's own dispatch are reachable from run.
+    for (const helper of ["runWorkOrder", "followJournal", "requireController", "listRows"])
+      expect(body(helper), helper).not.toMatch(
+        /\bapprove(Intake|Export)\b|\.(approve|deny|rejectIntake)\b|\brejectDraft\b|\breviewOutcome\b/,
+      )
   })
 })
