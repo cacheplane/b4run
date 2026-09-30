@@ -65,7 +65,7 @@
       "sha256": "29c5d3cb5f9981a5f15bbbbd14ca816ecc2a1f40a26e56cfdaa702ae6b4e35cc"
     },
     "scripts/release/candidate.mjs": {
-      "sha256": "81c1c662cdbe68efe5f65d767af8d4df1ae2998f3ca4a2f6010511158c3df737"
+      "sha256": "143a3e535fa07f8da74a66ae624661422add8c9974dc0b46603762d4b86ed815"
     },
     "scripts/release/cli.mjs": {
       "sha256": "cd335a30886413e9c296188efc501a9344f1dc6f691526d2d60d15014f77c34c"
@@ -80,7 +80,7 @@
       "sha256": "01fed2681f86b452ec5f2323190e0cbfdce2ce265c62c185ca802464f3e8a2fb"
     },
     "scripts/release/evidence.mjs": {
-      "sha256": "d75eca0a21c2ecef2b0041f4aa3a4c3b0052c329820f8a96b1be9845a379405d"
+      "sha256": "99f6760c1b9fd47c2b7105140361d8e45c193a9613333717754b014a3d651ee5"
     },
     "scripts/release/fixture-io.mjs": {
       "sha256": "427419a41951adb53720470d80f1defca030f8eb9289dae50c704f332e5f9ac0"
@@ -113,10 +113,10 @@
       "sha256": "074031a94352d07174d61ef08908f64db1b0f18c0ea69c5b11f2e6e31cc6d607"
     },
     "scripts/release/observation-schema.mjs": {
-      "sha256": "fc3847533cbf01b8fa2420f484680a7576b8b2b4edf4d6f41f56df925f4914c3"
+      "sha256": "af7d96c07b54fed86de038f7fb51d910577227910f819bce64253ca752f24efb"
     },
     "scripts/release/observe.mjs": {
-      "sha256": "285f86c0b5f3a067b2d357472c7291cf21a9929acf2e01e20ea42e783d05d51a"
+      "sha256": "45e7646dfa47b4077b8f224f77fc4c45bb97d85938f9d269618be0e4ecb12a3e"
     },
     "scripts/release/planner.mjs": {
       "sha256": "2e09281ff952da69e985de7802307b849b76525e838e4cab49516a3d05793433"
