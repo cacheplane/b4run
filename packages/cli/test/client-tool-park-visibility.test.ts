@@ -243,15 +243,32 @@ describe("approval surfaces never show a client tool park", () => {
 })
 
 describe("the AG-UI path never answers a client park from a route without client tools", () => {
-  // Neither fixture opts a route in to client tools: a pending client park is
-  // then refused with 409 client_tool_pending — never run past, never a
-  // `resume_required` that would invite a partial, permission-only resume.
-  // (Opted-in matching is covered end to end in agui-client-tools.test.ts.)
-  test("client park only: refused with 409 client_tool_pending", async () => {
+  // Neither fixture opts a route in to client tools. A trailing tool message
+  // is refused with 409 client_tool_pending: this route never answers a
+  // client call. A new user message abandons the parked calls — which needs
+  // the client tool store, absent here, so it fails closed with a 503. A
+  // permission park pending alongside is refused with client_tool_pending —
+  // never a `resume_required` that would invite a partial, permission-only
+  // resume. (The abandon itself is covered end to end in
+  // agui-client-tools.test.ts.)
+  test("client park only: a trailing tool message is refused with 409 client_tool_pending", async () => {
     const { url } = await startFixture([clientWrite])
-    const response = await postAgui(url, { threadId: "thread-agui-client-only" })
+    const response = await postAgui(url, {
+      threadId: "thread-agui-client-only-tool",
+      messages: [
+        { content: "hi", id: "m-1", role: "user" },
+        { content: "x", id: "m-2", role: "tool", toolCallId: "call_1" },
+      ],
+    })
     expect(response.status).toBe(409)
     expect(await codeOf(response)).toBe("client_tool_pending")
+  })
+
+  test("client park only: a new user message abandons, and fails closed with no store", async () => {
+    const { url } = await startFixture([clientWrite])
+    const response = await postAgui(url, { threadId: "thread-agui-client-only" })
+    expect(response.status).toBe(503)
+    expect(await codeOf(response)).toBe("client_tool_store_unavailable")
   })
 
   test("permission + client park: refused, even with the permission resume", async () => {
@@ -346,7 +363,7 @@ describe("withoutClientToolParks", () => {
 
 async function postAgui(
   serverUrl: string,
-  body: { threadId: string; resume?: unknown[] },
+  body: { threadId: string; resume?: unknown[]; messages?: unknown[] },
 ): Promise<Response> {
   return fetch(new URL(`/agui/${encodeURIComponent("/noop#graph")}`, serverUrl), {
     body: JSON.stringify({

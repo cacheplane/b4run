@@ -1,9 +1,13 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { CLIENT_TOOL_UNAVAILABLE_RESULT } from "@b4run/core"
-import { type ClientToolCallStore, createMemoryClientToolCallStore } from "@b4run/sdk"
-import { createClientToolCallStore } from "@b4run/sqlite-storage"
+import { ABANDONED_CLIENT_TOOL_RESULT, CLIENT_TOOL_UNAVAILABLE_RESULT } from "@b4run/core"
+import {
+  type ClientToolCallStore,
+  createMemoryClientToolCallStore,
+  createMemoryInterruptGrantStore,
+} from "@b4run/sdk"
+import { createClientToolCallStore, createThreadsStore } from "@b4run/sqlite-storage"
 import { MemorySaver } from "@langchain/langgraph"
 import { afterEach, describe, expect, it } from "vitest"
 import { createAimock } from "../../testing/dist/aimock-runner.js"
@@ -16,6 +20,7 @@ import {
   resolveClientToolTtlMs,
   validateClientToolStore,
 } from "../src/lib/dev/client-tool-runtime.ts"
+import { readPendingInterrupts } from "../src/lib/dev/pending-interrupts.ts"
 import { createRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-handler.ts"
 import { nodeBootFallbacks, resolveClientToolCallStore } from "../src/lib/runtime/execute-route.ts"
 
@@ -42,6 +47,21 @@ const PARK_ROUTE = [
 
 const ECHO_ROUTE = "export const graph = async () => ({ ok: true })\n"
 
+/** An agent route whose `deployProd` server tool needs human approval. */
+const MIXED_ROUTE = [
+  'import { agent } from "@b4run/sdk"',
+  'export default agent({ model: "gpt-5-mini", systemPrompt: "t", tools: { approve: ["deployProd"] } })',
+  "",
+].join("\n")
+
+const DEPLOY_TOOL = [
+  "/** Deploy to an environment. */",
+  "export default async function deployProd(input: { env: string }): Promise<string> {",
+  '  return "deployed to " + input.env',
+  "}",
+  "",
+].join("\n")
+
 const OPEN_PANEL = {
   name: "openPanel",
   description: "Open a panel",
@@ -52,6 +72,7 @@ type ToolCallSpec = { id: string; name: string; arguments: Record<string, unknow
 
 const CALL_A: ToolCallSpec = { id: "call_a", name: "client_openPanel", arguments: { id: 7 } }
 const CALL_B: ToolCallSpec = { id: "call_b", name: "client_openPanel", arguments: { id: 8 } }
+const DEPLOY_CALL: ToolCallSpec = { id: "call_deploy", name: "deployProd", arguments: { env: "p" } }
 
 interface AppOptions {
   /** Inject a store through `server.agui.clientToolStore` (else the node sqlite default). */
@@ -66,7 +87,7 @@ async function fixtureApp(options: AppOptions = {}): Promise<string> {
   const config =
     options.config ??
     (options.store
-      ? `export default { server: { agui: { clientTools: ["/park"], clientToolStore: globalThis.${STORE_KEY} } } }\n`
+      ? `export default { server: { agui: { clientTools: ["/park", "/mixed"], clientToolStore: globalThis.${STORE_KEY} } } }\n`
       : 'export default { server: { agui: { clientTools: ["/park"] } } }\n')
   const files: Record<string, string> = {
     "b4.config.ts": config,
@@ -74,6 +95,8 @@ async function fixtureApp(options: AppOptions = {}): Promise<string> {
     "src/app/park/index.ts": PARK_ROUTE,
     "src/app/other/index.ts": PARK_ROUTE,
     "src/app/echo/index.ts": ECHO_ROUTE,
+    "src/app/mixed/index.ts": MIXED_ROUTE,
+    "src/app/mixed/tools/deployProd.ts": DEPLOY_TOOL,
   }
   for (const [rel, body] of Object.entries(files)) {
     const filePath = join(appRoot, rel)
@@ -114,7 +137,7 @@ type HandlerOptions = Parameters<typeof createRuntimeFetchHandler>[0]
 async function createHandler(
   appRoot: string,
   bootFallbacks?: HandlerOptions["bootFallbacks"],
-  extra: Partial<Pick<HandlerOptions, "checkpointer" | "threadAccess">> = {},
+  extra: Partial<Pick<HandlerOptions, "checkpointer" | "threadAccess" | "threadsStore">> = {},
 ) {
   const handler = await createRuntimeFetchHandler({
     appRoot,
@@ -135,7 +158,7 @@ function aguiRequest(
   threadId: string,
   runId: string,
   messages: readonly AguiMessage[],
-  options: { tools?: readonly unknown[]; route?: string } = {},
+  options: { tools?: readonly unknown[]; route?: string; resume?: readonly unknown[] } = {},
 ): Request {
   return new Request(
     `http://localhost/agui/${encodeURIComponent(options.route ?? "/park#agent")}`,
@@ -148,6 +171,7 @@ function aguiRequest(
         state: {},
         threadId,
         tools: options.tools ?? [OPEN_PANEL],
+        ...(options.resume ? { resume: options.resume } : {}),
       }),
       headers: { accept: "text/event-stream", "content-type": "application/json" },
       method: "POST",
@@ -226,15 +250,35 @@ function toolResult(id: string, toolCallId: string, content: string): AguiMessag
 }
 
 /** Run 1: the model calls `toolCalls`, the turn parks invisibly. */
-async function parkedRun(toolCalls: readonly ToolCallSpec[], options: AppOptions = {}) {
-  const aimock = await withModel(toolTurnFixtures(toolCalls))
+async function parkedRun(
+  toolCalls: readonly ToolCallSpec[],
+  options: AppOptions & {
+    readonly route?: string
+    readonly fixtures?: unknown[]
+    readonly threadsStore?: HandlerOptions["threadsStore"]
+  } = {},
+) {
+  const aimock = await withModel(options.fixtures ?? toolTurnFixtures(toolCalls))
   const store = options.store ?? createMemoryClientToolCallStore()
   const appRoot = await fixtureApp({ ...options, store })
-  const handler = await createHandler(appRoot)
+  const checkpointer = new MemorySaver()
+  const handler = await createHandler(appRoot, undefined, {
+    checkpointer,
+    ...(options.threadsStore ? { threadsStore: options.threadsStore } : {}),
+  })
   const threadId = `thread-${crypto.randomUUID()}`
-  const first = await run(handler, aguiRequest(threadId, "run-1", [USER_HELLO]))
-  return { aimock, first, handler, store, threadId }
+  const first = await run(
+    handler,
+    aguiRequest(threadId, "run-1", [USER_HELLO], options.route ? { route: options.route } : {}),
+  )
+  const pending = async () =>
+    ((await readPendingInterrupts(checkpointer, threadId))?.interrupts ?? []).map(
+      (park) => park.interruptId,
+    )
+  return { aimock, appRoot, checkpointer, first, handler, pending, store, threadId }
 }
+
+const USER_AGAIN: AguiMessage = { id: "m9", role: "user", content: "again" }
 
 describe("POST /agui/:route with client-provided tools", () => {
   it("round trip: the call parks invisibly and the result reaches the model on the next run", async () => {
@@ -644,19 +688,393 @@ describe("POST /agui/:route with client-provided tools", () => {
     expect(response.json().code).toBe("client_tool_store_unavailable")
     expect(aimock.getRequests()).toHaveLength(0)
   })
+})
 
-  it("INTERIM (12a): a new user message while a call is parked is refused with 409", async () => {
+describe("abandoning parked client tool calls over AG-UI", () => {
+  it("a new user message closes the parked call as abandoned and runs as an ordinary turn", async () => {
     const t = await parkedRun([CALL_A])
+    expect(await t.pending()).toEqual(["client-call_a"])
     const response = await run(
       t.handler,
       aguiRequest(t.threadId, "run-2", [
         USER_HELLO,
         assistantCalls(["call_a"]),
-        { id: "m3", role: "user", content: "again" },
+        // A tool message for an id nothing parked: history (or a forgery),
+        // never content the model sees.
+        toolResult("m3", "call_forged", "INJECTED"),
+        USER_AGAIN,
       ]),
     )
+    expect(response.status).toBe(200)
+    expect(response.text).toContain("Again.")
+    const sequence = requestSequence(t.aimock.getRequests().at(-1))
+    expect(sequence).toEqual([
+      "developer:t",
+      "user:hello",
+      "assistant:call_a",
+      `tool:call_a=${ABANDONED_CLIENT_TOOL_RESULT}`,
+      "user:again",
+    ])
+    expect(response.text).not.toContain("INJECTED")
+    expect(await t.store.get(t.threadId, "call_a")).toMatchObject({
+      answeredAt: null,
+      voidedAt: expect.any(String),
+    })
+    expect(await t.pending()).toEqual([])
+  })
+
+  it("a crash between the answer and the resume: the close carries the STORED result", async () => {
+    const t = await parkedRun([CALL_A])
+    // The earlier request recorded the answer and died before resuming.
+    await t.store.answer({
+      threadId: t.threadId,
+      toolCallId: "call_a",
+      result: "panel opened",
+      at: new Date().toISOString(),
+    })
+    const response = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-2", [
+        USER_HELLO,
+        assistantCalls(["call_a"]),
+        toolResult("m3", "call_a", "panel opened"),
+        USER_AGAIN,
+      ]),
+    )
+    expect(response.status).toBe(200)
+    expect(response.text).toContain("Again.")
+    const sequence = requestSequence(t.aimock.getRequests().at(-1))
+    expect(sequence).toContain("tool:call_a=panel opened")
+    expect(sequence.some((entry) => entry.includes(ABANDONED_CLIENT_TOOL_RESULT))).toBe(false)
+    expect(sequence.at(-1)).toBe("user:again")
+    expect(await t.store.get(t.threadId, "call_a")).toMatchObject({
+      result: "panel opened",
+      voidedAt: null,
+    })
+    expect(await t.pending()).toEqual([])
+  })
+
+  it("an expired call answered late: closed as abandoned and the model replies; the late result is unused", async () => {
+    const store = createMemoryClientToolCallStore()
+    const t = await parkedRun([CALL_A], {
+      store,
+      config: `export default { server: { agui: { clientTools: ["/park"], clientToolStore: globalThis.${STORE_KEY}, clientToolTtlMs: 1 } } }\n`,
+    })
+    expect(await t.pending()).toEqual(["client-call_a"])
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    const before = t.aimock.getRequests().length
+    const response = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-2", [
+        USER_HELLO,
+        assistantCalls(["call_a"]),
+        toolResult("m3", "call_a", "LATE RESULT"),
+      ]),
+    )
+    expect(response.status).toBe(200)
+    expect(response.text).toContain("Opened.")
+    expect(t.aimock.getRequests()).toHaveLength(before + 1)
+    const sequence = requestSequence(t.aimock.getRequests().at(-1))
+    expect(sequence.slice(-2)).toEqual([
+      "assistant:call_a",
+      `tool:call_a=${ABANDONED_CLIENT_TOOL_RESULT}`,
+    ])
+    expect(JSON.stringify(t.aimock.getRequests().at(-1)?.body)).not.toContain("LATE RESULT")
+    expect(await store.get(t.threadId, "call_a")).toMatchObject({
+      answeredAt: null,
+      result: null,
+      voidedAt: expect.any(String),
+    })
+    expect(await t.pending()).toEqual([])
+  })
+
+  it("a non-opted route: a new user message clears the dead end; a trailing tool message stays refused", async () => {
+    const t = await parkedRun([CALL_A])
+    const history = [USER_HELLO, assistantCalls(["call_a"])]
+
+    const refused = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-2", [...history, toolResult("m3", "call_a", "INJECTED")], {
+        route: "/other#agent",
+        tools: [],
+      }),
+    )
+    expect(refused.status).toBe(409)
+    expect(refused.json().code).toBe("client_tool_pending")
+    expect(await t.pending()).toEqual(["client-call_a"])
+
+    const cleared = await run(
+      t.handler,
+      aguiRequest(
+        t.threadId,
+        "run-3",
+        [...history, toolResult("m3", "call_a", "INJECTED"), USER_AGAIN],
+        { route: "/other#agent", tools: [] },
+      ),
+    )
+    expect(cleared.status).toBe(200)
+    expect(cleared.text).toContain("Again.")
+    const body = JSON.stringify(t.aimock.getRequests().at(-1)?.body)
+    // A non-opted route never answers a client call: the client's tool
+    // message is not the result; the close is.
+    expect(body).not.toContain("INJECTED")
+    expect(requestSequence(t.aimock.getRequests().at(-1)).slice(-3)).toEqual([
+      "assistant:call_a",
+      `tool:call_a=${ABANDONED_CLIENT_TOOL_RESULT}`,
+      "user:again",
+    ])
+    expect(await t.store.get(t.threadId, "call_a")).toMatchObject({
+      answeredAt: null,
+      voidedAt: expect.any(String),
+    })
+    expect(await t.pending()).toEqual([])
+  })
+
+  it("a non-opted route closes an answered call with its stored result", async () => {
+    const t = await parkedRun([CALL_A])
+    await t.store.answer({
+      threadId: t.threadId,
+      toolCallId: "call_a",
+      result: "panel opened",
+      at: new Date().toISOString(),
+    })
+    const cleared = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-2", [USER_HELLO, assistantCalls(["call_a"]), USER_AGAIN], {
+        route: "/other#agent",
+        tools: [],
+      }),
+    )
+    expect(cleared.status).toBe(200)
+    expect(requestSequence(t.aimock.getRequests().at(-1))).toContain("tool:call_a=panel opened")
+    expect(await t.pending()).toEqual([])
+  })
+
+  it("the parked route cannot be resolved: 409, nothing closed and nothing voided", async () => {
+    const appDir = await mkdtemp(join(tmpdir(), "b4-agui-threads-"))
+    cleanup.push(() => rm(appDir, { force: true, recursive: true }))
+    const threadsStore = createThreadsStore({ path: join(appDir, "threads.sqlite") })
+    const t = await parkedRun([CALL_A], { threadsStore })
+    await threadsStore.updateMetadata(t.threadId, { parked_route: "/missing#agent" })
+    const before = t.aimock.getRequests().length
+
+    const response = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-2", [USER_HELLO, assistantCalls(["call_a"]), USER_AGAIN]),
+    )
     expect(response.status).toBe(409)
-    expect(response.json().code).toBe("client_tool_pending")
+    expect(response.json().code).toBe("client_tool_close_failed")
+    expect(t.aimock.getRequests()).toHaveLength(before)
+    expect(await t.pending()).toEqual(["client-call_a"])
+    // Voided only AFTER a successful close.
+    expect(await t.store.get(t.threadId, "call_a")).toMatchObject({
+      answeredAt: null,
+      voidedAt: null,
+    })
+
+    // The slot and the claim were released: a retry is decided afresh.
+    await threadsStore.updateMetadata(t.threadId, { parked_route: "/park#agent" })
+    const retry = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-3", [USER_HELLO, assistantCalls(["call_a"]), USER_AGAIN]),
+    )
+    expect(retry.status).toBe(200)
+    expect(retry.text).toContain("Again.")
+  })
+})
+
+describe("a permission park and a client park in one model turn", () => {
+  const mixedFixtures = [
+    { match: { userMessage: "again" }, response: { content: "Again." } },
+    { match: { userMessage: "hello", hasToolResult: true }, response: { content: "Opened." } },
+    { match: { userMessage: "hello" }, response: { toolCalls: [DEPLOY_CALL, CALL_A] } },
+  ]
+
+  async function mixedRun() {
+    const t = await parkedRun([], { route: "/mixed#agent", fixtures: mixedFixtures })
+    expect(t.first.status).toBe(200)
+    const pending = await t.pending()
+    expect(pending).toHaveLength(2)
+    expect(pending).toContain("client-call_a")
+    const permId = pending.find((id) => id !== "client-call_a") as string
+    return { ...t, permId }
+  }
+
+  const history = [
+    USER_HELLO,
+    {
+      id: "m2",
+      role: "assistant",
+      content: "",
+      toolCalls: [
+        { id: "call_deploy", type: "function", function: { name: "deployProd", arguments: "{}" } },
+        { id: "call_a", type: "function", function: { name: "openPanel", arguments: "{}" } },
+      ],
+    },
+  ]
+
+  it("abandoning while the permission park is pending is refused; nothing is closed", async () => {
+    const t = await mixedRun()
+    const before = t.aimock.getRequests().length
+    const response = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-2", [...history, USER_AGAIN], { route: "/mixed#agent" }),
+    )
+    expect(response.status).toBe(409)
+    expect(response.json().code).toBe("resume_required")
+    expect(t.aimock.getRequests()).toHaveLength(before)
+    expect(await t.pending()).toHaveLength(2)
+    expect(await t.store.get(t.threadId, "call_a")).toMatchObject({
+      answeredAt: null,
+      voidedAt: null,
+    })
+  })
+
+  it("the client result without the approval is kept; with it, ONE merged resume answers both", async () => {
+    const t = await mixedRun()
+    const before = t.aimock.getRequests().length
+    const answered = [...history, toolResult("m3", "call_a", "panel opened")]
+
+    const first = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-2", answered, { route: "/mixed#agent" }),
+    )
+    expect(first.status).toBe(409)
+    expect(first.json().code).toBe("resume_required")
+    expect(t.aimock.getRequests()).toHaveLength(before)
+    expect(await t.store.get(t.threadId, "call_a")).toMatchObject({ result: "panel opened" })
+    expect(await t.pending()).toHaveLength(2)
+
+    const second = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-3", answered, {
+        route: "/mixed#agent",
+        resume: [{ interruptId: t.permId, status: "resolved", payload: "once" }],
+      }),
+    )
+    expect(second.status).toBe(200)
+    expect(second.text).toContain("Opened.")
+    expect(t.aimock.getRequests()).toHaveLength(before + 1)
+    const sequence = requestSequence(t.aimock.getRequests().at(-1))
+    expect(
+      sequence.some(
+        (entry) => entry.startsWith("tool:call_deploy=") && entry.includes("deployed to p"),
+      ),
+    ).toBe(true)
+    expect(sequence).toContain("tool:call_a=panel opened")
+    expect(await t.pending()).toEqual([])
+  })
+})
+
+describe("settling an AG-UI turn", () => {
+  it("a turn that settles without parking leaves no outstanding client tool record", async () => {
+    const t = await parkedRun([], {
+      fixtures: [{ match: { userMessage: "hello" }, response: { content: "Hi." } }],
+    })
+    expect(t.first.status).toBe(200)
+    // A stray outstanding record (e.g. one whose void failed after a close).
+    await t.store.issue({
+      threadId: t.threadId,
+      toolCallId: "call_stray",
+      interruptId: "client-call_stray",
+      toolName: "openPanel",
+      runId: "run-0",
+      issuedAt: new Date().toISOString(),
+      expiresAt: null,
+      answeredAt: null,
+      result: null,
+      voidedAt: null,
+    })
+    const second = await run(t.handler, aguiRequest(t.threadId, "run-2", [USER_HELLO]))
+    expect(second.status).toBe(200)
+    expect(await t.store.listOutstanding(t.threadId)).toEqual([])
+  })
+
+  it("a turn that parks keeps its own record outstanding", async () => {
+    const t = await parkedRun([CALL_A])
+    expect(await t.store.listOutstanding(t.threadId)).toHaveLength(1)
+  })
+
+  it("voids superseded approval grants when grants are on", async () => {
+    const grantStore = createMemoryInterruptGrantStore()
+    ;(globalThis as Record<string, unknown>).__b4AguiGrantStore = grantStore
+    cleanup.push(() => {
+      delete (globalThis as Record<string, unknown>).__b4AguiGrantStore
+    })
+    const store = createMemoryClientToolCallStore()
+    const t0 = `thread-${crypto.randomUUID()}`
+    await grantStore.issue({
+      threadId: t0,
+      interruptId: "perm-stale",
+      checkpointNs: "park:perm-stale",
+      tokenHash: "0".repeat(64),
+      issuedAt: new Date().toISOString(),
+      expiresAt: null,
+      consumedAt: null,
+      consumedDecision: null,
+      voidedAt: null,
+    })
+    await withModel([{ match: { userMessage: "hello" }, response: { toolCalls: [DEPLOY_CALL] } }])
+    const appRoot = await fixtureApp({
+      store,
+      config: `export default { approvals: { grants: "optional", grantStore: globalThis.__b4AguiGrantStore }, server: { agui: { clientTools: ["/park"], clientToolStore: globalThis.${STORE_KEY} } } }\n`,
+    })
+    const handler = await createHandler(appRoot)
+    const parked = await run(
+      handler,
+      aguiRequest(t0, "run-1", [USER_HELLO], { route: "/mixed#agent", tools: [] }),
+    )
+    expect(parked.status).toBe(200)
+    expect(parked.text).toContain("perm-")
+    const rows = await grantStore.listForThread(t0)
+    expect(rows.find((row) => row.interruptId === "perm-stale")?.voidedAt).not.toBeNull()
+    // The grant for the prompt still pending is kept.
+    const live = rows.filter((row) => row.interruptId !== "perm-stale")
+    expect(live.length).toBeGreaterThan(0)
+    expect(live.every((row) => row.voidedAt === null)).toBe(true)
+  })
+})
+
+describe("the recorder never parks a NEW call on an old record", () => {
+  it("a provider id reused after its round trip is refused, not parked on the answered record", async () => {
+    const aimock = await withModel([
+      { match: { userMessage: "again", hasToolResult: true }, response: { content: "Retried." } },
+      { match: { userMessage: "again" }, response: { toolCalls: [CALL_A] } },
+      { match: { userMessage: "hello", hasToolResult: true }, response: { content: "Opened." } },
+      { match: { userMessage: "hello" }, response: { toolCalls: [CALL_A] } },
+    ])
+    const store = createMemoryClientToolCallStore()
+    const appRoot = await fixtureApp({ store })
+    const checkpointer = new MemorySaver()
+    const handler = await createHandler(appRoot, undefined, { checkpointer })
+    const threadId = `thread-${crypto.randomUUID()}`
+    const history = [
+      USER_HELLO,
+      assistantCalls(["call_a"]),
+      toolResult("m3", "call_a", "panel opened"),
+    ]
+    expect((await run(handler, aguiRequest(threadId, "run-1", [USER_HELLO]))).status).toBe(200)
+    const resumed = await run(handler, aguiRequest(threadId, "run-2", history))
+    expect(resumed.text).toContain("Opened.")
+    const answeredRow = await store.get(threadId, "call_a")
+
+    const third = await run(
+      handler,
+      aguiRequest(threadId, "run-3", [
+        ...history,
+        { id: "m4", role: "assistant", content: "Opened." },
+        USER_AGAIN,
+      ]),
+    )
+    expect(third.status).toBe(200)
+    // The reused call fails as a tool error the model sees; the turn goes on.
+    expect(third.text).toContain("Retried.")
+    const sequence = requestSequence(aimock.getRequests().at(-1))
+    expect(sequence.at(-1)).toMatch(/^tool:call_a=Error: This client tool call id was already used/)
+    // Nothing parked on the stale record, and the record is untouched.
+    expect((await readPendingInterrupts(checkpointer, threadId))?.interrupts ?? []).toEqual([])
+    expect(await store.get(threadId, "call_a")).toEqual(answeredRow)
+    expect(await store.listOutstanding(threadId)).toEqual([])
   })
 })
 

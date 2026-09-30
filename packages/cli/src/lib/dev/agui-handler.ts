@@ -20,6 +20,7 @@ import {
   type BootResolvedInstances,
   checkRouteClientToolsSupport,
   checkRouteResponseFormatSupport,
+  materializeResolvedRouteGraph,
   nonAgentClientToolsMessage,
   nonAgentResponseFormatMessage,
   type RouteResumePayload,
@@ -29,8 +30,19 @@ import type { SandboxManager } from "../runtime/sandbox-manager.js"
 import type { B4StaticModules } from "../runtime/static-modules-core.js"
 import type { StreamChunk } from "../runtime/stream-types.js"
 import { abortableAsyncIterable } from "./abortable-iterable.js"
-import { type ApprovalGrantRuntime, gateResumeWithGrants, minterFor } from "./approval-grants.js"
+import {
+  type ApprovalGrantRuntime,
+  gateResumeWithGrants,
+  minterFor,
+  voidSupersededGrants,
+} from "./approval-grants.js"
 import { payloadTooLarge, RequestBodyTooLargeError, readBoundedText } from "./bounded-body.js"
+import {
+  ClientToolAbandonError,
+  type ClosableAgentGraph,
+  CONTINUE_AFTER_CLOSE,
+  closeAbandonedClientToolCalls,
+} from "./client-tool-abandon.js"
 import { readClientToolDefinitions } from "./client-tool-definitions.js"
 import {
   AGUI_BODY_MAX_BYTES,
@@ -644,14 +656,36 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     // FULL snapshot. Never without a store: a park nobody can match is refused
     // rather than guessed at.
     const clientParks = snapshot.interrupts.filter((park) => isClientToolPark(park.value))
+    const approvalParksOnly = withoutClientToolParks(snapshot)
+    const trailingUserMessage = b4Input.messages.at(-1)?.role === "user"
     let clientTurn: ClientToolTurn = { mode: "none" }
     if (clientParks.length > 0 && !envelopePolicy.clientTools) {
       // A client park on a route that does not (or no longer does) take
-      // client tools: this route may not answer it, resume it, or re-offer
-      // its stub. Refused, never run past. (12b decides abandonment here.)
-      return clientToolPending()
-    }
-    if (clientParks.length > 0) {
+      // client tools — the opt-in was removed, or another route is being
+      // run on the thread. This route never answers, resumes or re-offers a
+      // client call, so a trailing tool message stays refused. A new user
+      // message abandons the parked calls exactly as on an opted-in route,
+      // or the thread would be a dead end. A permission park pending
+      // alongside stays refused too: it could only be resumed together with
+      // the client calls (never partially), which this route cannot do.
+      if (!trailingUserMessage || approvalParksOnly.interrupts.length > 0) {
+        return clientToolPending()
+      }
+      const store = clientToolRuntime.store
+      if (!store) return clientToolStoreUnavailable()
+      // Tool messages are withheld from the resolver, so it answers nothing:
+      // the calls it returns carry each STORED result (answered before, on
+      // an opted-in run) or ABANDONED_CLIENT_TOOL_RESULT — never content
+      // from this request. With a trailing user message it always abandons.
+      clientTurn = await resolveClientToolTurn({
+        store,
+        threadId: input.threadId,
+        pending: snapshot,
+        messages: b4Input.messages.filter((message) => message.role !== "tool"),
+        now: new Date(),
+      })
+      if (clientTurn.mode !== "abandon") return clientToolPending()
+    } else if (clientParks.length > 0) {
       const store = clientToolRuntime.store
       if (!store) return clientToolStoreUnavailable()
       const tooLarge = await oversizedClientToolResult(
@@ -669,13 +703,27 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
         now: new Date(),
       })
     }
-    if (clientTurn.mode === "abandon") {
-      // INTERIM (Task 12a): closing abandoned calls in the checkpoint lands in
-      // 12b. Until then a run that does not answer a parked client tool call
-      // is refused, never run past it.
-      return clientToolPending()
+    // Abandoning: the parked client calls are closed in the checkpoint under
+    // the run slot (below), then this request's turn runs. A permission park
+    // pending alongside must be answered first — the close writes as the
+    // `tools` node, which would skip it — exactly as the approval flow
+    // refuses a new turn over a pending prompt.
+    if (clientTurn.mode === "abandon" && approvalParksOnly.interrupts.length > 0) {
+      return Response.json(
+        createRequestErrorBody(
+          "Pending interrupts must be resumed before a parked client tool call can be abandoned",
+          { code: "resume_required" },
+        ),
+        { status: 409 },
+      )
     }
-    const approvalParksOnly = withoutClientToolParks(snapshot)
+    // After a close with no new user message (the call expired, or its park
+    // is unanswerable, while the client's last message was a tool message),
+    // the turn continues from the closed checkpoint so the model replies to
+    // the closed calls. Judged by the trailing message rather than the
+    // abandon reason: an expired call plus a new user message runs that
+    // message, it is never dropped.
+    const continueAfterClose = clientTurn.mode === "abandon" && !trailingUserMessage
     if (
       clientTurn.mode === "none" &&
       envelopePolicy.clientTools &&
@@ -706,10 +754,16 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     // completes, so it is re-demanded, and re-runs the unanswered task. See
     // `handleResumeRequest`, which refuses outright (`client_tool_pending`)
     // for the same reason.
+    //
+    // On an abandon nothing but the client parks is pending (refused above
+    // otherwise), and a malformed client envelope is the close's business,
+    // not the resume's: only the parser's own malformed flag carries over.
     const pending: PendingInterruptSnapshot =
       clientTurn.mode === "resume"
         ? { interrupts: clientTurn.others, malformed: snapshot.malformed }
-        : approvalParksOnly
+        : clientTurn.mode === "abandon"
+          ? { interrupts: [], malformed: snapshot.malformed }
+          : approvalParksOnly
     const resumeResolution = resolvePendingResume(b4Input.resume, pending)
     if (!resumeResolution.ok) {
       return Response.json(
@@ -745,9 +799,11 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
             ...clientTurn.resume,
             ...(resumeResolution.mode === "resume" ? resumeResolution.resume : {}),
           }
-        : resumeResolution.mode === "resume"
-          ? resumeResolution.resume
-          : undefined
+        : continueAfterClose
+          ? CONTINUE_AFTER_CLOSE
+          : resumeResolution.mode === "resume"
+            ? resumeResolution.resume
+            : undefined
 
     // This run's client tools: the request's, plus a stub for every parked
     // call being resumed whose tool the request did not (re)send — a
@@ -757,11 +813,38 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       clientTurn.mode === "resume" ? clientParks : [],
     )
     const clientToolStore = clientToolRuntime.store
+    // The calls this request resumes: the only ones whose ANSWERED record
+    // may still stand behind a replayed stub.
+    const resumingToolCallIds: ReadonlySet<string> = new Set(
+      clientTurn.mode === "resume"
+        ? clientParks.flatMap((park) =>
+            isClientToolCallEnvelope(park.value) ? [park.value.toolCallId] : [],
+          )
+        : [],
+    )
     const clientToolRecorder: ClientToolRecorder | undefined =
       runClientTools.length > 0 && clientToolStore
         ? {
-            has: async (toolCallId) => Boolean(await clientToolStore.get(threadId, toolCallId)),
+            // A replay only for a live record: outstanding, or answered and
+            // being resumed by THIS request. A provider that reuses an id
+            // whose record was answered (and resumed) or voided long ago is
+            // making a NEW call, which must not park against that record —
+            // its stored result would be resumed as this call's answer.
+            has: async (toolCallId) => {
+              const row = await clientToolStore.get(threadId, toolCallId)
+              if (!row || row.voidedAt !== null) return false
+              return row.answeredAt === null || resumingToolCallIds.has(toolCallId)
+            },
+            // `issue` is a no-op on an existing key, so a NEW call whose id
+            // already has a record cannot be recorded; it fails instead of
+            // parking on a record it does not own. The stub's tool call then
+            // errors — nothing parks. Fixed message: never echoes the id.
             record: async (call) => {
+              if (await clientToolStore.get(threadId, call.toolCallId)) {
+                throw new Error(
+                  "This client tool call id was already used on this thread; the call was not made.",
+                )
+              }
               const issued = new Date()
               await clientToolStore.issue({
                 threadId,
@@ -854,6 +937,39 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       }
     }
 
+    // The abandon's close, under the run slot (and the resume claim every
+    // client-park request holds), then the void — only once the checkpoint
+    // no longer holds the parks, so a failed close leaves every record
+    // exactly as it was. The outer finally releases the slot and the claim
+    // on each refusal.
+    if (clientTurn.mode === "abandon") {
+      const refused = await closeAbandonedClientParks({
+        appRoot,
+        boot,
+        checkpointer,
+        clientParks,
+        calls: clientTurn.calls,
+        middlewareContext: middlewareResult.context,
+        registry,
+        threadId,
+        threadsStore,
+      })
+      if (refused) return refused
+      if (clientTurn.abandonedToolCallIds.length > 0 && clientToolStore) {
+        try {
+          await clientToolStore.voidOutstanding({
+            threadId,
+            toolCallIds: clientTurn.abandonedToolCallIds,
+            at: new Date().toISOString(),
+          })
+        } catch (error) {
+          // The parks are already closed, so the turn runs; a record left
+          // outstanding is voided when this turn settles without parking.
+          console.warn(`B4: could not void abandoned client tool calls for ${threadId}.`, error)
+        }
+      }
+    }
+
     // Live-turn anchor: one latest-tuple read, taken before the route stream
     // begins executing so it races nothing the run itself writes. A failed
     // read degrades attach to the durable path for this turn — it must never
@@ -928,9 +1044,10 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
               ...boot,
               checkpointer,
               input: {
-                messages: newestUserMessage
-                  ? [{ role: "user", content: newestUserMessage.content }]
-                  : [],
+                messages:
+                  newestUserMessage && !continueAfterClose
+                    ? [{ role: "user", content: newestUserMessage.content }]
+                    : [],
               },
               ...(routeResume ? { resume: routeResume } : {}),
               ...(responseFormat ? { responseFormat } : {}),
@@ -1017,6 +1134,19 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
             // propagated because throwing from here would replace whatever
             // error brought us into the finally, masking the real failure.
             await settleParkedRoute({
+              // Exactly as the Agent Protocol handlers: only when grants are
+              // on, and never able to fail the turn.
+              ...(approvalGrants.mode === "off"
+                ? {}
+                : {
+                    voidGrants: async (stillPending) => {
+                      await voidSupersededGrants({
+                        ...(approvalGrants.store ? { store: approvalGrants.store } : {}),
+                        threadId,
+                        stillPending,
+                      })
+                    },
+                  }),
               canPark: route.mode === "agent",
               checkpointer,
               parked: sawInterrupt,
@@ -1025,6 +1155,14 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
               threadId,
               threadsStore,
             }).catch(() => undefined)
+            // A turn that settled without parking leaves no client call
+            // waiting: void any record still outstanding (one whose void
+            // failed after a close, or a stray), keeping only a call whose
+            // park is still in the checkpoint — a park the stream could not
+            // see (see the status note below) must stay answerable.
+            if (!sawInterrupt && clientToolStore) {
+              await voidSettledClientToolCalls(clientToolStore, checkpointer, threadId)
+            }
             // One write covers the drained turn, the failed one and the
             // disconnected one, because `toAguiEvents` never throws into its
             // consumer: an upstream error or abort arrives as a RUN_ERROR event
@@ -1106,11 +1244,122 @@ export async function handleAgUiRequest(options: AgUiRequestOptions): Promise<vo
 function clientToolPending(): Response {
   return Response.json(
     createRequestErrorBody(
-      "A client tool call is waiting for its result on this thread; send the tool result before a new message.",
+      "A client tool call is pending on this thread, and this request can neither answer nor abandon it.",
       { code: "client_tool_pending" },
     ),
     { status: 409 },
   )
+}
+
+/**
+ * Close the parked client calls in the checkpoint, on a graph materialized
+ * for the route that PARKED them (thread metadata, re-read under the run
+ * slot) with a stub for each parked call, bound to the thread's checkpointer.
+ * Returns a refusal, or `undefined` once closed. Every message is fixed: no
+ * id, name or result from the request (or the store) is echoed.
+ */
+async function closeAbandonedClientParks(options: {
+  readonly appRoot: string
+  readonly boot: AgUiFetchRequestOptions["boot"]
+  readonly checkpointer: BaseCheckpointSaver
+  readonly clientParks: readonly PendingInterrupt[]
+  readonly calls: Extract<ClientToolTurn, { mode: "abandon" }>["calls"]
+  readonly middlewareContext: Readonly<Record<string, unknown>> | undefined
+  readonly registry: RuntimeRegistry
+  readonly threadId: string
+  readonly threadsStore: ThreadsStore
+}): Promise<Response | undefined> {
+  const { checkpointer, threadId } = options
+  const parkedRouteKey = readParkedRoute(await options.threadsStore.getThread(threadId))
+  const parkedRoute =
+    parkedRouteKey === undefined ? undefined : options.registry.lookup(parkedRouteKey)
+  if (!parkedRoute || parkedRoute.mode !== "agent") {
+    return clientToolCloseFailed(
+      "The route that parked this thread's client tool calls cannot be resolved; they cannot be closed.",
+    )
+  }
+  try {
+    const graph = (await materializeResolvedRouteGraph({
+      appRoot: options.appRoot,
+      ...options.boot,
+      checkpointer,
+      clientTools: withParkedClientTools([], options.clientParks),
+      ...(options.middlewareContext ? { middlewareContext: options.middlewareContext } : {}),
+      routeFile: parkedRoute.routeFile,
+      routeId: parkedRoute.routeId,
+      routePath: parkedRoute.routePath,
+    })) as ClosableAgentGraph
+    await closeAbandonedClientToolCalls({ graph, checkpointer, threadId, calls: options.calls })
+    return undefined
+  } catch (error) {
+    if (error instanceof ClientToolAbandonError) {
+      switch (error.code) {
+        case "non_client_park_pending":
+          return Response.json(
+            createRequestErrorBody(
+              "Pending interrupts must be resumed before a parked client tool call can be abandoned",
+              { code: "resume_required" },
+            ),
+            { status: 409 },
+          )
+        case "no_client_park":
+        case "unknown_call":
+        case "unclosed_call":
+          return clientToolCloseFailed(
+            "The thread's parked client tool calls changed; they were not closed.",
+          )
+        case "close_incomplete":
+          // The thread's state may have been written: never retried, and
+          // the turn does not run.
+          console.error(`B4: closing abandoned client tool calls on ${threadId} was incomplete.`)
+          return Response.json(
+            createRequestErrorBody(
+              "Closing the parked client tool calls did not complete; the thread needs attention.",
+              { code: "client_tool_close_incomplete" },
+            ),
+            { status: 500 },
+          )
+      }
+    }
+    console.error(`B4: closing abandoned client tool calls on ${threadId} failed.`, error)
+    return Response.json(createRequestErrorBody("Closing the parked client tool calls failed."), {
+      status: 500,
+    })
+  }
+}
+
+function clientToolCloseFailed(message: string): Response {
+  return Response.json(createRequestErrorBody(message, { code: "client_tool_close_failed" }), {
+    status: 409,
+  })
+}
+
+/**
+ * Void the thread's outstanding client tool records once a turn settled
+ * without parking, keeping any whose park is still pending. Like
+ * `voidSupersededGrants`, never allowed to fail the turn.
+ */
+async function voidSettledClientToolCalls(
+  store: NonNullable<ClientToolRuntime["store"]>,
+  checkpointer: BaseCheckpointSaver,
+  threadId: string,
+): Promise<void> {
+  try {
+    const outstanding = await store.listOutstanding(threadId)
+    if (outstanding.length === 0) return
+    const stillParked = new Set(
+      ((await readPendingInterrupts(checkpointer, threadId))?.interrupts ?? []).flatMap((park) =>
+        isClientToolCallEnvelope(park.value) ? [park.value.toolCallId] : [],
+      ),
+    )
+    const toolCallIds = outstanding
+      .map((row) => row.toolCallId)
+      .filter((toolCallId) => !stillParked.has(toolCallId))
+    if (toolCallIds.length === 0) return
+    await store.voidOutstanding({ threadId, toolCallIds, at: new Date().toISOString() })
+  } catch (error) {
+    console.warn(`B4: could not void settled client tool calls for ${threadId}.`, error)
+  }
 }
 
 function clientToolStoreUnavailable(): Response {
