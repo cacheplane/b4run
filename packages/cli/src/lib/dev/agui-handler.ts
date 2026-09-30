@@ -840,11 +840,14 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     }
     releaseRunBeforeStream = run.release
 
-    // A request that decided WITHOUT the resume claim saw no client park; one
-    // may have appeared since (a run on this thread parked and released its
-    // slot in between). Running now would take a new turn past it, so re-read
-    // under the run slot and refuse. The outer finally releases the slot.
-    if (!releaseResumeClaim) {
+    // A request that decided on a snapshot with NO client park may be about
+    // to run a new turn past one that appeared since: a run still executing
+    // when the snapshot was read can park a client tool call and release its
+    // slot before this `begin`. Holding the resume claim does not prevent
+    // that — the parking run never took the claim — so the recheck follows
+    // the decision, not the claim. Re-read under the run slot and refuse;
+    // the outer finally releases the slot.
+    if (clientParks.length === 0) {
       const recheck = await readSnapshot()
       if (recheck.interrupts.some((park) => isClientToolPark(park.value))) {
         return clientToolPending()

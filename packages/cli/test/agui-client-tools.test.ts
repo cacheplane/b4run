@@ -518,62 +518,81 @@ describe("POST /agui/:route with client-provided tools", () => {
     expect(third.text).toContain("Again.")
   })
 
-  it("a client park that appears after the decision is caught under the run slot", async () => {
-    const aimock = await withModel([
-      { match: { userMessage: "hello" }, response: { content: "Hi." } },
-    ])
-    const appRoot = await fixtureApp({ store: createMemoryClientToolCallStore() })
-    const saver = new MemorySaver()
-    const parkedTuple = {
-      config: { configurable: { thread_id: "t-race", checkpoint_ns: "" } },
-      checkpoint: { channel_values: {}, id: "cp-1" },
-      metadata: {},
-      pendingWrites: [
-        [
-          "33a12321-3ec2-56a7-b4d7-0337886c4386",
-          "__interrupt__",
-          {
-            id: "3336d0e0a2d4f198ef9aecd09cd7ac27",
-            value: {
-              type: "client-tool-call",
-              interruptId: "client-call_race",
-              toolCallId: "call_race",
-              name: "openPanel",
-              input: {},
+  it.each([
+    {
+      label: "an unclaimed new turn on an opted-in route",
+      route: "/park#agent",
+      tools: [OPEN_PANEL],
+      messages: [USER_HELLO],
+    },
+    {
+      // A trailing tool message takes the resume claim (it reports
+      // `resuming` on every route), so this variant decides while HOLDING the
+      // claim; the recheck must still run.
+      label: "a claim-holding request (trailing tool message) on a non-opted route",
+      route: "/other#agent",
+      tools: [],
+      messages: [USER_HELLO, toolResult("m2", "call_x", "x")],
+    },
+  ])(
+    "a client park that appears after the decision is caught under the run slot: $label",
+    async ({ route, tools, messages }) => {
+      const aimock = await withModel([
+        { match: { userMessage: "hello" }, response: { content: "Hi." } },
+      ])
+      const appRoot = await fixtureApp({ store: createMemoryClientToolCallStore() })
+      const saver = new MemorySaver()
+      const parkedTuple = {
+        config: { configurable: { thread_id: "t-race", checkpoint_ns: "" } },
+        checkpoint: { channel_values: {}, id: "cp-1" },
+        metadata: {},
+        pendingWrites: [
+          [
+            "33a12321-3ec2-56a7-b4d7-0337886c4386",
+            "__interrupt__",
+            {
+              id: "3336d0e0a2d4f198ef9aecd09cd7ac27",
+              value: {
+                type: "client-tool-call",
+                interruptId: "client-call_race",
+                toolCallId: "call_race",
+                name: "openPanel",
+                input: {},
+              },
             },
-          },
+          ],
         ],
-      ],
-    }
-    // Armed per request: the first read (the unclaimed decision) sees no
-    // park; every later read — the recheck under the run slot — sees one.
-    let reads: number | undefined
-    const checkpointer = new Proxy(saver, {
-      get(target, key, receiver) {
-        if (key === "getTuple") {
-          return async (config: Parameters<MemorySaver["getTuple"]>[0]) => {
-            if (reads === undefined) return target.getTuple(config)
-            reads += 1
-            return reads === 1 ? undefined : parkedTuple
+      }
+      // Armed per request: the first read (the decision) sees no park; every
+      // later read — the recheck under the run slot — sees one.
+      let reads: number | undefined
+      const checkpointer = new Proxy(saver, {
+        get(target, key, receiver) {
+          if (key === "getTuple") {
+            return async (config: Parameters<MemorySaver["getTuple"]>[0]) => {
+              if (reads === undefined) return target.getTuple(config)
+              reads += 1
+              return reads === 1 ? undefined : parkedTuple
+            }
           }
-        }
-        return Reflect.get(target, key, receiver)
-      },
-    })
-    const handler = await createHandler(appRoot, undefined, { checkpointer })
+          return Reflect.get(target, key, receiver)
+        },
+      })
+      const handler = await createHandler(appRoot, undefined, { checkpointer })
 
-    reads = 0
-    const raced = await run(handler, aguiRequest("t-race", "r1", [USER_HELLO]))
-    expect(raced.status).toBe(409)
-    expect(raced.json().code).toBe("client_tool_pending")
-    expect(aimock.getRequests()).toHaveLength(0)
+      reads = 0
+      const raced = await run(handler, aguiRequest("t-race", "r1", messages, { route, tools }))
+      expect(raced.status).toBe(409)
+      expect(raced.json().code).toBe("client_tool_pending")
+      expect(aimock.getRequests()).toHaveLength(0)
 
-    // The run slot was released: the next request on the thread runs.
-    reads = undefined
-    const next = await run(handler, aguiRequest("t-race", "r2", [USER_HELLO]))
-    expect(next.status).toBe(200)
-    expect(next.text).toContain("Hi.")
-  })
+      // The run slot (and any claim) was released: the next request runs.
+      reads = undefined
+      const next = await run(handler, aguiRequest("t-race", "r2", [USER_HELLO]))
+      expect(next.status).toBe(200)
+      expect(next.text).toContain("Hi.")
+    },
+  )
 
   it("an operator deny on the client tool never parks; the model sees the denial", async () => {
     const aimock = await withModel(toolTurnFixtures([CALL_A]))
