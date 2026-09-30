@@ -327,12 +327,7 @@ describe("POST /threads/:thread_id/resume", () => {
     servers.push(server)
     const threadId = `thread-malformed-${tempDirs.length}`
 
-    const seedResponse = await fetch(new URL(`/threads/${threadId}/runs/wait`, server.url), {
-      body: JSON.stringify({ input: {}, route: "/noop#graph" }),
-      headers: { "content-type": "application/json" },
-      method: "POST",
-    })
-    expect(seedResponse.status).toBe(200)
+    await seedRoute(server.url, threadId)
 
     const response = await postResume(server.url, threadId, {
       resume: [{ interruptId: "perm-1", status: "cancelled" }],
@@ -370,12 +365,18 @@ describe("POST /threads/:thread_id/resume", () => {
 })
 
 async function seedRoute(serverUrl: string, threadId: string): Promise<void> {
-  const response = await fetch(new URL(`/threads/${threadId}/runs/wait`, serverUrl), {
-    body: JSON.stringify({ input: {}, route: "/noop#graph" }),
-    headers: { "content-type": "application/json" },
-    method: "POST",
-  })
-  expect(response.status).toBe(200)
+  const flags = globalThis as { __b4ResumeSeeding?: boolean }
+  flags.__b4ResumeSeeding = true
+  try {
+    const response = await fetch(new URL(`/threads/${threadId}/runs/wait`, serverUrl), {
+      body: JSON.stringify({ input: {}, route: "/noop#graph" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    })
+    expect(response.status).toBe(200)
+  } finally {
+    flags.__b4ResumeSeeding = false
+  }
 }
 
 async function postResume(serverUrl: string, threadId: string, body: unknown): Promise<Response> {
@@ -430,7 +431,9 @@ async function createCheckpointFixtureApp(pendingWrites: readonly unknown[]) {
       export default {
         checkpointer: {
           getTuple: async () => {
-            reads += 1;
+            // Reads while seedRoute runs are not the resume endpoint's: the
+            // run endpoints read pending state for a parked client call.
+            if (!globalThis.__b4ResumeSeeding) reads += 1;
             if (reads > 1) throw new Error("resume endpoint read checkpoint more than once");
             return { pendingWrites: ${JSON.stringify(pendingWrites)} };
           },
