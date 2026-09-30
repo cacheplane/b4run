@@ -97,6 +97,10 @@ describe("captureTargetBaseline over a target-sized capture", () => {
     } finally {
       clearInterval(tick)
     }
-    expect(longest).toBeLessThan(250)
+    // A wedge detector, not a stopwatch: the stall this guards against was a 13-26 s block;
+    // fixed, it measures ~80 ms idle and has read 600 ms under heavy host load. The count
+    // assertion above is what proves one verification; this bound only catches a return of
+    // per-file work, with headroom for a loaded CI runner.
+    expect(longest).toBeLessThan(2_000)
   }, 120_000)
 })
