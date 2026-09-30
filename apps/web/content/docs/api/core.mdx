@@ -46,6 +46,17 @@ Importing `/node` registers the disk-backed `b4.config.ts` loader. The root stay
 | `BUILD_TARGET_NAMES` | List the known `b4 build` target names; the tuple `BuildTargetName` is derived from. |
 | `isBuildTargetName` | Narrow an untyped string to a known `b4 build` target name. |
 | `BUILT_IN_TOOL_NAMES` | List built-in capability tool names. |
+| `ClientToolCallEnvelope` | Describe the interrupt envelope a parked client tool call leaves in the checkpoint. |
+| `ClientToolDefinition` | Describe a client-provided tool definition after envelope validation. |
+| `ClientToolResumeValue` | Describe the value the internal resume delivers to a parked client tool call. |
+| `ABANDONED_CLIENT_TOOL_RESULT` | The tool result recorded for a client tool call the client never answered. |
+| `CLIENT_TOOL_CALL_TYPE` | The interrupt envelope `type` of a parked client tool call. |
+| `CLIENT_TOOL_PREFIX` | The model-visible prefix of every client tool name (`client_`). |
+| `clientToolInterruptId` | Derive the stable interrupt id of a client tool call from its provider tool-call id. |
+| `createClientToolStub` | Create the stub tool that gates, records and parks a client tool call. |
+| `gateClientToolOp` | Gate a client tool call under the `clientTool` permission key. |
+| `isClientToolCallEnvelope` | Narrow an interrupt value to a client tool call envelope. |
+| `MissingClientToolRecorderError` | Thrown when a client tool call would park with no recorder to answer it. |
 | `MemorySupersedeDetail` | Describe a gated memory supersede. |
 | `SubagentGateRequest` | Describe a gated subagent operation. |
 | `gateMemorySupersede` | Gate a memory supersede operation. |
