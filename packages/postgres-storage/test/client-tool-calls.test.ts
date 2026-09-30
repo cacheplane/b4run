@@ -140,7 +140,7 @@ describe.skipIf(!enabled)("postgres client tool call store against real Postgres
       await store.answer({ threadId: "t-1", toolCallId: "c-1", result: "done", at: AT })
       expect(await store.voidOutstanding({ threadId: "t-1", at: AT })).toBe(1)
       expect((await store.get("t-1", "c-1"))?.voidedAt).toBeNull()
-      expect((await store.get("t-2", "c-2"))?.voidedAt).toBeUndefined()
+      expect((await store.get("t-1", "c-2"))?.voidedAt).toBe(AT)
       expect(await store.voidOutstanding({ threadId: "t-1", at: AT })).toBe(0)
     })
   }, 60_000)
@@ -192,6 +192,39 @@ describe.skipIf(!enabled)("postgres client tool call store against real Postgres
       expect((await stores[0]?.get("t-1", "c-1"))?.result).toBe(`result-${winners[0]}`)
     } finally {
       await Promise.all(stores.map((s) => s.close()))
+    }
+  }, 120_000)
+
+  test("answer raced against void across two pools never leaves both set", async () => {
+    const prefix = freshPrefix()
+    const storeA = createPostgresClientToolCallStore({ connectionString: url, tablePrefix: prefix })
+    const storeB = createPostgresClientToolCallStore({ connectionString: url, tablePrefix: prefix })
+    try {
+      await storeA.ready()
+      await storeB.ready()
+      for (let i = 0; i < 5; i++) {
+        const toolCallId = `race-${i}`
+        await storeA.issue(call({ toolCallId, interruptId: `client-${toolCallId}` }))
+        const [answer, voided] = await Promise.all([
+          storeA.answer({ threadId: "t-1", toolCallId, result: "r", at: AT }),
+          storeB.voidOutstanding({ threadId: "t-1", toolCallIds: [toolCallId], at: AT }),
+        ])
+        const row = await storeA.get("t-1", toolCallId)
+        expect(row).toBeDefined()
+        expect(row?.answeredAt !== null && row?.voidedAt !== null).toBe(false)
+        if (answer.outcome === "answered") {
+          expect(row?.answeredAt).toBe(AT)
+          expect(row?.voidedAt).toBeNull()
+          expect(voided).toBe(0)
+        } else {
+          expect(answer.outcome).toBe("voided")
+          expect(row?.voidedAt).toBe(AT)
+          expect(row?.answeredAt).toBeNull()
+          expect(voided).toBe(1)
+        }
+      }
+    } finally {
+      await Promise.all([storeA.close(), storeB.close()])
     }
   }, 120_000)
 
