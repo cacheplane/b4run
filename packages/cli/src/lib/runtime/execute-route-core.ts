@@ -488,6 +488,13 @@ export type MaterializeResolvedRouteGraphOptions = Omit<BootResolvedInstances, "
   readonly sandboxThreadId?: string
   readonly signal?: AbortSignal
   /**
+   * The thread the graph is materialized for, when it is one thread's (the
+   * AG-UI handler's close of abandoned client tool calls): prepared as that
+   * thread's turn is, so the graph matches the one that parked. Omitted for a
+   * deployment graph, which is thread-independent.
+   */
+  readonly threadId?: string
+  /**
    * The client tools the run being materialized was prepared with, so the
    * graph (and so its checkpoint's tool set) matches the parked run's.
    */

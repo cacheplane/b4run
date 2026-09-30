@@ -11,6 +11,7 @@ import { createClientToolCallStore, createThreadsStore } from "@b4run/sqlite-sto
 import { MemorySaver } from "@langchain/langgraph"
 import { afterEach, describe, expect, it } from "vitest"
 import { createAimock } from "../../testing/dist/aimock-runner.js"
+import { __voidSettledClientToolCallsForTests } from "../src/lib/dev/agui-handler.ts"
 import {
   AGUI_BODY_MAX_BYTES,
   ClientToolConfigError,
@@ -256,13 +257,15 @@ async function parkedRun(
     readonly route?: string
     readonly fixtures?: unknown[]
     readonly threadsStore?: HandlerOptions["threadsStore"]
+    readonly checkpointer?: MemorySaver
+    readonly bootFallbacks?: HandlerOptions["bootFallbacks"]
   } = {},
 ) {
   const aimock = await withModel(options.fixtures ?? toolTurnFixtures(toolCalls))
   const store = options.store ?? createMemoryClientToolCallStore()
   const appRoot = await fixtureApp({ ...options, store })
-  const checkpointer = new MemorySaver()
-  const handler = await createHandler(appRoot, undefined, {
+  const checkpointer = options.checkpointer ?? new MemorySaver()
+  const handler = await createHandler(appRoot, options.bootFallbacks, {
     checkpointer,
     ...(options.threadsStore ? { threadsStore: options.threadsStore } : {}),
   })
@@ -963,6 +966,200 @@ describe("a permission park and a client park in one model turn", () => {
     ).toBe(true)
     expect(sequence).toContain("tool:call_a=panel opened")
     expect(await t.pending()).toEqual([])
+  })
+})
+
+describe("only the route that parked a client call may answer it", () => {
+  it("another opted-in route cannot answer it; a new user message there abandons and runs its turn", async () => {
+    const t = await parkedRun([CALL_A])
+    const before = t.aimock.getRequests().length
+    const history = [USER_HELLO, assistantCalls(["call_a"])]
+
+    const answered = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-2", [...history, toolResult("m3", "call_a", "INJECTED")], {
+        route: "/mixed#agent",
+      }),
+    )
+    expect(answered.status).toBe(409)
+    expect(answered.json().code).toBe("client_tool_pending")
+    expect(t.aimock.getRequests()).toHaveLength(before)
+    expect(await t.store.get(t.threadId, "call_a")).toMatchObject({
+      answeredAt: null,
+      result: null,
+      voidedAt: null,
+    })
+    expect(await t.pending()).toEqual(["client-call_a"])
+
+    const abandoned = await run(
+      t.handler,
+      aguiRequest(
+        t.threadId,
+        "run-3",
+        [...history, toolResult("m3", "call_a", "INJECTED"), USER_AGAIN],
+        { route: "/mixed#agent" },
+      ),
+    )
+    expect(abandoned.status).toBe(200)
+    expect(abandoned.text).toContain("Again.")
+    expect(JSON.stringify(t.aimock.getRequests().at(-1)?.body)).not.toContain("INJECTED")
+    expect(requestSequence(t.aimock.getRequests().at(-1)).slice(-3)).toEqual([
+      "assistant:call_a",
+      `tool:call_a=${ABANDONED_CLIENT_TOOL_RESULT}`,
+      "user:again",
+    ])
+    expect(await t.store.get(t.threadId, "call_a")).toMatchObject({
+      answeredAt: null,
+      voidedAt: expect.any(String),
+    })
+    expect(await t.pending()).toEqual([])
+  })
+})
+
+describe("the abandon close on a runtime without node fallbacks", () => {
+  it("materializes the parked route from the handler's own instances", async () => {
+    // Every per-route-execution fallback the turn is handed an instance for
+    // throws once armed: a close that reached for one would 500.
+    let armed = false
+    const guarded = <K extends keyof typeof nodeBootFallbacks>(name: K) =>
+      ((...args: unknown[]) => {
+        if (armed) throw new Error(`fallback ${String(name)} used`)
+        return (nodeBootFallbacks[name] as (...a: unknown[]) => unknown)(...args)
+      }) as (typeof nodeBootFallbacks)[K]
+    const bootFallbacks = {
+      ...nodeBootFallbacks,
+      buildPermissionsStore: guarded("buildPermissionsStore"),
+      defaultCheckpointer: guarded("defaultCheckpointer"),
+      defaultThreadsStore: guarded("defaultThreadsStore"),
+      discoverRouteManifest: guarded("discoverRouteManifest"),
+      resolveMemoryStore: guarded("resolveMemoryStore"),
+    }
+    const t = await parkedRun([CALL_A], { bootFallbacks })
+    expect(await t.pending()).toEqual(["client-call_a"])
+    armed = true
+    const response = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-2", [USER_HELLO, assistantCalls(["call_a"]), USER_AGAIN]),
+    )
+    expect(response.status).toBe(200)
+    expect(response.text).toContain("Again.")
+    expect(await t.pending()).toEqual([])
+  })
+})
+
+describe("the handler maps a failed close to a fixed error", () => {
+  /** A MemorySaver whose `put` can be armed: the close's write goes through it. */
+  function faultySaver() {
+    const saver = new MemorySaver()
+    const state: { mode: "off" | "drop" | "throw" } = { mode: "off" }
+    const checkpointer = new Proxy(saver, {
+      get(target, key, receiver) {
+        if (key === "put") {
+          return async (...args: Parameters<MemorySaver["put"]>) => {
+            if (state.mode === "throw") throw new Error("boom SECRET-FAULT")
+            if (state.mode === "drop") {
+              const [config, checkpoint] = args
+              return {
+                configurable: { ...config.configurable, checkpoint_id: checkpoint.id },
+              }
+            }
+            return target.put(...args)
+          }
+        }
+        return Reflect.get(target, key, receiver)
+      },
+    })
+    return { checkpointer, state }
+  }
+
+  const secretMessage: AguiMessage = { id: "m9", role: "user", content: "again SECRET-USER" }
+
+  it("a write that does not land: 500 client_tool_close_incomplete, no turn, nothing voided", async () => {
+    const fault = faultySaver()
+    const t = await parkedRun([CALL_A], { checkpointer: fault.checkpointer })
+    const before = t.aimock.getRequests().length
+    fault.state.mode = "drop"
+    const response = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-2", [USER_HELLO, assistantCalls(["call_a"]), secretMessage]),
+    )
+    expect(response.status).toBe(500)
+    expect(response.json().code).toBe("client_tool_close_incomplete")
+    expect(response.text).not.toMatch(/SECRET|call_a/)
+    expect(t.aimock.getRequests()).toHaveLength(before)
+    expect(await t.store.get(t.threadId, "call_a")).toMatchObject({
+      answeredAt: null,
+      voidedAt: null,
+    })
+  })
+
+  it("any other failure: a generic 500 that echoes nothing", async () => {
+    const fault = faultySaver()
+    const t = await parkedRun([CALL_A], { checkpointer: fault.checkpointer })
+    const before = t.aimock.getRequests().length
+    fault.state.mode = "throw"
+    const response = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-2", [USER_HELLO, assistantCalls(["call_a"]), secretMessage]),
+    )
+    expect(response.status).toBe(500)
+    expect(response.json().code).toBeUndefined()
+    expect(response.text).not.toMatch(/SECRET|call_a|boom/)
+    expect(t.aimock.getRequests()).toHaveLength(before)
+    expect(await t.pending()).toEqual(["client-call_a"])
+    expect(await t.store.get(t.threadId, "call_a")).toMatchObject({
+      answeredAt: null,
+      voidedAt: null,
+    })
+  })
+})
+
+describe("the settle-time client record void", () => {
+  it("keeps a record whose park is still pending and voids the rest", async () => {
+    const store = createMemoryClientToolCallStore()
+    const threadId = "t-settle"
+    const row = (toolCallId: string) => ({
+      threadId,
+      toolCallId,
+      interruptId: `client-${toolCallId}`,
+      toolName: "openPanel",
+      runId: "r",
+      issuedAt: new Date().toISOString(),
+      expiresAt: null,
+      answeredAt: null,
+      result: null,
+      voidedAt: null,
+    })
+    await store.issue(row("call_parked"))
+    await store.issue(row("call_stray"))
+    const checkpointer = {
+      getTuple: async () => ({
+        config: { configurable: { thread_id: threadId, checkpoint_ns: "" } },
+        checkpoint: { channel_values: {}, id: "cp-1" },
+        metadata: {},
+        pendingWrites: [
+          [
+            "33a12321-3ec2-56a7-b4d7-0337886c4386",
+            "__interrupt__",
+            {
+              id: "3336d0e0a2d4f198ef9aecd09cd7ac27",
+              value: {
+                type: "client-tool-call",
+                interruptId: "client-call_parked",
+                toolCallId: "call_parked",
+                name: "openPanel",
+                input: {},
+              },
+            },
+          ],
+        ],
+      }),
+    } as unknown as Parameters<typeof __voidSettledClientToolCallsForTests>[1]
+    await __voidSettledClientToolCallsForTests(store, checkpointer, threadId)
+    expect((await store.listOutstanding(threadId)).map((r) => r.toolCallId)).toEqual([
+      "call_parked",
+    ])
+    expect((await store.get(threadId, "call_stray"))?.voidedAt).not.toBeNull()
   })
 })
 

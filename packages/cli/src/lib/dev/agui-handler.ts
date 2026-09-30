@@ -659,11 +659,20 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     const approvalParksOnly = withoutClientToolParks(snapshot)
     const trailingUserMessage = b4Input.messages.at(-1)?.role === "user"
     let clientTurn: ClientToolTurn = { mode: "none" }
-    if (clientParks.length > 0 && !envelopePolicy.clientTools) {
-      // A client park on a route that does not (or no longer does) take
-      // client tools — the opt-in was removed, or another route is being
-      // run on the thread. This route never answers, resumes or re-offers a
-      // client call, so a trailing tool message stays refused. A new user
+    // Only the route that PARKED the client calls may answer or resume them:
+    // resuming another route's park on this route's graph would run it with
+    // the wrong prompt, tools and middleware, and let a caller admitted only
+    // to this route supply that route's result. Read BEFORE anything is
+    // stored, under the claim the snapshot was read under.
+    const answersHere =
+      clientParks.length > 0 &&
+      envelopePolicy.clientTools &&
+      readParkedRoute(await threadsStore.getThread(threadId)) === routeKey
+    if (clientParks.length > 0 && !answersHere) {
+      // A client park this route may not answer: the route does not (or no
+      // longer does) take client tools, or another route parked it. This
+      // route never answers, resumes or re-offers a client call, so a
+      // trailing tool message stays refused. A new user
       // message abandons the parked calls exactly as on an opted-in route,
       // or the thread would be a dead end. A permission park pending
       // alongside stays refused too: it could only be resumed together with
@@ -685,7 +694,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
         now: new Date(),
       })
       if (clientTurn.mode !== "abandon") return clientToolPending()
-    } else if (clientParks.length > 0) {
+    } else if (answersHere) {
       const store = clientToolRuntime.store
       if (!store) return clientToolStoreUnavailable()
       const tooLarge = await oversizedClientToolResult(
@@ -937,6 +946,21 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       }
     }
 
+    // The route-execution instances, shared by the abandon's close and the
+    // turn, so the close materializes the parked route exactly as a turn
+    // prepares it — on a runtime without node fallbacks too.
+    const routeInstances = {
+      ...boot,
+      checkpointer,
+      ...(getMemoryStore ? { memoryStore: getMemoryStore } : {}),
+      ...(permissionsStore ? { permissionsStore } : {}),
+      ...(registry.manifest ? { routeManifest: registry.manifest } : {}),
+      ...(sandboxManager ? { sandboxManager } : {}),
+      ...(staticModules ? { staticModules } : {}),
+      threadId,
+      threadsStore,
+    }
+
     // The abandon's close, under the run slot (and the resume claim every
     // client-park request holds), then the void — only once the checkpoint
     // no longer holds the parks, so a failed close leaves every record
@@ -945,14 +969,13 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     if (clientTurn.mode === "abandon") {
       const refused = await closeAbandonedClientParks({
         appRoot,
-        boot,
-        checkpointer,
-        clientParks,
         calls: clientTurn.calls,
+        clientParks,
+        currentRouteKey: routeKey,
+        instances: routeInstances,
         middlewareContext: middlewareResult.context,
         registry,
-        threadId,
-        threadsStore,
+        signal: run.signal,
       })
       if (refused) return refused
       if (clientTurn.abandonedToolCallIds.length > 0 && clientToolStore) {
@@ -1032,6 +1055,16 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     // back into an AP terminal. The finally delivers it once to attachers,
     // without adding a terminal frame to the live turn's digest.
     let terminalChunk: StreamChunk | undefined
+    // A turn that settled without parking leaves no client call waiting: void
+    // any record still outstanding (one whose void failed after a close, or a
+    // stray), keeping only a call whose park is still in the checkpoint — a
+    // park the stream could not see must stay answerable.
+    let deferClientRecordVoid = false
+    const voidClientRecordsIfSettled = async (): Promise<void> => {
+      if (!sawInterrupt && clientToolStore) {
+        await voidSettledClientToolCalls(clientToolStore, checkpointer, threadId)
+      }
+    }
     // From here on, the stream owns both the request listeners and any resume
     // claim. Its execution-finally path releases the claim only after the
     // interrupted route has actually unwound.
@@ -1041,8 +1074,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
           try {
             const routeStream = streamRoute({
               appRoot,
-              ...boot,
-              checkpointer,
+              ...routeInstances,
               input: {
                 messages:
                   newestUserMessage && !continueAfterClose
@@ -1059,17 +1091,10 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
               // site's presence check and park without a grant.
               ...(approvalGrantMinter ? { approvalGrantMinter } : {}),
               ...(middlewareResult.context ? { middlewareContext: middlewareResult.context } : {}),
-              ...(getMemoryStore ? { memoryStore: getMemoryStore } : {}),
-              ...(permissionsStore ? { permissionsStore } : {}),
               routeFile: route.routeFile,
               routeId: route.routeId,
-              ...(registry.manifest ? { routeManifest: registry.manifest } : {}),
               routePath: route.routePath,
-              ...(sandboxManager ? { sandboxManager } : {}),
               signal: run.signal,
-              ...(staticModules ? { staticModules } : {}),
-              threadId,
-              threadsStore,
             })
             const abortableRouteStream = abortableAsyncIterable(
               routeStream,
@@ -1160,9 +1185,12 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
             // failed after a close, or a stray), keeping only a call whose
             // park is still in the checkpoint — a park the stream could not
             // see (see the status note below) must stay answerable.
-            if (!sawInterrupt && clientToolStore) {
-              await voidSettledClientToolCalls(clientToolStore, checkpointer, threadId)
-            }
+            // Only once the route source has settled. A drained or failed
+            // source has; an ABORTED one may still be unwinding (see
+            // `sourceCleanup`) and may yet land a park whose record it already
+            // issued, so that case voids on the release path below instead.
+            deferClientRecordVoid = run.signal.aborted
+            if (!deferClientRecordVoid) await voidClientRecordsIfSettled()
             // One write covers the drained turn, the failed one and the
             // disconnected one, because `toAguiEvents` never throws into its
             // consumer: an upstream error or abort arrives as a RUN_ERROR event
@@ -1196,7 +1224,13 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
             run.release()
             releaseClaimWhenSettled?.()
           }
-          if (sourceCleanup) void sourceCleanup.finally(releaseExecutionClaims)
+          if (deferClientRecordVoid) {
+            // The slot is held until the void is done, so no successor run
+            // can race it; the void itself never throws.
+            void (sourceCleanup ?? Promise.resolve())
+              .then(voidClientRecordsIfSettled, voidClientRecordsIfSettled)
+              .finally(releaseExecutionClaims)
+          } else if (sourceCleanup) void sourceCleanup.finally(releaseExecutionClaims)
           else releaseExecutionClaims()
         }
       },
@@ -1260,34 +1294,54 @@ function clientToolPending(): Response {
  */
 async function closeAbandonedClientParks(options: {
   readonly appRoot: string
-  readonly boot: AgUiFetchRequestOptions["boot"]
-  readonly checkpointer: BaseCheckpointSaver
-  readonly clientParks: readonly PendingInterrupt[]
   readonly calls: Extract<ClientToolTurn, { mode: "abandon" }>["calls"]
+  readonly clientParks: readonly PendingInterrupt[]
+  /** The route this request runs; the close may be on another's park. */
+  readonly currentRouteKey: string
+  /** The same route-execution instances the turn is prepared with. */
+  readonly instances: Omit<BootResolvedInstances, "checkpointer" | "threadsStore"> & {
+    readonly checkpointer: BaseCheckpointSaver
+    readonly sandboxManager?: SandboxManager
+    readonly threadId: string
+    readonly threadsStore: ThreadsStore
+  }
   readonly middlewareContext: Readonly<Record<string, unknown>> | undefined
   readonly registry: RuntimeRegistry
-  readonly threadId: string
-  readonly threadsStore: ThreadsStore
+  readonly signal: AbortSignal
 }): Promise<Response | undefined> {
-  const { checkpointer, threadId } = options
-  const parkedRouteKey = readParkedRoute(await options.threadsStore.getThread(threadId))
+  const { instances } = options
+  const { checkpointer, threadId } = instances
+  const parkedRouteKey = readParkedRoute(await instances.threadsStore.getThread(threadId))
   const parkedRoute =
     parkedRouteKey === undefined ? undefined : options.registry.lookup(parkedRouteKey)
-  if (!parkedRoute || parkedRoute.mode !== "agent") {
+  if (parkedRoute?.mode !== "agent") {
+    // Fail closed, but loudly: until an operator repairs the thread's
+    // metadata, every abandon on it is refused here.
+    console.warn(
+      `B4: cannot close abandoned client tool calls on ${threadId}: the parking route is ${
+        parkedRouteKey === undefined ? "not recorded" : "not a resolvable agent route"
+      }.`,
+    )
     return clientToolCloseFailed(
       "The route that parked this thread's client tool calls cannot be resolved; they cannot be closed.",
     )
   }
   try {
+    // The request's middleware context was computed for THIS request's
+    // route, so it is reused only when that is the route that parked; a
+    // cross-route close materializes the parked route without it.
+    const sameRoute = parkedRouteKey === options.currentRouteKey
     const graph = (await materializeResolvedRouteGraph({
       appRoot: options.appRoot,
-      ...options.boot,
-      checkpointer,
+      ...instances,
       clientTools: withParkedClientTools([], options.clientParks),
-      ...(options.middlewareContext ? { middlewareContext: options.middlewareContext } : {}),
+      ...(sameRoute && options.middlewareContext
+        ? { middlewareContext: options.middlewareContext }
+        : {}),
       routeFile: parkedRoute.routeFile,
       routeId: parkedRoute.routeId,
       routePath: parkedRoute.routePath,
+      signal: options.signal,
     })) as ClosableAgentGraph
     await closeAbandonedClientToolCalls({ graph, checkpointer, threadId, calls: options.calls })
     return undefined
@@ -1333,6 +1387,9 @@ function clientToolCloseFailed(message: string): Response {
     status: 409,
   })
 }
+
+/** Test seam: the settle-time client record void, exported only for unit tests. */
+export const __voidSettledClientToolCallsForTests = voidSettledClientToolCalls
 
 /**
  * Void the thread's outstanding client tool records once a turn settled
