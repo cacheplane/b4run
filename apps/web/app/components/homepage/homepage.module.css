@@ -16,6 +16,24 @@
 }
 .home a {
   color: inherit;
+  /* Links inherit the text colour, so an underline is what marks them (WCAG
+     1.4.1): the docs' olive, thicker on hover. Overrides need more than one
+     class, because this is (0,1,1) and lives in its own module. */
+  text-decoration-line: underline;
+  text-decoration-color: var(--color-olive);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: text-decoration-thickness 120ms ease;
+}
+.home a:hover {
+  text-decoration-thickness: 2px;
+}
+/* On the dark panels the olive disappears; the panel accent takes its place. */
+.takeaway a[href] {
+  text-decoration-color: var(--color-panel-accent);
+}
+.codeHeading a[href] {
+  text-decoration-color: var(--color-panel-accent);
 }
 /* Copy left, the scaffold terminal right; stacked below 960px. */
 .hero {

@@ -78,6 +78,10 @@
   /* The global focus ring is tuned for paper; on the panel it uses the accent. */
   --color-focus: var(--color-panel-accent);
 }
+/* Links on the dark panel: the panel accent, not the olive (see homepage.module.css). */
+.panel a[href] {
+  text-decoration-color: var(--color-panel-accent);
+}
 .path {
   margin: 0;
   padding: 12px 16px;
