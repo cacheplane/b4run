@@ -276,17 +276,31 @@ function code(src: string, keepStrings = false): string {
 
 describe("run's only way to an approval", () => {
   const cli = readFileSync(join(import.meta.dirname, "../src/cli.ts"), "utf8")
-  /** The source of the top-level function `name`, up to the next top-level declaration. */
+  /**
+   * A top-level declaration's head, any of the forms that could hide a reachable helper from the
+   * walk: `export`ed or not, a function (async or generator), a binding, or a class.
+   */
+  const DECLARATION =
+    "(?:export\\s+)?(?:default\\s+)?(?:async\\s+)?(?:function\\*?|const|let|var|class)\\s+"
+  /** The source of the top-level declaration `name`, up to the next top-level declaration. */
   const body = (name: string) => {
-    const start = cli.search(
-      new RegExp(`\\n(?:async function|function|const|let) ${name.replace(/\$/g, "\\$")}\\b`),
-    )
+    const start = cli.search(new RegExp(`\\n${DECLARATION}${name.replace(/\$/g, "\\$")}\\b`))
     expect(start, name).toBeGreaterThan(0)
     const next = cli
       .slice(start + 1)
-      .search(/\n(async function|function|const|let|interface|type|main)\b/)
+      .search(
+        /\n(?:export\s+)?(?:default\s+)?(async\s+function|function|const|let|var|class|interface|type|enum|main)\b/,
+      )
     return cli.slice(start, next === -1 ? undefined : start + 1 + next)
   }
+
+  it("run-steps.ts, the whole module run decides with, approves nothing", () => {
+    const steps = code(
+      readFileSync(join(import.meta.dirname, "../src/lib/operator/run-steps.ts"), "utf8"),
+      true,
+    )
+    for (const forbidden of FORBIDDEN) expect(steps, String(forbidden)).not.toMatch(forbidden)
+  })
 
   it("is reviewOutcome with no digest, no approval flag, no key and no note", () => {
     const run = body("runCommand")
@@ -316,7 +330,7 @@ describe("run's only way to an approval", () => {
    */
   const reached = () => {
     const names = new Set(
-      [...cli.matchAll(/\n(?:async function|function|const|let) ([A-Za-z_$][\w$]*)/g)].map(
+      [...cli.matchAll(new RegExp(`\\n${DECLARATION}([A-Za-z_$][\\w$]*)`, "g"))].map(
         (m) => m[1] as string,
       ),
     )

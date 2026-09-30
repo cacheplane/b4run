@@ -1101,7 +1101,12 @@ describe("up", () => {
   }, 30_000)
 
   it("sends the workers SIGTERM only after the controller has exited", async () => {
-    const { report, lines, stop, done } = await fakeUp({ FAKE_APP_SLOW_EXIT: "controller" })
+    // A slow exit that must still be a clean one: headroom over the 2 s default, so a loaded
+    // machine does not turn it into a SIGKILL and exit 1.
+    const { report, lines, stop, done } = await fakeUp(
+      { FAKE_APP_SLOW_EXIT: "controller" },
+      { stopTimeoutMs: 10_000 },
+    )
     await until(() => lines.some((l) => l.includes("│ ready:")))
     pidsOf(report)
     stop.abort()
