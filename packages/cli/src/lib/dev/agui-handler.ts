@@ -50,7 +50,11 @@ import {
   DEFAULT_CLIENT_TOOL_TTL_MS,
   MAX_CLIENT_TOOL_RESULT,
 } from "./client-tool-runtime.js"
-import { type ClientToolTurn, resolveClientToolTurn } from "./client-tool-turn.js"
+import {
+  type ClientToolTurn,
+  isClientToolCallExpired,
+  resolveClientToolTurn,
+} from "./client-tool-turn.js"
 import type { LiveTurnHub, LiveTurnProducer } from "./live-turn-hub.js"
 import { headersToRecord, runMiddleware } from "./middleware.js"
 import { applyMiddlewareAfter } from "./middleware-after.js"
@@ -708,19 +712,21 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     } else if (answersHere) {
       const store = clientToolRuntime.store
       if (!store) return clientToolStoreUnavailable()
-      const tooLarge = await oversizedClientToolResult(
+      const now = new Date()
+      const sized = await screenOversizedClientToolResults(
         store,
         threadId,
         clientParks,
         b4Input.messages,
+        now,
       )
-      if (tooLarge) return tooLarge
+      if (sized.refused) return sized.refused
       clientTurn = await resolveClientToolTurn({
         store,
         threadId,
         pending: snapshot,
-        messages: b4Input.messages,
-        now: new Date(),
+        messages: sized.messages,
+        now,
       })
     }
     // Abandoning: the parked client calls are closed in the checkpoint under
@@ -1469,47 +1475,60 @@ function clientToolStoreUnavailable(): Response {
 }
 
 /**
- * 413 when a `role: "tool"` message answering an OUTSTANDING parked call is
- * over MAX_CLIENT_TOOL_RESULT — checked before `resolveClientToolTurn`, so an
- * over-cap result is never recorded. Messages for anything else are history
- * (or forgeries) the resolver ignores, so their size is not judged here.
+ * Screens `role: "tool"` messages over MAX_CLIENT_TOOL_RESULT before
+ * `resolveClientToolTurn`, which stores answers before it decides anything,
+ * so an over-cap result is never recorded.
+ *
+ * 413 only when this request is ANSWERING: its last message is a tool message
+ * and an over-cap one answers an outstanding, unexpired parked call. Every
+ * AG-UI client resends its history, so refusing any other request that still
+ * carries an over-cap result would dead-end the thread: every later run,
+ * including a new user message after the TTL, would be refused forever.
+ * Otherwise the over-cap messages are dropped from what the resolver sees, so
+ * the call reads as unanswered and is abandoned with
+ * ABANDONED_CLIENT_TOOL_RESULT; the over-cap content never reaches the store
+ * or the model.
  */
-async function oversizedClientToolResult(
+async function screenOversizedClientToolResults<
+  M extends { readonly role: string; readonly content: string; readonly toolCallId?: string },
+>(
   store: NonNullable<ClientToolRuntime["store"]>,
   threadId: string,
   clientParks: readonly PendingInterrupt[],
-  messages: ReadonlyArray<{
-    readonly role: string
-    readonly content: string
-    readonly toolCallId?: string
-  }>,
-): Promise<Response | undefined> {
-  const parked = new Set(
-    clientParks.flatMap((park) =>
-      isClientToolCallEnvelope(park.value) ? [park.value.toolCallId] : [],
-    ),
-  )
-  const candidates = messages.filter(
-    (message) =>
-      message.role === "tool" &&
-      typeof message.toolCallId === "string" &&
-      parked.has(message.toolCallId),
-  )
-  if (candidates.length === 0) return undefined
-  const outstanding = new Set((await store.listOutstanding(threadId)).map((row) => row.toolCallId))
+  messages: readonly M[],
+  now: Date,
+): Promise<{ readonly refused?: Response; readonly messages: readonly M[] }> {
   const encoder = new TextEncoder()
-  for (const message of candidates) {
-    if (!outstanding.has(message.toolCallId as string)) continue
-    if (encoder.encode(message.content).byteLength <= MAX_CLIENT_TOOL_RESULT) continue
-    return Response.json(
-      createRequestErrorBody(`Client tool result exceeds ${MAX_CLIENT_TOOL_RESULT} bytes`, {
-        code: "client_tool_result_too_large",
-        maxBytes: MAX_CLIENT_TOOL_RESULT,
-      }),
-      { status: 413 },
+  const oversized = (message: M): boolean =>
+    message.role === "tool" && encoder.encode(message.content).byteLength > MAX_CLIENT_TOOL_RESULT
+  if (!messages.some(oversized)) return { messages }
+  if (messages.at(-1)?.role === "tool") {
+    const parked = clientToolCallIds(clientParks)
+    const answerable = new Set(
+      (await store.listOutstanding(threadId))
+        .filter((row) => parked.has(row.toolCallId) && !isClientToolCallExpired(row, now))
+        .map((row) => row.toolCallId),
     )
+    const refused = messages.some(
+      (message) =>
+        oversized(message) &&
+        typeof message.toolCallId === "string" &&
+        answerable.has(message.toolCallId),
+    )
+    if (refused) {
+      return {
+        refused: Response.json(
+          createRequestErrorBody(`Client tool result exceeds ${MAX_CLIENT_TOOL_RESULT} bytes`, {
+            code: "client_tool_result_too_large",
+            maxBytes: MAX_CLIENT_TOOL_RESULT,
+          }),
+          { status: 413 },
+        ),
+        messages,
+      }
+    }
   }
-  return undefined
+  return { messages: messages.filter((message) => !oversized(message)) }
 }
 
 /**

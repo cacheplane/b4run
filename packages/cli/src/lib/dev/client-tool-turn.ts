@@ -147,7 +147,7 @@ export async function resolveClientToolTurn(options: {
       continue
     }
     if (row.answeredAt !== null) continue
-    if (isExpired(row, now)) {
+    if (isClientToolCallExpired(row, now)) {
       expired = true
       continue
     }
@@ -216,7 +216,8 @@ async function readRows(
   return new Map(rows.map((row) => [row.toolCallId, row]))
 }
 
-function isExpired(row: ClientToolCallRecord, now: Date): boolean {
+/** Whether an outstanding record has expired at `now`; an unparseable `expiresAt` counts as expired. */
+export function isClientToolCallExpired(row: ClientToolCallRecord, now: Date): boolean {
   if (row.expiresAt === null) return false
   const expiresAt = Date.parse(row.expiresAt)
   if (Number.isNaN(expiresAt)) return true

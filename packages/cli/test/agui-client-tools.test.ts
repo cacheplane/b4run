@@ -680,6 +680,60 @@ describe("POST /agui/:route with client-provided tools", () => {
     expect((await t.store.get(t.threadId, "call_a"))?.answeredAt).toBeNull()
   })
 
+  it("an over-cap result resent with a new user message is dropped, not a 413: the call closes as abandoned", async () => {
+    const t = await parkedRun([CALL_A])
+    const big = "x".repeat(MAX_CLIENT_TOOL_RESULT + 1)
+    const history = [USER_HELLO, assistantCalls(["call_a"]), toolResult("m3", "call_a", big)]
+    expect((await run(t.handler, aguiRequest(t.threadId, "run-2", history))).status).toBe(413)
+
+    // The client resends its history, over-cap result included, with a new message.
+    const response = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-3", [...history, USER_AGAIN]),
+    )
+    expect(response.status).toBe(200)
+    expect(response.text).toContain("Again.")
+    const sequence = requestSequence(t.aimock.getRequests().at(-1))
+    expect(sequence).toContain(`tool:call_a=${ABANDONED_CLIENT_TOOL_RESULT}`)
+    expect(sequence.at(-1)).toBe("user:again")
+    expect(JSON.stringify(t.aimock.getRequests().at(-1)?.body)).not.toContain("xxxxxxxx")
+    expect(await t.store.get(t.threadId, "call_a")).toMatchObject({
+      answeredAt: null,
+      result: null,
+      voidedAt: expect.any(String),
+    })
+    expect(await t.pending()).toEqual([])
+  })
+
+  it("an over-cap result for an EXPIRED call is not a 413: the call closes and the model replies", async () => {
+    const store = createMemoryClientToolCallStore()
+    const t = await parkedRun([CALL_A], {
+      store,
+      config: `export default { server: { agui: { clientTools: ["/park"], clientToolStore: globalThis.${STORE_KEY}, clientToolTtlMs: 1 } } }\n`,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    const big = "x".repeat(MAX_CLIENT_TOOL_RESULT + 1)
+    const response = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-2", [
+        USER_HELLO,
+        assistantCalls(["call_a"]),
+        toolResult("m3", "call_a", big),
+      ]),
+    )
+    expect(response.status).toBe(200)
+    expect(response.text).toContain("Opened.")
+    const sequence = requestSequence(t.aimock.getRequests().at(-1))
+    expect(sequence.at(-1)).toBe(`tool:call_a=${ABANDONED_CLIENT_TOOL_RESULT}`)
+    expect(JSON.stringify(t.aimock.getRequests().at(-1)?.body)).not.toContain("xxxxxxxx")
+    expect(await store.get(t.threadId, "call_a")).toMatchObject({
+      answeredAt: null,
+      result: null,
+      voidedAt: expect.any(String),
+    })
+    expect(await t.pending()).toEqual([])
+  })
+
   it("fails closed with 503 when no client tool store can be resolved", async () => {
     const aimock = await withModel([])
     const appRoot = await fixtureApp()
