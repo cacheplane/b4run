@@ -621,6 +621,21 @@ work: the tool message carrying the result is silently discarded before it reach
 
 ## 12. Open questions a human must settle
 
+> **Settled 2026-09-30 by the maintainer.** Recorded here; the original questions follow unchanged.
+>
+> 1. **Allow by default.** The route's `clientTools` opt-in is the authority grant. Client tools
+>    still gate on their own `clientTool` permission key, so operators can set `ask` or `deny`,
+>    and they never inherit a same-named server tool's `allow`. `always` stays refused (§6).
+> 2. **Both.** A new user message on the thread voids any outstanding client call, and a short
+>    TTL sweeps calls that are never answered. The TTL value is an implementation default,
+>    configurable, and documented.
+> 3. **`client_`**, as proposed.
+> 4. **Its own follow-up**, after client tools work, per the sequencing below.
+> 5. **32 tools / 32 KiB** as starting bounds, stated as unmeasured in the docs.
+> 6. **One envelope or several.** The turn resumes once every outstanding call has a result;
+>    `resolvePendingResume`'s exact-set rule is relaxed for this kind only.
+> 7. **After**, as a separate follow-up. The first PR keeps the record scoped to client calls.
+
 1. **Default permission stance (§6.3).** Allow-by-default makes the feature usable and rests
    authority on the route opt-in; ask-by-default is safer and probably unusable for UI actions.
    A product call.
