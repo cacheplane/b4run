@@ -41,6 +41,21 @@ export function registerScrollTrigger(): boolean {
 }
 
 /**
+ * Kills every ScrollTrigger and stops the page-wide work registering started:
+ * its listeners, its requestAnimationFrame loop, and a 250ms interval that
+ * calls the global `requestAnimationFrame`. Islands unmounting revert their own
+ * triggers but never stop that interval, and the site never needs to. The web
+ * test setup calls this after each jsdom test file, before the environment
+ * deletes `requestAnimationFrame`, so the interval cannot fire into a torn-down
+ * window. ScrollTrigger stays off for the rest of this module's life.
+ */
+export function stopScrollTrigger(): void {
+  if (!registered) return
+  ScrollTrigger.killAll()
+  ScrollTrigger.disable()
+}
+
+/**
  * Runs `setup.reduce` or `setup.full` for the visitor's motion preference, inside
  * a `gsap.matchMedia()` scoped to `scope`, and runs it again whenever the
  * preference or one of `queries` changes. Tweens and ScrollTriggers a branch

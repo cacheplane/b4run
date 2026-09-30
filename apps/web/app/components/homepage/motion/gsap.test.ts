@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest"
-import { FULL, gsap, type MotionConditions, REDUCE, withMotion } from "./gsap"
+import { FULL, gsap, type MotionConditions, REDUCE, stopScrollTrigger, withMotion } from "./gsap"
 import { type MediaStub, stubMatchMedia } from "./media-stub"
 
 let media: MediaStub | undefined
@@ -71,6 +71,9 @@ it("with motion on runs the full branch, and swaps branches when the preference 
 
 it("registers ScrollTrigger once, however many islands start", async () => {
   media = stubMatchMedia({ [REDUCE]: true, [FULL]: false })
+  // The fresh import below brings its own GSAP and ScrollTrigger, and the test
+  // setup only reaches the modules loaded last. Stop this copy's first.
+  stopScrollTrigger()
   vi.resetModules()
   const fresh = await import("./gsap")
   const register = vi.spyOn(fresh.gsap, "registerPlugin")
@@ -79,4 +82,17 @@ it("registers ScrollTrigger once, however many islands start", async () => {
   fresh.withMotion(box(), setup)()
   expect(register).toHaveBeenCalledTimes(1)
   expect(register).toHaveBeenCalledWith(fresh.ScrollTrigger)
+  fresh.stopScrollTrigger()
+})
+
+it("stops ScrollTrigger's interval, so nothing calls requestAnimationFrame after teardown", async () => {
+  media = stubMatchMedia({ [REDUCE]: true, [FULL]: false })
+  vi.resetModules()
+  const fresh = await import("./gsap")
+  fresh.registerScrollTrigger()
+  fresh.stopScrollTrigger()
+  // Neither the interval nor ScrollTrigger's frame loop calls the global again.
+  const raf = vi.spyOn(globalThis, "requestAnimationFrame")
+  await new Promise((resolve) => setTimeout(resolve, 600))
+  expect(raf).not.toHaveBeenCalled()
 })

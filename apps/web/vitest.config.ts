@@ -22,5 +22,6 @@ export default defineConfig({
     environment: "node",
     env: { B4_WEB_CONTENT_ROOT: resolve(webRoot, "content") },
     include: ["app/**/*.test.{ts,tsx}"],
+    setupFiles: ["./vitest.setup.ts"],
   },
 })
