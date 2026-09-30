@@ -370,4 +370,168 @@ describe("resolveClientToolTurn", () => {
     })
     expect(turn).toMatchObject({ resume: { [KEY_A]: { clientToolResult: "first" } } })
   })
+
+  test("every park answered but a new user message last abandons, keeping every result", async () => {
+    const store = await storeWith(
+      record("call-1", { answeredAt: "2026-09-30T11:59:30.000Z", result: "one" }),
+      record("call-2"),
+    )
+    const turn = await resolveClientToolTurn({
+      store,
+      threadId: THREAD,
+      pending: snapshot(permissionPark, clientPark("call-1", KEY_A), clientPark("call-2", KEY_B)),
+      messages: [user("go"), tool("call-1", "one"), tool("call-2", "two"), user("next")],
+      now: NOW,
+    })
+    expect(turn).toEqual({
+      mode: "abandon",
+      calls: [
+        { toolCallId: "call-1", toolName: "open_panel", result: "one" },
+        { toolCallId: "call-2", toolName: "open_panel", result: "two" },
+      ],
+      abandonedToolCallIds: [],
+      reason: "new_user_message",
+    })
+    expect((await store.get(THREAD, "call-2"))?.result).toBe("two")
+  })
+
+  test("a trailing assistant message is not new input", async () => {
+    const store = await storeWith(record("call-1"))
+    const turn = await resolveClientToolTurn({
+      store,
+      threadId: THREAD,
+      pending: snapshot(clientPark("call-1", KEY_A)),
+      messages: [user("go"), { role: "assistant", content: "hm" }],
+      now: NOW,
+    })
+    expect(turn).toEqual({ mode: "partial" })
+  })
+
+  test("an outstanding row with no pending park is never answered", async () => {
+    const store = await storeWith(record("call-1"), record("call-2"))
+    const none = await resolveClientToolTurn({
+      store,
+      threadId: THREAD,
+      pending: snapshot(),
+      messages: [user("go"), tool("call-1", "opened")],
+      now: NOW,
+    })
+    expect(none).toEqual({ mode: "none" })
+    // With another client park pending, call-1's message still answers nothing.
+    const partial = await resolveClientToolTurn({
+      store,
+      threadId: THREAD,
+      pending: snapshot(clientPark("call-2", KEY_B)),
+      messages: [user("go"), tool("call-1", "opened")],
+      now: NOW,
+    })
+    expect(partial).toEqual({ mode: "partial" })
+    expect((await store.get(THREAD, "call-1"))?.answeredAt).toBeNull()
+  })
+
+  test("a tool message naming a permission park is ignored", async () => {
+    const store = await storeWith(record("call-1"))
+    const answer = vi.spyOn(store, "answer")
+    const turn = await resolveClientToolTurn({
+      store,
+      threadId: THREAD,
+      pending: snapshot(permissionPark, clientPark("call-1", KEY_A)),
+      messages: [user("go"), tool("perm-1", "once")],
+      now: NOW,
+    })
+    expect(turn).toEqual({ mode: "partial" })
+    expect(answer).not.toHaveBeenCalled()
+    expect(await store.get(THREAD, "perm-1")).toBeUndefined()
+  })
+
+  test("a record for a different park is unanswerable and never answered", async () => {
+    const store = await storeWith(record("call-1", { interruptId: "client-other" }))
+    const answer = vi.spyOn(store, "answer")
+    const turn = await resolveClientToolTurn({
+      store,
+      threadId: THREAD,
+      pending: snapshot(clientPark("call-1", KEY_A)),
+      messages: [user("go"), tool("call-1", "opened")],
+      now: NOW,
+    })
+    expect(turn).toMatchObject({ mode: "abandon", reason: "unanswerable" })
+    expect(answer).not.toHaveBeenCalled()
+  })
+
+  test("a voided record with its park still pending is unanswerable", async () => {
+    const store = await storeWith(record("call-1", { voidedAt: "2026-09-30T11:59:30.000Z" }))
+    const turn = await resolveClientToolTurn({
+      store,
+      threadId: THREAD,
+      pending: snapshot(clientPark("call-1", KEY_A)),
+      messages: [user("go"), tool("call-1", "opened")],
+      now: NOW,
+    })
+    expect(turn).toMatchObject({
+      mode: "abandon",
+      reason: "unanswerable",
+      abandonedToolCallIds: ["call-1"],
+    })
+  })
+
+  test("an unparseable expiresAt is expired and not answered", async () => {
+    const store = await storeWith(record("call-1", { expiresAt: "garbage" }))
+    const turn = await resolveClientToolTurn({
+      store,
+      threadId: THREAD,
+      pending: snapshot(clientPark("call-1", KEY_A)),
+      messages: [user("go"), tool("call-1", "opened")],
+      now: NOW,
+    })
+    expect(turn).toMatchObject({ mode: "abandon", reason: "expired" })
+    expect((await store.get(THREAD, "call-1"))?.answeredAt).toBeNull()
+  })
+
+  test("an expired call beside one answered in this run keeps the real result", async () => {
+    const store = await storeWith(
+      record("call-1"),
+      record("call-2", { expiresAt: "2026-09-30T11:00:00.000Z" }),
+    )
+    const turn = await resolveClientToolTurn({
+      store,
+      threadId: THREAD,
+      pending: snapshot(clientPark("call-1", KEY_A), clientPark("call-2", KEY_B)),
+      messages: [user("go"), tool("call-1", "one"), tool("call-2", "late")],
+      now: NOW,
+    })
+    expect(turn).toEqual({
+      mode: "abandon",
+      calls: [
+        { toolCallId: "call-1", toolName: "open_panel", result: "one" },
+        { toolCallId: "call-2", toolName: "open_panel", result: ABANDONED_CLIENT_TOOL_RESULT },
+      ],
+      abandonedToolCallIds: ["call-2"],
+      reason: "expired",
+    })
+  })
+
+  test("a malformed snapshot with a client park pending is unanswerable", async () => {
+    const store = await storeWith(record("call-1"))
+    const turn = await resolveClientToolTurn({
+      store,
+      threadId: THREAD,
+      pending: { interrupts: [clientPark("call-1", KEY_A)], malformed: true },
+      messages: [user("go"), tool("call-1", "opened")],
+      now: NOW,
+    })
+    expect(turn).toMatchObject({ mode: "abandon", reason: "unanswerable" })
+  })
+
+  test("an invalid now throws", async () => {
+    const store = await storeWith(record("call-1"))
+    await expect(
+      resolveClientToolTurn({
+        store,
+        threadId: THREAD,
+        pending: snapshot(clientPark("call-1", KEY_A)),
+        messages: [],
+        now: new Date(Number.NaN),
+      }),
+    ).rejects.toThrow(/invalid Date/)
+  })
 })

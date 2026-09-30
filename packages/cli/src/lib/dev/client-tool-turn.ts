@@ -21,12 +21,22 @@
  * Precedence, when several apply:
  *   1. no client park pending              → `none`
  *   2. any client park unanswerable        → `abandon` / "unanswerable"
- *      (no resume key, a malformed envelope, no record on this thread, a
- *      record for a different park, or a voided record)
+ *      (no resume key, a malformed envelope, a malformed snapshot, no record
+ *      on this thread, a record for a different park, or a voided record)
  *   3. any client park's outstanding record expired → `abandon` / "expired"
- *   4. every client park answered          → `resume`
- *   5. last message is a user message      → `abandon` / "new_user_message"
+ *   4. last message is a user message      → `abandon` / "new_user_message"
+ *      — even when every client park is answered. A resume carries no new
+ *      input, so resuming here would silently drop the user's new message
+ *      (e.g. an earlier request stored the results and then crashed before
+ *      resuming). The abandon closes each answered call with its stored
+ *      result, so `abandonedToolCallIds` is empty when all were answered.
+ *      For these calls the stub's post-interrupt code does not run; that is
+ *      acceptable because the stub returns the result immediately after
+ *      `interrupt()` and does nothing else.
+ *   5. every client park answered          → `resume`
  *   6. otherwise                           → `partial`
+ * Only a trailing `user` message counts as new input: a trailing assistant,
+ * system or developer message falls through to `partial`.
  * Valid results are stored BEFORE the abandon decisions, so an abandon closes
  * each call the client did answer with its real result. An expired call's
  * late result is never stored.
@@ -37,7 +47,8 @@
  *
  * Never voids rows: the handler voids after it has closed the calls in the
  * checkpoint. Never throws for client-controlled input; store failures
- * propagate.
+ * propagate, and an invalid `now` (the server clock, never client input)
+ * throws.
  */
 import type { B4Message } from "@b4run/ag-ui"
 import {
@@ -95,6 +106,9 @@ export async function resolveClientToolTurn(options: {
   readonly now: Date
 }): Promise<ClientToolTurn> {
   const { store, threadId, pending, messages, now } = options
+  if (Number.isNaN(now.getTime())) {
+    throw new Error("resolveClientToolTurn: `now` is an invalid Date")
+  }
 
   const clientParks: ClientPark[] = []
   const others: PendingInterrupt[] = []
@@ -115,7 +129,8 @@ export async function resolveClientToolTurn(options: {
 
   const rowsBefore = await readRows(store, threadId)
 
-  let unanswerable = false
+  // A malformed snapshot cannot be addressed safely: fail closed.
+  let unanswerable = pending.malformed
   let expired = false
   // Parks whose record may take this run's result: outstanding and unexpired.
   const answerable = new Set<string>()
@@ -177,6 +192,7 @@ export async function resolveClientToolTurn(options: {
 
   if (unanswerable) return abandon("unanswerable")
   if (expired) return abandon("expired")
+  if (messages.at(-1)?.role === "user") return abandon("new_user_message")
 
   const resume: Record<string, ClientToolResumeValue> = {}
   let allAnswered = true
@@ -189,8 +205,6 @@ export async function resolveClientToolTurn(options: {
     resume[park.resumeKey] = { clientToolResult: result }
   }
   if (allAnswered) return { mode: "resume", resume, others }
-
-  if (messages.at(-1)?.role === "user") return abandon("new_user_message")
   return { mode: "partial" }
 }
 
