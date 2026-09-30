@@ -3,6 +3,7 @@ import { CLIENT_TOOL_RECORDER_KEY, type ClientToolRecorder } from "@b4run/sdk"
 import { Annotation, Command, END, MemorySaver, START, StateGraph } from "@langchain/langgraph"
 import { describe, expect, it } from "vitest"
 import {
+  ABANDONED_CLIENT_TOOL_RESULT,
   type ClientToolDefinition,
   createClientToolStub,
   isClientToolCallEnvelope,
@@ -21,10 +22,20 @@ const definition: ClientToolDefinition = {
 
 type RecordCall = Parameters<ClientToolRecorder["record"]>[0]
 
-function recordingRecorder(): ClientToolRecorder & { readonly calls: RecordCall[] } {
+/** Backed by what it has recorded, like the real store's `(threadId, toolCallId)` key. */
+function recordingRecorder(): ClientToolRecorder & {
+  readonly calls: RecordCall[]
+  readonly hasCalls: string[]
+} {
   const calls: RecordCall[] = []
+  const hasCalls: string[] = []
   return {
     calls,
+    hasCalls,
+    async has(toolCallId) {
+      hasCalls.push(toolCallId)
+      return calls.some((call) => call.toolCallId === toolCallId)
+    },
     async record(call) {
       calls.push({ ...call })
     },
@@ -82,6 +93,18 @@ function configFor(recorder?: ClientToolRecorder) {
   }
 }
 
+async function parkThenResume(
+  app: ReturnType<typeof stubGraph>,
+  config: { configurable: Record<string, unknown> },
+  value: unknown,
+): Promise<unknown> {
+  await app.invoke({}, config)
+  const [pending] = await pendingInterrupts(app, config)
+  const resumeKey = pending?.id
+  expect(resumeKey).toMatch(/^[0-9a-f]{32}$/)
+  return app.invoke(new Command({ resume: { [resumeKey as string]: value } }), config)
+}
+
 const expectedEnvelope = {
   type: "client-tool-call",
   interruptId: "client-call_1",
@@ -109,27 +132,45 @@ describe("client tool stub", () => {
     const recorder = recordingRecorder()
     const app = stubGraph(undefined)
     const config = configFor(recorder)
+    const resumed = await parkThenResume(app, config, { clientToolResult: "opened" })
+
+    expect((resumed as { output?: unknown }).output).toEqual({ result: "opened" })
+    expect(await pendingInterrupts(app, config)).toEqual([])
+    // LangGraph re-runs the node from the top on resume: `has` is asked on
+    // both passes, and the record is written only on the first.
+    expect(recorder.hasCalls).toEqual(["call_1", "call_1"])
+    expect(recorder.calls).toEqual([
+      { toolCallId: "call_1", interruptId: "client-call_1", toolName: "openPanel" },
+    ])
+  })
+
+  it("keeps the pre-park permission decision when a deny is added while the call is parked", async () => {
+    const verdicts: Record<string, "allow" | "deny"> = {}
+    const recorder = recordingRecorder()
+    const app = stubGraph(store(verdicts))
+    const config = configFor(recorder)
     await app.invoke({}, config)
     const [pending] = await pendingInterrupts(app, config)
-    const resumeKey = pending?.id
-    expect(resumeKey).toMatch(/^[0-9a-f]{32}$/)
+    verdicts["clientTool:openPanel"] = "deny"
 
     const resumed = await app.invoke(
-      new Command({ resume: { [resumeKey as string]: { clientToolResult: "opened" } } }),
+      new Command({ resume: { [pending?.id as string]: { clientToolResult: "opened" } } }),
       config,
     )
     expect((resumed as { output?: unknown }).output).toEqual({ result: "opened" })
-    expect(await pendingInterrupts(app, config)).toEqual([])
-    // LangGraph re-runs the node from the top on resume, so the record may
-    // repeat — but only ever with the same idempotency key.
-    expect(recorder.calls.length).toBeGreaterThanOrEqual(1)
-    for (const call of recorder.calls) {
-      expect(call).toEqual({
-        toolCallId: "call_1",
-        interruptId: "client-call_1",
-        toolName: "openPanel",
-      })
-    }
+  })
+
+  it.each([
+    ["a bare string", "deny"],
+    ["an empty object", {}],
+    ["a non-string result", { clientToolResult: 42 }],
+  ])("reads a malformed resume (%s) as abandoned", async (_label, value) => {
+    const app = stubGraph(undefined)
+    const config = configFor(recordingRecorder())
+    const resumed = await parkThenResume(app, config, value)
+    expect((resumed as { output?: unknown }).output).toEqual({
+      result: ABANDONED_CLIENT_TOOL_RESULT,
+    })
   })
 
   it("returns the coded denial under a clientTool deny, without parking or recording", async () => {
@@ -196,6 +237,10 @@ describe("isClientToolCallEnvelope", () => {
   it("recognises only the client tool call envelope", () => {
     expect(isClientToolCallEnvelope(expectedEnvelope)).toBe(true)
     expect(isClientToolCallEnvelope({ type: "permission-request", interruptId: "perm-1" })).toBe(
+      false,
+    )
+    expect(isClientToolCallEnvelope({ type: "client-tool-call" })).toBe(false)
+    expect(isClientToolCallEnvelope({ type: "client-tool-call", interruptId: "client-x" })).toBe(
       false,
     )
     expect(isClientToolCallEnvelope(null)).toBe(false)

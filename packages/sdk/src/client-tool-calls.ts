@@ -86,6 +86,12 @@ export interface ClientToolCallStore {
  * receive the answer.
  */
 export interface ClientToolRecorder {
+  /**
+   * Whether this run's thread already recorded the call — true on LangGraph's
+   * replay of a parked stub. The stub takes its permission decision and writes
+   * the record only when this is false, so both happen once, before the park.
+   */
+  has(toolCallId: string): Promise<boolean>
   record(call: {
     readonly toolCallId: string
     readonly interruptId: string

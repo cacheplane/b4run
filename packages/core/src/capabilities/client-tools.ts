@@ -55,7 +55,9 @@ export function isClientToolCallEnvelope(value: unknown): value is ClientToolCal
   return (
     typeof value === "object" &&
     value !== null &&
-    (value as { type?: unknown }).type === CLIENT_TOOL_CALL_TYPE
+    (value as { type?: unknown }).type === CLIENT_TOOL_CALL_TYPE &&
+    typeof (value as { interruptId?: unknown }).interruptId === "string" &&
+    typeof (value as { toolCallId?: unknown }).toolCallId === "string"
   )
 }
 
@@ -90,19 +92,31 @@ export async function gateClientToolOp(
   return { allowed: true }
 }
 
+function readClientToolResult(resumed: unknown): string | undefined {
+  if (typeof resumed !== "object" || resumed === null) return undefined
+  const text = (resumed as Partial<Record<keyof ClientToolResumeValue, unknown>>).clientToolResult
+  return typeof text === "string" ? text : undefined
+}
+
 function readRecorder(): ClientToolRecorder | undefined {
   const configurable = (getConfig()?.configurable ?? {}) as Record<string, unknown>
   const recorder = configurable[CLIENT_TOOL_RECORDER_KEY]
-  return recorder && typeof (recorder as ClientToolRecorder).record === "function"
+  return recorder &&
+    typeof (recorder as ClientToolRecorder).record === "function" &&
+    typeof (recorder as ClientToolRecorder).has === "function"
     ? (recorder as ClientToolRecorder)
     : undefined
 }
 
 /**
  * The stub tool for one client tool. Its body is the park: gate, record,
- * `interrupt()`. LangGraph re-executes it from the top on resume, so nothing
- * before `interrupt()` may have a non-idempotent effect; the record's
- * `(threadId, toolCallId)` key makes the second `record` a no-op.
+ * `interrupt()`. LangGraph re-executes it from the top on resume, so the gate
+ * and the record sit behind `recorder.has()`: the permission decision is taken
+ * once, before the park, and a deny added while the call is parked cannot
+ * discard a result the client already produced (its side effect happened).
+ *
+ * A resume value that is not `{ clientToolResult: string }` is never handed to
+ * the model as a successful empty result; it reads as abandoned.
  */
 export function createClientToolStub(
   definition: ClientToolDefinition,
@@ -113,14 +127,16 @@ export function createClientToolStub(
     description: `[Client-provided tool; definition authored by the caller] ${definition.description}`,
     schema: definition.parameters,
     async run(input, context) {
-      const gate = await gateClientToolOp(permissions, definition.name)
-      if (!gate.allowed) return codedReason(gate)
       const toolCallId = context.toolCallId
       if (!toolCallId) throw new Error("client tool call has no provider tool-call id")
       const recorder = readRecorder()
       if (!recorder) throw new MissingClientToolRecorderError()
       const interruptId = clientToolInterruptId(toolCallId)
-      await recorder.record({ toolCallId, interruptId, toolName: definition.name })
+      if (!(await recorder.has(toolCallId))) {
+        const gate = await gateClientToolOp(permissions, definition.name)
+        if (!gate.allowed) return codedReason(gate)
+        await recorder.record({ toolCallId, interruptId, toolName: definition.name })
+      }
       const envelope: ClientToolCallEnvelope = {
         type: CLIENT_TOOL_CALL_TYPE,
         interruptId,
@@ -128,8 +144,8 @@ export function createClientToolStub(
         name: definition.name,
         input,
       }
-      const resumed = interrupt(envelope) as ClientToolResumeValue
-      return { result: resumed.clientToolResult }
+      const resumed: unknown = interrupt(envelope)
+      return { result: readClientToolResult(resumed) ?? ABANDONED_CLIENT_TOOL_RESULT }
     },
   }
 }
