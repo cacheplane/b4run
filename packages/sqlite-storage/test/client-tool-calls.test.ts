@@ -151,4 +151,42 @@ describe("createClientToolCallStore", () => {
     expect(row?.answeredAt).toBe(at)
     expect(row?.result).toBe("ok")
   })
+
+  it("exactly one of many concurrent answers across two handles wins", async () => {
+    const a = newStore()
+    const b = newStore()
+    await a.issue(call())
+    const outcomes = await Promise.all(
+      Array.from({ length: 12 }, (_, i) =>
+        (i % 2 === 0 ? a : b).answer({
+          threadId: "t-1",
+          toolCallId: "call-1",
+          result: `result-${i}`,
+          at,
+        }),
+      ),
+    )
+    const winners = outcomes.filter((o) => o.outcome === "answered")
+    expect(winners).toHaveLength(1)
+    expect(outcomes.filter((o) => o.outcome === "already_answered")).toHaveLength(11)
+    const winner = winners[0]
+    expect((await a.get("t-1", "call-1"))?.result).toBe(
+      winner?.outcome === "answered" ? winner.record.result : undefined,
+    )
+  })
+
+  it("voiding twice counts the row only the first time", async () => {
+    const store = newStore()
+    await store.issue(call())
+    expect(await store.voidOutstanding({ threadId: "t-1", at })).toBe(1)
+    expect(await store.voidOutstanding({ threadId: "t-1", at })).toBe(0)
+  })
+
+  it("a named void does not touch the same id on another thread", async () => {
+    const store = newStore()
+    await store.issue(call())
+    await store.issue(call({ threadId: "t-2" }))
+    expect(await store.voidOutstanding({ threadId: "t-1", toolCallIds: ["call-1"], at })).toBe(1)
+    expect((await store.get("t-2", "call-1"))?.voidedAt).toBeNull()
+  })
 })

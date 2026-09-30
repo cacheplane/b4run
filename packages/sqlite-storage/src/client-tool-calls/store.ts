@@ -121,7 +121,10 @@ export function makeClientToolCallStore(db: Db): ClientToolCallStore {
       if (changes > 0) return { outcome: "answered", record }
       // Voided wins over already-answered, as in the SDK's memory store.
       if (record.voidedAt !== null) return { outcome: "voided", record }
-      return { outcome: "already_answered", record }
+      if (record.answeredAt !== null) return { outcome: "already_answered", record }
+      // Exists but neither answered nor voided: only possible if it was issued
+      // between the UPDATE and this read, so the UPDATE rightly matched nothing.
+      return { outcome: "missing" }
     },
 
     async voidOutstanding({ threadId, toolCallIds, at }) {
