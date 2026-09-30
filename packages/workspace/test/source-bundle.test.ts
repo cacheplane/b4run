@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from "node:crypto"
 import { describe, expect, it } from "vitest"
 import { createSourceBundle, readSourceFile, verifySourceBundle } from "../src/source-bundle.ts"
 
@@ -301,5 +302,109 @@ describe("read buffer ownership", () => {
     new Uint8Array(first.buffer).fill(9)
     expect(second).toEqual(Uint8Array.of(1, 2))
     expect(readSourceFile(bundle, "a")).toEqual(Uint8Array.of(1, 2))
+  })
+})
+
+// Re-sign a mutated persisted bundle so only content validation can reject it.
+const resigned = (value: ReturnType<typeof stored>) => {
+  const hash = createHash("sha256").update('["b4-workspace-source-v1",[')
+  value.files.forEach((file: { path: string; base64: string; executable: boolean }, i: number) => {
+    if (i > 0) hash.update(",")
+    hash.update(JSON.stringify([file.path, file.base64, file.executable]))
+  })
+  value.digest = hash.update("]]").digest("hex")
+  return value
+}
+
+describe("strict base64 content", () => {
+  it.each([
+    ["missing padding", "AA"],
+    ["short padding", "AA="],
+    ["excess padding", "AA==="],
+    ["padding only", "===="],
+    ["three padding characters", "A==="],
+    ["padding in the middle", "AA==AAAA"],
+    ["padding before data", "=AAA"],
+    ["single padding in the middle", "AAA=AAAA"],
+    ["trailing garbage after padding", "AA==A"],
+    ["trailing full group after padding", "AQ==AQ=="],
+    ["inner space", "A A=="],
+    ["leading space", " AAA"],
+    ["trailing newline", "AA==\n"],
+    ["embedded newline", "AAAA\nAAAA"],
+    ["embedded CRLF", "AAAA\r\nAAAA"],
+    ["tab", "AAA\t"],
+    ["URL-safe underscore", "____"],
+    ["URL-safe dash", "--AA"],
+    ["mixed URL-safe", "ab-_"],
+    ["punctuation", "!!!!"],
+    ["non-ASCII letter", "AAAé"],
+    ["NUL", "AAA\u0000"],
+    ["nonzero padding bits after one byte", "AB=="],
+    ["nonzero padding bits after two bytes", "AAB="],
+    ["nonzero padding bits (max)", "A/=="],
+  ])("rejects %s (%j) with a correctly re-signed digest", (_label, base64) => {
+    const value = stored()
+    value.files[0].base64 = base64
+    resigned(value)
+    expect(() => verifySourceBundle(value)).toThrow(/base64/i)
+    expect(() => readSourceFile(value, "a")).toThrow(/base64/i)
+  })
+
+  it("accepts the empty string and canonical encodings of every byte and length", () => {
+    const value = stored()
+    value.files[0].base64 = ""
+    expect(verifySourceBundle(resigned(value)).files[0]?.base64).toBe("")
+    const all = Uint8Array.from({ length: 256 }, (_, i) => i)
+    for (let length = 0; length <= 256; length++) {
+      const bytes = all.subarray(256 - length)
+      const bundle = createSourceBundle([inputFile("a", bytes)])
+      const verified = verifySourceBundle(JSON.parse(JSON.stringify(bundle)))
+      expect(verified.digest).toBe(bundle.digest)
+      expect(readSourceFile(verified, "a")).toEqual(bytes)
+    }
+    for (const base64 of ["AA==", "AAA=", "AAAA", "/w==", "//8=", "////", "+++/"]) {
+      const next = stored()
+      next.files[0].base64 = base64
+      expect(verifySourceBundle(resigned(next)).files[0]?.base64).toBe(base64)
+    }
+  })
+
+  it("checks the 64 MiB total from encoded lengths before validating any content", () => {
+    // Five files of exactly 16 MiB each; the first is not even valid base64.
+    const body = "A".repeat(4 * Math.ceil((16 * MiB) / 3) - 5)
+    const files = ["a", "b", "c", "d", "e"].map((path) => ({
+      path,
+      base64: `${path === "a" ? "!" : "A"}${body}AA==`,
+      executable: false,
+    }))
+    expect(() => verifySourceBundle({ version: 1, digest: "0".repeat(64), files })).toThrow(
+      /total.*limit/i,
+    )
+  })
+
+  it("verifies content in time proportional to native encoding, not a per-character loop", () => {
+    // ~350 files / ~2.5 MB of base64, the shape of a real repository snapshot.
+    const inputs = Array.from({ length: 350 }, (_, i) =>
+      inputFile(`src/f${String(i).padStart(3, "0")}.ts`, randomBytes(5_400)),
+    )
+    const bundle = createSourceBundle(inputs)
+    const persisted = JSON.parse(JSON.stringify(bundle))
+    const best = (run: () => unknown) => {
+      let min = Number.POSITIVE_INFINITY
+      for (let i = 0; i < 5; i++) {
+        const start = performance.now()
+        run()
+        min = Math.min(min, performance.now() - start)
+      }
+      return min
+    }
+    // Baseline: native base64 encoding plus the SHA256 digest of the same content,
+    // measured in the same process so machine speed cancels out.
+    const baseline = best(() => createSourceBundle(inputs))
+    const verify = best(() => verifySourceBundle(persisted))
+    // A per-character JS loop is an order of magnitude over this baseline;
+    // one native pass sits near it. 6x (floor 5 ms) leaves CI headroom.
+    expect(verify).toBeLessThan(Math.max(baseline * 6, 5))
   })
 })
