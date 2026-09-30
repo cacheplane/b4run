@@ -1,5 +1,12 @@
 export type { SqliteCheckpointerOptions } from "./checkpointer/index.js"
 export { B4SqliteSaver, sqliteCheckpointer } from "./checkpointer/index.js"
+export type { ClientToolCallStoreOptions } from "./client-tool-calls/index.js"
+export { createClientToolCallStore } from "./client-tool-calls/index.js"
+export type {
+  ClientToolCallAnswer,
+  ClientToolCallRecord,
+  ClientToolCallStore,
+} from "./client-tool-calls/types.js"
 export type { InterruptGrantStoreOptions } from "./interrupt-grants/index.js"
 export { createInterruptGrantStore } from "./interrupt-grants/index.js"
 export type {
