@@ -3169,6 +3169,11 @@ for (const [label, overrides, code] of [
     "RELEASE_AUDIT_CANONICAL_PREMATURE",
   ],
   [
+    "duplicate premarker audit-result.json receipts",
+    { canonical: "duplicate" },
+    "RELEASE_ASSET_IDENTITY_INVALID",
+  ],
+  [
     "a premarker audit-result.json without its attempt",
     { canonical: "identical", omitAttempt: true },
     "RELEASE_AUDIT_CANONICAL_PREMATURE",
@@ -5163,7 +5168,10 @@ function dispatchedAttemptFixture({
     ],
   ]
   if (omitAttempt) terminal.pop()
-  if (canonical === "identical") terminal.push([2_001, "audit-result.json", canonicalBytes])
+  if (canonical === "identical" || canonical === "duplicate") {
+    terminal.push([2_001, "audit-result.json", canonicalBytes])
+  }
+  if (canonical === "duplicate") terminal.push([2_003, "audit-result.json", canonicalBytes])
   if (canonical === "different") {
     terminal.push([
       2_001,
