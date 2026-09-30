@@ -136,9 +136,13 @@ Reserved tool names match exactly rather than by prefix.
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/permissions/test/pattern-matching.test.ts","testNames":["matches an exact parent route and subagent name tuple","does not prefix-match a serialized tuple identity"]}] */}
 Reserved subagent identities match exactly rather than by prefix.
 
+#### Behavior contract `permissions.clientTool.exact`
+{/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/permissions/test/pattern-matching.test.ts","testNames":["matches exactly, never by prefix","is not answered by a tool entry of the same name","denies exactly, not by prefix"]}] */}
+Reserved client-tool names match exactly rather than by prefix, and a tool entry of the same name does not answer them.
+
 #### Pattern matching limits
 
-Reserved `tool` and `subagent` keys use exact matching. Other keys use `candidate.startsWith(pattern)`, so callers must choose boundary-safe patterns: paths normally end in `/`, and memory namespaces use the terminating `|` returned by `suggestedMemoryPattern()`.
+Reserved `tool`, `subagent` and `clientTool` keys use exact matching. Other keys use `candidate.startsWith(pattern)`, so callers must choose boundary-safe patterns: paths normally end in `/`, and memory namespaces use the terminating `|` returned by `suggestedMemoryPattern()`.
 
 #### Behavior contract `permissions.store.noninteractive`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/permissions/test/permissions-store.test.ts","testNames":["ignores the runtime file in non-interactive mode"]}] */}

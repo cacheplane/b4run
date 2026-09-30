@@ -309,11 +309,19 @@ stays as it is. That is strictly less public-API churn than Model B required.
 
 ### The three failure cases
 
+*Revised during implementation (cacheplane/b4run#743).* The table below is what shipped; the
+original rows for an already-answered result (a `409 client_tool_result_replayed`) and for
+abandonment (void and resume with an error result) were replaced, and a third binding was added.
+
 | Case | Behavior |
 |---|---|
 | **Result for a call that is not outstanding** (no row) | Not an error. The message is ordinary resupplied history and is ignored for parking purposes; the turn proceeds as a normal run. Treating it as an error would break every client that replays its history — which is all of them. |
-| **Result for an already-answered call** (`answered_at` set) | `409 client_tool_result_replayed`, echoing `answeredAt`, and the graph is **not** re-fed. Mirrors #745's `409 grant_consumed`, which "does not re-execute". |
-| **Result never arrives** | The park would otherwise strand the thread forever, and because the park is invisible the client cannot know. So: a subsequent turn carrying a **new user message** and no matching result **voids** the outstanding call and resumes it with an error result (`"The client did not return a result for this tool call"`). The model sees a failed tool call and can proceed. A TTL is the alternative and is an open question (§12). |
+| **Result for an already-answered call** (`answered_at` set) | Also resupplied history, and also ignored — no `409`. Every AG-UI client resends the answered tool message on its next run, so an error here would break the turn after every round trip. Replay is still impossible: a park resumes once, and the resume value always comes from the stored record, never from the message. |
+| **Result never arrives** | A subsequent turn carrying a **new user message** — or any turn once the call has expired (`server.agui.clientToolTtlMs`, default 10 minutes) — **closes** the parked calls: one `updateState` as the `tools` node writes a ToolMessage for each (`"The client did not return a result for this tool call."`, or the result the client already sent), which keeps any sibling tool result that completed in the same superstep. Then the new user message runs as an ordinary turn (or, with none, the model replies to the closed calls). The rows are voided after the close. A pending approval on the same thread must be answered first (`409 resume_required`). |
+
+Results are bound to the **issuing route through the record** (`routeId`, written when the call is
+issued), not through thread metadata: only the route whose run issued a call may answer or resume
+it. The thread's `parked_route` is written only once the turn settles, so it cannot be the binding.
 
 The "not outstanding" row is the one most likely to be got wrong. It must be a silent
 pass-through, or ordinary conversation breaks; and that is precisely why the record must be

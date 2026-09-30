@@ -626,6 +626,25 @@ export const API_BEHAVIOR_CONTRACTS = [
     ],
   },
   {
+    id: "permissions.clientTool.exact",
+    ownerHref: "/docs/api/permissions",
+    claim:
+      "Reserved client-tool names match exactly rather than by prefix, and a tool entry of the same name does not answer them.",
+    authorities: [
+      {
+        kind: "test-assertion",
+        file: "packages/permissions/test/pattern-matching.test.ts",
+        testNames: [
+          "matches exactly, never by prefix",
+          "is not answered by a tool entry of the same name",
+          "denies exactly, not by prefix",
+        ],
+        assertionFingerprint:
+          'expect ( matchPermission ( "clientTool" , "open" , allow , { } ) ) . toBe ( "allow" )\nexpect ( matchPermission ( "clientTool" , "openEverything" , allow , { } ) ) . toBe ( "unknown" )\nexpect ( matchPermission ( "clientTool" , "readFile" , { tool : [ "readFile" ] } , { } ) ) . toBe ( "unknown" )\nexpect ( matchPermission ( "clientTool" , "open" , { } , deny ) ) . toBe ( "deny" )\nexpect ( matchPermission ( "clientTool" , "openEverything" , { } , deny ) ) . toBe ( "unknown" )',
+      },
+    ],
+  },
+  {
     id: "permissions.store.noninteractive",
     ownerHref: "/docs/api/permissions",
     claim: "Non-interactive mode ignores the runtime permissions file.",

@@ -1986,6 +1986,7 @@ describe("foundational API reference pages", { timeout: 30_000 }, () => {
       "permissions.match.prefix",
       "permissions.tool.exact",
       "permissions.subagent.exact",
+      "permissions.clientTool.exact",
       "permissions.store.noninteractive",
       "workspace.compose.order",
       "workspace.exec.timeout",
@@ -2231,7 +2232,9 @@ describe("package API reference pages", { timeout: 30_000 }, () => {
 
   it("keeps Permissions and Workspace lifecycle and trust boundaries explicit", () => {
     const permissions = foundationalContent("permissions")
-    expect(permissions).toContain("Reserved `tool` and `subagent` keys use exact matching")
+    expect(permissions).toContain(
+      "Reserved `tool`, `subagent` and `clientTool` keys use exact matching",
+    )
     expect(permissions).toContain("await `store.load()` before any store use")
     expect(permissions).toContain("especially before `addAllow()`")
     expect(permissions).not.toContain("Call `load()` before matching")
@@ -2472,6 +2475,7 @@ ${packageExample("memory-pgvector").replace(
       "permissions.match.prefix",
       "permissions.tool.exact",
       "permissions.subagent.exact",
+      "permissions.clientTool.exact",
       "permissions.store.noninteractive",
       "workspace.compose.order",
       "workspace.exec.timeout",

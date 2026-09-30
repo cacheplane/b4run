@@ -2579,7 +2579,7 @@ const accuracyContracts = [
       "/docs/memory/long-term",
       "/docs/deployment",
       "/docs/sandbox",
-      "reserved `tool` and `subagent` keys use exact matching",
+      "reserved `tool`, `subagent` and `clientTool` keys use exact matching",
       "resource paths, bash commands, and memory scopes use prefix matching",
       "stay in memory and do not seed the runtime permissions store",
       "three explicit entries",
