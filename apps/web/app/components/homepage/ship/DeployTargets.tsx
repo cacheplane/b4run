@@ -1,6 +1,6 @@
 "use client"
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react"
-import { hangFor, hangForHtml, keepContinuation } from "../code-hang"
+import { hangFor, hangForHtml, keepContinuation, withPathBreaks } from "../code-hang"
 import { gsap, withMotion } from "../motion/gsap"
 import styles from "./ship.module.css"
 import { buildFor, buildOutputs, deployTargets, describeTarget, type TargetId } from "./ship-data"
@@ -157,7 +157,9 @@ export function DeployTargets({
                             <span className={styles.prompt} aria-hidden="true">
                               {index === 0 ? "$ " : "  "}
                             </span>
-                            <span data-hang={hangFor(part)}>{keepContinuation(part)}</span>
+                            <span data-hang={hangFor(part)}>
+                              {withPathBreaks(keepContinuation(part))}
+                            </span>
                           </span>
                         )
                       })}

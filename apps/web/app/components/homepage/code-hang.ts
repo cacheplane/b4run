@@ -1,3 +1,4 @@
+import { createElement, Fragment, type ReactNode } from "react"
 /**
  * The hanging indent for a wrapped code line. A line's text element carries
  * `data-hang={hangFor(text)}`, and app/styles/ui.css maps each value to
@@ -37,4 +38,21 @@ export function hangForHtml(html: string): number {
  */
 export function keepContinuation(line: string): string {
   return line.replace(/ \\$/, "\u00a0\\")
+}
+
+/**
+ * A long path or URL in a command (a registry reference on a phone) has no
+ * space to break at, so `overflow-wrap: anywhere` splits it mid-word. A <wbr>
+ * after each slash lets it break at a path segment instead; unlike a
+ * zero-width space it adds nothing to the text a visitor selects or copies.
+ */
+export function withPathBreaks(line: string): ReactNode {
+  if (!line.includes("/")) return line
+  const parts = line.split("/")
+  const last = parts.length - 1
+  return parts.map((part, i) =>
+    i < last
+      ? createElement(Fragment, { key: i }, `${part}/`, createElement("wbr"))
+      : createElement(Fragment, { key: i }, part),
+  )
 }

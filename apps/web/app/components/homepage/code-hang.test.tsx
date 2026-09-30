@@ -4,7 +4,14 @@ import { resolve } from "node:path"
 import { renderToString } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import { LastMile } from "./checklist/LastMile"
-import { HANG_MAX, HANG_STEP, hangFor, hangForHtml, keepContinuation } from "./code-hang"
+import {
+  HANG_MAX,
+  HANG_STEP,
+  hangFor,
+  hangForHtml,
+  keepContinuation,
+  withPathBreaks,
+} from "./code-hang"
 import { DeveloperHome } from "./DeveloperHome"
 import { Guardrails } from "./gates/Guardrails"
 import { prepareGates } from "./gates/prepare"
@@ -171,4 +178,30 @@ it("ui.css hangs every value the homepage renders, with no inline style in any p
     expect(layered, `data-hang=${n}`).toMatch(rule)
   }
   for (const n of used) expect(Number(n)).toBeLessThanOrEqual(HANG_MAX)
+})
+
+describe("withPathBreaks", () => {
+  // A registry URL longer than a phone line used to split mid-word
+  // (`charts/b` / `4-app`). A <wbr> after each slash lets it break at a path
+  // segment instead, and leaves the text a visitor selects or copies unchanged.
+  it("adds a break opportunity after each slash, and nothing else", () => {
+    const line = "helm install b4-app oci://ghcr.io/cacheplane/charts/b4-app \\"
+    const html = renderToString(<code>{withPathBreaks(line)}</code>)
+    expect(html).toContain("charts/<wbr/>b4-app")
+    expect(html.match(/<wbr\/>/g)).toHaveLength(line.split("/").length - 1)
+    const node = document.createElement("div")
+    node.innerHTML = html
+    expect(node.textContent).toBe(line)
+  })
+
+  it("leaves a line without slashes as plain text", () => {
+    expect(renderToString(<code>{withPathBreaks("npx b4 build")}</code>)).toBe(
+      "<code>npx b4 build</code>",
+    )
+  })
+
+  it("breaks the kubernetes tab's registry URL at a slash", async () => {
+    const html = renderToString(<DeployTargets code={await prepareDeployTargets()} />)
+    expect(html).toContain("charts/<wbr/>b4-app")
+  })
 })
