@@ -133,6 +133,28 @@ describe("git object ids", () => {
     expect(reads).toHaveLength(2) // the root and packages/, never the whole repository
   })
 
+  it("refuses a listing that is not the tree it was read from", async () => {
+    const pin = fixture()
+    const root = git("rev-parse", `${pin}^{tree}`)
+    const packages = git("rev-parse", `${pin}:packages`)
+    const tampered = await readPinListings(root, ["packages/z.ts"], async (sha) => {
+      const listing = await lsTree(sha)
+      return sha === packages
+        ? listing.map((e) => (e.name === "z.ts" ? { ...e, sha: blobId("other\n") } : e))
+        : listing
+    })
+    expect(tampered).toEqual({
+      ok: false,
+      problems: [`the listing read for packages does not hash to ${packages}`],
+    })
+    const malformed = await readPinListings(root, ["README.md"], async (sha) => {
+      const listing = await lsTree(sha)
+      return [...listing, listing[0] as GitTreeEntry]
+    })
+    expect(malformed.ok).toBe(false)
+    if (!malformed.ok) expect(malformed.problems[0]).toMatch(/^the listing read for the root /)
+  })
+
   it("orders directories root first and by depth", () => {
     expect(directoriesOf(["a/b/c.ts", "a/d.ts", "e.ts"])).toEqual(["", "a", "a/b"])
   })

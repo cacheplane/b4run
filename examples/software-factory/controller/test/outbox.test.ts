@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import {
   createOutboxStore,
   type DeliveryIntent,
+  deliveryOperationKey,
   StaleOutboxStepError,
 } from "../src/lib/delivery/outbox.ts"
 import { openRegistry, type Registry } from "../src/lib/registry/db.ts"
@@ -108,16 +109,21 @@ function open() {
 describe("the delivery outbox", () => {
   it("holds one intent per work order, starting pending", () => {
     const outbox = open()
-    outbox.insert({ operationKey: "deliver:1", approvalId: "ap-1", intent, now: "t0" })
-    expect(outbox.get(ID)).toMatchObject({ step: "pending", remote: {}, attempts: 0, intent })
-    expect(() =>
-      outbox.insert({ operationKey: "deliver:2", approvalId: "ap-1", intent, now: "t1" }),
-    ).toThrow(/UNIQUE/)
+    outbox.insert({ approvalId: "ap-1", intent, now: "t0" })
+    expect(outbox.get(ID)).toMatchObject({
+      step: "pending",
+      remote: {},
+      attempts: 0,
+      intent,
+      // Derived, never free-form: one work order's delivery of one bundle has one key.
+      operationKey: deliveryOperationKey(ID, "b".repeat(64)),
+    })
+    expect(() => outbox.insert({ approvalId: "ap-1", intent, now: "t1" })).toThrow(/UNIQUE/)
   })
 
   it("advances one step at a time, merging what each step observed", () => {
     const outbox = open()
-    outbox.insert({ operationKey: "deliver:1", approvalId: "ap-1", intent, now: "t0" })
+    outbox.insert({ approvalId: "ap-1", intent, now: "t0" })
     outbox.advance(ID, "pending", "checked", { commit: { sha: "3".repeat(40) } }, "t1")
     const row = outbox.advance(
       ID,
@@ -133,9 +139,24 @@ describe("the delivery outbox", () => {
     expect(() => outbox.advance(ID, "pending", "checked", {}, "t3")).toThrow(StaleOutboxStepError)
   })
 
+  it("advances only to the next step, and never overwrites what a step observed", () => {
+    const outbox = open()
+    outbox.insert({ approvalId: "ap-1", intent, now: "t0" })
+    expect(() => outbox.advance(ID, "pending", "committed", {}, "t1")).toThrow(/next step/)
+    expect(() => outbox.advance(ID, "pending", "pending", {}, "t1")).toThrow(/next step/)
+    outbox.advance(ID, "pending", "checked", { commit: { sha: "3".repeat(40) } }, "t1")
+    expect(() =>
+      outbox.advance(ID, "checked", "committed", { commit: { sha: "4".repeat(40) } }, "t2"),
+    ).toThrow(/already observed commit/)
+    expect(outbox.get(ID)).toMatchObject({
+      step: "checked",
+      remote: { commit: { sha: "3".repeat(40) } },
+    })
+  })
+
   it("counts attempts with their error, and clears the error without counting", () => {
     const outbox = open()
-    outbox.insert({ operationKey: "deliver:1", approvalId: "ap-1", intent, now: "t0" })
+    outbox.insert({ approvalId: "ap-1", intent, now: "t0" })
     outbox.note(ID, "HTTP 502", "t1")
     outbox.note(ID, "HTTP 502", "t2")
     expect(outbox.get(ID)).toMatchObject({ attempts: 2, lastError: "HTTP 502" })
@@ -147,7 +168,6 @@ describe("the delivery outbox", () => {
     const outbox = open()
     expect(() =>
       outbox.insert({
-        operationKey: "deliver:1",
         approvalId: "ap-1",
         intent: { ...intent, branch: "main" } as DeliveryIntent,
         now: "t0",
@@ -162,7 +182,6 @@ describe("the delivery outbox", () => {
     ])
       expect(() =>
         outbox.insert({
-          operationKey: "deliver:1",
           approvalId: "ap-1",
           intent: bad as DeliveryIntent,
           now: "t0",

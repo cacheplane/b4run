@@ -7,7 +7,6 @@ import { blobId } from "../src/lib/delivery/git-objects.ts"
 import {
   createOutboxStore,
   type DeliveryIntent,
-  deliveryOperationKey,
   type OutboxStore,
 } from "../src/lib/delivery/outbox.ts"
 import {
@@ -185,7 +184,6 @@ export async function harness(
     },
   }
   outbox.insert({
-    operationKey: deliveryOperationKey(id, "b".repeat(64)),
     approvalId: "ap-1",
     intent,
     now: at,

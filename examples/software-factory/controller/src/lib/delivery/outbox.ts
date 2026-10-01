@@ -135,15 +135,21 @@ export class StaleOutboxStepError extends Error {
 }
 
 export interface OutboxStore {
-  /** Inside the approval's transaction. A second insert for one work order throws. */
+  /**
+   * Inside the approval's transaction. A second insert for one work order throws. The
+   * operation key is derived (`deliveryOperationKey`), never the caller's.
+   */
   insert(input: {
-    readonly operationKey: string
     readonly approvalId: string
     readonly intent: DeliveryIntent
     readonly now: string
   }): void
   get(workOrderId: string): OutboxRow | null
-  /** Compare-and-swap: from `from` to `to`, merging `remote`. Throws when not at `from`. */
+  /**
+   * Compare-and-swap: from `from` to the step right after it, merging `remote`. Throws when
+   * not at `from` (`StaleOutboxStepError`), when `to` is not the next step, or when `remote`
+   * would overwrite something an earlier step observed.
+   */
   advance(
     workOrderId: string,
     from: OutboxStep,
@@ -180,8 +186,9 @@ export function createOutboxStore(db: DatabaseSync): OutboxStore {
     }
   }
   return {
-    insert({ operationKey, approvalId, intent, now }) {
+    insert({ approvalId, intent, now }) {
       const parsed = DeliveryIntentSchema.parse(intent)
+      const operationKey = deliveryOperationKey(parsed.workOrderId, parsed.bundleDigest)
       db.prepare(
         "INSERT INTO delivery_outbox (operation_key, work_order_id, bundle_digest, approval_id, intent, step, remote, attempts, last_error, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'pending', '{}', 0, NULL, ?, ?)",
       ).run(
@@ -196,9 +203,20 @@ export function createOutboxStore(db: DatabaseSync): OutboxStore {
     },
     get,
     advance(workOrderId, from, to, remote, now) {
+      if (OUTBOX_STEPS.indexOf(to) !== OUTBOX_STEPS.indexOf(from) + 1)
+        throw new Error(
+          `Delivery outbox steps advance one at a time: ${to} is not the next step after ${from}`,
+        )
       const current = get(workOrderId)
       if (current === null || current.step !== from)
         throw new StaleOutboxStepError(workOrderId, from)
+      const overwritten = (Object.keys(remote) as (keyof DeliveryRemote)[]).filter(
+        (key) => remote[key] !== undefined && current.remote[key] !== undefined,
+      )
+      if (overwritten.length > 0)
+        throw new Error(
+          `Delivery outbox of ${workOrderId} already observed ${overwritten.join(", ")}; a step never overwrites an observation`,
+        )
       const merged = DeliveryRemoteSchema.parse({ ...current.remote, ...remote })
       const result = db
         .prepare(

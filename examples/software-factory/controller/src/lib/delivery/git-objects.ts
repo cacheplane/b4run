@@ -124,7 +124,22 @@ export async function readPinListings(
       }
       sha = entry.sha
     }
-    listings.set(directory, await readTree(sha))
+    // The listing must be the tree it was read from: a listing GitHub cut short (a
+    // `truncated` answer) or any other disagreement is reported, never hashed into a guess.
+    const listing = await readTree(sha)
+    const where = directory === "" ? "the root" : directory
+    let actual: string
+    try {
+      actual = treeId(listing)
+    } catch (error) {
+      problems.push(`the listing read for ${where} is not a tree git can encode: ${String(error)}`)
+      continue
+    }
+    if (actual !== sha) {
+      problems.push(`the listing read for ${where} does not hash to ${sha}`)
+      continue
+    }
+    listings.set(directory, listing)
   }
   const entries = new Map<string, PinEntry>()
   for (const path of paths) {
