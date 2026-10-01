@@ -41,8 +41,16 @@ export interface FakeGitHub extends DeliveryAdapter {
   closing: readonly number[]
   /** Who `pull` reports as the author; the bot unless a test says otherwise. */
   author: string
+  /** The login the session reports for the app; the guarded bot unless a test says otherwise. */
+  botLogin: string
   /** Store each blob under this id instead of its own: GitHub disagreeing with the bytes. */
   corruptBlob: string | undefined
+  /** Answer `createTree` with this id instead of the tree built: GitHub disagreeing with the change. */
+  corruptTree: string | undefined
+  /** Store each created commit as this returns it: GitHub reading back another commit. */
+  rewriteCommit: ((commit: RemoteCommit) => RemoteCommit) | undefined
+  /** Create pull requests ready for review rather than draft: GitHub ignoring `draft: true`. */
+  createReady: boolean
   /** Called before each call, with its method: a test aborts or throws mid-request here. */
   onCall: ((method: FakeMethod) => void) | undefined
   /** Fail or lose the next `times` calls of `method`. */
@@ -58,6 +66,7 @@ export interface FakeGitHub extends DeliveryAdapter {
   seed(
     files: Readonly<Record<string, string>>,
     pin?: string,
+    executable?: readonly string[],
   ): { readonly pin: string; readonly tree: string }
   /** Advance `main` by one commit changing `files` (repository paths). */
   advanceMain(files: Readonly<Record<string, string>>): string
@@ -134,17 +143,21 @@ export function createFakeGitHub(): FakeGitHub {
     comparison: { status: "ahead", aheadBy: 3, files: [{ filename: "README.md" }], complete: true },
     closing: [],
     author: BOT,
+    botLogin: BOT,
     corruptBlob: undefined,
+    corruptTree: undefined,
+    rewriteCommit: undefined,
+    createReady: false,
     onCall: undefined,
     fail(method, error, { after = false, times = 1 } = {}) {
       faults.push({ method, error, after, remaining: times })
     },
-    seed(files, pinId) {
+    seed(files, pinId, executable = []) {
       const blobsOf = new Map(
         Object.entries(files).map(([path, text]) => {
           const sha = blobId(text)
           blobs.set(sha, text)
-          return [path, { mode: "100644", sha }] as const
+          return [path, { mode: executable.includes(path) ? "100755" : "100644", sha }] as const
         }),
       )
       const tree = build(blobsOf)
@@ -191,7 +204,9 @@ export function createFakeGitHub(): FakeGitHub {
     new DeliveryError("not_found", `${what} not found`, undefined, 404)
 
   const session: DeliverySession = {
-    botLogin: BOT,
+    get botLogin() {
+      return fake.botLogin
+    },
     identity: { name: BOT, email: `123+${BOT}@users.noreply.github.com` },
     branchRules: (branch) =>
       run(
@@ -223,12 +238,16 @@ export function createFakeGitHub(): FakeGitHub {
       run("createTree", () => {
         const flat = flatten(baseTree)
         for (const entry of entries) flat.set(entry.path, { mode: entry.mode, sha: entry.sha })
-        return build(flat)
+        const built = build(flat)
+        return fake.corruptTree ?? built
       }),
     createCommit: (input) =>
-      run("createCommit", () =>
-        putCommit(input.tree, input.parents, `${input.message}${input.author.date}`),
-      ),
+      run("createCommit", () => {
+        const sha = putCommit(input.tree, input.parents, `${input.message}${input.author.date}`)
+        const stored = commits.get(sha) as RemoteCommit
+        if (fake.rewriteCommit !== undefined) commits.set(sha, fake.rewriteCommit(stored))
+        return sha
+      }),
     createBranch: (branch, sha) =>
       run("createBranch", () => {
         if (refs.has(branch)) return "exists" as const
@@ -240,7 +259,14 @@ export function createFakeGitHub(): FakeGitHub {
     pullsByHead: (branch) => run("pullsByHead", () => pulls.filter((p) => p.headRef === branch)),
     createDraftPull: (input) =>
       run("createDraftPull", () => {
-        if (pulls.some((p) => p.headRef === input.head && p.state === "open"))
+        // GitHub's head is `<owner>:<branch>`: a fork's pull request on the same branch name
+        // is another head.
+        if (
+          pulls.some(
+            (p) =>
+              p.headRef === input.head && p.headRepository === REPOSITORY && p.state === "open",
+          )
+        )
           return "exists" as const
         const head = refs.get(input.head)
         if (head === undefined)
@@ -251,7 +277,7 @@ export function createFakeGitHub(): FakeGitHub {
           url: `https://github.com/${REPOSITORY}/pull/${number}`,
           nodeId: `PR_${number}`,
           state: "open",
-          draft: true,
+          draft: !fake.createReady,
           merged: false,
           author: fake.author,
           headRef: input.head,

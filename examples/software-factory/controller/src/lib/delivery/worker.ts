@@ -4,8 +4,15 @@ import type { WorkOrderPatch, WorkOrderStore } from "../registry/work-orders.js"
 import type { ArtifactStore } from "../storage/artifacts.js"
 import { type DeliveryAdapter, DeliveryError, type DeliverySession } from "./adapter.js"
 import { blobId, changedTreeId, readPinListings } from "./git-objects.js"
-import { isRunFromBranchPath, protectedPathsIn } from "./guard.js"
-import type { DeliveryRemote, OutboxRow, OutboxStep, OutboxStore } from "./outbox.js"
+import { FACTORY_BOT_LOGIN, isRunFromBranchPath, protectedPathsIn } from "./guard.js"
+import {
+  type DeliveryIntent,
+  type DeliveryRemote,
+  type OutboxRow,
+  type OutboxStep,
+  type OutboxStore,
+  StaleOutboxStepError,
+} from "./outbox.js"
 import { commitMessage, pullBody } from "./pr-body.js"
 import { scrub } from "./scrub.js"
 
@@ -88,12 +95,16 @@ export async function runDelivery(
 ): Promise<void> {
   const started = deps.clock()
   const secrets = () => deps.adapter.secrets()
-  const first = ctx.outbox.get(id)
-  if (first === null) {
-    refuse(new Stop("delivery_unconfirmed", "a delivering work order with no outbox intent"))
-    return
+  /** The outbox row, or null when there is none or it no longer parses: never a throw. */
+  const outboxRow = (): OutboxRow | null => {
+    try {
+      return ctx.outbox.get(id)
+    } catch {
+      return null
+    }
   }
-  const { intent } = first
+  // Assigned first thing inside the try below: a row that does not parse blocks, not rejects.
+  let intent: DeliveryIntent
 
   /** Before every write and every recorded step: a cancel stops the worker there. */
   const ensureDelivering = () => {
@@ -146,28 +157,49 @@ export async function runDelivery(
    * journal what exists remotely and report false.
    */
   function record(from: OutboxStep, to: OutboxStep, remote: DeliveryRemote, event: string) {
-    return ctx.store.transaction(() => {
-      const state = ctx.mustGet(id).state
-      if (state !== "delivering") {
-        ctx.recordEvent(id, "delivery_stopped", { state, step: from, observed: remote })
-        return false
-      }
-      const row = ctx.outbox.advance(id, from, to, remote, ctx.iso())
-      ctx.recordEvent(id, event, { ...remote })
-      ctx.outbox.note(id, null, ctx.iso())
-      return row.step === to
+    try {
+      return ctx.store.transaction(() => {
+        const state = ctx.mustGet(id).state
+        if (state !== "delivering") {
+          ctx.recordEvent(id, "delivery_stopped", { state, step: from, observed: remote })
+          return false
+        }
+        const row = ctx.outbox.advance(id, from, to, remote, ctx.iso())
+        ctx.recordEvent(id, event, { ...remote })
+        ctx.outbox.note(id, null, ctx.iso())
+        return row.step === to
+      })
+    } catch (error) {
+      if (!(error instanceof StaleOutboxStepError)) throw error
+      superseded(from, remote)
+      return false
+    }
+  }
+
+  /**
+   * Another worker advanced the step first (two runs of one delivery: an approve and a
+   * reconcile). It owns the delivery from here; this one stops, never refuses: what it
+   * observed is the same remote state the other recorded.
+   */
+  function superseded(step: OutboxStep, observed: DeliveryRemote) {
+    ctx.recordEvent(id, "delivery_stopped", {
+      state: ctx.mustGet(id).state,
+      step,
+      observed,
+      reason: "another run of this delivery advanced the step first",
     })
   }
 
   function refuse(stop: Stop): void {
     const detail = scrub(stop.detail, secrets())
     ctx.store.transaction(() => {
-      if (ctx.outbox.get(id) !== null) ctx.outbox.note(id, detail, ctx.iso())
+      const row = outboxRow()
+      if (row !== null) ctx.outbox.note(id, detail, ctx.iso())
       ctx.recordEvent(id, "delivery_refused", {
         reason: stop.reason,
         detail,
         ...stop.extra,
-        remote: ctx.outbox.get(id)?.remote ?? {},
+        remote: row?.remote ?? {},
       })
       if (ctx.mustGet(id).state === "delivering")
         ctx.transition(
@@ -179,10 +211,9 @@ export async function runDelivery(
     })
   }
 
-  // (a) Is the change still a change to main, stated against the bytes it was verified on?
-  async function check(session: DeliverySession): Promise<DeliveryRemote> {
-    // Approval refused a protected path; the guard's list may have grown since. Asked again
-    // here, before anything is read or written: the change itself may never touch one.
+  // Approval refused a protected path; the guard's list may have grown since. Asked again
+  // before the session opens, so nothing is read or written: the change may never touch one.
+  function checkProtectedPaths(): void {
     const reached = protectedPathsIn(intent.paths.map((p) => p.path))
     if (reached.length > 0)
       throw new Stop(
@@ -190,6 +221,10 @@ export async function runDelivery(
         `the change touches ${reached.join(", ")}, which a pull request from the factory may never change`,
         { paths: reached },
       )
+  }
+
+  // (a) Is the change still a change to main, stated against the bytes it was verified on?
+  async function check(session: DeliverySession): Promise<DeliveryRemote> {
     if (intent.issue.stateAtCreate === "open") {
       const state = await session.issueState(intent.issue.number)
       if (state === "closed")
@@ -318,7 +353,11 @@ export async function runDelivery(
     })
     const made = await session.commit(sha)
     if (made.tree !== checked.expectedTree || !sameParents(made.parents, intent.pin))
-      throw new Stop("delivery_unconfirmed", `commit ${sha} is not the approved tree on the pin`)
+      throw new Stop("delivery_unconfirmed", `commit ${sha} is not the approved tree on the pin`, {
+        commit: sha,
+        expected: { tree: checked.expectedTree, parents: [intent.pin] },
+        returned: { tree: made.tree, parents: made.parents },
+      })
     return { commit: { sha } }
   }
 
@@ -327,10 +366,16 @@ export async function runDelivery(
    * tree and parent, not by author: a commit someone else made with the identical tree on the
    * pin is the approved bytes, and adopting it publishes exactly what was approved. Only the
    * app can create a `factory/*` branch (the rulesets), and confirm still requires the pull
-   * request's author to be the app's bot.
+   * request's author to be the app's bot. A commit GitHub does not have is not ours.
    */
   async function isOurs(session: DeliverySession, sha: string, expectedTree: string) {
-    const found = await session.commit(sha)
+    let found: Awaited<ReturnType<DeliverySession["commit"]>>
+    try {
+      found = await session.commit(sha)
+    } catch (error) {
+      if (error instanceof DeliveryError && error.kind === "not_found") return false
+      throw error
+    }
     return found.tree === expectedTree && sameParents(found.parents, intent.pin)
   }
 
@@ -397,6 +442,15 @@ export async function runDelivery(
       throw new Stop("delivery_unconfirmed", "no branch recorded")
     let pull = await ourPull(session, headSha)
     if (pull === undefined) {
+      // The branch is read again right before the pull request is opened on it: a push since
+      // step (c) recorded it would otherwise be published under the factory's name.
+      const now = await session.branchHead(intent.branch)
+      if (now !== headSha && (now === null || !(await isOurs(session, now, checked.expectedTree))))
+        throw new Stop(
+          "delivery_branch_conflict",
+          `${intent.branch} is at ${now ?? "nothing"}, not this change at ${headSha}; the factory opens no pull request on it`,
+          { head: now, recorded: headSha },
+        )
       ensureDelivering()
       const made = await session.createDraftPull({
         title: intent.title,
@@ -437,17 +491,35 @@ export async function runDelivery(
         "delivery_branch_conflict",
         `#${pull.number} was closed before it was confirmed`,
       )
-    const problems = [
+    // Not the factory's pull request: another head, another repository's head, or another
+    // author (the app must also be the one the CI guard skips). The factory never closes it,
+    // and redelivering cannot make it ours.
+    const notOurs = [
       pull.headRef === intent.branch ? null : `its head is ${pull.headRef}`,
       pull.headRepository === intent.repository ? null : `its head is in ${pull.headRepository}`,
-      pull.baseRef === intent.baseBranch ? null : `its base is ${pull.baseRef}`,
-      pull.author === session.botLogin ? null : `its author is ${pull.author}`,
-      pull.headSha === branched.headSha ? null : `its head moved to ${pull.headSha}`,
+      pull.author === session.botLogin && pull.author === FACTORY_BOT_LOGIN
+        ? null
+        : `its author is ${pull.author}, not ${FACTORY_BOT_LOGIN}`,
     ].filter((p): p is string => p !== null)
-    if (problems.length === 0 && !(await isOurs(session, pull.headSha, checked.expectedTree)))
-      problems.push(`its head commit is not the approved tree on the pin`)
-    if (problems.length > 0)
-      throw new Stop("delivery_unconfirmed", `#${pull.number}: ${problems.join("; ")}`)
+    if (notOurs.length > 0)
+      throw new Stop("delivery_branch_conflict", `#${pull.number}: ${notOurs.join("; ")}`, {
+        number: pull.number,
+      })
+    if (pull.baseRef !== intent.baseBranch)
+      throw new Stop("delivery_unconfirmed", `#${pull.number}: its base is ${pull.baseRef}`, {
+        number: pull.number,
+      })
+    // The head, read back: the approved tree on the pin, alone. A head that moved to another
+    // commit of exactly this change is the approved bytes, as step (c) judges; any other is a
+    // push the factory did not make.
+    if (!(await isOurs(session, pull.headSha, checked.expectedTree)))
+      throw new Stop(
+        pull.headSha === branched.headSha ? "delivery_unconfirmed" : "delivery_branch_conflict",
+        pull.headSha === branched.headSha
+          ? `#${pull.number}: its head commit is not the approved tree on the pin`
+          : `#${pull.number}: its head moved to ${pull.headSha}, which is not this change`,
+        { number: pull.number, head: pull.headSha, recorded: branched.headSha },
+      )
     const closing = await session.closingIssues(pull.number)
     if (closing.length > 0)
       throw new Stop(
@@ -455,6 +527,18 @@ export async function runDelivery(
         `#${pull.number} would close ${closing.map((n) => `#${n}`).join(", ")} on merge; edit its body`,
         { closing },
       )
+    try {
+      confirmed(pull, checked)
+    } catch (error) {
+      if (!(error instanceof StaleOutboxStepError)) throw error
+      superseded("opened", row.remote)
+    }
+  }
+
+  function confirmed(
+    pull: Awaited<ReturnType<DeliverySession["pull"]>>,
+    checked: NonNullable<DeliveryRemote["check"]>,
+  ): void {
     ctx.store.transaction(() => {
       ctx.outbox.advance(id, "opened", "confirmed", {}, ctx.iso())
       // The PR exists whatever happened to the row meanwhile: the receipt is the truth.
@@ -479,6 +563,11 @@ export async function runDelivery(
   }
 
   try {
+    const first = ctx.outbox.get(id)
+    if (first === null)
+      throw new Stop("delivery_unconfirmed", "a delivering work order with no outbox intent")
+    intent = first.intent
+    checkProtectedPaths()
     const session = await attempt("session", () => deps.adapter.open(intent.repository, ctx.signal))
     for (;;) {
       // A closing controller stops between steps; the next boot's reconcile resumes here.
@@ -540,7 +629,7 @@ export async function runDelivery(
     // A cancel, or a controller closing (between steps or mid-request): journal what exists
     // remotely and leave the row as it is. Never a refusal: nothing went wrong with GitHub.
     if (error instanceof Halted || ctx.signal.aborted) {
-      const row = ctx.outbox.get(id)
+      const row = outboxRow()
       ctx.recordEvent(id, "delivery_stopped", {
         state: ctx.mustGet(id).state,
         step: row?.step ?? null,

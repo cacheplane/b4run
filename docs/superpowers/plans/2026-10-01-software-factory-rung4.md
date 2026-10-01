@@ -3753,6 +3753,8 @@ git commit -m "feat(software-factory): the delivery-protected paths, the scrubbe
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+**As landed (Task 10, with the review fixes of 2026-10-01).** Beyond the code above: the changed-path lines are fenced too (`fenceFor`), and `scrub()` runs over the model-written title, the quoted spec (before the length cut) and the commit message. After review: `neutraliseReferences` also runs over the quoted spec and the changed-path lines (the fence stays; the digest remains the authority), so a renderer that reads a fence differently still finds no reference to close; the plan's test that required the raw `Fixes #1` inside the fence now requires `Fixes # 1`. The length cut subtracts both fences and the info string (a spec of 70,000 backticks rendered a 194k-character body before) and never splits a surrogate pair, and neither does the title's 200-character cut (`cutAt`). `oneLine` drops `\p{Cf}` (bidi controls, zero-width spaces and joiners) before it collapses whitespace, so `#\u200B12` cannot hide a reference from `neutraliseReferences`.
+
 ### Task 11: The delivery worker, against an in-memory GitHub with fault injection
 
 **Files:**
@@ -5220,6 +5222,18 @@ git commit -m "feat(software-factory): the delivery worker: read-before-write st
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
+
+**As landed (Task 11, with the review fixes of 2026-10-01).** A review ran probes and 27 mutations against Task 11 and found these; each is fixed test-first, and a mutation run of 40 mutants over `worker.ts`, `outbox.ts`, `pr-body.ts` and `git-objects.ts` kills all 40.
+
+- **Step (d) reads the branch again right before `createDraftPull`.** A head that is neither the recorded one nor a commit of exactly this change (`isOurs`) refuses `delivery_branch_conflict` and opens no pull request: a push between steps (c) and (d) was otherwise published under the factory's name and only caught at confirm.
+- **Confirm separates "not ours" from "not yet confirmed".** Another head ref, a head in another repository, or an author that is not both the session's bot and `guard.json`'s `botLogin` (`FACTORY_BOT_LOGIN`) is `delivery_branch_conflict`: redelivering cannot make it ours, and the factory never closes a pull request. A head that moved is judged by tree and parent as step (c) judges it: another commit of exactly this change is accepted (the receipt records it), any other head is `delivery_branch_conflict`; a commit GitHub does not have is not ours (a 404 in `isOurs` is false, not a refusal). A changed base, a recorded head that reads back off the approved tree, and closing references stay `delivery_unconfirmed` (redeliverable).
+- **Two runs of one delivery** (approve and a reconcile): a `StaleOutboxStepError` from `advance`, at any step or at confirm, is a stop (journal `delivery_stopped`, "another run of this delivery advanced the step first"), never a refusal; the run that advanced owns the delivery.
+- **The outbox row is read inside the worker's `try`**: a row that does not parse blocks `delivery_unconfirmed` instead of rejecting `runDelivery`, and `refuse` and the stop path read the row without throwing.
+- **The protected-path re-check runs before `adapter.open`**: no request at all for a change to a protected path.
+- **A commit read-back mismatch journals both values** (`expected` and `returned` tree and parents).
+- **The outbox:** `advance` moves only to the next step and refuses a `remote` that would overwrite an observation an earlier step recorded; `insert` derives the operation key with `deliveryOperationKey(intent.workOrderId, intent.bundleDigest)` and takes none. **Task 13's approve must drop its `operationKey:` argument to `outbox.insert`.**
+- **`readPinListings` verifies each listing hashes to the tree id it was read from** (`treeId(listing) === sha`); a listing that does not, or that git cannot encode, is a `delivery_baseline_mismatch` problem, never hashed into a guess. Task 18's adapter must still refuse a `truncated: true` tree answer itself (its `tree()` does), so the problem names the cause.
+- **Tests that bind the checks that survived mutation:** confirm's tree-and-parent read-back of the head; the closed-PR refusal and the base/head refusal at step (d); GitHub's tree id against the expected tree (no commit is written after a mismatch); the commit read-back (no branch is created after one); the draft assertion; the head-repository filter at step (d) (a fork's pull request on the same branch name is ignored) and at confirm; confirm's base check; the cancel checks before `createBlob`, `createBranch` and `createDraftPull` (a cancel landing while the step reads); and the pin's mode in `createTree` (an executable file keeps `100755`). The fake gained `botLogin`, `corruptTree`, `rewriteCommit`, `createReady`, executable paths in `seed`, and a fork-aware "pull request exists"; the harness exposes the registry's `db` and an `onArtifactRead` hook.
 
 ### Task 12: `create --deliver draft-pr` at the controller, the protected paths at intake, and the frozen delivery
 
@@ -10285,6 +10299,8 @@ Brian approves at both gates as before. Expected: `blocked` with `delivery_base_
 - **A delivery view in `factory events`** (each step's observed ids in one line) once the live run shows what operators read.
 - **The `repositoryId: taskId` misnomer** (spec §16) stays: removing it moves every export-local digest.
 - **The controller's remaining synchronous calls** (the up/run plan's follow-up) now include `readGeneratedTask` at approve; small, but on the request path.
+- **Preflight could refuse a repository whose squash or merge commit message is `PR_BODY`** (the review of Task 10): GitHub then copies the description, quoted spec included, into the commit on `main`. The fence and `neutraliseReferences` already keep any reference in the quoted spec from closing an issue; the refusal would keep the model-written text out of `main`'s history as well. Not implemented.
+- **The adapter must refuse a `truncated: true` tree listing** (Task 18's `tree()` does; keep it): `readPinListings` now also refuses a listing that does not hash to its tree id, which a truncated listing never does, but the adapter's refusal names the cause.
 
 ## Self-review
 

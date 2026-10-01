@@ -48,6 +48,8 @@ export function closeHarness(): void {
 
 export interface Harness {
   readonly github: FakeGitHub
+  /** The registry the work order and its outbox live in, for a test that corrupts a row. */
+  readonly db: Registry["db"]
   readonly store: WorkOrderStore
   readonly outbox: OutboxStore
   readonly waits: number[]
@@ -58,6 +60,8 @@ export interface Harness {
     readonly onEvent?: (type: string, abort: () => void) => void
     /** Before each GitHub call: a test aborts the run, or throws, in the middle of a request. */
     readonly onCall?: (method: string, abort: () => void) => void
+    /** Before the approved bytes are read from the artifact store. */
+    readonly onArtifactRead?: () => void
   }): Promise<WorkOrderRow>
   events(): string[]
   journal(): string
@@ -67,6 +71,8 @@ export async function harness(
   options: {
     readonly stateAtCreate?: "open" | "closed"
     readonly pinFiles?: Record<string, string>
+    /** Pin paths seeded executable (mode 100755). */
+    readonly executable?: readonly string[]
     /** The repository to seed; a fresh in-memory one by default. */
     readonly github?: FakeGitHub
     /** How the worker reaches it; the in-memory repository itself by default. */
@@ -86,9 +92,10 @@ export async function harness(
   const repository = options.remote?.repository ?? REPOSITORY
   const branch = `factory/${id}`
   dir = mkdtempSync(join(tmpdir(), "delivery-worker-"))
-  registry = openRegistry(join(dir, "registry.sqlite"))
-  const store = createWorkOrderStore(registry.db)
-  const outbox = createOutboxStore(registry.db)
+  const opened = openRegistry(join(dir, "registry.sqlite"))
+  registry = opened
+  const store = createWorkOrderStore(opened.db)
+  const outbox = createOutboxStore(opened.db)
   const artifacts: ArtifactStore = createArtifactStore(join(dir, "artifacts"))
   const github = options.github ?? createFakeGitHub()
   const pin =
@@ -100,6 +107,8 @@ export async function harness(
         "packages/devkit/src/testing.ts": "export * from './testing/process.js'\n",
         ".github/workflows/ci.yml": "name: CI\n",
       },
+      undefined,
+      options.executable,
     ).pin
   const source = options.source ?? SOURCE
   const artifact = await artifacts.put(JSON.stringify({ [source]: REPAIRED }, null, 2))
@@ -201,7 +210,12 @@ export async function harness(
     const ctx: DeliveryContext = {
       store,
       outbox,
-      artifacts,
+      artifacts: {
+        read: async (digest) => {
+          run.onArtifactRead?.()
+          return artifacts.read(digest)
+        },
+      },
       signal: abort.signal,
       iso,
       mustGet: (id) => store.get(id) as WorkOrderRow,
@@ -233,6 +247,7 @@ export async function harness(
   }
   return {
     github,
+    db: opened.db,
     store,
     outbox,
     waits,

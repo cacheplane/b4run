@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest"
-import { DeliveryError } from "../src/lib/delivery/adapter.ts"
+import { DeliveryError, type RemoteCommit, type RemotePull } from "../src/lib/delivery/adapter.ts"
 import { blobId } from "../src/lib/delivery/git-objects.ts"
 import type { WorkOrderRow } from "../src/lib/domain/work-order.ts"
 import {
@@ -218,7 +218,8 @@ describe("the delivery worker", () => {
       state: "blocked",
       blockedReason: "delivery_base_conflict",
     })
-    expect(h.github.calls).toEqual(["open"])
+    // Asked before the session opens: no request at all.
+    expect(h.github.calls).toEqual([])
   })
 
   it("stays delivering when the controller closes mid-request, and resumes after", async () => {
@@ -256,34 +257,100 @@ describe("the delivery worker", () => {
     expect(h.github.pulls).toHaveLength(1)
   })
 
-  it("does not confirm a pull request whose branch was pushed to after it was branched", async () => {
+  it("opens no pull request on a branch pushed to after it was branched", async () => {
     const h = await harness()
     await h.deliver({ onEvent: (type, abort) => type === "delivery_branched" && abort() })
     const ours = h.github.refs.get(BRANCH) as string
+    // A commit pushed on top of ours, even one keeping its tree, is not this change on the pin.
     const pushed = "a".repeat(40)
     h.github.commits.set(pushed, {
       sha: pushed,
-      tree: h.github.commits.get(h.pin)?.tree as string,
+      tree: h.github.commits.get(ours)?.tree as string,
       parents: [ours],
     })
     h.github.refs.set(BRANCH, pushed)
     const row = await h.deliver()
-    expect(row).toMatchObject({ state: "blocked", blockedReason: "delivery_unconfirmed" })
+    expect(row).toMatchObject({ state: "blocked", blockedReason: "delivery_branch_conflict" })
+    expect(h.github.pulls.length).toBe(0)
     expect(h.store.delivery(ID)).toBeNull()
-    expect(JSON.stringify(h.store.events(ID).at(-2)?.payload)).toContain(`head moved to ${pushed}`)
+    expect(JSON.stringify(h.store.events(ID).at(-2)?.payload)).toContain(pushed)
   })
 
-  it("refuses a pull request whose head moved after it was opened, and records no receipt", async () => {
+  it("opens the pull request on a branch that moved to another commit of exactly this change", async () => {
+    const h = await harness()
+    await h.deliver({ onEvent: (type, abort) => type === "delivery_branched" && abort() })
+    const ours = h.github.refs.get(BRANCH) as string
+    const twin = "e".repeat(40)
+    h.github.commits.set(twin, { ...(h.github.commits.get(ours) as RemoteCommit), sha: twin })
+    h.github.refs.set(BRANCH, twin)
+    expect((await h.deliver()).state).toBe("delivered")
+    expect(h.github.pulls).toHaveLength(1)
+    expect(h.store.delivery(ID)?.pullRequest?.headSha).toBe(twin)
+  })
+
+  it("refuses a pull request whose head moved off this change after it was opened, and records no receipt", async () => {
     const h = await harness()
     await h.deliver({ onEvent: (type, abort) => type === "delivery_opened" && abort() })
     const pull = h.github.pulls[0] as (typeof h.github.pulls)[number]
     h.github.pulls[0] = { ...pull, headSha: "a".repeat(40) }
     expect(await h.deliver()).toMatchObject({
       state: "blocked",
-      blockedReason: "delivery_unconfirmed",
+      blockedReason: "delivery_branch_conflict",
     })
     expect(h.store.delivery(ID)).toBeNull()
     expect(h.outbox.get(ID)?.step).toBe("opened")
+  })
+
+  it("confirms a pull request whose head moved to another commit of exactly this change", async () => {
+    const h = await harness()
+    await h.deliver({ onEvent: (type, abort) => type === "delivery_opened" && abort() })
+    const pull = h.github.pulls[0] as (typeof h.github.pulls)[number]
+    const twin = "e".repeat(40)
+    h.github.commits.set(twin, {
+      ...(h.github.commits.get(pull.headSha) as RemoteCommit),
+      sha: twin,
+    })
+    h.github.pulls[0] = { ...pull, headSha: twin }
+    expect((await h.deliver()).state).toBe("delivered")
+    expect(h.store.delivery(ID)?.pullRequest?.headSha).toBe(twin)
+  })
+
+  it("does not confirm a head whose commit reads back as another tree", async () => {
+    const h = await harness()
+    await h.deliver({ onEvent: (type, abort) => type === "delivery_opened" && abort() })
+    const head = h.github.pulls[0]?.headSha as string
+    const commit = h.github.commits.get(head) as RemoteCommit
+    h.github.commits.set(head, { ...commit, tree: h.github.commits.get(h.pin)?.tree as string })
+    expect(await h.deliver()).toMatchObject({
+      state: "blocked",
+      blockedReason: "delivery_unconfirmed",
+    })
+    expect(h.store.delivery(ID)).toBeNull()
+  })
+
+  it.each([
+    ["its head is in another repository", { headRepository: "someone/fork" }],
+    ["its head is another branch", { headRef: "factory/other" }],
+  ] as const)("refuses to confirm a pull request when %s", async (_label, change) => {
+    const h = await harness()
+    await h.deliver({ onEvent: (type, abort) => type === "delivery_opened" && abort() })
+    h.github.pulls[0] = { ...(h.github.pulls[0] as RemotePull), ...change }
+    expect(await h.deliver()).toMatchObject({
+      state: "blocked",
+      blockedReason: "delivery_branch_conflict",
+    })
+    expect(h.store.delivery(ID)).toBeNull()
+  })
+
+  it("leaves a pull request retargeted to another base redeliverable, unconfirmed", async () => {
+    const h = await harness()
+    await h.deliver({ onEvent: (type, abort) => type === "delivery_opened" && abort() })
+    h.github.pulls[0] = { ...(h.github.pulls[0] as RemotePull), baseRef: "release" }
+    expect(await h.deliver()).toMatchObject({
+      state: "blocked",
+      blockedReason: "delivery_unconfirmed",
+    })
+    expect(h.store.delivery(ID)).toBeNull()
   })
 
   it("refuses when the pin's bytes are not the baseline the candidate was diffed against", async () => {
@@ -324,9 +391,209 @@ describe("the delivery worker", () => {
     h.github.author = "blove"
     expect(await h.deliver()).toMatchObject({
       state: "blocked",
-      blockedReason: "delivery_unconfirmed",
+      blockedReason: "delivery_branch_conflict",
     })
   })
+
+  it.each([
+    ["an app the guard does not skip", "other-app[bot]", "other-app[bot]"],
+    ["the guarded bot, when the session is another app's", "other-app[bot]", BOT],
+  ])("does not confirm as the factory's a pull request by %s", async (_label, login, author) => {
+    const h = await harness()
+    h.github.botLogin = login
+    h.github.author = author
+    expect(await h.deliver()).toMatchObject({
+      state: "blocked",
+      blockedReason: "delivery_branch_conflict",
+    })
+    expect(h.store.delivery(ID)).toBeNull()
+  })
+
+  it("refuses at step (d) when a person closed a pull request on the branch, opening none", async () => {
+    const h = await harness()
+    await h.deliver({ onEvent: (type, abort) => type === "delivery_branched" && abort() })
+    h.github.pulls.push({
+      number: 5,
+      url: "https://github.com/cacheplane/b4run/pull/5",
+      nodeId: "PR_5",
+      state: "closed",
+      draft: true,
+      merged: false,
+      author: BOT,
+      headRef: BRANCH,
+      headRepository: "cacheplane/b4run",
+      headSha: h.github.refs.get(BRANCH) as string,
+      baseRef: "main",
+    })
+    expect(await h.deliver()).toMatchObject({
+      state: "blocked",
+      blockedReason: "delivery_branch_conflict",
+    })
+    expect(h.github.pulls).toHaveLength(1)
+  })
+
+  it("ignores a fork's pull request on the same branch name, and opens its own", async () => {
+    const h = await harness()
+    await h.deliver({ onEvent: (type, abort) => type === "delivery_branched" && abort() })
+    h.github.pulls.push({
+      number: 7,
+      url: "https://github.com/someone/fork/pull/7",
+      nodeId: "PR_7",
+      state: "open",
+      draft: false,
+      merged: false,
+      author: "someone",
+      headRef: BRANCH,
+      headRepository: "someone/fork",
+      headSha: h.github.refs.get(BRANCH) as string,
+      baseRef: "main",
+    })
+    expect((await h.deliver()).state).toBe("delivered")
+    expect(h.store.delivery(ID)?.pullRequest?.number).toBe(1001)
+  })
+
+  it("refuses when GitHub builds another tree than the approved change, before any commit", async () => {
+    const h = await harness()
+    h.github.corruptTree = "f".repeat(40)
+    expect(await h.deliver()).toMatchObject({
+      state: "blocked",
+      blockedReason: "delivery_unconfirmed",
+    })
+    expect(h.github.writes()).toEqual(["createBlob", "createTree"])
+  })
+
+  it("refuses a commit that reads back off the pin, journals both, and creates no branch", async () => {
+    const h = await harness()
+    h.github.rewriteCommit = (commit) => ({ ...commit, parents: [] })
+    expect(await h.deliver()).toMatchObject({
+      state: "blocked",
+      blockedReason: "delivery_unconfirmed",
+    })
+    expect(h.github.writes()).not.toContain("createBranch")
+    const refused = h.store.events(ID).find((e) => e.type === "delivery_refused")?.payload
+    expect(refused).toMatchObject({
+      expected: { parents: [h.pin] },
+      returned: { parents: [] },
+    })
+  })
+
+  it("refuses a pull request GitHub created ready rather than draft", async () => {
+    const h = await harness()
+    h.github.createReady = true
+    expect(await h.deliver()).toMatchObject({
+      state: "blocked",
+      blockedReason: "delivery_unconfirmed",
+    })
+    expect(h.store.delivery(ID)).toBeNull()
+  })
+
+  it("keeps the pin's executable bit on the changed file", async () => {
+    const h = await harness({ executable: [SOURCE] })
+    expect((await h.deliver()).state).toBe("delivered")
+    expect(h.outbox.get(ID)?.remote.check?.modes).toEqual({ [SOURCE]: "100755" })
+  })
+
+  it("writes no blob when the work order is cancelled while the approved bytes are read", async () => {
+    const h = await harness()
+    const row = await h.deliver({
+      onArtifactRead: () => {
+        const current = h.store.get(ID) as WorkOrderRow
+        h.store.update(
+          ID,
+          current.revision,
+          { state: "cancel_requested" },
+          new Date().toISOString(),
+        )
+      },
+    })
+    expect(row.state).toBe("cancel_requested")
+    expect(h.github.writes()).toEqual([])
+    expect(h.events()).toContain("delivery_stopped")
+  })
+
+  it.each([
+    ["another base", { baseRef: "release" }],
+    ["another head", { headSha: "a".repeat(40) }],
+  ] as const)(
+    "refuses at step (d) an open pull request on the branch with %s, opening none",
+    async (_label, change) => {
+      const h = await harness()
+      await h.deliver({ onEvent: (type, abort) => type === "delivery_branched" && abort() })
+      h.github.pulls.push({
+        number: 6,
+        url: "https://github.com/cacheplane/b4run/pull/6",
+        nodeId: "PR_6",
+        state: "open",
+        draft: true,
+        merged: false,
+        author: BOT,
+        headRef: BRANCH,
+        headRepository: "cacheplane/b4run",
+        headSha: h.github.refs.get(BRANCH) as string,
+        baseRef: "main",
+        ...change,
+      })
+      expect(await h.deliver()).toMatchObject({
+        state: "blocked",
+        blockedReason: "delivery_branch_conflict",
+      })
+      expect(h.github.pulls).toHaveLength(1)
+      expect(h.outbox.get(ID)?.step).toBe("branched")
+    },
+  )
+
+  it("ends two concurrent workers with one pull request and no refusal", async () => {
+    const h = await harness()
+    await Promise.all([h.deliver(), h.deliver()])
+    expect(h.store.get(ID)).toMatchObject({ state: "delivered", blockedReason: null })
+    expect(h.github.pulls).toHaveLength(1)
+    expect(h.events()).not.toContain("delivery_refused")
+    expect(h.events()).toContain("delivery_stopped")
+  })
+
+  it("ends two concurrent confirmations with one receipt and no refusal", async () => {
+    const h = await harness()
+    await h.deliver({ onEvent: (type, abort) => type === "delivery_opened" && abort() })
+    await Promise.all([h.deliver(), h.deliver()])
+    expect(h.store.get(ID)).toMatchObject({ state: "delivered", blockedReason: null })
+    expect(h.events()).not.toContain("delivery_refused")
+    expect(h.store.delivery(ID)?.pullRequest?.number).toBe(1000)
+  })
+
+  it("blocks, rather than throws, on an outbox row that does not parse", async () => {
+    const h = await harness()
+    h.db.prepare("UPDATE delivery_outbox SET intent = ? WHERE work_order_id = ?").run("{", ID)
+    expect(await h.deliver()).toMatchObject({
+      state: "blocked",
+      blockedReason: "delivery_unconfirmed",
+    })
+    expect(h.github.calls).toEqual([])
+  })
+
+  it.each([
+    ["createBranch", "committed", "branchHead"],
+    ["createDraftPull", "branched", "pullsByHead"],
+  ] as const)(
+    "writes no %s when the work order is cancelled while the step reads",
+    async (write, step, read) => {
+      const h = await harness()
+      const row = await h.deliver({
+        onCall: (method) => {
+          if (method !== read || h.outbox.get(ID)?.step !== step) return
+          const current = h.store.get(ID) as WorkOrderRow
+          h.store.update(
+            ID,
+            current.revision,
+            { state: "cancel_requested" },
+            new Date().toISOString(),
+          )
+        },
+      })
+      expect(row.state).toBe("cancel_requested")
+      expect(h.github.writes()).not.toContain(write)
+      expect(h.events()).toContain("delivery_stopped")
+    },
+  )
 
   it("refuses an issue closed since create, and delivers a replay of one closed at create", async () => {
     const reopened = await harness()
