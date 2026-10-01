@@ -1,4 +1,4 @@
-import { type BaseEvent, EventType } from "@ag-ui/core"
+import { type BaseEvent, EventType, PROTOCOL_VERSION } from "@ag-ui/core"
 import { ActivitySnapshotEventSchema, ToolCallResultEventSchema } from "@ag-ui/core/schemas"
 import { describe, expect, test } from "vitest"
 import { B4_PLAN_ACTIVITY_TYPE, B4_SUBAGENT_ACTIVITY_TYPE } from "../src/activities.ts"
@@ -30,6 +30,17 @@ async function* toAsync(items: B4AgentStreamChunk[]) {
 }
 
 describe("toAguiEvents", () => {
+  test("RUN_STARTED declares the producer's protocol version", async () => {
+    const [first] = await collect([{ type: "done", data: {} }])
+    expect(first).toEqual({
+      type: EventType.RUN_STARTED,
+      threadId: "th-1",
+      runId: "rn-1",
+      protocolVersion: PROTOCOL_VERSION,
+    })
+    expect(PROTOCOL_VERSION).toBe("1.0")
+  })
+
   test("text-only stream: run start, framed message, run finished success", async () => {
     const events = await collect([
       { type: "token", data: "Hel" },
@@ -37,7 +48,12 @@ describe("toAguiEvents", () => {
       { type: "done", data: {} },
     ])
     expect(events).toEqual([
-      { type: EventType.RUN_STARTED, threadId: "th-1", runId: "rn-1" },
+      {
+        type: EventType.RUN_STARTED,
+        threadId: "th-1",
+        runId: "rn-1",
+        protocolVersion: PROTOCOL_VERSION,
+      },
       { type: EventType.TEXT_MESSAGE_START, messageId: "msg-1", role: "assistant" },
       { type: EventType.TEXT_MESSAGE_CONTENT, messageId: "msg-1", delta: "Hel" },
       { type: EventType.TEXT_MESSAGE_CONTENT, messageId: "msg-1", delta: "lo" },
@@ -59,7 +75,12 @@ describe("toAguiEvents", () => {
       { type: "done", data: {} },
     ])
     expect(events).toEqual([
-      { type: EventType.RUN_STARTED, threadId: "th-1", runId: "rn-1" },
+      {
+        type: EventType.RUN_STARTED,
+        threadId: "th-1",
+        runId: "rn-1",
+        protocolVersion: PROTOCOL_VERSION,
+      },
       { type: EventType.TOOL_CALL_START, toolCallId: "run-abc", toolCallName: "greet" },
       { type: EventType.TOOL_CALL_ARGS, toolCallId: "run-abc", delta: '{"name":"World"}' },
       { type: EventType.TOOL_CALL_END, toolCallId: "run-abc" },
@@ -434,7 +455,12 @@ describe("toAguiEvents", () => {
     ])
 
     expect(events).toEqual([
-      { type: EventType.RUN_STARTED, threadId: "th-1", runId: "rn-1" },
+      {
+        type: EventType.RUN_STARTED,
+        threadId: "th-1",
+        runId: "rn-1",
+        protocolVersion: PROTOCOL_VERSION,
+      },
       {
         type: EventType.RUN_FINISHED,
         threadId: "th-1",
@@ -601,7 +627,12 @@ describe("toAguiEvents", () => {
     ])
 
     expect(events).toEqual([
-      { type: EventType.RUN_STARTED, threadId: "th-1", runId: "rn-1" },
+      {
+        type: EventType.RUN_STARTED,
+        threadId: "th-1",
+        runId: "rn-1",
+        protocolVersion: PROTOCOL_VERSION,
+      },
       {
         type: EventType.RUN_FINISHED,
         threadId: "th-1",
@@ -690,7 +721,12 @@ describe("toAguiEvents", () => {
   test("done without defined data omits the successful result", async () => {
     const events = await collect([{ type: "done" }])
     expect(events).toEqual([
-      { type: EventType.RUN_STARTED, threadId: "th-1", runId: "rn-1" },
+      {
+        type: EventType.RUN_STARTED,
+        threadId: "th-1",
+        runId: "rn-1",
+        protocolVersion: PROTOCOL_VERSION,
+      },
       {
         type: EventType.RUN_FINISHED,
         threadId: "th-1",
@@ -1067,7 +1103,12 @@ describe("streamed tool-call arguments", () => {
       { type: "done", data: {} },
     ])
     expect(events).toEqual([
-      { type: EventType.RUN_STARTED, threadId: "th-1", runId: "rn-1" },
+      {
+        type: EventType.RUN_STARTED,
+        threadId: "th-1",
+        runId: "rn-1",
+        protocolVersion: PROTOCOL_VERSION,
+      },
       { type: EventType.TOOL_CALL_START, toolCallId: "call_1", toolCallName: "weather" },
       { type: EventType.TOOL_CALL_ARGS, toolCallId: "call_1", delta: '{"city":' },
       { type: EventType.TOOL_CALL_ARGS, toolCallId: "call_1", delta: '"Paris",' },

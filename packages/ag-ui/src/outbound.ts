@@ -12,7 +12,7 @@ import type {
   ToolCallResultEvent,
   ToolCallStartEvent,
 } from "@ag-ui/core"
-import { EventType } from "@ag-ui/core"
+import { EventType, PROTOCOL_VERSION } from "@ag-ui/core"
 import { createB4ActivityProjector, isB4ActivityChunkType } from "./activities.js"
 import { createDefaultIdFactory, type IdFactory } from "./ids.js"
 import { toAguiInterrupt } from "./interrupts.js"
@@ -120,7 +120,13 @@ export async function* toAguiEvents(
     openStreamedToolCalls.clear()
   }
 
-  yield { type: EventType.RUN_STARTED, threadId: ctx.threadId, runId: ctx.runId }
+  // The producer's own version, never an echo of the input's (spec: versioning).
+  yield {
+    type: EventType.RUN_STARTED,
+    threadId: ctx.threadId,
+    runId: ctx.runId,
+    protocolVersion: PROTOCOL_VERSION,
+  }
 
   try {
     for await (const chunk of chunks) {
