@@ -435,3 +435,37 @@ describe("protocolVersion", () => {
     expect(middlewareRan).toBe(false)
   })
 })
+
+describe("multimodal input", () => {
+  const image = { type: "image", source: { type: "url", value: "https://example.test/a.png" } }
+
+  it("refuses a message carrying a media part with 422 multimodal_not_supported, before middleware", async () => {
+    let middlewareRan = false
+    const { handler } = await setup({
+      middleware: () => {
+        middlewareRan = true
+        return { action: "continue" }
+      },
+    })
+    const response = await handler.fetch(
+      aguiPost(HELLO_ROUTE, {
+        messages: [{ id: "1", role: "user", content: [{ type: "text", text: "see" }, image] }],
+      }),
+    )
+    expect(response.status).toBe(422)
+    const body = (await response.json()) as { error: { details?: { code?: string } } }
+    expect(body.error.details?.code).toBe("multimodal_not_supported")
+    expect(middlewareRan).toBe(false)
+  })
+
+  it("serves text-only parts", async () => {
+    const { handler } = await setup()
+    const response = await handler.fetch(
+      aguiPost(HELLO_ROUTE, {
+        messages: [{ id: "1", role: "user", content: [{ type: "text", text: "hello" }] }],
+      }),
+    )
+    expect(response.status).toBe(200)
+    await drain(response)
+  })
+})
