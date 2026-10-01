@@ -335,20 +335,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * The 1.0 schema is loose: unknown top-level keys survive the parse. Route
  * params are read off the KNOWN `RunAgentInput` fields only, as they were
  * when 0.0.59 stripped the rest — an AG-UI body key must not name a route
- * param it was never meant to fill.
+ * param it was never meant to fill. Taken from the schema's own shape, so a
+ * field AG-UI adds later is known here without a hand-maintained list.
  */
-const RUN_AGENT_INPUT_KEYS = [
-  "threadId",
-  "runId",
-  "protocolVersion",
-  "parentRunId",
-  "state",
-  "messages",
-  "tools",
-  "context",
-  "forwardedProps",
-  "resume",
-] as const satisfies ReadonlyArray<keyof RunAgentInput>
+const RUN_AGENT_INPUT_KEYS: ReadonlyArray<keyof RunAgentInput> = Object.keys(
+  RunAgentInputSchema.shape,
+) as Array<keyof RunAgentInput>
 
 function knownRunAgentInput(input: RunAgentInput): Record<string, unknown> {
   const known: Record<string, unknown> = {}

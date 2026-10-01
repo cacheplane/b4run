@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { RunAgentInputSchema } from "@ag-ui/core/schemas"
 import type { MiddlewareHandler, ThreadAccessPolicy } from "@b4run/sdk"
 import { afterEach, describe, expect, it } from "vitest"
 import {
@@ -355,6 +356,21 @@ describe("unknown top-level envelope keys", () => {
     expect(text).toContain('"type":"RUN_STARTED"')
     expect(text).not.toContain("someFutureField")
     expect(text).not.toContain("do-not-echo")
+  })
+
+  it("the known-field list is the schema's own shape", () => {
+    expect(Object.keys(RunAgentInputSchema.shape).sort()).toEqual([
+      "context",
+      "forwardedProps",
+      "messages",
+      "parentRunId",
+      "protocolVersion",
+      "resume",
+      "runId",
+      "state",
+      "threadId",
+      "tools",
+    ])
   })
 
   it("do not become route params", async () => {
