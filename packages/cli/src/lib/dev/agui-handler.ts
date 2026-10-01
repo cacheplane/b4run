@@ -1212,10 +1212,10 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
               },
               clientToolNames,
             )
-            const parkedClientCallIds: string[] = []
+            const parkedClientCallIds = new Set<string>()
             for await (const event of toAguiEvents(
               normalizeB4Stream(liveTappedStream, clientToolNames, (id) =>
-                parkedClientCallIds.push(id),
+                parkedClientCallIds.add(id),
               ),
               {
                 threadId,
@@ -1226,8 +1226,8 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                 // client disconnect did not (nobody is listening for the
                 // frame, and attachers read the same terminal below).
                 cancelled: () => run.cancelled || shutdownSignal.aborted,
-                // The client parks this turn dropped from the wire, named on the success outcome.
-                pendingToolCallIds: () => parkedClientCallIds,
+                // The client-tool parks this turn raised (their interrupts stay hidden), named on the success outcome.
+                pendingToolCallIds: () => [...parkedClientCallIds],
               },
             )) {
               // The translator catches upstream errors and aborts, so the raw
