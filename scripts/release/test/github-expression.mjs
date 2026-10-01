@@ -5,7 +5,8 @@
 // nothing. Anything it does not understand throws, so an unfamiliar `if:` fails the test
 // rather than being guessed at.
 //
-// Semantics follow GitHub's documentation: `==` and `!=` compare strings case-insensitively,
+// Semantics follow GitHub's documentation: `==` and `!=` compare strings case-insensitively
+// and coerce mixed types to numbers (so `always() == 1` and `null == ''` are true),
 // `&&` and `||` return an operand (not a boolean), falsy is false, 0, -0, "", null and NaN,
 // a missing property is null, and the status functions are answered from the context.
 //
@@ -160,9 +161,28 @@ const isFalsy = (value) =>
 /** true, false, or UNKNOWN. */
 const truth = (value) => (value === UNKNOWN ? UNKNOWN : !isFalsy(value))
 
+/**
+ * GitHub's coercion of a value to a number for a mixed-type comparison: null is 0, a boolean
+ * 0 or 1, a string its number ("" and whitespace are 0, hex and exponents parse, anything else
+ * NaN), and an object or array NaN.
+ */
+function toNumber(value) {
+  if (value === null) return 0
+  if (typeof value === "boolean") return value ? 1 : 0
+  if (typeof value === "number") return value
+  if (typeof value === "string") return value.trim() === "" ? 0 : Number(value.trim())
+  return Number.NaN
+}
+
+/**
+ * `==` as GitHub evaluates it: same types compare directly (strings case-insensitively,
+ * objects by identity); different types are both coerced to numbers, and NaN equals nothing.
+ */
 function looselyEqual(a, b) {
   if (typeof a === "string" && typeof b === "string") return a.toLowerCase() === b.toLowerCase()
-  return a === b
+  const kind = (value) => (value === null ? "null" : typeof value)
+  if (kind(a) === kind(b)) return a === b
+  return toNumber(a) === toNumber(b)
 }
 
 /**

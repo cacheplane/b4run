@@ -4877,6 +4877,37 @@ test("factory pull requests run no secret-bearing, deploying or writing job (run
       },
     ],
     [
+      "a new job reading every secret through toJSON(secrets)",
+      "ci.yml",
+      (w) => {
+        w.jobs.leak = {
+          "runs-on": "ubuntu-latest",
+          steps: [{ run: "true", env: { K: workflowExpression("toJSON(secrets)") } }],
+        }
+      },
+    ],
+    [
+      "a new job indexing secrets by a matrix value",
+      "ci.yml",
+      (w) => {
+        w.jobs.leak = {
+          "runs-on": "ubuntu-latest",
+          strategy: { matrix: { name: ["NEW_KEY"] } },
+          steps: [{ run: "true", env: { K: workflowExpression("secrets[matrix.name]") } }],
+        }
+      },
+    ],
+    [
+      "a new job splitting secrets.NEW_KEY across lines",
+      "ci.yml",
+      (w) => {
+        w.jobs.leak = {
+          "runs-on": "ubuntu-latest",
+          steps: [{ run: `echo ${workflowExpression("secrets\n  .NEW_KEY")}` }],
+        }
+      },
+    ],
+    [
       "a new job with an environment and an unguarded if",
       "ci.yml",
       (w) => {
@@ -5009,7 +5040,8 @@ test("factory pull requests run no secret-bearing, deploying or writing job (run
   ])
     assert.ok(covered(file), `${file} must be a delivery-protected path`)
   // The files the branch's own Vercel build runs must also not have changed on main since the
-  // pin; the workflows need not (a PR runs main's at the merge commit).
+  // pin; the workflows need not (a PR runs main's at the merge commit, and a factory PR can
+  // never change .github/**, a delivery-protected path).
   assert.deepEqual(guard.runFromBranchPaths, [
     "apps/web/vercel.json",
     path.posix.join("apps/web", script),

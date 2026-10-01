@@ -62,3 +62,42 @@ test("in three-valued mode, what the context leaves unstated stays unknown", () 
   assert.equal(ask("failure() || always()"), true)
   assert.equal(ask("failure() || github.event_name == 'push'"), UNKNOWN)
 })
+
+test("coerces mixed types to numbers for == and !=, as GitHub does", () => {
+  // null -> 0, true -> 1, false -> 0, a string -> its number ('' -> 0), NaN equals nothing.
+  assert.equal(evaluate("always() == 1"), true)
+  assert.equal(evaluate("true == 1"), true)
+  assert.equal(evaluate("false == 0"), true)
+  assert.equal(evaluate("'' == 0"), true)
+  assert.equal(evaluate("null == 0"), true)
+  assert.equal(evaluate("null == ''"), true)
+  assert.equal(evaluate("null == false"), true)
+  assert.equal(evaluate("'1' == 1"), true)
+  assert.equal(evaluate("' 1 ' == 1"), true)
+  assert.equal(evaluate("'0x10' == 16"), true)
+  assert.equal(evaluate("'true' == true"), false)
+  assert.equal(evaluate("'abc' == 0"), false)
+  assert.equal(evaluate("'abc' != 0"), true)
+  assert.equal(evaluate("1 == 1.0"), true)
+  assert.equal(evaluate("null == null"), true)
+  assert.equal(evaluate("true == true"), true)
+  // Same-type strings still compare case-insensitively, not numerically.
+  assert.equal(evaluate("'1.0' == '1'"), false)
+  assert.equal(evaluate("'TRUE' == 'true'"), true)
+  // Objects equal only themselves.
+  assert.equal(evaluate("github.event == github.event"), true)
+  assert.equal(evaluate("github.event == 0"), false)
+  assert.equal(evaluate("github.event == github.event.pull_request"), false)
+})
+
+test("a mixed-type comparison no longer passes a guard GitHub would run", () => {
+  const factory = {
+    unknownByDefault: true,
+    github: { event_name: "pull_request", event: { pull_request: { head: { ref: "factory/x" } } } },
+    status: { always: true },
+  }
+  assert.equal(
+    evaluateExpression("github.event_name == 'pull_request' && always() == 1", factory),
+    true,
+  )
+})

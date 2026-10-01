@@ -57,13 +57,38 @@ function writes(permissions) {
     .map(([scope]) => scope)
 }
 
+/** Every string anywhere in `value`, with the key it sits under. */
+function* strings(value, key) {
+  if (typeof value === "string") yield [key, value]
+  else if (Array.isArray(value)) for (const item of value) yield* strings(item, key)
+  else if (isRecord(value)) for (const [k, item] of Object.entries(value)) yield* strings(item, k)
+}
+
+/** A reference to the `secrets` context (not a property that happens to be called that). */
+const SECRETS = /(?<![\w.-])secrets(?![\w-])/iu
+/** The one secret a guarded job may read: the run's own read-only token. */
+const GITHUB_TOKEN = /(?<![\w.-])secrets\s*\.\s*github_token(?![\w-])/giu
+
+/**
+ * Every reference to a secret other than `secrets.GITHUB_TOKEN`, as written. Each `${{ }}` in
+ * every string is read (an `if:` is an expression whole), and ANY other use of the `secrets`
+ * context counts, however it is spelled: `toJSON(secrets)`, `secrets[matrix.name]`,
+ * `secrets[format(...)]` and `secrets` split from `.NAME` across lines name no secret a
+ * pattern could list, so they are refused rather than read.
+ */
 function secretsReferenced(value) {
-  const text = JSON.stringify(value ?? null)
-  return [
-    ...text.matchAll(/secrets\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)|secrets\s*\[\s*'([^']+)'\s*\]/gu),
-  ]
-    .map((match) => match[1] ?? match[2])
-    .filter((name) => name.toUpperCase() !== "GITHUB_TOKEN")
+  const found = []
+  for (const [key, text] of strings(value ?? null)) {
+    const expressions =
+      key === "if"
+        ? [text]
+        : [...text.matchAll(/\$\{\{([\s\S]*?)(?:\}\}|$)/gu)].map((match) => match[1])
+    for (const expression of expressions) {
+      const rest = expression.replace(GITHUB_TOKEN, "")
+      if (SECRETS.test(rest)) found.push(expression.trim().replace(/\s+/gu, " "))
+    }
+  }
+  return found
 }
 
 /** The file name of a local reusable workflow `job` calls, or undefined. */
@@ -80,8 +105,7 @@ function localCall(job) {
 export function guardReasons(workflow, job, workflows = {}, seen = new Set()) {
   const reasons = []
   const secrets = [...new Set([...secretsReferenced(workflow.env), ...secretsReferenced(job)])]
-  if (secrets.length > 0)
-    reasons.push(`references ${secrets.map((s) => `secrets.${s}`).join(", ")}`)
+  if (secrets.length > 0) reasons.push(`references secrets (${secrets.join("; ")})`)
   if (job.environment !== undefined) reasons.push("names an environment")
   if (job.uses !== undefined && job.secrets !== undefined)
     reasons.push("passes secrets to a reusable workflow")
