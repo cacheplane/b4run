@@ -13,6 +13,7 @@
     "noEmit": true,
     "noImplicitAny": false,
     "paths": {
+      "@b4run/ag-ui/client": ["../../packages/ag-ui/src/client.ts"],
       "@copilotkit/react-core/v2": [
         "../../examples/chat/web/node_modules/@copilotkit/react-core/dist/v2/index.d.mts"
       ],
