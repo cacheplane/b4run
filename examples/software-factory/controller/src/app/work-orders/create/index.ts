@@ -19,7 +19,15 @@ export async function workflow(input: unknown) {
           : await factory.createFromIssue({
               origin: input.origin,
               pin: input.pin,
-              issue: input.issue,
+              issue: { title: input.issue.title, body: input.issue.body },
+              ...(input.deliver === "draft-pr"
+                ? {
+                    deliver: {
+                      kind: "draft-pr" as const,
+                      issueState: input.issue.state as "open" | "closed",
+                    },
+                  }
+                : {}),
               ...key,
             })
       return { ok: true, state: row.state, message: "Created", row }

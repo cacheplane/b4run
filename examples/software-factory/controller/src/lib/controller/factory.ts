@@ -8,9 +8,16 @@ import {
   stagedReferenceOf,
 } from "../builder-handoff.js"
 import { DEFAULT_WORKER_ROUTE } from "../config.js"
+import type { DraftPrConfig } from "../delivery/approval.js"
 import { exportApproved } from "../delivery/export.js"
+import type { DeliveryLimits } from "../delivery/worker.js"
 import { canon } from "../domain/digest.js"
-import { CommandInFlightError, UnknownTaskError, UnknownWorkOrderError } from "../domain/errors.js"
+import {
+  CommandInFlightError,
+  DeliveryUnavailableError,
+  UnknownTaskError,
+  UnknownWorkOrderError,
+} from "../domain/errors.js"
 import {
   ACTIVE_STATES,
   IllegalTransitionError,
@@ -28,6 +35,7 @@ import {
   type IssueOrigin,
   IssueOriginSchema,
   type Receipt,
+  type RowDelivery,
   type WorkOrderRow,
 } from "../domain/work-order.js"
 import {
@@ -167,6 +175,19 @@ export interface FactoryOptions {
   readonly now?: () => number
   readonly actor?: string
   readonly log?: (event: string, payload: Record<string, unknown>) => void
+  /**
+   * Draft-PR delivery (rung 4). Absent, `createFromIssue` refuses `draft-pr` and a row left
+   * `delivering` blocks `delivery_unauthorized` at reconcile. The runtime wires the GitHub
+   * adapter (`delivery/github/adapter.ts`); tests inject the in-memory one.
+   */
+  readonly delivery?: {
+    readonly draftPr: DraftPrConfig
+    readonly limits?: Partial<DeliveryLimits>
+    /** Test seam: the worker's waits. Default: a real, abortable sleep. */
+    readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>
+    /** Test seam: the worker's wall clock for its run bound. Default `Date.now`. */
+    readonly clock?: () => number
+  }
 }
 
 export interface Factory {
@@ -180,6 +201,12 @@ export interface Factory {
     origin: IssueOrigin
     pin: string
     issue: { title: string; body: string }
+    /**
+     * Deliver the approved bundle as a draft pull request (rung 4 §3.1) instead of a local
+     * export. `issueState` is the issue's state as the CLI read it; the rest of the delivery
+     * comes from this controller's configuration and the work order's id.
+     */
+    deliver?: { readonly kind: "draft-pr"; readonly issueState: "open" | "closed" }
     operationKey?: string
   }): Promise<WorkOrderRow>
   /**
@@ -1102,7 +1129,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       return row
     },
 
-    async createFromIssue({ origin, pin, issue, operationKey }) {
+    async createFromIssue({ origin, pin, issue, deliver, operationKey }) {
       // Refused before the key is spent, like `create`'s task guard: the row parse inside the
       // insert would roll the row back but leave the command in flight until the next boot.
       const parsedOrigin = IssueOriginSchema.safeParse(origin)
@@ -1112,12 +1139,35 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         throw new Error(`${at} is not an issue origin: ${issue?.message}`)
       }
       if (!COMMIT_PATTERN.test(pin)) throw new Error(`pin must be a 40-hex commit sha, got ${pin}`)
-      const row = insertWorkOrder(operationKey, { origin, pin }, (id) => ({
-        taskId: id,
-        origin,
-        pin,
-        delivery: { kind: "local" },
-      }))
+      // A draft PR goes to the issue's repository from this controller's configuration, or
+      // nowhere (rung 4 §3.1): refused here, before the key is spent, like the checks above.
+      const draftPr = options.delivery?.draftPr
+      if (deliver !== undefined) {
+        if (draftPr === undefined)
+          throw new DeliveryUnavailableError(
+            "This controller has no draft-PR delivery configured (factory.config.ts delivery.draftPr); create it with --deliver local, or configure delivery and restart",
+          )
+        if (draftPr.repository !== origin.repository)
+          throw new DeliveryUnavailableError(
+            `This controller delivers to ${draftPr.repository}, not ${origin.repository}: a pull request goes to the issue's own repository`,
+          )
+      }
+      const delivery = (id: string): RowDelivery =>
+        deliver === undefined || draftPr === undefined
+          ? { kind: "local" }
+          : {
+              kind: "draft-pr",
+              repository: draftPr.repository,
+              baseBranch: draftPr.baseBranch,
+              branch: `factory/${id}`,
+              pathPrefix: null,
+              issueStateAtCreate: deliver.issueState,
+            }
+      const row = insertWorkOrder(
+        operationKey,
+        { origin, pin, ...(deliver !== undefined ? { deliver } : {}) },
+        (id) => ({ taskId: id, origin, pin, delivery: delivery(id) }),
+      )
       // The issue text lands after the row: a directory with only `issue.md` is not a task the
       // catalog lists, so nothing can dispatch it. Written only when absent, so a replayed key
       // rewrites nothing and a crash between the insert and this write is repaired by the replay.

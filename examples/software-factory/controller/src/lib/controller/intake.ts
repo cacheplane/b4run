@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
+import { protectedPathsIn, repositoryPath } from "../delivery/guard.js"
 import type { BlockedReason } from "../domain/states.js"
 import type { Receipt, WorkOrderRow } from "../domain/work-order.js"
 import { DRAFT_ROOT, parseDraft } from "../intake/draft.js"
@@ -366,6 +367,37 @@ async function proveDraft(
     await refuse(ctx, id, parsed.reason, parsed.blockedReason, draft)
     return
   }
+  // A work order that will be delivered as a pull request may never be allowed to change the
+  // files the CI guard lives in (rung 4 spec §9.3): the person then approves a task.json that
+  // cannot name one. Refused like any fit failure, so the drafter redrafts with the paths named.
+  const { delivery } = ctx.mustGet(id)
+  if (delivery.kind === "draft-pr") {
+    const reached = protectedPathsIn(
+      parsed.manifest.allowedSourcePaths.map((path) => repositoryPath(parsed.target.root, path)),
+    )
+    if (reached.length > 0) {
+      await refuse(
+        ctx,
+        id,
+        `${DRAFT_ROOT}task.json allows ${reached.join(", ")}, which a pull request from the factory may never change (the CI guard lives there); allow other paths`,
+        "intake_invalid",
+        draft,
+      )
+      return
+    }
+    // The prefix is filled once (the store refuses any other change): a redraft for a target
+    // at another root would otherwise throw inside `intake_drafted` after its oracle ran.
+    if (delivery.pathPrefix !== null && delivery.pathPrefix !== parsed.target.root) {
+      await refuse(
+        ctx,
+        id,
+        `${DRAFT_ROOT}task.json names a target at ${parsed.target.root}, but this work order's pull request was fixed to ${delivery.pathPrefix} by its first draft; draft a target at ${delivery.pathPrefix}, or create a new work order`,
+        "intake_invalid",
+        draft,
+      )
+      return
+    }
+  }
   // The fit step's image (spec item 4): the drafted target at the work order's pin, built now
   // if this host has none, journalled with its log, and bound to this attempt, which proves
   // its oracle in it. Its time is not the work order's (the budget is paused around it), and a
@@ -468,6 +500,11 @@ async function proveDraft(
       targetId: parsed.manifest.target,
       taskDigest: generated.digest,
       intakeAttempts: current.intakeAttempts + 1,
+      // Where the target's workspace sits in the repository: known only now, and what a
+      // draft-PR delivery joins every changed path to. Filled with the target, once.
+      ...(current.delivery.kind === "draft-pr"
+        ? { delivery: { ...current.delivery, pathPrefix: parsed.target.root } }
+        : {}),
     },
     { taskDigest: generated.digest, receiptId: receipt.id, attempt: current.intakeAttempts + 1 },
   )

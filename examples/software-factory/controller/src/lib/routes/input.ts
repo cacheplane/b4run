@@ -8,10 +8,23 @@ export const IssueCreateInput = z
   .object({
     origin: IssueOriginSchema,
     pin: z.string().regex(COMMIT_PATTERN),
-    issue: z.object({ title: z.string().min(1), body: z.string() }).strict(),
+    issue: z
+      .object({
+        title: z.string().min(1),
+        body: z.string(),
+        /** Required with `deliver: "draft-pr"`: the issue's state when the CLI read it. */
+        state: z.enum(["open", "closed"]).optional(),
+      })
+      .strict(),
+    /** Where the approved bundle goes (rung 4 §3.1). Absent: `local`, today's export. */
+    deliver: z.enum(["local", "draft-pr"]).optional(),
     operationKey: z.string().min(1).optional(),
   })
   .strict()
+  .refine((input) => input.deliver !== "draft-pr" || input.issue.state !== undefined, {
+    message: "deliver draft-pr needs issue.state",
+    path: ["issue", "state"],
+  })
 export type CatalogCreate = z.infer<typeof CatalogCreateInput>
 export type IssueCreate = z.infer<typeof IssueCreateInput>
 /** One or the other, never both: each half is strict, so a mixed input fails both. */
