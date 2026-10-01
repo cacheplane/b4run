@@ -183,6 +183,11 @@ export function freezeBundle(input: FreezeBundleInput): Bundle {
     }
   }
 
+  // Refuse at freeze what read-back would refuse: a draft-PR bundle whose destination or
+  // branch is not its own work order's is never frozen. Validated only; the digest is over
+  // `payload` exactly as built, so an export-local bundle's digest does not move.
+  BundlePayloadSchema.parse(payload)
+
   return {
     digest: bundleDigest(payload),
     workOrderId: input.workOrderId,

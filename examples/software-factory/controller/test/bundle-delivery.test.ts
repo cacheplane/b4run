@@ -75,13 +75,20 @@ describe("the bundle", () => {
     for (const [field, value] of [
       ["repository", "cacheplane/other"],
       ["baseBranch", "next"],
-      ["branch", "factory/wo-fedcba9876543210"],
       ["pathPrefix", "packages"],
       ["issueStateAtCreate", "closed"],
     ] as const)
       digests.add(
         freezeBundle({ ...freezeInput, delivery: { ...DRAFT_PR, [field]: value } }).digest,
       )
+    // The branch is factory/<work order id>, so another branch is another work order's.
+    digests.add(
+      freezeBundle({
+        ...freezeInput,
+        workOrderId: "wo-fedcba9876543210",
+        delivery: { ...DRAFT_PR, branch: "factory/wo-fedcba9876543210" },
+      }).digest,
+    )
     expect(digests.size).toBe(7)
   })
 
@@ -103,6 +110,15 @@ describe("the bundle", () => {
         delivery: { ...DRAFT_PR, branch: "factory/wo-fedcba9876543210" },
       }).success,
     ).toBe(false)
+  })
+
+  it("refuses at freeze a draft-PR bundle whose branch is not its work order's", () => {
+    expect(() =>
+      freezeBundle({
+        ...freezeInput,
+        delivery: { ...DRAFT_PR, branch: "factory/wo-fedcba9876543210" },
+      }),
+    ).toThrow(/factory\/<the payload's work order id>/)
   })
 
   it("refuses a draft-PR path prefix that is not one canonical relative path", () => {
