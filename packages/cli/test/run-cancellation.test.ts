@@ -40,6 +40,8 @@ const BLOCKING_ROUTE = [
 // A trivial second route, used only to prove that a route recorded in thread
 // metadata by a REJECTED request (one that lost the concurrency gate) is not
 // the one actually running.
+const OTHER_ROUTE = ["export const graph = async () => ({ ok: true })", ""].join("\n")
+
 // A route that sleeps long enough for a cancel to land, then returns. Used
 // by the AG-UI cancelled-outcome test; AG-UI runs cannot pass the blocking
 // route its release file.
@@ -50,8 +52,6 @@ const SLEEPY_ROUTE = [
   "}",
   "",
 ].join("\n")
-
-const OTHER_ROUTE = ["export const graph = async () => ({ ok: true })", ""].join("\n")
 
 // A route that fails immediately, used to prove the run slot is released on
 // the failure path too — not just on normal completion and cancellation.

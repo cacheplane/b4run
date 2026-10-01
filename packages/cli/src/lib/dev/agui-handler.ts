@@ -1222,7 +1222,12 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                 if (event.type === "RUN_ERROR") {
                   terminalChunk = { type: "done", output: { error: event.message } }
                 } else if (event.type === "RUN_FINISHED" && event.outcome?.type === "cancelled") {
-                  terminalChunk = { type: "done", output: { cancelled: true } }
+                  // Attachers read the Agent-Protocol projection, which the AP
+                  // handlers still spell `run.cancelled ? cancelled : error`;
+                  // a shutdown is cancelled on the AG-UI wire but an error here.
+                  terminalChunk = run.cancelled
+                    ? { type: "done", output: { cancelled: true } }
+                    : { type: "done", output: { error: "Server shutting down" } }
                 }
               }
               safeEnqueue(controller, encoder.encode(encodeAgUiSse(event, accept)))

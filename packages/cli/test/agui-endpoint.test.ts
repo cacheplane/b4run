@@ -1074,11 +1074,12 @@ it("keeps a parked thread interrupted when the client disconnects after the park
   await expect.poll(async () => threadStatus(port, "parked-then-disconnected")).toBe("interrupted")
 })
 
-it.each(["failure", "cancellation"])(
+it.each(["failure", "cancellation", "shutdown"])(
   "preserves AG-UI %s in the terminal frame sent to attach viewers",
   async (mode) => {
     const liveTurnHub = createLiveTurnHub()
     const runRegistry = createRunRegistry()
+    const shutdownController = new AbortController()
     let entered!: () => void
     const started = new Promise<void>((resolve) => {
       entered = resolve
@@ -1093,7 +1094,12 @@ it.each(["failure", "cancellation"])(
       await blocked
       throw new Error("route failed during live attach")
     }
-    const { port } = await setupControlledServer({ streamRoute, liveTurnHub, runRegistry })
+    const { port } = await setupControlledServer({
+      streamRoute,
+      liveTurnHub,
+      runRegistry,
+      shutdownSignal: shutdownController.signal,
+    })
     const running = postRun(port, {
       threadId: "attach-terminal",
       runId: "attach-terminal-run",
@@ -1104,9 +1110,10 @@ it.each(["failure", "cancellation"])(
     try {
       if (!attachment) throw new Error("Expected live turn attachment")
       if (mode === "cancellation") expect(runRegistry.cancel("attach-terminal")).toBe(true)
+      else if (mode === "shutdown") shutdownController.abort()
       else release()
       const { events } = await running
-      if (mode === "cancellation") {
+      if (mode === "cancellation" || mode === "shutdown") {
         // AG-UI 1.0: a cancel ends the run as cancelled, not as a failure.
         expect(events.map((event) => event.type)).not.toContain("RUN_ERROR")
         expect(events.at(-1)).toMatchObject({
@@ -1121,7 +1128,9 @@ it.each(["failure", "cancellation"])(
         output:
           mode === "cancellation"
             ? { cancelled: true }
-            : { error: "route failed during live attach" },
+            : mode === "shutdown"
+              ? { error: "Server shutting down" }
+              : { error: "route failed during live attach" },
       })
       expect(await attachment.next()).toBeNull()
     } finally {
