@@ -80,20 +80,12 @@ export type TranscriptItem =
     }
 
 /**
- * A tool result's displayable text. A part list contributes its text parts
- * in order; media parts have no text and are skipped here (this app does not
- * render tool media).
+ * A tool result's displayable text. Same rule as a user message: a string is
+ * itself, a part list contributes its text parts in order, and media parts
+ * contribute nothing (this app does not render tool media).
  */
 export function toolResultText(content: unknown): string {
-  if (typeof content === "string") return content
-  if (!Array.isArray(content)) return ""
-  return content
-    .map((part) =>
-      part && typeof part === "object" && (part as { type?: unknown }).type === "text"
-        ? String((part as { text?: unknown }).text ?? "")
-        : "",
-    )
-    .join("")
+  return userText(content)
 }
 
 /**

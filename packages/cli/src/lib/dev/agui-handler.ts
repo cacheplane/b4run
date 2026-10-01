@@ -416,10 +416,12 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
         status: 400,
       })
     }
-    // The schema's inferred output spells optionals as `T | undefined`; the
-    // generated `RunAgentInput` spells them as absent-or-present. Same wire
-    // shape — the parse already validated it — so the assertion only
-    // reconciles the two spellings under exactOptionalPropertyTypes.
+    // The schema's inferred output spells optionals as `T | undefined` and
+    // carries a loose index signature; the generated `RunAgentInput` spells
+    // optionals as absent-or-present and is closed. Same wire shape — the
+    // parse already validated it — so the assertion only reconciles the two
+    // spellings under exactOptionalPropertyTypes. Unknown top-level keys stay
+    // on the object at runtime (and on `b4Input.raw`); nothing below reads one.
     const input = parsed.data as RunAgentInput
 
     const route = registry.lookup(routeKey)
