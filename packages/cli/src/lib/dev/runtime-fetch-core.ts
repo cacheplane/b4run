@@ -3443,10 +3443,10 @@ async function handleApPendingInterruptsRequest(options: {
   // separately; this endpoint is not the place to compensate for it.)
   //
   // And what that leak is, stated precisely because it is easy to get
-  // backwards: it is DISCLOSURE, not approval. It is NOT bounded by /resume
-  // gating on an identity the attacker cannot forge — /resume resolves
-  // `threadRouteMap ?? metadata.route ?? body.route`, every term of which a
-  // park-swap controls. A plain graph route ignores `resume` entirely, so
+  // backwards: it is DISCLOSURE, not approval. /resume now resolves
+  // `parked_route` first (then `threadRouteMap ?? metadata.route ?? body.route`
+  // for a park that was never recorded), so a park-swap cannot repoint the
+  // route that answers a recorded park. A plain graph route ignores `resume` entirely, so
   // swapping one in leaves the prompt unanswered. An AGENT route does not:
   // every createAgent graph shares its node names, so resuming another agent
   // route's park through it RESOLVES the prompt, under the wrong route's
@@ -3989,6 +3989,41 @@ async function handleResumeRequest(options: {
       return Response.json(createRequestErrorBody("Resume entries are required"), { status: 409 })
     }
 
+    // Resolve the route that answers this resume, in priority order:
+    //   1. `parked_route` — the route that PARKED, which no later run on the
+    //      thread can repoint (an agent run that fails before its graph runs
+    //      repoints `metadata.route` while the park survives; resuming through
+    //      that route would answer the prompt under the wrong graph)
+    //   2. in-memory map (fast-path, current server session)
+    //   3. durable thread metadata (survives a server restart)
+    //   4. client-supplied `route` in the resume body (explicit override)
+    // Resolved BEFORE the grant gate: it only reads server state, so it is no
+    // oracle, and a resume that cannot run on a usable route must not burn a
+    // single-use grant on the way to that refusal.
+    const resumingThread = await threadsStore.getThread(threadId)
+    const persistedRoute = resumingThread?.metadata.route
+    const previousParkedRoute = readParkedRoute(resumingThread)
+    const routeKey =
+      previousParkedRoute ??
+      threadRouteMap.get(threadId) ??
+      (typeof persistedRoute === "string" ? persistedRoute : undefined) ??
+      body.route
+    if (!routeKey) {
+      return Response.json(
+        createRequestErrorBody(
+          "Cannot resume: no route recorded for this thread. " +
+            "Pass `route` in the resume body (e.g. '/chat#agent') to resume explicitly.",
+          { code: "route_not_found" },
+        ),
+        { status: 409 },
+      )
+    }
+
+    const route = registry.lookup(routeKey)
+    if (!route) {
+      return Response.json(createRequestErrorBody(`Unknown route: ${routeKey}`), { status: 404 })
+    }
+
     // Grants: verified and consumed HERE — after the thread-access gate, after
     // `tryClaim`, and after the exact-set match, never before any of them.
     // The ordering comment above explains why the gate must precede every side
@@ -4008,33 +4043,6 @@ async function handleResumeRequest(options: {
       entries: body.resume,
     })
     if (refusedByGrant) return refusedByGrant
-
-    // Resolve which route last ran on this thread, in priority order:
-    //   1. in-memory map (fast-path, current server session)
-    //   2. durable thread metadata (survives a server restart)
-    //   3. client-supplied `route` in the resume body (explicit override)
-    const resumingThread = await threadsStore.getThread(threadId)
-    const persistedRoute = resumingThread?.metadata.route
-    const previousParkedRoute = readParkedRoute(resumingThread)
-    const routeKey =
-      threadRouteMap.get(threadId) ??
-      (typeof persistedRoute === "string" ? persistedRoute : undefined) ??
-      body.route
-    if (!routeKey) {
-      return Response.json(
-        createRequestErrorBody(
-          "Cannot resume: no route recorded for this thread. " +
-            "Pass `route` in the resume body (e.g. '/chat#agent') to resume explicitly.",
-          { code: "route_not_found" },
-        ),
-        { status: 409 },
-      )
-    }
-
-    const route = registry.lookup(routeKey)
-    if (!route) {
-      return Response.json(createRequestErrorBody(`Unknown route: ${routeKey}`), { status: 404 })
-    }
 
     const requestUrl = new URL(request.url)
     const mwRequest: MiddlewareRequest = {

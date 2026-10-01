@@ -1612,4 +1612,67 @@ describe("AG-UI approval resume route binding", () => {
     expect(sameRoute.status).toBe(200)
     expect(await readSseText(sameRoute)).toContain("deployed to staging")
   }, 60_000)
+
+  /** Admin parks on /park, then a /broken agent run repoints metadata.route while the park survives. */
+  async function parkThenRepoint(threadId: string) {
+    await withAimock(
+      script()
+        .user("deploy to staging")
+        .callsTool("deployProd", { env: "staging" })
+        .replies("Deployed.")
+        .build(),
+    )
+    const handler = await createHandler(
+      await fixtureApp({
+        "src/app/broken/index.ts": BROKEN_AGENT_ROUTE,
+        "src/middleware.ts": ADMIN_PARK_MIDDLEWARE,
+      }),
+    )
+    const parked = await handler.fetch(
+      aguiParkRequest(threadId, "deploy to staging", { "x-admin": "1" }),
+    )
+    expect(parked.status).toBe(200)
+    await drain(parked)
+    const [pending] = (await readPendingInterruptsBody(handler, threadId, { "x-admin": "1" }))
+      .interrupts
+    // An agent route that dies before its graph runs repoints metadata.route
+    // to itself while the admin's park survives (pinned by the gating test above).
+    const swap = await handler.fetch(runStreamRequest(threadId, "/broken#agent", {}))
+    expect(swap.status).toBe(200)
+    expect(await readSseText(swap)).toContain("error")
+    const survived = await readPendingInterruptsBody(handler, threadId, { "x-admin": "1" })
+    expect(survived.interrupts.map((entry) => entry.interruptId)).toEqual([pending?.interruptId])
+    return { handler, interruptId: pending?.interruptId as string }
+  }
+
+  it("binds to parked_route, not a repointed metadata.route", async () => {
+    const threadId = "t-agui-resume-repoint"
+    const { handler, interruptId } = await parkThenRepoint(threadId)
+
+    const viaRepointed = await handler.fetch(
+      aguiResumeRequest(threadId, "/broken#agent", interruptId),
+    )
+    expect(viaRepointed.status).toBe(409)
+    expect(((await viaRepointed.json()) as ErrorBody).error.details?.code).toBe(
+      "resume_route_mismatch",
+    )
+    const stillPending = await readPendingInterruptsBody(handler, threadId, { "x-admin": "1" })
+    expect(stillPending.interrupts.map((entry) => entry.interruptId)).toEqual([interruptId])
+  }, 60_000)
+
+  it("resolves /threads/:id/resume to parked_route, so the parking route's middleware still decides", async () => {
+    const threadId = "t-ap-resume-repoint"
+    const { handler, interruptId } = await parkThenRepoint(threadId)
+
+    // Without parked_route first, the repointed /broken route answers: its
+    // middleware admits anyone. With it, /park's middleware refuses a non-admin.
+    const nonAdmin = await handler.fetch(resumeRequest(threadId, interruptId))
+    expect(nonAdmin.status).toBe(403)
+    const stillPending = await readPendingInterruptsBody(handler, threadId, { "x-admin": "1" })
+    expect(stillPending.interrupts.map((entry) => entry.interruptId)).toEqual([interruptId])
+
+    const admin = await handler.fetch(resumeRequest(threadId, interruptId, { "x-admin": "1" }))
+    expect(admin.status).toBe(200)
+    expect(await readSseText(admin)).toContain("deployed to staging")
+  }, 60_000)
 })
