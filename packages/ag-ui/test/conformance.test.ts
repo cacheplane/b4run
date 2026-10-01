@@ -2,12 +2,24 @@ import { createServer, type Server } from "node:http"
 import { HttpAgent } from "@ag-ui/client"
 import { type BaseEvent, EventType, PROTOCOL_VERSION } from "@ag-ui/core"
 import { ActivitySnapshotEventSchema } from "@ag-ui/core/schemas"
-import { afterEach, expect, it, vi } from "vitest"
+import { afterAll, afterEach, expect, it, vi } from "vitest"
 import { B4_PLAN_ACTIVITY_TYPE, B4_SUBAGENT_ACTIVITY_TYPE } from "../src/activities.ts"
 import { createCounterIdFactory } from "../src/ids.js"
 import { type ToAguiOptions, toAguiEvents } from "../src/outbound.js"
 import { encodeAgUiSse } from "../src/sse.js"
 import type { B4AgentStreamChunk } from "../src/types.js"
+
+// The zero-warnings gate below is the whole point of this file: the 1.0
+// client warns exactly when it strips something the producer sent. The
+// client honours this variable by staying silent, which would turn the gate
+// into a no-op, so it is cleared for the life of this file.
+const suppressedWarnings = process.env.SUPPRESS_TRANSFORMATION_WARNINGS
+delete process.env.SUPPRESS_TRANSFORMATION_WARNINGS
+afterAll(() => {
+  if (suppressedWarnings !== undefined) {
+    process.env.SUPPRESS_TRANSFORMATION_WARNINGS = suppressedWarnings
+  }
+})
 
 let server: Server | undefined
 afterEach(async () => {
@@ -130,6 +142,8 @@ async function* toAsync(items: readonly B4AgentStreamChunk[]) {
 interface CannedRun {
   readonly stream: () => AsyncIterable<B4AgentStreamChunk>
   readonly options?: ToAguiOptions
+  /** Test-only: rewrite an event before it is encoded, to prove the gate bites. */
+  readonly mutate?: (event: BaseEvent) => BaseEvent
 }
 
 /** The fixture server: answers each POST with the next canned run, and records every request body. */
@@ -152,7 +166,9 @@ async function startCannedServer(runs: readonly CannedRun[]): Promise<{
         { threadId: "t1", runId: `r${bodies.length}` },
         { idFactory: createCounterIdFactory(), ...run.options },
       )
-      for await (const event of events) res.write(encodeAgUiSse(event))
+      for await (const event of events) {
+        res.write(encodeAgUiSse(run.mutate ? run.mutate(event) : event))
+      }
       res.end()
     })().catch((error: unknown) => {
       res.destroy(error instanceof Error ? error : new Error(String(error)))
@@ -391,4 +407,17 @@ it("an upstream error is RUN_ERROR with its code intact", async () => {
     message: "after rejected",
     code: "after_rejected",
   })
+})
+
+it("the gate itself bites: an unknown key on an event fails the run", async () => {
+  async function* tagged(): AsyncIterable<B4AgentStreamChunk> {
+    yield { type: "done", data: {} }
+  }
+  const { url } = await startCannedServer([
+    {
+      stream: tagged,
+      mutate: (event) => (event.type === EventType.RUN_STARTED ? { ...event, bogus: 1 } : event),
+    },
+  ])
+  await expect(runThroughClient(url, { runId: "r1" })).rejects.toThrow(/stripped or translated/)
 })
