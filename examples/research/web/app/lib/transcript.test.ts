@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest"
-import { buildTranscriptItems, type TranscriptMessage, userText } from "./transcript"
+import {
+  buildTranscriptItems,
+  type TranscriptMessage,
+  toolResultText,
+  userText,
+} from "./transcript"
 
 function toolCall(id: string, name: string) {
   return { id, type: "function" as const, function: { name, arguments: '{"path":"corpus/a.md"}' } }
@@ -23,6 +28,25 @@ describe("userText", () => {
   test("yields nothing rather than [object Object] for content it cannot read", () => {
     expect(userText(undefined)).toBe("")
     expect(userText([{ type: "image" }])).toBe("")
+  })
+})
+
+describe("toolResultText", () => {
+  test("returns a string result as is", () => {
+    expect(toolResultText('{"ok":true}')).toBe('{"ok":true}')
+  })
+  test("concatenates text parts in order and skips media", () => {
+    expect(
+      toolResultText([
+        { type: "text", text: "a" },
+        { type: "image", source: { type: "url", value: "https://x.test/i.png" } },
+        { type: "text", text: "b" },
+      ]),
+    ).toBe("ab")
+  })
+  test("yields an empty string for anything else", () => {
+    expect(toolResultText(undefined)).toBe("")
+    expect(toolResultText([{ type: "text", text: 5 }])).toBe("")
   })
 })
 

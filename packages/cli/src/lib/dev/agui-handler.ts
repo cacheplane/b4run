@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http"
-import { RunAgentInputSchema } from "@ag-ui/core"
+import type { RunAgentInput } from "@ag-ui/core"
+import { RunAgentInputSchema } from "@ag-ui/core/schemas"
 import { type B4AgentStreamChunk, fromRunAgentInput, toAguiEvents } from "@b4run/ag-ui"
 import { encodeAgUiSse } from "@b4run/ag-ui/sse"
 import type { B4Config, ClientToolDefinition, MemoryStoreLike } from "@b4run/core"
@@ -273,8 +274,13 @@ function clientFacingChunk(
 async function* normalizeB4Stream(
   chunks: AsyncIterable<StreamChunk>,
   clientToolNames: ReadonlySet<string> = new Set(),
+  onClientToolPark?: (toolCallId: string) => void,
 ): AsyncGenerator<B4AgentStreamChunk> {
   for await (const raw of chunks) {
+    if (raw.type === "interrupt") {
+      const data = (raw as { readonly data: unknown }).data
+      if (isClientToolCallEnvelope(data)) onClientToolPark?.(data.toolCallId)
+    }
     const chunk = clientFacingChunk(raw, clientToolNames)
     if (chunk === undefined) continue
     switch (chunk.type) {
@@ -328,6 +334,25 @@ async function* normalizeB4Stream(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/**
+ * The 1.0 schema is loose: unknown top-level keys survive the parse. Route
+ * params are read off the KNOWN `RunAgentInput` fields only, as they were
+ * when 0.0.59 stripped the rest — an AG-UI body key must not name a route
+ * param it was never meant to fill. Taken from the schema's own shape, so a
+ * field AG-UI adds later is known here without a hand-maintained list.
+ */
+const RUN_AGENT_INPUT_KEYS: ReadonlyArray<keyof RunAgentInput> = Object.keys(
+  RunAgentInputSchema.shape,
+) as Array<keyof RunAgentInput>
+
+function knownRunAgentInput(input: RunAgentInput): Record<string, unknown> {
+  const known: Record<string, unknown> = {}
+  for (const key of RUN_AGENT_INPUT_KEYS) {
+    if (Object.hasOwn(input, key)) known[key] = input[key]
+  }
+  return known
 }
 
 /** Test seam: the stream normalizer, exported only for unit tests. */
@@ -415,7 +440,13 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
         status: 400,
       })
     }
-    const input = parsed.data
+    // The schema's inferred output spells optionals as `T | undefined` and
+    // carries a loose index signature; the generated `RunAgentInput` spells
+    // optionals as absent-or-present and is closed. Same wire shape — the
+    // parse already validated it — so the assertion only reconciles the two
+    // spellings under exactOptionalPropertyTypes. Unknown top-level keys stay
+    // on the object at runtime (and on `b4Input.raw`); nothing below reads one.
+    const input = parsed.data as RunAgentInput
 
     const route = registry.lookup(routeKey)
     if (!route) {
@@ -444,7 +475,8 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     }
 
     // The client's response schema (Hashbrown's `hashbrown.responseSchema`),
-    // read off the ORIGINAL JSON because `RunAgentInputSchema` strips the key.
+    // read off the ORIGINAL JSON: it is not a RunAgentInput field, and the
+    // handler judges what the client sent, not the parsed projection of it.
     // Malformed is judged here, before middleware, from the body alone; whether
     // the ROUTE can honor it is judged below, after middleware has admitted
     // the caller and before any side effect. Never ignored: see response-schema.ts.
@@ -502,7 +534,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       assistantId: route.assistantId,
       headers: headersToRecord(request.headers),
       method: request.method,
-      params: extractRouteParams(route.routeId, b4Input.raw),
+      params: extractRouteParams(route.routeId, knownRunAgentInput(b4Input.raw)),
       routeId: route.routeId,
       url: `${requestUrl.pathname}${requestUrl.search}`,
     }
@@ -763,13 +795,18 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       // carries no new user input, so there is no turn to run — re-running
       // the last user message would answer it twice. Same no-op as `partial`,
       // which makes client retries idempotent.
-      return clientToolPartialResponse(threadId, input.runId, request.headers.get("accept"))
+      return clientToolPartialResponse(threadId, input.runId, request.headers.get("accept"), [])
     }
     if (clientTurn.mode === "partial") {
       // Some parked calls answered, others not yet: the results are recorded,
       // the graph is not touched, and the run ends as an ordinary success so
       // the client goes on to send the rest.
-      return clientToolPartialResponse(threadId, input.runId, request.headers.get("accept"))
+      return clientToolPartialResponse(
+        threadId,
+        input.runId,
+        request.headers.get("accept"),
+        clientTurn.pendingToolCallIds,
+      )
     }
 
     // The permission parks this run must resolve through the envelope's
@@ -1175,20 +1212,37 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
               },
               clientToolNames,
             )
+            const parkedClientCallIds = new Set<string>()
             for await (const event of toAguiEvents(
-              normalizeB4Stream(liveTappedStream, clientToolNames),
+              normalizeB4Stream(liveTappedStream, clientToolNames, (id) =>
+                parkedClientCallIds.add(id),
+              ),
               {
                 threadId,
                 runId: input.runId,
               },
+              {
+                // A cancel endpoint or a server shutdown stopped the turn; a
+                // client disconnect did not (nobody is listening for the
+                // frame, and attachers read the same terminal below).
+                cancelled: () => run.cancelled || shutdownSignal.aborted,
+                // The client-tool parks this turn raised (their interrupts stay hidden), named on the success outcome.
+                pendingToolCallIds: () => [...parkedClientCallIds],
+              },
             )) {
-              // The translator catches upstream errors and aborts as RUN_ERROR,
-              // so the raw stream may never produce a terminal chunk. Preserve
-              // that outcome for AP viewers instead of reporting null success.
-              if (event.type === "RUN_ERROR" && terminalChunk === undefined) {
-                terminalChunk = {
-                  type: "done",
-                  output: run.cancelled ? { cancelled: true } : { error: event.message },
+              // The translator catches upstream errors and aborts, so the raw
+              // stream may never produce a terminal chunk. Preserve the
+              // outcome for AP viewers instead of reporting null success.
+              if (terminalChunk === undefined) {
+                if (event.type === "RUN_ERROR") {
+                  terminalChunk = { type: "done", output: { error: event.message } }
+                } else if (event.type === "RUN_FINISHED" && event.outcome?.type === "cancelled") {
+                  // Attachers read the Agent-Protocol projection, which the AP
+                  // handlers still spell `run.cancelled ? cancelled : error`;
+                  // a shutdown is cancelled on the AG-UI wire but an error here.
+                  terminalChunk = run.cancelled
+                    ? { type: "done", output: { cancelled: true } }
+                    : { type: "done", output: { error: "Server shutting down" } }
                 }
               }
               safeEnqueue(controller, encoder.encode(encodeAgUiSse(event, accept)))
@@ -1241,8 +1295,9 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
             if (!deferClientRecordVoid) await voidClientRecordsIfSettled()
             // One write covers the drained turn, the failed one and the
             // disconnected one, because `toAguiEvents` never throws into its
-            // consumer: an upstream error or abort arrives as a RUN_ERROR event
-            // and the loop above ends normally. All three want the same answer —
+            // consumer: an upstream error or abort arrives as a terminal event
+            // (RUN_ERROR, or RUN_FINISHED cancelled) and the loop above ends
+            // normally. All three want the same answer —
             // a turn that parked and then failed, or parked and then lost its
             // client, is still parked.
             //
@@ -1598,12 +1653,17 @@ async function clientToolPartialResponse(
   threadId: string,
   runId: string,
   accept: string | null,
+  pendingToolCallIds: readonly string[],
 ): Promise<Response> {
   async function* done(): AsyncGenerator<B4AgentStreamChunk> {
     yield { type: "done", data: null }
   }
   let body = ""
-  for await (const event of toAguiEvents(done(), { threadId, runId })) {
+  for await (const event of toAguiEvents(
+    done(),
+    { threadId, runId },
+    { pendingToolCallIds: () => pendingToolCallIds },
+  )) {
     body += encodeAgUiSse(event, accept ?? undefined)
   }
   return new Response(body, {

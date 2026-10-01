@@ -478,10 +478,9 @@ async function emitPermissionInterrupt(args: InterruptArgs): Promise<"allow" | "
   // being able to fail closed. The consequence is stated plainly in the docs:
   // the plaintext grant is at rest in the checkpointer's `writes`, so the
   // hash-only grant store protects the consumption ledger, not the checkpoint.
-  // `toAguiInterrupt` also surfaces it as a top-level `grant`, while keeping
-  // the `metadata` copy — AG-UI's `Interrupt` is a closed `"strip"`-mode zod
-  // object with no `grant` key, so a re-validating client would lose a
-  // top-level-only field.
+  // The grant stays in the envelope, which `toAguiInterrupt` carries verbatim
+  // as `metadata` — the schema-defined field a 1.0 client leaves intact.
+  // There is no top-level copy.
   //
   // KNOWN COST, accepted rather than hidden: on the RESUME pass LangGraph
   // re-executes this node from the top, `interruptId` is regenerated (it

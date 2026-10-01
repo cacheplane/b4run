@@ -67,7 +67,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@ag-ui/core": "0.0.59",
+    "@ag-ui/core": "1.0.1",
     "@b4run/ag-ui": "workspace:*",
     "@b4run/core": "workspace:*",
     "@b4run/langchain": "workspace:*",

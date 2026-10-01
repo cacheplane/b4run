@@ -147,6 +147,30 @@ async function resume(
   )
 }
 
+/** Resume over AG-UI. `entry` is the AG-UI ResumeEntry as the client would send it. */
+async function aguiResume(
+  handler: Handler,
+  threadId: string,
+  entry: Record<string, unknown>,
+): Promise<Response> {
+  return handler.fetch(
+    new Request(`http://localhost/agui/${encodeURIComponent("/park#agent")}`, {
+      body: JSON.stringify({
+        context: [],
+        forwardedProps: {},
+        messages: [{ id: "u1", role: "user", content: "deploy to staging" }],
+        resume: [entry],
+        runId: `agui-${threadId}-resume`,
+        state: {},
+        threadId,
+        tools: [],
+      }),
+      headers: { accept: "text/event-stream", "content-type": "application/json" },
+      method: "POST",
+    }),
+  )
+}
+
 async function deploys(ledger: string): Promise<string[]> {
   return (await readFile(ledger, "utf8")).split("\n").filter(Boolean)
 }
@@ -206,6 +230,44 @@ describe("approval grants through an agent route", () => {
       payload: "once",
     })
     expect(response.status).toBeGreaterThanOrEqual(400)
+    expect(await codeOf(response)).toBe("grant_required")
+    expect(await deploys(ledger)).toEqual([])
+  }, 60_000)
+
+  it("consumes a grant sent in the AG-UI entry's metadata", async () => {
+    await withAimock()
+    const { appRoot, ledger } = await fixtureApp("required")
+    const handler = await createHandler(appRoot)
+    const threadId = "t-grant-agui-metadata"
+
+    await park(handler, threadId)
+    const [parked] = await pending(handler, threadId)
+    const response = await aguiResume(handler, threadId, {
+      interruptId: parked?.interruptId,
+      status: "resolved",
+      payload: "once",
+      metadata: { grant: parked?.grant },
+    })
+    expect(response.status).toBe(200)
+    await response.text()
+    expect(await deploys(ledger)).toEqual(["staging"])
+  }, 60_000)
+
+  it("does not read a top-level grant on an AG-UI entry: under required it is grant_required", async () => {
+    await withAimock()
+    const { appRoot, ledger } = await fixtureApp("required")
+    const handler = await createHandler(appRoot)
+    const threadId = "t-grant-agui-toplevel"
+
+    await park(handler, threadId)
+    const [parked] = await pending(handler, threadId)
+    const response = await aguiResume(handler, threadId, {
+      interruptId: parked?.interruptId,
+      status: "resolved",
+      payload: "once",
+      grant: parked?.grant,
+    })
+    expect(response.status).toBe(400)
     expect(await codeOf(response)).toBe("grant_required")
     expect(await deploys(ledger)).toEqual([])
   }, 60_000)

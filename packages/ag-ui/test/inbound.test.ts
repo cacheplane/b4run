@@ -39,11 +39,11 @@ describe("fromRunAgentInput", () => {
     ])
   })
 
-  test("stringifies non-string content", () => {
+  test("stringifies non-string, non-parts content", () => {
     const input = baseInput({
-      messages: [{ id: "m1", role: "user", content: [{ type: "text", text: "hi" }] }],
+      messages: [{ id: "m1", role: "user", content: { text: "hi" } }],
     } as unknown as Partial<RunAgentInput>)
-    expect(fromRunAgentInput(input).messages[0]?.content).toBe('[{"type":"text","text":"hi"}]')
+    expect(fromRunAgentInput(input).messages[0]?.content).toBe('{"text":"hi"}')
   })
 
   test("falls back to String() when JSON.stringify returns undefined", () => {
@@ -84,21 +84,93 @@ describe("fromRunAgentInput", () => {
     expect(result.resume).toBeUndefined()
   })
 
-  test("maps activity and reasoning messages to B4.run assistant messages", () => {
+  test("drops activity and reasoning messages", () => {
+    // Task 7: reasoning history is the client's artefact, not conversation.
     const input = baseInput({
       messages: [
         { id: "m1", role: "activity", content: { status: "running" }, activityType: "status" },
         { id: "m2", role: "reasoning", content: "thinking" },
       ],
     } as Partial<RunAgentInput>)
-    expect(fromRunAgentInput(input).messages).toEqual([
-      { role: "assistant", content: '{"status":"running"}', id: "m1" },
-      { role: "assistant", content: "thinking", id: "m2" },
-    ])
+    expect(fromRunAgentInput(input).messages).toEqual([])
   })
 
   test("raw preserves the original input for tools/state/context access", () => {
     const input = baseInput({ state: { a: 1 } } as Partial<RunAgentInput>)
     expect(fromRunAgentInput(input).raw).toBe(input)
+  })
+})
+
+describe("1.0 content", () => {
+  const input = (messages: RunAgentInput["messages"]): RunAgentInput => ({
+    threadId: "t",
+    runId: "r",
+    messages,
+    tools: [],
+    context: [],
+    state: {},
+    forwardedProps: {},
+  })
+
+  test("a user message's text parts concatenate in order", () => {
+    const { messages } = fromRunAgentInput(
+      input([
+        {
+          id: "1",
+          role: "user",
+          content: [
+            { type: "text", text: "Hello, " },
+            { type: "text", text: "world" },
+          ],
+        },
+      ]),
+    )
+    expect(messages).toEqual([{ id: "1", role: "user", content: "Hello, world" }])
+  })
+
+  test("a tool message's text parts concatenate in order", () => {
+    const { messages } = fromRunAgentInput(
+      input([
+        {
+          id: "2",
+          role: "tool",
+          toolCallId: "c1",
+          content: [
+            { type: "text", text: '{"ok":' },
+            { type: "text", text: "true}" },
+          ],
+        },
+      ]),
+    )
+    expect(messages).toEqual([{ id: "2", role: "tool", toolCallId: "c1", content: '{"ok":true}' }])
+  })
+
+  test("reasoning and activity history is dropped, not re-spoken as the assistant", () => {
+    const { messages } = fromRunAgentInput(
+      input([
+        { id: "3", role: "reasoning", content: "thinking…" },
+        { id: "4", role: "activity", activityType: "b4.plan", content: { todos: [] } },
+        { id: "5", role: "assistant", content: "done" },
+      ]),
+    )
+    expect(messages).toEqual([{ id: "5", role: "assistant", content: "done" }])
+  })
+
+  test("an unvalidated part list with non-object entries does not throw", () => {
+    const { messages } = fromRunAgentInput(
+      input([
+        {
+          id: "6",
+          role: "user",
+          content: [
+            { type: "text", text: "a" },
+            null,
+            "stray",
+            { type: "text", text: "b" },
+          ] as never,
+        },
+      ]),
+    )
+    expect(messages).toEqual([{ id: "6", role: "user", content: "ab" }])
   })
 })

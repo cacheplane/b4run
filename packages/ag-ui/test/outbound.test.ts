@@ -1,4 +1,5 @@
-import { ActivitySnapshotEventSchema, EventType, ToolCallResultEventSchema } from "@ag-ui/core"
+import { type BaseEvent, EventType, PROTOCOL_VERSION } from "@ag-ui/core"
+import { ActivitySnapshotEventSchema, ToolCallResultEventSchema } from "@ag-ui/core/schemas"
 import { describe, expect, test } from "vitest"
 import { B4_PLAN_ACTIVITY_TYPE, B4_SUBAGENT_ACTIVITY_TYPE } from "../src/activities.ts"
 import { createCounterIdFactory } from "../src/ids.js"
@@ -29,6 +30,17 @@ async function* toAsync(items: B4AgentStreamChunk[]) {
 }
 
 describe("toAguiEvents", () => {
+  test("RUN_STARTED declares the producer's protocol version", async () => {
+    const [first] = await collect([{ type: "done", data: {} }])
+    expect(first).toEqual({
+      type: EventType.RUN_STARTED,
+      threadId: "th-1",
+      runId: "rn-1",
+      protocolVersion: PROTOCOL_VERSION,
+    })
+    expect(PROTOCOL_VERSION).toBe("1.0")
+  })
+
   test("text-only stream: run start, framed message, run finished success", async () => {
     const events = await collect([
       { type: "token", data: "Hel" },
@@ -36,7 +48,12 @@ describe("toAguiEvents", () => {
       { type: "done", data: {} },
     ])
     expect(events).toEqual([
-      { type: EventType.RUN_STARTED, threadId: "th-1", runId: "rn-1" },
+      {
+        type: EventType.RUN_STARTED,
+        threadId: "th-1",
+        runId: "rn-1",
+        protocolVersion: PROTOCOL_VERSION,
+      },
       { type: EventType.TEXT_MESSAGE_START, messageId: "msg-1", role: "assistant" },
       { type: EventType.TEXT_MESSAGE_CONTENT, messageId: "msg-1", delta: "Hel" },
       { type: EventType.TEXT_MESSAGE_CONTENT, messageId: "msg-1", delta: "lo" },
@@ -58,7 +75,12 @@ describe("toAguiEvents", () => {
       { type: "done", data: {} },
     ])
     expect(events).toEqual([
-      { type: EventType.RUN_STARTED, threadId: "th-1", runId: "rn-1" },
+      {
+        type: EventType.RUN_STARTED,
+        threadId: "th-1",
+        runId: "rn-1",
+        protocolVersion: PROTOCOL_VERSION,
+      },
       { type: EventType.TOOL_CALL_START, toolCallId: "run-abc", toolCallName: "greet" },
       { type: EventType.TOOL_CALL_ARGS, toolCallId: "run-abc", delta: '{"name":"World"}' },
       { type: EventType.TOOL_CALL_END, toolCallId: "run-abc" },
@@ -126,7 +148,8 @@ describe("toAguiEvents", () => {
     expect(typeof result.content).toBe("string")
     expect(result.content).toBe(expected)
 
-    const dataLine = encodeAgUiSse(result)
+    // zod output spells optionals as T | undefined; the wire type does not.
+    const dataLine = encodeAgUiSse(result as BaseEvent)
       .split("\n")
       .find((line) => line.startsWith("data: "))
     if (dataLine === undefined) throw new Error("SSE frame is missing a data line")
@@ -432,7 +455,12 @@ describe("toAguiEvents", () => {
     ])
 
     expect(events).toEqual([
-      { type: EventType.RUN_STARTED, threadId: "th-1", runId: "rn-1" },
+      {
+        type: EventType.RUN_STARTED,
+        threadId: "th-1",
+        runId: "rn-1",
+        protocolVersion: PROTOCOL_VERSION,
+      },
       {
         type: EventType.RUN_FINISHED,
         threadId: "th-1",
@@ -599,7 +627,12 @@ describe("toAguiEvents", () => {
     ])
 
     expect(events).toEqual([
-      { type: EventType.RUN_STARTED, threadId: "th-1", runId: "rn-1" },
+      {
+        type: EventType.RUN_STARTED,
+        threadId: "th-1",
+        runId: "rn-1",
+        protocolVersion: PROTOCOL_VERSION,
+      },
       {
         type: EventType.RUN_FINISHED,
         threadId: "th-1",
@@ -688,7 +721,12 @@ describe("toAguiEvents", () => {
   test("done without defined data omits the successful result", async () => {
     const events = await collect([{ type: "done" }])
     expect(events).toEqual([
-      { type: EventType.RUN_STARTED, threadId: "th-1", runId: "rn-1" },
+      {
+        type: EventType.RUN_STARTED,
+        threadId: "th-1",
+        runId: "rn-1",
+        protocolVersion: PROTOCOL_VERSION,
+      },
       {
         type: EventType.RUN_FINISHED,
         threadId: "th-1",
@@ -764,6 +802,39 @@ describe("toAguiEvents", () => {
       out.push(ev)
     }
     expect(out.at(-1)).toEqual({ type: EventType.RUN_ERROR, message: "rejected" })
+  })
+  test("a success that leaves client calls parked names them in pendingToolCallIds", async () => {
+    const out = []
+    for await (const ev of toAguiEvents(toAsync([{ type: "done", data: {} }]), CTX, {
+      pendingToolCallIds: () => ["call_a", "call_b"],
+    })) {
+      out.push(ev)
+    }
+    expect(out.at(-1)).toMatchObject({
+      type: EventType.RUN_FINISHED,
+      outcome: { type: "success", pendingToolCallIds: ["call_a", "call_b"] },
+    })
+  })
+
+  test("an ordinary success carries no pendingToolCallIds key at all", async () => {
+    const events = await collect([{ type: "done", data: {} }])
+    expect(events.at(-1)).toMatchObject({ outcome: { type: "success" } })
+    expect((events.at(-1) as { outcome: object }).outcome).not.toHaveProperty("pendingToolCallIds")
+  })
+
+  test("a stream that ends without done also names the parked calls", async () => {
+    const out = []
+    for await (const ev of toAguiEvents(
+      toAsync([{ type: "tool_call", data: { id: "call_a", name: "openPanel", input: {} } }]),
+      CTX,
+      { pendingToolCallIds: () => ["call_a"] },
+    )) {
+      out.push(ev)
+    }
+    expect(out.at(-1)).toMatchObject({
+      type: EventType.RUN_FINISHED,
+      outcome: { type: "success", pendingToolCallIds: ["call_a"] },
+    })
   })
 })
 
@@ -1065,7 +1136,12 @@ describe("streamed tool-call arguments", () => {
       { type: "done", data: {} },
     ])
     expect(events).toEqual([
-      { type: EventType.RUN_STARTED, threadId: "th-1", runId: "rn-1" },
+      {
+        type: EventType.RUN_STARTED,
+        threadId: "th-1",
+        runId: "rn-1",
+        protocolVersion: PROTOCOL_VERSION,
+      },
       { type: EventType.TOOL_CALL_START, toolCallId: "call_1", toolCallName: "weather" },
       { type: EventType.TOOL_CALL_ARGS, toolCallId: "call_1", delta: '{"city":' },
       { type: EventType.TOOL_CALL_ARGS, toolCallId: "call_1", delta: '"Paris",' },
@@ -1238,5 +1314,112 @@ describe("streamed tool-call arguments", () => {
       EventType.TOOL_CALL_END,
       EventType.RUN_ERROR,
     ])
+  })
+
+  test("an abort the consumer reports as a cancel ends the run with the cancelled outcome", async () => {
+    async function* aborted(): AsyncGenerator<B4AgentStreamChunk> {
+      yield { type: "token", data: "partial" }
+      throw new Error("AG-UI request aborted")
+    }
+    const out = []
+    for await (const ev of toAguiEvents(aborted(), CTX, {
+      idFactory: createCounterIdFactory(),
+      cancelled: () => true,
+    })) {
+      out.push(ev)
+    }
+    expect(out.map((e) => e.type)).toEqual([
+      EventType.RUN_STARTED,
+      EventType.TEXT_MESSAGE_START,
+      EventType.TEXT_MESSAGE_CONTENT,
+      EventType.TEXT_MESSAGE_END,
+      EventType.RUN_FINISHED,
+    ])
+    expect(out.at(-1)).toMatchObject({ outcome: { type: "cancelled" } })
+    expect(out.at(-1)).not.toHaveProperty("result")
+  })
+
+  test("an abort the consumer does not report as a cancel is still RUN_ERROR", async () => {
+    // biome-ignore lint/correctness/useYield: the upstream throws before producing a chunk
+    async function* aborted(): AsyncGenerator<B4AgentStreamChunk> {
+      throw new Error("AG-UI request aborted")
+    }
+    const out = []
+    for await (const ev of toAguiEvents(aborted(), CTX, { cancelled: () => false })) out.push(ev)
+    expect(out.at(-1)).toMatchObject({
+      type: EventType.RUN_ERROR,
+      message: "AG-UI request aborted",
+    })
+  })
+})
+
+describe("1.0 null discipline", () => {
+  /** Top-level keys of an event, and of each interrupt and outcome it carries, are never `null`. */
+  function assertNoNullField(label: string, value: Record<string, unknown>): void {
+    for (const [key, field] of Object.entries(value)) {
+      if (key === "metadata" || key === "result") continue // application data
+      if (key === "content" && label.startsWith("tool_call")) {
+        expect(typeof field, `${label}.content`).toBe("string")
+      }
+      expect(field, `${label}.${key}`).not.toBeNull()
+      if (key === "outcome" && field && typeof field === "object") {
+        assertNoNullField(`${label}.outcome`, field as Record<string, unknown>)
+        const interrupts = (field as { interrupts?: unknown }).interrupts
+        if (Array.isArray(interrupts)) {
+          for (const [index, interrupt] of interrupts.entries()) {
+            assertNoNullField(`${label}.outcome.interrupts[${index}]`, interrupt)
+          }
+        }
+      }
+    }
+  }
+
+  test("every event kind B4.run emits", async () => {
+    const streams: B4AgentStreamChunk[][] = [
+      [
+        { type: "token", data: "hi" },
+        { type: "done", data: null },
+      ],
+      [
+        { type: "tool_call", data: { id: "c1", name: "search", input: { q: 1 } } },
+        { type: "tool_result", data: { id: "c1", name: "search", output: null } },
+        { type: "done" },
+      ],
+      [
+        {
+          type: "interrupt",
+          data: { interruptId: "perm-1", kind: "tool", callId: "c1", grant: "g" },
+        },
+      ],
+      [
+        {
+          type: "plan_update",
+          data: { tool_call_id: "p1", todos: [{ content: "a", status: "pending" }] },
+        },
+        { type: "subagent.start", data: CHILD },
+        { type: "subagent.end", data: { ...CHILD, final_message: "x" } },
+        { type: "done", data: undefined },
+      ],
+    ]
+    for (const stream of streams) {
+      const events = await collect(stream)
+      for (const [index, event] of events.entries()) {
+        assertNoNullField(`${stream[0]?.type}[${index}]`, event as Record<string, unknown>)
+      }
+    }
+    // The throwing path.
+    // biome-ignore lint/correctness/useYield: a stream that fails before its first chunk
+    async function* boom(): AsyncGenerator<B4AgentStreamChunk> {
+      throw Object.assign(new Error("x"), { code: "after_rejected" })
+    }
+    for await (const event of toAguiEvents(boom(), CTX)) {
+      assertNoNullField("error", event as Record<string, unknown>)
+    }
+  })
+
+  test("a done with a null payload carries no result key", async () => {
+    const events = await collect([{ type: "done", data: null }])
+    expect(events.at(-1)).toMatchObject({ type: EventType.RUN_FINISHED })
+    expect(events.at(-1)).not.toHaveProperty("result")
   })
 })

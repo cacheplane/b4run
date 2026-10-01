@@ -66,7 +66,11 @@ import {
 
 export type ClientToolTurn =
   | { readonly mode: "none" }
-  | { readonly mode: "partial" }
+  | {
+      readonly mode: "partial"
+      /** The client parks still awaiting a result, by provider tool-call id. */
+      readonly pendingToolCallIds: readonly string[]
+    }
   | {
       readonly mode: "resume"
       /** Keyed by each client park's LangGraph resumeKey. */
@@ -205,7 +209,12 @@ export async function resolveClientToolTurn(options: {
     resume[park.resumeKey] = { clientToolResult: result }
   }
   if (allAnswered) return { mode: "resume", resume, others }
-  return { mode: "partial" }
+  return {
+    mode: "partial",
+    pendingToolCallIds: clientParks.flatMap(({ toolCallId }) =>
+      toolCallId !== undefined && answeredResult(toolCallId) === undefined ? [toolCallId] : [],
+    ),
+  }
 }
 
 async function readRows(

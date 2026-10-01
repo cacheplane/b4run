@@ -133,41 +133,28 @@ describe("fromAguiResume", () => {
 describe("toAguiInterrupt — approval grants", () => {
   const envelope = {
     interruptId: "perm-1",
-    type: "permission-request",
     kind: "tool",
+    callId: "call_deploy_0_0",
     grant: "b4ag_abc",
-    detail: { toolName: "allocate" },
   }
 
-  test("surfaces the grant top-level AND keeps it in metadata", () => {
+  test("keeps the grant in metadata only: the top-level field is one 1.0 clients strip", () => {
     const interrupt = toAguiInterrupt(envelope)
-    if (!interrupt) throw new Error("expected an interrupt")
-    expect(interrupt.grant).toBe("b4ag_abc")
-    // `metadata` is the copy that survives a round trip through AG-UI's own
-    // `InterruptSchema`, which is a closed `"strip"`-mode object with no
-    // `grant` key. Dropping this copy would make a re-validating client's
-    // prompt silently unanswerable under `approvals.grants: "required"`.
+    if (interrupt === null) throw new Error("expected an interrupt")
+    expect(Object.hasOwn(interrupt, "grant")).toBe(false)
     expect((interrupt.metadata as { grant?: string }).grant).toBe("b4ag_abc")
-  })
-
-  test("omits the top-level field entirely when the envelope carries no grant", () => {
-    const { grant: _grant, ...withoutGrant } = envelope
-    const interrupt = toAguiInterrupt(withoutGrant)
-    if (!interrupt) throw new Error("expected an interrupt")
-    expect(Object.hasOwn(interrupt, "grant")).toBe(false)
-  })
-
-  test("ignores a non-string grant rather than forwarding it", () => {
-    const interrupt = toAguiInterrupt({ ...envelope, grant: { nope: true } })
-    if (!interrupt) throw new Error("expected an interrupt")
-    expect(Object.hasOwn(interrupt, "grant")).toBe(false)
   })
 })
 
 describe("fromAguiResume — approval grants", () => {
-  test("echoes a string grant through to the B4 resume request", () => {
+  test("reads the grant from the entry's metadata", () => {
     const [resume] = fromAguiResume([
-      { interruptId: "perm-1", status: "resolved", payload: "once", grant: "b4ag_abc" },
+      {
+        interruptId: "perm-1",
+        status: "resolved",
+        payload: "once",
+        metadata: { grant: "b4ag_abc" },
+      },
     ])
     expect(resume).toEqual({
       interruptId: "perm-1",
@@ -177,9 +164,17 @@ describe("fromAguiResume — approval grants", () => {
     })
   })
 
-  test("drops a non-string grant — an opaque echo is not a JSON channel", () => {
+  test("does not read a top-level grant: a 1.0 client never sends one", () => {
     const [resume] = fromAguiResume([
-      { interruptId: "perm-1", status: "cancelled", grant: { evil: true } },
+      { interruptId: "perm-1", status: "resolved", payload: "once", grant: "b4ag_abc" } as never,
+    ])
+    if (!resume) throw new Error("expected one entry")
+    expect(Object.hasOwn(resume, "grant")).toBe(false)
+  })
+
+  test("drops a non-string metadata grant — an opaque echo is not a JSON channel", () => {
+    const [resume] = fromAguiResume([
+      { interruptId: "perm-1", status: "cancelled", metadata: { grant: { evil: true } } },
     ])
     if (!resume) throw new Error("expected one entry")
     expect(Object.hasOwn(resume, "grant")).toBe(false)

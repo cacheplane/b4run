@@ -291,7 +291,10 @@ describe("POST /agui/:route with client-provided tools", () => {
       | { toolCallName?: string; toolCallId?: string }
       | undefined
     expect(start?.toolCallName).toBe("openPanel")
-    expect(finished(t.first.events)?.outcome?.type).toBe("success")
+    expect(finished(t.first.events)?.outcome).toEqual({
+      type: "success",
+      pendingToolCallIds: ["call_a"],
+    })
     expect(t.first.text).not.toContain("client-tool-call")
     const toolCallId = start?.toolCallId as string
     expect(toolCallId).toBe("call_a")
@@ -312,6 +315,8 @@ describe("POST /agui/:route with client-provided tools", () => {
     )
     expect(second.status).toBe(200)
     expect(second.text).toContain("Opened.")
+    // An ordinary success: nothing left parked, so the key is absent.
+    expect(finished(second.events)?.outcome).toEqual({ type: "success" })
     const requests = t.aimock.getRequests()
     expect(requests).toHaveLength(2)
     expect(requestSequence(requests[1])).toContain(`tool:${toolCallId}=panel opened`)
@@ -364,7 +369,10 @@ describe("POST /agui/:route with client-provided tools", () => {
     )
     expect(partial.status).toBe(200)
     expect(partial.events.map((event) => event.type)).toEqual(["RUN_STARTED", "RUN_FINISHED"])
-    expect(finished(partial.events)?.outcome?.type).toBe("success")
+    expect(finished(partial.events)?.outcome).toEqual({
+      type: "success",
+      pendingToolCallIds: ["call_b"],
+    })
     expect(t.aimock.getRequests()).toHaveLength(before)
     expect((await t.store.get(t.threadId, "call_a"))?.result).toBe("A done")
 

@@ -10,6 +10,7 @@ import {
   buildTranscriptItems,
   type TranscriptItem,
   type TranscriptMessage,
+  toolResultText,
 } from "../lib/transcript"
 import { EmptyState } from "./EmptyState"
 import { HydratedInterrupts } from "./HydratedInterrupts"
@@ -190,7 +191,14 @@ export function Transcript({
           <div key={item.id}>
             {renderToolCall({
               toolCall: item.toolCall,
-              ...(item.toolResult !== undefined ? { toolMessage: item.toolResult } : {}),
+              ...(item.toolResult !== undefined
+                ? {
+                    toolMessage: {
+                      ...item.toolResult,
+                      content: toolResultText(item.toolResult.content),
+                    },
+                  }
+                : {}),
             })}
           </div>
         )
