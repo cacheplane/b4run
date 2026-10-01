@@ -34,6 +34,11 @@ export interface OperatorReview {
    * (`--allow-missing-evidence`): said loudly beside the prompt, never silently.
    */
   readonly warnings: readonly string[]
+  /**
+   * For a draft-PR bundle, what approving it does, in one line: the prompt names it. Absent for
+   * a local export and an intake review.
+   */
+  readonly publishes?: string
 }
 
 /**
@@ -349,6 +354,29 @@ export async function exportReview(input: {
   const problems: string[] = []
   const warnings: string[] = []
   let text = `Export review of ${row.id} (${row.state}, revision ${row.revision})\n\n`
+  // Where approving sends the change, above everything else (rung 4 §7.4). Read from the frozen
+  // payload, whose digest is the one the person types: the line cannot say one thing while the
+  // bundle authorizes another.
+  const frozen = bundle === null ? undefined : BundlePayloadSchema.safeParse(bundle.payload).data
+  const publishes =
+    frozen?.operation === "draft-pr"
+      ? `Approving publishes exactly this change as a draft pull request on ${frozen.delivery.repository}, branch ${frozen.delivery.branch}, against ${frozen.delivery.baseBranch}, branched at ${frozen.pin}`
+      : undefined
+  if (frozen?.operation === "draft-pr")
+    text += block(
+      "Delivery",
+      [
+        `operation   draft-pr`,
+        `repository  ${frozen.delivery.repository}`,
+        `branch      ${frozen.delivery.branch}`,
+        `base        ${frozen.delivery.baseBranch}`,
+        `pin         ${frozen.pin}`,
+        `paths under ${frozen.delivery.pathPrefix}`,
+        "",
+        `${publishes}.`,
+        "",
+      ].join("\n"),
+    )
   if (candidate === null) {
     problems.push("The work order has no assembled candidate")
     text += "--- Candidate: none recorded\n\n"
@@ -442,5 +470,6 @@ export async function exportReview(input: {
     text,
     problems,
     warnings,
+    ...(publishes !== undefined ? { publishes } : {}),
   }
 }

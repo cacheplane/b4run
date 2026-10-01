@@ -57,6 +57,22 @@ describe("fetchIssue", () => {
     ])
   })
 
+  it("reads the issue's state only when asked, and refuses an answer without one", async () => {
+    const { exec, calls } = scripted([JSON.stringify({ ...ISSUE, state: "CLOSED" })])
+    const issue = await fetchIssue({
+      repository: "cacheplane/b4run",
+      number: 778,
+      exec,
+      withState: true,
+    })
+    expect(issue.state).toBe("closed")
+    expect(calls[0]?.args.at(-1)).toBe("title,body,url,state")
+    const { exec: stateless } = scripted([JSON.stringify(ISSUE)])
+    await expect(
+      fetchIssue({ repository: "cacheplane/b4run", number: 778, exec: stateless, withState: true }),
+    ).rejects.toThrow(/has no state/)
+  })
+
   it("runs the gh the caller names", async () => {
     const { exec, calls } = scripted([JSON.stringify(ISSUE)])
     await fetchIssue({ repository: "cacheplane/b4run", number: 778, gh: "/opt/bin/gh", exec })

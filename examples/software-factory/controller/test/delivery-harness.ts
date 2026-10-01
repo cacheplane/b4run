@@ -46,6 +46,12 @@ export function closeHarness(): void {
   dir = undefined
 }
 
+/** The last harness's directory: its registry.sqlite is a state directory's registry. */
+export function harnessDir(): string {
+  if (dir === undefined) throw new Error("no harness is open")
+  return dir
+}
+
 export interface Harness {
   readonly github: FakeGitHub
   /** The registry the work order and its outbox live in, for a test that corrupts a row. */

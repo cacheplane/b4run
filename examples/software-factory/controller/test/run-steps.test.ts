@@ -196,7 +196,13 @@ describe("approvalStartedSinceParked", () => {
 /** Calls and inputs that approve or reject, or make a pipe answer the prompt. */
 const FORBIDDEN = [
   /\bapprove(Intake|Export)\b/,
-  /\.(approve|deny|rejectIntake|cancel|interrupt)\b/,
+  // Rung 4: run never redelivers either; a person does, with the digest's prefix (D10). Not the
+  // controller's or the client's method, not the CLI's own command, not its route.
+  /\.(approve|deny|rejectIntake|cancel|interrupt|redeliver)\b/,
+  /\bredeliver\s*\(/,
+  /work-orders\/redeliver/,
+  // The same methods named by a computed member access (`client()["redeliver"](…)`).
+  /\[\s*["'`](approve\w*|deny|rejectIntake|cancel|interrupt|redeliver)["'`]\s*\]/,
   /\brejectDraft\b/,
   /--approve|--digest/,
   /\bvalues\.(approve|reject|digest|key|note|revision|bundle)\b/,
@@ -368,6 +374,7 @@ describe("run's only way to an approval", () => {
     "awaiting",
     "client",
     "createRacing",
+    "deliverOption",
     "finish",
     "followBusyThread",
     "followJournal",
