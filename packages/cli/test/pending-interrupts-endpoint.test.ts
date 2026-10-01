@@ -1519,3 +1519,97 @@ describe("gated Postgres lane", () => {
     expect(postgresLaneRan).toBe(PGSTORAGE_LANE_REQUESTED)
   })
 })
+
+// ---------------------------------------------------------------------------
+// AG-UI approval resumes are bound to the route that parked. The Agent Protocol
+// resume endpoint never lets the caller choose the route — it resolves it from
+// server state — but /agui/:routeId takes the route from the URL, so without a
+// binding a caller admitted to a weaker route could answer, and run, an
+// approval parked under a stronger one.
+// ---------------------------------------------------------------------------
+
+/** An ordinary agent route with no middleware restriction, beside `/park`. */
+const OTHER_AGENT_ROUTE = [
+  'import { agent } from "@b4run/sdk"',
+  "export default agent({",
+  '  model: "gpt-5-mini",',
+  '  systemPrompt: "You are a test agent.",',
+  "})",
+  "",
+].join("\n")
+
+function aguiResumeRequest(
+  threadId: string,
+  routeKey: string,
+  interruptId: string,
+  headers: Record<string, string> = {},
+): Request {
+  return new Request(`http://localhost/agui/${encodeURIComponent(routeKey)}`, {
+    body: JSON.stringify({
+      context: [],
+      forwardedProps: {},
+      messages: [{ content: "deploy to staging", id: "m1", role: "user" }],
+      resume: [{ interruptId, payload: "once", status: "resolved" }],
+      runId: "r2",
+      state: {},
+      threadId,
+      tools: [],
+    }),
+    headers: { "content-type": "application/json", ...headers },
+    method: "POST",
+  })
+}
+
+describe("AG-UI approval resume route binding", () => {
+  it("refuses an approval resume sent to a route other than the one that parked", async () => {
+    await withAimock(
+      script()
+        .user("deploy to staging")
+        .callsTool("deployProd", { env: "staging" })
+        .replies("Deployed.")
+        .build(),
+    )
+    const handler = await createHandler(
+      await fixtureApp({
+        "src/middleware.ts": ADMIN_PARK_MIDDLEWARE,
+        "src/app/other/index.ts": OTHER_AGENT_ROUTE,
+      }),
+    )
+    const threadId = "t-agui-resume-route"
+
+    const parked = await handler.fetch(
+      aguiParkRequest(threadId, "deploy to staging", { "x-admin": "1" }),
+    )
+    expect(parked.status).toBe(200)
+    await drain(parked)
+    const [pending] = (await readPendingInterruptsBody(handler, threadId, { "x-admin": "1" }))
+      .interrupts
+    expect(pending?.interruptId).toMatch(/^perm-/)
+
+    // A caller /park's middleware would refuse, answering /park's approval
+    // through /other, which admits anyone.
+    const crossRoute = await handler.fetch(
+      aguiResumeRequest(threadId, "/other#agent", pending?.interruptId as string),
+    )
+    expect(crossRoute.status).toBe(409)
+    const body = (await crossRoute.json()) as ErrorBody
+    expect(body.error.details?.code).toBe("resume_route_mismatch")
+    // Never echo which route parked the thread.
+    expect(JSON.stringify(body)).not.toContain("/park")
+
+    // Nothing ran: the approval is still pending for the parking route.
+    const stillPending = await readPendingInterruptsBody(handler, threadId, { "x-admin": "1" })
+    expect(stillPending.interrupts.map((entry) => entry.interruptId)).toEqual([
+      pending?.interruptId,
+    ])
+
+    // The parking route can still resume it.
+    const sameRoute = await handler.fetch(
+      aguiResumeRequest(threadId, "/park#agent", pending?.interruptId as string, {
+        "x-admin": "1",
+      }),
+    )
+    expect(sameRoute.status).toBe(200)
+    expect(await readSseText(sameRoute)).toContain("deployed to staging")
+  }, 60_000)
+})

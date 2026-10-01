@@ -3446,12 +3446,14 @@ async function handleApPendingInterruptsRequest(options: {
   // backwards: it is DISCLOSURE, not approval. It is NOT bounded by /resume
   // gating on an identity the attacker cannot forge — /resume resolves
   // `threadRouteMap ?? metadata.route ?? body.route`, every term of which a
-  // park-swap controls. What actually stops them is that resuming the route
-  // they swapped in does not answer the prompt the other route parked: a plain
-  // graph route ignores `resume` entirely, and an agent route replays its own
-  // graph, destroying the pending set rather than resolving it. So the prompt
-  // stays unanswered — which makes this a confidentiality fix, and means the
-  // secrecy of `resumeKey` is not what the permission decision rests on.
+  // park-swap controls. A plain graph route ignores `resume` entirely, so
+  // swapping one in leaves the prompt unanswered. An AGENT route does not:
+  // every createAgent graph shares its node names, so resuming another agent
+  // route's park through it RESOLVES the prompt, under the wrong route's
+  // graph, prompt and tools. That is why /agui binds an approval resume to the
+  // route that parked it (`resume_route_mismatch`, agui-handler.ts) rather than
+  // trusting the route in its URL. The secrecy of `resumeKey` is still not what
+  // the permission decision rests on; route binding is.
   //
   // RESIDUALS, deliberately accepted. Every HTTP endpoint that can park records
   // it — /runs/stream, /runs/wait (on all four of its exit arms), /resume and
