@@ -68,6 +68,7 @@ const EXPECTED_DETAILED_IMPORTS = [
   ["@b4run/core", "./node"],
   ["@b4run/ag-ui", "."],
   ["@b4run/ag-ui", "./sse"],
+  ["@b4run/ag-ui", "./client"],
   ["@b4run/ag-ui", "./react"],
   ["@b4run/memory", "."],
   ["@b4run/memory", "./browse"],
