@@ -381,8 +381,9 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       - name: CopilotKit v2 runtime against B4.run
-        # The example runtime routes import the built @b4run/ag-ui; this is the
-        # only end-to-end CopilotKit → B4.run check, so it runs on Linux here.
+        # The only end-to-end CopilotKit → B4.run check, so it runs on Linux
+        # here. The example runtime routes will import the built @b4run/ag-ui
+        # (its ./client subpath), hence the build line.
         run: |
           pnpm --filter @b4run/ag-ui build
           pnpm exec vitest --run --config test/security-dependencies/vitest.config.ts test/security-dependencies/copilotkit-v2-runtime.test.ts
