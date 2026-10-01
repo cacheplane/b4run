@@ -458,6 +458,21 @@ describe("multimodal input", () => {
     expect(middlewareRan).toBe(false)
   })
 
+  it("refuses a media part on a tool message too", async () => {
+    const { handler } = await setup()
+    const response = await handler.fetch(
+      aguiPost(HELLO_ROUTE, {
+        messages: [
+          { id: "1", role: "user", content: "hello" },
+          { id: "2", role: "tool", toolCallId: "c1", content: [image] },
+        ],
+      }),
+    )
+    expect(response.status).toBe(422)
+    const body = (await response.json()) as { error: { details?: { code?: string } } }
+    expect(body.error.details?.code).toBe("multimodal_not_supported")
+  })
+
   it("serves text-only parts", async () => {
     const { handler } = await setup()
     const response = await handler.fetch(

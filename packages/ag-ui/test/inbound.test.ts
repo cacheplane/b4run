@@ -155,4 +155,22 @@ describe("1.0 content", () => {
     )
     expect(messages).toEqual([{ id: "5", role: "assistant", content: "done" }])
   })
+
+  test("an unvalidated part list with non-object entries does not throw", () => {
+    const { messages } = fromRunAgentInput(
+      input([
+        {
+          id: "6",
+          role: "user",
+          content: [
+            { type: "text", text: "a" },
+            null,
+            "stray",
+            { type: "text", text: "b" },
+          ] as never,
+        },
+      ]),
+    )
+    expect(messages).toEqual([{ id: "6", role: "user", content: "ab" }])
+  })
 })

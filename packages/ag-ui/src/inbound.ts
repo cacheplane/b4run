@@ -19,14 +19,21 @@ type AguiToolMessage = Extract<Message, { role: "tool" }>
 
 /**
  * A message's text. 1.0 content is `string | ContentPart[]`; the text parts
- * concatenate in order via the SDK's own helper. Media parts never reach here:
- * the runtime refuses them at the envelope stage (`multimodal_not_supported`)
- * until it can carry them to the model.
+ * concatenate in order via the SDK's own helper, after dropping anything that
+ * is not an object so an unvalidated list cannot throw. Media parts carry no
+ * text: the B4.run runtime refuses them at the envelope stage
+ * (`multimodal_not_supported`) until it can carry them to the model; any
+ * other caller sees them contribute nothing.
  */
 function coerceContent(content: unknown): string {
   if (typeof content === "string") return content
   if (content === undefined || content === null) return ""
-  if (Array.isArray(content)) return contentToText(content as Parameters<typeof contentToText>[0])
+  if (Array.isArray(content)) {
+    const parts = content.filter(
+      (part): part is Record<string, unknown> => typeof part === "object" && part !== null,
+    )
+    return contentToText(parts as Parameters<typeof contentToText>[0])
+  }
   try {
     const json = JSON.stringify(content)
     return typeof json === "string" ? json : String(content)
