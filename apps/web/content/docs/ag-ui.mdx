@@ -14,25 +14,25 @@ accept: text/event-stream
 
 The URL segment is the URL-encoded `<routeId>#<kind>` assistant id. For example, `/chat#agent` becomes `/agui/%2Fchat%23agent`. The request body is an AG-UI `RunAgentInput`. B4.run creates the thread if it's new, invokes the same route runtime Agent Protocol uses, and streams translated events back as SSE.
 
-B4.run speaks AG-UI protocol **1.0**. `RUN_STARTED` declares `protocolVersion: "1.0"`. A request may declare its own `protocolVersion`: any `1.x` is served, an absent or unparseable value is served, and a different major is refused with `400` `unsupported_protocol_version` before middleware runs. `@b4run/ag-ui` requires `@ag-ui/client` `>=1.0.1 <2.0.0` as an optional peer, and 1.0 moves the runtime validators to `@ag-ui/core/schemas`.
+B4.run speaks AG-UI protocol **1.0**. `RUN_STARTED` declares `protocolVersion: "1.0"`. A request may declare its own `protocolVersion`: any `1.x` is served, an absent or unparseable value is served, and a `MAJOR.MINOR` declaration with a different major is refused with `400` `unsupported_protocol_version` before middleware runs; any other form is served. `@b4run/ag-ui` requires `@ag-ui/client` `>=1.0.1 <2.0.0` as an optional peer, and 1.0 moves the runtime validators to `@ag-ui/core/schemas`.
 
 ## Envelope validation
 
 The runtime validates the run envelope itself, so no app has to re-check
-B4.run's own wire format. A body that AG-UI's schema cannot parse is a `400`;
-a body that parses but is not one B4.run will act on is a `422`, except a
-foreign protocol major, which is a `400`. Both carry
-[`B4_E5401`](/docs/errors) and are told apart by a machine-readable
-`error.details.code`:
+B4.run's own wire format. Envelope refusals — the `422`s and the
+foreign-major `400` — carry [`B4_E5401`](/docs/errors) and are told apart by
+`error.details.code`; a body the schema itself rejects is a plain `400`.
 
-| `details.code` | When |
-|---|---|
-| `invalid_envelope` | the body is not a JSON object |
-| `invalid_thread_id` | `threadId` is missing, not a string, blank, or longer than 256 characters |
-| `invalid_run_id` | `runId` is missing, not a string, blank, or longer than 256 characters |
-| `invalid_state` | `state` is present and is not a JSON object |
-| `client_tools_not_allowed` | `tools` is not an array, or is non-empty on a route that did not opt in |
-| `forwarded_props_not_allowed` | `forwardedProps` is not an object, or is non-empty on a route that did not opt in |
+| Status | `details.code` | When |
+|---|---|---|
+| `422` | `invalid_envelope` | the body is not a JSON object |
+| `422` | `invalid_thread_id` | `threadId` is missing, not a string, blank, or longer than 256 characters |
+| `422` | `invalid_run_id` | `runId` is missing, not a string, blank, or longer than 256 characters |
+| `422` | `invalid_state` | `state` is present and is not a JSON object |
+| `422` | `client_tools_not_allowed` | `tools` is not an array, or is non-empty on a route that did not opt in |
+| `422` | `forwarded_props_not_allowed` | `forwardedProps` is not an object, or is non-empty on a route that did not opt in |
+| `400` | `unsupported_protocol_version` | the request declared an AG-UI protocol major this runtime does not speak |
+| `422` | `multimodal_not_supported` | a message carried an image, audio, video or document part |
 
 ### Client-supplied `tools` and `forwardedProps` are closed by default
 
@@ -290,8 +290,6 @@ than one instance needs a shared store for the same reason.
 
 | Status | `details.code` | When |
 |---|---|---|
-| `400` | `unsupported_protocol_version` | the request declared an AG-UI protocol major this runtime does not speak |
-| `422` | `multimodal_not_supported` | a message carried an image, audio, video or document part |
 | `422` | `client_tools_not_allowed` | `tools` is non-empty on a route not named in `clientTools` |
 | `422` | `client_tools_not_supported` | the route is not an `agent()` route |
 | `422` | `invalid_client_tool` | a definition is not an object with a string name, or its description or `parameters` has the wrong shape |
@@ -307,7 +305,7 @@ than one instance needs a shared store for the same reason.
 | `409` | `resume_required` | a permission prompt must be answered before the parked calls can be abandoned |
 | `500` | `client_tool_close_incomplete` | closing the parked calls did not complete; the new turn did not run |
 
-The `400` and `422` refusals carry [`B4_E5401`](/docs/errors).
+The `422` refusals carry [`B4_E5401`](/docs/errors).
 
 ## Consuming it from a web UI
 
@@ -503,7 +501,7 @@ Aborting the run keeps any park it already reached. A permission prompt raised b
 
 The two surfaces differ here. Agent Protocol viewer disconnects continue the run. AG-UI viewer disconnects abort the run. For Agent Protocol, closing a `runs/stream`, `runs/wait`, or `resume` connection only detaches the viewer, so stop the run explicitly with `POST /threads/:thread_id/cancel`. Server shutdown also aborts in-flight work.
 
-A client disconnect emits nothing further: there is no one left to receive it. A run stopped by `POST /threads/:thread_id/cancel` or by a server shutdown ends on the AG-UI stream with `RUN_FINISHED` and `outcome.type: "cancelled"`, not `RUN_ERROR`. Agent Protocol attach viewers still see `{ cancelled: true }` for a cancel and an error for a shutdown.
+A client disconnect emits nothing further: there is no one left to receive it. A run stopped by `POST /threads/:thread_id/cancel` or by a server shutdown ends on the AG-UI stream with `RUN_FINISHED` and `outcome.type: "cancelled"`, not `RUN_ERROR`. Agent Protocol attach viewers still see `{ cancelled: true }` for a cancel and an error for a shutdown. Agent Protocol attach viewers see an error for a disconnect.
 
 ## Related
 
