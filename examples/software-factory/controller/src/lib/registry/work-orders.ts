@@ -8,6 +8,7 @@ import {
   FactoryEventSchema,
   type Origin,
   OriginSchema,
+  RowDeliverySchema,
   type WorkOrderRow,
   WorkOrderRowSchema,
 } from "../domain/work-order.js"
@@ -45,6 +46,7 @@ export type WorkOrderPatch = Partial<
     | "taskDigest"
     | "intakeAttempts"
     | "candidateAttempts"
+    | "delivery"
   >
 >
 
@@ -81,6 +83,7 @@ export interface WorkOrderStore {
  * is the one row field with no entry here.
  */
 const COLUMNS: Readonly<Record<Exclude<keyof WorkOrderRow, "origin">, string>> = {
+  delivery: "delivery",
   id: "id",
   revision: "revision",
   state: "state",
@@ -136,6 +139,8 @@ function originFromSql(record: Record<string, unknown>): Origin {
 }
 
 function toSql(key: keyof typeof COLUMNS, value: unknown): SqlValue {
+  // The one object column: stored as JSON, validated on the way in and on the way out.
+  if (key === "delivery") return JSON.stringify(RowDeliverySchema.parse(value))
   if (value === null || value === undefined) return null
   if (typeof value === "number" || typeof value === "string") return value
   throw new TypeError(`Unsupported value for ${key}`)
@@ -146,6 +151,7 @@ function fromSql(record: Record<string, unknown>): WorkOrderRow {
   for (const [key, column] of Object.entries(COLUMNS) as [keyof typeof COLUMNS, string][]) {
     raw[key] = record[column] ?? null
   }
+  raw.delivery = JSON.parse(String(record.delivery))
   raw.origin = originFromSql(record)
   return WorkOrderRowSchema.parse(raw)
 }
@@ -268,27 +274,46 @@ export function createWorkOrderStore(db: DatabaseSync): WorkOrderStore {
     },
     recordDelivery(delivery) {
       DeliverySchema.parse(delivery)
+      const pr = delivery.pullRequest
       db.prepare(
-        "INSERT INTO deliveries (work_order_id, candidate_digest, receipt_path, observed_at) VALUES (?, ?, ?, ?)",
+        "INSERT INTO deliveries (work_order_id, candidate_digest, receipt_path, observed_at, kind, pr_number, pr_url, head_sha, tree_sha, base_sha, ahead_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       ).run(
         delivery.workOrderId,
         delivery.candidateDigest,
         delivery.receiptPath,
         delivery.observedAt,
+        pr ? "draft-pr" : "local",
+        pr?.number ?? null,
+        pr?.url ?? null,
+        pr?.headSha ?? null,
+        pr?.treeSha ?? null,
+        pr?.baseTip ?? null,
+        pr?.aheadBy ?? null,
       )
     },
     delivery(workOrderId) {
       const r = db.prepare("SELECT * FROM deliveries WHERE work_order_id = ?").get(workOrderId) as
-        | Record<string, string>
+        | Record<string, string | number | null>
         | undefined
-      return r
-        ? DeliverySchema.parse({
-            workOrderId: r.work_order_id,
-            candidateDigest: r.candidate_digest,
-            receiptPath: r.receipt_path,
-            observedAt: r.observed_at,
-          })
-        : null
+      if (!r) return null
+      return DeliverySchema.parse({
+        workOrderId: r.work_order_id,
+        candidateDigest: r.candidate_digest,
+        receiptPath: r.receipt_path,
+        observedAt: r.observed_at,
+        ...(r.kind === "draft-pr"
+          ? {
+              pullRequest: {
+                number: r.pr_number,
+                url: r.pr_url,
+                headSha: r.head_sha,
+                treeSha: r.tree_sha,
+                baseTip: r.base_sha,
+                aheadBy: r.ahead_by,
+              },
+            }
+          : {}),
+      })
     },
     transaction(fn) {
       if (open.depth > 0) {

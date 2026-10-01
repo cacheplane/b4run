@@ -39,6 +39,7 @@ const issueRow = (patch: Partial<WorkOrderRow> = {}): WorkOrderRow => ({
   taskDigest: null,
   intakeAttempts: 0,
   maxIntakeAttempts: 2,
+  delivery: { kind: "local" },
   createdAt: "2026-09-28T00:00:00.000Z",
   updatedAt: "2026-09-28T00:00:00.000Z",
   ...patch,

@@ -838,7 +838,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     operationKey: string | undefined,
     /** Both the command's recorded args and the `created` event's payload. */
     payload: Record<string, unknown>,
-    fields: (id: string) => Pick<WorkOrderRow, "taskId" | "origin" | "pin">,
+    fields: (id: string) => Pick<WorkOrderRow, "taskId" | "origin" | "pin" | "delivery">,
   ): WorkOrderRow {
     const id = operationKey
       ? `wo-${createHash("sha256").update(operationKey).digest("hex").slice(0, 16)}`
@@ -1088,6 +1088,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         taskId,
         origin: { kind: "catalog" },
         pin: null,
+        delivery: { kind: "local" },
       }))
       // A warning, not a refusal: the row is created (its budget cannot change after), and
       // `dispatch` refuses it. Journalled once, so a replayed key adds nothing. A generated
@@ -1115,6 +1116,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         taskId: id,
         origin,
         pin,
+        delivery: { kind: "local" },
       }))
       // The issue text lands after the row: a directory with only `issue.md` is not a task the
       // catalog lists, so nothing can dispatch it. Written only when absent, so a replayed key

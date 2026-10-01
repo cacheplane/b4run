@@ -28,6 +28,39 @@ export const OriginSchema = z.discriminatedUnion("kind", [CatalogOriginSchema, I
 export type Origin = z.infer<typeof OriginSchema>
 export type IssueOrigin = z.infer<typeof IssueOriginSchema>
 
+/**
+ * A branch name the factory targets or writes: git's own refusals (`git check-ref-format
+ * --branch`) for the shapes a config or a row could carry, and never a full `refs/` name.
+ */
+export const BRANCH_PATTERN =
+  /^(?!-)(?!refs\/)(?!.*\.\.)(?!.*\/\/)(?!.*\/$)(?!.*\.lock$)(?!.*@\{)[A-Za-z0-9._/-]+$/
+/** The branch a draft-PR delivery writes: `factory/<work order id>`, and nothing else. */
+export const FACTORY_BRANCH = /^factory\/wo-[0-9a-f]{16}$/
+
+/**
+ * Where an approved bundle goes (rung 4 spec §3.2), chosen at create and never changed: a
+ * local export (today's, the default and every row before migration 6), or a draft pull
+ * request on the issue's repository. `pathPrefix` is the drafted target's root, known only
+ * once intake fits the draft to a target, and filled then; the rest is fixed at create.
+ */
+export const LocalDeliverySchema = z.object({ kind: z.literal("local") }).strict()
+export const DraftPrDeliverySchema = z
+  .object({
+    kind: z.literal("draft-pr"),
+    repository: z.string().regex(REPOSITORY_PATTERN),
+    baseBranch: z.string().regex(BRANCH_PATTERN),
+    branch: z.string().regex(FACTORY_BRANCH),
+    pathPrefix: z.string().min(1).nullable(),
+    issueStateAtCreate: z.enum(["open", "closed"]),
+  })
+  .strict()
+export const RowDeliverySchema = z.discriminatedUnion("kind", [
+  LocalDeliverySchema,
+  DraftPrDeliverySchema,
+])
+export type RowDelivery = z.infer<typeof RowDeliverySchema>
+export type DraftPrDelivery = z.infer<typeof DraftPrDeliverySchema>
+
 export const WorkOrderRowSchema = z.object({
   id: z.string().min(1),
   revision: z.number().int().nonnegative(),
@@ -56,6 +89,8 @@ export const WorkOrderRowSchema = z.object({
    * order, recorded by `create --issue` and never changed.
    */
   pin: z.string().regex(COMMIT_PATTERN).nullable(),
+  /** Where the approved bundle goes; `{ kind: "local" }` for every row before rung 4. */
+  delivery: RowDeliverySchema,
   /** The prepared target the drafted task fits; null until intake resolves it. */
   targetId: z.string().min(1).nullable(),
   /** The digest of the generated task directory the intake gate binds to. */
@@ -115,11 +150,27 @@ export const ApprovalSchema = z.object({
 })
 export type Approval = z.infer<typeof ApprovalSchema>
 
+/** What a draft-PR delivery found when it read the pull request back (spec §5.2, confirm). */
+export const PullRequestReceiptSchema = z
+  .object({
+    number: z.number().int().positive(),
+    url: z.string().url(),
+    headSha: z.string().regex(COMMIT_PATTERN),
+    treeSha: z.string().regex(COMMIT_PATTERN),
+    baseTip: z.string().regex(COMMIT_PATTERN),
+    aheadBy: z.number().int().nonnegative(),
+  })
+  .strict()
+export type PullRequestReceipt = z.infer<typeof PullRequestReceiptSchema>
+
 export const DeliverySchema = z.object({
   workOrderId: z.string().min(1),
   candidateDigest: z.string().regex(DIGEST_PATTERN),
+  /** The export's path, or the pull request's URL for a draft-PR delivery. */
   receiptPath: z.string().min(1),
   observedAt: z.string(),
+  /** Present exactly for a draft-PR delivery. */
+  pullRequest: PullRequestReceiptSchema.optional(),
 })
 export type Delivery = z.infer<typeof DeliverySchema>
 

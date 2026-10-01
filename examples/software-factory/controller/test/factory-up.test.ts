@@ -650,6 +650,7 @@ function row(id: string, state: WorkOrderRow["state"]): WorkOrderRow {
     taskDigest: null,
     intakeAttempts: 0,
     maxIntakeAttempts: 2,
+    delivery: { kind: "local" },
     createdAt: at,
     updatedAt: at,
   }

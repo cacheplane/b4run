@@ -4,6 +4,7 @@ import { UnknownWorkOrderError } from "../domain/errors.js"
 import type {
   Bundle,
   Candidate,
+  Delivery,
   FactoryEvent,
   Receipt,
   WorkOrderRow,
@@ -24,6 +25,8 @@ export interface RegistryReader {
     /** The receipt of the oracle proof the approved draft was parked on; null without intake. */
     oracleReceipt: Receipt | null
   }
+  /** The recorded delivery: the export's path, or the pull request read back (rung 4). */
+  delivery(id: string): Delivery | null
   /** Exposed for tests that prove the connection cannot write. */
   readonly db: DatabaseSync
   close(): void
@@ -76,6 +79,7 @@ export function openRegistryReader(path: string): RegistryReader {
     show: (id) => store.get(id),
     list: () => store.list(),
     events: (id) => store.events(id),
+    delivery: (id) => store.delivery(id),
     evidence(id) {
       const row = mustGet(id)
       const candidate = row.candidateDigest ? evidence.candidate(row.candidateDigest) : null

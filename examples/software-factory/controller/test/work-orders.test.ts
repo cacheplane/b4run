@@ -31,6 +31,7 @@ function freshRow(id = "wo-1"): WorkOrderRow {
     taskDigest: null,
     intakeAttempts: 0,
     maxIntakeAttempts: 2,
+    delivery: { kind: "local" },
     createdAt: at,
     updatedAt: at,
   }
@@ -207,6 +208,7 @@ describe("work-order store", () => {
       taskDigest: "b".repeat(64),
       intakeAttempts: 1,
       maxIntakeAttempts: 2,
+      delivery: { kind: "local" },
     }
     s.insert(row)
     expect(s.get("wo-a")).toEqual(row)

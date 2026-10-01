@@ -32,6 +32,7 @@ function stores() {
     taskDigest: null,
     intakeAttempts: 0,
     maxIntakeAttempts: 2,
+    delivery: { kind: "local" },
     createdAt: at,
     updatedAt: at,
   })
