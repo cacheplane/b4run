@@ -220,9 +220,9 @@ Anything else the compiler reports is in scope.
   (`withParkedClientTools`), the success outcome carries the parked call ids
   for this turn. Absent otherwise: never `[]`, never `null`.
 - **Interrupts** carry the grant at `metadata.grant` only. `toAguiInterrupt`
-  stops copying it to the top level; `B4AguiInterrupt` loses `grant`. The
-  React permission renderer (`packages/ag-ui/src/react`) and the research
-  example read `metadata.grant`.
+  stops copying it to the top level; `B4AguiInterrupt` loses `grant`. No
+  shipped renderer reads the grant (`packages/ag-ui/src/react` renders
+  activities only, and the research example does not enable grants).
 - **Null discipline.** Every event B4.run constructs is audited for optional
   keys spelled `null` (`outbound.ts`, `activities.ts`, `interrupts.ts`, the
   handler's own `RUN_ERROR`s). A test encodes one of each event kind and
