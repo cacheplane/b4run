@@ -12,7 +12,7 @@ import type {
   ToolCallResultEvent,
   ToolCallStartEvent,
 } from "@ag-ui/core"
-import { EventType } from "@ag-ui/core"
+import { EventType, PROTOCOL_VERSION } from "@ag-ui/core"
 import { createB4ActivityProjector, isB4ActivityChunkType } from "./activities.js"
 import { createDefaultIdFactory, type IdFactory } from "./ids.js"
 import { toAguiInterrupt } from "./interrupts.js"
@@ -41,6 +41,20 @@ export type AguiOutboundEvent =
 
 export interface ToAguiOptions {
   readonly idFactory?: IdFactory
+  /**
+   * Asked once, when the upstream stream throws: `true` means whoever was
+   * running the turn stopped it (a cancel endpoint, a server shutdown), and
+   * the run ends `RUN_FINISHED { outcome: cancelled }` — stopped, not failed,
+   * nothing to resume. `false` or absent: the throw is a failure, `RUN_ERROR`.
+   */
+  readonly cancelled?: () => boolean
+  /**
+   * Asked when the run ends in success: the client-provided tool calls this
+   * turn left parked, awaiting the client's results. 1.0 ends such a turn as
+   * success with `pendingToolCallIds`, never as an interrupt. Absent or empty
+   * means none, and the key is then omitted (never `[]`).
+   */
+  readonly pendingToolCallIds?: () => readonly string[]
 }
 
 function stringifyArgs(input: unknown): string {
@@ -89,6 +103,13 @@ export async function* toAguiEvents(
    */
   const openStreamedToolCalls = new Map<string, string>()
 
+  function successOutcome(): NonNullable<RunFinishedEvent["outcome"]> {
+    const pending = options.pendingToolCallIds?.() ?? []
+    return pending.length > 0
+      ? { type: "success", pendingToolCallIds: [...pending] }
+      : { type: "success" }
+  }
+
   function* flushText(): Generator<AguiOutboundEvent> {
     if (openMessageId !== null) {
       const end: TextMessageEndEvent = {
@@ -120,7 +141,13 @@ export async function* toAguiEvents(
     openStreamedToolCalls.clear()
   }
 
-  yield { type: EventType.RUN_STARTED, threadId: ctx.threadId, runId: ctx.runId }
+  // The producer's own version, never an echo of the input's (spec: versioning).
+  yield {
+    type: EventType.RUN_STARTED,
+    threadId: ctx.threadId,
+    runId: ctx.runId,
+    protocolVersion: PROTOCOL_VERSION,
+  }
 
   try {
     for await (const chunk of chunks) {
@@ -306,10 +333,11 @@ export async function* toAguiEvents(
             type: EventType.RUN_FINISHED,
             threadId: ctx.threadId,
             runId: ctx.runId,
-            ...(Object.hasOwn(chunk, "data") && chunk.data !== undefined
+            // 1.0: an absent result is omitted; null is not a result.
+            ...(Object.hasOwn(chunk, "data") && chunk.data !== undefined && chunk.data !== null
               ? { result: chunk.data }
               : {}),
-            outcome: { type: "success" },
+            outcome: successOutcome(),
           }
           return
         }
@@ -337,12 +365,21 @@ export async function* toAguiEvents(
       type: EventType.RUN_FINISHED,
       threadId: ctx.threadId,
       runId: ctx.runId,
-      outcome: { type: "success" },
+      outcome: successOutcome(),
     }
   } catch (err) {
     yield* flushAllText()
     yield* closeStreamedToolCalls()
     yield* ledger.settle()
+    if (options.cancelled?.() === true) {
+      yield {
+        type: EventType.RUN_FINISHED,
+        threadId: ctx.threadId,
+        runId: ctx.runId,
+        outcome: { type: "cancelled" },
+      }
+      return
+    }
     // An upstream error that names a machine-readable `code` (the runtime's
     // middleware `after` rejection does) keeps it on the wire; anything else
     // stays message-only, exactly as before.

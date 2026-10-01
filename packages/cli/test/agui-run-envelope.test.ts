@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { RunAgentInputSchema } from "@ag-ui/core/schemas"
 import type { MiddlewareHandler, ThreadAccessPolicy } from "@b4run/sdk"
 import { afterEach, describe, expect, it } from "vitest"
 import {
@@ -22,6 +23,7 @@ const OTHER_ROUTE = "/other#graph"
 
 async function setup(
   options: {
+    readonly files?: Record<string, string>
     readonly config?: string
     readonly middleware?: MiddlewareHandler
     readonly threadAccess?: ThreadAccessPolicy
@@ -34,6 +36,7 @@ async function setup(
     "package.json": '{ "name": "agui-envelope-fixture", "type": "module" }\n',
     "src/app/hello/index.ts": TRIVIAL_ROUTE,
     "src/app/other/index.ts": TRIVIAL_ROUTE,
+    ...options.files,
   }
   for (const [relativePath, source] of Object.entries(files)) {
     const filePath = join(appRoot, relativePath)
@@ -336,5 +339,148 @@ describe("POST /agui/:routeId envelope validation", () => {
 
     expect(response.status).toBe(409)
     expect((await rejection(response)).details?.code).toBe("stale_interrupt")
+  })
+})
+
+describe("unknown top-level envelope keys", () => {
+  it("are tolerated by the loose 1.0 schema and never echoed", async () => {
+    const { handler } = await setup()
+    const response = await handler.fetch(
+      aguiPost(HELLO_ROUTE, {
+        messages: [{ id: "1", role: "user", content: "hello" }],
+        someFutureField: { secret: "do-not-echo" },
+      }),
+    )
+    expect(response.status).toBe(200)
+    const text = await response.text()
+    expect(text).toContain('"type":"RUN_STARTED"')
+    expect(text).not.toContain("someFutureField")
+    expect(text).not.toContain("do-not-echo")
+  })
+
+  it("the known-field list is the schema's own shape", () => {
+    expect(Object.keys(RunAgentInputSchema.shape).sort()).toEqual([
+      "context",
+      "forwardedProps",
+      "messages",
+      "parentRunId",
+      "protocolVersion",
+      "resume",
+      "runId",
+      "state",
+      "threadId",
+      "tools",
+    ])
+  })
+
+  it("do not become route params", async () => {
+    // A `[tenant]` route segment names a param. Under 0.0.59 the schema
+    // stripped unknown keys, so an AG-UI body could never fill it; keep that.
+    let seenParams: Record<string, unknown> | undefined
+    const { handler } = await setup({
+      files: { "src/app/[tenant]/index.ts": TRIVIAL_ROUTE },
+      middleware: (request) => {
+        seenParams = request.params
+        return { action: "continue" }
+      },
+    })
+    const response = await handler.fetch(
+      aguiPost("/[tenant]#graph", {
+        messages: [{ id: "1", role: "user", content: "hello" }],
+        tenant: "acme",
+      }),
+    )
+    expect(response.status).toBe(200)
+    await drain(response)
+    expect(seenParams).toEqual({})
+  })
+})
+
+describe("protocolVersion", () => {
+  const policy = resolveRunEnvelopePolicy(undefined, "/hello")
+  const base = { threadId: "t", runId: "r", messages: [] }
+
+  it.each([undefined, "1.0", "1.7"])("serves %s", (protocolVersion) => {
+    expect(
+      validateRunEnvelope(
+        protocolVersion === undefined ? base : { ...base, protocolVersion },
+        policy,
+      ),
+    ).toBeUndefined()
+  })
+
+  it("serves an unparseable declaration (rejection is reserved for a known foreign major)", () => {
+    expect(validateRunEnvelope({ ...base, protocolVersion: "garbage" }, policy)).toBeUndefined()
+  })
+
+  it("refuses a foreign major with 400 unsupported_protocol_version", () => {
+    expect(validateRunEnvelope({ ...base, protocolVersion: "2.0" }, policy)).toMatchObject({
+      code: "unsupported_protocol_version",
+      status: 400,
+    })
+  })
+
+  it("refuses over HTTP before middleware runs", async () => {
+    let middlewareRan = false
+    const { handler } = await setup({
+      middleware: () => {
+        middlewareRan = true
+        return { action: "continue" }
+      },
+    })
+    const response = await handler.fetch(aguiPost(HELLO_ROUTE, { protocolVersion: "2.0" }))
+    expect(response.status).toBe(400)
+    const body = (await response.json()) as { error: { details?: { code?: string } } }
+    expect(body.error.details?.code).toBe("unsupported_protocol_version")
+    expect(middlewareRan).toBe(false)
+  })
+})
+
+describe("multimodal input", () => {
+  const image = { type: "image", source: { type: "url", value: "https://example.test/a.png" } }
+
+  it("refuses a message carrying a media part with 422 multimodal_not_supported, before middleware", async () => {
+    let middlewareRan = false
+    const { handler } = await setup({
+      middleware: () => {
+        middlewareRan = true
+        return { action: "continue" }
+      },
+    })
+    const response = await handler.fetch(
+      aguiPost(HELLO_ROUTE, {
+        messages: [{ id: "1", role: "user", content: [{ type: "text", text: "see" }, image] }],
+      }),
+    )
+    expect(response.status).toBe(422)
+    const body = (await response.json()) as { error: { details?: { code?: string } } }
+    expect(body.error.details?.code).toBe("multimodal_not_supported")
+    expect(middlewareRan).toBe(false)
+  })
+
+  it("refuses a media part on a tool message too", async () => {
+    const { handler } = await setup()
+    const response = await handler.fetch(
+      aguiPost(HELLO_ROUTE, {
+        messages: [
+          { id: "1", role: "user", content: "hello" },
+          { id: "2", role: "tool", toolCallId: "c1", content: [image] },
+        ],
+      }),
+    )
+    expect(response.status).toBe(422)
+    const body = (await response.json()) as { error: { details?: { code?: string } } }
+    expect(body.error.details?.code).toBe("multimodal_not_supported")
+  })
+
+  it("serves text-only parts", async () => {
+    const { handler } = await setup()
+    const response = await handler.fetch(
+      aguiPost(HELLO_ROUTE, {
+        messages: [{ id: "1", role: "user", content: [{ type: "text", text: "hello" }] }],
+      }),
+    )
+    expect(response.status).toBe(200)
+    await drain(response)
   })
 })

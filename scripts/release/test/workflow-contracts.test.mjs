@@ -2167,6 +2167,13 @@ test("dependency-security-browser has one exact isolated read-only descriptor", 
       {
         classification: "safe",
         descriptor: {
+          name: "CopilotKit v2 runtime against B4.run",
+          run: "pnpm --filter @b4run/ag-ui build\npnpm exec vitest --run --config test/security-dependencies/vitest.config.ts test/security-dependencies/copilotkit-v2-runtime.test.ts\n",
+        },
+      },
+      {
+        classification: "safe",
+        descriptor: {
           name: "Dependency security browser regressions",
           run: "pnpm exec tsc -p test/security-dependencies/tsconfig.json --noEmit\npnpm exec playwright test --config test/security-dependencies/playwright.config.ts\n",
         },
