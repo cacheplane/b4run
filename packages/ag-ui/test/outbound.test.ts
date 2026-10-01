@@ -1352,3 +1352,71 @@ describe("streamed tool-call arguments", () => {
     })
   })
 })
+
+describe("1.0 null discipline", () => {
+  /** Top-level keys of an event, and of each interrupt and outcome it carries, are never `null`. */
+  function assertNoNullField(label: string, value: Record<string, unknown>): void {
+    for (const [key, field] of Object.entries(value)) {
+      if (key === "metadata" || key === "result" || key === "content") continue // application data
+      expect(field, `${label}.${key}`).not.toBeNull()
+      if (key === "outcome" && field && typeof field === "object") {
+        assertNoNullField(`${label}.outcome`, field as Record<string, unknown>)
+        const interrupts = (field as { interrupts?: unknown }).interrupts
+        if (Array.isArray(interrupts)) {
+          for (const [index, interrupt] of interrupts.entries()) {
+            assertNoNullField(`${label}.outcome.interrupts[${index}]`, interrupt)
+          }
+        }
+      }
+    }
+  }
+
+  test("every event kind B4.run emits", async () => {
+    const streams: B4AgentStreamChunk[][] = [
+      [
+        { type: "token", data: "hi" },
+        { type: "done", data: null },
+      ],
+      [
+        { type: "tool_call", data: { id: "c1", name: "search", input: { q: 1 } } },
+        { type: "tool_result", data: { id: "c1", name: "search", output: null } },
+        { type: "done" },
+      ],
+      [
+        {
+          type: "interrupt",
+          data: { interruptId: "perm-1", kind: "tool", callId: "c1", grant: "g" },
+        },
+      ],
+      [
+        {
+          type: "plan_update",
+          data: { tool_call_id: "p1", todos: [{ content: "a", status: "pending" }] },
+        },
+        { type: "subagent.start", data: CHILD },
+        { type: "subagent.end", data: { ...CHILD, final_message: "x" } },
+        { type: "done", data: undefined },
+      ],
+    ]
+    for (const stream of streams) {
+      const events = await collect(stream)
+      for (const [index, event] of events.entries()) {
+        assertNoNullField(`${stream[0]?.type}[${index}]`, event as Record<string, unknown>)
+      }
+    }
+    // The throwing path.
+    // biome-ignore lint/correctness/useYield: a stream that fails before its first chunk
+    async function* boom(): AsyncGenerator<B4AgentStreamChunk> {
+      throw Object.assign(new Error("x"), { code: "after_rejected" })
+    }
+    for await (const event of toAguiEvents(boom(), CTX)) {
+      assertNoNullField("error", event as Record<string, unknown>)
+    }
+  })
+
+  test("a done with a null payload carries no result key", async () => {
+    const events = await collect([{ type: "done", data: null }])
+    expect(events.at(-1)).toMatchObject({ type: EventType.RUN_FINISHED })
+    expect(events.at(-1)).not.toHaveProperty("result")
+  })
+})

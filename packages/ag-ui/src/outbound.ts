@@ -333,7 +333,8 @@ export async function* toAguiEvents(
             type: EventType.RUN_FINISHED,
             threadId: ctx.threadId,
             runId: ctx.runId,
-            ...(Object.hasOwn(chunk, "data") && chunk.data !== undefined
+            // 1.0: an absent result is omitted; null is not a result.
+            ...(Object.hasOwn(chunk, "data") && chunk.data !== undefined && chunk.data !== null
               ? { result: chunk.data }
               : {}),
             outcome: successOutcome(),
