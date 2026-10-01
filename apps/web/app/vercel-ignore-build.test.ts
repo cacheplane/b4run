@@ -71,6 +71,20 @@ describe("website Vercel ignore-build step", () => {
     expect(config.ignoreCommand).toBe("bash scripts/vercel-ignore-build.sh")
   })
 
+  it("never builds a software factory branch, whatever changed and even as production", () => {
+    const repo = monorepo()
+    commit(repo, { "packages/sdk/index.ts": "v2", "apps/web/page.tsx": "v2" })
+    expect(decide(repo, { VERCEL_GIT_COMMIT_REF: "factory/wo-0123456789abcdef" })).toBe(SKIP)
+    expect(
+      decide(repo, {
+        VERCEL_GIT_COMMIT_REF: "factory/wo-0123456789abcdef",
+        VERCEL_ENV: "production",
+      }),
+    ).toBe(SKIP)
+    // Only the prefix: a person's branch that merely mentions the factory still builds.
+    expect(decide(repo, { VERCEL_GIT_COMMIT_REF: "blove/factory-guards" })).toBe(BUILD)
+  })
+
   it("always builds production", () => {
     const repo = monorepo()
     commit(repo, { "docs/notes.md": "v2" })
