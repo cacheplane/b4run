@@ -20,8 +20,12 @@ permissions:
 
 jobs:
   approve:
-    # Only same-repo PRs: fork PRs get a read-only token and cannot approve.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # Only same-repo PRs: fork PRs get a read-only token and cannot approve. Never the
+    # software factory's: its code is model output no person has reviewed (rung 4 spec §9).
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !startsWith(github.event.pull_request.head.ref, 'factory/') &&
+      github.event.pull_request.user.login != 'b4-factory[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
