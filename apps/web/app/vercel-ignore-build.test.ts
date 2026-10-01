@@ -81,6 +81,9 @@ describe("website Vercel ignore-build step", () => {
         VERCEL_ENV: "production",
       }),
     ).toBe(SKIP)
+    // Case-insensitively, as the Actions guard's startsWith is.
+    expect(decide(repo, { VERCEL_GIT_COMMIT_REF: "Factory/wo-0123456789abcdef" })).toBe(SKIP)
+    expect(decide(repo, { VERCEL_GIT_COMMIT_REF: "FACTORY/x" })).toBe(SKIP)
     // Only the prefix: a person's branch that merely mentions the factory still builds.
     expect(decide(repo, { VERCEL_GIT_COMMIT_REF: "blove/factory-guards" })).toBe(BUILD)
   })

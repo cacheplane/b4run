@@ -800,6 +800,11 @@ once in the scratch lane and in the live run (§14).
 - The candidate does not run where a secret is: `vercel-native`, the Vercel preview build,
   `claude-review` and `auto-approve` skip it (§9.1, §9.2), and it cannot edit the files that say
   so (§9.3).
+- One residual is manual: `workflow_dispatch` lets a maintainer run a workflow against any ref,
+  so dispatching, for example, `release.yml`'s `detect` (`contents: write`, no `if:`) on a
+  `factory/*` ref would run a write-scoped job in a run keyed to the factory ref, which the
+  guard (§9.1, `pull_request` jobs only) does not see. The app has no `actions: write` and
+  cannot dispatch it; maintainers must not dispatch workflows on factory refs.
 - If a candidate edits `.github/**`: it cannot. The drafted task cannot list such a path (§9.3,
   intake); the assembly refuses any path the task does not list (`assemble.ts:130-131`); approval
   checks again; GitHub refuses the ref for an app without `workflows` (§9.3). Four independent
