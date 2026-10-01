@@ -1,5 +1,9 @@
 import { dispatchPreparing } from "../controller/images.js"
-import { RETRYABLE_BLOCKED_REASONS, TERMINAL_STATES } from "../domain/states.js"
+import {
+  REDELIVERABLE_BLOCKED_REASONS,
+  RETRYABLE_BLOCKED_REASONS,
+  TERMINAL_STATES,
+} from "../domain/states.js"
 import type { FactoryEvent, WorkOrderRow } from "../domain/work-order.js"
 
 /** `run`'s exit code when it stopped at a person's gate and approved nothing. */
@@ -98,6 +102,7 @@ export function nextStep(
     case "running":
     case "verifying":
     case "exporting":
+    case "delivering":
     case "cancel_requested":
       return { kind: "follow", why: `it is ${state}` }
     case "awaiting_intake_approval":
@@ -115,6 +120,7 @@ export function nextStep(
         }
       return { kind: "gate", gate: "export" }
     case "exported":
+    case "delivered":
       return { kind: "done" }
     case "blocked": {
       const reason = row.blockedReason
@@ -122,12 +128,21 @@ export function nextStep(
         reason !== null &&
         RETRYABLE_BLOCKED_REASONS.has(reason) &&
         row.candidateAttempts < row.maxCandidateAttempts
+      // A delivery block the world can heal: a person redelivers (it asks for the bundle
+      // digest's prefix, like a review); run never does.
+      const redeliverable = reason !== null && REDELIVERABLE_BLOCKED_REASONS.has(reason)
       return {
         kind: "stop",
         message: `Blocked: ${reason ?? "no reason recorded"}`,
         next: retryable
           ? [`pnpm factory retry ${id}`, `pnpm factory run ${id}`]
-          : [`pnpm factory events ${id}`, `pnpm factory cancel ${id}`],
+          : redeliverable
+            ? [
+                `pnpm factory events ${id}`,
+                `pnpm factory redeliver ${id}`,
+                `pnpm factory cancel ${id}`,
+              ]
+            : [`pnpm factory events ${id}`, `pnpm factory cancel ${id}`],
       }
     }
     case "denied":
@@ -164,6 +179,7 @@ export function chooseWorkOrder(rows: readonly WorkOrderRow[], fresh: boolean): 
   const [only] = live
   if (only !== undefined) return { kind: "resume", row: only }
   const newest = [...rows].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
-  if (newest?.state === "exported") return { kind: "done", row: newest }
+  if (newest?.state === "exported" || newest?.state === "delivered")
+    return { kind: "done", row: newest }
   return { kind: "create" }
 }

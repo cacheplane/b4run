@@ -413,3 +413,26 @@ describe("run's only way to an approval", () => {
     expect(new Set(interpolated)).toEqual(new Set(["id"]))
   })
 })
+
+describe("run and a draft-PR delivery (rung 4)", () => {
+  it("follows a delivery, is done when delivered, and never redelivers by itself", () => {
+    expect(at("delivering")).toEqual({ kind: "follow", why: "it is delivering" })
+    expect(at("delivered")).toEqual({ kind: "done" })
+    const healable = at("blocked", { blockedReason: "delivery_rate_limited" })
+    expect(healable).toMatchObject({
+      kind: "stop",
+      next: [
+        "pnpm factory events wo-0000000000000001",
+        "pnpm factory redeliver wo-0000000000000001",
+        "pnpm factory cancel wo-0000000000000001",
+      ],
+    })
+    const conflict = at("blocked", { blockedReason: "delivery_base_conflict" })
+    expect(JSON.stringify(conflict)).not.toContain("redeliver")
+  })
+
+  it("answers a delivered newest work order as done", () => {
+    const delivered = issueRow({ state: "delivered" })
+    expect(chooseWorkOrder([delivered], false)).toEqual({ kind: "done", row: delivered })
+  })
+})
