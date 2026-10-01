@@ -1,4 +1,4 @@
-import { HttpAgent } from "@ag-ui/client"
+import { B4HttpAgent } from "@b4run/ag-ui/client"
 import { CopilotRuntime, createCopilotRuntimeHandler } from "@copilotkit/runtime/v2"
 
 export const runtime = "nodejs"
@@ -9,7 +9,7 @@ const agUiUrl = `${b4Url}/agui/${encodeURIComponent("/chat#agent")}`
 
 const handler = createCopilotRuntimeHandler({
   runtime: new CopilotRuntime({
-    agents: { default: new HttpAgent({ url: agUiUrl }) },
+    agents: { default: new B4HttpAgent({ url: agUiUrl }) },
   }),
   basePath: "/api/copilotkit",
 })

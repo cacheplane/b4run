@@ -64,6 +64,21 @@ Message identity does not deduplicate work repeated by graph checkpoint replay.
 Complete generation in a separate tool step before an approval-gated operation
 when the generated response must not repeat on resume.
 
+## HTTP client
+
+`@b4run/ag-ui/client` exports `B4HttpAgent`, an `@ag-ui/client` `HttpAgent`
+whose `getCapabilities()` reads `GET /agui/{routeId}`, the route's AG-UI
+capabilities, with the agent's own URL, headers and `fetch`. Register it
+wherever you would register an `HttpAgent`; CopilotKit's runtime reports what it
+returns from `/info`. It throws on a non-2xx answer. `@ag-ui/client` is an
+optional peer dependency, needed only for this subpath.
+
+```ts
+import { B4HttpAgent } from "@b4run/ag-ui/client"
+
+const agent = new B4HttpAgent({ url: "http://127.0.0.1:3001/agui/%2Fchat%23agent" })
+```
+
 ## React renderers
 
 `@b4run/ag-ui/react` renders those activity snapshots. The drop-in is one prop:

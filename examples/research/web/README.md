@@ -3,7 +3,7 @@
 A [CopilotKit](https://docs.copilotkit.ai) v2 app (`@copilotkit/react-core/v2` +
 `@copilotkit/runtime/v2`) that talks to B4.run's `/research` agent over AG-UI. Its
 required catch-all route (`app/api/copilotkit/[...path]/route.ts`) registers an
-`HttpAgent` pointed at B4.run's encoded `/research#agent` endpoint. It is a
+`B4HttpAgent` (`@b4run/ag-ui/client`) pointed at B4.run's encoded `/research#agent` endpoint. It is a
 workbench rather than a chat widget: the app renders its own transcript and composer
 instead of mounting `CopilotSidebar`, so the plan and researcher activity cards appear
 inline in the conversation.
@@ -34,13 +34,13 @@ a legacy base-URL POST.
 ```
 browser
   → /api/copilotkit/* (app/api/copilotkit/[...path]/route.ts, this app, no API key)
-    → HttpAgent → POST /agui/%2Fresearch%23agent  (B4.run dev server, holds OPENAI_API_KEY)
+    → B4HttpAgent → POST /agui/%2Fresearch%23agent  (B4.run dev server, holds OPENAI_API_KEY)
       → live /research agent
         → AG-UI event stream back to the browser
 ```
 
 - `app/api/copilotkit/[...path]/route.ts` — `CopilotRuntime` with
-  `agents: { default: new HttpAgent(...) }`, served through
+  `agents: { default: new B4HttpAgent(...) }`, served through
   `createCopilotRuntimeHandler` from `@copilotkit/runtime/v2` with
   `basePath: "/api/copilotkit"` and shared `GET`/`POST` exports. No LLM credentials
   live here; the B4.run server holds `OPENAI_API_KEY`.

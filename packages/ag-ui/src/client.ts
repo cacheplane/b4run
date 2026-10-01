@@ -1,0 +1,32 @@
+import { HttpAgent } from "@ag-ui/client"
+import { type AgentCapabilities, AgentCapabilitiesSchema } from "@ag-ui/core"
+
+/**
+ * An AG-UI `HttpAgent` for a B4.run route that can also report what the route
+ * honors. `getCapabilities()` reads `GET` on the same URL the agent runs
+ * against (`/agui/:routeId`), with the same headers and `fetch`, so a caller
+ * that is allowed to run the route is the caller that sees its capabilities.
+ *
+ * CopilotKit's runtime calls `getCapabilities()` for every registered agent
+ * when it answers `/info`; a plain `HttpAgent` does not implement it, so its
+ * capabilities are never reported.
+ *
+ * A server that answers with anything but a 2xx — including a B4.run release
+ * that predates the endpoint (404) or route middleware refusing the caller —
+ * makes it throw rather than report an empty document: AG-UI reads an absent
+ * field as unknown, and an empty object would claim "nothing declared" as if
+ * the server had said so.
+ */
+export class B4HttpAgent extends HttpAgent {
+  async getCapabilities(): Promise<AgentCapabilities> {
+    const response = await this.fetch(this.url, {
+      headers: { ...this.headers, Accept: "application/json" },
+      method: "GET",
+    })
+    if (!response.ok) {
+      await response.body?.cancel()
+      throw new Error(`B4.run capabilities request failed: ${response.status} ${this.url}`)
+    }
+    return AgentCapabilitiesSchema.parse(await response.json())
+  }
+}

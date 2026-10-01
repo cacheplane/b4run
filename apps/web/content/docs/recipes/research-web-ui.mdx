@@ -49,12 +49,12 @@ Open [http://localhost:3010](http://localhost:3010) and ask a research question.
 
 ## Connect the client to B4.run
 
-The Next.js runtime route registers an AG-UI `HttpAgent` pointed at the encoded B4.run assistant id. Register it under CopilotKit's `default` agent id so every hook binds without per-component wiring:
+The Next.js runtime route registers a `B4HttpAgent`, an AG-UI `HttpAgent` that also reports the route's [capabilities](/docs/ag-ui#capabilities), pointed at the encoded B4.run assistant id. Register it under CopilotKit's `default` agent id so every hook binds without per-component wiring:
 
 <CodeGroup>
 
 ```ts title="examples/research/web/app/api/copilotkit/[...path]/route.ts"
-import { HttpAgent } from "@ag-ui/client"
+import { B4HttpAgent } from "@b4run/ag-ui/client"
 import { CopilotRuntime, createCopilotRuntimeHandler } from "@copilotkit/runtime/v2"
 
 export const runtime = "nodejs"
@@ -65,7 +65,7 @@ const agUiUrl = `${b4Url}/agui/${encodeURIComponent("/research#agent")}`
 
 const handler = createCopilotRuntimeHandler({
   runtime: new CopilotRuntime({
-    agents: { default: new HttpAgent({ url: agUiUrl }) },
+    agents: { default: new B4HttpAgent({ url: agUiUrl }) },
   }),
   basePath: "/api/copilotkit",
 })

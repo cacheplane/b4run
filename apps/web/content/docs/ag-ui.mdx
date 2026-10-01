@@ -16,6 +16,8 @@ The URL segment is the URL-encoded `<routeId>#<kind>` assistant id. For example,
 
 B4.run speaks AG-UI protocol **1.0**; `RUN_STARTED` declares `protocolVersion: "1.0"`. A request declaring another `1.x`, or no parseable version, is served; a different major is refused (see [Envelope validation](#envelope-validation)). `@b4run/ag-ui` takes `@ag-ui/client` `>=1.0.1 <2.0.0` as an optional peer; the runtime validators moved to `@ag-ui/core/schemas`.
 
+`GET` on the same URL reports what the route honors. See [Capabilities](#capabilities).
+
 ## Envelope validation
 
 The runtime validates the run envelope itself, so no app has to re-check
@@ -309,14 +311,42 @@ than one instance needs a shared store for the same reason.
 
 The `422` refusals carry [`B4_E5401`](/docs/errors).
 
+## Capabilities
+
+`GET /agui/{routeId}` answers with the route's AG-UI [`AgentCapabilities`](https://docs.ag-ui.com). Each claim is computed by the same check that `POST` enforces it with, so what a route advertises and what it honors cannot drift apart:
+
+| Field | Comes from |
+|---|---|
+| `tools.clientProvided` | the route is named in `server.agui.clientTools` and is an `agent()` route — the two checks `POST` applies to a non-empty `tools` |
+| `tools.supported`, `tools.parallelCalls` | the route is an `agent()` route; its tool calls run in parallel |
+| `output.structuredOutput` | the route's provider can bind a `hashbrown.responseSchema`, the check behind `response_schema_not_supported` |
+| `humanInTheLoop.interrupts` | the route is an agent route, the only kind that can park |
+| `humanInTheLoop.approvals` | an `agent()` route under an `interactive` permissions mode. It means the route *can* pause for approval; whether a turn does depends on its tools and the grants already recorded |
+| `humanInTheLoop.approveWithEdits` | always `false`: a resume answers `once`, `always` or `deny` |
+
+A chain, graph or workflow route reports `false` for all of these. AG-UI treats an omitted field as unknown, so a claim B4.run cannot settle is left out rather than guessed. An agent route that exports a raw runnable, for example, omits approvals and parallel calls, because its own code decides them.
+
+The request goes through route middleware exactly as a run does, and an unknown route is `404`. The response is `Cache-Control: no-store`, because middleware decides per caller who may see it.
+
+The stock `HttpAgent` does not read this endpoint. `B4HttpAgent` from `@b4run/ag-ui/client` is an `HttpAgent` whose `getCapabilities()` sends `GET` to the URL it runs against, with the same headers. CopilotKit's runtime calls `getCapabilities()` on each registered agent when it answers `/info`:
+
+```ts
+import { B4HttpAgent } from "@b4run/ag-ui/client"
+
+const agent = new B4HttpAgent({ url: `${b4Url}/agui/${encodeURIComponent("/chat#agent")}` })
+await agent.getCapabilities()
+```
+
+`getCapabilities()` throws on any non-2xx answer, including a `404` from a B4.run release that predates the endpoint, instead of reporting nothing declared. `@ag-ui/client` is an optional peer dependency of `@b4run/ag-ui`; install it alongside if you import this subpath.
+
 ## Consuming it from a web UI
 
-`examples/chat/web` is the reference client. Its CopilotKit runtime registers an `HttpAgent` pointed at B4.run's encoded route URL. The browser talks to the Next.js runtime route, and only the B4.run server holds model credentials:
+`examples/chat/web` is the reference client. Its CopilotKit runtime registers a `B4HttpAgent` pointed at B4.run's encoded route URL. The browser talks to the Next.js runtime route, and only the B4.run server holds model credentials:
 
 ```text
 browser
   -> CopilotKit runtime
-    -> HttpAgent -> POST /agui/%2Fchat%23agent
+    -> B4HttpAgent -> POST /agui/%2Fchat%23agent
       -> B4.run route runtime
         -> AG-UI event stream
 ```
