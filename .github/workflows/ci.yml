@@ -349,7 +349,7 @@ jobs:
         run: pnpm --filter @b4run/testing exec vitest --run --config vitest.config.ts test/subprocess.test.ts --testNamePattern "Windows process tree|injected Windows tree kill"
 
       - name: Dependency security regressions
-        run: pnpm exec vitest --run --config test/security-dependencies/vitest.config.ts test/security-dependencies/dependency-resolution.test.ts test/security-dependencies/hono-serve-static-windows.test.ts
+        run: pnpm exec vitest --run --config test/security-dependencies/vitest.config.ts test/security-dependencies/dependency-resolution.test.ts test/security-dependencies/hono-serve-static-windows.test.ts test/security-dependencies/copilotkit-v2-runtime.test.ts
 
   dependency-security-browser:
     needs: metadata_scope

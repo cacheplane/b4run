@@ -402,7 +402,7 @@
         "stepIndex": 6,
         "step": "Dependency security regressions",
         "kind": "run",
-        "value": "pnpm exec vitest --run --config test/security-dependencies/vitest.config.ts test/security-dependencies/dependency-resolution.test.ts test/security-dependencies/hono-serve-static-windows.test.ts"
+        "value": "pnpm exec vitest --run --config test/security-dependencies/vitest.config.ts test/security-dependencies/dependency-resolution.test.ts test/security-dependencies/hono-serve-static-windows.test.ts test/security-dependencies/copilotkit-v2-runtime.test.ts"
       },
       {
         "classification": "safe",
