@@ -6,6 +6,7 @@ import {
   nextState,
   REDELIVERABLE_BLOCKED_REASONS,
   RETRYABLE_BLOCKED_REASONS,
+  STATES,
 } from "../src/lib/domain/states.ts"
 
 describe("the delivery lifecycle", () => {
@@ -17,6 +18,23 @@ describe("the delivery lifecycle", () => {
     expect(nextState("delivering", "cancel")).toBe("cancel_requested")
     expect(() => nextState("delivering", "budget_exhausted")).toThrow(/Illegal/)
     expect(() => nextState("exporting", "delivery_confirmed")).toThrow(/Illegal/)
+  })
+
+  it("allows each delivery event from exactly its one source state", () => {
+    const sources = {
+      approve_delivery: ["awaiting_approval", "delivering"],
+      delivery_confirmed: ["delivering", "delivered"],
+      delivery_refused: ["delivering", "blocked"],
+      redeliver: ["blocked", "delivering"],
+    } as const
+    for (const [event, [source, target]] of Object.entries(sources) as [
+      keyof typeof sources,
+      (typeof sources)[keyof typeof sources],
+    ][])
+      for (const state of STATES) {
+        if (state === source) expect(nextState(state, event), `${state} ${event}`).toBe(target)
+        else expect(() => nextState(state, event), `${state} ${event}`).toThrow(/Illegal/)
+      }
   })
 
   it("makes delivered terminal and delivering not active time", () => {

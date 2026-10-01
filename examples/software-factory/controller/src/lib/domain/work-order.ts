@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { rootOrRelativePath } from "./path.js"
 import { BLOCKED_REASONS, FAILURE_REASONS, STATES } from "./states.js"
 
 export const DIGEST_PATTERN = /^[a-f0-9]{64}$/
@@ -30,10 +31,12 @@ export type IssueOrigin = z.infer<typeof IssueOriginSchema>
 
 /**
  * A branch name the factory targets or writes: git's own refusals (`git check-ref-format
- * --branch`) for the shapes a config or a row could carry, and never a full `refs/` name.
+ * --branch`) for the shapes a config or a row could carry, and never a full `refs/` name. No
+ * leading `-` or `/`, no segment starting with `.`, no `..`, `//`, trailing `/` or `.`,
+ * `.lock` ending or `@{`.
  */
 export const BRANCH_PATTERN =
-  /^(?!-)(?!refs\/)(?!.*\.\.)(?!.*\/\/)(?!.*\/$)(?!.*\.lock$)(?!.*@\{)[A-Za-z0-9._/-]+$/
+  /^(?!-)(?!\/)(?!refs\/)(?!\.)(?!.*\/\.)(?!.*\.\.)(?!.*\/\/)(?!.*\/$)(?!.*\.$)(?!.*\.lock$)(?!.*@\{)[A-Za-z0-9._/-]+$/
 /** The branch a draft-PR delivery writes: `factory/<work order id>`, and nothing else. */
 export const FACTORY_BRANCH = /^factory\/wo-[0-9a-f]{16}$/
 
@@ -50,7 +53,7 @@ export const DraftPrDeliverySchema = z
     repository: z.string().regex(REPOSITORY_PATTERN),
     baseBranch: z.string().regex(BRANCH_PATTERN),
     branch: z.string().regex(FACTORY_BRANCH),
-    pathPrefix: z.string().min(1).nullable(),
+    pathPrefix: rootOrRelativePath.nullable(),
     issueStateAtCreate: z.enum(["open", "closed"]),
   })
   .strict()

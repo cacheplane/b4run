@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest"
 import { bundleDigest } from "../src/lib/domain/digest.ts"
-import { BundlePayloadSchema, freezeBundle } from "../src/lib/review/bundle.ts"
+import {
+  BundlePayloadSchema,
+  DraftPrBundleDeliverySchema,
+  freezeBundle,
+} from "../src/lib/review/bundle.ts"
 
 const receipt = {
   id: "rc-1",
@@ -79,6 +83,36 @@ describe("the bundle", () => {
         freezeBundle({ ...freezeInput, delivery: { ...DRAFT_PR, [field]: value } }).digest,
       )
     expect(digests.size).toBe(7)
+  })
+
+  it("refuses a draft-PR payload whose destination or branch is not its own", () => {
+    const payload = BundlePayloadSchema.parse(
+      freezeBundle({ ...freezeInput, delivery: DRAFT_PR }).payload,
+    )
+    expect(BundlePayloadSchema.safeParse(payload).success).toBe(true)
+    expect(
+      BundlePayloadSchema.safeParse({
+        ...payload,
+        destinationId: "github:cacheplane/other:refs/heads/factory/wo-0123456789abcdef",
+      }).success,
+    ).toBe(false)
+    expect(
+      BundlePayloadSchema.safeParse({
+        ...payload,
+        destinationId: "github:cacheplane/b4run:refs/heads/factory/wo-fedcba9876543210",
+        delivery: { ...DRAFT_PR, branch: "factory/wo-fedcba9876543210" },
+      }).success,
+    ).toBe(false)
+  })
+
+  it("refuses a draft-PR path prefix that is not one canonical relative path", () => {
+    for (const pathPrefix of ["./x", "x/", "/x", "..", "a/../b", ""])
+      expect(
+        DraftPrBundleDeliverySchema.safeParse({ ...DRAFT_PR, pathPrefix }).success,
+        JSON.stringify(pathPrefix),
+      ).toBe(false)
+    for (const pathPrefix of [".", "packages/cli"])
+      expect(DraftPrBundleDeliverySchema.safeParse({ ...DRAFT_PR, pathPrefix }).success).toBe(true)
   })
 
   it("refuses a draft-PR bundle with no pin", () => {

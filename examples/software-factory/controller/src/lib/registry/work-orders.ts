@@ -8,6 +8,7 @@ import {
   FactoryEventSchema,
   type Origin,
   OriginSchema,
+  type RowDelivery,
   RowDeliverySchema,
   type WorkOrderRow,
   WorkOrderRowSchema,
@@ -26,7 +27,10 @@ export class StaleRevisionError extends Error {
 /**
  * Fields a command may change. Identity, limits, origin, pin and timestamps are fixed at
  * insert: `origin` and `pin` are what the work order is, not where it got to, and
- * `maxIntakeAttempts` and `maxCandidateAttempts` are the caps set at create.
+ * `maxIntakeAttempts` and `maxCandidateAttempts` are the caps set at create. `delivery` is
+ * fixed at insert too, all but one move: a draft-PR delivery's `pathPrefix` may go from null to
+ * a value once intake fits the draft to a target. Its kind, repository, base, branch and issue
+ * state are where the work order delivers, and `update` refuses any other change to them.
  */
 export type WorkOrderPatch = Partial<
   Pick<
@@ -157,6 +161,27 @@ function fromSql(record: Record<string, unknown>): WorkOrderRow {
 }
 
 /**
+ * The one change a delivery may take after insert: a draft-PR `pathPrefix` filled from null.
+ * Restating the current delivery is allowed (it changes nothing); anything else throws.
+ */
+function assertDeliveryChange(id: string, current: RowDelivery, next: RowDelivery): void {
+  const same = (a: RowDelivery, b: RowDelivery): boolean =>
+    JSON.stringify(RowDeliverySchema.parse(a)) === JSON.stringify(RowDeliverySchema.parse(b))
+  if (same(current, next)) return
+  if (
+    current.kind === "draft-pr" &&
+    next.kind === "draft-pr" &&
+    current.pathPrefix === null &&
+    next.pathPrefix !== null &&
+    same({ ...next, pathPrefix: null }, current)
+  )
+    return
+  throw new Error(
+    `Work order ${id}'s delivery is fixed at create; only a draft-PR path prefix may be filled, once`,
+  )
+}
+
+/**
  * Open transaction depth per connection, not per store: nesting is a property of the
  * `DatabaseSync` handle, so two stores over one connection must agree on who owns the
  * outermost BEGIN. Keyed weakly so a closed database can still be collected.
@@ -199,6 +224,10 @@ export function createWorkOrderStore(db: DatabaseSync): WorkOrderStore {
       return records.map(fromSql)
     },
     update(id, expectedRevision, patch, now) {
+      if (patch.delivery !== undefined) {
+        const current = get(id)
+        if (current) assertDeliveryChange(id, current.delivery, patch.delivery)
+      }
       const entries = Object.entries(patch) as [keyof WorkOrderPatch, unknown][]
       const assignments = entries.map(([key]) => `${COLUMNS[key]} = ?`)
       assignments.push("revision = revision + 1", "updated_at = ?")

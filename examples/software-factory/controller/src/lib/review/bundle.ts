@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { bundleDigest } from "../domain/digest.js"
+import { rootOrRelativePath } from "../domain/path.js"
 import type { Bundle, Origin, Receipt } from "../domain/work-order.js"
 import {
   BRANCH_PATTERN,
@@ -55,7 +56,7 @@ export const DraftPrBundleDeliverySchema = z
     repository: z.string().regex(REPOSITORY_PATTERN),
     baseBranch: z.string().regex(BRANCH_PATTERN),
     branch: z.string().regex(FACTORY_BRANCH),
-    pathPrefix: z.string().min(1),
+    pathPrefix: rootOrRelativePath,
     issueStateAtCreate: z.enum(["open", "closed"]),
   })
   .strict()
@@ -66,6 +67,21 @@ const DraftPrPayloadSchema = ExportLocalPayloadSchema.extend({
   delivery: DraftPrBundleDeliverySchema,
   // An issue work order has a pin; a draft-PR bundle without one has nothing to branch at.
   pin: z.string().regex(COMMIT_PATTERN),
+}).superRefine((payload, ctx) => {
+  // The destination is derived from the delivery, and the branch from the work order: a
+  // payload that states either differently names a place approval did not consent to.
+  if (payload.destinationId !== draftPrDestinationId(payload.delivery))
+    ctx.addIssue({
+      code: "custom",
+      path: ["destinationId"],
+      message: "must be the destination the delivery names",
+    })
+  if (payload.delivery.branch !== `factory/${payload.workOrderId}`)
+    ctx.addIssue({
+      code: "custom",
+      path: ["delivery", "branch"],
+      message: "must be factory/<the payload's work order id>",
+    })
 })
 
 /**
