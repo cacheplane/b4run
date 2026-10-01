@@ -64,6 +64,9 @@
     "react": ">=19.0.0"
   },
   "peerDependenciesMeta": {
+    "@ag-ui/client": {
+      "optional": true
+    },
     "@copilotkit/react-core": {
       "optional": true
     },

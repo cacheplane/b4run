@@ -478,25 +478,52 @@ function isPackageIdentity(
   return parsed.name === name && versionMatches(parsed.version)
 }
 
-function legacyAgUiParentFailures(workspace: ParsedWorkspace): string[] {
-  if (!packageVersions(workspace, "@ag-ui/client").includes("0.0.54")) return []
-  const parents = reverseParents(workspace, "@ag-ui/client", "0.0.54")
-  const targets = locatorsFor(workspace.snapshots, "@ag-ui/client", "snapshots").filter(
-    (locator) => locator.version === "0.0.54",
+const legacyAgUiVersion = "0.0.59"
+
+function isApprovedLegacyAgUiParent(identity: string): boolean {
+  return (
+    /^@copilotkit\/channels-(?:core|intelligence|slack|teams|ui)@/.test(identity) ||
+    (/^@copilotkit\/(?:core|shared)@/.test(identity) &&
+      identity.includes(`(@ag-ui/core@${legacyAgUiVersion})`))
   )
-  if (targets.length === 0) return ["@ag-ui/client@0.0.54 has no snapshot identities"]
+}
+
+function legacyAgUiParentFailures(workspace: ParsedWorkspace): string[] {
+  if (!packageVersions(workspace, "@ag-ui/client").includes(legacyAgUiVersion)) return []
+  const parents = reverseParents(workspace, "@ag-ui/client", legacyAgUiVersion)
+  const targets = locatorsFor(workspace.snapshots, "@ag-ui/client", "snapshots").filter(
+    (locator) => locator.version === legacyAgUiVersion,
+  )
+  if (targets.length === 0) return [`@ag-ui/client@${legacyAgUiVersion} has no snapshot identities`]
   return targets
     .flatMap((target) => {
       const targetParents = parents.filter((parent) => parent.targetIdentity === target.key)
       if (targetParents.length === 0) return [`${target.key} has no reverse parents`]
       return targetParents.flatMap((parent) =>
-        parent.kind === "snapshot" &&
-        /^@ag-ui\/mcp-middleware@0\.0\.1(?:\(|$)/.test(parent.identity)
+        parent.kind === "snapshot" && isApprovedLegacyAgUiParent(parent.identity)
           ? []
           : [`${target.key} has unexpected reverse parent ${parent.identity}`],
       )
     })
     .sort()
+}
+
+function snapshotDependencyVersions(
+  workspace: ParsedWorkspace,
+  name: string,
+  version: string,
+  dependencyName: string,
+): string[] {
+  return locatorsFor(workspace.snapshots, name, "snapshots")
+    .filter((locator) => locator.version === version)
+    .map((locator) => {
+      const snapshot = requireRecord(workspace.snapshots[locator.key], `snapshots.${locator.key}`)
+      const dependencies = requireStringMap(
+        snapshot.dependencies ?? {},
+        `snapshots.${locator.key}.dependencies`,
+      )
+      return dependencies[dependencyName] ?? "<missing>"
+    })
 }
 
 function providerUtilsRootPathFailure(
@@ -666,6 +693,18 @@ describe("dependency security graph invariants", () => {
       ],
     ).toBe(">=1.66.0")
     expect(
+      requireStringMap(agUiManifest.peerDependencies, `${agUiManifestPath}.peerDependencies`)[
+        "@ag-ui/client"
+      ],
+    ).toBe(">=1.0.1 <2.0.0")
+    for (const name of ["@copilotkit/react-core", "@copilotkit/runtime"] as const) {
+      const clientVersions = snapshotDependencyVersions(workspace, name, "1.76.0", "@ag-ui/client")
+      expect(clientVersions.length).toBeGreaterThan(0)
+      for (const clientVersion of clientVersions) {
+        expect(clientVersion.startsWith("1.0.1")).toBe(true)
+      }
+    }
+    expect(
       importerDependency(workspace, "packages/ag-ui", "devDependencies", "@ag-ui/client"),
     ).toEqual({ specifier: "1.0.1", version: "1.0.1" })
     const agUiClientOwner = importerDependencyLocator(
@@ -713,10 +752,12 @@ describe("dependency security graph invariants", () => {
     }
   })
 
-  it("keeps direct AG-UI on 1.0.1 and isolates any legacy 0.0.54", () => {
+  it("keeps direct AG-UI on 1.0.1 and confines the legacy 0.0.59 to CopilotKit channels", () => {
     const workspace = readWorkspace()
     const versions = packageVersions(workspace, "@ag-ui/client")
+    expect(versions).toContain("1.0.1")
     expect(versions).not.toContain("0.0.58")
+    expect(versions).not.toContain("0.0.54")
     expect(legacyAgUiParentFailures(workspace)).toEqual([])
   })
 
@@ -1010,19 +1051,19 @@ describe("dependency security graph invariants", () => {
   })
 
   it("reports an orphan AG-UI peer identity independently", () => {
-    const approvedClient = "@ag-ui/client@0.0.54(rxjs@7.8.1)"
-    const orphanClient = "@ag-ui/client@0.0.54(rxjs@8.0.0)"
+    const approvedClient = "@ag-ui/client@0.0.59(rxjs@7.8.1)"
+    const orphanClient = "@ag-ui/client@0.0.59(rxjs@8.0.0)"
     const agUiWorkspace: ParsedWorkspace = {
       importers: {},
       manifestOverrides: {},
       packages: {
-        "@ag-ui/client@0.0.54": {},
-        "@ag-ui/mcp-middleware@0.0.1": {},
+        "@ag-ui/client@0.0.59": {},
+        "@copilotkit/channels-core@0.11.0": {},
       },
       snapshots: {
         [approvedClient]: {},
-        "@ag-ui/mcp-middleware@0.0.1(rxjs@7.8.1)": {
-          dependencies: { "@ag-ui/client": "0.0.54(rxjs@7.8.1)" },
+        "@copilotkit/channels-core@0.11.0(rxjs@7.8.1)": {
+          dependencies: { "@ag-ui/client": "0.0.59(rxjs@7.8.1)" },
         },
         [orphanClient]: {},
       },
