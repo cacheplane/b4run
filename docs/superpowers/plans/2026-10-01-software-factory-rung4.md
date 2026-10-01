@@ -6857,6 +6857,17 @@ git commit -m "feat(software-factory): redeliver a healable delivery block under
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+**As landed (Tasks 12-14, with the review fixes of 2026-10-01).** Task 12's `buildDeliveryIntent` checks each workspace path and each joined repository path with `relativePath` (the outbox schema requires canonical paths), and intake refuses a redraft whose target root differs from a draft-PR row's already-set `pathPrefix`. Task 13's approve calls `outbox.insert` without an operation key (Task 11's fix derives it). A review of the approval and delivery start path found these; each is fixed test-first in `test/factory-delivery.test.ts` ("the approval's start path"):
+
+- **The `approve_delivery` transition commits before `outbox.insert`.** Two approvals under different keys could both pass the checks during the re-verification; the second then threw the outbox's `UNIQUE` constraint, left its key in flight and answered the route with a 500. It is now refused as an illegal move ("Work order changed state while approving"), its key answered, one pull request.
+- **An approve interrupted by a close is answered by the delivery, not by the boot.** Boot reconcile's first loop no longer completes the `approve` or `redeliver` key that committed a row still `delivering` (`deliveryCommandKey`, read from the last `approve_delivery` or `redeliver` transition); when a delivery settles with the row out of `delivering` (or `startDelivery` blocks it `delivery_unauthorized`), `settleDeliveryCommand` answers that key with `deliveryOutcome`, the one D23 mapping `approve`, `redeliver` and this completion share. An approve or redeliver whose controller closed under it throws a clear error (the row stays `delivering`; a restart or `pnpm factory reconcile <id>` resumes it; replay the command) instead of failing on a closed registry, and the replay returns the resumed delivery's answer. Before, the replay returned "Reconciled after restart; work order is delivering" forever. Covering `redeliver` keys too goes beyond the review, which named `approve`: the same defect applied to them.
+- **The intent is validated inside `buildDeliveryIntent`** (`DeliveryIntentSchema.parse`), so an invalid field (an empty actor) is a refusal, not a `ZodError` from inside the transaction with the key in flight.
+- **Protected paths are checked against the approved bytes' paths** (`Object.keys(changes)`) as well as the candidate record's `changedPaths`.
+- **The intent's issue number is the frozen origin's**, not the row's (they are checked equal).
+- **The message for a delivery that stopped with the row `delivering`** says a restart or `pnpm factory reconcile <id>` resumes it.
+- **`track()` still replaces a live entry**, now documented: a tracked run reconciling itself (`fromTrackedRun`) hands off to its reattached observer that way, so a throw would break it.
+- **Tests added for gaps:** approve's protected-path refusal; a row delivery that no longer matches the frozen one; a spec edited after the freeze (D18); a cancel mid-delivery ends `cancelled` with no pull request (D24), the approve answering `ok: false` once its worker stops; a cancel during the re-verification leaves no outbox row.
+
 ### Task 15: The CLI: `--deliver`, the review's delivery block, `redeliver`, `show`, `list`, `run`
 
 **Files:**
