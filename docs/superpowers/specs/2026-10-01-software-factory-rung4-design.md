@@ -893,6 +893,45 @@ Each is its own plan under `docs/superpowers/plans/`, PR and proof.
 1 and 2 run in parallel worktrees. 3 needs 2. 4 needs everything. Sub-project 1 must be merged
 before the first `factory/*` branch is created on `cacheplane/b4run`, which only 4 does.
 
+**As landed (PR 3).** Sub-project 2, implemented by
+[the rung 4 plan](../plans/2026-10-01-software-factory-rung4.md) Tasks 5-16 on
+`blove/factory-rung4-delivery` (stacked on PR 1's `blove/factory-rung4-ci-guards`, which
+provides `guard.json`). Delivery is **not yet usable end to end**: PR 3 runs only against an
+in-memory fake GitHub with fault injection and makes no network call. The real adapter, token
+minting, the controller's delivery configuration and `up`'s wiring arrive in PR 4; until then
+the runtime passes no delivery and `--deliver draft-pr` is refused at create with
+`delivery_unavailable` (plan D20). What landed: `--deliver` on `create` and `run`; the row's
+`delivery` and registry migration 6; the bundle's operation union, with the draft-PR digest
+covering operation, destination, pin and delivery (an existing export-local bundle digests
+identically, pinned); `delivering`, `delivered`, the seven delivery reasons and `run`'s steps
+for them; the protected paths at intake, approval and step (a); git blob and tree ids computed
+locally; the outbox committed with the approval; the worker's read-before-write steps;
+`redeliver`; and the delivery in `review`, `show` and `list`. Where it departs from this spec,
+the plan's decisions say why:
+
+- **D14 (spec correction 2).** The Git Data API sequence, the hashing, the PR body, the retry
+  policy and the scrubber are PR 3's, behind a `DeliveryAdapter` interface, tested once against
+  the fake; PR 4's adapter only maps HTTP to it (§13 sub-project 3 had them).
+- **D18 (correction 5).** The quoted spec is captured at approval: approve reads the generated
+  task once, refuses unless it digests to the frozen `taskDigest`, and stores `spec.md`'s text in
+  the outbox intent, so a resumed worker reads no file a person can edit (§7.2 re-read it at
+  render).
+- **D19 (correction 6).** Reconcile starts a `delivering` row's worker tracked and returns; it
+  does not await it (§5.4 "resumes"). `approve` and `redeliver` still await theirs.
+- **D21 (correction 10).** Approval's order: delivery equality, configured destination,
+  protected paths (no network), preflight (network), the generated task re-read, then the
+  re-verification (§3.4 had preflight before the protected paths).
+- **D23.** `approve` of a draft-PR bundle answers `ok: true` only when the work order is
+  `delivered`; a block answers `ok: false` with the reason and the approval stays recorded. The
+  CLI exits 1 and prints `pnpm factory events <id>` and, for a healable reason,
+  `pnpm factory redeliver <id>`.
+- **D24.** `cancel` during a delivery uses today's `finishCancel` (it asks the builder about the
+  row's old thread); the worker checks the row before every write and journals
+  `delivery_stopped` with the remote ids that exist.
+- **Correction 12.** `pathPrefix` is nullable on the row until intake fills it in the
+  `intake_drafted` transaction; the bundle requires it, and `verify` refuses a draft-PR row
+  without one as `verification_inconclusive`.
+
 ---
 
 ## 14. Proof

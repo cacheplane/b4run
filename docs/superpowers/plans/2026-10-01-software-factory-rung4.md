@@ -7577,6 +7577,8 @@ git commit -m "feat(software-factory): factory create and run --deliver draft-pr
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+**As landed (Task 15, `da927e77f`).** As planned, plus: the run source pin (`test/run-steps.test.ts` `FORBIDDEN`) forbids more than `.redeliver`: a bare `redeliver(` call (the CLI's own command function), the `work-orders/redeliver` route path, and any of the gated methods named by a computed member access (`client()["redeliver"](…)`). `test/cli.test.ts` gained a test the plan did not have, "redelivers only on the bundle digest a person types or names in full, and never otherwise", which serves the CLI against a delivery harness's registry; for it `test/delivery-harness.ts` exports `harnessDir()` (the open harness's directory, used as `FACTORY_STATE_DIR`). The CLI's `redeliver` shows its prompt for any `blocked` row that has an outbox row and a bundle digest, whatever the reason; the controller refuses a reason that is not healable (see the follow-ups).
+
 ### Task 16: Docs for PR 3, and the whole gate
 
 **Files:**
@@ -7605,6 +7607,8 @@ git commit -m "docs(software-factory): draft-PR delivery, and the rung 4 spec's 
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
+
+**As landed (Task 16).** The README section and the spec's §13 note as the steps say. The README section opens by saying delivery is not yet usable end to end (PR 3 runs only against the fake GitHub; the real adapter, token minting and `up`'s wiring arrive in PR 4; `--deliver draft-pr` is refused with `delivery_unavailable` until then), and documents, beyond Step 1's list, `run`'s refusal of a `--deliver` that differs from the work order's and `show`/`list`/`run` printing the pull request's URL. The spec note also says what PR 3 landed and that it is not yet usable end to end. This plan gained the as-landed notes for Tasks 15 and 16 and two follow-ups (an empty approval actor; the CLI's `redeliver` prompting for a non-healable block). The gate was run wider than Step 3: the controller's `lint` (254 files, clean), `typecheck` (clean) and `test` (1,288 passed, 1 failed: `test/runtime.test.ts` "dispatches to the one builder on its route, and refuses the retired variables", Trap 10, the Docker daemon not running on the host), the root `pnpm lint` (31 tasks), `node scripts/check-docs.mjs` (passed), `pnpm test:release-integrity` (33 passed) and `node --test scripts/release/test/workflow-contracts.test.mjs` (188 passed). The commit also carries this plan; PR 3 was not opened by it.
 
 ---
 
@@ -10311,6 +10315,8 @@ Brian approves at both gates as before. Expected: `blocked` with `delivery_base_
 - **The `repositoryId: taskId` misnomer** (spec §16) stays: removing it moves every export-local digest.
 - **The controller's remaining synchronous calls** (the up/run plan's follow-up) now include `readGeneratedTask` at approve; small, but on the request path.
 - **Preflight could refuse a repository whose squash or merge commit message is `PR_BODY`** (the review of Task 10): GitHub then copies the description, quoted spec included, into the commit on `main`. The fence and `neutraliseReferences` already keep any reference in the quoted spec from closing an issue; the refusal would keep the model-written text out of `main`'s history as well. Not implemented.
+- **An export-local approve with an empty actor throws inside the transaction** (found while reviewing PR 3; pre-existing on `main`). `factory.approve` takes `actor` unvalidated and sets `decidedBy = options.actor ?? "operator"`, so `""` passes through and `recordApproval`'s `ApprovalSchema` (`decidedBy: min(1)`) throws a `ZodError` inside the approval transaction, leaving the operation key in flight. Today only a direct caller of `factory.approve` can pass one: the route's strict `ApproveInput` has no `actor` field, so the route never forwards it. The draft-PR path no longer reaches it (Task 13's fix validates the intent in `buildDeliveryIntent` before the transaction). Fix: validate `actor` with `min(1)` where it enters (`approve`'s options, and the route input once it carries an actor), so an empty actor is a refusal before any key is spent.
+- **The CLI's `redeliver` prompts for any delivery block** (Task 15): it shows the resumed delivery and asks for the digest's prefix for any `blocked` row with an outbox row, and only the controller refuses a reason outside `REDELIVERABLE_BLOCKED_REASONS`. Nothing is redelivered wrongly, but a person types a prefix for a refusal; the CLI should refuse a non-healable reason (naming `run --issue <n> --new`) before it asks, as `run-steps` already does when it chooses whether to print `redeliver`.
 - **The adapter must refuse a `truncated: true` tree listing** (Task 18's `tree()` does; keep it): `readPinListings` now also refuses a listing that does not hash to its tree id, which a truncated listing never does, but the adapter's refusal names the cause.
 
 ## Self-review
