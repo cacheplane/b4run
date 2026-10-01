@@ -37,6 +37,7 @@ import {
   workspaceProtocolPolicyMessage,
 } from "../runtime/workspace-protocol.js"
 import { abortableAsyncIterable } from "./abortable-iterable.js"
+import { handleAgUiCapabilitiesRequest } from "./agui-capabilities.js"
 import { handleAgUiFetchRequest } from "./agui-handler.js"
 import {
   type ApprovalGrantRuntime,
@@ -1990,6 +1991,25 @@ export function buildRouteTable(ctx: {
           routeKey: params.routeId ?? "",
         }),
       method: "POST",
+      pattern: /^\/agui\/(?<routeId>[^/?#]+)(?:\?.*)?$/,
+    },
+
+    // ------------------------------------------------------------------
+    // GET /agui/:routeId — the route's AG-UI AgentCapabilities
+    // ------------------------------------------------------------------
+    {
+      handle: async (request, params) =>
+        handleAgUiCapabilitiesRequest({
+          appRoot,
+          boot,
+          ...(bootConfig ? { config: bootConfig } : {}),
+          middleware,
+          permissionsStore: getPermissionsStore(request),
+          registry,
+          request,
+          routeKey: params.routeId ?? "",
+        }),
+      method: "GET",
       pattern: /^\/agui\/(?<routeId>[^/?#]+)(?:\?.*)?$/,
     },
 
