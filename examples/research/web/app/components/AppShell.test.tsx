@@ -415,6 +415,24 @@ describe("app shell hydration", () => {
     expect(container.textContent).not.toContain(RESTORED_HISTORY_NOTICE)
   })
 
+  test("carries an applied restore over to a replacement agent instance", async () => {
+    hydrate = vi.fn(async () => RESTORED)
+    render(undefined)
+    render("thread-a")
+    await settleHydration()
+    const applied = mocks.agent.setMessagesArgs.at(-1) ?? []
+    expect(applied).toHaveLength(2)
+    // What CopilotKit 1.76 does a beat after first render: the same thread,
+    // but a fresh per-thread instance that starts with no messages. The
+    // transcript the user just saw restored must not disappear with the swap.
+    const swapped = makeAgent()
+    swapped.messages = []
+    mocks.agent = swapped
+    render("thread-a")
+    expect(swapped.messages).toEqual(applied)
+    expect(hydrate).toHaveBeenCalledTimes(1)
+  })
+
   test("applies a late hydrate to the agent instance that is on screen now", async () => {
     const pending = deferred<HydratedThread>()
     hydrate = vi.fn(() => pending.promise)
