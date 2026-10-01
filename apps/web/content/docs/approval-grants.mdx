@@ -66,11 +66,7 @@ The grant reaches the client on the channels that already carry the prompt, and 
 | `GET /threads/:thread_id/pending_interrupts` | `grant` beside `interruptId`, `resumeKey` and `value` |
 | The attach `state` frame | `grant` on each entry of `interrupts` |
 
-On AG-UI the grant is at `metadata.grant` and nowhere else. `metadata` is schema-defined on AG-UI's `Interrupt` and `ResumeEntry`, so a 1.0 client's enforcement stage leaves it intact in both directions; a top-level `grant` is a field the protocol guarantees to strip — on every prompt received, and from every resume entry before it is sent. Echo it back the same way:
-
-```json
-{ "interruptId": "perm-abc123", "status": "resolved", "payload": "once", "metadata": { "grant": "b4ag_..." } }
-```
+On AG-UI the grant is at `metadata.grant` and nowhere else. `metadata` is schema-defined on AG-UI's `Interrupt` and `ResumeEntry`, so a 1.0 client's enforcement stage leaves it intact in both directions; a top-level `grant` is a field the protocol guarantees to strip — on every prompt received, and from every resume entry before it is sent.
 
 The Agent Protocol endpoints (`GET /threads/:thread_id/pending_interrupts`, the attach `state` frame, `POST /threads/:thread_id/resume`) are B4.run's own wire and keep the top-level `grant` shown below.
 
@@ -81,6 +77,14 @@ A client that reattaches after a reload must be able to read the grant again, an
 ### Back
 
 Per entry in the resume body, not as a header — a resume body carries one entry per pending interrupt and must address the pending set exactly.
+
+On AG-UI, echo the grant back the same way it arrived, in `metadata.grant` on the resume entry:
+
+```json
+{ "interruptId": "perm-abc123", "status": "resolved", "payload": "once", "metadata": { "grant": "b4ag_..." } }
+```
+
+On Agent Protocol it is the top-level `grant`:
 
 ```sh
 curl -X POST http://127.0.0.1:2024/threads/$THREAD/resume \

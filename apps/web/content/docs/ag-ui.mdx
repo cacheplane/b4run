@@ -14,7 +14,7 @@ accept: text/event-stream
 
 The URL segment is the URL-encoded `<routeId>#<kind>` assistant id. For example, `/chat#agent` becomes `/agui/%2Fchat%23agent`. The request body is an AG-UI `RunAgentInput`. B4.run creates the thread if it's new, invokes the same route runtime Agent Protocol uses, and streams translated events back as SSE.
 
-B4.run speaks AG-UI protocol **1.0**. `RUN_STARTED` declares `protocolVersion: "1.0"`. A request may declare its own `protocolVersion`: any `1.x` is served, an absent or unparseable value is served, and a `MAJOR.MINOR` declaration with a different major is refused with `400` `unsupported_protocol_version` before middleware runs; any other form is served. `@b4run/ag-ui` requires `@ag-ui/client` `>=1.0.1 <2.0.0` as an optional peer, and 1.0 moves the runtime validators to `@ag-ui/core/schemas`.
+B4.run speaks AG-UI protocol **1.0**; `RUN_STARTED` declares `protocolVersion: "1.0"`. A request declaring another `1.x`, or no parseable version, is served; a different major is refused (see [Envelope validation](#envelope-validation)). `@b4run/ag-ui` takes `@ag-ui/client` `>=1.0.1 <2.0.0` as an optional peer; the runtime validators moved to `@ag-ui/core/schemas`.
 
 ## Envelope validation
 
@@ -22,17 +22,19 @@ The runtime validates the run envelope itself, so no app has to re-check
 B4.run's own wire format. Envelope refusals — the `422`s and the
 foreign-major `400` — carry [`B4_E5401`](/docs/errors) and are told apart by
 `error.details.code`; a body the schema itself rejects is a plain `400`.
+Unknown top-level keys are tolerated and never echoed; they do not become
+route params.
 
 | Status | `details.code` | When |
 |---|---|---|
 | `422` | `invalid_envelope` | the body is not a JSON object |
 | `422` | `invalid_thread_id` | `threadId` is missing, not a string, blank, or longer than 256 characters |
 | `422` | `invalid_run_id` | `runId` is missing, not a string, blank, or longer than 256 characters |
+| `400` | `unsupported_protocol_version` | the request declared an AG-UI protocol major this runtime does not speak |
 | `422` | `invalid_state` | `state` is present and is not a JSON object |
+| `422` | `multimodal_not_supported` | a message carried an image, audio, video or document part |
 | `422` | `client_tools_not_allowed` | `tools` is not an array, or is non-empty on a route that did not opt in |
 | `422` | `forwarded_props_not_allowed` | `forwardedProps` is not an object, or is non-empty on a route that did not opt in |
-| `400` | `unsupported_protocol_version` | the request declared an AG-UI protocol major this runtime does not speak |
-| `422` | `multimodal_not_supported` | a message carried an image, audio, video or document part |
 
 ### Client-supplied `tools` and `forwardedProps` are closed by default
 
@@ -83,7 +85,7 @@ limits, and what the opt-in does and does not protect against.
 
 ### Multimodal content is refused, not dropped
 
-A 1.0 message's `content` may be a list of parts. Text parts are concatenated in order. A message carrying an `image`, `audio`, `video` or `document` part is refused with `422` `multimodal_not_supported`, before middleware, so a client is told its media never reached the model rather than finding out by silence. `role: "reasoning"` and `role: "activity"` history is dropped on the way in: it is the client's stored artefact of an earlier turn, not something the assistant said. Unknown top-level keys are tolerated and never echoed; they do not become route params.
+A 1.0 message's `content` may be a list of parts. Text parts are concatenated in order. A message carrying an `image`, `audio`, `video` or `document` part is refused with `422` `multimodal_not_supported`, before middleware, so a client is told its media never reached the model rather than finding out by silence. `role: "reasoning"` and `role: "activity"` history is dropped on the way in: it is the client's stored artefact of an earlier turn, not something the assistant said.
 
 ### Where the check runs
 
@@ -501,7 +503,7 @@ Aborting the run keeps any park it already reached. A permission prompt raised b
 
 The two surfaces differ here. Agent Protocol viewer disconnects continue the run. AG-UI viewer disconnects abort the run. For Agent Protocol, closing a `runs/stream`, `runs/wait`, or `resume` connection only detaches the viewer, so stop the run explicitly with `POST /threads/:thread_id/cancel`. Server shutdown also aborts in-flight work.
 
-A client disconnect emits nothing further: there is no one left to receive it. A run stopped by `POST /threads/:thread_id/cancel` or by a server shutdown ends on the AG-UI stream with `RUN_FINISHED` and `outcome.type: "cancelled"`, not `RUN_ERROR`. Agent Protocol attach viewers still see `{ cancelled: true }` for a cancel and an error for a shutdown. Agent Protocol attach viewers see an error for a disconnect.
+A client disconnect emits nothing further, since no one is left to receive it. A run stopped by `POST /threads/:thread_id/cancel` or by a server shutdown ends on the AG-UI stream with `RUN_FINISHED` and `outcome.type: "cancelled"`, not `RUN_ERROR`. Agent Protocol attach viewers of an AG-UI-started run see `{ cancelled: true }` for a cancel and an error for a shutdown or a disconnect.
 
 ## Related
 
