@@ -1,6 +1,7 @@
 import type { PromptFragment } from "@b4run/core"
 import {
   type BaseMessage,
+  isAIMessage,
   isToolMessage,
   SystemMessage,
   ToolMessage,
@@ -85,7 +86,9 @@ function modelAndToolMiddleware(options: B4AgentMiddlewareOptions): AgentMiddlew
     wrapModelCall: async (request, handler) => {
       const state = request.state as Record<string, unknown>
       const view = state[LLM_INPUT_MESSAGES]
-      const messages = Array.isArray(view) ? (view as BaseMessage[]) : request.messages
+      const messages = answerDanglingToolCalls(
+        Array.isArray(view) ? (view as BaseMessage[]) : request.messages,
+      )
       const systemMessage = composesPrompt
         ? new SystemMessage(
             await composeSystemPrompt(options.systemPrompt, options.promptFragments, {
@@ -117,6 +120,60 @@ function modelAndToolMiddleware(options: B4AgentMiddlewareOptions): AgentMiddlew
       }
     },
   }) as AgentMiddleware
+}
+
+/**
+ * The history with an error result after every tool call that never got one,
+ * or the same array when there is none.
+ *
+ * By the time the model is called, every tool call of a finished turn has a
+ * result: the tools node runs them all first, and a call parked on an
+ * approval interrupt runs on resume before the model is called again. So a
+ * call still unanswered here belongs to a run that was cut off between the
+ * model turn and its tools (`recursionLimit`, an abort, a crash), and the
+ * checkpoint keeps it. Providers refuse that history (OpenAI: "An assistant
+ * message with 'tool_calls' must be followed by tool messages"), which would
+ * fail every later turn on the thread. Only the model's view is repaired; the
+ * checkpoint is left as it is.
+ */
+export function answerDanglingToolCalls(messages: BaseMessage[]): BaseMessage[] {
+  const answered = new Set(
+    messages.flatMap((message) => (isToolMessage(message) ? [message.tool_call_id] : [])),
+  )
+  const dangling = (message: BaseMessage) =>
+    isAIMessage(message)
+      ? (message.tool_calls ?? []).filter(
+          (call): call is typeof call & { id: string } =>
+            call.id !== undefined && !answered.has(call.id),
+        )
+      : []
+  if (!messages.some((message) => dangling(message).length > 0)) return messages
+
+  const repaired: BaseMessage[] = []
+  let pending: ToolMessage[] = []
+  for (const message of messages) {
+    // A call's results must follow its assistant message before anything
+    // else, so the stand-ins go after any results the turn did record.
+    if (!isToolMessage(message)) {
+      repaired.push(...pending)
+      pending = []
+    }
+    repaired.push(message)
+    pending.push(
+      ...dangling(message).map(
+        (call) =>
+          new ToolMessage({
+            status: "error",
+            content:
+              "Error: this tool call did not run; the run that made it ended first. Its result is unknown.",
+            name: call.name,
+            tool_call_id: call.id,
+          }),
+      ),
+    )
+  }
+  repaired.push(...pending)
+  return repaired
 }
 
 /**
