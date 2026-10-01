@@ -800,6 +800,40 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       )
     }
 
+    // An approval decision is answered only on the route that parked it. The
+    // Agent Protocol resume endpoint resolves its route from server state and
+    // never lets the caller choose; here the route comes from the URL, so
+    // without this a caller admitted to a weaker route could answer — and run
+    // under that route's graph, prompt and tools — an approval parked under a
+    // stronger one. The owner is `parked_route`, or `metadata.route` (written
+    // when the turn started) when settle has not recorded the park yet: the
+    // same chain the Agent Protocol endpoints gate on. After the thread-access
+    // gate and the claim, before any grant is checked or consumed; the owner is
+    // never echoed. Client tool results are bound separately, on their record.
+    //
+    // Residual, deliberately accepted: with NO owner recorded (no thread row —
+    // e.g. a durable checkpointer behind an in-memory threads store after a
+    // restart — or a park by a build that predates the route key) there is
+    // nothing to bind to, and the requested route is used, exactly as
+    // /threads/:id/resume falls back to the caller's `route`. Refusing would
+    // leave such approvals unanswerable forever.
+    if (resumeResolution.mode === "resume") {
+      const owningThread = await threadsStore.getThread(threadId)
+      const persistedRoute = owningThread?.metadata.route
+      const owningRoute =
+        readParkedRoute(owningThread) ??
+        (typeof persistedRoute === "string" ? persistedRoute : undefined)
+      if (owningRoute !== undefined && owningRoute !== routeKey) {
+        return Response.json(
+          createRequestErrorBody(
+            "This thread's pending approval belongs to another route; resume it on the route that parked it.",
+            { code: "resume_route_mismatch" },
+          ),
+          { status: 409 },
+        )
+      }
+    }
+
     const approvalGrantMinter = minterFor(approvalGrants, threadId)
 
     // Grant checks run HERE: after the thread-access gate, after the resume

@@ -461,6 +461,8 @@ A run without `hashbrown`, or with `hashbrown: { ui: true }` and no schema, is u
 
 AG-UI's `threadId` is the B4.run thread id, with no mapping table in between. AG-UI and Agent Protocol requests run the same route code and use the same thread store and checkpointer, so a caller can inspect state through Agent Protocol while a UI drives later turns through AG-UI.
 
+A permission prompt is answered on the route that parked it. An AG-UI `resume` sent to `/agui/<another route>` for the same thread is refused with `409` `resume_route_mismatch` before anything is consumed, so a caller admitted to one route cannot answer, and run under that route's graph, a prompt another route parked. The response does not name the parking route.
+
 A turn that parks on a permission prompt leaves the thread `interrupted` (not `idle`) on both surfaces. The park is written to the checkpointer, so it outlives the response that carried it. After a reload, a client reading `GET /threads/:thread_id` sees that the agent is still waiting on a person.
 
 Both surfaces also share the same process-local one-active-run-per-thread gate. An ordinary run-slot collision (an AG-UI turn or Agent Protocol run that reaches an occupied slot) returns `409` with `error.details.code` set to `run_in_flight`. A second concurrent resume is stopped by the shared resume claim before it reaches the run registry, and returns `resume_in_progress`. The gate lives in one process. Shared durable stores won't extend it across replicas.
