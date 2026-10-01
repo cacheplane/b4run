@@ -274,8 +274,13 @@ function clientFacingChunk(
 async function* normalizeB4Stream(
   chunks: AsyncIterable<StreamChunk>,
   clientToolNames: ReadonlySet<string> = new Set(),
+  onClientToolPark?: (toolCallId: string) => void,
 ): AsyncGenerator<B4AgentStreamChunk> {
   for await (const raw of chunks) {
+    if (raw.type === "interrupt") {
+      const data = (raw as { readonly data: unknown }).data
+      if (isClientToolCallEnvelope(data)) onClientToolPark?.(data.toolCallId)
+    }
     const chunk = clientFacingChunk(raw, clientToolNames)
     if (chunk === undefined) continue
     switch (chunk.type) {
@@ -790,13 +795,18 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       // carries no new user input, so there is no turn to run — re-running
       // the last user message would answer it twice. Same no-op as `partial`,
       // which makes client retries idempotent.
-      return clientToolPartialResponse(threadId, input.runId, request.headers.get("accept"))
+      return clientToolPartialResponse(threadId, input.runId, request.headers.get("accept"), [])
     }
     if (clientTurn.mode === "partial") {
       // Some parked calls answered, others not yet: the results are recorded,
       // the graph is not touched, and the run ends as an ordinary success so
       // the client goes on to send the rest.
-      return clientToolPartialResponse(threadId, input.runId, request.headers.get("accept"))
+      return clientToolPartialResponse(
+        threadId,
+        input.runId,
+        request.headers.get("accept"),
+        clientTurn.pendingToolCallIds,
+      )
     }
 
     // The permission parks this run must resolve through the envelope's
@@ -1202,8 +1212,11 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
               },
               clientToolNames,
             )
+            const parkedClientCallIds: string[] = []
             for await (const event of toAguiEvents(
-              normalizeB4Stream(liveTappedStream, clientToolNames),
+              normalizeB4Stream(liveTappedStream, clientToolNames, (id) =>
+                parkedClientCallIds.push(id),
+              ),
               {
                 threadId,
                 runId: input.runId,
@@ -1213,6 +1226,8 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                 // client disconnect did not (nobody is listening for the
                 // frame, and attachers read the same terminal below).
                 cancelled: () => run.cancelled || shutdownSignal.aborted,
+                // The client parks this turn dropped from the wire, named on the success outcome.
+                pendingToolCallIds: () => parkedClientCallIds,
               },
             )) {
               // The translator catches upstream errors and aborts, so the raw
@@ -1637,12 +1652,17 @@ async function clientToolPartialResponse(
   threadId: string,
   runId: string,
   accept: string | null,
+  pendingToolCallIds: readonly string[],
 ): Promise<Response> {
   async function* done(): AsyncGenerator<B4AgentStreamChunk> {
     yield { type: "done", data: null }
   }
   let body = ""
-  for await (const event of toAguiEvents(done(), { threadId, runId })) {
+  for await (const event of toAguiEvents(
+    done(),
+    { threadId, runId },
+    { pendingToolCallIds: () => pendingToolCallIds },
+  )) {
     body += encodeAgUiSse(event, accept ?? undefined)
   }
   return new Response(body, {

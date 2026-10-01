@@ -48,6 +48,13 @@ export interface ToAguiOptions {
    * nothing to resume. `false` or absent: the throw is a failure, `RUN_ERROR`.
    */
   readonly cancelled?: () => boolean
+  /**
+   * Asked when the run ends in success: the client-provided tool calls this
+   * turn left parked, awaiting the client's results. 1.0 ends such a turn as
+   * success with `pendingToolCallIds`, never as an interrupt. Absent or empty
+   * means none, and the key is then omitted (never `[]`).
+   */
+  readonly pendingToolCallIds?: () => readonly string[]
 }
 
 function stringifyArgs(input: unknown): string {
@@ -95,6 +102,13 @@ export async function* toAguiEvents(
    * how the announce closes one.
    */
   const openStreamedToolCalls = new Map<string, string>()
+
+  function successOutcome(): NonNullable<RunFinishedEvent["outcome"]> {
+    const pending = options.pendingToolCallIds?.() ?? []
+    return pending.length > 0
+      ? { type: "success", pendingToolCallIds: [...pending] }
+      : { type: "success" }
+  }
 
   function* flushText(): Generator<AguiOutboundEvent> {
     if (openMessageId !== null) {
@@ -322,7 +336,7 @@ export async function* toAguiEvents(
             ...(Object.hasOwn(chunk, "data") && chunk.data !== undefined
               ? { result: chunk.data }
               : {}),
-            outcome: { type: "success" },
+            outcome: successOutcome(),
           }
           return
         }
@@ -350,7 +364,7 @@ export async function* toAguiEvents(
       type: EventType.RUN_FINISHED,
       threadId: ctx.threadId,
       runId: ctx.runId,
-      outcome: { type: "success" },
+      outcome: successOutcome(),
     }
   } catch (err) {
     yield* flushAllText()

@@ -158,7 +158,7 @@ describe("resolveClientToolTurn", () => {
       messages: [user("go"), tool("call-1", "one")],
       now: NOW,
     })
-    expect(first).toEqual({ mode: "partial" })
+    expect(first).toEqual({ mode: "partial", pendingToolCallIds: ["call-2"] })
 
     // AG-UI clients resend the whole history, so call-1's message comes again.
     const second = await resolveClientToolTurn({
@@ -230,7 +230,7 @@ describe("resolveClientToolTurn", () => {
       messages: [user("go"), tool("forged", "evil")],
       now: NOW,
     })
-    expect(turn).toEqual({ mode: "partial" })
+    expect(turn).toEqual({ mode: "partial", pendingToolCallIds: ["call-1"] })
     expect(await store.listForThread(THREAD)).toEqual(before)
     expect(await store.get(THREAD, "forged")).toBeUndefined()
   })
@@ -405,7 +405,7 @@ describe("resolveClientToolTurn", () => {
       messages: [user("go"), { role: "assistant", content: "hm" }],
       now: NOW,
     })
-    expect(turn).toEqual({ mode: "partial" })
+    expect(turn).toEqual({ mode: "partial", pendingToolCallIds: ["call-1"] })
   })
 
   test("an outstanding row with no pending park is never answered", async () => {
@@ -426,7 +426,7 @@ describe("resolveClientToolTurn", () => {
       messages: [user("go"), tool("call-1", "opened")],
       now: NOW,
     })
-    expect(partial).toEqual({ mode: "partial" })
+    expect(partial).toEqual({ mode: "partial", pendingToolCallIds: ["call-2"] })
     expect((await store.get(THREAD, "call-1"))?.answeredAt).toBeNull()
   })
 
@@ -440,7 +440,7 @@ describe("resolveClientToolTurn", () => {
       messages: [user("go"), tool("perm-1", "once")],
       now: NOW,
     })
-    expect(turn).toEqual({ mode: "partial" })
+    expect(turn).toEqual({ mode: "partial", pendingToolCallIds: ["call-1"] })
     expect(answer).not.toHaveBeenCalled()
     expect(await store.get(THREAD, "perm-1")).toBeUndefined()
   })

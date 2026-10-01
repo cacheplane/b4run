@@ -803,6 +803,39 @@ describe("toAguiEvents", () => {
     }
     expect(out.at(-1)).toEqual({ type: EventType.RUN_ERROR, message: "rejected" })
   })
+  test("a success that leaves client calls parked names them in pendingToolCallIds", async () => {
+    const out = []
+    for await (const ev of toAguiEvents(toAsync([{ type: "done", data: {} }]), CTX, {
+      pendingToolCallIds: () => ["call_a", "call_b"],
+    })) {
+      out.push(ev)
+    }
+    expect(out.at(-1)).toMatchObject({
+      type: EventType.RUN_FINISHED,
+      outcome: { type: "success", pendingToolCallIds: ["call_a", "call_b"] },
+    })
+  })
+
+  test("an ordinary success carries no pendingToolCallIds key at all", async () => {
+    const events = await collect([{ type: "done", data: {} }])
+    expect(events.at(-1)).toMatchObject({ outcome: { type: "success" } })
+    expect((events.at(-1) as { outcome: object }).outcome).not.toHaveProperty("pendingToolCallIds")
+  })
+
+  test("a stream that ends without done also names the parked calls", async () => {
+    const out = []
+    for await (const ev of toAguiEvents(
+      toAsync([{ type: "tool_call", data: { id: "call_a", name: "openPanel", input: {} } }]),
+      CTX,
+      { pendingToolCallIds: () => ["call_a"] },
+    )) {
+      out.push(ev)
+    }
+    expect(out.at(-1)).toMatchObject({
+      type: EventType.RUN_FINISHED,
+      outcome: { type: "success", pendingToolCallIds: ["call_a"] },
+    })
+  })
 })
 
 describe("orchestration suppression", () => {
