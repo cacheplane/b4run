@@ -90,6 +90,8 @@ function snapshotObservation(value) {
   const result = {}
   for (const key of ["github", "git", "npm", "npmAuditFactory", "attestations"])
     result[key] = data(value, key)
+  // An injected reader clock is optional; observation defaults to the wall clock.
+  if (Object.hasOwn(value, "clock")) result.clock = data(value, "clock")
   return result
 }
 export function recoveryAdoptionAssetName(executor) {

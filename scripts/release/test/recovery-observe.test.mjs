@@ -367,6 +367,54 @@ test("idle npm verifier is disposed when an ordinary read exhausts the observati
   }
 })
 
+test("an unavailable exact read names the envelope status, code and operation", async () => {
+  const r = await recoveryRemote()
+  r.args.github.listReleaseAssets = async () => ({
+    status: "AMBIGUOUS",
+    code: "NOT_FOUND_OR_HIDDEN",
+    httpStatus: 404,
+    operation: "release-assets",
+  })
+  const result = await observe(r.args)
+  assert.equal(result.outcome, "blocked")
+  assert.deepEqual(result.errors, [
+    "Recovery observation blocked: exact value read unavailable (AMBIGUOUS NOT_FOUND_OR_HIDDEN release-assets)",
+  ])
+})
+
+test("an injected reader clock replaces the wall clock for observation deadlines", async () => {
+  const r = await recoveryRemote()
+  const originalNow = Date.now
+  let tick = originalNow()
+  const read = r.args.npm.observePackageVersion
+  r.args.npm.observePackageVersion = async (args) => {
+    tick += 1_200_001
+    return read(args)
+  }
+  const frozen = originalNow()
+  r.args.clock = {
+    now: () => frozen,
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    setTimer: setTimeout,
+    clearTimer: clearTimeout,
+  }
+  Date.now = () => tick
+  try {
+    const result = await observe(r.args)
+    assert.equal(result.outcome, "recovery-required", result.errors?.join("; "))
+  } finally {
+    Date.now = originalNow
+  }
+})
+
+test("an injected reader clock must supply every timing method", async () => {
+  const r = await recoveryRemote()
+  r.args.clock = { now: Date.now, sleep: async () => {} }
+  const result = await observe(r.args)
+  assert.equal(result.outcome, "blocked")
+  assert.match(result.errors.join("; "), /safe setTimer method required/)
+})
+
 test("canonical published recovery metadata is terminal without display drift", async () => {
   const r = await recoveryRemote({ published: true })
   const rendered = metadata.renderRecoveryFinalMetadata(r.finalization, r.finalRef)

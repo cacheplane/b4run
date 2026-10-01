@@ -23,6 +23,8 @@ import { evidenceRemote, zip } from "./recovery-evidence-fixture.mjs"
 import { configureRehearsalFence } from "./recovery-rehearsal-fence.mjs"
 
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex")
+// Below the 120s per-case timeout in recovery-rehearsal.test.mjs.
+const REHEARSAL_READ_TIMEOUT_MS = 100_000
 const TEST_SEAMS = Object.freeze([
   "synthetic npm and attestation trust",
   "fixture git policy, invocation and legacy fence",
@@ -348,6 +350,15 @@ export async function createRecoveryHttpRehearsal({
     headers.set("X-Rehearsal-Origin", url.origin)
     return fetch(`http://127.0.0.1:${port}${url.pathname}${url.search}`, { ...options, headers })
   }
+  // Observation reads run on the fixture clock the writer and auditor already
+  // use, and a loaded host may stall a loopback read without failing the arc.
+  // A genuinely hung read still times out before the per-case test timeout.
+  const readerClock = {
+    now: r.dependencies.authority.now,
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    setTimer: (callback, ms) => setTimeout(callback, Math.max(ms, REHEARSAL_READ_TIMEOUT_MS)),
+    clearTimer: clearTimeout,
+  }
   const githubReaders = new Set()
   const readers = () => {
     const result = {
@@ -358,11 +369,13 @@ export async function createRecoveryHttpRehearsal({
         token: "fixture-token",
         fetchImpl: mappedFetch,
         conditionalReads,
+        timeoutMs: REHEARSAL_READ_TIMEOUT_MS,
       }),
-      npm: createNpmReader({ fetchImpl: mappedFetch }),
+      npm: createNpmReader({ fetchImpl: mappedFetch, timeoutMs: REHEARSAL_READ_TIMEOUT_MS }),
       git: r.args.git,
       npmAuditFactory: r.args.npmAuditFactory,
       attestations: r.args.attestations,
+      clock: readerClock,
     }
     githubReaders.add(result.github)
     return result
