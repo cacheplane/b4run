@@ -126,7 +126,12 @@ async function settleIncompleteDispatch(
  */
 function settledOk(row: WorkOrderRow): boolean {
   if (row.state === "blocked") return row.blockedReason === "budget_exhausted"
-  return row.state === "exported" || row.state === "cancelled" || row.state === "denied"
+  return (
+    row.state === "exported" ||
+    row.state === "delivered" ||
+    row.state === "cancelled" ||
+    row.state === "denied"
+  )
 }
 
 /** Journal a reconciliation note that must never itself abort the walk. */
@@ -226,6 +231,14 @@ export async function reconcileWorkOrder(
       return reconcileVerifying(ctx, row)
     case "exporting":
       return reconcileExporting(ctx, row)
+    case "delivering":
+      // Unlike an export, a delivery continues (rung 4 §5.4): the outbox intent is the
+      // authorization, and every step reads the remote before it writes. Started, not
+      // awaited: a boot reconcile under `factory up` is bounded, and GitHub may be slow.
+      // `startDelivery` joins a delivery already running (an approve's, an earlier
+      // reconcile's), so this can never start a second worker.
+      void ctx.startDelivery(row.id)
+      return
     case "cancel_requested":
       await ctx.finishCancel(id, row.blockedReason === "budget_exhausted" ? "budget" : "operator")
       return

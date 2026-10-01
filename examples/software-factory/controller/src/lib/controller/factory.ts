@@ -8,9 +8,21 @@ import {
   stagedReferenceOf,
 } from "../builder-handoff.js"
 import { DEFAULT_WORKER_ROUTE } from "../config.js"
-import type { DraftPrConfig } from "../delivery/approval.js"
+import {
+  buildDeliveryIntent,
+  type DraftPrConfig,
+  preflightDelivery,
+  protectedChanges,
+} from "../delivery/approval.js"
 import { exportApproved } from "../delivery/export.js"
-import type { DeliveryLimits } from "../delivery/worker.js"
+import { createOutboxStore, type DeliveryIntent, type OutboxStore } from "../delivery/outbox.js"
+import { scrub } from "../delivery/scrub.js"
+import {
+  DEFAULT_DELIVERY_LIMITS,
+  type DeliveryLimits,
+  type DeliveryWorkerDeps,
+  runDelivery,
+} from "../delivery/worker.js"
 import { canon } from "../domain/digest.js"
 import {
   CommandInFlightError,
@@ -43,7 +55,7 @@ import {
   type CapturedDrafterHandoff,
   captureDrafterHandoff as captureDrafterHandoffOfPin,
 } from "../drafter-handoff.js"
-import { digestGeneratedTask } from "../intake/generated-task.js"
+import { digestGeneratedTask, readGeneratedTask } from "../intake/generated-task.js"
 import { issueText } from "../intake/issue.js"
 import { oracleReceiptIdFor } from "../intake/oracle.js"
 import { promptFor } from "../prompts.js"
@@ -51,7 +63,11 @@ import { type CommandLog, createCommandLog } from "../registry/commands.js"
 import { openRegistry } from "../registry/db.js"
 import { createEvidenceStore, type EvidenceStore } from "../registry/evidence.js"
 import { createWorkOrderStore, type WorkOrderPatch } from "../registry/work-orders.js"
-import { BundlePayloadSchema } from "../review/bundle.js"
+import {
+  BundlePayloadSchema,
+  type DraftPrBundlePayload,
+  draftPrDestinationId,
+} from "../review/bundle.js"
 import { type ArtifactStore, createArtifactStore } from "../storage/artifacts.js"
 import {
   type CatalogOptions,
@@ -293,6 +309,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   const registry = openRegistry(options.registryPath)
   const store = createWorkOrderStore(registry.db)
   const commands: CommandLog = createCommandLog(registry.db)
+  const outbox: OutboxStore = createOutboxStore(registry.db)
   const evidenceStore: EvidenceStore = createEvidenceStore(registry.db)
   const artifacts: ArtifactStore = createArtifactStore(options.artifactsDir)
   const log = options.log ?? (() => {})
@@ -466,7 +483,10 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     const tracked: Promise<void> = run
       .catch((error) => {
         try {
-          recordEvent(id, "run_observer_error", { error: String(error) })
+          // Scrubbed: a delivery's fault could quote a request (rung 4 §8.3).
+          recordEvent(id, "run_observer_error", {
+            error: scrub(String(error), options.delivery?.draftPr.adapter.secrets() ?? []),
+          })
         } catch {
           // close() gave up on this run and took the registry with it: there is nothing left
           // to journal the fault on, and throwing here would be an unhandled rejection.
@@ -770,9 +790,76 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     }
   }
 
+  /** The delivery worker's collaborators, when this controller delivers draft PRs. */
+  const deliveryDeps: DeliveryWorkerDeps | undefined =
+    options.delivery === undefined
+      ? undefined
+      : {
+          adapter: options.delivery.draftPr.adapter,
+          limits: { ...DEFAULT_DELIVERY_LIMITS, ...options.delivery.limits },
+          // Resolves early (never rejects) when the signal aborts: a close is never held by
+          // a wait, and the worker reads the aborted signal as a stop (D26).
+          sleep:
+            options.delivery.sleep ??
+            ((ms, signal) => sleep(ms, undefined, { signal }).catch(() => undefined)),
+          clock: options.delivery.clock ?? Date.now,
+        }
+  /**
+   * The delivery running for each work order, from its start until it has settled. Its own
+   * map, beside `runs` (which close waits on): a join must find a delivery, never some other
+   * tracked run of the same id.
+   */
+  const deliveries = new Map<string, Promise<void>>()
+
+  /**
+   * Run the delivery worker for `id`, tracked (close waits for it), or join the one already
+   * running: approve, reconcile (boot and route) and redeliver all come through here, so one
+   * work order never has two workers. A row left `delivering` by a controller that no longer
+   * delivers, or delivers elsewhere, blocks `delivery_unauthorized`: nothing can deliver it
+   * here, and `redeliver` resumes it once the approved destination is configured again.
+   */
+  function startDelivery(id: string): Promise<void> {
+    const running = deliveries.get(id)
+    if (running !== undefined) return running
+    const unable = (detail: string) => {
+      store.transaction(() => {
+        if (mustGet(id).state !== "delivering") return
+        recordEvent(id, "delivery_refused", { reason: "delivery_unauthorized", detail })
+        transition(id, "delivery_refused", { blockedReason: "delivery_unauthorized" })
+      })
+      return Promise.resolve()
+    }
+    if (deliveryDeps === undefined || options.delivery === undefined)
+      return unable("this controller has no draft-PR delivery configured")
+    // The approval named one repository and base; the controller may have been restarted
+    // configured for another (D27). An intent that does not parse is the worker's to refuse.
+    let intent: DeliveryIntent | undefined
+    try {
+      intent = outbox.get(id)?.intent
+    } catch {
+      intent = undefined
+    }
+    const { repository, baseBranch } = options.delivery.draftPr
+    if (
+      intent !== undefined &&
+      (intent.repository !== repository || intent.baseBranch !== baseBranch)
+    )
+      return unable(
+        `this controller delivers to ${repository} at ${baseBranch}; the approval names ${intent.repository} at ${intent.baseBranch}`,
+      )
+    track(id, runDelivery(ctx, deliveryDeps, id))
+    const settled = (runs.get(id) as Promise<void>).finally(() => {
+      if (deliveries.get(id) === settled) deliveries.delete(id)
+    })
+    deliveries.set(id, settled)
+    return settled
+  }
+
   // The narrow view the run observer, the verifying phase and reconciliation share.
   const ctx: ControllerContext = {
     store,
+    outbox,
+    startDelivery,
     commands,
     evidence: evidenceStore,
     artifacts,
@@ -1660,21 +1747,29 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         )
       if (frozen.candidateDigest !== candidate.digest)
         return invalidated("Candidate", frozen.candidateDigest, candidate.digest)
-      if (frozen.destinationId !== options.exportDir)
-        return invalidated("Export destination", frozen.destinationId, options.exportDir)
+      // Where the bundle goes is part of what was approved: this controller's export directory
+      // for a local export, the one branch of one repository for a draft PR.
+      const destination =
+        frozen.operation === "draft-pr" ? draftPrDestinationId(frozen.delivery) : options.exportDir
+      if (frozen.destinationId !== destination)
+        return invalidated(
+          frozen.operation === "draft-pr" ? "Delivery destination" : "Export destination",
+          frozen.destinationId,
+          destination,
+        )
       // The baseline is re-captured rather than read back from the candidate record: the
       // record is frozen evidence and would agree with the bundle by construction, whereas
       // the question is whether the fixture the candidate was diffed against is still the
       // one on disk.
-      let baselineDigest: string
+      let baseline: Awaited<ReturnType<FactoryOptions["captureBaseline"]>>
       try {
-        baselineDigest = (await options.captureBaseline(row.taskId, abort.signal)).digest
+        baseline = await options.captureBaseline(row.taskId, abort.signal)
       } catch (error) {
         recordEvent(id, "baseline_unavailable", { phase: "export", error: String(error) })
         return refuse(`Baseline could not be captured: ${String(error)}`)
       }
-      if (frozen.baselineDigest !== baselineDigest)
-        return invalidated("Baseline", frozen.baselineDigest, baselineDigest)
+      if (frozen.baselineDigest !== baseline.digest)
+        return invalidated("Baseline", frozen.baselineDigest, baseline.digest)
       // Neither the origin nor the pin can move once the row exists, so these two are
       // consistency assertions: a bundle naming another issue or another pin than the row
       // is a bundle for some other work order, whatever its digest says.
@@ -1703,6 +1798,77 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         // policy the export is re-verified under must be at the pin the bundle froze.
         if (frozen.pin !== policy.environment.pin)
           return invalidated("Generated task pin", String(frozen.pin), policy.environment.pin)
+      }
+
+      // A draft-PR bundle (rung 4 §3.4): everything that can refuse in seconds is asked before
+      // the re-verification, so a refusal never costs a verification. Nothing is written to
+      // GitHub here, and nothing is committed until the approval's own transaction.
+      // Both ways: a local bundle on a draft-PR row is as wrong as the reverse.
+      if (frozen.operation === "export-local" && row.delivery.kind !== "local")
+        return invalidated("Delivery", "export-local", row.delivery.kind)
+      let delivery:
+        | {
+            readonly config: DraftPrConfig
+            readonly payload: DraftPrBundlePayload
+            readonly specText: string
+            readonly issueText: string
+            readonly issueNumber: number
+          }
+        | undefined
+      if (frozen.operation === "draft-pr") {
+        const rowDelivery = row.delivery
+        const fromRow =
+          rowDelivery.kind === "draft-pr"
+            ? {
+                repository: rowDelivery.repository,
+                baseBranch: rowDelivery.baseBranch,
+                branch: rowDelivery.branch,
+                pathPrefix: rowDelivery.pathPrefix,
+                issueStateAtCreate: rowDelivery.issueStateAtCreate,
+              }
+            : rowDelivery
+        if (canon(frozen.delivery) !== canon(fromRow))
+          return invalidated("Delivery", canon(frozen.delivery), canon(fromRow))
+        if (row.origin.kind !== "issue")
+          return refuse("A draft-PR bundle must come from an issue work order")
+        const config = options.delivery?.draftPr
+        if (
+          config === undefined ||
+          config.repository !== frozen.delivery.repository ||
+          config.baseBranch !== frozen.delivery.baseBranch
+        )
+          return refuse(
+            `Delivery not configured for ${frozen.delivery.repository} at ${frozen.delivery.baseBranch}: configure it and restart the controller, then approve again inside the window`,
+          )
+        const reached = protectedChanges(frozen.delivery.pathPrefix, candidate.changedPaths)
+        if (reached.length > 0) {
+          recordEvent(id, "delivery_protected_paths", { paths: reached })
+          return refuse(
+            `The candidate changes ${reached.join(", ")}, which a pull request from the factory may never change; deny it`,
+          )
+        }
+        const problem = await preflightDelivery(config.adapter, frozen.delivery, abort.signal)
+        if (problem !== undefined) {
+          recordEvent(id, "delivery_preflight_refused", { problem })
+          return refuse(`Delivery preflight: ${problem}`)
+        }
+        // The spec and the issue as approved: read once with the digest they are checked
+        // against, so the pull request quotes the bytes the bundle names.
+        let task: ReturnType<typeof readGeneratedTask>
+        try {
+          task = readGeneratedTask(join(options.generatedTasksDir, id))
+        } catch (error) {
+          return refuse(`Generated task unreadable: ${String(error)}`)
+        }
+        if (task.digest !== frozen.taskDigest)
+          return invalidated("Generated task", String(frozen.taskDigest), task.digest)
+        delivery = {
+          config,
+          payload: frozen,
+          specText: task.files.get("spec.md")?.toString("utf8") ?? "",
+          issueText: task.files.get("issue.md")?.toString("utf8") ?? "",
+          issueNumber: row.origin.number,
+        }
       }
 
       let receipt: Receipt
@@ -1761,24 +1927,73 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
 
       // The verify above was an await: a cancel (operator or budget) may have moved the row,
       // and `approve` is not a legal move from where it left it.
+      const approvalId = `ap-${randomUUID()}`
+      const decidedAt = iso()
+      const decidedBy = options.actor ?? "operator"
+      // Built before the transaction: a refusal here must not leave the key in flight.
+      let intent: DeliveryIntent | undefined
+      if (delivery !== undefined)
+        try {
+          intent = buildDeliveryIntent({
+            workOrderId: id,
+            bundleDigest,
+            payload: delivery.payload,
+            candidateArtifact: candidate.artifactDigest,
+            changes,
+            baseline: baseline.files,
+            issueNumber: delivery.issueNumber,
+            specText: delivery.specText,
+            issueText: delivery.issueText,
+            approvedAt: decidedAt,
+            decidedBy,
+            reverificationReceiptId: receipt.id,
+          })
+        } catch (error) {
+          return refuse(`The delivery intent could not be built: ${String(error)}`)
+        }
       try {
         store.transaction(() => {
           store.recordApproval({
-            id: `ap-${randomUUID()}`,
+            id: approvalId,
             workOrderId: id,
             bundleDigest,
             candidateDigest: candidate.digest,
             decision: "approved",
-            decidedBy: options.actor ?? "operator",
-            decidedAt: iso(),
+            decidedBy,
+            decidedAt,
             expiresAt: new Date(since + ttl).toISOString(),
           })
-          transition(id, "approve", {}, { bundleDigest, operationKey: key })
+          if (intent === undefined) {
+            transition(id, "approve", {}, { bundleDigest, operationKey: key })
+            return
+          }
+          // The one authorization to publish (rung 4 §5.1): the intent commits with the
+          // approval and the transition, or none of them does.
+          outbox.insert({ approvalId, intent, now: decidedAt })
+          transition(id, "approve_delivery", {}, { bundleDigest, operationKey: key })
         })
       } catch (error) {
         // The transaction rolled the authority record back with the transition.
         if (!(error instanceof IllegalTransitionError)) throw error
         return refuse("Work order changed state while approving")
+      }
+
+      // D23: `ok` only once delivered. A delivery that blocks or stops leaves the approval
+      // recorded (it happened; the publication did not) and says so.
+      if (intent !== undefined) {
+        await startDelivery(id)
+        const final = mustGet(id)
+        const delivered = store.delivery(id)
+        return finish(key, {
+          ok: final.state === "delivered",
+          state: final.state,
+          message:
+            final.state === "delivered"
+              ? `Delivered as ${delivered?.receiptPath ?? "a draft pull request"}`
+              : final.state === "blocked"
+                ? `Approved; delivery blocked: ${final.blockedReason}. pnpm factory events ${id}`
+                : `Approved; delivery stopped with the work order ${final.state}`,
+        })
       }
 
       let path: string
