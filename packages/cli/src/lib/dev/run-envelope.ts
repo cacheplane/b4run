@@ -131,7 +131,8 @@ function foreignProtocolMajor(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined
   const match = /^(\d+)\.\d+$/.exec(value)
   if (!match) return undefined
-  return match[1] === PROTOCOL_MAJOR ? undefined : match[1]
+  // Compared numerically so a zero-padded major ("01.0") is still major 1.
+  return Number(match[1]) === Number(PROTOCOL_MAJOR) ? undefined : match[1]
 }
 
 /**

@@ -1,7 +1,7 @@
 # AG-UI 1.0 cut-over — move B4.run to `@ag-ui/*` 1.0.1 and adopt the 1.0 wire semantics
 
 **Date:** 2026-10-01
-**Status:** Design approved; not implemented
+**Status:** Implemented on `blove/agui-1-0-cutover` (PR pending)
 **Branch:** `blove/agui-1-0-cutover`
 **Sub-project:** 1 of 4 (see §9 for the others)
 
@@ -167,7 +167,7 @@ B4.run imports it in this sub-project.
 ### 4.2 Imports that move to `@ag-ui/core/schemas`
 
 - `packages/cli/src/lib/dev/agui-handler.ts`: `RunAgentInputSchema`.
-- `packages/ag-ui/src/client.ts`: `AgentCapabilitiesSchema`.
+- `packages/ag-ui/src/client.ts`: `AgentCapabilitiesSchema` (the file arrives with PR #883; it moves its import when it rebases).
 - `packages/ag-ui/test/{conformance,outbound,activities}.test.ts`,
   `packages/cli/test/agui-capabilities.test.ts`: the event and capability
   schemas they assert with.
@@ -281,7 +281,7 @@ expansion → `verifyEvents`. The test spies on `console.warn` and asserts
 4. client-tool park ending in success with `pendingToolCallIds`;
 5. cancelled run;
 6. `RUN_ERROR` with `code`;
-7. `b4.plan` and `b4.subagent` activity snapshots.
+7. `b4.plan` and `b4.subagent` activity snapshots (covered inside fixture 1's full turn).
 
 This is the check that would have caught the grant problem, and it is the
 acceptance test for §5.1's null discipline.
@@ -303,7 +303,7 @@ acceptance test for §5.1's null discipline.
 - `pendingToolCallIds`: present with the parked ids; absent on an ordinary
   success.
 - `test/security-dependencies/copilotkit-v2-runtime.test.ts` runs against
-  CopilotKit 1.76 and is **added to CI's vitest step** in `ci.yml` (it is the
+  CopilotKit 1.76 and is **added to CI** as a step of the `dependency-security-browser` job in `ci.yml` (it is the
   only end-to-end CopilotKit → B4.run check and it is off CI today; adding a
   step shifts the audited workflow fixtures, which are regenerated in the
   same commit).

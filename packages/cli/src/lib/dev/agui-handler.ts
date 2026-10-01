@@ -1295,8 +1295,9 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
             if (!deferClientRecordVoid) await voidClientRecordsIfSettled()
             // One write covers the drained turn, the failed one and the
             // disconnected one, because `toAguiEvents` never throws into its
-            // consumer: an upstream error or abort arrives as a RUN_ERROR event
-            // and the loop above ends normally. All three want the same answer —
+            // consumer: an upstream error or abort arrives as a terminal event
+            // (RUN_ERROR, or RUN_FINISHED cancelled) and the loop above ends
+            // normally. All three want the same answer —
             // a turn that parked and then failed, or parked and then lost its
             // client, is still parked.
             //
