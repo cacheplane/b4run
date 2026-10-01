@@ -22,6 +22,7 @@ const OTHER_ROUTE = "/other#graph"
 
 async function setup(
   options: {
+    readonly files?: Record<string, string>
     readonly config?: string
     readonly middleware?: MiddlewareHandler
     readonly threadAccess?: ThreadAccessPolicy
@@ -34,6 +35,7 @@ async function setup(
     "package.json": '{ "name": "agui-envelope-fixture", "type": "module" }\n',
     "src/app/hello/index.ts": TRIVIAL_ROUTE,
     "src/app/other/index.ts": TRIVIAL_ROUTE,
+    ...options.files,
   }
   for (const [relativePath, source] of Object.entries(files)) {
     const filePath = join(appRoot, relativePath)
@@ -336,5 +338,44 @@ describe("POST /agui/:routeId envelope validation", () => {
 
     expect(response.status).toBe(409)
     expect((await rejection(response)).details?.code).toBe("stale_interrupt")
+  })
+})
+
+describe("unknown top-level envelope keys", () => {
+  it("are tolerated by the loose 1.0 schema and never echoed", async () => {
+    const { handler } = await setup()
+    const response = await handler.fetch(
+      aguiPost(HELLO_ROUTE, {
+        messages: [{ id: "1", role: "user", content: "hello" }],
+        someFutureField: { secret: "do-not-echo" },
+      }),
+    )
+    expect(response.status).toBe(200)
+    const text = await response.text()
+    expect(text).toContain('"type":"RUN_STARTED"')
+    expect(text).not.toContain("someFutureField")
+    expect(text).not.toContain("do-not-echo")
+  })
+
+  it("do not become route params", async () => {
+    // A `[tenant]` route segment names a param. Under 0.0.59 the schema
+    // stripped unknown keys, so an AG-UI body could never fill it; keep that.
+    let seenParams: Record<string, unknown> | undefined
+    const { handler } = await setup({
+      files: { "src/app/[tenant]/index.ts": TRIVIAL_ROUTE },
+      middleware: (request) => {
+        seenParams = request.params
+        return { action: "continue" }
+      },
+    })
+    const response = await handler.fetch(
+      aguiPost("/[tenant]#graph", {
+        messages: [{ id: "1", role: "user", content: "hello" }],
+        tenant: "acme",
+      }),
+    )
+    expect(response.status).toBe(200)
+    await drain(response)
+    expect(seenParams).toEqual({})
   })
 })

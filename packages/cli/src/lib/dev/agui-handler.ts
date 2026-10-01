@@ -331,6 +331,33 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
+/**
+ * The 1.0 schema is loose: unknown top-level keys survive the parse. Route
+ * params are read off the KNOWN `RunAgentInput` fields only, as they were
+ * when 0.0.59 stripped the rest — an AG-UI body key must not name a route
+ * param it was never meant to fill.
+ */
+const RUN_AGENT_INPUT_KEYS = [
+  "threadId",
+  "runId",
+  "protocolVersion",
+  "parentRunId",
+  "state",
+  "messages",
+  "tools",
+  "context",
+  "forwardedProps",
+  "resume",
+] as const satisfies ReadonlyArray<keyof RunAgentInput>
+
+function knownRunAgentInput(input: RunAgentInput): Record<string, unknown> {
+  const known: Record<string, unknown> = {}
+  for (const key of RUN_AGENT_INPUT_KEYS) {
+    if (Object.hasOwn(input, key)) known[key] = input[key]
+  }
+  return known
+}
+
 /** Test seam: the stream normalizer, exported only for unit tests. */
 export const __normalizeB4StreamForTests = normalizeB4Stream
 
@@ -451,7 +478,8 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     }
 
     // The client's response schema (Hashbrown's `hashbrown.responseSchema`),
-    // read off the ORIGINAL JSON because `RunAgentInputSchema` strips the key.
+    // read off the ORIGINAL JSON: it is not a RunAgentInput field, and the
+    // handler judges what the client sent, not the parsed projection of it.
     // Malformed is judged here, before middleware, from the body alone; whether
     // the ROUTE can honor it is judged below, after middleware has admitted
     // the caller and before any side effect. Never ignored: see response-schema.ts.
@@ -509,7 +537,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       assistantId: route.assistantId,
       headers: headersToRecord(request.headers),
       method: request.method,
-      params: extractRouteParams(route.routeId, b4Input.raw),
+      params: extractRouteParams(route.routeId, knownRunAgentInput(b4Input.raw)),
       routeId: route.routeId,
       url: `${requestUrl.pathname}${requestUrl.search}`,
     }
