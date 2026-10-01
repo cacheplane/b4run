@@ -19,6 +19,10 @@
  *    route named itself in `server.agui` — closed by default, opened on
  *    purpose.
  *
+ * The validator also refuses a recognised foreign protocol major
+ * (`protocolVersion`) with a 400 before any side effect; a newer minor of the
+ * implemented line, or an absent or unparseable declaration, is served.
+ *
  * `resume` is not decided here. Whether a turn genuinely resumes is not a
  * property of the envelope: it depends on what is parked in the checkpointer,
  * which is only readable AFTER the thread-access policy has authorized the
@@ -30,6 +34,7 @@
  * Pure: no `node:` imports, so the module is reachable from the edge bundle.
  */
 
+import { PROTOCOL_VERSION } from "@ag-ui/core"
 import type { B4Config } from "@b4run/core"
 
 /** Longest accepted `threadId`/`runId`. Long enough for a UUID, a ULID, or a namespaced id. */
@@ -48,11 +53,13 @@ export type RunEnvelopeRejectionCode =
   | "invalid_state"
   | "client_tools_not_allowed"
   | "forwarded_props_not_allowed"
+  | "unsupported_protocol_version"
 
 export interface RunEnvelopeRejection {
   readonly code: RunEnvelopeRejectionCode
   readonly message: string
-  readonly status: 422
+  /** 422 for a malformed or over-reaching envelope; 400 for a protocol this runtime does not speak. */
+  readonly status: 422 | 400
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -83,6 +90,23 @@ export function resolveRunEnvelopePolicy(
 
 function invalidId(value: unknown): boolean {
   return typeof value !== "string" || value.trim() === "" || value.length > MAX_ENVELOPE_ID_LENGTH
+}
+
+/** The protocol major this runtime implements, from the SDK's own constant. */
+const PROTOCOL_MAJOR = PROTOCOL_VERSION.split(".")[0] ?? PROTOCOL_VERSION
+
+/**
+ * The spec's versioning rule for a producer: a consumer declaring a newer
+ * minor of a line this runtime implements MUST be served; only a recognised
+ * foreign major may be refused, and only before RUN_STARTED. An absent or
+ * unparseable declaration is served — rejection is reserved for a version
+ * this runtime can read and knows it does not speak.
+ */
+function foreignProtocolMajor(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined
+  const match = /^(\d+)\.\d+$/.exec(value)
+  if (!match) return undefined
+  return match[1] === PROTOCOL_MAJOR ? undefined : match[1]
 }
 
 /**
@@ -116,6 +140,14 @@ export function validateRunEnvelope(
       "invalid_run_id",
       `\`runId\` must be a non-blank string of at most ${MAX_ENVELOPE_ID_LENGTH} characters`,
     )
+  }
+  const foreignMajor = foreignProtocolMajor(body.protocolVersion)
+  if (foreignMajor !== undefined) {
+    return {
+      code: "unsupported_protocol_version",
+      message: `This runtime speaks AG-UI protocol ${PROTOCOL_VERSION}; the request declared major ${foreignMajor}.`,
+      status: 400,
+    }
   }
   // Absent is a turn that carries no state, which is ordinary. Present means a
   // state object — `null`, a string and an array are not one, and accepting

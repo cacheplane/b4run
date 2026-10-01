@@ -395,3 +395,43 @@ describe("unknown top-level envelope keys", () => {
     expect(seenParams).toEqual({})
   })
 })
+
+describe("protocolVersion", () => {
+  const policy = resolveRunEnvelopePolicy(undefined, "/hello")
+  const base = { threadId: "t", runId: "r", messages: [] }
+
+  it.each([undefined, "1.0", "1.7"])("serves %s", (protocolVersion) => {
+    expect(
+      validateRunEnvelope(
+        protocolVersion === undefined ? base : { ...base, protocolVersion },
+        policy,
+      ),
+    ).toBeUndefined()
+  })
+
+  it("serves an unparseable declaration (rejection is reserved for a known foreign major)", () => {
+    expect(validateRunEnvelope({ ...base, protocolVersion: "garbage" }, policy)).toBeUndefined()
+  })
+
+  it("refuses a foreign major with 400 unsupported_protocol_version", () => {
+    expect(validateRunEnvelope({ ...base, protocolVersion: "2.0" }, policy)).toMatchObject({
+      code: "unsupported_protocol_version",
+      status: 400,
+    })
+  })
+
+  it("refuses over HTTP before middleware runs", async () => {
+    let middlewareRan = false
+    const { handler } = await setup({
+      middleware: () => {
+        middlewareRan = true
+        return { action: "continue" }
+      },
+    })
+    const response = await handler.fetch(aguiPost(HELLO_ROUTE, { protocolVersion: "2.0" }))
+    expect(response.status).toBe(400)
+    const body = (await response.json()) as { error: { details?: { code?: string } } }
+    expect(body.error.details?.code).toBe("unsupported_protocol_version")
+    expect(middlewareRan).toBe(false)
+  })
+})
