@@ -402,7 +402,7 @@
         "stepIndex": 6,
         "step": "Dependency security regressions",
         "kind": "run",
-        "value": "pnpm exec vitest --run --config test/security-dependencies/vitest.config.ts test/security-dependencies/dependency-resolution.test.ts test/security-dependencies/hono-serve-static-windows.test.ts test/security-dependencies/copilotkit-v2-runtime.test.ts"
+        "value": "pnpm exec vitest --run --config test/security-dependencies/vitest.config.ts test/security-dependencies/dependency-resolution.test.ts test/security-dependencies/hono-serve-static-windows.test.ts"
       },
       {
         "classification": "safe",
@@ -448,6 +448,14 @@
         "classification": "safe",
         "job": "dependency-security-browser",
         "stepIndex": 5,
+        "step": "CopilotKit v2 runtime against B4.run",
+        "kind": "run",
+        "value": "pnpm --filter @b4run/ag-ui build\npnpm exec vitest --run --config test/security-dependencies/vitest.config.ts test/security-dependencies/copilotkit-v2-runtime.test.ts\n"
+      },
+      {
+        "classification": "safe",
+        "job": "dependency-security-browser",
+        "stepIndex": 6,
         "step": "Dependency security browser regressions",
         "kind": "run",
         "value": "pnpm exec tsc -p test/security-dependencies/tsconfig.json --noEmit\npnpm exec playwright test --config test/security-dependencies/playwright.config.ts\n"

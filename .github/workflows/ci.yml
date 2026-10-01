@@ -349,7 +349,7 @@ jobs:
         run: pnpm --filter @b4run/testing exec vitest --run --config vitest.config.ts test/subprocess.test.ts --testNamePattern "Windows process tree|injected Windows tree kill"
 
       - name: Dependency security regressions
-        run: pnpm exec vitest --run --config test/security-dependencies/vitest.config.ts test/security-dependencies/dependency-resolution.test.ts test/security-dependencies/hono-serve-static-windows.test.ts test/security-dependencies/copilotkit-v2-runtime.test.ts
+        run: pnpm exec vitest --run --config test/security-dependencies/vitest.config.ts test/security-dependencies/dependency-resolution.test.ts test/security-dependencies/hono-serve-static-windows.test.ts
 
   dependency-security-browser:
     needs: metadata_scope
@@ -379,6 +379,13 @@ jobs:
 
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
+
+      - name: CopilotKit v2 runtime against B4.run
+        # The example runtime routes import the built @b4run/ag-ui; this is the
+        # only end-to-end CopilotKit → B4.run check, so it runs on Linux here.
+        run: |
+          pnpm --filter @b4run/ag-ui build
+          pnpm exec vitest --run --config test/security-dependencies/vitest.config.ts test/security-dependencies/copilotkit-v2-runtime.test.ts
 
       - name: Dependency security browser regressions
         run: |
