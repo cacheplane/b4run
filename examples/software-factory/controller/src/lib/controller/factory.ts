@@ -43,6 +43,7 @@ import {
   type Bundle,
   type Candidate,
   COMMIT_PATTERN,
+  type CommandIntent,
   type CommandOutcome,
   type FactoryEvent,
   type IssueOrigin,
@@ -87,7 +88,7 @@ import { type BudgetTicker, budgetShortfallFor, startBudgetTicker } from "./budg
 import type { ControllerContext } from "./context.js"
 import { type BoundImage, bindingMoved, boundImageOf, prepareWorkOrderImage } from "./images.js"
 import { finishIntake, observeIntakeTurn, runIntake } from "./intake.js"
-import { reconcileAll, reconcileWorkOrder } from "./reconcile.js"
+import { deliveryCommandKey, reconcileAll, reconcileWorkOrder } from "./reconcile.js"
 import { denyPending, observeRun } from "./run-observer.js"
 import { consumeTurn } from "./turns.js"
 import { runVerification } from "./verify.js"
@@ -491,6 +492,15 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     return outcome
   }
 
+  /**
+   * Replacing an entry is deliberate, not a race: the one caller that tracks over a live entry
+   * is a tracked run handing off to its own successor (a reconcile pass opened from inside it
+   * with `fromTrackedRun`, reattaching a new observer), and the entry it replaces is the run
+   * doing the replacing. Every other caller either asks `isTracked` first or starts the run of
+   * a state it has just moved the row into, which no tracked run holds; a delivery is joined
+   * through `deliveries`, never tracked twice. So it overwrites rather than throws: a throw
+   * would break that handoff.
+   */
   const track = (id: string, run: Promise<void>) => {
     const tracked: Promise<void> = run
       .catch((error) => {
@@ -824,6 +834,79 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   const deliveries = new Map<string, Promise<void>>()
 
   /**
+   * What an `approve` or `redeliver` that started a delivery answers once it has settled (D23):
+   * `ok` only when delivered. A block or a stop leaves the approval recorded (it happened; the
+   * publication did not) and says what to do next.
+   */
+  function deliveryOutcome(row: WorkOrderRow, command: "approve" | "redeliver"): CommandOutcome {
+    const events = `pnpm factory events ${row.id}`
+    if (row.state === "delivered")
+      return {
+        ok: true,
+        state: row.state,
+        message: `Delivered as ${store.delivery(row.id)?.receiptPath ?? "a draft pull request"}`,
+      }
+    const lead = command === "approve" ? "Approved; delivery" : "Delivery"
+    if (row.state === "blocked")
+      return {
+        ok: false,
+        state: row.state,
+        message: `${lead} ${command === "approve" ? "blocked" : "blocked again"}: ${row.blockedReason}. ${events}`,
+      }
+    return {
+      ok: false,
+      state: row.state,
+      message:
+        row.state === "delivering"
+          ? `${lead} stopped with the work order delivering; a restart or \`pnpm factory reconcile ${row.id}\` resumes it. ${events}`
+          : `${lead} stopped with the work order ${row.state}. ${events}`,
+    }
+  }
+
+  /**
+   * Answer the command that committed `id`'s delivery (the `approve` or `redeliver` whose key
+   * its last `approve_delivery` or `redeliver` transition names), once the delivery has
+   * settled. A delivery that stopped with the row still `delivering` (a close, D26) answers
+   * nothing: the key stays open, boot reconcile leaves it for the resumed delivery
+   * (`reconcileAll`), and the replay then returns what the delivery did, not a guess. Never
+   * throws: it runs as a delivery settles, possibly beside a close.
+   */
+  function settleDeliveryCommand(id: string): void {
+    try {
+      const row = mustGet(id)
+      if (row.state === "delivering") return
+      const committed = deliveryCommandKey(store.events(id))
+      if (committed === undefined) return
+      const open = commands.open().find((c) => c.operationKey === committed.operationKey)
+      if (open === undefined) return
+      commands.complete(open.operationKey, deliveryOutcome(row, committed.command))
+    } catch {
+      // A registry a close has taken: the key stays open for the next boot to settle.
+    }
+  }
+
+  /**
+   * Await the delivery a command just committed and answer the command with it. A close while
+   * it ran leaves the row `delivering` and the key open for the delivery the next boot
+   * resumes; touching the registry here would only fail on a closed database.
+   */
+  async function answerDelivery(
+    id: string,
+    key: string,
+    intent: CommandIntent & { readonly command: "approve" | "redeliver" },
+  ): Promise<CommandOutcome> {
+    await startDelivery(id)
+    if (closed)
+      throw new Error(
+        `The controller closed while delivering ${id}; the work order stays delivering, and a restart or \`pnpm factory reconcile ${id}\` resumes it. Replay this ${intent.command} for its answer.`,
+      )
+    // The delivery's settling may already have answered the key (`settleDeliveryCommand`).
+    return (
+      commands.outcome(key, id, intent) ?? finish(key, deliveryOutcome(mustGet(id), intent.command))
+    )
+  }
+
+  /**
    * Run the delivery worker for `id`, tracked (close waits for it), or join the one already
    * running: approve, reconcile (boot and route) and redeliver all come through here, so one
    * work order never has two workers. A row left `delivering` by a controller that no longer
@@ -839,6 +922,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         recordEvent(id, "delivery_refused", { reason: "delivery_unauthorized", detail })
         transition(id, "delivery_refused", { blockedReason: "delivery_unauthorized" })
       })
+      settleDeliveryCommand(id)
       return Promise.resolve()
     }
     if (deliveryDeps === undefined || options.delivery === undefined)
@@ -862,6 +946,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     track(id, runDelivery(ctx, deliveryDeps, id))
     const settled = (runs.get(id) as Promise<void>).finally(() => {
       if (deliveries.get(id) === settled) deliveries.delete(id)
+      settleDeliveryCommand(id)
     })
     deliveries.set(id, settled)
     return settled
@@ -1841,7 +1926,8 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
             : rowDelivery
         if (canon(frozen.delivery) !== canon(fromRow))
           return invalidated("Delivery", canon(frozen.delivery), canon(fromRow))
-        if (row.origin.kind !== "issue")
+        // The frozen origin (equal to the row's, checked above) is what consent named.
+        if (frozen.origin.kind !== "issue")
           return refuse("A draft-PR bundle must come from an issue work order")
         const config = options.delivery?.draftPr
         if (
@@ -1852,7 +1938,11 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           return refuse(
             `Delivery not configured for ${frozen.delivery.repository} at ${frozen.delivery.baseBranch}: configure it and restart the controller, then approve again inside the window`,
           )
-        const reached = protectedChanges(frozen.delivery.pathPrefix, candidate.changedPaths)
+        // Both the record's list and the approved bytes' own paths: the intent is built from
+        // the bytes, so a record that under-reports them must not let one through.
+        const reached = protectedChanges(frozen.delivery.pathPrefix, [
+          ...new Set([...candidate.changedPaths, ...Object.keys(changes)]),
+        ])
         if (reached.length > 0) {
           recordEvent(id, "delivery_protected_paths", { paths: reached })
           return refuse(
@@ -1879,7 +1969,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           payload: frozen,
           specText: task.files.get("spec.md")?.toString("utf8") ?? "",
           issueText: task.files.get("issue.md")?.toString("utf8") ?? "",
-          issueNumber: row.origin.number,
+          issueNumber: frozen.origin.number,
         }
       }
 
@@ -1980,9 +2070,11 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
             return
           }
           // The one authorization to publish (rung 4 §5.1): the intent commits with the
-          // approval and the transition, or none of them does.
-          outbox.insert({ approvalId, intent, now: decidedAt })
+          // approval and the transition, or none of them does. The transition first: a second
+          // approval that raced this one through the re-verification is then refused as an
+          // illegal move, not thrown out of the outbox's one-intent-per-work-order constraint.
           transition(id, "approve_delivery", {}, { bundleDigest, operationKey: key })
+          outbox.insert({ approvalId, intent, now: decidedAt })
         })
       } catch (error) {
         // The transaction rolled the authority record back with the transition.
@@ -1992,21 +2084,8 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
 
       // D23: `ok` only once delivered. A delivery that blocks or stops leaves the approval
       // recorded (it happened; the publication did not) and says so.
-      if (intent !== undefined) {
-        await startDelivery(id)
-        const final = mustGet(id)
-        const delivered = store.delivery(id)
-        return finish(key, {
-          ok: final.state === "delivered",
-          state: final.state,
-          message:
-            final.state === "delivered"
-              ? `Delivered as ${delivered?.receiptPath ?? "a draft pull request"}`
-              : final.state === "blocked"
-                ? `Approved; delivery blocked: ${final.blockedReason}. pnpm factory events ${id}`
-                : `Approved; delivery stopped with the work order ${final.state}`,
-        })
-      }
+      if (intent !== undefined)
+        return answerDelivery(id, key, { command: "approve", args: { revision, bundleDigest } })
 
       let path: string
       try {
@@ -2198,16 +2277,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         if (!(error instanceof IllegalTransitionError)) throw error
         return refuse("Work order changed state while redelivering")
       }
-      await startDelivery(id)
-      const final = mustGet(id)
-      return finish(key, {
-        ok: final.state === "delivered",
-        state: final.state,
-        message:
-          final.state === "delivered"
-            ? `Delivered as ${store.delivery(id)?.receiptPath ?? "a draft pull request"}`
-            : `Delivery ${final.state === "blocked" ? `blocked again: ${final.blockedReason}` : `stopped; work order is ${final.state}`}`,
-      })
+      return answerDelivery(id, key, { command: "redeliver", args: { revision, bundleDigest } })
     },
 
     async cancel(id, operationKey) {

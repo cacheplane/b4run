@@ -3,7 +3,7 @@ import type { DraftPrBundlePayload } from "../review/bundle.js"
 import { type DeliveryAdapter, DeliveryError } from "./adapter.js"
 import { blobId } from "./git-objects.js"
 import { FACTORY_BOT_LOGIN, protectedPathsIn, repositoryPath } from "./guard.js"
-import type { DeliveryIntent } from "./outbox.js"
+import { type DeliveryIntent, DeliveryIntentSchema } from "./outbox.js"
 import { pullTitle } from "./pr-body.js"
 import { scrub } from "./scrub.js"
 
@@ -63,7 +63,8 @@ export async function preflightDelivery(
  * The outbox intent an approval commits: everything the worker will need, read now from
  * sources the approval just checked (the frozen bundle, the re-captured baseline, the task
  * directory read with the digest it was compared against), so a resumed worker re-reads
- * nothing that could have moved.
+ * nothing that could have moved. Validated here, so an intent the outbox would refuse (an
+ * empty actor, say) throws to `approve`'s refusal rather than inside its transaction.
  */
 export function buildDeliveryIntent(input: {
   readonly workOrderId: string
@@ -102,7 +103,7 @@ export function buildDeliveryIntent(input: {
       }
     })
     .sort((a, b) => (a.path < b.path ? -1 : 1))
-  return {
+  return DeliveryIntentSchema.parse({
     version: 1,
     workOrderId: input.workOrderId,
     bundleDigest: input.bundleDigest,
@@ -127,5 +128,5 @@ export function buildDeliveryIntent(input: {
       receiptId: payload.receiptId,
       reverificationReceiptId: input.reverificationReceiptId,
     },
-  }
+  })
 }

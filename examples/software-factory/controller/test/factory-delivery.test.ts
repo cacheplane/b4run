@@ -1,3 +1,7 @@
+import { createHash } from "node:crypto"
+import { readFileSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
+import { DatabaseSync } from "node:sqlite"
 import { afterEach, describe, expect, it } from "vitest"
 import type { FactoryOptions } from "../src/lib/controller/factory.ts"
 import { DeliveryError } from "../src/lib/delivery/adapter.ts"
@@ -447,6 +451,230 @@ describe("redeliver", () => {
     expect(fake.writes()).toEqual([])
   })
 })
+
+describe("the approval's start path", () => {
+  const approveAs = (row: WorkOrderRow & { bundleDigest: string }, operationKey: string) =>
+    (harness as IssueHarness).factory.approve(row.id, {
+      revision: row.revision,
+      bundleDigest: row.bundleDigest,
+      operationKey,
+    })
+
+  it("refuses a second approval racing the first under its own key, and delivers once", async () => {
+    const fake = github()
+    harness = await issueHarness({ delivery: delivery(fake) })
+    const row = await harness.toBundle({ deliver: DRAFT_PR })
+    const [first, second] = await Promise.allSettled([approveAs(row, "k1"), approveAs(row, "k2")])
+    expect(first).toMatchObject({ status: "fulfilled", value: { ok: true, state: "delivered" } })
+    expect(second).toMatchObject({
+      status: "fulfilled",
+      value: { ok: false, message: "Work order changed state while approving" },
+    })
+    expect(
+      registryRows(
+        row.id,
+        "SELECT operation_key, outcome FROM commands WHERE work_order_id = ? AND command = 'approve' ORDER BY operation_key",
+      ),
+    ).toMatchObject([
+      { operation_key: "k1", outcome: expect.stringContaining('"ok":true') },
+      { operation_key: "k2", outcome: expect.stringContaining('"ok":false') },
+    ])
+    expect(fake.pulls).toHaveLength(1)
+  })
+
+  it("answers an approval a close interrupted with the delivery the next boot finished", async () => {
+    const fake = github()
+    harness = await issueHarness({
+      delivery: { ...delivery(fake), sleep: (_ms, signal) => aborted(signal) },
+    })
+    const row = await harness.toBundle({ deliver: DRAFT_PR })
+    fake.fail("createBranch", new DeliveryError("transient", "HTTP 502", undefined, 502))
+    const approving = approve(row)
+    await waitForEvent(row.id, "delivery_retry")
+    await harness.factory.close()
+    await expect(approving).rejects.toThrow(/closed while delivering .* resumes it/)
+    await harness.boot({ delivery: delivery(fake) })
+    const final = await harness.factory.waitFor(row.id, (r) => r.state !== "delivering", 10_000)
+    expect(final.state).toBe("delivered")
+    // The replay is the approval's answer, and it is the delivery's, not the boot's guess.
+    expect(await approve(row)).toMatchObject({
+      ok: true,
+      state: "delivered",
+      message: expect.stringContaining("/pull/1000"),
+    })
+    expect(fake.pulls).toHaveLength(1)
+  })
+
+  it("refuses an intent that does not validate rather than leaving the key in flight", async () => {
+    const fake = github()
+    harness = await issueHarness({ delivery: delivery(fake), actor: "" })
+    const row = await harness.toBundle({ deliver: DRAFT_PR })
+    expect(await approve(row)).toMatchObject({
+      ok: false,
+      state: "awaiting_approval",
+      message: expect.stringMatching(/^The delivery intent could not be built/),
+    })
+    expect(outboxRows(row.id)).toBe(0)
+    expect(fake.writes()).toEqual([])
+  })
+
+  it("refuses a candidate whose recorded changed paths reach a protected path", async () => {
+    const fake = github()
+    harness = await issueHarness({ delivery: delivery(fake) })
+    const row = await harness.toBundle({ deliver: DRAFT_PR })
+    writeRegistry(
+      "UPDATE candidates SET changed_paths = ? WHERE work_order_id = ?",
+      JSON.stringify([SOURCE, ".github/workflows/ci.yml"]),
+      row.id,
+    )
+    expect(await approve(row)).toMatchObject({
+      ok: false,
+      state: "awaiting_approval",
+      message: expect.stringMatching(/\.github\/workflows\/ci\.yml, which a pull request/),
+    })
+    expect(outboxRows(row.id)).toBe(0)
+    expect(fake.calls).not.toContain("open")
+  })
+
+  it("refuses approved bytes that reach a protected path the record does not list", async () => {
+    const fake = github()
+    harness = await issueHarness({ delivery: delivery(fake) })
+    const row = await harness.toBundle({ deliver: DRAFT_PR })
+    // A baseline that holds the workflow too, so nothing but the guard can refuse it.
+    await harness.factory.close()
+    await harness.boot({
+      delivery: delivery(fake),
+      captureBaseline: async () => ({
+        digest: "a".repeat(64),
+        files: new Map([
+          [SOURCE, BASELINE_TEXT],
+          ["packages/devkit/test/process.test.ts", "spec\n"],
+          [".github/workflows/ci.yml", "name: CI\n"],
+        ]),
+      }),
+    })
+    // The artifact the candidate names is swapped for bytes that also change a workflow; its
+    // recorded changed paths still name only the source.
+    const bytes = JSON.stringify({ [SOURCE]: REPAIRED_TEXT, ".github/workflows/ci.yml": "x\n" })
+    const digest = createHash("sha256").update(bytes).digest("hex")
+    writeFileSync(join((harness as IssueHarness).dir, "artifacts", `${digest}.txt`), bytes)
+    writeRegistry(
+      "UPDATE candidates SET artifact_digest = ? WHERE work_order_id = ?",
+      digest,
+      row.id,
+    )
+    expect(await approve(row)).toMatchObject({
+      ok: false,
+      state: "awaiting_approval",
+      message: expect.stringMatching(/\.github\/workflows\/ci\.yml, which a pull request/),
+    })
+    expect(outboxRows(row.id)).toBe(0)
+    expect(fake.writes()).toEqual([])
+  })
+
+  it("refuses a row whose delivery no longer matches the frozen one", async () => {
+    const fake = github()
+    harness = await issueHarness({ delivery: delivery(fake) })
+    const row = await harness.toBundle({ deliver: DRAFT_PR })
+    writeRegistry(
+      "UPDATE work_orders SET delivery = json_set(delivery, '$.issueStateAtCreate', 'closed') WHERE id = ?",
+      row.id,
+    )
+    expect(await approve(row)).toMatchObject({
+      ok: false,
+      state: "awaiting_approval",
+      message: "Delivery changed since the bundle was frozen; freeze a new bundle",
+    })
+    expect(outboxRows(row.id)).toBe(0)
+    expect(fake.calls).not.toContain("open")
+  })
+
+  it("refuses a specification edited after the freeze (D18)", async () => {
+    const fake = github()
+    harness = await issueHarness({ delivery: delivery(fake) })
+    const row = await harness.toBundle({ deliver: DRAFT_PR })
+    const spec = join(harness.generated, row.id, "spec.md")
+    writeFileSync(spec, `${readFileSync(spec, "utf8")}\nEDITED\n`)
+    expect(await approve(row)).toMatchObject({
+      ok: false,
+      state: "awaiting_approval",
+      message: expect.stringMatching(/changed since the bundle was frozen/),
+    })
+    expect(outboxRows(row.id)).toBe(0)
+    expect(fake.writes()).toEqual([])
+  })
+
+  it("ends a delivery cancelled mid-way cancelled, with no pull request (D24)", async () => {
+    const fake = github()
+    let release: () => void = () => {}
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    harness = await issueHarness({
+      delivery: {
+        ...delivery(fake),
+        sleep: (_ms, signal) => Promise.race([held, aborted(signal)]),
+      },
+    })
+    const row = await harness.toBundle({ deliver: DRAFT_PR })
+    fake.fail("createBranch", new DeliveryError("transient", "HTTP 502", undefined, 502))
+    const approving = approve(row)
+    await waitForEvent(row.id, "delivery_retry")
+    const cancelling = harness.factory.cancel(row.id)
+    await harness.factory.waitFor(row.id, (r) => r.state !== "delivering")
+    release()
+    expect(await cancelling).toMatchObject({ ok: true, state: "cancelled" })
+    // The approval answers when its worker stops, as the cancel takes the row.
+    const answered = await approving
+    expect(answered).toMatchObject({ ok: false })
+    expect(["cancel_requested", "cancelled"]).toContain(answered.state)
+    expect(harness.factory.show(row.id)).toMatchObject({ state: "cancelled" })
+    expect(fake.pulls).toEqual([])
+    expect(fake.writes()).not.toContain("createDraftPull")
+    // The approval's key is answered once, and a replay returns that answer.
+    expect(await approve(row)).toEqual(answered)
+  })
+
+  it("leaves no outbox intent when a cancel lands during the re-verification", async () => {
+    const fake = github()
+    harness = await issueHarness({ delivery: delivery(fake) })
+    const row = await harness.toBundle({ deliver: DRAFT_PR })
+    harness.verifier.script = { verdict: "pass", delayMs: 300 }
+    const approving = approve(row)
+    await waitForEvent(row.id, "approve_started")
+    await new Promise((r) => setTimeout(r, 50))
+    expect(await harness.factory.cancel(row.id)).toMatchObject({ ok: true, state: "cancelled" })
+    expect(await approving).toMatchObject({
+      ok: false,
+      state: "cancelled",
+      message: "Work order changed state while approving",
+    })
+    expect(outboxRows(row.id)).toBe(0)
+    expect(fake.writes()).toEqual([])
+  })
+})
+
+function registryRows(id: string, sql: string): Record<string, unknown>[] {
+  const db = new DatabaseSync(join((harness as IssueHarness).dir, "registry.sqlite"))
+  try {
+    return db.prepare(sql).all(id) as Record<string, unknown>[]
+  } finally {
+    db.close()
+  }
+}
+
+function outboxRows(id: string): number {
+  return registryRows(id, "SELECT 1 FROM delivery_outbox WHERE work_order_id = ?").length
+}
+
+function writeRegistry(sql: string, ...params: string[]): void {
+  const db = new DatabaseSync(join((harness as IssueHarness).dir, "registry.sqlite"))
+  try {
+    db.prepare(sql).run(...params)
+  } finally {
+    db.close()
+  }
+}
 
 function aborted(signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
