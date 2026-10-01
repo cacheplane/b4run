@@ -90,7 +90,9 @@ function createFixtureServer(): Server {
       if (recordedRequest.method === "GET") {
         response.writeHead(capabilitiesStatus, { "content-type": "application/json" })
         response.end(
-          JSON.stringify(capabilitiesStatus === 200 ? capabilitiesDocument : { error: "Not found" }),
+          JSON.stringify(
+            capabilitiesStatus === 200 ? capabilitiesDocument : { error: "Not found" },
+          ),
         )
         return
       }
