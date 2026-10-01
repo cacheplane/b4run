@@ -1282,4 +1282,40 @@ describe("streamed tool-call arguments", () => {
       EventType.RUN_ERROR,
     ])
   })
+
+  test("an abort the consumer reports as a cancel ends the run with the cancelled outcome", async () => {
+    async function* aborted(): AsyncGenerator<B4AgentStreamChunk> {
+      yield { type: "token", data: "partial" }
+      throw new Error("AG-UI request aborted")
+    }
+    const out = []
+    for await (const ev of toAguiEvents(aborted(), CTX, {
+      idFactory: createCounterIdFactory(),
+      cancelled: () => true,
+    })) {
+      out.push(ev)
+    }
+    expect(out.map((e) => e.type)).toEqual([
+      EventType.RUN_STARTED,
+      EventType.TEXT_MESSAGE_START,
+      EventType.TEXT_MESSAGE_CONTENT,
+      EventType.TEXT_MESSAGE_END,
+      EventType.RUN_FINISHED,
+    ])
+    expect(out.at(-1)).toMatchObject({ outcome: { type: "cancelled" } })
+    expect(out.at(-1)).not.toHaveProperty("result")
+  })
+
+  test("an abort the consumer does not report as a cancel is still RUN_ERROR", async () => {
+    // biome-ignore lint/correctness/useYield: the upstream throws before producing a chunk
+    async function* aborted(): AsyncGenerator<B4AgentStreamChunk> {
+      throw new Error("AG-UI request aborted")
+    }
+    const out = []
+    for await (const ev of toAguiEvents(aborted(), CTX, { cancelled: () => false })) out.push(ev)
+    expect(out.at(-1)).toMatchObject({
+      type: EventType.RUN_ERROR,
+      message: "AG-UI request aborted",
+    })
+  })
 })

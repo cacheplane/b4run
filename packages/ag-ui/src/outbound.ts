@@ -41,6 +41,13 @@ export type AguiOutboundEvent =
 
 export interface ToAguiOptions {
   readonly idFactory?: IdFactory
+  /**
+   * Asked once, when the upstream stream throws: `true` means whoever was
+   * running the turn stopped it (a cancel endpoint, a server shutdown), and
+   * the run ends `RUN_FINISHED { outcome: cancelled }` — stopped, not failed,
+   * nothing to resume. `false` or absent: the throw is a failure, `RUN_ERROR`.
+   */
+  readonly cancelled?: () => boolean
 }
 
 function stringifyArgs(input: unknown): string {
@@ -349,6 +356,15 @@ export async function* toAguiEvents(
     yield* flushAllText()
     yield* closeStreamedToolCalls()
     yield* ledger.settle()
+    if (options.cancelled?.() === true) {
+      yield {
+        type: EventType.RUN_FINISHED,
+        threadId: ctx.threadId,
+        runId: ctx.runId,
+        outcome: { type: "cancelled" },
+      }
+      return
+    }
     // An upstream error that names a machine-readable `code` (the runtime's
     // middleware `after` rejection does) keeps it on the wire; anything else
     // stays message-only, exactly as before.

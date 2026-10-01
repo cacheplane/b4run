@@ -40,6 +40,17 @@ const BLOCKING_ROUTE = [
 // A trivial second route, used only to prove that a route recorded in thread
 // metadata by a REJECTED request (one that lost the concurrency gate) is not
 // the one actually running.
+// A route that sleeps long enough for a cancel to land, then returns. Used
+// by the AG-UI cancelled-outcome test; AG-UI runs cannot pass the blocking
+// route its release file.
+const SLEEPY_ROUTE = [
+  "export const graph = async () => {",
+  "  await new Promise((r) => setTimeout(r, 5000))",
+  "  return { ok: true }",
+  "}",
+  "",
+].join("\n")
+
 const OTHER_ROUTE = ["export const graph = async () => ({ ok: true })", ""].join("\n")
 
 // A route that fails immediately, used to prove the run slot is released on
@@ -112,6 +123,7 @@ async function setupBlockingRoute(options: { readonly apSseHeartbeatIntervalMs?:
     "src/app/blocking/index.ts": BLOCKING_ROUTE,
     "src/app/boom/index.ts": BOOM_ROUTE,
     "src/app/other/index.ts": OTHER_ROUTE,
+    "src/app/sleepy/index.ts": SLEEPY_ROUTE,
   }
   for (const [rel, body] of Object.entries(files)) {
     const filePath = join(appRoot, rel)
@@ -246,6 +258,31 @@ async function readSseReaderText(reader: ReadableStreamDefaultReader<Uint8Array>
     if (done) return text
     text += decoder.decode(value, { stream: true })
   }
+}
+
+async function waitForBusy(
+  handler: Awaited<ReturnType<typeof createRuntimeFetchHandler>>,
+  threadId: string,
+): Promise<void> {
+  const deadline = Date.now() + 5000
+  while (Date.now() < deadline) {
+    const response = await handler.fetch(new Request(`http://localhost/threads/${threadId}`))
+    if (response.status === 200) {
+      const body = (await response.json()) as { status?: string }
+      if (body.status === "busy") return
+    } else {
+      await response.text()
+    }
+    await new Promise((r) => setTimeout(r, 25))
+  }
+  throw new Error(`thread ${threadId} never became busy`)
+}
+
+function sseFrames(text: string): Array<Record<string, unknown>> {
+  return text
+    .split("\n\n")
+    .map((frame) => frame.split("\n").find((line) => line.startsWith("data: ")))
+    .flatMap((line) => (line ? [JSON.parse(line.slice(6)) as Record<string, unknown>] : []))
 }
 
 function cancelRequest(threadId: string): Request {
@@ -673,6 +710,26 @@ describe("AP concurrency gate", () => {
 })
 
 describe("POST /threads/:id/cancel", () => {
+  it("ends an AG-UI run with RUN_FINISHED cancelled, not RUN_ERROR", async () => {
+    const { handler } = await setupBlockingRoute()
+    const threadId = "t-agui-cancelled-outcome"
+
+    const runPromise = handler.fetch(agUiRunRequest(threadId, "/sleepy#graph"))
+    await waitForBusy(handler, threadId)
+    const cancelResponse = await handler.fetch(cancelRequest(threadId))
+    expect(cancelResponse.status).toBe(200)
+    await cancelResponse.json()
+
+    const run = await runPromise
+    expect(run.status).toBe(200)
+    const frames = sseFrames(await run.text())
+    expect(frames.at(-1)).toMatchObject({
+      type: "RUN_FINISHED",
+      outcome: { type: "cancelled" },
+    })
+    expect(frames.map((frame) => frame.type)).not.toContain("RUN_ERROR")
+  }, 30_000)
+
   it("404s for an unknown thread", async () => {
     const { handler } = await setupBlockingRoute()
 

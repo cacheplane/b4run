@@ -1106,7 +1106,16 @@ it.each(["failure", "cancellation"])(
       if (mode === "cancellation") expect(runRegistry.cancel("attach-terminal")).toBe(true)
       else release()
       const { events } = await running
-      expect(events.some((event) => event.type === "RUN_ERROR")).toBe(true)
+      if (mode === "cancellation") {
+        // AG-UI 1.0: a cancel ends the run as cancelled, not as a failure.
+        expect(events.map((event) => event.type)).not.toContain("RUN_ERROR")
+        expect(events.at(-1)).toMatchObject({
+          type: "RUN_FINISHED",
+          outcome: { type: "cancelled" },
+        })
+      } else {
+        expect(events.some((event) => event.type === "RUN_ERROR")).toBe(true)
+      }
       expect(await attachment.next()).toEqual({
         type: "done",
         output:

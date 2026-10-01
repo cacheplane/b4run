@@ -1208,14 +1208,21 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                 threadId,
                 runId: input.runId,
               },
+              {
+                // A cancel endpoint or a server shutdown stopped the turn; a
+                // client disconnect did not (nobody is listening for the
+                // frame, and attachers read the same terminal below).
+                cancelled: () => run.cancelled || shutdownSignal.aborted,
+              },
             )) {
-              // The translator catches upstream errors and aborts as RUN_ERROR,
-              // so the raw stream may never produce a terminal chunk. Preserve
-              // that outcome for AP viewers instead of reporting null success.
-              if (event.type === "RUN_ERROR" && terminalChunk === undefined) {
-                terminalChunk = {
-                  type: "done",
-                  output: run.cancelled ? { cancelled: true } : { error: event.message },
+              // The translator catches upstream errors and aborts, so the raw
+              // stream may never produce a terminal chunk. Preserve the
+              // outcome for AP viewers instead of reporting null success.
+              if (terminalChunk === undefined) {
+                if (event.type === "RUN_ERROR") {
+                  terminalChunk = { type: "done", output: { error: event.message } }
+                } else if (event.type === "RUN_FINISHED" && event.outcome?.type === "cancelled") {
+                  terminalChunk = { type: "done", output: { cancelled: true } }
                 }
               }
               safeEnqueue(controller, encoder.encode(encodeAgUiSse(event, accept)))
