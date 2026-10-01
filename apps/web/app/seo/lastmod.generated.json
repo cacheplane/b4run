@@ -42,9 +42,9 @@
       "recordDigest": "9c823bb6e0c77817744984458823169e48c1921d1b3e3234569240927e23e8d1"
     },
     "/docs/ag-ui": {
-      "lastModified": "2026-10-01T02:13:42.000Z",
-      "sourceDigest": "7260e8fa1996026a632364258a85c0652c0652031b35799f623b674da4bb4cfc",
-      "recordDigest": "48ffa8f7c154dc63d1e54ec7801dd40857c52e68acf842ad63ab52d59f557b48"
+      "lastModified": "2026-10-01T20:30:30.000Z",
+      "sourceDigest": "7492b7d4464383d20b325ddcdf6a9162af1a986a7f738d431227c50210039b33",
+      "recordDigest": "7d15cf90098c0cd72908e8edf741ddde3129d89261b1511fe79f20dc766d7801"
     },
     "/docs/agents": {
       "lastModified": "2026-09-24T01:19:36.000Z",
@@ -57,9 +57,9 @@
       "recordDigest": "5791af3447e6d297b4ea73ed3c7e41e863f3d103810b8497fe3e4f614ad903ec"
     },
     "/docs/api/ag-ui": {
-      "lastModified": "2026-09-28T18:58:36.000Z",
-      "sourceDigest": "273050f038c8a94e9cb5287df0c33339ecee0acc614fef6d91e8193f1389e17c",
-      "recordDigest": "6c9bd23a6b3e7afd5d155d3c9797269bb25a808ab4327124d826fbc29cf260a4"
+      "lastModified": "2026-10-01T20:30:30.000Z",
+      "sourceDigest": "52ffb22ae7a2569f06798c623ce50ba4883a72e019da474a71a41864101c1f5c",
+      "recordDigest": "f27e37187477fbf63ea23f72774f29e2b7b1404f9220dc71f4d9ed52009b75f1"
     },
     "/docs/api/cli": {
       "lastModified": "2026-09-25T17:07:15.000Z",
@@ -137,9 +137,9 @@
       "recordDigest": "292ebc4a939c14b381da1af65e22e97b55df9ecbe48323a8fbe6de457a9afdc7"
     },
     "/docs/approval-grants": {
-      "lastModified": "2026-09-30T21:52:21.000Z",
-      "sourceDigest": "70592d2602e5012d981327954fbfa48fa3464d77e0129ea46fe80db86699def6",
-      "recordDigest": "69d453c7f5ac21570837109b410229befee2b8752f22091845d775d828386325"
+      "lastModified": "2026-10-01T20:30:30.000Z",
+      "sourceDigest": "abaf6da2a064ec6c2092ea72028f03663538cc2308b4bbcb3b7f35f200da8b2f",
+      "recordDigest": "fd5da11789b2939b4690e161043c458d674a44be7872c455ef2879c7f0c4b626"
     },
     "/docs/blueprints": {
       "lastModified": "2026-09-23T17:16:40.000Z",
