@@ -429,12 +429,14 @@ describe("local Mermaid UI compatibility harness", () => {
       readManifest(resolve(repositoryRoot, "package.json")).scripts,
       "root scripts",
     )
-    // The security-dependencies hook must stay on the end of the root
-    // typecheck; `test/tsconfig.json` in front of it covers the rest of the
-    // root test tree, which no gate reached before.
+    // The security-dependencies hook must stay in the root typecheck;
+    // `test/tsconfig.json` in front of it covers the rest of the root test
+    // tree, and the k8s-compat and code-fixer lanes typecheck after it.
     expect(scripts.typecheck).toBe(
       "turbo run typecheck && tsc -p test/tsconfig.json --noEmit " +
-        "&& tsc -p test/security-dependencies/tsconfig.json --noEmit",
+        "&& tsc -p test/security-dependencies/tsconfig.json --noEmit " +
+        "&& tsc -p test/k8s-compat/tsconfig.json --noEmit " +
+        "&& tsc -p test/code-fixer/tsconfig.json --noEmit",
     )
   })
 
@@ -451,17 +453,17 @@ describe("local Mermaid UI compatibility harness", () => {
       expect(lockUiDependencyChain(importerName)).toEqual({
         dompurify: "3.4.13",
         mermaid: "11.16.1",
-        reactCore: { specifier: "^1.70.0", version: "1.70.0" },
+        reactCore: { specifier: "1.76.0", version: "1.76.0" },
         streamdown: "1.6.11",
       })
     }
     for (const receipt of receipts) {
       expect(receipt).toMatchObject({
-        appReactCoreRange: "^1.70.0",
+        appReactCoreRange: "1.76.0",
         dompurify: "3.4.13",
         mermaid: "11.16.1",
         mermaidDompurifyRange: "^3.3.3",
-        reactCore: "1.70.0",
+        reactCore: "1.76.0",
         reactCoreStreamdownRange: "^1.3.0",
         streamdown: "1.6.11",
         streamdownMermaidRange: "^11.11.0",
