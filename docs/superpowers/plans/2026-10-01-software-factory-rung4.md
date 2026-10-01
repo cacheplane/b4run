@@ -1,8 +1,10 @@
 # Software Factory Rung 4 Implementation Plan: An Approved Change as a Draft Pull Request
 
+> **Amended after review (2026-10-01).** An independent review executed PR 1 and PRs 3-4 task by task in a scratch checkout (green at every task but Task 1's lint) and found no Critical issue, nine Important ones and a list of minors. Each is applied in place and listed with where in "Review amendments (2026-10-01)" at the end; the amended code was prototyped again and run green before this revision. Decisions D25-D30 were added and D2, D3 amended.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Prototyped before it was written (2026-10-01).** Every code block in Tasks 1-21 was written, formatted with Biome, typechecked and run in this worktree at `4e4941e4e`, then removed so that only this plan is committed. The controller's unit suite ran green (1,239 passed, 1 skipped: the replay that needs Task 21's recorded fixture) except one test that builds an image and needs Docker, which was not running on the host (`test/runtime.test.ts`, "dispatches to the one builder on its route"; it fails the same way without these changes). The workflow contract file ran green (180 tests), and so did `pnpm test:release-integrity`. What could not run here: the opt-in scratch lane (Task 21, needs Brian's app and scratch repository), the live run (Task 23), and `pnpm test:release-controller` as a whole (only its contract file and the integrity tests were run). The code is formatted as Biome left it; a task's diff hunks are against `main` at `4e4941e4e` and apply with `git apply` from the repository root unless a task says to edit by hand.
+> **Prototyped before it was written (2026-10-01).** Every code block in Tasks 1-21 was written, formatted with Biome, typechecked and run in this worktree at `4e4941e4e`, then removed so that only this plan is committed. After the review amendments the controller's unit suite ran green (1,255 passed, 1 skipped: the replay that needs Task 21's recorded fixture) except one test that builds an image and needs Docker, which was not running on the host (`test/runtime.test.ts`, "dispatches to the one builder on its route"; it fails the same way without these changes). The workflow contract file and the evaluator's tests ran green (190 tests), and so did `pnpm test:release-integrity` (33) and the whole `pnpm test:release-controller`. What could not run here: the opt-in scratch lane (Task 21, needs Brian's app and scratch repository) and the live run (Task 23). The code is formatted as Biome left it; a task's diff hunks are against `main` at `4e4941e4e` and apply with `git apply` from the repository root unless a task says to edit by hand.
 
 **Goal:** Approving a bundle publishes exactly that change as a draft pull request on `cacheplane/b4run`, once, from a credential only the controller holds; the factory says `delivered` only after it has read the pull request back and found its bytes, and every way that can fail is a recorded refusal, never a blind retry or a guess.
 
@@ -22,9 +24,9 @@ Each *Recommend:* is what the tasks implement. Brian decides each before the PR 
 
 **D1. The PR numbering.** *Recommend:* the user-facing numbering, mapped to the spec's sub-projects: **PR 1** = spec sub-project 1 (CI guards); **the operator setup** = spec "Operator setup"; **PR 3** = sub-project 2 (delivery bound in the bundle, controller only); **PR 4** = sub-project 3 (the GitHub adapter); **PR 5** = sub-project 4 (the live run). There is no PR 2: the setup is not a PR. PR 1 and PR 3 run in parallel worktrees; PR 4 needs PR 3; PR 5 needs everything, and **PR 1 must be merged before any `factory/*` branch exists on `cacheplane/b4run`** (Task 23 Step 1 checks it).
 
-**D2. One statement of the guard, read by both sides.** *Recommend:* `src/lib/delivery/guard.json` holds the branch prefix (`factory/`), the bot login (`b4-factory[bot]`) and the delivery-protected paths. The controller reads it (`guard.ts`); the workflow contract test reads it and evaluates every guarded job against it. Renaming the app means editing one JSON value and the three workflow `if:`s, and the contract test fails until both agree. Blocks PR 1 (it lands there, as data).
+**D2. One statement of the guard, read by both sides.** *Recommend (amended, D30):* `src/lib/delivery/guard.json` holds the branch prefix (`factory/`), the bot login (`b4-factory[bot]`), the delivery-protected paths (what a candidate may never change) and, separately, the run-from-branch paths (what `main` must not have changed since the pin). The controller reads it (`guard.ts`); the workflow contract test reads it and evaluates every guarded job against it. Renaming the app means editing one JSON value and the three workflow `if:`s, and the contract test fails until both agree. Blocks PR 1 (it lands there, as data).
 
-**D3. A behavioural guard test, and the triggers that would bypass it.** *Recommend:* the contract test does not search the `if:` text. A ~200-line evaluator for the GitHub expression language (`scripts/release/test/github-expression.mjs`, fails closed on anything it does not understand) answers "does this job run?" for three factory pull requests (the bot on `factory/*`, a person on `factory/*`, the bot on another branch) and for a person's ordinary PR (which must still run). This catches a guard placed on the wrong side of an `||`, which a substring test passes. It also refuses, in every workflow, `pull_request_target`, `workflow_run` and `repository_dispatch` (each runs with secrets for an event a PR or `contents: write` can cause) and any `push` trigger that is not `branches: [main]` exactly (a push to `factory/*` must run nothing). Verified today: every `push` trigger is `main`-only and none of the three triggers is used (Today row 11). Blocks PR 1.
+**D3. A behavioural guard test, and the triggers that would bypass it.** *Recommend (amended after review, I1):* the contract test does not search the `if:` text. A ~250-line evaluator for the GitHub expression language (`scripts/release/test/github-expression.mjs`, fails closed on anything it does not understand) evaluates each guarded job's `if:` **three-valued** for three factory pull requests (the bot on `factory/*`, a person on `factory/*`, the bot on another branch): the context states only what a factory PR fixes (the event name, the repository, the head ref as `head.ref` and `head_ref`, and the author) and everything else (every job output, `failure()`, `success()`, `cancelled()`, `github.actor`, any other property) is UNKNOWN; the job passes only if its `if:` is **definitely false**. So a secret job gated on `needs.x.outputs.y == 'true'` or on `failure()` is caught, as is a guard behind an `||`. A person's ordinary PR (every context known) must still run the three guarded jobs. Triggers are an **allow-list**: `pull_request`, `push` with `branches: [main]` exactly, `schedule`, `workflow_dispatch`, `workflow_call`, `branch_protection_rule`; anything else fails (`issue_comment`, `pull_request_review`, `create`, `pull_request_target`, `workflow_run`, `repository_dispatch`, …: each can run with secrets for an event a PR causes, and several run with `github.event.pull_request` null, which makes `!startsWith(null, 'factory/')` true). A job calling a **local reusable workflow** takes the reasons of the called workflow's jobs; a non-local `uses:` is a reason in itself. Every `pull_request` workflow must declare a **top-level `permissions`** block. Verified today: the 13 workflows use only allowed triggers, every `push` is `main`-only, and every `pull_request` workflow declares permissions (Today row 11). Blocks PR 1.
 
 **D4. The app's name and bot login** (spec §15 item 1). *Recommend:* `b4-factory`, so `b4-factory[bot]`. Blocks PR 1 (the login is in `guard.json` and the three `if:`s) and the operator setup.
 
@@ -68,6 +70,18 @@ Each *Recommend:* is what the tasks implement. Brian decides each before the PR 
 
 **D24. Cancel during a delivery.** *Recommend:* accept today's `finishCancel` for a `delivering` row (it asks the builder about the row's old thread, exactly as it does for `exporting`); the worker checks the row before every write and journals `delivery_stopped` with the remote ids that exist. A cancel that waits on an unreachable builder stays `cancel_requested` until reconcile, as it does today. Follow-up recorded. Blocks PR 3.
 
+**D25. A per-request timeout of 30 s.** *Recommend (added after review, I4):* every GitHub request runs under `AbortSignal.any([the controller's signal, AbortSignal.timeout(30_000)])` (`requestTimeoutMs`, default 30 000); a timeout is a transient failure the step retries within D9's bound. A hung connection otherwise holds the worker past its ten-minute bound, which is only checked between attempts. Blocks PR 4.
+
+**D26. A controller closing mid-delivery leaves it `delivering`.** *Recommend (added after review, I3):* an abort of the controller's signal (close, or a stop between steps) is never a refusal: the worker journals `delivery_stopped` with the step and the remote ids it observed and returns; the row stays `delivering`, and the next boot's reconcile resumes it (D19). Before this, an abort mid-request rethrown as a non-`DeliveryError` reached the catch-all and blocked `delivery_unconfirmed` (spiked by the reviewer). Blocks PR 3 and PR 4.
+
+**D27. The adapter is bound to one repository, and so is every start.** *Recommend (added after review, I9):* `createGitHubAdapter({ repository, … })` refuses `open()` for any other repository (`unauthorized`), and `startDelivery` (the one path approve, reconcile and redeliver share) refuses, as `delivery_unauthorized`, an intent whose repository or base is not the controller's configured one: a controller restarted with another destination cannot deliver an older approval there. Blocks PR 3 and PR 4.
+
+**D28. No redirects.** *Recommend (added after review, I5):* `fetch` is called with `redirect: "manual"` and a 3xx is `unexpected` (blocks `delivery_unconfirmed`, redeliverable): a followed redirect would send the request and the token to a URL the allow-list never checked. The reviewer suggested `redirect: "error"`; `manual` refuses the same and gives the journal the status instead of a bare `fetch failed`. The allow-list also refuses any `.`, `..`, empty or percent-encoded separator segment, and the request checks that `new URL(...)`'s origin and pathname are exactly what was checked (the reviewer's probe reached `/repos/repos/other/secret/contents/x` through a branch name of `..`). Blocks PR 4.
+
+**D29. No issue reference in model-written text.** *Recommend (added after review, I6):* `pullTitle` and the commit subject break every issue reference (`#77` → `# 77`, `GH-77` → `GH 77`, an issue or pull URL → `issues 77`), so no closing keyword (`close[sd]?`, `fix(e[sd])?`, `resolve[sd]?`) before one can close anything when a squash merge takes the title as its subject. The words themselves ("Fix the timer") stay readable; the reviewer also asked to neutralise the keywords, which is unnecessary once no reference survives (a keyword alone closes nothing) and would mangle ordinary titles. The body's own `Refs #<n>` is the factory's and stays. Blocks PR 3.
+
+**D30. `guard.json`'s two lists.** *Recommend (added after review, I2):* `protectedPaths` (`.github/**` and the two Vercel files) is what a candidate may never change, checked at intake, at approval, and again at step (a) (I8). `runFromBranchPaths` (only `apps/web/vercel.json` and `apps/web/scripts/vercel-ignore-build.sh`) is what `main` must not have changed since the pin: those run from the branch's own commit (Vercel builds it with the pin's ignore script). `.github/**` is not in it: a pull request runs `main`'s workflows at the merge commit, so a workflow change on `main` since the pin is harmless, and `main` had 41 commits touching `.github` in the month before 2026-10-01, which under spec §9.3 as written would have blocked almost every delivery permanently. The contract test pins the second list to the two Vercel files and requires it to be inside the first. Blocks PR 1 and PR 3.
+
 ## Today, verified
 
 Read at `4e4941e4e` (its code is `216befd5a`'s; the spec commit touched only the spec). Paths as in the header.
@@ -84,7 +98,7 @@ Read at `4e4941e4e` (its code is `216befd5a`'s; the spec commit touched only the
 | 8 | `run`'s source pin lists every helper `run` reaches and the calls none may make | `test/run-steps.test.ts:197-205` (`FORBIDDEN`), `:356-395` (`RUN_REACHES`) | Yes; Task 15 adds `deliverOption` and forbids `.redeliver` |
 | 9 | `up` gives workers every variable but four, the controller a deny-listed set, and redacts two secrets | `src/lib/operator/up.ts:182` (`NOT_INHERITED`), `:189` (`controllerMayNotSee`), `:192` (`appProcesses`), `:248` (`preflight`), `:716` (`redactor`), `:38` (`ownSubprocessEnv`) | Yes; Task 20 |
 | 10 | The guarded jobs and their current `if:`s | `.github/workflows/ci.yml:702-711` (`vercel-native`, environment `vercel-preview`), `.github/workflows/auto-approve.yml:24`, `.github/workflows/claude-review.yml:36` | Yes |
-| 11 | No other `pull_request` job holds a secret, an environment or a write (but `codeql`'s `security-events`); every `push` trigger is `branches: [main]`; no `pull_request_target`, `workflow_run` or `repository_dispatch` | A probe of the evaluator over all 13 workflows before the edits reported exactly the three jobs of row 10, three times each, and every `if:` evaluated | Yes |
+| 11 | No other `pull_request` job holds a secret, an environment or a write (but `codeql`'s `security-events`); no local reusable workflow is called; every trigger is in D3's allow-list; every `push` is `branches: [main]`; every `pull_request` workflow declares top-level `permissions` | A probe of the evaluator over all 13 workflows before the edits reported exactly the three jobs of row 10, three times each, and every `if:` evaluated; after Task 3 the three-valued check reports nothing | Yes |
 | 12 | The audited fixture pins each job's `if:` as the YAML-parsed string | `scripts/release/test/fixtures/workflow-entrypoints.json:22` (`auto-approve`), `:1735` (`vercel-native`, a folded scalar keeping the more-indented line's `\n`), `:1884` (`claude-review`) | Yes; `workflow-safe-executables.json` holds no `if:` and no step changes, so it does not move |
 | 13 | The `vercel-preview` environment admits `main` and `refs/pull/*/merge` | `gh api repos/cacheplane/b4run/environments/vercel-preview/deployment-branch-policies` (2026-10-01) | Yes |
 | 14 | No rulesets today; `delete_branch_on_merge` and `allow_auto_merge` on; the repository is public | `gh api repos/cacheplane/b4run/rulesets` → `[]`; `gh api repos/cacheplane/b4run` | Yes |
@@ -106,6 +120,10 @@ Read at `4e4941e4e` (its code is `216befd5a`'s; the spec commit touched only the
 10. **§3.4 order**: protected paths before preflight (D21).
 11. **§9.4 "`workflow-safe-executables.json` is checked and changes only if a step does"**: checked; no step changes, so it does not move.
 12. **§3.2 `pathPrefix`**: nullable on the row until intake fills it in the `intake_drafted` transaction; the bundle requires it, and `verify` refuses (as `verification_inconclusive`) a draft-PR row without one.
+13. **§9.3 item 3 and §6.4 "`main`'s changes since the pin must not touch a protected path"**: only the run-from-branch paths (the two Vercel files), not `.github/**` (D30). The change's own paths are checked against the full protected list again at step (a).
+14. **§6.2 "refused before a socket opens"**: also refused are dot, empty and encoded-separator segments, a URL that resolves elsewhere, and any redirect (D28); and every request has a 30 s bound (D25).
+15. **§6.5 and §12 "Controller killed mid-step"**: a close mid-request stays `delivering` (D26), it does not block.
+16. **§7.1 "cannot carry a closing keyword's effect because GitHub does not link issues from titles"**: a squash merge makes the title the commit subject, where a keyword does close; the title's references are broken (D29).
 
 ## PR split
 
@@ -154,7 +172,7 @@ No changeset in any PR: only `examples/`, `scripts/release/test/`, `.github/work
 ## Traps (read before starting)
 
 1. **Node 24 and the build closure.** `source ~/.nvm/nvm.sh && nvm use 24` before anything; after install and every rebase, `pnpm turbo run build --filter=@b4-example/software-factory-controller^...` (the controller imports `@b4run/*` `dist/`).
-2. **Never `git stash`; add files by path; never bare `biome check --write`.** Root lint for `scripts/`: `pnpm exec biome check --config-path packages/config-biome/biome.json <files>`. Controller: `pnpm --filter @b4-example/software-factory-controller exec biome check --write <the task's files>`. `apps/web` uses tabs and semicolons: `pnpm --dir apps/web exec biome check --config-path ../../packages/config-biome/biome.json --write <files>`.
+2. **Never `git stash`; add files by path; never bare `biome check --write`.** Root lint for `scripts/`: `pnpm exec biome check --config-path packages/config-biome/biome.json <files>`. Controller: `pnpm --filter @b4-example/software-factory-controller exec biome check --write <the task's files>`. `apps/web` is linted with the shared config too (two spaces, no semicolons): run `pnpm --dir apps/web lint`, never `pnpm --dir apps/web exec biome …` without `--config-path ../../packages/config-biome/biome.json` (apps/web has no Biome config of its own, and Biome's built-in defaults, tabs and semicolons, would reformat the whole file; the first revision of this plan made exactly that mistake).
 3. **`exactOptionalPropertyTypes`.** Spread optional fields conditionally (`...(x !== undefined ? { x } : {})`).
 4. **An export-local payload must carry no `delivery` key at all.** `canon` refuses `undefined`, and an empty key would move every local bundle's digest. Task 7 pins the digest of a fixed input to the value the `216befd5a` freeze produced.
 5. **A workflow edit moves `workflow-entrypoints.json` in the same commit.** The fixture holds each `if:` as the YAML parser returns it: a `>-` folded scalar joins lines with a space, except a more-indented line, which keeps its `\n` (that is why `vercel-native`'s `if:` has `&&\n github…`). Copy the strings Task 3 gives, or print them with the `node -e` command there; never type them. Run `node --test scripts/release/test/workflow-contracts.test.mjs` and `pnpm test:release-integrity` first, then `pnpm test:release-controller` (AGENTS.md).
@@ -173,6 +191,9 @@ No changeset in any PR: only `examples/`, `scripts/release/test/`, `.github/work
 18. **A served controller boots lazily.** The credential variables are consumed on the first `controllerRuntime()` call, which is the first route request, before any `git` or `docker` child; `/readyz` does not open the factory.
 19. **Lint warnings for `${{` in strings.** Biome's `noTemplateCurlyInString` warns on `"${{ … }}"`; use the contract file's `workflowExpression(...)` or an escaped template literal (`` `\${{` ``), as the code below does.
 20. **Never `pkill -f`; never destructive Docker or `gh` writes.** The scratch lane's raw probes write only to the scratch repository, and only with the app's token.
+21. **An abort is a stop, never a refusal (D26).** Anything awaiting GitHub in the worker can reject with an `AbortError` when the controller closes; `attempt` and `runDelivery`'s catch check `ctx.signal.aborted` first. A test that closes mid-request must see the row still `delivering`.
+22. **A failing assertion prints its operands.** Assert `includes(...) === false`, never `expect(env).not.toContain(key)`, where the operand holds a key or token (Task 20's tests): vitest would print the key on failure.
+23. **`fetch` normalises and follows.** Never hand `fetch` a path the allow-list has not checked in its final form (D28); the request function builds the `URL`, compares it, and passes the `URL` object.
 
 ---
 
@@ -193,261 +214,34 @@ node --test scripts/release/test/workflow-contracts.test.mjs   # green before an
 - Modify: `apps/web/scripts/vercel-ignore-build.sh`
 - Test: `apps/web/app/vercel-ignore-build.test.ts`
 
-- [ ] **Step 1: Write the failing test.** Apply the test hunk (it adds one case before "always builds production"):
+- [ ] **Step 1: Write the failing test.** Apply the test hunk (one case before "always builds production", in the file's own style: two spaces, no semicolons, Trap 2):
 
 ```diff
 diff --git a/apps/web/app/vercel-ignore-build.test.ts b/apps/web/app/vercel-ignore-build.test.ts
-index 1c798c465..ed1ec5674 100644
+index 1c798c465..473b5e2b5 100644
 --- a/apps/web/app/vercel-ignore-build.test.ts
 +++ b/apps/web/app/vercel-ignore-build.test.ts
-@@ -1,119 +1,152 @@
--import { spawnSync } from "node:child_process"
--import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
--import { tmpdir } from "node:os"
--import { dirname, join } from "node:path"
--import { fileURLToPath } from "node:url"
--import { afterEach, describe, expect, it } from "vitest"
-+import { spawnSync } from "node:child_process";
-+import {
-+	copyFileSync,
-+	mkdirSync,
-+	mkdtempSync,
-+	readFileSync,
-+	rmSync,
-+	writeFileSync,
-+} from "node:fs";
-+import { tmpdir } from "node:os";
-+import { dirname, join } from "node:path";
-+import { fileURLToPath } from "node:url";
-+import { afterEach, describe, expect, it } from "vitest";
+@@ -71,6 +71,20 @@ describe("website Vercel ignore-build step", () => {
+     expect(config.ignoreCommand).toBe("bash scripts/vercel-ignore-build.sh")
+   })
  
--const WEB_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..")
--const SCRIPT = join(WEB_ROOT, "scripts/vercel-ignore-build.sh")
--const SKIP = 0
--const BUILD = 1
-+const WEB_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-+const SCRIPT = join(WEB_ROOT, "scripts/vercel-ignore-build.sh");
-+const SKIP = 0;
-+const BUILD = 1;
- 
--const repos: string[] = []
-+const repos: string[] = [];
- afterEach(() => {
--  for (const repo of repos.splice(0)) rmSync(repo, { recursive: true, force: true })
--})
-+	for (const repo of repos.splice(0))
-+		rmSync(repo, { recursive: true, force: true });
-+});
- 
- function git(repo: string, ...args: string[]): string {
--  const result = spawnSync("git", args, { cwd: repo, encoding: "utf8" })
--  if (result.status !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr}`)
--  return result.stdout.trim()
-+	const result = spawnSync("git", args, { cwd: repo, encoding: "utf8" });
-+	if (result.status !== 0)
-+		throw new Error(`git ${args.join(" ")}: ${result.stderr}`);
-+	return result.stdout.trim();
- }
- 
- function commit(repo: string, files: Record<string, string>): string {
--  for (const [path, content] of Object.entries(files)) {
--    mkdirSync(dirname(join(repo, path)), { recursive: true })
--    writeFileSync(join(repo, path), content)
--  }
--  git(repo, "add", "-A")
--  git(repo, "commit", "-q", "-m", `change ${Object.keys(files).join(" ")}`)
--  return git(repo, "rev-parse", "HEAD")
-+	for (const [path, content] of Object.entries(files)) {
-+		mkdirSync(dirname(join(repo, path)), { recursive: true });
-+		writeFileSync(join(repo, path), content);
-+	}
-+	git(repo, "add", "-A");
-+	git(repo, "commit", "-q", "-m", `change ${Object.keys(files).join(" ")}`);
-+	return git(repo, "rev-parse", "HEAD");
- }
- 
- function monorepo(): string {
--  const repo = mkdtempSync(join(tmpdir(), "b4-vercel-ignore-"))
--  repos.push(repo)
--  git(repo, "init", "-q", "-b", "main")
--  git(repo, "config", "user.email", "test@example.com")
--  git(repo, "config", "user.name", "Test")
--  mkdirSync(join(repo, "apps/web/scripts"), { recursive: true })
--  copyFileSync(SCRIPT, join(repo, "apps/web/scripts/vercel-ignore-build.sh"))
--  commit(repo, {
--    "apps/web/page.tsx": "v1",
--    "packages/sdk/index.ts": "v1",
--    "pnpm-lock.yaml": "v1",
--    "docs/notes.md": "v1",
--    "examples/chat/index.ts": "v1",
--  })
--  return repo
-+	const repo = mkdtempSync(join(tmpdir(), "b4-vercel-ignore-"));
-+	repos.push(repo);
-+	git(repo, "init", "-q", "-b", "main");
-+	git(repo, "config", "user.email", "test@example.com");
-+	git(repo, "config", "user.name", "Test");
-+	mkdirSync(join(repo, "apps/web/scripts"), { recursive: true });
-+	copyFileSync(SCRIPT, join(repo, "apps/web/scripts/vercel-ignore-build.sh"));
-+	commit(repo, {
-+		"apps/web/page.tsx": "v1",
-+		"packages/sdk/index.ts": "v1",
-+		"pnpm-lock.yaml": "v1",
-+		"docs/notes.md": "v1",
-+		"examples/chat/index.ts": "v1",
-+	});
-+	return repo;
- }
- 
- // Vercel runs the ignore command from the project's root directory (apps/web).
- function decide(repo: string, env: Record<string, string> = {}): number | null {
--  const result = spawnSync("bash", ["scripts/vercel-ignore-build.sh"], {
--    cwd: join(repo, "apps/web"),
--    encoding: "utf8",
--    env: {
--      PATH: process.env.PATH ?? "",
--      HOME: process.env.HOME ?? "",
--      NODE_ENV: "test",
--      VERCEL_ENV: "preview",
--      ...env,
--    },
--  })
--  return result.status
-+	const result = spawnSync("bash", ["scripts/vercel-ignore-build.sh"], {
-+		cwd: join(repo, "apps/web"),
-+		encoding: "utf8",
-+		env: {
-+			PATH: process.env.PATH ?? "",
-+			HOME: process.env.HOME ?? "",
-+			NODE_ENV: "test",
-+			VERCEL_ENV: "preview",
-+			...env,
-+		},
-+	});
-+	return result.status;
- }
- 
- describe("website Vercel ignore-build step", () => {
--  it("is the configured ignore command", () => {
--    const config = JSON.parse(readFileSync(join(WEB_ROOT, "vercel.json"), "utf8"))
--    expect(config.ignoreCommand).toBe("bash scripts/vercel-ignore-build.sh")
--  })
-+	it("is the configured ignore command", () => {
-+		const config = JSON.parse(
-+			readFileSync(join(WEB_ROOT, "vercel.json"), "utf8"),
-+		);
-+		expect(config.ignoreCommand).toBe("bash scripts/vercel-ignore-build.sh");
-+	});
- 
--  it("always builds production", () => {
--    const repo = monorepo()
--    commit(repo, { "docs/notes.md": "v2" })
--    expect(decide(repo, { VERCEL_ENV: "production" })).toBe(BUILD)
--  })
-+	it("never builds a software factory branch, whatever changed and even as production", () => {
-+		const repo = monorepo();
-+		commit(repo, { "packages/sdk/index.ts": "v2", "apps/web/page.tsx": "v2" });
-+		expect(
-+			decide(repo, { VERCEL_GIT_COMMIT_REF: "factory/wo-0123456789abcdef" }),
-+		).toBe(SKIP);
-+		expect(
-+			decide(repo, {
-+				VERCEL_GIT_COMMIT_REF: "factory/wo-0123456789abcdef",
-+				VERCEL_ENV: "production",
-+			}),
-+		).toBe(SKIP);
-+		// Only the prefix: a person's branch that merely mentions the factory still builds.
-+		expect(
-+			decide(repo, { VERCEL_GIT_COMMIT_REF: "blove/factory-guards" }),
-+		).toBe(BUILD);
-+	});
- 
--  it("skips a preview when only files outside the site's inputs changed", () => {
--    const repo = monorepo()
--    commit(repo, { "docs/notes.md": "v2", "examples/chat/index.ts": "v2" })
--    expect(decide(repo)).toBe(SKIP)
--  })
-+	it("always builds production", () => {
-+		const repo = monorepo();
-+		commit(repo, { "docs/notes.md": "v2" });
-+		expect(decide(repo, { VERCEL_ENV: "production" })).toBe(BUILD);
-+	});
- 
--  it.each([
--    ["the site itself", "apps/web/page.tsx"],
--    ["a workspace package", "packages/sdk/index.ts"],
--    ["the lockfile", "pnpm-lock.yaml"],
--    ["root workspace config", "turbo.json"],
--  ])("builds a preview when %s changed", (_label, path) => {
--    const repo = monorepo()
--    commit(repo, { [path]: "v2" })
--    expect(decide(repo)).toBe(BUILD)
--  })
-+	it("skips a preview when only files outside the site's inputs changed", () => {
-+		const repo = monorepo();
-+		commit(repo, { "docs/notes.md": "v2", "examples/chat/index.ts": "v2" });
-+		expect(decide(repo)).toBe(SKIP);
-+	});
- 
--  it("compares against the previously deployed commit, not just the parent", () => {
--    const repo = monorepo()
--    const deployed = git(repo, "rev-parse", "HEAD")
--    commit(repo, { "apps/web/page.tsx": "v2" })
--    commit(repo, { "docs/notes.md": "v2" })
--    // HEAD^ alone would skip; the push since the last deploy touched the site.
--    expect(decide(repo)).toBe(SKIP)
--    expect(decide(repo, { VERCEL_GIT_PREVIOUS_SHA: deployed })).toBe(BUILD)
--  })
-+	it.each([
-+		["the site itself", "apps/web/page.tsx"],
-+		["a workspace package", "packages/sdk/index.ts"],
-+		["the lockfile", "pnpm-lock.yaml"],
-+		["root workspace config", "turbo.json"],
-+	])("builds a preview when %s changed", (_label, path) => {
-+		const repo = monorepo();
-+		commit(repo, { [path]: "v2" });
-+		expect(decide(repo)).toBe(BUILD);
-+	});
- 
--  it("falls back to the parent commit when the previous SHA is not in the clone", () => {
--    const repo = monorepo()
--    commit(repo, { "docs/notes.md": "v2" })
--    expect(decide(repo, { VERCEL_GIT_PREVIOUS_SHA: "0".repeat(40) })).toBe(SKIP)
--    commit(repo, { "apps/web/page.tsx": "v3" })
--    expect(decide(repo, { VERCEL_GIT_PREVIOUS_SHA: "0".repeat(40) })).toBe(BUILD)
--  })
-+	it("compares against the previously deployed commit, not just the parent", () => {
-+		const repo = monorepo();
-+		const deployed = git(repo, "rev-parse", "HEAD");
-+		commit(repo, { "apps/web/page.tsx": "v2" });
-+		commit(repo, { "docs/notes.md": "v2" });
-+		// HEAD^ alone would skip; the push since the last deploy touched the site.
-+		expect(decide(repo)).toBe(SKIP);
-+		expect(decide(repo, { VERCEL_GIT_PREVIOUS_SHA: deployed })).toBe(BUILD);
-+	});
- 
--  it("builds when there is no commit to compare against", () => {
--    const repo = monorepo()
--    expect(decide(repo)).toBe(BUILD)
--  })
--})
-+	it("falls back to the parent commit when the previous SHA is not in the clone", () => {
-+		const repo = monorepo();
-+		commit(repo, { "docs/notes.md": "v2" });
-+		expect(decide(repo, { VERCEL_GIT_PREVIOUS_SHA: "0".repeat(40) })).toBe(
-+			SKIP,
-+		);
-+		commit(repo, { "apps/web/page.tsx": "v3" });
-+		expect(decide(repo, { VERCEL_GIT_PREVIOUS_SHA: "0".repeat(40) })).toBe(
-+			BUILD,
-+		);
-+	});
++  it("never builds a software factory branch, whatever changed and even as production", () => {
++    const repo = monorepo()
++    commit(repo, { "packages/sdk/index.ts": "v2", "apps/web/page.tsx": "v2" })
++    expect(decide(repo, { VERCEL_GIT_COMMIT_REF: "factory/wo-0123456789abcdef" })).toBe(SKIP)
++    expect(
++      decide(repo, {
++        VERCEL_GIT_COMMIT_REF: "factory/wo-0123456789abcdef",
++        VERCEL_ENV: "production",
++      }),
++    ).toBe(SKIP)
++    // Only the prefix: a person's branch that merely mentions the factory still builds.
++    expect(decide(repo, { VERCEL_GIT_COMMIT_REF: "blove/factory-guards" })).toBe(BUILD)
++  })
 +
-+	it("builds when there is no commit to compare against", () => {
-+		const repo = monorepo();
-+		expect(decide(repo)).toBe(BUILD);
-+	});
-+});
+   it("always builds production", () => {
+     const repo = monorepo()
+     commit(repo, { "docs/notes.md": "v2" })
 ```
 
 - [ ] **Step 2: Run it to see it fail**
@@ -495,19 +289,20 @@ index d17f51ba6..ad51bd91c 100755
     ".github/**",
     "apps/web/vercel.json",
     "apps/web/scripts/vercel-ignore-build.sh"
-  ]
+  ],
+  "runFromBranchPaths": ["apps/web/vercel.json", "apps/web/scripts/vercel-ignore-build.sh"]
 }
 ```
 
 - [ ] **Step 5: Run the test and the route check**
 
-Run: `pnpm --dir apps/web exec vitest run app/vercel-ignore-build.test.ts && pnpm --dir apps/web seo:lastmod:routes && bash -n apps/web/scripts/vercel-ignore-build.sh`
-Expected: 11 passed; the routes check exits 0 (no route's sources changed); `bash -n` silent. (Do not check with `dash -n`: the script uses Bash arrays and always has, Today row 15.)
+Run: `pnpm --dir apps/web exec vitest run app/vercel-ignore-build.test.ts && pnpm --dir apps/web seo:lastmod:routes && pnpm --dir apps/web lint && bash -n apps/web/scripts/vercel-ignore-build.sh`
+Expected: 11 passed; the routes check exits 0 (no route's sources changed); lint clean ("No fixes applied"); `bash -n` silent. (Do not check with `dash -n`: the script uses Bash arrays and always has, Today row 15.)
 
 - [ ] **Step 6: Lint and commit**
 
 ```bash
-pnpm --dir apps/web exec biome check --config-path ../../packages/config-biome/biome.json app/vercel-ignore-build.test.ts
+pnpm --dir apps/web lint
 git add apps/web/scripts/vercel-ignore-build.sh apps/web/app/vercel-ignore-build.test.ts examples/software-factory/controller/src/lib/delivery/guard.json
 git commit -m "ci(web): never build a software factory branch on Vercel
 
@@ -528,7 +323,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { evaluateExpression, unwrapExpression } from "./github-expression.mjs"
+import { evaluateExpression, UNKNOWN, unwrapExpression } from "./github-expression.mjs"
 
 const context = {
   github: {
@@ -571,6 +366,24 @@ test("fails closed on what it does not understand", () => {
   assert.throws(() => evaluate("success(1)"), /no arguments/u)
   assert.throws(() => unwrapExpression(`x == \${{ y }}`), /partly wrapped/u)
 })
+
+test("in three-valued mode, what the context leaves unstated stays unknown", () => {
+  const partial = {
+    unknownByDefault: true,
+    github: { event_name: "pull_request", event: { pull_request: { head: { ref: "factory/x" } } } },
+    status: { always: true },
+  }
+  const ask = (expression) => evaluateExpression(expression, partial)
+  assert.equal(ask("needs.scope.outputs.deploy == 'true'"), UNKNOWN)
+  assert.equal(ask("failure()"), UNKNOWN)
+  assert.equal(ask("!startsWith(github.event.pull_request.head.label, 'x')"), UNKNOWN)
+  assert.equal(ask("!startsWith(github.event.pull_request.head.ref, 'factory/')"), false)
+  // false && unknown, unknown && false: false. unknown || true: true.
+  assert.equal(ask("github.event_name == 'push' && failure()"), false)
+  assert.equal(ask("failure() && github.event_name == 'push'"), false)
+  assert.equal(ask("failure() || always()"), true)
+  assert.equal(ask("failure() || github.event_name == 'push'"), UNKNOWN)
+})
 ```
 
 - [ ] **Step 2: Run it to see it fail**
@@ -593,6 +406,12 @@ Expected: FAIL, `Cannot find module …/github-expression.mjs`.
 // Semantics follow GitHub's documentation: `==` and `!=` compare strings case-insensitively,
 // `&&` and `||` return an operand (not a boolean), falsy is false, 0, -0, "", null and NaN,
 // a missing property is null, and the status functions are answered from the context.
+//
+// Three-valued when asked (`context.unknownByDefault`): every property the context does not
+// state, and every status function it does not answer, is UNKNOWN, and UNKNOWN propagates
+// through `!`, comparisons and functions, while `false && x` is still false and `true || x`
+// still true. A guard test asks whether a job is DEFINITELY skipped for a factory pull
+// request: a job that runs only when some job output is "true", or on `failure()`, is not.
 
 const TOKEN =
   /\s*(?:(?<string>'(?:[^']|'')*')|(?<number>-?\d+(?:\.\d+)?)|(?<op>&&|\|\||==|!=|<=|>=|[!<>()[\].,])|(?<word>[A-Za-z_][A-Za-z0-9_-]*))/y
@@ -725,15 +544,19 @@ function parse(source) {
   return tree
 }
 
-const truthy = (value) =>
-  !(
-    value === false ||
-    value === null ||
-    value === undefined ||
-    value === "" ||
-    value === 0 ||
-    Number.isNaN(value)
-  )
+/** A value the context does not state: neither truthy nor falsy until something decides it. */
+export const UNKNOWN = Symbol("unknown")
+
+const isFalsy = (value) =>
+  value === false ||
+  value === null ||
+  value === undefined ||
+  value === "" ||
+  value === 0 ||
+  Number.isNaN(value)
+
+/** true, false, or UNKNOWN. */
+const truth = (value) => (value === UNKNOWN ? UNKNOWN : !isFalsy(value))
 
 function looselyEqual(a, b) {
   if (typeof a === "string" && typeof b === "string") return a.toLowerCase() === b.toLowerCase()
@@ -743,17 +566,22 @@ function looselyEqual(a, b) {
 /**
  * Evaluate `expression` (an `if:` value) against `context`: an object whose top-level keys
  * are the expression contexts (`github`, `needs`, ...) and whose `status` names the job
- * status functions' answers (`{ cancelled: false, success: true, ... }`).
+ * status functions' answers (`{ cancelled: false, success: true, ... }`). Returns true or
+ * false, or UNKNOWN when `context.unknownByDefault` is set and what the context leaves
+ * unstated decides the answer.
  */
 export function evaluateExpression(expression, context) {
   const tree = parse(expression)
+  const unknownByDefault = context.unknownByDefault === true
+  const missing = unknownByDefault ? UNKNOWN : null
   const lookup = (path) => {
     let value = context
     for (const segment of path) {
-      if (value === null || value === undefined || typeof value !== "object") return null
-      value = Object.hasOwn(value, segment) ? value[segment] : null
+      if (value === UNKNOWN) return UNKNOWN
+      if (value === null || value === undefined || typeof value !== "object") return missing
+      value = Object.hasOwn(value, segment) ? value[segment] : missing
     }
-    return value ?? null
+    return value === undefined ? missing : value
   }
   const evaluate = (node) => {
     switch (node.type) {
@@ -761,19 +589,31 @@ export function evaluateExpression(expression, context) {
         return node.value
       case "path":
         return lookup(node.path)
-      case "not":
-        return !truthy(evaluate(node.operand))
+      case "not": {
+        const value = truth(evaluate(node.operand))
+        return value === UNKNOWN ? UNKNOWN : !value
+      }
       case "and": {
         const left = evaluate(node.left)
-        return truthy(left) ? evaluate(node.right) : left
+        const l = truth(left)
+        if (l === false) return left
+        const right = evaluate(node.right)
+        if (l === true) return right
+        // Unknown on the left: false either way only when the right is definitely falsy.
+        return truth(right) === false ? false : UNKNOWN
       }
       case "or": {
         const left = evaluate(node.left)
-        return truthy(left) ? left : evaluate(node.right)
+        const l = truth(left)
+        if (l === true) return left
+        const right = evaluate(node.right)
+        if (l === false) return right
+        return truth(right) === true ? true : UNKNOWN
       }
       case "compare": {
         const left = evaluate(node.left)
         const right = evaluate(node.right)
+        if (left === UNKNOWN || right === UNKNOWN) return UNKNOWN
         if (node.op === "==") return looselyEqual(left, right)
         if (node.op === "!=") return !looselyEqual(left, right)
         throw new SyntaxError(`Unsupported comparison ${node.op}`)
@@ -782,13 +622,14 @@ export function evaluateExpression(expression, context) {
         const status = context.status ?? {}
         if (["always", "success", "failure", "cancelled"].includes(node.name)) {
           if (node.args.length !== 0) throw new SyntaxError(`${node.name}() takes no arguments`)
-          if (typeof status[node.name] !== "boolean")
-            throw new SyntaxError(`The context does not answer ${node.name}()`)
-          return status[node.name]
+          if (typeof status[node.name] === "boolean") return status[node.name]
+          if (unknownByDefault) return UNKNOWN
+          throw new SyntaxError(`The context does not answer ${node.name}()`)
         }
         const args = node.args.map(evaluate)
         if (node.name === "startswith" || node.name === "endswith" || node.name === "contains") {
           if (args.length !== 2) throw new SyntaxError(`${node.name}() takes two arguments`)
+          if (args.includes(UNKNOWN)) return UNKNOWN
           const [subject, search] = args.map((value) => String(value ?? "").toLowerCase())
           if (node.name === "startswith") return subject.startsWith(search)
           if (node.name === "endswith") return subject.endsWith(search)
@@ -800,14 +641,14 @@ export function evaluateExpression(expression, context) {
         throw new SyntaxError(`Unknown node ${node.type}`)
     }
   }
-  return truthy(evaluate(tree))
+  return truth(evaluate(tree))
 }
 ```
 
 - [ ] **Step 4: Run it to see it pass**
 
 Run: `node --test scripts/release/test/github-expression.test.mjs`
-Expected: `ℹ pass 4`, `ℹ fail 0`.
+Expected: `ℹ pass 5`, `ℹ fail 0`.
 
 - [ ] **Step 5: Lint and commit.** `pnpm test:release-controller` globs `scripts/release/test/*.test.mjs`, so the new test runs in the `release-controller` lane; the helper (no `.test`) is not a release-reachable script (nothing in a workflow loads it), so no pin moves.
 
@@ -838,12 +679,16 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 // output nobody has merged.
 //
 // The rule is generic on purpose. A job is guarded when its workflow can run on a pull
-// request and the job references any secret other than GITHUB_TOKEN, names an environment,
-// or is granted a write permission other than security-events; each such job's `if:` must
-// evaluate false for a factory pull request (both halves of the guard, each alone). A new
-// secret-bearing job therefore fails here until it carries the guard, instead of escaping a
-// list of three names. The triggers that would reach secrets some other way are refused
-// outright. The branch prefix and the bot login are the controller's
+// request and the job (or a local reusable workflow it calls) references any secret other
+// than GITHUB_TOKEN, names an environment, or is granted a write permission other than
+// security-events. Each such job's `if:` must be DEFINITELY false for a factory pull request,
+// evaluated three-valued: the test states only what a factory PR fixes (the event, the
+// repository, the head ref and the author) and leaves every job output, status function and
+// other property unknown, so a job that runs "only when an output is true" or "on failure()"
+// is not called guarded. A new secret-bearing job therefore fails here until it carries the
+// guard, instead of escaping a list of three names. Triggers are an allow-list: anything that
+// could reach secrets for an event a pull request causes some other way is refused. The
+// branch prefix and the bot login are the controller's
 // (examples/software-factory/controller/src/lib/delivery/guard.json), passed in.
 
 import { evaluateExpression } from "./github-expression.mjs"
@@ -853,8 +698,22 @@ const REPOSITORY = "cacheplane/b4run"
 /** Write scopes a pull-request job may hold without the guard: code scanning's upload. */
 const EXEMPT_WRITES = new Set(["security-events"])
 
-/** The triggers that run with secrets for code or events a pull request controls. */
-const FORBIDDEN_TRIGGERS = ["pull_request_target", "workflow_run", "repository_dispatch"]
+/**
+ * The only triggers a workflow may declare. `pull_request` runs the PR's code with the
+ * guard; `push` only to main; the rest are started by a person or a schedule, never by a PR.
+ * Everything else (`pull_request_target`, `workflow_run`, `repository_dispatch`,
+ * `issue_comment`, `pull_request_review`, `create`, …) is refused: each can run with secrets
+ * for an event a pull request, its author or `contents: write` causes, and several run with
+ * `github.event.pull_request` null, which the guard reads.
+ */
+const ALLOWED_TRIGGERS = new Set([
+  "pull_request",
+  "push",
+  "schedule",
+  "workflow_dispatch",
+  "workflow_call",
+  "branch_protection_rule",
+])
 
 const isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value)
 
@@ -882,8 +741,18 @@ function secretsReferenced(value) {
     .filter((name) => name.toUpperCase() !== "GITHUB_TOKEN")
 }
 
-/** Why `job` needs the guard, or an empty list when it does not. */
-export function guardReasons(workflow, job) {
+/** The file name of a local reusable workflow `job` calls, or undefined. */
+function localCall(job) {
+  const uses = typeof job.uses === "string" ? job.uses : undefined
+  const match = uses === undefined ? null : /^\.\/\.github\/workflows\/([^/@]+\.ya?ml)$/u.exec(uses)
+  return match?.[1]
+}
+
+/**
+ * Why `job` needs the guard, or an empty list when it does not. `workflows` resolves a local
+ * reusable workflow the job calls: what its jobs hold, the caller holds.
+ */
+export function guardReasons(workflow, job, workflows = {}, seen = new Set()) {
   const reasons = []
   const secrets = [...new Set([...secretsReferenced(workflow.env), ...secretsReferenced(job)])]
   if (secrets.length > 0)
@@ -893,13 +762,24 @@ export function guardReasons(workflow, job) {
     reasons.push("passes secrets to a reusable workflow")
   const granted = writes(job.permissions ?? workflow.permissions)
   if (granted.length > 0) reasons.push(`is granted ${granted.join(", ")}: write`)
+  const called = localCall(job)
+  if (job.uses !== undefined && called === undefined)
+    reasons.push(`calls ${job.uses}, which this test cannot read`)
+  if (called !== undefined && !seen.has(called)) {
+    const target = workflows[called]
+    if (!isRecord(target)) reasons.push(`calls ${called}, which does not exist`)
+    else
+      for (const [id, inner] of Object.entries(target.jobs ?? {}))
+        for (const reason of guardReasons(target, inner, workflows, new Set([...seen, called])))
+          reasons.push(`calls ${called}, whose job ${id} ${reason}`)
+  }
   return reasons
 }
 
 /**
  * The `needs` context of a run in which every job of the workflow succeeded and every output
- * reads "false": the case in which a job's own conditions let it run, so only the guard can
- * stop it.
+ * reads "false": a person's ordinary pull request, used only to show the guard does not stop
+ * what it should not.
  */
 function needsOf(jobs) {
   return Object.fromEntries(
@@ -913,13 +793,18 @@ function needsOf(jobs) {
   )
 }
 
-/** The event a same-repository pull request from `headRef` by `login` delivers. */
+/**
+ * A same-repository pull request from `headRef` by `login`, every context known: for the
+ * positive control (a person's PR still runs every guarded job).
+ */
 export function pullRequestContext(headRef, login, jobs = {}) {
   return {
     github: {
       event_name: "pull_request",
       repository: REPOSITORY,
       ref: "refs/pull/1/merge",
+      head_ref: headRef,
+      base_ref: "main",
       actor: login,
       event: {
         pull_request: {
@@ -936,6 +821,28 @@ export function pullRequestContext(headRef, login, jobs = {}) {
     },
     needs: needsOf(jobs),
     status: { always: true, success: true, failure: false, cancelled: false },
+  }
+}
+
+/**
+ * What a factory pull request fixes, and nothing more: the event, the repository, the head
+ * ref (as `head.ref` and `head_ref`) and the author. Everything else is unknown.
+ */
+export function factoryContext(headRef, login) {
+  return {
+    unknownByDefault: true,
+    github: {
+      event_name: "pull_request",
+      repository: REPOSITORY,
+      head_ref: headRef,
+      event: {
+        pull_request: {
+          user: { login },
+          head: { ref: headRef, repo: { full_name: REPOSITORY } },
+        },
+      },
+    },
+    status: { always: true },
   }
 }
 
@@ -957,10 +864,10 @@ export function factoryGuardProblems(workflows, guard) {
   const problems = []
   for (const [file, workflow] of Object.entries(workflows)) {
     const on = triggers(workflow)
-    for (const name of FORBIDDEN_TRIGGERS)
-      if (Object.hasOwn(on, name))
+    for (const name of Object.keys(on))
+      if (!ALLOWED_TRIGGERS.has(name))
         problems.push(
-          `${file} listens on ${name}, which runs with secrets for an event a pull request or contents: write can cause`,
+          `${file} listens on ${name}: only ${[...ALLOWED_TRIGGERS].join(", ")} are allowed, because anything else can run with secrets for an event a pull request causes`,
         )
     if (Object.hasOwn(on, "push")) {
       const push = isRecord(on.push) ? on.push : {}
@@ -978,9 +885,13 @@ export function factoryGuardProblems(workflows, guard) {
         )
     }
     if (!Object.hasOwn(on, "pull_request")) continue
+    if (workflow.permissions === undefined)
+      problems.push(
+        `${file} runs on pull_request with no top-level permissions block: its jobs would inherit the repository default`,
+      )
     for (const [id, job] of Object.entries(workflow.jobs ?? {})) {
       if (!isRecord(job)) continue
-      const reasons = guardReasons(workflow, job)
+      const reasons = guardReasons(workflow, job, workflows)
       if (reasons.length === 0) continue
       const where = `${file} job ${id} (${reasons.join("; ")})`
       if (job.if === undefined) {
@@ -990,12 +901,15 @@ export function factoryGuardProblems(workflows, guard) {
       for (const [label, headRef, login] of factoryPullRequests(guard)) {
         let runs
         try {
-          runs = evaluateExpression(job.if, pullRequestContext(headRef, login, workflow.jobs))
+          runs = evaluateExpression(job.if, factoryContext(headRef, login))
         } catch (error) {
           problems.push(`${where}: its if: cannot be evaluated (${error.message})`)
           break
         }
-        if (runs) problems.push(`${where} runs for ${label}`)
+        if (runs !== false)
+          problems.push(
+            `${where} ${runs === true ? "runs" : "may run"} for ${label}: its if: is not definitely false`,
+          )
       }
     }
   }
@@ -1007,7 +921,7 @@ export function factoryGuardProblems(workflows, guard) {
 
 ```diff
 diff --git a/scripts/release/test/workflow-contracts.test.mjs b/scripts/release/test/workflow-contracts.test.mjs
-index 7f2f6ddd5..3d8d60fa2 100644
+index 7f2f6ddd5..06ac2174e 100644
 --- a/scripts/release/test/workflow-contracts.test.mjs
 +++ b/scripts/release/test/workflow-contracts.test.mjs
 @@ -23,6 +23,8 @@ import { ARTIFACT_STORE_SPARSE_FILES } from "../artifact-store.mjs"
@@ -1019,7 +933,7 @@ index 7f2f6ddd5..3d8d60fa2 100644
  
  const ROOT = fileURLToPath(new URL("../../..", import.meta.url))
  const requireFromCore = createRequire(path.join(ROOT, "packages", "core", "package.json"))
-@@ -4771,3 +4773,182 @@ function unauditedEntrypoint() {
+@@ -4771,3 +4773,247 @@ function unauditedEntrypoint() {
  function isRecord(value) {
    return value !== null && typeof value === "object" && !Array.isArray(value)
  }
@@ -1062,7 +976,7 @@ index 7f2f6ddd5..3d8d60fa2 100644
 +
 +  const mutate = (file, edit) => {
 +    const next = parsed()
-+    edit(next[file])
++    edit(next[file], next)
 +    return factoryGuardProblems(next, guard)
 +  }
 +  const ifOf = (workflow, job) => workflow.jobs[job].if
@@ -1169,6 +1083,55 @@ index 7f2f6ddd5..3d8d60fa2 100644
 +      },
 +    ],
 +    [
++      "a secret job gated only on a job output",
++      "ci.yml",
++      (w) => {
++        w.jobs.deploy = {
++          if: "needs.metadata_scope.outputs.deploy == 'true'",
++          needs: "metadata_scope",
++          "runs-on": "ubuntu-latest",
++          steps: [{ run: "true", env: { K: workflowExpression("secrets.NEW_KEY") } }],
++        }
++      },
++    ],
++    [
++      "a secret job that runs on failure()",
++      "ci.yml",
++      (w) => {
++        w.jobs.report = {
++          if: "failure()",
++          "runs-on": "ubuntu-latest",
++          steps: [{ run: "true", env: { K: workflowExpression("secrets.NEW_KEY") } }],
++        }
++      },
++    ],
++    [
++      "claude-review also on issue_comment (github.event.pull_request is null there)",
++      "claude-review.yml",
++      (w) => {
++        w.on.issue_comment = { types: ["created"] }
++      },
++    ],
++    [
++      "a local reusable workflow whose job deploys",
++      "ci.yml",
++      (w, all) => {
++        all["deploy.yml"] = {
++          on: { workflow_call: null },
++          permissions: { contents: "read" },
++          jobs: { deploy: { environment: "production", "runs-on": "ubuntu-latest", steps: [] } },
++        }
++        w.jobs.release = { uses: "./.github/workflows/deploy.yml" }
++      },
++    ],
++    [
++      "a pull_request workflow with no top-level permissions",
++      "kubernetes-compat.yml",
++      (w) => {
++        delete w.permissions
++      },
++    ],
++    [
 +      "a push trigger widened past main",
 +      "ci.yml",
 +      (w) => {
@@ -1180,6 +1143,14 @@ index 7f2f6ddd5..3d8d60fa2 100644
 +    await t.test(label, () => {
 +      assert.notDeepEqual(mutate(file, edit), [], `${label} must be refused`)
 +    })
++  // The guard may be spelled with github.head_ref: the test knows it, so it is not a false alarm.
++  assert.deepEqual(
++    mutate("auto-approve.yml", (w) => {
++      w.jobs.approve.if =
++        "github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'factory/') && github.event.pull_request.user.login != 'b4-factory[bot]'"
++    }),
++    [],
++  )
 +
 +  // The guard lives in files a same-repository PR could edit; the controller refuses to
 +  // deliver a change to any of them. Moving the Vercel script without moving its protection
@@ -1201,13 +1172,21 @@ index 7f2f6ddd5..3d8d60fa2 100644
 +    path.posix.join("apps/web", script),
 +  ])
 +    assert.ok(covered(file), `${file} must be a delivery-protected path`)
++  // The files the branch's own Vercel build runs must also not have changed on main since the
++  // pin; the workflows need not (a PR runs main's at the merge commit).
++  assert.deepEqual(guard.runFromBranchPaths, [
++    "apps/web/vercel.json",
++    path.posix.join("apps/web", script),
++  ])
++  for (const file of guard.runFromBranchPaths)
++    assert.ok(covered(file), `${file} must be protected too`)
 +})
 ```
 
 - [ ] **Step 3: Run it to see it fail**
 
 Run: `node --test --test-name-pattern='factory pull requests' scripts/release/test/workflow-contracts.test.mjs`
-Expected: FAIL at the first `deepEqual`: nine problems, three per job, for example `ci.yml job vercel-native (references secrets.B4_VERCEL_TOKEN, …; names an environment) runs for the factory's own pull request`.
+Expected: FAIL at the first `deepEqual`: nine problems, three per job, for example `ci.yml job vercel-native (references secrets.B4_VERCEL_TOKEN, …; names an environment) may run for the factory's own pull request: its if: is not definitely false`.
 
 - [ ] **Step 4: Guard the three jobs**
 
@@ -1322,7 +1301,7 @@ pnpm test:release-integrity
 pnpm test:release-controller
 ```
 
-Expected: the contract file `ℹ fail 0`; integrity `ℹ fail 0`; the controller suite `ℹ fail 0`. `every workflow executable entrypoint matches the readable audited allowlist` passes only with Step 5's fixture.
+Expected: the contract file `ℹ fail 0` (the new test has 18 mutation subtests, each of which must be refused, plus the `head_ref` spelling, which must not be); integrity `ℹ fail 0`; the controller suite `ℹ fail 0`. `every workflow executable entrypoint matches the readable audited allowlist` passes only with Step 5's fixture.
 
 - [ ] **Step 7: Lint and commit (one commit: workflows, fixture and test together)**
 
@@ -1407,7 +1386,7 @@ gh api repos/cacheplane/b4-factory-scratch/rules/branches/factory/wo-00000000000
 # expect: main includes "update"; the factory branch includes "update" and "non_fast_forward"
 ```
 
-- [ ] **Step 6: Vercel** (D12). In the Vercel project for `apps/web`, Settings → Git: if there is an "Ignored Build Step" override at the project level, leave it as `bash scripts/vercel-ignore-build.sh`; if Vercel offers branch exclusion for preview deployments at the project or team level, add `factory/*`. Record which existed in Task 23's notes.
+- [ ] **Step 6: Vercel** (D12). First list every Vercel project linked to `cacheplane/b4run`: the Vercel dashboard (Team → Projects, each project's Settings → Git → Connected Git Repository), and, read-only from GitHub, which environments have ever been deployed from it: `gh api 'repos/cacheplane/b4run/deployments?per_page=100' -q '[.[] | {environment, creator: .creator.login}] | unique'`. Every linked project builds every pushed branch unless its own ignore step or a branch rule says otherwise, so each one needs a `factory/*` exclusion; only `apps/web` has an ignore script in the repository (`git ls-files | grep vercel.json`), and any other linked project is a finding to fix before Task 23. Then, in the Vercel project for `apps/web`, Settings → Git: if there is an "Ignored Build Step" override at the project level, leave it as `bash scripts/vercel-ignore-build.sh`; if Vercel offers branch exclusion for preview deployments at the project or team level, add `factory/*`. Record which existed in Task 23's notes.
 
 - [ ] **Step 7: After PR 1 is merged, and only then** (Trap 8): install the app on `cacheplane/b4run` too (Install App → `cacheplane` → Configure → add `b4run`), and create the same three rulesets there. Re-run Step 5 against `cacheplane/b4run`. Then watch the next release ceremony (`release.yml` tags, `version-pr.yml`'s `changeset-release/main` push) succeed with the rulesets on (D7).
 
@@ -1802,9 +1781,13 @@ describe("registry migration 6", () => {
 Run: `pnpm exec vitest run test/delivery-row.test.ts`
 Expected: FAIL: `RowDeliverySchema` is not exported.
 
-- [ ] **Step 3: The schemas.** In `src/lib/domain/work-order.ts`, apply these three hunks of the full diff (the fourth hunk, `"redeliver"` in `COMMANDS`, is Task 14's):
+- [ ] **Step 3: The schemas.** `src/lib/domain/work-order.ts` (Task 14 adds `"redeliver"` to `COMMANDS` later):
 
 ```diff
+diff --git a/examples/software-factory/controller/src/lib/domain/work-order.ts b/examples/software-factory/controller/src/lib/domain/work-order.ts
+index 790e96ce0..f29c84ca2
+--- a/examples/software-factory/controller/src/lib/domain/work-order.ts
++++ b/examples/software-factory/controller/src/lib/domain/work-order.ts
 @@ -28,6 +28,39 @@ export const OriginSchema = z.discriminatedUnion("kind", [CatalogOriginSchema, I
  export type Origin = z.infer<typeof OriginSchema>
  export type IssueOrigin = z.infer<typeof IssueOriginSchema>
@@ -1854,7 +1837,7 @@ Expected: FAIL: `RowDeliverySchema` is not exported.
    /** The prepared target the drafted task fits; null until intake resolves it. */
    targetId: z.string().min(1).nullable(),
    /** The digest of the generated task directory the intake gate binds to. */
-@@ -115,11 +151,27 @@ export const ApprovalSchema = z.object({
+@@ -115,11 +150,27 @@ export const ApprovalSchema = z.object({
  })
  export type Approval = z.infer<typeof ApprovalSchema>
  
@@ -1881,6 +1864,7 @@ Expected: FAIL: `RowDeliverySchema` is not exported.
 +  pullRequest: PullRequestReceiptSchema.optional(),
  })
  export type Delivery = z.infer<typeof DeliverySchema>
+ 
 ```
 
 - [ ] **Step 4: Migration 6** (the outbox table lands here so the schema moves once; its store is Task 9):
@@ -2060,26 +2044,35 @@ and to the returned object after `events: (id) => store.events(id),`:
 - [ ] **Step 7: Every create records a local delivery for now.** In `src/lib/controller/factory.ts`, `insertWorkOrder`'s `fields` type gains the field, and both creates name it (Task 12 replaces the issue create's):
 
 ```diff
+diff --git a/examples/software-factory/controller/src/lib/controller/factory.ts b/examples/software-factory/controller/src/lib/controller/factory.ts
+index f34582021..88a2c7f58
+--- a/examples/software-factory/controller/src/lib/controller/factory.ts
++++ b/examples/software-factory/controller/src/lib/controller/factory.ts
+@@ -838,7 +838,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
+     operationKey: string | undefined,
+     /** Both the command's recorded args and the `created` event's payload. */
+     payload: Record<string, unknown>,
 -    fields: (id: string) => Pick<WorkOrderRow, "taskId" | "origin" | "pin">,
 +    fields: (id: string) => Pick<WorkOrderRow, "taskId" | "origin" | "pin" | "delivery">,
-```
-
-```diff
-       const row = insertWorkOrder(operationKey, { taskId }, () => ({
+   ): WorkOrderRow {
+     const id = operationKey
+       ? `wo-${createHash("sha256").update(operationKey).digest("hex").slice(0, 16)}`
+@@ -1088,6 +1088,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
          taskId,
          origin: { kind: "catalog" },
          pin: null,
 +        delivery: { kind: "local" },
        }))
-```
-
-```diff
-       const row = insertWorkOrder(operationKey, { origin, pin }, (id) => ({
+       // A warning, not a refusal: the row is created (its budget cannot change after), and
+       // `dispatch` refuses it. Journalled once, so a replayed key adds nothing. A generated
+@@ -1115,6 +1116,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
          taskId: id,
          origin,
          pin,
 +        delivery: { kind: "local" },
        }))
+       // The issue text lands after the row: a directory with only `issue.md` is not a task the
+       // catalog lists, so nothing can dispatch it. Written only when absent, so a replayed key
 ```
 
 - [ ] **Step 8: The fixtures and the version pins.** Add `delivery: { kind: "local" },` after the `maxIntakeAttempts: 2,` line of the literal row in each of `test/budget.test.ts` (line 35), `test/evidence.test.ts` (34), `test/factory-up.test.ts` (652), `test/schemas.test.ts` (36), `test/work-orders.test.ts` (33 and 209) and `test/run-steps.test.ts` (41):
@@ -3356,11 +3349,19 @@ import {
   DELIVERY_PROTECTED_PATHS,
   FACTORY_BOT_LOGIN,
   isProtectedPath,
+  isRunFromBranchPath,
   protectedPathsIn,
+  RUN_FROM_BRANCH_PATHS,
   repositoryPath,
 } from "../src/lib/delivery/guard.ts"
 import type { DeliveryIntent } from "../src/lib/delivery/outbox.ts"
-import { BODY_LIMIT, fenceFor, pullBody, pullTitle } from "../src/lib/delivery/pr-body.ts"
+import {
+  BODY_LIMIT,
+  commitMessage,
+  fenceFor,
+  pullBody,
+  pullTitle,
+} from "../src/lib/delivery/pr-body.ts"
 import { scrub } from "../src/lib/delivery/scrub.ts"
 
 const intent: DeliveryIntent = {
@@ -3399,6 +3400,16 @@ const intent: DeliveryIntent = {
 const facts = { baseTip: "9".repeat(40), aheadBy: 4 }
 
 describe("the delivery guard", () => {
+  it("asks main not to have changed only the files the branch's own build runs", () => {
+    expect(RUN_FROM_BRANCH_PATHS).toEqual([
+      "apps/web/vercel.json",
+      "apps/web/scripts/vercel-ignore-build.sh",
+    ])
+    for (const path of RUN_FROM_BRANCH_PATHS) expect(isProtectedPath(path)).toBe(true)
+    expect(isRunFromBranchPath(".github/workflows/ci.yml")).toBe(false)
+    expect(isRunFromBranchPath("apps/web/scripts/vercel-ignore-build.sh")).toBe(true)
+  })
+
   it("names the bot the workflows skip and protects the files the guard lives in", () => {
     expect(FACTORY_BOT_LOGIN).toBe("b4-factory[bot]")
     expect(DELIVERY_PROTECTED_PATHS).toEqual([
@@ -3432,6 +3443,19 @@ describe("the pull request's text", () => {
     )
     expect(pullTitle("", "").length).toBeLessThanOrEqual(210)
     expect(pullTitle(`# ${"x".repeat(500)}`, "")).toHaveLength("factory: ".length + 200)
+  })
+
+  it("leaves no issue reference in a model-written title or commit subject", () => {
+    const title = pullTitle(
+      "# Fix #77, fixes cacheplane/b4run#78, closes GH-79 and resolves https://github.com/cacheplane/b4run/issues/80\n",
+      "",
+    )
+    expect(title).toBe(
+      "factory: Fix # 77, fixes cacheplane/b4run# 78, closes GH 79 and resolves issues 80",
+    )
+    const subject = commitMessage({ ...intent, title: "factory: Fix #77" }).split("\n")[0]
+    expect(subject).toBe("factory: Fix # 77")
+    expect(commitMessage(intent)).toContain("\n\nRefs #912\n")
   })
 
   it("refers to the issue and never closes it, and states the pin, the drift and every digest", () => {
@@ -3498,7 +3522,7 @@ describe("scrub", () => {
 Run: `pnpm exec vitest run test/delivery-text.test.ts`
 Expected: FAIL, the modules do not exist.
 
-- [ ] **Step 3: The guard's paths** (read from PR 1's `guard.json`; if PR 1 has not merged yet, create `guard.json` exactly as Task 1 Step 4 gives it, and drop it from this branch when rebasing over PR 1):
+- [ ] **Step 3: The guard's paths, both lists (D30)** (read from PR 1's `guard.json`; if PR 1 has not merged yet, create `guard.json` exactly as Task 1 Step 4 gives it, and drop it from this branch when rebasing over PR 1):
 
 `examples/software-factory/controller/src/lib/delivery/guard.ts`:
 
@@ -3511,6 +3535,12 @@ import { z } from "zod"
  * contract test (`scripts/release/test/workflow-contracts.test.mjs`, which reads the JSON):
  * the branch prefix every guarded job skips, the app's bot login every guarded job skips, and
  * the paths a delivery may never change because the guard lives in them (rung 4 spec §9).
+ * `runFromBranchPaths` is the part of those that runs from the factory branch's own commit
+ * (the Vercel build reads the pin's ignore script), so `main` must not have changed them
+ * since the pin either: a pin older than the guard carries the unguarded script. The
+ * workflows are not in it: a pull request runs `main`'s workflows at the merge commit, so
+ * `main` changing `.github/**` since the pin is harmless (it changes about forty times a
+ * month) and must not block delivery.
  * Read from disk, not imported: the contract test is plain Node and reads the same file.
  */
 const guard = z
@@ -3518,6 +3548,7 @@ const guard = z
     branchPrefix: z.literal("factory/"),
     botLogin: z.string().regex(/^[a-z0-9][a-z0-9-]*\[bot\]$/),
     protectedPaths: z.array(z.string().min(1)).min(1),
+    runFromBranchPaths: z.array(z.string().min(1)).min(1),
   })
   .strict()
   .parse(JSON.parse(readFileSync(new URL("./guard.json", import.meta.url), "utf8")))
@@ -3525,19 +3556,28 @@ const guard = z
 export const FACTORY_BRANCH_PREFIX: string = guard.branchPrefix
 export const FACTORY_BOT_LOGIN: string = guard.botLogin
 export const DELIVERY_PROTECTED_PATHS: readonly string[] = Object.freeze([...guard.protectedPaths])
+export const RUN_FROM_BRANCH_PATHS: readonly string[] = Object.freeze([...guard.runFromBranchPaths])
 
 /** A workspace path as the repository names it: under the target's root. */
 export function repositoryPath(pathPrefix: string, path: string): string {
   return pathPrefix === "." ? path : `${pathPrefix}/${path}`
 }
 
-/** Is `path` (a repository path) a delivery-protected path or under one? */
-export function isProtectedPath(path: string): boolean {
-  return DELIVERY_PROTECTED_PATHS.some((entry) =>
+const matches = (entries: readonly string[], path: string) =>
+  entries.some((entry) =>
     entry.endsWith("/**")
       ? path === entry.slice(0, -3) || path.startsWith(entry.slice(0, -2))
       : path === entry,
   )
+
+/** Is `path` (a repository path) one a delivery may never change, or under one? */
+export function isProtectedPath(path: string): boolean {
+  return matches(DELIVERY_PROTECTED_PATHS, path)
+}
+
+/** Is `path` one the branch's own commit runs, which `main` must not have changed since the pin? */
+export function isRunFromBranchPath(path: string): boolean {
+  return matches(RUN_FROM_BRANCH_PATHS, path)
 }
 
 /** The repository paths among `paths` a delivery may never change, sorted. */
@@ -3577,7 +3617,7 @@ export function scrub(text: string, secrets: readonly string[] = []): string {
 }
 ```
 
-- [ ] **Step 5: The title, the body and the commit message** (Trap 13 for the heading):
+- [ ] **Step 5: The title, the body and the commit message** (Trap 13 for the heading; D29 for the references):
 
 `examples/software-factory/controller/src/lib/delivery/pr-body.ts`:
 
@@ -3600,6 +3640,20 @@ function oneLine(text: string): string {
 }
 
 /**
+ * Model-written text made unable to reference an issue (D29): a squash merge takes the PR's
+ * title as its commit subject, and GitHub closes `#77` (or `owner/repo#77`, `GH-77`, or an
+ * issue or pull request URL) after a closing keyword (`close[sd]?`, `fix(e[sd])?`,
+ * `resolve[sd]?`) in a commit landing on the default branch. Every reference is broken, so
+ * no keyword before it can close anything; the words themselves ("Fix the timer") stay.
+ */
+export function neutraliseReferences(text: string): string {
+  return text
+    .replace(/(?:https?:\/\/)?github\.com\/[^\s/]+\/[^\s/]+\/(issues|pull)\/(\d+)/gi, "$1 $2")
+    .replace(/\bGH-(\d)/gi, "GH $1")
+    .replace(/#(?=\d)/g, "# ")
+}
+
+/**
  * The pull request's title (spec §7.1): the approved spec's first `# ` heading, else the
  * issue's title from `issue.md` (`# <title> (<repo>#<n>)`), cleaned, cut to 200 characters,
  * prefixed `factory: `. Display only: GitHub links no issue from a title.
@@ -3613,7 +3667,8 @@ export function pullTitle(specText: string, issueText: string): string {
       ?.replace(/^# +/, "")
   const fromIssue = heading(issueText)?.replace(/ \([^()]*#\d+\)$/, "")
   const title = oneLine(heading(specText) ?? fromIssue ?? "")
-  return `factory: ${(title === "" ? "an approved change" : title).slice(0, TITLE_LIMIT)}`
+  const safe = neutraliseReferences(title)
+  return `factory: ${(safe === "" ? "an approved change" : safe).slice(0, TITLE_LIMIT)}`
 }
 
 /** A fence `text` cannot close: one more backtick than its longest run, and at least three. */
@@ -3679,14 +3734,14 @@ export function pullBody(intent: DeliveryIntent, facts: BodyFacts): string {
 
 /** The commit message: from the intent alone, so a repeated create writes the same commit. */
 export function commitMessage(intent: DeliveryIntent): string {
-  return `${intent.title}\n\nRefs #${intent.issue.number}\n\nWork order ${intent.workOrderId}, bundle ${intent.bundleDigest}.\n`
+  return `${neutraliseReferences(intent.title)}\n\nRefs #${intent.issue.number}\n\nWork order ${intent.workOrderId}, bundle ${intent.bundleDigest}.\n`
 }
 ```
 
 - [ ] **Step 6: Run it to see it pass**
 
 Run: `pnpm exec tsc -p . --noEmit && pnpm exec vitest run test/delivery-text.test.ts`
-Expected: 7 passed.
+Expected: 9 passed.
 
 - [ ] **Step 7: Commit**
 
@@ -3755,6 +3810,8 @@ export interface FakeGitHub extends DeliveryAdapter {
   author: string
   /** Store each blob under this id instead of its own: GitHub disagreeing with the bytes. */
   corruptBlob: string | undefined
+  /** Called before each call, with its method: a test aborts or throws mid-request here. */
+  onCall: ((method: FakeMethod) => void) | undefined
   /** Fail or lose the next `times` calls of `method`. */
   fail(
     method: FakeMethod,
@@ -3845,6 +3902,7 @@ export function createFakeGitHub(): FakeGitHub {
     closing: [],
     author: BOT,
     corruptBlob: undefined,
+    onCall: undefined,
     fail(method, error, { after = false, times = 1 } = {}) {
       faults.push({ method, error, after, remaining: times })
     },
@@ -3887,6 +3945,7 @@ export function createFakeGitHub(): FakeGitHub {
   /** Apply the fault script around one call. */
   async function run<T>(method: FakeMethod, perform: () => T): Promise<T> {
     calls.push(method)
+    fake.onCall?.(method)
     const fault = faults.find((f) => f.method === method && f.remaining > 0)
     if (fault !== undefined) {
       fault.remaining -= 1
@@ -4046,6 +4105,8 @@ export interface Harness {
   deliver(options?: {
     readonly limits?: Partial<DeliveryLimits>
     readonly onEvent?: (type: string, abort: () => void) => void
+    /** Before each GitHub call: a test aborts the run, or throws, in the middle of a request. */
+    readonly onCall?: (method: string, abort: () => void) => void
   }): Promise<WorkOrderRow>
   events(): string[]
   journal(): string
@@ -4066,6 +4127,8 @@ export async function harness(
     readonly remote?: { readonly repository: string; readonly pin: string; readonly id: string }
     /** The approved spec the pull request quotes. */
     readonly specText?: string
+    /** The one changed path (repository and workspace path, as the root is "."). */
+    readonly source?: string
   } = {},
 ): Promise<Harness> {
   const id = options.remote?.id ?? ID
@@ -4082,12 +4145,13 @@ export async function harness(
     github.seed(
       options.pinFiles ?? {
         "README.md": "# b4\n",
-        [SOURCE]: BASELINE,
+        [options.source ?? SOURCE]: BASELINE,
         "packages/devkit/src/testing.ts": "export * from './testing/process.js'\n",
         ".github/workflows/ci.yml": "name: CI\n",
       },
     ).pin
-  const artifact = await artifacts.put(JSON.stringify({ [SOURCE]: REPAIRED }, null, 2))
+  const source = options.source ?? SOURCE
+  const artifact = await artifacts.put(JSON.stringify({ [source]: REPAIRED }, null, 2))
   const at = "2026-10-01T12:00:00.000Z"
   store.insert({
     id: id,
@@ -4148,8 +4212,8 @@ export async function harness(
     issue: { number: 912, stateAtCreate: options.stateAtCreate ?? "open" },
     paths: [
       {
-        path: SOURCE,
-        workspacePath: SOURCE,
+        path: source,
+        workspacePath: source,
         baselineBlob: blobId(BASELINE),
         candidateBlob: blobId(REPAIRED),
       },
@@ -4182,6 +4246,8 @@ export async function harness(
       store.appendEvent(id, type, payload, iso())
       run.onEvent?.(type, () => abort.abort())
     }
+    github.onCall =
+      run.onCall === undefined ? undefined : (method) => run.onCall?.(method, () => abort.abort())
     const ctx: DeliveryContext = {
       store,
       outbox,
@@ -4231,7 +4297,7 @@ export const transient = (status = 502) =>
   new DeliveryError("transient", `HTTP ${status}`, undefined, status)
 ```
 
-- [ ] **Step 3: Write the failing tests** (spec §14's unit list: a clean delivery, a lost response after each write, a stop at each step boundary, 422s, closed PR, 401/403/429/5xx within and past the bound, the run bound, every base-drift refusal, a baseline mismatch, GitHub disagreeing with a hash, a closing keyword, another author, the issue-closed policy, cancel between steps, and no secret in the journal):
+- [ ] **Step 3: Write the failing tests** (spec §14's unit list, plus the review's: a `.github` change on `main` since the pin still delivers (D30), a protected path in the change itself refuses at step (a) before any request (I8), and a controller closing mid-request leaves the row `delivering` and the next run delivers (D26); the rest: a clean delivery, a lost response after each write, a stop at each step boundary, 422s, closed PR, 401/403/429/5xx within and past the bound, the run bound, every base-drift refusal, a baseline mismatch, GitHub disagreeing with a hash, a closing keyword, another author, the issue-closed policy, cancel between steps, and no secret in the journal):
 
 `examples/software-factory/controller/test/delivery-worker.test.ts`:
 
@@ -4415,7 +4481,12 @@ describe("the delivery worker", () => {
       "ahead",
       true,
     ],
-    ["a protected path", [{ filename: ".github/workflows/ci.yml" }], "ahead", true],
+    [
+      "the Vercel ignore script, which the branch's own build runs",
+      [{ filename: "apps/web/scripts/vercel-ignore-build.sh" }],
+      "ahead",
+      true,
+    ],
     ["a pin that left main", [{ filename: "README.md" }], "diverged", true],
     ["a comparison too large to read", [{ filename: "README.md" }], "ahead", false],
   ] as const)(
@@ -4433,6 +4504,44 @@ describe("the delivery worker", () => {
       })
     },
   )
+
+  it("delivers although main changed .github since the pin: the PR runs main's workflows", async () => {
+    const h = await harness()
+    h.github.comparison = {
+      status: "ahead",
+      aheadBy: 41,
+      files: [{ filename: ".github/workflows/ci.yml" }, { filename: ".github/CODEOWNERS" }],
+      complete: true,
+    }
+    expect((await h.deliver()).state).toBe("delivered")
+  })
+
+  it("refuses a change to a protected path at delivery, whatever approval saw", async () => {
+    const h = await harness({ source: ".github/workflows/ci.yml" })
+    expect(await h.deliver()).toMatchObject({
+      state: "blocked",
+      blockedReason: "delivery_base_conflict",
+    })
+    expect(h.github.calls).toEqual(["open"])
+  })
+
+  it("stays delivering when the controller closes mid-request, and resumes after", async () => {
+    const h = await harness()
+    const stopped = await h.deliver({
+      onCall: (method, abort) => {
+        if (method !== "createBranch") return
+        abort()
+        throw new DOMException("This operation was aborted", "AbortError")
+      },
+    })
+    expect(stopped).toMatchObject({ state: "delivering", blockedReason: null })
+    expect(h.store.events(ID).find((e) => e.type === "delivery_stopped")?.payload).toMatchObject({
+      step: "committed",
+      reason: "the controller is closing",
+    })
+    expect((await h.deliver()).state).toBe("delivered")
+    expect(h.github.pulls).toHaveLength(1)
+  })
 
   it("refuses when the pin's bytes are not the baseline the candidate was diffed against", async () => {
     const h = await harness({
@@ -4543,7 +4652,7 @@ import type { WorkOrderPatch, WorkOrderStore } from "../registry/work-orders.js"
 import type { ArtifactStore } from "../storage/artifacts.js"
 import { type DeliveryAdapter, DeliveryError, type DeliverySession } from "./adapter.js"
 import { blobId, changedTreeId, readPinListings } from "./git-objects.js"
-import { isProtectedPath } from "./guard.js"
+import { isRunFromBranchPath, protectedPathsIn } from "./guard.js"
 import type { DeliveryRemote, OutboxRow, OutboxStep, OutboxStore } from "./outbox.js"
 import { commitMessage, pullBody } from "./pr-body.js"
 import { scrub } from "./scrub.js"
@@ -4648,6 +4757,9 @@ export async function runDelivery(
       try {
         return await run()
       } catch (error) {
+        // A controller closing mid-request aborts the request: that is a stop, not a failure,
+        // and the row stays `delivering` for the next boot's reconcile to resume.
+        if (ctx.signal.aborted) throw new Halted()
         if (!(error instanceof DeliveryError)) throw error
         const message = scrub(`${step}: ${error.message}`, secrets())
         if (error.kind === "unauthorized") throw new Stop("delivery_unauthorized", message)
@@ -4659,7 +4771,13 @@ export async function runDelivery(
             : Math.min(deps.limits.backoffStartMs * 2 ** (n - 1), deps.limits.maxWaitMs)
         const outOfTime = deps.clock() - started + wait > deps.limits.runMs
         ctx.outbox.note(id, message, ctx.iso())
-        ctx.recordEvent(id, "delivery_retry", { step, attempt: n, kind: error.kind, waitMs: wait })
+        ctx.recordEvent(id, "delivery_retry", {
+          step,
+          attempt: n,
+          kind: error.kind,
+          waitMs: wait,
+          detail: message,
+        })
         if (n >= deps.limits.attemptsPerStep || outOfTime)
           throw new Stop(
             error.kind === "rate_limited" ? "delivery_rate_limited" : "delivery_unconfirmed",
@@ -4711,6 +4829,15 @@ export async function runDelivery(
 
   // (a) Is the change still a change to main, stated against the bytes it was verified on?
   async function check(session: DeliverySession): Promise<DeliveryRemote> {
+    // Approval refused a protected path; the guard's list may have grown since. Asked again
+    // here, before anything is read or written: the change itself may never touch one.
+    const reached = protectedPathsIn(intent.paths.map((p) => p.path))
+    if (reached.length > 0)
+      throw new Stop(
+        "delivery_base_conflict",
+        `the change touches ${reached.join(", ")}, which a pull request from the factory may never change`,
+        { paths: reached },
+      )
     if (intent.issue.stateAtCreate === "open") {
       const state = await session.issueState(intent.issue.number)
       if (state === "closed")
@@ -4741,7 +4868,7 @@ export async function runDelivery(
         comparison.files.flatMap((file) =>
           [file.filename, file.previousFilename].filter(
             (name): name is string =>
-              name !== undefined && (touched.has(name) || isProtectedPath(name)),
+              name !== undefined && (touched.has(name) || isRunFromBranchPath(name)),
           ),
         ),
       ),
@@ -4843,7 +4970,13 @@ export async function runDelivery(
     return { commit: { sha } }
   }
 
-  /** Is `sha` a commit of exactly this change: the approved tree, on the pin, alone? */
+  /**
+   * Is `sha` a commit of exactly this change: the approved tree, on the pin, alone? Judged by
+   * tree and parent, not by author: a commit someone else made with the identical tree on the
+   * pin is the approved bytes, and adopting it publishes exactly what was approved. Only the
+   * app can create a `factory/*` branch (the rulesets), and confirm still requires the pull
+   * request's author to be the app's bot.
+   */
   async function isOurs(session: DeliverySession, sha: string, expectedTree: string) {
     const found = await session.commit(sha)
     return found.tree === expectedTree && sameParents(found.parents, intent.pin)
@@ -4997,7 +5130,7 @@ export async function runDelivery(
     const session = await attempt("session", () => deps.adapter.open(intent.repository, ctx.signal))
     for (;;) {
       // A closing controller stops between steps; the next boot's reconcile resumes here.
-      if (ctx.signal.aborted) return
+      if (ctx.signal.aborted) throw new Halted()
       const row = ctx.outbox.get(id) as OutboxRow
       if (row.step === "confirmed") return
       ensureDelivering()
@@ -5052,12 +5185,15 @@ export async function runDelivery(
       }
     }
   } catch (error) {
-    if (error instanceof Halted) {
+    // A cancel, or a controller closing (between steps or mid-request): journal what exists
+    // remotely and leave the row as it is. Never a refusal: nothing went wrong with GitHub.
+    if (error instanceof Halted || ctx.signal.aborted) {
       const row = ctx.outbox.get(id)
       ctx.recordEvent(id, "delivery_stopped", {
         state: ctx.mustGet(id).state,
         step: row?.step ?? null,
         observed: row?.remote ?? {},
+        ...(ctx.signal.aborted ? { reason: "the controller is closing" } : {}),
       })
       return
     }
@@ -5073,7 +5209,7 @@ export async function runDelivery(
 - [ ] **Step 6: Run them to see them pass**
 
 Run: `pnpm exec tsc -p . --noEmit && pnpm exec vitest run test/delivery-worker.test.ts`
-Expected: 29 passed. If a "converges … lost" case creates a second pull request, a step wrote before it read; if a waits array differs, the backoff or the cap is wrong (D9).
+Expected: 32 passed. If a "converges … lost" case creates a second pull request, a step wrote before it read; if a waits array differs, the backoff or the cap is wrong (D9).
 
 - [ ] **Step 7: Commit**
 
@@ -5664,6 +5800,34 @@ describe("redeliver", () => {
     expect(fake.pulls).toHaveLength(1)
   })
 
+  it("does not deliver to a destination other than the one approved, after a restart", async () => {
+    const fake = github()
+    harness = await issueHarness({ delivery: delivery(fake) })
+    const row = await harness.toBundle({ deliver: DRAFT_PR })
+    fake.fail("compare", new DeliveryError("transient", "HTTP 502", undefined, 502), { times: 9 })
+    expect(await approve(row)).toMatchObject({ ok: false, state: "blocked" })
+    await harness.factory.close()
+    await harness.boot({
+      delivery: { ...delivery(fake), draftPr: { ...delivery(fake).draftPr, baseBranch: "next" } },
+    })
+    const blocked = harness.factory.show(row.id) as WorkOrderRow
+    expect(
+      await harness.factory.redeliver(row.id, {
+        revision: blocked.revision,
+        bundleDigest: row.bundleDigest,
+      }),
+    ).toMatchObject({ ok: false, state: "blocked" })
+    expect(
+      harness.factory
+        .events(row.id)
+        .filter((e) => e.type === "delivery_refused")
+        .at(-1)?.payload,
+    ).toMatchObject({
+      detail: expect.stringContaining("the approval names cacheplane/b4run at main"),
+    })
+    expect(fake.writes()).toEqual([])
+  })
+
   it("does not redeliver a base conflict: the remedy is a new work order", async () => {
     const fake = github()
     harness = await issueHarness({ delivery: delivery(fake) })
@@ -6232,20 +6396,28 @@ Before `// The narrow view the run observer, the verifying phase and reconciliat
   function startDelivery(id: string): Promise<void> {
     const running = runs.get(id)
     if (running !== undefined) return running
-    if (deliveryDeps === undefined) {
+    const unable = (detail: string) => {
       store.transaction(() => {
-        recordEvent(id, "delivery_refused", {
-          reason: "delivery_unauthorized",
-          detail: "this controller has no draft-PR delivery configured",
-        })
+        recordEvent(id, "delivery_refused", { reason: "delivery_unauthorized", detail })
         if (mustGet(id).state === "delivering")
           transition(id, "delivery_refused", { blockedReason: "delivery_unauthorized" })
       })
       return Promise.resolve()
     }
+    if (deliveryDeps === undefined || options.delivery === undefined)
+      return unable("this controller has no draft-PR delivery configured")
+    // The approval named one repository and base; the controller may have been restarted
+    // configured for another (D27). Approve, reconcile and redeliver all come through here.
+    const intent = outbox.get(id)?.intent
+    const { repository, baseBranch } = options.delivery.draftPr
+    if (intent !== undefined && (intent.repository !== repository || intent.baseBranch !== baseBranch))
+      return unable(
+        `this controller delivers to ${repository} at ${baseBranch}; the approval names ${intent.repository} at ${intent.baseBranch}`,
+      )
     track(id, runDelivery(ctx, deliveryDeps, id))
     return runs.get(id) as Promise<void>
   }
+
 ```
 
 and in the `ctx` object, after `store,`:
@@ -6253,6 +6425,14 @@ and in the `ctx` object, after `store,`:
 ```ts
     outbox,
     startDelivery,
+```
+
+`track`'s journal line can now carry a delivery's fault: scrub it (`import { scrub } from "../delivery/scrub.js"`):
+
+```diff
+-          recordEvent(id, "run_observer_error", { error: String(error) })
++          // Scrubbed: a delivery's fault could quote a request (rung 4 §8.3).
++          recordEvent(id, "run_observer_error", { error: scrub(String(error)) })
 ```
 
 - [ ] **Step 4: `approve`.** Five edits, in order, in `approve`'s body.
@@ -6298,6 +6478,9 @@ and in the `ctx` object, after `store,`:
       // A draft-PR bundle (rung 4 §3.4): everything that can refuse in seconds is asked before
       // the re-verification, so a refusal never costs a verification. Nothing is written to
       // GitHub here, and nothing is committed until the approval's own transaction.
+      // Both ways: a local bundle on a draft-PR row is as wrong as the reverse.
+      if (frozen.operation === "export-local" && row.delivery.kind !== "local")
+        return invalidated("Delivery", "export-local", row.delivery.kind)
       let delivery:
         | {
             readonly config: DraftPrConfig
@@ -6503,7 +6686,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Create: `src/app/work-orders/redeliver/index.ts`
 - Test: `test/factory-delivery.test.ts` (append the `describe("redeliver", …)` block from the full file in Task 12)
 
-- [ ] **Step 1: Append the failing tests and run them**
+- [ ] **Step 1: Append the failing tests and run them** (three: a healable block redelivered; a destination other than the approved one refused after a restart, D27; a base conflict not redeliverable)
 
 Run: `pnpm exec vitest run test/factory-delivery.test.ts -t redeliver`
 Expected: FAIL, `factory.redeliver is not a function`.
@@ -6648,7 +6831,7 @@ export async function workflow(input: unknown) {
 - [ ] **Step 5: Run the tests**
 
 Run: `pnpm exec tsc -p . --noEmit && pnpm exec vitest run test/factory-delivery.test.ts test/commands.test.ts`
-Expected: PASS (`factory-delivery.test.ts`: 11).
+Expected: PASS (`factory-delivery.test.ts`: 12).
 
 - [ ] **Step 6: Commit**
 
@@ -7419,7 +7602,7 @@ cd examples/software-factory/controller
 - Create: `src/lib/delivery/github/jwt.ts`, `src/lib/delivery/github/http.ts`
 - Test: `test/github-http.test.ts`
 
-- [ ] **Step 1: Write the failing test** (spec §14: PATCH, PUT and DELETE refused on every path, another repository, a ref outside `factory/`, a ready or misdirected PR, any other write, any other GraphQL document, any other user; the JWT verified with the public key; the key read only from a private regular file and never quoted):
+- [ ] **Step 1: Write the failing test** (spec §14: PATCH, PUT and DELETE refused on every path; dot, empty and encoded-separator segments refused (D28); another repository, a ref outside `factory/`, a ready or misdirected PR, any other write, any other GraphQL document, any other user; the JWT verified with the public key; the key read only from a private regular file and never quoted):
 
 `examples/software-factory/controller/test/github-http.test.ts`:
 
@@ -7487,6 +7670,19 @@ describe("the allow-list", () => {
     refuse("POST", "/graphql", { query: "mutation { mergePullRequest }" })
     refuse("GET", "/users/blove")
     refuse("GET", "/repos/cacheplane/b4run/contents/README.md")
+  })
+
+  it("refuses a path fetch would resolve elsewhere: dot, empty and encoded segments", () => {
+    for (const path of [
+      "/repos/cacheplane/b4run/git/ref/heads/../../../../repos/other/secret/contents/x",
+      "/repos/cacheplane/b4run/rules/branches/factory/./wo-0123456789abcdef",
+      "/repos/cacheplane/b4run/rules/branches/factory/%2e%2e/x",
+      "/repos/cacheplane/b4run/rules/branches/factory//x",
+      "/repos/cacheplane/b4run/git/ref/heads/factory%2Fx",
+    ])
+      expect(() => allowedRoute("GET", path, undefined, target), path).toThrow(
+        /dot, empty or encoded/,
+      )
   })
 
   it("accepts exactly the delivery's own requests", () => {
@@ -7612,7 +7808,7 @@ export function appJwt(appId: number, key: KeyObject, nowMs: number): string {
 }
 ```
 
-- [ ] **Step 4: The allow-list and the request** (D8, D15; `retry-after` and `x-ratelimit-*` read here, spec §6.5):
+- [ ] **Step 4: The allow-list and the request** (D8, D15; `retry-after` and `x-ratelimit-*` read here, spec §6.5; the per-request bound, D25; the URL checked as `fetch` will send it and redirects never followed, D28; a controller abort rethrown for the worker to stop on, D26):
 
 `examples/software-factory/controller/src/lib/delivery/github/http.ts`:
 
@@ -7747,6 +7943,17 @@ const ROUTES: readonly Route[] = [
  * test can sweep it with every method and many paths without a server.
  */
 export function allowedRoute(method: string, path: string, body: unknown, target: Target): Route {
+  // Before any pattern: `fetch` resolves `.` and `..` segments (and their %2e spellings) and
+  // would send a checked path somewhere else (`…/heads/../../../other/x`), and an empty
+  // segment is not a path GitHub names. The query is the pulls listing's, checked by its route.
+  const pathname = path.split("?")[0] as string
+  const segments = pathname.split("/").slice(1)
+  if (
+    !pathname.startsWith("/") ||
+    segments.some((segment) => segment === "" || segment === "." || segment === "..") ||
+    /%2e|%2f|%5c|\\/i.test(pathname)
+  )
+    throw new DisallowedRequestError(method, path, "a dot, empty or encoded separator segment")
   const prefix = `/repos/${target.repository}`
   const inRepository =
     path === prefix || path.startsWith(`${prefix}/`) || path.startsWith(`${prefix}?`)
@@ -7786,6 +7993,8 @@ export interface RequestOptions {
   readonly credential: (auth: Auth) => string
   readonly signal: AbortSignal
   readonly now: () => number
+  /** One request's bound (D25); past it the request is a transient failure, retried by the step. */
+  readonly timeoutMs: number
 }
 
 /**
@@ -7808,18 +8017,42 @@ export async function githubRequest(
   if (route.auth !== "none")
     headers.authorization = `${route.auth === "jwt" ? "Bearer" : "token"} ${options.credential(route.auth)}`
   if (body !== undefined) headers["content-type"] = "application/json"
+  // The URL fetch will send is the one checked: same origin, same path, nothing normalised.
+  const base = new URL(options.baseUrl)
+  const url = new URL(`${options.baseUrl}${path}`)
+  if (
+    url.origin !== base.origin ||
+    url.pathname !== `${base.pathname.replace(/\/$/, "")}${path.split("?")[0]}`
+  )
+    throw new DisallowedRequestError(method, path, `it resolves to ${url.pathname}`)
   let response: Response
   try {
-    response = await options.fetch(`${options.baseUrl}${path}`, {
+    response = await options.fetch(url, {
       method,
       headers,
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-      signal: options.signal,
+      // Never followed (D28): a redirect would send the request, and the token, to a URL the
+      // allow-list never saw. A 3xx is answered below as unexpected.
+      redirect: "manual",
+      signal: AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs)]),
     })
   } catch (error) {
+    // The controller closing is the caller's to see (the worker stops, D26); a timeout or a
+    // network failure is transient.
     if (options.signal.aborted) throw error
-    throw new DeliveryError("transient", `${method} ${path}: ${(error as Error).message}`)
+    const timedOut = (error as Error).name === "TimeoutError"
+    throw new DeliveryError(
+      "transient",
+      `${method} ${path}: ${timedOut ? `no answer within ${options.timeoutMs} ms` : (error as Error).message}`,
+    )
   }
+  if (response.status >= 300 && response.status < 400)
+    throw new DeliveryError(
+      "unexpected",
+      `${method} ${path}: HTTP ${response.status} redirect, not followed`,
+      undefined,
+      response.status,
+    )
   const text = await response.text()
   let json: unknown = null
   try {
@@ -7851,7 +8084,7 @@ export async function githubRequest(
 - [ ] **Step 5: Run it to see it pass**
 
 Run: `pnpm exec tsc -p . --noEmit && pnpm exec vitest run test/github-http.test.ts`
-Expected: 5 passed.
+Expected: 6 passed.
 
 - [ ] **Step 6: Commit**
 
@@ -7896,6 +8129,8 @@ export interface ScriptedAnswer {
   readonly body?: unknown
   /** Perform the request first, then answer this: a response lost after the write. */
   readonly after?: boolean
+  /** Hold the answer this long: a request past the adapter's per-request bound. */
+  readonly delayMs?: number
 }
 
 export interface FakeGitHubServer {
@@ -8067,6 +8302,8 @@ export async function startFakeGitHubServer(): Promise<FakeGitHubServer> {
     if (script !== undefined) {
       script.remaining -= 1
       if (script.answer.after) await route(method, url, body)
+      if (script.answer.delayMs !== undefined)
+        await new Promise((resolve) => setTimeout(resolve, script.answer.delayMs))
       answer = {
         status: script.answer.status,
         value: script.answer.body ?? { message: `scripted ${script.answer.status}` },
@@ -8113,7 +8350,9 @@ export async function startFakeGitHubServer(): Promise<FakeGitHubServer> {
 ```ts
 import { generateKeyPairSync } from "node:crypto"
 import { afterEach, describe, expect, it } from "vitest"
+import { DeliveryError } from "../src/lib/delivery/adapter.ts"
 import { createGitHubAdapter } from "../src/lib/delivery/github/adapter.ts"
+import { allowedRoute } from "../src/lib/delivery/github/http.ts"
 import { BRANCH, closeHarness, harness } from "./delivery-harness.ts"
 import {
   type FakeGitHubServer,
@@ -8131,16 +8370,40 @@ afterEach(async () => {
 })
 
 describe("the GitHub adapter against GitHub's shapes", () => {
-  async function delivery() {
+  /** Every request the adapter sends, as fetch received it. */
+  let sent: { method: string; path: string; body: unknown }[] = []
+  async function delivery(
+    options: {
+      readonly requestTimeoutMs?: number
+      /** Called as fetch is handed each request: a test closes the controller here. */
+      readonly beforeFetch?: (method: string, path: string) => void
+    } = {},
+  ) {
     server = await startFakeGitHubServer()
+    sent = []
+    const recording: typeof fetch = async (input, init) => {
+      const url = new URL(String(input))
+      sent.push({
+        method: init?.method ?? "GET",
+        path: `${url.pathname}${url.search}`,
+        body: init?.body === undefined ? undefined : JSON.parse(String(init.body)),
+      })
+      options.beforeFetch?.(init?.method ?? "GET", url.pathname)
+      return fetch(input, init)
+    }
     const adapter = createGitHubAdapter({
+      repository: "cacheplane/b4run",
       appId: 123456,
       privateKey,
       baseBranch: "main",
       baseUrl: server.url,
+      fetch: recording,
+      ...(options.requestTimeoutMs !== undefined
+        ? { requestTimeoutMs: options.requestTimeoutMs }
+        : {}),
     })
     const h = await harness({ github: server.repo, adapter })
-    return { h, server }
+    return { h, server, adapter }
   }
 
   it("delivers end to end with GET and POST only, the JWT only for the app's own endpoints", async () => {
@@ -8149,7 +8412,18 @@ describe("the GitHub adapter against GitHub's shapes", () => {
     expect(new Set(server.requests.map((r) => r.method))).toEqual(new Set(["GET", "POST"]))
     for (const r of server.requests)
       expect(r.auth, r.path).toBe(/^\/app($|\/)|\/installation$/.test(r.path) ? "Bearer" : "token")
-    const mint = server.requests.find((r) => r.path.endsWith("/access_tokens"))
+    // Every request fetch was handed is one the allow-list accepts, as sent.
+    for (const r of sent)
+      expect(
+        () =>
+          allowedRoute(r.method, r.path, r.body, {
+            repository: "cacheplane/b4run",
+            baseBranch: "main",
+          }),
+        r.path,
+      ).not.toThrow()
+    // The token is minted for the installation id the adapter just read, and nothing wider.
+    const mint = server.requests.find((r) => r.path === "/app/installations/42/access_tokens")
     expect(mint?.body).toEqual({
       repositories: ["b4run"],
       permissions: { contents: "write", pull_requests: "write", metadata: "read", issues: "read" },
@@ -8207,6 +8481,55 @@ describe("the GitHub adapter against GitHub's shapes", () => {
     server.repo.comparison = { status: "ahead", aheadBy: 400, files: [], complete: false }
     expect(await h.deliver()).toMatchObject({ blockedReason: "delivery_base_conflict" })
   })
+
+  it("never follows a redirect: a 307 blocks, and its target is never asked", async () => {
+    const { h, server } = await delivery()
+    server.answer("POST", /\/git\/refs$/, {
+      status: 307,
+      headers: { location: `${server.url}/repos/cacheplane/other/git/refs` },
+    })
+    expect(await h.deliver()).toMatchObject({
+      state: "blocked",
+      blockedReason: "delivery_unconfirmed",
+    })
+    expect(server.requests.some((r) => r.path.includes("/cacheplane/other/"))).toBe(false)
+  })
+
+  it("gives up on a request past its bound and retries the step", async () => {
+    const { h, server } = await delivery({ requestTimeoutMs: 200 })
+    server.answer("GET", /\/compare\//, { status: 200, delayMs: 1_000 })
+    expect((await h.deliver()).state, h.journal()).toBe("delivered")
+    expect(h.waits).toEqual([2_000])
+    expect(h.journal()).toContain("no answer within 200 ms")
+  })
+
+  it("stays delivering when the controller closes mid-request, and resumes after", async () => {
+    let abort: (() => void) | undefined
+    const { h } = await delivery({
+      beforeFetch: (method, path) => {
+        if (method === "POST" && path.endsWith("/git/refs")) abort?.()
+      },
+    })
+    const stopped = await h.deliver({
+      onEvent: (type, a) => {
+        if (type === "delivery_committed") abort = a
+      },
+    })
+    expect(stopped).toMatchObject({ state: "delivering", blockedReason: null })
+    expect(h.events()).toContain("delivery_stopped")
+    abort = undefined
+    expect((await h.deliver()).state).toBe("delivered")
+  })
+
+  it("delivers only to the repository it was configured for", async () => {
+    const { adapter } = await delivery()
+    await expect(adapter.open("cacheplane/other", new AbortController().signal)).rejects.toEqual(
+      new DeliveryError(
+        "unauthorized",
+        "this controller delivers to cacheplane/b4run, not cacheplane/other",
+      ),
+    )
+  })
 })
 ```
 
@@ -8215,7 +8538,7 @@ describe("the GitHub adapter against GitHub's shapes", () => {
 Run: `pnpm exec vitest run test/github-adapter.test.ts`
 Expected: FAIL, `github/adapter.ts` does not exist.
 
-- [ ] **Step 4: The adapter** (D5: the token is minted downscoped to exactly `DELIVERY_PERMISSIONS`, and a grant narrower than that refuses; D15: the bot's identity):
+- [ ] **Step 4: The adapter** (D5: the token is minted downscoped to exactly `DELIVERY_PERMISSIONS`, and a grant narrower than that refuses; D15: the bot's identity; D27: bound to one repository; each session keeps its own token, and `secrets()` names every token minted, for the scrubber):
 
 `examples/software-factory/controller/src/lib/delivery/github/adapter.ts`:
 
@@ -8249,12 +8572,16 @@ export const DELIVERY_PERMISSIONS: Readonly<Record<string, "read" | "write">> = 
 })
 
 export interface GitHubAdapterOptions {
+  /** The one repository this adapter delivers to (D27); `open` refuses any other. */
+  readonly repository: string
   readonly appId: number
   readonly privateKey: KeyObject
   readonly baseBranch: string
   readonly fetch?: typeof fetch
   readonly baseUrl?: string
   readonly now?: () => number
+  /** One request's bound (D25). Default 30 s. */
+  readonly requestTimeoutMs?: number
 }
 
 const asRecord = (value: unknown, what: string): Record<string, unknown> => {
@@ -8292,11 +8619,18 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): DeliveryAdap
   const doFetch = options.fetch ?? fetch
   const baseUrl = (options.baseUrl ?? "https://api.github.com").replace(/\/$/, "")
   const now = options.now ?? Date.now
-  let token: string | undefined
+  /** Every token minted, for the scrubber; each session uses only its own. */
+  const minted = new Set<string>()
 
   return {
-    secrets: () => (token === undefined ? [] : [token]),
+    secrets: () => [...minted],
     async open(repository, signal) {
+      if (repository !== options.repository)
+        throw new DeliveryError(
+          "unauthorized",
+          `this controller delivers to ${options.repository}, not ${repository}`,
+        )
+      let token: string | undefined
       const [owner, name] = repository.split("/") as [string, string]
       const target = { repository, baseBranch: options.baseBranch }
       const request: RequestOptions = {
@@ -8305,6 +8639,7 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): DeliveryAdap
         target,
         signal,
         now,
+        timeoutMs: options.requestTimeoutMs ?? 30_000,
         credential: (auth: Auth) => {
           if (auth === "jwt") return appJwt(options.appId, options.privateKey, now())
           if (token === undefined) throw new DeliveryError("unauthorized", "no installation token")
@@ -8329,9 +8664,9 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): DeliveryAdap
           throw new DeliveryError("unauthorized", `the app is not installed on ${repository}`)
         throw error
       }
-      let minted: Record<string, unknown>
+      let mint: Record<string, unknown>
       try {
-        minted = asRecord(
+        mint = asRecord(
           await post(`/app/installations/${Number(installation.id)}/access_tokens`, {
             repositories: [name],
             permissions: DELIVERY_PERMISSIONS,
@@ -8349,8 +8684,9 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): DeliveryAdap
           )
         throw error
       }
-      token = asString(minted.token, "token")
-      const granted = asRecord(minted.permissions ?? {}, "granted permissions")
+      token = asString(mint.token, "token")
+      minted.add(token)
+      const granted = asRecord(mint.permissions ?? {}, "granted permissions")
       const missing = Object.entries(DELIVERY_PERMISSIONS).filter(
         ([scope, level]) =>
           !(granted[scope] === level || (level === "read" && granted[scope] === "write")),
@@ -8536,7 +8872,7 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): DeliveryAdap
 - [ ] **Step 5: Run it to see it pass, with the worker suite**
 
 Run: `pnpm exec tsc -p . --noEmit && pnpm exec vitest run test/github-adapter.test.ts test/delivery-worker.test.ts`
-Expected: 5 + 29 passed. Every request the adapter sent was GET or POST, the JWT only on `/app` and the installation endpoints, the mint body exactly the four permissions, and the installation token in no journal line.
+Expected: 9 + 32 passed. Every request the adapter handed `fetch` passes `allowedRoute` as sent; every request was GET or POST, the JWT only on `/app` and the installation endpoints, the mint body exactly the four permissions for the installation id just read, and the installation token in no journal line; a 307 blocks without its target being asked (D28); a request held past `requestTimeoutMs` is retried as transient (D25); a close as the ref is created leaves the row `delivering` and the next run delivers (D26); `open()` for another repository is refused (D27).
 
 - [ ] **Step 6: Commit**
 
@@ -8615,7 +8951,7 @@ describe("the controller's delivery configuration", () => {
     try {
       loadConfig({ ...env, FACTORY_GITHUB_APP_PRIVATE_KEY: PEM })
     } catch (error) {
-      expect(String(error)).not.toContain("MII")
+      expect(String(error).includes("MII")).toBe(false)
     }
   })
 })
@@ -8765,6 +9101,7 @@ index bcaa9e319..9c0c6dd88 100644
 +                repository: config.delivery.repository,
 +                baseBranch: config.delivery.baseBranch,
 +                adapter: createGitHubAdapter({
++                  repository: config.delivery.repository,
 +                  appId: config.delivery.appId,
 +                  privateKey: loadAppPrivateKey(config.delivery.privateKeyFile),
 +                  baseBranch: config.delivery.baseBranch,
@@ -8780,10 +9117,13 @@ index bcaa9e319..9c0c6dd88 100644
  export function controllerRuntime(): ControllerRuntime {
 -  shared ??= createControllerRuntime(process.env, sharedOverrides)
 +  if (shared === undefined) {
-+    shared = createControllerRuntime(process.env, sharedOverrides)
-+    // Read once and gone (rung 4 §8.2): every git and docker child the controller spawns
-+    // inherits its environment, and none of them needs to know where the app's key is.
-+    for (const name of APP_CREDENTIAL_VARIABLES) delete process.env[name]
++    try {
++      shared = createControllerRuntime(process.env, sharedOverrides)
++    } finally {
++      // Read once and gone (rung 4 §8.2), even when the configuration refuses: every git and
++      // docker child the controller spawns inherits its environment, and none needs these.
++      for (const name of APP_CREDENTIAL_VARIABLES) delete process.env[name]
++    }
 +  }
    return shared
  }
@@ -8927,8 +9267,9 @@ describe("up and the GitHub App's key", () => {
       FACTORY_DELIVERY_REPOSITORY: "cacheplane/b4run",
       FACTORY_DELIVERY_BASE_BRANCH: "main",
     })
+    // Booleans, never the environment: a failing assertion must not print a key.
     for (const name of ["controller", "builder", "drafter"])
-      expect(JSON.stringify(byName[name]), name).not.toContain("PRIVATE KEY-----\n")
+      expect(JSON.stringify(byName[name]).includes("PRIVATE KEY"), name).toBe(false)
     for (const name of ["builder", "drafter"])
       expect(
         Object.keys(byName[name] ?? {}).filter((k) => /GITHUB_APP|DELIVERY|APP_KEY/.test(k)),
@@ -8956,7 +9297,7 @@ describe("up and the GitHub App's key", () => {
       stopTimeoutMs: 1,
     })
     expect(problems.join("\n")).toContain("GitHub App 7: key from $B4_FACTORY_APP_KEY")
-    expect(problems.join("\n")).not.toContain("MII")
+    expect(problems.join("\n").includes("MII")).toBe(false)
     const own = ownSubprocessEnv({
       B4_FACTORY_APP_KEY: PEM,
       FACTORY_GITHUB_APP_PRIVATE_KEY_FILE: "/k",
@@ -8972,7 +9313,9 @@ describe("up and the GitHub App's key", () => {
       githubAppKey: PEM,
     })
     const body = PEM.split("\n")[3] as string
-    expect(redact(`leaked ${body} here`)).toBe("leaked [GITHUB_APP_KEY] here")
+    const redacted = redact(`leaked ${body} here`)
+    expect(redacted.includes(body)).toBe(false)
+    expect(redacted === "leaked [GITHUB_APP_KEY] here").toBe(true)
   })
 })
 ```
@@ -9186,11 +9529,11 @@ index 00a3923b3..f54a1995b 100644
  /** Import a config file (tsx compiles it) and validate its default export. */
 ```
 
-- [ ] **Step 4: `up`** (the key read once and checked; the variable form written to `<state>/run/github-app.pem`, 0600, removed on every stop; the controller given a path; every child stripped of delivery variables and the key's variable; the key's lines redacted):
+- [ ] **Step 4: `up`** (the key read once and checked; the variable form written to `<state>/run/github-app.pem`, 0600 in a 0700 directory, removed on every stop and, from a crashed run, at the next start. That is inside the state directory while the operator's own key file may not be (`deliveryKeyProblems`): the operator's file is long-lived and theirs, so it must not sit in a directory of run-time files a person may copy, back up or delete; the run copy is `up`'s, lives only while `up` does, and no other process is told where it is; the controller given a path; every child stripped of delivery variables and the key's variable; the key's lines redacted):
 
 ```diff
 diff --git a/examples/software-factory/controller/src/lib/operator/up.ts b/examples/software-factory/controller/src/lib/operator/up.ts
-index 94a389851..bce96588d 100644
+index 94a389851..996aced19 100644
 --- a/examples/software-factory/controller/src/lib/operator/up.ts
 +++ b/examples/software-factory/controller/src/lib/operator/up.ts
 @@ -1,5 +1,5 @@
@@ -9362,12 +9705,17 @@ index 94a389851..bce96588d 100644
      ] as const
    )
      .filter(([secret]) => secret.length > 0)
-@@ -1051,6 +1148,28 @@ export async function up(
+@@ -1051,6 +1148,33 @@ export async function up(
      deps.out(line)
      appendLog(upLog, `${line}\n`)
    }
++  // A key file a crashed up left behind goes first, whatever this start's form is.
++  rmSync(runKeyFile(config.stateDir), { force: true })
 +  // The variable form of the app's key becomes a private file for the controller (spec §8.2):
 +  // the controller is given a path, never the key in its environment. Removed on every stop.
++  // Under the state directory on purpose, unlike the operator's own key file (which
++  // deliveryKeyProblems keeps out of it): this copy is up's, lives only while up does, in a
++  // 0700 directory the checkout ignores, and no other process is told where it is.
 +  const keyFile =
 +    config.delivery !== undefined &&
 +    "env" in config.delivery.key &&
@@ -9391,7 +9739,7 @@ index 94a389851..bce96588d 100644
    const running = new Map<AppName, Running>()
    // Until stop aborts (0) or something fails (1); the stop below runs after either.
    const supervise = async (): Promise<number> => {
-@@ -1123,6 +1242,7 @@ export async function up(
+@@ -1123,6 +1247,7 @@ export async function up(
      )
    }
    const clean = await stopAll(running, deps, force, say)
@@ -9526,6 +9874,7 @@ describe("the fake GitHub against what GitHub answered", () => {
       server = await startFakeGitHubServer()
       const seen: ContractEntry[] = []
       const adapter = createGitHubAdapter({
+        repository: "cacheplane/b4run",
         appId: 1,
         privateKey,
         baseBranch: "main",
@@ -9595,6 +9944,7 @@ afterAll(() => {
 describe.skipIf(!enabled)("delivery against a real scratch repository", () => {
   const adapter = () =>
     createGitHubAdapter({
+      repository: scratch as string,
       appId,
       privateKey: loadAppPrivateKey(keyFile as string),
       baseBranch: "main",
@@ -9635,6 +9985,7 @@ describe.skipIf(!enabled)("delivery against a real scratch repository", () => {
       return response
     }
     const a = createGitHubAdapter({
+      repository: scratch as string,
       appId,
       privateKey: loadAppPrivateKey(keyFile as string),
       baseBranch: "main",
@@ -9917,6 +10268,12 @@ Brian approves at both gates as before. Expected: `blocked` with `delivery_base_
 | Cancel between steps; `redeliver` from each healable reason, refused otherwise and after the window | Task 11, Task 14, Task 5 |
 | `delivered` only after the read-back | Task 11 (confirm checks author, head, base, parents, tree, closing references) |
 | The rulesets and the missing `workflows` permission refuse what the code never asks | Task 21 (real GitHub) |
+| A secret job gated on a job output or `failure()`, a forbidden trigger (`issue_comment` …), a local reusable workflow that deploys, a `pull_request` workflow without top-level permissions: all refused; the `head_ref` spelling of the guard accepted | Task 2 (three-valued evaluation), Task 3 (mutations) |
+| A `.github` change on `main` since the pin delivers; a change to the files the branch's own build runs refuses | Task 11, Task 3 (`runFromBranchPaths` pinned) |
+| A controller close mid-request or between steps leaves `delivering`, and the next run delivers | Task 11 (in memory), Task 18 (over HTTP), Task 13 (close and boot) |
+| A hung request is bounded and retried; a redirect is never followed; a path `fetch` would normalise is refused | Task 18, Task 17 |
+| No issue reference survives in the title or the commit subject | Task 10 |
+| An approval for one destination is never delivered to another | Task 18 (`open` bound), Task 14 (restart with another base) |
 | The fake matches GitHub | Task 21 (recorded contract, replayed) |
 | Live: a real draft PR, the guards skipping, no duplicate; the refusal path with nothing created | Task 23 |
 
@@ -9936,3 +10293,37 @@ Brian approves at both gates as before. Expected: `blocked` with `delivery_base_
 - **Placeholder scan.** Every code step has its code (new files whole; changes as diffs or exact old/new text). Three values only a person supplies: the app id (Task 4, 21, 23), the live issue number (Task 23, D13), and the PR number the live run creates. Two by-hand outcomes are recorded where they go (Task 21 Step 3, Task 23 Step 5).
 - **Type consistency.** `RowDelivery` (Task 6) is what `createFromIssue` builds (Task 12) and approve compares (Task 13). `DraftPrBundleDelivery` and `draftPrDestinationId` (Task 7) are what verify freezes (Task 12) and approve checks (Task 13). `DeliveryIntent` and `DeliveryRemote` (Task 9) are what `buildDeliveryIntent` returns (Task 12), the worker reads (Task 11) and `redeliver`'s CLI displays (Task 15). `DeliveryAdapter`/`DeliverySession` (Task 9) are implemented by the in-memory fake (Task 11) and the real adapter (Task 18) and consumed by `preflightDelivery` (Task 12) and `runDelivery` (Task 11). `DraftPrConfig` (Task 12) is `FactoryOptions.delivery.draftPr` (Task 12) and the runtime's wiring (Task 19). `FACTORY_BOT_LOGIN` (Task 10) is preflight's comparison (Task 12) and `http.ts`'s user check (Task 17), from `guard.json` (Task 1), which the contract test reads (Task 3).
 - **YAGNI.** No new dependency (JWT and hashing with `node:crypto`). No Workbench. No standing token. One repository per controller.
+
+## Review amendments (2026-10-01)
+
+An independent review executed PR 1 and PRs 3-4 task by task in a scratch checkout: green at every task but Task 1's lint; no Critical; nine Important; minors. Every item is applied in place; the amended code was prototyped again (the controller's 1,255 unit tests, the contract and evaluator tests, `pnpm test:release-integrity`, `pnpm test:release-controller`, `pnpm --dir apps/web lint` and the web test all green, Trap 10 aside) and removed before this commit.
+
+| # | Finding | Where addressed |
+|---|---|---|
+| I1a | The guard test's fixed context answered every job output "false" and `failure()` false, so a secret job gated on an output or on `failure()` passed | D3 amended; Task 2: three-valued evaluation (`UNKNOWN`, `unknownByDefault`) and its test; Task 3: `factoryContext` states only event, repository, head ref and author, and a job passes only when its `if:` is definitely false; mutations "a secret job gated only on a job output", "a secret job that runs on failure()" |
+| I1b | The trigger deny-list missed `issue_comment`, `pull_request_review`, `create`, … (and `issue_comment` makes `github.event.pull_request` null) | D3: an allow-list (`pull_request`, `push` to `main`, `schedule`, `workflow_dispatch`, `workflow_call`, `branch_protection_rule`); Task 3 `ALLOWED_TRIGGERS`; mutation "claude-review also on issue_comment" |
+| I1c | A local reusable workflow whose job names an environment was not flagged | Task 3 `guardReasons` resolves `./.github/workflows/*.yml` and takes its jobs' reasons; a non-local `uses:` is a reason; mutation "a local reusable workflow whose job deploys" |
+| I1d | No requirement for top-level `permissions` on a `pull_request` workflow | Task 3; mutation "a pull_request workflow with no top-level permissions" |
+| I1 (minor) | `github.head_ref` was unknown to the context: a false positive | Both contexts state `head_ref`; Task 3 asserts the `head_ref` spelling of the guard passes |
+| I2 | Any `.github/**` change on `main` since the pin blocked delivery permanently (41 such commits last month) | D30; Spec correction 13; `guard.json` gains `runFromBranchPaths` (Task 1), `guard.ts` `isRunFromBranchPath` (Task 10), the drift check uses it (Task 11), the contract test pins it (Task 3); tests "delivers although main changed .github", "the Vercel ignore script, which the branch's own build runs" |
+| I3 | A close during a request became `delivery_unconfirmed` | D26; Trap 21; Task 11 `attempt` and `runDelivery`'s catch check `ctx.signal.aborted` first, the loop's between-step stop journals too; tests in Task 11 (in memory) and Task 18 (over HTTP) |
+| I4 | No per-request timeout | D25; Task 17 (`timeoutMs`, `AbortSignal.any`), Task 18 (`requestTimeoutMs`, test "gives up on a request past its bound"); the retry's journal line now carries the scrubbed reason |
+| I5 | `..` in a branch reached another path after `fetch` normalised it; redirects were followed | D28; Trap 23; Task 17: segment checks, origin and pathname compared on the `URL` handed to `fetch`, `redirect: "manual"` with a 3xx as `unexpected`; tests in Task 17 and Task 18 ("never follows a redirect") |
+| I6 | A model-written title or commit subject could carry `Fix #77` | D29; Spec correction 16; Task 10 `neutraliseReferences` in `pullTitle` and `commitMessage`, and its test. Applied differently: references are broken, keywords left as words (D29 says why) |
+| I7 | Task 1's test hunk was in tabs and semicolons; the shared config is two spaces, no semicolons | Task 1 hunk regenerated in the file's style; Step 5 runs `pnpm --dir apps/web lint`; Trap 2 corrected |
+| I8 | Protected paths were not re-checked at delivery | Task 11 step (a) refuses `protectedPathsIn(intent.paths)` before any request; test "refuses a change to a protected path at delivery" |
+| I9 | The adapter was not bound to the configured repository | D27; Task 18 `repository` option and `open()` refusal; Task 13 `startDelivery` compares the intent with the configuration (approve, reconcile and redeliver all pass through it); tests in Task 18 and Task 14 |
+| m1 | Pin the mint body | Task 18: the mint request is asserted at `/app/installations/42/access_tokens` (the id the adapter just read) with exactly `repositories: [name]` and the four permissions |
+| m2 | Assert every request passed the allow-list | Task 18: a recording `fetch` checks every request against `allowedRoute` as sent |
+| m3 | Compare the bundle's operation with the row's delivery both ways | Task 13 (c): an export-local bundle on a draft-PR row invalidates as `Delivery` |
+| m4 | Task 20 key file inside the state directory; key material in failing assertions | Task 20 Step 4 justifies the run copy's place and removes a leftover at start; Trap 22; the tests assert booleans |
+| m5 | Delete the credential variables even when the runtime refuses | Task 19: `finally` |
+| m6 | One `token` shared across sessions | Task 18: per session; `secrets()` names every minted token |
+| m7 | `isOurs` adopts another author's identical commit | Accepted and documented on `isOurs` (Task 11): the bytes are the approved bytes; only the app can create `factory/*`; confirm still requires the bot as the PR's author |
+| m8 | Scrub in `track()` | Task 13 Step 3 |
+| m9 | Task 6's hunks did not `git apply` | Task 6 Steps 3 and 7 are now whole-file diffs against `main`, checked with `git apply --check` |
+| m10 | List every Vercel project linked to the repository | Task 4 Step 6 |
+| m11 | The header's test count | Header |
+
+**Where I applied a finding differently.** I5: `redirect: "manual"` with the 3xx refused, rather than `"error"`: the same refusal, with the status in the journal instead of `fetch failed`. I6: references neutralised, keywords not (D29). Neither changes what is refused.
+
