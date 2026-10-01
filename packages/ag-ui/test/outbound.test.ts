@@ -1357,7 +1357,10 @@ describe("1.0 null discipline", () => {
   /** Top-level keys of an event, and of each interrupt and outcome it carries, are never `null`. */
   function assertNoNullField(label: string, value: Record<string, unknown>): void {
     for (const [key, field] of Object.entries(value)) {
-      if (key === "metadata" || key === "result" || key === "content") continue // application data
+      if (key === "metadata" || key === "result") continue // application data
+      if (key === "content" && label.startsWith("tool_call")) {
+        expect(typeof field, `${label}.content`).toBe("string")
+      }
       expect(field, `${label}.${key}`).not.toBeNull()
       if (key === "outcome" && field && typeof field === "object") {
         assertNoNullField(`${label}.outcome`, field as Record<string, unknown>)
