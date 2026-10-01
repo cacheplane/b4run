@@ -256,9 +256,11 @@ Anything else the compiler reports is in scope.
 
 ### 5.3 Capabilities (`GET /agui/:routeId`)
 
-Claims are unchanged. `transport: { streaming: true }` is added, derived from
-the handler (it only ever answers SSE). No `multimodal`, `reasoning`, `state`
-or `multiAgent` section until the sub-project that makes each one true.
+Claims are unchanged in this sub-project. `GET /agui/:routeId` is introduced
+by PR #883, which rebases onto this change and adds
+`transport: { streaming: true }` there (a fact the handler enforces: it only
+answers SSE). No `multimodal`, `reasoning`, `state` or `multiAgent` section
+until the sub-project that makes each one true.
 
 ## 6. Verification
 

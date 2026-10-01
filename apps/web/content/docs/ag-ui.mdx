@@ -14,12 +14,16 @@ accept: text/event-stream
 
 The URL segment is the URL-encoded `<routeId>#<kind>` assistant id. For example, `/chat#agent` becomes `/agui/%2Fchat%23agent`. The request body is an AG-UI `RunAgentInput`. B4.run creates the thread if it's new, invokes the same route runtime Agent Protocol uses, and streams translated events back as SSE.
 
+B4.run speaks AG-UI protocol **1.0**. `RUN_STARTED` declares `protocolVersion: "1.0"`. A request may declare its own `protocolVersion`: any `1.x` is served, an absent or unparseable value is served, and a different major is refused with `400` `unsupported_protocol_version` before middleware runs. `@b4run/ag-ui` requires `@ag-ui/client` `>=1.0.1 <2.0.0` as an optional peer, and 1.0 moves the runtime validators to `@ag-ui/core/schemas`.
+
 ## Envelope validation
 
 The runtime validates the run envelope itself, so no app has to re-check
 B4.run's own wire format. A body that AG-UI's schema cannot parse is a `400`;
-a body that parses but is not one B4.run will act on is a `422` carrying
-[`B4_E5401`](/docs/errors) and a machine-readable `error.details.code`:
+a body that parses but is not one B4.run will act on is a `422`, except a
+foreign protocol major, which is a `400`. Both carry
+[`B4_E5401`](/docs/errors) and are told apart by a machine-readable
+`error.details.code`:
 
 | `details.code` | When |
 |---|---|
@@ -77,6 +81,10 @@ limits, and what the opt-in does and does not protect against.
   prefer static suggestion lists.
 </Callout>
 
+### Multimodal content is refused, not dropped
+
+A 1.0 message's `content` may be a list of parts. Text parts are concatenated in order. A message carrying an `image`, `audio`, `video` or `document` part is refused with `422` `multimodal_not_supported`, before middleware, so a client is told its media never reached the model rather than finding out by silence. `role: "reasoning"` and `role: "activity"` history is dropped on the way in: it is the client's stored artefact of an earlier turn, not something the assistant said. Unknown top-level keys are tolerated and never echoed; they do not become route params.
+
 ### Where the check runs
 
 Before route middleware and before the thread-access policy. The envelope
@@ -123,8 +131,12 @@ calls one:
 1. The server records the call (thread, route, tool-call id, expiry) and parks
    the turn. The client sees the tool-call frames under the name **it**
    registered — `openPanel`, not `client_openPanel` — followed by an ordinary
-   `RUN_FINISHED` with `outcome.type: "success"`. There is no interrupt for
-   the client to answer.
+   `RUN_FINISHED` with `outcome.type: "success"`, with `pendingToolCallIds`
+   naming the parked calls — AG-UI 1.0's prescribed shape for a frontend tool
+   call. There is no interrupt for the client to answer. A turn that parks an
+   approval in the same step ends with the `interrupt` outcome instead; the
+   client's follow-up is refused with `client_tool_pending` until the approval
+   is answered.
 2. The client runs the tool and, on its next run, sends its history with a
    `{ role: "tool", toolCallId, content }` message carrying the result.
 3. The server matches that message against its record: a call it issued, on
@@ -278,6 +290,8 @@ than one instance needs a shared store for the same reason.
 
 | Status | `details.code` | When |
 |---|---|---|
+| `400` | `unsupported_protocol_version` | the request declared an AG-UI protocol major this runtime does not speak |
+| `422` | `multimodal_not_supported` | a message carried an image, audio, video or document part |
 | `422` | `client_tools_not_allowed` | `tools` is non-empty on a route not named in `clientTools` |
 | `422` | `client_tools_not_supported` | the route is not an `agent()` route |
 | `422` | `invalid_client_tool` | a definition is not an object with a string name, or its description or `parameters` has the wrong shape |
@@ -293,7 +307,7 @@ than one instance needs a shared store for the same reason.
 | `409` | `resume_required` | a permission prompt must be answered before the parked calls can be abandoned |
 | `500` | `client_tool_close_incomplete` | closing the parked calls did not complete; the new turn did not run |
 
-The `422` refusals carry [`B4_E5401`](/docs/errors).
+The `400` and `422` refusals carry [`B4_E5401`](/docs/errors).
 
 ## Consuming it from a web UI
 
@@ -365,8 +379,9 @@ response.write(encodeAgUiSse(event, request.headers.accept))
 | `tool_call` and `tool_result` for a `writeTodos` or `task` call whose activity was emitted | none (the activity is the whole presentation) |
 | root `plan_update` | replacement `ACTIVITY_SNAPSHOT` with activity type `b4.plan` |
 | `subagent.start` and matching child plan/tool/result/end chunks | replacement `ACTIVITY_SNAPSHOT` with activity type `b4.subagent` |
-| `interrupt` | terminal `RUN_FINISHED` with `outcome.type: "interrupt"` |
-| `done` | terminal `RUN_FINISHED` with `outcome.type: "success"` |
+| `interrupt` | terminal `RUN_FINISHED` with `outcome.type: "interrupt"`; each interrupt's approval grant is at `metadata.grant` |
+| `done` | terminal `RUN_FINISHED` with `outcome.type: "success"`; when the turn left client-provided tool calls parked, `outcome.pendingToolCallIds` names them; a null route result is omitted, never `null` |
+| `POST /threads/:id/cancel` or a server shutdown during the run | terminal `RUN_FINISHED` with `outcome.type: "cancelled"` |
 | upstream error | terminal `RUN_ERROR` |
 
 ### Activity snapshots
@@ -426,8 +441,11 @@ resume?: Array<{
   interruptId: string
   status: "resolved" | "cancelled"
   payload?: unknown
+  metadata?: { grant?: string }
 }>
 ```
+
+Under [approval grants](/docs/approval-grants), echo the interrupt's grant back at `metadata.grant` on its resume entry. A 1.0 client strips any `grant` outside `metadata`.
 
 For a permission prompt, a resolved payload can carry a B4.run decision such as `"once"` or `"always"`. The runtime treats a cancelled interrupt as a denial. Every answer must address one currently pending interrupt.
 
@@ -484,6 +502,8 @@ B4.run execution middleware gates AG-UI route execution the same way it gates Ag
 Aborting the run keeps any park it already reached. A permission prompt raised before the disconnect is durable, so the thread stays `interrupted` and the next request can resume it.
 
 The two surfaces differ here. Agent Protocol viewer disconnects continue the run. AG-UI viewer disconnects abort the run. For Agent Protocol, closing a `runs/stream`, `runs/wait`, or `resume` connection only detaches the viewer, so stop the run explicitly with `POST /threads/:thread_id/cancel`. Server shutdown also aborts in-flight work.
+
+A client disconnect emits nothing further: there is no one left to receive it. A run stopped by `POST /threads/:thread_id/cancel` or by a server shutdown ends on the AG-UI stream with `RUN_FINISHED` and `outcome.type: "cancelled"`, not `RUN_ERROR`. Agent Protocol attach viewers still see `{ cancelled: true }` for a cancel and an error for a shutdown.
 
 ## Related
 

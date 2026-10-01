@@ -62,11 +62,17 @@ The grant reaches the client on the channels that already carry the prompt, and 
 
 | Channel | Where the grant is |
 |---|---|
-| The AG-UI `interrupt` chunk | Top-level `grant`, **and** `metadata.grant` |
+| The AG-UI `interrupt` chunk | `metadata.grant` |
 | `GET /threads/:thread_id/pending_interrupts` | `grant` beside `interruptId`, `resumeKey` and `value` |
 | The attach `state` frame | `grant` on each entry of `interrupts` |
 
-On AG-UI it arrives twice, and both copies are needed. `Interrupt` is AG-UI's type, not B4.run's: it is inferred from a closed, `"strip"`-mode `InterruptSchema` with no `grant` key, so a consumer that re-validates an interrupt through AG-UI's own schema silently drops a top-level `grant` — quietly making the prompt unanswerable under `"required"`. `metadata` is an open record and survives that round trip. **Read `grant` if you have it, fall back to `metadata.grant`:** the top-level field is the ergonomic one, `metadata.grant` is the durable one.
+On AG-UI the grant is at `metadata.grant` and nowhere else. `metadata` is schema-defined on AG-UI's `Interrupt` and `ResumeEntry`, so a 1.0 client's enforcement stage leaves it intact in both directions; a top-level `grant` is a field the protocol guarantees to strip — on every prompt received, and from every resume entry before it is sent. Echo it back the same way:
+
+```json
+{ "interruptId": "perm-abc123", "status": "resolved", "payload": "once", "metadata": { "grant": "b4ag_..." } }
+```
+
+The Agent Protocol endpoints (`GET /threads/:thread_id/pending_interrupts`, the attach `state` frame, `POST /threads/:thread_id/resume`) are B4.run's own wire and keep the top-level `grant` shown below.
 
 <Callout type="info" title="The grant is re-readable, not read-once">
 A client that reattaches after a reload must be able to read the grant again, and reattach is a supported path. Single-use is a property of **consumption**, not of disclosure. Nothing is spent by looking.

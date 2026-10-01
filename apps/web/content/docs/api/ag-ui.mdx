@@ -30,6 +30,8 @@ import { b4ActivityRenderers } from "@b4run/ag-ui/react"
 | `@b4run/ag-ui/react` | node-only | not-claimed | application | supported |
 | `@b4run/ag-ui/react/styles.css` | n/a | n/a | integration | supported |
 
+`@ag-ui/client` `>=1.0.1 <2.0.0` is an optional peer. Runtime validators (`RunAgentInputSchema`, `AgentCapabilitiesSchema`, `*EventSchema`) live at `@ag-ui/core/schemas` in 1.0; import types from `@ag-ui/core`.
+
 The adapter only translates protocol data, so it neither authenticates a caller nor makes client-supplied thread, run, state, tool, or context data authoritative.
 
 `@b4run/ag-ui/react` is the client entry. It ships CopilotKit renderers for B4.run's built-in orchestration activities. React and `@copilotkit/react-core` are optional peer dependencies, so a server that imports only the root or `/sse` entry installs neither. The entry is recorded as `node-only` because B4.run's edge guard requires an import graph free of unguarded Node globals, and React's JSX runtime reads `process.env.NODE_ENV`. It is meant for browser bundles, where your bundler substitutes that value.
@@ -51,10 +53,10 @@ The adapter only translates protocol data, so it neither authenticates a caller 
 | `B4RunInput` | Describe normalized B4.run run input. |
 | `fromRunAgentInput` | Translate AG-UI run input to B4.run input. |
 | `B4InterruptEnvelope` | Describe a B4.run interrupt payload. |
-| `B4AguiInterrupt` | Describe AG-UI's interrupt widened with B4.run's approval `grant`. |
+| `B4AguiInterrupt` | AG-UI's interrupt as B4.run emits it; the approval grant is at `metadata.grant`. |
 | `B4ResumeRequest` | Describe one resume decision. |
 | `AguiOutboundEvent` | Name events emitted by the outbound mapper. |
-| `ToAguiOptions` | Configure outbound event IDs. |
+| `ToAguiOptions` | Configure outbound event IDs, the cancelled outcome, and pending client tool calls. |
 | `toAguiEvents` | Translate a B4.run stream into AG-UI events. |
 | `B4AgentStreamChunk` | Describe accepted B4.run stream chunks. |
 | `RunContext` | Supply thread and run IDs for outbound events. |
@@ -159,6 +161,8 @@ Supply an `IdFactory` when emitted IDs must be deterministic. Production integra
 ```ts api-contract="@b4run/ag-ui#.:ToAguiOptions"
 export interface ToAguiOptions {
   readonly idFactory?: IdFactory
+  readonly cancelled?: () => boolean
+  readonly pendingToolCallIds?: () => readonly string[]
 }
 ```
 
@@ -166,6 +170,8 @@ export interface ToAguiOptions {
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `readonly idFactory` | `IdFactory` | no | Override outbound event-ID generation. |
+| `readonly cancelled` | `() => boolean` | no | Asked once when the upstream stream throws; `true` ends the run with `RUN_FINISHED` and `outcome.type: "cancelled"` instead of `RUN_ERROR`. |
+| `readonly pendingToolCallIds` | `() => readonly string[]` | no | Asked when the run succeeds; a non-empty list becomes `outcome.pendingToolCallIds`. |
 
 ### Inbound and outbound calls
 
