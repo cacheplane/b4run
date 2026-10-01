@@ -97,6 +97,8 @@ describe("the pull request's text", () => {
     )
     expect(pullTitle("", "").length).toBeLessThanOrEqual(210)
     expect(pullTitle(`# ${"x".repeat(500)}`, "")).toHaveLength("factory: ".length + 200)
+    // The cut never splits a character.
+    expect(pullTitle(`# ${"x".repeat(199)}😀\n`, "")).toBe(`factory: ${"x".repeat(199)}`)
   })
 
   it("leaves no issue reference in a model-written title or commit subject", () => {
@@ -133,8 +135,48 @@ describe("the pull request's text", () => {
     const opened = body.indexOf("`````markdown\n")
     const closed = body.indexOf("\n`````\n", opened)
     expect(opened).toBeGreaterThan(0)
-    expect(body.slice(opened, closed)).toContain("Fixes #1")
-    expect(body.slice(closed)).not.toContain("Fixes #1")
+    // Quoted, and its reference broken too: the fence is one defence, not the only one.
+    expect(body.slice(opened, closed)).toContain("Fixes # 1")
+    expect(body.slice(closed)).not.toContain("Fixes")
+  })
+
+  it("leaves no issue reference in the quoted spec or the changed paths, but its own", () => {
+    const body = pullBody(
+      {
+        ...intent,
+        specText:
+          "Fixes #1, closes GH-2, resolves https://github.com/o/r/issues/3 and fixes o/r#4\n",
+        paths: [{ ...(intent.paths[0] as DeliveryIntent["paths"][number]), path: "a/fixes #5.ts" }],
+      },
+      facts,
+    )
+    expect(body).toContain("Refs #912\n")
+    expect(body.replaceAll("#912", "")).not.toMatch(
+      /#\d|GH-\d|github\.com\/[^\s]+\/(issues|pull)\/\d/i,
+    )
+  })
+
+  it("fits GitHub's limit whatever fence the spec needs, and never splits a character", () => {
+    for (const specText of [
+      "`".repeat(70_000),
+      `${"`".repeat(30_000)}${"y".repeat(50_000)}`,
+      "😀".repeat(50_000),
+      `x${"😀".repeat(50_000)}`,
+    ]) {
+      const body = pullBody({ ...intent, specText }, facts)
+      expect(body.length).toBeLessThanOrEqual(BODY_LIMIT)
+      expect(body).toContain("rc-reverify")
+      expect(body).not.toMatch(
+        /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/,
+      )
+    }
+  })
+
+  it("strips invisible format characters from one-line text", () => {
+    const title = pullTitle("# a\u202Eb\u200Bc #\u200B12\n", "")
+    expect(title).toBe("factory: abc # 12")
+    const body = pullBody({ ...intent, decidedBy: "op\u202Eerator" }, facts)
+    expect(body).toContain("(recorded actor: operator)")
   })
 
   it("cuts the quoted spec, never the digests, to fit GitHub's limit", () => {
@@ -154,7 +196,7 @@ describe("what the pull request's text can carry", () => {
       candidateBlob: "2".repeat(40),
     }
     const body = pullBody({ ...intent, paths: [hostile] }, facts)
-    const line = `a/fixes #1.ts: ${"1".repeat(40)} → ${"2".repeat(40)}`
+    const line = `a/fixes # 1.ts: ${"1".repeat(40)} → ${"2".repeat(40)}`
     const at = body.indexOf(line)
     const before = body.slice(0, at)
     const opened = before.lastIndexOf("\n```\n")

@@ -7,13 +7,21 @@ const TITLE_LIMIT = 200
 
 /**
  * Model-influenced text made safe to show in one line: control characters and line and
- * paragraph separators removed, whitespace collapsed.
+ * paragraph separators removed, invisible format characters (bidi controls, zero-width
+ * spaces and joiners: `\p{Cf}`) dropped, whitespace collapsed.
  */
 function oneLine(text: string): string {
   return text
+    .replace(/\p{Cf}/gu, "")
     .replace(/[\p{Cc}\u2028\u2029]/gu, " ")
     .replace(/\s+/g, " ")
     .trim()
+}
+
+/** `text` cut to at most `length` UTF-16 units, never between the halves of a surrogate pair. */
+function cutAt(text: string, length: number): string {
+  const cut = text.slice(0, Math.max(0, length))
+  return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut
 }
 
 /**
@@ -46,7 +54,7 @@ export function pullTitle(specText: string, issueText: string): string {
   const fromIssue = heading(issueText)?.replace(/ \([^()]*#\d+\)$/, "")
   const title = oneLine(heading(specText) ?? fromIssue ?? "")
   const safe = neutraliseReferences(scrub(title))
-  return `factory: ${(safe === "" ? "an approved change" : safe).slice(0, TITLE_LIMIT)}`
+  return `factory: ${cutAt(safe === "" ? "an approved change" : safe, TITLE_LIMIT)}`
 }
 
 /** A fence `text` cannot close: one more backtick than its longest run, and at least three. */
@@ -74,8 +82,10 @@ export interface BodyFacts {
  * The pull request's body (spec §7.2), rendered only from frozen data: the intent the
  * approval committed and what step (a) read. `Refs #N`, never a closing keyword, so merging
  * never closes the issue on the factory's say-so. The approved spec is model-written and
- * sits inside a fence it cannot close, as do the changed paths, which the candidate names; when the body would pass GitHub's limit the quoted
- * spec is cut, never the digests, which are the authority.
+ * sits inside a fence it cannot close, as do the changed paths, which the candidate names;
+ * both also have every issue reference broken (`neutraliseReferences`), so a fence a
+ * renderer reads differently still closes nothing. When the body would pass GitHub's limit
+ * the quoted spec is cut, never the digests, which are the authority.
  */
 export function pullBody(intent: DeliveryIntent, facts: BodyFacts): string {
   const head = [
@@ -105,22 +115,26 @@ export function pullBody(intent: DeliveryIntent, facts: BodyFacts): string {
       intent.paths
         .map(
           // Step (a) proved the pin's blob at each path is the baseline's, so "before" is it.
-          (p) => `${p.path}: ${p.baselineBlob} → ${p.candidateBlob}`,
+          (p) => `${neutraliseReferences(p.path)}: ${p.baselineBlob} → ${p.candidateBlob}`,
         )
         .join("\n"),
     ),
     "",
   ].join("\n")
-  const quote = (spec: string) => fenced(spec, "markdown")
-  // The spec is model-written: no credential shape reaches GitHub, even quoted.
-  const specText = scrub(intent.specText)
+  const info = "markdown"
+  const quote = (spec: string) => fenced(spec, info)
+  // The spec is model-written: no credential shape and no issue reference reaches GitHub,
+  // even quoted.
+  const specText = neutraliseReferences(scrub(intent.specText))
   const whole = `${head}\n${quote(specText)}\n${tail}`
   if (whole.length <= BODY_LIMIT) return whole
   const note =
     "\n(The approved spec is cut here to fit GitHub's body limit; its digest above is the authority.)"
-  const room = BODY_LIMIT - head.length - tail.length - note.length - 64
-  const cut = specText.slice(0, Math.max(0, room))
-  return `${head}\n${quote(cut)}${note}\n${tail}`
+  // The fences count too: a spec of backticks needs a fence as long as itself. The whole
+  // spec's fence bounds the cut's (a prefix has no longer run).
+  const fence = fenceFor(specText).length
+  const room = BODY_LIMIT - head.length - tail.length - note.length - 2 * fence - info.length - 64
+  return `${head}\n${quote(cutAt(specText, room))}${note}\n${tail}`
 }
 
 /** The commit message: from the intent alone, so a repeated create writes the same commit. */
