@@ -1,7 +1,14 @@
 import { z } from "zod"
 import { bundleDigest } from "../domain/digest.js"
 import type { Bundle, Origin, Receipt } from "../domain/work-order.js"
-import { COMMIT_PATTERN, DIGEST_PATTERN, OriginSchema } from "../domain/work-order.js"
+import {
+  BRANCH_PATTERN,
+  COMMIT_PATTERN,
+  DIGEST_PATTERN,
+  FACTORY_BRANCH,
+  OriginSchema,
+  REPOSITORY_PATTERN,
+} from "../domain/work-order.js"
 
 /**
  * What the frozen payload asserts, as a shape something can read back.
@@ -11,7 +18,7 @@ import { COMMIT_PATTERN, DIGEST_PATTERN, OriginSchema } from "../domain/work-ord
  * environment happened to be current rather than the ones consent was given for. Approval
  * parses the payload with this and compares field by field.
  */
-export const BundlePayloadSchema = z.object({
+const ExportLocalPayloadSchema = z.object({
   workOrderId: z.string().min(1),
   repositoryId: z.string().min(1),
   baselineDigest: z.string().regex(DIGEST_PATTERN),
@@ -37,7 +44,48 @@ export const BundlePayloadSchema = z.object({
   /** The receipt that proved the drafted check fails on the unpatched baseline. */
   oracleReceiptId: z.string().min(1).nullable(),
 })
+
+/**
+ * Where a draft-PR bundle publishes, digested with everything else (rung 4 spec §3.3): the
+ * person who approves the bundle approves exactly this repository, base, branch and path
+ * prefix, at the payload's own `pin`. Changing any of them needs a new bundle.
+ */
+export const DraftPrBundleDeliverySchema = z
+  .object({
+    repository: z.string().regex(REPOSITORY_PATTERN),
+    baseBranch: z.string().regex(BRANCH_PATTERN),
+    branch: z.string().regex(FACTORY_BRANCH),
+    pathPrefix: z.string().min(1),
+    issueStateAtCreate: z.enum(["open", "closed"]),
+  })
+  .strict()
+export type DraftPrBundleDelivery = z.infer<typeof DraftPrBundleDeliverySchema>
+
+const DraftPrPayloadSchema = ExportLocalPayloadSchema.extend({
+  operation: z.literal("draft-pr"),
+  delivery: DraftPrBundleDeliverySchema,
+  // An issue work order has a pin; a draft-PR bundle without one has nothing to branch at.
+  pin: z.string().regex(COMMIT_PATTERN),
+})
+
+/**
+ * The two operations a bundle can authorize. `export-local` is exactly the payload every
+ * bundle before rung 4 was frozen with, field for field, so each still parses and digests to
+ * the digest it was frozen under.
+ */
+export const BundlePayloadSchema = z.discriminatedUnion("operation", [
+  ExportLocalPayloadSchema,
+  DraftPrPayloadSchema,
+])
 export type BundlePayload = z.infer<typeof BundlePayloadSchema>
+export type DraftPrBundlePayload = z.infer<typeof DraftPrPayloadSchema>
+
+/** A draft-PR bundle's destination identity: one repository, one branch. */
+export function draftPrDestinationId(
+  delivery: Pick<DraftPrBundleDelivery, "repository" | "branch">,
+): string {
+  return `github:${delivery.repository}:refs/heads/${delivery.branch}`
+}
 
 export interface FreezeBundleInput {
   readonly workOrderId: string
@@ -53,6 +101,12 @@ export interface FreezeBundleInput {
   readonly pin: string | null
   readonly taskDigest: string | null
   readonly oracleReceiptId: string | null
+  /**
+   * Present: the bundle authorizes a draft pull request (`operation: "draft-pr"`) and its
+   * `destinationId` is derived from this, not taken from `destinationId`. Absent: today's
+   * export, byte for byte.
+   */
+  readonly delivery?: DraftPrBundleDelivery
 }
 
 /**
@@ -80,7 +134,7 @@ export function freezeBundle(input: FreezeBundleInput): Bundle {
     .map(([id, digest]) => ({ id, digest }))
     .sort((a, b) => (a.id < b.id ? -1 : 1))
 
-  const payload = {
+  const common = {
     workOrderId: input.workOrderId,
     repositoryId: input.repositoryId,
     baselineDigest: input.baselineDigest,
@@ -89,14 +143,28 @@ export function freezeBundle(input: FreezeBundleInput): Bundle {
     environmentIdentity: input.receipt.environmentIdentity,
     candidateDigest: input.candidateDigest,
     evidence,
-    operation: "export-local" as const,
-    destinationId: input.destinationId,
     receiptId: input.receipt.id,
     frozenAt: input.frozenAt,
     origin: input.origin,
     pin: input.pin,
     taskDigest: input.taskDigest,
     oracleReceiptId: input.oracleReceiptId,
+  }
+  // An export-local payload carries no `delivery` key at all: adding one, even empty, would
+  // move the digest of every bundle a local export freezes.
+  let payload: BundlePayload
+  if (input.delivery === undefined)
+    payload = { ...common, operation: "export-local", destinationId: input.destinationId }
+  else {
+    if (input.pin === null) throw new Error("A draft-PR bundle needs the work order's pin")
+    const delivery = DraftPrBundleDeliverySchema.parse(input.delivery)
+    payload = {
+      ...common,
+      pin: input.pin,
+      operation: "draft-pr",
+      destinationId: draftPrDestinationId(delivery),
+      delivery,
+    }
   }
 
   return {

@@ -112,7 +112,7 @@ export interface BundleDigestInput {
   readonly environmentIdentity: string
   readonly candidateDigest: string
   readonly evidence: readonly { readonly id: string; readonly digest: string }[]
-  readonly operation: "export-local"
+  readonly operation: "export-local" | "draft-pr"
   readonly destinationId: string
 }
 
