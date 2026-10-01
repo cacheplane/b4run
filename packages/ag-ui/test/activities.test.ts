@@ -1,4 +1,5 @@
-import { ActivitySnapshotEventSchema, EventType } from "@ag-ui/core"
+import { EventType } from "@ag-ui/core"
+import { ActivitySnapshotEventSchema } from "@ag-ui/core/schemas"
 import { describe, expect, test } from "vitest"
 import {
   B4_PLAN_ACTIVITY_TYPE,

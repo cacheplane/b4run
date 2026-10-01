@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http"
 import { HttpAgent, verifyEvents } from "@ag-ui/client"
-import { ActivitySnapshotEventSchema, EventType, type RunAgentInput } from "@ag-ui/core"
+import { EventType, type RunAgentInput } from "@ag-ui/core"
+import { ActivitySnapshotEventSchema } from "@ag-ui/core/schemas"
 import { lastValueFrom, toArray } from "rxjs"
 import { afterEach, expect, it } from "vitest"
 import { B4_PLAN_ACTIVITY_TYPE, B4_SUBAGENT_ACTIVITY_TYPE } from "../src/activities.ts"

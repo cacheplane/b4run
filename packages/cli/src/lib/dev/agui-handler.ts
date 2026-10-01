@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http"
-import { RunAgentInputSchema } from "@ag-ui/core"
+import type { RunAgentInput } from "@ag-ui/core"
+import { RunAgentInputSchema } from "@ag-ui/core/schemas"
 import { type B4AgentStreamChunk, fromRunAgentInput, toAguiEvents } from "@b4run/ag-ui"
 import { encodeAgUiSse } from "@b4run/ag-ui/sse"
 import type { B4Config, ClientToolDefinition, MemoryStoreLike } from "@b4run/core"
@@ -415,7 +416,11 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
         status: 400,
       })
     }
-    const input = parsed.data
+    // The schema's inferred output spells optionals as `T | undefined`; the
+    // generated `RunAgentInput` spells them as absent-or-present. Same wire
+    // shape — the parse already validated it — so the assertion only
+    // reconciles the two spellings under exactOptionalPropertyTypes.
+    const input = parsed.data as RunAgentInput
 
     const route = registry.lookup(routeKey)
     if (!route) {

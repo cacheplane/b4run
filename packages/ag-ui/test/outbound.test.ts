@@ -1,4 +1,5 @@
-import { ActivitySnapshotEventSchema, EventType, ToolCallResultEventSchema } from "@ag-ui/core"
+import { type BaseEvent, EventType } from "@ag-ui/core"
+import { ActivitySnapshotEventSchema, ToolCallResultEventSchema } from "@ag-ui/core/schemas"
 import { describe, expect, test } from "vitest"
 import { B4_PLAN_ACTIVITY_TYPE, B4_SUBAGENT_ACTIVITY_TYPE } from "../src/activities.ts"
 import { createCounterIdFactory } from "../src/ids.js"
@@ -126,7 +127,8 @@ describe("toAguiEvents", () => {
     expect(typeof result.content).toBe("string")
     expect(result.content).toBe(expected)
 
-    const dataLine = encodeAgUiSse(result)
+    // zod output spells optionals as T | undefined; the wire type does not.
+    const dataLine = encodeAgUiSse(result as BaseEvent)
       .split("\n")
       .find((line) => line.startsWith("data: "))
     if (dataLine === undefined) throw new Error("SSE frame is missing a data line")

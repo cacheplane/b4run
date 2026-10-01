@@ -26,7 +26,12 @@ export interface TranscriptToolCall {
 export interface ToolResultMessage {
   readonly id: string
   readonly role: "tool"
-  readonly content: string
+  /**
+   * AG-UI 1.0 widens tool content to `string | ContentPart[]`. Typed `unknown`
+   * so this union stays a supertype of the installed client's `Message`;
+   * `toolResultText` below does the narrowing.
+   */
+  readonly content: unknown
   readonly toolCallId: string
 }
 
@@ -73,6 +78,23 @@ export type TranscriptItem =
       readonly toolCall: TranscriptToolCall
       readonly toolResult?: ToolResultMessage
     }
+
+/**
+ * A tool result's displayable text. A part list contributes its text parts
+ * in order; media parts have no text and are skipped here (this app does not
+ * render tool media).
+ */
+export function toolResultText(content: unknown): string {
+  if (typeof content === "string") return content
+  if (!Array.isArray(content)) return ""
+  return content
+    .map((part) =>
+      part && typeof part === "object" && (part as { type?: unknown }).type === "text"
+        ? String((part as { text?: unknown }).text ?? "")
+        : "",
+    )
+    .join("")
+}
 
 /**
  * A user message's displayable text. Multimodal content is an array of parts;
