@@ -42,9 +42,9 @@
       "recordDigest": "9c823bb6e0c77817744984458823169e48c1921d1b3e3234569240927e23e8d1"
     },
     "/docs/ag-ui": {
-      "lastModified": "2026-10-01T20:37:01.000Z",
-      "sourceDigest": "391048f5ae92fbf7184c9f18f3fb38a850d899a72a2cf4f635bcf628fca54542",
-      "recordDigest": "a2fb1283b6bfafea52fa8ced043fd203ff5f804574ee7b8d0f27ff0f569465fa"
+      "lastModified": "2026-10-01T20:40:30.000Z",
+      "sourceDigest": "90fb330b0a13bc9b407e2cefd9f48137f005fb381d00b2ea8fa9f853dbc91c7c",
+      "recordDigest": "cd38cd36920e0ca38cdf9a8ed5e92b6a11f5a8f0691a8d4465c8a5b4080f1891"
     },
     "/docs/agents": {
       "lastModified": "2026-09-24T01:19:36.000Z",
@@ -137,9 +137,9 @@
       "recordDigest": "292ebc4a939c14b381da1af65e22e97b55df9ecbe48323a8fbe6de457a9afdc7"
     },
     "/docs/approval-grants": {
-      "lastModified": "2026-10-01T20:30:30.000Z",
-      "sourceDigest": "abaf6da2a064ec6c2092ea72028f03663538cc2308b4bbcb3b7f35f200da8b2f",
-      "recordDigest": "fd5da11789b2939b4690e161043c458d674a44be7872c455ef2879c7f0c4b626"
+      "lastModified": "2026-10-01T20:40:30.000Z",
+      "sourceDigest": "d749c0c0d2225c558fe04ecf6c3564b4bfa6cfe02fecceb2dd33aa8b1bcd8737",
+      "recordDigest": "e3834e90a7b559f1d9336d737ae6334483de9a30b9b231e860838a4091f7bc01"
     },
     "/docs/blueprints": {
       "lastModified": "2026-09-23T17:16:40.000Z",
