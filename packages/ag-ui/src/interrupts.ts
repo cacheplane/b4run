@@ -92,8 +92,9 @@ export function toAguiInterrupt(data: unknown): B4AguiInterrupt | null {
  * decision. We only guarantee `interruptId` survives.
  *
  * The approval grant is read from `metadata.grant`, the schema-defined channel
- * a 1.0 client leaves intact; `HttpAgent` strips unknown top-level keys from
- * the outgoing input, so a top-level `grant` never arrives and is not read.
+ * a 1.0 client leaves intact. `HttpAgent` strips unknown top-level keys from
+ * the outgoing input, so a 1.0 client never sends a top-level `grant`; if one
+ * arrives anyway it is ignored.
  */
 export function fromAguiResume(
   resume: ReadonlyArray<{

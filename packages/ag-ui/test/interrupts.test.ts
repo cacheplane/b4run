@@ -168,13 +168,15 @@ describe("fromAguiResume — approval grants", () => {
     const [resume] = fromAguiResume([
       { interruptId: "perm-1", status: "resolved", payload: "once", grant: "b4ag_abc" } as never,
     ])
-    expect(Object.hasOwn(resume as object, "grant")).toBe(false)
+    if (!resume) throw new Error("expected one entry")
+    expect(Object.hasOwn(resume, "grant")).toBe(false)
   })
 
   test("drops a non-string metadata grant — an opaque echo is not a JSON channel", () => {
     const [resume] = fromAguiResume([
       { interruptId: "perm-1", status: "cancelled", metadata: { grant: { evil: true } } },
     ])
-    expect(Object.hasOwn(resume as object, "grant")).toBe(false)
+    if (!resume) throw new Error("expected one entry")
+    expect(Object.hasOwn(resume, "grant")).toBe(false)
   })
 })
