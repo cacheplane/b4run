@@ -66,4 +66,13 @@ export const RejectIntakeInput = z
     operationKey: z.string().min(1).optional(),
   })
   .strict()
+/** A delivery resumed under the approval already given (rung 4 §4): what the caller displayed. */
+export const RedeliverInput = z
+  .object({
+    id: z.string().min(1),
+    revision: z.number().int().nonnegative(),
+    bundleDigest: z.string().regex(DIGEST_PATTERN),
+    operationKey: z.string().min(1).optional(),
+  })
+  .strict()
 export const ReconcileInput = z.object({}).strict()

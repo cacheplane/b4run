@@ -125,6 +125,7 @@ export const COMMANDS = [
   "approve",
   "deny",
   "cancel",
+  "redeliver",
 ] as const
 export type CommandName = (typeof COMMANDS)[number]
 

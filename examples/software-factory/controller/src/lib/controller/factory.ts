@@ -35,6 +35,7 @@ import {
   IllegalTransitionError,
   isTerminal,
   nextState,
+  REDELIVERABLE_BLOCKED_REASONS,
   RETRYABLE_BLOCKED_REASONS,
   type TransitionEvent,
 } from "../domain/states.js"
@@ -204,6 +205,8 @@ export interface FactoryOptions {
     /** Test seam: the worker's wall clock for its run bound. Default `Date.now`. */
     readonly clock?: () => number
   }
+  /** How long after its approval a blocked delivery may be redelivered. Default 24 hours. */
+  readonly redeliverWindowMs?: number
 }
 
 export interface Factory {
@@ -262,6 +265,15 @@ export interface Factory {
     input: { revision: number; bundleDigest: string; operationKey?: string },
   ): Promise<CommandOutcome>
   deny(id: string, operationKey?: string): Promise<CommandOutcome>
+  /**
+   * Resume a draft-PR delivery a block the world can heal stopped (`delivery_unauthorized`,
+   * `delivery_rate_limited`, `delivery_unconfirmed`), under the approval already given, at the
+   * revision and bundle digest the caller displayed, within a day of that approval.
+   */
+  redeliver(
+    id: string,
+    input: { revision: number; bundleDigest: string; operationKey?: string },
+  ): Promise<CommandOutcome>
   cancel(id: string, operationKey?: string): Promise<CommandOutcome>
   show(id: string): WorkOrderRow | null
   list(): WorkOrderRow[]
@@ -2134,6 +2146,70 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       }
       return finish(key, { ok: true, state: denied.state, message: "Denied" })
     },
+    async redeliver(id, { revision, bundleDigest, operationKey }) {
+      const row = mustGet(id)
+      const key = operationKey ?? `redeliver:${id}:${revision}:${bundleDigest}`
+      const begun = commands.begin(
+        key,
+        id,
+        { command: "redeliver", args: { revision, bundleDigest } },
+        iso(),
+      )
+      if (begun.status === "done") return begun.outcome
+      if (begun.status === "in_flight") throw new CommandInFlightError(key)
+      const refuse = (message: string) =>
+        finish(key, { ok: false, state: mustGet(id).state, message })
+      if (row.state !== "blocked" || row.blockedReason === null)
+        return refuse(`Cannot redeliver from ${row.state}`)
+      if (!REDELIVERABLE_BLOCKED_REASONS.has(row.blockedReason))
+        return refuse(
+          `Cannot redeliver a work order blocked by ${row.blockedReason}: waiting does not heal it; cancel it and run the issue again with --new`,
+        )
+      if (row.revision !== revision)
+        return refuse(`Stale revision ${revision}; work order is at ${row.revision}`)
+      if (row.bundleDigest !== bundleDigest)
+        return refuse("Bundle digest does not match the approved bundle")
+      const approval = store
+        .approvals(id)
+        .find((a) => a.decision === "approved" && a.bundleDigest === bundleDigest)
+      // An intent that no longer parses is refused here rather than thrown, so the command
+      // settles instead of staying in flight.
+      let intent: ReturnType<typeof outbox.get>
+      try {
+        intent = outbox.get(id)
+      } catch {
+        return refuse("The delivery's recorded intent does not parse; it cannot be redelivered")
+      }
+      if (approval === undefined || intent === null)
+        return refuse("Nothing was approved for delivery on this work order")
+      const window = options.redeliverWindowMs ?? 86_400_000
+      if (now() > Date.parse(approval.decidedAt) + window)
+        return refuse(
+          `The approval is from ${approval.decidedAt}, more than ${window / 3_600_000} hours ago; cancel it and run the issue again with --new`,
+        )
+      try {
+        transition(
+          id,
+          "redeliver",
+          { blockedReason: null },
+          { operationKey: key, previousBlockedReason: row.blockedReason, step: intent.step },
+        )
+      } catch (error) {
+        if (!(error instanceof IllegalTransitionError)) throw error
+        return refuse("Work order changed state while redelivering")
+      }
+      await startDelivery(id)
+      const final = mustGet(id)
+      return finish(key, {
+        ok: final.state === "delivered",
+        state: final.state,
+        message:
+          final.state === "delivered"
+            ? `Delivered as ${store.delivery(id)?.receiptPath ?? "a draft pull request"}`
+            : `Delivery ${final.state === "blocked" ? `blocked again: ${final.blockedReason}` : `stopped; work order is ${final.state}`}`,
+      })
+    },
+
     async cancel(id, operationKey) {
       const row = mustGet(id)
       const key = operationKey ?? `cancel:${id}:${row.revision}`

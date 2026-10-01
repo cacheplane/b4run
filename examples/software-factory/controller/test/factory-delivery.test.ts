@@ -358,6 +358,96 @@ describe("every way a delivery starts", () => {
   })
 })
 
+describe("redeliver", () => {
+  it("redelivers a healable block under the same approval, and refuses the rest", async () => {
+    const fake = github()
+    harness = await issueHarness({ delivery: delivery(fake) })
+    const row = await harness.toBundle({ deliver: DRAFT_PR })
+    fake.fail("compare", new DeliveryError("unauthorized", "HTTP 401", undefined, 401))
+    expect(await approve(row)).toMatchObject({ ok: false, state: "blocked" })
+    const blocked = harness.factory.show(row.id) as WorkOrderRow
+    expect(blocked.blockedReason).toBe("delivery_unauthorized")
+    expect(
+      await harness.factory.redeliver(row.id, {
+        revision: blocked.revision,
+        bundleDigest: "f".repeat(64),
+      }),
+    ).toMatchObject({ ok: false, message: expect.stringMatching(/Bundle digest/) })
+    expect(
+      await harness.factory.redeliver(row.id, {
+        revision: blocked.revision,
+        bundleDigest: row.bundleDigest,
+      }),
+    ).toMatchObject({ ok: true, state: "delivered" })
+    expect(fake.pulls).toHaveLength(1)
+  })
+
+  it("does not deliver to a destination other than the one approved, after a restart", async () => {
+    const fake = github()
+    harness = await issueHarness({ delivery: delivery(fake) })
+    const row = await harness.toBundle({ deliver: DRAFT_PR })
+    fake.fail("compare", new DeliveryError("transient", "HTTP 502", undefined, 502), { times: 9 })
+    expect(await approve(row)).toMatchObject({ ok: false, state: "blocked" })
+    await harness.factory.close()
+    await harness.boot({
+      delivery: { ...delivery(fake), draftPr: { ...delivery(fake).draftPr, baseBranch: "next" } },
+    })
+    const blocked = harness.factory.show(row.id) as WorkOrderRow
+    expect(
+      await harness.factory.redeliver(row.id, {
+        revision: blocked.revision,
+        bundleDigest: row.bundleDigest,
+      }),
+    ).toMatchObject({ ok: false, state: "blocked" })
+    expect(
+      harness.factory
+        .events(row.id)
+        .filter((e) => e.type === "delivery_refused")
+        .at(-1)?.payload,
+    ).toMatchObject({
+      detail: expect.stringContaining("the approval names cacheplane/b4run at main"),
+    })
+    expect(fake.writes()).toEqual([])
+  })
+
+  it("does not redeliver more than a day after the approval", async () => {
+    const fake = github()
+    harness = await issueHarness({ delivery: delivery(fake) })
+    const row = await harness.toBundle({ deliver: DRAFT_PR })
+    fake.fail("compare", new DeliveryError("unauthorized", "HTTP 401", undefined, 401))
+    expect(await approve(row)).toMatchObject({ ok: false, state: "blocked" })
+    await harness.factory.close()
+    await harness.boot({ delivery: delivery(fake), now: () => Date.now() + 86_400_001 })
+    const blocked = harness.factory.show(row.id) as WorkOrderRow
+    expect(blocked.blockedReason).toBe("delivery_unauthorized")
+    expect(
+      await harness.factory.redeliver(row.id, {
+        revision: blocked.revision,
+        bundleDigest: row.bundleDigest,
+      }),
+    ).toMatchObject({ ok: false, state: "blocked", message: expect.stringMatching(/24 hours ago/) })
+    expect(fake.writes()).toEqual([])
+    expect(fake.pulls).toEqual([])
+  })
+
+  it("does not redeliver a base conflict: the remedy is a new work order", async () => {
+    const fake = github()
+    harness = await issueHarness({ delivery: delivery(fake) })
+    const row = await harness.toBundle({ deliver: DRAFT_PR })
+    fake.comparison = { status: "ahead", aheadBy: 2, files: [{ filename: SOURCE }], complete: true }
+    expect(await approve(row)).toMatchObject({ ok: false, state: "blocked" })
+    const blocked = harness.factory.show(row.id) as WorkOrderRow
+    expect(blocked.blockedReason).toBe("delivery_base_conflict")
+    expect(
+      await harness.factory.redeliver(row.id, {
+        revision: blocked.revision,
+        bundleDigest: row.bundleDigest,
+      }),
+    ).toMatchObject({ ok: false, message: expect.stringMatching(/waiting does not heal it/) })
+    expect(fake.writes()).toEqual([])
+  })
+})
+
 function aborted(signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     if (signal.aborted) resolve()
