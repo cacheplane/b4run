@@ -2001,7 +2001,9 @@ export function buildRouteTable(ctx: {
       handle: async (request, params) =>
         handleAgUiCapabilitiesRequest({
           appRoot,
+          approvalGrants,
           boot,
+          clientTools,
           ...(bootConfig ? { config: bootConfig } : {}),
           middleware,
           permissionsStore: getPermissionsStore(request),

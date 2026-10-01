@@ -37,6 +37,9 @@ interface RecordedRequest {
 const b4ServerUrlEnvKey = "B4_SERVER_URL"
 const originalB4ServerUrl = process.env[b4ServerUrlEnvKey]
 const recordedRequests: RecordedRequest[] = []
+/** What the fixture B4.run serves for `GET /agui/:routeId`; reset per test. */
+const capabilitiesDocument = { tools: { clientProvided: false, supported: true } }
+let capabilitiesStatus = 200
 const routeModules: Partial<Record<RouteLabel, RouteModule>> = {}
 let fixtureServer: Server | undefined
 
@@ -82,6 +85,13 @@ function createFixtureServer(): Server {
       if (fixture === undefined) {
         response.writeHead(404, { "content-type": "application/json" })
         response.end(JSON.stringify({ error: "unexpected AG-UI path" }))
+        return
+      }
+      if (recordedRequest.method === "GET") {
+        response.writeHead(capabilitiesStatus, { "content-type": "application/json" })
+        response.end(
+          JSON.stringify(capabilitiesStatus === 200 ? capabilitiesDocument : { error: "Not found" }),
+        )
         return
       }
       if (recordedRequest.method !== "POST") {
@@ -264,25 +274,53 @@ afterAll(async () => {
 
 beforeEach(() => {
   recordedRequests.length = 0
+  capabilitiesStatus = 200
 })
 
 describe.each(routeCases)(
   "$label CopilotKit V2 runtime ($modulePath)",
   ({ label, expectedPath }) => {
-    it("reports stable runtime information without contacting B4.run", async () => {
-      const info = await routeModule(label).GET(
+    function getInfo(): Promise<Response> {
+      return routeModule(label).GET(
         new Request("http://b4.test/api/copilotkit/info", {
           signal: AbortSignal.timeout(requestTimeoutMs),
         }),
       )
+    }
+
+    it("reports runtime information with the route's capabilities read from B4.run", async () => {
+      const info = await getInfo()
 
       expect(info.status).toBe(200)
       expect(await info.json()).toMatchObject({
         version: "1.76.0",
         mode: "sse",
-        agents: { default: { name: "default" } },
+        agents: { default: { name: "default", capabilities: capabilitiesDocument } },
       })
-      expect(recordedRequests).toHaveLength(0)
+      // One read, on the same encoded route URL the runs go to.
+      expect(recordedRequests).toEqual([
+        expect.objectContaining({
+          accept: "application/json",
+          method: "GET",
+          url: expectedPath,
+        }),
+      ])
+    })
+
+    it("still reports runtime information when B4.run serves no capabilities", async () => {
+      capabilitiesStatus = 404
+      const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+      try {
+        const info = await getInfo()
+
+        expect(info.status).toBe(200)
+        const body = (await info.json()) as { agents: { default: Record<string, unknown> } }
+        expect(body.agents.default).toMatchObject({ name: "default" })
+        expect(body.agents.default).not.toHaveProperty("capabilities")
+        expect(recordedRequests).toHaveLength(1)
+      } finally {
+        consoleWarn.mockRestore()
+      }
     })
 
     it("rejects malformed run input before contacting B4.run", async () => {
@@ -303,7 +341,7 @@ describe.each(routeCases)(
       }
     })
 
-    it("streams a real HttpAgent run across the encoded B4.run AG-UI boundary", async () => {
+    it("streams a real B4HttpAgent run across the encoded B4.run AG-UI boundary", async () => {
       const input = {
         threadId: `${label}-thread`,
         runId: `${label}-run`,

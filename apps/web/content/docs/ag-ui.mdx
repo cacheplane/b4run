@@ -317,16 +317,16 @@ The `422` refusals carry [`B4_E5401`](/docs/errors).
 
 | Field | Comes from |
 |---|---|
-| `tools.clientProvided` | the route is named in `server.agui.clientTools` and is an `agent()` route — the two checks `POST` applies to a non-empty `tools` |
+| `tools.clientProvided` | the route is named in `server.agui.clientTools`, is an `agent()` route, and a client tool store is configured — every check `POST` applies to a non-empty `tools` |
 | `tools.supported`, `tools.parallelCalls` | the route is an `agent()` route; its tool calls run in parallel |
 | `output.structuredOutput` | the route's provider can bind a `hashbrown.responseSchema`, the check behind `response_schema_not_supported` |
 | `humanInTheLoop.interrupts` | the route is an agent route, the only kind that can park |
-| `humanInTheLoop.approvals` | an `agent()` route under an `interactive` permissions mode. It means the route *can* pause for approval; whether a turn does depends on its tools and the grants already recorded |
+| `humanInTheLoop.approvals` | an `agent()` route under an `interactive` permissions mode, on a runtime that can answer the approval: `approvals.grants: "required"` with no grant store refuses every resume, so it reports `false`. It means the route *can* pause for approval; whether a turn does depends on its tools and the grants already recorded |
 | `humanInTheLoop.approveWithEdits` | always `false`: a resume answers `once`, `always` or `deny` |
 
-A chain, graph or workflow route reports `false` for all of these. AG-UI treats an omitted field as unknown, so a claim B4.run cannot settle is left out rather than guessed. An agent route that exports a raw runnable, for example, omits approvals and parallel calls, because its own code decides them.
+A chain, graph or workflow route reports `false` for client tools, tool calls, structured output, interrupts and approvals. AG-UI treats an omitted field as unknown, so a claim B4.run cannot settle is left out rather than guessed. An agent route that exports a raw runnable omits approvals and parallel calls, because its own code decides them. A runtime that cannot load route modules at all (no node fallbacks and no static manifest) answers `{}` for an agent route. A route whose module fails to load is an error, as it is for a run.
 
-The request goes through route middleware exactly as a run does, and an unknown route is `404`. The response is `Cache-Control: no-store`, because middleware decides per caller who may see it.
+Route middleware runs first, as it does for a run, but sees `method: "GET"`, no body and no route params, so middleware that authorizes on the request body refuses it. An unknown route is `404`. The response is `Cache-Control: no-store`, because middleware decides per caller who may see it.
 
 The stock `HttpAgent` does not read this endpoint. `B4HttpAgent` from `@b4run/ag-ui/client` is an `HttpAgent` whose `getCapabilities()` sends `GET` to the URL it runs against, with the same headers. CopilotKit's runtime calls `getCapabilities()` on each registered agent when it answers `/info`:
 
@@ -337,7 +337,7 @@ const agent = new B4HttpAgent({ url: `${b4Url}/agui/${encodeURIComponent("/chat#
 await agent.getCapabilities()
 ```
 
-`getCapabilities()` throws on any non-2xx answer, including a `404` from a B4.run release that predates the endpoint, instead of reporting nothing declared. `@ag-ui/client` is an optional peer dependency of `@b4run/ag-ui`; install it alongside if you import this subpath.
+`getCapabilities()` throws on any non-2xx answer, including a `404` from a B4.run release that predates the endpoint, and after 10 seconds without an answer, instead of reporting nothing declared. CopilotKit catches the error and reports the agent without capabilities. `@ag-ui/client` is an optional peer dependency of `@b4run/ag-ui`; install it alongside if you import this subpath.
 
 ## Consuming it from a web UI
 

@@ -4,7 +4,9 @@ import { dirname, join } from "node:path"
 import { AgentCapabilitiesSchema } from "@ag-ui/core"
 import { afterEach, describe, expect, it } from "vitest"
 import { createAimock } from "../../testing/dist/aimock-runner.js"
+import { handleAgUiCapabilitiesRequest } from "../src/lib/dev/agui-capabilities.ts"
 import { createRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-handler.ts"
+import { nodeBootFallbacks } from "../src/lib/runtime/execute-route.ts"
 
 /**
  * `GET /agui/:routeId` advertises a route's AG-UI capabilities. The claims are
@@ -67,11 +69,24 @@ async function fixtureApp(
   return appRoot
 }
 
-async function createHandler(appRoot: string) {
+type HandlerOptions = Parameters<typeof createRuntimeFetchHandler>[0]
+
+/** The node fallbacks with the named boot stores resolving to nothing. */
+const WITHOUT_CLIENT_TOOL_STORE: HandlerOptions["bootFallbacks"] = {
+  ...nodeBootFallbacks,
+  resolveClientToolCallStore: async () => undefined,
+}
+const WITHOUT_GRANT_STORE: HandlerOptions["bootFallbacks"] = {
+  ...nodeBootFallbacks,
+  resolveInterruptGrantStore: async () => undefined,
+}
+
+async function createHandler(appRoot: string, bootFallbacks?: HandlerOptions["bootFallbacks"]) {
   const handler = await createRuntimeFetchHandler({
     appRoot,
     apSseHeartbeatIntervalMs: 60_000,
     drainDeadlineMs: 250,
+    ...(bootFallbacks ? { bootFallbacks } : {}),
   })
   cleanup.push(() => handler.close())
   return handler
@@ -134,7 +149,12 @@ describe("GET /agui/:routeId", () => {
     const handler = await createHandler(await fixtureApp())
 
     expect(await capabilities(handler, "/echo#graph")).toEqual({
-      humanInTheLoop: { approvals: false, interrupts: false, supported: false },
+      humanInTheLoop: {
+        approvals: false,
+        approveWithEdits: false,
+        interrupts: false,
+        supported: false,
+      },
       output: { structuredOutput: false },
       tools: { clientProvided: false, supported: false },
     })
@@ -166,6 +186,73 @@ describe("GET /agui/:routeId", () => {
     expect((await capabilities(handler, "/closed#agent")).humanInTheLoop).toMatchObject({
       approvals,
     })
+  })
+
+  it("does not advertise client tools when no client tool store resolved", async () => {
+    const handler = await createHandler(await fixtureApp(), WITHOUT_CLIENT_TOOL_STORE)
+
+    expect((await capabilities(handler, "/open#agent")).tools).toMatchObject({
+      clientProvided: false,
+    })
+  })
+
+  it.each([
+    ["required", WITHOUT_GRANT_STORE, false],
+    ["optional", WITHOUT_GRANT_STORE, true],
+    ["required", undefined, true],
+  ] as const)(
+    "advertises approvals only when they can be answered (grants %s, store %#)",
+    async (grants, bootFallbacks, approvals) => {
+      const handler = await createHandler(
+        await fixtureApp({ config: `export default { approvals: { grants: "${grants}" } }\n` }),
+        bootFallbacks,
+      )
+
+      expect((await capabilities(handler, "/closed#agent")).humanInTheLoop).toMatchObject({
+        approvals,
+      })
+    },
+  )
+
+  it("surfaces a route module that fails to load instead of describing it", async () => {
+    const handler = await createHandler(
+      await fixtureApp({
+        files: {
+          "src/app/broken/index.ts": DESCRIPTOR_ROUTE,
+          "src/app/broken/tools/explode.ts": 'throw new Error("boom")\n',
+        },
+      }),
+    )
+
+    const response = await handler.fetch(new Request(capabilitiesUrl("/broken#agent")))
+
+    expect(response.status).toBe(500)
+  })
+
+  it("claims nothing about an agent route on a boot that cannot load route modules", async () => {
+    // No node fallbacks and no static manifest seeding the module cache — the
+    // preflight `POST` would run cannot run here either.
+    const routeFile = join(tmpdir(), `b4-unloadable-${Date.now()}`, "index.ts")
+    const response = await handleAgUiCapabilitiesRequest({
+      appRoot: dirname(routeFile),
+      middleware: undefined,
+      registry: {
+        appRoot: dirname(routeFile),
+        entries: [],
+        lookup: () => ({
+          assistantId: "/x#agent",
+          mode: "agent",
+          routeFile,
+          routeId: "/x",
+          routePath: "index.ts",
+        }),
+      },
+      request: new Request(capabilitiesUrl("/x#agent")),
+      routeKey: "/x#agent",
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({})
   })
 
   it("is 404 for an unknown route", async () => {
@@ -210,7 +297,7 @@ describe("GET /agui/:routeId agrees with what POST enforces", () => {
     aimock.addFixtures([{ match: { userMessage: "hello" }, response: { content: "{}" } }] as never)
   }
 
-  /** The 422 `code` POST answers with, or undefined when it admitted the run. */
+  /** The 422/503 `code` POST answers with, or undefined when it admitted the run. */
   async function postRejection(
     handler: Handler,
     routeKey: string,
@@ -236,7 +323,7 @@ describe("GET /agui/:routeId agrees with what POST enforces", () => {
       await response.body?.cancel()
       return undefined
     }
-    expect(response.status).toBe(422)
+    expect([422, 503]).toContain(response.status)
     const body = (await response.json()) as { error: { details?: { code?: string } } }
     return body.error.details?.code
   }
@@ -255,5 +342,17 @@ describe("GET /agui/:routeId agrees with what POST enforces", () => {
       hashbrown: { responseSchema: { type: "object" } },
     })
     expect(schema === undefined).toBe(advertised.output?.structuredOutput)
+  })
+
+  it("client tools with no client tool store", async () => {
+    await withModel()
+    const handler = await createHandler(await fixtureApp(), WITHOUT_CLIENT_TOOL_STORE)
+
+    expect((await capabilities(handler, "/open#agent")).tools?.clientProvided).toBe(false)
+    expect(
+      await postRejection(handler, "/open#agent", {
+        tools: [{ description: "Open a panel", name: "openPanel", parameters: { type: "object" } }],
+      }),
+    ).toBe("client_tool_store_unavailable")
   })
 })

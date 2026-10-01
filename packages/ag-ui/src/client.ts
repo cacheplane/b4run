@@ -2,6 +2,13 @@ import { HttpAgent } from "@ag-ui/client"
 import { type AgentCapabilities, AgentCapabilitiesSchema } from "@ag-ui/core"
 
 /**
+ * How long `getCapabilities()` waits for B4.run. CopilotKit's runtime awaits
+ * every agent's capabilities before it answers `/info`, so a server that
+ * accepts the connection and then hangs would hang `/info` with it.
+ */
+const CAPABILITIES_TIMEOUT_MS = 10_000
+
+/**
  * An AG-UI `HttpAgent` for a B4.run route that can also report what the route
  * honors. `getCapabilities()` reads `GET` on the same URL the agent runs
  * against (`/agui/:routeId`), with the same headers and `fetch`, so a caller
@@ -15,13 +22,15 @@ import { type AgentCapabilities, AgentCapabilitiesSchema } from "@ag-ui/core"
  * that predates the endpoint (404) or route middleware refusing the caller —
  * makes it throw rather than report an empty document: AG-UI reads an absent
  * field as unknown, and an empty object would claim "nothing declared" as if
- * the server had said so.
+ * the server had said so. So does a server that has not answered within
+ * ten seconds.
  */
 export class B4HttpAgent extends HttpAgent {
   async getCapabilities(): Promise<AgentCapabilities> {
     const response = await this.fetch(this.url, {
-      headers: { ...this.headers, Accept: "application/json" },
+      headers: { ...withoutHeader(this.headers, "accept"), Accept: "application/json" },
       method: "GET",
+      signal: AbortSignal.timeout(CAPABILITIES_TIMEOUT_MS),
     })
     if (!response.ok) {
       await response.body?.cancel()
@@ -29,4 +38,9 @@ export class B4HttpAgent extends HttpAgent {
     }
     return AgentCapabilitiesSchema.parse(await response.json())
   }
+}
+
+/** Header names are case-insensitive; a caller's `accept` would otherwise be merged with ours. */
+function withoutHeader(headers: Record<string, string>, name: string): Record<string, string> {
+  return Object.fromEntries(Object.entries(headers).filter(([key]) => key.toLowerCase() !== name))
 }
