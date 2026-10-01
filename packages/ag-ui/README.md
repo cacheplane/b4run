@@ -189,7 +189,8 @@ Three keys are easy to confuse. `section` is a card's labelled region and exists
 
 - `@b4run/ag-ui` is a supported, edge-safe integration surface.
 - `@b4run/ag-ui/sse` is a supported, edge-safe integration surface.
-- `@b4run/ag-ui/react` is a supported React application surface, built for browser bundles. B4.run records its runtime as `node-only`, which means only that it does not pass B4.run's edge-safety guard — not that it requires Node: React's own JSX runtime reads `process.env.NODE_ENV`, which an application bundler substitutes as usual but the stricter edge guard rejects. The other two entries never load it.
+- `@b4run/ag-ui/client` is a supported, edge-safe integration surface.
+- `@b4run/ag-ui/react` is a supported React application surface, built for browser bundles. B4.run records its runtime as `node-only`, which means only that it does not pass B4.run's edge-safety guard — not that it requires Node: React's own JSX runtime reads `process.env.NODE_ENV`, which an application bundler substitutes as usual but the stricter edge guard rejects. The other entries never load it.
 - `@b4run/ag-ui/react/styles.css` is a supported integration surface carrying the cards' default appearance. It is a stylesheet asset, so it has no runtime classification at all: a bundler resolves it and nothing evaluates it as JavaScript. Import it once alongside your global CSS; it is optional, and every rule that styles an element is scoped to the `b4-activity` prefix (the sheet also declares `--b4-activity-*` custom properties on `:root`, which is intended and harmless — each of those three blocks is wrapped in `:where()`, so an application's own `:root` override always wins).
 
 They translate protocol data; they do not authenticate callers or make client-provided state authoritative.

@@ -49,7 +49,8 @@ async function fixtureApp(
   cleanup.push(() => rm(appRoot, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
   const files: Record<string, string> = {
     "b4.config.ts":
-      options.config ?? 'export default { server: { agui: { clientTools: ["/open", "/echo"] } } }\n',
+      options.config ??
+      'export default { server: { agui: { clientTools: ["/open", "/echo"] } } }\n',
     "package.json": '{ "name": "agui-capabilities-fixture", "type": "module" }\n',
     "src/app/open/index.ts": DESCRIPTOR_ROUTE,
     "src/app/closed/index.ts": DESCRIPTOR_ROUTE,
@@ -100,7 +101,12 @@ describe("GET /agui/:routeId", () => {
     const handler = await createHandler(await fixtureApp())
 
     expect(await capabilities(handler, "/open#agent")).toEqual({
-      humanInTheLoop: { approvals: true, approveWithEdits: false, interrupts: true, supported: true },
+      humanInTheLoop: {
+        approvals: true,
+        approveWithEdits: false,
+        interrupts: true,
+        supported: true,
+      },
       output: { structuredOutput: true },
       tools: { clientProvided: true, parallelCalls: true, supported: true },
     })
