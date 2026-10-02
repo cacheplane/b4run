@@ -53,6 +53,7 @@ const out = () => join(dir, "out")
 async function boot(
   script: Parameters<typeof createFakeVerifier>[0] = { verdict: "pass" },
   workerOptions: Omit<FakeWorkerOptions, "outboxDir"> = {},
+  factoryOptions: { readonly actor?: string } = {},
 ): Promise<{ verifier: FakeVerifier; reader: FakeWorkspaceReader }> {
   dir = mkdtempSync(join(tmpdir(), "factory-approve-"))
   // readdirSync asserts on this directory before anything is written to it.
@@ -81,6 +82,7 @@ async function boot(
     captureBaseline: captureRepairable,
     approvalTtlMs: 60_000,
     now: () => nowMs,
+    ...factoryOptions,
   })
   return { verifier, reader }
 }
@@ -272,6 +274,39 @@ describe("approve", () => {
     expect(readdirSync(out())).toEqual([`${row.bundleDigest}.json`])
     expect(factory.events(row.id).map((e) => e.type)).toContain("delivery_unrecorded")
     expect(await factory.approve(row.id, input)).toEqual(outcome)
+  })
+
+  it("refuses an empty actor before it spends the operation key", async () => {
+    const { reader, verifier } = await boot({ verdict: "pass" }, {}, { actor: "" })
+    const row = await awaiting(reader)
+    const verifications = verifier.calls.length
+    const commandRows = (key: string) => {
+      const db = new DatabaseSync(join(dir, "registry.sqlite"))
+      try {
+        return db.prepare("SELECT outcome FROM commands WHERE operation_key = ?").all(key)
+      } finally {
+        db.close()
+      }
+    }
+    const approval = { revision: row.revision, bundleDigest: row.bundleDigest }
+    const approved = await factory.approve(row.id, { ...approval, operationKey: "approve-empty" })
+    expect(approved).toMatchObject({ ok: false, state: "awaiting_approval" })
+    expect(approved.message).toMatch(/actor/i)
+    // Refused before anything ran: no re-verification, no export, and no key begun, so the
+    // same key is neither in flight nor holding a refusal it would replay.
+    expect(verifier.calls.length).toBe(verifications)
+    expect(readdirSync(out())).toEqual([])
+    expect(commandRows("approve-empty")).toEqual([])
+    await expect(
+      factory.approve(row.id, { ...approval, operationKey: "approve-empty" }),
+    ).resolves.toMatchObject({ ok: false })
+    expect(commandRows("approve-empty")).toEqual([])
+
+    const denied = await factory.deny(row.id, "deny-empty")
+    expect(denied).toMatchObject({ ok: false, state: "awaiting_approval" })
+    expect(denied.message).toMatch(/actor/i)
+    expect(commandRows("deny-empty")).toEqual([])
+    expect(factory.show(row.id)?.state).toBe("awaiting_approval")
   })
 
   it("refuses when the stored candidate bytes no longer hash to their digest", async () => {

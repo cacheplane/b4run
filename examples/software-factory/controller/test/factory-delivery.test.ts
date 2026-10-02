@@ -532,12 +532,24 @@ describe("the approval's start path", () => {
 
   it("refuses an intent that does not validate rather than leaving the key in flight", async () => {
     const fake = github()
-    harness = await issueHarness({ delivery: delivery(fake), actor: "" })
+    harness = await issueHarness({ delivery: delivery(fake) })
     const row = await harness.toBundle({ deliver: DRAFT_PR })
+    // A baseline (at the frozen digest) that no longer holds the file the candidate changes:
+    // the intent has no baseline blob to name for it.
+    await harness.factory.close()
+    await harness.boot({
+      delivery: delivery(fake),
+      captureBaseline: async () => ({
+        digest: "a".repeat(64),
+        files: new Map([["packages/devkit/test/process.test.ts", "spec\n"]]),
+      }),
+    })
     expect(await approve(row)).toMatchObject({
       ok: false,
       state: "awaiting_approval",
-      message: expect.stringMatching(/^The delivery intent could not be built/),
+      message: expect.stringMatching(
+        /^The delivery intent could not be built: .*baseline does not hold/,
+      ),
     })
     expect(outboxRows(row.id)).toBe(0)
     expect(fake.writes()).toEqual([])

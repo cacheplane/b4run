@@ -41,6 +41,7 @@ import {
   type TransitionEvent,
 } from "../domain/states.js"
 import {
+  ApprovalSchema,
   type Bundle,
   type Candidate,
   COMMIT_PATTERN,
@@ -327,6 +328,18 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   const evidenceStore: EvidenceStore = createEvidenceStore(registry.db)
   const artifacts: ArtifactStore = createArtifactStore(options.artifactsDir)
   const log = options.log ?? (() => {})
+  /**
+   * Who an approval or a denial is recorded as decided by, checked against the approval's own
+   * schema. Approve and deny read it before they begin their operation key: an actor the
+   * approval write would reject (`""`) otherwise throws inside the transaction and leaves the
+   * key in flight.
+   */
+  const decidedByOf = (): { ok: true; actor: string } | { ok: false; message: string } => {
+    const actor = options.actor ?? "operator"
+    return ApprovalSchema.shape.decidedBy.safeParse(actor).success
+      ? { ok: true, actor }
+      : { ok: false, message: "The factory's actor is empty: an approval names who decided it" }
+  }
   /**
    * The prompt for `taskId`, or the Error saying why the catalog cannot serve it. Resolved
    * at the point of use and never at boot: one unprepared sibling target must not decide
@@ -1733,6 +1746,8 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
 
     async approve(id, { revision, bundleDigest, operationKey }) {
       const row = mustGet(id)
+      const decider = decidedByOf()
+      if (!decider.ok) return { ok: false, state: row.state, message: decider.message }
       // The default key carries the bundle digest as well as the revision: two approvals of
       // the same revision naming different bundles are different intents, and one key cannot
       // hold both.
@@ -2035,7 +2050,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       // and `approve` is not a legal move from where it left it.
       const approvalId = `ap-${randomUUID()}`
       const decidedAt = iso()
-      const decidedBy = options.actor ?? "operator"
+      const decidedBy = decider.actor
       // Built before the transaction: a refusal here must not leave the key in flight.
       let intent: DeliveryIntent | undefined
       if (delivery !== undefined)
@@ -2149,6 +2164,8 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
 
     async deny(id, operationKey) {
       const row = mustGet(id)
+      const decider = decidedByOf()
+      if (!decider.ok) return { ok: false, state: row.state, message: decider.message }
       const key = operationKey ?? `deny:${id}:${row.revision}`
       const begun = commands.begin(key, id, { command: "deny", args: {} }, iso())
       if (begun.status === "done") return begun.outcome
@@ -2216,7 +2233,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
               bundleDigest: row.bundleDigest,
               candidateDigest: row.candidateDigest,
               decision: "denied",
-              decidedBy: options.actor ?? "operator",
+              decidedBy: decider.actor,
               decidedAt: iso(),
               expiresAt: iso(),
             })
