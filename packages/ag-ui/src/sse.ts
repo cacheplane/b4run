@@ -17,8 +17,11 @@ function encoder(accept?: string): EventEncoder {
 }
 
 /** One AG-UI event as the bytes of the binding `accept` selects. */
-export function encodeAgUiEvent(event: BaseEvent, accept?: string): Uint8Array {
-  return encoder(accept).encodeBinary(event)
+export function encodeAgUiEvent(event: BaseEvent, accept?: string): Uint8Array<ArrayBuffer> {
+  // @ag-ui/encoder declares Uint8Array<ArrayBufferLike> but always allocates a
+  // fresh ArrayBuffer (TextEncoder.encode, or new Uint8Array(new ArrayBuffer)),
+  // so a frame is a valid BodyInit for an edge `Response` without a copy.
+  return encoder(accept).encodeBinary(event) as Uint8Array<ArrayBuffer>
 }
 
 /** The `content-type` of the binding `accept` selects. */

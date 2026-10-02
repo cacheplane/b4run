@@ -17,6 +17,8 @@ describe("the SSE binding", () => {
   test.each([
     ["no Accept", undefined],
     ["text/event-stream", "text/event-stream"],
+    ["text/* only", "text/*"],
+    ["an empty Accept", ""],
     ["protobuf listed at q=0", "text/event-stream, application/vnd.ag-ui.event+proto;q=0"],
   ])("is selected by %s", (_label, accept) => {
     expect(agUiContentType(accept)).toBe("text/event-stream")
@@ -33,9 +35,15 @@ describe("the HTTP+protobuf binding", () => {
     ["both, protobuf first", "application/vnd.ag-ui.event+proto, text/event-stream"],
     ["a wildcard range", "*/*"],
     ["an application wildcard", "application/*"],
+    ["a mixed-case media type", "Application/VND.AG-UI.Event+Proto"],
+    ["a fractional positive quality", "text/event-stream, application/vnd.ag-ui.event+proto;q=0.5"],
   ])("is selected by %s", (_label, accept) => {
     expect(agUiContentType(accept)).toBe(AGUI_MEDIA_TYPE)
     expect(decodeFrame(encodeAgUiEvent(EVENT, accept))).toEqual(EVENT)
+  })
+
+  test("a low-quality wildcard still selects protobuf: the rule asks only whether it is admitted", () => {
+    expect(agUiContentType("text/event-stream, */*;q=0.1")).toBe(AGUI_MEDIA_TYPE)
   })
 
   test("the media type is the one the spec names", () => {
