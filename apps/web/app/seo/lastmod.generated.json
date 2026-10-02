@@ -42,9 +42,9 @@
       "recordDigest": "9c823bb6e0c77817744984458823169e48c1921d1b3e3234569240927e23e8d1"
     },
     "/docs/ag-ui": {
-      "lastModified": "2026-10-02T05:03:07.000Z",
-      "sourceDigest": "faa7037d6785b7a320c8692381af16c0e6651828ef300b710f5732be5a63bae8",
-      "recordDigest": "4512b23e37c07bf36ace7d37169e11c6d5a74af16389da74594681e118da3c92"
+      "lastModified": "2026-10-02T05:29:35.000Z",
+      "sourceDigest": "1dff28b187c6a3fdf5d8b13071e5da572f0b8061f2b1a7006625606bb1d77ca9",
+      "recordDigest": "09c7d5a6225b9395dd25b56a10aa208df5f16e0a7a7565d6c0e5535abbeeef1a"
     },
     "/docs/agents": {
       "lastModified": "2026-09-24T01:19:36.000Z",
@@ -147,9 +147,9 @@
       "recordDigest": "fbd8a797655a538b9b346d8599f16e88a7764828f45b2628a910f2df1f1e2a53"
     },
     "/docs/cli": {
-      "lastModified": "2026-10-02T05:03:07.000Z",
-      "sourceDigest": "c158970dc06a30fb510b7c3cc3de6d2310801ba58d2100e2e0d204540e9cbc3b",
-      "recordDigest": "dc18155a672a866d8dd858102812e4d912357d2356098ee4c0522e7c9af2a07d"
+      "lastModified": "2026-10-02T05:29:35.000Z",
+      "sourceDigest": "e5d56b879fb5b9e1479d3b00f31948c465433d34286918fde5f48060ae9d218e",
+      "recordDigest": "8ee9ba23633c7d712027c30df675c5ffe1f56ece6557305891fc0836965b37df"
     },
     "/docs/configuration": {
       "lastModified": "2026-10-02T05:03:07.000Z",
