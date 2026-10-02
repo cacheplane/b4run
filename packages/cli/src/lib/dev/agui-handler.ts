@@ -51,6 +51,7 @@ import {
   DEFAULT_CLIENT_TOOL_RETENTION_MS,
   DEFAULT_CLIENT_TOOL_TTL_MS,
   MAX_CLIENT_TOOL_RESULT,
+  pruneClientToolCalls,
 } from "./client-tool-runtime.js"
 import {
   type ClientToolTurn,
@@ -1152,6 +1153,9 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     const voidClientRecordsIfSettled = async (): Promise<void> => {
       if (!sawInterrupt && clientToolStore) {
         await voidSettledClientToolCalls(clientToolStore, checkpointer, threadId)
+        // Opportunistic retention, throttled per store and never allowed to
+        // fail the turn (see pruneClientToolCalls).
+        await pruneClientToolCalls(clientToolStore, clientToolRuntime, new Date())
       }
     }
     // From here on, the stream owns both the request listeners and any resume

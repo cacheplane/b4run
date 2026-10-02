@@ -1356,6 +1356,50 @@ describe("settling an AG-UI turn", () => {
     expect(await t.store.listOutstanding(t.threadId)).toEqual([])
   })
 
+  it("a settled turn sweeps old settled records from every thread", async () => {
+    __resetClientToolPruneThrottleForTests()
+    const t = await parkedRun([], {
+      fixtures: [{ match: { userMessage: "hello" }, response: { content: "Hi." } }],
+    })
+    expect(t.first.status).toBe(200)
+    // An old voided record on an unrelated thread: well past the 7-day default.
+    await t.store.issue({
+      threadId: "t-abandoned-long-ago",
+      toolCallId: "call_old",
+      interruptId: "client-call_old",
+      toolName: "openPanel",
+      runId: "run-old",
+      routeId: "/park#agent",
+      issuedAt: "2020-01-01T00:00:00.000Z",
+      expiresAt: "2020-01-01T00:10:00.000Z",
+      answeredAt: null,
+      result: null,
+      voidedAt: "2020-01-01T00:10:00.000Z",
+    })
+    // A fresh outstanding record on the same old thread must survive.
+    await t.store.issue({
+      threadId: "t-abandoned-long-ago",
+      toolCallId: "call_live",
+      interruptId: "client-call_live",
+      toolName: "openPanel",
+      runId: "run-live",
+      routeId: "/park#agent",
+      issuedAt: new Date().toISOString(),
+      expiresAt: null,
+      answeredAt: null,
+      result: null,
+      voidedAt: null,
+    })
+    // The first turn already swept this store; clear the throttle so the
+    // second settled turn sweeps again.
+    __resetClientToolPruneThrottleForTests()
+    const second = await run(t.handler, aguiRequest(t.threadId, "run-2", [USER_HELLO]))
+    expect(second.status).toBe(200)
+    expect((await t.store.listForThread("t-abandoned-long-ago")).map((r) => r.toolCallId)).toEqual([
+      "call_live",
+    ])
+  })
+
   it("a turn that parks keeps its own record outstanding", async () => {
     const t = await parkedRun([CALL_A])
     expect(await t.store.listOutstanding(t.threadId)).toHaveLength(1)
