@@ -1000,7 +1000,7 @@ Add a new section immediately before `## Envelope validation`:
 ```mdx
 ## Transport
 
-`accept` selects the AG-UI HTTP binding, by AG-UI's own rule: `text/event-stream` unless the header admits `application/vnd.ag-ui.event+proto` with a positive quality — named, or through a wildcard range such as `*/*` — in which case the response is `content-type: application/vnd.ag-ui.event+proto` and each event is a 4-byte unsigned big-endian length followed by exactly that many bytes of one protobuf-encoded event, with no separator between frames. A client that cannot read protobuf must name `text/event-stream`; `@ag-ui/client` and CopilotKit do, and so does `b4 threads`. A bare `curl` sends `*/*` and receives protobuf: pass `-H 'accept: text/event-stream'` to read the stream by eye.
+`accept` selects the AG-UI HTTP binding, by AG-UI's own rule: `text/event-stream` unless the header admits `application/vnd.ag-ui.event+proto` with a positive quality — named, or through a wildcard range such as `*/*` — in which case the response is `content-type: application/vnd.ag-ui.event+proto` and each event is a 4-byte unsigned big-endian length followed by exactly that many bytes of one protobuf-encoded event, with no separator between frames. A client that cannot read protobuf must name `text/event-stream`; `@ag-ui/client` and CopilotKit do, and so does `b4 threads`. The rule asks only whether protobuf is admitted, never how it ranks against SSE: `text/event-stream, */*;q=0.1` selects protobuf too. A bare `curl` sends `*/*` and receives protobuf: pass `-H 'accept: text/event-stream'` to read the stream by eye.
 
 Both bindings carry the same events, and a thread's attach stream (`/threads/{id}/runs/{runId}/stream`) is unaffected by which one the primary client chose. WebSocket is not served.
 ```
@@ -1129,12 +1129,150 @@ Expected: PASS.
 
 ---
 
+### Task 6b: The release smoke probes follow the rename (release-pinned)
+
+`scripts/published-artifact-smoke.mjs` generates the ESM and type probes the release ceremony runs against the PUBLISHED `@b4run/ag-ui`. Both import `encodeAgUiSse` from `@b4run/ag-ui/sse`; once the renamed package is published they fail at module link time and the ceremony stalls at the smoke step. CI does not catch it: `scripts/published-artifacts.test.mjs` runs the probes against a local fixture that defines its own `encodeAgUiSse`. The script is content-pinned (`scripts/release/test/fixtures/release-script-hashes.json`), and that pin file has its own digest snapshot (`STARTING_SCRIPT_PIN_SHA256`, `scripts/release/test/workflow-contracts.test.mjs:123`). All of it changes in one commit.
+
+**Files:**
+- Modify: `scripts/published-artifact-smoke.mjs:346-378` (ESM probe), `:400,465` (type probe)
+- Modify: `scripts/published-artifacts.test.mjs:1610,1731,1769-1772,3384-3395`
+- Modify: `scripts/release/test/fixtures/release-script-hashes.json` (the `scripts/published-artifact-smoke.mjs` entry)
+- Modify: `scripts/release/test/workflow-contracts.test.mjs:123` (`STARTING_SCRIPT_PIN_SHA256`)
+
+- [ ] **Step 1: Update the probe tests first (failing)**
+
+In `scripts/published-artifacts.test.mjs`:
+
+Line 1610:
+```js
+    assert.match(source, /import \{ agUiContentType, encodeAgUiEvent \} from "@b4run\/ag-ui\/sse"/)
+```
+Line 1731:
+```js
+    assert.match(source, /typeof encodeAgUiEvent/)
+```
+(Leave the `encodeAgUiSse` entry in the removed-from-root list at line ~1718: the root still does not export it, and the `@ts-expect-error` line in the type probe stays valid.)
+
+The fixture's fake `./sse` (lines ~3384–3395) must implement the new surface so the probe can run against it:
+```js
+  const sseJavaScript =
+    options.sseSource ??
+    `export function agUiContentType(accept) {
+  return accept && accept.includes("application/vnd.ag-ui.event+proto")
+    ? "application/vnd.ag-ui.event+proto"
+    : "text/event-stream"
+}
+export function encodeAgUiEvent(event, accept) {
+  if (agUiContentType(accept) === "text/event-stream") {
+    return new TextEncoder().encode("data: " + JSON.stringify(event) + "\\n\\n")
+  }
+  const bytes = new TextEncoder().encode(JSON.stringify(event))
+  const frame = new Uint8Array(4 + bytes.length)
+  new DataView(frame.buffer).setUint32(0, bytes.length, false)
+  frame.set(bytes, 4)
+  return frame
+}
+`
+  const sseDeclarations = `export declare function agUiContentType(accept?: string): string
+export declare function encodeAgUiEvent(event: {
+  readonly type: string
+  readonly threadId: string
+  readonly runId: string
+}, accept?: string): Uint8Array<ArrayBuffer>
+`
+```
+The "rejects an installed SSE encoder with incorrect event data" case (line ~1769) overrides `sseSource`; make its override the same two functions with `encodeAgUiEvent` writing `{ ...event, threadId: "wrong-thread" }` in the SSE branch (copy the block above and change that one line; `agUiContentType` unchanged).
+
+Run: `node --test scripts/published-artifacts.test.mjs`
+Expected: FAIL on the two regex assertions (the generator still emits `encodeAgUiSse`), and the fixture-run cases fail at import.
+
+- [ ] **Step 2: Rewrite the probes**
+
+In `scripts/published-artifact-smoke.mjs`, `agUiEsmProbeSource()`: the import line becomes
+```js
+import { agUiContentType, encodeAgUiEvent } from "@b4run/ag-ui/sse"
+```
+and the block from `const event = ...` to the end of the template becomes
+```js
+const event = { type: "RUN_STARTED", threadId: "published-smoke", runId: "published-smoke" }
+
+assert.equal(agUiContentType(), "text/event-stream")
+assert.equal(agUiContentType("text/event-stream"), "text/event-stream")
+assert.equal(
+  agUiContentType("application/vnd.ag-ui.event+proto"),
+  "application/vnd.ag-ui.event+proto",
+)
+
+const encoded = encodeAgUiEvent(event)
+assert.ok(encoded instanceof Uint8Array, "an SSE frame is bytes")
+const text = new TextDecoder().decode(encoded)
+assert.equal(text, \`data: \${JSON.stringify(event)}\\n\\n\`)
+
+const payload = JSON.parse(text.slice("data: ".length, -2))
+assert.equal(payload.type, "RUN_STARTED")
+assert.equal(payload.threadId, "published-smoke")
+assert.equal(payload.runId, "published-smoke")
+
+const frame = encodeAgUiEvent(event, "application/vnd.ag-ui.event+proto")
+assert.ok(frame instanceof Uint8Array, "a protobuf frame is bytes")
+const declared = new DataView(frame.buffer, frame.byteOffset, 4).getUint32(0, false)
+assert.equal(frame.length, 4 + declared, "a protobuf frame is its 4-byte length prefix plus the event")
+```
+In `agUiTypeProbeSource()`: line 400 becomes
+```ts
+import { agUiContentType, encodeAgUiEvent } from "@b4run/ag-ui/sse"
+```
+and line 465 becomes
+```ts
+const encoder: typeof encodeAgUiEvent = encodeAgUiEvent
+const contentType: string = agUiContentType("text/event-stream")
+```
+(If the probe's unused-variable settings complain about `contentType`, reference it the way the probe references `encoder` — read how the file consumes `encoder` below line 465 and do the same.) Keep the existing `// @ts-expect-error encodeAgUiSse was removed from the canonical root` line.
+
+Run: `node --test scripts/published-artifacts.test.mjs`
+Expected: PASS.
+
+- [ ] **Step 3: Re-pin**
+
+```bash
+shasum -a 256 scripts/published-artifact-smoke.mjs
+```
+Put the printed hash into the `"scripts/published-artifact-smoke.mjs"` entry of `scripts/release/test/fixtures/release-script-hashes.json` (edit only that `sha256` value; do not reformat the file). Then:
+```bash
+shasum -a 256 scripts/release/test/fixtures/release-script-hashes.json
+```
+and set `STARTING_SCRIPT_PIN_SHA256` in `scripts/release/test/workflow-contracts.test.mjs:123` to that value.
+
+Run: `pnpm test:release-integrity && node --test scripts/release/test/workflow-contracts.test.mjs`
+Expected: PASS.
+
+- [ ] **Step 4: Confirm nothing else still names the old function**
+
+Run: `git grep -n encodeAgUiSse -- ':!*CHANGELOG.md' ':!docs/superpowers'`
+Expected: only the `@ts-expect-error … removed from the canonical root` line in `scripts/published-artifact-smoke.mjs` and its matching entry in `scripts/published-artifacts.test.mjs`'s removed-names list.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add scripts/published-artifact-smoke.mjs scripts/published-artifacts.test.mjs scripts/release/test/fixtures/release-script-hashes.json scripts/release/test/workflow-contracts.test.mjs
+git commit -m "test(release): the published @b4run/ag-ui smoke probes use encodeAgUiEvent and agUiContentType
+
+The probes run against the published package; with encodeAgUiSse gone
+they would fail at link time and stall the ceremony at the smoke step,
+and CI would not notice because the local fixture defined its own.
+Re-pins the script and the pin-file digest.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+```
+
+---
+
 ### Task 7: Full verification and the PR
 
 - [ ] **Step 1: The source-validate sequence**
 
 Run: `pnpm lint && pnpm check:build-cache && pnpm build && pnpm typecheck && pnpm test && pnpm check:release-inventory && node scripts/check-docs.mjs`
-Expected: every gate PASS. Watch especially `packages/cli/test/edge-bundle-purity.test.ts`, `fetch-entry-purity.test.ts` and `api-reference-compatibility.test.ts` (the `./sse` entry's import graph is unchanged, so they must pass without edits).
+Expected: every gate PASS. Also run `pnpm test:release-integrity && node --test scripts/release/test/workflow-contracts.test.mjs` (Task 6b's pins). Watch especially `packages/cli/test/edge-bundle-purity.test.ts`, `fetch-entry-purity.test.ts` and `api-reference-compatibility.test.ts` (the `./sse` entry's import graph is unchanged, so they must pass without edits).
 
 - [ ] **Step 2: Pack check and changeset check**
 
@@ -1173,5 +1311,5 @@ Use the `ccd_pr` tools: `get_status`, then `bind_pr` if it does not report this 
 - §3.3 (`isStreamingBody`, Vercel comment) → Task 3.
 - §3.4 (`httpBinary`, `reasoning`, `state`, omissions documented, unloadable boot) → Task 5.
 - §3.5 tests 1–5 → Task 1 (sse, outbound), Task 2 (conformance), Task 4 (endpoint, client-tools), Task 5 (capabilities), Task 3 (predicate; lives in `request-stores.test.ts` where the predicate's test already is).
-- §3.6 docs, lastmod, changeset → Task 6.
+- §3.6 docs, lastmod, changeset → Task 6. Release smoke probes (found in review; release-pinned) → Task 6b.
 - §6 verification → Task 7.
