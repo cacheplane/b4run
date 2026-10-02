@@ -344,6 +344,36 @@ export interface RequestOptions {
 }
 
 const MAX_BODY_BYTES = 10 * 1024 * 1024
+
+/** Control and direction-override characters, which a journal line and a terminal never get. */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control characters is the point
+const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]+/g
+const clean = (text: string, max: number) => text.replace(CONTROL, " ").slice(0, max)
+
+/**
+ * What GitHub said about a failure, for the error's message: its top-level `message` and the
+ * `message` of its first few `errors[]`, cleaned of control characters and capped. GitHub's
+ * validation failures say what failed only in `errors[]` (a 422 "Validation Failed" whose
+ * error reads "A pull request already exists for …"), so a caller matching the cause matches
+ * this. Never a header; the worker scrubs the minted tokens from it before it is recorded.
+ */
+function githubSaid(json: unknown): string {
+  if (typeof json !== "object" || json === null) return ""
+  const body = json as { message?: unknown; errors?: unknown }
+  const top = typeof body.message === "string" ? clean(body.message, 300) : ""
+  const details = (Array.isArray(body.errors) ? body.errors : [])
+    .map((e) =>
+      typeof e === "object" &&
+      e !== null &&
+      typeof (e as { message?: unknown }).message === "string"
+        ? clean((e as { message: string }).message, 200)
+        : undefined,
+    )
+    .filter((m): m is string => m !== undefined && m.trim() !== "")
+    .slice(0, 3)
+  const text = [top, details.join("; ")].filter((t) => t !== "").join(": ")
+  return text === "" ? "" : ` ${text}`
+}
 /** GitHub's secondary rate limit says so in its message and may not say how long to wait. */
 const SECONDARY_LIMIT_WAIT_MS = 60_000
 
@@ -372,7 +402,8 @@ function asSent(
 /**
  * One allow-listed request. Returns the parsed JSON body of a 2xx; classifies every other
  * answer as a `DeliveryError` the worker knows how to treat (spec §6.5). The message carries
- * GitHub's own `message` field at most, never a header.
+ * what GitHub said (its `message` and its first `errors[]` messages, cleaned and capped) at
+ * most, never a header.
  */
 export async function githubRequest(
   options: RequestOptions,
@@ -492,7 +523,7 @@ export async function githubRequest(
     return { status, json }
   }
   const said = parsed ? (json as { message?: unknown } | null)?.message : undefined
-  const message = `${method} ${path}: HTTP ${status}${typeof said === "string" ? ` ${said.slice(0, 300)}` : ""}`
+  const message = `${method} ${path}: HTTP ${status}${githubSaid(parsed ? json : undefined)}`
   const wait = retryAfterMs(response.headers, options.now())
   if (status === 429) throw new DeliveryError("rate_limited", message, wait, status)
   if (status === 403) {

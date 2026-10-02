@@ -490,6 +490,44 @@ describe("one request on the wire", () => {
     expect(kind(error)).toBe("unauthorized")
   })
 
+  it("carries GitHub's errors[] messages, cleaned and capped, beside its top-level message", async () => {
+    // GitHub's 422 for a pull request that exists says so only in errors[].
+    let s = await serve(
+      json(422, {
+        message: "Validation Failed",
+        errors: [
+          {
+            resource: "PullRequest",
+            code: "custom",
+            message: `A pull request already exists for cacheplane:${BRANCH}.`,
+          },
+          { resource: "PullRequest", code: "missing_field", field: "head" },
+          { message: `line\u0000one\nline two\u001b[31m ${"x".repeat(1000)}` },
+        ],
+      }),
+    )
+    let error = await failure(githubRequest(options(s.url), "GET", "/app"))
+    expect(kind(error)).toBe("conflict")
+    expect(error.message).toContain(
+      `HTTP 422 Validation Failed: A pull request already exists for cacheplane:${BRANCH}.`,
+    )
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: detecting control characters is the point
+    expect(/[\u0000-\u001f\u007f]/.test(error.message)).toBe(false)
+    expect(error.message).toContain("line one line two [31m x")
+    expect(error.message.length).toBeLessThan(900)
+    await closeServer?.()
+    // Many errors: only the first few are kept.
+    s = await serve(
+      json(422, {
+        message: "Validation Failed",
+        errors: Array.from({ length: 50 }, (_, i) => ({ message: `problem ${i}` })),
+      }),
+    )
+    error = await failure(githubRequest(options(s.url), "GET", "/app"))
+    expect(error.message).toContain("problem 2")
+    expect(error.message).not.toContain("problem 3")
+  })
+
   it("a 2xx body that is not JSON, or larger than the bound, is unexpected; a 204 is empty", async () => {
     let s = await serve((_req, res) => {
       res.writeHead(200, { "content-type": "application/json" })
