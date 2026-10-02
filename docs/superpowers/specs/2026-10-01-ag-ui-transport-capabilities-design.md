@@ -230,9 +230,13 @@ types; the flag itself is already fixed.
   whose runtime speaks AG-UI 1.0, the wire B4.run serves (the grant lives
   at `metadata.grant`, a cancelled run ends with the cancelled outcome, and
   `AbstractAgent` is compared nominally).
-- Changeset `patch` for `@b4run/ag-ui`, noting that pnpm and npm warn, not
-  fail, on an unmet optional peer: an existing 1.70 app still installs and
-  is told why the renderers' host should move.
+- Changeset `patch` for `@b4run/ag-ui`, stating the install behavior as
+  verified: pnpm warns on an unmet optional peer and installs; npm 7+
+  rejects an installed peer outside the range with `ERESOLVE` even when it
+  is optional, so an app pinned below 1.76.0 upgrades CopilotKit together
+  with `@b4run/ag-ui` (or installs with `--legacy-peer-deps`). 1.76.0 is the
+  first `@copilotkit/react-core` whose bundled AG-UI client is 1.0.1;
+  1.70–1.75 resolve 0.0.59 and 1.66–1.69 resolve 0.0.57.
 - No code change: `@b4run/ag-ui/react` imports only the
   `ReactActivityMessageRenderer` type from `@copilotkit/react-core/v2`.
 - `pnpm --dir apps/web seo:lastmod` after the content commit.
