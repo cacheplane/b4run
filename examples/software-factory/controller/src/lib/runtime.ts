@@ -7,6 +7,8 @@ import {
 } from "./config.js"
 import { createFactory, type Factory, type FactoryOptions } from "./controller/factory.js"
 import { createWorkerMap } from "./controller/workers.js"
+import { createGitHubAdapter } from "./delivery/github/adapter.js"
+import { loadAppPrivateKey } from "./delivery/github/jwt.js"
 import { createArtifactStore } from "./storage/artifacts.js"
 import {
   configureCatalog,
@@ -161,6 +163,25 @@ export function createControllerRuntime(
         stagingRoot: captureRoot,
       }),
       captureBaseline: (taskId, signal) => captureTargetBaseline(taskId, signal, { captureRoot }),
+      // The app's key is read here, once, into memory: a key that will not load stops the
+      // controller from opening (setup answers 500, and `factory up` reports it), rather than
+      // surfacing as a refusal at the first approval.
+      ...(config.delivery !== undefined
+        ? {
+            delivery: {
+              draftPr: {
+                repository: config.delivery.repository,
+                baseBranch: config.delivery.baseBranch,
+                adapter: createGitHubAdapter({
+                  repository: config.delivery.repository,
+                  appId: config.delivery.appId,
+                  privateKey: loadAppPrivateKey(config.delivery.privateKeyFile),
+                  baseBranch: config.delivery.baseBranch,
+                }),
+              },
+            },
+          }
+        : {}),
       // Defined keys only: an explicit `{ verifier: undefined }` must not erase a required
       // collaborator, which a plain spread would do.
       ...definedOnly(factoryOverrides),
@@ -205,9 +226,23 @@ function definedOnly<T extends object>(overrides: T): Partial<T> {
 let shared: ControllerRuntime | undefined
 let sharedOverrides: ControllerRuntimeOverrides = {}
 export function controllerRuntime(): ControllerRuntime {
-  shared ??= createControllerRuntime(process.env, sharedOverrides)
+  if (shared === undefined) {
+    try {
+      shared = createControllerRuntime(process.env, sharedOverrides)
+    } finally {
+      // Read once and gone (rung 4 §8.2), even when the configuration refuses: every git and
+      // docker child the controller spawns inherits its environment, and none needs these.
+      for (const name of APP_CREDENTIAL_VARIABLES) delete process.env[name]
+    }
+  }
   return shared
 }
+
+/** The variables that locate the GitHub App's credential; consumed by the first runtime. */
+export const APP_CREDENTIAL_VARIABLES = [
+  "FACTORY_GITHUB_APP_ID",
+  "FACTORY_GITHUB_APP_PRIVATE_KEY_FILE",
+] as const
 /**
  * Tests boot several controllers in one process with different environments. Disposes the
  * previous instance first: dropping it undisposed would leak its open registry and its
