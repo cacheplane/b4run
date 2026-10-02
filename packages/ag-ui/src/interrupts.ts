@@ -1,23 +1,17 @@
 import type { Interrupt } from "@ag-ui/core"
 
 /**
- * AG-UI's `Interrupt`, widened with the approval grant B4.run adds.
+ * AG-UI's `Interrupt`, as B4.run emits it. The single-use approval grant,
+ * when the runtime minted one, is at `metadata.grant` — and only there.
+ * `metadata` is schema-defined on `Interrupt`, so it survives a 1.0 client's
+ * enforcement stage; a top-level `grant` would be stripped with a warning
+ * on every prompt.
  *
- * Widened rather than pushed upstream because `InterruptSchema` is a closed,
- * `"strip"`-mode zod object: `grant` is a B4.run concept and a consumer that
- * re-validates through AG-UI's own schema will not see it. See the note in
- * `toAguiInterrupt`.
+ * The grant is deliberately RE-READABLE: a client that reattaches after a
+ * reload must be able to get it again. Single-use is a property of
+ * CONSUMPTION, not of disclosure.
  */
-export type B4AguiInterrupt = Interrupt & {
-  /**
-   * The single-use approval grant for this parked call, when the runtime
-   * minted one. Echo it opaquely on the matching resume entry.
-   *
-   * Also present at `metadata.grant`, which is the copy that survives a
-   * round trip through `InterruptSchema`.
-   */
-  readonly grant?: string
-}
+export type B4AguiInterrupt = Interrupt
 
 /**
  * The interrupt envelope B4.run's capabilities emit inside an `interrupt` chunk
@@ -45,9 +39,7 @@ export interface B4ResumeRequest {
    * opaquely. The client never constructs it and authors nothing about the
    * decision beyond `status`/`payload`.
    *
-   * Optional at the type level for migration only; required at runtime
-   * whenever the interrupt has a grant. See
-   * `docs/superpowers/specs/2026-09-18-approval-capability-design.md` §2.
+   * Read from the AG-UI entry's `metadata.grant`; see `fromAguiResume`.
    */
   readonly grant?: string
 }
@@ -85,34 +77,11 @@ export function toAguiInterrupt(data: unknown): B4AguiInterrupt | null {
       : typeof env.callId === "string" && env.callId.length > 0
         ? env.callId
         : undefined
-  // The single-use approval grant is ALSO surfaced as a top-level `grant`,
-  // while staying in the verbatim `metadata` copy. Carrying it twice in one
-  // object is not a second disclosure — it is the same already-gated payload —
-  // and both copies are needed, for a reason worth writing down:
-  //
-  // The design (§2) asked for the grant top-level and NOT in `metadata`. That
-  // is not expressible here. `Interrupt` is AG-UI's type, not B4.run's: it is
-  // `z.infer<typeof InterruptSchema>` over a CLOSED zod object in `"strip"`
-  // mode with no `grant` key, so any consumer that re-validates an interrupt
-  // through `InterruptSchema` silently DROPS a top-level `grant` — which would
-  // make the prompt unanswerable under `approvals.grants: "required"`, and
-  // would do it quietly. `metadata` is `z.record(z.string(), z.any())` and
-  // survives that round trip, so it is the only channel that always arrives.
-  //
-  // So: read `grant` if you have it, fall back to `metadata.grant`. The
-  // top-level field is the ergonomic one; `metadata.grant` is the durable one.
-  //
-  // This is NOT single-use disclosure. The grant is deliberately RE-READABLE:
-  // a client that reattaches after a reload must be able to get it again, and
-  // reattach is a supported path (`GET /threads/:id/runs/stream`). Single-use
-  // is a property of CONSUMPTION, not of disclosure.
-  const grant = typeof env.grant === "string" && env.grant.length > 0 ? env.grant : undefined
   return {
     id: interruptId,
     reason,
     ...(typeof env.message === "string" ? { message: env.message } : {}),
     ...(toolCallId !== undefined ? { toolCallId } : {}),
-    ...(grant !== undefined ? { grant } : {}),
     metadata: env,
   }
 }
@@ -121,21 +90,29 @@ export function toAguiInterrupt(data: unknown): B4AguiInterrupt | null {
  * Map AG-UI resume entries to B4.run resume requests. Vocabulary-agnostic: the
  * consumer decides how a `{ status, payload }` becomes B4.run's per-interrupt
  * decision. We only guarantee `interruptId` survives.
+ *
+ * The approval grant is read from `metadata.grant`, the schema-defined channel
+ * a 1.0 client leaves intact. `HttpAgent` strips unknown top-level keys from
+ * the outgoing input, so a 1.0 client never sends a top-level `grant`; if one
+ * arrives anyway it is ignored.
  */
 export function fromAguiResume(
   resume: ReadonlyArray<{
     interruptId: string
     status: "resolved" | "cancelled"
     payload?: unknown
-    grant?: unknown
+    metadata?: Readonly<Record<string, unknown>> | undefined
   }>,
 ): B4ResumeRequest[] {
-  return resume.map((entry) => ({
-    interruptId: entry.interruptId,
-    status: entry.status,
-    ...(Object.hasOwn(entry, "payload") ? { payload: entry.payload } : {}),
-    // Forwarded only when it is a string: an opaque echo must not become a
-    // channel for arbitrary JSON on its way to the grant check.
-    ...(typeof entry.grant === "string" ? { grant: entry.grant } : {}),
-  }))
+  return resume.map((entry) => {
+    const grant = entry.metadata?.grant
+    return {
+      interruptId: entry.interruptId,
+      status: entry.status,
+      ...(Object.hasOwn(entry, "payload") ? { payload: entry.payload } : {}),
+      // Forwarded only when it is a string: an opaque echo must not become a
+      // channel for arbitrary JSON on its way to the grant check.
+      ...(typeof grant === "string" ? { grant } : {}),
+    }
+  })
 }

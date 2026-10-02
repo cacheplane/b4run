@@ -308,10 +308,28 @@ export function AppShell({
   // resolution time is what makes the restore survive the swap, without
   // re-issuing the request and racing the one in flight. Written from an
   // effect, not during render: a render can be thrown away.
+  const renderedThreadIdRef = useRef(activeThreadId)
   const agentRef = useRef(agent)
   useEffect(() => {
+    const previous = agentRef.current
     agentRef.current = agent
-  }, [agent])
+    // `useAgent` can hand back a different instance for the SAME thread after
+    // a restore has already been applied to the previous one (CopilotKit 1.76
+    // swaps to the per-thread runtime agent a beat after first render). The
+    // replacement starts empty, so the restored transcript would vanish from
+    // the screen. Carry it over — only for a same-thread swap (the thread
+    // switch effect below handles a real switch, and it has not run yet when
+    // `activeThreadId` differs here), only onto an empty, idle replacement.
+    if (
+      previous !== agent &&
+      renderedThreadIdRef.current === activeThreadId &&
+      !agent.isRunning &&
+      agent.messages.length === 0 &&
+      previous.messages.length > 0
+    ) {
+      agent.setMessages(previous.messages)
+    }
+  }, [agent, activeThreadId])
 
   // `pendingInterrupts` is populated while the RUN_FINISHED event is applied,
   // which is strictly before `onRunFinalized` fires — and `onRunFinalized` is
@@ -398,7 +416,6 @@ export function AppShell({
   // starts the id `undefined` and sets the real one from a browser effect; if
   // it ever resolves an id synchronously (a deep link, say), the thread it
   // opens on would silently never restore.
-  const renderedThreadIdRef = useRef(activeThreadId)
   // Mirrors `renderedThreadIdRef`, but for `hydrateNonce`: this effect fires
   // when EITHER changes, and only the thread-changed case gets the clear
   // step below (a nonce bump is a request to retry the same thread's
