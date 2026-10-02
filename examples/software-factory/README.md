@@ -540,12 +540,12 @@ GitHub silently. Until the first recorded run that replay is skipped.
 Not done by any code here: creating the app, installing it, the rulesets and the scratch
 repository (Brian, the plan's Task 4); the scratch lane's first recorded run; and the live run
 on `cacheplane/b4run` (the plan's PR 5). Known follow-ups, each in the plan: the first recorded
-contract will need the fake to answer GitHub's extra top-level keys; a hard link to the key
-inside the state directory is not refused; a transferred (301) or deleted (410) issue maps to
-an unexpected failure rather than a named reason; the ruleset read takes the first page only
-(preflight checks the rule types it finds there); a 300-file comparison is assumed to fit the 10 MiB body cap; a
-truncated tree listing blocks as a redeliverable `delivery_unconfirmed`; and `issues: read`
-may be dropped if the scratch lane shows reading a public issue does not need it (D5).
+contract will need the fake to answer GitHub's extra top-level keys; the ruleset read takes the
+first page only (preflight checks the rule types it finds there); a 300-file comparison is
+assumed to fit the 10 MiB body cap; whether the repository read shows the app its merge commit
+message settings is for the scratch lane to confirm (preflight refuses only `PR_BODY`); and
+`issues: read` may be dropped if the scratch lane shows reading a public issue does not need it
+(D5).
 
 ### How it behaves
 
@@ -587,8 +587,8 @@ recorded either way:
 within 24 hours of the approval and at the revision and bundle digest it shows: it prints what
 the resumed delivery will publish and asks for the bundle digest's first eight hex digits at a
 terminal (or takes `--digest <sha256>` in full). It approves nothing new. Every other block
-needs a new work order, and `redeliver` refuses it saying so ("waiting does not heal it; cancel
-it and run the issue again with --new"): cancel the blocked one first, or the old blocked row
+needs a new work order, and `redeliver` refuses it saying so, before it asks for anything
+("waiting does not heal it; cancel it and run the issue again with --new"): cancel the blocked one first, or the old blocked row
 leaves a later `run --issue <n>` ambiguous. `pnpm factory events <id>` has each step's journal
 and the remote ids that exist. `approve` and `review --approve` list the same next commands as
 `run` when the delivery blocks (`next` in their output), `pnpm factory redeliver <id>` among
