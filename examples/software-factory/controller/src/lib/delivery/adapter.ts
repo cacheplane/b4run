@@ -87,6 +87,13 @@ export interface DeliverySession {
   readonly botLogin: string
   /** The commit identity the worker writes as: the app's bot. */
   readonly identity: Omit<CommitIdentity, "date">
+  /**
+   * What GitHub writes as the message of a squash merge and of a merge commit on this
+   * repository (`squash_merge_commit_message`: `COMMIT_MESSAGES`, `PR_BODY` or `BLANK`;
+   * `merge_commit_message`: `PR_TITLE`, `PR_BODY` or `BLANK`), as the repository read at open
+   * answered them; null when it did not say.
+   */
+  readonly mergeMessages: { readonly squash: string | null; readonly merge: string | null }
   /** Rule types (`update`, `non_fast_forward`, ...) the repository's rulesets apply to `branch`. */
   branchRules(branch: string): Promise<readonly string[]>
   /**

@@ -449,8 +449,11 @@ guards key on its bot login, `b4-factory[bot]`, in `controller/src/lib/delivery/
 with exactly `contents: write`, `pull_requests: write`, `issues: read` and `metadata: read`, no
 `workflows`, no events; installed on the target repository (and a scratch repository for the
 lane below) and nothing else; and the rulesets that keep it to `factory/**` branches it can
-create but never update, delete or move. The private key stays in a file of yours, mode
-`0600`, outside this checkout's app roots and the state directory.
+create but never update, delete or move. The repository's squash and merge commit messages
+must not be the pull request's body (`PR_BODY`): the description quotes the model-written spec,
+and the approval's preflight refuses a repository that would copy it into `main`'s history.
+The private key stays in a file of yours, mode `0600`, with one name, outside this checkout's
+app roots and the state directory.
 
 **Enable it in a local config**, not the committed one: copy `factory.config.ts` to the
 gitignored `factory.config.local.ts`, point `FACTORY_CONFIG` at it (as for a second checkout's

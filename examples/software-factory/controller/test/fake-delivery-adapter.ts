@@ -17,7 +17,9 @@ import { blobId, type GitTreeEntry, treeId } from "../src/lib/delivery/git-objec
  * loses the response, which is the case the outbox exists for.
  */
 
-export type FakeMethod = Exclude<keyof DeliverySession, "botLogin" | "identity"> | "open"
+export type FakeMethod =
+  | Exclude<keyof DeliverySession, "botLogin" | "identity" | "mergeMessages">
+  | "open"
 
 interface Fault {
   readonly method: FakeMethod
@@ -43,6 +45,11 @@ export interface FakeGitHub extends DeliveryAdapter {
   author: string
   /** The login the session reports for the app; the guarded bot unless a test says otherwise. */
   botLogin: string
+  /**
+   * The repository's `squash_merge_commit_message` and `merge_commit_message`; GitHub's
+   * defaults (`COMMIT_MESSAGES`, `PR_TITLE`) unless a test says otherwise.
+   */
+  mergeMessages: { squash: string; merge: string }
   /** Store each blob under this id instead of its own: GitHub disagreeing with the bytes. */
   corruptBlob: string | undefined
   /** Answer `createTree` with this id instead of the tree built: GitHub disagreeing with the change. */
@@ -144,6 +151,7 @@ export function createFakeGitHub(): FakeGitHub {
     closing: [],
     author: BOT,
     botLogin: BOT,
+    mergeMessages: { squash: "COMMIT_MESSAGES", merge: "PR_TITLE" },
     corruptBlob: undefined,
     corruptTree: undefined,
     rewriteCommit: undefined,
@@ -208,6 +216,9 @@ export function createFakeGitHub(): FakeGitHub {
       return fake.botLogin
     },
     identity: { name: BOT, email: `123+${BOT}@users.noreply.github.com` },
+    get mergeMessages() {
+      return { ...fake.mergeMessages }
+    },
     branchRules: (branch) =>
       run(
         "branchRules",

@@ -139,7 +139,14 @@ export async function startFakeGitHubServer(): Promise<FakeGitHubServer> {
     if (method === "GET" && path === `/users/${encodeURIComponent(BOT)}`)
       return json(200, { login: BOT, id: 123, type: "Bot" })
     if (method === "GET" && path === prefix)
-      return json(200, { id: 1, full_name: REPOSITORY, default_branch: "main", private: false })
+      return json(200, {
+        id: 1,
+        full_name: REPOSITORY,
+        default_branch: "main",
+        private: false,
+        squash_merge_commit_message: server.repo.mergeMessages.squash,
+        merge_commit_message: server.repo.mergeMessages.merge,
+      })
     let m = /^\/repos\/[^/]+\/[^/]+\/rules\/branches\/(.+)$/.exec(path)
     if (method === "GET" && m)
       return json(

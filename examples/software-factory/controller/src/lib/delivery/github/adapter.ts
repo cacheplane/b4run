@@ -201,7 +201,8 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): DeliveryAdap
 
       // GitHub answers a repository by any case of its name, and its pull requests' heads by
       // the canonical one, which the worker compares exactly: the configured name must be it.
-      const named = asString(asRecord(await read(repo), "repository").full_name, "full_name")
+      const repositoryRecord = asRecord(await read(repo), "repository")
+      const named = asString(repositoryRecord.full_name, "full_name")
       if (named !== repository)
         throw new DeliveryError(
           "unauthorized",
@@ -215,9 +216,16 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): DeliveryAdap
         email: `${asId(bot.id, "the bot user's id")}+${botLogin}@users.noreply.github.com`,
       }
 
+      const setting = (value: unknown) => (typeof value === "string" ? value : null)
+      const mergeMessages = {
+        squash: setting(repositoryRecord.squash_merge_commit_message),
+        merge: setting(repositoryRecord.merge_commit_message),
+      }
+
       const session: DeliverySession = {
         botLogin,
         identity,
+        mergeMessages,
         async branchRules(branch) {
           const rules = await read(`${repo}/rules/branches/${branch}`)
           return Array.isArray(rules) ? rules.map((r) => String(asRecord(r, "rule").type)) : []

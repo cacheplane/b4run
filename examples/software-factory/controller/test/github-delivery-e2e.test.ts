@@ -172,6 +172,31 @@ describe("a delivery through the real GitHub adapter", () => {
     })
     expect(narrower).toMatchObject({ ok: false, state: "awaiting_approval" })
 
+    // A repository that would copy the description, quoted spec included, into main.
+    server.granted = { contents: "write", pull_requests: "write", metadata: "read", issues: "read" }
+    for (const [mergeMessages, field] of [
+      [{ squash: "PR_BODY", merge: "PR_TITLE" }, "squash_merge_commit_message"],
+      [{ squash: "COMMIT_MESSAGES", merge: "PR_BODY" }, "merge_commit_message"],
+    ] as const) {
+      server.repo.mergeMessages = mergeMessages
+      const body = await harness.factory.approve(row.id, {
+        revision: row.revision,
+        bundleDigest: row.bundleDigest,
+        operationKey: `body-${field}`,
+      })
+      expect(body).toMatchObject({
+        ok: false,
+        state: "awaiting_approval",
+        message: expect.stringContaining(
+          `Delivery preflight: the repository's ${field} is PR_BODY`,
+        ),
+      })
+    }
+    const read = server.requests.filter(
+      (r) => r.method === "GET" && r.path === `/repos/${REPOSITORY}`,
+    )
+    expect(read.length > 0).toBe(true)
+
     expect(server.repo.writes()).toEqual([])
     expect(server.requests.some((r) => r.method === "POST" && r.path.includes("/git/"))).toBe(false)
     const events = JSON.stringify(harness.factory.events(row.id))
