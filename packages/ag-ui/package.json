@@ -64,7 +64,7 @@
   },
   "peerDependencies": {
     "@ag-ui/client": ">=1.0.1 <2.0.0",
-    "@copilotkit/react-core": ">=1.66.0",
+    "@copilotkit/react-core": ">=1.76.0",
     "react": ">=19.0.0"
   },
   "peerDependenciesMeta": {
