@@ -106,15 +106,15 @@ scripts respectively) — not workspace packages.
 
 ## Definition of Done
 
-The required `validate` job in `.github/workflows/ci.yml` aggregates four
+The required `validate` job in `.github/workflows/ci.yml` aggregates five
 independent lanes for code and release-bearing changes and succeeds only when all
-four succeed. Failure, cancellation, or an unexpected skipped lane blocks it.
+five succeed. Failure, cancellation, or an unexpected skipped lane blocks it.
 
 A pull request changing only regular, non-executable Markdown files under
 `docs/superpowers/runbooks/` uses the narrow prose path. The existing scope job
 checks the exact merge-base diff, both sides of file modes, and whitespace before
 emitting that result. `validate` still runs and requires successful classification
-and all four heavy lanes to be deliberately skipped. Mixed changes, other paths,
+and all five heavy lanes to be deliberately skipped. Mixed changes, other paths,
 missing or malformed results, and failed classification cannot pass this route.
 All pushes to main retain full validation; generated-metadata scope remains a
 separate exception for its existing infrastructure jobs.
@@ -136,6 +136,12 @@ checkout. The `pack-smoke` lane runs `pnpm pack:check` and
 `pnpm verify:typescript-tooling-pack`. The `harness-verify` lane runs
 `pnpm verify:harness:self-test` and the framework, runtime, and smoke harnesses.
 These gates remain part of repository validation.
+
+The `dependency-security-browser` lane installs dependencies and Chromium,
+builds `@b4run/ag-ui`, runs the CopilotKit v2 runtime against B4.run
+(`test/security-dependencies/copilotkit-v2-runtime.test.ts`) — the only
+end-to-end CopilotKit → B4.run check — and then the dependency-security
+browser regressions.
 
 On pull requests, a separate `changesets` job also runs
 `node scripts/check-changesets.mjs` to require a changeset for user-facing
