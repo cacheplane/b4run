@@ -87,7 +87,8 @@ export const BLOCKED_REASONS = [
   // factory/<id> exists with a commit that is not this change, or its PR is closed or has
   // another base.
   "delivery_branch_conflict",
-  // The issue was open at create and is closed now.
+  // The issue was open at create and is closed now, or no longer this repository's
+  // (transferred or deleted).
   "delivery_issue_closed",
   // No token, no installation, a 401 or a non-rate-limit 403, or permissions too narrow.
   "delivery_unauthorized",

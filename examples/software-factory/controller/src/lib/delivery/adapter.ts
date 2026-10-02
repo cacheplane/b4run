@@ -89,7 +89,11 @@ export interface DeliverySession {
   readonly identity: Omit<CommitIdentity, "date">
   /** Rule types (`update`, `non_fast_forward`, ...) the repository's rulesets apply to `branch`. */
   branchRules(branch: string): Promise<readonly string[]>
-  issueState(number: number): Promise<"open" | "closed">
+  /**
+   * `gone` when the issue is no longer this repository's: transferred (GitHub answers 301; the
+   * move is never followed) or deleted (410).
+   */
+  issueState(number: number): Promise<"open" | "closed" | "gone">
   /** The commit `refs/heads/<branch>` points at, or null when it does not exist. */
   branchHead(branch: string): Promise<string | null>
   compare(base: string, head: string): Promise<Comparison>

@@ -392,6 +392,34 @@ describe("the GitHub adapter against GitHub's shapes", () => {
     expect(server.repo.writes()).toEqual([])
   })
 
+  it("refuses an issue transferred (301) or deleted (410) since create as no longer open, never following the move", async () => {
+    for (const [status, headers] of [
+      [301, { location: "/repositories/99/issues/912" }],
+      [410, {}],
+    ] as const) {
+      const { h, server, adapter } = await delivery()
+      const answer = {
+        status,
+        headers,
+        body: { message: status === 301 ? "Moved Permanently" : "This issue was deleted" },
+      }
+      server.answer("GET", /\/issues\/912$/, answer)
+      const session = await adapter.open(REPOSITORY, new AbortController().signal)
+      expect(await session.issueState(912)).toBe("gone")
+
+      server.answer("GET", /\/issues\/912$/, answer)
+      const row = await h.deliver()
+      expect(row, h.journal()).toMatchObject({
+        state: "blocked",
+        blockedReason: "delivery_issue_closed",
+      })
+      expect(h.journal()).toContain("transferred or deleted")
+      expect(server.requests.some((r) => r.path.includes("/repositories/99/"))).toBe(false)
+      expect(server.repo.writes()).toEqual([])
+      await reset()
+    }
+  })
+
   it("never follows a redirect: a 307 blocks, and its target is never asked", async () => {
     const { h, server } = await delivery()
     server.answer("POST", /\/git\/refs$/, {
