@@ -104,8 +104,9 @@ export interface DelegationConfig<Name extends string> {
 }
 
 /**
- * Reasoning model tuning. Currently maps to OpenAI's `reasoningEffort`
- * parameter; non-reasoning models silently ignore it.
+ * Reasoning model tuning. Currently maps to the OpenAI request's reasoning
+ * effort (`ChatOpenAI`'s `reasoning` option); non-reasoning models silently
+ * ignore it.
  *
  * Supported effort values (per OpenAI docs):
  *   - "none"    — disable reasoning entirely (gpt-5.1+ only)

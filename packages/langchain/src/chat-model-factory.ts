@@ -267,8 +267,10 @@ export async function createChatModel(options: {
 
   const constructorOptions: Record<string, unknown> = { model: options.model }
   if (options.maxRetries !== undefined) constructorOptions.maxRetries = options.maxRetries
+  // ChatOpenAI's constructor reads `reasoning`; `reasoningEffort` is only a
+  // per-call option, and as a constructor field it is silently ignored.
   if (options.provider === "openai" && options.reasoning?.effort) {
-    constructorOptions.reasoningEffort = options.reasoning.effort
+    constructorOptions.reasoning = { effort: options.reasoning.effort }
   }
 
   // The credential, resolved the same way the base URL below is.

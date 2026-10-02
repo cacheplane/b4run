@@ -35,7 +35,7 @@ type ReasoningEffort =
 
 The provider decides which values mean something for each model. Models without reasoning ignore the setting.
 
-Leave out `reasoning`, and B4.run sends no `reasoningEffort` value, so the provider's default applies.
+Leave out `reasoning`, and B4.run sends no reasoning effort, so the provider's default applies.
 
 ## Where it applies
 
@@ -51,11 +51,13 @@ B4.run maps:
 reasoning: { effort: "high" }
 ```
 
-to the `ChatOpenAI` option:
+to the `ChatOpenAI` constructor option:
 
 ```ts
-{ reasoningEffort: "high" }
+{ reasoning: { effort: "high" } }
 ```
+
+which every request then carries as `reasoning_effort` (Chat Completions) or `reasoning.effort` (Responses).
 
 It adds no prompt fragment, tool, state field or stream event.
 

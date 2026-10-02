@@ -11,7 +11,7 @@ class FakeModel {
 }
 
 describe("chat model factory", () => {
-  test("creates OpenAI with reasoningEffort", async () => {
+  test("creates OpenAI with the reasoning effort", async () => {
     const importer = vi.fn().mockResolvedValue({ ChatOpenAI: FakeModel })
 
     const model = await createChatModel({
@@ -24,11 +24,11 @@ describe("chat model factory", () => {
     expect(importer).toHaveBeenCalledWith("@langchain/openai")
     expect((model as FakeModel).options).toEqual({
       model: "gpt-5-mini",
-      reasoningEffort: "high",
+      reasoning: { effort: "high" },
     })
   })
 
-  test("does not pass OpenAI reasoningEffort to Anthropic", async () => {
+  test("does not pass the OpenAI reasoning effort to Anthropic", async () => {
     const importer = vi.fn().mockResolvedValue({ ChatAnthropic: FakeModel })
 
     const model = await createChatModel({
