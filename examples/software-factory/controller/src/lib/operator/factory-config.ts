@@ -346,6 +346,12 @@ export function deliveryKeyProblems(config: ResolvedFactoryConfig): string[] {
     problems.push(
       `${where} is readable by group or other (mode ${(stat.mode & 0o777).toString(8)}): chmod 600 it`,
     )
+  // A second name for the same file can sit anywhere, an app root or the state directory
+  // included, where no comparison of this path finds it.
+  if (stat.nlink > 1)
+    problems.push(
+      `${where} has ${stat.nlink} hard links; keep the key as one file outside every app root and the state directory`,
+    )
   const roots = [...APP_NAMES.map((name) => resolve(EXAMPLE_ROOT, APP_DIRS[name])), config.stateDir]
   for (const root of roots)
     if (lexicallyInside(root, key.file) || physicallyInside(root, key.file))

@@ -2,6 +2,7 @@ import { generateKeyPairSync } from "node:crypto"
 import {
   chmodSync,
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -567,6 +568,26 @@ describe("review of Tasks 19-20: up's own processes, pasted keys, the run copy",
         "controller ready on 127.0.0.1:4300",
       )
     }
+  })
+
+  it("refuses a key file with a second hard link, naming the field and the path only", () => {
+    dir = mkdtempSync(join(tmpdir(), "up-key-hardlink-"))
+    const state = join(dir, "state")
+    mkdirSync(state)
+    const key = join(dir, "app.pem")
+    writeFileSync(key, PEM, { mode: 0o600 })
+    const at = () =>
+      parseFactoryConfig(
+        { ...draftPr({ id: 1, privateKeyFile: key }), state },
+        join(dir as string, "factory.config.ts"),
+      )
+    expect(deliveryKeyProblems(at())).toEqual([])
+    // A second name for the same file inside the state directory: no path comparison sees it.
+    linkSync(key, join(state, "copy.pem"))
+    const problems = deliveryKeyProblems(at())
+    expect(problems.some((p) => p.includes("delivery.draftPr.app.privateKeyFile"))).toBe(true)
+    expect(problems.some((p) => p.includes(key) && /hard link/.test(p))).toBe(true)
+    expect(problems.some((p) => p.includes(PEM.split("\n")[1] as string))).toBe(false)
   })
 
   it("M5: refuses a key file inside the state directory, reached through a link, or a directory", () => {
