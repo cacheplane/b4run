@@ -3,23 +3,27 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { ABANDONED_CLIENT_TOOL_RESULT, CLIENT_TOOL_UNAVAILABLE_RESULT } from "@b4run/core"
 import {
+  type ClientToolCallRecord,
   type ClientToolCallStore,
   createMemoryClientToolCallStore,
   createMemoryInterruptGrantStore,
 } from "@b4run/sdk"
 import { createClientToolCallStore, createThreadsStore } from "@b4run/sqlite-storage"
 import { MemorySaver } from "@langchain/langgraph"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { createAimock } from "../../testing/dist/aimock-runner.js"
 import { __voidSettledClientToolCallsForTests } from "../src/lib/dev/agui-handler.ts"
 import {
+  __resetClientToolPruneThrottleForTests,
   AGUI_BODY_MAX_BYTES,
+  CLIENT_TOOL_PRUNE_INTERVAL_MS,
   ClientToolConfigError,
   clientToolPruneCutoff,
   DEFAULT_CLIENT_TOOL_RETENTION_MS,
   DEFAULT_CLIENT_TOOL_TTL_MS,
   MAX_CLIENT_TOOL_RESULT,
   MAX_CLIENT_TOOL_TTL_MS,
+  pruneClientToolCalls,
   resolveClientToolRetentionMs,
   resolveClientToolTtlMs,
   validateClientToolStore,
@@ -1437,6 +1441,83 @@ describe("the recorder never parks a NEW call on an old record", () => {
     expect((await readPendingInterrupts(checkpointer, threadId))?.interrupts ?? []).toEqual([])
     expect(await store.get(threadId, "call_a")).toEqual(answeredRow)
     expect(await store.listOutstanding(threadId)).toEqual([])
+  })
+})
+
+describe("pruneClientToolCalls (opportunistic sweep)", () => {
+  const runtime = { ttlMs: 600_000, retentionMs: 3_600_000 }
+  const settled = (toolCallId: string, voidedAt: string): ClientToolCallRecord => ({
+    threadId: "t-sweep",
+    toolCallId,
+    interruptId: `client-${toolCallId}`,
+    toolName: "openPanel",
+    runId: "r1",
+    routeId: "/park#agent",
+    issuedAt: "2026-10-01T00:00:00.000Z",
+    expiresAt: null,
+    answeredAt: null,
+    result: null,
+    voidedAt,
+  })
+
+  afterEach(() => __resetClientToolPruneThrottleForTests())
+
+  it("deletes rows settled before the cutoff and keeps outstanding ones", async () => {
+    const store = createMemoryClientToolCallStore()
+    await store.issue(settled("old", "2026-10-01T00:00:00.000Z"))
+    await store.issue({ ...settled("live", "x"), voidedAt: null })
+    const now = new Date("2026-10-01T12:00:00.000Z")
+    expect(await pruneClientToolCalls(store, runtime, now)).toBe(1)
+    expect((await store.listForThread("t-sweep")).map((r) => r.toolCallId)).toEqual(["live"])
+  })
+
+  it("runs at most once per interval per store", async () => {
+    const store = createMemoryClientToolCallStore()
+    let calls = 0
+    const counting: ClientToolCallStore = {
+      ...store,
+      prune: async (options) => {
+        calls += 1
+        return store.prune(options)
+      },
+    }
+    const t0 = new Date("2026-10-01T12:00:00.000Z")
+    expect(await pruneClientToolCalls(counting, runtime, t0)).toBe(0)
+    expect(
+      await pruneClientToolCalls(
+        counting,
+        runtime,
+        new Date(t0.getTime() + CLIENT_TOOL_PRUNE_INTERVAL_MS - 1),
+      ),
+    ).toBeUndefined()
+    expect(
+      await pruneClientToolCalls(
+        counting,
+        runtime,
+        new Date(t0.getTime() + CLIENT_TOOL_PRUNE_INTERVAL_MS),
+      ),
+    ).toBe(0)
+    expect(calls).toBe(2)
+  })
+
+  it("never throws: a failing store is warned about and the sweep reports undefined", async () => {
+    const store = createMemoryClientToolCallStore()
+    const failing: ClientToolCallStore = {
+      ...store,
+      prune: async () => {
+        throw new Error("disk full")
+      },
+    }
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      await expect(pruneClientToolCalls(failing, runtime, new Date())).resolves.toBeUndefined()
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("could not prune client tool calls"),
+        expect.any(Error),
+      )
+    } finally {
+      warn.mockRestore()
+    }
   })
 })
 

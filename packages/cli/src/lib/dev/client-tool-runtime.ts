@@ -136,3 +136,40 @@ function describe(value: unknown): string {
   if (typeof value === "string") return JSON.stringify(value)
   return value === null ? "null" : typeof value
 }
+
+/** Least time between two opportunistic sweeps of the same store: one hour. */
+export const CLIENT_TOOL_PRUNE_INTERVAL_MS = 60 * 60 * 1000
+
+/** Last sweep per store (ms since epoch). Per process; a WeakMap so a store is never retained by it. */
+let lastSweepAt = new WeakMap<ClientToolCallStore, number>()
+
+/** Test seam: forget every store's last sweep time. */
+export function __resetClientToolPruneThrottleForTests(): void {
+  lastSweepAt = new WeakMap()
+}
+
+/**
+ * Opportunistic retention for client tool call records, run by the AG-UI
+ * handler once a turn has settled (the `recordEpisode` pattern). Global, not
+ * per thread, so threads that never return are swept too. At most once per
+ * {@link CLIENT_TOOL_PRUNE_INTERVAL_MS} per store; a call inside the interval
+ * returns `undefined` without touching the store. Never throws: a store
+ * failure is warned about and the turn is unaffected.
+ *
+ * Returns the number of rows deleted, or `undefined` when nothing ran.
+ */
+export async function pruneClientToolCalls(
+  store: ClientToolCallStore,
+  runtime: Pick<ClientToolRuntime, "ttlMs" | "retentionMs">,
+  now: Date,
+): Promise<number | undefined> {
+  const last = lastSweepAt.get(store)
+  if (last !== undefined && now.getTime() - last < CLIENT_TOOL_PRUNE_INTERVAL_MS) return undefined
+  lastSweepAt.set(store, now.getTime())
+  try {
+    return await store.prune({ before: clientToolPruneCutoff(now, runtime) })
+  } catch (error) {
+    console.warn("B4: could not prune client tool calls.", error)
+    return undefined
+  }
+}
