@@ -1,5 +1,86 @@
 # @dawn-ai/cli
 
+## 0.13.1
+
+### Patch Changes
+
+- f9350c4: `agent({ retry })` now applies to each model call instead of the whole run. `maxAttempts` (default 3) becomes the chat model's `maxRetries` (`maxAttempts - 1`), so LangChain retries each model request, including later calls in a tool loop, up to that many times; `maxAttempts: 1` now fails fast. Before, LangChain's default of 6 retries applied whatever `retry` said, and B4.run restarted the whole run on top of it when nothing had streamed yet.
+
+  B4.run also sends a model call again after a capacity rate limit that LangChain hands back without retrying (a `429` with no `Retry-After`), waiting `min(baseDelay * 2^n + jitter, 10s)`. A `429` whose `Retry-After` is over 60 seconds (LangChain waits out shorter ones itself) isn't retried: the error surfaces at once, keeping the wait in `retryAfterMs`. This is the only place `baseDelay` applies; it was previously never read on an agent route. A quota `429` isn't retried, an abort during the wait stops it, and a response that fails after part of it streamed isn't retried, so no token is sent twice. The run itself is never restarted, so tools never run twice, and a transient error outside the model call (for example a checkpointer connection reset before the first event) now fails the turn instead of being retried with the run.
+
+  The route's summarization model gets the same `maxRetries` (`defaultSummarize` and a custom `summarize` receive it as `maxRetries`), and the `b4 memory consolidate` / `reflect` model takes its attempts from a new `memory.distill.retry: { maxAttempts }` in `b4.config.ts` (default 3 per call, instead of LangChain's 6). `memory.distill.retry` is validated by `b4 check` and by the `b4 memory consolidate` / `reflect` commands (not by `b4 dev` or the runtime, which never read `memory.distill`): a `baseDelay` (distillation has nothing for it to pace), an unknown key in `memory.distill` or its `retry` (including a near-miss case typo such as `Distill`, `distil`, or `Retry`), a non-object parent, `memory: null` or `memory.distill: null` (previously read as empty), a misplaced `retry`/`maxAttempts`, or a `maxAttempts` that isn't a whole number of at least 1 fails with the new error code `B4_E1009` (Invalid memory config) instead of falling back to the default. `modelMaxRetries(retry)` is exported for other code that builds a chat model from an agent's `retry`.
+
+  An invalid `retry` (a `maxAttempts` below 1 or not a whole number, a negative `baseDelay`) now fails the route when it first runs, and so does an unknown key on the `retry` object (for example `maxAttemps`) or a non-object `retry` — the error names the bad key and the valid keys, `maxAttempts` and `baseDelay`. A route that exports its own LangChain runnable keeps its model's own `maxRetries`, and is no longer restarted on a failure either if it streams; one with only `invoke` (no `streamEvents`) is still re-run whole by the legacy fallback, up to 3 times on a message-matched transient error.
+
+- 0c76234: Move to AG-UI protocol 1.0 (`@ag-ui/core`/`@ag-ui/encoder` 1.0.1; `@ag-ui/client` optional peer `>=1.0.1 <2.0.0`; validators at `@ag-ui/core/schemas`). Approval grants (new in this release) travel over AG-UI in `metadata.grant` only, on interrupts and on resume entries; a 1.0 client strips a top-level `grant` in both directions. Breaking for AG-UI clients relative to 0.13.0: a cancelled or shut-down run ends with `RUN_FINISHED { outcome: cancelled }` instead of `RUN_ERROR`; a request declaring a foreign protocol major is refused with `400 unsupported_protocol_version`; a null route result is omitted rather than sent as `result: null`; messages carrying image, audio, video or document parts are refused with `422 multimodal_not_supported` until multimodal input lands. `RUN_STARTED` declares `protocolVersion: "1.0"`; a turn that leaves client-provided tool calls parked names them in `outcome.pendingToolCallIds`; 1.0 content parts are read as text; reasoning and activity history is dropped on the way in. Examples and the research scaffold pin CopilotKit 1.76.0 and `@ag-ui/client` 1.0.1 exactly.
+- 216befd: An AG-UI approval resume is now answered only on the route that parked it. `/agui/:routeId` takes its route from the URL, so a caller admitted by middleware to one route could send a `resume` for a permission prompt parked by another route, and every `createAgent` route resolves another's park because they share node names: the decision was applied under the wrong route's graph, prompt and tools, and, where the routes shared a tool, the gated tool ran for a caller the parking route would refuse. Such a resume now gets `409` `resume_route_mismatch` after the thread-access gate and before any approval grant is checked or consumed; the parking route is not echoed. The owner is the thread's `parked_route`, or its `metadata.route` before the park is recorded, the same chain the Agent Protocol endpoints use. A thread with no route recorded at all keeps the previous behaviour, as `/threads/:id/resume` falls back to the caller's `route`.
+
+  `/threads/:id/resume` now resolves the route from the thread's `parked_route` first, then the in-memory map, `metadata.route` and the body's `route`. An agent run that fails before its graph runs repoints `metadata.route` while the park survives, so the previous order let a resume run on the repointed route under that route's middleware. The route is also resolved before approval grants are checked, so a resume refused for its route no longer consumes a single-use grant.
+
+- a683816: Validate the AG-UI run envelope in the runtime, and close client-supplied `tools` and `forwardedProps` by default.
+
+  `POST /agui/:routeId` used to accept whatever AG-UI's schema would parse and hand it on: `threadId: ""`, a whitespace-only `runId`, a megabyte-long id and `state: "nope"` all reached route code, so every app that cared re-checked B4.run's own wire format by hand — and had to re-check it again each time the protocol grew a field. Those four are now structurally validated before anything else runs, and a body that parses but is not one B4.run will act on is a `422` under the new `B4_E5401`, with a machine-readable `error.details.code` (`invalid_envelope`, `invalid_thread_id`, `invalid_run_id`, `invalid_state`).
+
+  **Breaking for apps that pass client tools.** `tools` and `forwardedProps` are not an app's inputs — they are the caller's attempt to add to what the _route_ decided, and a client that sends `tools: [...]` on a route whose tool set the server chose is asking for authority it was not given. A non-empty `tools` or `forwardedProps` is now REJECTED (`422`, `client_tools_not_allowed` / `forwarded_props_not_allowed`) unless the route names itself in the new `server.agui` config, because silently ignoring a field is indistinguishable from honoring it and a client cannot tell which happened. An empty `tools: []` / `forwardedProps: {}` — what an AG-UI client sends when it has nothing to add — is unaffected, so an ordinary client sees no change. A route that genuinely wants them opts in:
+
+  ```ts
+  server: { agui: { clientTools: ["/chat"], clientForwardedProps: ["/chat"] } }
+  ```
+
+  This turns a silent narrowing into a loud one. `fromRunAgentInput` has never interpreted client `tools`, so a client that sent frontend tools — a CopilotKit frontend action, for instance — already got a run that ignored them; it now gets a `422` instead, which is the point.
+
+  CopilotKit clients to check before upgrading: `useFrontendTool` (and any other hook that registers a tool definition) puts it in `tools` on every run, and CopilotKit's generated suggestions run with `tools: [copilotkitSuggest]` and `forwardedProps: { toolChoice }`. Static suggestion lists (`useConfigureSuggestions` with `{ title, message }` entries) and render-only hooks (`useRenderTool`) send neither, so B4.run's own examples and scaffolds are unaffected.
+
+  The check runs before route middleware and before the thread-access policy: it needs no I/O, takes no resume claim and reads no thread row, so no app middleware is handed an envelope the runtime has already refused, and no policy is asked to authorize — or create a row for — a request that is about to be rejected. `resume` is deliberately not decided there, because whether a turn genuinely resumes depends on what is parked in the checkpointer, which is only readable once the policy has authorized this caller for that thread; `resolvePendingResume` still rejects a resume that matches no pending interrupt (`409`, `stale_interrupt`) at the point where the answer is known.
+
+  Closes #735.
+
+- 17f16ea: Add **approval grants**: a single-use capability bound to one parked tool call, minted when B4.run parks a human-in-the-loop approval and required when that approval is answered.
+
+  Until now a parked approval was addressed by `interruptId` and `resumeKey`, and neither is a credential — `interruptId` is a timestamp plus ~31 bits of `Math.random`, disclosed in the persisted envelope, and `resumeKey` is LangGraph's deterministic position hash. `ThreadAccessPolicy` gates _who_ may touch a thread, but disclosure control is not consumption control: inside a session that legitimately holds the thread, nothing stopped the same approval being answered twice (applying a financial allocation twice) or an approval minted against an earlier proposal being applied to the current one. Replay protection was emergent from LangGraph advancing the checkpoint, not enforced or tested.
+
+  A grant is 32 CSPRNG bytes, stored only as a SHA-256 hash in a B4-owned table added by an additive versioned migration under the existing `runMigrations` advisory lock. It is minted at the park site in `@b4run/core`, reaches the client on the channels that already carry the prompt (the AG-UI interrupt, `GET /threads/:id/pending_interrupts`, the attach `state` frame), and comes back as an opaque `grant` on the resume entry. Consumption is a conditional `UPDATE … WHERE consumed_at IS NULL` — atomic, durable, replica-safe. A reused grant gives `409 grant_consumed` echoing the recorded decision rather than re-executing; a wrong grant gives `403 grant_invalid`, indistinguishable from "no such row" so the endpoint is not an oracle; a grant whose parked call the thread has moved past is voided and gives `409 stale_interrupt`. `deny` and `cancelled` consume the grant too — a denial is a decision, and a re-answerable denial is a replay surface of its own.
+
+  Off by default. `approvals.grants` in `b4.config.ts` takes `"off"` (unchanged behavior), `"optional"` (an interrupt that **has** a grant requires it; one parked without a grant resumes as before — the softness is per-interrupt-age, never per-request, or `"optional"` would be a bypass), or `"required"`. The minter is injected through LangGraph's `config.configurable`, the same channel this repo already uses for live per-call identity, so nothing in core's call graph grows a storage handle. That injection is optional by construction, and the absence **fails closed**: under `"required"`, a park with no minter aborts the turn loudly rather than parking a prompt that cannot be answered safely.
+
+  Two limits, stated rather than implied. At-most-once _delivery_ is not exactly-once _effect_ — an application's own idempotency key does not become redundant. And the plaintext grant is at rest in the checkpointer's `writes`, because the park site carries it in the interrupt envelope; the hash-only grant store protects the consumption ledger, not the checkpoint.
+
+- 3b1be6e: Client-provided tools over AG-UI (cacheplane/b4run#743). On a route named in `server.agui.clientTools`, the model can now call the tools an AG-UI client defines (CopilotKit's `useFrontendTool`, for example). Before, the opt-in only made the `tools` field accepted.
+
+  Each client tool becomes a tool the model sees as `client_<name>`. When the model calls one, the server records the call and parks the turn. The client sees the tool-call frames under its own name and an ordinary `RUN_FINISHED`, runs the tool, and sends `{ role: "tool", toolCallId, content }` on its next run. The server matches that result against its record of calls it issued, on this thread and route, still outstanding and unexpired, and resumes the turn. Resent history is ignored, and each result is used once. A new user message, or a call older than `server.agui.clientToolTtlMs` (default 10 minutes), abandons the unanswered call: it is closed with "The client did not return a result for this tool call." and the new message runs.
+
+  - Definitions are bounded (32 tools, 1,024-character descriptions, 8,192-character and 8-level `parameters`, 32,768 characters in total across names, descriptions and serialized `parameters`) and refused with a `422` otherwise. Each result is capped at 64 KiB of UTF-8 (`413 client_tool_result_too_large` when a run answers with a larger one; a larger one resent in history is dropped and the call is abandoned). The bounds cap context budget; they do not prevent prompt injection.
+  - A new reserved `clientTool` permission key gates client tool calls: exact match, allowed by default, `deny` refuses, never inherits a `tool:<name>` entry, and never offers `always`.
+  - New `ClientToolCallStore` with an in-memory store (`@b4run/sdk`), a SQLite store (`@b4run/sqlite-storage`, the node default at `.b4/client-tool-calls.sqlite`) and a Postgres store (`createPostgresClientToolCallStore` in `@b4run/postgres-storage`). Set `server.agui.clientToolStore` on edge or serverless targets and on multi-instance deployments; with no store, client tool runs are refused with `503 client_tool_store_unavailable`.
+
+  Behavior changes:
+
+  - Tool names starting with `client_` are now reserved. A route with an authored or capability tool named `client_*` fails preparation, and `b4 check` reports an authored one.
+  - `POST /agui/:routeId` request bodies are capped at 8 MiB (`413 payload_too_large`) on every route. Long histories with many inline images can reach it.
+  - On AG-UI, a request whose last message is a `role: "tool"` message now counts as `resuming: true` for thread-access policies, on every route.
+  - `POST /threads/:thread_id/resume`, `POST /threads/:thread_id/runs/stream` and `POST /threads/:thread_id/runs/wait` refuse with `409 client_tool_pending` while a client tool call is parked on the thread; the call is answered or abandoned through the AG-UI endpoint. A new Agent Protocol run there would drop the park and leave the model's tool call with no result.
+  - On AG-UI, a request whose last message is a `role: "tool"` message now takes the thread's resume claim on every route, so a concurrent request on the same thread may get `409 resume_in_progress`.
+  - On an opted-in route, a trailing `role: "tool"` message that answers nothing is now a no-op (an empty `RUN_STARTED` / `RUN_FINISHED`) instead of re-running the newest user message.
+  - AG-UI turns now void superseded approval grants when they settle, as the Agent Protocol run handlers already did.
+
+- Updated dependencies [f9350c4]
+- Updated dependencies [0c76234]
+- Updated dependencies [a683816]
+- Updated dependencies [377c1e9]
+- Updated dependencies [17f16ea]
+- Updated dependencies [3b1be6e]
+- Updated dependencies [c7282f4]
+- Updated dependencies [b0605d7]
+  - @b4run/langchain@0.13.1
+  - @b4run/sdk@0.13.1
+  - @b4run/core@0.13.1
+  - @b4run/ag-ui@0.13.1
+  - @b4run/sqlite-storage@0.13.1
+  - @b4run/permissions@0.13.1
+  - @b4run/workspace@0.13.1
+  - @b4run/langgraph@0.13.1
+  - @b4run/memory@0.13.1
+
 ## 0.13.0
 
 ### Patch Changes
