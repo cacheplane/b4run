@@ -80,6 +80,7 @@
   },
   "devDependencies": {
     "@ag-ui/client": "1.0.1",
+    "@ag-ui/proto": "1.0.1",
     "@copilotkit/react-core": "1.76.0",
     "@b4run/config-typescript": "workspace:*",
     "@types/node": "26.1.2",

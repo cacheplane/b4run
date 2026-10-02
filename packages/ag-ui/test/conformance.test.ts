@@ -6,7 +6,7 @@ import { afterAll, afterEach, expect, it, vi } from "vitest"
 import { B4_PLAN_ACTIVITY_TYPE, B4_SUBAGENT_ACTIVITY_TYPE } from "../src/activities.ts"
 import { createCounterIdFactory } from "../src/ids.js"
 import { type ToAguiOptions, toAguiEvents } from "../src/outbound.js"
-import { encodeAgUiSse } from "../src/sse.js"
+import { agUiContentType, encodeAgUiEvent } from "../src/sse.js"
 import type { B4AgentStreamChunk } from "../src/types.js"
 
 // The zero-warnings gate below is the whole point of this file: the 1.0
@@ -160,14 +160,15 @@ async function startCannedServer(runs: readonly CannedRun[]): Promise<{
       bodies.push(JSON.parse(Buffer.concat(raw).toString("utf8")))
       const run = queue.shift()
       if (!run) throw new Error("more runs requested than canned")
-      res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
+      const accept = req.headers.accept
+      res.writeHead(200, { "content-type": agUiContentType(accept), "cache-control": "no-cache" })
       const events = toAguiEvents(
         run.stream(),
         { threadId: "t1", runId: `r${bodies.length}` },
         { idFactory: createCounterIdFactory(), ...run.options },
       )
       for await (const event of events) {
-        res.write(encodeAgUiSse(run.mutate ? run.mutate(event) : event))
+        res.write(encodeAgUiEvent(run.mutate ? run.mutate(event) : event, accept))
       }
       res.end()
     })().catch((error: unknown) => {
