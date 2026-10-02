@@ -1,7 +1,8 @@
 import { createServer, type Server } from "node:http"
 import { HttpAgent } from "@ag-ui/client"
-import { type BaseEvent, EventType, PROTOCOL_VERSION } from "@ag-ui/core"
+import { type BaseEvent, EventType, PROTOCOL_VERSION, type RunAgentInput } from "@ag-ui/core"
 import { ActivitySnapshotEventSchema } from "@ag-ui/core/schemas"
+import { AGUI_MEDIA_TYPE } from "@ag-ui/encoder"
 import { afterAll, afterEach, expect, it, vi } from "vitest"
 import { B4_PLAN_ACTIVITY_TYPE, B4_SUBAGENT_ACTIVITY_TYPE } from "../src/activities.ts"
 import { createCounterIdFactory } from "../src/ids.js"
@@ -205,12 +206,29 @@ async function withNoWarnings<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-function newAgent(url: string): HttpAgent {
-  return new HttpAgent({
+/**
+ * `HttpAgent` names `text/event-stream` after spreading its constructor
+ * headers, so asking for the binary binding means overriding `requestInit`.
+ * Parsing needs no override: the client picks its parser from the response
+ * content type.
+ */
+class BinaryHttpAgent extends HttpAgent {
+  protected override requestInit(input: RunAgentInput): RequestInit {
+    const init = super.requestInit(input)
+    return {
+      ...init,
+      headers: { ...(init.headers as Record<string, string>), Accept: AGUI_MEDIA_TYPE },
+    }
+  }
+}
+
+function newAgent(url: string, binding: "sse" | "protobuf" = "sse"): HttpAgent {
+  const params: ConstructorParameters<typeof HttpAgent>[0] = {
     url,
     threadId: "t1",
     initialMessages: [{ id: "1", role: "user", content: "research agents" }],
-  })
+  }
+  return binding === "protobuf" ? new BinaryHttpAgent(params) : new HttpAgent(params)
 }
 
 /**
@@ -218,9 +236,13 @@ function newAgent(url: string): HttpAgent {
  * CompatibilityBoundary → enforceEvents → chunk expansion → verifyEvents all
  * run, under `withNoWarnings`.
  */
-async function runThroughClient(url: string, parameters: Parameters<HttpAgent["runAgent"]>[0]) {
+async function runThroughClient(
+  url: string,
+  parameters: Parameters<HttpAgent["runAgent"]>[0],
+  binding: "sse" | "protobuf" = "sse",
+) {
   return withNoWarnings(async () => {
-    const agent = newAgent(url)
+    const agent = newAgent(url, binding)
     const events: BaseEvent[] = []
     // Only collect here: the client logs and swallows a throwing subscriber, so assertions belong after runAgent returns.
     const result = await agent.runAgent(parameters, {
@@ -312,6 +334,26 @@ it("a full turn passes 1.0 enforcement with nothing stripped", async () => {
   expect(kinds).not.toContain(EventType.CUSTOM)
   expect(kinds).not.toContain(EventType.RAW)
   expect(kinds[kinds.length - 1]).toBe(EventType.RUN_FINISHED)
+})
+
+it("the HTTP+protobuf binding passes 1.0 enforcement with the same events", async () => {
+  const { url } = await startCannedServer([
+    { stream: () => toAsync(CANNED) },
+    { stream: () => toAsync(CANNED) },
+  ])
+  const sse = await runThroughClient(url, { runId: "r1" })
+  const binary = await runThroughClient(url, { runId: "r2" }, "protobuf")
+
+  // Same turn, two bindings: the client's protobuf parser yields what its SSE
+  // parser yields. The canned server numbers each run (`r1`, `r2`), and the plan
+  // activity's message id (`b4:plan:<runId>`) derives from it, so the run id is
+  // normalized wherever it appears; the wall-clock timestamp differs too.
+  const strip = (events: BaseEvent[]) =>
+    events.map(({ timestamp: _timestamp, rawEvent: _raw, ...event }) =>
+      JSON.parse(JSON.stringify(event).replace(/\br[12]\b/g, "rN")),
+    )
+  expect(binary.events.length).toBe(sse.events.length)
+  expect(strip(binary.events)).toEqual(strip(sse.events))
 })
 
 it("an approval interrupt keeps its grant in metadata, and the resume carries it back there", async () => {
