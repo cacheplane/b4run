@@ -88,7 +88,7 @@ export const BLOCKED_REASONS = [
   // another base.
   "delivery_branch_conflict",
   // The issue was open at create and is closed now, or no longer this repository's
-  // (transferred or deleted).
+  // (transferred, deleted, or issues disabled on the repository).
   "delivery_issue_closed",
   // No token, no installation, a 401 or a non-rate-limit 403, or permissions too narrow.
   "delivery_unauthorized",

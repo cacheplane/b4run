@@ -309,6 +309,61 @@ describe("approve", () => {
     expect(factory.show(row.id)?.state).toBe("awaiting_approval")
   })
 
+  it("refuses a whitespace-only actor before it spends the operation key", async () => {
+    const { reader } = await boot({ verdict: "pass" }, {}, { actor: " \t " })
+    const row = await awaiting(reader)
+    const approval = { revision: row.revision, bundleDigest: row.bundleDigest }
+    const approved = await factory.approve(row.id, { ...approval, operationKey: "approve-blank" })
+    expect(approved).toMatchObject({ ok: false, state: "awaiting_approval" })
+    expect(approved.message).toMatch(/actor/i)
+    const denied = await factory.deny(row.id, "deny-blank")
+    expect(denied).toMatchObject({ ok: false, state: "awaiting_approval" })
+    expect(denied.message).toMatch(/actor/i)
+    const db = new DatabaseSync(join(dir, "registry.sqlite"))
+    try {
+      expect(
+        db.prepare("SELECT operation_key FROM commands WHERE operation_key LIKE '%-blank'").all(),
+      ).toEqual([])
+    } finally {
+      db.close()
+    }
+    expect(readdirSync(out())).toEqual([])
+  })
+
+  it("replays a finished approval's outcome under its key even when the actor is now blank", async () => {
+    const { reader, verifier } = await boot()
+    const row = await awaiting(reader)
+    const input = { revision: row.revision, bundleDigest: row.bundleDigest, operationKey: "kept" }
+    const outcome = await factory.approve(row.id, input)
+    expect(outcome).toMatchObject({ ok: true, state: "exported" })
+    await factory.close()
+    factory = await createFactory({
+      registryPath: join(dir, "registry.sqlite"),
+      generatedTasksDir: join(dir, "tasks"),
+      captureRoot: dir,
+      workers: fakeWorkerMap({
+        builder: {
+          client: createHttpWorkerClient(fake.baseUrl, { token: TEST_WORKER_TOKEN }),
+          reader,
+        },
+      }),
+      captureBuilderHandoff: fakeBuilderHandoff,
+      exportDir: out(),
+      artifactsDir: join(dir, "artifacts"),
+      verifier,
+      captureBaseline: captureRepairable,
+      approvalTtlMs: 60_000,
+      now: () => nowMs,
+      actor: "  ",
+    })
+    expect(await factory.approve(row.id, input)).toEqual(outcome)
+    // A key never spent is still refused for the blank actor.
+    expect(await factory.deny(row.id, "deny-after")).toMatchObject({
+      ok: false,
+      message: expect.stringMatching(/actor/i),
+    })
+  })
+
   it("refuses when the stored candidate bytes no longer hash to their digest", async () => {
     const { reader, verifier } = await boot()
     const row = await awaiting(reader)

@@ -7,6 +7,8 @@ import type { FactoryOptions } from "../src/lib/controller/factory.ts"
 import { DeliveryError } from "../src/lib/delivery/adapter.ts"
 import { DeliveryUnavailableError } from "../src/lib/domain/errors.ts"
 import type { CommandOutcome, WorkOrderRow } from "../src/lib/domain/work-order.ts"
+import { openRegistry } from "../src/lib/registry/db.ts"
+import { createWorkOrderStore } from "../src/lib/registry/work-orders.ts"
 import { BundlePayloadSchema } from "../src/lib/review/bundle.ts"
 import type { WorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeGitHub, type FakeGitHub } from "./fake-delivery-adapter.ts"
@@ -716,6 +718,70 @@ describe("the approval's start path", () => {
     expect(fake.pulls).toEqual([])
   })
 
+  it("cancels an approved export without asking the builder", async () => {
+    harness = await issueHarness()
+    const row = await harness.toBundle()
+    const asked: string[] = []
+    await harness.factory.close()
+    await harness.boot({ workers: goneBuilder(asked) })
+    // An export the controller stopped mid-write: approved, and `exporting` (no turn to cancel).
+    recordApproval(row, row.bundleDigest)
+    writeRegistry("UPDATE work_orders SET state = 'exporting' WHERE id = ?", row.id)
+    expect(await harness.factory.cancel(row.id)).toMatchObject({ ok: true, state: "cancelled" })
+    expect(asked).toEqual([])
+    const types = harness.factory.events(row.id).map((e) => e.type)
+    expect(types).not.toContain("thread_status_unknown")
+    expect(types).not.toContain("worker_cancel_failed")
+  })
+
+  it("cancels a delivery blocked after approval without asking the builder", async () => {
+    const fake = github()
+    harness = await issueHarness({ delivery: delivery(fake) })
+    const row = await harness.toBundle({ deliver: DRAFT_PR })
+    const asked: string[] = []
+    await harness.factory.close()
+    await harness.boot({ delivery: delivery(fake), workers: goneBuilder(asked) })
+    fake.fail("compare", new DeliveryError("unauthorized", "HTTP 401", undefined, 401))
+    expect(await approve(row)).toMatchObject({ state: "blocked" })
+    asked.length = 0
+    expect(await harness.factory.cancel(row.id)).toMatchObject({ ok: true, state: "cancelled" })
+    expect(asked).toEqual([])
+    const types = harness.factory.events(row.id).map((e) => e.type)
+    expect(types).not.toContain("thread_status_unknown")
+    expect(types).not.toContain("worker_cancel_failed")
+  })
+
+  it("still asks a live builder when the only approval is for another bundle", async () => {
+    harness = await issueHarness()
+    const row = await harness.toBundle()
+    // The builder's turn is running again, past the intake approval and with an approval of a
+    // bundle the row no longer holds: the cancel must still reach it.
+    const asked: string[] = []
+    const answers: Record<string, unknown> = {
+      getThread: { threadId: row.workerThreadId, status: "busy" },
+      cancel: "interrupted",
+      pendingInterrupts: [],
+    }
+    const live = new Proxy({} as WorkerClient, {
+      get: (_target, name) => async () => {
+        asked.push(String(name))
+        return answers[String(name)] ?? null
+      },
+    })
+    await harness.factory.close()
+    await harness.boot({
+      cancelSettleMs: 50,
+      workers: fakeWorkerMap({ builder: { client: live, reader: harness.reader } }),
+    })
+    recordApproval(row, "f".repeat(64))
+    writeRegistry(
+      "UPDATE work_orders SET state = 'running', bundle_digest = NULL WHERE id = ?",
+      row.id,
+    )
+    expect(await harness.factory.cancel(row.id)).toMatchObject({ ok: true, state: "cancelled" })
+    expect(asked).toContain("cancel")
+  })
+
   it("leaves no outbox intent when a cancel lands during the re-verification", async () => {
     const fake = github()
     harness = await issueHarness({ delivery: delivery(fake) })
@@ -754,6 +820,36 @@ function writeRegistry(sql: string, ...params: string[]): void {
     db.prepare(sql).run(...params)
   } finally {
     db.close()
+  }
+}
+
+/** A builder that is gone: every call to it fails, and its name is recorded in `asked`. */
+function goneBuilder(asked: string[]) {
+  const gone = new Proxy({} as WorkerClient, {
+    get: (_target, name) => async () => {
+      asked.push(String(name))
+      throw new Error("the builder is not running")
+    },
+  })
+  return fakeWorkerMap({ builder: { client: gone, reader: (harness as IssueHarness).reader } })
+}
+
+/** An approval of `bundleDigest` recorded for `row`, as `approve` records one. */
+function recordApproval(row: WorkOrderRow, bundleDigest: string): void {
+  const registry = openRegistry(join((harness as IssueHarness).dir, "registry.sqlite"))
+  try {
+    createWorkOrderStore(registry.db).recordApproval({
+      id: `ap-${bundleDigest.slice(0, 8)}-${row.id}`,
+      workOrderId: row.id,
+      bundleDigest,
+      candidateDigest: row.candidateDigest as string,
+      decision: "approved",
+      decidedBy: "operator",
+      decidedAt: new Date().toISOString(),
+      expiresAt: new Date().toISOString(),
+    })
+  } finally {
+    registry.close()
   }
 }
 

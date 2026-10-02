@@ -235,8 +235,9 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): DeliveryAdap
           try {
             answer = await read(`${repo}/issues/${number}`)
           } catch (error) {
-            // Transferred (301, whose target is never asked) or deleted (410): the issue the
-            // work order names is not an open issue of this repository any more.
+            // Transferred (301, whose target is never asked), or deleted or issues disabled
+            // (410): the issue the work order names is not an open issue of this repository
+            // any more.
             if (error instanceof DeliveryError && (error.status === 301 || error.status === 410))
               return "gone"
             throw error

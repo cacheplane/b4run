@@ -232,12 +232,12 @@ export async function runDelivery(
           "delivery_issue_closed",
           `issue #${intent.issue.number} was open when the work order was created and is closed now`,
         )
-      // Transferred or deleted: as for a closed issue, nothing on this repository is left for
+      // Transferred, deleted, or issues disabled: as for a closed issue, nothing on this repository is left for
       // the pull request to refer to, and waiting does not bring it back.
       if (state === "gone")
         throw new Stop(
           "delivery_issue_closed",
-          `issue #${intent.issue.number} was open when the work order was created and is no longer an issue of ${intent.repository} (transferred or deleted)`,
+          `issue #${intent.issue.number} was open when the work order was created and is no longer an issue of ${intent.repository} (transferred, deleted, or issues are disabled on the repository)`,
         )
     }
     const baseTip = await session.branchHead(intent.baseBranch)

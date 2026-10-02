@@ -413,7 +413,9 @@ describe("the GitHub adapter against GitHub's shapes", () => {
         state: "blocked",
         blockedReason: "delivery_issue_closed",
       })
-      expect(h.journal()).toContain("transferred or deleted")
+      expect(h.journal()).toContain(
+        "transferred, deleted, or issues are disabled on the repository",
+      )
       expect(server.requests.some((r) => r.path.includes("/repositories/99/"))).toBe(false)
       expect(server.repo.writes()).toEqual([])
       await reset()

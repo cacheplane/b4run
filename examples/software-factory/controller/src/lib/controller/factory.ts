@@ -332,11 +332,11 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
    * Who an approval or a denial is recorded as decided by, checked against the approval's own
    * schema. Approve and deny read it before they begin their operation key: an actor the
    * approval write would reject (`""`) otherwise throws inside the transaction and leaves the
-   * key in flight.
+   * key in flight. A whitespace-only actor names nobody either, and is refused the same way.
    */
   const decidedByOf = (): { ok: true; actor: string } | { ok: false; message: string } => {
     const actor = options.actor ?? "operator"
-    return ApprovalSchema.shape.decidedBy.safeParse(actor).success
+    return actor.trim() !== "" && ApprovalSchema.shape.decidedBy.safeParse(actor).success
       ? { ok: true, actor }
       : { ok: false, message: "The factory's actor is empty: an approval names who decided it" }
   }
@@ -777,11 +777,19 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       }
       if (client !== undefined) await abandonThread(id, client, uncommittedIntake)
     }
-    // An approved bundle means the builder's turn ended before the verification it was frozen
-    // from: a delivery (or an export) has no turn to cancel and no prompt to deny, and asking
-    // the builder about the row's old thread would hold the cancel on a builder that may be
-    // stopped (D24).
-    const pastTheBuilder = store.approvals(id).some((approval) => approval.decision === "approved")
+    // An approval of the bundle the row holds means the builder's turn ended before the
+    // verification it was frozen from: a delivery (or an export) has no turn to cancel and no
+    // prompt to deny, and asking the builder about the row's old thread would hold the cancel
+    // on a builder that may be stopped (D24). Only that bundle's approval counts: one of a
+    // bundle the row no longer holds says nothing about the turn running now.
+    const pastTheBuilder =
+      row.bundleDigest !== null &&
+      store
+        .approvals(id)
+        .some(
+          (approval) =>
+            approval.decision === "approved" && approval.bundleDigest === row.bundleDigest,
+        )
     if (row.workerThreadId && !pastTheBuilder) {
       const threadId = row.workerThreadId
       // Which worker holds the thread is the row's to say. A row whose worker is no longer
@@ -1751,18 +1759,22 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
 
     async approve(id, { revision, bundleDigest, operationKey }) {
       const row = mustGet(id)
-      const decider = decidedByOf()
-      if (!decider.ok) return { ok: false, state: row.state, message: decider.message }
       // The default key carries the bundle digest as well as the revision: two approvals of
       // the same revision naming different bundles are different intents, and one key cannot
       // hold both.
       const key = operationKey ?? `approve:${id}:${revision}:${bundleDigest}`
-      const begun = commands.begin(
-        key,
-        id,
-        { command: "approve", args: { revision, bundleDigest } },
-        iso(),
-      )
+      const command = { command: "approve" as const, args: { revision, bundleDigest } }
+      const decider = decidedByOf()
+      // A finished key still answers with its outcome; only a new one is refused, unbegun.
+      if (!decider.ok)
+        return (
+          commands.outcome(key, id, command) ?? {
+            ok: false,
+            state: row.state,
+            message: decider.message,
+          }
+        )
+      const begun = commands.begin(key, id, command, iso())
       if (begun.status === "done") return begun.outcome
       if (begun.status === "in_flight") throw new CommandInFlightError(key)
       // Journalled as the command starts and as it is refused: the re-verification below holds
@@ -2169,10 +2181,18 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
 
     async deny(id, operationKey) {
       const row = mustGet(id)
-      const decider = decidedByOf()
-      if (!decider.ok) return { ok: false, state: row.state, message: decider.message }
       const key = operationKey ?? `deny:${id}:${row.revision}`
-      const begun = commands.begin(key, id, { command: "deny", args: {} }, iso())
+      const intent = { command: "deny" as const, args: {} }
+      const decider = decidedByOf()
+      if (!decider.ok)
+        return (
+          commands.outcome(key, id, intent) ?? {
+            ok: false,
+            state: row.state,
+            message: decider.message,
+          }
+        )
+      const begun = commands.begin(key, id, intent, iso())
       if (begun.status === "done") return begun.outcome
       if (begun.status === "in_flight") throw new CommandInFlightError(key)
       const refuse = (message: string) =>

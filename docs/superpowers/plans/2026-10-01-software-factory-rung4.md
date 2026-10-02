@@ -10332,17 +10332,17 @@ Brian approves at both gates as before. Expected: `blocked` with `delivery_base_
   - The **commit date** is sent as a millisecond ISO string; GitHub's echo may differ in precision, which matters only if a read-back ever compares it.
   - The fake GitHub will need **GitHub's extra top-level keys** once the first scratch run records the contract: the replay requires the fake to answer at least the recorded keys.
   - The `privateKeyEnv` **run copy cannot be removed early** (once the controller is ready): `openFactory`'s retry re-reads the key file, so the copy lives until `up` stops.
-  - Whether `GET /repos/{owner}/{repo}` answers `squash_merge_commit_message` and `merge_commit_message` to the app's installation token is for the scratch lane to confirm: preflight refuses only `PR_BODY`, and reads a missing field as not saying.
+  - Whether `GET /repos/{owner}/{repo}` answers `squash_merge_commit_message` and `merge_commit_message` to the app's installation token is for the scratch lane to confirm (it asserts both are strings): preflight refuses `PR_BODY` and a missing field alike, so a hidden setting blocks every approval until it is shown.
 
 **Done in the follow-up PR** (`blove/factory-rung4-followups`, stacked on PR 4):
 
-- **Cancel a delivery without the builder** (D24): `finishCancel` skips the builder for a row with an approved bundle, so cancelling a delivery settles `cancelled` with the builder stopped.
-- **An empty actor**: `approve` and `deny` check the factory's actor against the approval's `decidedBy` schema before they begin their operation key, so `""` is a refusal and no key is left in flight. (The route's `ApproveInput` still carries no actor.)
-- **The CLI's `redeliver`** refuses a reason outside `REDELIVERABLE_BLOCKED_REASONS` before it shows the delivery or asks for the digest's prefix, naming `cancel` and `run … --new`.
-- **A truncated tree listing** blocks as `delivery_baseline_mismatch` (not redeliverable), the block a listing that does not hash to its tree already gets: the pin cannot be compared with the baseline. No new reason.
+- **Cancel a delivery without the builder** (D24): `finishCancel` skips the builder for a row whose current bundle (`row.bundleDigest`) has an `approved` approval, so cancelling a delivery, an `exporting` row or a block after approval settles `cancelled` with the builder stopped; an approval of another bundle does not count, so a running turn is still cancelled on the builder.
+- **An empty actor**: `approve` and `deny` check the factory's actor against the approval's `decidedBy` schema before they begin their operation key, so `""` (or a whitespace-only actor) is a refusal and no key is left in flight; a key that already finished still replays its stored outcome (read-only, nothing begun). (The route's `ApproveInput` still carries no actor.)
+- **The CLI's `redeliver`** refuses a reason outside `REDELIVERABLE_BLOCKED_REASONS` before it shows the delivery or asks for the digest's prefix, naming `cancel` and `run … --new`. For a draft-PR work order that command (here and in `run`'s stops) is `run --issue <n> --repo <r> --deliver draft-pr --new` with no `--pin`: create defaults to local, and the old pin is what a base conflict or baseline mismatch was about.
+- **A truncated tree listing** blocks as `delivery_baseline_mismatch` (not redeliverable), the block a listing that does not hash to its tree already gets: the pin cannot be compared with the baseline. No new block reason; the adapter throws a new `DeliveryError` kind, `incomplete`, which the worker maps to that block.
 - **A hard link to the key file**: `deliveryKeyProblems` and `loadAppPrivateKey` refuse `nlink > 1`.
-- **A transferred (301) or deleted (410) issue**: the adapter answers `gone` (the 301 never followed) and the worker blocks `delivery_issue_closed`.
-- **Preflight refuses a repository whose squash or merge commit message is `PR_BODY`**: the session carries both settings from the repository read at open; the allow-list is unchanged.
+- **A transferred (301) or deleted (410) issue**: the adapter answers `gone` (the 301 never followed) and the worker blocks `delivery_issue_closed`; a 410 also means issues are disabled on the repository, and the message says so.
+- **Preflight refuses a repository whose squash or merge commit message is `PR_BODY`**, or whose repository read does not show the app either setting (fail closed): the session carries both settings from the repository read at open; the allow-list is unchanged.
 
 ## Self-review
 

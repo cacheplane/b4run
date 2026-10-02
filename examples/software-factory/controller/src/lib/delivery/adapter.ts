@@ -98,7 +98,7 @@ export interface DeliverySession {
   branchRules(branch: string): Promise<readonly string[]>
   /**
    * `gone` when the issue is no longer this repository's: transferred (GitHub answers 301; the
-   * move is never followed) or deleted (410).
+   * move is never followed), or deleted or issues disabled on the repository (both 410).
    */
   issueState(number: number): Promise<"open" | "closed" | "gone">
   /** The commit `refs/heads/<branch>` points at, or null when it does not exist. */
