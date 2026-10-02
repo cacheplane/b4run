@@ -430,6 +430,91 @@ One known limitation: after a controller that was `SIGKILL`ed, a work order's th
 `busy` with nothing running it, and `run` then follows it until its bound; `factory events
 <id>` shows whether anything is moving.
 
+## Delivering as a draft pull request (rung 4)
+
+**Not usable end to end yet.** This build has the whole delivery behind an interface and tests
+it against an in-memory GitHub with fault injection; it makes no GitHub call. The real adapter
+(the GitHub App's JWT, the downscoped installation token, the allow-listed requests),
+`factory.config.ts`'s `delivery` block and `up`'s credential wiring arrive in the next PR.
+Until then the controller has no delivery configured, and `--deliver draft-pr` is refused with
+`delivery_unavailable` before anything is created. What follows is how it behaves once one is.
+
+`pnpm factory create --issue <n> --deliver draft-pr` (or `pnpm factory run --issue <n>
+--deliver draft-pr`) makes approving the bundle publish the change as a draft pull request
+instead of exporting it. Only issue work orders take it (a catalog task reproduces a defect
+already fixed on `main`), and only for the repository the controller is configured to deliver
+to. The default, `--deliver local`, is the export, unchanged. `create` also records whether the
+issue was open (`gh issue view --json …,state`).
+
+The choice is fixed at create and frozen into the bundle: the operation, the repository, the
+base branch, the branch and the pin are covered by the bundle digest the person types at the
+export gate, so nothing about where the change goes can move after approval. The review names
+it above everything else ("Approving publishes exactly this change as a draft pull request on
+…"). Approving publishes exactly that change, once: branch `factory/<id>`, one commit whose
+parent is the pin, a pull request opened as a draft against `main` (the configured base), its
+body saying `Refs #<n>` and quoting the approved spec with every issue reference broken, so
+merging it never closes the issue. `approve` (and the review that sends it) answers `ok: true`
+only when the work order is `delivered`, which the factory says only after reading the pull
+request back and finding the bundle's tree.
+
+Two states are new: **`delivering`** (the worker is publishing; not active time, so it spends
+no budget; a controller stopped mid-delivery leaves it `delivering` and the next reconcile
+resumes it) and **`delivered`** (terminal; `show`, `list` and `run` print the pull request's
+URL). A delivery that cannot finish blocks with one of seven reasons; the approval stays
+recorded either way:
+
+| Block | What happened | What to do |
+|---|---|---|
+| `delivery_base_conflict` | `main` changed a path the change touches (or a file the branch's own Vercel build runs) since the pin, the pin is no longer an ancestor of `main`, or the comparison could not be read in full | Cancel the work order, then `run --issue <n> --new`: a new work order at a fresh pin |
+| `delivery_baseline_mismatch` | A changed file's blob at the pin is not the baseline the candidate was diffed against | Cancel the work order, then `run --issue <n> --new` |
+| `delivery_branch_conflict` | `factory/<id>` holds a commit that is not this change, or its pull request was closed, has another base, or is not the factory's | Cancel the work order, then `run --issue <n> --new` (the factory never updates or reopens) |
+| `delivery_issue_closed` | The issue was open at create and is closed now | If the work is still wanted, cancel the work order, then `run --issue <n> --new` |
+| `delivery_unauthorized` | A token could not be minted, the app is missing or under-permissioned, a 401 or a non-rate-limit 403 | Fix the app, then `pnpm factory redeliver <id>` |
+| `delivery_rate_limited` | Rate limited past the worker's bound | `pnpm factory redeliver <id>` later |
+| `delivery_unconfirmed` | `5xx` or network failures past the bound, or a read-back that disagrees with the bundle in a way none of the above explains | `pnpm factory events <id>`, then `pnpm factory redeliver <id>` |
+
+`pnpm factory redeliver <id>` resumes the approved delivery for those three reasons only,
+within 24 hours of the approval and at the revision and bundle digest it shows: it prints what
+the resumed delivery will publish and asks for the bundle digest's first eight hex digits at a
+terminal (or takes `--digest <sha256>` in full). It approves nothing new. Every other block
+needs a new work order, and `redeliver` refuses it saying so ("waiting does not heal it; cancel
+it and run the issue again with --new"): cancel the blocked one first, or the old blocked row
+leaves a later `run --issue <n>` ambiguous. `pnpm factory events <id>` has each step's journal
+and the remote ids that exist. `approve` and `review --approve` list the same next commands as
+`run` when the delivery blocks (`next` in their output), `pnpm factory redeliver <id>` among
+them only for these three reasons. A redeliver resumes from the step the worker stopped at and
+does not re-run the drift check (step a: the issue, `main`'s tip, the comparison and the pin's
+blobs), by design (spec §5.2): `main` moving after the check is what the pull request's own CI
+is for.
+
+`pnpm factory cancel <id>` during a delivery stops the worker before its next write and ends
+the work order `cancelled`; it removes nothing. A branch or pull request already created stays
+on GitHub (the journal names them), and deleting the branch or closing the pull request is a
+person's job. Confirm, the last step, only reads, so a cancel that lands while it runs still
+records the receipt: a `cancelled` work order may show a `pullRequest`, and the receipt is the
+truth about what was published.
+
+**`run` never approves or redelivers.** It stops at the bundle as it does for an export (the
+same review, now naming the delivery) and, at a block, prints the next commands
+(`redeliver` among them only when the reason allows) and exits 1. Its source pin test forbids
+every way to a redelivery, as it forbids every way to an approval. `run --issue <n>` without
+`--deliver` resumes the issue's work order whichever way it was created; with a `--deliver`
+that differs it refuses rather than switch it. A newest `delivered` work order is the answer,
+as an `exported` one is (exit 0).
+
+**The factory never merges, marks the pull request ready, closes it or pushes to it again.**
+The draft is the publication of an approval already given, not a second approval, and nothing
+done on it feeds back into the work order. CI on it tests the merge with today's `main`, which
+is not the verifier's question; a red CI is information for the person. What the person does
+with it:
+
+- **A change to a publishable package** (anything under `packages/`): adopt it. Check the
+  factory's commit out onto your own branch, add a changeset, open your own pull request (so
+  `vercel-native` and `claude-review`, which skip `factory/*` branches and the factory's bot,
+  run there), and close the factory's pull request with a link to yours. A candidate cannot add
+  a changeset, and AGENTS.md requires `vercel-native` green for a release-bearing change.
+- **A change only to examples, docs or scripts:** review it and merge it as is.
+
 ## Run it by hand
 
 The steps below are what `pnpm factory up` (the Quickstart) does for steps 1 to 3. The state

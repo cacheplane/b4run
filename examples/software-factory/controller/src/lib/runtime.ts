@@ -38,6 +38,7 @@ export type ControllerRuntimeOverrides = Partial<
     | "captureDrafterHandoff"
     | "captureBuilderHandoff"
     | "allowBudgetBelowVerifierDeadline"
+    | "delivery"
   >
 > & {
   readonly readers?: {

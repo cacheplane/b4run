@@ -1,9 +1,11 @@
 import { existsSync } from "node:fs"
 import { DatabaseSync } from "node:sqlite"
+import { createOutboxStore, type OutboxRow } from "../delivery/outbox.js"
 import { UnknownWorkOrderError } from "../domain/errors.js"
 import type {
   Bundle,
   Candidate,
+  Delivery,
   FactoryEvent,
   Receipt,
   WorkOrderRow,
@@ -24,6 +26,10 @@ export interface RegistryReader {
     /** The receipt of the oracle proof the approved draft was parked on; null without intake. */
     oracleReceipt: Receipt | null
   }
+  /** The recorded delivery: the export's path, or the pull request read back (rung 4). */
+  delivery(id: string): Delivery | null
+  /** The draft-PR outbox row: the approved intent and how far the worker got. */
+  outbox(id: string): OutboxRow | null
   /** Exposed for tests that prove the connection cannot write. */
   readonly db: DatabaseSync
   close(): void
@@ -65,6 +71,7 @@ export function openRegistryReader(path: string): RegistryReader {
   }
   const store = createWorkOrderStore(db)
   const evidence = createEvidenceStore(db)
+  const outbox = createOutboxStore(db)
   let closed = false
   const mustGet = (id: string): WorkOrderRow => {
     const row = store.get(id)
@@ -76,6 +83,8 @@ export function openRegistryReader(path: string): RegistryReader {
     show: (id) => store.get(id),
     list: () => store.list(),
     events: (id) => store.events(id),
+    delivery: (id) => store.delivery(id),
+    outbox: (id) => outbox.get(id),
     evidence(id) {
       const row = mustGet(id)
       const candidate = row.candidateDigest ? evidence.candidate(row.candidateDigest) : null

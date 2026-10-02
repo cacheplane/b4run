@@ -42,7 +42,12 @@ export function failureText(error: unknown): string {
   return detail ? detail.slice(2) : error.message
 }
 
-const GhIssueSchema = z.object({ title: z.string(), body: z.string(), url: z.string() })
+const GhIssueSchema = z.object({
+  title: z.string(),
+  body: z.string(),
+  url: z.string(),
+  state: z.enum(["OPEN", "CLOSED"]).optional(),
+})
 
 export interface FetchedIssue {
   readonly title: string
@@ -50,6 +55,8 @@ export interface FetchedIssue {
   readonly url: string
   /** sha256 of `title\nbody`: what `origin.bodyDigest` records, so an edited issue is detectable. */
   readonly bodyDigest: string
+  /** Read only when asked (`withState`): a draft-PR work order records it (rung 4 §3.2). */
+  readonly state?: "open" | "closed"
 }
 
 /** The digest `FetchedIssue.bodyDigest` carries. */
@@ -64,6 +71,8 @@ export async function fetchIssue(input: {
   /** The gh executable; the CLI passes `FACTORY_GH` so a test can stub it. */
   readonly gh?: string
   readonly exec?: Exec
+  /** Also read the issue's state, and refuse an answer without one. */
+  readonly withState?: boolean
 }): Promise<FetchedIssue> {
   const { repository, number } = input
   if (!REPOSITORY_PATTERN.test(repository))
@@ -81,7 +90,7 @@ export async function fetchIssue(input: {
       "--repo",
       repository,
       "--json",
-      "title,body,url",
+      input.withState === true ? "title,body,url,state" : "title,body,url",
     ]))
   } catch (error) {
     throw new Error(`gh issue view failed for ${ref}: ${failureText(error)}`)
@@ -97,8 +106,11 @@ export async function fetchIssue(input: {
     const issues = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`)
     throw new Error(`gh issue view output for ${ref} is not an issue: ${issues.join("; ")}`)
   }
-  const { title, body, url } = parsed.data
-  return { title, body, url, bodyDigest: issueBodyDigest({ title, body }) }
+  const { title, body, url, state } = parsed.data
+  const issue = { title, body, url, bodyDigest: issueBodyDigest({ title, body }) }
+  if (input.withState !== true) return issue
+  if (state === undefined) throw new Error(`gh issue view output for ${ref} has no state`)
+  return { ...issue, state: state === "OPEN" ? "open" : "closed" }
 }
 
 /**

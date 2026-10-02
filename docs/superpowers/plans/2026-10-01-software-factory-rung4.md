@@ -66,7 +66,7 @@
 
 **D22. Three rulesets, not two.** *Decided:* a ruleset targets branches or tags, not both, so spec §10.2's "factory app confined" is two rulesets ("factory app confined: branches", "factory app confined: tags") beside "factory branches are append-never" (Task 4). Blocks the operator setup.
 
-**D23. What `approve` answers for a draft-PR bundle.** *Decided:* `ok: true` only when the work order is `delivered`; a delivery that blocks returns `ok: false` with the reason, and the approval stays recorded (the approval happened; the publication did not). The CLI's `approve`, `review` and `run` exit 1 on it and print `pnpm factory events <id>` and, when the reason allows, `pnpm factory redeliver <id>`. Blocks PR 3.
+**D23. What `approve` answers for a draft-PR bundle.** *Decided:* `ok: true` only when the work order is `delivered`; a delivery that blocks returns `ok: false` with the reason, and the approval stays recorded (the approval happened; the publication did not). The CLI's `approve`, `review` and `run` exit 1 on it and print `pnpm factory events <id>` and, when the reason allows, `pnpm factory redeliver <id>` (approve's and review's outcome carries them as `next`, the list `run` prints, from one helper, `blockedNext`). Blocks PR 3.
 
 **D24. Cancel during a delivery.** *Decided:* accept today's `finishCancel` for a `delivering` row (it asks the builder about the row's old thread, exactly as it does for `exporting`); the worker checks the row before every write and journals `delivery_stopped` with the remote ids that exist. A cancel that waits on an unreachable builder stays `cancel_requested` until reconcile, as it does today. Follow-up recorded. Blocks PR 3.
 
@@ -3753,6 +3753,8 @@ git commit -m "feat(software-factory): the delivery-protected paths, the scrubbe
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+**As landed (Task 10, with the review fixes of 2026-10-01).** Beyond the code above: the changed-path lines are fenced too (`fenceFor`), and `scrub()` runs over the model-written title, the quoted spec (before the length cut) and the commit message. After review: `neutraliseReferences` also runs over the quoted spec and the changed-path lines (the fence stays; the digest remains the authority), so a renderer that reads a fence differently still finds no reference to close; the plan's test that required the raw `Fixes #1` inside the fence now requires `Fixes # 1`. The length cut subtracts both fences and the info string (a spec of 70,000 backticks rendered a 194k-character body before) and never splits a surrogate pair, and neither does the title's 200-character cut (`cutAt`). `oneLine` drops `\p{Cf}` (bidi controls, zero-width spaces and joiners) before it collapses whitespace, so `#\u200B12` cannot hide a reference from `neutraliseReferences`.
+
 ### Task 11: The delivery worker, against an in-memory GitHub with fault injection
 
 **Files:**
@@ -5220,6 +5222,18 @@ git commit -m "feat(software-factory): the delivery worker: read-before-write st
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
+
+**As landed (Task 11, with the review fixes of 2026-10-01).** A review ran probes and 27 mutations against Task 11 and found these; each is fixed test-first, and a mutation run of 40 mutants over `worker.ts`, `outbox.ts`, `pr-body.ts` and `git-objects.ts` kills all 40.
+
+- **Step (d) reads the branch again right before `createDraftPull`.** A head that is neither the recorded one nor a commit of exactly this change (`isOurs`) refuses `delivery_branch_conflict` and opens no pull request: a push between steps (c) and (d) was otherwise published under the factory's name and only caught at confirm.
+- **Confirm separates "not ours" from "not yet confirmed".** Another head ref, a head in another repository, or an author that is not both the session's bot and `guard.json`'s `botLogin` (`FACTORY_BOT_LOGIN`) is `delivery_branch_conflict`: redelivering cannot make it ours, and the factory never closes a pull request. A head that moved is judged by tree and parent as step (c) judges it: another commit of exactly this change is accepted (the receipt records it), any other head is `delivery_branch_conflict`; a commit GitHub does not have is not ours (a 404 in `isOurs` is false, not a refusal). A changed base, a recorded head that reads back off the approved tree, and closing references stay `delivery_unconfirmed` (redeliverable).
+- **Two runs of one delivery** (approve and a reconcile): a `StaleOutboxStepError` from `advance`, at any step or at confirm, is a stop (journal `delivery_stopped`, "another run of this delivery advanced the step first"), never a refusal; the run that advanced owns the delivery.
+- **The outbox row is read inside the worker's `try`**: a row that does not parse blocks `delivery_unconfirmed` instead of rejecting `runDelivery`, and `refuse` and the stop path read the row without throwing.
+- **The protected-path re-check runs before `adapter.open`**: no request at all for a change to a protected path.
+- **A commit read-back mismatch journals both values** (`expected` and `returned` tree and parents).
+- **The outbox:** `advance` moves only to the next step and refuses a `remote` that would overwrite an observation an earlier step recorded; `insert` derives the operation key with `deliveryOperationKey(intent.workOrderId, intent.bundleDigest)` and takes none. **Task 13's approve must drop its `operationKey:` argument to `outbox.insert`.**
+- **`readPinListings` verifies each listing hashes to the tree id it was read from** (`treeId(listing) === sha`); a listing that does not, or that git cannot encode, is a `delivery_baseline_mismatch` problem, never hashed into a guess. Task 18's adapter must still refuse a `truncated: true` tree answer itself (its `tree()` does), so the problem names the cause.
+- **Tests that bind the checks that survived mutation:** confirm's tree-and-parent read-back of the head; the closed-PR refusal and the base/head refusal at step (d); GitHub's tree id against the expected tree (no commit is written after a mismatch); the commit read-back (no branch is created after one); the draft assertion; the head-repository filter at step (d) (a fork's pull request on the same branch name is ignored) and at confirm; confirm's base check; the cancel checks before `createBlob`, `createBranch` and `createDraftPull` (a cancel landing while the step reads); and the pin's mode in `createTree` (an executable file keeps `100755`). The fake gained `botLogin`, `corruptTree`, `rewriteCommit`, `createReady`, executable paths in `seed`, and a fork-aware "pull request exists"; the harness exposes the registry's `db` and an `onArtifactRead` hook.
 
 ### Task 12: `create --deliver draft-pr` at the controller, the protected paths at intake, and the frozen delivery
 
@@ -6843,6 +6857,17 @@ git commit -m "feat(software-factory): redeliver a healable delivery block under
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+**As landed (Tasks 12-14, with the review fixes of 2026-10-01).** Task 12's `buildDeliveryIntent` checks each workspace path and each joined repository path with `relativePath` (the outbox schema requires canonical paths), and intake refuses a redraft whose target root differs from a draft-PR row's already-set `pathPrefix`. Task 13's approve calls `outbox.insert` without an operation key (Task 11's fix derives it). A review of the approval and delivery start path found these; each is fixed test-first in `test/factory-delivery.test.ts` ("the approval's start path"):
+
+- **The `approve_delivery` transition commits before `outbox.insert`.** Two approvals under different keys could both pass the checks during the re-verification; the second then threw the outbox's `UNIQUE` constraint, left its key in flight and answered the route with a 500. It is now refused as an illegal move ("Work order changed state while approving"), its key answered, one pull request.
+- **An approve interrupted by a close is answered by the delivery, not by the boot.** Boot reconcile's first loop no longer completes the `approve` or `redeliver` key that committed a row still `delivering` (`deliveryCommandKey`, read from the last `approve_delivery` or `redeliver` transition); when a delivery settles with the row out of `delivering` (or `startDelivery` blocks it `delivery_unauthorized`), `settleDeliveryCommand` answers that key with `deliveryOutcome`, the one D23 mapping `approve`, `redeliver` and this completion share. An approve or redeliver whose controller closed under it throws a clear error (the row stays `delivering`; a restart or `pnpm factory reconcile <id>` resumes it; replay the command) instead of failing on a closed registry, and the replay returns the resumed delivery's answer. Before, the replay returned "Reconciled after restart; work order is delivering" forever. Covering `redeliver` keys too goes beyond the review, which named `approve`: the same defect applied to them.
+- **The intent is validated inside `buildDeliveryIntent`** (`DeliveryIntentSchema.parse`), so an invalid field (an empty actor) is a refusal, not a `ZodError` from inside the transaction with the key in flight.
+- **Protected paths are checked against the approved bytes' paths** (`Object.keys(changes)`) as well as the candidate record's `changedPaths`.
+- **The intent's issue number is the frozen origin's**, not the row's (they are checked equal).
+- **The message for a delivery that stopped with the row `delivering`** says a restart or `pnpm factory reconcile <id>` resumes it.
+- **`track()` still replaces a live entry**, now documented: a tracked run reconciling itself (`fromTrackedRun`) hands off to its reattached observer that way, so a throw would break it.
+- **Tests added for gaps:** approve's protected-path refusal; a row delivery that no longer matches the frozen one; a spec edited after the freeze (D18); a cancel mid-delivery ends `cancelled` with no pull request (D24), the approve answering `ok: false` once its worker stops; a cancel during the re-verification leaves no outbox row.
+
 ### Task 15: The CLI: `--deliver`, the review's delivery block, `redeliver`, `show`, `list`, `run`
 
 **Files:**
@@ -7552,6 +7577,8 @@ git commit -m "feat(software-factory): factory create and run --deliver draft-pr
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+**As landed (Task 15, `da927e77f`).** As planned, plus: the run source pin (`test/run-steps.test.ts` `FORBIDDEN`) forbids more than `.redeliver`: a bare `redeliver(` call (the CLI's own command function), the `work-orders/redeliver` route path, and any of the gated methods named by a computed member access (`client()["redeliver"](…)`). `test/cli.test.ts` gained a test the plan did not have, "redelivers only on the bundle digest a person types or names in full, and never otherwise", which serves the CLI against a delivery harness's registry; for it `test/delivery-harness.ts` exports `harnessDir()` (the open harness's directory, used as `FACTORY_STATE_DIR`). The CLI's `redeliver` shows its prompt for any `blocked` row that has an outbox row and a bundle digest, whatever the reason; the controller refuses a reason that is not healable (see the follow-ups).
+
 ### Task 16: Docs for PR 3, and the whole gate
 
 **Files:**
@@ -7580,6 +7607,8 @@ git commit -m "docs(software-factory): draft-PR delivery, and the rung 4 spec's 
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
+
+**As landed (Task 16).** The README section and the spec's §13 note as the steps say. The README section opens by saying delivery is not yet usable end to end (PR 3 runs only against the fake GitHub; the real adapter, token minting and `up`'s wiring arrive in PR 4; `--deliver draft-pr` is refused with `delivery_unavailable` until then), and documents, beyond Step 1's list, `run`'s refusal of a `--deliver` that differs from the work order's and `show`/`list`/`run` printing the pull request's URL. The spec note also says what PR 3 landed and that it is not yet usable end to end. This plan gained the as-landed notes for Tasks 15 and 16 and two follow-ups (an empty approval actor; the CLI's `redeliver` prompting for a non-healable block). The gate was run wider than Step 3: the controller's `lint` (254 files, clean), `typecheck` (clean) and `test` (1,288 passed, 1 failed: `test/runtime.test.ts` "dispatches to the one builder on its route, and refuses the retired variables", Trap 10, the Docker daemon not running on the host), the root `pnpm lint` (31 tasks), `node scripts/check-docs.mjs` (passed), `pnpm test:release-integrity` (33 passed) and `node --test scripts/release/test/workflow-contracts.test.mjs` (188 passed). The commit also carries this plan; PR 3 was not opened by it.
 
 ---
 
@@ -10285,6 +10314,10 @@ Brian approves at both gates as before. Expected: `blocked` with `delivery_base_
 - **A delivery view in `factory events`** (each step's observed ids in one line) once the live run shows what operators read.
 - **The `repositoryId: taskId` misnomer** (spec §16) stays: removing it moves every export-local digest.
 - **The controller's remaining synchronous calls** (the up/run plan's follow-up) now include `readGeneratedTask` at approve; small, but on the request path.
+- **Preflight could refuse a repository whose squash or merge commit message is `PR_BODY`** (the review of Task 10): GitHub then copies the description, quoted spec included, into the commit on `main`. The fence and `neutraliseReferences` already keep any reference in the quoted spec from closing an issue; the refusal would keep the model-written text out of `main`'s history as well. Not implemented.
+- **An export-local approve with an empty actor throws inside the transaction** (found while reviewing PR 3; pre-existing on `main`). `factory.approve` takes `actor` unvalidated and sets `decidedBy = options.actor ?? "operator"`, so `""` passes through and `recordApproval`'s `ApprovalSchema` (`decidedBy: min(1)`) throws a `ZodError` inside the approval transaction, leaving the operation key in flight. Today only a direct caller of `factory.approve` can pass one: the route's strict `ApproveInput` has no `actor` field, so the route never forwards it. The draft-PR path no longer reaches it (Task 13's fix validates the intent in `buildDeliveryIntent` before the transaction). Fix: validate `actor` with `min(1)` where it enters (`approve`'s options, and the route input once it carries an actor), so an empty actor is a refusal before any key is spent.
+- **The CLI's `redeliver` prompts for any delivery block** (Task 15): it shows the resumed delivery and asks for the digest's prefix for any `blocked` row with an outbox row, and only the controller refuses a reason outside `REDELIVERABLE_BLOCKED_REASONS`. Nothing is redelivered wrongly, but a person types a prefix for a refusal; the CLI should refuse a non-healable reason (naming `run --issue <n> --new`) before it asks, as `run-steps` already does when it chooses whether to print `redeliver`.
+- **The adapter must refuse a `truncated: true` tree listing** (Task 18's `tree()` does; keep it): `readPinListings` now also refuses a listing that does not hash to its tree id, which a truncated listing never does, but the adapter's refusal names the cause.
 
 ## Self-review
 
