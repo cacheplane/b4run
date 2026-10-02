@@ -8,7 +8,9 @@ import { DeliveryError } from "../src/lib/delivery/adapter.ts"
 import { DeliveryUnavailableError } from "../src/lib/domain/errors.ts"
 import type { CommandOutcome, WorkOrderRow } from "../src/lib/domain/work-order.ts"
 import { BundlePayloadSchema } from "../src/lib/review/bundle.ts"
+import type { WorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeGitHub, type FakeGitHub } from "./fake-delivery-adapter.ts"
+import { fakeWorkerMap } from "./fake-worker-map.ts"
 import { GOOD_DRAFT } from "./intake-fixtures.ts"
 import {
   BASELINE_TEXT,
@@ -670,6 +672,48 @@ describe("the approval's start path", () => {
     expect(fake.writes()).not.toContain("createDraftPull")
     // The approval's key is answered once, and a replay returns that answer.
     expect(await approve(row)).toEqual(answered)
+  })
+
+  it("cancels a delivery without asking the builder about the row's old thread (D24)", async () => {
+    const fake = github()
+    let release: () => void = () => {}
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const deliveryOptions = {
+      ...delivery(fake),
+      sleep: (_ms: number, signal: AbortSignal) => Promise.race([held, aborted(signal)]),
+    }
+    harness = await issueHarness({ delivery: deliveryOptions })
+    const row = await harness.toBundle({ deliver: DRAFT_PR })
+    expect(row.workerThreadId).not.toBeNull()
+    // The builder is gone: every call to it fails, and is counted.
+    const asked: string[] = []
+    const gone = new Proxy({} as WorkerClient, {
+      get: (_target, name) => async () => {
+        asked.push(String(name))
+        throw new Error("the builder is not running")
+      },
+    })
+    await harness.factory.close()
+    await harness.boot({
+      delivery: deliveryOptions,
+      workers: fakeWorkerMap({ builder: { client: gone, reader: harness.reader } }),
+    })
+    fake.fail("createBranch", new DeliveryError("transient", "HTTP 502", undefined, 502))
+    const approving = approve(row)
+    await waitForEvent(row.id, "delivery_retry")
+    asked.length = 0
+    const cancelling = harness.factory.cancel(row.id)
+    await harness.factory.waitFor(row.id, (r) => r.state !== "delivering")
+    release()
+    expect(await cancelling).toMatchObject({ ok: true, state: "cancelled" })
+    await approving
+    expect(asked).toEqual([])
+    const types = harness.factory.events(row.id).map((e) => e.type)
+    expect(types).not.toContain("thread_status_unknown")
+    expect(types).not.toContain("worker_cancel_failed")
+    expect(fake.pulls).toEqual([])
   })
 
   it("leaves no outbox intent when a cancel lands during the re-verification", async () => {

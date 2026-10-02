@@ -777,7 +777,12 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       }
       if (client !== undefined) await abandonThread(id, client, uncommittedIntake)
     }
-    if (row.workerThreadId) {
+    // An approved bundle means the builder's turn ended before the verification it was frozen
+    // from: a delivery (or an export) has no turn to cancel and no prompt to deny, and asking
+    // the builder about the row's old thread would hold the cancel on a builder that may be
+    // stopped (D24).
+    const pastTheBuilder = store.approvals(id).some((approval) => approval.decision === "approved")
+    if (row.workerThreadId && !pastTheBuilder) {
       const threadId = row.workerThreadId
       // Which worker holds the thread is the row's to say. A row whose worker is no longer
       // configured (the drafter removed, a target's entry dropped) has nowhere to send the
