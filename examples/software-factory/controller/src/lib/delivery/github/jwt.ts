@@ -1,5 +1,5 @@
 import { createPrivateKey, createSign, type KeyObject } from "node:crypto"
-import { closeSync, fstatSync, openSync, readFileSync } from "node:fs"
+import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs"
 
 /**
  * The GitHub App's own credential (rung 4 spec §6.1, §8): an RS256 JWT signed with the app's
@@ -30,7 +30,9 @@ export function loadAppPrivateKey(path: string): KeyObject {
     )
   let fd: number
   try {
-    fd = openSync(path, "r")
+    // Non-blocking: a FIFO at the path would otherwise hold the open until something writes,
+    // stopping the controller. The fstat below then refuses anything but a regular file.
+    fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK)
   } catch (error) {
     // The code only: a read error's message repeats the path, and nothing more is needed.
     throw new Error(

@@ -1,9 +1,11 @@
+import { spawnSync } from "node:child_process"
 import { generateKeyPairSync, verify } from "node:crypto"
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { afterEach, describe, expect, it } from "vitest"
 import { DeliveryError } from "../src/lib/delivery/adapter.ts"
 import {
@@ -213,6 +215,28 @@ describe("the app's credential", () => {
     expect(error).not.toContain("not a key")
     expect(() => loadAppPrivateKey(dir as string)).toThrow(/cannot be used/)
   })
+
+  // A FIFO at the key's path must not block the controller: the open would wait for a writer.
+  // The load runs in a child process so a regression times out instead of hanging the suite.
+  const mkfifo = process.platform === "win32" ? undefined : spawnSync("mkfifo", ["--version"])
+  it.skipIf(mkfifo === undefined || (mkfifo.error as NodeJS.ErrnoException)?.code === "ENOENT")(
+    "refuses a FIFO at the key's path promptly, never waiting for a writer",
+    () => {
+      dir = mkdtempSync(join(tmpdir(), "app-key-"))
+      const path = join(dir, "app.pem")
+      expect(spawnSync("mkfifo", ["-m", "600", path]).status).toBe(0)
+      const jwt = fileURLToPath(new URL("../src/lib/delivery/github/jwt.ts", import.meta.url))
+      const script = `import { loadAppPrivateKey } from ${JSON.stringify(jwt)}
+try { loadAppPrivateKey(${JSON.stringify(path)}); console.log("loaded") } catch (e) { console.log(String(e)) }`
+      const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+        encoding: "utf8",
+        timeout: 10_000,
+      })
+      expect(child.signal).toBe(null)
+      expect(child.stdout).toContain("not a regular file")
+    },
+    20_000,
+  )
 })
 
 describe("a POST body is checked exactly, in the form it is sent", () => {

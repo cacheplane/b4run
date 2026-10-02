@@ -10333,7 +10333,7 @@ Brian approves at both gates as before. Expected: `blocked` with `delivery_base_
 - **PR 4's review follow-ups, not fixed:**
   - A **hard link** to the key file inside the state directory or an app root is not refused: `deliveryKeyProblems` compares the path (lexically and by the identity of its ancestors), not the file's link count, so a second name for the same inode elsewhere passes. Refusing `nlink > 1` would close it.
   - A **transferred (301) or deleted (410) issue** maps to `unexpected` (so `delivery_unconfirmed`) rather than a named reason; the request never follows the 301.
-  - The **ruleset read** (`branchRules`) takes the first page only, and its answer is not used yet by preflight.
+  - The **ruleset read** (`branchRules`) takes the first page only; preflight uses the rule types it reads (`update` on the base branch, `update` and `non_fast_forward` on the factory branch), so a rule listed past the first page would read as missing.
   - A **300-file compare** body is assumed to fit the 10 MiB response cap; a page of large patches could exceed it and read as unexpected rather than `delivery_base_conflict`.
   - The **commit date** is sent as a millisecond ISO string; GitHub's echo may differ in precision, which matters only if a read-back ever compares it.
   - A **truncated tree listing** blocks as `delivery_unconfirmed`, which `redeliver` accepts, though waiting cannot heal it; it should be a non-redeliverable reason.

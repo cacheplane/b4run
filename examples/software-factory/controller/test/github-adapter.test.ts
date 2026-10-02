@@ -403,11 +403,12 @@ describe("the GitHub adapter against GitHub's shapes", () => {
   })
 
   it("gives up on a request past its bound and retries the step", async () => {
-    const { h, server } = await delivery({ requestTimeoutMs: 200 })
-    server.answer("GET", /\/compare\//, { status: 200, delayMs: 1_000 })
+    // A bound far above a loopback round trip, so only the scripted delay ever reaches it.
+    const { h, server } = await delivery({ requestTimeoutMs: 1_000 })
+    server.answer("GET", /\/compare\//, { status: 200, delayMs: 5_000 })
     expect((await h.deliver()).state, h.journal()).toBe("delivered")
     expect(h.waits).toEqual([2_000])
-    expect(h.journal()).toContain("no answer within 200 ms")
+    expect(h.journal()).toContain("no answer within 1000 ms")
   })
 
   it("stays delivering when the controller closes mid-request, and resumes after", async () => {

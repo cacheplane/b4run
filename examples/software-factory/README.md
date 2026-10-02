@@ -493,7 +493,7 @@ and the old `FACTORY_GITHUB_TOKEN` are refused by name, by the controller and by
 
 | Process | Holds | Never holds |
 |---|---|---|
-| Controller | the app id, the key file's path, at most one installation token in memory per delivery | the OpenAI key, any provider key, `GH_TOKEN`/`GITHUB_TOKEN`, any `GITHUB_APP_` variable |
+| Controller | the app id, the key file's path, the key in memory, and every installation token it mints (one for the approval's preflight and one for the delivery, more on a refresh or a redelivery), each kept in memory for the life of the process so its logs can be scrubbed of it | the OpenAI key, any provider key, `GH_TOKEN`/`GITHUB_TOKEN`, any `GITHUB_APP_` variable |
 | Builder, drafter | the OpenAI key, the worker token | any `FACTORY_GITHUB_`/`FACTORY_DELIVERY_` variable, the key's variable, `GH_TOKEN`/`GITHUB_TOKEN`, any `GITHUB_APP_` variable |
 | `up` | the key, read once to check it (and, for `privateKeyEnv`, to write the copy) | it passes the controller a path; its own `git`, `ps` and `docker` get neither the key's variable nor any delivery or `GITHUB_APP_` variable |
 | CI on a factory PR | a read-only `GITHUB_TOKEN` | the Vercel secrets, the Anthropic key, a write token |
@@ -539,8 +539,8 @@ repository (Brian, the plan's Task 4); the scratch lane's first recorded run; an
 on `cacheplane/b4run` (the plan's PR 5). Known follow-ups, each in the plan: the first recorded
 contract will need the fake to answer GitHub's extra top-level keys; a hard link to the key
 inside the state directory is not refused; a transferred (301) or deleted (410) issue maps to
-an unexpected failure rather than a named reason; the ruleset read takes the first page only,
-and its answer is not used yet; a 300-file comparison is assumed to fit the 10 MiB body cap; a
+an unexpected failure rather than a named reason; the ruleset read takes the first page only
+(preflight checks the rule types it finds there); a 300-file comparison is assumed to fit the 10 MiB body cap; a
 truncated tree listing blocks as a redeliverable `delivery_unconfirmed`; and `issues: read`
 may be dropped if the scratch lane shows reading a public issue does not need it (D5).
 
