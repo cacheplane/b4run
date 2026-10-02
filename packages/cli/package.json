@@ -82,6 +82,7 @@
     "tsx": "^4.23.5"
   },
   "devDependencies": {
+    "@ag-ui/proto": "1.0.1",
     "@b4run/config-typescript": "workspace:*",
     "@b4run/sandbox": "workspace:*",
     "@hono/node-server": "^2.1.0",

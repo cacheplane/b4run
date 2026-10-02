@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http"
 import type { RunAgentInput } from "@ag-ui/core"
 import { RunAgentInputSchema } from "@ag-ui/core/schemas"
 import { type B4AgentStreamChunk, fromRunAgentInput, toAguiEvents } from "@b4run/ag-ui"
-import { encodeAgUiSse } from "@b4run/ag-ui/sse"
+import { agUiContentType, encodeAgUiEvent } from "@b4run/ag-ui/sse"
 import type { B4Config, ClientToolDefinition, MemoryStoreLike } from "@b4run/core"
 import { CLIENT_TOOL_PREFIX, isClientToolCallEnvelope } from "@b4run/core"
 import type { PermissionsStore } from "@b4run/permissions"
@@ -1129,7 +1129,6 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     }
 
     const accept = request.headers.get("accept") ?? undefined
-    const encoder = new TextEncoder()
     const releaseClaimWhenSettled = releaseResumeClaim
     let sourceCleanup: Promise<void> | undefined
     // A parked turn takes the NORMAL completion path — the adapter yields the
@@ -1257,7 +1256,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                     : { type: "done", output: { error: "Server shutting down" } }
                 }
               }
-              safeEnqueue(controller, encoder.encode(encodeAgUiSse(event, accept)))
+              safeEnqueue(controller, encodeAgUiEvent(event, accept))
             }
           } finally {
             // Unconditional, same as handleApStreamRequest: attachers must see
@@ -1364,7 +1363,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       headers: {
         "cache-control": "no-cache",
         connection: "keep-alive",
-        "content-type": "text/event-stream",
+        "content-type": agUiContentType(accept),
       },
       status: 200,
     })
@@ -1670,19 +1669,28 @@ async function clientToolPartialResponse(
   async function* done(): AsyncGenerator<B4AgentStreamChunk> {
     yield { type: "done", data: null }
   }
-  let body = ""
+  const frames: Uint8Array[] = []
+  let length = 0
   for await (const event of toAguiEvents(
     done(),
     { threadId, runId },
     { pendingToolCallIds: () => pendingToolCallIds },
   )) {
-    body += encodeAgUiSse(event, accept ?? undefined)
+    const frame = encodeAgUiEvent(event, accept ?? undefined)
+    frames.push(frame)
+    length += frame.length
+  }
+  const body = new Uint8Array(length)
+  let offset = 0
+  for (const frame of frames) {
+    body.set(frame, offset)
+    offset += frame.length
   }
   return new Response(body, {
     headers: {
       "cache-control": "no-cache",
       connection: "keep-alive",
-      "content-type": "text/event-stream",
+      "content-type": agUiContentType(accept ?? undefined),
     },
     status: 200,
   })
