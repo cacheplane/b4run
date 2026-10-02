@@ -8,7 +8,13 @@ import {
   type RemotePull,
 } from "../adapter.js"
 import type { GitTreeEntry } from "../git-objects.js"
-import { type Auth, CLOSING_ISSUES_QUERY, githubRequest, type RequestOptions } from "./http.js"
+import {
+  type Auth,
+  CLOSING_ISSUES_QUERY,
+  DELIVERY_PERMISSIONS,
+  githubRequest,
+  type RequestOptions,
+} from "./http.js"
 import { appJwt } from "./jwt.js"
 
 /**
@@ -18,13 +24,8 @@ import { appJwt } from "./jwt.js"
  * nowhere else: not the registry, the journal, a log, a file, argv or a child's environment.
  */
 
-/** What delivery needs, and all a minted token may carry (spec §2 D2, §15 item 2). */
-export const DELIVERY_PERMISSIONS: Readonly<Record<string, "read" | "write">> = Object.freeze({
-  contents: "write",
-  pull_requests: "write",
-  metadata: "read",
-  issues: "read",
-})
+/** Defined beside the allow-list, which holds the mint to exactly these. */
+export { DELIVERY_PERMISSIONS }
 
 export interface GitHubAdapterOptions {
   /** The one repository this adapter delivers to (D27); `open` refuses any other. */

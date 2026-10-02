@@ -1,5 +1,5 @@
 import { createPrivateKey, createSign, type KeyObject } from "node:crypto"
-import { readFileSync, statSync } from "node:fs"
+import { closeSync, fstatSync, openSync, readFileSync } from "node:fs"
 
 /**
  * The GitHub App's own credential (rung 4 spec §6.1, §8): an RS256 JWT signed with the app's
@@ -7,25 +7,37 @@ import { readFileSync, statSync } from "node:fs"
  * with `node:crypto`; no dependency.
  */
 
-/** Read the app's private key: a regular file, private to its owner, never echoed. */
+/**
+ * Read the app's private key: a regular file, private to its owner, an RSA key, never echoed.
+ * The descriptor opened is the one checked and read, so the file cannot be swapped between.
+ */
 export function loadAppPrivateKey(path: string): KeyObject {
-  let mode: number
+  let fd: number
   try {
-    const stat = statSync(path)
-    if (!stat.isFile()) throw new Error("not a regular file")
-    mode = stat.mode
+    fd = openSync(path, "r")
   } catch (error) {
     throw new Error(`the GitHub App key ${path} cannot be used: ${(error as Error).message}`)
   }
-  if ((mode & 0o077) !== 0)
-    throw new Error(
-      `the GitHub App key ${path} is readable by group or other (mode ${(mode & 0o777).toString(8)}): chmod 600 it`,
-    )
   try {
-    return createPrivateKey(readFileSync(path))
-  } catch {
-    // Never the parser's message: it can quote the file.
-    throw new Error(`the GitHub App key ${path} is not a PEM private key`)
+    const stat = fstatSync(fd)
+    if (!stat.isFile())
+      throw new Error(`the GitHub App key ${path} cannot be used: not a regular file`)
+    if ((stat.mode & 0o077) !== 0)
+      throw new Error(
+        `the GitHub App key ${path} is readable by group or other (mode ${(stat.mode & 0o777).toString(8)}): chmod 600 it`,
+      )
+    let key: KeyObject
+    try {
+      key = createPrivateKey(readFileSync(fd))
+    } catch {
+      // Never the parser's message: it can quote the file.
+      throw new Error(`the GitHub App key ${path} is not a PEM private key`)
+    }
+    if (key.asymmetricKeyType !== "rsa")
+      throw new Error(`the GitHub App key ${path} is not an RSA private key; GitHub signs RS256`)
+    return key
+  } finally {
+    closeSync(fd)
   }
 }
 
@@ -33,6 +45,7 @@ const b64url = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("
 
 /** A JWT GitHub accepts: issued a minute in the past (clock skew), expiring nine minutes on. */
 export function appJwt(appId: number, key: KeyObject, nowMs: number): string {
+  if (key.asymmetricKeyType !== "rsa") throw new Error("the GitHub App key is not an RSA key")
   const now = Math.floor(nowMs / 1000)
   const unsigned = `${b64url({ alg: "RS256", typ: "JWT" })}.${b64url({ iat: now - 60, exp: now + 540, iss: appId })}`
   const signature = createSign("RSA-SHA256").update(unsigned).sign(key).toString("base64url")
