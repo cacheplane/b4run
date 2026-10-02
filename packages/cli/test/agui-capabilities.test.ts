@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { AgentCapabilitiesSchema } from "@ag-ui/core"
+import { AgentCapabilitiesSchema } from "@ag-ui/core/schemas"
 import { afterEach, describe, expect, it } from "vitest"
 import { createAimock } from "../../testing/dist/aimock-runner.js"
 import { handleAgUiCapabilitiesRequest } from "../src/lib/dev/agui-capabilities.ts"
@@ -124,6 +124,7 @@ describe("GET /agui/:routeId", () => {
       },
       output: { structuredOutput: true },
       tools: { clientProvided: true, parallelCalls: true, supported: true },
+      transport: { streaming: true },
     })
   })
 
@@ -157,6 +158,7 @@ describe("GET /agui/:routeId", () => {
       },
       output: { structuredOutput: false },
       tools: { clientProvided: false, supported: false },
+      transport: { streaming: true },
     })
   })
 
@@ -171,6 +173,7 @@ describe("GET /agui/:routeId", () => {
       humanInTheLoop: { approveWithEdits: false, interrupts: true, supported: true },
       output: { structuredOutput: false },
       tools: { clientProvided: false },
+      transport: { streaming: true },
     })
   })
 
@@ -252,7 +255,7 @@ describe("GET /agui/:routeId", () => {
     })
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({})
+    expect(await response.json()).toEqual({ transport: { streaming: true } })
   })
 
   it("is 404 for an unknown route", async () => {

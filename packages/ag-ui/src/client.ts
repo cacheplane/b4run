@@ -1,5 +1,6 @@
 import { HttpAgent } from "@ag-ui/client"
-import { type AgentCapabilities, AgentCapabilitiesSchema } from "@ag-ui/core"
+import type { AgentCapabilities } from "@ag-ui/core"
+import { AgentCapabilitiesSchema } from "@ag-ui/core/schemas"
 
 /**
  * How long `getCapabilities()` waits for B4.run. CopilotKit's runtime awaits
@@ -36,7 +37,11 @@ export class B4HttpAgent extends HttpAgent {
       await response.body?.cancel()
       throw new Error(`B4.run capabilities request failed: ${response.status} ${this.url}`)
     }
-    return AgentCapabilitiesSchema.parse(await response.json())
+    // The schema's inferred output spells optionals as `T | undefined`; the
+    // generated `AgentCapabilities` spells them as absent-or-present. Same
+    // wire shape — the parse validated it — so the assertion only reconciles
+    // the two spellings under exactOptionalPropertyTypes.
+    return AgentCapabilitiesSchema.parse(await response.json()) as AgentCapabilities
   }
 }
 

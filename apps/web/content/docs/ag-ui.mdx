@@ -323,8 +323,9 @@ The `422` refusals carry [`B4_E5401`](/docs/errors).
 | `humanInTheLoop.interrupts` | the route is an agent route, the only kind that can park |
 | `humanInTheLoop.approvals` | an `agent()` route under an `interactive` permissions mode, on a runtime that can answer the approval: `approvals.grants: "required"` with no grant store refuses every resume, so it reports `false`. It means the route *can* pause for approval; whether a turn does depends on its tools and the grants already recorded |
 | `humanInTheLoop.approveWithEdits` | always `false`: a resume answers `once`, `always` or `deny` |
+| `transport.streaming` | always `true`: the handler only answers SSE |
 
-A chain, graph or workflow route reports `false` for client tools, tool calls, structured output, interrupts and approvals. AG-UI treats an omitted field as unknown, so a claim B4.run cannot settle is left out rather than guessed. An agent route that exports a raw runnable omits approvals and parallel calls, because its own code decides them. A runtime that cannot load route modules at all (no node fallbacks and no static manifest) answers `{}` for an agent route. A route whose module fails to load is an error, as it is for a run.
+A chain, graph or workflow route reports `false` for client tools, tool calls, structured output, interrupts and approvals. AG-UI treats an omitted field as unknown, so a claim B4.run cannot settle is left out rather than guessed. An agent route that exports a raw runnable omits approvals and parallel calls, because its own code decides them. A runtime that cannot load route modules at all (no node fallbacks and no static manifest) answers only `transport` for an agent route. A route whose module fails to load is an error, as it is for a run.
 
 Route middleware runs first, as it does for a run, but sees `method: "GET"`, no body and no route params, so middleware that authorizes on the request body refuses it. An unknown route is `404`. The response is `Cache-Control: no-store`, because middleware decides per caller who may see it.
 

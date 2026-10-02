@@ -24,6 +24,8 @@
  *   accepts only once/always/deny and answers anything else with 400.
  * - `tools.parallelCalls` is `true` for an `agent()` route: the LangChain
  *   adapter pins `createAgent`'s v2 one-task-per-call execution.
+ * - `transport.streaming` is `true` for every route: the handler only ever
+ *   answers SSE, whatever the route can do.
  *
  * AG-UI reads an omitted field as UNKNOWN, not unsupported, so a claim this
  * runtime cannot settle — what an agent route exporting a raw runnable does on
@@ -54,6 +56,9 @@ import { resolveRunEnvelopePolicy } from "./run-envelope.js"
 import type { RuntimeRegistry } from "./runtime-registry-core.js"
 import { createRequestErrorBody } from "./server-errors.js"
 import { statusResponse } from "./status-response.js"
+
+/** The one transport this handler speaks, for every route. */
+const TRANSPORT: NonNullable<AgentCapabilities["transport"]> = { streaming: true }
 
 export interface AgUiCapabilitiesRequestOptions {
   readonly appRoot: string
@@ -108,6 +113,7 @@ export async function handleAgUiCapabilitiesRequest(
           },
           output: { structuredOutput: false },
           tools: { clientProvided: false, supported: false },
+          transport: TRANSPORT,
         }
   // Per caller: middleware decided this caller may see it, and a shared cache
   // must not hand it to one that middleware would have refused.
@@ -137,8 +143,8 @@ async function agentCapabilities(
     if (bootFallbacks) throw error
     // Without them, and without a static manifest seeding the module cache,
     // this runtime cannot read route modules here at all: nothing about the
-    // route is settled, so nothing is claimed.
-    return {}
+    // route is settled, so nothing is claimed — except how it is served.
+    return { transport: TRANSPORT }
   }
 
   const grants = options.approvalGrants
@@ -166,6 +172,7 @@ async function agentCapabilities(
       clientProvided,
       ...(isDescriptor ? { parallelCalls: true, supported: true } : {}),
     },
+    transport: TRANSPORT,
   }
 }
 
