@@ -163,3 +163,20 @@ describe("the statements the store issues", () => {
     expect(sql.at(-1)).toBe("COMMIT")
   })
 })
+
+describe("createPostgresClientToolCallStore prune", () => {
+  it("is one DELETE whose predicate carries the settle-time and expiry rules", async () => {
+    const { pool, sql } = recordingPool()
+    const store = createPostgresClientToolCallStore({ pool, assumeMigrated: true })
+    expect(await store.prune({ before: "2026-09-18T12:00:00.000Z" })).toBe(0)
+    const statement = sql.find((text) => /DELETE FROM/i.test(text))
+    expect(statement).toBeDefined()
+    expect(normalize(statement ?? "")).toBe(
+      "DELETE FROM public.b4_client_tool_calls " +
+        'WHERE (voided_at IS NOT NULL AND voided_at COLLATE "C" < $1) ' +
+        'OR (voided_at IS NULL AND answered_at IS NOT NULL AND answered_at COLLATE "C" < $1) ' +
+        'OR (voided_at IS NULL AND answered_at IS NULL AND expires_at IS NOT NULL AND expires_at COLLATE "C" < $1) ' +
+        "RETURNING tool_call_id",
+    )
+  })
+})
