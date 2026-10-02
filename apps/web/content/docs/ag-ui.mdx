@@ -380,7 +380,7 @@ import { b4ActivityRenderers } from "@b4run/ag-ui/react"
 
 The stylesheet import gives the cards B4.run's default look in light and dark mode. Without it, the cards still render as structured, unstyled markup. To restyle them, override the `--b4-activity-*` CSS custom properties. For deeper changes, pass `classNames`/`components` to the card components. The [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) walks through every option.
 
-React and `@copilotkit/react-core` are optional peer dependencies, so a server-only consumer of the root or `/sse` entry installs nothing extra. The `/react` subpath also exports the two renderers individually, the card components, and the content schemas, for a client that presents the activities its own way.
+React and `@copilotkit/react-core` `>=1.76.0` are optional peer dependencies, so a server-only consumer of the root or `/sse` entry installs nothing extra; 1.76.0 is the first CopilotKit whose runtime speaks AG-UI 1.0, the protocol B4.run serves, and earlier releases resolve `@ag-ui/*` 0.0.59. The `/react` subpath also exports the two renderers individually, the card components, and the content schemas, for a client that presents the activities its own way.
 
 For the full application wiring (a thread rail, suggestions, generic tool cards, and permissions), see the [research web UI recipe](/docs/recipes/research-web-ui) and its [`examples/research/web`](https://github.com/cacheplane/b4run/tree/main/examples/research/web) implementation.
 
