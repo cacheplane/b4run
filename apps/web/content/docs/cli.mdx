@@ -359,6 +359,31 @@ The optional positional `[topic]` picks one doc by slug (with or without the
 In a source checkout, build the CLI first (`pnpm --filter @b4run/cli build`)
 so the bundled docs exist.
 
+## `b4 client-tools`
+
+`b4 client-tools` manages the records behind
+[client-provided tools](/docs/ag-ui#client-provided-tools) on the AG-UI endpoint.
+
+```
+b4 client-tools prune
+b4 client-tools prune --retention <ms>
+```
+
+`prune` deletes records that can no longer affect a turn: answered or voided
+calls settled longer ago than the retention window, and outstanding calls
+whose expiry is older than it. An outstanding, unexpired call is never
+deleted. The window is
+[`server.agui.clientToolRetentionMs`](/docs/configuration#serveragui) (7 days
+by default) and never shorter than `clientToolTtlMs`; `--retention <ms>`
+overrides it for one pass. The runtime runs the same pass on its own when a
+turn settles, at most once an hour, so this is for cron or a one-off. It
+prints `pruned: <n>`, or says so when the app has no client tool store.
+
+Flags:
+- `--retention <ms>`: retention window for this pass, a positive integer of at
+  most one year.
+- `--cwd <path>`: operate on a different app root.
+
 ## `b4 threads`
 
 `b4 threads` inspects and reattaches to Agent Protocol threads on a running B4.run server.

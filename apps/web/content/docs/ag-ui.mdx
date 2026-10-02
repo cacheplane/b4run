@@ -185,7 +185,7 @@ when:
 - the client sends a new user message while the call is unanswered, or
 - the call has expired. The default lifetime is 10 minutes; set
   `server.agui.clientToolTtlMs` to change it. Expiry is checked when the
-  thread is next used, not by a background sweep.
+  thread is next used; no timer abandons a call.
 
 Abandoning closes each parked call with a tool result — the one the client
 already sent, if it did, otherwise
@@ -285,6 +285,13 @@ set `server.agui.clientToolStore` — `createPostgresClientToolCallStore` from
 `@b4run/postgres-storage`, for example — or every run that sends client tools
 is refused with `503` `client_tool_store_unavailable`. A deployment with more
 than one instance needs a shared store for the same reason.
+
+Records do not accumulate. Once a turn settles, the runtime deletes records
+answered, voided or expired longer ago than
+[`server.agui.clientToolRetentionMs`](/docs/configuration#serveragui) (7 days
+by default, never less than the TTL), at most once an hour per store.
+`b4 client-tools prune` does the same on demand. An outstanding, unexpired
+record is never deleted.
 
 ### Error codes
 
