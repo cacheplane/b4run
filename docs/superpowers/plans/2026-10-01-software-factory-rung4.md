@@ -66,7 +66,7 @@
 
 **D22. Three rulesets, not two.** *Decided:* a ruleset targets branches or tags, not both, so spec §10.2's "factory app confined" is two rulesets ("factory app confined: branches", "factory app confined: tags") beside "factory branches are append-never" (Task 4). Blocks the operator setup.
 
-**D23. What `approve` answers for a draft-PR bundle.** *Decided:* `ok: true` only when the work order is `delivered`; a delivery that blocks returns `ok: false` with the reason, and the approval stays recorded (the approval happened; the publication did not). The CLI's `approve`, `review` and `run` exit 1 on it and print `pnpm factory events <id>` and, when the reason allows, `pnpm factory redeliver <id>`. Blocks PR 3.
+**D23. What `approve` answers for a draft-PR bundle.** *Decided:* `ok: true` only when the work order is `delivered`; a delivery that blocks returns `ok: false` with the reason, and the approval stays recorded (the approval happened; the publication did not). The CLI's `approve`, `review` and `run` exit 1 on it and print `pnpm factory events <id>` and, when the reason allows, `pnpm factory redeliver <id>` (approve's and review's outcome carries them as `next`, the list `run` prints, from one helper, `blockedNext`). Blocks PR 3.
 
 **D24. Cancel during a delivery.** *Decided:* accept today's `finishCancel` for a `delivering` row (it asks the builder about the row's old thread, exactly as it does for `exporting`); the worker checks the row before every write and journals `delivery_stopped` with the remote ids that exist. A cancel that waits on an unreachable builder stays `cancel_requested` until reconcile, as it does today. Follow-up recorded. Blocks PR 3.
 

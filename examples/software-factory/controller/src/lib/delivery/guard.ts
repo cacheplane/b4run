@@ -24,7 +24,6 @@ const guard = z
   .strict()
   .parse(JSON.parse(readFileSync(new URL("./guard.json", import.meta.url), "utf8")))
 
-export const FACTORY_BRANCH_PREFIX: string = guard.branchPrefix
 export const FACTORY_BOT_LOGIN: string = guard.botLogin
 export const DELIVERY_PROTECTED_PATHS: readonly string[] = Object.freeze([...guard.protectedPaths])
 export const RUN_FROM_BRANCH_PATHS: readonly string[] = Object.freeze([...guard.runFromBranchPaths])

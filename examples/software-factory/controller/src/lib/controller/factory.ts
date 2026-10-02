@@ -32,6 +32,7 @@ import {
 } from "../domain/errors.js"
 import {
   ACTIVE_STATES,
+  blockedNext,
   IllegalTransitionError,
   isTerminal,
   nextState,
@@ -836,7 +837,8 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   /**
    * What an `approve` or `redeliver` that started a delivery answers once it has settled (D23):
    * `ok` only when delivered. A block or a stop leaves the approval recorded (it happened; the
-   * publication did not) and says what to do next.
+   * publication did not) and says what to do next; a block lists the commands in `next`, with
+   * `pnpm factory redeliver <id>` among them only for a reason waiting heals.
    */
   function deliveryOutcome(row: WorkOrderRow, command: "approve" | "redeliver"): CommandOutcome {
     const events = `pnpm factory events ${row.id}`
@@ -852,6 +854,8 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         ok: false,
         state: row.state,
         message: `${lead} ${command === "approve" ? "blocked" : "blocked again"}: ${row.blockedReason}. ${events}`,
+        // The redeliver only when waiting heals the reason, as `run` names it.
+        next: blockedNext(row.id, row.blockedReason),
       }
     return {
       ok: false,

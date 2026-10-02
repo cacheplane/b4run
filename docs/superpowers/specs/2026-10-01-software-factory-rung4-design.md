@@ -923,7 +923,9 @@ the plan's decisions say why:
   re-verification (§3.4 had preflight before the protected paths).
 - **D23.** `approve` of a draft-PR bundle answers `ok: true` only when the work order is
   `delivered`; a block answers `ok: false` with the reason and the approval stays recorded. The
-  CLI exits 1 and prints `pnpm factory events <id>` and, for a healable reason,
+  CLI's `approve`, `review --approve` and `run` exit 1 and print the next commands
+  (`approve`'s and `review`'s outcome carries them as `next`, the same list `run` prints):
+  `pnpm factory events <id>`, `pnpm factory cancel <id>` and, for a healable reason only,
   `pnpm factory redeliver <id>`.
 - **D24.** `cancel` during a delivery uses today's `finishCancel` (it asks the builder about the
   row's old thread); the worker checks the row before every write and journals

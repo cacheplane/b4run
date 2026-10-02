@@ -9,7 +9,7 @@ import { type ControllerClient, ControllerHttpError, createControllerClient } fr
 import { generatedTasksDirFor } from "./lib/config.js"
 import { budgetShortfallFor } from "./lib/controller/budget.js"
 import { dispatchPreparing, imageWaitBoundMs } from "./lib/controller/images.js"
-import { TERMINAL_STATES, type WorkOrderState } from "./lib/domain/states.js"
+import { blockedNext, TERMINAL_STATES, type WorkOrderState } from "./lib/domain/states.js"
 import {
   COMMIT_PATTERN,
   DIGEST_PATTERN,
@@ -793,18 +793,27 @@ function intakeBudgetWarning(row: WorkOrderRow): string | undefined {
   return `This work order has ${Math.max(0, shortfall.remainingMs)} ms of active budget left, below twice target ${row.targetId}'s verifier deadline (${verifierDeadlineMs} ms): dispatch will refuse it after you approve. Reject or cancel it, restart pnpm factory up with FACTORY_MAX_ACTIVE_MS=${shortfall.neededMs} or more (the README sizes it per target), and run it again with --new`
 }
 
-/** Send an export approval and follow it as `approve` does: re-verification outlives the request. */
-function approveExport(
+/**
+ * Send an export approval and follow it as `approve` does: re-verification outlives the request.
+ * A delivery that blocked names what to run next, with `redeliver` only for a reason waiting
+ * heals (D23): the controller's answer lists it, and an answer read from the registry after the
+ * request ended gets the same list from the row.
+ */
+async function approveExport(
   id: string,
   input: { revision: number; bundleDigest: string; operationKey?: string },
 ): Promise<RouteOutcome> {
-  return awaiting(
+  const outcome = await awaiting(
     id,
     (controller) => controller.approve(id, input),
     APPROVE_ACTIVE,
     APPROVE_SUCCESS,
     { arrived: "approve_started", refused: "approve_refused" },
   )
+  const row = outcome.row
+  return outcome.next === undefined && row?.state === "blocked"
+    ? { ...outcome, next: blockedNext(row.id, row.blockedReason) }
+    : outcome
 }
 
 /** Send a rejection of a parked draft and await the redraft, as `reject-intake` does. */

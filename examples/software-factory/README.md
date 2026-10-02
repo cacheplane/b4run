@@ -465,10 +465,10 @@ recorded either way:
 
 | Block | What happened | What to do |
 |---|---|---|
-| `delivery_base_conflict` | `main` changed a path the change touches (or a file the branch's own Vercel build runs) since the pin, the pin is no longer an ancestor of `main`, or the comparison could not be read in full | `run --issue <n> --new`: a new work order at a fresh pin |
-| `delivery_baseline_mismatch` | A changed file's blob at the pin is not the baseline the candidate was diffed against | `run --issue <n> --new` |
-| `delivery_branch_conflict` | `factory/<id>` holds a commit that is not this change, or its pull request was closed, has another base, or is not the factory's | `run --issue <n> --new` (the factory never updates or reopens) |
-| `delivery_issue_closed` | The issue was open at create and is closed now | `run --issue <n> --new` if the work is still wanted |
+| `delivery_base_conflict` | `main` changed a path the change touches (or a file the branch's own Vercel build runs) since the pin, the pin is no longer an ancestor of `main`, or the comparison could not be read in full | Cancel the work order, then `run --issue <n> --new`: a new work order at a fresh pin |
+| `delivery_baseline_mismatch` | A changed file's blob at the pin is not the baseline the candidate was diffed against | Cancel the work order, then `run --issue <n> --new` |
+| `delivery_branch_conflict` | `factory/<id>` holds a commit that is not this change, or its pull request was closed, has another base, or is not the factory's | Cancel the work order, then `run --issue <n> --new` (the factory never updates or reopens) |
+| `delivery_issue_closed` | The issue was open at create and is closed now | If the work is still wanted, cancel the work order, then `run --issue <n> --new` |
 | `delivery_unauthorized` | A token could not be minted, the app is missing or under-permissioned, a 401 or a non-rate-limit 403 | Fix the app, then `pnpm factory redeliver <id>` |
 | `delivery_rate_limited` | Rate limited past the worker's bound | `pnpm factory redeliver <id>` later |
 | `delivery_unconfirmed` | `5xx` or network failures past the bound, or a read-back that disagrees with the bundle in a way none of the above explains | `pnpm factory events <id>`, then `pnpm factory redeliver <id>` |
@@ -477,8 +477,22 @@ recorded either way:
 within 24 hours of the approval and at the revision and bundle digest it shows: it prints what
 the resumed delivery will publish and asks for the bundle digest's first eight hex digits at a
 terminal (or takes `--digest <sha256>` in full). It approves nothing new. Every other block
-needs a new work order. `pnpm factory events <id>` has each step's journal and the remote ids
-that exist.
+needs a new work order, and `redeliver` refuses it saying so ("waiting does not heal it; cancel
+it and run the issue again with --new"): cancel the blocked one first, or the old blocked row
+leaves a later `run --issue <n>` ambiguous. `pnpm factory events <id>` has each step's journal
+and the remote ids that exist. `approve` and `review --approve` list the same next commands as
+`run` when the delivery blocks (`next` in their output), `pnpm factory redeliver <id>` among
+them only for these three reasons. A redeliver resumes from the step the worker stopped at and
+does not re-run the drift check (step a: the issue, `main`'s tip, the comparison and the pin's
+blobs), by design (spec §5.2): `main` moving after the check is what the pull request's own CI
+is for.
+
+`pnpm factory cancel <id>` during a delivery stops the worker before its next write and ends
+the work order `cancelled`; it removes nothing. A branch or pull request already created stays
+on GitHub (the journal names them), and deleting the branch or closing the pull request is a
+person's job. Confirm, the last step, only reads, so a cancel that lands while it runs still
+records the receipt: a `cancelled` work order may show a `pullRequest`, and the receipt is the
+truth about what was published.
 
 **`run` never approves or redelivers.** It stops at the bundle as it does for an export (the
 same review, now naming the delivery) and, at a block, prints the next commands

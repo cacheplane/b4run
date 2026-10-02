@@ -21,7 +21,13 @@ import { DeliveryError } from "../src/lib/delivery/adapter.ts"
 import { openRegistryReader } from "../src/lib/registry/reader.ts"
 import { loadTask, loadTaskRecipe, tasksDir } from "../src/lib/targets/catalog.ts"
 import { openImageRegistry } from "../src/lib/targets/images.ts"
-import { closeHarness, ID as HARNESS_ID, harness, harnessDir } from "./delivery-harness.ts"
+import {
+  closeHarness,
+  ID as HARNESS_ID,
+  SOURCE as HARNESS_SOURCE,
+  harness,
+  harnessDir,
+} from "./delivery-harness.ts"
 import { createFakeGitHub } from "./fake-delivery-adapter.ts"
 import { fakeImageBuilder } from "./fake-image-builder.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
@@ -537,6 +543,91 @@ esac
     } finally {
       closeHarness()
     }
+  }, 90_000)
+
+  /**
+   * `approve` of the harness's draft-PR work order, sent to a controller that drops it: the CLI
+   * follows the row from the registry while the delivery (run here, once the CLI is following)
+   * blocks, and prints what it settled as.
+   */
+  async function approveFollowingABlock(
+    block: (h: Awaited<ReturnType<typeof harness>>) => void,
+  ): Promise<{ code: number | null; outcome: Record<string, unknown> }> {
+    const h = await harness()
+    const { url, server } = await dropping()
+    dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
+    try {
+      const child = spawnChild(
+        process.execPath,
+        [tsxBin, cliEntry, "approve", HARNESS_ID, "--revision", "0", "--bundle", "b".repeat(64)],
+        {
+          env: {
+            ...process.env,
+            FACTORY_CONTROLLER_URL: url,
+            FACTORY_STATE_DIR: harnessDir(),
+            FACTORY_CONFIG: "none",
+            FACTORY_CLI_ARRIVAL_WINDOW_MS: "30000",
+          },
+          cwd: packageRoot,
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      )
+      let stdout = ""
+      let stderr = ""
+      let delivered: Promise<unknown> | undefined
+      child.stdout.on("data", (chunk: Buffer) => {
+        stdout += chunk.toString()
+      })
+      child.stderr.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString()
+        // The row is marked before the request leaves: only now may the delivery move it.
+        if (delivered === undefined && stderr.includes("the request ended before its answer")) {
+          block(h)
+          delivered = h.deliver()
+        }
+      })
+      const code = await new Promise<number | null>((resolve) => child.on("close", resolve))
+      expect(delivered, stderr).toBeDefined()
+      await delivered
+      return { code, outcome: JSON.parse(stdout) }
+    } finally {
+      await new Promise((resolve) => server.close(resolve))
+      closeHarness()
+    }
+  }
+
+  it("approve names the redeliver a healable delivery block allows (D23)", async () => {
+    const { code, outcome } = await approveFollowingABlock((h) =>
+      h.github.fail("compare", new DeliveryError("unauthorized", "HTTP 401", undefined, 401)),
+    )
+    expect(code).toBe(1)
+    expect(outcome).toMatchObject({
+      ok: false,
+      state: "blocked",
+      next: [
+        `pnpm factory events ${HARNESS_ID}`,
+        `pnpm factory redeliver ${HARNESS_ID}`,
+        `pnpm factory cancel ${HARNESS_ID}`,
+      ],
+    })
+  }, 90_000)
+
+  it("approve names no redeliver for a delivery block waiting does not heal (D23)", async () => {
+    const { code, outcome } = await approveFollowingABlock((h) => {
+      h.github.comparison = {
+        status: "ahead",
+        aheadBy: 2,
+        files: [{ filename: HARNESS_SOURCE }],
+        complete: true,
+      }
+    })
+    expect(code).toBe(1)
+    expect(outcome).toMatchObject({
+      ok: false,
+      state: "blocked",
+      row: { blockedReason: "delivery_base_conflict" },
+      next: [`pnpm factory events ${HARNESS_ID}`, `pnpm factory cancel ${HARNESS_ID}`],
+    })
   }, 90_000)
 
   it("replays an issue at --pin without consulting origin/main", async () => {

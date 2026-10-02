@@ -368,7 +368,16 @@ describe("redeliver", () => {
     harness = await issueHarness({ delivery: delivery(fake) })
     const row = await harness.toBundle({ deliver: DRAFT_PR })
     fake.fail("compare", new DeliveryError("unauthorized", "HTTP 401", undefined, 401))
-    expect(await approve(row)).toMatchObject({ ok: false, state: "blocked" })
+    // D23: the approve that blocked names the redeliver a healable block allows.
+    expect(await approve(row)).toMatchObject({
+      ok: false,
+      state: "blocked",
+      next: [
+        `pnpm factory events ${row.id}`,
+        `pnpm factory redeliver ${row.id}`,
+        `pnpm factory cancel ${row.id}`,
+      ],
+    })
     const blocked = harness.factory.show(row.id) as WorkOrderRow
     expect(blocked.blockedReason).toBe("delivery_unauthorized")
     expect(
@@ -439,7 +448,12 @@ describe("redeliver", () => {
     harness = await issueHarness({ delivery: delivery(fake) })
     const row = await harness.toBundle({ deliver: DRAFT_PR })
     fake.comparison = { status: "ahead", aheadBy: 2, files: [{ filename: SOURCE }], complete: true }
-    expect(await approve(row)).toMatchObject({ ok: false, state: "blocked" })
+    // D23: a block waiting does not heal names no redeliver.
+    expect(await approve(row)).toMatchObject({
+      ok: false,
+      state: "blocked",
+      next: [`pnpm factory events ${row.id}`, `pnpm factory cancel ${row.id}`],
+    })
     const blocked = harness.factory.show(row.id) as WorkOrderRow
     expect(blocked.blockedReason).toBe("delivery_base_conflict")
     expect(

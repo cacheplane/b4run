@@ -139,6 +139,8 @@ export const CommandOutcomeSchema = z.object({
   ok: z.boolean(),
   state: z.enum(STATES).optional(),
   message: z.string().min(1),
+  /** The commands a person runs next, when the outcome stops short (a delivery block, D23). */
+  next: z.array(z.string().min(1)).optional(),
 })
 export type CommandOutcome = z.infer<typeof CommandOutcomeSchema>
 

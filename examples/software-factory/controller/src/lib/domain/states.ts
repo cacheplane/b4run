@@ -124,6 +124,18 @@ export const REDELIVERABLE_BLOCKED_REASONS: ReadonlySet<BlockedReason> = new Set
   "delivery_unconfirmed",
 ])
 
+/**
+ * The commands for a work order blocked by a reason no retry answers: its journal, a redeliver
+ * when the reason is a delivery block the world can heal (a person redelivers; it asks for the
+ * bundle digest's prefix, like a review, and run never does), and cancel. `run`, `approve` and
+ * `review --approve` all print these (D23).
+ */
+export function blockedNext(id: string, reason: BlockedReason | null): string[] {
+  return reason !== null && REDELIVERABLE_BLOCKED_REASONS.has(reason)
+    ? [`pnpm factory events ${id}`, `pnpm factory redeliver ${id}`, `pnpm factory cancel ${id}`]
+    : [`pnpm factory events ${id}`, `pnpm factory cancel ${id}`]
+}
+
 export const FAILURE_REASONS = ["route_error", "ended_without_candidate"] as const
 export type FailureReason = (typeof FAILURE_REASONS)[number]
 
