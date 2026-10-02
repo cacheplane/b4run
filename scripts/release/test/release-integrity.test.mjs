@@ -75,7 +75,13 @@ test("required validate aggregates independent complete lanes and fails closed",
   const workflow = parse(
     await readBoundedFixture(path.join(ROOT, ".github/workflows/ci.yml"), { root: ROOT }),
   )
-  const required = ["source-validate", "release-controller", "pack-smoke", "harness-verify"]
+  const required = [
+    "source-validate",
+    "release-controller",
+    "pack-smoke",
+    "harness-verify",
+    "dependency-security-browser",
+  ]
   const gate = workflow.jobs.validate
   assert.deepEqual(gate.needs, ["metadata_scope", ...required])
   assert.equal(gate.if, "always()")
@@ -123,7 +129,7 @@ test("required validate aggregates independent complete lanes and fails closed",
     assert.equal(job.needs, "metadata_scope", `${name} depends only on classification`)
     assert.equal(job["continue-on-error"], undefined)
     const checkout = job.steps.find((item) => item.name === "Checkout")
-    assert.equal(checkout.with.ref, undefined, "all lanes use the run's default checkout ref")
+    assert.equal(checkout.with?.ref, undefined, "all lanes use the run's default checkout ref")
   }
   const source = workflow.jobs["source-validate"].steps
   assert.equal(

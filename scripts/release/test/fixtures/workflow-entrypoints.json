@@ -1709,7 +1709,8 @@
               "source-validate",
               "release-controller",
               "pack-smoke",
-              "harness-verify"
+              "harness-verify",
+              "dependency-security-browser"
             ],
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 5
@@ -1724,12 +1725,13 @@
                   "LANE_1": "${{ needs.release-controller.result }}",
                   "LANE_2": "${{ needs.pack-smoke.result }}",
                   "LANE_3": "${{ needs.harness-verify.result }}",
+                  "LANE_4": "${{ needs.dependency-security-browser.result }}",
                   "METADATA_ONLY": "${{ needs.metadata_scope.outputs.metadata_only }}",
                   "PROSE_ONLY": "${{ needs.metadata_scope.outputs.prose_only }}",
                   "SCOPE_RESULT": "${{ needs.metadata_scope.result }}"
                 },
                 "name": "Require every validation lane",
-                "run": "set -eu\nEXPECTED=success\ncase \"$EVENT_NAME\" in\n  pull_request)\n    [ \"$SCOPE_RESULT\" = success ] || { echo \"CI scope did not succeed\" >&2; exit 1; }\n    case \"$PROSE_ONLY:$METADATA_ONLY\" in\n      true:false) EXPECTED=skipped ;;\n      false:true|false:false) ;;\n      *) echo \"Malformed CI scope outputs\" >&2; exit 1 ;;\n    esac\n    ;;\n  push) ;;\n  *) echo \"Unsupported validation event\" >&2; exit 1 ;;\nesac\nfor result in \"$LANE_0\" \"$LANE_1\" \"$LANE_2\" \"$LANE_3\"; do\n  if [ \"$result\" != \"$EXPECTED\" ]; then\n    echo \"Required validation lane did not succeed: $result\" >&2\n    exit 1\n  fi\ndone\n"
+                "run": "set -eu\nEXPECTED=success\ncase \"$EVENT_NAME\" in\n  pull_request)\n    [ \"$SCOPE_RESULT\" = success ] || { echo \"CI scope did not succeed\" >&2; exit 1; }\n    case \"$PROSE_ONLY:$METADATA_ONLY\" in\n      true:false) EXPECTED=skipped ;;\n      false:true|false:false) ;;\n      *) echo \"Malformed CI scope outputs\" >&2; exit 1 ;;\n    esac\n    ;;\n  push) ;;\n  *) echo \"Unsupported validation event\" >&2; exit 1 ;;\nesac\nfor result in \"$LANE_0\" \"$LANE_1\" \"$LANE_2\" \"$LANE_3\" \"$LANE_4\"; do\n  if [ \"$result\" != \"$EXPECTED\" ]; then\n    echo \"Required validation lane did not succeed: $result\" >&2\n    exit 1\n  fi\ndone\n"
               }
             }
           ]
