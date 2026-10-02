@@ -42,9 +42,9 @@
       "recordDigest": "9c823bb6e0c77817744984458823169e48c1921d1b3e3234569240927e23e8d1"
     },
     "/docs/ag-ui": {
-      "lastModified": "2026-10-01T20:40:30.000Z",
-      "sourceDigest": "90fb330b0a13bc9b407e2cefd9f48137f005fb381d00b2ea8fa9f853dbc91c7c",
-      "recordDigest": "cd38cd36920e0ca38cdf9a8ed5e92b6a11f5a8f0691a8d4465c8a5b4080f1891"
+      "lastModified": "2026-10-02T05:03:07.000Z",
+      "sourceDigest": "faa7037d6785b7a320c8692381af16c0e6651828ef300b710f5732be5a63bae8",
+      "recordDigest": "4512b23e37c07bf36ace7d37169e11c6d5a74af16389da74594681e118da3c92"
     },
     "/docs/agents": {
       "lastModified": "2026-09-24T01:19:36.000Z",
@@ -147,14 +147,14 @@
       "recordDigest": "fbd8a797655a538b9b346d8599f16e88a7764828f45b2628a910f2df1f1e2a53"
     },
     "/docs/cli": {
-      "lastModified": "2026-09-30T21:52:21.000Z",
-      "sourceDigest": "fab7fe884cc34b96c73d1201f0c61554a33019365f956362b38502b2a26a0891",
-      "recordDigest": "0cdac7d400ced278d47e392680b7d47474f95a2271b594d44fab61b9d94c2616"
+      "lastModified": "2026-10-02T05:03:07.000Z",
+      "sourceDigest": "c158970dc06a30fb510b7c3cc3de6d2310801ba58d2100e2e0d204540e9cbc3b",
+      "recordDigest": "dc18155a672a866d8dd858102812e4d912357d2356098ee4c0522e7c9af2a07d"
     },
     "/docs/configuration": {
-      "lastModified": "2026-09-30T21:52:21.000Z",
-      "sourceDigest": "d0ff1eccb37f1f54c9e9b126d3dfed9ee4e20cb99b2044971588216b2d4b395c",
-      "recordDigest": "2e4f007374430fbbbf49bd8b00ad591c38a0f25862152088f71b877dbab399fa"
+      "lastModified": "2026-10-02T05:03:07.000Z",
+      "sourceDigest": "aac3098319b28a867d68f3810632d3a4b2c87a1a792b1b535d9903173892b151",
+      "recordDigest": "19cb0278239a4266f630a1e07ffa5786d3a950410888a64c78bea781c9235c90"
     },
     "/docs/context-management": {
       "lastModified": "2026-09-29T18:42:00.000Z",
