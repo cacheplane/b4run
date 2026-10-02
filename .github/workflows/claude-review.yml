@@ -20,6 +20,14 @@ name: Claude Review
 # the tracking comment is left on its "I'll analyze this and get back to you."
 # placeholder. The preflight and result-guard steps below close that hole. The
 # job is still NOT a required check, so a red X here never blocks a merge.
+#
+# One deliberate exception to failing loudly: when the preflight itself proves
+# the review CANNOT run (key revoked, org out of credits, model retired), the
+# job warns and SKIPS the review instead of going red. A red X on every PR for
+# a billing problem is pure noise that trains people to ignore the check, and
+# it says nothing about the PR. The cause still lands in the job summary and
+# the step log, and the result guard below still fails loudly whenever the
+# agent actually starts and errors mid-review.
 
 on:
   pull_request:
@@ -68,8 +76,6 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          echo "skip=false" >> "$GITHUB_OUTPUT"
-
           # Keep the key out of argv (and therefore out of the process list) by
           # passing it through a 0600 curl config file rather than -H.
           rc="$(mktemp)"; body="$(mktemp)"
@@ -83,22 +89,37 @@ jobs:
             -d "{\"model\":\"${REVIEW_MODEL}\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}]}" \
             https://api.anthropic.com/v1/messages)" || {
               echo "::warning::Preflight request could not be sent; continuing and letting the review step report."
+              echo "skip=false" >> "$GITHUB_OUTPUT"
               exit 0
             }
 
           case "$code" in
             200)
               echo "Anthropic API reachable; key valid; model ${REVIEW_MODEL} available."
+              echo "skip=false" >> "$GITHUB_OUTPUT"
               ;;
             429|5??)
               echo "::warning::Preflight got HTTP ${code} (rate limit / transient). Key looks valid; continuing."
+              echo "skip=false" >> "$GITHUB_OUTPUT"
               ;;
             *)
-              echo "::error::Anthropic preflight failed with HTTP ${code} for model ${REVIEW_MODEL} — the review agent cannot run."
-              jq -r '.error | "\(.type): \(.message)"' < "$body" 2>/dev/null || head -c 500 "$body"
-              echo
+              detail="$(jq -r '.error | "\(.type): \(.message)"' < "$body" 2>/dev/null || head -c 500 "$body")"
+              echo "::warning::Anthropic preflight failed with HTTP ${code} for model ${REVIEW_MODEL} — the review agent cannot run. Skipping review."
+              echo "${detail}"
               echo "401 => rotate ANTHROPIC_API_KEY. 400 mentioning credit balance => top up the Anthropic org. 404 => REVIEW_MODEL is no longer available to this org."
-              exit 1
+              {
+                echo "## Claude review skipped"
+                echo
+                echo "Anthropic preflight failed with HTTP ${code} for model \`${REVIEW_MODEL}\`:"
+                echo
+                echo '```'
+                echo "${detail}"
+                echo '```'
+                echo
+                echo "401 => rotate \`ANTHROPIC_API_KEY\`. 400 mentioning credit balance => top up the Anthropic org. 404 => \`REVIEW_MODEL\` is no longer available to this org."
+              } >> "$GITHUB_STEP_SUMMARY"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
               ;;
           esac
 
