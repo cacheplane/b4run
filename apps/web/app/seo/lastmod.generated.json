@@ -42,9 +42,9 @@
       "recordDigest": "9c823bb6e0c77817744984458823169e48c1921d1b3e3234569240927e23e8d1"
     },
     "/docs/ag-ui": {
-      "lastModified": "2026-10-02T05:29:35.000Z",
-      "sourceDigest": "1dff28b187c6a3fdf5d8b13071e5da572f0b8061f2b1a7006625606bb1d77ca9",
-      "recordDigest": "09c7d5a6225b9395dd25b56a10aa208df5f16e0a7a7565d6c0e5535abbeeef1a"
+      "lastModified": "2026-10-02T05:33:15.342Z",
+      "sourceDigest": "f06749c1f34ca823746e6adbd8b9dbaf1b0608766bf7f4a09cb912951711aaa9",
+      "recordDigest": "fb6d7a38b8f847a2dc8fffaa703a45967ae1bb973e7f66ed05d6df7143dfdf46"
     },
     "/docs/agents": {
       "lastModified": "2026-09-24T01:19:36.000Z",
@@ -52,14 +52,14 @@
       "recordDigest": "7a93c1b2b0db46bae60879d6b9895a66ce865e8970515bb10d97e28a442c24bc"
     },
     "/docs/api": {
-      "lastModified": "2026-09-23T06:30:00.000Z",
-      "sourceDigest": "fd8b9efe84edabbcd6de719d53292e94a1bb76efd65cbc0f91e7a549550bf429",
-      "recordDigest": "5791af3447e6d297b4ea73ed3c7e41e863f3d103810b8497fe3e4f614ad903ec"
+      "lastModified": "2026-10-02T04:00:00.000Z",
+      "sourceDigest": "895a21ea383aacda187162b659fd3c119523a8e9aadd9d6bedf30845382e865f",
+      "recordDigest": "444d5325fef5ec105bc275ae603ec29d54d950acd550753959cfa7e318b1be8d"
     },
     "/docs/api/ag-ui": {
-      "lastModified": "2026-10-01T20:30:30.000Z",
-      "sourceDigest": "52ffb22ae7a2569f06798c623ce50ba4883a72e019da474a71a41864101c1f5c",
-      "recordDigest": "f27e37187477fbf63ea23f72774f29e2b7b1404f9220dc71f4d9ed52009b75f1"
+      "lastModified": "2026-10-02T04:00:00.000Z",
+      "sourceDigest": "4d8af1ec9e8939867227c7dfa964f49d99a0503396d6595b2d334cd8fbacaf55",
+      "recordDigest": "2e67337a9fe3f364075b1a38e0ff8f0ded2df0450e14dcc12e30241f5e9b826c"
     },
     "/docs/api/cli": {
       "lastModified": "2026-09-25T17:07:15.000Z",
@@ -217,9 +217,9 @@
       "recordDigest": "965663cd4a674c330e7f6fbcb87053a1d2a1b6b41cdb07a66ebb009df0736f64"
     },
     "/docs/faq": {
-      "lastModified": "2026-09-25T07:06:20.000Z",
-      "sourceDigest": "82996a4b4ac010e12e3d51485d1628082ad0276799c51082c67556caf340a6a6",
-      "recordDigest": "1b370bf2731d403cb40a3058fc4f41e9f856552e49d507929fc9e8b0faba293c"
+      "lastModified": "2026-10-02T03:59:58.000Z",
+      "sourceDigest": "9e595281d812b0e198f848e210f2f084f0c701dcf78764477396c2d721f83919",
+      "recordDigest": "68c7e1021eedf407f7d203a71a9692f750b16840d191ff870842f2b6067b436e"
     },
     "/docs/getting-started": {
       "lastModified": "2026-09-23T15:28:48.000Z",
@@ -332,9 +332,9 @@
       "recordDigest": "e902fe948e7ef2419c896791fdbdb63ec7ad03f542777c690705e899a105722b"
     },
     "/docs/recipes/research-web-ui": {
-      "lastModified": "2026-09-23T17:27:43.000Z",
-      "sourceDigest": "9f3f3b5cb2e5f2fb0135626491a721c03c6069f85c31b2afbc2a7184df181a1d",
-      "recordDigest": "8dad31bdf180675de36fb67d0e32385c82dd5018950d1933c9177a0b22f2bce2"
+      "lastModified": "2026-10-02T03:59:58.000Z",
+      "sourceDigest": "ffb439eb91acb38306a6f7c501c63afb3eb01bbc8c45c56bf06a6d411e434be5",
+      "recordDigest": "910e7b10303a1fd40178f86422389cd435d9b9146f0694429c8537345c0adb1a"
     },
     "/docs/recipes/retry-flaky-tools": {
       "lastModified": "2026-09-29T18:42:00.000Z",

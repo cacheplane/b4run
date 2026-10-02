@@ -32,7 +32,7 @@ describe("openRegistry", () => {
       registry.db.prepare("PRAGMA table_info(work_orders)").all() as { name: string }[]
     ).map((c) => c.name)
     expect(columns).not.toContain("candidate_verified")
-    expect(SCHEMA_VERSION).toBe(5)
+    expect(SCHEMA_VERSION).toBe(6)
     registry.close()
   })
 
@@ -47,6 +47,7 @@ describe("openRegistry", () => {
       "candidates",
       "commands",
       "deliveries",
+      "delivery_outbox",
       "events",
       "receipts",
       "schema_version",
@@ -143,6 +144,7 @@ describe("migration 4", () => {
       intakeAttempts: 0,
       maxIntakeAttempts: 2,
       candidateAttempts: 0,
+      delivery: { kind: "local" },
     }
     const row = createWorkOrderStore(registry.db).get("wo-legacy")
     expect(row).toMatchObject(expected)
@@ -200,7 +202,7 @@ describe("migration 5", () => {
 
     // Only a writer migrates: a reader of the schema-4 file says so rather than misread it.
     expect(() => openRegistryReader(path)).toThrow(
-      "Registry schema version 4 is older than this factory needs (5); start the controller, which migrates it",
+      "Registry schema version 4 is older than this factory needs (6); start the controller, which migrates it",
     )
     const registry = openRegistry(path)
     const store = createWorkOrderStore(registry.db)

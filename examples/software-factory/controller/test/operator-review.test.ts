@@ -218,3 +218,60 @@ describe("relativePath", () => {
       expect(relativePath.safeParse(bad).success, JSON.stringify(bad)).toBe(false)
   })
 })
+
+describe("exportReview of a draft-PR bundle (rung 4)", () => {
+  it("says where approving publishes, above the diff, from the payload the digest covers", async () => {
+    const receipt: Receipt = { ...(await oracle("ok\n")), id: "rc-pass", verdict: "pass" }
+    receipt.checks[0] = { ...receipt.checks[0], verdict: "pass" } as Receipt["checks"][number]
+    const bundle = freezeBundle({
+      workOrderId: ID,
+      repositoryId: ID,
+      baselineDigest: "1".repeat(64),
+      specificationDigest: "2".repeat(64),
+      policyDigest: "b".repeat(64),
+      candidateDigest: "a".repeat(64),
+      receipt,
+      destinationId: "/exports",
+      frozenAt: "2026-10-01T00:00:00.000Z",
+      origin: {
+        kind: "issue",
+        repository: "cacheplane/b4run",
+        number: 912,
+        bodyDigest: "0".repeat(64),
+      },
+      pin: "7".repeat(40),
+      taskDigest: "d".repeat(64),
+      oracleReceiptId: null,
+      delivery: {
+        repository: "cacheplane/b4run",
+        baseBranch: "main",
+        branch: `factory/${ID}`,
+        pathPrefix: ".",
+        issueStateAtCreate: "open",
+      },
+    })
+    const artifact = await artifacts.put(JSON.stringify({ "src/cli.ts": "fixed\n" }))
+    const review = await exportReview({
+      candidate: {
+        digest: "a".repeat(64),
+        workOrderId: ID,
+        baselineDigest: "1".repeat(64),
+        changedPaths: ["src/cli.ts"],
+        bytes: 6,
+        artifactDigest: artifact.digest,
+        assembledAt: "2026-10-01T00:00:00.000Z",
+      },
+      receipt,
+      bundle,
+      artifacts,
+      row: rowOf({ state: "awaiting_approval", bundleDigest: bundle.digest }),
+    })
+    expect(review.problems).toEqual([])
+    expect(review.publishes).toBe(
+      `Approving publishes exactly this change as a draft pull request on cacheplane/b4run, branch factory/${ID}, against main, branched at ${"7".repeat(40)}`,
+    )
+    const delivery = review.text.indexOf("==> Delivery")
+    expect(delivery).toBeGreaterThan(0)
+    expect(delivery).toBeLessThan(review.text.indexOf("src/cli.ts"))
+  })
+})

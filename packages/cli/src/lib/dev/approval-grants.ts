@@ -51,6 +51,19 @@ export interface ApprovalGrantRuntime {
 }
 
 /**
+ * Whether this runtime refuses EVERY approval resume for want of a store:
+ * grants are required and nothing durable is wired. The resume gate below
+ * refuses on exactly this condition, and `GET /agui/:routeId` reads it so it
+ * never advertises approvals that cannot be answered.
+ */
+export function grantsRefuseEveryResume(
+  mode: ApprovalGrantMode,
+  store: InterruptGrantStore | undefined,
+): boolean {
+  return mode === "required" && store === undefined
+}
+
+/**
  * The minter for one run on one thread, or `undefined` when there is nothing
  * to mint with.
  *
@@ -185,7 +198,7 @@ export async function checkGrants(args: {
     // this is a misconfiguration and must not silently degrade to the old
     // path; under "optional" there can be no grant rows either, so every
     // interrupt is a pre-migration one and resumes as before.
-    if (args.mode === "required") {
+    if (grantsRefuseEveryResume(args.mode, store)) {
       return {
         ok: false,
         rejection: {

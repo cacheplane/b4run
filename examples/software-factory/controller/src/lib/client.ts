@@ -58,6 +58,11 @@ export function createControllerClient(baseUrl: string, fetchImpl: typeof fetch 
     /** Returns a candidate-blocked work order to `received`; it does not dispatch. */
     retry: (id: string, operationKey?: string) =>
       run(id, "/work-orders/retry#workflow", withKey(id, operationKey)),
+    /** Resumes a healable delivery block; awaits the worker, as approve does. */
+    redeliver: (
+      id: string,
+      input: { revision: number; bundleDigest: string; operationKey?: string },
+    ) => run(id, "/work-orders/redeliver#workflow", { id, ...input }),
     deny: (id: string, operationKey?: string) =>
       run(id, "/work-orders/deny#workflow", withKey(id, operationKey)),
     /** Starts intake and awaits the drafter turn and the oracle proof, like `dispatch`. */

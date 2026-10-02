@@ -60,6 +60,9 @@ const DEFERRED: readonly string[] = []
  * and no ThreadsStore read on its path. That a candidate may have been
  * distilled FROM a thread's conversation is real, and it means memory needs its
  * own authorization story — it does not make it a thread-access one.
+ *
+ * `GET /agui/:routeId` shares its pattern with the gated `POST` but reads no
+ * thread: it reports the ROUTE's capabilities, behind route middleware only.
  */
 const EXEMPT: readonly string[] = [
   routeKey("GET", /^\/healthz(?:\?.*)?$/),
@@ -67,6 +70,7 @@ const EXEMPT: readonly string[] = [
   routeKey("GET", /^\/memory\/candidates(?:\?.*)?$/),
   routeKey("POST", /^\/memory\/candidates\/(?<id>[^/?#]+)\/approve(?:\?.*)?$/),
   routeKey("POST", /^\/memory\/candidates\/(?<id>[^/?#]+)\/reject(?:\?.*)?$/),
+  routeKey("GET", /^\/agui\/(?<routeId>[^/?#]+)(?:\?.*)?$/),
 ]
 
 // The ctx is never read: buildRouteTable only destructures it and closes over
@@ -75,17 +79,17 @@ const routes = buildRouteTable({} as unknown as Parameters<typeof buildRouteTabl
 const actual = routes.map((route) => `${route.method} ${route.pattern.source}`)
 
 describe("route-table coverage", () => {
-  it("has 18 entries on this branch", () => {
-    // 18: 14 as of PR #443/pending_interrupts, plus the
+  it("has 19 entries on this branch", () => {
+    // 19: 14 as of PR #443/pending_interrupts, plus the
     // `GET /threads/:thread_id/runs/stream` attach endpoint, plus the
     // `GET /readyz` readiness probe (#688), plus
     // `POST /threads/:thread_id/workspace/inspect` (spec item 3), plus
     // `PUT /workspace/sources/:digest` (spec item 2), which carries no thread id and is
-    // gated as a `create`. Each is CLASSIFIED (see GATED /
+    // gated as a `create`, plus `GET /agui/:routeId` capabilities (exempt). Each is CLASSIFIED (see GATED /
     // EXEMPT) rather than counted, which is the whole point of this pair of
     // assertions: bumping the number without adding the route to a list would
     // let a new thread endpoint ship ungated and silent.
-    expect(actual).toHaveLength(18)
+    expect(actual).toHaveLength(19)
   })
 
   it("classifies every route as gated, deferred or exempt", () => {

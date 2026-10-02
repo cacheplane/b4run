@@ -1,6 +1,6 @@
 {
   "name": "@b4run/ag-ui",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "private": false,
   "type": "module",
   "license": "MIT",
@@ -37,6 +37,10 @@
     "./sse": {
       "types": "./dist/sse.d.ts",
       "default": "./dist/sse.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "default": "./dist/client.js"
     },
     "./react": {
       "types": "./dist/react/index.d.ts",

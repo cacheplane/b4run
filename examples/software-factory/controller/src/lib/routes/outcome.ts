@@ -1,6 +1,11 @@
 import type { z } from "zod"
 import type { Factory } from "../controller/factory.js"
-import { CommandInFlightError, UnknownTaskError, UnknownWorkOrderError } from "../domain/errors.js"
+import {
+  CommandInFlightError,
+  DeliveryUnavailableError,
+  UnknownTaskError,
+  UnknownWorkOrderError,
+} from "../domain/errors.js"
 import type { CommandOutcome, WorkOrderRow } from "../domain/work-order.js"
 import { StaleRevisionError } from "../registry/work-orders.js"
 
@@ -10,6 +15,7 @@ export type Refusal =
   | "unknown_work_order"
   | "command_in_flight"
   | "stale_revision"
+  | "delivery_unavailable"
 
 /**
  * What every mutating route returns. A workflow route's thrown error is a 500 with no
@@ -47,6 +53,8 @@ export async function command<T>(
     if (error instanceof UnknownTaskError) return refused("unknown_task", error.message)
     if (error instanceof UnknownWorkOrderError) return refused("unknown_work_order", error.message)
     if (error instanceof CommandInFlightError) return refused("command_in_flight", error.message)
+    if (error instanceof DeliveryUnavailableError)
+      return refused("delivery_unavailable", error.message)
     // Expected concurrency, not a fault: a background observer or the budget ticker wrote the
     // row between this command's read and its compare-and-swap. The caller re-reads and retries.
     if (error instanceof StaleRevisionError) return refused("stale_revision", error.message)

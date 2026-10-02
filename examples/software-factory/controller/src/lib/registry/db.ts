@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 
-export const SCHEMA_VERSION = 5
+export const SCHEMA_VERSION = 6
 
 export interface Registry {
   readonly db: DatabaseSync
@@ -180,6 +180,35 @@ export const MIGRATIONS: readonly Migration[] = [
           AND events.type = 'transition'
           AND json_extract(events.payload, '$.event') = 'dispatch_committed'
       );
+    `,
+  },
+  {
+    // Rung 4: where an approved bundle goes, the outbox intent a draft-PR approval commits,
+    // and the pull request a delivery read back. Every existing row is a local export, which
+    // is what it was; an existing delivery is an export, with no pull request columns.
+    version: 6,
+    up: `
+      ALTER TABLE work_orders ADD COLUMN delivery TEXT NOT NULL DEFAULT '{"kind":"local"}';
+      CREATE TABLE delivery_outbox (
+        operation_key TEXT PRIMARY KEY,
+        work_order_id TEXT NOT NULL UNIQUE REFERENCES work_orders(id),
+        bundle_digest TEXT NOT NULL,
+        approval_id TEXT NOT NULL REFERENCES approvals(id),
+        intent TEXT NOT NULL,
+        step TEXT NOT NULL,
+        remote TEXT NOT NULL,
+        attempts INTEGER NOT NULL,
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      ALTER TABLE deliveries ADD COLUMN kind TEXT;
+      ALTER TABLE deliveries ADD COLUMN pr_number INTEGER;
+      ALTER TABLE deliveries ADD COLUMN pr_url TEXT;
+      ALTER TABLE deliveries ADD COLUMN head_sha TEXT;
+      ALTER TABLE deliveries ADD COLUMN tree_sha TEXT;
+      ALTER TABLE deliveries ADD COLUMN base_sha TEXT;
+      ALTER TABLE deliveries ADD COLUMN ahead_by INTEGER;
     `,
   },
 ]

@@ -15,6 +15,12 @@ import { fromRunAgentInput, toAguiEvents } from "@b4run/ag-ui"
 import { encodeAgUiSse } from "@b4run/ag-ui/sse"
 ```
 
+A client that runs a B4.run route over HTTP, such as a CopilotKit runtime, imports the agent from the `./client` subpath:
+
+```ts
+import { B4HttpAgent } from "@b4run/ag-ui/client"
+```
+
 In a React client, and only there, import the renderers from the `./react` subpath:
 
 ```tsx
@@ -27,6 +33,7 @@ import { b4ActivityRenderers } from "@b4run/ag-ui/react"
 |---|---|---|---|---|
 | `@b4run/ag-ui` | edge-safe | not-claimed | integration | supported |
 | `@b4run/ag-ui/sse` | edge-safe | not-claimed | integration | supported |
+| `@b4run/ag-ui/client` | edge-safe | not-claimed | integration | supported |
 | `@b4run/ag-ui/react` | node-only | not-claimed | application | supported |
 | `@b4run/ag-ui/react/styles.css` | n/a | n/a | integration | supported |
 
@@ -34,7 +41,7 @@ import { b4ActivityRenderers } from "@b4run/ag-ui/react"
 
 The adapter only translates protocol data, so it neither authenticates a caller nor makes client-supplied thread, run, state, tool, or context data authoritative.
 
-`@b4run/ag-ui/react` is the client entry. It ships CopilotKit renderers for B4.run's built-in orchestration activities. React and `@copilotkit/react-core` are optional peer dependencies, so a server that imports only the root or `/sse` entry installs neither. The entry is recorded as `node-only` because B4.run's edge guard requires an import graph free of unguarded Node globals, and React's JSX runtime reads `process.env.NODE_ENV`. It is meant for browser bundles, where your bundler substitutes that value.
+`@b4run/ag-ui/react` is the client entry. It ships CopilotKit renderers for B4.run's built-in orchestration activities. React and `@copilotkit/react-core` are optional peer dependencies, so a server that imports only the root or `/sse` entry installs neither. `@ag-ui/client` is the same kind of optional peer, needed only by `./client`. The entry is recorded as `node-only` because B4.run's edge guard requires an import graph free of unguarded Node globals, and React's JSX runtime reads `process.env.NODE_ENV`. It is meant for browser bundles, where your bundler substitutes that value.
 
 ## Public exports
 
@@ -66,6 +73,12 @@ The adapter only translates protocol data, so it neither authenticates a caller 
 | Export | Responsibility |
 |---|---|
 | `encodeAgUiSse` | Encode one AG-UI event as an SSE frame. |
+
+### `@b4run/ag-ui/client`
+
+| Export | Responsibility |
+|---|---|
+| `B4HttpAgent` | An `@ag-ui/client` `HttpAgent` whose `getCapabilities()` reads the route's [capabilities](/docs/ag-ui#capabilities) from `GET` on the same URL. |
 
 ### `@b4run/ag-ui/react`
 
@@ -212,6 +225,14 @@ export declare function toAguiEvents(
 ```ts api-contract="@b4run/ag-ui#./sse:encodeAgUiSse"
 export declare function encodeAgUiSse(event: BaseEvent, accept?: string): string
 ```
+
+```ts api-contract="@b4run/ag-ui#./client:B4HttpAgent"
+export declare class B4HttpAgent extends HttpAgent {
+  getCapabilities(): Promise<AgentCapabilities>
+}
+```
+
+`getCapabilities()` sends `GET` to the agent's `url` with its `headers` and `fetch`, and parses the answer with AG-UI's `AgentCapabilitiesSchema`. It throws on a non-2xx answer.
 
 #### Behavior contract `ag-ui.outbound.errors-as-events`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/ag-ui/test/outbound.test.ts","testNames":["upstream throw is emitted as RUN_ERROR, not thrown to the consumer"]}] */}

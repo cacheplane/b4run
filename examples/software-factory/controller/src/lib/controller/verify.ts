@@ -259,6 +259,12 @@ async function verifyCandidate(
     return
   }
 
+  // A draft-PR work order freezes where it publishes into the bundle the person approves. An
+  // intake that never fitted a target cannot reach `verifying`, so a null prefix is a fault:
+  // it throws into the backstop above and the phase is inconclusive.
+  const { delivery } = row
+  if (delivery.kind === "draft-pr" && delivery.pathPrefix === null)
+    throw new Error(`work order ${id} is a draft-PR delivery with no path prefix`)
   const bundle = freezeBundle({
     workOrderId: id,
     repositoryId: row.taskId,
@@ -273,6 +279,17 @@ async function verifyCandidate(
     pin: row.pin,
     taskDigest: row.taskDigest,
     oracleReceiptId: oracleReceiptIdFor(ctx.store.events(id), row.taskDigest),
+    ...(delivery.kind === "draft-pr"
+      ? {
+          delivery: {
+            repository: delivery.repository,
+            baseBranch: delivery.baseBranch,
+            branch: delivery.branch,
+            pathPrefix: delivery.pathPrefix as string,
+            issueStateAtCreate: delivery.issueStateAtCreate,
+          },
+        }
+      : {}),
   })
 
   ctx.store.transaction(() => {

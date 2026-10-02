@@ -1,3 +1,4 @@
+import type { OutboxStore } from "../delivery/outbox.js"
 import type { TransitionEvent } from "../domain/states.js"
 import type { WorkOrderRow } from "../domain/work-order.js"
 import type { CommandLog } from "../registry/commands.js"
@@ -14,6 +15,13 @@ import type { DrafterWorker, TargetWorker } from "./workers.js"
 /** What reconciliation and the run observer need from the factory. Kept narrow on purpose. */
 export interface ControllerContext {
   readonly store: WorkOrderStore
+  /** The draft-PR delivery outbox (rung 4): one intent per approved work order. */
+  readonly outbox: OutboxStore
+  /**
+   * Run (or join) the delivery worker for a `delivering` work order, tracked like a builder
+   * run. Resolves when the worker stops: delivered, blocked, or halted by a cancel or close.
+   */
+  startDelivery(id: string): Promise<void>
   readonly commands: CommandLog
   readonly evidence: EvidenceStore
   readonly artifacts: ArtifactStore

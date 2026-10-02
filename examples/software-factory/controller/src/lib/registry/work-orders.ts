@@ -8,6 +8,8 @@ import {
   FactoryEventSchema,
   type Origin,
   OriginSchema,
+  type RowDelivery,
+  RowDeliverySchema,
   type WorkOrderRow,
   WorkOrderRowSchema,
 } from "../domain/work-order.js"
@@ -25,7 +27,10 @@ export class StaleRevisionError extends Error {
 /**
  * Fields a command may change. Identity, limits, origin, pin and timestamps are fixed at
  * insert: `origin` and `pin` are what the work order is, not where it got to, and
- * `maxIntakeAttempts` and `maxCandidateAttempts` are the caps set at create.
+ * `maxIntakeAttempts` and `maxCandidateAttempts` are the caps set at create. `delivery` is
+ * fixed at insert too, all but one move: a draft-PR delivery's `pathPrefix` may go from null to
+ * a value once intake fits the draft to a target. Its kind, repository, base, branch and issue
+ * state are where the work order delivers, and `update` refuses any other change to them.
  */
 export type WorkOrderPatch = Partial<
   Pick<
@@ -45,6 +50,7 @@ export type WorkOrderPatch = Partial<
     | "taskDigest"
     | "intakeAttempts"
     | "candidateAttempts"
+    | "delivery"
   >
 >
 
@@ -81,6 +87,7 @@ export interface WorkOrderStore {
  * is the one row field with no entry here.
  */
 const COLUMNS: Readonly<Record<Exclude<keyof WorkOrderRow, "origin">, string>> = {
+  delivery: "delivery",
   id: "id",
   revision: "revision",
   state: "state",
@@ -136,6 +143,8 @@ function originFromSql(record: Record<string, unknown>): Origin {
 }
 
 function toSql(key: keyof typeof COLUMNS, value: unknown): SqlValue {
+  // The one object column: stored as JSON, validated on the way in and on the way out.
+  if (key === "delivery") return JSON.stringify(RowDeliverySchema.parse(value))
   if (value === null || value === undefined) return null
   if (typeof value === "number" || typeof value === "string") return value
   throw new TypeError(`Unsupported value for ${key}`)
@@ -146,8 +155,30 @@ function fromSql(record: Record<string, unknown>): WorkOrderRow {
   for (const [key, column] of Object.entries(COLUMNS) as [keyof typeof COLUMNS, string][]) {
     raw[key] = record[column] ?? null
   }
+  raw.delivery = JSON.parse(String(record.delivery))
   raw.origin = originFromSql(record)
   return WorkOrderRowSchema.parse(raw)
+}
+
+/**
+ * The one change a delivery may take after insert: a draft-PR `pathPrefix` filled from null.
+ * Restating the current delivery is allowed (it changes nothing); anything else throws.
+ */
+function assertDeliveryChange(id: string, current: RowDelivery, next: RowDelivery): void {
+  const same = (a: RowDelivery, b: RowDelivery): boolean =>
+    JSON.stringify(RowDeliverySchema.parse(a)) === JSON.stringify(RowDeliverySchema.parse(b))
+  if (same(current, next)) return
+  if (
+    current.kind === "draft-pr" &&
+    next.kind === "draft-pr" &&
+    current.pathPrefix === null &&
+    next.pathPrefix !== null &&
+    same({ ...next, pathPrefix: null }, current)
+  )
+    return
+  throw new Error(
+    `Work order ${id}'s delivery is fixed at create; only a draft-PR path prefix may be filled, once`,
+  )
 }
 
 /**
@@ -193,6 +224,10 @@ export function createWorkOrderStore(db: DatabaseSync): WorkOrderStore {
       return records.map(fromSql)
     },
     update(id, expectedRevision, patch, now) {
+      if (patch.delivery !== undefined) {
+        const current = get(id)
+        if (current) assertDeliveryChange(id, current.delivery, patch.delivery)
+      }
       const entries = Object.entries(patch) as [keyof WorkOrderPatch, unknown][]
       const assignments = entries.map(([key]) => `${COLUMNS[key]} = ?`)
       assignments.push("revision = revision + 1", "updated_at = ?")
@@ -268,27 +303,46 @@ export function createWorkOrderStore(db: DatabaseSync): WorkOrderStore {
     },
     recordDelivery(delivery) {
       DeliverySchema.parse(delivery)
+      const pr = delivery.pullRequest
       db.prepare(
-        "INSERT INTO deliveries (work_order_id, candidate_digest, receipt_path, observed_at) VALUES (?, ?, ?, ?)",
+        "INSERT INTO deliveries (work_order_id, candidate_digest, receipt_path, observed_at, kind, pr_number, pr_url, head_sha, tree_sha, base_sha, ahead_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       ).run(
         delivery.workOrderId,
         delivery.candidateDigest,
         delivery.receiptPath,
         delivery.observedAt,
+        pr ? "draft-pr" : "local",
+        pr?.number ?? null,
+        pr?.url ?? null,
+        pr?.headSha ?? null,
+        pr?.treeSha ?? null,
+        pr?.baseTip ?? null,
+        pr?.aheadBy ?? null,
       )
     },
     delivery(workOrderId) {
       const r = db.prepare("SELECT * FROM deliveries WHERE work_order_id = ?").get(workOrderId) as
-        | Record<string, string>
+        | Record<string, string | number | null>
         | undefined
-      return r
-        ? DeliverySchema.parse({
-            workOrderId: r.work_order_id,
-            candidateDigest: r.candidate_digest,
-            receiptPath: r.receipt_path,
-            observedAt: r.observed_at,
-          })
-        : null
+      if (!r) return null
+      return DeliverySchema.parse({
+        workOrderId: r.work_order_id,
+        candidateDigest: r.candidate_digest,
+        receiptPath: r.receipt_path,
+        observedAt: r.observed_at,
+        ...(r.kind === "draft-pr"
+          ? {
+              pullRequest: {
+                number: r.pr_number,
+                url: r.pr_url,
+                headSha: r.head_sha,
+                treeSha: r.tree_sha,
+                baseTip: r.base_sha,
+                aheadBy: r.ahead_by,
+              },
+            }
+          : {}),
+      })
     },
     transaction(fn) {
       if (open.depth > 0) {
