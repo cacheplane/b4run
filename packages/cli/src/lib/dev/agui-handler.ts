@@ -1154,7 +1154,9 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       if (!sawInterrupt && clientToolStore) {
         await voidSettledClientToolCalls(clientToolStore, checkpointer, threadId)
         // Opportunistic retention, throttled per store and never allowed to
-        // fail the turn (see pruneClientToolCalls).
+        // fail the turn (see pruneClientToolCalls). Awaited on the close path
+        // on purpose: at most one indexed DELETE an hour, and the integration
+        // test relies on it having run by the time the response ends.
         await pruneClientToolCalls(clientToolStore, clientToolRuntime, new Date())
       }
     }

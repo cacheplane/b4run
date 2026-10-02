@@ -150,11 +150,14 @@ export function __resetClientToolPruneThrottleForTests(): void {
 
 /**
  * Opportunistic retention for client tool call records, run by the AG-UI
- * handler once a turn has settled (the `recordEpisode` pattern). Global, not
- * per thread, so threads that never return are swept too. At most once per
+ * handler once a turn has settled (like `voidSettledClientToolCalls` in the
+ * AG-UI handler, never allowed to fail the turn). Global, not per thread, so
+ * threads that never return are swept too. At most once per
  * {@link CLIENT_TOOL_PRUNE_INTERVAL_MS} per store; a call inside the interval
- * returns `undefined` without touching the store. Never throws: a store
- * failure is warned about and the turn is unaffected.
+ * returns `undefined` without touching the store. The sweep time is recorded
+ * before the call, so a failed sweep is not retried until the interval elapses
+ * either, which bounds the warning to once an hour per store. Never throws: a
+ * store failure is warned about and the turn is unaffected.
  *
  * Returns the number of rows deleted, or `undefined` when nothing ran.
  */

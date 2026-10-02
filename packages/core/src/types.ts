@@ -282,9 +282,11 @@ export interface B4Config {
       /**
        * How long, in milliseconds, a settled client tool call record (answered
        * or voided) or an expired outstanding one is kept before the runtime
-       * deletes it. Default `604800000` (7 days). The effective window is never
-       * shorter than `clientToolTtlMs`. Must be a positive integer no greater
-       * than one year (`31536000000`); anything else fails the boot.
+       * deletes it. Default `604800000` (7 days). The runtime prunes at
+       * `now - max(clientToolRetentionMs, clientToolTtlMs)`, so a record is
+       * never deleted while its call could still be answered. Must be a
+       * positive integer no greater than one year (`31536000000`); anything
+       * else fails the boot.
        */
       readonly clientToolRetentionMs?: number
       /**
