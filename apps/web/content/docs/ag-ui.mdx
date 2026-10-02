@@ -291,7 +291,10 @@ answered, voided or expired longer ago than
 [`server.agui.clientToolRetentionMs`](/docs/configuration#serveragui) (7 days
 by default, never less than the TTL), at most once an hour per store.
 `b4 client-tools prune` does the same on demand. An outstanding, unexpired
-record is never deleted.
+record is never deleted. A call that was answered but whose thread never
+resumed is treated the same way once the window has passed: its record is
+gone, so a thread that returns after that closes the call with the abandoned
+result instead of the stored one.
 
 ### Error codes
 

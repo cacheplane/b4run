@@ -1,6 +1,6 @@
 # CLI Reference
 
-B4.run ships a single `b4` binary with fifteen commands: `add`, `build`, `check`, `dev`, `docs`, `eval`, `inspect`, `memory`, `routes`, `run`, `start`, `test`, `threads`, `typegen`, and `verify`. Most commands read `b4.config.ts` from the current working directory or from `--cwd <path>`. `b4 dev` always uses the current working directory.
+B4.run ships a single `b4` binary with sixteen commands: `add`, `build`, `check`, `client-tools`, `dev`, `docs`, `eval`, `inspect`, `memory`, `routes`, `run`, `start`, `test`, `threads`, `typegen`, and `verify`. Most commands read `b4.config.ts` from the current working directory or from `--cwd <path>`. `b4 dev` always uses the current working directory.
 
 ## Running the CLI
 
@@ -382,7 +382,8 @@ prints `pruned: <n>`, or says so when the app has no client tool store.
 Flags:
 - `--retention <ms>`: retention window for this pass, a positive integer of at
   most one year.
-- `--cwd <path>`: operate on a different app root.
+- `--cwd <path>`: operate on a different app root. Give it before the
+  subcommand (`b4 client-tools --cwd app prune`), as with `b4 memory`.
 
 ## `b4 threads`
 
