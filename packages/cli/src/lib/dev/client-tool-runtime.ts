@@ -14,6 +14,8 @@ export const DEFAULT_CLIENT_TOOL_TTL_MS = 600_000
  * legitimately waits longer.
  */
 export const MAX_CLIENT_TOOL_TTL_MS = 365 * 24 * 60 * 60 * 1000
+/** How long a settled or expired client tool call record is kept by default: 7 days. */
+export const DEFAULT_CLIENT_TOOL_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 /**
  * The largest client tool result, in UTF-8 bytes, the endpoint will record.
  * Every byte of it becomes prompt content on the resumed turn, so it is
@@ -35,6 +37,8 @@ export interface ClientToolRuntime {
   /** `undefined` when none resolved: client tool runs are then refused with a 503. */
   readonly store?: ClientToolCallStore
   readonly ttlMs: number
+  /** `server.agui.clientToolRetentionMs`, resolved. See {@link clientToolPruneCutoff}. */
+  readonly retentionMs: number
 }
 
 /** A `server.agui` client-tool setting that cannot be honored as written. */
@@ -52,7 +56,23 @@ export class ClientToolConfigError extends Error {
  * would leave a config that reads as configured while the server ignores it.
  */
 export function resolveClientToolTtlMs(value: unknown): number {
-  if (value === undefined) return DEFAULT_CLIENT_TOOL_TTL_MS
+  return resolvePositiveMs("server.agui.clientToolTtlMs", value, DEFAULT_CLIENT_TOOL_TTL_MS)
+}
+
+/**
+ * `server.agui.clientToolRetentionMs`, validated the same way as the TTL: a
+ * mistyped value fails the boot rather than reading as configured.
+ */
+export function resolveClientToolRetentionMs(value: unknown): number {
+  return resolvePositiveMs(
+    "server.agui.clientToolRetentionMs",
+    value,
+    DEFAULT_CLIENT_TOOL_RETENTION_MS,
+  )
+}
+
+function resolvePositiveMs(key: string, value: unknown, fallback: number): number {
+  if (value === undefined) return fallback
   if (
     typeof value !== "number" ||
     !Number.isSafeInteger(value) ||
@@ -60,10 +80,22 @@ export function resolveClientToolTtlMs(value: unknown): number {
     value > MAX_CLIENT_TOOL_TTL_MS
   ) {
     throw new ClientToolConfigError(
-      `server.agui.clientToolTtlMs must be a positive integer number of milliseconds no greater than ${MAX_CLIENT_TOOL_TTL_MS}; received ${describe(value)}.`,
+      `${key} must be a positive integer number of milliseconds no greater than ${MAX_CLIENT_TOOL_TTL_MS}; received ${describe(value)}.`,
     )
   }
   return value
+}
+
+/**
+ * The `before` a prune uses at `now`: `now - max(retentionMs, ttlMs)`. The
+ * TTL floor means a record is never deleted while the call it belongs to
+ * could still be answered.
+ */
+export function clientToolPruneCutoff(
+  now: Date,
+  runtime: Pick<ClientToolRuntime, "ttlMs" | "retentionMs">,
+): string {
+  return new Date(now.getTime() - Math.max(runtime.retentionMs, runtime.ttlMs)).toISOString()
 }
 
 const STORE_METHODS = [
@@ -73,6 +105,7 @@ const STORE_METHODS = [
   "listOutstanding",
   "answer",
   "voidOutstanding",
+  "prune",
 ] as const
 
 /** `server.agui.clientToolStore`, shape-checked: absent, or an object with every store method. */

@@ -15,9 +15,12 @@ import { __voidSettledClientToolCallsForTests } from "../src/lib/dev/agui-handle
 import {
   AGUI_BODY_MAX_BYTES,
   ClientToolConfigError,
+  clientToolPruneCutoff,
+  DEFAULT_CLIENT_TOOL_RETENTION_MS,
   DEFAULT_CLIENT_TOOL_TTL_MS,
   MAX_CLIENT_TOOL_RESULT,
   MAX_CLIENT_TOOL_TTL_MS,
+  resolveClientToolRetentionMs,
   resolveClientToolTtlMs,
   validateClientToolStore,
 } from "../src/lib/dev/client-tool-runtime.ts"
@@ -1447,6 +1450,36 @@ describe("client tool boot settings and request bounds", () => {
       expect(() => resolveClientToolTtlMs(bad)).toThrow(ClientToolConfigError)
     }
     expect(() => resolveClientToolTtlMs(MAX_CLIENT_TOOL_TTL_MS + 1)).toThrow(ClientToolConfigError)
+  })
+
+  it("clientToolRetentionMs defaults to 7 days, and a mistyped value fails the boot", () => {
+    expect(resolveClientToolRetentionMs(undefined)).toBe(DEFAULT_CLIENT_TOOL_RETENTION_MS)
+    expect(DEFAULT_CLIENT_TOOL_RETENTION_MS).toBe(7 * 24 * 60 * 60 * 1000)
+    expect(resolveClientToolRetentionMs(1)).toBe(1)
+    expect(resolveClientToolRetentionMs(MAX_CLIENT_TOOL_TTL_MS)).toBe(MAX_CLIENT_TOOL_TTL_MS)
+    for (const bad of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "604800000", null]) {
+      expect(() => resolveClientToolRetentionMs(bad)).toThrow(ClientToolConfigError)
+    }
+    expect(() => resolveClientToolRetentionMs(MAX_CLIENT_TOOL_TTL_MS + 1)).toThrow(
+      ClientToolConfigError,
+    )
+  })
+
+  it("the prune cutoff is now minus the larger of retention and TTL", () => {
+    const now = new Date("2026-10-01T12:00:00.000Z")
+    expect(clientToolPruneCutoff(now, { ttlMs: 600_000, retentionMs: 3_600_000 })).toBe(
+      "2026-10-01T11:00:00.000Z",
+    )
+    // A TTL longer than the retention wins: a row is never pruned while its call could still live.
+    expect(clientToolPruneCutoff(now, { ttlMs: 7_200_000, retentionMs: 3_600_000 })).toBe(
+      "2026-10-01T10:00:00.000Z",
+    )
+  })
+
+  it("a configured store must also implement prune", () => {
+    const store = createMemoryClientToolCallStore()
+    const { prune: _omitted, ...withoutPrune } = store
+    expect(() => validateClientToolStore(withoutPrune)).toThrow(/missing prune/)
   })
 
   it("clientToolStore must be a store", () => {
