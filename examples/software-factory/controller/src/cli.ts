@@ -9,7 +9,12 @@ import { type ControllerClient, ControllerHttpError, createControllerClient } fr
 import { generatedTasksDirFor } from "./lib/config.js"
 import { budgetShortfallFor } from "./lib/controller/budget.js"
 import { dispatchPreparing, imageWaitBoundMs } from "./lib/controller/images.js"
-import { blockedNext, TERMINAL_STATES, type WorkOrderState } from "./lib/domain/states.js"
+import {
+  blockedNext,
+  REDELIVERABLE_BLOCKED_REASONS,
+  TERMINAL_STATES,
+  type WorkOrderState,
+} from "./lib/domain/states.js"
 import {
   COMMIT_PATTERN,
   DIGEST_PATTERN,
@@ -33,6 +38,7 @@ import {
   chooseWorkOrder,
   nextStep,
   RUN_WAITING_ON_A_PERSON,
+  runAgainArgs,
 } from "./lib/operator/run-steps.js"
 import { heldLockController, lineWriter, realUpDeps, stopOnSignals, up } from "./lib/operator/up.js"
 import { openRegistryReader } from "./lib/registry/reader.js"
@@ -993,6 +999,18 @@ async function redeliver(
     return refuse(
       `Nothing to redeliver: ${id} is ${row.state}${row.blockedReason ? ` (${row.blockedReason})` : ""}`,
     )
+  // The controller refuses these too; refused here first, so nobody types a digest's prefix
+  // for a refusal (the same reasons `run` names no redeliver for).
+  if (row.blockedReason === null || !REDELIVERABLE_BLOCKED_REASONS.has(row.blockedReason)) {
+    print({
+      ok: false,
+      state: row.state,
+      message: `Cannot redeliver a work order blocked by ${row.blockedReason ?? "no reason recorded"}: waiting does not heal it; cancel it and run the issue again with --new`,
+      next: [`pnpm factory cancel ${id}`, `pnpm factory run ${runAgainArgs(row)} --new`],
+      row,
+    })
+    return 1
+  }
   const { intent } = outbox
   process.stderr.write(
     [
