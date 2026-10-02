@@ -311,7 +311,8 @@ describe("up's own subprocesses", () => {
         else if (source[end] === ")" && --depth === 0) break
       }
       expect(source.slice(call.index, end), call[0]).toMatch(
-        /env: (?:ownSubprocessEnv\(\)|gitEnv\b)/,
+        // `own`: realUpDeps' ownSubprocessEnv, given the config's secret variables.
+        /env: (?:ownSubprocessEnv\(\)|gitEnv\b|own\b)/,
       )
     }
   })

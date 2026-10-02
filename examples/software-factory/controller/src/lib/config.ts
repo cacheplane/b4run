@@ -1,5 +1,6 @@
 import { join } from "node:path"
 import { z } from "zod"
+import { MAX_KEY_PATH_LENGTH, notAKeyPath } from "./delivery/github/jwt.js"
 import { BRANCH_PATTERN, REPOSITORY_PATTERN } from "./domain/work-order.js"
 import { DEFAULT_IMAGE_BUILD_TIMEOUT_MS, DEFAULT_MAX_IMAGE_BUILDS } from "./targets/images.js"
 
@@ -72,7 +73,14 @@ const EnvSchema = z.object({
    * key itself; `factory up` passes these to the controller alone.
    */
   FACTORY_GITHUB_APP_ID: positiveInt("FACTORY_GITHUB_APP_ID"),
-  FACTORY_GITHUB_APP_PRIVATE_KEY_FILE: z.string().min(1).optional(),
+  // Refused by name, never quoted: a key pasted here would be printed by every message naming it.
+  FACTORY_GITHUB_APP_PRIVATE_KEY_FILE: z
+    .string()
+    .min(1)
+    .refine((value) => !notAKeyPath(value), {
+      message: `FACTORY_GITHUB_APP_PRIVATE_KEY_FILE must be the key file's path, not the key (it holds a PEM header or a line break, or is over ${MAX_KEY_PATH_LENGTH} characters)`,
+    })
+    .optional(),
   FACTORY_DELIVERY_REPOSITORY: z
     .string()
     .regex(REPOSITORY_PATTERN, { message: "FACTORY_DELIVERY_REPOSITORY must be owner/name" })

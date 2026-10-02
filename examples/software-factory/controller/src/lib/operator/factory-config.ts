@@ -3,6 +3,7 @@ import { homedir } from "node:os"
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
 import { pathToFileURL } from "node:url"
 import { z } from "zod"
+import { MAX_KEY_PATH_LENGTH, notAKeyPath } from "../delivery/github/jwt.js"
 import { BRANCH_PATTERN, REPOSITORY_PATTERN } from "../domain/work-order.js"
 
 /**
@@ -65,7 +66,16 @@ const App = z.object({ port: Port }).strict()
 const AppCredential = z
   .object({
     id: z.number().int().positive(),
-    privateKeyFile: z.string().min(1).optional(),
+    // Refused by name, never quoted: a key pasted here would be printed by every message
+    // that names the path (review of Task 20).
+    privateKeyFile: z
+      .string()
+      .min(1)
+      .refine(
+        (value) => !notAKeyPath(value),
+        `must be the key file's path, not the key (it holds a PEM header or a line break, or is over ${MAX_KEY_PATH_LENGTH} characters)`,
+      )
+      .optional(),
     privateKeyEnv: z
       .string()
       .regex(/^[A-Z_][A-Z0-9_]*$/, "must be an environment variable's name")

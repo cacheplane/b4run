@@ -5,6 +5,7 @@ import {
   chmodSync,
   existsSync,
   linkSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   renameSync,
@@ -36,23 +37,43 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 export const UP = `${"up".padEnd(10)} │`
 
 /**
- * Variables that hold a secret only this run knows to be one: the one `delivery.draftPr.app.
- * privateKeyEnv` names. Registered by the preflight that reads it; dropped from every child.
+ * Rung 4's delivery variables and every other `FACTORY_GITHUB_` one (review of Task 20: the
+ * retired `FACTORY_GITHUB_TOKEN` too): the controller is given its four, never a worker or a tool.
  */
-const SECRET_VARIABLES = new Set<string>()
+const isDeliveryVariable = (name: string) => /^FACTORY_(?:GITHUB_|DELIVERY_)/.test(name)
 
-/** Rung 4's delivery variables: the controller's alone, never a worker's or a tool's. */
-const isDeliveryVariable = (name: string) => /^FACTORY_(?:GITHUB_APP_|DELIVERY_)/.test(name)
+/** Retired GitHub credentials up refuses to start beside: neither is read, and both are secrets. */
+const RETIRED_GITHUB_VARIABLES = ["FACTORY_GITHUB_TOKEN", "FACTORY_GITHUB_APP_PRIVATE_KEY"] as const
 
-/** The environment of up's own subprocesses (git, ps, docker): no secret, which none needs. */
+/** A value holding a PEM private key, whatever variable holds it. */
+const holdsPrivateKey = (value: string | undefined) =>
+  value !== undefined && /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/.test(value)
+
+/**
+ * The variables `config` says hold a secret: the one `delivery.draftPr.app.privateKeyEnv` names.
+ * Derived from the config, never registered at run time (review of Task 20): up's first git and
+ * docker run before the preflight that reads the key.
+ */
+export function secretVariablesOf(config: ResolvedFactoryConfig): readonly string[] {
+  const key = config.delivery?.key
+  return key !== undefined && "env" in key ? [key.env] : []
+}
+
+/**
+ * The environment of up's own subprocesses (git, ps, docker): no secret, which none needs. Drops
+ * the variables `secretNames` names, and any variable holding a PEM private key, so a call that
+ * has no config to hand (ps, judging a lock) still never passes the app's key on.
+ */
 export function ownSubprocessEnv(
   env: Readonly<Record<string, string | undefined>> = process.env,
+  secretNames: readonly string[] = [],
 ): Record<string, string | undefined> {
   const own: Record<string, string | undefined> = { ...env }
   delete own.OPENAI_API_KEY
   delete own.FACTORY_WORKER_TOKEN
+  for (const name of secretNames) delete own[name]
   for (const name of Object.keys(own))
-    if (isDeliveryVariable(name) || SECRET_VARIABLES.has(name)) delete own[name]
+    if (isDeliveryVariable(name) || holdsPrivateKey(own[name])) delete own[name]
   return own
 }
 
@@ -142,10 +163,12 @@ function dotenvValue(raw: string, path: string): string {
  * linked worktree has none of its own). Never `FACTORY_REPO_ROOT`, which names the target
  * repository, possibly a copy.
  */
-export function dotenvCandidates(): string[] {
+export function dotenvCandidates(
+  own: Readonly<Record<string, string | undefined>> = ownSubprocessEnv(),
+): string[] {
   // Not GIT_DIR and friends: a stray export would answer for another repository.
   const gitEnv = Object.fromEntries(
-    Object.entries(ownSubprocessEnv()).filter(([name]) => !name.startsWith("GIT_")),
+    Object.entries(own).filter(([name]) => !name.startsWith("GIT_")),
   )
   const git = (...args: string[]) =>
     execFileSync("git", ["-C", EXAMPLE_ROOT, ...args], {
@@ -284,6 +307,11 @@ export async function preflight(
   deps: UpDeps,
 ): Promise<{ readonly problems: readonly string[]; readonly secrets?: UpSecrets }> {
   const problems = [...ownedVariableConflicts(deps.env, config)]
+  for (const name of RETIRED_GITHUB_VARIABLES)
+    if (deps.env[name] !== undefined)
+      problems.push(
+        `${name} is set: delivery uses a GitHub App named in ${config.path} (delivery.draftPr.app), and nothing reads ${name}; unset it`,
+      )
   if (deps.env.B4_PERMISSIONS_MODE !== undefined)
     problems.push(
       "B4_PERMISSIONS_MODE is set: it would override the workers' non-interactive permissions, and a worker that parks on a prompt blocks its work order; unset it",
@@ -365,8 +393,7 @@ export async function preflight(
 
 /**
  * The app's private key, read once and checked to be a PEM private key, or undefined with the
- * problem added (never the key in a message). The variable form is registered so no child of
- * up inherits it.
+ * problem added (never the key in a message).
  */
 function appKeyFor(
   config: ResolvedFactoryConfig,
@@ -389,7 +416,6 @@ function appKeyFor(
       return undefined
     }
   } else {
-    SECRET_VARIABLES.add(delivery.key.env)
     pem = env[delivery.key.env]
     if (pem === undefined || pem === "") {
       problems.push(
@@ -827,8 +853,51 @@ export function redactor(secrets: UpSecrets): (line: string) => string {
   )
     .filter(([secret]) => secret.length > 0)
     .sort((a, b) => b[0].length - a[0].length)
-  return (line) =>
-    pairs.reduce((redacted, [secret, name]) => redacted.split(secret).join(name), line)
+  const holdsKeyPiece = keyPieces(secrets.githubAppKey)
+  return (line) => {
+    const redacted = pairs.reduce((text, [secret, name]) => text.split(secret).join(name), line)
+    // Whatever the exact replacement missed (review of Task 20): the body re-wrapped at another
+    // width, on one line, cut short, the whole PEM base64-encoded, or its DER in hex. The line
+    // is withheld whole: which part of it is key cannot be told reliably.
+    return holdsKeyPiece(redacted)
+      ? "[line withheld: it held part of the GitHub App key]"
+      : redacted
+  }
+}
+
+/** The length of the shortest run of the key's encodings that marks a line as holding the key. */
+const KEY_PIECE = 24
+
+/**
+ * A test for whether a line holds any {@link KEY_PIECE}-character run of the key's body
+ * (base64, whitespace and escaped line breaks removed), of the whole PEM base64-encoded, or of
+ * its DER in hex (either case). Every run is kept in a set, so each line costs one lookup per
+ * offset. Without a key, nothing matches.
+ */
+function keyPieces(pem: string | undefined): (line: string) => boolean {
+  if (pem === undefined || pem === "") return () => false
+  const body = pem
+    .split(/\r?\n/)
+    .filter((line) => !line.startsWith("-----"))
+    .join("")
+    .replace(/\s/g, "")
+  const runsOf = (text: string, into: Set<string>) => {
+    for (let at = 0; at + KEY_PIECE <= text.length; at++) into.add(text.slice(at, at + KEY_PIECE))
+  }
+  const base64 = new Set<string>()
+  runsOf(body, base64)
+  runsOf(Buffer.from(pem).toString("base64"), base64)
+  const hex = new Set<string>()
+  runsOf(Buffer.from(body, "base64").toString("hex"), hex)
+  const anyRun = (text: string, runs: Set<string>) => {
+    for (let at = 0; at + KEY_PIECE <= text.length; at++)
+      if (runs.has(text.slice(at, at + KEY_PIECE))) return true
+    return false
+  }
+  return (line) => {
+    const flat = line.replace(/\\[nr]|\s/g, "")
+    return anyRun(flat, base64) || anyRun(flat.toLowerCase(), hex)
+  }
 }
 
 /**
@@ -1106,6 +1175,73 @@ function releaseLock(lock: UpLock, say: (line: string) => void): boolean {
   }
 }
 
+/**
+ * What is wrong with `<state>/run`, where up keeps the controller's key copy (review of Task 20):
+ * absent is fine; otherwise it must be a real directory (not a link, which would send the copy
+ * and the leftover removal elsewhere) owned by whoever runs up.
+ */
+function runDirectoryProblem(stateDir: string): string | undefined {
+  const dir = dirname(runKeyFile(stateDir))
+  let stat: ReturnType<typeof lstatSync>
+  try {
+    stat = lstatSync(dir)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+    return `cannot inspect ${dir} (${(error as NodeJS.ErrnoException).code})`
+  }
+  if (stat.isSymbolicLink() || !stat.isDirectory())
+    return `${dir} is not a directory up made (it is a link or a file); remove it, then run up again`
+  if (process.getuid !== undefined && stat.uid !== process.getuid())
+    return `${dir} is not owned by the user running up; remove it, then run up again`
+  return undefined
+}
+
+/**
+ * Removes a key copy a crashed up left behind, or says why not: the run directory is not up's,
+ * or the leftover is a directory. A link there is removed itself, never what it points at.
+ */
+function removeLeftoverKey(stateDir: string): string | undefined {
+  const problem = runDirectoryProblem(stateDir)
+  if (problem !== undefined) return problem
+  const file = runKeyFile(stateDir)
+  let stat: ReturnType<typeof lstatSync>
+  try {
+    stat = lstatSync(file)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+    throw error
+  }
+  if (stat.isDirectory())
+    return `${file} is a directory where up keeps the controller's key copy; remove it, then run up again`
+  rmSync(file, { force: true })
+  return undefined
+}
+
+/**
+ * Writes the controller's copy of the key to {@link runKeyFile}, private, or says why not
+ * (never the key). Exclusive (review of Task 20): never through a link at that name, never over a
+ * file put there since the leftover was removed; a copy half-written is removed again.
+ */
+export function writeRunKey(stateDir: string, pem: string): string | undefined {
+  const keyFile = runKeyFile(stateDir)
+  let wrote = false
+  try {
+    mkdirSync(dirname(keyFile), { recursive: true, mode: 0o700 })
+    // Again after creating it: the directory written into must be up's own, not a link.
+    const problem = runDirectoryProblem(stateDir)
+    if (problem !== undefined) return problem
+    chmodSync(dirname(keyFile), 0o700)
+    writeFileSync(keyFile, pem, { mode: 0o600, flag: "wx" })
+    wrote = true
+    chmodSync(keyFile, 0o600)
+    return undefined
+  } catch (error) {
+    // Only a file this call wrote: one that was there (EEXIST) is not up's to remove.
+    if (wrote) rmSync(keyFile, { force: true })
+    return `cannot write the controller's key file (${(error as NodeJS.ErrnoException).code})`
+  }
+}
+
 /** Bound on the reconcile at boot (review I4): a controller that never answers must not hold up. */
 const RECONCILE_TIMEOUT_MS = 120_000
 
@@ -1156,8 +1292,19 @@ export async function up(
     deps.out(line)
     appendLog(upLog, `${line}\n`)
   }
-  // A key file a crashed up left behind goes first, whatever this start's form is.
-  rmSync(runKeyFile(config.stateDir), { force: true })
+  // A key file a crashed up left behind goes first, whatever this start's form is; a run
+  // directory or leftover that is not what up made is refused, and the locks released.
+  let leftover: string | undefined
+  try {
+    leftover = removeLeftoverKey(config.stateDir)
+  } catch (error) {
+    leftover = `cannot remove ${runKeyFile(config.stateDir)} (${(error as NodeJS.ErrnoException).code ?? message(error)})`
+  }
+  if (leftover !== undefined) {
+    say(`${UP} refused: ${leftover}`)
+    releaseLock(lock, say)
+    return 1
+  }
   // The variable form of the app's key becomes a private file for the controller (spec §8.2):
   // the controller is given a path, never the key in its environment. Removed on every stop.
   // Under the state directory on purpose, unlike the operator's own key file (which
@@ -1169,20 +1316,14 @@ export async function up(
     secrets.githubAppKey !== undefined
       ? runKeyFile(config.stateDir)
       : undefined
-  if (keyFile !== undefined)
-    try {
-      mkdirSync(dirname(keyFile), { recursive: true, mode: 0o700 })
-      chmodSync(dirname(keyFile), 0o700)
-      writeFileSync(keyFile, secrets.githubAppKey as string, { mode: 0o600, flag: "w" })
-      chmodSync(keyFile, 0o600)
-    } catch (error) {
-      say(
-        `${UP} refused: cannot write the controller's key file (${(error as NodeJS.ErrnoException).code})`,
-      )
-      rmSync(keyFile, { force: true })
+  if (keyFile !== undefined) {
+    const refusal = writeRunKey(config.stateDir, secrets.githubAppKey as string)
+    if (refusal !== undefined) {
+      say(`${UP} refused: ${refusal}`)
       releaseLock(lock, say)
       return 1
     }
+  }
   const running = new Map<AppName, Running>()
   // Until stop aborts (0) or something fails (1); the stop below runs after either.
   const supervise = async (): Promise<number> => {
@@ -1242,20 +1383,25 @@ export async function up(
     return 1
   }
   let code: number
+  let clean: boolean
   try {
-    code = await supervise()
-  } catch (error) {
-    say(`${UP} ${message(error)}`)
-    code = 1
+    try {
+      code = await supervise()
+    } catch (error) {
+      say(`${UP} ${message(error)}`)
+      code = 1
+    }
+    if (running.size > 0) {
+      const active = activeWorkOrders(config.stateDir)
+      say(
+        `${UP} stopping: the controller, then the workers.${active.length > 0 ? ` In flight, reconciled at the next up (a turn cut short can spend an attempt): ${active.join(", ")}` : " No work order is in flight."}`,
+      )
+    }
+    clean = await stopAll(running, deps, force, say)
+  } finally {
+    // Whatever stopping threw (review of Task 20): the key's copy never outlives up.
+    if (keyFile !== undefined) rmSync(keyFile, { force: true })
   }
-  if (running.size > 0) {
-    const active = activeWorkOrders(config.stateDir)
-    say(
-      `${UP} stopping: the controller, then the workers.${active.length > 0 ? ` In flight, reconciled at the next up (a turn cut short can spend an attempt): ${active.join(", ")}` : " No work order is in flight."}`,
-    )
-  }
-  const clean = await stopAll(running, deps, force, say)
-  if (keyFile !== undefined) rmSync(keyFile, { force: true })
   // A survivor keeps the locks, so the next up names it instead of starting beside it. Whether
   // each exited, never pidAlive of a pid it may not have (review I1).
   if ([...running.values()].every((r) => r.hasExited) && !releaseLock(lock, say)) code = 1
@@ -1324,22 +1470,27 @@ export function drafterImageReference(env: Readonly<Record<string, string | unde
   return match[1]
 }
 
-export function realUpDeps(out: (line: string) => void): UpDeps {
+/**
+ * `config` first (review of Task 20): the variable holding the app's key is known from it before
+ * up's first git or docker runs, and none of them inherits it.
+ */
+export function realUpDeps(out: (line: string) => void, config: ResolvedFactoryConfig): UpDeps {
+  const own = ownSubprocessEnv(process.env, secretVariablesOf(config))
   return {
     env: process.env,
-    dotenvPaths: dotenvCandidates(),
+    dotenvPaths: dotenvCandidates(own),
     checkoutLock: join(EXAMPLE_ROOT, ".up.lock"),
     docker: {
       info: async () => {
         await run("docker", ["info", "--format", "{{.ServerVersion}}"], {
           timeout: 15_000,
-          env: ownSubprocessEnv(),
+          env: own,
         })
       },
       imagePresent: (reference) =>
         run("docker", ["image", "inspect", "--format", "{{.Id}}", "--", reference], {
           timeout: 15_000,
-          env: ownSubprocessEnv(),
+          env: own,
         }).then(
           () => true,
           () => false,

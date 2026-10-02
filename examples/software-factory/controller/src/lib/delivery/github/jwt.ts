@@ -7,16 +7,35 @@ import { closeSync, fstatSync, openSync, readFileSync } from "node:fs"
  * with `node:crypto`; no dependency.
  */
 
+/** The longest key path accepted: a longer one is not a path someone typed. */
+export const MAX_KEY_PATH_LENGTH = 1024
+
+/**
+ * Whether a value given as the key's path is (or may be) the key itself: a PEM header, a line
+ * break, or longer than any path. Such a value is refused by name and never quoted, since every
+ * message that names the path would otherwise print the key.
+ */
+export function notAKeyPath(value: string): boolean {
+  return value.includes("-----BEGIN") || /[\r\n]/.test(value) || value.length > MAX_KEY_PATH_LENGTH
+}
+
 /**
  * Read the app's private key: a regular file, private to its owner, an RSA key, never echoed.
  * The descriptor opened is the one checked and read, so the file cannot be swapped between.
  */
 export function loadAppPrivateKey(path: string): KeyObject {
+  if (notAKeyPath(path))
+    throw new Error(
+      `the GitHub App key's path is not a path (it holds a PEM header or a line break, or is over ${MAX_KEY_PATH_LENGTH} characters): name the key's file, never the key`,
+    )
   let fd: number
   try {
     fd = openSync(path, "r")
   } catch (error) {
-    throw new Error(`the GitHub App key ${path} cannot be used: ${(error as Error).message}`)
+    // The code only: a read error's message repeats the path, and nothing more is needed.
+    throw new Error(
+      `the GitHub App key ${path} cannot be used (${(error as NodeJS.ErrnoException).code})`,
+    )
   }
   try {
     const stat = fstatSync(fd)

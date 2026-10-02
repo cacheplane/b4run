@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs"
 import { type AddressInfo, createServer } from "node:net"
@@ -20,12 +21,15 @@ import {
 } from "../src/lib/operator/factory-config.ts"
 import {
   appProcesses,
+  commandOf,
   ownSubprocessEnv,
   preflight,
+  realUpDeps,
   redactor,
   runKeyFile,
   type UpDeps,
   up,
+  writeRunKey,
 } from "../src/lib/operator/up.ts"
 import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 
@@ -374,4 +378,216 @@ describe("up runs the controller with the app's key, and no worker sees it", () 
       rmSync(keyDir, { recursive: true, force: true })
     }
   }, 30_000)
+
+  it("M1: refuses a run directory that is a link, writing the key nowhere, and releases its locks", async () => {
+    dir = mkdtempSync(join(tmpdir(), "up-delivery-"))
+    const elsewhere = join(dir, "elsewhere")
+    mkdirSync(elsewhere, { mode: 0o755 })
+    mkdirSync(join(dir, "state"))
+    symlinkSync(elsewhere, join(dir, "state", "run"))
+    // A file the link would otherwise have had up remove as its "leftover".
+    writeFileSync(join(elsewhere, "github-app.pem"), "someone else's", { mode: 0o600 })
+    const { lines, stop, done } = await deliveringUp(
+      { id: 7, privateKeyEnv: "B4_FACTORY_APP_KEY" },
+      { B4_FACTORY_APP_KEY: PEM },
+    )
+    stop.abort()
+    expect(await done).toBe(1)
+    expect(lines.some((l) => l.includes("refused:") && l.includes("run"))).toBe(true)
+    expect(readFileSync(join(elsewhere, "github-app.pem"), "utf8") === "someone else's").toBe(true)
+    expect(existsSync(join(dir, "state", "up.lock"))).toBe(false)
+    expect(existsSync(join(dir, ".up.lock"))).toBe(false)
+  }, 30_000)
+
+  it("M4: refuses a leftover that is not a file, and releases its locks", async () => {
+    dir = mkdtempSync(join(tmpdir(), "up-delivery-"))
+    mkdirSync(runKeyFile(join(dir, "state")), { recursive: true })
+    const { lines, stop, done } = await deliveringUp(
+      { id: 7, privateKeyEnv: "B4_FACTORY_APP_KEY" },
+      { B4_FACTORY_APP_KEY: PEM },
+    )
+    stop.abort()
+    expect(await done).toBe(1)
+    expect(
+      lines.some((l) => l.includes("refused:") && l.includes("github-app.pem is a directory")),
+    ).toBe(true)
+    expect(existsSync(join(dir, "state", "up.lock"))).toBe(false)
+    expect(existsSync(join(dir, ".up.lock"))).toBe(false)
+  }, 30_000)
+})
+
+describe("review of Tasks 19-20: up's own processes, pasted keys, the run copy", () => {
+  /** A variable no other test registers, holding a generated key. */
+  const KEY_VAR = "B4_REVIEW_I1_APP_KEY"
+  const envKeyConfig = () =>
+    parseFactoryConfig(draftPr({ id: 7, privateKeyEnv: KEY_VAR }), CONFIG_PATH)
+
+  it("I1: the real git, docker and ps up runs never see the key's variable, before any preflight", async () => {
+    // A key, then a value no shape test would recognise: the config's name alone must drop it
+    // from git and docker. ps judges locks with no config in reach, so its guard is the value's
+    // shape: a value that is not a PEM key is not a key the controller could use either.
+    await ownProcessesSee(PEM, ["git", "docker", "ps"])
+    await ownProcessesSee("a-secret-of-no-recognisable-shape", ["git", "docker"])
+  })
+
+  async function ownProcessesSee(value: string, guarded: readonly string[]): Promise<void> {
+    if (dir) rmSync(dir, { recursive: true, force: true })
+    dir = mkdtempSync(join(tmpdir(), "up-own-env-"))
+    const bin = join(dir, "bin")
+    mkdirSync(bin)
+    const seen = join(dir, "seen.log")
+    // Each fake records only whether the variable was present: never its value.
+    for (const tool of ["git", "docker", "ps"])
+      writeFileSync(
+        join(bin, tool),
+        `#!/bin/sh\nif [ -n "\${${KEY_VAR}+x}" ]; then echo "${tool} present" >> "${seen}"; else echo "${tool} absent" >> "${seen}"; fi\ncase "$1" in -C) echo /tmp/nowhere;; esac\nexit 0\n`,
+        { mode: 0o755 },
+      )
+    const saved = { PATH: process.env.PATH, key: process.env[KEY_VAR] }
+    process.env.PATH = `${bin}:${saved.PATH ?? ""}`
+    process.env[KEY_VAR] = value
+    try {
+      const deps = realUpDeps(() => {}, envKeyConfig())
+      await deps.docker.info()
+      await deps.docker.imagePresent("img")
+      commandOf(process.pid)
+    } finally {
+      process.env.PATH = saved.PATH
+      if (saved.key === undefined) delete process.env[KEY_VAR]
+      else process.env[KEY_VAR] = saved.key
+    }
+    const lines = readFileSync(seen, "utf8").trim().split("\n")
+    expect(lines.filter((l) => l.startsWith("git ")).length).toBe(2)
+    expect(lines.filter((l) => l.startsWith("docker ")).length).toBe(2)
+    expect(lines.filter((l) => l.startsWith("ps ")).length).toBe(1)
+    expect(
+      lines.filter((l) => l.endsWith(" present") && guarded.includes(l.split(" ")[0] as string)),
+    ).toEqual([])
+  }
+
+  it("M1: writes the key's copy exclusively, never through a link left at its name", () => {
+    dir = mkdtempSync(join(tmpdir(), "up-run-key-"))
+    const state = join(dir, "state")
+    mkdirSync(join(state, "run"), { recursive: true, mode: 0o700 })
+    const elsewhere = join(dir, "elsewhere.pem")
+    writeFileSync(elsewhere, "someone else's", { mode: 0o644 })
+    symlinkSync(elsewhere, runKeyFile(state))
+    const refusal = writeRunKey(state, PEM)
+    expect(refusal?.includes("EEXIST")).toBe(true)
+    expect(readFileSync(elsewhere, "utf8") === "someone else's").toBe(true)
+    rmSync(runKeyFile(state))
+    expect(writeRunKey(state, PEM)).toBeUndefined()
+    expect(readFileSync(runKeyFile(state), "utf8").includes("PRIVATE KEY-----")).toBe(true)
+  })
+
+  it("I2: a key pasted where its file's path belongs is refused by name, never quoted", () => {
+    const body = PEM.split("\n")[2] as string
+    const oneLine = PEM.split("\n")
+      .filter((l) => l !== "" && !l.startsWith("-----"))
+      .join("")
+    for (const pasted of [PEM, oneLine, `/keys/${"a".repeat(2000)}.pem`]) {
+      let refusal = ""
+      try {
+        parseFactoryConfig(draftPr({ id: 1, privateKeyFile: pasted }), CONFIG_PATH)
+      } catch (error) {
+        refusal = String(error)
+      }
+      expect(refusal.includes("delivery.draftPr.app.privateKeyFile")).toBe(true)
+      expect(refusal.includes(body)).toBe(false)
+      expect(refusal.includes(oneLine.slice(100, 140))).toBe(false)
+    }
+  })
+
+  it("M2: no worker inherits a FACTORY_GITHUB_ variable, and up refuses the retired ones before anything starts", async () => {
+    const apps = appProcesses(
+      envKeyConfig(),
+      { token: "t".repeat(64), openaiApiKey: "sk-test" },
+      { PATH: "/bin", FACTORY_GITHUB_TOKEN: "ghp_not_real", FACTORY_GITHUB_ANYTHING: "x" },
+    )
+    for (const app of apps)
+      expect(
+        Object.keys(app.env).filter(
+          (k) =>
+            k.startsWith("FACTORY_GITHUB_") &&
+            k !== "FACTORY_GITHUB_APP_ID" &&
+            k !== "FACTORY_GITHUB_APP_PRIVATE_KEY_FILE",
+        ),
+        app.name,
+      ).toEqual([])
+    for (const retired of ["FACTORY_GITHUB_TOKEN", "FACTORY_GITHUB_APP_PRIVATE_KEY"]) {
+      const { problems, secrets } = await preflight(envKeyConfig(), {
+        env: {
+          FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
+          OPENAI_API_KEY: "sk-x",
+          [KEY_VAR]: PEM,
+          [retired]: retired === "FACTORY_GITHUB_TOKEN" ? "ghp_not_real_value" : PEM,
+        },
+        dotenvPaths: [],
+        checkoutLock: "/nonexistent",
+        docker: { info: async () => {}, imagePresent: async () => true },
+        drafterImage: "x",
+        portFree: async () => true,
+        launch: () => ({ command: "true", args: [] }),
+        fetch,
+        out: () => {},
+        readyTimeoutMs: 1,
+        stopTimeoutMs: 1,
+      })
+      expect(secrets === undefined, retired).toBe(true)
+      const text = problems.join("\n")
+      expect(text.includes(`${retired} is set`), retired).toBe(true)
+      expect(text.includes("ghp_not_real_value") || text.includes("MII")).toBe(false)
+    }
+  })
+
+  it("M3: redacts the key's body however it is re-wrapped, re-encoded or cut", () => {
+    for (const kind of ["pkcs1", "pkcs8"] as const) {
+      const pem = generateKeyPairSync("rsa", { modulusLength: 2048 })
+        .privateKey.export({ type: kind, format: "pem" })
+        .toString()
+      const redact = redactor({ token: "t".repeat(64), openaiApiKey: "sk-x", githubAppKey: pem })
+      const body = pem.split("\n").filter((l) => l !== "" && !l.startsWith("-----"))
+      const b64 = body.join("")
+      const chunks = (b64.match(/.{24}/g) ?? []).map((c) => c.slice(0, 16))
+      const leaks = (text: string) => {
+        const out = text.split("\n").map(redact).join("\n")
+        return chunks.some((chunk) => out.includes(chunk))
+      }
+      expect(leaks(JSON.stringify(pem)), `${kind} json`).toBe(false)
+      expect(leaks(b64), `${kind} one line`).toBe(false)
+      expect(leaks((b64.match(/.{1,76}/g) ?? []).join("\n")), `${kind} 76`).toBe(false)
+      expect(leaks(`x ${(body[2] as string).slice(0, 40)}…`), `${kind} cut`).toBe(false)
+      const whole = Buffer.from(pem).toString("base64")
+      expect(redact(whole) === whole, `${kind} base64 of the PEM`).toBe(false)
+      const hex = Buffer.from(b64, "base64").toString("hex")
+      expect(redact(hex) === hex, `${kind} hex DER`).toBe(false)
+      expect(redact(hex.toUpperCase()) === hex.toUpperCase(), `${kind} HEX DER`).toBe(false)
+      // An ordinary line is untouched.
+      expect(redact("controller ready on 127.0.0.1:4300")).toBe(
+        "controller ready on 127.0.0.1:4300",
+      )
+    }
+  })
+
+  it("M5: refuses a key file inside the state directory, reached through a link, or a directory", () => {
+    dir = mkdtempSync(join(tmpdir(), "up-key-m5-"))
+    const state = join(dir, "state")
+    mkdirSync(state)
+    const inside = join(state, "k.pem")
+    writeFileSync(inside, PEM, { mode: 0o600 })
+    const link = join(dir, "link.pem")
+    symlinkSync(inside, link)
+    const at = (path: string) =>
+      parseFactoryConfig(
+        { ...draftPr({ id: 1, privateKeyFile: path }), state },
+        join(dir as string, "factory.config.ts"),
+      )
+    expect(deliveryKeyProblems(at(inside)).some((p) => p.includes(`inside ${state}`))).toBe(true)
+    expect(deliveryKeyProblems(at(link)).some((p) => p.includes(`inside ${state}`))).toBe(true)
+    const directory = join(dir, "keydir")
+    mkdirSync(directory, { mode: 0o700 })
+    expect(deliveryKeyProblems(at(directory)).some((p) => p.includes("not a regular file"))).toBe(
+      true,
+    )
+  })
 })

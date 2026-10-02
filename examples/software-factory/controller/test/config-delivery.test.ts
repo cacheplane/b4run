@@ -1,6 +1,7 @@
 import { generateKeyPairSync } from "node:crypto"
 import { afterEach, describe, expect, it } from "vitest"
 import { loadConfig } from "../src/lib/config.ts"
+import { loadAppPrivateKey } from "../src/lib/delivery/github/jwt.ts"
 import {
   APP_CREDENTIAL_VARIABLES,
   controllerRuntime,
@@ -74,6 +75,65 @@ describe("the controller's own environment", () => {
       appId: 7,
       privateKeyFile: "/k.pem",
     })
+    for (const name of APP_CREDENTIAL_VARIABLES) expect(process.env[name], name).toBeUndefined()
+  })
+})
+
+describe("review of Task 19: a key where its path belongs, and a refused configuration", () => {
+  const env = {
+    FACTORY_WORKER_URL: "http://127.0.0.1:4100",
+    FACTORY_STATE_DIR: "/tmp/state",
+    FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
+    FACTORY_GITHUB_APP_ID: "7",
+    FACTORY_DELIVERY_REPOSITORY: "cacheplane/b4run",
+    FACTORY_DELIVERY_BASE_BRANCH: "main",
+  }
+  const body = PEM.split("\n")[2] as string
+
+  it("I2: refuses a key in FACTORY_GITHUB_APP_PRIVATE_KEY_FILE by name, never quoting it", () => {
+    for (const pasted of [PEM, `/k/${"a".repeat(2000)}`]) {
+      let refusal = ""
+      try {
+        loadConfig({ ...env, FACTORY_GITHUB_APP_PRIVATE_KEY_FILE: pasted })
+      } catch (error) {
+        refusal = String(error)
+      }
+      expect(refusal.includes("FACTORY_GITHUB_APP_PRIVATE_KEY_FILE")).toBe(true)
+      expect(refusal.includes(body)).toBe(false)
+    }
+  })
+
+  it("I2: loadAppPrivateKey never echoes a path that holds a key, nor a read error's path", () => {
+    let refusal = ""
+    try {
+      loadAppPrivateKey(PEM)
+    } catch (error) {
+      refusal = String(error)
+    }
+    expect(refusal !== "").toBe(true)
+    expect(refusal.includes(body) || refusal.includes("PRIVATE KEY-----")).toBe(false)
+    let missing = ""
+    try {
+      loadAppPrivateKey("/nonexistent-dir/app.pem")
+    } catch (error) {
+      missing = String(error)
+    }
+    expect(missing.includes("ENOENT")).toBe(true)
+    // Named once, by the refusal itself: never again inside a read error's own message.
+    expect(missing.split("/nonexistent-dir/app.pem").length - 1).toBe(1)
+  })
+
+  it("M5: consumes the credential variables even when the configuration is refused", () => {
+    // Three of four: loadConfig refuses, and the variables must be gone all the same.
+    Object.assign(process.env, {
+      FACTORY_WORKER_URL: "http://127.0.0.1:4100",
+      FACTORY_STATE_DIR: "/tmp/state",
+      FACTORY_WORKER_TOKEN: TEST_WORKER_TOKEN,
+      FACTORY_GITHUB_APP_ID: "7",
+      FACTORY_GITHUB_APP_PRIVATE_KEY_FILE: "/k.pem",
+      FACTORY_DELIVERY_REPOSITORY: "cacheplane/b4run",
+    })
+    expect(() => controllerRuntime()).toThrow(/missing FACTORY_DELIVERY_BASE_BRANCH/)
     for (const name of APP_CREDENTIAL_VARIABLES) expect(process.env[name], name).toBeUndefined()
   })
 })
