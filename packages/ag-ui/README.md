@@ -100,7 +100,7 @@ The subpath exports three layers, from drop-in to build-your-own:
 - `b4PlanActivityRenderer` and `b4SubagentActivityRenderer` — the individual renderers, for a client that wants one of them or mixes them with its own.
 - `PlanActivityCard`, `SubagentActivityCard`, and `ActivityChecklist` — plain React components taking `content`, plus `planActivityContentSchema` and `subagentActivityContentSchema`, the strict validators behind the renderers, for presenting the same activities another way.
 
-`react` and `@copilotkit/react-core` (`>=1.76.0`) are optional peer dependencies used only by this subpath. Importing the root or `./sse` entry never loads it, so a server-only consumer installs nothing extra. The floor is the wire: 1.76.0 is the first CopilotKit whose runtime speaks AG-UI 1.0 — the protocol B4.run serves, with the approval grant at `metadata.grant` and a cancelled run ending in the cancelled outcome — and every earlier release resolves `@ag-ui/*` 0.0.59.
+`react` and `@copilotkit/react-core` (`>=1.76.0`) are optional peer dependencies used only by this subpath. Importing the root or `./sse` entry never loads it, so a server-only consumer installs nothing extra. The floor tracks the wire protocol: 1.76.0 is the first `@copilotkit/react-core` whose bundled AG-UI client speaks 1.0, the protocol B4.run serves, and earlier releases resolve a pre-1.0 `@ag-ui/*` (0.0.59 on 1.70–1.75). pnpm warns on an unmet optional peer; npm 7+ rejects it with `ERESOLVE`.
 
 ### Customizing the activity cards
 
