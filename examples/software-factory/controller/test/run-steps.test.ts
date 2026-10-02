@@ -147,6 +147,37 @@ describe("nextStep", () => {
         ]),
       })
   })
+
+  it("starts a draft-PR work order again as a draft PR at today's tip, not at the old pin", () => {
+    const draftPr = {
+      delivery: {
+        kind: "draft-pr",
+        repository: "cacheplane/b4run",
+        baseBranch: "main",
+        branch: "factory/wo-0000000000000001",
+        pathPrefix: null,
+        issueStateAtCreate: "open",
+      },
+    } as const
+    const again = "pnpm factory run --issue 714 --repo cacheplane/b4run --deliver draft-pr --new"
+    for (const state of ["denied", "cancelled", "failed"] as const) {
+      const step = at(state, draftPr)
+      expect(step).toMatchObject({ kind: "stop", next: expect.arrayContaining([again]) })
+      expect(JSON.stringify(step)).not.toContain("--pin")
+    }
+    const t0 = Date.parse("2026-09-28T00:00:00.000Z")
+    const expired = nextStep(
+      issueRow({
+        ...draftPr,
+        state: "awaiting_approval",
+        awaitingSince: "2026-09-28T00:00:00.000Z",
+      }),
+      [],
+      { now: t0 + 900_001, approvalTtlMs: 900_000 },
+    )
+    expect(expired).toMatchObject({ kind: "stop", next: expect.arrayContaining([again]) })
+    expect(JSON.stringify(expired)).not.toContain("--pin")
+  })
 })
 
 describe("chooseWorkOrder", () => {

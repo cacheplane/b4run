@@ -20,7 +20,8 @@ export function notAKeyPath(value: string): boolean {
 }
 
 /**
- * Read the app's private key: a regular file, private to its owner, an RSA key, never echoed.
+ * Read the app's private key: a regular file with one name, private to its owner, an RSA key,
+ * never echoed.
  * The descriptor opened is the one checked and read, so the file cannot be swapped between.
  */
 export function loadAppPrivateKey(path: string): KeyObject {
@@ -43,6 +44,11 @@ export function loadAppPrivateKey(path: string): KeyObject {
     const stat = fstatSync(fd)
     if (!stat.isFile())
       throw new Error(`the GitHub App key ${path} cannot be used: not a regular file`)
+    // Another name for the file may sit where a worker can read it; a path check cannot see it.
+    if (stat.nlink > 1)
+      throw new Error(
+        `the GitHub App key ${path} has ${stat.nlink} hard links: keep it as one file outside every app root and the state directory`,
+      )
     if ((stat.mode & 0o077) !== 0)
       throw new Error(
         `the GitHub App key ${path} is readable by group or other (mode ${(stat.mode & 0o777).toString(8)}): chmod 600 it`,

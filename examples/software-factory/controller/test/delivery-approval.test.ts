@@ -144,4 +144,35 @@ describe("approving a draft-PR bundle", () => {
     const problem = await preflightDelivery(refused, target, signal)
     expect(problem).toMatch(/^unauthorized: bad \[REDACTED/)
   })
+
+  it("refuses a repository whose squash or merge commit takes the pull request's body", async () => {
+    const github = createFakeGitHub()
+    // GitHub's defaults, and every other value, pass.
+    for (const squash of ["COMMIT_MESSAGES", "BLANK"])
+      for (const merge of ["PR_TITLE", "BLANK"]) {
+        github.mergeMessages = { squash, merge }
+        expect(await preflightDelivery(github, target, signal)).toBeUndefined()
+      }
+    github.mergeMessages = { squash: "PR_BODY", merge: "PR_TITLE" }
+    expect(await preflightDelivery(github, target, signal)).toMatch(
+      /squash_merge_commit_message is PR_BODY.*main's history/,
+    )
+    github.mergeMessages = { squash: "COMMIT_MESSAGES", merge: "PR_BODY" }
+    expect(await preflightDelivery(github, target, signal)).toMatch(
+      /merge_commit_message is PR_BODY.*main's history/,
+    )
+  })
+
+  it("refuses a repository whose merge-commit settings GitHub did not show the app", async () => {
+    const github = createFakeGitHub()
+    for (const mergeMessages of [
+      { squash: null, merge: "PR_TITLE" },
+      { squash: "COMMIT_MESSAGES", merge: null },
+    ]) {
+      github.mergeMessages = mergeMessages
+      expect(await preflightDelivery(github, target, signal)).toMatch(
+        /GitHub did not show the app the repository's merge-commit settings/,
+      )
+    }
+  })
 })

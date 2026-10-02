@@ -18,9 +18,17 @@ export type RunStep =
   | { readonly kind: "done" }
   | { readonly kind: "stop"; readonly message: string; readonly next: readonly string[] }
 
-/** The arguments `run` would be given to start this work order's issue or task over. */
-export function runAgainArgs(row: Pick<WorkOrderRow, "origin" | "pin" | "taskId">): string {
+/**
+ * The arguments `run` would be given to start this work order's issue or task over. A draft-PR
+ * work order starts again as a draft PR (create's default is local) at today's tip: its old pin
+ * is what a base conflict or baseline mismatch was about, so repeating it would only block again.
+ */
+export function runAgainArgs(
+  row: Pick<WorkOrderRow, "origin" | "pin" | "taskId" | "delivery">,
+): string {
   if (row.origin.kind === "catalog") return `--task ${row.taskId}`
+  if (row.delivery.kind === "draft-pr")
+    return `--issue ${row.origin.number} --repo ${row.origin.repository} --deliver draft-pr`
   const pin = row.pin === null ? "" : ` --pin ${row.pin}`
   return `--issue ${row.origin.number} --repo ${row.origin.repository}${pin}`
 }

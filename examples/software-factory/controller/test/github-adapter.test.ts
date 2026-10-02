@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { DeliveryError } from "../src/lib/delivery/adapter.ts"
 import { createGitHubAdapter } from "../src/lib/delivery/github/adapter.ts"
 import { allowedRoute } from "../src/lib/delivery/github/http.ts"
+import { REDELIVERABLE_BLOCKED_REASONS } from "../src/lib/domain/states.ts"
 import { BRANCH, closeHarness, harness } from "./delivery-harness.ts"
 import { REPOSITORY } from "./fake-delivery-adapter.ts"
 import { type FakeGitHubServer, startFakeGitHubServer } from "./fake-github-server.ts"
@@ -378,15 +379,47 @@ describe("the GitHub adapter against GitHub's shapes", () => {
     const session = await adapter.open(REPOSITORY, new AbortController().signal)
     const tree = (server.repo.commits.get(h.pin) as { tree: string }).tree
     await expect(session.tree(tree)).rejects.toEqual(
-      new DeliveryError("unexpected", `tree ${tree} was truncated`),
+      new DeliveryError("incomplete", `tree ${tree} was truncated`),
     )
 
-    // In a delivery, the cause is named, not hashed into a guess.
+    // In a delivery, the cause is named, not hashed into a guess, and the block is one
+    // redeliver refuses: the pin's listing is as long tomorrow as it is today.
     server.answer("GET", /\/git\/trees\//, { status: 200, body: listed })
     const row = await h.deliver()
-    expect(row).toMatchObject({ state: "blocked", blockedReason: "delivery_unconfirmed" })
+    expect(row).toMatchObject({ state: "blocked", blockedReason: "delivery_baseline_mismatch" })
+    expect(REDELIVERABLE_BLOCKED_REASONS.has("delivery_baseline_mismatch")).toBe(false)
     expect(h.journal()).toContain("was truncated")
     expect(server.repo.writes()).toEqual([])
+  })
+
+  it("refuses an issue transferred (301) or deleted (410) since create as no longer open, never following the move", async () => {
+    for (const [status, headers] of [
+      [301, { location: "/repositories/99/issues/912" }],
+      [410, {}],
+    ] as const) {
+      const { h, server, adapter } = await delivery()
+      const answer = {
+        status,
+        headers,
+        body: { message: status === 301 ? "Moved Permanently" : "This issue was deleted" },
+      }
+      server.answer("GET", /\/issues\/912$/, answer)
+      const session = await adapter.open(REPOSITORY, new AbortController().signal)
+      expect(await session.issueState(912)).toBe("gone")
+
+      server.answer("GET", /\/issues\/912$/, answer)
+      const row = await h.deliver()
+      expect(row, h.journal()).toMatchObject({
+        state: "blocked",
+        blockedReason: "delivery_issue_closed",
+      })
+      expect(h.journal()).toContain(
+        "transferred, deleted, or issues are disabled on the repository",
+      )
+      expect(server.requests.some((r) => r.path.includes("/repositories/99/"))).toBe(false)
+      expect(server.repo.writes()).toEqual([])
+      await reset()
+    }
   })
 
   it("never follows a redirect: a 307 blocks, and its target is never asked", async () => {

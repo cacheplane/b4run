@@ -10320,26 +10320,29 @@ Brian approves at both gates as before. Expected: `blocked` with `delivery_base_
 
 ## Follow-ups recorded, not in this plan
 
-- **Cancel a delivery without the builder** (D24): `finishCancel` from `delivering` need not ask the builder about the row's old thread.
 - **Drop `issues: read`** if the scratch lane shows reading a public issue does not need it (D5).
 - **A Vercel-side `factory/*` exclusion**, if Task 4 Step 6 found one, recorded; if not, ask Vercel.
 - **A delivery view in `factory events`** (each step's observed ids in one line) once the live run shows what operators read.
 - **The `repositoryId: taskId` misnomer** (spec §16) stays: removing it moves every export-local digest.
 - **The controller's remaining synchronous calls** (the up/run plan's follow-up) now include `readGeneratedTask` at approve; small, but on the request path.
-- **Preflight could refuse a repository whose squash or merge commit message is `PR_BODY`** (the review of Task 10): GitHub then copies the description, quoted spec included, into the commit on `main`. The fence and `neutraliseReferences` already keep any reference in the quoted spec from closing an issue; the refusal would keep the model-written text out of `main`'s history as well. Not implemented.
-- **An export-local approve with an empty actor throws inside the transaction** (found while reviewing PR 3; pre-existing on `main`). `factory.approve` takes `actor` unvalidated and sets `decidedBy = options.actor ?? "operator"`, so `""` passes through and `recordApproval`'s `ApprovalSchema` (`decidedBy: min(1)`) throws a `ZodError` inside the approval transaction, leaving the operation key in flight. Today only a direct caller of `factory.approve` can pass one: the route's strict `ApproveInput` has no `actor` field, so the route never forwards it. The draft-PR path no longer reaches it (Task 13's fix validates the intent in `buildDeliveryIntent` before the transaction). Fix: validate `actor` with `min(1)` where it enters (`approve`'s options, and the route input once it carries an actor), so an empty actor is a refusal before any key is spent.
-- **The CLI's `redeliver` prompts for any delivery block** (Task 15): it shows the resumed delivery and asks for the digest's prefix for any `blocked` row with an outbox row, and only the controller refuses a reason outside `REDELIVERABLE_BLOCKED_REASONS`. Nothing is redelivered wrongly, but a person types a prefix for a refusal; the CLI should refuse a non-healable reason (naming `run --issue <n> --new`) before it asks, as `run-steps` already does when it chooses whether to print `redeliver`.
-- **The adapter must refuse a `truncated: true` tree listing** (Task 18's `tree()` does; keep it): `readPinListings` now also refuses a listing that does not hash to its tree id, which a truncated listing never does, but the adapter's refusal names the cause.
+- **The adapter must refuse a `truncated: true` tree listing** (Task 18's `tree()` does, now as the `incomplete` error kind; keep it): `readPinListings` now also refuses a listing that does not hash to its tree id, which a truncated listing never does, but the adapter's refusal names the cause.
 - **PR 4's review follow-ups, not fixed:**
-  - A **hard link** to the key file inside the state directory or an app root is not refused: `deliveryKeyProblems` compares the path (lexically and by the identity of its ancestors), not the file's link count, so a second name for the same inode elsewhere passes. Refusing `nlink > 1` would close it.
-  - A **transferred (301) or deleted (410) issue** maps to `unexpected` (so `delivery_unconfirmed`) rather than a named reason; the request never follows the 301.
   - The **ruleset read** (`branchRules`) takes the first page only; preflight uses the rule types it reads (`update` on the base branch, `update` and `non_fast_forward` on the factory branch), so a rule listed past the first page would read as missing.
   - A **300-file compare** body is assumed to fit the 10 MiB response cap; a page of large patches could exceed it and read as unexpected rather than `delivery_base_conflict`.
   - The **commit date** is sent as a millisecond ISO string; GitHub's echo may differ in precision, which matters only if a read-back ever compares it.
-  - A **truncated tree listing** blocks as `delivery_unconfirmed`, which `redeliver` accepts, though waiting cannot heal it; it should be a non-redeliverable reason.
   - The fake GitHub will need **GitHub's extra top-level keys** once the first scratch run records the contract: the replay requires the fake to answer at least the recorded keys.
   - The `privateKeyEnv` **run copy cannot be removed early** (once the controller is ready): `openFactory`'s retry re-reads the key file, so the copy lives until `up` stops.
+  - Whether `GET /repos/{owner}/{repo}` answers `squash_merge_commit_message` and `merge_commit_message` to the app's installation token is for the scratch lane to confirm (it asserts both are strings): preflight refuses `PR_BODY` and a missing field alike, so a hidden setting blocks every approval until it is shown.
 
+**Done in the follow-up PR** (`blove/factory-rung4-followups`, stacked on PR 4):
+
+- **Cancel a delivery without the builder** (D24): `finishCancel` skips the builder for a row whose current bundle (`row.bundleDigest`) has an `approved` approval, so cancelling a delivery, an `exporting` row or a block after approval settles `cancelled` with the builder stopped; an approval of another bundle does not count, so a running turn is still cancelled on the builder.
+- **An empty actor**: `approve` and `deny` check the factory's actor against the approval's `decidedBy` schema before they begin their operation key, so `""` (or a whitespace-only actor) is a refusal and no key is left in flight; a key that already finished still replays its stored outcome (read-only, nothing begun). (The route's `ApproveInput` still carries no actor.)
+- **The CLI's `redeliver`** refuses a reason outside `REDELIVERABLE_BLOCKED_REASONS` before it shows the delivery or asks for the digest's prefix, naming `cancel` and `run … --new`. For a draft-PR work order that command (here and in `run`'s stops) is `run --issue <n> --repo <r> --deliver draft-pr --new` with no `--pin`: create defaults to local, and the old pin is what a base conflict or baseline mismatch was about.
+- **A truncated tree listing** blocks as `delivery_baseline_mismatch` (not redeliverable), the block a listing that does not hash to its tree already gets: the pin cannot be compared with the baseline. No new block reason; the adapter throws a new `DeliveryError` kind, `incomplete`, which the worker maps to that block.
+- **A hard link to the key file**: `deliveryKeyProblems` and `loadAppPrivateKey` refuse `nlink > 1`.
+- **A transferred (301) or deleted (410) issue**: the adapter answers `gone` (the 301 never followed) and the worker blocks `delivery_issue_closed`; a 410 also means issues are disabled on the repository, and the message says so.
+- **Preflight refuses a repository whose squash or merge commit message is `PR_BODY`**, or whose repository read does not show the app either setting (fail closed): the session carries both settings from the repository read at open; the allow-list is unchanged.
 
 ## Self-review
 

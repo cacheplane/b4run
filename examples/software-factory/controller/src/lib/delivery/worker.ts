@@ -232,6 +232,13 @@ export async function runDelivery(
           "delivery_issue_closed",
           `issue #${intent.issue.number} was open when the work order was created and is closed now`,
         )
+      // Transferred, deleted, or issues disabled: as for a closed issue, nothing on this repository is left for
+      // the pull request to refer to, and waiting does not bring it back.
+      if (state === "gone")
+        throw new Stop(
+          "delivery_issue_closed",
+          `issue #${intent.issue.number} was open when the work order was created and is no longer an issue of ${intent.repository} (transferred, deleted, or issues are disabled on the repository)`,
+        )
     }
     const baseTip = await session.branchHead(intent.baseBranch)
     if (baseTip === null)
@@ -268,7 +275,20 @@ export async function runDelivery(
       )
     const pin = await session.commit(intent.pin)
     const paths = intent.paths.map((p) => p.path)
-    const read = await readPinListings(pin.tree, paths, (sha) => session.tree(sha))
+    // A listing GitHub cut short cannot be compared with the baseline, today or later: the
+    // same block as a listing that does not hash to its tree, with its cause named.
+    const read = await readPinListings(pin.tree, paths, async (sha) => {
+      try {
+        return await session.tree(sha)
+      } catch (error) {
+        if (error instanceof DeliveryError && error.kind === "incomplete")
+          throw new Stop(
+            "delivery_baseline_mismatch",
+            `check: ${error.message}; the pin cannot be compared with the baseline`,
+          )
+        throw error
+      }
+    })
     if (!read.ok)
       throw new Stop("delivery_baseline_mismatch", read.problems.join("; "), {
         problems: read.problems,

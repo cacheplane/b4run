@@ -28,7 +28,7 @@ import {
   harness,
   harnessDir,
 } from "./delivery-harness.ts"
-import { createFakeGitHub } from "./fake-delivery-adapter.ts"
+import { createFakeGitHub, REPOSITORY } from "./fake-delivery-adapter.ts"
 import { fakeImageBuilder } from "./fake-image-builder.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { BAD_DRAFTS, GOOD_DRAFT } from "./intake-fixtures.ts"
@@ -540,6 +540,57 @@ esac
       expect(named.stderr).toMatch(/fetch failed/)
       // The CLI never reaches GitHub itself: every call is the worker's, from before the block.
       expect(h.github.calls).toHaveLength(callsAtBlock)
+    } finally {
+      closeHarness()
+    }
+  }, 90_000)
+
+  it("refuses to redeliver a delivery block waiting does not heal, before it asks for the digest", async () => {
+    const h = await harness()
+    const { url, server } = await dropping()
+    await new Promise((resolve) => server.close(resolve))
+    dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
+    const env = {
+      ...process.env,
+      FACTORY_CONTROLLER_URL: url,
+      FACTORY_STATE_DIR: harnessDir(),
+      FACTORY_CONFIG: "none",
+    }
+    try {
+      h.github.comparison = {
+        status: "ahead",
+        aheadBy: 2,
+        files: [{ filename: HARNESS_SOURCE }],
+        complete: true,
+      }
+      expect(await h.deliver()).toMatchObject({
+        state: "blocked",
+        blockedReason: "delivery_base_conflict",
+      })
+      const runAgain = `pnpm factory run --issue 912 --repo ${REPOSITORY} --deliver draft-pr --new`
+      for (const result of [
+        await failing(
+          run(process.execPath, [tsxBin, cliEntry, "redeliver", HARNESS_ID], {
+            env,
+            cwd: packageRoot,
+          }),
+        ),
+        // At a terminal too: refused before the prompt, so nothing waits for a typed prefix.
+        await interactive(env, ["redeliver", HARNESS_ID], "bbbbbbbb"),
+      ]) {
+        const outcome = JSON.parse(result.stdout)
+        expect(outcome).toMatchObject({
+          ok: false,
+          state: "blocked",
+          message: expect.stringContaining(
+            "blocked by delivery_base_conflict: waiting does not heal it",
+          ),
+          next: [`pnpm factory cancel ${HARNESS_ID}`, runAgain],
+        })
+        expect(result.stderr).not.toContain("first eight hex digits")
+        expect(result.stderr).not.toContain("bundle digest:")
+        expect(result.stderr).not.toMatch(/fetch failed/)
+      }
     } finally {
       closeHarness()
     }

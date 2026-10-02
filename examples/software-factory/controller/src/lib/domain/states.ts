@@ -81,12 +81,14 @@ export const BLOCKED_REASONS = [
   // changed a path the change touches (or a protected path), or the pin left main's history,
   // or the comparison could not be read whole.
   "delivery_base_conflict",
-  // A changed path's blob at the pin is not the baseline the candidate was diffed against.
+  // A changed path's blob at the pin is not the baseline the candidate was diffed against,
+  // or the pin's listing could not be read whole to compare (GitHub truncated it).
   "delivery_baseline_mismatch",
   // factory/<id> exists with a commit that is not this change, or its PR is closed or has
   // another base.
   "delivery_branch_conflict",
-  // The issue was open at create and is closed now.
+  // The issue was open at create and is closed now, or no longer this repository's
+  // (transferred, deleted, or issues disabled on the repository).
   "delivery_issue_closed",
   // No token, no installation, a 401 or a non-rate-limit 403, or permissions too narrow.
   "delivery_unauthorized",

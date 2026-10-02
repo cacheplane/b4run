@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process"
 import { generateKeyPairSync, verify } from "node:crypto"
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, linkSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
@@ -166,6 +166,19 @@ describe("the app's credential", () => {
     }
     chmodSync(path, 0o400)
     expect(loadAppPrivateKey(path).asymmetricKeyType === "rsa").toBe(true)
+  })
+
+  it("refuses a key file with more than one hard link, naming the path and never the key", () => {
+    dir = mkdtempSync(join(tmpdir(), "app-key-"))
+    const path = join(dir, "app.pem")
+    const pem = privateKey.export({ type: "pkcs1", format: "pem" }).toString()
+    writeFileSync(path, pem, { mode: 0o600 })
+    expect(loadAppPrivateKey(path).asymmetricKeyType === "rsa").toBe(true)
+    linkSync(path, join(dir, "elsewhere.pem"))
+    const error = thrown(() => loadAppPrivateKey(path))
+    expect(/hard link/.test(error)).toBe(true)
+    expect(error.includes(path)).toBe(true)
+    expect(error.includes(pem.split("\n")[1] as string)).toBe(false)
   })
 
   it("signs an RS256 JWT GitHub accepts: issued a minute ago, nine minutes to live", () => {

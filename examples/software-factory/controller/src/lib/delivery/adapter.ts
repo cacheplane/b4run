@@ -23,6 +23,11 @@ export type DeliveryErrorKind =
   | "not_found"
   /** A 409 or 422 the request itself could not explain: answered by the step's own read. */
   | "conflict"
+  /**
+   * GitHub answered a listing cut short (a tree `truncated: true`): the pin's listing is as
+   * long tomorrow, so it never heals by waiting.
+   */
+  | "incomplete"
   /** Anything else: a response that does not parse, a status nothing expects. */
   | "unexpected"
 
@@ -82,14 +87,25 @@ export interface DeliverySession {
   readonly botLogin: string
   /** The commit identity the worker writes as: the app's bot. */
   readonly identity: Omit<CommitIdentity, "date">
+  /**
+   * What GitHub writes as the message of a squash merge and of a merge commit on this
+   * repository (`squash_merge_commit_message`: `COMMIT_MESSAGES`, `PR_BODY` or `BLANK`;
+   * `merge_commit_message`: `PR_TITLE`, `PR_BODY` or `BLANK`), as the repository read at open
+   * answered them; null when it did not say.
+   */
+  readonly mergeMessages: { readonly squash: string | null; readonly merge: string | null }
   /** Rule types (`update`, `non_fast_forward`, ...) the repository's rulesets apply to `branch`. */
   branchRules(branch: string): Promise<readonly string[]>
-  issueState(number: number): Promise<"open" | "closed">
+  /**
+   * `gone` when the issue is no longer this repository's: transferred (GitHub answers 301; the
+   * move is never followed), or deleted or issues disabled on the repository (both 410).
+   */
+  issueState(number: number): Promise<"open" | "closed" | "gone">
   /** The commit `refs/heads/<branch>` points at, or null when it does not exist. */
   branchHead(branch: string): Promise<string | null>
   compare(base: string, head: string): Promise<Comparison>
   commit(sha: string): Promise<RemoteCommit>
-  /** One tree's own entries, non-recursive. */
+  /** One tree's own entries, non-recursive; `incomplete` when GitHub cut the listing short. */
   tree(sha: string): Promise<readonly GitTreeEntry[]>
   createBlob(text: string): Promise<string>
   createTree(
