@@ -67,8 +67,9 @@ const SERVER_PROBE_PATH = "/api/b4/memory/candidates"
  * and is not, which is what shipped here first and was caught live: the
  * CopilotKit runtime route (`api/copilotkit/[...path]/route.ts`) runs in the SAME Next
  * process as this page, its `/info` handler enumerates the registered
- * `HttpAgent`s without ever contacting B4.run (`HttpAgent` implements no
- * `getCapabilities`), and any failure to reach B4.run along that path is
+ * agents, and although `B4HttpAgent.getCapabilities` does contact B4.run,
+ * the handler catches a failure there and reports the agent without
+ * capabilities, so any failure to reach B4.run along that path is
  * swallowed rather than surfaced. Verified live: with B4.run completely down,
  * `runtimeConnectionStatus` stayed `"connected"`, the empty workbench
  * rendered, and no connect screen ever showed.

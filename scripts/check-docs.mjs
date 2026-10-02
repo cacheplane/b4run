@@ -1034,6 +1034,7 @@ const EXPECTED_API_ARTIFACT_POLICY_TUPLES = [
   ["import:@b4run/core:./internal/compiler", "internal", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/ag-ui:.", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/ag-ui:./sse", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/ag-ui:./client", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/ag-ui:./react", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/ag-ui:./react/styles.css", "catalog-only", "surfaceKind", "style-asset"],
   ["import:@b4run/memory:.", "detailed", "surfaceKind", "typescript-runtime"],
@@ -1205,6 +1206,7 @@ const EXPECTED_API_REQUIRED_CONTRACT_KEYS = [
   "@b4run/langgraph#./route-module:assertExactlyOneEntry",
   "@b4run/langgraph#./route-module:normalizeRouteModule",
   "@b4run/ag-ui#./sse:encodeAgUiSse",
+  "@b4run/ag-ui#./client:B4HttpAgent",
   "@b4run/ag-ui#.:B4_PLAN_ACTIVITY_TYPE",
   "@b4run/ag-ui#.:B4_SUBAGENT_ACTIVITY_TYPE",
   "@b4run/ag-ui#.:B4RunInput",
@@ -1333,6 +1335,7 @@ const EDGE_SAFE_API_ADDRESSES = new Set([
   "import:@b4run/core:.",
   "import:@b4run/ag-ui:.",
   "import:@b4run/ag-ui:./sse",
+  "import:@b4run/ag-ui:./client",
   "import:@b4run/memory:./browse",
   "import:@b4run/memory:./namespace",
   "import:@b4run/memory:./reconcile",
@@ -4239,15 +4242,15 @@ if (apiReferenceRegistry) {
   }
 
   const artifactAddresses = ARTIFACT_REGISTRY.map(apiReferenceRegistry.artifactAddressFor)
-  if (ARTIFACT_REGISTRY.length !== 49 || new Set(artifactAddresses).size !== 49) {
-    failures.push("ARTIFACT_REGISTRY must contain exactly 49 unique artifact addresses")
+  if (ARTIFACT_REGISTRY.length !== 50 || new Set(artifactAddresses).size !== 50) {
+    failures.push("ARTIFACT_REGISTRY must contain exactly 50 unique artifact addresses")
   }
   const importCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import").length
   const operatedCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "operated").length
   const generatedCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "generated").length
-  if (importCount !== 45 || operatedCount !== 3 || generatedCount !== 1) {
+  if (importCount !== 46 || operatedCount !== 3 || generatedCount !== 1) {
     failures.push(
-      `ARTIFACT_REGISTRY must contain 45 imports, 3 operated artifacts, and 1 generated artifact; received ${importCount}, ${operatedCount}, and ${generatedCount}`,
+      `ARTIFACT_REGISTRY must contain 46 imports, 3 operated artifacts, and 1 generated artifact; received ${importCount}, ${operatedCount}, and ${generatedCount}`,
     )
   }
   const invalidApplicationRecommendations = ARTIFACT_REGISTRY.filter(
