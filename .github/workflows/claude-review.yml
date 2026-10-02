@@ -32,8 +32,13 @@ jobs:
   review:
     # Dependabot-triggered runs cannot read repo secrets, so the Claude review
     # action always fails with a red X on dependabot PRs. Skip them (same
-    # convention as scripts/check-changesets.mjs).
-    if: github.actor != 'dependabot[bot]'
+    # convention as scripts/check-changesets.mjs). Never the software factory's
+    # PRs: their diff and body are model output, and this job holds a key and a
+    # write token (rung 4 spec §9).
+    if: >-
+      github.actor != 'dependabot[bot]' &&
+      !startsWith(github.event.pull_request.head.ref, 'factory/') &&
+      github.event.pull_request.user.login != 'b4-factory[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:

@@ -8,6 +8,19 @@
 # only when something the site is built from changed. Production always builds.
 set -u
 
+# The software factory's branches never build here: a factory/* branch holds model
+# output no person has merged, and a preview build runs it with the project's
+# environment. This file is a delivery-protected path the factory cannot change
+# (rung 4 spec §9.2-§9.3), and this check comes first so nothing below can be
+# reached by one. The prefix matches in any case, as the Actions guard's startsWith
+# does (spelled out, since macOS's bash 3.2 has no ${var,,}).
+case "${VERCEL_GIT_COMMIT_REF:-}" in
+  [Ff][Aa][Cc][Tt][Oo][Rr][Yy]/*)
+    echo "Software factory branch ${VERCEL_GIT_COMMIT_REF}: never built on Vercel."
+    exit 0
+    ;;
+esac
+
 if [ "${VERCEL_ENV:-}" = "production" ]; then
   echo "Production deployment: building."
   exit 1
