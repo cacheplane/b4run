@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import type { FactoryOptions } from "../src/lib/controller/factory.ts"
 import { DeliveryError } from "../src/lib/delivery/adapter.ts"
 import { DeliveryUnavailableError } from "../src/lib/domain/errors.ts"
-import type { WorkOrderRow } from "../src/lib/domain/work-order.ts"
+import type { CommandOutcome, WorkOrderRow } from "../src/lib/domain/work-order.ts"
 import { BundlePayloadSchema } from "../src/lib/review/bundle.ts"
 import { createFakeGitHub, type FakeGitHub } from "./fake-delivery-adapter.ts"
 import { GOOD_DRAFT } from "./intake-fixtures.ts"
@@ -478,21 +478,32 @@ describe("the approval's start path", () => {
     const fake = github()
     harness = await issueHarness({ delivery: delivery(fake) })
     const row = await harness.toBundle({ deliver: DRAFT_PR })
-    const [first, second] = await Promise.allSettled([approveAs(row, "k1"), approveAs(row, "k2")])
-    expect(first).toMatchObject({ status: "fulfilled", value: { ok: true, state: "delivered" } })
-    expect(second).toMatchObject({
-      status: "fulfilled",
-      value: { ok: false, message: "Work order changed state while approving" },
+    const settled = await Promise.allSettled([approveAs(row, "k1"), approveAs(row, "k2")])
+    expect(settled.map((s) => s.status)).toEqual(["fulfilled", "fulfilled"])
+    // Whichever commits its approval first wins, not whichever started first: each awaits its
+    // own re-verification (file reads), and those can finish in either order.
+    const outcomes = settled.map((s) => (s as PromiseFulfilledResult<CommandOutcome>).value)
+    const won = outcomes.findIndex((o) => o.ok)
+    expect(outcomes.filter((o) => o.ok)).toHaveLength(1)
+    expect(outcomes[won]).toMatchObject({ ok: true, state: "delivered" })
+    expect(outcomes[1 - won]).toMatchObject({
+      ok: false,
+      message: "Work order changed state while approving",
     })
+    const keys = ["k1", "k2"]
     expect(
       registryRows(
         row.id,
         "SELECT operation_key, outcome FROM commands WHERE work_order_id = ? AND command = 'approve' ORDER BY operation_key",
       ),
-    ).toMatchObject([
-      { operation_key: "k1", outcome: expect.stringContaining('"ok":true') },
-      { operation_key: "k2", outcome: expect.stringContaining('"ok":false') },
-    ])
+    ).toMatchObject(
+      keys.map((key, i) => ({
+        operation_key: key,
+        outcome: expect.stringContaining(i === won ? '"ok":true' : '"ok":false'),
+      })),
+    )
+    // The winner's key replays its recorded answer.
+    expect(await approveAs(row, keys[won] as string)).toEqual(outcomes[won])
     expect(fake.pulls).toHaveLength(1)
   })
 
