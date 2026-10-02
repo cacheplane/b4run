@@ -1,7 +1,9 @@
 import { existsSync, realpathSync, statSync } from "node:fs"
+import { homedir } from "node:os"
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
 import { pathToFileURL } from "node:url"
 import { z } from "zod"
+import { BRANCH_PATTERN, REPOSITORY_PATTERN } from "../domain/work-order.js"
 
 /**
  * What `examples/software-factory/factory.config.ts` default-exports: the one file `factory up`
@@ -15,6 +17,17 @@ export interface FactoryUpConfig {
   readonly controller: { readonly port: number }
   readonly builder: { readonly port: number }
   readonly drafter: { readonly port: number }
+  /** Draft-PR delivery (rung 4 §8.1). Absent: `--deliver draft-pr` is refused at create. */
+  readonly delivery?: {
+    readonly draftPr: {
+      readonly repository: string
+      readonly baseBranch: string
+      /** The GitHub App: its id, and where its private key is (never the key). */
+      readonly app:
+        | { readonly id: number; readonly privateKeyFile: string }
+        | { readonly id: number; readonly privateKeyEnv: string }
+    }
+  }
 }
 
 /** `examples/software-factory`: this file is `controller/src/lib/operator/factory-config.ts`. */
@@ -38,18 +51,84 @@ export interface ResolvedFactoryConfig {
   readonly stateDir: string
   readonly ports: Readonly<Record<AppName, number>>
   readonly urls: Readonly<Record<AppName, string>>
+  /** Resolved: the key file absolute (`~` expanded), or the variable `up` reads it from. */
+  readonly delivery?: {
+    readonly repository: string
+    readonly baseBranch: string
+    readonly appId: number
+    readonly key: { readonly file: string } | { readonly env: string }
+  }
 }
 
 const Port = z.number().int().min(1024).max(65535)
 const App = z.object({ port: Port }).strict()
+const AppCredential = z
+  .object({
+    id: z.number().int().positive(),
+    privateKeyFile: z.string().min(1).optional(),
+    privateKeyEnv: z
+      .string()
+      .regex(/^[A-Z_][A-Z0-9_]*$/, "must be an environment variable's name")
+      .optional(),
+  })
+  .strict()
+  .refine(
+    (app) => (app.privateKeyFile === undefined) !== (app.privateKeyEnv === undefined),
+    "name exactly one of privateKeyFile or privateKeyEnv",
+  )
+const Delivery = z
+  .object({
+    draftPr: z
+      .object({
+        repository: z.string().regex(REPOSITORY_PATTERN, "must be owner/name"),
+        baseBranch: z.string().regex(BRANCH_PATTERN, "must be a branch name"),
+        app: AppCredential,
+      })
+      .strict(),
+  })
+  .strict()
 const ConfigSchema = z
   .object({
     state: z.string().refine((s) => s.trim() !== "", "must name a directory"),
     controller: App,
     builder: App,
     drafter: App,
+    delivery: Delivery.optional(),
   })
   .strict()
+
+/**
+ * Near-misses inside `delivery.draftPr` and its `app`, refused by name like `REPLACED`: a key
+ * the reader might write must never be read as unset (spec §8.1).
+ */
+const DELIVERY_REPLACED: Readonly<Record<string, string>> = {
+  token: "delivery uses a GitHub App; the config names an app id and where its key is",
+  githubToken: "delivery uses a GitHub App; the config names an app id and where its key is",
+  pat: "delivery uses a GitHub App; the config names an app id and where its key is",
+  installationId: "read from the repository at each delivery",
+  branchPrefix: "fixed at factory/; the CI guards key on it",
+}
+const APP_REPLACED: Readonly<Record<string, string>> = {
+  privateKey: "the config names no secret; use privateKeyFile or privateKeyEnv",
+  token: "delivery uses a GitHub App; the config names an app id and where its key is",
+  installationId: "read from the repository at each delivery",
+}
+
+function deliveryNearMisses(value: Record<string, unknown>): string[] {
+  const draftPr = (value.delivery as { draftPr?: unknown } | undefined)?.draftPr
+  if (!isPlainObject(draftPr)) return []
+  const problems = Object.keys(draftPr)
+    .filter((key) => Object.hasOwn(DELIVERY_REPLACED, key))
+    .map((key) => `delivery.draftPr.${key}: ${DELIVERY_REPLACED[key]}`)
+  const app = draftPr.app
+  if (isPlainObject(app))
+    problems.push(
+      ...Object.keys(app)
+        .filter((key) => Object.hasOwn(APP_REPLACED, key))
+        .map((key) => `delivery.draftPr.app.${key}: ${APP_REPLACED[key]}`),
+    )
+  return problems
+}
 
 /**
  * Keys a reader of the spec's first sketch would write, refused with what replaced them
@@ -132,13 +211,14 @@ export function parseFactoryConfig(value: unknown, path: string): ResolvedFactor
   const problems = Object.keys(value)
     .filter((key) => Object.hasOwn(REPLACED, key))
     .map((key) => `${key}: ${REPLACED[key]}`)
+  problems.push(...deliveryNearMisses(value))
   const parsed = ConfigSchema.safeParse(value)
   if (!parsed.success)
     problems.push(
       ...parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`),
     )
   if (!parsed.success || problems.length > 0) throw fail(problems)
-  const { state, controller, builder, drafter } = parsed.data
+  const { state, controller, builder, drafter, delivery } = parsed.data
   const ports: Record<AppName, number> = {
     controller: controller.port,
     builder: builder.port,
@@ -165,7 +245,63 @@ export function parseFactoryConfig(value: unknown, path: string): ResolvedFactor
   const urls = Object.fromEntries(
     APP_NAMES.map((name) => [name, `http://${LOOPBACK}:${ports[name]}`]),
   ) as Record<AppName, string>
-  return { path, stateDir, ports, urls }
+  if (delivery === undefined) return { path, stateDir, ports, urls }
+  const { app } = delivery.draftPr
+  const file = app.privateKeyFile
+  const key =
+    file !== undefined
+      ? {
+          file: file.startsWith("~/")
+            ? resolve(homedir(), file.slice(2))
+            : isAbsolute(file)
+              ? resolve(file)
+              : resolve(dirname(path), file),
+        }
+      : { env: app.privateKeyEnv as string }
+  return {
+    path,
+    stateDir,
+    ports,
+    urls,
+    delivery: {
+      repository: delivery.draftPr.repository,
+      baseBranch: delivery.draftPr.baseBranch,
+      appId: app.id,
+      key,
+    },
+  }
+}
+
+/**
+ * What is wrong with the delivery key file `up` would give the controller (spec §8.1): it must
+ * exist, be a regular file, be private to its owner (no group or other bits), and lie outside
+ * every app root and the state directory, compared by identity. Empty when it is usable or
+ * when the config names a variable instead. Checked by `up`, not at load: every CLI command
+ * loads the config, and none of them needs the key.
+ */
+export function deliveryKeyProblems(config: ResolvedFactoryConfig): string[] {
+  const key = config.delivery?.key
+  if (key === undefined || !("file" in key)) return []
+  const where = `delivery.draftPr.app.privateKeyFile ${key.file}`
+  let stat: ReturnType<typeof statSync>
+  try {
+    stat = statSync(key.file)
+  } catch {
+    return [`${where} does not exist`]
+  }
+  const problems: string[] = []
+  if (!stat.isFile()) problems.push(`${where} is not a regular file`)
+  if ((stat.mode & 0o077) !== 0)
+    problems.push(
+      `${where} is readable by group or other (mode ${(stat.mode & 0o777).toString(8)}): chmod 600 it`,
+    )
+  const roots = [...APP_NAMES.map((name) => resolve(EXAMPLE_ROOT, APP_DIRS[name])), config.stateDir]
+  for (const root of roots)
+    if (lexicallyInside(root, key.file) || physicallyInside(root, key.file))
+      problems.push(
+        `${where} is inside ${root}; keep the key outside every app root and the state directory`,
+      )
+  return problems
 }
 
 /** Import a config file (tsx compiles it) and validate its default export. */
