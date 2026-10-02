@@ -23,6 +23,11 @@ export type DeliveryErrorKind =
   | "not_found"
   /** A 409 or 422 the request itself could not explain: answered by the step's own read. */
   | "conflict"
+  /**
+   * GitHub answered a listing cut short (a tree `truncated: true`): the pin's listing is as
+   * long tomorrow, so it never heals by waiting.
+   */
+  | "incomplete"
   /** Anything else: a response that does not parse, a status nothing expects. */
   | "unexpected"
 
@@ -89,7 +94,7 @@ export interface DeliverySession {
   branchHead(branch: string): Promise<string | null>
   compare(base: string, head: string): Promise<Comparison>
   commit(sha: string): Promise<RemoteCommit>
-  /** One tree's own entries, non-recursive. */
+  /** One tree's own entries, non-recursive; `incomplete` when GitHub cut the listing short. */
   tree(sha: string): Promise<readonly GitTreeEntry[]>
   createBlob(text: string): Promise<string>
   createTree(

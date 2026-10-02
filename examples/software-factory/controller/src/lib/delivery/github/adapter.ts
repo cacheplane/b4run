@@ -266,7 +266,7 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): DeliveryAdap
         async tree(sha): Promise<GitTreeEntry[]> {
           const t = asRecord(await read(`${repo}/git/trees/${sha}`), "tree")
           if (t.truncated === true)
-            throw new DeliveryError("unexpected", `tree ${sha} was truncated`)
+            throw new DeliveryError("incomplete", `tree ${sha} was truncated`)
           return (Array.isArray(t.tree) ? t.tree : []).map((e) => {
             const entry = asRecord(e, "tree entry")
             return {

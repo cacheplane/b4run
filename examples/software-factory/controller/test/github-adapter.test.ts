@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { DeliveryError } from "../src/lib/delivery/adapter.ts"
 import { createGitHubAdapter } from "../src/lib/delivery/github/adapter.ts"
 import { allowedRoute } from "../src/lib/delivery/github/http.ts"
+import { REDELIVERABLE_BLOCKED_REASONS } from "../src/lib/domain/states.ts"
 import { BRANCH, closeHarness, harness } from "./delivery-harness.ts"
 import { REPOSITORY } from "./fake-delivery-adapter.ts"
 import { type FakeGitHubServer, startFakeGitHubServer } from "./fake-github-server.ts"
@@ -378,13 +379,15 @@ describe("the GitHub adapter against GitHub's shapes", () => {
     const session = await adapter.open(REPOSITORY, new AbortController().signal)
     const tree = (server.repo.commits.get(h.pin) as { tree: string }).tree
     await expect(session.tree(tree)).rejects.toEqual(
-      new DeliveryError("unexpected", `tree ${tree} was truncated`),
+      new DeliveryError("incomplete", `tree ${tree} was truncated`),
     )
 
-    // In a delivery, the cause is named, not hashed into a guess.
+    // In a delivery, the cause is named, not hashed into a guess, and the block is one
+    // redeliver refuses: the pin's listing is as long tomorrow as it is today.
     server.answer("GET", /\/git\/trees\//, { status: 200, body: listed })
     const row = await h.deliver()
-    expect(row).toMatchObject({ state: "blocked", blockedReason: "delivery_unconfirmed" })
+    expect(row).toMatchObject({ state: "blocked", blockedReason: "delivery_baseline_mismatch" })
+    expect(REDELIVERABLE_BLOCKED_REASONS.has("delivery_baseline_mismatch")).toBe(false)
     expect(h.journal()).toContain("was truncated")
     expect(server.repo.writes()).toEqual([])
   })
