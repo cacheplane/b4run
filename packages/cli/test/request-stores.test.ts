@@ -4,7 +4,7 @@ import { dirname, join } from "node:path"
 import type { ThreadsStore } from "@b4run/sqlite-storage"
 import { MemorySaver } from "@langchain/langgraph"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { createRuntimeFetchHandler, isEventStream } from "../src/lib/dev/runtime-fetch-core.js"
+import { createRuntimeFetchHandler, isStreamingBody } from "../src/lib/dev/runtime-fetch-core.js"
 import { createRuntimeFetchHandler as createNodeRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-handler.js"
 import type { RequestStores } from "../src/lib/dev/runtime-server.js"
 import {
@@ -242,15 +242,19 @@ describe("per-request stores", () => {
     expect(events).toEqual(["dispose:start", "dispose:end", "close:returned"])
   }, 120_000)
 
-  it("treats a parameterized SSE content-type as a stream", () => {
+  it("treats both AG-UI HTTP bindings, with or without parameters, as a stream", () => {
     // A future `; charset=utf-8` on any SSE producer would otherwise silently
     // downgrade a live stream to "settled when fetch() resolves" — disposing
-    // the pool mid-stream, the exact bug this seam exists to prevent.
-    expect(isEventStream("text/event-stream")).toBe(true)
-    expect(isEventStream("text/event-stream; charset=utf-8")).toBe(true)
-    expect(isEventStream("Text/Event-Stream ;charset=utf-8")).toBe(true)
-    expect(isEventStream("application/json")).toBe(false)
-    expect(isEventStream(null)).toBe(false)
+    // the pool mid-stream, the exact bug this seam exists to prevent. The
+    // protobuf binding is a live stream for the same reason.
+    expect(isStreamingBody("text/event-stream")).toBe(true)
+    expect(isStreamingBody("text/event-stream; charset=utf-8")).toBe(true)
+    expect(isStreamingBody("Text/Event-Stream ;charset=utf-8")).toBe(true)
+    expect(isStreamingBody("application/vnd.ag-ui.event+proto")).toBe(true)
+    expect(isStreamingBody("Application/VND.AG-UI.Event+Proto; v=1")).toBe(true)
+    expect(isStreamingBody("application/json")).toBe(false)
+    expect(isStreamingBody("application/octet-stream")).toBe(false)
+    expect(isStreamingBody(null)).toBe(false)
   })
 })
 
