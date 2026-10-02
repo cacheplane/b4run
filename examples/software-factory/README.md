@@ -451,7 +451,8 @@ with exactly `contents: write`, `pull_requests: write`, `issues: read` and `meta
 lane below) and nothing else; and the rulesets that keep it to `factory/**` branches it can
 create but never update, delete or move. The repository's squash and merge commit messages
 must not be the pull request's body (`PR_BODY`): the description quotes the model-written spec,
-and the approval's preflight refuses a repository that would copy it into `main`'s history.
+and the approval's preflight refuses a repository that would copy it into `main`'s history,
+or whose repository read does not show the app both settings (it cannot tell, so it refuses).
 The private key stays in a file of yours, mode `0600`, with one name, outside this checkout's
 app roots and the state directory.
 
@@ -543,7 +544,8 @@ on `cacheplane/b4run` (the plan's PR 5). Known follow-ups, each in the plan: the
 contract will need the fake to answer GitHub's extra top-level keys; the ruleset read takes the
 first page only (preflight checks the rule types it finds there); a 300-file comparison is
 assumed to fit the 10 MiB body cap; whether the repository read shows the app its merge commit
-message settings is for the scratch lane to confirm (preflight refuses only `PR_BODY`); and
+message settings is for the scratch lane to confirm (preflight refuses `PR_BODY` and a missing
+setting, so a hidden one blocks every approval until it is shown); and
 `issues: read` may be dropped if the scratch lane shows reading a public issue does not need it
 (D5).
 

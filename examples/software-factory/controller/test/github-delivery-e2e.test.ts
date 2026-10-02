@@ -192,6 +192,26 @@ describe("a delivery through the real GitHub adapter", () => {
         ),
       })
     }
+    // A repository answer without them (GitHub shows them only to some tokens): refused too.
+    for (const [mergeMessages, field] of [
+      [{ squash: null, merge: "PR_TITLE" }, "squash_merge_commit_message"],
+      [{ squash: "COMMIT_MESSAGES", merge: null }, "merge_commit_message"],
+    ] as const) {
+      server.repo.mergeMessages = mergeMessages
+      const hidden = await harness.factory.approve(row.id, {
+        revision: row.revision,
+        bundleDigest: row.bundleDigest,
+        operationKey: `hidden-${field}`,
+      })
+      expect(hidden).toMatchObject({
+        ok: false,
+        state: "awaiting_approval",
+        message: expect.stringContaining(
+          "GitHub did not show the app the repository's merge-commit settings",
+        ),
+      })
+      expect(JSON.stringify(hidden)).toContain(field)
+    }
     const read = server.requests.filter(
       (r) => r.method === "GET" && r.path === `/repos/${REPOSITORY}`,
     )

@@ -162,4 +162,17 @@ describe("approving a draft-PR bundle", () => {
       /merge_commit_message is PR_BODY.*main's history/,
     )
   })
+
+  it("refuses a repository whose merge-commit settings GitHub did not show the app", async () => {
+    const github = createFakeGitHub()
+    for (const mergeMessages of [
+      { squash: null, merge: "PR_TITLE" },
+      { squash: "COMMIT_MESSAGES", merge: null },
+    ]) {
+      github.mergeMessages = mergeMessages
+      expect(await preflightDelivery(github, target, signal)).toMatch(
+        /GitHub did not show the app the repository's merge-commit settings/,
+      )
+    }
+  })
 })

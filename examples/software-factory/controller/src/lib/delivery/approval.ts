@@ -26,8 +26,9 @@ export function protectedChanges(pathPrefix: string, changedPaths: readonly stri
 
 /**
  * Preflight (spec §3.4 item 3, §10.2): a token can be minted for the repository, the app is the
- * one the CI guard skips, no merge would take the pull request's body as its message, and the
- * rulesets that confine it exist. A problem is a refusal, not a
+ * one the CI guard skips, no merge would take the pull request's body as its message (GitHub
+ * must show the app both merge-commit settings: unknown is refused), and the rulesets that
+ * confine it exist. A problem is a refusal, not a
  * block: nothing was committed, and a person can fix the app and approve again in the window.
  * The rulesets' bypass lists cannot be read with the app's token; the scratch lane and the
  * live run check those once.
@@ -47,9 +48,13 @@ export async function preflightDelivery(
     for (const [field, value] of [
       ["squash_merge_commit_message", session.mergeMessages.squash],
       ["merge_commit_message", session.mergeMessages.merge],
-    ] as const)
+    ] as const) {
+      // Unknown is not safe: a setting the app cannot see may be PR_BODY.
+      if (value === null)
+        return `GitHub did not show the app the repository's merge-commit settings (${field} is missing from GET /repos/${target.repository}): check the app's installation can read the repository's settings, and that ${field} is not PR_BODY, before delivering`
       if (value === "PR_BODY")
         return `the repository's ${field} is PR_BODY: merging would copy the pull request's description, the quoted spec included, into main's history; set it to another value (Settings, General, Pull Requests) before delivering`
+    }
     const base = await session.branchRules(target.baseBranch)
     if (!base.includes("update"))
       return `no ruleset restricts updates to ${target.baseBranch}: create "factory app confined" (spec §10.2) before delivering`

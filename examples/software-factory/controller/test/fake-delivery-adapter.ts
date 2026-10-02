@@ -47,9 +47,10 @@ export interface FakeGitHub extends DeliveryAdapter {
   botLogin: string
   /**
    * The repository's `squash_merge_commit_message` and `merge_commit_message`; GitHub's
-   * defaults (`COMMIT_MESSAGES`, `PR_TITLE`) unless a test says otherwise.
+   * defaults (`COMMIT_MESSAGES`, `PR_TITLE`) unless a test says otherwise; null when GitHub did
+   * not show them.
    */
-  mergeMessages: { squash: string; merge: string }
+  mergeMessages: { squash: string | null; merge: string | null }
   /** Store each blob under this id instead of its own: GitHub disagreeing with the bytes. */
   corruptBlob: string | undefined
   /** Answer `createTree` with this id instead of the tree built: GitHub disagreeing with the change. */

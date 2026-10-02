@@ -75,6 +75,12 @@ describe.skipIf(!enabled)("delivery against a real scratch repository", () => {
     expect(h.store.delivery(row.id)?.pullRequest?.url).toMatch(/\/pull\/\d+$/)
   }, 120_000)
 
+  it("shows the app both merge-commit settings, which preflight refuses to guess", async () => {
+    const session = await adapter().open(scratch as string, new AbortController().signal)
+    expect(typeof session.mergeMessages.squash).toBe("string")
+    expect(typeof session.mergeMessages.merge).toBe("string")
+  }, 60_000)
+
   it("converges after a lost response to the ref create", async () => {
     let dropped = false
     const lossy: typeof fetch = async (input, init) => {
