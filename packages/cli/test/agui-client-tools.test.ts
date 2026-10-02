@@ -1646,6 +1646,51 @@ describe("client tool boot settings and request bounds", () => {
     await expect(createHandler(appRoot)).rejects.toThrow(/clientToolTtlMs/)
   })
 
+  it("a bad clientToolRetentionMs fails the boot", async () => {
+    const appRoot = await fixtureApp({
+      config:
+        'export default { server: { agui: { clientTools: ["/park"], clientToolRetentionMs: 0 } } }\n',
+    })
+    await expect(createHandler(appRoot)).rejects.toThrow(ClientToolConfigError)
+    await expect(createHandler(appRoot)).rejects.toThrow(/clientToolRetentionMs/)
+  })
+
+  it("the boot reads clientToolRetentionMs, and the TTL floor governs the cutoff", async () => {
+    __resetClientToolPruneThrottleForTests()
+    const store = createMemoryClientToolCallStore()
+    // Retention of 1ms: the cutoff is then `now - max(1, 10 minutes)`. Under
+    // the 7-day default both rows below would survive.
+    const t = await parkedRun([], {
+      store,
+      config: `export default { server: { agui: { clientTools: ["/park"], clientToolStore: globalThis.${STORE_KEY}, clientToolRetentionMs: 1 } } }\n`,
+      fixtures: [{ match: { userMessage: "hello" }, response: { content: "Hi." } }],
+    })
+    expect(t.first.status).toBe(200)
+    const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString()
+    for (const [toolCallId, voidedAt] of [
+      ["call_11m", minutesAgo(11)],
+      ["call_5m", minutesAgo(5)],
+    ] as const) {
+      await store.issue({
+        threadId: "t-elsewhere",
+        toolCallId,
+        interruptId: `client-${toolCallId}`,
+        toolName: "openPanel",
+        runId: "run-x",
+        routeId: "/park#agent",
+        issuedAt: voidedAt,
+        expiresAt: null,
+        answeredAt: null,
+        result: null,
+        voidedAt,
+      })
+    }
+    __resetClientToolPruneThrottleForTests()
+    const second = await run(t.handler, aguiRequest(t.threadId, "run-2", [USER_HELLO]))
+    expect(second.status).toBe(200)
+    expect((await store.listForThread("t-elsewhere")).map((r) => r.toolCallId)).toEqual(["call_5m"])
+  })
+
   it("an AG-UI body over the ceiling is refused with 413 before it is parsed", async () => {
     await withModel([])
     const appRoot = await fixtureApp({ store: createMemoryClientToolCallStore() })
