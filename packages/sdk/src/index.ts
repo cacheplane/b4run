@@ -27,7 +27,6 @@ export type {
 export {
   CLIENT_TOOL_RECORDER_KEY,
   createMemoryClientToolCallStore,
-  isClientToolCallPrunable,
 } from "./client-tool-calls.js"
 export type { B4ErrorCode, B4ErrorDescriptor } from "./errors.js"
 export { B4_ERRORS, describeError, errorDocsUrl } from "./errors.js"

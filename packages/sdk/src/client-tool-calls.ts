@@ -118,8 +118,11 @@ function compareIssue(a: ClientToolCallRecord, b: ClientToolCallRecord): number 
   return a.toolCallId < b.toolCallId ? -1 : a.toolCallId > b.toolCallId ? 1 : 0
 }
 
-/** Whether `prune({ before })` may delete this row. Exported for the CLI's tests. */
-export function isClientToolCallPrunable(row: ClientToolCallRecord, before: string): boolean {
+/**
+ * Whether `prune({ before })` may delete this row. The memory store's `prune` predicate; the
+ * SQL stores carry the same rule in their DELETE.
+ */
+function isClientToolCallPrunable(row: ClientToolCallRecord, before: string): boolean {
   if (row.voidedAt !== null) return row.voidedAt < before
   if (row.answeredAt !== null) return row.answeredAt < before
   return row.expiresAt !== null && row.expiresAt < before
