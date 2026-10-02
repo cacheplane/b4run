@@ -14,6 +14,7 @@ import {
   MAX_CLIENT_TOOL_TTL_MS,
   resolveClientToolRetentionMs,
   resolveClientToolTtlMs,
+  validateClientToolStore,
 } from "../lib/dev/client-tool-runtime.js"
 import { loadOptionalB4Config } from "../lib/node-config.js"
 import { CliError, type CommandIo, writeLine } from "../lib/output.js"
@@ -85,6 +86,10 @@ async function runPrune(appRoot: string, args: readonly string[], io: CommandIo)
   const agui = (await loadOptionalB4Config(appRoot))?.server?.agui
   const ttlMs = resolveClientToolTtlMs(agui?.clientToolTtlMs)
   const retentionMs = retentionOverride ?? resolveClientToolRetentionMs(agui?.clientToolRetentionMs)
+  // Shape-checks a configured `clientToolStore` the way the boot does (throws
+  // naming the missing methods); the resolver below still picks the store,
+  // because it also owns the SQLite default.
+  validateClientToolStore(agui?.clientToolStore)
 
   const store = await resolveClientToolCallStore(appRoot)
   if (!store) {

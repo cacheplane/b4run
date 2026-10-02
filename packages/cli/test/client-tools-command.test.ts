@@ -1,14 +1,17 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import type { ClientToolCallRecord } from "@b4run/sdk"
+import { type ClientToolCallRecord, createMemoryClientToolCallStore } from "@b4run/sdk"
 import { createClientToolCallStore } from "@b4run/sqlite-storage"
 import { afterEach, describe, expect, it } from "vitest"
 import { runClientToolsCommand } from "../src/commands/client-tools.ts"
 import { CliError } from "../src/lib/output.ts"
 
 const tempDirs: string[] = []
+/** The config string reaches an in-process store through this global, as agui-client-tools.test.ts does. */
+const STORE_KEY = "__b4ClientToolsCommandTestStore"
 afterEach(async () => {
+  delete (globalThis as Record<string, unknown>)[STORE_KEY]
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { force: true, recursive: true })))
 })
 
@@ -141,6 +144,19 @@ describe("b4 client-tools prune", () => {
     const { io: cio } = io()
     await expect(runClientToolsCommand(["prune"], { cwd: appRoot }, cio)).rejects.toThrow(
       /clientToolRetentionMs/,
+    )
+  })
+
+  it("fails on a configured clientToolStore that is not a store, like the server boot does", async () => {
+    const store = createMemoryClientToolCallStore()
+    const { prune: _omitted, ...withoutPrune } = store
+    ;(globalThis as Record<string, unknown>)[STORE_KEY] = withoutPrune
+    const appRoot = await makeApp(
+      `export default { server: { agui: { clientTools: ["/chat"], clientToolStore: globalThis.${STORE_KEY} } } }\n`,
+    )
+    const { io: cio } = io()
+    await expect(runClientToolsCommand(["prune"], { cwd: appRoot }, cio)).rejects.toThrow(
+      /missing prune/,
     )
   })
 })
