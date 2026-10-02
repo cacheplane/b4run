@@ -1639,7 +1639,7 @@ async function main(argv: string[]): Promise<number> {
     const out = lineWriter(process.stdout)
     // SIGHUP too: a closed terminal would otherwise leave the detached children running.
     const { stop, force } = stopOnSignals(process, out)
-    return await up(config, realUpDeps(out), stop, force)
+    return await up(config, realUpDeps(out, config), stop, force)
   }
   // Answered before anything is opened: writing a builder handoff reads the catalog and
   // captures an archive, and needs no controller; it opens the image registry read-only only

@@ -85,9 +85,15 @@ export async function harness(
     readonly adapter?: DeliveryAdapter
     /**
      * A real repository instead (the scratch lane): nothing is seeded, and the work order is
-     * `id` at `pin` on `repository`, whose pin must hold SOURCE as BASELINE.
+     * `id` at `pin` on `repository`, whose pin must hold SOURCE as BASELINE, from its open
+     * issue `issue` (912, the in-memory repository's, by default).
      */
-    readonly remote?: { readonly repository: string; readonly pin: string; readonly id: string }
+    readonly remote?: {
+      readonly repository: string
+      readonly pin: string
+      readonly id: string
+      readonly issue?: number
+    }
     /** The approved spec the pull request quotes. */
     readonly specText?: string
     /** The one changed path (repository and workspace path, as the root is "."). */
@@ -97,6 +103,7 @@ export async function harness(
   const id = options.remote?.id ?? ID
   const repository = options.remote?.repository ?? REPOSITORY
   const branch = `factory/${id}`
+  const issue = options.remote?.issue ?? 912
   dir = mkdtempSync(join(tmpdir(), "delivery-worker-"))
   const opened = openRegistry(join(dir, "registry.sqlite"))
   registry = opened
@@ -137,7 +144,7 @@ export async function harness(
     activeMs: 0,
     activeStartedAt: null,
     awaitingSince: at,
-    origin: { kind: "issue", repository: repository, number: 912, bodyDigest: "0".repeat(64) },
+    origin: { kind: "issue", repository: repository, number: issue, bodyDigest: "0".repeat(64) },
     pin,
     delivery: {
       kind: "draft-pr",
@@ -175,7 +182,7 @@ export async function harness(
     branch,
     pin,
     pathPrefix: ".",
-    issue: { number: 912, stateAtCreate: options.stateAtCreate ?? "open" },
+    issue: { number: issue, stateAtCreate: options.stateAtCreate ?? "open" },
     paths: [
       {
         path: source,

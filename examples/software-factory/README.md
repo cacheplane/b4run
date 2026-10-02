@@ -360,8 +360,11 @@ has none of its own); never from `FACTORY_REPO_ROOT`'s, which names the target r
 says where the key came from, never its value, and refuses without one. The key goes to the
 builder and the drafter only: the controller's environment drops it, and by a deny-list also
 every variable ending in `_API_KEY` or starting `OPENAI_`, `ANTHROPIC_` or `AWS_`, plus
-`GH_TOKEN` and `GITHUB_TOKEN`. Any other variable of `up`'s environment (a credential by another
-name included) still reaches all three processes, so do not export secrets `up` has no use for.
+`GH_TOKEN` and `GITHUB_TOKEN`. No process gets `GH_TOKEN`, `GITHUB_TOKEN`, their `_ENTERPRISE_`
+forms or any `GITHUB_APP_` variable: neither worker calls GitHub (the CLI reads issues through
+`gh` in your shell, and only the controller delivers, with its own credential). Any other
+variable of `up`'s environment (a credential by another name included) still reaches the
+workers, so do not export secrets `up` has no use for.
 Each process's output is redacted (the token and the key never appear),
 prefixed with its name on `up`'s stdout, and appended to `<state>/logs/<app>.log`; `up`'s own
 lines go to `<state>/logs/up.log` too. `up`'s stdout is a log stream, not the CLI's JSON.
@@ -432,12 +435,116 @@ One known limitation: after a controller that was `SIGKILL`ed, a work order's th
 
 ## Delivering as a draft pull request (rung 4)
 
-**Not usable end to end yet.** This build has the whole delivery behind an interface and tests
-it against an in-memory GitHub with fault injection; it makes no GitHub call. The real adapter
-(the GitHub App's JWT, the downscoped installation token, the allow-listed requests),
-`factory.config.ts`'s `delivery` block and `up`'s credential wiring arrive in the next PR.
-Until then the controller has no delivery configured, and `--deliver draft-pr` is refused with
-`delivery_unavailable` before anything is created. What follows is how it behaves once one is.
+Delivery needs a GitHub App and a `delivery` block in the factory config. Without one (the
+committed `factory.config.ts` has none, so a fresh checkout exports locally) the controller has
+no delivery configured, and `--deliver draft-pr` is refused with `delivery_unavailable` before
+anything is created.
+
+### Setting it up
+
+**The GitHub App and the rulesets are a person's job, done once** (spec §10 says why each
+permission and rule; [the rung 4 plan](../../docs/superpowers/plans/2026-10-01-software-factory-rung4.md)'s
+Task 4 has the steps and the `gh api` checks). In short: an app named `b4-factory` (the CI
+guards key on its bot login, `b4-factory[bot]`, in `controller/src/lib/delivery/guard.json`)
+with exactly `contents: write`, `pull_requests: write`, `issues: read` and `metadata: read`, no
+`workflows`, no events; installed on the target repository (and a scratch repository for the
+lane below) and nothing else; and the rulesets that keep it to `factory/**` branches it can
+create but never update, delete or move. The private key stays in a file of yours, mode
+`0600`, outside this checkout's app roots and the state directory.
+
+**Enable it in a local config**, not the committed one: copy `factory.config.ts` to the
+gitignored `factory.config.local.ts`, point `FACTORY_CONFIG` at it (as for a second checkout's
+ports, above), and add:
+
+```ts
+delivery: {
+  draftPr: {
+    repository: "cacheplane/b4run",
+    baseBranch: "main",
+    app: { id: 123456, privateKeyFile: "~/.config/b4-factory/app.pem" },
+  },
+},
+```
+
+`app` names the app's numeric id and where its key is, never the key: `privateKeyFile` (`~`
+expanded; relative to the config file otherwise) or `privateKeyEnv: "B4_FACTORY_APP_KEY"`, the
+name of a variable in `up`'s environment holding the PEM. The config is refused, naming the
+field and never quoting it, when `privateKeyFile` holds something that is not a path (a PEM
+header, a line break, over 1024 characters), when `privateKeyEnv` names a variable every
+process needs or the factory owns (`PATH`, `HOME`, `TMPDIR`, `NODE_OPTIONS`, `LANG` or any
+`LC_`, any `FACTORY_`, `GH_TOKEN`, …: `up` takes the key's variable away from every child), and
+for a near-miss (`token`, `privateKey`, `installationId`, `branchPrefix` say what replaced
+them). Before starting anything `up` checks the key: the file must exist, be a regular file
+private to its owner and lie outside every app root and the state directory (by identity, so a
+link does not hide it), and either form must hold an RSA private key. It prints where the key
+came from, never the key:
+
+    up         │ GitHub App 123456: key from /Users/you/.config/b4-factory/app.pem (controller only, as a file)
+    up         │ GitHub App 123456: key from $B4_FACTORY_APP_KEY (controller only, as a file)
+
+**The controller takes four variables, all or none**, and `up` sets them:
+`FACTORY_GITHUB_APP_ID`, `FACTORY_GITHUB_APP_PRIVATE_KEY_FILE`, `FACTORY_DELIVERY_REPOSITORY`
+and `FACTORY_DELIVERY_BASE_BRANCH`. The key reaches it only as a file: with `privateKeyFile`,
+that path; with `privateKeyEnv`, a copy `up` writes to `<state>/run/github-app.pem` (exclusively,
+mode `0600`, in a directory that must be a real one you own, never a link) and removes when it
+stops. The controller deletes the two credential variables from its own environment the first
+time it reads them, so nothing it spawns inherits them. The inline `FACTORY_GITHUB_APP_PRIVATE_KEY`
+and the old `FACTORY_GITHUB_TOKEN` are refused by name, by the controller and by `up`.
+
+| Process | Holds | Never holds |
+|---|---|---|
+| Controller | the app id, the key file's path, the key in memory, and every installation token it mints (one for the approval's preflight and one for the delivery, more on a refresh or a redelivery), each kept in memory for the life of the process so its logs can be scrubbed of it | the OpenAI key, any provider key, `GH_TOKEN`/`GITHUB_TOKEN`, any `GITHUB_APP_` variable |
+| Builder, drafter | the OpenAI key, the worker token | any `FACTORY_GITHUB_`/`FACTORY_DELIVERY_` variable, the key's variable, `GH_TOKEN`/`GITHUB_TOKEN`, any `GITHUB_APP_` variable |
+| `up` | the key, read once to check it (and, for `privateKeyEnv`, to write the copy) | it passes the controller a path; its own `git`, `ps` and `docker` get neither the key's variable nor any delivery or `GITHUB_APP_` variable |
+| CI on a factory PR | a read-only `GITHUB_TOKEN` | the Vercel secrets, the Anthropic key, a write token |
+
+`up`'s output is redacted for the key as for the token (any line holding a 24-character run of
+the key's body, its whole PEM in base64, or its DER in hex).
+
+Each delivery mints an installation token downscoped to the one repository and exactly the
+four permissions, and refuses one granted less (`delivery_unauthorized`). Every request goes
+through one allow-listed function: the Git Data API reads and creates (blobs, trees, commits,
+a `factory/` ref), the draft pull request (`draft: true` and `maintainer_can_modify: false`
+only), the issue, compare and ruleset reads, the closing-issues GraphQL query, `GET /app` and
+the bot's own `GET /users/…`. No `PATCH`, `PUT` or `DELETE`; no redirect is followed; every
+request has a 30-second bound; every body is checked as it is sent.
+
+### The opt-in scratch lane
+
+    pnpm --filter @b4-example/software-factory-controller test:github-scratch
+
+runs the adapter against real GitHub and a scratch repository you own. It is never in CI and
+skips (5 skipped) unless all three of `FACTORY_TEST_GITHUB_SCRATCH=<owner/name>`,
+`FACTORY_TEST_GITHUB_APP_ID` and `FACTORY_TEST_GITHUB_APP_KEY_FILE` (a `0600` PEM) are set. The
+scratch repository needs the setup the plan's Task 4 describes (the file the cases change on
+`main`, issue #1 open, the app installed, the rulesets). Its five cases: a clean delivery read
+back; convergence after a lost ref-create response; the rulesets refusing a branch outside
+`factory/`, a tag and a move of the app's own branch; GitHub refusing a commit that changes
+`.github/workflows/` without the `workflows` permission; and a closing keyword inside the
+quoted spec linking no issue. Each run leaves its branches and draft pull requests for you to
+inspect and delete.
+
+With `FACTORY_TEST_GITHUB_RECORD=1` as well, the lane writes
+`controller/test/fixtures/github-contract.json`: per request, the method, the path template,
+the status and the body's top-level keys, never a value (check with
+`grep -E 'ghs_|eyJ|BEGIN'` → nothing). Commit it: `test/github-contract.test.ts` then replays the
+same delivery against the fake GitHub in the always-on suite and requires it to answer every
+recorded request with GitHub's status and at least its keys, so the fake cannot drift from
+GitHub silently. Until the first recorded run that replay is skipped.
+
+### Still manual, and known follow-ups
+
+Not done by any code here: creating the app, installing it, the rulesets and the scratch
+repository (Brian, the plan's Task 4); the scratch lane's first recorded run; and the live run
+on `cacheplane/b4run` (the plan's PR 5). Known follow-ups, each in the plan: the first recorded
+contract will need the fake to answer GitHub's extra top-level keys; a hard link to the key
+inside the state directory is not refused; a transferred (301) or deleted (410) issue maps to
+an unexpected failure rather than a named reason; the ruleset read takes the first page only
+(preflight checks the rule types it finds there); a 300-file comparison is assumed to fit the 10 MiB body cap; a
+truncated tree listing blocks as a redeliverable `delivery_unconfirmed`; and `issues: read`
+may be dropped if the scratch lane shows reading a public issue does not need it (D5).
+
+### How it behaves
 
 `pnpm factory create --issue <n> --deliver draft-pr` (or `pnpm factory run --issue <n>
 --deliver draft-pr`) makes approving the bundle publish the change as a draft pull request

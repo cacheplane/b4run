@@ -8125,6 +8125,8 @@ git commit -m "feat(software-factory): the GitHub App's JWT and the delivery's a
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+**As landed (Task 17, `6155b55a6`, with the review fixes of `95452840c`).** As planned, plus: a POST body is serialized once, the string parsed back and checked, and that string sent, so a `toJSON` cannot send bytes other than those checked; every POST route has an exact key set (refs `{ref, sha}`; pulls `{title, body, head, base, draft}` plus `maintainer_can_modify`, which must be `false`; blobs, trees and commits as the adapter sends them; the mint holds `repositories` to `[the configured name]` and `permissions` to exactly `DELIVERY_PERMISSIONS`, which moved here beside the allow-list and is re-exported by the adapter; GraphQL pins the query and owner, name and number); a GET refuses a body. The body is read under the same failure handling as `fetch` (a timeout or reset mid-body is transient, the caller's abort rethrown, D26), capped at 10 MiB (unexpected past it), a 3xx body is cancelled, and a 2xx that is not JSON is unexpected (204 is empty). The URL is checked before any credential is made; a login that does not decode is a disallowed request. A 403 naming a secondary rate limit is `rate_limited`, 60 s by default. The key file is opened once, `fstat`ed and read from the same descriptor, its mode masked with `0o077`, and must be RSA (`appJwt` refuses another type).
+
 ### Task 18: The real adapter, against GitHub's shapes on loopback
 
 **Files:**
@@ -8913,6 +8915,8 @@ git commit -m "feat(software-factory): the GitHub delivery adapter: a downscoped
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+**As landed (Task 18, `78d1e6b7f`, with the review fixes of `8def024d0`).** As planned, plus: the adapter refuses a `truncated: true` tree listing, naming the cause. GitHub's "pull request already exists" 422 says so only in `errors[].message` under a top-level `Validation Failed`, so the request carries the first `errors[]` messages (control characters removed, capped) and `createDraftPull` matches them; the fake GitHub answers GitHub's real shapes (both 422s, the 404 and 401 bodies, the pulls `head` filter with its `owner:` prefix required, GraphQL `NOT_FOUND` by PR number, a distinct expiring token per mint, honoured only when minted). `open` checks the app's slug against `guard.json`'s bot login, the installation id, bot id and PR numbers as positive integers, and the repository's `full_name` against the configured one (case included); a closing-issues answer with no pull request is unexpected; the mint's `expires_at` is read and a fresh token minted within five minutes of expiry. The tests drive both 422s for real (the read-back misses once) and kill the mapping mutants the review listed.
+
 ### Task 19: The controller's delivery configuration, wired and consumed
 
 **Files:**
@@ -9180,6 +9184,8 @@ git commit -m "feat(software-factory): the controller reads its delivery from fo
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
+
+**As landed (Task 19, `591f76c8b`).** As planned. The controller's two credential variables are deleted from `process.env` the first time the runtime reads them, also when the configuration is then refused (tested in `1835124cb`); a `FACTORY_GITHUB_APP_PRIVATE_KEY_FILE` holding a PEM header, a line break or over 1024 characters is refused by name and never quoted, and `loadAppPrivateKey` reports a read error's code, not its message (which repeated the path).
 
 ### Task 20: `factory.config.ts`'s `delivery`, and `up`'s credential wiring
 
@@ -9793,6 +9799,8 @@ git commit -m "feat(software-factory): factory.config.ts delivery.draftPr and up
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+**As landed (Task 20, `349aa31ca`, with the security review fixes of `1835124cb` and the follow-up `fix(software-factory): up refuses a key variable that names PATH …`).** As planned, with these departures. `realUpDeps(config)` takes the config and derives the secret variable names from it (`secretVariablesOf`), with no module-level registry the preflight filled late: `up`'s first `git rev-parse` and `docker info` ran before the preflight read the key, so they inherited it. `ownSubprocessEnv` also drops any variable holding a PEM private key (so `ps`, judging a lock with no config in reach, is covered) and every `GITHUB_APP_` variable. The run copy is written by `writeRunKey`: `<state>/run` must be a real directory the user owns, never a link; the copy is created exclusively (`"wx"`); a leftover that is a directory is refused with the locks released; the copy is removed in a `finally` on stop. `notAKeyPath` (in `jwt.ts`, shared by the config schema, `config.ts` and `loadAppPrivateKey`) refuses a PEM header, a line break or over 1024 characters where a path belongs. No worker inherits any `FACTORY_GITHUB_` variable, and `up` refuses to start beside the retired `FACTORY_GITHUB_TOKEN` or `FACTORY_GITHUB_APP_PRIVATE_KEY`. Redaction withholds any line holding a 24-character run of the key's body, the whole PEM in base64, or its DER in hex. The follow-up: `privateKeyEnv` must match `/^[A-Z][A-Z0-9_]*$/` and may not name an essential or factory-owned variable (`PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `PWD`, `TMPDIR`, `TMP`, `TEMP`, `TERM`, `TZ`, `LANG`, `LANGUAGE`, `NODE_OPTIONS`, `NODE_PATH`, `NODE_ENV`, `INIT_CWD`, `HOST`, `PORT`, `OPENAI_API_KEY`, `B4_PERMISSIONS_MODE`, `GH_TOKEN`, `GITHUB_TOKEN`, or any `LC_`, `FACTORY_`, `DOCKER_`, `GIT_`, `SSH_`, `XDG_` or `GITHUB_APP_` name), because `up` strips the named variable from every child; the message names the field, never the value. No worker gets `GH_TOKEN`, `GITHUB_TOKEN`, their `_ENTERPRISE_` forms or any `GITHUB_APP_` variable, and the controller gets no `GITHUB_APP_` variable: neither worker calls GitHub (`create --issue` reads the issue through `gh` in the operator's CLI process, and the drafter receives the issue from the controller), so `test/factory-up.test.ts`'s "workers inherit the operator's other variables" now excludes those two tokens. Also in this range, `f18ba1ca5` fixed a racing-approvals test to assert one winner, not that the first call wins.
+
 ### Task 21: The opt-in scratch lane, and the contract the fake is held to
 
 **Files:**
@@ -10181,6 +10189,8 @@ git commit -m "test(software-factory): the opt-in GitHub scratch lane and the co
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+**As landed (Task 21, `cbb16b4ac`).** As planned, with three departures. The contract replay matches each recorded success by method, path template **and status**, since one template is answered 404 then 200 in one delivery. The scratch lane's deliveries come from the scratch repository's issue #1, so `test/delivery-harness.ts` takes an `issue` option on the remote. Each case closes its own harness in an `afterEach`. Steps 3 and 4 have not run: the app and the scratch repository did not exist yet, so `test/fixtures/github-contract.json` is not recorded and the replay case skips; Step 2's skip was confirmed (5 skipped).
+
 ### Task 22: Docs for PR 4, and the whole gate
 
 **Files:**
@@ -10215,6 +10225,8 @@ git commit -m "docs(software-factory): delivering through the GitHub App, and th
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
+
+**As landed (Task 22).** The README's rung 4 section no longer says delivery is unusable: it documents setting up the app (pointing at spec §10 and Task 4), enabling `delivery.draftPr` in `factory.config.local.ts` through `FACTORY_CONFIG`, `privateKeyFile` versus `privateKeyEnv` and what each refuses, the line `up` prints, the controller's four variables and the run copy, who holds what (spec §10.5's table, widened to the GitHub tokens and `GITHUB_APP_` variables), the allow-list in brief, the scratch lane with its three variables and `FACTORY_TEST_GITHUB_RECORD=1`, the contract fixture step, what is still manual, and the known follow-ups; `up`'s paragraph says no process gets `GH_TOKEN`, `GITHUB_TOKEN` or a `GITHUB_APP_` variable. The spec gained "As landed (PR 4)" under §13 (D5, D8, D15, D16, D17, corrections 3, 4, 7, the wider scrubbing, and no scratch results yet). This plan gained the as-landed notes for Tasks 17-22 and PR 4's follow-ups. No `apps/web` page changed, so the SEO manifest did not move. The gate, after `pnpm install --frozen-lockfile` and `pnpm build`: the controller's `lint` (266 files, clean), `typecheck` (clean) and `test` (1,359 passed, 1 skipped, 102 files), `test:github-scratch` (5 skipped, no variables set), the root `pnpm lint` (31 tasks), `node scripts/check-docs.mjs` (passed), `pnpm test:release-integrity` (33 passed) and `node --test scripts/release/test/workflow-contracts.test.mjs` (188 passed).
 
 ---
 
@@ -10318,6 +10330,16 @@ Brian approves at both gates as before. Expected: `blocked` with `delivery_base_
 - **An export-local approve with an empty actor throws inside the transaction** (found while reviewing PR 3; pre-existing on `main`). `factory.approve` takes `actor` unvalidated and sets `decidedBy = options.actor ?? "operator"`, so `""` passes through and `recordApproval`'s `ApprovalSchema` (`decidedBy: min(1)`) throws a `ZodError` inside the approval transaction, leaving the operation key in flight. Today only a direct caller of `factory.approve` can pass one: the route's strict `ApproveInput` has no `actor` field, so the route never forwards it. The draft-PR path no longer reaches it (Task 13's fix validates the intent in `buildDeliveryIntent` before the transaction). Fix: validate `actor` with `min(1)` where it enters (`approve`'s options, and the route input once it carries an actor), so an empty actor is a refusal before any key is spent.
 - **The CLI's `redeliver` prompts for any delivery block** (Task 15): it shows the resumed delivery and asks for the digest's prefix for any `blocked` row with an outbox row, and only the controller refuses a reason outside `REDELIVERABLE_BLOCKED_REASONS`. Nothing is redelivered wrongly, but a person types a prefix for a refusal; the CLI should refuse a non-healable reason (naming `run --issue <n> --new`) before it asks, as `run-steps` already does when it chooses whether to print `redeliver`.
 - **The adapter must refuse a `truncated: true` tree listing** (Task 18's `tree()` does; keep it): `readPinListings` now also refuses a listing that does not hash to its tree id, which a truncated listing never does, but the adapter's refusal names the cause.
+- **PR 4's review follow-ups, not fixed:**
+  - A **hard link** to the key file inside the state directory or an app root is not refused: `deliveryKeyProblems` compares the path (lexically and by the identity of its ancestors), not the file's link count, so a second name for the same inode elsewhere passes. Refusing `nlink > 1` would close it.
+  - A **transferred (301) or deleted (410) issue** maps to `unexpected` (so `delivery_unconfirmed`) rather than a named reason; the request never follows the 301.
+  - The **ruleset read** (`branchRules`) takes the first page only; preflight uses the rule types it reads (`update` on the base branch, `update` and `non_fast_forward` on the factory branch), so a rule listed past the first page would read as missing.
+  - A **300-file compare** body is assumed to fit the 10 MiB response cap; a page of large patches could exceed it and read as unexpected rather than `delivery_base_conflict`.
+  - The **commit date** is sent as a millisecond ISO string; GitHub's echo may differ in precision, which matters only if a read-back ever compares it.
+  - A **truncated tree listing** blocks as `delivery_unconfirmed`, which `redeliver` accepts, though waiting cannot heal it; it should be a non-redeliverable reason.
+  - The fake GitHub will need **GitHub's extra top-level keys** once the first scratch run records the contract: the replay requires the fake to answer at least the recorded keys.
+  - The `privateKeyEnv` **run copy cannot be removed early** (once the controller is ready): `openFactory`'s retry re-reads the key file, so the copy lives until `up` stops.
+
 
 ## Self-review
 

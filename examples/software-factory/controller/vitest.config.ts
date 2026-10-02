@@ -4,7 +4,9 @@ export default defineConfig({
   test: {
     name: "software-factory-controller",
     include: ["test/**/*.test.ts"],
-    exclude: ["test/**/*.integration.test.ts"],
+    // The Docker lanes run under vitest.sandbox.config.ts, the opt-in GitHub scratch lane under
+    // vitest.github.config.ts: neither belongs in the unit run.
+    exclude: ["test/**/*.integration.test.ts", "test/**/*.github.test.ts"],
     fileParallelism: false,
     testTimeout: 30_000,
     setupFiles: ["test/setup-images.ts"],
