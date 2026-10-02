@@ -255,4 +255,39 @@ describe.skipIf(!enabled)("postgres client tool call store against real Postgres
       await pool.end()
     }
   }, 60_000)
+
+  test("prune deletes settled and expired rows before the cutoff and keeps the rest, across threads", async () => {
+    await withStore(async (store) => {
+      const BEFORE = "2026-09-18T12:00:00.000Z"
+      await store.issue(
+        call({ toolCallId: "old_answered", answeredAt: "2026-09-18T10:30:00.000Z", result: "ok" }),
+      )
+      await store.issue(call({ toolCallId: "new_answered", answeredAt: BEFORE, result: "ok" }))
+      await store.issue(call({ toolCallId: "old_voided", voidedAt: "2026-09-18T10:30:00.000Z" }))
+      await store.issue(
+        call({
+          toolCallId: "answered_then_voided",
+          answeredAt: "2026-09-18T10:30:00.000Z",
+          result: "ok",
+          voidedAt: "2026-09-18T13:00:00.000Z",
+        }),
+      )
+      await store.issue(call({ toolCallId: "expired_old", expiresAt: "2026-09-18T10:10:00.000Z" }))
+      await store.issue(call({ toolCallId: "expires_at_cutoff", expiresAt: BEFORE }))
+      await store.issue(call({ toolCallId: "never_expires", expiresAt: null }))
+      await store.issue(
+        call({ threadId: "t-2", toolCallId: "other_thread", voidedAt: "2026-09-18T10:30:00.000Z" }),
+      )
+
+      expect(await store.prune({ before: BEFORE })).toBe(4)
+      expect(await store.prune({ before: BEFORE })).toBe(0)
+      expect((await store.listForThread("t-1")).map((row) => row.toolCallId).sort()).toEqual([
+        "answered_then_voided",
+        "expires_at_cutoff",
+        "never_expires",
+        "new_answered",
+      ])
+      expect(await store.listForThread("t-2")).toEqual([])
+    })
+  }, 60_000)
 })

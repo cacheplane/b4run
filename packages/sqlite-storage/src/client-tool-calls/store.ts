@@ -146,5 +146,22 @@ export function makeClientToolCallStore(db: Db): ClientToolCallStore {
           .run(at, threadId, ...(toolCallIds ?? [])).changes,
       )
     },
+
+    async prune({ before }) {
+      // The settle time is voided_at when set, else answered_at; an
+      // outstanding row goes only once its expiry is behind the cutoff. All
+      // three timestamps are ISO-8601 text, so `<` is chronological.
+      return changeCount(
+        db
+          .prepare(
+            `DELETE FROM client_tool_calls
+             WHERE (voided_at IS NOT NULL AND voided_at < ?)
+                OR (voided_at IS NULL AND answered_at IS NOT NULL AND answered_at < ?)
+                OR (voided_at IS NULL AND answered_at IS NULL
+                    AND expires_at IS NOT NULL AND expires_at < ?)`,
+          )
+          .run(before, before, before).changes,
+      )
+    },
   }
 }

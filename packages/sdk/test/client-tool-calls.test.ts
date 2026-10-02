@@ -177,4 +177,69 @@ describe("createMemoryClientToolCallStore", () => {
     ;((await store.listForThread("t1"))[0] as { runId: string }).runId = "mutated"
     expect((await store.get("t1", "call_1"))?.runId).toBe("r1")
   })
+
+  describe("prune", () => {
+    const BEFORE = "2026-09-30T12:00:00.000Z"
+
+    it("deletes answered and voided rows settled before the cutoff and keeps later ones", async () => {
+      const store = createMemoryClientToolCallStore()
+      await store.issue(
+        call({ toolCallId: "old_answered", answeredAt: "2026-09-30T01:00:00.000Z", result: "ok" }),
+      )
+      await store.issue(
+        call({ toolCallId: "new_answered", answeredAt: "2026-09-30T12:00:00.000Z", result: "ok" }),
+      )
+      await store.issue(call({ toolCallId: "old_voided", voidedAt: "2026-09-30T01:00:00.000Z" }))
+      await store.issue(call({ toolCallId: "new_voided", voidedAt: "2026-09-30T13:00:00.000Z" }))
+      expect(await store.prune({ before: BEFORE })).toBe(2)
+      expect((await store.listForThread("t1")).map((row) => row.toolCallId)).toEqual([
+        "new_answered",
+        "new_voided",
+      ])
+    })
+
+    it("a void is the settle time: an old answer with a recent void is kept", async () => {
+      const store = createMemoryClientToolCallStore()
+      await store.issue(
+        call({
+          toolCallId: "answered_then_voided",
+          answeredAt: "2026-09-30T01:00:00.000Z",
+          result: "ok",
+          voidedAt: "2026-09-30T13:00:00.000Z",
+        }),
+      )
+      expect(await store.prune({ before: BEFORE })).toBe(0)
+      expect(await store.get("t1", "answered_then_voided")).toBeDefined()
+    })
+
+    it("deletes outstanding rows expired before the cutoff and keeps unexpired or never-expiring ones", async () => {
+      const store = createMemoryClientToolCallStore()
+      await store.issue(call({ toolCallId: "expired_old", expiresAt: "2026-09-30T00:10:00.000Z" }))
+      await store.issue(call({ toolCallId: "expires_at_cutoff", expiresAt: BEFORE }))
+      await store.issue(
+        call({ toolCallId: "expires_later", expiresAt: "2026-09-30T13:00:00.000Z" }),
+      )
+      await store.issue(call({ toolCallId: "never_expires", expiresAt: null }))
+      expect(await store.prune({ before: BEFORE })).toBe(1)
+      expect((await store.listOutstanding("t1")).map((row) => row.toolCallId)).toEqual([
+        "expires_at_cutoff",
+        "expires_later",
+        "never_expires",
+      ])
+    })
+
+    it("sweeps every thread and is idempotent", async () => {
+      const store = createMemoryClientToolCallStore()
+      await store.issue(
+        call({ threadId: "t1", toolCallId: "a", voidedAt: "2026-09-30T01:00:00.000Z" }),
+      )
+      await store.issue(
+        call({ threadId: "t2", toolCallId: "b", voidedAt: "2026-09-30T01:00:00.000Z" }),
+      )
+      expect(await store.prune({ before: BEFORE })).toBe(2)
+      expect(await store.prune({ before: BEFORE })).toBe(0)
+      expect(await store.listForThread("t1")).toEqual([])
+      expect(await store.listForThread("t2")).toEqual([])
+    })
+  })
 })

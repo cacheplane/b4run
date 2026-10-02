@@ -84,6 +84,14 @@ export interface ClientToolCallStore {
     readonly toolCallIds?: readonly string[]
     readonly at: string
   }): Promise<number>
+  /**
+   * Deletes rows that can no longer affect a turn: answered or voided rows
+   * whose settle time (`voidedAt`, else `answeredAt`) is before `before`, and
+   * outstanding rows whose `expiresAt` is before `before`. Outstanding rows
+   * with no expiry, or an expiry at or after `before`, are kept. Returns how
+   * many rows were deleted. `before` is an ISO-8601 string compared as text.
+   */
+  prune(options: { readonly before: string }): Promise<number>
 }
 
 /**
@@ -108,6 +116,16 @@ export interface ClientToolRecorder {
 function compareIssue(a: ClientToolCallRecord, b: ClientToolCallRecord): number {
   if (a.issuedAt !== b.issuedAt) return a.issuedAt < b.issuedAt ? -1 : 1
   return a.toolCallId < b.toolCallId ? -1 : a.toolCallId > b.toolCallId ? 1 : 0
+}
+
+/**
+ * Whether `prune({ before })` may delete this row. The memory store's `prune` predicate; the
+ * SQL stores carry the same rule in their DELETE.
+ */
+function isClientToolCallPrunable(row: ClientToolCallRecord, before: string): boolean {
+  if (row.voidedAt !== null) return row.voidedAt < before
+  if (row.answeredAt !== null) return row.answeredAt < before
+  return row.expiresAt !== null && row.expiresAt < before
 }
 
 /** In-process store for tests and embedders. Not durable. */
@@ -157,6 +175,18 @@ export function createMemoryClientToolCallStore(): ClientToolCallStore {
         if (only && !only.has(id)) continue
         rows.set(id, { ...row, voidedAt: at })
         count += 1
+      }
+      return count
+    },
+    async prune({ before }) {
+      let count = 0
+      for (const [threadId, rows] of threads) {
+        for (const [id, row] of rows) {
+          if (!isClientToolCallPrunable(row, before)) continue
+          rows.delete(id)
+          count += 1
+        }
+        if (rows.size === 0) threads.delete(threadId)
       }
       return count
     },

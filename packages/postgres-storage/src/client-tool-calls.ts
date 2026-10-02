@@ -81,6 +81,14 @@ export interface ClientToolCallStore {
     readonly toolCallIds?: readonly string[]
     readonly at: string
   }): Promise<number>
+  /**
+   * Deletes rows that can no longer affect a turn: answered or voided rows
+   * whose settle time (`voidedAt`, else `answeredAt`) is before `before`, and
+   * outstanding rows whose `expiresAt` is before `before`. Outstanding rows
+   * with no expiry, or an expiry at or after `before`, are kept. Returns how
+   * many rows were deleted. `before` is an ISO-8601 string compared as text.
+   */
+  prune(options: { readonly before: string }): Promise<number>
 }
 
 /** A client-tool-call store that also owns Postgres lifecycle. */
@@ -273,6 +281,24 @@ export function createPostgresClientToolCallStore(
            AND ($3::text[] IS NULL OR tool_call_id = ANY($3::text[]))
          RETURNING tool_call_id`,
         [at, threadId, toolCallIds === undefined ? null : [...toolCallIds]],
+      )
+      return res.rows.length
+    },
+
+    async prune({ before }) {
+      await ready()
+      // The settle time is voided_at when set, else answered_at; an
+      // outstanding row goes only once its expiry is behind the cutoff.
+      // COLLATE "C" makes the ISO-8601 comparison byte-wise, so it is
+      // chronological whatever the database locale. The count comes from
+      // RETURNING because `SqlPool` exposes `rows` alone.
+      const res = await pool.query<{ tool_call_id: string }>(
+        `DELETE FROM ${table}
+         WHERE (voided_at IS NOT NULL AND voided_at COLLATE "C" < $1)
+            OR (voided_at IS NULL AND answered_at IS NOT NULL AND answered_at COLLATE "C" < $1)
+            OR (voided_at IS NULL AND answered_at IS NULL AND expires_at IS NOT NULL AND expires_at COLLATE "C" < $1)
+         RETURNING tool_call_id`,
+        [before],
       )
       return res.rows.length
     },

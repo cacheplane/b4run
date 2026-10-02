@@ -74,4 +74,12 @@ export interface ClientToolCallStore {
     readonly toolCallIds?: readonly string[]
     readonly at: string
   }): Promise<number>
+  /**
+   * Deletes rows that can no longer affect a turn: answered or voided rows
+   * whose settle time (`voidedAt`, else `answeredAt`) is before `before`, and
+   * outstanding rows whose `expiresAt` is before `before`. Outstanding rows
+   * with no expiry, or an expiry at or after `before`, are kept. Returns how
+   * many rows were deleted. `before` is an ISO-8601 string compared as text.
+   */
+  prune(options: { readonly before: string }): Promise<number>
 }

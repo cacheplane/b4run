@@ -48,8 +48,10 @@ import { readClientToolDefinitions } from "./client-tool-definitions.js"
 import {
   AGUI_BODY_MAX_BYTES,
   type ClientToolRuntime,
+  DEFAULT_CLIENT_TOOL_RETENTION_MS,
   DEFAULT_CLIENT_TOOL_TTL_MS,
   MAX_CLIENT_TOOL_RESULT,
+  pruneClientToolCalls,
 } from "./client-tool-runtime.js"
 import {
   type ClientToolTurn,
@@ -363,7 +365,10 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     appRoot,
     boot,
     checkpointer,
-    clientTools: clientToolRuntime = { ttlMs: DEFAULT_CLIENT_TOOL_TTL_MS },
+    clientTools: clientToolRuntime = {
+      ttlMs: DEFAULT_CLIENT_TOOL_TTL_MS,
+      retentionMs: DEFAULT_CLIENT_TOOL_RETENTION_MS,
+    },
     config,
     getMemoryStore,
     liveTurnHub,
@@ -1148,6 +1153,13 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     const voidClientRecordsIfSettled = async (): Promise<void> => {
       if (!sawInterrupt && clientToolStore) {
         await voidSettledClientToolCalls(clientToolStore, checkpointer, threadId)
+        // Opportunistic retention, throttled per store and never allowed to
+        // fail the turn (see pruneClientToolCalls). Awaited on the close path
+        // on purpose: at most one DELETE an hour (a scan: nothing indexes the
+        // settle columns, and the table is self-limiting once it is pruned),
+        // and the integration test relies on it having run by the time the
+        // response ends.
+        await pruneClientToolCalls(clientToolStore, clientToolRuntime, new Date())
       }
     }
     // From here on, the stream owns both the request listeners and any resume

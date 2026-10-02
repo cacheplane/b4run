@@ -280,6 +280,16 @@ export interface B4Config {
        */
       readonly clientToolTtlMs?: number
       /**
+       * How long, in milliseconds, a settled client tool call record (answered
+       * or voided) or an expired outstanding one is kept before the runtime
+       * deletes it. Default `604800000` (7 days). The runtime prunes at
+       * `now - max(clientToolRetentionMs, clientToolTtlMs)`, so a record is
+       * never deleted while its call could still be answered. Must be a
+       * positive integer no greater than one year (`31536000000`); anything
+       * else fails the boot.
+       */
+      readonly clientToolRetentionMs?: number
+      /**
        * Where outstanding client tool calls are recorded, so a later
        * `role: "tool"` message can be matched to a call this server issued.
        * Defaults to a SQLite store at `<appRoot>/.b4/client-tool-calls.sqlite`

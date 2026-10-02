@@ -3212,6 +3212,7 @@ const expectedB4ConfigSchemaPaths = [
   "server",
   "server.agui",
   "server.agui.clientForwardedProps",
+  "server.agui.clientToolRetentionMs",
   "server.agui.clientToolStore",
   "server.agui.clientToolTtlMs",
   "server.agui.clientTools",

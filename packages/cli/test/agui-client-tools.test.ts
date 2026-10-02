@@ -3,21 +3,28 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { ABANDONED_CLIENT_TOOL_RESULT, CLIENT_TOOL_UNAVAILABLE_RESULT } from "@b4run/core"
 import {
+  type ClientToolCallRecord,
   type ClientToolCallStore,
   createMemoryClientToolCallStore,
   createMemoryInterruptGrantStore,
 } from "@b4run/sdk"
 import { createClientToolCallStore, createThreadsStore } from "@b4run/sqlite-storage"
 import { MemorySaver } from "@langchain/langgraph"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { createAimock } from "../../testing/dist/aimock-runner.js"
 import { __voidSettledClientToolCallsForTests } from "../src/lib/dev/agui-handler.ts"
 import {
+  __resetClientToolPruneThrottleForTests,
   AGUI_BODY_MAX_BYTES,
+  CLIENT_TOOL_PRUNE_INTERVAL_MS,
   ClientToolConfigError,
+  clientToolPruneCutoff,
+  DEFAULT_CLIENT_TOOL_RETENTION_MS,
   DEFAULT_CLIENT_TOOL_TTL_MS,
   MAX_CLIENT_TOOL_RESULT,
   MAX_CLIENT_TOOL_TTL_MS,
+  pruneClientToolCalls,
+  resolveClientToolRetentionMs,
   resolveClientToolTtlMs,
   validateClientToolStore,
 } from "../src/lib/dev/client-tool-runtime.ts"
@@ -1349,6 +1356,50 @@ describe("settling an AG-UI turn", () => {
     expect(await t.store.listOutstanding(t.threadId)).toEqual([])
   })
 
+  it("a settled turn sweeps old settled records from every thread", async () => {
+    __resetClientToolPruneThrottleForTests()
+    const t = await parkedRun([], {
+      fixtures: [{ match: { userMessage: "hello" }, response: { content: "Hi." } }],
+    })
+    expect(t.first.status).toBe(200)
+    // An old voided record on an unrelated thread: well past the 7-day default.
+    await t.store.issue({
+      threadId: "t-abandoned-long-ago",
+      toolCallId: "call_old",
+      interruptId: "client-call_old",
+      toolName: "openPanel",
+      runId: "run-old",
+      routeId: "/park#agent",
+      issuedAt: "2020-01-01T00:00:00.000Z",
+      expiresAt: "2020-01-01T00:10:00.000Z",
+      answeredAt: null,
+      result: null,
+      voidedAt: "2020-01-01T00:10:00.000Z",
+    })
+    // A fresh outstanding record on the same old thread must survive.
+    await t.store.issue({
+      threadId: "t-abandoned-long-ago",
+      toolCallId: "call_live",
+      interruptId: "client-call_live",
+      toolName: "openPanel",
+      runId: "run-live",
+      routeId: "/park#agent",
+      issuedAt: new Date().toISOString(),
+      expiresAt: null,
+      answeredAt: null,
+      result: null,
+      voidedAt: null,
+    })
+    // The first turn already swept this store; clear the throttle so the
+    // second settled turn sweeps again.
+    __resetClientToolPruneThrottleForTests()
+    const second = await run(t.handler, aguiRequest(t.threadId, "run-2", [USER_HELLO]))
+    expect(second.status).toBe(200)
+    expect((await t.store.listForThread("t-abandoned-long-ago")).map((r) => r.toolCallId)).toEqual([
+      "call_live",
+    ])
+  })
+
   it("a turn that parks keeps its own record outstanding", async () => {
     const t = await parkedRun([CALL_A])
     expect(await t.store.listOutstanding(t.threadId)).toHaveLength(1)
@@ -1437,6 +1488,83 @@ describe("the recorder never parks a NEW call on an old record", () => {
   })
 })
 
+describe("pruneClientToolCalls (opportunistic sweep)", () => {
+  const runtime = { ttlMs: 600_000, retentionMs: 3_600_000 }
+  const settled = (toolCallId: string, voidedAt: string): ClientToolCallRecord => ({
+    threadId: "t-sweep",
+    toolCallId,
+    interruptId: `client-${toolCallId}`,
+    toolName: "openPanel",
+    runId: "r1",
+    routeId: "/park#agent",
+    issuedAt: "2026-10-01T00:00:00.000Z",
+    expiresAt: null,
+    answeredAt: null,
+    result: null,
+    voidedAt,
+  })
+
+  afterEach(() => __resetClientToolPruneThrottleForTests())
+
+  it("deletes rows settled before the cutoff and keeps outstanding ones", async () => {
+    const store = createMemoryClientToolCallStore()
+    await store.issue(settled("old", "2026-10-01T00:00:00.000Z"))
+    await store.issue({ ...settled("live", "x"), voidedAt: null })
+    const now = new Date("2026-10-01T12:00:00.000Z")
+    expect(await pruneClientToolCalls(store, runtime, now)).toBe(1)
+    expect((await store.listForThread("t-sweep")).map((r) => r.toolCallId)).toEqual(["live"])
+  })
+
+  it("runs at most once per interval per store", async () => {
+    const store = createMemoryClientToolCallStore()
+    let calls = 0
+    const counting: ClientToolCallStore = {
+      ...store,
+      prune: async (options) => {
+        calls += 1
+        return store.prune(options)
+      },
+    }
+    const t0 = new Date("2026-10-01T12:00:00.000Z")
+    expect(await pruneClientToolCalls(counting, runtime, t0)).toBe(0)
+    expect(
+      await pruneClientToolCalls(
+        counting,
+        runtime,
+        new Date(t0.getTime() + CLIENT_TOOL_PRUNE_INTERVAL_MS - 1),
+      ),
+    ).toBeUndefined()
+    expect(
+      await pruneClientToolCalls(
+        counting,
+        runtime,
+        new Date(t0.getTime() + CLIENT_TOOL_PRUNE_INTERVAL_MS),
+      ),
+    ).toBe(0)
+    expect(calls).toBe(2)
+  })
+
+  it("never throws: a failing store is warned about and the sweep reports undefined", async () => {
+    const store = createMemoryClientToolCallStore()
+    const failing: ClientToolCallStore = {
+      ...store,
+      prune: async () => {
+        throw new Error("disk full")
+      },
+    }
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      await expect(pruneClientToolCalls(failing, runtime, new Date())).resolves.toBeUndefined()
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("could not prune client tool calls"),
+        expect.any(Error),
+      )
+    } finally {
+      warn.mockRestore()
+    }
+  })
+})
+
 describe("client tool boot settings and request bounds", () => {
   it("clientToolTtlMs defaults, and a mistyped value fails rather than reads as configured", () => {
     expect(resolveClientToolTtlMs(undefined)).toBe(DEFAULT_CLIENT_TOOL_TTL_MS)
@@ -1447,6 +1575,36 @@ describe("client tool boot settings and request bounds", () => {
       expect(() => resolveClientToolTtlMs(bad)).toThrow(ClientToolConfigError)
     }
     expect(() => resolveClientToolTtlMs(MAX_CLIENT_TOOL_TTL_MS + 1)).toThrow(ClientToolConfigError)
+  })
+
+  it("clientToolRetentionMs defaults to 7 days, and a mistyped value fails the boot", () => {
+    expect(resolveClientToolRetentionMs(undefined)).toBe(DEFAULT_CLIENT_TOOL_RETENTION_MS)
+    expect(DEFAULT_CLIENT_TOOL_RETENTION_MS).toBe(7 * 24 * 60 * 60 * 1000)
+    expect(resolveClientToolRetentionMs(1)).toBe(1)
+    expect(resolveClientToolRetentionMs(MAX_CLIENT_TOOL_TTL_MS)).toBe(MAX_CLIENT_TOOL_TTL_MS)
+    for (const bad of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "604800000", null]) {
+      expect(() => resolveClientToolRetentionMs(bad)).toThrow(ClientToolConfigError)
+    }
+    expect(() => resolveClientToolRetentionMs(MAX_CLIENT_TOOL_TTL_MS + 1)).toThrow(
+      ClientToolConfigError,
+    )
+  })
+
+  it("the prune cutoff is now minus the larger of retention and TTL", () => {
+    const now = new Date("2026-10-01T12:00:00.000Z")
+    expect(clientToolPruneCutoff(now, { ttlMs: 600_000, retentionMs: 3_600_000 })).toBe(
+      "2026-10-01T11:00:00.000Z",
+    )
+    // A TTL longer than the retention wins: a row is never pruned while its call could still live.
+    expect(clientToolPruneCutoff(now, { ttlMs: 7_200_000, retentionMs: 3_600_000 })).toBe(
+      "2026-10-01T10:00:00.000Z",
+    )
+  })
+
+  it("a configured store must also implement prune", () => {
+    const store = createMemoryClientToolCallStore()
+    const { prune: _omitted, ...withoutPrune } = store
+    expect(() => validateClientToolStore(withoutPrune)).toThrow(/missing prune/)
   })
 
   it("clientToolStore must be a store", () => {
@@ -1486,6 +1644,51 @@ describe("client tool boot settings and request bounds", () => {
         'export default { server: { agui: { clientTools: ["/park"], clientToolTtlMs: 0 } } }\n',
     })
     await expect(createHandler(appRoot)).rejects.toThrow(/clientToolTtlMs/)
+  })
+
+  it("a bad clientToolRetentionMs fails the boot", async () => {
+    const appRoot = await fixtureApp({
+      config:
+        'export default { server: { agui: { clientTools: ["/park"], clientToolRetentionMs: 0 } } }\n',
+    })
+    await expect(createHandler(appRoot)).rejects.toThrow(ClientToolConfigError)
+    await expect(createHandler(appRoot)).rejects.toThrow(/clientToolRetentionMs/)
+  })
+
+  it("the boot reads clientToolRetentionMs, and the TTL floor governs the cutoff", async () => {
+    __resetClientToolPruneThrottleForTests()
+    const store = createMemoryClientToolCallStore()
+    // Retention of 1ms: the cutoff is then `now - max(1, 10 minutes)`. Under
+    // the 7-day default both rows below would survive.
+    const t = await parkedRun([], {
+      store,
+      config: `export default { server: { agui: { clientTools: ["/park"], clientToolStore: globalThis.${STORE_KEY}, clientToolRetentionMs: 1 } } }\n`,
+      fixtures: [{ match: { userMessage: "hello" }, response: { content: "Hi." } }],
+    })
+    expect(t.first.status).toBe(200)
+    const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString()
+    for (const [toolCallId, voidedAt] of [
+      ["call_11m", minutesAgo(11)],
+      ["call_5m", minutesAgo(5)],
+    ] as const) {
+      await store.issue({
+        threadId: "t-elsewhere",
+        toolCallId,
+        interruptId: `client-${toolCallId}`,
+        toolName: "openPanel",
+        runId: "run-x",
+        routeId: "/park#agent",
+        issuedAt: voidedAt,
+        expiresAt: null,
+        answeredAt: null,
+        result: null,
+        voidedAt,
+      })
+    }
+    __resetClientToolPruneThrottleForTests()
+    const second = await run(t.handler, aguiRequest(t.threadId, "run-2", [USER_HELLO]))
+    expect(second.status).toBe(200)
+    expect((await store.listForThread("t-elsewhere")).map((r) => r.toolCallId)).toEqual(["call_5m"])
   })
 
   it("an AG-UI body over the ceiling is refused with 413 before it is parsed", async () => {

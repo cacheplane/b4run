@@ -579,6 +579,7 @@ server?: {
     clientTools?: readonly string[]
     clientForwardedProps?: readonly string[]
     clientToolTtlMs?: number
+    clientToolRetentionMs?: number
     clientToolStore?: ClientToolCallStore
   }
 }
@@ -665,6 +666,15 @@ one instance needs a shared one — `createPostgresClientToolCallStore` from
 client tools is refused with `503` `client_tool_store_unavailable` rather than
 parked on a call nobody could answer. A configured store missing any of the
 store methods fails the boot.
+
+Settled records are not kept forever. When an AG-UI turn settles, the runtime
+deletes answered or voided records older than `clientToolRetentionMs`, and
+outstanding records whose expiry is older than it, at most once an hour per
+store. The default is `604800000` (7 days); it must be a positive integer of at
+most one year, anything else fails the boot, and the window is never shorter
+than `clientToolTtlMs`. A record that is outstanding and unexpired is never
+deleted. [`b4 client-tools prune`](/docs/cli#b4-client-tools) runs the same
+pass by hand, and a store you supply must implement `prune` as well.
 
 
 ## Postgres backend
