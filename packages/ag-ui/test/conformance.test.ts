@@ -145,15 +145,19 @@ interface CannedRun {
   readonly options?: ToAguiOptions
   /** Test-only: rewrite an event before it is encoded, to prove the gate bites. */
   readonly mutate?: (event: BaseEvent) => BaseEvent
+  /** Test-only: the run id this canned run reports; defaults to its 1-based position. */
+  readonly runId?: string
 }
 
 /** The fixture server: answers each POST with the next canned run, and records every request body. */
 async function startCannedServer(runs: readonly CannedRun[]): Promise<{
   readonly url: string
   readonly bodies: unknown[]
+  readonly contentTypes: string[]
 }> {
   const queue = [...runs]
   const bodies: unknown[] = []
+  const contentTypes: string[] = []
   const cannedServer = createServer((req, res) => {
     void (async () => {
       const raw: Buffer[] = []
@@ -162,10 +166,12 @@ async function startCannedServer(runs: readonly CannedRun[]): Promise<{
       const run = queue.shift()
       if (!run) throw new Error("more runs requested than canned")
       const accept = req.headers.accept
-      res.writeHead(200, { "content-type": agUiContentType(accept), "cache-control": "no-cache" })
+      const contentType = agUiContentType(accept)
+      contentTypes.push(contentType)
+      res.writeHead(200, { "content-type": contentType, "cache-control": "no-cache" })
       const events = toAguiEvents(
         run.stream(),
-        { threadId: "t1", runId: `r${bodies.length}` },
+        { threadId: "t1", runId: run.runId ?? `r${bodies.length}` },
         { idFactory: createCounterIdFactory(), ...run.options },
       )
       for await (const event of events) {
@@ -187,7 +193,7 @@ async function startCannedServer(runs: readonly CannedRun[]): Promise<{
   server = cannedServer
   const address = cannedServer.address()
   if (!address || typeof address === "string") throw new Error("Canned server has no TCP address")
-  return { url: `http://127.0.0.1:${address.port}`, bodies }
+  return { url: `http://127.0.0.1:${address.port}`, bodies, contentTypes }
 }
 
 /**
@@ -337,21 +343,18 @@ it("a full turn passes 1.0 enforcement with nothing stripped", async () => {
 })
 
 it("the HTTP+protobuf binding passes 1.0 enforcement with the same events", async () => {
-  const { url } = await startCannedServer([
-    { stream: () => toAsync(CANNED) },
-    { stream: () => toAsync(CANNED) },
+  const { url, contentTypes } = await startCannedServer([
+    { runId: "r1", stream: () => toAsync(CANNED) },
+    { runId: "r1", stream: () => toAsync(CANNED) },
   ])
   const sse = await runThroughClient(url, { runId: "r1" })
-  const binary = await runThroughClient(url, { runId: "r2" }, "protobuf")
+  const binary = await runThroughClient(url, { runId: "r1" }, "protobuf")
+  expect(contentTypes).toEqual(["text/event-stream", AGUI_MEDIA_TYPE])
 
-  // Same turn, two bindings: the client's protobuf parser yields what its SSE
-  // parser yields. The canned server numbers each run (`r1`, `r2`), and the plan
-  // activity's message id (`b4:plan:<runId>`) derives from it, so the run id is
-  // normalized wherever it appears; the wall-clock timestamp differs too.
+  // Same turn, same run id, two bindings: the client's protobuf parser yields
+  // exactly what its SSE parser yields. Only the wall-clock timestamp differs.
   const strip = (events: BaseEvent[]) =>
-    events.map(({ timestamp: _timestamp, rawEvent: _raw, ...event }) =>
-      JSON.parse(JSON.stringify(event).replace(/\br[12]\b/g, "rN")),
-    )
+    events.map(({ timestamp: _timestamp, rawEvent: _raw, ...event }) => event)
   expect(binary.events.length).toBe(sse.events.length)
   expect(strip(binary.events)).toEqual(strip(sse.events))
 })
