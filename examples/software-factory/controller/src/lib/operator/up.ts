@@ -42,6 +42,20 @@ export const UP = `${"up".padEnd(10)} │`
  */
 const isDeliveryVariable = (name: string) => /^FACTORY_(?:GITHUB_|DELIVERY_)/.test(name)
 
+/**
+ * A GitHub App's variables by the conventional names: no child of `up` needs one (the
+ * controller is given its key as a path, by its own names).
+ */
+const isGithubAppVariable = (name: string) => /^GITHUB_APP_/.test(name)
+
+/**
+ * GitHub credentials no worker uses: neither the builder nor the drafter calls GitHub (the CLI
+ * reads issues through `gh`, the controller delivers), so a token the operator exported for
+ * `gh` stays with the operator's shell.
+ */
+const isGithubCredential = (name: string) =>
+  /^(?:GH|GITHUB)_(?:ENTERPRISE_)?TOKEN$/.test(name) || isGithubAppVariable(name)
+
 /** Retired GitHub credentials up refuses to start beside: neither is read, and both are secrets. */
 const RETIRED_GITHUB_VARIABLES = ["FACTORY_GITHUB_TOKEN", "FACTORY_GITHUB_APP_PRIVATE_KEY"] as const
 
@@ -73,7 +87,8 @@ export function ownSubprocessEnv(
   delete own.FACTORY_WORKER_TOKEN
   for (const name of secretNames) delete own[name]
   for (const name of Object.keys(own))
-    if (isDeliveryVariable(name) || holdsPrivateKey(own[name])) delete own[name]
+    if (isDeliveryVariable(name) || isGithubAppVariable(name) || holdsPrivateKey(own[name]))
+      delete own[name]
   return own
 }
 
@@ -242,7 +257,10 @@ export function appProcesses(
   for (const name of NOT_INHERITED) delete base[name]
   // Rung 4 (§8.2): no child inherits a delivery variable or the variable holding the app's
   // key; the controller is given the four it needs, the key as a path.
-  for (const name of Object.keys(base)) if (isDeliveryVariable(name)) delete base[name]
+  // Nor a GitHub token or app variable: no worker calls GitHub, and the controller's own
+  // credential is the four below.
+  for (const name of Object.keys(base))
+    if (isDeliveryVariable(name) || isGithubCredential(name)) delete base[name]
   const delivery = config.delivery
   if (delivery !== undefined && "env" in delivery.key) delete base[delivery.key.env]
   const controllerEnv = {

@@ -591,3 +591,71 @@ describe("review of Tasks 19-20: up's own processes, pasted keys, the run copy",
     )
   })
 })
+
+describe("the key's variable and GitHub credentials in up's children", () => {
+  const withKeyEnv = (name: string) =>
+    parseFactoryConfig(draftPr({ id: 1, privateKeyEnv: name }), CONFIG_PATH)
+
+  it("refuses a privateKeyEnv that names an essential or factory-owned variable, naming the field only", () => {
+    for (const name of [
+      "PATH",
+      "HOME",
+      "USER",
+      "SHELL",
+      "TMPDIR",
+      "NODE_OPTIONS",
+      "LANG",
+      "LC_ALL",
+      "LC_CTYPE",
+      "FACTORY_WORKER_TOKEN",
+      "FACTORY_STATE_DIR",
+      "FACTORY_SOMETHING_NEW",
+      "OPENAI_API_KEY",
+      "GH_TOKEN",
+      "GITHUB_TOKEN",
+      "_LEADING",
+      "lower_case",
+    ]) {
+      let refusal = ""
+      try {
+        withKeyEnv(name)
+      } catch (error) {
+        refusal = error instanceof Error ? error.message : String(error)
+      }
+      expect(refusal.includes("delivery.draftPr.app.privateKeyEnv"), name).toBe(true)
+      expect(refusal.includes(name), name).toBe(false)
+    }
+    for (const name of ["B4_FACTORY_APP_KEY", "MY_APP_KEY"])
+      expect(withKeyEnv(name).delivery?.key, name).toEqual({ env: name })
+  })
+
+  it("keeps GH_TOKEN, GITHUB_TOKEN and every GITHUB_APP_ variable from the workers and the controller", () => {
+    const credentials = {
+      GH_TOKEN: "h",
+      GITHUB_TOKEN: "i",
+      GH_ENTERPRISE_TOKEN: "j",
+      GITHUB_ENTERPRISE_TOKEN: "k",
+      GITHUB_APP_PRIVATE_KEY: "l",
+      GITHUB_APP_ID: "m",
+    }
+    const apps = appProcesses(
+      parseFactoryConfig(base, CONFIG_PATH),
+      { token: "t".repeat(64), openaiApiKey: "sk-test" },
+      { PATH: "/bin", OTHER: "kept", ...credentials },
+    )
+    for (const app of apps) {
+      expect(
+        Object.keys(app.env).filter((k) => Object.hasOwn(credentials, k)),
+        app.name,
+      ).toEqual([])
+      expect(app.env.PATH, app.name).toBe("/bin")
+    }
+    for (const app of apps.filter((a) => a.name !== "controller"))
+      expect(app.env.OTHER, app.name).toBe("kept")
+  })
+
+  it("keeps every GITHUB_APP_ variable from up's own git, ps and docker", () => {
+    const own = ownSubprocessEnv({ PATH: "/bin", GITHUB_APP_PRIVATE_KEY: "x", GITHUB_APP_ID: "1" })
+    expect(own).toEqual({ PATH: "/bin" })
+  })
+})

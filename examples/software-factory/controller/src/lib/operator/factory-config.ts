@@ -61,6 +61,41 @@ export interface ResolvedFactoryConfig {
   }
 }
 
+/**
+ * Variables `privateKeyEnv` may not name: `up` deletes the key's variable from every child's
+ * environment, so these would be taken from the controller, the workers and up's own git and
+ * docker. The essentials, the locale, the factory's own `FACTORY_` names (none holds the key),
+ * and the credentials `up` already keeps from the workers.
+ */
+const RESERVED_KEY_VARIABLES = new Set([
+  "PATH",
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "SHELL",
+  "PWD",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "TERM",
+  "TZ",
+  "LANG",
+  "LANGUAGE",
+  "NODE_OPTIONS",
+  "NODE_PATH",
+  "NODE_ENV",
+  "INIT_CWD",
+  "HOST",
+  "PORT",
+  "OPENAI_API_KEY",
+  "B4_PERMISSIONS_MODE",
+  "GH_TOKEN",
+  "GITHUB_TOKEN",
+])
+const RESERVED_KEY_PREFIXES = ["LC_", "FACTORY_", "DOCKER_", "GIT_", "SSH_", "XDG_", "GITHUB_APP_"]
+const reservedKeyVariable = (name: string) =>
+  RESERVED_KEY_VARIABLES.has(name) || RESERVED_KEY_PREFIXES.some((p) => name.startsWith(p))
+
 const Port = z.number().int().min(1024).max(65535)
 const App = z.object({ port: Port }).strict()
 const AppCredential = z
@@ -76,9 +111,15 @@ const AppCredential = z
         `must be the key file's path, not the key (it holds a PEM header or a line break, or is over ${MAX_KEY_PATH_LENGTH} characters)`,
       )
       .optional(),
+    // Refused by kind, never quoted: `up` strips the named variable from every child, so naming
+    // PATH or one the factory owns would take it from all of them.
     privateKeyEnv: z
       .string()
-      .regex(/^[A-Z_][A-Z0-9_]*$/, "must be an environment variable's name")
+      .regex(/^[A-Z][A-Z0-9_]*$/, "must be an environment variable's name (A-Z, 0-9, _)")
+      .refine(
+        (name) => !reservedKeyVariable(name),
+        "names a variable every process needs or the factory owns; name one dedicated to the key, such as B4_FACTORY_APP_KEY",
+      )
       .optional(),
   })
   .strict()
