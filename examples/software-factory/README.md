@@ -575,10 +575,10 @@ recorded either way:
 
 | Block | What happened | What to do |
 |---|---|---|
-| `delivery_base_conflict` | `main` changed a path the change touches (or a file the branch's own Vercel build runs) since the pin, the pin is no longer an ancestor of `main`, or the comparison could not be read in full | Cancel the work order, then `run --issue <n> --new`: a new work order at a fresh pin |
-| `delivery_baseline_mismatch` | A changed file's blob at the pin is not the baseline the candidate was diffed against, or GitHub truncated a pin listing the comparison needs | Cancel the work order, then `run --issue <n> --new` |
-| `delivery_branch_conflict` | `factory/<id>` holds a commit that is not this change, or its pull request was closed, has another base, or is not the factory's | Cancel the work order, then `run --issue <n> --new` (the factory never updates or reopens) |
-| `delivery_issue_closed` | The issue was open at create and is closed now, or was transferred (301) or deleted (410) since | If the work is still wanted, cancel the work order, then `run --issue <n> --new` |
+| `delivery_base_conflict` | `main` changed a path the change touches (or a file the branch's own Vercel build runs) since the pin, the pin is no longer an ancestor of `main`, or the comparison could not be read in full | Cancel the work order, then `run --issue <n> --deliver draft-pr --new`: a new work order at a fresh pin |
+| `delivery_baseline_mismatch` | A changed file's blob at the pin is not the baseline the candidate was diffed against, or GitHub truncated a pin listing the comparison needs | Cancel the work order, then `run --issue <n> --deliver draft-pr --new` |
+| `delivery_branch_conflict` | `factory/<id>` holds a commit that is not this change, or its pull request was closed, has another base, or is not the factory's | Cancel the work order, then `run --issue <n> --deliver draft-pr --new` (the factory never updates or reopens) |
+| `delivery_issue_closed` | The issue was open at create and is closed now, or was transferred (301) or deleted (410) since | If the work is still wanted, cancel the work order, then `run --issue <n> --deliver draft-pr --new` |
 | `delivery_unauthorized` | A token could not be minted, the app is missing or under-permissioned, a 401 or a non-rate-limit 403 | Fix the app, then `pnpm factory redeliver <id>` |
 | `delivery_rate_limited` | Rate limited past the worker's bound | `pnpm factory redeliver <id>` later |
 | `delivery_unconfirmed` | `5xx` or network failures past the bound, or a read-back that disagrees with the bundle in a way none of the above explains | `pnpm factory events <id>`, then `pnpm factory redeliver <id>` |
@@ -588,8 +588,10 @@ within 24 hours of the approval and at the revision and bundle digest it shows: 
 the resumed delivery will publish and asks for the bundle digest's first eight hex digits at a
 terminal (or takes `--digest <sha256>` in full). It approves nothing new. Every other block
 needs a new work order, and `redeliver` refuses it saying so, before it asks for anything
-("waiting does not heal it; cancel it and run the issue again with --new"): cancel the blocked one first, or the old blocked row
-leaves a later `run --issue <n>` ambiguous. `pnpm factory events <id>` has each step's journal
+("waiting does not heal it; cancel it and run the issue again with --new") and names the command:
+`run --issue <n> --repo <owner/name> --deliver draft-pr --new`, with no `--pin`, so the new work
+order is pinned at `main`'s tip and delivers a draft PR again. Cancel the blocked one first, or
+the old blocked row leaves a later `run --issue <n>` ambiguous. `pnpm factory events <id>` has each step's journal
 and the remote ids that exist. `approve` and `review --approve` list the same next commands as
 `run` when the delivery blocks (`next` in their output), `pnpm factory redeliver <id>` among
 them only for these three reasons. A redeliver resumes from the step the worker stopped at and

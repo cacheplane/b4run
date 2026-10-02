@@ -567,7 +567,7 @@ esac
         state: "blocked",
         blockedReason: "delivery_base_conflict",
       })
-      const runAgain = `pnpm factory run --issue 912 --repo ${REPOSITORY} --pin ${h.pin} --new`
+      const runAgain = `pnpm factory run --issue 912 --repo ${REPOSITORY} --deliver draft-pr --new`
       for (const result of [
         await failing(
           run(process.execPath, [tsxBin, cliEntry, "redeliver", HARNESS_ID], {

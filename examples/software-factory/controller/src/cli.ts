@@ -113,7 +113,8 @@ of exporting it; the default, local, is the export. The choice is fixed at creat
 the bundle the person approves. The controller must be configured to deliver to that repository.
 redeliver resumes a delivery blocked by delivery_unauthorized, delivery_rate_limited or
 delivery_unconfirmed, under the approval already given, within a day of it; every other delivery
-block needs a new work order.
+block needs a new work order: cancel it, then run --issue <n> --repo <owner/name> --deliver
+draft-pr --new, with no --pin, so the new work order is pinned at main's tip.
 
 intake runs the drafter turn and the oracle proof and waits for them, like dispatch. The draft
 it parks is a task directory under <FACTORY_STATE_DIR>/tasks/<workOrderId>/ (task.json, spec.md,
