@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { agUiContentType } from "@b4run/ag-ui/sse"
 import type { ThreadsStore } from "@b4run/sqlite-storage"
 import { MemorySaver } from "@langchain/langgraph"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -159,6 +160,66 @@ describe("per-request stores", () => {
     expect(threads.has("th-per-request")).toBe(true)
   }, 120_000)
 
+  it("holds the in-flight slot for a protobuf AG-UI body until it is read", async () => {
+    const appRoot = await chatFixtureApp()
+    const modules = await buildStaticModulesForFixture(appRoot)
+    await withAimock(simpleScript())
+
+    const disposed: number[] = []
+    let seq = 0
+    const { store: threadsStore } = memoryThreadsStore()
+
+    const handler = await createRuntimeFetchHandler({
+      appRoot,
+      config: { backends: { filesystem: inMemoryFilesystem() } },
+      modules,
+      requestStores: async () => {
+        const id = ++seq
+        return {
+          checkpointer: new MemorySaver(),
+          dispose: async () => {
+            disposed.push(id)
+          },
+          memoryStore: fakeMemoryStore(),
+          permissionsStore: fakePermissionsStore(),
+          threadsStore,
+        }
+      },
+    })
+    cleanup.push(() => handler.close())
+
+    const response = await handler.fetch(
+      new Request(`http://localhost/agui/${encodeURIComponent("/chat#agent")}`, {
+        body: JSON.stringify({
+          context: [],
+          forwardedProps: {},
+          messages: [{ id: "1", role: "user", content: "hello" }],
+          runId: "rn-proto-slot",
+          state: {},
+          threadId: "th-proto-slot",
+          tools: [],
+        }),
+        headers: {
+          accept: "application/vnd.ag-ui.event+proto",
+          "content-type": "application/json",
+        },
+        method: "POST",
+      }),
+    )
+    expect(response.headers.get("content-type")).toBe("application/vnd.ag-ui.event+proto")
+    // fetch() resolved, body unread: the slot must still be held, and nothing
+    // disposed.
+    expect(handler.state.activeRequests).toBe(1)
+    expect(disposed).toEqual([])
+    await response.arrayBuffer()
+    await waitUntil(
+      () => handler.state.activeRequests === 0,
+      "the protobuf body to release its slot",
+    )
+    await waitUntil(() => disposed.length > 0, "the finished turn's stores to dispose")
+    expect(disposed).toEqual([1])
+  }, 120_000)
+
   it("fails loudly, naming the store, when the factory omits one", async () => {
     // Before this seam, the same misconfiguration rejected
     // createRuntimeFetchHandler at boot with the store's name in the rejection.
@@ -255,6 +316,9 @@ describe("per-request stores", () => {
     expect(isStreamingBody("application/json")).toBe(false)
     expect(isStreamingBody("application/octet-stream")).toBe(false)
     expect(isStreamingBody(null)).toBe(false)
+    // The literal in the predicate must track what the producer emits.
+    expect(isStreamingBody(agUiContentType("application/vnd.ag-ui.event+proto"))).toBe(true)
+    expect(isStreamingBody(agUiContentType())).toBe(true)
   })
 })
 

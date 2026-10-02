@@ -267,8 +267,9 @@ class RuntimeCapabilityError extends Error {
  * one day appends a charset would otherwise silently downgrade a live stream to
  * "settled" — releasing sandboxes and disposing per-request stores mid-stream,
  * the exact failure the tracking exists to prevent. The protobuf media type is
- * spelled here rather than imported: `@b4run/ag-ui/sse`'s negotiator owns the
- * rule, and `agui-endpoint.test.ts` checks a protobuf run is held to its end.
+ * spelled here rather than imported: `@b4run/ag-ui/sse` exports no constant for
+ * it, and `request-stores.test.ts` ties the literal to what that negotiator
+ * emits and checks a protobuf body holds the in-flight slot until it is read.
  *
  * Exported for the tests: no route produces a parameterized content-type today,
  * so the guard is only reachable directly.
