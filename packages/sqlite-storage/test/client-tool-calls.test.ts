@@ -190,4 +190,67 @@ describe("createClientToolCallStore", () => {
     expect(await store.voidOutstanding({ threadId: "t-1", toolCallIds: ["call-1"], at })).toBe(1)
     expect((await store.get("t-2", "call-1"))?.voidedAt).toBeNull()
   })
+
+  describe("prune", () => {
+    const BEFORE = "2026-09-30T12:00:00.000Z"
+
+    it("deletes answered and voided rows settled before the cutoff and keeps later ones", async () => {
+      const store = newStore()
+      await store.issue(
+        call({ toolCallId: "old_answered", answeredAt: "2026-09-30T01:00:00.000Z", result: "ok" }),
+      )
+      await store.issue(call({ toolCallId: "new_answered", answeredAt: BEFORE, result: "ok" }))
+      await store.issue(call({ toolCallId: "old_voided", voidedAt: "2026-09-30T01:00:00.000Z" }))
+      await store.issue(call({ toolCallId: "new_voided", voidedAt: "2026-09-30T13:00:00.000Z" }))
+      expect(await store.prune({ before: BEFORE })).toBe(2)
+      expect((await store.listForThread("t-1")).map((row) => row.toolCallId).sort()).toEqual([
+        "new_answered",
+        "new_voided",
+      ])
+    })
+
+    it("a void is the settle time: an old answer with a recent void is kept", async () => {
+      const store = newStore()
+      await store.issue(
+        call({
+          toolCallId: "answered_then_voided",
+          answeredAt: "2026-09-30T01:00:00.000Z",
+          result: "ok",
+          voidedAt: "2026-09-30T13:00:00.000Z",
+        }),
+      )
+      expect(await store.prune({ before: BEFORE })).toBe(0)
+      expect(await store.get("t-1", "answered_then_voided")).toBeDefined()
+    })
+
+    it("deletes outstanding rows expired before the cutoff and keeps unexpired or never-expiring ones", async () => {
+      const store = newStore()
+      await store.issue(call({ toolCallId: "expired_old", expiresAt: "2026-09-30T00:10:00.000Z" }))
+      await store.issue(call({ toolCallId: "expires_at_cutoff", expiresAt: BEFORE }))
+      await store.issue(
+        call({ toolCallId: "expires_later", expiresAt: "2026-09-30T13:00:00.000Z" }),
+      )
+      await store.issue(call({ toolCallId: "never_expires", expiresAt: null }))
+      expect(await store.prune({ before: BEFORE })).toBe(1)
+      expect((await store.listOutstanding("t-1")).map((row) => row.toolCallId).sort()).toEqual([
+        "expires_at_cutoff",
+        "expires_later",
+        "never_expires",
+      ])
+    })
+
+    it("sweeps every thread and is idempotent", async () => {
+      const store = newStore()
+      await store.issue(
+        call({ threadId: "t-1", toolCallId: "a", voidedAt: "2026-09-30T01:00:00.000Z" }),
+      )
+      await store.issue(
+        call({ threadId: "t-2", toolCallId: "b", voidedAt: "2026-09-30T01:00:00.000Z" }),
+      )
+      expect(await store.prune({ before: BEFORE })).toBe(2)
+      expect(await store.prune({ before: BEFORE })).toBe(0)
+      expect(await store.listForThread("t-1")).toEqual([])
+      expect(await store.listForThread("t-2")).toEqual([])
+    })
+  })
 })
