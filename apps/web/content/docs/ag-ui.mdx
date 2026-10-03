@@ -230,16 +230,20 @@ so the call can be abandoned, or start a new thread.
 
 ### The tool-call record
 
-On an app where the store is resolved — some route is listed in
-`server.agui.clientTools`, `server.agui.clientToolStore` is set, or the default
-`.b4/client-tool-calls.sqlite` still exists from an earlier opt-in — every
-tool call the model makes on an AG-UI run is recorded, not only client ones,
-on every route. A server tool's row is identity only: thread, route, run, tool
-name, when it was issued and when it returned or threw. No result text is
-stored; the checkpoint holds the tool message. A tool whose permission gate
-parks the turn is issued but not settled until it actually runs. The parent's
-`task` call that launches a subagent is not recorded; the subagent's own tool
-calls are, against the parent thread.
+When some route is listed in `server.agui.clientTools`, or
+`server.agui.clientToolStore` is set, every tool call the model makes on an
+AG-UI run is recorded, not only client ones, on every route. A server tool's
+row is identity only: thread, route, run, tool name, when it was issued and
+when it returned or threw. No result text is stored; the checkpoint holds the
+tool message. A tool whose permission gate parks the turn is issued but not
+settled until it actually runs. The `task` call that launches a subagent is
+recorded like any other tool, open while the subagent is parked; the
+subagent's own tool calls are recorded against the parent thread.
+
+A default `.b4/client-tool-calls.sqlite` left over after every route dropped
+its opt-in is still opened, so calls parked back then can be closed, but it
+records no server calls; boot logs one warning saying so. Delete the file to
+drop it.
 
 The record is what makes the rule above a guarantee rather than a habit: a
 `role: "tool"` message is used only when it names an open client call this
