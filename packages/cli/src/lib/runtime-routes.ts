@@ -12,7 +12,14 @@
  * Keep this in step with the rooted routes the runtime fetch handler answers
  * (`dev/runtime-fetch-core.ts`).
  */
-export const RUNTIME_ROUTE_SEGMENTS = ["healthz", "readyz", "agui", "threads", "memory"] as const
+export const RUNTIME_ROUTE_SEGMENTS = [
+  "healthz",
+  "readyz",
+  "agui",
+  "threads",
+  "memory",
+  "workspace",
+] as const
 
 /**
  * The runtime's routes as a path-matching source string: a rooted first

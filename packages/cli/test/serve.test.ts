@@ -25,7 +25,7 @@ afterEach(async () => {
 describe("runtime route definition", () => {
   test("the Vercel route table and the path test come from one definition", () => {
     expect(VERCEL_RUNTIME_ROUTE_SRC).toBe(RUNTIME_ROUTE_SRC)
-    expect(RUNTIME_ROUTE_SRC).toBe("/(healthz|readyz|agui|threads|memory)(/.*)?")
+    expect(RUNTIME_ROUTE_SRC).toBe("/(healthz|readyz|agui|threads|memory|workspace)(/.*)?")
   })
 
   test("every runtime segment is owned, rooted and nested", () => {
@@ -58,6 +58,22 @@ describe("serve route split", () => {
       await fetch(new URL(`/${segment}`, handle.url)).catch(() => undefined)
       await fetch(new URL(`/${segment}/nested`, handle.url)).catch(() => undefined)
     }
+
+    expect(fallbackPaths).toEqual([])
+  })
+
+  test("keeps the workspace source upload with the runtime", async () => {
+    const fallbackPaths: string[] = []
+    const handle = await startServe(recordingFallback(fallbackPaths))
+
+    // `PUT /workspace/sources/:digest` is a client-facing runtime route; the
+    // fallback answering it would stage nothing and report success.
+    const response = await fetch(new URL("/workspace/sources/abc", handle.url), {
+      body: "bytes",
+      method: "PUT",
+    })
+    expect(await response.text()).not.toBe("fallback")
+    await fetch(new URL("/workspace/sources/abc", handle.url)).catch(() => undefined)
 
     expect(fallbackPaths).toEqual([])
   })

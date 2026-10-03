@@ -54,7 +54,7 @@ await serve({
 })
 ```
 
-Which paths the runtime owns is B4.run's fact, not the application's. `serve` routes `/healthz`, `/readyz`, `/agui`, `/threads`, and `/memory` — with any deeper path under each — from the same definition the Vercel build target writes into its route table, so a local process and a deployed one cannot disagree. A hand-written prefix list instead goes stale the moment the runtime grows a surface: the new endpoint reaches the application handler and answers 404, or, behind a single-page fallback, answers an HTML document with a 200.
+Which paths the runtime owns is B4.run's fact, not the application's. `serve` routes `/healthz`, `/readyz`, `/agui`, `/threads`, `/memory`, and `/workspace` — with any deeper path under each — from the same definition the Vercel build target writes into its route table, so a local process and a deployed one cannot disagree. A hand-written prefix list instead goes stale the moment the runtime grows a surface: the new endpoint reaches the application handler and answers 404, or, behind a single-page fallback, answers an HTML document with a 200.
 
 Omit `fallback` and the runtime answers every path, including the 404 for paths it does not recognize.
 
