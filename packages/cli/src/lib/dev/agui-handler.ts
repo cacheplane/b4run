@@ -92,8 +92,8 @@ export interface AgUiFetchRequestOptions {
    *
    * Optional so direct callers (tests, embedders) keep their existing
    * behavior — and that optionality is safe HERE, unlike at the park site,
-   * because absence resolves to `{ mode: "off" }`, which is exactly the
-   * pre-grant path. The fail-closed decision lives at the park, not at the
+   * because absence resolves to mode `"off"` with the default retention,
+   * which is exactly the pre-grant path. The fail-closed decision lives at the park, not at the
    * handler.
    */
   readonly approvalGrants?: ApprovalGrantRuntime

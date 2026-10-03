@@ -448,8 +448,8 @@ export async function voidSupersededGrants(args: {
   readonly store?: InterruptGrantStore
   readonly threadId: string
   readonly stillPending: readonly string[]
-  /** `approvals.grantRetentionMs`, resolved; the default when omitted. */
-  readonly retentionMs?: number
+  /** `approvals.grantRetentionMs`, resolved. */
+  readonly retentionMs: number
   readonly now?: () => number
 }): Promise<number> {
   if (!args.store) return 0
@@ -464,7 +464,10 @@ export async function voidSupersededGrants(args: {
   } catch (error) {
     console.warn(`B4: could not void superseded approval grants for ${args.threadId}.`, error)
   }
-  await pruneSettledGrants(args.store, args.retentionMs ?? DEFAULT_APPROVAL_GRANT_RETENTION_MS, now)
+  // A void failure is one thread's bookkeeping; retention is store-wide and
+  // should not be starved by it, and the sweep's own throttle bounds a second
+  // warning to once an hour.
+  await pruneSettledGrants(args.store, args.retentionMs, now)
   return voided
 }
 

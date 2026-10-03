@@ -599,6 +599,9 @@ export async function createRuntimeFetchHandler(
       ? undefined
       : (validateInterruptGrantStore(approvalConfig?.grantStore) ??
         (await fallbacks?.resolveInterruptGrantStore?.(options.appRoot)))
+  // Validated even when grants are off, like every other typed setting: a
+  // mistyped value should fail the boot that would read it as configured. The
+  // store is checked only when it would be used.
   const approvalGrantRetentionMs = resolveApprovalGrantRetentionMs(approvalConfig?.grantRetentionMs)
   if (approvalGrantMode !== "off" && !interruptGrantStore) {
     // Loud, once, at boot — not at the first resume. An operator who switched
