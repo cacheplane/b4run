@@ -1,6 +1,6 @@
 # AG-UI outbound usage (`usage: TokenUsage[]`) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Every AG-UI terminal event (`RUN_FINISHED` in all three outcomes, `RUN_ERROR`) carries `usage: TokenUsage[]` aggregated from the LangChain `usage_metadata` of every model call the run made, root and subagent alike — and omits the key when nothing was reported.
 
@@ -38,7 +38,7 @@ Conventions (from `AGENTS.md`): run everything from the repo root with Node 24 (
 - Modify: `packages/langchain/src/agent-adapter.ts` (near `chunkText`, ~line 700; and `case "on_chat_model_end"`, ~line 767)
 - Test: `packages/langchain/test/agent-adapter.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `packages/langchain/test/agent-adapter.test.ts` (after the `"logical-identity root tool projection"` describe, before EOF):
 
@@ -162,12 +162,12 @@ describe("usage chunks", () => {
 })
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `pnpm --filter @b4run/langchain exec vitest run test/agent-adapter.test.ts -t "usage chunks"`
 Expected: 4 failures — `expected [] to deeply equal [...]` / `expected false to be true`-style; no `usage` chunk is produced today.
 
-- [ ] **Step 3: Implement the helper and the emission**
+- [x] **Step 3: Implement the helper and the emission**
 
 In `packages/langchain/src/agent-adapter.ts`, directly after `function chunkText(...)` (ends ~line 711), add:
 
@@ -228,12 +228,12 @@ to
 
 (The rest of the case — `message_end`, the tool-call announces, the `if (chunks.length === 0) break` — is unchanged. Note `childIdentity(child)` spreads last so the identity keys can never be shadowed by provider data.)
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `pnpm --filter @b4run/langchain exec vitest run test/agent-adapter.test.ts`
 Expected: all tests in the file PASS (the pre-existing `on_chat_model_end` fixtures have no `usage_metadata`, so they are unaffected).
 
-- [ ] **Step 5: Lint and commit**
+- [x] **Step 5: Lint and commit**
 
 ```bash
 pnpm lint:fix
@@ -252,7 +252,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Create: `packages/ag-ui/src/usage.ts`
 - Test: `packages/ag-ui/test/usage.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `packages/ag-ui/test/usage.test.ts`:
 
@@ -338,12 +338,12 @@ describe("createUsageCollector", () => {
 })
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `pnpm --filter @b4run/ag-ui exec vitest run test/usage.test.ts`
 Expected: FAIL — `Cannot find module '../src/usage.ts'` / `asUsageData is not exported`.
 
-- [ ] **Step 3: Add the chunk type and narrowing to `types.ts`**
+- [x] **Step 3: Add the chunk type and narrowing to `types.ts`**
 
 In `packages/ag-ui/src/types.ts`, add a union member to `B4AgentStreamChunk` after the `tool_result` member:
 
@@ -382,7 +382,7 @@ export function asUsageData(data: unknown): B4UsageData | null {
 }
 ```
 
-- [ ] **Step 4: Create the collector**
+- [x] **Step 4: Create the collector**
 
 Create `packages/ag-ui/src/usage.ts`:
 
@@ -425,12 +425,12 @@ export function createUsageCollector(): UsageCollector {
 }
 ```
 
-- [ ] **Step 5: Run to verify they pass**
+- [x] **Step 5: Run to verify they pass**
 
 Run: `pnpm --filter @b4run/ag-ui exec vitest run test/usage.test.ts test/types.test.ts`
 Expected: PASS. If the aggregation test's expected object differs only in key order or in an extra `undefined`-valued key, the assertion still passes (`toEqual` ignores `undefined` properties); if a *value* differs, read `node_modules/@ag-ui/core/dist/index.d.ts` `tokenUsageFromLangChainMetadata` and fix the fixture, not the collector.
 
-- [ ] **Step 6: Export and commit**
+- [x] **Step 6: Export and commit**
 
 In `packages/ag-ui/src/index.ts` add `B4UsageData` to the `types.js` export line:
 
@@ -456,7 +456,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `packages/ag-ui/src/outbound.ts`
 - Test: `packages/ag-ui/test/outbound.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `packages/ag-ui/test/outbound.test.ts` (it already has `collect`, `toAsync`, `CTX`, `CHILD`):
 
@@ -563,12 +563,12 @@ describe("usage", () => {
 })
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `pnpm --filter @b4run/ag-ui exec vitest run test/outbound.test.ts -t "usage"`
 Expected: FAIL — terminal events lack `usage`; the "never open or close" test fails because the `default:` branch flushes text on an unknown chunk (two `TEXT_MESSAGE_START`s).
 
-- [ ] **Step 3: Wire the collector into `toAguiEvents`**
+- [x] **Step 3: Wire the collector into `toAguiEvents`**
 
 In `packages/ag-ui/src/outbound.ts`:
 
@@ -645,12 +645,12 @@ Terminal events — add `...usage.terminal(),` to **all six** terminal literals 
 
 Also widen `AguiOutboundEvent` is unnecessary: `RunFinishedEvent`/`RunErrorEvent` from `@ag-ui/core` 1.0.1 already declare `usage?: TokenUsage[]` — confirm with `grep -n "usage" node_modules/@ag-ui/core/dist/*.d.ts` from `packages/ag-ui`; if the typecheck complains, the `TokenUsage` import in `usage.ts` is the only type you need.
 
-- [ ] **Step 4: Run to verify they pass**
+- [x] **Step 4: Run to verify they pass**
 
 Run: `pnpm --filter @b4run/ag-ui exec vitest run test/outbound.test.ts`
 Expected: PASS, including every pre-existing test (the `default:` branch is unchanged for other unknown chunks, so the "unknown chunks flush text" behaviour others pin still holds).
 
-- [ ] **Step 5: Typecheck, lint, commit**
+- [x] **Step 5: Typecheck, lint, commit**
 
 ```bash
 pnpm --filter @b4run/ag-ui typecheck
@@ -668,7 +668,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Files:**
 - Modify: `packages/ag-ui/test/conformance.test.ts`
 
-- [ ] **Step 1: Extend the canned run and the assertions**
+- [x] **Step 1: Extend the canned run and the assertions**
 
 In `CANNED`, insert after the first `token` chunk (`{ type: "token", data: "Researching" }`):
 
@@ -733,12 +733,12 @@ In `"an upstream error is RUN_ERROR with its code intact"`, change `failing` to 
 ```
 and extend its `toMatchObject` with `usage: [{ inputTokens: 2, outputTokens: 0 }]`.
 
-- [ ] **Step 2: Run the conformance suite**
+- [x] **Step 2: Run the conformance suite**
 
 Run: `pnpm --filter @b4run/ag-ui exec vitest run test/conformance.test.ts`
 Expected: PASS with zero `console.warn` — `usage` is schema-defined on both terminal events, so the 1.0 `enforce` stage strips nothing. If it fails with "stripped or translated", read the captured warning: it names the path that was removed, which means a key name is wrong.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 pnpm lint:fix
@@ -757,7 +757,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Regenerate: `apps/web/app/seo/lastmod.generated.json`
 - Create: `.changeset/agui-usage.md`
 
-- [ ] **Step 1: Docs**
+- [x] **Step 1: Docs**
 
 In the `### Outbound events` table of `apps/web/content/docs/ag-ui.mdx`, add a row before the `interrupt` row:
 
@@ -789,7 +789,7 @@ git commit -m "chore(web): regenerate SEO lastmod manifest
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 2: Changeset**
+- [x] **Step 2: Changeset**
 
 Create `.changeset/agui-usage.md`:
 
@@ -809,7 +809,7 @@ git commit -m "chore: changeset for AG-UI token usage
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 3: Docs check**
+- [x] **Step 3: Docs check**
 
 Run: `node scripts/check-docs.mjs`
 Expected: exit 0. (`ag-ui.mdx` has required-phrase pins in `scripts/check-docs.mjs` ~lines 1764 and 2823; adding text does not break them. If a `forbiddenContent` pattern trips, the message names the phrase — reword.)
