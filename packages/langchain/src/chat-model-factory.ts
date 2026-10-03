@@ -1,8 +1,8 @@
 import { readRuntimeEnv } from "@b4run/core"
 import type { BuiltInModelProviderId, ReasoningConfig } from "@b4run/sdk"
 import { errorDocsUrl, validateModelId } from "@b4run/sdk"
-
 import { defaultModelImporter } from "#default-model-importer"
+import { resolveReasoningConfig } from "./reasoning-config.js"
 
 type Importer = (specifier: string) => Promise<Record<string, unknown>>
 type ChatModelConstructor = new (options: Record<string, unknown>) => unknown
@@ -350,6 +350,9 @@ export async function createChatModel(options: {
   if (options.responseFormat && !supportsJsonSchemaResponseFormat(options.provider)) {
     throw new Error(unsupportedResponseFormatMessage(options.provider))
   }
+  // Checked against the resolved provider BEFORE the provider package loads: a
+  // sub-object for another provider throws here rather than being ignored.
+  const reasoning = resolveReasoningConfig(options.provider, options.reasoning)
   warnOnUnknownModelId({ model: options.model, provider: options.provider })
   const spec = providerSpecs[options.provider]
   const importer = options.importer ?? seededImporter ?? defaultModelImporter
@@ -373,9 +376,10 @@ export async function createChatModel(options: {
 
   const constructorOptions: Record<string, unknown> = { model: options.model }
   if (options.maxRetries !== undefined) constructorOptions.maxRetries = options.maxRetries
-  if (options.provider === "openai" && options.reasoning?.effort) {
-    constructorOptions.reasoningEffort = options.reasoning.effort
-  }
+  // ChatOpenAI's constructor reads `reasoning` (`reasoningEffort` is only a
+  // per-call option) and streams a summary only on the Responses API;
+  // ChatAnthropic reads `thinking`. `resolveReasoningConfig` spells both.
+  Object.assign(constructorOptions, reasoning.constructorOptions)
 
   // The credential, resolved the same way the base URL below is.
   //

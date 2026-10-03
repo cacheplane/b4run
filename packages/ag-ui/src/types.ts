@@ -16,6 +16,12 @@ export type B4AgentStreamChunk =
       /** Source model invocation identity; omitted by legacy producers. */
       readonly messageId?: string
     }
+  | {
+      readonly type: "reasoning"
+      readonly data: string
+      /** Source model invocation identity; shared with that invocation's tokens. */
+      readonly messageId?: string
+    }
   | { readonly type: "message_end"; readonly data: { readonly messageId: string } }
   | { readonly type: "tool_call"; readonly data: B4ToolCallData }
   | { readonly type: "tool_call_args"; readonly data: B4ToolCallArgsData }

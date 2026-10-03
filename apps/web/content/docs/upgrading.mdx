@@ -54,6 +54,18 @@ Pin `@b4run/*` packages to a single version (no `^` or `~` ranges) until the pro
 
 Newest first. Each change names the release it landed in, and the two that need no action say so.
 
+### Subagent stream events carry the root shapes
+
+Landed in the first release after **0.13.1**. Action required only if you read `subagent.*` events off `/runs/stream` or the attach digest.
+
+`subagent.message { call_id, chunk }` is now `subagent.token { call_id, …identity, data, messageId }`, and `subagent.tool_call` / `subagent.tool_result` carry `name` (not `tool`) under the model's tool-call `id` (not the execution run id). New: `subagent.reasoning`, `subagent.message_end`, `subagent.tool_call_args`, and `parent_call_id` / `description` on `subagent.start`. `@b4run/testing`'s `RunResult.subagents` reads the new shapes. See [Streaming output](/docs/recipes/stream-output#sse-event-types).
+
+### `reasoning` is keyed by provider
+
+Landed in the first release after **0.13.1**. Action required if an `agent()` route sets `reasoning`.
+
+`agent({ reasoning: { effort } })` is now `agent({ reasoning: { openai: { effort } } })`, and Anthropic routes gain `reasoning: { anthropic: { budgetTokens } }`. The flat `effort` is an unknown key and fails the route when its model is built, as does a block for a provider the route does not resolve to. Before, a misplaced setting was silently ignored (and the OpenAI effort itself never reached the request). Setting `openai.summary` moves the route to the OpenAI Responses API and streams the summary as AG-UI `REASONING_*` events; `GET /agui/{routeId}` advertises `reasoning.supported` accordingly. See [Reasoning](/docs/reasoning-effort).
+
 ### The app root must declare `"type": "module"`
 
 Landed in **0.8.35**.

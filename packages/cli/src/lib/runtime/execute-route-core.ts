@@ -69,6 +69,7 @@ import {
   type ResolvedSubagentGraph,
   type ResolvedSummarizationConfig,
   resolveProvider,
+  resolveReasoningConfig,
   type SubagentResolver,
   streamAgent,
   supportsJsonSchemaResponseFormat,
@@ -939,6 +940,45 @@ export async function checkRouteResponseFormatSupport(options: {
   return responseFormatSupport(options.routeId, prepared.module) ?? { ok: true }
 }
 
+/**
+ * Whether the route's model will stream reasoning text: an `agent()`
+ * descriptor whose `reasoning` asks for it (OpenAI `summary`, Anthropic
+ * `budgetTokens`), resolved by the same function the chat-model factory
+ * applies — so `GET /agui/:routeId` claims exactly what the model is told. A
+ * config the factory would reject reports `ok: false` with its message; the
+ * run itself surfaces the error. Pure — reads only the normalized module.
+ */
+export async function checkRouteReasoningSupport(options: {
+  readonly appRoot: string
+  readonly bootFallbacks: RuntimeBootFallbacks | undefined
+  readonly routeFile: string
+  readonly routeId: string
+}): Promise<{ readonly ok: true; readonly streams: boolean } | PreparedRouteError> {
+  const prepared = await getPreparedRouteModules(
+    { appRoot: options.appRoot, routeFile: options.routeFile, routeId: options.routeId },
+    options.bootFallbacks,
+  )
+  const normalized = prepared.module
+  if (normalized.kind !== "agent" || !isB4Agent(normalized.entry)) {
+    return { ok: false, message: nonAgentReasoningMessage(options.routeId, normalized.kind) }
+  }
+  const descriptor = normalized.entry
+  try {
+    const provider = resolveProvider({
+      model: descriptor.model,
+      ...(descriptor.provider !== undefined ? { provider: descriptor.provider } : {}),
+    })
+    return { ok: true, streams: resolveReasoningConfig(provider, descriptor.reasoning).streams }
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/** Why a chain/graph/workflow route has no reasoning controls. */
+export function nonAgentReasoningMessage(routeId: string, kind: string): string {
+  return `Route "${routeId}" is a ${kind} route; reasoning controls apply only to an agent() route's root model.`
+}
+
 export interface PreparedRoute {
   readonly normalized: {
     readonly kind: "agent" | "chain" | "graph" | "workflow"
@@ -1716,6 +1756,7 @@ async function prepareRouteExecutionForInvocation(
           return {
             graph: withEpisodeRecording(graph, childPrepared),
             routeId: route.id,
+            ...(entry.description !== "" ? { description: entry.description } : {}),
           }
         },
         registry: subagentRegistry,

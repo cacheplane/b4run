@@ -251,6 +251,66 @@ describe("convertSubagentTaskToLangChain", () => {
     ])
   })
 
+  it("names the dispatching parent call and carries the child's description on start and end", async () => {
+    const child = { invoke: vi.fn(async () => childResult("found it")) }
+    const tool = convertSubagentTaskToLangChain(taskPlaceholder, async () => ({
+      ok: true,
+      child: { routeId: "/planner/researcher", description: "Finds sources", graph: child },
+    }))
+    const root = new StateGraph(Annotation.Root({ messages: Annotation<unknown[]>() }))
+      .addNode("tools", new ToolNode([tool]))
+      .addEdge(START, "tools")
+      .addEdge("tools", END)
+      .compile()
+    const events: unknown[] = []
+    for await (const event of root.streamEvents(
+      {
+        messages: [
+          new AIMessage({
+            content: "",
+            tool_calls: [
+              {
+                name: "task",
+                args: { subagent: "researcher", input: "Find sources" },
+                id: "task-nested",
+                type: "tool_call",
+              },
+            ],
+          }),
+        ],
+      },
+      {
+        version: "v2",
+        // This parent is itself a subagent: its own dispatch is the top of the stack.
+        metadata: {
+          b4: {
+            subagent_depth: 1,
+            subagent_stack: [{ callId: "outer", name: "planner", routeId: "/planner" }],
+          },
+        },
+      },
+    )) {
+      if (event.event === "on_custom_event" && event.name === "b4.subagent") events.push(event.data)
+    }
+    expect(events).toEqual([
+      expect.objectContaining({
+        phase: "start",
+        call_id: "task-nested",
+        parent_call_id: "outer",
+        subagent: "researcher",
+        description: "Finds sources",
+        depth: 2,
+      }),
+      expect.objectContaining({
+        phase: "end",
+        call_id: "task-nested",
+        parent_call_id: "outer",
+        description: "Finds sources",
+        final_message: "found it",
+      }),
+    ])
+  })
+
   it("rethrows a standard AbortError unchanged without an error-shaped end event", async () => {
     const abortError = new DOMException("Child cancelled", "AbortError")
     const child = {

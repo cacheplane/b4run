@@ -104,8 +104,11 @@ export interface DelegationConfig<Name extends string> {
 }
 
 /**
- * Reasoning model tuning. Currently maps to OpenAI's `reasoningEffort`
- * parameter; non-reasoning models silently ignore it.
+ * OpenAI reasoning controls, applied when the route resolves to the `openai`
+ * provider. `effort` is the request's reasoning effort. `summary` asks the
+ * Responses API to stream a summary of the model's reasoning; setting it
+ * switches the route to the Responses API and is what makes reasoning text
+ * reach clients (AG-UI `REASONING_*`).
  *
  * Supported effort values (per OpenAI docs):
  *   - "none"    — disable reasoning entirely (gpt-5.1+ only)
@@ -115,8 +118,28 @@ export interface DelegationConfig<Name extends string> {
  *   - "high"    — deeper reasoning; recommended for tool-use-heavy agents
  *   - "xhigh"   — gpt-5.1-codex-max and later only
  */
-export interface ReasoningConfig {
+export interface OpenAIReasoningConfig {
   readonly effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
+  readonly summary?: "auto" | "concise" | "detailed"
+}
+
+/**
+ * Anthropic extended thinking, applied when the route resolves to the
+ * `anthropic` provider. `budgetTokens` (a whole number of at least 1024)
+ * enables thinking with that budget; the thinking text streams to clients.
+ */
+export interface AnthropicReasoningConfig {
+  readonly budgetTokens: number
+}
+
+/**
+ * Reasoning controls, keyed by provider. Only the sub-object for the route's
+ * resolved provider is read; a sub-object for another provider fails the route
+ * when its model is built, so a misplaced setting is never silently ignored.
+ */
+export interface ReasoningConfig {
+  readonly openai?: OpenAIReasoningConfig
+  readonly anthropic?: AnthropicReasoningConfig
 }
 
 export interface B4Agent<Subagents extends SubagentMap = SubagentMap> {

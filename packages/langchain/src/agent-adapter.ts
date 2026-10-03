@@ -379,18 +379,19 @@ interface SubagentToolRunContexts {
   readonly contextsByToolRunId: Map<string, SubagentContext | null>
 }
 
-interface RootToolProjectionState {
-  /** Model invocations with open text output. */
+/** One owner's (root's, or one subagent's) tool bookkeeping for a stream pass. */
+interface ToolProjectionState {
+  /** Model invocations with open text or reasoning output, closed by `message_end`. */
   readonly textModelRunIds: Set<string>
-  /** Logical/fallback ids whose root tool_call chunk was already emitted this stream. */
+  /** Logical/fallback ids whose tool_call chunk was already emitted this stream. */
   readonly announcedToolCallIds: Set<string>
-  /** Root on_tool_start data awaiting resolution at on_tool_end, keyed by execution run id. */
-  readonly heldRootToolStarts: Map<string, { readonly name: string; readonly input: unknown }>
+  /** on_tool_start data awaiting resolution at on_tool_end, keyed by execution run id. */
+  readonly heldToolStarts: Map<string, { readonly name: string; readonly input: unknown }>
   /**
-   * Root executions that threw (a non-interrupt `on_tool_error`), awaiting the
+   * Executions that threw (a non-interrupt `on_tool_error`), awaiting the
    * error ToolMessage LangGraph's ToolNode hands the model. FIFO by tool name.
    */
-  readonly pendingRootToolErrors: Array<{ readonly name: string; readonly input: unknown }>
+  readonly pendingToolErrors: Array<{ readonly name: string; readonly input: unknown }>
   /**
    * Argument fragments in flight, keyed by model run id and then by the
    * provider's fragment index. Streamed for display only: the announce at
@@ -398,6 +399,57 @@ interface RootToolProjectionState {
    * the complete arguments a tool executes with.
    */
   readonly streamingArgs: Map<string, Map<string, ArgumentStreamState>>
+}
+
+/**
+ * Root and every subagent get the SAME bookkeeping, keyed by the child's
+ * `call_id` (root is `undefined`): a child's tool calls are announced from its
+ * own model turn under the model's logical id and paired with their results
+ * exactly as root's are, so the AG-UI mapper can frame them identically.
+ */
+interface OwnerToolStates {
+  readonly root: ToolProjectionState
+  readonly children: Map<string, ToolProjectionState>
+}
+
+function newToolProjectionState(): ToolProjectionState {
+  return {
+    textModelRunIds: new Set(),
+    announcedToolCallIds: new Set(),
+    heldToolStarts: new Map(),
+    pendingToolErrors: [],
+    streamingArgs: new Map(),
+  }
+}
+
+function toolStateFor(
+  owners: OwnerToolStates,
+  child: SubagentContext | undefined,
+): ToolProjectionState {
+  if (child === undefined) return owners.root
+  let state = owners.children.get(child.callId)
+  if (state === undefined) {
+    state = newToolProjectionState()
+    owners.children.set(child.callId, state)
+  }
+  return state
+}
+
+/**
+ * A root-shaped chunk as the child's: the type gains the `subagent.` prefix
+ * and the identity joins `data`. A string payload (`token`, `reasoning`)
+ * moves under a `data` key beside its `messageId`; an object payload keeps
+ * its keys. The identity spreads LAST so it can never be shadowed.
+ */
+function wrapChild(child: SubagentContext | undefined, chunk: AgentStreamChunk): AgentStreamChunk {
+  if (child === undefined) return chunk
+  const payload: Record<string, unknown> = isRecord(chunk.data)
+    ? { ...chunk.data }
+    : {
+        data: chunk.data,
+        ...(chunk.messageId !== undefined ? { messageId: chunk.messageId } : {}),
+      }
+  return { type: `subagent.${chunk.type}`, data: { ...payload, ...childIdentity(child) } }
 }
 
 interface ArgumentStreamState {
@@ -428,13 +480,13 @@ interface ToolCallFragment {
  * announced or for an orchestration tool.
  */
 function projectToolCallFragments(
-  rootTools: RootToolProjectionState,
+  tools: ToolProjectionState,
   runId: string,
   chunk: unknown,
 ): AgentStreamChunk[] {
   const fragments = (chunk as { tool_call_chunks?: unknown })?.tool_call_chunks
   if (!Array.isArray(fragments) || fragments.length === 0) return []
-  let byIndex = rootTools.streamingArgs.get(runId)
+  let byIndex = tools.streamingArgs.get(runId)
   const out: AgentStreamChunk[] = []
   for (const fragment of fragments as ToolCallFragment[]) {
     if (!isRecord(fragment)) continue
@@ -448,7 +500,7 @@ function projectToolCallFragments(
     if (key === undefined) continue
     if (byIndex === undefined) {
       byIndex = new Map()
-      rootTools.streamingArgs.set(runId, byIndex)
+      tools.streamingArgs.set(runId, byIndex)
     }
     let state = byIndex.get(key)
     if (state === undefined) {
@@ -468,10 +520,7 @@ function projectToolCallFragments(
     if (state.mode === "pending") {
       state.buffered += args
       if (state.id === undefined || state.name === undefined) continue
-      if (
-        rootTools.announcedToolCallIds.has(state.id) ||
-        NON_STREAMING_TOOL_NAMES.has(state.name)
-      ) {
+      if (tools.announcedToolCallIds.has(state.id) || NON_STREAMING_TOOL_NAMES.has(state.name)) {
         state.mode = "silent"
         state.buffered = ""
         continue
@@ -493,13 +542,10 @@ function projectToolCallFragments(
 }
 
 /** End of the model turn: release whatever the transcoders still hold. */
-function flushToolCallFragments(
-  rootTools: RootToolProjectionState,
-  runId: string,
-): AgentStreamChunk[] {
-  const byIndex = rootTools.streamingArgs.get(runId)
+function flushToolCallFragments(tools: ToolProjectionState, runId: string): AgentStreamChunk[] {
+  const byIndex = tools.streamingArgs.get(runId)
   if (byIndex === undefined) return []
-  rootTools.streamingArgs.delete(runId)
+  tools.streamingArgs.delete(runId)
   const out: AgentStreamChunk[] = []
   for (const state of byIndex.values()) {
     if (state.mode !== "streaming") continue
@@ -569,24 +615,24 @@ function readOutputMessages(output: unknown): readonly unknown[] {
  * once. `fromEnd` scans newest-first so a multi-turn final output resolves
  * this turn's error rather than an older message with the same tool name.
  */
-function resolveRootToolErrors(
-  rootTools: RootToolProjectionState,
+function resolveToolErrors(
+  tools: ToolProjectionState,
   output: unknown,
   fromEnd: boolean,
 ): AgentStreamChunk[] {
-  if (rootTools.pendingRootToolErrors.length === 0) return []
+  if (tools.pendingToolErrors.length === 0) return []
   const messages = readOutputMessages(output)
   const chunks: AgentStreamChunk[] = []
   const ordered = fromEnd ? [...messages].reverse() : messages
   for (const candidate of ordered) {
-    if (rootTools.pendingRootToolErrors.length === 0) break
+    if (tools.pendingToolErrors.length === 0) break
     const view = readErrorToolMessage(candidate)
     if (!view) continue
-    const index = rootTools.pendingRootToolErrors.findIndex((p) => p.name === view.name)
+    const index = tools.pendingToolErrors.findIndex((p) => p.name === view.name)
     if (index === -1) continue
-    const [pending] = rootTools.pendingRootToolErrors.splice(index, 1)
-    if (!rootTools.announcedToolCallIds.has(view.id)) {
-      rootTools.announcedToolCallIds.add(view.id)
+    const [pending] = tools.pendingToolErrors.splice(index, 1)
+    if (!tools.announcedToolCallIds.has(view.id)) {
+      tools.announcedToolCallIds.add(view.id)
       chunks.push({
         type: "tool_call",
         data: { id: view.id, name: view.name, input: pending?.input },
@@ -790,10 +836,30 @@ function readUsageChunk(event: LangChainStreamEvent): Record<string, unknown> | 
   }
 }
 
+/**
+ * The reasoning text a model chunk carries: Anthropic streams `thinking`
+ * blocks (field `thinking`; a `signature_delta` arrives as a thinking block
+ * with no text), while the OpenAI Responses converter and LangChain's standard
+ * content emit `reasoning` blocks (field `reasoning`; the converter has
+ * already flattened a Responses summary into it). `redacted_thinking` and
+ * encrypted material are not text and contribute nothing.
+ */
+function chunkReasoning(content: unknown): string {
+  if (!Array.isArray(content)) return ""
+  let text = ""
+  for (const block of content) {
+    if (!isRecord(block)) continue
+    if (block.type === "thinking" && typeof block.thinking === "string") text += block.thinking
+    else if (block.type === "reasoning" && typeof block.reasoning === "string")
+      text += block.reasoning
+  }
+  return text
+}
+
 function classifyStreamEvent(
   event: LangChainStreamEvent,
   toolRuns: SubagentToolRunContexts,
-  rootTools: RootToolProjectionState,
+  owners: OwnerToolStates,
 ): StreamEventProjection {
   const phase = parseSubagentPhaseEvent(event)
   if (phase) {
@@ -809,26 +875,34 @@ function classifyStreamEvent(
     }
   }
   const child = resolveEventSubagentContext(event, toolRuns)
+  // Every owner takes the same code paths below; a child's chunks leave
+  // through `wrap`, as `subagent.<type>` with the identity in `data`.
+  const tools = toolStateFor(owners, child)
+  const wrap = (chunks: readonly AgentStreamChunk[]): AgentStreamChunk[] =>
+    chunks.map((chunk) => wrapChild(child, chunk))
 
   switch (event.event) {
     case "on_chat_model_stream": {
-      const content = chunkText((event.data.chunk as { content?: unknown })?.content)
+      const streamed = (event.data.chunk as { content?: unknown })?.content
+      const content = chunkText(streamed)
+      const reasoning = chunkReasoning(streamed)
       const chunks: AgentStreamChunk[] = []
-      if (content.length > 0) {
-        if (!child) rootTools.textModelRunIds.add(event.run_id)
-        chunks.push(
-          child
-            ? { type: "subagent.message", data: { ...childIdentity(child), chunk: content } }
-            : { type: "token", data: content, messageId: event.run_id },
-        )
+      if (reasoning.length > 0) {
+        // Registered like text so this invocation's `on_chat_model_end` emits
+        // `message_end`, which is what closes the AG-UI reasoning span.
+        tools.textModelRunIds.add(event.run_id)
+        chunks.push({ type: "reasoning", data: reasoning, messageId: event.run_id })
       }
-      if (!child)
-        chunks.push(...projectToolCallFragments(rootTools, event.run_id, event.data.chunk))
+      if (content.length > 0) {
+        tools.textModelRunIds.add(event.run_id)
+        chunks.push({ type: "token", data: content, messageId: event.run_id })
+      }
+      chunks.push(...projectToolCallFragments(tools, event.run_id, event.data.chunk))
       if (chunks.length === 0) break
       return {
         capturesFinalOutput: false,
         child,
-        chunks,
+        chunks: wrap(chunks),
         finalOutput: undefined,
         interrupts: [],
       }
@@ -842,26 +916,16 @@ function classifyStreamEvent(
      * interrupt→resume cycle. Announcing under that stable id lets an AG-UI
      * client dedupe the pre-interrupt and post-resume streams into one card
      * instead of rendering a duplicate. Execution run ids stay purely
-     * internal bookkeeping (see `heldRootToolStarts` below) and never reach
+     * internal bookkeeping (see `heldToolStarts` below) and never reach
      * the wire as an identity by themselves when a logical id is available.
      */
     case "on_chat_model_end": {
       const usage = readUsageChunk(event)
-      if (child) {
-        if (usage === undefined) break
-        return {
-          capturesFinalOutput: false,
-          child,
-          chunks: [{ type: "subagent.usage", data: { ...usage, ...childIdentity(child) } }],
-          finalOutput: undefined,
-          interrupts: [],
-        }
-      }
       const output = event.data.output as { tool_calls?: unknown } | undefined
       const calls = Array.isArray(output?.tool_calls) ? output.tool_calls : []
-      const chunks: AgentStreamChunk[] = flushToolCallFragments(rootTools, event.run_id)
+      const chunks: AgentStreamChunk[] = flushToolCallFragments(tools, event.run_id)
       if (usage !== undefined) chunks.push({ type: "usage", data: usage })
-      if (rootTools.textModelRunIds.delete(event.run_id)) {
+      if (tools.textModelRunIds.delete(event.run_id)) {
         chunks.push({ type: "message_end", data: { messageId: event.run_id } })
       }
       for (const call of calls) {
@@ -869,64 +933,26 @@ function classifyStreamEvent(
         const id = typeof call.id === "string" && call.id !== "" ? call.id : undefined
         const name = typeof call.name === "string" && call.name !== "" ? call.name : undefined
         if (id === undefined || name === undefined) continue
-        if (rootTools.announcedToolCallIds.has(id)) continue
-        rootTools.announcedToolCallIds.add(id)
+        if (tools.announcedToolCallIds.has(id)) continue
+        tools.announcedToolCallIds.add(id)
         chunks.push({ type: "tool_call", data: { id, name, input: call.args } })
       }
       if (chunks.length === 0) break
       return {
         capturesFinalOutput: false,
         child,
-        chunks,
+        chunks: wrap(chunks),
         finalOutput: undefined,
         interrupts: [],
       }
     }
     case "on_tool_start":
-      if (child) {
-        return {
-          capturesFinalOutput: false,
-          child,
-          chunks: [
-            {
-              type: "subagent.tool_call",
-              data: {
-                ...childIdentity(child),
-                id: event.run_id,
-                tool: event.name,
-                input: event.data.input ?? event.data.chunk ?? event.data.output,
-              },
-            },
-          ],
-          finalOutput: undefined,
-          interrupts: [],
-        }
-      }
-      rootTools.heldRootToolStarts.set(event.run_id, {
+      tools.heldToolStarts.set(event.run_id, {
         name: event.name,
         input: event.data.input ?? event.data.chunk ?? event.data.output,
       })
       break
     case "on_tool_end": {
-      if (child) {
-        return {
-          capturesFinalOutput: false,
-          child,
-          chunks: [
-            {
-              type: "subagent.tool_result",
-              data: {
-                ...childIdentity(child),
-                id: event.run_id,
-                tool: event.name,
-                output: event.data.output,
-              },
-            },
-          ],
-          finalOutput: undefined,
-          interrupts: [],
-        }
-      }
       /**
        * Three-way resolution for the root announce/result pairing:
        *
@@ -950,16 +976,13 @@ function classifyStreamEvent(
        *      announce, so this stays result-only, matching the pre-rekey
        *      behavior for that case exactly.
        */
-      const held = rootTools.heldRootToolStarts.get(event.run_id)
-      rootTools.heldRootToolStarts.delete(event.run_id)
+      const held = tools.heldToolStarts.get(event.run_id)
+      tools.heldToolStarts.delete(event.run_id)
       const logicalId = readLogicalToolCallId(event.data.output)
       const id = logicalId ?? event.run_id
       const chunks: AgentStreamChunk[] = []
-      if (
-        !rootTools.announcedToolCallIds.has(id) &&
-        (held !== undefined || logicalId !== undefined)
-      ) {
-        rootTools.announcedToolCallIds.add(id)
+      if (!tools.announcedToolCallIds.has(id) && (held !== undefined || logicalId !== undefined)) {
+        tools.announcedToolCallIds.add(id)
         chunks.push({ type: "tool_call", data: { id, name: event.name, input: held?.input } })
       }
       chunks.push({
@@ -969,7 +992,7 @@ function classifyStreamEvent(
       return {
         capturesFinalOutput: false,
         child,
-        chunks,
+        chunks: wrap(chunks),
         finalOutput: undefined,
         interrupts: [],
       }
@@ -1000,17 +1023,15 @@ function classifyStreamEvent(
       }
     case "on_tool_error": {
       const interrupts = extractInterruptsFromError(event.data.error)
-      if (!child) {
-        const held = rootTools.heldRootToolStarts.get(event.run_id)
-        rootTools.heldRootToolStarts.delete(event.run_id)
-        // A genuine throw (not an `interrupt()`) resolves later, from the
-        // error ToolMessage the tool node appends; see resolveRootToolErrors.
-        if (interrupts === undefined) {
-          rootTools.pendingRootToolErrors.push({
-            name: event.name,
-            input: held?.input ?? event.data.input,
-          })
-        }
+      const held = tools.heldToolStarts.get(event.run_id)
+      tools.heldToolStarts.delete(event.run_id)
+      // A genuine throw (not an `interrupt()`) resolves later, from the
+      // error ToolMessage the tool node appends; see resolveToolErrors.
+      if (interrupts === undefined) {
+        tools.pendingToolErrors.push({
+          name: event.name,
+          input: held?.input ?? event.data.input,
+        })
       }
       return {
         capturesFinalOutput: false,
@@ -1025,7 +1046,7 @@ function classifyStreamEvent(
         return {
           capturesFinalOutput: true,
           child,
-          chunks: resolveRootToolErrors(rootTools, event.data.output, true),
+          chunks: resolveToolErrors(tools, event.data.output, true),
           finalOutput: event.data.output,
           interrupts: extractInterrupts(event.data.output) ?? [],
         }
@@ -1034,7 +1055,9 @@ function classifyStreamEvent(
         return {
           capturesFinalOutput: false,
           child,
-          chunks: [],
+          // The child's own tools node (and its graph end) resolve the child's
+          // thrown tools, exactly as root's do.
+          chunks: wrap(resolveToolErrors(tools, event.data.output, event.name === "LangGraph")),
           finalOutput: undefined,
           interrupts: extractInterrupts(event.data.output) ?? [],
         }
@@ -1042,7 +1065,7 @@ function classifyStreamEvent(
       return {
         capturesFinalOutput: false,
         child,
-        chunks: resolveRootToolErrors(rootTools, event.data.output, false),
+        chunks: resolveToolErrors(tools, event.data.output, false),
         finalOutput: undefined,
         interrupts: [],
       }
@@ -1502,20 +1525,14 @@ async function* streamFromRunnable(
     let capturedInterrupts: readonly RawInterruptEntry[] = []
     const emittedInterruptIds = new Set<string>()
     const subagentToolRuns: SubagentToolRunContexts = { contextsByToolRunId: new Map() }
-    const rootTools: RootToolProjectionState = {
-      textModelRunIds: new Set(),
-      announcedToolCallIds: new Set(),
-      heldRootToolStarts: new Map(),
-      pendingRootToolErrors: [],
-      streamingArgs: new Map(),
-    }
+    const owners: OwnerToolStates = { root: newToolProjectionState(), children: new Map() }
 
     try {
       for await (const event of streamEventsFn(invocationInput, {
         ...invocationConfig,
         version: "v2",
       })) {
-        const projection = classifyStreamEvent(event, subagentToolRuns, rootTools)
+        const projection = classifyStreamEvent(event, subagentToolRuns, owners)
         if (projection.capturesFinalOutput) {
           finalOutput = projection.finalOutput
         }

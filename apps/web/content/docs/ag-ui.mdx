@@ -453,7 +453,8 @@ response.write(encodeAgUiEvent(event, request.headers.accept))
 | `tool_result` for a tool that threw | `TOOL_CALL_RESULT` under the same `toolCallId`, with `content` set to the serialized `status: "error"` ToolMessage the model receives (serialized the same way as a successful result) |
 | `tool_call` and `tool_result` for a `writeTodos` or `task` call whose activity was emitted | none (the activity is the whole presentation) |
 | root `plan_update` | replacement `ACTIVITY_SNAPSHOT` with activity type `b4.plan` |
-| `subagent.start` and matching child plan/tool/result/end chunks | replacement `ACTIVITY_SNAPSHOT` with activity type `b4.subagent` |
+| `subagent.start` and the matching child `token`/`reasoning`/`message_end`/`tool_call`/`tool_call_args`/`tool_result`/`plan_update`/`end` chunks | replacement `ACTIVITY_SNAPSHOT` with activity type `b4.subagent`; the child stream itself is consumed (AG-UI 1.0 `SUBAGENT_*` lifecycle and attribution follow in the next release) |
+| `reasoning` (per model invocation, alongside its `token`s) | `REASONING_START` and `REASONING_MESSAGE_START { role: "reasoning" }` once, then `REASONING_MESSAGE_CONTENT` per delta; both closed at the invocation's `message_end` or the next tool or terminal boundary |
 | `usage` (one per model call, root or subagent) | none on its own; aggregated into `usage` on the terminal event |
 | `interrupt` | terminal `RUN_FINISHED` with `outcome.type: "interrupt"`; each interrupt's approval grant is at `metadata.grant` |
 | `done` | terminal `RUN_FINISHED` with `outcome.type: "success"`; when the turn left client-provided tool calls parked, `outcome.pendingToolCallIds` names them; a null route result is omitted, never `null` |
@@ -465,6 +466,12 @@ response.write(encodeAgUiEvent(event, request.headers.accept))
 Every terminal event — `RUN_FINISHED` with a `success`, `interrupt` or `cancelled` outcome, and `RUN_ERROR` — carries `usage: TokenUsage[]` when at least one model call in the run reported token counts, and omits the key otherwise (never `[]`). There is one entry per provider and model, so a coordinator on `gpt-5-mini` with a subagent on `gpt-5-nano` reports two entries; sum them for a run total. Counts follow the protocol's accounting: `inputTokens` and `outputTokens` are inclusive totals, and `cachedInputTokens`, `cacheWriteInputTokens` and `reasoningTokens` are parts of them. A count the provider did not return is absent, not zero. A cancelled or failed run reports what it accrued before the stop; a resumed run reports only its own calls.
 
 The same `usage` chunk reaches the Agent Protocol stream as `event: usage` with the provider's raw LangChain `usage_metadata`; it has no typed API there.
+
+### Reasoning
+
+When a route's [`reasoning`](/docs/reasoning-effort) asks the provider to show its thinking (OpenAI `summary`, Anthropic `budgetTokens`), each model invocation's reasoning is framed as one span and one `role: "reasoning"` message with their own ids, distinct from the invocation's assistant text. Reasoning and text of one invocation may interleave; both close when the invocation ends, and anything still open at a tool call, an interrupt, cancellation or an error is closed before the terminal event, as 1.0 requires. Redacted or encrypted reasoning is dropped, never carried, so `reasoning.encrypted` is `false`.
+
+`GET /agui/{routeId}` advertises `reasoning` from the same config the model is built with: `{ supported: true, streaming: true, encrypted: false }` when the route streams reasoning, and `{ supported: false }` otherwise. A route with only `effort` set reasons but streams nothing, and advertises `{ supported: false }`.
 
 ### Activity snapshots
 

@@ -66,8 +66,8 @@ while (true) {
         console.log("\n[done]", payload.output)
         break
       default:
-        // subagent.start, subagent.tool_call, subagent.tool_result,
-        // subagent.message, subagent.end, etc.
+        // subagent.start, subagent.token, subagent.tool_call,
+        // subagent.tool_result, subagent.end, etc.
         console.log(`[${eventType}]`, payload)
     }
   }
@@ -78,6 +78,8 @@ while (true) {
 
 Every event frame is `event: <type>\ndata: <json>\n\n`. Parse the `event:` line to tell the frame types apart.
 
+Every `subagent.*` payload carries the child's identity, written `…identity` below: `subagent` (its name), `route_id` and `depth`. Apart from that identity, a child event has exactly the shape of the root event of the same name.
+
 | Event type | Payload shape | Notes |
 |---|---|---|
 | `chunk` | `string` | Streamed text fragment from the model. |
@@ -85,11 +87,15 @@ Every event frame is `event: <type>\ndata: <json>\n\n`. Parse the `event:` line 
 | `tool_result` | `{ name: string, output: unknown }` | A tool returned a result. A tool that threw still emits one, and `output` is the `status: "error"` ToolMessage the model receives. |
 | `plan_update` | plan object | Emitted after a [Planning](/docs/planning) `writeTodos` result updates the route's todo state. (Does not write back to `plan.md`.) |
 | `interrupt` | interrupt object | Emitted when the agent hits a HITL interrupt point. |
-| `subagent.start` | `{ name, routeId, depth, call_id }` | A subagent started. |
-| `subagent.tool_call` | `{ call_id, name, input }` | Tool call inside a subagent. |
-| `subagent.tool_result` | `{ call_id, name, output }` | Tool result inside a subagent. |
-| `subagent.message` | `{ call_id, content }` | Text chunk from a subagent. |
-| `subagent.end` | `{ call_id, final_message?, error? }` | Subagent finished or failed. |
+| `subagent.start` | `{ call_id, parent_call_id?, subagent, route_id, depth, description? }` | A subagent started. `parent_call_id` names the call that dispatched it when the parent is itself a subagent. |
+| `subagent.token` | `{ call_id, …identity, data, messageId }` | Text from the child, framed like root `chunk`s: `messageId` is the child's model invocation. |
+| `subagent.reasoning` | `{ call_id, …identity, data, messageId }` | The child's visible reasoning, when its route streams it. |
+| `subagent.message_end` | `{ call_id, …identity, messageId }` | The child's model invocation ended. |
+| `subagent.tool_call` | `{ call_id, …identity, id, name, input }` | Tool call inside a subagent, under the model's tool-call id. |
+| `subagent.tool_call_args` | `{ call_id, …identity, id, name, delta }` | Streamed arguments for that call, for display only. |
+| `subagent.tool_result` | `{ call_id, …identity, id, name, output }` | The result, under the same id. |
+| `subagent.usage` | `{ call_id, …identity, provider?, model?, usage_metadata }` | One child model call's token counts. |
+| `subagent.end` | `{ call_id, …identity, final_message?, error? }` | Subagent finished or failed. |
 | `done` | `{ output: unknown }` | Run complete. `output` is the final route result. |
 
 ## Notes
