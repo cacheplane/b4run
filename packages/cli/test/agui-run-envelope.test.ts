@@ -439,7 +439,7 @@ describe("protocolVersion", () => {
 describe("multimodal input", () => {
   const image = { type: "image", source: { type: "url", value: "https://example.test/a.png" } }
 
-  it("refuses a message carrying a media part with 422 multimodal_not_supported, before middleware", async () => {
+  it("serves a message carrying a media part; middleware runs", async () => {
     let middlewareRan = false
     const { handler } = await setup({
       middleware: () => {
@@ -452,13 +452,12 @@ describe("multimodal input", () => {
         messages: [{ id: "1", role: "user", content: [{ type: "text", text: "see" }, image] }],
       }),
     )
-    expect(response.status).toBe(422)
-    const body = (await response.json()) as { error: { details?: { code?: string } } }
-    expect(body.error.details?.code).toBe("multimodal_not_supported")
-    expect(middlewareRan).toBe(false)
+    expect(response.status).toBe(200)
+    expect(middlewareRan).toBe(true)
+    await drain(response)
   })
 
-  it("refuses a media part on a tool message too", async () => {
+  it("serves a media part on a tool message too", async () => {
     const { handler } = await setup()
     const response = await handler.fetch(
       aguiPost(HELLO_ROUTE, {
@@ -468,9 +467,24 @@ describe("multimodal input", () => {
         ],
       }),
     )
-    expect(response.status).toBe(422)
-    const body = (await response.json()) as { error: { details?: { code?: string } } }
-    expect(body.error.details?.code).toBe("multimodal_not_supported")
+    expect(response.status).toBe(200)
+    await drain(response)
+  })
+
+  it("a part with an unknown source type is a schema failure (400), not an envelope refusal", async () => {
+    const { handler } = await setup()
+    const response = await handler.fetch(
+      aguiPost(HELLO_ROUTE, {
+        messages: [
+          {
+            id: "1",
+            role: "user",
+            content: [{ type: "image", source: { type: "blob", value: "x" } }],
+          },
+        ],
+      }),
+    )
+    expect(response.status).toBe(400)
   })
 
   it("serves text-only parts", async () => {

@@ -59,7 +59,7 @@ import {
   type ClientToolResumeValue,
   isClientToolCallEnvelope,
 } from "@b4run/core"
-import type { ClientToolCallRecord, ClientToolCallStore } from "@b4run/sdk"
+import { type ClientToolCallRecord, type ClientToolCallStore, contentPartsText } from "@b4run/sdk"
 
 import {
   isClientToolPark,
@@ -165,7 +165,18 @@ export async function resolveClientToolTurn(options: {
     if (typeof toolCallId !== "string" || !answerable.has(toolCallId)) continue
     // "already_answered" / "voided" / "missing" are history or a lost race:
     // ignored. A later duplicate message for the same call lands here too.
-    await store.answer({ threadId, toolCallId, result: message.content, at })
+    // PR 1 stores a client-tool result's text only; parts (a frontend
+    // screenshot answer) are carried in sub-project 3's PR 2 (spec §6) — until
+    // then a parts-only answer is stored as "", and the drop is announced.
+    if (Array.isArray(message.content)) {
+      const media = message.content.filter((part) => part.type !== "text").length
+      if (media > 0) {
+        console.warn(
+          `B4: client tool result for ${toolCallId} carried ${media} media part(s); this release stores and replays its text only (sub-project 3 PR 2 carries them).`,
+        )
+      }
+    }
+    await store.answer({ threadId, toolCallId, result: contentPartsText(message.content), at })
   }
 
   const rows = answerable.size > 0 ? await readRows(store, threadId) : rowsBefore

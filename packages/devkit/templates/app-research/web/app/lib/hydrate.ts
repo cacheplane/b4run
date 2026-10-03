@@ -64,10 +64,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * Flattens LangChain content-block arrays to displayable text, matching
  * `contentText` in `packages/cli/src/lib/runtime/record-episode.ts`. Anthropic
  * models emit array content whenever a turn carries tool calls, so this is the
- * live hazard for `AIMessageChunk`. It is defence-in-depth for `ToolMessage`:
- * B4.run's own tool loop always produces a plain string via `unwrapToolResult`,
- * but a checkpoint from a user's own model/tool wiring should not go blank
- * just because it didn't.
+ * live hazard for `AIMessageChunk`. For `ToolMessage` it reads the text: in
+ * B4.run's own tool loop a tool result is a string or, when the tool returned
+ * content parts, a list of parts carried in the message's
+ * `additional_kwargs.b4_content_parts` (its `content` is then the text, plus
+ * any media blocks the model can take); and a checkpoint from a user's own
+ * model/tool wiring should not go blank whatever shape it used.
  */
 function contentText(content: unknown): string {
   if (typeof content === "string") return content

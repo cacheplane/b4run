@@ -1,4 +1,4 @@
-import type { RunAgentInput } from "@ag-ui/core"
+import type { ContentPart, RunAgentInput } from "@ag-ui/core"
 import { describe, expect, test } from "vitest"
 import { fromRunAgentInput } from "../src/inbound.js"
 
@@ -112,37 +112,56 @@ describe("1.0 content", () => {
     forwardedProps: {},
   })
 
-  test("a user message's text parts concatenate in order", () => {
+  test("a user message's parts are kept as parts, in order", () => {
+    const parts: ContentPart[] = [
+      { type: "text", text: "Hello, " },
+      { type: "image", source: { type: "url", value: "https://x.test/a.png" } },
+      { type: "text", text: "world" },
+    ]
+    const { messages } = fromRunAgentInput(input([{ id: "1", role: "user", content: parts }]))
+    expect(messages[0]?.content).toEqual(parts)
+  })
+
+  test("a tool message's parts are kept as parts", () => {
+    const parts: ContentPart[] = [
+      { type: "text", text: '{"ok":true}' },
+      { type: "image", source: { type: "data", value: "AAAA", mimeType: "image/png" } },
+    ]
+    const { messages } = fromRunAgentInput(
+      input([{ id: "2", role: "tool", toolCallId: "c1", content: parts }]),
+    )
+    expect(messages[0]).toEqual({ role: "tool", content: parts, id: "2", toolCallId: "c1" })
+  })
+
+  test("non-object entries in a part list are dropped; a list with none left is empty text", () => {
+    const { messages } = fromRunAgentInput(
+      input([
+        {
+          id: "1",
+          role: "user",
+          content: [null, 42, { type: "text", text: "a" }] as unknown as never,
+        },
+        { id: "2", role: "user", content: [null] as unknown as never },
+      ]),
+    )
+    expect(messages[0]?.content).toEqual([{ type: "text", text: "a" }])
+    expect(messages[1]?.content).toBe("")
+  })
+
+  test("an entry that is an object but not a valid part is dropped", () => {
     const { messages } = fromRunAgentInput(
       input([
         {
           id: "1",
           role: "user",
           content: [
-            { type: "text", text: "Hello, " },
-            { type: "text", text: "world" },
-          ],
+            { type: "image", source: { type: "blob", value: "x" } },
+            { type: "text", text: "t" },
+          ] as unknown as never,
         },
       ]),
     )
-    expect(messages).toEqual([{ id: "1", role: "user", content: "Hello, world" }])
-  })
-
-  test("a tool message's text parts concatenate in order", () => {
-    const { messages } = fromRunAgentInput(
-      input([
-        {
-          id: "2",
-          role: "tool",
-          toolCallId: "c1",
-          content: [
-            { type: "text", text: '{"ok":' },
-            { type: "text", text: "true}" },
-          ],
-        },
-      ]),
-    )
-    expect(messages).toEqual([{ id: "2", role: "tool", toolCallId: "c1", content: '{"ok":true}' }])
+    expect(messages[0]?.content).toEqual([{ type: "text", text: "t" }])
   })
 
   test("reasoning and activity history is dropped, not re-spoken as the assistant", () => {
@@ -171,6 +190,15 @@ describe("1.0 content", () => {
         },
       ]),
     )
-    expect(messages).toEqual([{ id: "6", role: "user", content: "ab" }])
+    expect(messages).toEqual([
+      {
+        id: "6",
+        role: "user",
+        content: [
+          { type: "text", text: "a" },
+          { type: "text", text: "b" },
+        ],
+      },
+    ])
   })
 })

@@ -1,5 +1,7 @@
 import type {
   ActivitySnapshotEvent,
+  ContentPart,
+  CustomEvent,
   Interrupt,
   ReasoningEndEvent,
   ReasoningMessageContentEvent,
@@ -21,6 +23,7 @@ import type {
   ToolCallStartEvent,
 } from "@ag-ui/core"
 import { EventType, PROTOCOL_VERSION } from "@ag-ui/core"
+import { isContentPartArray } from "@b4run/sdk"
 import { createB4ActivityProjector } from "./activities.js"
 import { createDefaultIdFactory, type IdFactory } from "./ids.js"
 import { toAguiInterrupt } from "./interrupts.js"
@@ -49,6 +52,7 @@ export type AguiOutboundEvent =
   | ToolCallEndEvent
   | ToolCallResultEvent
   | ActivitySnapshotEvent
+  | CustomEvent
   | ReasoningStartEvent
   | ReasoningMessageStartEvent
   | ReasoningMessageContentEvent
@@ -57,6 +61,9 @@ export type AguiOutboundEvent =
   | SubagentStartedEvent
   | SubagentFinishedEvent
   | SubagentErrorEvent
+
+/** The CUSTOM event name for the spec's lossy-downgrade warning. */
+export const B4_CONTENT_PARTS_DROPPED_EVENT = "b4.content_parts_dropped"
 
 /** One invocation's open reasoning: the span and the message inside it. */
 interface OpenReasoning {
@@ -134,7 +141,17 @@ function stringifyArgs(input: unknown): string {
   }
 }
 
-function stringifyContent(output: unknown): string {
+/**
+ * A tool result's wire content. A part array (the tool returned parts, or a
+ * ToolMessage kept them under `additional_kwargs.b4_content_parts` so the UI
+ * sees every part even when the model saw less) travels as parts; anything
+ * else is text, as before. `toolCallId` picks the right ToolMessage out of a
+ * `Command`-wrapped result.
+ */
+function toResultContent(output: unknown, toolCallId: string | undefined): string | ContentPart[] {
+  if (isContentPartArray(output) && output.length > 0) return [...output]
+  const kept = keptParts(output, toolCallId)
+  if (kept) return kept
   if (typeof output === "string") return output
   if (output === undefined || output === null) return ""
   try {
@@ -143,6 +160,56 @@ function stringifyContent(output: unknown): string {
   } catch {
     return String(output)
   }
+}
+
+type Indexable = { readonly [key: string]: unknown }
+
+function asRecord(value: unknown): Indexable | undefined {
+  return typeof value === "object" && value !== null ? (value as Indexable) : undefined
+}
+
+/**
+ * The parts a tool result kept for the UI, or `undefined`. Two carriers:
+ *
+ * - A ToolMessage, live or serialized (`{ lc, type: "constructor", kwargs }`),
+ *   with `additional_kwargs.b4_content_parts`. Its `content` (blocks, with
+ *   `response_metadata.output_version`) is what the model saw and may be
+ *   narrower; the kept parts are preferred whenever present.
+ * - A LangGraph `Command` (a tool that returned `{ result, state }`), whose
+ *   `update.messages` holds that ToolMessage. Live and `JSON.stringify`d
+ *   Commands share this shape (`{ lg_name: "Command", update, goto }`); a
+ *   `kwargs.update` wrapper is accepted too. Among several ToolMessages
+ *   carrying parts, the one whose `tool_call_id` is this result's wins, else
+ *   the first.
+ */
+function keptParts(output: unknown, toolCallId: string | undefined): ContentPart[] | undefined {
+  const record = asRecord(output)
+  if (record === undefined) return undefined
+  const own = messageKeptParts(record)
+  if (own !== undefined) return own.parts
+  const update = asRecord(record.update) ?? asRecord(asRecord(record.kwargs)?.update)
+  const messages = update?.messages
+  if (!Array.isArray(messages)) return undefined
+  let first: ContentPart[] | undefined
+  for (const message of messages) {
+    const entry = messageKeptParts(asRecord(message))
+    if (entry === undefined) continue
+    if (toolCallId !== undefined && entry.toolCallId === toolCallId) return entry.parts
+    first ??= entry.parts
+  }
+  return first
+}
+
+/** `additional_kwargs.b4_content_parts` off one live or serialized ToolMessage. */
+function messageKeptParts(
+  message: Indexable | undefined,
+): { readonly parts: ContentPart[]; readonly toolCallId: unknown } | undefined {
+  if (message === undefined) return undefined
+  const kwargs = asRecord(message.kwargs)
+  const additional = asRecord(message.additional_kwargs) ?? asRecord(kwargs?.additional_kwargs)
+  const parts = additional?.b4_content_parts
+  if (!isContentPartArray(parts) || parts.length === 0) return undefined
+  return { parts: [...parts], toolCallId: message.tool_call_id ?? kwargs?.tool_call_id }
 }
 
 function newOwnerState(): OwnerState {
@@ -541,7 +608,7 @@ export async function* toAguiEvents(
           type: EventType.TOOL_CALL_RESULT,
           messageId: nextId("toolResult"),
           toolCallId,
-          content: stringifyContent(tr.output),
+          content: toResultContent(tr.output, tr.id),
         })
         if (owner === undefined) {
           yield* ledger.onToolResult(tr.id, tr.name, resultEvent)
@@ -558,6 +625,25 @@ export async function* toAguiEvents(
         } else {
           yield* ledger.onPassthrough(projection.event)
         }
+        break
+      }
+      case "content_parts_dropped": {
+        // Root only: a child's `subagent.content_parts_dropped` takes the
+        // default path below (its text is flushed, the chunk ignored).
+        if (owner !== undefined) {
+          yield* flushText(owner)
+          break
+        }
+        // Not a protocol requirement: B4 frames text with START/CONTENT/END
+        // (never CHUNK events), and the 1.0 client accepts a CUSTOM while a
+        // message is open. Ending open text first is a tidiness choice, so
+        // the drop notice lands between messages rather than inside one.
+        yield* flushText(owner)
+        yield* emit(owner, {
+          type: EventType.CUSTOM,
+          name: B4_CONTENT_PARTS_DROPPED_EVENT,
+          value: chunk.data,
+        })
         break
       }
       default:

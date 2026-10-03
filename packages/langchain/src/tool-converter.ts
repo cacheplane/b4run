@@ -11,12 +11,21 @@ import type { JsonSchemaProperty, StreamTransformer } from "@b4run/core"
 // AsyncLocalStorage instance the default entry installs as a side effect is
 // still installed on Node: `@langchain/langgraph`'s main entry does it, and
 // B4.run always loads that.
+import { type B4ContentPart, type BuiltInModelProviderId, contentPartsText } from "@b4run/sdk"
 import { dispatchCustomEvent } from "@langchain/core/callbacks/dispatch/web"
-import { ToolMessage } from "@langchain/core/messages"
+import { type MessageContent, ToolMessage } from "@langchain/core/messages"
 import { patchConfig } from "@langchain/core/runnables"
 import { DynamicStructuredTool } from "@langchain/core/tools"
 import { Command } from "@langchain/langgraph"
 import { z } from "zod"
+import { DEFAULT_MODALITY_SUPPORT, type ModalitySupport } from "./chat-model-factory.js"
+import {
+  type DroppedPart,
+  droppedPartsData,
+  type LangChainContentBlock,
+  toLangChainContent,
+  V1_RESPONSE_METADATA,
+} from "./content-parts.js"
 import { readCallOrigin, recordToolCall } from "./tool-call-recording.js"
 import { unwrapToolResult } from "./unwrap-tool-result.js"
 
@@ -52,12 +61,23 @@ export type OffloadFn = (
   signal?: AbortSignal,
 ) => Promise<string>
 
+/** The root model's modality, for shaping a tool's media result. */
+export interface ToolResultModality {
+  readonly support: ModalitySupport
+  readonly provider: BuiltInModelProviderId | undefined
+  readonly model: string | undefined
+}
+
+/** The `additional_kwargs` key under which a ToolMessage keeps every part the tool returned, for the UI. */
+export const B4_CONTENT_PARTS_KEY = "b4_content_parts"
+
 export function convertToolToLangChain(
   tool: B4ToolDefinition,
   middlewareContext?: Readonly<Record<string, unknown>>,
   offload?: OffloadFn,
   routeParamNames: readonly string[] = [],
   streamTransformers: readonly StreamTransformer[] = [],
+  modality?: ToolResultModality,
 ): DynamicStructuredTool {
   const schema = toZodSchema(tool.schema)
   const paramNameSet = new Set(routeParamNames)
@@ -108,24 +128,64 @@ export function convertToolToLangChain(
           ...(toolCallId !== "" ? { toolCallId } : {}),
         })
         const { content, stateUpdates } = unwrapToolResult(rawResult)
-        const finalContent = offload
-          ? await offload(content, tool.name, toolCallId || undefined, signal)
-          : content
+        let finalContent: string | readonly LangChainContentBlock[]
+        let partsForUi: readonly B4ContentPart[] | undefined
+        if (typeof content === "string") {
+          finalContent = offload
+            ? await offload(content, tool.name, toolCallId || undefined, signal)
+            : content
+        } else {
+          partsForUi = content
+          const support = modality?.support ?? DEFAULT_MODALITY_SUPPORT
+          // Drops are judged on the ORIGINAL list so their indices mean what the UI sees.
+          const converted = toLangChainContent(content, support, modality?.provider, "tool")
+          // Offload bounds the text; media bypass it (their size is the body's business).
+          const text = contentPartsText(content)
+          const offloadedText =
+            offload && text.length > 0
+              ? await offload(text, tool.name, toolCallId || undefined, signal)
+              : text
+          finalContent =
+            typeof converted.content === "string"
+              ? offloadedText
+              : placeToolText(content, converted.content, converted.dropped, offloadedText)
+          if (converted.dropped.length > 0) {
+            try {
+              await dispatchCustomEvent(
+                "b4.capability",
+                {
+                  event: "content_parts_dropped",
+                  data: droppedPartsData(modality, converted.dropped, toolCallId),
+                },
+                liveConfig,
+              )
+            } catch {
+              // The announce is secondary; the result still stands.
+            }
+          }
+        }
+
+        const toolMessage = (): ToolMessage =>
+          new ToolMessage({
+            tool_call_id: toolCallId,
+            name: tool.name,
+            ...(partsForUi !== undefined
+              ? { additional_kwargs: { [B4_CONTENT_PARTS_KEY]: partsForUi } }
+              : {}),
+            // Blocks go in as `content:` with the v1 mark (see `V1_RESPONSE_METADATA`).
+            ...(typeof finalContent === "string"
+              ? { content: finalContent }
+              : {
+                  content: finalContent as unknown as MessageContent,
+                  response_metadata: V1_RESPONSE_METADATA,
+                }),
+          })
 
         const convertedResult = stateUpdates
-          ? new Command({
-              update: {
-                ...stateUpdates,
-                messages: [
-                  new ToolMessage({
-                    content: finalContent,
-                    tool_call_id: toolCallId,
-                    name: tool.name,
-                  }),
-                ],
-              },
-            })
-          : finalContent
+          ? new Command({ update: { ...stateUpdates, messages: [toolMessage()] } })
+          : partsForUi !== undefined
+            ? toolMessage()
+            : finalContent
 
         for (const transformer of streamTransformers) {
           if (transformer.observes !== "tool_result") continue
@@ -154,6 +214,35 @@ export function convertToolToLangChain(
       return recorded ? recordToolCall(liveConfig, recorded, body) : body()
     },
   })
+}
+
+/**
+ * The model-visible blocks of a part result: the one (offloaded) text block
+ * sits where the tool's FIRST text part was, the surviving media keep their
+ * order around it; no text part (or empty text) means media only. `blocks` is
+ * `toLangChainContent`'s output for `parts` — the survivors, in order.
+ */
+function placeToolText(
+  parts: readonly B4ContentPart[],
+  blocks: readonly LangChainContentBlock[],
+  dropped: readonly DroppedPart[],
+  text: string,
+): LangChainContentBlock[] {
+  const droppedAt = new Set(dropped.map((drop) => drop.index))
+  const placed: LangChainContentBlock[] = []
+  let next = 0
+  let textPlaced = false
+  for (const [index, part] of parts.entries()) {
+    if (droppedAt.has(index)) continue
+    const block = blocks[next++]
+    if (part.type === "text") {
+      if (!textPlaced && text.length > 0) placed.push({ type: "text", text })
+      textPlaced = true
+      continue
+    }
+    if (block !== undefined) placed.push(block)
+  }
+  return placed
 }
 
 function toZodSchema(value: unknown): z.ZodTypeAny {

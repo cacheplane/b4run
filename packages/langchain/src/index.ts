@@ -13,15 +13,29 @@ export {
   streamAgent,
 } from "./agent-adapter.js"
 export { chainAdapter } from "./chain-adapter.js"
-export type { JsonSchemaResponseFormat } from "./chat-model-factory.js"
+export type { JsonSchemaResponseFormat, ModalitySupport } from "./chat-model-factory.js"
 export {
   createChatModel,
+  DEFAULT_MODALITY_SUPPORT,
   JSON_SCHEMA_RESPONSE_FORMAT_PROVIDERS,
   providerPackages,
+  resolveModalitySupport,
   seedModelImporter,
   supportsJsonSchemaResponseFormat,
   unsupportedResponseFormatMessage,
 } from "./chat-model-factory.js"
+export type {
+  ConvertedContent,
+  DroppedPart,
+  DroppedPartsReport,
+  DropReason,
+  LangChainContentBlock,
+} from "./content-parts.js"
+export {
+  formatDroppedPartsWarning,
+  pickDroppedPartsReport,
+  toLangChainContent,
+} from "./content-parts.js"
 export { modelMaxRetries } from "./model-call-retry.js"
 export { inferProvider, resolveProvider } from "./model-provider-resolver.js"
 export type { OffloadStoreOptions } from "./offload/offload-store.js"
@@ -37,8 +51,8 @@ export { materializeStateSchema } from "./state-adapter.js"
 export type { ResolvedSubagentGraph, SubagentResolver } from "./subagent-tool-bridge.js"
 export { convertSubagentTaskToLangChain } from "./subagent-tool-bridge.js"
 export * from "./summarization/index.js"
-export type { OffloadFn } from "./tool-converter.js"
-export { convertToolToLangChain } from "./tool-converter.js"
+export type { OffloadFn, ToolResultModality } from "./tool-converter.js"
+export { B4_CONTENT_PARTS_KEY, convertToolToLangChain } from "./tool-converter.js"
 export { executeWithToolLoop } from "./tool-loop.js"
 export type { UnwrappedToolResult } from "./unwrap-tool-result.js"
 export { unwrapToolResult } from "./unwrap-tool-result.js"

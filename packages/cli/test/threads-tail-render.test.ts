@@ -15,6 +15,32 @@ const base = {
 }
 
 describe("renderSnapshot", () => {
+  it("renders a media part as a placeholder, never its base64", () => {
+    const data = "A".repeat(4096)
+    const lines = renderSnapshot(
+      parseStateFrame({
+        ...base,
+        values: {
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "look" },
+                { type: "image", source: { type: "data", value: data, mimeType: "image/png" } },
+                { type: "image", data, mimeType: "image/jpeg" },
+              ],
+            },
+          ],
+        },
+      }),
+    )
+    const text = lines.join("\n")
+    expect(text).toContain('"text":"look"')
+    expect(text).toContain("[image image/png]")
+    expect(text).toContain("[image image/jpeg]")
+    expect(text).not.toContain("AAAAAAAA")
+  })
+
   it("renders committed messages, then applies input when this is not a resume", () => {
     const lines = renderSnapshot(
       parseStateFrame({

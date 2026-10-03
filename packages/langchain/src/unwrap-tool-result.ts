@@ -1,8 +1,13 @@
+import { type B4ContentPart, isContentPartArray } from "@b4run/sdk"
+
 /**
  * Result of unwrapping a tool's return value.
  *
- * - `content` is the string that becomes the ToolMessage content the agent sees.
+ * - `content` is what becomes the ToolMessage content the agent sees: a string,
+ *   or the ordered content parts the tool returned.
  *   Built rules:
+ *     • A non-empty content-part array (returned plainly, or as a wrapped
+ *       `result`) is kept as parts. An empty array is JSON `[]`, as before.
  *     • If the tool returned a wrapped `{result}` shape and `result` is a string,
  *       `content` is that string verbatim (no JSON quoting).
  *     • If `result` is any other value, `content` is `JSON.stringify(result)`.
@@ -13,7 +18,7 @@
  *   undefined if the tool didn't request any state mutation.
  */
 export interface UnwrappedToolResult {
-  readonly content: string
+  readonly content: string | readonly B4ContentPart[]
   readonly stateUpdates: Record<string, unknown> | undefined
 }
 
@@ -33,6 +38,9 @@ export interface UnwrappedToolResult {
  * authors should never return undefined as the agent-facing result.
  */
 export function unwrapToolResult(value: unknown): UnwrappedToolResult {
+  if (isContentPartArray(value) && value.length > 0) {
+    return { content: value, stateUpdates: undefined }
+  }
   if (!isWrapperShape(value)) {
     return { content: JSON.stringify(value), stateUpdates: undefined }
   }
@@ -45,7 +53,12 @@ export function unwrapToolResult(value: unknown): UnwrappedToolResult {
     return { content: JSON.stringify(value), stateUpdates: undefined }
   }
 
-  const content = typeof result === "string" ? result : JSON.stringify(result)
+  const content =
+    typeof result === "string"
+      ? result
+      : isContentPartArray(result) && result.length > 0
+        ? result
+        : JSON.stringify(result)
   const stateUpdates =
     state !== undefined && state !== null && typeof state === "object"
       ? (state as Record<string, unknown>)

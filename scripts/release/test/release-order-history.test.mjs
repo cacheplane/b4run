@@ -37,6 +37,32 @@ const PREVIOUS_B4_ORDER = [
   "@b4run/vite-plugin",
   "create-b4-app",
 ]
+// Published B4 order for v0.13.0 and v0.13.1, before @b4run/ag-ui acquired its
+// @b4run/sdk dependency. Keep this fixture literal for the same reason.
+const PREVIOUS_B4_PRE_AGUI_SDK_ORDER = [
+  "@b4run/ag-ui",
+  "@b4run/config-biome",
+  "@b4run/config-typescript",
+  "@b4run/devkit",
+  "@b4run/sdk",
+  "@b4run/langgraph",
+  "@b4run/permissions",
+  "@b4run/postgres-storage",
+  "@b4run/workspace",
+  "@b4run/sandbox",
+  "@b4run/sqlite-storage",
+  "@b4run/core",
+  "@b4run/langchain",
+  "@b4run/memory",
+  "@b4run/cli",
+  "@b4run/inspector",
+  "@b4run/memory-pgvector",
+  "@b4run/testing",
+  "@b4run/evals",
+  "@b4run/vite-plugin",
+  "create-b4-app",
+]
+
 const candidate = {
   version: "0.8.31",
   commitSha: "a".repeat(40),
@@ -113,7 +139,11 @@ test("current sealed order follows the changed live topology", async () => {
 })
 
 test("sealed historical B4 and Dawn manifests retain their original order and bytes", () => {
-  for (const order of [PREVIOUS_B4_ORDER, HISTORICAL_RELEASE_PACKAGE_ORDER]) {
+  for (const order of [
+    PREVIOUS_B4_ORDER,
+    PREVIOUS_B4_PRE_AGUI_SDK_ORDER,
+    HISTORICAL_RELEASE_PACKAGE_ORDER,
+  ]) {
     const manifest = manifestFor(order)
     const before = canonicalManifestBytes(manifest)
     const validated = validateSealedReleaseManifest(manifest, { candidate })
@@ -129,7 +159,11 @@ test("sealed historical B4 and Dawn manifests retain their original order and by
 })
 
 test("npm receipts follow the exact sealed B4 manifest, including the previous order", () => {
-  for (const order of [PREVIOUS_B4_ORDER, CANONICAL_RELEASE_PACKAGE_ORDER]) {
+  for (const order of [
+    PREVIOUS_B4_ORDER,
+    PREVIOUS_B4_PRE_AGUI_SDK_ORDER,
+    CANONICAL_RELEASE_PACKAGE_ORDER,
+  ]) {
     const manifest = manifestFor(order)
     const receipt = receiptFor(manifest)
     const context = {

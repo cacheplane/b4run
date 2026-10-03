@@ -2,6 +2,7 @@ import { snapshotJson } from "./adapter-normalize.mjs"
 import { RELEASE_PAYLOAD_LIMITS } from "./limits.mjs"
 import {
   CANONICAL_RELEASE_PACKAGE_ORDER,
+  HISTORICAL_B4_PRE_AGUI_SDK_RELEASE_PACKAGE_ORDER,
   HISTORICAL_B4_RELEASE_PACKAGE_ORDER,
   manifestSha256 as releaseManifestSha256,
   validateSealedReleaseManifest,
@@ -95,9 +96,11 @@ export function parseNpmEvidence(raw, context) {
   // B4 orders; they cannot turn an arbitrary permutation into accepted history.
   const packageOrder =
     manifest?.packageOrder ??
-    [CANONICAL_RELEASE_PACKAGE_ORDER, HISTORICAL_B4_RELEASE_PACKAGE_ORDER].find((order) =>
-      value.packages.every((entry, index) => entry?.name === order[index]),
-    )
+    [
+      CANONICAL_RELEASE_PACKAGE_ORDER,
+      HISTORICAL_B4_PRE_AGUI_SDK_RELEASE_PACKAGE_ORDER,
+      HISTORICAL_B4_RELEASE_PACKAGE_ORDER,
+    ].find((order) => value.packages.every((entry, index) => entry?.name === order[index]))
   if (packageOrder === undefined) {
     throw new TypeError("npm evidence package order is not an admitted B4 release order")
   }

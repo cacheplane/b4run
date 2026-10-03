@@ -570,6 +570,9 @@ importers:
       '@ag-ui/encoder':
         specifier: 1.0.1
         version: 1.0.1(zod@4.4.3)
+      '@b4run/sdk':
+        specifier: workspace:*
+        version: link:../sdk
       zod:
         specifier: ^4.4.3
         version: 4.4.3

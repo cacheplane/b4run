@@ -376,6 +376,43 @@ describe("resolveClientToolTurn", () => {
     expect((await store.get(THREAD, "call-1"))?.result).toBe("")
   })
 
+  test("a media-only tool answer is stored as its text and the dropped media is announced", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const store = await storeWith(record("call-1"))
+      const turn = await resolveClientToolTurn({
+        store,
+        threadId: THREAD,
+        pending: snapshot(clientPark("call-1", KEY_A)),
+        messages: [
+          user("go"),
+          {
+            role: "tool",
+            toolCallId: "call-1",
+            content: [
+              {
+                type: "image",
+                source: { type: "data", value: "AAAA", mimeType: "image/png" },
+              },
+            ],
+          },
+        ],
+        now: NOW,
+      })
+      expect(turn).toEqual({
+        mode: "resume",
+        resume: { [KEY_A]: { clientToolResult: "" } },
+        others: [],
+      })
+      expect((await store.get(THREAD, "call-1"))?.result).toBe("")
+      expect(warn.mock.calls.map((call) => String(call[0]))).toEqual([
+        "B4: client tool result for call-1 carried 1 media part(s); this release stores and replays its text only (sub-project 3 PR 2 carries them).",
+      ])
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
   test("the first of duplicate tool messages for one call wins", async () => {
     const store = await storeWith(record("call-1"))
     const turn = await resolveClientToolTurn({
