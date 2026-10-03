@@ -2,9 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Revised after final review (2026-10-02):** `prune` deletes rows by `voidedAt` ONLY, and `voidOutstanding` now stamps `voidedAt` on consumed rows too (every unvoided row of the thread not in the keep list). A resume consumes the row before the resumed run executes; if that run fails the prompt stays parked with a consumed row, and deleting it by `consumedAt` would have left the parked prompt ungated under `approvals.grants: "optional"`. A consumed row whose resume never completed is therefore never pruned. The test blocks below that seed `consumedAt`-only rows as deletable predate this revision; the spec's §1 and §5 are authoritative. `voidSupersededGrants` takes a required `retentionMs`.
+
 **Goal:** Stop the `interrupt_grants` table growing forever by adding `prune({ before })` to every `InterruptGrantStore`, sweeping settled rows where the runtime already voids grants, and shipping `b4 approvals prune`.
 
-**Architecture:** Mirrors cacheplane/b4run#898 (client tool call pruning, merged as `b61e133fc`) with one deliberate difference: only settled rows (consumed or voided) are deleted, never outstanding ones, because a parked prompt with no grant row resumes ungated under `approvals.grants: "optional"`. The sweep rides `voidSupersededGrants`, the single helper behind all six runtime void sites. A configured `approvals.grantStore` is shape-checked at boot.
+**Architecture:** Mirrors cacheplane/b4run#898 (client tool call pruning, merged as `b61e133fc`) with one deliberate difference: only voided rows are deleted — a consumed row is voided once its resumed turn completes, and one whose resume did not complete is never pruned — never outstanding ones, because a parked prompt with no grant row resumes ungated under `approvals.grants: "optional"`. The sweep rides `voidSupersededGrants`, the single helper behind all six runtime void sites. A configured `approvals.grantStore` is shape-checked at boot.
 
 **Tech Stack:** TypeScript (NodeNext ESM, `exactOptionalPropertyTypes`), vitest, `node:sqlite`, `pg` via Testcontainers (gated), commander, pnpm workspace, Biome.
 
@@ -119,8 +121,9 @@ In `export interface InterruptGrantStore`, after `voidOutstanding(...)`:
 
 ```ts
   /**
-   * Deletes settled rows — consumed or voided — whose settle time (`voidedAt`,
-   * else `consumedAt`) is before `before`. Outstanding rows are never deleted,
+   * Deletes voided rows whose `voidedAt` is before `before`, and nothing
+   * else. A consumed row is voided once its resumed turn completes; one whose
+   * resume did not complete is never pruned. Outstanding rows are never deleted,
    * whatever `expiresAt` says: a parked prompt with no row would resume
    * ungated under `approvals.grants: "optional"`. Returns how many rows were
    * deleted. `before` is an ISO-8601 string compared as text.
@@ -248,9 +251,10 @@ In `store.ts`, check how the file counts `changes` (grep `changes` in it; it eit
 
 ```ts
     async prune({ before }) {
-      // Settled rows only: the settle time is voided_at when set, else
-      // consumed_at. Outstanding rows are never deleted — a parked prompt
-      // with no row resumes ungated under approvals.grants "optional".
+      // Voided rows only. A consumed row is voided once its resumed turn
+      // completes; one whose resume did not complete is never pruned.
+      // Outstanding rows are never deleted — a parked prompt with no row
+      // resumes ungated under approvals.grants "optional".
       const changes = db
         .prepare(
           `DELETE FROM interrupt_grants
@@ -351,8 +355,9 @@ After `voidOutstanding` in `createPostgresInterruptGrantStore`:
 ```ts
     async prune({ before }) {
       await ready()
-      // Settled rows only (voided_at, else consumed_at, before the cutoff);
-      // outstanding rows are never deleted — a parked prompt with no row
+      // Voided rows only (voided_at before the cutoff; a consumed row is
+      // voided once its resumed turn completes, one whose resume did not
+      // complete is never pruned); outstanding rows are never deleted — a parked prompt with no row
       // resumes ungated under approvals.grants "optional". COLLATE "C" makes
       // the ISO-8601 comparison byte-wise; the count comes from RETURNING
       // because `SqlPool` exposes `rows` alone.
@@ -438,8 +443,8 @@ describe("approval grant retention settings", () => {
 
 ```ts
     /**
-     * How long, in milliseconds, a settled grant record (consumed or voided)
-     * is kept before the runtime deletes it. Default `604800000` (7 days).
+     * How long, in milliseconds, a voided grant record (a consumed grant is
+     * voided once its resumed turn completes) is kept before the runtime deletes it. Default `604800000` (7 days).
      * Outstanding grants are never deleted, however old. Must be a positive
      * integer no greater than one year (`31536000000`); anything else fails
      * the boot.
@@ -492,7 +497,7 @@ export class ApprovalGrantConfigError extends Error {
   }
 }
 
-/** How long a settled grant record is kept by default: 7 days. */
+/** How long a settled (voided) grant record is kept by default: 7 days. */
 export const DEFAULT_APPROVAL_GRANT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 
 /** `approvals.grantRetentionMs`, validated; a mistyped value fails the boot. */
