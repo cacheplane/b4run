@@ -105,7 +105,7 @@ the build rather than silently widening.
 | `InputMessage.content` | `packages/langchain/src/agent-adapter.ts` | `isInputMessageArray` accepts `string | B4ContentPart[]`; array content no longer falls into `formatAgentMessage` |
 | `MiddlewareAfterMessage.content` | `packages/sdk/src/middleware.ts` | `after` middleware sees what the client sent |
 | tool `execute` return | `packages/sdk` tool types | `string | JsonValue | B4ContentPart[]`, and `{ result: B4ContentPart[], state }` through the existing wrapper |
-| `ClientToolCallStore.answer({ result })` / `ClientToolCallRecord.result` | `packages/sdk/src/client-tool-calls.ts` | `string | readonly B4ContentPart[]`; sqlite/postgres stores serialise (the column is already text); rows answered before this change are strings and keep working |
+| `ClientToolCallStore.answer({ result })` / `ClientToolCallRecord.result` | `packages/sdk/src/client-tool-calls.ts` | `string | readonly B4ContentPart[]`; the SQLite and Postgres stores keep a part list in the existing `TEXT` column as a self-describing JSON envelope (`encodeClientToolResult`/`decodeClientToolResult` in `@b4run/sdk`, shared so the stores cannot drift; decoding admits only an envelope whose `parts` is a valid list); rows answered before this change are plain text and decode as text; no schema migration |
 | `B4ToolResultData.output` | `packages/ag-ui/src/types.ts` | already `unknown`; a part array now passes through instead of being stringified |
 
 ### 3.3 Inbound flow
@@ -279,10 +279,15 @@ multimodal.output = { image: false, audio: false }
 - `file: false` is deliberate. AG-UI's `input.file` means "arbitrary file
   uploads of a kind the four parts do not cover", which no path here takes;
   a `FileSource` *handle* is a source, not that flag.
-- If the model cannot be constructed (missing API key, missing provider
-  package), the `multimodal` key is **omitted**: AG-UI reads omitted as
-  unknown, and the route could not run anyway. Non-agent routes omit it too;
-  a chain/graph/workflow route's content handling is the author's.
+- The profile is read off the model's CLASS, not an instance
+  (`readModelProfile`): every provider package's `profile` getter is a static
+  per-id table that reads only `this.model`, and most constructors throw
+  without a credential, which a capability document must not depend on. When
+  the provider package is not installed, the `multimodal` key is **omitted**:
+  AG-UI reads omitted as unknown, and the route could not run anyway.
+  Non-agent routes and raw runnables omit it too; a chain/graph/workflow
+  route's content handling is the author's. (Amended for PR 2: the first
+  draft said "construct the model; omit on a missing API key".)
 - Derivation test, in the #883 style: for every curated model id and each of
   the four media types, `multimodal.input.<flag>` equals whether
   `toLangChainContent` carries a one-part `data` message of that type under
