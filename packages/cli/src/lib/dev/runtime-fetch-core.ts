@@ -1973,7 +1973,7 @@ export function buildRouteTable(ctx: {
     },
 
     // ------------------------------------------------------------------
-    // POST /agui/:routeId — AG-UI protocol endpoint (SSE)
+    // POST /agui/:routeId — AG-UI protocol endpoint (SSE, or HTTP+protobuf by Accept)
     // ------------------------------------------------------------------
     {
       handle: async (request, params) =>

@@ -20,14 +20,18 @@ Requires `@ag-ui/core` 1.0.1 (a dependency). `@ag-ui/client` `>=1.0.1 <2.0.0` is
 
 ```ts
 import { fromRunAgentInput, toAguiEvents } from "@b4run/ag-ui"
-import { encodeAgUiSse } from "@b4run/ag-ui/sse"
+import { agUiContentType, encodeAgUiEvent } from "@b4run/ag-ui/sse"
 
 const b4Input = fromRunAgentInput(runAgentInput)
+const accept = request.headers.accept
 
+response.writeHead(200, { "content-type": agUiContentType(accept) })
 for await (const event of toAguiEvents(b4Chunks, { threadId, runId })) {
-  response.write(encodeAgUiSse(event, request.headers.accept))
+  response.write(encodeAgUiEvent(event, accept))
 }
 ```
+
+`accept` selects the AG-UI HTTP binding: SSE unless the header admits `application/vnd.ag-ui.event+proto` with a positive quality (named, or through a wildcard such as `*/*`), then 4-byte big-endian length-prefixed protobuf frames. A client that cannot read protobuf names `text/event-stream`; `@ag-ui/client` and CopilotKit do.
 
 Plan and subagent activity snapshots are translated on the root surface; use the focused API reference for their exact identifiers and payload contracts.
 

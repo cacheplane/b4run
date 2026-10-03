@@ -12,7 +12,7 @@ npm install @b4run/ag-ui
 
 ```ts
 import { fromRunAgentInput, toAguiEvents } from "@b4run/ag-ui"
-import { encodeAgUiSse } from "@b4run/ag-ui/sse"
+import { encodeAgUiEvent } from "@b4run/ag-ui/sse"
 ```
 
 A client that runs a B4.run route over HTTP, such as a CopilotKit runtime, imports the agent from the `./client` subpath:
@@ -72,7 +72,8 @@ The adapter only translates protocol data, so it neither authenticates a caller 
 
 | Export | Responsibility |
 |---|---|
-| `encodeAgUiSse` | Encode one AG-UI event as an SSE frame. |
+| `encodeAgUiEvent` | Encode one AG-UI event as the bytes of the binding `accept` selects: an SSE frame, or a length-prefixed protobuf frame. |
+| `agUiContentType` | The `content-type` of the binding `accept` selects. |
 
 ### `@b4run/ag-ui/client`
 
@@ -222,8 +223,12 @@ export declare function toAguiEvents(
 ): AsyncGenerator<AguiOutboundEvent>
 ```
 
-```ts api-contract="@b4run/ag-ui#./sse:encodeAgUiSse"
-export declare function encodeAgUiSse(event: BaseEvent, accept?: string): string
+```ts api-contract="@b4run/ag-ui#./sse:encodeAgUiEvent"
+export declare function encodeAgUiEvent(event: BaseEvent, accept?: string): Uint8Array<ArrayBuffer>
+```
+
+```ts api-contract="@b4run/ag-ui#./sse:agUiContentType"
+export declare function agUiContentType(accept?: string): string
 ```
 
 ```ts api-contract="@b4run/ag-ui#./client:B4HttpAgent"
@@ -252,11 +257,11 @@ Unknown chunk kinds are ignored after closing an open text frame. A stream that 
 
 ```ts
 import { type B4AgentStreamChunk, toAguiEvents } from "@b4run/ag-ui"
-import { encodeAgUiSse } from "@b4run/ag-ui/sse"
+import { encodeAgUiEvent } from "@b4run/ag-ui/sse"
 
 async function* aguiFrames(chunks: AsyncIterable<B4AgentStreamChunk>) {
   for await (const event of toAguiEvents(chunks, { threadId: "thread-1", runId: "run-1" })) {
-    yield encodeAgUiSse(event)
+    yield encodeAgUiEvent(event)
   }
 }
 ```
