@@ -337,16 +337,21 @@ describe("native subagent event projection", () => {
     expect(chunks).toEqual([
       { type: "token", data: "Parent ", messageId: "parent-model" },
       { type: "subagent.start", data: childIdentity },
+      // A child's text is framed like root text: a token with its invocation id…
       {
-        type: "subagent.message",
-        data: { ...childIdentity, chunk: "Child token" },
+        type: "subagent.token",
+        data: { ...childIdentity, data: "Child token", messageId: "child-model" },
       },
+      // …and a child tool runs through the same announce/result pairing. With
+      // no child on_chat_model_end in this fixture, the held on_tool_start
+      // resolves at on_tool_end under the execution run id, exactly as root
+      // does for a resume replay.
       {
         type: "subagent.tool_call",
         data: {
           ...childIdentity,
           id: "child-tool-run",
-          tool: "readFile",
+          name: "readFile",
           input: { path: "evidence.md" },
         },
       },
@@ -355,7 +360,7 @@ describe("native subagent event projection", () => {
         data: {
           ...childIdentity,
           id: "child-tool-run",
-          tool: "readFile",
+          name: "readFile",
           output: "evidence",
         },
       },
@@ -386,6 +391,112 @@ describe("native subagent event projection", () => {
     ])
     expect(chunks.filter(({ type }) => type === "tool_call")).toHaveLength(1)
     expect(chunks.filter(({ type }) => type === "tool_result")).toHaveLength(1)
+  })
+
+  test("a child model turn announces its tool calls under the model's logical id and ends its message", async () => {
+    const entry = {
+      invoke: vi.fn(),
+      async *streamEvents() {
+        yield {
+          event: "on_chat_model_stream",
+          run_id: "child-model",
+          name: "child-model",
+          data: {
+            chunk: {
+              content: [
+                { type: "thinking", thinking: "look it up", index: 0 },
+                { type: "text", text: "Searching", index: 1 },
+              ],
+              tool_call_chunks: [{ id: "call_search_1", name: "search", args: '{"q":', index: 0 }],
+            },
+          },
+          metadata,
+        }
+        yield {
+          event: "on_chat_model_stream",
+          run_id: "child-model",
+          name: "child-model",
+          data: { chunk: { content: [], tool_call_chunks: [{ args: '"agents"}', index: 0 }] } },
+          metadata,
+        }
+        yield {
+          event: "on_chat_model_end",
+          run_id: "child-model",
+          name: "child-model",
+          data: {
+            output: {
+              content: "Searching",
+              tool_calls: [{ id: "call_search_1", name: "search", args: { q: "agents" } }],
+              usage_metadata: { input_tokens: 3, output_tokens: 2 },
+            },
+          },
+          metadata,
+        }
+        yield {
+          event: "on_tool_start",
+          run_id: "search-run",
+          name: "search",
+          data: { input: { q: "agents" } },
+          metadata,
+        }
+        yield {
+          event: "on_tool_end",
+          run_id: "search-run",
+          name: "search",
+          data: { output: { tool_call_id: "call_search_1", content: "3 hits" } },
+          metadata,
+        }
+        yield { event: "on_chain_end", run_id: "root", name: "LangGraph", data: { output: {} } }
+      },
+    }
+    const chunks = []
+    for await (const chunk of streamAgent({
+      checkpointer: new MemorySaver(),
+      entry,
+      input: { question: "hi" },
+      routeParamNames: [],
+      signal: new AbortController().signal,
+      tools: [],
+    })) {
+      chunks.push(chunk)
+    }
+    const id = {
+      call_id: "call-child",
+      subagent: "researcher",
+      route_id: "/planner/researcher",
+      depth: 2,
+    }
+    const args = chunks.filter((chunk) => chunk.type === "subagent.tool_call_args")
+    expect(args.length).toBeGreaterThan(0)
+    for (const chunk of args) {
+      expect(chunk.data).toMatchObject({ ...id, id: "call_search_1", name: "search" })
+    }
+    expect(args.map((chunk) => (chunk.data as { delta: string }).delta).join("")).toBe(
+      '{"q":"agents"}',
+    )
+    expect(chunks.filter((chunk) => chunk.type !== "subagent.tool_call_args")).toEqual([
+      { type: "subagent.reasoning", data: { ...id, data: "look it up", messageId: "child-model" } },
+      { type: "subagent.token", data: { ...id, data: "Searching", messageId: "child-model" } },
+      {
+        type: "subagent.usage",
+        data: { ...id, usage_metadata: { input_tokens: 3, output_tokens: 2 } },
+      },
+      { type: "subagent.message_end", data: { ...id, messageId: "child-model" } },
+      {
+        type: "subagent.tool_call",
+        data: { ...id, id: "call_search_1", name: "search", input: { q: "agents" } },
+      },
+      {
+        type: "subagent.tool_result",
+        data: {
+          ...id,
+          id: "call_search_1",
+          name: "search",
+          output: { tool_call_id: "call_search_1", content: "3 hits" },
+        },
+      },
+      { type: "done", data: {} },
+    ])
   })
 
   test("treats malformed B4.run stacks as root metadata", async () => {
@@ -1557,7 +1668,10 @@ describe("logical-identity root tool projection", () => {
     ])
   })
 
-  test("child tool events are untouched by the root re-key", async () => {
+  test("child tool events are re-keyed exactly like root's", async () => {
+    // The same three-way resolution applies to a child: the ToolMessage's
+    // logical id wins over the execution run id, so a resumed child replays
+    // under the id the model gave the call.
     const metadata = {
       b4: {
         subagent_stack: [{ callId: "call-child", name: "researcher", routeId: "/researcher" }],
@@ -1575,7 +1689,7 @@ describe("logical-identity root tool projection", () => {
         event: "on_tool_end",
         run_id: "child-tool-run",
         name: "readFile",
-        data: { output: { tool_call_id: "call_should_be_ignored", content: "text" } },
+        data: { output: { tool_call_id: "call_read_1", content: "text" } },
         metadata,
       },
       { event: "on_chain_end", run_id: "root", name: "LangGraph", data: { output: {} } },
@@ -1591,15 +1705,15 @@ describe("logical-identity root tool projection", () => {
     expect(chunks).toEqual([
       {
         type: "subagent.tool_call",
-        data: { ...childIdentity, id: "child-tool-run", tool: "readFile", input: { path: "a.md" } },
+        data: { ...childIdentity, id: "call_read_1", name: "readFile", input: { path: "a.md" } },
       },
       {
         type: "subagent.tool_result",
         data: {
           ...childIdentity,
-          id: "child-tool-run",
-          tool: "readFile",
-          output: { tool_call_id: "call_should_be_ignored", content: "text" },
+          id: "call_read_1",
+          name: "readFile",
+          output: { tool_call_id: "call_read_1", content: "text" },
         },
       },
       { type: "done", data: {} },

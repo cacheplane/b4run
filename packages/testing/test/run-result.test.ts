@@ -92,12 +92,15 @@ it("captures interrupts, plan updates, and folds subagent events", async () => {
     yield { type: "subagent.start", data: child }
     yield {
       type: "subagent.tool_call",
-      data: { ...child, id: "tool-run-1", tool: "webSearch", input: { q: "x" } },
+      data: { ...child, id: "tool-run-1", name: "webSearch", input: { q: "x" } },
     }
-    yield { type: "subagent.message", data: { ...child, chunk: "Inspecting" } }
+    yield {
+      type: "subagent.token",
+      data: { ...child, data: "Inspecting", messageId: "child-model" },
+    }
     yield {
       type: "subagent.tool_result",
-      data: { ...child, id: "tool-run-1", tool: "webSearch", output: ["result"] },
+      data: { ...child, id: "tool-run-1", name: "webSearch", output: ["result"] },
     }
     yield {
       type: "subagent.memory.recalled",
@@ -132,18 +135,19 @@ it("captures interrupts, plan updates, and folds subagent events", async () => {
         route_id: "/research",
         depth: 1,
         id: "tool-run-1",
-        tool: "webSearch",
+        name: "webSearch",
         input: { q: "x" },
       },
     },
     {
-      type: "subagent.message",
+      type: "subagent.token",
       data: {
         call_id: "c1",
         subagent: "research",
         route_id: "/research",
         depth: 1,
-        chunk: "Inspecting",
+        data: "Inspecting",
+        messageId: "child-model",
       },
     },
     {
@@ -154,7 +158,7 @@ it("captures interrupts, plan updates, and folds subagent events", async () => {
         route_id: "/research",
         depth: 1,
         id: "tool-run-1",
-        tool: "webSearch",
+        name: "webSearch",
         output: ["result"],
       },
     },

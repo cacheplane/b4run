@@ -54,6 +54,12 @@ Pin `@b4run/*` packages to a single version (no `^` or `~` ranges) until the pro
 
 Newest first. Each change names the release it landed in, and the two that need no action say so.
 
+### Subagent stream events carry the root shapes
+
+Landed in the first release after **0.13.1**. Action required only if you read `subagent.*` events off `/runs/stream` or the attach digest.
+
+`subagent.message { call_id, chunk }` is now `subagent.token { call_id, …identity, data, messageId }`, and `subagent.tool_call` / `subagent.tool_result` carry `name` (not `tool`) under the model's tool-call `id` (not the execution run id). New: `subagent.reasoning`, `subagent.message_end`, `subagent.tool_call_args`, and `parent_call_id` / `description` on `subagent.start`. `@b4run/testing`'s `RunResult.subagents` reads the new shapes. See [Streaming output](/docs/recipes/stream-output#sse-event-types).
+
 ### `reasoning` is keyed by provider
 
 Landed in the first release after **0.13.1**. Action required if an `agent()` route sets `reasoning`.

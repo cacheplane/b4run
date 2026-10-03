@@ -435,7 +435,7 @@ export async function collectRunResult(
         const d = (chunk as unknown as { data?: Record<string, unknown> }).data ?? {}
         const callId = String(d.call_id ?? "")
         const run = subagentFor(callId)
-        run.toolCalls.push({ name: String(d.tool ?? ""), args: normalizeToolArgs(d.input) })
+        run.toolCalls.push({ name: String(d.name ?? ""), args: normalizeToolArgs(d.input) })
         break
       }
       case "subagent.end": {

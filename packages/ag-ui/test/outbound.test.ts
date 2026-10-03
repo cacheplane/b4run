@@ -288,7 +288,7 @@ describe("toAguiEvents", () => {
         data: {
           ...CHILD,
           id: "child-tool-1",
-          tool: "readDoc",
+          name: "readDoc",
           input: "secret-input",
         },
       },
@@ -296,7 +296,7 @@ describe("toAguiEvents", () => {
         type: "subagent.tool_result",
         data: { ...CHILD, id: "child-tool-1", output: "secret-output" },
       },
-      { type: "subagent.message", data: { ...CHILD, content: "secret-child-prose" } },
+      { type: "subagent.token", data: { ...CHILD, content: "secret-child-prose" } },
       { type: "subagent.end", data: { ...CHILD, final_message: "secret-final" } },
       { type: "token", data: "root-after" },
       { type: "done" },
@@ -490,7 +490,7 @@ describe("toAguiEvents", () => {
       },
       {
         type: "subagent.tool_call",
-        data: { ...CHILD, id: "late-tool", tool: "lateTool", input: "private-late-input" },
+        data: { ...CHILD, id: "late-tool", name: "lateTool", input: "private-late-input" },
       },
       { type: "subagent.end", data: { ...CHILD, final_message: "private-late-final" } },
       { type: "done" },
@@ -540,7 +540,7 @@ describe("toAguiEvents", () => {
       },
       {
         type: "subagent.tool_call",
-        data: { ...CHILD, id: "old-tool", tool: "oldTool", input: "old-input" },
+        data: { ...CHILD, id: "old-tool", name: "oldTool", input: "old-input" },
       },
       { type: "interrupt", data: { interruptId: "parked-child", kind: "command" } },
       { type: "done" },

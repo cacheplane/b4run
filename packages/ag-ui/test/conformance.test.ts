@@ -138,7 +138,7 @@ const CANNED: B4AgentStreamChunk[] = [
     data: {
       ...childIdentity,
       id: "child-tool-1",
-      tool: "readDoc",
+      name: "readDoc",
       input: "not public input",
     },
   },
@@ -146,7 +146,10 @@ const CANNED: B4AgentStreamChunk[] = [
     type: "subagent.tool_result",
     data: { ...childIdentity, id: "child-tool-1", output: "not public output" },
   },
-  { type: "subagent.message", data: { ...childIdentity, content: "not public message" } },
+  {
+    type: "subagent.token",
+    data: { ...childIdentity, data: "not public message", messageId: "child-model" },
+  },
   { type: "subagent.end", data: { ...childIdentity, final_message: "not public final" } },
   {
     type: "tool_result",
