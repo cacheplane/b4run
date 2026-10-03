@@ -115,6 +115,7 @@ import {
   type RuntimeExecutionMode,
   type RuntimeExecutionResult,
 } from "./result.js"
+import { createRouteAssistantId } from "./route-identity.js"
 import type { LoadedRouteMemory } from "./route-memory-shape.js"
 import type { NormalizedRouteModule } from "./route-module-shape.js"
 import type { SandboxManager } from "./sandbox-manager.js"
@@ -753,16 +754,19 @@ export async function* streamResolvedRoute(
             yield { type: "interrupt", data: chunk.data }
             break
           }
-          case "content_parts_dropped": {
+          case "content_parts_dropped":
+          case "subagent.content_parts_dropped": {
             // The spec's lossy-downgrade warning: for the developer, on the
-            // server, whichever front door the run came through. The chunk
-            // also passes through, so the AG-UI adapter can announce it on the
-            // stream as a CUSTOM event.
+            // server, whichever front door the run came through — and for a
+            // drop inside a subagent too, whose report rides alongside the
+            // child's identity fields. The chunk also passes through
+            // unchanged, so the AG-UI adapter can announce it on the stream.
+            // The pointer names the assistant id, which is what
+            // `GET /agui/:routeId` looks routes up by.
             console.warn(
-              formatDroppedPartsWarning({
-                ...(chunk.data as Omit<DroppedPartsReport, "routeId">),
-                routeId: options.routeId,
-              }),
+              formatDroppedPartsWarning(
+                droppedPartsReport(chunk.data, createRouteAssistantId(options.routeId, "agent")),
+              ),
             )
             yield { type: chunk.type, data: chunk.data }
             break
@@ -2098,6 +2102,28 @@ async function invokeEntry(
   }
 
   throw new Error("Graph entry must be a function or expose invoke(input)")
+}
+
+/**
+ * The warning's report from a `content_parts_dropped` chunk's data. A
+ * subagent's chunk carries the child's identity fields (`call_id`,
+ * `subagent`, `route_id`, `depth`) beside the report, so only the report's
+ * own fields are picked out.
+ */
+function droppedPartsReport(data: unknown, routeId: string): DroppedPartsReport {
+  const record = (typeof data === "object" && data !== null ? data : {}) as Record<string, unknown>
+  const text = (value: unknown): string | undefined =>
+    typeof value === "string" ? value : undefined
+  const provider = text(record.provider)
+  const model = text(record.model)
+  const toolCallId = text(record.toolCallId)
+  return {
+    ...(provider !== undefined ? { provider } : {}),
+    ...(model !== undefined ? { model } : {}),
+    routeId,
+    ...(toolCallId !== undefined ? { toolCallId } : {}),
+    parts: Array.isArray(record.parts) ? (record.parts as DroppedPartsReport["parts"]) : [],
+  }
 }
 
 function extractRouteParamNames(routeId: string): string[] {

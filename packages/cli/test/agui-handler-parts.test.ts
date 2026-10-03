@@ -5,6 +5,16 @@ import type { MiddlewareAfterRun } from "@b4run/sdk"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createAimock } from "../../testing/dist/aimock-runner.js"
 import { script } from "../../testing/dist/fixture-builder.js"
+
+// The real adapter by default; one test substitutes a stream to put a
+// subagent's drop through the CLI's chunk switch without a subagent fixture.
+const langchainMocks = vi.hoisted(() => ({ streamAgent: vi.fn() }))
+vi.mock("@b4run/langchain", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@b4run/langchain")>()
+  langchainMocks.streamAgent.mockImplementation(actual.streamAgent)
+  return { ...actual, streamAgent: langchainMocks.streamAgent }
+})
+
 import { createRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-handler.js"
 
 const cleanup: Array<() => Promise<void> | void> = []
@@ -36,7 +46,9 @@ async function fixtureApp(prefix: string, routes: Record<string, string>): Promi
 }
 
 /** Point OPENAI_BASE_URL/OPENAI_API_KEY at a local aimock for the test's duration. */
-async function withAimock(fixtures: ReturnType<ReturnType<typeof script>["build"]>): Promise<void> {
+async function withAimock(
+  fixtures: ReturnType<ReturnType<typeof script>["build"]>,
+): Promise<Awaited<ReturnType<typeof createAimock>>> {
   const aimock = await createAimock({ fixtures: [] })
   cleanup.push(() => aimock.close())
   const prevBaseUrl = process.env.OPENAI_BASE_URL
@@ -50,6 +62,23 @@ async function withAimock(fixtures: ReturnType<ReturnType<typeof script>["build"
     else process.env.OPENAI_API_KEY = prevKey
   })
   aimock.addFixtures(fixtures)
+  return aimock
+}
+
+/**
+ * Spy on console.warn, keeping the dropped-parts warnings and forwarding every
+ * other warning to the real console so unrelated ones are not silenced.
+ */
+function captureDropWarnings(): string[] {
+  const original = console.warn.bind(console)
+  const drops: string[] = []
+  const spy = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+    const [message] = args
+    if (typeof message === "string" && message.includes("content part(s)")) drops.push(message)
+    else original(...args)
+  })
+  cleanup.push(() => spy.mockRestore())
+  return drops
 }
 
 function runRequest(routeKey: string, threadId: string, content: unknown): Request {
@@ -110,10 +139,9 @@ describe("content parts through the AG-UI handler", () => {
   })
 
   it("logs a dropped part on the server and announces it on the stream", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
-    cleanup.push(() => warn.mockRestore())
+    const drops = captureDropWarnings()
     // gpt-5-mini takes the image but not the audio: the audio is the one drop.
-    await withAimock(script().user("see").replies("I see it.").build())
+    const aimock = await withAimock(script().user("see").replies("I see it.").build())
     const appRoot = await fixtureApp("b4-agui-parts-drop-", {
       "src/app/chat/index.ts": AGENT_ROUTE,
     })
@@ -130,13 +158,49 @@ describe("content parts through the AG-UI handler", () => {
     const body = await response.text()
 
     expect(body).toContain('"name":"b4.content_parts_dropped"')
-    const dropWarnings = warn.mock.calls.filter(
-      ([message]) => typeof message === "string" && message.includes("content part(s)"),
-    )
-    expect(dropWarnings).toHaveLength(1)
-    expect(dropWarnings[0]?.[0]).toContain(
+    expect(drops).toHaveLength(1)
+    expect(drops[0]).toContain(
       "dropped 1 content part(s) the model cannot use (openai/gpt-5-mini): audio/data (modality_unsupported)",
     )
-    expect(dropWarnings[0]?.[0]).toContain("GET /agui/")
+    expect(drops[0]).toContain("GET /agui/%2Fchat%23agent lists what this route accepts.")
+    // The image was carried: the forwarded OpenAI request has an image_url block.
+    const forwarded = JSON.stringify(aimock.getRequests().map((request) => request.body))
+    expect(forwarded).toContain('"type":"image_url"')
+    expect(forwarded).not.toContain("audio/wav")
+  }, 30_000)
+
+  it("logs a subagent's dropped part too, pointing at the parent route", async () => {
+    const drops = captureDropWarnings()
+    await withAimock(script().build())
+    langchainMocks.streamAgent.mockImplementationOnce(async function* () {
+      yield {
+        type: "subagent.content_parts_dropped",
+        data: {
+          provider: "openai",
+          model: "gpt-5-mini",
+          toolCallId: "child-call-1",
+          parts: [
+            { index: 0, type: "video", source: "data", reason: "tool_result_media_unsupported" },
+          ],
+          call_id: "task-1",
+          subagent: "researcher",
+          route_id: "/researcher",
+          depth: 1,
+        },
+      }
+      yield { type: "done", data: {} }
+    })
+    const appRoot = await fixtureApp("b4-agui-parts-sub-", { "src/app/chat/index.ts": AGENT_ROUTE })
+    const handler = await createRuntimeFetchHandler({ appRoot, drainDeadlineMs: 250 })
+    cleanup.push(() => handler.close())
+
+    const response = await handler.fetch(runRequest("/chat#agent", "t-4", "hi"))
+    expect(response.status).toBe(200)
+    await response.text()
+
+    expect(langchainMocks.streamAgent).toHaveBeenCalled()
+    expect(drops).toEqual([
+      "B4: dropped 1 content part(s) the model cannot use (openai/gpt-5-mini): video/data (tool_result_media_unsupported). GET /agui/%2Fchat%23agent lists what this route accepts.",
+    ])
   }, 30_000)
 })
