@@ -271,8 +271,11 @@ export function formatDroppedPartsWarning(report: DroppedPartsReport): string {
   const list = report.parts
     .map((part) => `${part.type}/${part.source ?? "?"} (${part.reason})`)
     .join(", ")
-  // Sub-project 3's PR 2 reintroduces a `GET /agui/:routeId` pointer once the `multimodal` section exists.
   const route = report.routeId !== undefined ? ` on route ${report.routeId}` : ""
   const source = report.toolCallId !== undefined ? ` in tool result ${report.toolCallId}` : ""
-  return `B4: dropped ${report.parts.length} content part(s) the model cannot use (${model})${route}${source}: ${list}.`
+  const pointer =
+    report.routeId !== undefined
+      ? ` GET /agui/${encodeURIComponent(report.routeId)} lists what this route accepts.`
+      : ""
+  return `B4: dropped ${report.parts.length} content part(s) the model cannot use (${model})${route}${source}: ${list}.${pointer}`
 }
