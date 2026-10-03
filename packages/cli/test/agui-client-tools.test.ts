@@ -2033,6 +2033,79 @@ describe("the tool-call record covers every tool call on a run with a store", ()
     expect(rows.get("call_read_1")?.settledAt).not.toBeNull()
     expect(rows.get("call_task_1")?.settledAt).not.toBeNull()
   })
+
+  it("a client park on a thread with subagent rows still resumes on its route", async () => {
+    const store = createMemoryClientToolCallStore()
+    await withModel([
+      { match: { userMessage: "hello", hasToolResult: true }, response: { content: "Opened." } },
+      {
+        match: { userMessage: "hello" },
+        response: {
+          toolCalls: [
+            {
+              id: "call_task_1",
+              name: "task",
+              arguments: { subagent: "researcher", input: "read note 7" },
+            },
+            CALL_A,
+          ],
+        },
+      },
+      {
+        match: { userMessage: "read note 7", hasToolResult: true },
+        response: { content: "note 7 read." },
+      },
+      {
+        match: { userMessage: "read note 7" },
+        response: { toolCalls: [{ id: "call_read_1", name: "readNote", arguments: { id: "7" } }] },
+      },
+    ])
+    const appRoot = await fixtureApp({
+      store,
+      config: `export default { server: { agui: { clientTools: ["/plain"], clientToolStore: globalThis.${STORE_KEY} } } }\n`,
+    })
+    const handler = await createHandler(appRoot)
+    const threadId = `thread-${crypto.randomUUID()}`
+    const first = await run(
+      handler,
+      aguiRequest(threadId, "run-1", [USER_HELLO], { route: "/plain#agent", tools: [OPEN_PANEL] }),
+    )
+    expect(first.status).toBe(200)
+    expect(finished(first.events)?.outcome).toEqual({
+      type: "success",
+      pendingToolCallIds: ["call_a"],
+    })
+    // The task ran to completion beside the parking client stub: the thread
+    // now holds child rows whose routeId is not the run's route.
+    const afterFirst = new Map((await store.listForThread(threadId)).map((r) => [r.toolCallId, r]))
+    expect(afterFirst.get("call_read_1")).toMatchObject({
+      routeId: "/plain/subagents/researcher#agent",
+      parentToolCallId: "call_task_1",
+    })
+
+    const second = await run(
+      handler,
+      aguiRequest(
+        threadId,
+        "run-2",
+        [USER_HELLO, assistantCalls(["call_a"]), toolResult("m3", "call_a", "A")],
+        { route: "/plain#agent", tools: [OPEN_PANEL] },
+      ),
+    )
+    expect(second.status).toBe(200)
+    expect(finished(second.events)?.outcome).toEqual({ type: "success" })
+    const rows = new Map((await store.listForThread(threadId)).map((r) => [r.toolCallId, r]))
+    expect(rows.get("call_a")).toMatchObject({
+      kind: "client",
+      routeId: "/plain#agent",
+      parentToolCallId: null,
+    })
+    expect(rows.get("call_a")?.answeredAt).not.toBeNull()
+    expect(rows.get("call_read_1")).toMatchObject({
+      routeId: "/plain/subagents/researcher#agent",
+      parentToolCallId: "call_task_1",
+    })
+  })
 })
 
 describe("the record readers stay within what the request owns", () => {
