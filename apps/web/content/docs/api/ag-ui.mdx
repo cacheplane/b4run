@@ -58,7 +58,7 @@ The adapter only translates protocol data, so it neither authenticates a caller 
 | `B4RunInput` | Describe normalized B4.run run input. |
 | `fromRunAgentInput` | Translate AG-UI run input to B4.run input. |
 | `B4InterruptEnvelope` | Describe a B4.run interrupt payload. |
-| `B4AguiInterrupt` | AG-UI's interrupt as B4.run emits it; the approval grant is at `metadata.grant`. |
+| `B4AguiInterrupt` | AG-UI's interrupt as B4.run emits it: `toolCallId` names the gated call, `subagentRunId` the child a tool, command, path or memory gate was raised in, `responseSchema` the answers a permission prompt accepts; the approval grant is at `metadata.grant`. |
 | `B4ResumeRequest` | Describe one resume decision. |
 | `AguiOutboundEvent` | Name events emitted by the outbound mapper. |
 | `ToAguiOptions` | Configure outbound event IDs, the cancelled outcome, and pending client tool calls. |

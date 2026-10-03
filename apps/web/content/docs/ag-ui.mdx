@@ -475,7 +475,7 @@ response.write(encodeAgUiEvent(event, request.headers.accept))
 | `token` | `TEXT_MESSAGE_START` once, then `TEXT_MESSAGE_CONTENT` per delta |
 | `tool_call` | close open text, then `TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END` |
 | `tool_result` | close open text, then `TOOL_CALL_RESULT` |
-| `tool_result` for a tool that threw | `TOOL_CALL_RESULT` under the same `toolCallId`, with `content` set to the serialized `status: "error"` ToolMessage the model receives (serialized the same way as a successful result) |
+| `tool_result` for a tool that threw | `TOOL_CALL_RESULT` under the same `toolCallId`, with `content` set to the error text the model receives |
 | `tool_call` and `tool_result` for a `writeTodos` call whose plan activity was emitted | none (the activity is the whole presentation) |
 | `plan_update` | replacement `ACTIVITY_SNAPSHOT` with activity type `b4.plan` — `b4:plan:${runId}` for the root agent, `b4:plan:${call_id}` tagged `subagentRunId` for a subagent's plan |
 | `subagent.start` | `SUBAGENT_STARTED { subagentRunId: call_id, name, description?, parentToolCallId: call_id, parentSubagentRunId? }` |
@@ -550,6 +550,8 @@ resume?: Array<{
 Under [approval grants](/docs/approval-grants), echo the interrupt's grant back at `metadata.grant` on its resume entry. A 1.0 client strips any `grant` outside `metadata`.
 
 For a permission prompt, a resolved payload can carry a B4.run decision such as `"once"` or `"always"`. The runtime treats a cancelled interrupt as a denial. Every answer must address one currently pending interrupt.
+
+Each interrupt names the tool call it gates in `toolCallId` (falling back to the enclosing `task` call when the tool had no provider id). A tool, command, path or memory gate raised inside a subagent also carries `subagentRunId`, the `task` call that started that subagent. A permission prompt carries `responseSchema: { type: "string", enum: ["once", "always", "deny"] }`, so a client knows what a resolved payload may say.
 
 ## Response schema
 

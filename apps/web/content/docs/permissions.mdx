@@ -86,6 +86,7 @@ data: {
   "interruptId": "perm-ghi789",
   "type": "permission-request",
   "kind": "tool",
+  "toolCallId": "call_deploy_1",
   "detail": {
     "toolName": "deployProd",
     "argsPreview": "{\"env\":\"prod\",\"version\":\"1.4.2\"}",
@@ -95,6 +96,8 @@ data: {
 ```
 
 `detail.argsPreview` is a display-only JSON preview of the call's arguments (truncated around 500 characters). The human sees it, but it's never matched against or persisted. `detail.suggestedPattern` is always the tool name itself.
+
+`toolCallId` is the model's id for the gated call, so a client can show the prompt on that call. Command and memory gates carry it too; path gates will in a later release.
 
 ### Decisions are name-level
 
