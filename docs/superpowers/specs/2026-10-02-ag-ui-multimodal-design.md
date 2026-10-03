@@ -311,7 +311,9 @@ does not require a wire event. B4.run does both:
    carries no id);
    `outbound.ts` maps it to
    `{ type: "CUSTOM", name: "b4.content_parts_dropped", value: data }`,
-   placed after the frames of the message it belongs to. `CUSTOM` is the
+   placed after the frames of the user message it belongs to; a tool-result
+   drop is dispatched while the tool runs, so its `CUSTOM` precedes that
+   call's `TOOL_CALL_RESULT` and correlates by `toolCallId`. `CUSTOM` is the
    right escape hatch (vendor-prefixed, legally ignored by a consumer that
    does not know it, carries nothing the protocol models elsewhere); `RAW` is
    not (it is for a provider-native event).
