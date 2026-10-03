@@ -229,7 +229,7 @@ describe("hydrateThreadState", () => {
     expect(first).toEqual(["hydrated-1", "hydrated-2"])
   })
 
-  test("passes array content through untouched for HumanMessage, so userText's narrowing still applies", () => {
+  test("maps HumanMessage block arrays to parts, skipping blocks it cannot read, so userText still applies", () => {
     const { messages } = hydrateThreadState({
       values: {
         messages: [
@@ -253,6 +253,86 @@ describe("hydrateThreadState", () => {
     expect(userText(userMessage.content)).toBe("look at this")
     const items = buildTranscriptItems(messages)
     expect(items).toEqual([{ kind: "user", id: messages[0]?.id, text: "look at this" }])
+  })
+
+  test("maps a HumanMessage's LangChain v1 media blocks back to AG-UI parts", () => {
+    const { messages } = hydrateThreadState({
+      values: {
+        messages: [
+          {
+            lc: 1,
+            type: "constructor",
+            id: ["langchain_core", "messages", "HumanMessage"],
+            kwargs: {
+              content: [
+                { type: "text", text: "what is this?" },
+                { type: "image", data: "AAAA", mimeType: "image/png" },
+              ],
+              id: "u1",
+              response_metadata: { output_version: "v1" },
+            },
+          },
+        ],
+      },
+    })
+    const png = { type: "image", source: { type: "data", value: "AAAA", mimeType: "image/png" } }
+    expect(messages).toEqual([
+      { id: "u1", role: "user", content: [{ type: "text", text: "what is this?" }, png] },
+    ])
+    expect(buildTranscriptItems(messages)).toEqual([
+      {
+        kind: "user",
+        id: "u1",
+        text: "what is this?",
+        parts: [{ type: "text", text: "what is this?" }, png],
+      },
+    ])
+  })
+
+  test("a ToolMessage's b4_content_parts win over its content, so the UI sees the media the model may not have", () => {
+    const parts = [
+      { type: "text", text: "Chart: revenue" },
+      { type: "image", source: { type: "data", value: "PHN2Zz4=", mimeType: "image/svg+xml" } },
+    ]
+    const { messages } = hydrateThreadState({
+      values: {
+        messages: [
+          {
+            lc: 1,
+            type: "constructor",
+            id: ["langchain_core", "messages", "ToolMessage"],
+            kwargs: {
+              content: "Chart: revenue",
+              tool_call_id: "call-1",
+              additional_kwargs: { b4_content_parts: parts },
+              id: "t1",
+            },
+          },
+        ],
+      },
+    })
+    expect(messages).toEqual([{ id: "t1", role: "tool", toolCallId: "call-1", content: parts }])
+  })
+
+  test("an invalid b4_content_parts list falls back to the content text", () => {
+    const { messages } = hydrateThreadState({
+      values: {
+        messages: [
+          {
+            lc: 1,
+            type: "constructor",
+            id: ["langchain_core", "messages", "ToolMessage"],
+            kwargs: {
+              content: "plain",
+              tool_call_id: "call-1",
+              additional_kwargs: { b4_content_parts: [{ type: "image", source: "bad" }] },
+              id: "t1",
+            },
+          },
+        ],
+      },
+    })
+    expect(messages).toEqual([{ id: "t1", role: "tool", toolCallId: "call-1", content: "plain" }])
   })
 
   test("flattens content-block arrays for AIMessageChunk instead of emptying the message", () => {

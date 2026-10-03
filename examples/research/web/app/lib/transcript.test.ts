@@ -133,3 +133,119 @@ describe("buildTranscriptItems", () => {
     expect(items[0]).toHaveProperty("toolResult")
   })
 })
+
+const png = { type: "image", source: { type: "data", value: "AAAA", mimeType: "image/png" } }
+
+describe("buildTranscriptItems with content parts", () => {
+  test("a user message with media carries its parts beside its text", () => {
+    const items = buildTranscriptItems([
+      { id: "m1", role: "user", content: [{ type: "text", text: "what is this?" }, png] },
+    ])
+    expect(items).toEqual([
+      {
+        kind: "user",
+        id: "m1",
+        text: "what is this?",
+        parts: [{ type: "text", text: "what is this?" }, png],
+      },
+    ])
+  })
+
+  test("an image-only user message is kept; only a message with no text and no media is dropped", () => {
+    expect(buildTranscriptItems([{ id: "m1", role: "user", content: [png] }])).toEqual([
+      { kind: "user", id: "m1", text: "", parts: [png] },
+    ])
+    expect(buildTranscriptItems([{ id: "m1", role: "user", content: "" }])).toEqual([])
+    expect(buildTranscriptItems([{ id: "m1", role: "user", content: [] }])).toEqual([])
+  })
+
+  test("a text-only part list adds no parts, so it renders exactly like a string", () => {
+    expect(
+      buildTranscriptItems([{ id: "m1", role: "user", content: [{ type: "text", text: "hi" }] }]),
+    ).toEqual([{ kind: "user", id: "m1", text: "hi" }])
+  })
+
+  test("a tool result with media carries its parts on toolResult", () => {
+    const content = [{ type: "text", text: "Chart: revenue" }, png]
+    const items = buildTranscriptItems([
+      { id: "m1", role: "assistant", toolCalls: [toolCall("call-1", "renderChart")] },
+      { id: "m2", role: "tool", toolCallId: "call-1", content },
+    ])
+    expect(items).toEqual([
+      {
+        kind: "toolCall",
+        id: "call-1",
+        toolCall: toolCall("call-1", "renderChart"),
+        toolResult: { id: "m2", role: "tool", toolCallId: "call-1", content, parts: content },
+      },
+    ])
+  })
+})
+
+describe("buildTranscriptItems with drop notices", () => {
+  const dropped = [
+    { index: 1, type: "image", source: "data", reason: "tool_result_media_unsupported" },
+  ]
+
+  test("a tool-result notice follows the tool call it names", () => {
+    const items = buildTranscriptItems(
+      [
+        { id: "m1", role: "user", content: "chart it" },
+        {
+          id: "m2",
+          role: "assistant",
+          toolCalls: [toolCall("call-1", "renderChart"), toolCall("call-2", "readDoc")],
+        },
+        { id: "m3", role: "assistant", content: "Here is the chart." },
+      ],
+      [{ provider: "openai", model: "gpt-5-mini", toolCallId: "call-1", parts: dropped }],
+    )
+    expect(items.map((item) => item.kind)).toEqual([
+      "user",
+      "toolCall",
+      "notice",
+      "toolCall",
+      "assistant",
+    ])
+    expect(items[2]).toEqual({
+      kind: "notice",
+      id: "notice-0",
+      toolCallId: "call-1",
+      parts: dropped,
+    })
+  })
+
+  test("a user-turn notice (no toolCallId) follows the newest user item", () => {
+    const userDrop = [{ index: 1, type: "audio", source: "data", reason: "modality_unsupported" }]
+    const items = buildTranscriptItems(
+      [
+        { id: "m1", role: "user", content: "first" },
+        { id: "m2", role: "assistant", content: "ok" },
+        { id: "m3", role: "user", content: [{ type: "text", text: "listen" }, png] },
+        { id: "m4", role: "assistant", content: "I cannot hear that." },
+      ],
+      [{ parts: userDrop }],
+    )
+    expect(items.map((item) => item.id)).toEqual(["m1", "m2", "m3", "notice-0", "m4"])
+    expect(items[3]).toEqual({ kind: "notice", id: "notice-0", parts: userDrop })
+  })
+
+  test("a notice with nothing to anchor to is appended rather than lost", () => {
+    const items = buildTranscriptItems(
+      [{ id: "m1", role: "assistant", content: "hi" }],
+      [{ toolCallId: "call-unknown", parts: dropped }, { parts: dropped }],
+    )
+    expect(items.map((item) => item.id)).toEqual(["m1", "notice-0", "notice-1"])
+  })
+
+  test("several notices on one tool call keep their arrival order", () => {
+    const items = buildTranscriptItems(
+      [{ id: "m1", role: "assistant", toolCalls: [toolCall("call-1", "renderChart")] }],
+      [
+        { toolCallId: "call-1", parts: dropped },
+        { toolCallId: "call-1", parts: dropped },
+      ],
+    )
+    expect(items.map((item) => item.id)).toEqual(["call-1", "notice-0", "notice-1"])
+  })
+})

@@ -1,3 +1,5 @@
+import { isContentPartArray } from "@b4run/sdk"
+import { blocksToParts } from "./parts.js"
 import type { TranscriptMessage } from "./transcript.js"
 
 /**
@@ -166,11 +168,16 @@ export function hydrateThreadState(state: unknown): HydratedThread {
     // class the checkpoint holds. Matching only `AIMessage` silently hydrates
     // nothing, which is a blank transcript with green tests.
     if (className === "HumanMessage") {
-      // Passed through UNTOUCHED: `TranscriptMessage`'s user variant types
-      // `content` as `unknown` specifically so multimodal arrays survive, and
-      // `userText` in transcript.ts already narrows them. Coercing to a
-      // string here would defeat a narrowing the transcript already does.
-      messages.push({ content: kwargs.content, id: messageId(kwargs), role: "user" })
+      // A string passes through. An array holds LangChain's standard blocks
+      // (`toLangChainContent` wrote them), not AG-UI parts, so `blocksToParts`
+      // maps them back — the live path's shape — and `userText`/`partsOf` in
+      // transcript.ts narrow both paths the same way.
+      const content = kwargs.content
+      messages.push({
+        content: Array.isArray(content) ? blocksToParts(content) : content,
+        id: messageId(kwargs),
+        role: "user",
+      })
     } else if (className === "AIMessage" || className === "AIMessageChunk") {
       messages.push({
         content: contentText(kwargs.content),
@@ -181,8 +188,15 @@ export function hydrateThreadState(state: unknown): HydratedThread {
     } else if (className === "ToolMessage") {
       const toolCallId = kwargs.tool_call_id
       if (typeof toolCallId !== "string") continue
+      // A tool that returned parts keeps them, media included, in
+      // `additional_kwargs.b4_content_parts` (`B4_CONTENT_PARTS_KEY` in
+      // `packages/langchain/src/tool-converter.ts`): `content` holds only what
+      // the model could take. The UI shows what the tool produced, so the
+      // parts win; anything that is not a valid part list falls back to text.
+      const additional = kwargs.additional_kwargs
+      const uiParts = isRecord(additional) ? additional.b4_content_parts : undefined
       messages.push({
-        content: contentText(kwargs.content),
+        content: isContentPartArray(uiParts) ? uiParts : contentText(kwargs.content),
         id: messageId(kwargs),
         role: "tool",
         toolCallId,

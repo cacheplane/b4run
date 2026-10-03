@@ -202,6 +202,9 @@ export function Transcript({
             })}
           </div>
         )
+      case "notice":
+        // Nothing passes notices in yet; rendering them is the next change.
+        return null
       default: {
         // Exhaustiveness, not a fallback. A new `TranscriptItem` kind must fail
         // to compile here rather than silently render as nothing.
