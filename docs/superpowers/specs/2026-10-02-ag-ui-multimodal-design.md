@@ -293,7 +293,11 @@ does not require a wire event. B4.run does both:
    `B4: dropped 2 content part(s) from the user message: image/url (openai/gpt-5-mini: url_source_unsupported), audio/data (modality_unsupported). GET /agui/<route> lists what this route accepts.`
    This is the only channel on the Agent Protocol path.
 2. **`CUSTOM` event on the AG-UI stream.** The adapter emits a new runtime
-   chunk `{ type: "content_parts_dropped", data: { messageId?, toolCallId?, parts: DroppedPart[] } }`;
+   chunk `{ type: "content_parts_dropped", data: { provider?, model?, toolCallId?, parts: DroppedPart[] } }`
+   (`provider`/`model` name the route's model and are omitted on the
+   raw-runnable path; `toolCallId` is present for a tool-result drop; the
+   message a user-turn drop belongs to is the newest user message, so it
+   carries no id);
    `outbound.ts` maps it to
    `{ type: "CUSTOM", name: "b4.content_parts_dropped", value: data }`,
    placed after the frames of the message it belongs to. `CUSTOM` is the
