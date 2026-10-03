@@ -293,6 +293,16 @@ multimodal.output = { image: false, audio: false }
   `toLangChainContent` carries a one-part `data` message of that type under
   the same `ModalitySupport`. One function feeds both, so the test pins that
   they cannot drift.
+- The flags describe the INLINE (`data`) source: AG-UI's `input.image` is
+  "can process image inputs", and a client that sends bytes is never
+  surprised. URL support varies by provider (Gemini and Ollama drop image
+  URLs; OpenAI drops PDF URLs) and a dropped URL part is reported by the
+  run's dropped-parts warning; the docs say so beside the capability table,
+  which is what keeps the warning's `GET /agui/<route>` pointer honest.
+- A provider package that is installed but broken (an import error that is
+  not "missing", a getter that throws) is `ok: false` like every other
+  provider-level failure in the sibling preflights: the section is omitted
+  and the rest of the document stands; `POST` still reports the real error.
 
 ## 5. Announce — the lossy-downgrade warning
 
