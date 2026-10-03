@@ -27,6 +27,7 @@ import {
   pruneClientToolCalls,
   resolveClientToolRetentionMs,
   resolveClientToolTtlMs,
+  resolveRecordsServerCalls,
   validateClientToolStore,
 } from "../src/lib/dev/client-tool-runtime.ts"
 import { readPendingInterrupts } from "../src/lib/dev/pending-interrupts.ts"
@@ -1894,6 +1895,70 @@ describe("the tool-call record covers every tool call on a run with a store", ()
     expect((await t.store.listForThread("t-server-long-ago")).map((r) => r.toolCallId)).toEqual([
       "call_unsettled_old",
     ])
+  })
+
+  it("a leftover default store file still resolves a store but records no server calls, and boot says so", async () => {
+    await withModel([
+      { match: { userMessage: "hello", hasToolResult: true }, response: { content: "Done." } },
+      { match: { userMessage: "hello" }, response: { toolCalls: [DEPLOY_CALL] } },
+    ])
+    // No opt-in and no configured store, but the default file exists.
+    const appRoot = await fixtureApp({ config: "export default {}\n" })
+    await mkdir(join(appRoot, ".b4"), { recursive: true })
+    createClientToolCallStore({ path: join(appRoot, ".b4/client-tool-calls.sqlite") })
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const handler = await createHandler(appRoot)
+      const leftoverWarnings = warn.mock.calls.filter(([message]) =>
+        String(message).includes("client-tool-calls.sqlite exists but no route is listed"),
+      )
+      expect(leftoverWarnings).toHaveLength(1)
+      const threadId = `thread-${crypto.randomUUID()}`
+      const first = await run(
+        handler,
+        aguiRequest(threadId, "run-1", [USER_HELLO], { route: "/plain#agent", tools: [] }),
+      )
+      expect(first.status).toBe(200)
+      const store = await resolveClientToolCallStore(appRoot)
+      expect(store).toBeDefined()
+      expect(await store?.listForThread(threadId)).toEqual([])
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it("a configured store with no route opted in records server calls", async () => {
+    const store = createMemoryClientToolCallStore()
+    await withModel([
+      { match: { userMessage: "hello", hasToolResult: true }, response: { content: "Done." } },
+      { match: { userMessage: "hello" }, response: { toolCalls: [DEPLOY_CALL] } },
+    ])
+    const appRoot = await fixtureApp({
+      store,
+      config: `export default { server: { agui: { clientToolStore: globalThis.${STORE_KEY} } } }\n`,
+    })
+    const handler = await createHandler(appRoot)
+    const threadId = `thread-${crypto.randomUUID()}`
+    const first = await run(
+      handler,
+      aguiRequest(threadId, "run-1", [USER_HELLO], { route: "/plain#agent", tools: [] }),
+    )
+    expect(first.status).toBe(200)
+    expect((await store.listForThread(threadId)).map((r) => [r.kind, r.toolName])).toEqual([
+      ["server", "deployProd"],
+    ])
+  })
+
+  it("resolveRecordsServerCalls reads config alone", () => {
+    expect(resolveRecordsServerCalls(undefined)).toBe(false)
+    expect(resolveRecordsServerCalls({})).toBe(false)
+    expect(resolveRecordsServerCalls({ server: { agui: { clientTools: [] } } })).toBe(false)
+    expect(resolveRecordsServerCalls({ server: { agui: { clientTools: ["/park"] } } })).toBe(true)
+    expect(
+      resolveRecordsServerCalls({
+        server: { agui: { clientToolStore: createMemoryClientToolCallStore() } },
+      }),
+    ).toBe(true)
   })
 })
 

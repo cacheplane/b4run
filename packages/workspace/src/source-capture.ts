@@ -1,6 +1,6 @@
 import { type BigIntStats, constants } from "node:fs"
 import { lstat, open, opendir, realpath } from "node:fs/promises"
-import { join } from "node:path"
+import { join, sep } from "node:path"
 import { createSourceBundle, type SourceBundle, type SourceFileInput } from "./source-bundle.js"
 import {
   addSize,
@@ -100,6 +100,18 @@ function validate(input: WorkspaceSourceDefinition) {
   return { directory, include, exclusions, files, total }
 }
 
+/**
+ * Whether a directory whose entries the bundle does not capture is still the same directory:
+ * the same inode on the same device, and still a directory. Its mtime and ctime are NOT
+ * compared: they move whenever an entry is added to or removed from it, which for a directory
+ * above the source (the capture root, say, or a staging area several captures share) is
+ * unrelated to the bytes being captured. Two captures staged side by side would otherwise each
+ * see the other's directory appearing and vanishing as its own source changing under it.
+ */
+function sameDirectory(a: BigIntStats, b: BigIntStats): boolean {
+  return a.dev === b.dev && a.ino === b.ino && b.isDirectory()
+}
+
 function same(a: BigIntStats, b: BigIntStats): boolean {
   return (
     a.dev === b.dev &&
@@ -111,7 +123,14 @@ function same(a: BigIntStats, b: BigIntStats): boolean {
   )
 }
 
-/** Capture a trusted application tree; metadata checks detect changes, not an atomic snapshot. */
+/**
+ * Capture a trusted application tree; metadata checks detect changes, not an atomic snapshot.
+ *
+ * Every path inspected is re-inspected before the capture returns. Paths inside the source
+ * directory (and every file, wherever it is referenced from) must have identical metadata;
+ * directories outside it — the root, the ancestors of the source and of extra file references —
+ * need only be the same directory ({@link sameDirectory}), since their entries are not captured.
+ */
 export async function captureWorkspaceSource(
   appRoot: string,
   definition: WorkspaceSourceDefinition,
@@ -121,6 +140,8 @@ export async function captureWorkspaceSource(
   const checkAbort = () => options.signal?.throwIfAborted()
   checkAbort()
   const root = await realpath(appRoot)
+  const sourcePath = input.directory === "." ? root : join(root, input.directory)
+  const inventoried = (path: string) => path === sourcePath || path.startsWith(sourcePath + sep)
   const tracked = new Map<string, BigIntStats>()
   // One capture-wide budget includes appRoot, ancestors, exclusions and extra references.
   const visited = new Set<string>()
@@ -133,8 +154,13 @@ export async function captureWorkspaceSource(
     const stats = await lstat(path, { bigint: true })
     if (stats.isSymbolicLink()) throw new Error(`Source symlink rejected: ${path}`)
     const previous = tracked.get(path)
-    if (previous && !same(previous, stats))
-      throw new Error(`Source changed during capture: ${path}`)
+    if (previous) {
+      const unchanged =
+        inventoried(path) || !previous.isDirectory()
+          ? same(previous, stats)
+          : sameDirectory(previous, stats)
+      if (!unchanged) throw new Error(`Source changed during capture: ${path}`)
+    }
     tracked.set(path, stats)
     return stats
   }

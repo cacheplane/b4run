@@ -366,6 +366,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     clientTools: clientToolRuntime = {
       ttlMs: DEFAULT_CLIENT_TOOL_TTL_MS,
       retentionMs: DEFAULT_CLIENT_TOOL_RETENTION_MS,
+      recordsServerCalls: false,
     },
     config,
     getMemoryStore,
@@ -965,29 +966,39 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
               settledAt: null,
             })
           },
-          // Server-kind rows: identity only, written by the backend converter
-          // around every server tool call. Idempotent on the key, so the
-          // replay of a resumed tool node is a no-op.
-          issue: async (call) => {
-            await clientToolStore.issue({
-              threadId,
-              toolCallId: call.toolCallId,
-              kind: "server",
-              interruptId: "",
-              toolName: call.toolName,
-              runId: input.runId,
-              routeId: routeKey,
-              issuedAt: new Date().toISOString(),
-              expiresAt: null,
-              answeredAt: null,
-              result: null,
-              voidedAt: null,
-              settledAt: null,
-            })
-          },
-          settle: async (toolCallId) => {
-            await clientToolStore.settle({ threadId, toolCallId, at: new Date().toISOString() })
-          },
+          ...(clientToolRuntime.recordsServerCalls
+            ? {
+                // Server-kind rows: identity only, written by the backend
+                // converter and the subagent bridge around every server tool
+                // call. Idempotent on the key, so the replay of a resumed tool
+                // node is a no-op. Absent when the gate is off, so the writers
+                // record nothing.
+                issue: async (call: { readonly toolCallId: string; readonly toolName: string }) => {
+                  await clientToolStore.issue({
+                    threadId,
+                    toolCallId: call.toolCallId,
+                    kind: "server",
+                    interruptId: "",
+                    toolName: call.toolName,
+                    runId: input.runId,
+                    routeId: routeKey,
+                    issuedAt: new Date().toISOString(),
+                    expiresAt: null,
+                    answeredAt: null,
+                    result: null,
+                    voidedAt: null,
+                    settledAt: null,
+                  })
+                },
+                settle: async (toolCallId: string) => {
+                  await clientToolStore.settle({
+                    threadId,
+                    toolCallId,
+                    at: new Date().toISOString(),
+                  })
+                },
+              }
+            : {}),
         }
       : undefined
     // Un-prefixed names, shared by both client-facing wires so an attacher and

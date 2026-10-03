@@ -112,7 +112,10 @@ describe("captureBuilderHandoff", () => {
     ])
     expect(first?.handoff.workOrderId).toBe("cli-flags")
     // Concurrent captures of one task each staged in their own directory, so each read the
-    // same pinned bytes rather than a directory another was renaming into place.
+    // same pinned bytes rather than a directory another was renaming into place. Each also
+    // creates and removes its staging directory beside the others' under `captures/builder`,
+    // which the framework's capture tolerates: a directory above the source is checked by
+    // identity, not by its mtime (`@b4run/workspace` `source-capture.test.ts`).
     expect(new Set([first, second, third].map((c) => c?.handoff.workspace.sourceDigest)).size).toBe(
       1,
     )

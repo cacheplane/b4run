@@ -301,8 +301,9 @@ export interface B4Config {
       /**
        * Where tool calls on AG-UI runs are recorded, so a later
        * `role: "tool"` message can be matched to a call this server issued.
-       * On an app with a store, every tool call on an AG-UI run is recorded
-       * (server calls as identity only).
+       * When some route is listed in `clientTools`, or this is set, every
+       * tool call on an AG-UI run is recorded (server calls as identity only);
+       * a leftover default file records client calls only.
        * Defaults to a SQLite store at `<appRoot>/.b4/client-tool-calls.sqlite`
        * on node — opened only when some route is listed in `clientTools`.
        * Multi-replica deployments need a shared one
