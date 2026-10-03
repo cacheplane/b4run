@@ -62,6 +62,8 @@ function record(
     answeredAt: null,
     result: null,
     voidedAt: null,
+    kind: "client",
+    settledAt: null,
     ...overrides,
   }
 }

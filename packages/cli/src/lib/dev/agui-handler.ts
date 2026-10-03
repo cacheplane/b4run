@@ -49,6 +49,7 @@ import {
   AGUI_BODY_MAX_BYTES,
   type ClientToolRuntime,
   DEFAULT_CLIENT_TOOL_TTL_MS,
+  DEFAULT_TOOL_CALL_RETENTION_MS,
   MAX_CLIENT_TOOL_RESULT,
 } from "./client-tool-runtime.js"
 import {
@@ -363,7 +364,10 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     appRoot,
     boot,
     checkpointer,
-    clientTools: clientToolRuntime = { ttlMs: DEFAULT_CLIENT_TOOL_TTL_MS },
+    clientTools: clientToolRuntime = {
+      ttlMs: DEFAULT_CLIENT_TOOL_TTL_MS,
+      retentionMs: DEFAULT_TOOL_CALL_RETENTION_MS,
+    },
     config,
     getMemoryStore,
     liveTurnHub,

@@ -146,6 +146,8 @@ async function parkedThread(toolCalls: readonly ToolCallSpec[]) {
         answeredAt: null,
         result: null,
         voidedAt: null,
+        kind: "client",
+        settledAt: null,
       }),
   }
   const route = {

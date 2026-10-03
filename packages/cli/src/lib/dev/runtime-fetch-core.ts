@@ -54,6 +54,7 @@ import {
   anyRouteOptsInToClientTools,
   type ClientToolRuntime,
   resolveClientToolTtlMs,
+  resolveToolCallRetentionMs,
   validateClientToolStore,
 } from "./client-tool-runtime.js"
 import type { CorsConfig } from "./cors.js"
@@ -618,6 +619,7 @@ export async function createRuntimeFetchHandler(
   // is loud, once, here.
   const aguiConfig = bootConfig?.server?.agui
   const clientToolTtlMs = resolveClientToolTtlMs(aguiConfig?.clientToolTtlMs)
+  const toolCallRetentionMs = resolveToolCallRetentionMs(aguiConfig?.toolCallRetentionMs)
   // A config store is validated HERE, before the fallback — which would
   // otherwise hand the same unchecked config value back — is consulted.
   const clientToolStore =
@@ -633,6 +635,7 @@ export async function createRuntimeFetchHandler(
   const clientTools: ClientToolRuntime = {
     ...(clientToolStore ? { store: clientToolStore } : {}),
     ttlMs: clientToolTtlMs,
+    retentionMs: toolCallRetentionMs,
   }
   // Degrades rather than throws HERE: sandboxing is opt-in, so no fallbacks
   // means no sandbox provider — the same result as an app with no `sandbox`

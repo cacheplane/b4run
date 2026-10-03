@@ -1,13 +1,18 @@
 /**
  * Boot-resolved settings for client-provided tools on the AG-UI endpoint
  * (cacheplane/b4run#743), and the request-size bounds the endpoint enforces
- * for them. Pure and edge-safe: no node: imports.
+ * for them, plus the tool-call record retention window
+ * (`server.agui.toolCallRetentionMs`). Pure and edge-safe: no node: imports.
  */
 import type { B4Config } from "@b4run/core"
 import type { ClientToolCallStore } from "@b4run/sdk"
 
 /** How long a client tool call waits for its result by default: 10 minutes. */
 export const DEFAULT_CLIENT_TOOL_TTL_MS = 600_000
+/** How long a closed tool-call row is kept before the per-thread prune deletes it: 7 days. */
+export const DEFAULT_TOOL_CALL_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
+/** Upper bound on `server.agui.toolCallRetentionMs`: one year. */
+export const MAX_TOOL_CALL_RETENTION_MS = 365 * 24 * 60 * 60 * 1000
 /**
  * Upper bound on `server.agui.clientToolTtlMs`: one year. Keeps `issuedAt +
  * ttl` far inside the range `Date` can represent, and no client tool call
@@ -35,6 +40,8 @@ export interface ClientToolRuntime {
   /** `undefined` when none resolved: client tool runs are then refused with a 503. */
   readonly store?: ClientToolCallStore
   readonly ttlMs: number
+  /** Closed rows older than this are pruned on the thread's next run. */
+  readonly retentionMs: number
 }
 
 /** A `server.agui` client-tool setting that cannot be honored as written. */
@@ -66,6 +73,22 @@ export function resolveClientToolTtlMs(value: unknown): number {
   return value
 }
 
+/** `server.agui.toolCallRetentionMs`, validated exactly like the TTL. */
+export function resolveToolCallRetentionMs(value: unknown): number {
+  if (value === undefined) return DEFAULT_TOOL_CALL_RETENTION_MS
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value <= 0 ||
+    value > MAX_TOOL_CALL_RETENTION_MS
+  ) {
+    throw new ClientToolConfigError(
+      `server.agui.toolCallRetentionMs must be a positive integer number of milliseconds no greater than ${MAX_TOOL_CALL_RETENTION_MS}; received ${describe(value)}.`,
+    )
+  }
+  return value
+}
+
 const STORE_METHODS = [
   "issue",
   "get",
@@ -73,6 +96,8 @@ const STORE_METHODS = [
   "listOutstanding",
   "answer",
   "voidOutstanding",
+  "settle",
+  "prune",
 ] as const
 
 /** `server.agui.clientToolStore`, shape-checked: absent, or an object with every store method. */

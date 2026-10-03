@@ -16,9 +16,12 @@ import {
   AGUI_BODY_MAX_BYTES,
   ClientToolConfigError,
   DEFAULT_CLIENT_TOOL_TTL_MS,
+  DEFAULT_TOOL_CALL_RETENTION_MS,
   MAX_CLIENT_TOOL_RESULT,
   MAX_CLIENT_TOOL_TTL_MS,
+  MAX_TOOL_CALL_RETENTION_MS,
   resolveClientToolTtlMs,
+  resolveToolCallRetentionMs,
   validateClientToolStore,
 } from "../src/lib/dev/client-tool-runtime.ts"
 import { readPendingInterrupts } from "../src/lib/dev/pending-interrupts.ts"
@@ -1290,6 +1293,8 @@ describe("the settle-time client record void", () => {
       answeredAt: null,
       result: null,
       voidedAt: null,
+      kind: "client" as const,
+      settledAt: null,
     })
     await store.issue(row("call_parked"))
     await store.issue(row("call_stray"))
@@ -1343,6 +1348,8 @@ describe("settling an AG-UI turn", () => {
       answeredAt: null,
       result: null,
       voidedAt: null,
+      kind: "client",
+      settledAt: null,
     })
     const second = await run(t.handler, aguiRequest(t.threadId, "run-2", [USER_HELLO]))
     expect(second.status).toBe(200)
@@ -1438,6 +1445,25 @@ describe("the recorder never parks a NEW call on an old record", () => {
 })
 
 describe("client tool boot settings and request bounds", () => {
+  it("toolCallRetentionMs defaults to 7 days, and a mistyped value fails the boot", () => {
+    expect(resolveToolCallRetentionMs(undefined)).toBe(DEFAULT_TOOL_CALL_RETENTION_MS)
+    expect(DEFAULT_TOOL_CALL_RETENTION_MS).toBe(604_800_000)
+    expect(resolveToolCallRetentionMs(1)).toBe(1)
+    expect(resolveToolCallRetentionMs(MAX_TOOL_CALL_RETENTION_MS)).toBe(MAX_TOOL_CALL_RETENTION_MS)
+    for (const bad of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "1", null]) {
+      expect(() => resolveToolCallRetentionMs(bad)).toThrow(ClientToolConfigError)
+    }
+    expect(() => resolveToolCallRetentionMs(MAX_TOOL_CALL_RETENTION_MS + 1)).toThrow(
+      ClientToolConfigError,
+    )
+  })
+
+  it("clientToolStore must also carry settle and prune", () => {
+    const store = createMemoryClientToolCallStore()
+    const { settle: _s, prune: _p, ...legacy } = store
+    expect(() => validateClientToolStore(legacy)).toThrow(/missing settle, prune/)
+  })
+
   it("clientToolTtlMs defaults, and a mistyped value fails rather than reads as configured", () => {
     expect(resolveClientToolTtlMs(undefined)).toBe(DEFAULT_CLIENT_TOOL_TTL_MS)
     expect(DEFAULT_CLIENT_TOOL_TTL_MS).toBe(600_000)
@@ -1475,6 +1501,8 @@ describe("client tool boot settings and request bounds", () => {
       answeredAt: null,
       result: null,
       voidedAt: null,
+      kind: "client",
+      settledAt: null,
     })
     const reopened = await resolveClientToolCallStore(appRoot)
     expect((await reopened?.listOutstanding("t"))?.map((row) => row.toolCallId)).toEqual(["call_1"])
