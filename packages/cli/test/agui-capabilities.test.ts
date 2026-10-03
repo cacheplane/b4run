@@ -48,6 +48,7 @@ const MIDDLEWARE = `
 const TRANSPORT = { httpBinary: true, streaming: true }
 const REASONING = { supported: false }
 const AGENT_STATE = { deltas: false, persistentState: true, snapshots: false }
+const RAW_STATE = { deltas: false, snapshots: false }
 const ONE_SHOT_STATE = { deltas: false, persistentState: false, snapshots: false }
 
 async function fixtureApp(
@@ -183,7 +184,7 @@ describe("GET /agui/:routeId", () => {
       humanInTheLoop: { approveWithEdits: false, interrupts: true, supported: true },
       output: { structuredOutput: false },
       reasoning: REASONING,
-      state: AGENT_STATE,
+      state: RAW_STATE,
       tools: { clientProvided: false },
       transport: TRANSPORT,
     })
@@ -267,16 +268,16 @@ describe("GET /agui/:routeId", () => {
     })
 
     expect(response.status).toBe(200)
-    // Neither new section reads the route module: reasoning is a fact about
-    // the translator, persistentState about the registry's mode.
+    // reasoning is a fact about the translator; persistentState needs the
+    // module, so it is omitted.
     expect(await response.json()).toEqual({
       reasoning: REASONING,
-      state: AGENT_STATE,
+      state: RAW_STATE,
       transport: TRANSPORT,
     })
   })
 
-  it("advertises the binary binding for every route", async () => {
+  it("advertises the binary binding on a one-shot route", async () => {
     const handler = await createHandler(await fixtureApp())
     expect((await capabilities(handler, "/echo#graph")).transport).toEqual(TRANSPORT)
   })

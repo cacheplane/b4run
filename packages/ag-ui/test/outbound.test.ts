@@ -1423,4 +1423,16 @@ describe("1.0 null discipline", () => {
     expect(events.at(-1)).toMatchObject({ type: EventType.RUN_FINISHED })
     expect(events.at(-1)).not.toHaveProperty("result")
   })
+
+  test("no chunk becomes a REASONING_* event (capabilities advertise reasoning.supported: false)", async () => {
+    const events = await collect([
+      { type: "reasoning", data: "let me think" } as never,
+      { type: "thinking", data: { thinking: "…" } } as never,
+      { type: "token", data: "Hi" },
+      { type: "done", data: {} },
+    ])
+    // Flips with AG-UI sub-project 2: when the translator emits REASONING_*,
+    // agui-capabilities.ts's REASONING constant must flip in the same change.
+    expect(events.filter((event) => String(event.type).startsWith("REASONING"))).toEqual([])
+  })
 })

@@ -33,12 +33,16 @@
  * - `reasoning.supported` is `false` for every route: `toAguiEvents` has no
  *   `REASONING_*` branch, and the langchain adapter's `chunkText` keeps only
  *   `text` blocks, so nothing reasoning-shaped reaches the wire. The claim
- *   flips when the translator emits them (AG-UI sub-project 2).
+ *   flips when the translator emits them (AG-UI sub-project 2). Pinned on
+ *   both sides: `packages/langchain/test/model-message-framing.test.ts`
+ *   (non-text blocks carry no token) and `packages/ag-ui/test/outbound.test.ts`
+ *   (no chunk becomes `REASONING_*`).
  * - `state.snapshots` and `state.deltas` are `false` for every route: no
- *   code emits `STATE_SNAPSHOT` or `STATE_DELTA`. `state.persistentState` is
- *   `route.mode === "agent"`, the same checkpointer fact as `interrupts`: a
- *   chain, graph or workflow route is invoked once without one, so nothing
- *   of it persists between runs. `state.memory` is omitted: whether an app
+ *   code emits `STATE_SNAPSHOT` or `STATE_DELTA`. `state.persistentState` is `true` for an `agent()` route, whose compiled
+ *   graph embeds the boot checkpointer, and `false` for a chain, graph or
+ *   workflow route, invoked once without one. A raw runnable is never handed
+ *   the checkpointer, so whether it persists is its own code's to decide and
+ *   the field is omitted — as it is on a boot that cannot load route modules. `state.memory` is omitted: whether an app
  *   wires long-term memory is tool wiring this handler cannot see.
  * - `multiAgent` is omitted: subagent tooling is app-wired, not
  *   route-declared, and no `SUBAGENT_*` event exists yet (sub-project 2).
@@ -82,11 +86,15 @@ const TRANSPORT: NonNullable<AgentCapabilities["transport"]> = {
 /** Nothing reasoning-shaped reaches the wire from any route (module comment). */
 const REASONING: NonNullable<AgentCapabilities["reasoning"]> = { supported: false }
 
-/** No route emits state events; persistence is the checkpointer fact. */
+/** No route emits state events; persistence is B4.run's only when it wires the checkpointer. */
 function stateCapabilities(
-  mode: RuntimeRegistry["entries"][number]["mode"],
+  persistentState: boolean | undefined,
 ): NonNullable<AgentCapabilities["state"]> {
-  return { deltas: false, persistentState: mode === "agent", snapshots: false }
+  return {
+    deltas: false,
+    ...(persistentState !== undefined ? { persistentState } : {}),
+    snapshots: false,
+  }
 }
 
 export interface AgUiCapabilitiesRequestOptions {
@@ -142,7 +150,7 @@ export async function handleAgUiCapabilitiesRequest(
           },
           output: { structuredOutput: false },
           reasoning: REASONING,
-          state: stateCapabilities(route.mode),
+          state: stateCapabilities(false),
           tools: { clientProvided: false, supported: false },
           transport: TRANSPORT,
         }
@@ -175,8 +183,8 @@ async function agentCapabilities(
     // Without them, and without a static manifest seeding the module cache,
     // this runtime cannot read route modules here at all: nothing about the
     // route is settled, so nothing the module settles is claimed — only what
-    // is true of every route and of its mode.
-    return { reasoning: REASONING, state: stateCapabilities(route.mode), transport: TRANSPORT }
+    // is true of every route.
+    return { reasoning: REASONING, state: stateCapabilities(undefined), transport: TRANSPORT }
   }
 
   const grants = options.approvalGrants
@@ -201,7 +209,7 @@ async function agentCapabilities(
     },
     output: { structuredOutput },
     reasoning: REASONING,
-    state: stateCapabilities(route.mode),
+    state: stateCapabilities(isDescriptor ? true : undefined),
     tools: {
       clientProvided,
       ...(isDescriptor ? { parallelCalls: true, supported: true } : {}),
