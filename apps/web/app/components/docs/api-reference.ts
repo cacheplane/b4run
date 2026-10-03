@@ -1048,6 +1048,8 @@ export const API_REQUIRED_CONTRACT_KEYS = [
   "@b4run/permissions#.:PermissionsStore",
   "@b4run/sdk#.:AgentConfig",
   "@b4run/sdk#.:ReasoningConfig",
+  "@b4run/sdk#.:OpenAIReasoningConfig",
+  "@b4run/sdk#.:AnthropicReasoningConfig",
   "@b4run/sdk#.:RetryConfig",
   "@b4run/sdk#.:RouteConfig",
   "@b4run/sdk#.:agent",

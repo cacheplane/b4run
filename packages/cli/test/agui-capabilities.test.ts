@@ -33,6 +33,20 @@ const GEMINI_ROUTE = [
   "",
 ].join("\n")
 
+/** An agent route that asks OpenAI to stream a reasoning summary. */
+const REASONING_ROUTE = [
+  'import { agent } from "@b4run/sdk"',
+  'export default agent({ model: "gpt-5-mini", reasoning: { openai: { effort: "low", summary: "auto" } }, systemPrompt: "t" })',
+  "",
+].join("\n")
+
+/** Effort alone reasons but streams nothing. */
+const EFFORT_ONLY_ROUTE = [
+  'import { agent } from "@b4run/sdk"',
+  'export default agent({ model: "gpt-5-mini", reasoning: { openai: { effort: "low" } }, systemPrompt: "t" })',
+  "",
+].join("\n")
+
 const GRAPH_ROUTE = "export const graph = async () => ({ ok: true })\n"
 
 /** An agent route that exports a runnable rather than an `agent()` descriptor. */
@@ -46,7 +60,7 @@ const MIDDLEWARE = `
 
 /** Claims every route makes, whatever its module says. */
 const TRANSPORT = { httpBinary: true, streaming: true }
-const REASONING = { supported: false }
+const NO_REASONING = { supported: false }
 const AGENT_STATE = { deltas: false, persistentState: true, snapshots: false }
 const RAW_STATE = { deltas: false, snapshots: false }
 const ONE_SHOT_STATE = { deltas: false, persistentState: false, snapshots: false }
@@ -66,6 +80,8 @@ async function fixtureApp(
     "src/app/echo/index.ts": GRAPH_ROUTE,
     "src/app/gemini/index.ts": GEMINI_ROUTE,
     "src/app/raw/index.ts": RUNNABLE_ROUTE,
+    "src/app/thinking/index.ts": REASONING_ROUTE,
+    "src/app/effort/index.ts": EFFORT_ONLY_ROUTE,
     ...options.files,
   }
   for (const [rel, body] of Object.entries(files)) {
@@ -130,11 +146,25 @@ describe("GET /agui/:routeId", () => {
         supported: true,
       },
       output: { structuredOutput: true },
-      reasoning: REASONING,
+      reasoning: NO_REASONING,
       state: AGENT_STATE,
       tools: { clientProvided: true, parallelCalls: true, supported: true },
       transport: TRANSPORT,
     })
+  })
+
+  it("advertises reasoning only when the route's config makes it stream", async () => {
+    const handler = await createHandler(await fixtureApp())
+
+    expect((await capabilities(handler, "/thinking#agent")).reasoning).toEqual({
+      encrypted: false,
+      streaming: true,
+      supported: true,
+    })
+    expect((await capabilities(handler, "/effort#agent")).reasoning).toEqual(NO_REASONING)
+    expect((await capabilities(handler, "/open#agent")).reasoning).toEqual(NO_REASONING)
+    expect((await capabilities(handler, "/echo#graph")).reasoning).toEqual(NO_REASONING)
+    expect((await capabilities(handler, "/raw#agent")).reasoning).toEqual(NO_REASONING)
   })
 
   it("does not advertise client tools on an agent() route that did not opt in", async () => {
@@ -166,7 +196,7 @@ describe("GET /agui/:routeId", () => {
         supported: false,
       },
       output: { structuredOutput: false },
-      reasoning: REASONING,
+      reasoning: NO_REASONING,
       state: ONE_SHOT_STATE,
       tools: { clientProvided: false, supported: false },
       transport: TRANSPORT,
@@ -183,7 +213,7 @@ describe("GET /agui/:routeId", () => {
     expect(await capabilities(handler, "/raw#agent")).toEqual({
       humanInTheLoop: { approveWithEdits: false, interrupts: true, supported: true },
       output: { structuredOutput: false },
-      reasoning: REASONING,
+      reasoning: NO_REASONING,
       state: RAW_STATE,
       tools: { clientProvided: false },
       transport: TRANSPORT,
@@ -271,7 +301,7 @@ describe("GET /agui/:routeId", () => {
     // reasoning is a fact about the translator; persistentState needs the
     // module, so it is omitted.
     expect(await response.json()).toEqual({
-      reasoning: REASONING,
+      reasoning: NO_REASONING,
       state: RAW_STATE,
       transport: TRANSPORT,
     })

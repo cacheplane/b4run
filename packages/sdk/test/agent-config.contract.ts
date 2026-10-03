@@ -63,12 +63,23 @@ type _VerdictShape = Expect<
   Equal<DelegationVerdict, true | string | { readonly approve: true; readonly reason?: string }>
 >
 type _Description = Expect<Equal<B4Agent["description"], string | undefined>>
-type _ReasoningEffort = Expect<
+type _ReasoningOpenAI = Expect<
   Equal<
-    ReasoningConfig["effort"],
+    NonNullable<ReasoningConfig["openai"]>["effort"],
     "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined
   >
 >
+type _ReasoningSummary = Expect<
+  Equal<
+    NonNullable<ReasoningConfig["openai"]>["summary"],
+    "auto" | "concise" | "detailed" | undefined
+  >
+>
+type _ReasoningAnthropic = Expect<
+  Equal<NonNullable<ReasoningConfig["anthropic"]>["budgetTokens"], number>
+>
+// The flat 0.13 shape is gone: `effort` is not a key of ReasoningConfig.
+type _NoFlatEffort = Expect<Equal<"effort" extends keyof ReasoningConfig ? true : false, false>>
 type _AgentReasoning = Expect<Equal<B4Agent["reasoning"], ReasoningConfig | undefined>>
 
 agent({

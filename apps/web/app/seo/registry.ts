@@ -142,9 +142,9 @@ export const DOCS_SEO_ENTRIES = [
   },
   {
     path: "/docs/reasoning-effort",
-    title: "Reasoning Effort",
+    title: "Reasoning",
     description:
-      "Configure route-level reasoning effort for OpenAI-backed agent routes, supported values, pass-through behavior, exclusions, and subagent budgets.",
+      "Configure route-level reasoning per provider: OpenAI effort and streamed summaries, Anthropic extended thinking, what B4.run checks, and subagent budgets.",
     sourcePath: "apps/web/content/docs/reasoning-effort.mdx",
   },
   {

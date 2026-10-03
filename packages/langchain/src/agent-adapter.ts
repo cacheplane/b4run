@@ -321,7 +321,7 @@ interface SubagentToolRunContexts {
 }
 
 interface RootToolProjectionState {
-  /** Model invocations with open text output. */
+  /** Model invocations with open text or reasoning output, closed by `message_end`. */
   readonly textModelRunIds: Set<string>
   /** Logical/fallback ids whose root tool_call chunk was already emitted this stream. */
   readonly announcedToolCallIds: Set<string>
@@ -731,6 +731,26 @@ function readUsageChunk(event: LangChainStreamEvent): Record<string, unknown> | 
   }
 }
 
+/**
+ * The reasoning text a model chunk carries: Anthropic streams `thinking`
+ * blocks (field `thinking`; a `signature_delta` arrives as a thinking block
+ * with no text), while the OpenAI Responses converter and LangChain's standard
+ * content emit `reasoning` blocks (field `reasoning`; the converter has
+ * already flattened a Responses summary into it). `redacted_thinking` and
+ * encrypted material are not text and contribute nothing.
+ */
+function chunkReasoning(content: unknown): string {
+  if (!Array.isArray(content)) return ""
+  let text = ""
+  for (const block of content) {
+    if (!isRecord(block)) continue
+    if (block.type === "thinking" && typeof block.thinking === "string") text += block.thinking
+    else if (block.type === "reasoning" && typeof block.reasoning === "string")
+      text += block.reasoning
+  }
+  return text
+}
+
 function classifyStreamEvent(
   event: LangChainStreamEvent,
   toolRuns: SubagentToolRunContexts,
@@ -753,8 +773,18 @@ function classifyStreamEvent(
 
   switch (event.event) {
     case "on_chat_model_stream": {
-      const content = chunkText((event.data.chunk as { content?: unknown })?.content)
+      const streamed = (event.data.chunk as { content?: unknown })?.content
+      const content = chunkText(streamed)
       const chunks: AgentStreamChunk[] = []
+      // Root only until the attributed child stream lands (AG-UI sub-project
+      // 2, PR 3): a child's reasoning stays inside the subagent boundary.
+      const reasoning = child ? "" : chunkReasoning(streamed)
+      if (reasoning.length > 0) {
+        // Registered like text so this invocation's `on_chat_model_end` emits
+        // `message_end`, which is what closes the AG-UI reasoning span.
+        rootTools.textModelRunIds.add(event.run_id)
+        chunks.push({ type: "reasoning", data: reasoning, messageId: event.run_id })
+      }
       if (content.length > 0) {
         if (!child) rootTools.textModelRunIds.add(event.run_id)
         chunks.push(

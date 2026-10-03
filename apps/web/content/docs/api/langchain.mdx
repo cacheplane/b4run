@@ -57,6 +57,8 @@ The runtime root is edge-safe for B4.run's emitted Hono/workerd target. The evid
 | `inferProvider` | Re-export SDK provider inference. |
 | `resolveProvider` | Resolve an explicit provider or infer one from a model ID. |
 | `modelMaxRetries` | Map an agent's `retry` to a chat model's `maxRetries` (`maxAttempts - 1`, default 2). |
+| `resolveReasoningConfig` | Check an agent's `reasoning` against its resolved provider and map it to the chat model's constructor options, reporting whether reasoning text will stream. |
+| `ResolvedReasoningConfig` | Describe the resolved reasoning controls: constructor options and the `streams` flag `GET /agui/:routeId` advertises. |
 | `RetryOptions` | Configure retry attempts, backoff, cap, and cancellation. |
 | `isRetryableError` | Classify known transient error messages. |
 | `withRetry` | Retry transient async failures with jittered exponential backoff. |

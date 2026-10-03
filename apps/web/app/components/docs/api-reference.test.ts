@@ -302,6 +302,8 @@ const EXPECTED_REQUIRED_CONTRACT_KEYS = [
   "@b4run/permissions#.:PermissionsStore",
   "@b4run/sdk#.:AgentConfig",
   "@b4run/sdk#.:ReasoningConfig",
+  "@b4run/sdk#.:OpenAIReasoningConfig",
+  "@b4run/sdk#.:AnthropicReasoningConfig",
   "@b4run/sdk#.:RetryConfig",
   "@b4run/sdk#.:RouteConfig",
   "@b4run/sdk#.:agent",
@@ -1079,7 +1081,7 @@ describe("package catalog", { timeout: 30_000 }, () => {
 
   it("registers every authored high-value signature contract exactly once", () => {
     expect(API_REQUIRED_CONTRACT_KEYS).toEqual(EXPECTED_REQUIRED_CONTRACT_KEYS)
-    expect(API_REQUIRED_CONTRACT_KEYS).toHaveLength(122)
+    expect(API_REQUIRED_CONTRACT_KEYS).toHaveLength(124)
     expect(new Set(API_REQUIRED_CONTRACT_KEYS).size).toBe(API_REQUIRED_CONTRACT_KEYS.length)
     expect(API_REQUIRED_CONTRACT_KEYS).toContain("@b4run/sdk#.:agent")
     expect(API_REQUIRED_CONTRACT_KEYS).toContain("@b4run/memory#.:MemoryStore")

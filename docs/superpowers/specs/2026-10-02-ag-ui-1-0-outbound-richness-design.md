@@ -190,7 +190,7 @@ Inbound is unchanged: `role: "reasoning"` history is dropped.
 
 ### 4.6 Capability
 
-Descriptor routes only: `reasoning: { supported, streaming: true, encrypted: false }`
+Ships in PR 2 with the translator change. Descriptor routes only: `reasoning: { supported, streaming: true, encrypted: false }`
 where `supported` is `openai.summary !== undefined` or
 `anthropic.budgetTokens !== undefined` on the route's descriptor for its
 resolved provider — the fields the factory forwards. `openai.effort` alone →
@@ -333,14 +333,17 @@ Four PRs, each with a `patch` changeset, in order:
    docs. Independent.
 2. **Reasoning** — SDK breaking change, factory, validation, adapter
    extraction, translator framing, example routes, `reasoning-effort.mdx`,
-   upgrading entry.
+   upgrading entry, **and the `reasoning` capability section**: #883 merged
+   before this PR, and #906's pin in `outbound.test.ts` requires the claim to
+   flip in the same change as the translator. Subsumes #897.
 3. **Subagents** — adapter child projection, lifecycle/attribution,
-   removals, React hook/panel, examples/template, docs, upgrading entries.
-   Stacked on 1 (child `usage` already collected).
-4. **Capabilities** — `reasoning`, `multiAgent` sections; after #883 merges.
+   removals, React hook/panel, examples/template, docs, upgrading entries,
+   **and the `multiAgent` capability section**. Stacked on 1 (child `usage`
+   already collected).
 
-Each passes `pnpm ci:validate`; 3 must also leave `copilotkit-examples-e2e`
-green.
+(The separate capabilities PR planned as 4 dissolved into 2 and 3 once #883
+landed.) Each passes `pnpm ci:validate`; 3 must also leave
+`copilotkit-examples-e2e` green.
 
 ## 10. Risks
 

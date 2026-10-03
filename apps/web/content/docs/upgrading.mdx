@@ -54,6 +54,12 @@ Pin `@b4run/*` packages to a single version (no `^` or `~` ranges) until the pro
 
 Newest first. Each change names the release it landed in, and the two that need no action say so.
 
+### `reasoning` is keyed by provider
+
+Landed in the first release after **0.13.1**. Action required if an `agent()` route sets `reasoning`.
+
+`agent({ reasoning: { effort } })` is now `agent({ reasoning: { openai: { effort } } })`, and Anthropic routes gain `reasoning: { anthropic: { budgetTokens } }`. The flat `effort` is an unknown key and fails the route when its model is built, as does a block for a provider the route does not resolve to. Before, a misplaced setting was silently ignored (and the OpenAI effort itself never reached the request). Setting `openai.summary` moves the route to the OpenAI Responses API and streams the summary as AG-UI `REASONING_*` events; `GET /agui/{routeId}` advertises `reasoning.supported` accordingly. See [Reasoning](/docs/reasoning-effort).
+
 ### The app root must declare `"type": "module"`
 
 Landed in **0.8.35**.

@@ -24,6 +24,32 @@ it("reduces a stream into an AgentRunResult", async () => {
   expect(r.messages).toHaveLength(1)
 })
 
+it("reads the final message from content blocks, keeping only text", async () => {
+  // The OpenAI Responses API (and Anthropic once tools are bound) answer in
+  // blocks: reasoning and tool-use blocks are not the assistant's prose.
+  async function* blocks() {
+    yield {
+      type: "done",
+      output: {
+        messages: [
+          {
+            id: ["x", "y", "AIMessage"],
+            kwargs: {
+              content: [
+                { type: "reasoning", reasoning: "the user wants a greeting" },
+                { type: "text", text: "Hi! " },
+                { type: "text", text: "How can I help?" },
+              ],
+            },
+          },
+        ],
+      },
+    }
+  }
+  const r = await collectRunResult(blocks() as never, "t")
+  expect(r.finalMessage).toBe("Hi! How can I help?")
+})
+
 it("handles an empty/aborted stream", async () => {
   async function* empty() {}
   const r = await collectRunResult(empty() as never, "t")
