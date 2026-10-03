@@ -1,12 +1,13 @@
 "use client"
 import { B4_PLAN_ACTIVITY_TYPE } from "@b4run/ag-ui"
 import { planActivityContentSchema } from "@b4run/ag-ui/react"
-import { useAgent, useCopilotKit } from "@copilotkit/react-core/v2"
+import type { B4ContentPart } from "@b4run/sdk"
+import { useAgent, useCapabilities, useCopilotKit } from "@copilotkit/react-core/v2"
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { HydratedThread } from "../lib/hydrate"
 import type { ThreadSource, WorkbenchThread } from "../lib/thread-source"
-import type { TranscriptMessage } from "../lib/transcript"
-import { Composer } from "./Composer"
+import { type DropNotice, type TranscriptMessage, titleFor } from "../lib/transcript"
+import { Composer, type ComposerMessage } from "./Composer"
 import { ConnectScreen } from "./ConnectScreen"
 import { MemoryPanel } from "./MemoryPanel"
 import { ThreadRail, UNTITLED_THREAD_LABEL } from "./ThreadRail"
@@ -168,6 +169,31 @@ function withRestoredPlan(thread: HydratedThread, threadId: string): readonly Tr
   ]
 }
 
+/** The `CUSTOM` event name `packages/langchain` emits when parts never reached the model. */
+const CONTENT_PARTS_DROPPED_EVENT = "b4.content_parts_dropped"
+
+/**
+ * A `b4.content_parts_dropped` value as far as the transcript needs it: a
+ * `parts` list of `{ type, reason }` entries. The event crosses the network,
+ * so it is checked rather than cast; a payload that fails is dropped quietly
+ * (the notice is a courtesy, not the run's outcome).
+ */
+function asDropNotice(value: unknown): DropNotice | undefined {
+  if (typeof value !== "object" || value === null) return undefined
+  const { parts, toolCallId } = value as { parts?: unknown; toolCallId?: unknown }
+  if (!Array.isArray(parts) || parts.length === 0) return undefined
+  const valid = parts.every(
+    (part) =>
+      typeof part === "object" &&
+      part !== null &&
+      typeof (part as { type?: unknown }).type === "string" &&
+      typeof (part as { reason?: unknown }).reason === "string",
+  )
+  if (!valid) return undefined
+  if (toolCallId !== undefined && typeof toolCallId !== "string") return undefined
+  return value as DropNotice
+}
+
 interface RunErrorState {
   readonly title: string
   readonly message: string
@@ -216,6 +242,17 @@ export function AppShell({
 }: AppShellProps) {
   const { agent } = useAgent()
   const { copilotkit } = useCopilotKit()
+  // The route's capability document, as CopilotKit's runtime `/info` sync
+  // fetched it from `B4HttpAgent.getCapabilities()` — in the browser the agent
+  // is the runtime's proxy, so this hook (not a direct `getCapabilities()`
+  // call) is how the page reads it. `undefined` until the handshake lands,
+  // which correctly hides the attach control until then.
+  const capabilities = useCapabilities()
+  const canAttachImages = capabilities?.multimodal?.input?.image === true
+  // Drop notices for the thread on screen, in arrival order. Not on the
+  // agent: CopilotKit keeps no record of CUSTOM events, so this list is the
+  // only place they live, and it goes with the thread on a switch.
+  const [notices, setNotices] = useState<readonly DropNotice[]>([])
 
   // "checking" first paint, never "down" — see `probeB4Server` and the
   // effects below for why nothing but an actual probe through the proxy may
@@ -434,6 +471,7 @@ export function AppShell({
       agent.setMessages([])
       setRunError(null)
       setHasRestoredHistory(false)
+      setNotices([])
       // `HydratedInterrupts` reports 0 for the new thread on its own, but only
       // after its effects run; clearing here keeps the composer from staying
       // blocked across the gap on the previous thread's count.
@@ -545,11 +583,51 @@ export function AppShell({
     void threadSource.hydrate(hydratingThreadId).then(applyRestored, reportHydrateFailure)
   }, [activeThreadId, agent, threadSource, hydrateNonce])
 
+  // Parts the model never saw (`b4.content_parts_dropped`, emitted by the
+  // langchain adapter when the provider or model cannot take a part), as
+  // notices in the transcript. Same lifecycle as `MemoryPanel`'s
+  // `onRunFinishedEvent` subscription: keyed on the agent instance, so a swap
+  // re-subscribes the new one and unsubscribes the old.
+  //
+  // A notice from a tool result names its `toolCallId`; one from the user's
+  // own message names nothing, and the event carries no message id. Stamped
+  // here with the newest user message's id — the turn that was just sent,
+  // since the adapter drops parts before the model call — so the transcript
+  // keeps it after THAT turn instead of sliding it down to each later one.
+  useEffect(() => {
+    const subscription = agent.subscribe({
+      onCustomEvent: ({ event }) => {
+        if (event.name !== CONTENT_PARTS_DROPPED_EVENT) return
+        const notice = asDropNotice(event.value)
+        if (notice === undefined) return
+        let anchorMessageId: string | undefined
+        if (notice.toolCallId === undefined) {
+          for (const message of agent.messages)
+            if (message.role === "user") anchorMessageId = message.id
+        }
+        setNotices((current) => [
+          ...current,
+          anchorMessageId !== undefined ? { ...notice, anchorMessageId } : notice,
+        ])
+      },
+    })
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [agent])
+
   const send = useCallback(
-    async (message: string) => {
+    async ({ text, parts }: ComposerMessage) => {
       setRunError(null)
-      agent.addMessage({ id: globalThis.crypto.randomUUID(), role: "user", content: message })
-      onUserMessage(message)
+      // A plain string when there is nothing but text, so a text-only turn is
+      // exactly what it was before attachments existed. With an image, the
+      // AG-UI part list CopilotKit's own submit path builds: text first.
+      const content: string | B4ContentPart[] =
+        parts.length > 0
+          ? [...(text.length > 0 ? [{ type: "text" as const, text }] : []), ...parts]
+          : text
+      agent.addMessage({ id: globalThis.crypto.randomUUID(), role: "user", content })
+      onUserMessage(titleFor(content))
       try {
         // `copilotkit.runAgent`, not `agent.runAgent`: the core call is what
         // attaches the frontend tools, agent context and run bookkeeping that
@@ -563,6 +641,13 @@ export function AppShell({
       }
     },
     [agent, copilotkit, onUserMessage, reportRunError],
+  )
+
+  const selectSuggestion = useCallback(
+    (message: string) => {
+      void send({ text: message, parts: [] })
+    },
+    [send],
   )
 
   const stop = useCallback(() => {
@@ -649,8 +734,9 @@ export function AppShell({
           agent={agent}
           threadKey={activeThreadId}
           messages={agent.messages}
+          notices={notices}
           isRunning={agent.isRunning}
-          onSelectSuggestion={send}
+          onSelectSuggestion={selectSuggestion}
           hasRestoredHistory={hasRestoredHistory}
           runError={runError}
           onDismissRunError={dismissRunError}
@@ -662,6 +748,7 @@ export function AppShell({
           key={activeThreadId}
           onSend={send}
           onStop={stop}
+          canAttachImages={canAttachImages}
           isRunning={agent.isRunning}
           isAwaitingApproval={isAwaitingApproval}
         />

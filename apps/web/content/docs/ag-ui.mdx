@@ -392,6 +392,8 @@ Inline parts count against the 8 MiB body ceiling; there is no per-part limit. T
 
 Tools can return parts too: a tool's result may be an array of the same parts (or `{ result: parts, state }`), and it travels as `TOOL_CALL_RESULT.content`. The model sees the media only as described above; the UI sees every part regardless. A [client-provided tool](#client-provided-tools) may answer with parts as well: a `role: "tool"` message's parts are stored as sent and replayed to the model under the same tool-result rules, so media reach the model only where the profile and provider allow it — never on OpenAI's Chat Completions path — and the UI gets every part on `TOOL_CALL_RESULT`. The one exception is a call closed by the [abandon path](#abandoned-calls), such as a new user message sent instead of resuming: the stored result is replayed as its text only, and the server logs a warning once the call is closed.
 
+For a client that attaches images, renders media parts, and shows the dropped-part notices, see [Attach an image](/docs/recipes/research-web-ui#attach-an-image) in the research web UI recipe.
+
 `role: "reasoning"` and `role: "activity"` history is dropped on the way in: it is the client's stored artefact of an earlier turn, not something the assistant said.
 
 ## Capabilities

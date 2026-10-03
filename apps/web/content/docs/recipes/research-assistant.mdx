@@ -47,8 +47,9 @@ export default agent({
 3. For each sub-question, dispatch a specialist with \`task({ subagent: "researcher", input: "<sub-question>" })\`.
 4. You may also \`searchCorpus({ query })\` and \`readDoc({ path })\` directly for quick lookups.
 5. When the corpus lacks coverage, you may run \`runBash({ command: "node scripts/fetch-source.mjs <topic>" })\` — the human must approve it.
-6. Synthesize the findings into a cited report and save it with \`writeFile({ path: "reports/<slug>.md", content: "<report>" })\`.
-7. When the user gives a durable preference or you verify a reusable finding, call \`remember({ data, content })\` so it can be reviewed and recalled later.
+6. When findings compare quantities, call \`renderChart({ title, series })\` with a short title and up to 12 \`{ label, value }\` pairs; the chart is shown to the user.
+7. Synthesize the findings into a cited report and save it with \`writeFile({ path: "reports/<slug>.md", content: "<report>" })\`.
+8. When the user gives a durable preference or you verify a reusable finding, call \`remember({ data, content })\` so it can be reviewed and recalled later.
 
 Cite every claim with its source path in square brackets, e.g. [corpus/agent-architectures.md]. Keep the final answer concise.`,
 })
@@ -105,6 +106,7 @@ server/src/app/research/
 server/src/tools/
   searchCorpus.ts               # keyword search over the corpus
   readDoc.ts                    # reads one document in full
+  renderChart.ts                # draws a bar chart the user sees
 server/workspace/
   AGENTS.md                     # prompt guidance injected every turn
   corpus/                       # the documents the agent searches
@@ -139,7 +141,7 @@ Next, run both packages' tests:
 npm test
 ```
 
-The server tests replay recorded model responses. They cover corpus search and citations, memory recall and approval, subagent dispatch, tool-output offloading and the permission gate. The web tests cover the Workbench. Neither needs an API key.
+The server tests replay recorded model responses. They cover corpus search and citations, memory recall and approval, subagent dispatch, chart rendering, tool-output offloading and the permission gate. The web tests cover the Workbench. Neither needs an API key.
 
 Then run the quality eval:
 
