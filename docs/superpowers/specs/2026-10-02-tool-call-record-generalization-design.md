@@ -201,8 +201,13 @@ greater than one year, or the boot fails with a `ClientToolConfigError`. `Client
 carries it as `retentionMs`.
 
 The AG-UI handler calls `store.prune({ threadId, before: now − retentionMs })` once per run on
-that thread, inside the run slot and **before** the turn resolver reads the record, so a resume
-never races a delete. Only non-open rows are eligible, so an outstanding client call survives
+that thread, under the run slot, immediately after the slot is taken and before any record read
+that happens under it (the client-park recheck, the recorder, the abandon close). The turn
+resolver runs earlier, under the resume claim; that is safe because prune deletes only non-open
+rows, and the only non-open rows a resume depends on are answered client rows whose results the
+resolver has already copied into its decision. A row answered more than the retention window ago
+and never resumed (a crash between answer and resume, then an idle thread) is pruned, and the
+next run abandons its park with the fixed abandoned result instead of the stored one — accepted. Only non-open rows are eligible, so an outstanding client call survives
 until the TTL abandons it; the abandon voids it, and the next run on the thread may prune it. A
 prune failure is logged and the run continues: retention is housekeeping.
 
