@@ -11,35 +11,55 @@ class FakeModel {
 }
 
 describe("chat model factory", () => {
-  test("creates OpenAI with reasoningEffort", async () => {
+  test("creates OpenAI with the reasoning controls, on the Responses API when a summary is asked for", async () => {
     const importer = vi.fn().mockResolvedValue({ ChatOpenAI: FakeModel })
 
     const model = await createChatModel({
       model: "gpt-5-mini",
       provider: "openai",
-      reasoning: { effort: "high" },
+      reasoning: { openai: { effort: "high", summary: "auto" } },
       importer,
     })
 
     expect(importer).toHaveBeenCalledWith("@langchain/openai")
     expect((model as FakeModel).options).toEqual({
       model: "gpt-5-mini",
-      reasoningEffort: "high",
+      reasoning: { effort: "high", summary: "auto" },
+      useResponsesApi: true,
     })
   })
 
-  test("does not pass OpenAI reasoningEffort to Anthropic", async () => {
+  test("creates Anthropic with extended thinking", async () => {
     const importer = vi.fn().mockResolvedValue({ ChatAnthropic: FakeModel })
 
     const model = await createChatModel({
       model: "claude-sonnet-4-5",
       provider: "anthropic",
-      reasoning: { effort: "high" },
+      reasoning: { anthropic: { budgetTokens: 4096 } },
       importer,
     })
 
     expect(importer).toHaveBeenCalledWith("@langchain/anthropic")
-    expect((model as FakeModel).options).toEqual({ model: "claude-sonnet-4-5" })
+    expect((model as FakeModel).options).toEqual({
+      model: "claude-sonnet-4-5",
+      thinking: { type: "enabled", budget_tokens: 4096 },
+    })
+  })
+
+  test("refuses OpenAI reasoning controls on an Anthropic route before importing the provider", async () => {
+    const importer = vi.fn().mockResolvedValue({ ChatAnthropic: FakeModel })
+
+    await expect(
+      createChatModel({
+        model: "claude-sonnet-4-5",
+        provider: "anthropic",
+        reasoning: { openai: { effort: "high" } },
+        importer,
+      }),
+    ).rejects.toThrow(
+      /reasoning\.openai is set, but the route resolves to the "anthropic" provider/,
+    )
+    expect(importer).not.toHaveBeenCalled()
   })
 
   test("wraps missing optional peer with install command", async () => {
