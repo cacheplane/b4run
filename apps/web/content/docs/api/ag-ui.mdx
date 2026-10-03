@@ -262,7 +262,7 @@ fromRunAgentInput maps supported messages and resume entries into B4.run shapes,
 
 ### Stream edge cases
 
-Unknown chunk kinds are ignored after closing an open text frame. A stream that ends without `done` still finishes successfully. Interrupts are accumulated in the `RUN_FINISHED` outcome. After an interrupt, later non-interrupt chunks are suppressed until the outcome. A malformed interrupt terminates with `RUN_ERROR`.
+Unknown chunk kinds are ignored after closing an open text frame. A stream that ends without `done` still finishes successfully. Interrupts are accumulated in the `RUN_FINISHED` outcome. After an interrupt, later non-interrupt chunks are suppressed until the outcome. A malformed interrupt terminates with `RUN_ERROR`. A `step` chunk becomes a `CUSTOM` event named `b4.step`; a malformed one is ignored.
 
 `fromRunAgentInput()` normalizes messages and resume entries. It preserves the original input as `raw`, leaving tools, state, and context for application-owned validation and policy.
 

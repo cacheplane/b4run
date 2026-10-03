@@ -190,6 +190,27 @@ export default async (input: { readonly tenant: string }) => {
 
 A tool without a description still works, but the model only sees its name. I recommend writing the one-liner.
 
+## Describing a call to people
+
+The model reads `description`; a person reads the step a call becomes in the chat. Export `display` to say how a call reads while it runs and once it returns:
+
+```ts title="src/tools/searchCorpus.ts"
+import type { ToolDisplay } from "@b4run/sdk"
+
+export const display = {
+  icon: "search",
+  running: ({ query }) => `Searching the corpus for “${query}”`,
+  done: ({ query }) => `Searched the corpus for “${query}”`,
+  sources: (hits) => hits.map((hit) => ({ title: hit.path })),
+} satisfies ToolDisplay<{ query: string }, { path: string }[]>
+
+export default async (input: { readonly query: string }) => { /* … */ }
+```
+
+Every field is optional. `icon` is one of `search`, `read`, `write`, `run`, `web`, `memory`, `plan`, `agent`, `think` or `tool`. `output` in `done` and `sources` is the value the tool returned, exactly as returned. The runtime evaluates `running` as the call starts and `done` and `sources` as it returns, truncates labels at 120 characters, and streams the result to AG-UI clients as a `b4.step` event (see [AG-UI](/docs/ag-ui#step-events)). A label that throws, or returns something other than text, falls back to the default and is logged once. Without `display`, clients show "Using searchCorpus…" and then "Used searchCorpus". The built-in workspace, memory, skill, plan and subagent tools ship their own labels.
+
+`b4 check` rejects a `display` with an unknown icon, a non-function label or an unknown key (`B4_E5002`).
+
 ## Ending the run from a tool
 
 By default a tool's result goes back to the model for another turn, and the run ends only when the model answers without calling a tool. When a tool's result *is* the answer, that extra turn buys nothing: the model spends tokens and seconds saying what the tool already did. Export `returnDirect` to end the run on the tool's successful result instead:
