@@ -54,6 +54,7 @@ export interface ToAguiOptions {
    * success with `pendingToolCallIds`, never as an interrupt. Absent or empty
    * means none, and the key is then omitted (never `[]`). May be asynchronous:
    * the runtime reads them from its tool-call record.
+   * A rejection ends the run as RUN_ERROR rather than reporting nothing pending.
    */
   readonly pendingToolCallIds?: () => readonly string[] | Promise<readonly string[]>
 }

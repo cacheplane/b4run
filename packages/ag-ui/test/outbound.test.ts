@@ -829,6 +829,20 @@ describe("toAguiEvents", () => {
     })
   })
 
+  test("a rejecting pendingToolCallIds read ends the run as RUN_ERROR", async () => {
+    const out = []
+    for await (const ev of toAguiEvents(toAsync([{ type: "done", data: {} }]), CTX, {
+      pendingToolCallIds: async () => {
+        throw new Error("db down")
+      },
+    })) {
+      out.push(ev)
+    }
+    expect(out.at(-1)).toMatchObject({ type: EventType.RUN_ERROR })
+    expect((out.at(-1) as { message: string }).message).toContain("db down")
+    expect(out.some((ev) => ev.type === EventType.RUN_FINISHED)).toBe(false)
+  })
+
   test("an ordinary success carries no pendingToolCallIds key at all", async () => {
     const events = await collect([{ type: "done", data: {} }])
     expect(events.at(-1)).toMatchObject({ outcome: { type: "success" } })
