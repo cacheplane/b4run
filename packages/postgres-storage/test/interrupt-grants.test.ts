@@ -322,4 +322,50 @@ describe.skipIf(!enabled)("postgres interrupt grant store against real Postgres"
       await pool.end()
     }
   }, 60_000)
+
+  test("prune deletes settled rows before the cutoff, keeps the rest, never touches outstanding rows", async () => {
+    await withStore(async (store) => {
+      const BEFORE = "2026-09-18T12:00:00.000Z"
+      await store.issue(
+        grant({
+          interruptId: "old_consumed",
+          consumedAt: "2026-09-18T10:30:00.000Z",
+          consumedDecision: "once",
+        }),
+      )
+      await store.issue(
+        grant({ interruptId: "new_consumed", consumedAt: BEFORE, consumedDecision: "once" }),
+      )
+      await store.issue(grant({ interruptId: "old_voided", voidedAt: "2026-09-18T10:30:00.000Z" }))
+      await store.issue(
+        grant({
+          interruptId: "consumed_then_voided",
+          consumedAt: "2026-09-18T10:30:00.000Z",
+          consumedDecision: "once",
+          voidedAt: "2026-09-18T13:00:00.000Z",
+        }),
+      )
+      await store.issue(
+        grant({ interruptId: "expired_long_ago", expiresAt: "2020-01-01T00:00:00.000Z" }),
+      )
+      await store.issue(grant({ interruptId: "never_expires", expiresAt: null }))
+      await store.issue(
+        grant({
+          threadId: "t-2",
+          interruptId: "other_thread",
+          voidedAt: "2026-09-18T10:30:00.000Z",
+        }),
+      )
+
+      expect(await store.prune({ before: BEFORE })).toBe(3)
+      expect(await store.prune({ before: BEFORE })).toBe(0)
+      expect((await store.listForThread("t-1")).map((row) => row.interruptId).sort()).toEqual([
+        "consumed_then_voided",
+        "expired_long_ago",
+        "never_expires",
+        "new_consumed",
+      ])
+      expect(await store.listForThread("t-2")).toEqual([])
+    })
+  }, 60_000)
 })

@@ -67,6 +67,15 @@ export interface InterruptGrantStore {
     readonly keepInterruptIds: readonly string[]
     readonly at: string
   }): Promise<number>
+
+  /**
+   * Deletes settled rows — consumed or voided — whose settle time (`voidedAt`,
+   * else `consumedAt`) is before `before`. Outstanding rows are never deleted,
+   * whatever `expiresAt` says: a parked prompt with no row would resume
+   * ungated under `approvals.grants: "optional"`. Returns how many rows were
+   * deleted. `before` is an ISO-8601 string compared as text.
+   */
+  prune(options: { readonly before: string }): Promise<number>
 }
 
 /** An interrupt-grant store that also owns Postgres lifecycle. */
@@ -309,6 +318,23 @@ export function createPostgresInterruptGrantStore(
            AND NOT (interrupt_id = ANY($3::text[]))
          RETURNING interrupt_id`,
         [at, threadId, [...keepInterruptIds]],
+      )
+      return res.rows.length
+    },
+
+    async prune({ before }) {
+      await ready()
+      // Settled rows only (voided_at, else consumed_at, before the cutoff);
+      // outstanding rows are never deleted — a parked prompt with no row
+      // resumes ungated under approvals.grants "optional". COLLATE "C" makes
+      // the ISO-8601 comparison byte-wise; the count comes from RETURNING
+      // because `SqlPool` exposes `rows` alone.
+      const res = await pool.query<{ interrupt_id: string }>(
+        `DELETE FROM ${table}
+         WHERE (voided_at IS NOT NULL AND voided_at COLLATE "C" < $1)
+            OR (voided_at IS NULL AND consumed_at IS NOT NULL AND consumed_at COLLATE "C" < $1)
+         RETURNING interrupt_id`,
+        [before],
       )
       return res.rows.length
     },
