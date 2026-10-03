@@ -1,0 +1,167 @@
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="i-think" viewBox="0 0 16 16"><path d="M8 2.5a4 4 0 0 0-2.3 7.3c.4.3.6.7.6 1.2v.5h3.4V11c0-.5.2-.9.6-1.2A4 4 0 0 0 8 2.5Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M6.6 13.5h2.8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></symbol>
+    <symbol id="i-list" viewBox="0 0 16 16"><path d="M6 4h7M6 8h7M6 12h7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="m2.5 4 .8.8L4.6 3.3M2.5 8l.8.8 1.3-1.5" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="3.4" cy="12" r=".9" fill="none" stroke="currentColor" stroke-width="1.1"/></symbol>
+    <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.2" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="m10.2 10.2 3.3 3.3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></symbol>
+    <symbol id="i-doc" viewBox="0 0 16 16"><path d="M4 2h5.5L12 4.5V14H4z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M6 8h4M6 10.5h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></symbol>
+    <symbol id="i-agent" viewBox="0 0 16 16"><circle cx="8" cy="5.5" r="2.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M3 13.5c.6-2.4 2.6-3.8 5-3.8s4.4 1.4 5 3.8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></symbol>
+    <symbol id="i-term" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="m5 7 1.6 1.4L5 9.8M8.2 10h2.6" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-write" viewBox="0 0 16 16"><path d="M3 13l.6-2.6L10.5 3.5l2 2L5.6 12.4z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></symbol>
+    <symbol id="i-mem" viewBox="0 0 16 16"><path d="M3 4.5C3 3.7 5.2 3 8 3s5 .7 5 1.5-2.2 1.5-5 1.5S3 5.3 3 4.5Zm0 0v7C3 12.3 5.2 13 8 13s5-.7 5-1.5v-7" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 16 16"><path d="M8 5v3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11" r=".9" fill="currentColor"/><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 12 12"><path d="M4 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  </defs>
+</svg>
+<style>
+  .grid { display:grid; grid-template-columns: 1fr 1fr; gap:18px; text-align:left; }
+  .pane { border:1px solid rgb(229,229,229); border-radius:14px; background:#fff; overflow:hidden; }
+  .pane .cap { padding:9px 16px; border-bottom:1px solid rgb(240,240,240); background:rgb(250,250,250); font-size:12px; color:rgb(115,115,115); }
+  .pane .cap b { color:rgb(28,28,28); font-weight:600; }
+  .chat { padding:18px 18px 20px; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; font-size:15px; line-height:1.6; color:rgb(28,28,28); }
+  .user { margin-left:auto; width:max-content; max-width:80%; background:rgb(244,244,244); border-radius:18px; padding:7px 14px; margin-bottom:16px; font-size:14.5px; }
+  .muted { color:rgb(115,115,115); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12.5px; }
+  svg.i { width:16px; height:16px; flex:none; color:rgb(140,140,140); }
+  svg.c { width:11px; height:11px; color:rgb(150,150,150); transition: transform 200ms; }
+  .open > .sum svg.c { transform: rotate(90deg); }
+  .sum { display:inline-flex; align-items:center; gap:7px; font-size:14px; color:rgb(115,115,115); min-height:26px; }
+  .sum .time { color:rgb(170,170,170); }
+  .shimmer { background: linear-gradient(90deg, rgb(110,110,110) 0%, rgb(205,205,205) 50%, rgb(110,110,110) 100%); background-size:200% 100%; -webkit-background-clip:text; background-clip:text; color:transparent; animation: sh 2.2s linear infinite; }
+  @keyframes sh { to { background-position: -200% 0; } }
+  .steps { margin:6px 0 2px 5px; padding-left:18px; border-left:1px solid rgb(232,232,232); }
+  .step { display:flex; gap:10px; align-items:flex-start; font-size:14px; color:rgb(80,80,80); padding:5px 0; }
+  .step svg.i { margin-top:3px; }
+  .step .now { color:rgb(28,28,28); }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+  .chip { display:inline-flex; align-items:center; gap:5px; font-size:12px; border:1px solid rgb(229,229,229); border-radius:999px; padding:1px 10px 1px 8px; color:rgb(80,80,80); background:#fff; }
+  .chip svg { width:12px; height:12px; color:rgb(150,150,150); }
+  .todos { margin-top:6px; display:flex; flex-direction:column; gap:3px; font-size:13.5px; }
+  .todo { display:flex; gap:8px; align-items:center; }
+  .box { width:14px; height:14px; border-radius:4px; border:1.4px solid rgb(190,190,190); flex:none; display:inline-flex; align-items:center; justify-content:center; }
+  .box.done { background:rgb(28,28,28); border-color:rgb(28,28,28); }
+  .box.done::after { content:""; width:7px; height:4px; border-left:1.6px solid #fff; border-bottom:1.6px solid #fff; transform: rotate(-45deg) translate(1px,-1px); }
+  .box.now { border-color:rgb(28,28,28); }
+  .todo.done span:last-child { color:rgb(140,140,140); text-decoration:line-through; }
+  .subsum { margin-top:6px; border-radius:12px; background:rgb(249,249,249); padding:8px 12px; }
+  .subsum .sum { font-size:13.5px; }
+  .subsum .steps { margin-left:4px; }
+  .subsum .step { font-size:13.5px; }
+  .gate { border:1px solid rgb(229,229,229); border-radius:16px; padding:14px 16px; margin:12px 0 4px; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+  .gate .q { display:flex; gap:8px; align-items:center; font-weight:500; margin-bottom:4px; font-size:14.5px; }
+  .gate .why { font-size:13px; color:rgb(115,115,115); margin-bottom:10px; }
+  .code { font-family: ui-monospace, Menlo, monospace; font-size:12.5px; background:rgb(246,246,246); border-radius:10px; padding:8px 12px; margin-bottom:12px; overflow-wrap:anywhere; }
+  .actions { display:flex; flex-wrap:nowrap; align-items:center; gap:6px; }
+  .actions .btn { margin:0; white-space:nowrap; }
+  .actions .ghost { margin-left:auto; }
+  .scope { margin-top:8px; font-size:12px; color:rgb(140,140,140); }
+  .btn { display:inline-block; border-radius:999px; padding:6px 15px; font-size:13px; font-weight:500; margin:2px 6px 2px 0; }
+  .primary { background:rgb(28,28,28); color:#fff; } .secondary { border:1px solid rgb(220,220,220); } .ghost { color:rgb(115,115,115); }
+  .ans p { margin:12px 0 0; font-size:15px; }
+  .ans sup { font-size:11px; color:rgb(100,100,100); background:rgb(240,240,240); border-radius:999px; padding:0 6px; margin-left:2px; }
+  .composer { margin-top:16px; border:1px solid rgb(229,229,229); border-radius:22px; padding:9px 16px; font-size:14px; color:rgb(160,160,160); }
+  .err { color:#b91c1c; }
+  .errbox { margin-top:6px; font-size:13px; color:#b91c1c; background:#fef2f2; border-radius:10px; padding:6px 10px; }
+  .decided { display:inline-flex; gap:6px; align-items:center; font-size:13px; color:rgb(115,115,115); }
+</style>
+
+<h2>Direction B — one turn, start to finish <span style="font-size:13px;font-weight:500;color:#7c3aed">v2: approval buttons on one row</span></h2>
+<p class="subtitle">Real icons (inline SVG), real copy. Tell me what to change: wording, spacing, weight, icons, the approval card, the subagent block, the collapsed summary.</p>
+
+<div class="grid">
+  <div class="pane">
+    <div class="cap"><b>1 · Working</b> — summary line streams the current step; open by default</div>
+    <div class="chat">
+      <div class="user">Compare ReAct and plan-and-execute using the corpus.</div>
+      <div class="open">
+        <div class="sum"><svg class="c"><use href="#i-chev"/></svg><span class="shimmer">Searching the corpus</span><span class="time">· 12s</span></div>
+        <div class="steps">
+          <div class="step"><svg class="i"><use href="#i-mem"/></svg><div>Checked memory — nothing relevant</div></div>
+          <div class="step"><svg class="i"><use href="#i-list"/></svg><div>Made a plan
+            <div class="todos">
+              <div class="todo done"><span class="box done"></span><span>Restate the question</span></div>
+              <div class="todo"><span class="box now"></span><span>Search the corpus</span></div>
+              <div class="todo"><span class="box"></span><span class="muted">Research each architecture</span></div>
+              <div class="todo"><span class="box"></span><span class="muted">Write the comparison</span></div>
+            </div></div></div>
+          <div class="step"><svg class="i" style="color:rgb(28,28,28)"><use href="#i-search"/></svg><div class="now">Searching the corpus for “ReAct plan-and-execute”…</div></div>
+        </div>
+      </div>
+      <div class="composer">Ask anything</div>
+    </div>
+  </div>
+
+  <div class="pane">
+    <div class="cap"><b>2 · Needs approval</b> — the run pauses; card sits after the activity, announced as an alert</div>
+    <div class="chat">
+      <div class="user">Compare ReAct and plan-and-execute using the corpus.</div>
+      <div class="open">
+        <div class="sum"><svg class="c"><use href="#i-chev"/></svg><span>Waiting for your approval</span><span class="time">· 38s</span></div>
+        <div class="steps">
+          <div class="step"><svg class="i"><use href="#i-search"/></svg><div>Searched the corpus for “ReAct plan-and-execute”
+            <div class="chips"><span class="chip"><svg><use href="#i-doc"/></svg>agent-architectures.md</span><span class="chip"><svg><use href="#i-doc"/></svg>tool-use.md</span><span class="chip">+1</span></div></div></div>
+          <div class="step"><svg class="i"><use href="#i-agent"/></svg><div>Asked <b style="font-weight:500;color:rgb(28,28,28)">researcher</b> to summarize ReAct
+            <div class="subsum open">
+              <div class="sum"><svg class="c"><use href="#i-chev"/></svg><span>researcher · paused</span></div>
+              <div class="steps">
+                <div class="step"><svg class="i"><use href="#i-doc"/></svg><div>Read agent-architectures.md</div></div>
+                <div class="step"><svg class="i" style="color:#b45309"><use href="#i-term"/></svg><div>Wants to run a command</div></div>
+              </div>
+            </div></div></div>
+        </div>
+      </div>
+      <div class="gate">
+        <div class="q"><svg class="i" style="color:#b45309"><use href="#i-term"/></svg>researcher wants to run a command</div>
+        <div class="why">It isn’t on this app’s allow-list.</div>
+        <div class="code">node scripts/fetch-source.mjs https://example.org/paper</div>
+        <div class="actions"><span class="btn primary">Allow once</span><span class="btn secondary">Always allow</span><span class="btn ghost">Deny</span></div>
+        <div class="scope">“Always allow” applies to this exact command, for this app.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pane">
+    <div class="cap"><b>3 · Done (collapsed)</b> — activity folds to one line; the answer is the star</div>
+    <div class="chat">
+      <div class="user">Compare ReAct and plan-and-execute using the corpus.</div>
+      <div class="sum"><svg class="c"><use href="#i-chev"/></svg><span>Worked for 1m 12s</span><span class="time">· 9 steps · 3 sources</span></div>
+      <div class="ans">
+        <p><b>ReAct</b> interleaves reasoning with tool calls, observing each result before choosing the next action — simple and robust for short, tool-heavy tasks.<sup>1</sup></p>
+        <p><b>Plan-and-execute</b> drafts the whole plan first, then runs each step — better for long procedures where re-planning is costly.<sup>1</sup><sup>2</sup></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="pane">
+    <div class="cap"><b>4 · Done (expanded)</b> — full trail; every step can open to its inputs/output</div>
+    <div class="chat">
+      <div class="user">Compare ReAct and plan-and-execute using the corpus.</div>
+      <div class="open">
+        <div class="sum"><svg class="c"><use href="#i-chev"/></svg><span>Worked for 1m 12s</span><span class="time">· 9 steps · 3 sources</span></div>
+        <div class="steps">
+          <div class="step"><svg class="i"><use href="#i-think"/></svg><div>Thought for 4s</div></div>
+          <div class="step"><svg class="i"><use href="#i-list"/></svg><div>Made a plan · <span class="muted">4 of 4 done</span></div></div>
+          <div class="step"><svg class="i"><use href="#i-search"/></svg><div>Searched the corpus 2 times</div></div>
+          <div class="step"><svg class="i"><use href="#i-agent"/></svg><div>researcher summarized ReAct · <span class="muted">5 steps</span></div></div>
+          <div class="step"><svg class="i"><use href="#i-term"/></svg><div>Ran <span class="mono">node scripts/fetch-source.mjs …</span> · <span class="muted">allowed once</span></div></div>
+          <div class="step"><svg class="i"><use href="#i-write"/></svg><div>Saved reports/react-vs-plan.md</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pane" style="grid-column:1/-1">
+    <div class="cap"><b>5 · Something failed</b> — the failing step opens itself; the run continues or stops, and says which</div>
+    <div class="chat" style="max-width:680px;margin:0 auto">
+      <div class="user">Compare ReAct and plan-and-execute using the corpus.</div>
+      <div class="open">
+        <div class="sum"><svg class="c"><use href="#i-chev"/></svg><span>Worked for 41s</span><span class="time">· 6 steps · 1 failed</span></div>
+        <div class="steps">
+          <div class="step"><svg class="i"><use href="#i-search"/></svg><div>Searched the corpus for “ReAct plan-and-execute”</div></div>
+          <div class="step"><svg class="i err"><use href="#i-alert"/></svg><div class="err">Couldn’t read corpus/plan-execute.md
+            <div class="errbox">ENOENT: no such file — the agent continued with the remaining sources.</div></div></div>
+          <div class="step"><svg class="i"><use href="#i-agent"/></svg><div>researcher summarized ReAct · <span class="muted">5 steps</span></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
