@@ -46,7 +46,7 @@ appended migration in each of `@b4run/sqlite-storage` and `@b4run/postgres-stora
 
 | column       | type            | meaning |
 |--------------|-----------------|---------|
-| `kind`       | text NOT NULL   | `client` or `server`. The ALTER backfills existing rows to `client`; every INSERT still names it. |
+| `kind`       | text NOT NULL   | `client` or `server`. Added as `NOT NULL DEFAULT 'client'` because SQLite's `ADD COLUMN` needs a default to backfill existing rows; that default exists only for the backfill — every INSERT still names `kind`, pinned by the DDL tests, so it is never load-bearing. Postgres uses the same statement for symmetry. |
 | `settled_at` | text (nullable) | Server rows only: when the tool returned or threw. |
 
 Shipped migrations stay frozen; this is `version: 2` in both stores. The DDL pin tests in each
