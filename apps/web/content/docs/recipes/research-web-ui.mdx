@@ -156,9 +156,11 @@ import "@b4run/ag-ui/react/styles.css"
 
 The cards carry no inline styles, so without that import they render as bare markup. To restyle them, override the `--b4-activity-*` custom properties in your own CSS. The [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) walks through every customization option.
 
-`b4ActivityRenderers` is a module-scope constant, so the registry keeps a stable identity across React renders. Each renderer is keyed by the adapter's own activity-type constant. Both renderers validate the activity content with a strict runtime schema, so they reject a payload with unknown or incompatible fields rather than dump arbitrary JSON into the transcript.
+`b4ActivityRenderers` is a module-scope constant, so the registry keeps a stable identity across React renders. Its renderer is keyed by the adapter's own activity-type constant and validates the activity content with a strict runtime schema, so it rejects a payload with unknown or incompatible fields rather than dump arbitrary JSON into the transcript.
 
-The example passes its own `workbenchActivityRenderers`, from `examples/research/web/app/components/activity-renderers.tsx`. These wrap the packaged `PlanActivityCard` and `SubagentActivityCard` and pass the packaged content schemas. They only add per-part classes through the `classNames` prop, so validation and bounds stay in the package, where they're tested.
+The example passes its own `workbenchActivityRenderers`, from `examples/research/web/app/components/activity-renderers.tsx`. It wraps the packaged `PlanActivityCard` and passes the packaged content schema, adding only per-part classes through the `classNames` prop, so validation and bounds stay in the package, where they're tested.
+
+Subagents are not activities. The transcript (`app/components/Transcript.tsx`) calls `useSubagentRuns(agent)` on the `useAgent()` instance and mounts the packaged `SubagentPanel` on the result: the hook subscribes to the agent's event stream and folds `SUBAGENT_STARTED/FINISHED/ERROR` plus every event tagged `subagentRunId` into a tree of invocations, and the panel renders them nested — name, status, reasoning, prose, plan, tool calls with arguments and results, and the final result or error. The same `classNames` rule applies to the panel.
 
 There's one catch with `classNames`. An entry can only set a property that the package stylesheet leaves unset on that element, because the package's CSS is unlayered and Tailwind's utilities are layered. For the properties the stylesheet does set on the card's own box (background, border color, radius, text color, font-size, margin, and padding), plus the header's font weight and the depth badge's background, use the `--b4-activity-*` tokens. The app sets those in `app/theme.css`.
 
@@ -166,15 +168,15 @@ React and `@copilotkit/react-core` are optional peer dependencies of `@b4run/ag-
 
 To present the same activities your own way, the subpath also exports the pieces behind that array:
 
-- `b4PlanActivityRenderer` and `b4SubagentActivityRenderer`, to register one without the other.
-- `PlanActivityCard`, `SubagentActivityCard`, and `ActivityChecklist` as plain React components. The cards take a `content` prop and need no CopilotKit context.
-- `planActivityContentSchema` and `subagentActivityContentSchema`, to validate content before you render it yourself.
+- `b4PlanActivityRenderer`, `PlanActivityCard` and `ActivityChecklist`: the plan renderer, and the plain React components behind it (they take a `content` prop and need no CopilotKit context).
+- `planActivityContentSchema`, to validate plan content before you render it yourself.
+- `reduceSubagentRuns`, the pure reducer behind `useSubagentRuns`, to build the subagent tree from events in a non-React client.
 
-Root plan snapshots replace `b4:plan:${runId}` and carry the complete todo list. Subagent snapshots replace `b4:subagent:${call_id}` and carry the name, depth, `running`/`completed`/`failed` status, optional todos, up to five recent tool name/status summaries, the total tool count, and an optional 400-character failure summary. The root and child checklist views show at most eight todos, but their snapshots keep the complete valid todo lists. The `b4.plan` and `b4.subagent` activity content excludes child reasoning or prose, prompts, tool inputs, tool outputs, final child answers, route ids, and raw runtime ids.
+Plan snapshots replace `b4:plan:${runId}` (the root agent's) or `b4:plan:${call_id}` (a subagent's, tagged `subagentRunId`) and carry the complete todo list. The checklist views show at most eight todos, but the snapshots keep the complete valid lists.
 
-These activities are the whole presentation of the two built-in orchestration tools. When a `writeTodos` or `task` call produced its activity, B4.run's AG-UI adapter emits no tool call/result events for that call. So the wildcard tool card receives the ordinary tools (`recall`, `searchCorpus`, `readDoc`, `writeFile`, and `runBash` once approved) but never `writeTodos` or `task`. The adapter does this suppression, not CopilotKit or these renderers.
+The plan activity is the whole presentation of `writeTodos`: when a `writeTodos` call produced its activity, B4.run's AG-UI adapter emits no tool call/result events for that call, so the wildcard tool card never receives it. A `task` call is an ordinary tool call — the wildcard card renders it, and the subagent it starts shows up in the panel.
 
-The wildcard card is still the fail-open fallback. If an activity cannot be produced (no tool-call id, a malformed payload, or delegation that never starts), the ordinary tool events survive and the generic card renders them. So keep its `task` argument summary.
+The wildcard card is still the fail-open fallback for `writeTodos`. If the plan activity cannot be produced (no tool-call id, a malformed payload), the ordinary tool events survive and the generic card renders them.
 
 Choose **Research a topic** on the empty transcript to see the root plan and researcher progress update before the cited answer. This live flow uses the B4.run server's model key. The automated browser check only proves V2 transport selection.
 
