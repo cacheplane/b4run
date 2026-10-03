@@ -68,12 +68,16 @@ function record(
   }
 }
 
-function serverRecord(toolCallId: string): ClientToolCallRecord {
+function serverRecord(
+  toolCallId: string,
+  overrides: Partial<ClientToolCallRecord> = {},
+): ClientToolCallRecord {
   return record(toolCallId, {
     kind: "server",
     interruptId: "",
     toolName: "readFile",
     settledAt: NOW.toISOString(),
+    ...overrides,
   })
 }
 
@@ -599,7 +603,13 @@ describe("resolveClientToolTurn — a tool message reaches the model only throug
   })
 
   test("a client park whose id maps to a server row is unanswerable (fail closed)", async () => {
-    const store = await storeWith(serverRecord("call-1"))
+    const store = await storeWith(
+      serverRecord("call-1", {
+        interruptId: "client-call-1",
+        answeredAt: "2026-09-30T11:59:30.000Z",
+        result: "server-output",
+      }),
+    )
     const turn = await resolveClientToolTurn({
       store,
       threadId: THREAD,
@@ -607,6 +617,11 @@ describe("resolveClientToolTurn — a tool message reaches the model only throug
       messages: [user("hi"), tool("call-1", "x")],
       now: NOW,
     })
-    expect(turn).toMatchObject({ mode: "abandon", reason: "unanswerable" })
+    expect(turn).toEqual({
+      mode: "abandon",
+      reason: "unanswerable",
+      calls: [{ toolCallId: "call-1", toolName: "readFile", result: ABANDONED_CLIENT_TOOL_RESULT }],
+      abandonedToolCallIds: ["call-1"],
+    })
   })
 })

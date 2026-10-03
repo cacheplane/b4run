@@ -24,7 +24,8 @@
  *   1. no client park pending              → `none`
  *   2. any client park unanswerable        → `abandon` / "unanswerable"
  *      (no resume key, a malformed envelope, a malformed snapshot, no record
- *      on this thread, a record for a different park, or a voided record)
+ *      on this thread, a server-kind record, a record for a different park,
+ *      or a voided record)
  *   3. any client park's outstanding record expired → `abandon` / "expired"
  *   4. last message is a user message      → `abandon` / "new_user_message"
  *      — even when every client park is answered. A resume carries no new
