@@ -17,9 +17,10 @@ import { PermissionInterrupt } from "./components/PermissionInterrupt"
 // - `labels` is `Partial<CopilotChatLabels>`, whose header title field is `modalHeaderTitle`.
 // - `renderActivityMessages` is required here, not optional polish: this route ships
 //   `src/app/chat/plan.md`, so the agent plans with `writeTodos`, and B4.run presents
-//   planning (and subagent delegation) ONLY as an activity — no generic tool frames.
-//   CopilotKit renders nothing for an activity it has no renderer for, so without
-//   `b4ActivityRenderers` the user would see the agent go silent while it plans.
+//   planning ONLY as an activity — no generic tool frames. CopilotKit renders nothing
+//   for an activity it has no renderer for, so without `b4ActivityRenderers` the user
+//   would see the agent go silent while it plans. (Subagents are not activities; a
+//   client that drives a delegating route renders them with `SubagentPanel`.)
 export default function Home() {
   return (
     <CopilotKit

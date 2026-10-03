@@ -33,9 +33,9 @@ for await (const event of toAguiEvents(b4Chunks, { threadId, runId })) {
 
 `accept` selects the AG-UI HTTP binding: SSE unless the header admits `application/vnd.ag-ui.event+proto` with a positive quality (named, or through a wildcard such as `*/*`), then 4-byte big-endian length-prefixed protobuf frames. A client that cannot read protobuf names `text/event-stream`; `@ag-ui/client` and CopilotKit do.
 
-Plan and subagent activity snapshots are translated on the root surface; use the focused API reference for their exact identifiers and payload contracts.
+Plan activity snapshots are translated on the root surface; use the focused API reference for their exact identifiers and payload contracts. Subagents are presented with AG-UI 1.0's `SUBAGENT_STARTED/FINISHED/ERROR` events, and everything a child does is emitted as the ordinary events for those things tagged with its `subagentRunId`.
 
-Built-in orchestration is presented once. A `writeTodos` or `task` call whose activity was emitted produces no `TOOL_CALL_*` events, correlated by the model's tool-call id; every other tool is unchanged. The rule fails open, so the ordinary tool events are preserved whenever the activity cannot be produced. A client that registers no activity renderer therefore sees less for those two tools: activity snapshots are the canonical surface for them.
+Built-in planning is presented once. A `writeTodos` call whose plan activity was emitted produces no `TOOL_CALL_*` events, correlated by the model's tool-call id; every other tool, `task` included, is unchanged. The rule fails open, so the ordinary tool events are preserved whenever the activity cannot be produced. A client that registers no activity renderer therefore sees less for `writeTodos`: the activity snapshot is the canonical surface for it.
 
 ## Streamed tool-call arguments
 
@@ -98,11 +98,21 @@ import { b4ActivityRenderers } from "@b4run/ag-ui/react"
 >
 ```
 
-The subpath exports three layers, from drop-in to build-your-own:
+The subpath exports two surfaces, each in layers from drop-in to build-your-own:
 
-- `b4ActivityRenderers` — both renderers, ready to pass to CopilotKit's `renderActivityMessages`.
-- `b4PlanActivityRenderer` and `b4SubagentActivityRenderer` — the individual renderers, for a client that wants one of them or mixes them with its own.
-- `PlanActivityCard`, `SubagentActivityCard`, and `ActivityChecklist` — plain React components taking `content`, plus `planActivityContentSchema` and `subagentActivityContentSchema`, the strict validators behind the renderers, for presenting the same activities another way.
+- Activities: `b4ActivityRenderers` (the plan renderer, ready to pass to CopilotKit's `renderActivityMessages`), `b4PlanActivityRenderer` on its own, and `PlanActivityCard` plus `ActivityChecklist` — plain React components taking `content` — with `planActivityContentSchema`, the strict validator behind the renderer, for presenting the plan another way.
+- Subagents: `useSubagentRuns(agent)` subscribes to an `@ag-ui/client` agent (the one CopilotKit's `useAgent()` returns) and folds `SUBAGENT_STARTED/FINISHED/ERROR` plus every event tagged `subagentRunId` into a tree; `SubagentPanel` renders it nested; `reduceSubagentRuns` is the pure reducer behind the hook, for a non-React client.
+
+```tsx
+import { SubagentPanel, useSubagentRuns } from "@b4run/ag-ui/react"
+import { useAgent } from "@copilotkit/react-core/v2"
+
+function Subagents() {
+  const { agent } = useAgent()
+  const { runs } = useSubagentRuns(agent)
+  return <SubagentPanel runs={runs} />
+}
+```
 
 `react` and `@copilotkit/react-core` (`>=1.76.0`) are optional peer dependencies used only by this subpath. Importing the root or `./sse` entry never loads it, so a server-only consumer installs nothing extra. The floor tracks the wire protocol: 1.76.0 is the first `@copilotkit/react-core` whose bundled AG-UI client speaks 1.0, the protocol B4.run serves, and earlier releases resolve a pre-1.0 `@ag-ui/*` (0.0.59 on 1.70–1.75). pnpm warns on an unmet optional peer; npm 7+ rejects it with `ERESOLVE`.
 
@@ -153,9 +163,9 @@ Light and dark values ship out of the box, keyed off `prefers-color-scheme`; set
 
 Appended is not the same as applied. `styles.css` is plain, unlayered CSS, and an unlayered rule beats a layered one regardless of specificity, so a Tailwind utility touching a property the sheet already sets on that same element loses silently. **A `classNames` entry only takes effect on a property the sheet leaves unset there.** Most of what it does claim is reachable at rung 1 instead: background, border color, radius, text color, font-size, margin and padding on the card, and the header's weight, all have tokens. Reachable at neither rung, and needing rung 4: the badge's radius, font-size, weight and padding; the section label's weight and size; the item-status and overflow font-sizes; and the list and item geometry.
 
-A class is applied to every element of that part the card renders, so a part that repeats gets it more than once. `item` lands on each row, and on `SubagentActivityCard` `list`, `itemGlyph`, `itemLabel` and `itemStatus` land on both the plan checklist and the tools list.
+A class is applied to every element of that part the card renders, so a part that repeats gets it more than once. `item` lands on each row, and on `SubagentPanel` `list`, `itemGlyph`, `itemLabel` and `itemStatus` land on both a child's plan checklist and its tools list.
 
-Three keys are easy to confuse. `section` is a card's labelled region and exists only on `SubagentActivityCard`; `checklist` is `ActivityChecklist`'s own wrapper, which both cards render; `marker` is the disclosure triangle, an `aria-hidden` span that is the first child of the header.
+Three keys are easy to confuse. `section` is a card's labelled region and exists only on `SubagentPanel`; `checklist` is `ActivityChecklist`'s own wrapper, which both surfaces render; `marker` is the disclosure triangle, an `aria-hidden` span that is the first child of the header.
 
 > **Upgrading from 0.8.21 or earlier.** `classNames.section` used to land on the checklist wrapper as well as the labelled region — pass `classNames.checklist` for the wrapper now. Three changes fail silently rather than erroring. `.b4-activity__header::before` is gone, replaced by `.b4-activity__marker`; `.b4-activity__section` no longer matches the checklist wrapper, which is `.b4-activity__checklist`; and the marker is now the FIRST CHILD of `<summary>`, so `:first-child` and `nth-child()` selectors against the header shift by one. A plain `:root` palette override also now wins in dark mode and under `data-b4-theme`, where the package's dark rules used to outrank it — so a partial override that used to lose now leaks through; set palette tokens as a set. A `<summary>` `textContent` assertion also now sees the `▸` glyph, which a pseudo-element never contributed.
 
@@ -174,9 +184,9 @@ Three keys are easy to confuse. `section` is a card's labelled region and exists
 />
 ```
 
-`ActivityChecklist`, `PlanActivityCard`, and `SubagentActivityCard` all accept `classNames` and `components`; `SubagentActivityCard` also has a `ToolRow` slot for its tool rows.
+`ActivityChecklist`, `PlanActivityCard`, and `SubagentPanel` all accept `classNames` and `components`; `SubagentPanel` also has a `ToolRow` slot for its tool rows.
 
-**Rung 4 — eject.** For anything the ladder does not cover, copy `PlanActivityCard.tsx`, `SubagentActivityCard.tsx`, and `ActivityChecklist.tsx` into your own app. Each carries two package-internal imports that do not exist in your tree, so repoint them — note they resolve to two *different* entries:
+**Rung 4 — eject.** For anything the ladder does not cover, copy `PlanActivityCard.tsx`, `SubagentPanel.tsx`, and `ActivityChecklist.tsx` into your own app. Each carries package-internal imports that do not exist in your tree, so repoint them — note they resolve to two *different* entries:
 
 | File | Rewrite | To |
 |---|---|---|
@@ -184,10 +194,10 @@ Three keys are easy to confuse. `section` is a card's labelled region and exists
 | `ActivityChecklist.tsx` | `"./parts.js"` | `"@b4run/ag-ui/react"` |
 | `PlanActivityCard.tsx` | `"../activities.js"` | `"@b4run/ag-ui"` |
 | `PlanActivityCard.tsx` | `"./parts.js"` | `"@b4run/ag-ui/react"` |
-| `SubagentActivityCard.tsx` | `"./parts.js"` | `"@b4run/ag-ui/react"` |
-| `SubagentActivityCard.tsx` | `"./schemas.js"` | `"@b4run/ag-ui/react"` |
+| `SubagentPanel.tsx` | `"./parts.js"` | `"@b4run/ag-ui/react"` |
+| `SubagentPanel.tsx` | `"./useSubagentRuns.js"` | `"@b4run/ag-ui/react"` |
 
-`B4PlanActivityContent` lives on the root entry; `cx`, the `classNames`/`components` types, and `SubagentActivityContentOutput` come from `/react`. The `"./ActivityChecklist.js"` imports need no change — they resolve to the sibling file you copied. After those rewrites the components are yours to change freely.
+`B4PlanActivityContent` lives on the root entry; `cx`, the `classNames`/`components` types, and the `SubagentRun` types come from `/react`. The `"./ActivityChecklist.js"` imports need no change — they resolve to the sibling file you copied. After those rewrites the components are yours to change freely.
 
 ## Runtime and stability
 

@@ -1,6 +1,6 @@
 # AG-UI subagent lifecycle and attribution (AG-UI 1.0 sub-project 2, PR 3b) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** `toAguiEvents` presents a subagent the way AG-UI 1.0 does — `SUBAGENT_STARTED/FINISHED/ERROR` plus the child's own text, reasoning, tool calls, usage and plan tagged `subagentRunId` — and nothing else: the `b4.subagent` activity, `SubagentActivityCard`, and the ledger's suppression of `task` tool frames are removed; `@b4run/ag-ui/react` gains an event-driven `useSubagentRuns` hook and `SubagentPanel`; the chat and research examples (and the research scaffold template) migrate; `GET /agui/:routeId` advertises `multiAgent` from the subagent registry the `task` tool dispatches from.
 
@@ -43,7 +43,7 @@ Conventions: as the previous plans — run from the repo root on Node 24; format
 - Create: `packages/ag-ui/src/subagent-chunks.ts`
 - Test: `packages/ag-ui/test/subagent-chunks.test.ts`
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 ```ts
 import { describe, expect, test } from "vitest"
@@ -111,7 +111,7 @@ describe("start and end data", () => {
 })
 ```
 
-- [ ] **Step 2: Run → FAIL (module missing).** **Step 3: Implement**
+- [x] **Step 2: Run → FAIL (module missing).** **Step 3: Implement**
 
 ```ts
 import type { B4AgentStreamChunk } from "./types.js"
@@ -197,7 +197,7 @@ export function asSubagentEndData(data: unknown): SubagentEndData | null {
 }
 ```
 
-- [ ] **Step 4: Run → PASS; format; commit** `feat(ag-ui): unwrap a subagent chunk to its root shape and owner`.
+- [x] **Step 4: Run → PASS; format; commit** `feat(ag-ui): unwrap a subagent chunk to its root shape and owner`.
 
 ---
 
@@ -207,7 +207,7 @@ export function asSubagentEndData(data: unknown): SubagentEndData | null {
 - Modify: `packages/ag-ui/src/outbound.ts`, `packages/ag-ui/src/activities.ts`, `packages/ag-ui/src/orchestration-ledger.ts`, `packages/ag-ui/src/index.ts`, `packages/ag-ui/src/types.ts` (if `B4ActivityChunkType` is re-exported)
 - Modify: `packages/ag-ui/test/outbound.test.ts`, `test/activities.test.ts`, `test/orchestration-ledger.test.ts`, `test/public-api.test.ts`, `test/types.test.ts`
 
-- [ ] **Step 1: Tests first — the new `describe("subagents")` in `outbound.test.ts`**
+- [x] **Step 1: Tests first — the new `describe("subagents")` in `outbound.test.ts`**
 
 Delete every test that asserts a `b4.subagent` `ACTIVITY_SNAPSHOT` or that `task` frames are suppressed (search `B4_SUBAGENT_ACTIVITY_TYPE`, `"task"` in `outbound.test.ts` and `orchestration-ledger.test.ts`; in the ledger test, `task` cases become `writeTodos` cases or go). Add:
 
@@ -385,7 +385,7 @@ describe("subagents", () => {
 
 Plus, in `activities.test.ts`, replace every subagent-machine test with: the plan projector takes an `owner` and mints `b4:plan:<runId>` (root) or `b4:plan:<callId>` (child), correlating `writeTodos` only for root. In `orchestration-ledger.test.ts`, every `task` scenario is deleted and `MAX_TRACKED_CALLS` scenarios use `writeTodos`. `public-api.test.ts` export list loses `B4_SUBAGENT_ACTIVITY_TYPE`.
 
-- [ ] **Step 2: Run → FAIL.** **Step 3: Implement**
+- [x] **Step 2: Run → FAIL.** **Step 3: Implement**
 
 `activities.ts`: delete `B4_SUBAGENT_ACTIVITY_TYPE`, `B4SubagentActivityContent`, every `Internal*`/`parseSubagentIdentity`/`identitiesMatch`/`parseEndError`/`subagentSnapshot`; `B4ActivityChunkType = "plan_update"`; `OrchestrationToolName = "writeTodos"`; `createB4ActivityProjector(runId)` keeps `project(type, data, owner?: string)`:
 
@@ -467,7 +467,7 @@ interface OpenSubagent {
 
 `index.ts`: remove `B4_SUBAGENT_ACTIVITY_TYPE`, `B4SubagentActivityContent`.
 
-- [ ] **Step 4: Run the ag-ui suite (expect the react tests and conformance to fail — next tasks); typecheck. Format; commit** `feat(ag-ui)!: SUBAGENT_* lifecycle and subagentRunId attribution replace the b4.subagent activity; task frames flow`.
+- [x] **Step 4: Run the ag-ui suite (expect the react tests and conformance to fail — next tasks); typecheck. Format; commit** `feat(ag-ui)!: SUBAGENT_* lifecycle and subagentRunId attribution replace the b4.subagent activity; task frames flow`.
 
 ---
 
@@ -475,11 +475,11 @@ interface OpenSubagent {
 
 **Files:** `packages/ag-ui/test/conformance.test.ts`
 
-- [ ] `CANNED`: the child section already carries root-shaped chunks (3a). Remove the `b4.subagent` privacy assertions and the "task frames are suppressed" assertion; replace with: `SUBAGENT_STARTED` precedes the first attributed event; every event between `SUBAGENT_STARTED` and `SUBAGENT_FINISHED` whose type is not a run/subagent event carries `subagentRunId: childIdentity.call_id`; `TOOL_CALL_START` names include `task`; the plan snapshot for the child has `messageId: b4:plan:c1` and `subagentRunId`; `agent.messages` contains the child's assistant text as a message with `subagentRunId` (the 1.0 reducer keeps it); zero warnings.
-- [ ] New run: child interrupt → `suspended` outcome with `interruptIds`, the `Interrupt` carries `subagentRunId`, then a resume run re-announces `c1` (allowed across runs) and finishes it — through `agent.runAgent` on the same agent, under `withNoWarnings`.
-- [ ] New run: cancel with an open child → `SUBAGENT_ERROR … code: "cancelled"` before `RUN_FINISHED { cancelled }`.
-- [ ] New run: a two-level tree (`parent_call_id`) — the verifier requires the parent to be announced first and both to close; assert ordering and zero warnings.
-- [ ] Run; commit `test(ag-ui): conformance covers subagent lifecycle, attribution, suspension and nesting`.
+- [x] `CANNED`: the child section already carries root-shaped chunks (3a). Remove the `b4.subagent` privacy assertions and the "task frames are suppressed" assertion; replace with: `SUBAGENT_STARTED` precedes the first attributed event; every event between `SUBAGENT_STARTED` and `SUBAGENT_FINISHED` whose type is not a run/subagent event carries `subagentRunId: childIdentity.call_id`; `TOOL_CALL_START` names include `task`; the plan snapshot for the child has `messageId: b4:plan:c1` and `subagentRunId`; `agent.messages` contains the child's assistant text as a message with `subagentRunId` (the 1.0 reducer keeps it); zero warnings.
+- [x] New run: child interrupt → `suspended` outcome with `interruptIds`, the `Interrupt` carries `subagentRunId`, then a resume run re-announces `c1` (allowed across runs) and finishes it — through `agent.runAgent` on the same agent, under `withNoWarnings`.
+- [x] New run: cancel with an open child → `SUBAGENT_ERROR … code: "cancelled"` before `RUN_FINISHED { cancelled }`.
+- [x] New run: a two-level tree (`parent_call_id`) — the verifier requires the parent to be announced first and both to close; assert ordering and zero warnings.
+- [x] Run; commit `test(ag-ui): conformance covers subagent lifecycle, attribution, suspension and nesting`.
 
 ---
 
@@ -490,8 +490,8 @@ interface OpenSubagent {
 - Delete: `packages/ag-ui/src/react/SubagentActivityCard.tsx`
 - Modify: `react/index.ts`, `react/renderers.tsx`, `react/schemas.ts`, `react/styles.css`, tests under `test/react/`
 
-- [ ] **Step 1: Tests** — `test/react/useSubagentRuns.test.tsx` drives the reducer directly (export `reduceSubagentRuns(state, event)` beside the hook so the reduction is testable without React): started → running with name/parent; attributed `TOOL_CALL_START/ARGS/END/RESULT` → `toolCalls` with args text and result; attributed `TEXT_MESSAGE_*` → `text`; attributed `REASONING_MESSAGE_*` → `reasoning`; attributed `ACTIVITY_SNAPSHOT b4.plan` → `plan`; `SUBAGENT_FINISHED success` → `completed` + `result`; `suspended` → `suspended`; `SUBAGENT_ERROR` → `failed` + `error`; nested `parentSubagentRunId` → `children`; `RUN_STARTED` with a new `threadId` clears, same thread keeps. `test/react/SubagentPanel.test.tsx` renders a tree with `renderToStaticMarkup` and asserts names, statuses, nested indentation class, result text, tool rows (reuse the `ToolRow` slot and `ActivityChecklist` for the plan).
-- [ ] **Step 2: Implement**
+- [x] **Step 1: Tests** — `test/react/useSubagentRuns.test.tsx` drives the reducer directly (export `reduceSubagentRuns(state, event)` beside the hook so the reduction is testable without React): started → running with name/parent; attributed `TOOL_CALL_START/ARGS/END/RESULT` → `toolCalls` with args text and result; attributed `TEXT_MESSAGE_*` → `text`; attributed `REASONING_MESSAGE_*` → `reasoning`; attributed `ACTIVITY_SNAPSHOT b4.plan` → `plan`; `SUBAGENT_FINISHED success` → `completed` + `result`; `suspended` → `suspended`; `SUBAGENT_ERROR` → `failed` + `error`; nested `parentSubagentRunId` → `children`; `RUN_STARTED` with a new `threadId` clears, same thread keeps. `test/react/SubagentPanel.test.tsx` renders a tree with `renderToStaticMarkup` and asserts names, statuses, nested indentation class, result text, tool rows (reuse the `ToolRow` slot and `ActivityChecklist` for the plan).
+- [x] **Step 2: Implement**
 
 ```ts
 // useSubagentRuns.ts
@@ -535,7 +535,7 @@ export function useSubagentRuns(agent: Pick<AbstractAgent, "subscribe"> | undefi
 
 `index.ts`: export `useSubagentRuns`, `reduceSubagentRuns`, `EMPTY_SUBAGENT_RUNS`, `SubagentPanel`, types `SubagentRun`, `SubagentRunsState`, `SubagentToolCall`; remove `SubagentActivityCard`, `b4SubagentActivityRenderer`, `subagentActivityContentSchema`, `SubagentActivityContentOutput`. `renderers.tsx`: `b4ActivityRenderers = [b4PlanActivityRenderer]`. `schemas.ts`: plan only. Update the module doc comment (three layers → hook/panel). `@ag-ui/client` is already an optional peer; the hook's import is type-only plus the `subscribe` call on the instance the app passes, so no new dependency.
 
-- [ ] **Step 3: Run `pnpm --filter @b4run/ag-ui test` and `typecheck`; format; commit** `feat(ag-ui/react)!: useSubagentRuns + SubagentPanel replace SubagentActivityCard`.
+- [x] **Step 3: Run `pnpm --filter @b4run/ag-ui test` and `typecheck`; format; commit** `feat(ag-ui/react)!: useSubagentRuns + SubagentPanel replace SubagentActivityCard`.
 
 ---
 
@@ -543,9 +543,9 @@ export function useSubagentRuns(agent: Pick<AbstractAgent, "subscribe"> | undefi
 
 **Files:** `packages/cli/src/lib/runtime/execute-route-core.ts`, `packages/cli/src/lib/dev/agui-capabilities.ts`, `packages/cli/test/agui-capabilities.test.ts`
 
-- [ ] Test: a fixture route with `subagents: { researcher: agent({ model: "gpt-5-mini", description: "Finds sources", systemPrompt: "t" }) }` advertises `multiAgent: { supported: true, delegation: true, handoffs: false, subagents: [{ name: "researcher", description: "Finds sources" }] }`; `/open#agent` (no subagents), graph and raw routes have **no** `multiAgent` key.
-- [ ] Implement `checkRouteSubagents(routeModule): Promise<{ ok: true; subagents: readonly { name: string; description?: string }[] } | PreparedRouteError>` next to the other preflights, built from the same registry resolution the `task` tool uses (find where `subagentRegistry` is produced in `execute-route-core.ts` — `resolveSubagents`/registry helper over `descriptor.subagents` plus convention routes — and reuse that function so the advertised list is the dispatchable list). In `agentCapabilities`, `...(subagents.length > 0 ? { multiAgent: { delegation: true, handoffs: false, subagents, supported: true } } : {})`. Update the module doc bullet for `multiAgent`.
-- [ ] Run, format, commit `feat(cli): advertise multiAgent from the subagent registry the task tool dispatches from`.
+- [x] Test: a fixture route with `subagents: { researcher: agent({ model: "gpt-5-mini", description: "Finds sources", systemPrompt: "t" }) }` advertises `multiAgent: { supported: true, delegation: true, handoffs: false, subagents: [{ name: "researcher", description: "Finds sources" }] }`; `/open#agent` (no subagents), graph and raw routes have **no** `multiAgent` key.
+- [x] Implement `checkRouteSubagents(routeModule): Promise<{ ok: true; subagents: readonly { name: string; description?: string }[] } | PreparedRouteError>` next to the other preflights, built from the same registry resolution the `task` tool uses (find where `subagentRegistry` is produced in `execute-route-core.ts` — `resolveSubagents`/registry helper over `descriptor.subagents` plus convention routes — and reuse that function so the advertised list is the dispatchable list). In `agentCapabilities`, `...(subagents.length > 0 ? { multiAgent: { delegation: true, handoffs: false, subagents, supported: true } } : {})`. Update the module doc bullet for `multiAgent`.
+- [x] Run, format, commit `feat(cli): advertise multiAgent from the subagent registry the task tool dispatches from`.
 
 ---
 
@@ -553,26 +553,26 @@ export function useSubagentRuns(agent: Pick<AbstractAgent, "subscribe"> | undefi
 
 **Files:** `examples/research/web/app/components/{Transcript.tsx,activity-renderers.tsx,activity-renderers.test.tsx}`, delete `SubagentCard.tsx`; `examples/research/web/README.md`; mirror into `packages/devkit/templates/app-research/web/app/components/` (test as `.template`); `examples/chat/web/app/page.tsx`, `examples/chat/README.md`, `examples/chat/web/README.md`, `packages/devkit/templates/app-research/server/README.md`
 
-- [ ] `Transcript.tsx`: accept `agent` (the `useAgent()` instance `AppShell` holds) as a prop; `const subagents = useSubagentRuns(agent)`; render `<SubagentPanel runs={subagents.runs} classNames={…} />` after the transcript items while any run exists; the `RESTORED_HISTORY_NOTICE` wording becomes "Subagent activity from earlier runs isn't saved — new runs show it as it happens." (update the test that asserts the string). `activity-renderers.tsx`: plan only; `activity-renderers.test.tsx`: drop the subagent card tests; `SubagentCard.tsx` deleted. READMEs: `b4ActivityRenderers` sentences mention the plan card and `SubagentPanel`.
-- [ ] Mirror every change byte-for-byte into the template (`pnpm --filter @b4run/devkit test` runs the parity test), and run `pnpm --filter @b4-example/research-web test` and `typecheck`, `pnpm --filter @b4-example/chat-web typecheck`.
-- [ ] Commit `feat(examples)!: research and chat clients present subagents from SUBAGENT_* events`.
+- [x] `Transcript.tsx`: accept `agent` (the `useAgent()` instance `AppShell` holds) as a prop; `const subagents = useSubagentRuns(agent)`; render `<SubagentPanel runs={subagents.runs} classNames={…} />` after the transcript items while any run exists; the `RESTORED_HISTORY_NOTICE` wording becomes "Subagent activity from earlier runs isn't saved — new runs show it as it happens." (update the test that asserts the string). `activity-renderers.tsx`: plan only; `activity-renderers.test.tsx`: drop the subagent card tests; `SubagentCard.tsx` deleted. READMEs: `b4ActivityRenderers` sentences mention the plan card and `SubagentPanel`.
+- [x] Mirror every change byte-for-byte into the template (`pnpm --filter @b4run/devkit test` runs the parity test), and run `pnpm --filter @b4-example/research-web test` and `typecheck`, `pnpm --filter @b4-example/chat-web typecheck`.
+- [x] Commit `feat(examples)!: research and chat clients present subagents from SUBAGENT_* events`.
 
 ---
 
 ### Task 7: Release-pinned smoke scripts, docs, pins, changeset
 
-- [ ] `scripts/published-artifact-smoke.mjs`: remove `B4_SUBAGENT_ACTIVITY_TYPE` from the ESM and type probes (and the `subagentActivityType` line); `scripts/published-artifacts.test.mjs`: the mirrored expectations (lines ~1614-1660, ~3339-3370) and `B4SubagentActivityContent` in the fake declarations. Then re-pin: `node -p "require('node:crypto').createHash('sha256').update(require('node:fs').readFileSync('scripts/published-artifact-smoke.mjs')).digest('hex')"` into `scripts/release/test/fixtures/release-script-hashes.json`, and the pin **file's** sha256 into `STARTING_SCRIPT_PIN_SHA256` in `scripts/release/test/workflow-contracts.test.mjs`. Run `pnpm test:release-integrity` then `node --test scripts/release/test/workflow-contracts.test.mjs` then `pnpm test:release-controller`.
-- [ ] Docs: `ag-ui.mdx` — outbound table rows for `subagent.*` → `SUBAGENT_STARTED/FINISHED/ERROR` + attributed events; "Activity snapshots" keeps only the plan (root and child ids); "Canonical orchestration presentation" becomes `writeTodos` only, with "`task` calls are ordinary tool calls; the subagent they start is `SUBAGENT_STARTED { parentToolCallId }`"; a new "Subagents" section (lifecycle, attribution, suspension, cancel, nesting, `multiAgent`); the Callout about activity renderers mentions `SubagentPanel`. `api/ag-ui.mdx`: drop the two symbols and `ag-ui.activities.subagent-privacy`; add the React exports table rows and a behavior contract `ag-ui.subagents.lifecycle` anchored to the new conformance tests. `recipes/research-web-ui.mdx`: panel instead of card. `upgrading.mdx` entry: `b4.subagent`/`SubagentActivityCard`/`b4SubagentActivityRenderer` removed, `task` frames back, migration = `useSubagentRuns` + `SubagentPanel`. Pins: `api-reference.ts` (contracts + behavior contract), `api-reference.test.ts` (count), `api-reference-inventory.test.ts` (fixture count and ids), `scripts/check-docs.mjs` (contract list). `pnpm --dir apps/web seo:lastmod` after committing.
-- [ ] Changeset `.changeset/agui-subagents.md` (`@b4run/ag-ui`, `@b4run/cli`, `@b4run/devkit`, `create-b4-app`, patch) with the **Breaking** paragraph.
-- [ ] `pnpm build && node scripts/check-docs.mjs && node scripts/check-changesets.mjs && pnpm --filter @b4run/web test`.
+- [x] `scripts/published-artifact-smoke.mjs`: remove `B4_SUBAGENT_ACTIVITY_TYPE` from the ESM and type probes (and the `subagentActivityType` line); `scripts/published-artifacts.test.mjs`: the mirrored expectations (lines ~1614-1660, ~3339-3370) and `B4SubagentActivityContent` in the fake declarations. Then re-pin: `node -p "require('node:crypto').createHash('sha256').update(require('node:fs').readFileSync('scripts/published-artifact-smoke.mjs')).digest('hex')"` into `scripts/release/test/fixtures/release-script-hashes.json`, and the pin **file's** sha256 into `STARTING_SCRIPT_PIN_SHA256` in `scripts/release/test/workflow-contracts.test.mjs`. Run `pnpm test:release-integrity` then `node --test scripts/release/test/workflow-contracts.test.mjs` then `pnpm test:release-controller`.
+- [x] Docs: `ag-ui.mdx` — outbound table rows for `subagent.*` → `SUBAGENT_STARTED/FINISHED/ERROR` + attributed events; "Activity snapshots" keeps only the plan (root and child ids); "Canonical orchestration presentation" becomes `writeTodos` only, with "`task` calls are ordinary tool calls; the subagent they start is `SUBAGENT_STARTED { parentToolCallId }`"; a new "Subagents" section (lifecycle, attribution, suspension, cancel, nesting, `multiAgent`); the Callout about activity renderers mentions `SubagentPanel`. `api/ag-ui.mdx`: drop the two symbols and `ag-ui.activities.subagent-privacy`; add the React exports table rows and a behavior contract `ag-ui.subagents.lifecycle` anchored to the new conformance tests. `recipes/research-web-ui.mdx`: panel instead of card. `upgrading.mdx` entry: `b4.subagent`/`SubagentActivityCard`/`b4SubagentActivityRenderer` removed, `task` frames back, migration = `useSubagentRuns` + `SubagentPanel`. Pins: `api-reference.ts` (contracts + behavior contract), `api-reference.test.ts` (count), `api-reference-inventory.test.ts` (fixture count and ids), `scripts/check-docs.mjs` (contract list). `pnpm --dir apps/web seo:lastmod` after committing.
+- [x] Changeset `.changeset/agui-subagents.md` (`@b4run/ag-ui`, `@b4run/cli`, `@b4run/devkit`, `create-b4-app`, patch) with the **Breaking** paragraph.
+- [x] `pnpm build && node scripts/check-docs.mjs && node scripts/check-changesets.mjs && pnpm --filter @b4run/web test`.
 
 ---
 
 ### Task 8: Validation and PR
 
-- [ ] Package gates for ag-ui, cli, devkit, web, research-web, chat-web, chat-server; `pnpm lint`; `pnpm ci:validate` (orphan check first; known contention flakes as before). The `copilotkit-examples-e2e` lane must be green on the PR (it rewrites example UIs).
-- [ ] Rebase onto `main` once 3a merges (`--onto`), rebuild, re-run; push `blove/agui-subagents`; PR title `feat(ag-ui)!: SUBAGENT_* lifecycle and attribution; b4.subagent removed; multiAgent capability (AG-UI 1.0 sub-project 2, PR 3b)`; bind; squash auto-merge if asked.
-- [ ] Close #885 in the PR body (`Closes #885`) — this is the last PR of the sub-project.
+- [x] Package gates for ag-ui, cli, devkit, web, research-web, chat-web, chat-server; `pnpm lint`; `pnpm ci:validate` (orphan check first; known contention flakes as before). The `copilotkit-examples-e2e` lane must be green on the PR (it rewrites example UIs).
+- [x] Rebase onto `main` once 3a merges (`--onto`), rebuild, re-run; push `blove/agui-subagents`; PR title `feat(ag-ui)!: SUBAGENT_* lifecycle and attribution; b4.subagent removed; multiAgent capability (AG-UI 1.0 sub-project 2, PR 3b)`; bind; squash auto-merge if asked.
+- [x] Close #885 in the PR body (`Closes #885`) — this is the last PR of the sub-project.
 
 ---
 

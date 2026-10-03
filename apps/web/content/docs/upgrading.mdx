@@ -54,6 +54,12 @@ Pin `@b4run/*` packages to a single version (no `^` or `~` ranges) until the pro
 
 Newest first. Each change names the release it landed in, and the two that need no action say so.
 
+### Subagents are AG-UI `SUBAGENT_*` events, not a `b4.subagent` activity
+
+Landed in the first release after **0.13.1**. Action required for AG-UI clients that rendered the `b4.subagent` activity.
+
+The `b4.subagent` activity is gone, with `B4_SUBAGENT_ACTIVITY_TYPE`, `B4SubagentActivityContent`, `SubagentActivityCard`, `b4SubagentActivityRenderer` and `subagentActivityContentSchema`. A subagent is now `SUBAGENT_STARTED` (its `subagentRunId` is the `task` tool-call id), everything it does arrives as the ordinary AG-UI events tagged `subagentRunId`, and it closes with `SUBAGENT_FINISHED` or `SUBAGENT_ERROR` before the run ends. The `task` tool call is an ordinary tool call again, with its own frames and result. In React, replace the renderer with `useSubagentRuns(agent)` + `SubagentPanel` from `@b4run/ag-ui/react`; `b4ActivityRenderers` now holds the plan renderer only. `GET /agui/{routeId}` advertises `multiAgent`. See [AG-UI › Subagents](/docs/ag-ui#subagents).
+
 ### Subagent stream events carry the root shapes
 
 Landed in the first release after **0.13.1**. Action required only if you read `subagent.*` events off `/runs/stream` or the attach digest.

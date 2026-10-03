@@ -1968,7 +1968,7 @@ describe("foundational API reference pages", { timeout: 30_000 }, () => {
       "generated-routes.state-conditional",
       "generated-routes.tool-signatures",
       "ag-ui.activities.plan-snapshot",
-      "ag-ui.activities.subagent-privacy",
+      "ag-ui.subagents.lifecycle",
       "ag-ui.outbound.errors-as-events",
       "ag-ui.inbound.lossless-input",
       "memory.namespace.stable-encoding",
@@ -2008,19 +2008,15 @@ describe("foundational API reference pages", { timeout: 30_000 }, () => {
     ])
   })
 
-  it("keeps AG-UI activity identifiers, payloads, and privacy behavior source-coupled", () => {
+  it("keeps AG-UI activity identifiers, payloads, and subagent lifecycle behavior source-coupled", () => {
     const content = foundationalContent("ag-ui")
-    for (const exportName of [
-      "B4_PLAN_ACTIVITY_TYPE",
-      "B4_SUBAGENT_ACTIVITY_TYPE",
-      "B4PlanActivityContent",
-      "B4SubagentActivityContent",
-    ]) {
+    for (const exportName of ["B4_PLAN_ACTIVITY_TYPE", "B4PlanActivityContent"]) {
       expect(content).toContain(`| \`${exportName}\` |`)
       expect(API_REQUIRED_CONTRACT_KEYS).toContain(`@b4run/ag-ui#.:${exportName}`)
     }
     expect(content).toContain("complete replacement snapshot")
-    expect(content).toContain("never includes child prompts, prose, tool inputs, tool outputs")
+    expect(content).toContain("before any event is attributed to it")
+    expect(content).toContain("every announced invocation closes before `RUN_FINISHED`")
   })
 })
 
@@ -2457,7 +2453,7 @@ ${packageExample("memory-pgvector").replace(
       "generated-routes.state-conditional",
       "generated-routes.tool-signatures",
       "ag-ui.activities.plan-snapshot",
-      "ag-ui.activities.subagent-privacy",
+      "ag-ui.subagents.lifecycle",
       "ag-ui.outbound.errors-as-events",
       "ag-ui.inbound.lossless-input",
       "memory.namespace.stable-encoding",
