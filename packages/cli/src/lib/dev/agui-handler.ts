@@ -13,6 +13,7 @@ import type {
   MiddlewareHandler,
   MiddlewareRequest,
   ThreadAccessPolicy,
+  ToolCallOrigin,
 } from "@b4run/sdk"
 import type { ThreadsStore } from "@b4run/sqlite-storage"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
@@ -713,6 +714,9 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       const store = clientToolRuntime.store
       if (!store) return clientToolStoreUnavailable()
       const parkedIds = clientToolCallIds(clientParks)
+      // Client rows are issued by the root route only (child routes get no
+      // client-tool stubs), so a client row's routeId is the route that
+      // answers its park.
       foreignClientPark = (await store.listForThread(threadId)).some(
         (row) => row.kind === "client" && parkedIds.has(row.toolCallId) && row.routeId !== routeKey,
       )
@@ -963,6 +967,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
               result: null,
               voidedAt: null,
               settledAt: null,
+              parentToolCallId: null,
             })
           },
           ...(clientToolRuntime.recordsServerCalls
@@ -972,7 +977,15 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                 // call. Idempotent on the key, so the replay of a resumed tool
                 // node is a no-op. Absent when the gate is off, so the writers
                 // record nothing.
-                issue: async (call: { readonly toolCallId: string; readonly toolName: string }) => {
+                issue: async (call: {
+                  readonly toolCallId: string
+                  readonly toolName: string
+                  readonly origin?: ToolCallOrigin
+                }) => {
+                  // The writer says where the call was issued from (a subagent's
+                  // route and its launching `task`); at the root it is this run's
+                  // route with no parent.
+                  const origin = call.origin ?? { routeId: routeKey, parentToolCallId: null }
                   await clientToolStore.issue({
                     threadId,
                     toolCallId: call.toolCallId,
@@ -980,13 +993,14 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                     interruptId: "",
                     toolName: call.toolName,
                     runId: input.runId,
-                    routeId: routeKey,
+                    routeId: origin.routeId,
                     issuedAt: new Date().toISOString(),
                     expiresAt: null,
                     answeredAt: null,
                     result: null,
                     voidedAt: null,
                     settledAt: null,
+                    parentToolCallId: origin.parentToolCallId,
                   })
                 },
                 settle: async (toolCallId: string) => {
@@ -1493,6 +1507,9 @@ async function closeAbandonedClientParks(options: {
   const { instances } = options
   const { checkpointer, threadId } = instances
   const parkedIds = clientToolCallIds(options.clientParks)
+  // Client rows are issued by the root route only (child routes get no
+  // client-tool stubs), so a client row's routeId is the route that answers
+  // its park.
   const recordedRoutes = new Set(
     ((await options.store?.listForThread(threadId)) ?? [])
       .filter((row) => row.kind === "client" && parkedIds.has(row.toolCallId))

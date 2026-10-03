@@ -72,6 +72,14 @@ const DEPLOY_TOOL = [
   "",
 ].join("\n")
 
+const READ_NOTE_TOOL = [
+  "/** Read a note. */",
+  "export default async function readNote(input: { id: string }): Promise<string> {",
+  '  return "note " + input.id',
+  "}",
+  "",
+].join("\n")
+
 const OPEN_PANEL = {
   name: "openPanel",
   description: "Open a panel",
@@ -109,6 +117,8 @@ async function fixtureApp(options: AppOptions = {}): Promise<string> {
     "src/app/mixed/tools/deployProd.ts": DEPLOY_TOOL,
     "src/app/plain/index.ts": PARK_ROUTE,
     "src/app/plain/tools/deployProd.ts": DEPLOY_TOOL,
+    "src/app/plain/subagents/researcher/index.ts": PARK_ROUTE,
+    "src/app/plain/subagents/researcher/tools/readNote.ts": READ_NOTE_TOOL,
   }
   for (const [rel, body] of Object.entries(files)) {
     const filePath = join(appRoot, rel)
@@ -1358,6 +1368,7 @@ describe("the settle-time client record void", () => {
       voidedAt: null,
       kind: "client" as const,
       settledAt: null,
+      parentToolCallId: null,
     })
     await store.issue(row("call_parked"))
     await store.issue(row("call_stray"))
@@ -1413,6 +1424,7 @@ describe("settling an AG-UI turn", () => {
       voidedAt: null,
       kind: "client",
       settledAt: null,
+      parentToolCallId: null,
     })
     const second = await run(t.handler, aguiRequest(t.threadId, "run-2", [USER_HELLO]))
     expect(second.status).toBe(200)
@@ -1440,6 +1452,7 @@ describe("settling an AG-UI turn", () => {
       voidedAt: "2020-01-01T00:10:00.000Z",
       kind: "client",
       settledAt: null,
+      parentToolCallId: null,
     })
     // A fresh outstanding record on the same old thread must survive.
     await t.store.issue({
@@ -1456,6 +1469,7 @@ describe("settling an AG-UI turn", () => {
       voidedAt: null,
       kind: "client",
       settledAt: null,
+      parentToolCallId: null,
     })
     // The first turn already swept this store; clear the throttle so the
     // second settled turn sweeps again.
@@ -1571,6 +1585,7 @@ describe("pruneClientToolCalls (opportunistic sweep)", () => {
     voidedAt,
     kind: "client",
     settledAt: null,
+    parentToolCallId: null,
   })
 
   afterEach(() => __resetClientToolPruneThrottleForTests())
@@ -1710,6 +1725,7 @@ describe("client tool boot settings and request bounds", () => {
       voidedAt: null,
       kind: "client",
       settledAt: null,
+      parentToolCallId: null,
     })
     const reopened = await resolveClientToolCallStore(appRoot)
     expect((await reopened?.listOutstanding("t"))?.map((row) => row.toolCallId)).toEqual(["call_1"])
@@ -1762,6 +1778,7 @@ describe("client tool boot settings and request bounds", () => {
         voidedAt,
         kind: "client",
         settledAt: null,
+        parentToolCallId: null,
       })
     }
     __resetClientToolPruneThrottleForTests()
@@ -1882,6 +1899,7 @@ describe("the tool-call record covers every tool call on a run with a store", ()
       result: null,
       voidedAt: null,
       settledAt,
+      parentToolCallId: null,
     })
     // Settled well past the 7-day default: swept. Unsettled with the same old
     // issuedAt: open, so kept however old.
@@ -1960,6 +1978,61 @@ describe("the tool-call record covers every tool call on a run with a store", ()
       }),
     ).toBe(true)
   })
+
+  it("a subagent's calls name the child route and the task that launched them; the task row names the run's route", async () => {
+    const store = createMemoryClientToolCallStore()
+    await withModel([
+      { match: { userMessage: "hello", hasToolResult: true }, response: { content: "Done." } },
+      {
+        match: { userMessage: "hello" },
+        response: {
+          toolCalls: [
+            {
+              id: "call_task_1",
+              name: "task",
+              arguments: { subagent: "researcher", input: "read note 7" },
+            },
+          ],
+        },
+      },
+      {
+        match: { userMessage: "read note 7", hasToolResult: true },
+        response: { content: "note 7 read." },
+      },
+      {
+        match: { userMessage: "read note 7" },
+        response: { toolCalls: [{ id: "call_read_1", name: "readNote", arguments: { id: "7" } }] },
+      },
+    ])
+    const appRoot = await fixtureApp({
+      store,
+      config: `export default { server: { agui: { clientTools: ["/park"], clientToolStore: globalThis.${STORE_KEY} } } }\n`,
+    })
+    const handler = await createHandler(appRoot)
+    const threadId = `thread-${crypto.randomUUID()}`
+    const first = await run(
+      handler,
+      aguiRequest(threadId, "run-1", [USER_HELLO], { route: "/plain#agent", tools: [] }),
+    )
+    expect(first.status).toBe(200)
+    const rows = new Map((await store.listForThread(threadId)).map((r) => [r.toolCallId, r]))
+    expect(rows.get("call_task_1")).toMatchObject({
+      kind: "server",
+      toolName: "task",
+      routeId: "/plain#agent",
+      parentToolCallId: null,
+      runId: "run-1",
+    })
+    expect(rows.get("call_read_1")).toMatchObject({
+      kind: "server",
+      toolName: "readNote",
+      routeId: "/plain/subagents/researcher#agent",
+      parentToolCallId: "call_task_1",
+      runId: "run-1",
+    })
+    expect(rows.get("call_read_1")?.settledAt).not.toBeNull()
+    expect(rows.get("call_task_1")?.settledAt).not.toBeNull()
+  })
 })
 
 describe("the record readers stay within what the request owns", () => {
@@ -1977,6 +2050,7 @@ describe("the record readers stay within what the request owns", () => {
     result: null,
     voidedAt: null,
     settledAt: null,
+    parentToolCallId: null,
   })
 
   it("prune never outruns the TTL: an answered call survives until the resume re-reads it", async () => {

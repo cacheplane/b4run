@@ -114,6 +114,7 @@ import {
   type RuntimeExecutionMode,
   type RuntimeExecutionResult,
 } from "./result.js"
+import { createRouteAssistantId } from "./route-identity.js"
 import type { LoadedRouteMemory } from "./route-memory-shape.js"
 import type { NormalizedRouteModule } from "./route-module-shape.js"
 import type { SandboxManager } from "./sandbox-manager.js"
@@ -1731,6 +1732,7 @@ async function prepareRouteExecutionForInvocation(
           return {
             graph: withEpisodeRecording(graph, childPrepared),
             routeId: route.id,
+            routeKey: createRouteAssistantId(route.id, route.kind),
             ...(entry.description !== "" ? { description: entry.description } : {}),
           }
         },

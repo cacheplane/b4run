@@ -313,7 +313,11 @@ async function parallelSubagentTask(firstInterruptObserved: Promise<void>) {
     .compile()
   const resolver: SubagentResolver = async () => ({
     ok: true,
-    child: { graph: child, routeId: "/parent/subagents/researcher" },
+    child: {
+      graph: child,
+      routeId: "/parent/subagents/researcher",
+      routeKey: "/parent/subagents/researcher#agent",
+    },
   })
   return convertSubagentTaskToLangChain(placeholder, resolver)
 }
