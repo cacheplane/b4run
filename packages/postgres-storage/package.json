@@ -50,6 +50,7 @@
   },
   "dependencies": {
     "@b4run/permissions": "workspace:*",
+    "@b4run/sdk": "workspace:*",
     "pg": "^8.22.0"
   },
   "peerDependencies": {

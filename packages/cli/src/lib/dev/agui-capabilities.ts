@@ -52,6 +52,16 @@
  *   — as it is on a boot that cannot load route modules. `state.memory` is
  *   omitted: whether an app
  *   wires long-term memory is tool wiring this handler cannot see.
+ * - `multimodal.input` is `checkRouteModalitySupport`: the model profile
+ *   `resolveModalitySupport` reads, the same judgment `toLangChainContent`
+ *   applies at run time to keep or drop each part — `image` and `pdf` are
+ *   their inline-data support, `audio` and `video` theirs. `file` is `false`:
+ *   it is AG-UI's flag for arbitrary uploads the four part types do not
+ *   cover, and a provider file handle is a source, not that. `output` is all
+ *   `false`: AG-UI 1.0 defines no image or audio output carrier. The section
+ *   is omitted for a raw runnable, a chain/graph/workflow route, or a
+ *   provider package that is not installed or cannot be read — a broken
+ *   provider install leaves the rest of the document standing.
  * - `multiAgent` is `checkRouteSubagents`: the dispatchable members of the
  *   same subagent registry the `task` tool is built from (explicit
  *   registrations and `subagents/` convention routes, minus any the delegation
@@ -81,6 +91,7 @@ import type { MiddlewareHandler, MiddlewareRequest } from "@b4run/sdk"
 import {
   type BootResolvedInstances,
   checkRouteClientToolsSupport,
+  checkRouteModalitySupport,
   checkRouteReasoningSupport,
   checkRouteResponseFormatSupport,
   checkRouteSubagents,
@@ -129,6 +140,8 @@ export interface AgUiCapabilitiesRequestOptions {
   readonly clientTools?: Pick<ClientToolRuntime, "store">
   readonly config?: B4Config
   readonly middleware: MiddlewareHandler | undefined
+  /** Test seam: the provider-package import the `multimodal` preflight does. */
+  readonly modelImporter?: Parameters<typeof checkRouteModalitySupport>[0]["importer"]
   readonly permissionsStore?: PermissionsStore | (() => Promise<PermissionsStore>)
   readonly registry: RuntimeRegistry
   readonly request: Request
@@ -196,6 +209,7 @@ async function agentCapabilities(
   let isDescriptor: boolean
   let structuredOutput: boolean
   let streamsReasoning: boolean
+  let modality: Awaited<ReturnType<typeof checkRouteModalitySupport>>
   let subagents: readonly RouteSubagentInfo[]
   try {
     // All four preflights share one memoized module load.
@@ -203,6 +217,10 @@ async function agentCapabilities(
     structuredOutput = (await checkRouteResponseFormatSupport(routeModule)).ok
     const reasoningSupport = await checkRouteReasoningSupport(routeModule)
     streamsReasoning = reasoningSupport.ok && reasoningSupport.streams
+    modality = await checkRouteModalitySupport({
+      ...routeModule,
+      ...(options.modelImporter !== undefined ? { importer: options.modelImporter } : {}),
+    })
     const subagentSupport = await checkRouteSubagents({
       ...routeModule,
       ...(options.registry.manifest !== undefined
@@ -244,6 +262,23 @@ async function agentCapabilities(
       // it does on its own is not this runtime's to claim.
       ...(isDescriptor ? { approvals } : {}),
     },
+    ...(modality.ok
+      ? {
+          multimodal: {
+            // `file` is AG-UI's "arbitrary uploads the four parts do not
+            // cover"; a provider file HANDLE is a source, not that flag.
+            input: {
+              audio: modality.support.audio,
+              file: false,
+              image: modality.support.image.data,
+              pdf: modality.support.pdf.data,
+              video: modality.support.video,
+            },
+            // AG-UI 1.0 defines no image/audio output carrier.
+            output: { audio: false, image: false },
+          },
+        }
+      : {}),
     ...(subagents.length > 0
       ? {
           multiAgent: {

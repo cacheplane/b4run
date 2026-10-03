@@ -55,6 +55,7 @@ The runtime root is edge-safe for B4.run's emitted Hono/workerd target. The evid
 | `ModalitySupport` | Describe which content parts a route's model takes, by modality and source. |
 | `DEFAULT_MODALITY_SUPPORT` | Supply the support assumed for a model with no profile: images inline and by URL. |
 | `resolveModalitySupport` | Read a model's LangChain profile and apply the provider's converter limits. |
+| `readModelProfile` | Read a model's LangChain profile off its provider class without constructing it; `undefined` when the provider package is not installed. |
 | `ConvertedContent` | Describe converted message content and the parts dropped from it. |
 | `LangChainContentBlock` | Describe one LangChain standard content block. |
 | `DroppedPart` | Describe one dropped part: its index, type, source and reason. |

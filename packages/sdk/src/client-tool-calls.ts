@@ -23,6 +23,8 @@
  * edge targets.
  */
 
+import { type B4MessageContent, isContentPartArray } from "./content-parts.js"
+
 /** `config.configurable` key the adapter injects the per-run recorder under. */
 export const CLIENT_TOOL_RECORDER_KEY = "__b4ClientToolRecorder"
 
@@ -51,8 +53,8 @@ export interface ClientToolCallRecord {
   readonly expiresAt: string | null
   /** Client rows only. */
   readonly answeredAt: string | null
-  /** The client's result text, set together with `answeredAt`. Client rows only. */
-  readonly result: string | null
+  /** The client's result, set together with `answeredAt`: text, or the parts it sent. Client rows only. */
+  readonly result: B4MessageContent | null
   /** Client rows only. */
   readonly voidedAt: string | null
   /** Server rows only: when the tool returned or threw. */
@@ -110,7 +112,8 @@ export interface ClientToolCallStore {
   answer(options: {
     readonly threadId: string
     readonly toolCallId: string
-    readonly result: string
+    /** The client's result: text, or the parts it sent. */
+    readonly result: B4MessageContent
     readonly at: string
   }): Promise<ClientToolCallAnswer>
   /**
@@ -180,6 +183,44 @@ export interface ClientToolRecorder {
   }): Promise<void>
   /** Stamps the server row once the tool returned or threw. Idempotent. Absent together with `issue`. */
   settle?(toolCallId: string): Promise<void>
+}
+
+const CLIENT_TOOL_RESULT_ENVELOPE = "content-parts"
+
+/**
+ * How a store keeps a part-list result in its text column: a self-describing
+ * JSON envelope. Text is stored as itself, so rows written before parts
+ * existed need nothing. Decoding admits only an envelope whose `parts` is a
+ * structurally valid list; anything else is the text it is.
+ */
+export function encodeClientToolResult(result: B4MessageContent): string {
+  if (typeof result === "string") return result
+  // An empty list carries nothing: it is empty text, as inbound messages treat it.
+  if (result.length === 0) return ""
+  return JSON.stringify({ $b4: CLIENT_TOOL_RESULT_ENVELOPE, parts: result })
+}
+
+/**
+ * Inverse of {@link encodeClientToolResult}; `null` stays `null`. A plain-text
+ * answer that is itself a valid envelope decodes as parts — harmless, since
+ * the client could have sent those parts directly.
+ */
+export function decodeClientToolResult(stored: string | null): B4MessageContent | null {
+  if (stored === null || !stored.startsWith("{")) return stored
+  try {
+    const value: unknown = JSON.parse(stored)
+    if (
+      typeof value === "object" &&
+      value !== null &&
+      (value as { $b4?: unknown }).$b4 === CLIENT_TOOL_RESULT_ENVELOPE
+    ) {
+      const parts = (value as { parts?: unknown }).parts
+      if (isContentPartArray(parts)) return parts.length === 0 ? "" : parts
+    }
+  } catch {
+    // Not JSON after all: it is the text it looks like.
+  }
+  return stored
 }
 
 function compareIssue(a: ClientToolCallRecord, b: ClientToolCallRecord): number {

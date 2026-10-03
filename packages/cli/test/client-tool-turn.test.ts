@@ -206,7 +206,12 @@ describe("resolveClientToolTurn", () => {
     expect(turn).toEqual({
       mode: "abandon",
       calls: [
-        { toolCallId: "call-1", toolName: "open_panel", result: ABANDONED_CLIENT_TOOL_RESULT },
+        {
+          toolCallId: "call-1",
+          toolName: "open_panel",
+          result: ABANDONED_CLIENT_TOOL_RESULT,
+          droppedMedia: 0,
+        },
       ],
       abandonedToolCallIds: ["call-1"],
       reason: "new_user_message",
@@ -228,8 +233,13 @@ describe("resolveClientToolTurn", () => {
     expect(turn).toEqual({
       mode: "abandon",
       calls: [
-        { toolCallId: "call-1", toolName: "open_panel", result: "one" },
-        { toolCallId: "call-2", toolName: "open_panel", result: ABANDONED_CLIENT_TOOL_RESULT },
+        { toolCallId: "call-1", toolName: "open_panel", result: "one", droppedMedia: 0 },
+        {
+          toolCallId: "call-2",
+          toolName: "open_panel",
+          result: ABANDONED_CLIENT_TOOL_RESULT,
+          droppedMedia: 0,
+        },
       ],
       abandonedToolCallIds: ["call-2"],
       reason: "new_user_message",
@@ -263,7 +273,12 @@ describe("resolveClientToolTurn", () => {
     expect(turn).toEqual({
       mode: "abandon",
       calls: [
-        { toolCallId: "call-1", toolName: "open_panel", result: ABANDONED_CLIENT_TOOL_RESULT },
+        {
+          toolCallId: "call-1",
+          toolName: "open_panel",
+          result: ABANDONED_CLIENT_TOOL_RESULT,
+          droppedMedia: 0,
+        },
       ],
       abandonedToolCallIds: ["call-1"],
       reason: "expired",
@@ -323,7 +338,12 @@ describe("resolveClientToolTurn", () => {
     expect(turn).toEqual({
       mode: "abandon",
       calls: [
-        { toolCallId: "call-1", toolName: "open_panel", result: ABANDONED_CLIENT_TOOL_RESULT },
+        {
+          toolCallId: "call-1",
+          toolName: "open_panel",
+          result: ABANDONED_CLIENT_TOOL_RESULT,
+          droppedMedia: 0,
+        },
       ],
       abandonedToolCallIds: ["call-1"],
       reason: "unanswerable",
@@ -376,7 +396,34 @@ describe("resolveClientToolTurn", () => {
     expect((await store.get(THREAD, "call-1"))?.result).toBe("")
   })
 
-  test("a media-only tool answer is stored as its text and the dropped media is announced", async () => {
+  test("a tool answer with parts is stored as parts and resumes with them", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const parts = [
+        { type: "text", text: "panel opened" },
+        { type: "image", source: { type: "data", value: "AAAA", mimeType: "image/png" } },
+      ] as const
+      const store = await storeWith(record("call-1"))
+      const turn = await resolveClientToolTurn({
+        store,
+        threadId: THREAD,
+        pending: snapshot(clientPark("call-1", KEY_A)),
+        messages: [user("go"), { role: "tool", toolCallId: "call-1", content: [...parts] }],
+        now: NOW,
+      })
+      expect(turn).toEqual({
+        mode: "resume",
+        resume: { [KEY_A]: { clientToolResult: parts } },
+        others: [],
+      })
+      expect((await store.get(THREAD, "call-1"))?.result).toEqual(parts)
+      expect(warn).not.toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  test("an answered parts result abandons as its text, counting the media the close drops (no warning yet)", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     try {
       const store = await storeWith(record("call-1"))
@@ -390,24 +437,24 @@ describe("resolveClientToolTurn", () => {
             role: "tool",
             toolCallId: "call-1",
             content: [
-              {
-                type: "image",
-                source: { type: "data", value: "AAAA", mimeType: "image/png" },
-              },
+              { type: "text", text: "panel opened" },
+              { type: "image", source: { type: "data", value: "AAAA", mimeType: "image/png" } },
             ],
           },
+          user("next"),
         ],
         now: NOW,
       })
       expect(turn).toEqual({
-        mode: "resume",
-        resume: { [KEY_A]: { clientToolResult: "" } },
-        others: [],
+        mode: "abandon",
+        calls: [
+          { toolCallId: "call-1", toolName: "open_panel", result: "panel opened", droppedMedia: 1 },
+        ],
+        abandonedToolCallIds: [],
+        reason: "new_user_message",
       })
-      expect((await store.get(THREAD, "call-1"))?.result).toBe("")
-      expect(warn.mock.calls.map((call) => String(call[0]))).toEqual([
-        "B4: client tool result for call-1 carried 1 media part(s); this release stores and replays its text only (sub-project 3 PR 2 carries them).",
-      ])
+      // Nothing has closed yet: the close warns once it commits.
+      expect(warn).not.toHaveBeenCalled()
     } finally {
       warn.mockRestore()
     }
@@ -440,8 +487,8 @@ describe("resolveClientToolTurn", () => {
     expect(turn).toEqual({
       mode: "abandon",
       calls: [
-        { toolCallId: "call-1", toolName: "open_panel", result: "one" },
-        { toolCallId: "call-2", toolName: "open_panel", result: "two" },
+        { toolCallId: "call-1", toolName: "open_panel", result: "one", droppedMedia: 0 },
+        { toolCallId: "call-2", toolName: "open_panel", result: "two", droppedMedia: 0 },
       ],
       abandonedToolCallIds: [],
       reason: "new_user_message",
@@ -556,8 +603,13 @@ describe("resolveClientToolTurn", () => {
     expect(turn).toEqual({
       mode: "abandon",
       calls: [
-        { toolCallId: "call-1", toolName: "open_panel", result: "one" },
-        { toolCallId: "call-2", toolName: "open_panel", result: ABANDONED_CLIENT_TOOL_RESULT },
+        { toolCallId: "call-1", toolName: "open_panel", result: "one", droppedMedia: 0 },
+        {
+          toolCallId: "call-2",
+          toolName: "open_panel",
+          result: ABANDONED_CLIENT_TOOL_RESULT,
+          droppedMedia: 0,
+        },
       ],
       abandonedToolCallIds: ["call-2"],
       reason: "expired",
@@ -658,7 +710,14 @@ describe("resolveClientToolTurn — a tool message reaches the model only throug
     expect(turn).toEqual({
       mode: "abandon",
       reason: "unanswerable",
-      calls: [{ toolCallId: "call-1", toolName: "readFile", result: ABANDONED_CLIENT_TOOL_RESULT }],
+      calls: [
+        {
+          toolCallId: "call-1",
+          toolName: "readFile",
+          result: ABANDONED_CLIENT_TOOL_RESULT,
+          droppedMedia: 0,
+        },
+      ],
       abandonedToolCallIds: ["call-1"],
     })
   })

@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
   DEFAULT_MODALITY_SUPPORT,
   type ModalitySupport,
+  readModelProfile,
   resolveModalitySupport,
 } from "../src/chat-model-factory.ts"
 
@@ -96,5 +97,87 @@ describe("resolveModalitySupport", () => {
       toolResult: { image: false, pdf: false },
       file: { image: false, pdf: false },
     })
+  })
+})
+
+describe("readModelProfile", () => {
+  const keys = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY"] as const
+  const saved = new Map<string, string | undefined>()
+
+  beforeEach(() => {
+    for (const key of keys) {
+      saved.set(key, process.env[key])
+      delete process.env[key]
+    }
+  })
+
+  afterEach(() => {
+    for (const key of keys) {
+      const value = saved.get(key)
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  })
+
+  it("reads gpt-5-mini's profile from the real @langchain/openai class without constructing it", async () => {
+    const profiled = await readModelProfile({ provider: "openai", model: "gpt-5-mini" })
+    expect(profiled).toBeDefined()
+    expect(resolveModalitySupport(profiled, "openai")).toEqual({
+      image: { data: true, url: true },
+      pdf: { data: true, url: false },
+      audio: false,
+      video: false,
+      toolResult: { image: false, pdf: false },
+      file: { image: false, pdf: true },
+    } satisfies ModalitySupport)
+  })
+
+  it("reads an Anthropic profile without an API key (its constructor would throw)", async () => {
+    const profiled = await readModelProfile({ provider: "anthropic", model: "claude-haiku-4-5" })
+    expect(resolveModalitySupport(profiled, "anthropic").file).toEqual({ image: true, pdf: true })
+    expect(resolveModalitySupport(profiled, "anthropic").pdf).toEqual({ data: true, url: true })
+  })
+
+  it("reads a Google profile from the real @langchain/google-genai class", async () => {
+    const profiled = await readModelProfile({ provider: "google", model: "gemini-2.5-flash" })
+    // The profile (not the default fallback, which claims image URLs) is what answers.
+    expect(resolveModalitySupport(profiled, "google")).toMatchObject({
+      image: { data: true, url: false },
+      audio: true,
+      video: true,
+    })
+  })
+
+  it("an unknown model id or a provider without profiles yields the fallback", async () => {
+    expect(
+      resolveModalitySupport(
+        await readModelProfile({ provider: "openai", model: "gpt-unknown" }),
+        "openai",
+      ).image,
+    ).toEqual({ data: true, url: true })
+    expect(
+      resolveModalitySupport(
+        await readModelProfile({ provider: "ollama", model: "llama3" }),
+        "ollama",
+      ).image,
+    ).toEqual({ data: true, url: false })
+  })
+
+  it("returns undefined when the provider package is not installed", async () => {
+    const importer = async (): Promise<Record<string, unknown>> => {
+      throw Object.assign(new Error("Cannot find package '@langchain/xai'"), {
+        code: "ERR_MODULE_NOT_FOUND",
+      })
+    }
+    expect(await readModelProfile({ provider: "xai", model: "grok-4", importer })).toBeUndefined()
+  })
+
+  it("rethrows an import failure that is not a missing package", async () => {
+    const importer = async (): Promise<Record<string, unknown>> => {
+      throw new Error("boom")
+    }
+    await expect(readModelProfile({ provider: "xai", model: "grok-4", importer })).rejects.toThrow(
+      "boom",
+    )
   })
 })

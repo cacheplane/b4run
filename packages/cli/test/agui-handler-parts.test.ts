@@ -160,7 +160,7 @@ describe("content parts through the AG-UI handler", () => {
     expect(body).toContain('"name":"b4.content_parts_dropped"')
     expect(drops).toHaveLength(1)
     expect(drops[0]).toBe(
-      "B4: dropped 1 content part(s) the model cannot use (openai/gpt-5-mini) on route /chat#agent: audio/data (modality_unsupported).",
+      "B4: dropped 1 content part(s) the model cannot use (openai/gpt-5-mini) on route /chat#agent: audio/data (modality_unsupported). GET /agui/%2Fchat%23agent lists what this route accepts.",
     )
     // The image was carried: the forwarded OpenAI request has an image_url block.
     const forwarded = JSON.stringify(aimock.getRequests().map((request) => request.body))
@@ -199,7 +199,7 @@ describe("content parts through the AG-UI handler", () => {
 
     expect(langchainMocks.streamAgent).toHaveBeenCalled()
     expect(drops).toEqual([
-      "B4: dropped 1 content part(s) the model cannot use (openai/gpt-5-mini) on route /chat#agent in tool result child-call-1: video/data (tool_result_media_unsupported).",
+      "B4: dropped 1 content part(s) the model cannot use (openai/gpt-5-mini) on route /chat#agent in tool result child-call-1: video/data (tool_result_media_unsupported). GET /agui/%2Fchat%23agent lists what this route accepts.",
     ])
   }, 30_000)
 })

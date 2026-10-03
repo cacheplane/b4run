@@ -159,6 +159,60 @@ describe("createClientToolCallStore", () => {
     expect(row?.result).toBe("ok")
   })
 
+  describe("content-part results (spec §3.2: the TEXT column keeps an envelope)", () => {
+    const parts = [
+      { type: "text", text: "panel opened" },
+      { type: "image", source: { type: "data", value: "iVBORw0KGgo=", mimeType: "image/png" } },
+    ] as const
+
+    it("a parts answer round-trips through get and listForThread", async () => {
+      const store = newStore()
+      await store.issue(call())
+      const answered = await store.answer({
+        threadId: "t-1",
+        toolCallId: "call-1",
+        result: parts,
+        at,
+      })
+      expect(answered.outcome === "answered" && answered.record.result).toEqual(parts)
+      const row = await store.get("t-1", "call-1")
+      expect(row?.answeredAt).toBe(at)
+      expect(row?.result).toEqual(parts)
+      expect((await store.listForThread("t-1"))[0]?.result).toEqual(parts)
+      // A reopened handle decodes it too.
+      expect((await newStore().get("t-1", "call-1"))?.result).toEqual(parts)
+    })
+
+    it("an issued record carrying parts round-trips", async () => {
+      const store = newStore()
+      const row = call({ answeredAt: at, result: parts })
+      await store.issue(row)
+      expect(await store.get("t-1", "call-1")).toEqual(row)
+    })
+
+    it("a text answer still reads back as text", async () => {
+      const store = newStore()
+      await store.issue(call())
+      await store.answer({ threadId: "t-1", toolCallId: "call-1", result: "Paris", at })
+      expect((await store.get("t-1", "call-1"))?.result).toBe("Paris")
+    })
+
+    it("text that looks like the envelope but is not a valid part list reads back as that text", async () => {
+      const store = newStore()
+      const lookalikes = [
+        '{"$b4":"content-parts","parts":[{"type":"image"}]}',
+        '{"$b4":"content-parts","parts":"nope"}',
+        '{"$b4":"other","parts":[]}',
+        '{"$b4": not json',
+      ]
+      for (const [i, text] of lookalikes.entries()) {
+        await store.issue(call({ toolCallId: `look-${i}` }))
+        await store.answer({ threadId: "t-1", toolCallId: `look-${i}`, result: text, at })
+        expect((await store.get("t-1", `look-${i}`))?.result).toBe(text)
+      }
+    })
+  })
+
   it("exactly one of many concurrent answers across two handles wins", async () => {
     const a = newStore()
     const b = newStore()
