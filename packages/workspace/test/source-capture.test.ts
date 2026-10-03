@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process"
+import { appendFileSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import * as fs from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -180,6 +181,94 @@ describe("captureWorkspaceSource", () => {
       captureWorkspaceSource(root, definition(), { signal: controller.signal }),
     ).rejects.toThrow()
     expect(closed).toBe(true)
+  })
+  /**
+   * Run `mutate()` on every turn of the event loop from the moment `after()` first holds until
+   * `pending` settles, and return how many times it ran. The capture awaits dozens of
+   * filesystem calls between its first inspection of a path and its final re-inspection, each
+   * yielding a turn, so a mutation that begins once the path is tracked lands inside that window.
+   */
+  async function churnUntilSettled(
+    pending: Promise<unknown>,
+    after: () => boolean,
+    mutate: () => void,
+  ): Promise<number> {
+    let settled = false
+    const settle = pending.then(
+      () => (settled = true),
+      () => (settled = true),
+    )
+    let mutations = 0
+    while (!settled) {
+      if (after()) {
+        mutate()
+        mutations++
+      }
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+    await settle
+    return mutations
+  }
+  /** Whether the capture has inspected `path` (spelled as the capture does: realpath'd) at least once. */
+  const inspected =
+    (spy: { mock: { calls: readonly (readonly unknown[])[] } }, path: string) => () =>
+      spy.mock.calls.some((call) => call[0] === path)
+  it("tolerates entries appearing and vanishing in directories above the source", async () => {
+    // Two capture roots sharing one parent, as the software factory's concurrent captures do
+    // (`captures/<role>/<task>.<instance>`): each capture creates and removes its own staging
+    // directory beside the other's, which changes the shared parent's mtime, never a byte
+    // of either source. Only the directories' identities are checked.
+    await fs.mkdir(join(root, "nest", "source"), { recursive: true })
+    for (let i = 0; i < 20; i++) await fs.writeFile(join(root, "nest", "source", `f${i}`), `${i}`)
+    const include = Array.from({ length: 20 }, (_, i) => `f${i}`)
+    let n = 0
+    const real = await fs.realpath(root)
+    const lstat = vi.spyOn(fs, "lstat")
+    const capture = captureWorkspaceSource(root, { directory: "nest/source", include })
+    const mutations = await churnUntilSettled(capture, inspected(lstat, join(real, "nest")), () => {
+      mkdirSync(join(root, "nest", `sibling-${n}`))
+      rmSync(join(root, "nest", `sibling-${n}`), { recursive: true })
+      mkdirSync(join(root, `sibling-${n}`))
+      rmSync(join(root, `sibling-${n}`), { recursive: true })
+      n++
+    })
+    expect(mutations).toBeGreaterThan(2)
+    const bundle = await capture
+    expect(bundle.files.map((f) => f.path)).toEqual([...include].sort())
+  })
+  it("still rejects an ancestor directory that is swapped out, and a source that changes", async () => {
+    await fs.mkdir(join(root, "nest", "source"), { recursive: true })
+    await fs.writeFile(join(root, "nest", "source", "a"), "a")
+    const real = await fs.realpath(root)
+    const lstat = vi.spyOn(fs, "lstat")
+    const swapped = captureWorkspaceSource(root, { directory: "nest/source", include: ["a"] })
+    let swappedOnce = false
+    // Once the walk has reached `nest/source`, `nest` itself has been inspected and recorded.
+    const swaps = await churnUntilSettled(
+      swapped,
+      inspected(lstat, join(real, "nest", "source")),
+      () => {
+        // Replace `nest` with a fresh directory holding the same tree: a new inode, same bytes.
+        if (swappedOnce) return
+        swappedOnce = true
+        mkdirSync(join(root, "nest2", "source"), { recursive: true })
+        writeFileSync(join(root, "nest2", "source", "a"), "a")
+        renameSync(join(root, "nest"), join(root, "nest-old"))
+        renameSync(join(root, "nest2"), join(root, "nest"))
+      },
+    )
+    expect(swaps).toBeGreaterThan(0)
+    await expect(swapped).rejects.toThrow(/changed during capture/)
+    await fs.rm(join(root, "nest-old"), { recursive: true, force: true })
+    lstat.mockClear()
+    const changed = captureWorkspaceSource(root, { directory: "nest/source", include: ["a"] })
+    const appends = await churnUntilSettled(
+      changed,
+      inspected(lstat, join(real, "nest", "source", "a")),
+      () => appendFileSync(join(root, "nest", "source", "a"), "a"),
+    )
+    expect(appends).toBeGreaterThan(0)
+    await expect(changed).rejects.toThrow(/changed/)
   })
   it("bounds directory traversal including empty directories", async () => {
     for (let batch = 0; batch < 101; batch++) {
