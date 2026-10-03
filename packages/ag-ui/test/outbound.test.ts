@@ -101,8 +101,9 @@ describe("toAguiEvents", () => {
   })
 
   test("a failing tool's error ToolMessage reaches TOOL_CALL_RESULT under the same toolCallId", async () => {
-    // What @b4run/langchain emits for a thrown tool: the serialized error
-    // ToolMessage the model receives, keyed by the model's tool-call id.
+    // What @b4run/langchain emits for a thrown tool: the error ToolMessage the
+    // model receives, keyed by the model's tool-call id. The wire carries the
+    // text the model saw, never the serialized message object.
     const errorToolMessage = {
       lc: 1,
       type: "constructor",
@@ -127,9 +128,56 @@ describe("toAguiEvents", () => {
       type: EventType.TOOL_CALL_RESULT,
       messageId: "tr-1",
       toolCallId: "call_stmt_1",
-      content: JSON.stringify(errorToolMessage),
+      content: "Error: kaboom\n Please fix your mistakes.",
     })
-    expect(JSON.parse((result as { content: string }).content).kwargs.status).toBe("error")
+  })
+
+  test("a live ToolMessage instance shape yields its content, not its fields", async () => {
+    // The adapter forwards LangGraph's `on_tool_end` output unserialized: a
+    // ToolMessage whose own properties are the fields (no `kwargs` wrapper).
+    const liveToolMessage = {
+      content: "(no memories found)",
+      status: "success",
+      name: "recall",
+      tool_call_id: "call_recall_1",
+      additional_kwargs: {},
+      response_metadata: {},
+    }
+    const events = await collect([
+      { type: "tool_call", data: { id: "call_recall_1", name: "recall", input: { query: "x" } } },
+      {
+        type: "tool_result",
+        data: { id: "call_recall_1", name: "recall", output: liveToolMessage },
+      },
+      { type: "done", data: {} },
+    ])
+    const result = events.find((event) => event.type === EventType.TOOL_CALL_RESULT)
+    expect(result).toMatchObject({ toolCallId: "call_recall_1", content: "(no memories found)" })
+  })
+
+  test("a Command output yields the content of its last ToolMessage", async () => {
+    const command = {
+      update: {
+        todos: [{ content: "a", status: "pending" }],
+        messages: [
+          {
+            content: '{"todos":[{"content":"a","status":"pending"}]}',
+            name: "writeTodos",
+            tool_call_id: "call_plan_1",
+          },
+        ],
+      },
+    }
+    const events = await collect([
+      { type: "tool_call", data: { id: "call_plan_1", name: "savePlan", input: {} } },
+      { type: "tool_result", data: { id: "call_plan_1", name: "savePlan", output: command } },
+      { type: "done", data: {} },
+    ])
+    const result = events.find((event) => event.type === EventType.TOOL_CALL_RESULT)
+    expect(result).toMatchObject({
+      toolCallId: "call_plan_1",
+      content: '{"todos":[{"content":"a","status":"pending"}]}',
+    })
   })
 
   test.each([

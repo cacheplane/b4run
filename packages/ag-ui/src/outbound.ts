@@ -145,6 +145,58 @@ function stringifyContent(output: unknown): string {
   }
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/**
+ * A ToolMessage's fields, whether the value is the live instance (fields on
+ * the object) or its serialized form (fields under `kwargs`). Anything
+ * without a string `tool_call_id` is not a ToolMessage.
+ */
+function readToolMessageFields(
+  value: unknown,
+): { readonly content: unknown; readonly status: unknown } | undefined {
+  if (!isPlainObject(value)) return undefined
+  const fields = isPlainObject(value.kwargs) ? value.kwargs : value
+  if (typeof fields.tool_call_id !== "string") return undefined
+  return { content: fields.content, status: fields.status }
+}
+
+/** What a tool result looks like on the wire: the text the model saw, and whether the tool failed. */
+export interface ToolResultView {
+  readonly content: string
+  readonly failed: boolean
+}
+
+/**
+ * The adapter forwards LangGraph's `on_tool_end` output unchanged: a
+ * ToolMessage for a string-returning tool, a Command whose `update.messages`
+ * ends in one for a `{result, state}` tool, or the error ToolMessage for a
+ * tool that threw. The protocol wants the tool's output, so unwrap all three;
+ * a bare value (tests, third-party producers) is serialized as before.
+ */
+export function toolResultView(output: unknown): ToolResultView {
+  const direct = readToolMessageFields(output)
+  if (direct !== undefined) {
+    return { content: stringifyContent(direct.content), failed: direct.status === "error" }
+  }
+  if (
+    isPlainObject(output) &&
+    isPlainObject(output.update) &&
+    Array.isArray(output.update.messages)
+  ) {
+    const messages = output.update.messages
+    for (let index = messages.length - 1; index >= 0; index--) {
+      const fields = readToolMessageFields(messages[index])
+      if (fields !== undefined) {
+        return { content: stringifyContent(fields.content), failed: fields.status === "error" }
+      }
+    }
+  }
+  return { content: stringifyContent(output), failed: false }
+}
+
 function newOwnerState(): OwnerState {
   return {
     openMessageId: null,
@@ -541,7 +593,7 @@ export async function* toAguiEvents(
           type: EventType.TOOL_CALL_RESULT,
           messageId: nextId("toolResult"),
           toolCallId,
-          content: stringifyContent(tr.output),
+          content: toolResultView(tr.output).content,
         })
         if (owner === undefined) {
           yield* ledger.onToolResult(tr.id, tr.name, resultEvent)
