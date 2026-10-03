@@ -184,6 +184,15 @@ export interface InterruptGrantStore {
     readonly keepInterruptIds: readonly string[]
     readonly at: string
   }): Promise<number>
+
+  /**
+   * Deletes settled rows — consumed or voided — whose settle time (`voidedAt`,
+   * else `consumedAt`) is before `before`. Outstanding rows are never deleted,
+   * whatever `expiresAt` says: a parked prompt with no row would resume
+   * ungated under `approvals.grants: "optional"`. Returns how many rows were
+   * deleted. `before` is an ISO-8601 string compared as text.
+   */
+  prune(options: { readonly before: string }): Promise<number>
 }
 
 /** Grants are prefixed so one is recognizable in a log or a bug report. */
@@ -248,6 +257,13 @@ export function isApprovalGrantShape(value: unknown): value is string {
   )
 }
 
+/** The memory store's `prune` predicate; the SQL stores carry the same rule in their DELETE. */
+function isSettledBefore(row: InterruptGrantRecord, before: string): boolean {
+  if (row.voidedAt !== null) return row.voidedAt < before
+  if (row.consumedAt !== null) return row.consumedAt < before
+  return false
+}
+
 /**
  * In-process {@link InterruptGrantStore}. Not a mock: it enforces the same
  * atomicity the SQL stores do (single-threaded JS gives it for free) and
@@ -301,6 +317,18 @@ export function createMemoryInterruptGrantStore(): InterruptGrantStore {
         voided++
       }
       return voided
+    },
+    async prune({ before }) {
+      let count = 0
+      for (const [threadId, rows] of threads) {
+        for (const [interruptId, row] of rows) {
+          if (!isSettledBefore(row, before)) continue
+          rows.delete(interruptId)
+          count += 1
+        }
+        if (rows.size === 0) threads.delete(threadId)
+      }
+      return count
     },
   }
 }
