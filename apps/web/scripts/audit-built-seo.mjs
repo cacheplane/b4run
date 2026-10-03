@@ -4,13 +4,14 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { isDeepStrictEqual } from "node:util"
 import matter from "gray-matter"
+import { llmsDocSection } from "../lib/llms-markdown.mjs"
 
 const scriptFile = realpathSync(fileURLToPath(import.meta.url))
 const scriptDirectory = dirname(scriptFile)
 const appRoot = resolve(scriptDirectory, "..")
 const productionOrigin = "https://b4.run"
 const currentInventoryDate = "2026-08-26"
-const currentInventoryCount = 84
+const currentInventoryCount = 93
 const approvedRobotsAgents = [
   "*",
   "GPTBot",
@@ -319,8 +320,8 @@ function sourceDocsInventory() {
   const records = journey.flatMap((record) =>
     record.path === "/docs/api" ? [record, ...api] : [record],
   )
-  if (records.length !== 76)
-    throw new Error(`Expected 76 ALL_DOCS_PAGES source entries; found ${records.length}`)
+  if (records.length !== 80)
+    throw new Error(`Expected 80 ALL_DOCS_PAGES source entries; found ${records.length}`)
   if (new Set(records.map((record) => record.path)).size !== records.length) {
     throw new Error("Duplicate docs path in independent source inventory")
   }
@@ -506,6 +507,21 @@ function assertPage(path, parsed) {
   }
 }
 
+export function docsOgImageUrl(path) {
+  return `${productionOrigin}/og${path}`
+}
+
+async function assertOgPng(response) {
+  if (response.status !== 200) throw new Error(`returned HTTP ${response.status}`)
+  if (!response.headers.get("content-type")?.toLowerCase().startsWith("image/png")) {
+    throw new Error(`returned unexpected content type: ${response.headers.get("content-type")}`)
+  }
+  const dimensions = readPngDimensions(Buffer.from(await response.arrayBuffer()))
+  if (!isDeepStrictEqual(dimensions, { height: 630, width: 1200 })) {
+    throw new Error(`dimensions are ${dimensions.width}x${dimensions.height}; expected 1200x630`)
+  }
+}
+
 function localUrl(productionUrl, baseUrl) {
   const requested = new URL(productionUrl)
   if (requested.origin !== productionOrigin) {
@@ -557,8 +573,10 @@ function occurrences(haystack, needle) {
   return count
 }
 
-export function docSectionOccurrences(body, label, source) {
-  return occurrences(body, `### ${label}\n\n${source}`)
+// /llms-full.txt serves each docs page converted to plain Markdown; render the
+// same section from the authored source and require it verbatim.
+export function docSectionOccurrences(body, page, source) {
+  return occurrences(body, llmsDocSection({ label: page.label, href: page.path }, source))
 }
 
 export function parseAuditOptions(argv) {
@@ -601,6 +619,7 @@ export async function auditBuiltSeo({ asOf, baseUrl }) {
     lastmodDates: 0,
     llms: 0,
     llmsDocs: 0,
+    docsOgImages: 0,
     ogImages: 0,
     ogNegative404s: 0,
     posts: inventory.visiblePosts.length,
@@ -702,7 +721,7 @@ export async function auditBuiltSeo({ asOf, baseUrl }) {
       if (path === "/llms-full.txt") {
         for (const doc of inventory.docs) {
           const source = readFileSync(doc.sourcePath, "utf8")
-          if (docSectionOccurrences(body, doc.label, source) !== 1) {
+          if (docSectionOccurrences(body, doc, source) !== 1) {
             throw new Error(`${doc.path} exact authored section is not present exactly once`)
           }
           summary.llmsDocs += 1
@@ -733,17 +752,7 @@ export async function auditBuiltSeo({ asOf, baseUrl }) {
   }
   for (const imageUrl of [...new Set(imageUrls)]) {
     try {
-      const response = await fetchResponse(localUrl(imageUrl, baseUrl))
-      if (response.status !== 200) throw new Error(`returned HTTP ${response.status}`)
-      if (!response.headers.get("content-type")?.toLowerCase().startsWith("image/png")) {
-        throw new Error(`returned unexpected content type: ${response.headers.get("content-type")}`)
-      }
-      const dimensions = readPngDimensions(Buffer.from(await response.arrayBuffer()))
-      if (!isDeepStrictEqual(dimensions, { height: 630, width: 1200 })) {
-        throw new Error(
-          `dimensions are ${dimensions.width}x${dimensions.height}; expected 1200x630`,
-        )
-      }
+      await assertOgPng(await fetchResponse(localUrl(imageUrl, baseUrl)))
       summary.ogImages += 1
     } catch (error) {
       failures.push(
@@ -752,10 +761,44 @@ export async function auditBuiltSeo({ asOf, baseUrl }) {
     }
   }
 
+  // Every docs page carries its own prerendered card, named by its path.
+  const docsPaths = new Set(inventory.docs.map((doc) => doc.path))
+  const docsImageUrls = []
+  for (const result of pageResults) {
+    if (!docsPaths.has(result.path) || result.parsed === undefined) continue
+    const expected = docsOgImageUrl(result.path)
+    const images = result.parsed.openGraphImages
+    if (images.length !== 1 || images[0] !== expected) {
+      failures.push(`${result.path}: expected og:image ${expected}; found ${images.join(", ")}`)
+      continue
+    }
+    const article = result.parsed.jsonLdEntities.find((entity) => entity["@type"] === "TechArticle")
+    if (article?.image !== expected) {
+      failures.push(`${result.path}: TechArticle image must be ${expected}`)
+    }
+    docsImageUrls.push(expected)
+  }
+  if (docsImageUrls.length !== inventory.docs.length) {
+    failures.push(
+      `docs OG image inventory must contain exactly ${inventory.docs.length} URLs; found ${docsImageUrls.length}`,
+    )
+  }
+  await mapLimit(docsImageUrls, 10, async (imageUrl) => {
+    try {
+      await assertOgPng(await fetchResponse(localUrl(imageUrl, baseUrl)))
+      summary.docsOgImages += 1
+    } catch (error) {
+      failures.push(
+        `docs OG image ${imageUrl}: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  })
+
   const draft = inventory.hiddenPosts.find((post) => post.draft)
   const negativePaths = [
     `/blog/${draft?.slug ?? "draft-seo-audit-fixture"}/opengraph-image`,
     "/blog/__seo-audit-unknown__/opengraph-image",
+    "/og/docs/__seo-audit-unknown__",
   ]
   for (const path of negativePaths) {
     try {
@@ -783,7 +826,7 @@ function printResult(options, result) {
     `sitemap=${result.summary.sitemap} lastmodDates=${result.summary.lastmodDates} html=${result.summary.html} jsonLdEntities=${result.summary.jsonLd}`,
   )
   console.log(
-    `robotsGroups=${result.summary.robotsGroups} llms=${result.summary.llms} llmsDocs=${result.summary.llmsDocs} ogImages=${result.summary.ogImages} og404s=${result.summary.ogNegative404s}`,
+    `robotsGroups=${result.summary.robotsGroups} llms=${result.summary.llms} llmsDocs=${result.summary.llmsDocs} ogImages=${result.summary.ogImages} docsOgImages=${result.summary.docsOgImages} og404s=${result.summary.ogNegative404s}`,
   )
   console.log(`failures=${result.failures.length}`)
   for (const failure of result.failures) console.error(`FAIL ${failure}`)

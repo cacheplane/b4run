@@ -6,7 +6,7 @@
   "scripts": {
     "build": "next build",
     "dev": "next dev",
-    "lint": "biome check --config-path ../../packages/config-biome/biome.json --css-parse-tailwind-directives=true package.json app content lib scripts mdx-components.tsx next.config.ts postcss.config.mjs vercel.json vitest.config.ts tsconfig.json tsconfig.build.json",
+    "lint": "biome check --config-path ../../packages/config-biome/biome.json --css-parse-tailwind-directives=true package.json app content lib scripts mdx-components.tsx next.config.ts postcss.config.mjs vercel.json vitest.config.ts vitest.setup.ts tsconfig.json tsconfig.build.json",
     "seo:audit-built": "node scripts/audit-built-seo.mjs",
     "seo:lastmod": "node scripts/generate-seo-lastmod.mjs",
     "seo:lastmod:check": "node scripts/generate-seo-lastmod.mjs --check",
@@ -22,6 +22,7 @@
     "@tailwindcss/postcss": "^4.3.3",
     "github-slugger": "^2.0.0",
     "gray-matter": "^4.0.3",
+    "gsap": "3.15.0",
     "next": "16.3.3",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -35,8 +36,15 @@
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
+    "@b4run/cli": "workspace:*",
     "@b4run/config-typescript": "workspace:*",
     "@b4run/core": "workspace:*",
+    "@b4run/permissions": "workspace:*",
+    "@b4run/postgres-storage": "workspace:*",
+    "@b4run/sandbox": "workspace:*",
+    "@b4run/sdk": "workspace:*",
+    "@langchain/core": "1.2.12",
+    "@langchain/langgraph": "1.4.17",
     "@types/mdx": "^2.0.14",
     "@types/node": "26.1.2",
     "@types/react": "19.2.18",
@@ -44,6 +52,7 @@
     "@vitest/ui": "^4.1.11",
     "jsdom": "^30.0.1",
     "typescript": "7.0.2",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.11",
+    "zod": "4.4.3"
   }
 }

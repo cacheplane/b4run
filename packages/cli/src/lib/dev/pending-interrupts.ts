@@ -1,3 +1,4 @@
+import { CLIENT_TOOL_CALL_TYPE, isClientToolCallEnvelope } from "@b4run/core"
 import type { BaseCheckpointSaver, CheckpointTuple } from "@langchain/langgraph-checkpoint"
 
 export type PermissionDecision = "once" | "always" | "deny"
@@ -6,6 +7,17 @@ export interface B4ResumeEntry {
   readonly interruptId: string
   readonly status: "resolved" | "cancelled"
   readonly payload?: unknown
+  /**
+   * The single-use approval grant the parked prompt carried, echoed back
+   * verbatim. Opaque: the client authors nothing about the decision beyond
+   * `status`/`payload`, and never constructs this value.
+   *
+   * Optional at the type level for migration only. At runtime it is required
+   * whenever the interrupt HAS a grant row — which is the rule that stops
+   * `approvals.grants: "optional"` from being a bypass — and always under
+   * `"required"`. See `approval-grants.ts`.
+   */
+  readonly grant?: string
 }
 
 export interface PendingInterrupt {
@@ -69,6 +81,25 @@ export type ResumeResolution =
  * something else too — channel values *and* pending interrupts — pays for one
  * `getTuple` instead of two. Pure: no I/O, no checkpointer.
  */
+/**
+ * The approval grant carried by a parked interrupt's envelope, if any.
+ *
+ * The grant lives IN the envelope because the park site — inside `interrupt()`
+ * in `@b4run/core` — has no storage handle and no way to reach the disclosure
+ * paths, so it cannot attach the grant at projection time. The consequence is
+ * stated rather than hidden: the plaintext grant is at rest in the
+ * checkpointer's `writes`, so the hash-only grant store protects the
+ * consumption ledger, not the checkpoint. See the docs.
+ *
+ * Projections lift it to a top-level `grant` alongside the verbatim `value`,
+ * so a client does not have to know the envelope's shape to answer a prompt.
+ */
+export function grantOf(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined
+  const grant = (value as { grant?: unknown }).grant
+  return typeof grant === "string" && grant.length > 0 ? grant : undefined
+}
+
 export function parsePendingInterrupts(tuple: CheckpointTuple): PendingInterruptSnapshot {
   const interrupts: PendingInterrupt[] = []
   let malformed = false
@@ -121,6 +152,43 @@ export function parsePendingInterrupts(tuple: CheckpointTuple): PendingInterrupt
     }
   }
 
+  return { interrupts, malformed }
+}
+
+/**
+ * Whether a parked `__interrupt__` value is a client tool call, by its `type`
+ * ALONE. Deliberately looser than `isClientToolCallEnvelope`: an envelope that
+ * says it is a client tool call but is missing its ids is still not a
+ * permission prompt, and must never be listed or answered as one.
+ */
+export function isClientToolPark(value: unknown): boolean {
+  return isRecord(value) && value.type === CLIENT_TOOL_CALL_TYPE
+}
+
+/**
+ * The snapshot minus client tool parks — the view the approval listings use.
+ *
+ * A client tool call parks with LangGraph `interrupt()` just like a permission
+ * prompt, but it is not a prompt: the client answers it by sending the tool's
+ * result as a `role: "tool"` message on its next run through the AG-UI
+ * endpoint, never through an approval endpoint. So it is not listed and not
+ * re-rendered on attach. `POST /threads/:id/resume` goes further and refuses
+ * outright while one is pending (`client_tool_pending`), because a partial
+ * resume of the permission parks alone is unsafe — see `handleResumeRequest`.
+ *
+ * `malformed` is carried over from the full set, and is also set when a
+ * client-typed envelope is missing its string `interruptId`/`toolCallId`:
+ * fail closed rather than let a broken park be addressed.
+ */
+export function withoutClientToolParks(
+  snapshot: PendingInterruptSnapshot,
+): PendingInterruptSnapshot {
+  let malformed = snapshot.malformed
+  const interrupts = snapshot.interrupts.filter((entry) => {
+    if (!isClientToolPark(entry.value)) return true
+    if (!isClientToolCallEnvelope(entry.value)) malformed = true
+    return false
+  })
   return { interrupts, malformed }
 }
 

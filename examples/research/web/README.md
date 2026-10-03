@@ -3,7 +3,7 @@
 A [CopilotKit](https://docs.copilotkit.ai) v2 app (`@copilotkit/react-core/v2` +
 `@copilotkit/runtime/v2`) that talks to B4.run's `/research` agent over AG-UI. Its
 required catch-all route (`app/api/copilotkit/[...path]/route.ts`) registers an
-`HttpAgent` pointed at B4.run's encoded `/research#agent` endpoint. It is a
+`B4HttpAgent` (`@b4run/ag-ui/client`) pointed at B4.run's encoded `/research#agent` endpoint. It is a
 workbench rather than a chat widget: the app renders its own transcript and composer
 instead of mounting `CopilotSidebar`, so the plan and researcher activity cards appear
 inline in the conversation.
@@ -34,13 +34,13 @@ a legacy base-URL POST.
 ```
 browser
   → /api/copilotkit/* (app/api/copilotkit/[...path]/route.ts, this app, no API key)
-    → HttpAgent → POST /agui/%2Fresearch%23agent  (B4.run dev server, holds OPENAI_API_KEY)
+    → B4HttpAgent → POST /agui/%2Fresearch%23agent  (B4.run dev server, holds OPENAI_API_KEY)
       → live /research agent
         → AG-UI event stream back to the browser
 ```
 
 - `app/api/copilotkit/[...path]/route.ts` — `CopilotRuntime` with
-  `agents: { default: new HttpAgent(...) }`, served through
+  `agents: { default: new B4HttpAgent(...) }`, served through
   `createCopilotRuntimeHandler` from `@copilotkit/runtime/v2` with
   `basePath: "/api/copilotkit"` and shared `GET`/`POST` exports. No LLM credentials
   live here; the B4.run server holds `OPENAI_API_KEY`.
@@ -64,8 +64,8 @@ put back in front of the messages as a plan card.
 What a restore does **not** bring back is stated in the app itself, above the restored
 messages:
 
-> Restored from this conversation's saved history. Subagent cards from earlier runs
-> aren't saved — new ones appear as they run.
+> Restored from this conversation's saved history. Subagent activity from earlier runs
+> isn't saved — new runs show it as it happens.
 
 A thread with no checkpoint yet (a brand-new one) 404s, and that is treated as "nothing
 to restore", not an error — no error row appears.
@@ -150,11 +150,13 @@ The palette follows the OS light/dark setting. To pin one regardless, set
 `data-wb-theme="light"` or `data-wb-theme="dark"` on `<html>` — `theme.css` defines both
 branches.
 
-The plan and researcher cards are **not forks**. They are the packaged
-`@b4run/ag-ui/react` components (`PlanActivityCard`, `SubagentActivityCard`),
-customized through that package's `classNames` ladder. To change how they look, edit
-`app/components/PlanCard.tsx` (and `app/components/SubagentCard.tsx`) — validation,
-bounds, and layout stay in the package where they are tested. One constraint is worth
+The plan card and the subagent panel are **not forks**. They are the packaged
+`@b4run/ag-ui/react` components (`PlanActivityCard`, and `SubagentPanel` fed by
+`useSubagentRuns(agent)` from the agent's AG-UI `SUBAGENT_*` events), customized through
+that package's `classNames` ladder. To change how they look, edit
+`app/components/PlanCard.tsx` (and the `SubagentPanel` props in
+`app/components/Transcript.tsx`) — validation, bounds, and layout stay in the package
+where they are tested. One constraint is worth
 knowing before you add a class: a `classNames` entry can only set a property the package
 stylesheet leaves unset on that element, because the package's CSS is unlayered and
 Tailwind's utilities are not. `app/components/activity-renderers.tsx` states the rule and

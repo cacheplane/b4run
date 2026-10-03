@@ -1,6 +1,7 @@
 import type { IncomingMessage } from "node:http"
 import type {
   B4Middleware,
+  MiddlewareAfterHook,
   MiddlewareDefinition,
   MiddlewareHandler,
   MiddlewareRequest,
@@ -41,6 +42,12 @@ export interface BoundMiddleware {
    * so a definition cannot reach a request without its `setup`.
    */
   readonly handler: MiddlewareHandler | undefined
+  /**
+   * The final-message hook, with the same lazy `setup` folded in. `undefined`
+   * for a plain function and for a definition without one — the AG-UI handler
+   * then leaves the run stream untouched. See `MiddlewareDefinition.after`.
+   */
+  readonly after: MiddlewareAfterHook | undefined
   /** Idempotent; see `MiddlewareDefinition.dispose` for when the hook runs. */
   readonly dispose: () => Promise<void>
 }
@@ -58,10 +65,12 @@ export function bindMiddleware(
   middleware: B4Middleware | undefined,
   ctx: MiddlewareSetupContext,
 ): BoundMiddleware {
-  if (!middleware) return { dispose: NO_DISPOSE, handler: undefined }
-  if (typeof middleware === "function") return { dispose: NO_DISPOSE, handler: middleware }
+  if (!middleware) return { after: undefined, dispose: NO_DISPOSE, handler: undefined }
+  if (typeof middleware === "function") {
+    return { after: undefined, dispose: NO_DISPOSE, handler: middleware }
+  }
 
-  const { dispose, handle, setup } = middleware
+  const { after, dispose, handle, setup } = middleware
   /** The single in-flight or completed setup; cleared on rejection so the next request retries. */
   let setupPromise: Promise<void> | undefined
   let setupSucceeded = setup === undefined
@@ -89,6 +98,16 @@ export function bindMiddleware(
     return await handle(req)
   }
 
+  // `handle` has always run (and so `setup` has succeeded) by the time a run
+  // finishes, so this await is normally a no-op; it exists so the hook can
+  // never observe a disposed or never-set-up middleware.
+  const boundAfter: MiddlewareAfterHook | undefined = after
+    ? async (run) => {
+        await ensureSetup()
+        return await after(run)
+      }
+    : undefined
+
   const performDispose = async (): Promise<void> => {
     // An in-flight setup may still be opening the resource: wait for it to
     // settle (a failure means there is nothing to release) before deciding.
@@ -98,6 +117,7 @@ export function bindMiddleware(
   }
 
   return {
+    after: boundAfter,
     dispose: () => {
       disposing ??= performDispose()
       return disposing

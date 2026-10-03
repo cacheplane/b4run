@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
-import Link from "next/link"
+import headerStyles from "./components/homepage/header.module.css"
 import { Eyebrow } from "./components/ui/Eyebrow"
+import { SiteLink } from "./components/ui/SiteLink"
 
 export const metadata: Metadata = {
   title: "Page not found",
@@ -10,38 +11,33 @@ export const metadata: Metadata = {
 interface DestinationProps {
   readonly href: string
   readonly label: string
+  readonly download?: boolean
 }
 
-function Destination({ href, label }: DestinationProps) {
+const linkClass =
+  "inline-flex items-center gap-1.5 min-h-11 text-sm font-medium underline underline-offset-[5px] decoration-olive hover:decoration-2"
+
+function Destination({ href, label, download }: DestinationProps) {
   return (
-    <Link
-      href={href}
-      className="inline-flex items-center gap-1.5 text-sm font-medium text-accent-saas hover:opacity-80 transition-opacity"
-    >
+    <SiteLink href={href} className={linkClass} {...(download ? { download: true } : {})}>
       {label} <span aria-hidden="true">→</span>
-    </Link>
+    </SiteLink>
   )
 }
 
+// Homepage column (header.module.css), so the page lines up with the header
+// logo and footer at every width.
 export default function NotFound() {
   return (
-    <section className="bg-page">
-      <div className="max-w-[820px] mx-auto px-6 md:px-8 py-24 md:py-32">
+    <main id="content" tabIndex={-1} data-not-found className="flex-1 bg-page text-ink">
+      <div className={`${headerStyles.column} py-24 md:py-32`}>
         <Eyebrow>404</Eyebrow>
-        <h1
-          className="font-display font-semibold text-ink mt-3 text-[40px] leading-[44px] md:text-[56px] md:leading-[60px] text-balance"
-          style={{
-            fontVariationSettings: "'opsz' 144, 'SOFT' 50, 'WONK' 0",
-            letterSpacing: "-0.015em",
-          }}
-        >
-          We couldn't find that page.
-        </h1>
-        <p className="mt-5 text-lg text-ink-muted leading-[30px] max-w-[52ch]">
+        <h1 className="mt-5 text-display text-balance">We couldn't find that page.</h1>
+        <p className="mt-6 text-body-lg text-ink-muted max-w-[52ch]">
           The page may have moved, or the link you followed is out of date. Try one of these
           instead:
         </p>
-        <ul className="mt-8 flex flex-wrap gap-x-8 gap-y-3">
+        <ul className="mt-6 flex flex-wrap gap-x-8">
           <li>
             <Destination href="/" label="Home" />
           </li>
@@ -52,16 +48,14 @@ export default function NotFound() {
             <Destination href="/blog" label="Latest from the blog" />
           </li>
           <li>
-            <a
+            <Destination
               href="/brand/b4-run-brand-assets.zip"
+              label="Download brand kit"
               download
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-accent-saas hover:opacity-80 transition-opacity"
-            >
-              Download brand kit <span aria-hidden="true">→</span>
-            </a>
+            />
           </li>
         </ul>
       </div>
-    </section>
+    </main>
   )
 }

@@ -83,6 +83,29 @@ describe("createThreadAccessHarness", () => {
     expect(received?.requestedMetadata).toEqual({ tenant: "acme" })
   })
 
+  it("reports requestedWorkspace as present but undefined by default, and passes one through", async () => {
+    const received: ThreadAccessRequest[] = []
+    const harness = createThreadAccessHarness({
+      policy: defineThreadAccess({
+        fallback: (req) => {
+          received.push(req)
+          return permit()
+        },
+      }),
+    })
+    const digest = "a".repeat(64)
+    await harness.check({ action: "create" })
+    await harness.check({
+      action: "create",
+      operation: "workspace.source.put",
+      requestedWorkspace: { sourceDigest: digest },
+    })
+    expect(Object.hasOwn(received[0] ?? {}, "requestedWorkspace")).toBe(true)
+    expect(received[0]?.requestedWorkspace).toBeUndefined()
+    expect(received[1]?.operation).toBe("workspace.source.put")
+    expect(received[1]?.requestedWorkspace).toEqual({ sourceDigest: digest })
+  })
+
   it("defaults resuming to false and passes an explicit one through", async () => {
     const received: ThreadAccessRequest[] = []
     const harness = createThreadAccessHarness({

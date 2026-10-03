@@ -5,6 +5,7 @@ import {
   type B4ResumeEntry,
   createRuntimeRegistry,
   readPendingInterrupts,
+  readResponseFormat,
   resolveCheckpointer,
   resolvePendingResume,
   resolveSandboxManager,
@@ -14,6 +15,7 @@ import {
 } from "@b4run/cli/runtime"
 import { __clearB4ConfigCacheForTests } from "@b4run/core"
 import { discoverRoutes } from "@b4run/core/node"
+import type { B4ToolContext } from "@b4run/sdk"
 import { type Aimock, createAimock } from "./aimock-runner.js"
 import type { FixtureSet, ScriptBuilder } from "./fixture-builder.js"
 import { recordingsToFixtures } from "./record-fixtures.js"
@@ -43,10 +45,40 @@ function systemPromptFromRequests(
   return ""
 }
 
+/** The turn a harness is about to drive; passed to a `middlewareContext` factory. */
+export interface AgentHarnessRunInfo {
+  readonly threadId: string
+  /** The user message for `run()`; absent for `resume()`. */
+  readonly input?: string
+  /** The interrupt resolutions for `resume()`; absent for `run()`. */
+  readonly resume?: readonly B4ResumeEntry[]
+}
+
+/**
+ * The context a route's `middleware.ts` would have produced via `allow(context)`,
+ * either as a fixed value or as a factory evaluated once per `run()`/`resume()`.
+ * Tools read it as `ctx.middleware`.
+ */
+export type AgentHarnessMiddlewareContext =
+  | NonNullable<B4ToolContext["middleware"]>
+  | ((
+      run: AgentHarnessRunInfo,
+    ) =>
+      | NonNullable<B4ToolContext["middleware"]>
+      | undefined
+      | Promise<NonNullable<B4ToolContext["middleware"]> | undefined>)
+
 export interface AgentHarnessOptions {
   readonly appRoot: string
   readonly route: string
   readonly fixtures?: FixtureSet
+  /**
+   * The harness invokes the route's agent directly, so `middleware.ts` never
+   * runs. Supply the context it would have returned so tools that read
+   * `ctx.middleware` (a session, a database handle, a per-request snapshot)
+   * behave as they do behind the server. A function is evaluated per turn.
+   */
+  readonly middlewareContext?: AgentHarnessMiddlewareContext
   /**
    * When true, proxy all LLM requests through a real upstream (OPENAI_API_KEY
    * must be set). Requires OPENAI_API_KEY to be present in the environment.
@@ -56,6 +88,25 @@ export interface AgentHarnessOptions {
   readonly record?: boolean
   /** Upstream base URL for record mode (no /v1 suffix). Default https://api.openai.com. */
   readonly recordUpstream?: string
+  /**
+   * A JSON Schema the root model's final message must match — the value a
+   * Hashbrown client sends as `hashbrown.responseSchema` on every AG-UI run.
+   * Bound on every turn exactly as the server binds it, so a scripted, live or
+   * recorded run sends the model the same request production does. Only an
+   * `agent` route on a provider that supports it can take one; any other
+   * route fails the run rather than running unconstrained.
+   */
+  readonly responseSchema?: Readonly<Record<string, unknown>>
+}
+
+/** Evaluate a `middlewareContext` option (value or per-turn factory) for one turn. */
+async function resolveMiddlewareContext(
+  option: AgentHarnessMiddlewareContext | undefined,
+  run: AgentHarnessRunInfo,
+): Promise<NonNullable<B4ToolContext["middleware"]> | undefined> {
+  if (option === undefined) return undefined
+  if (typeof option === "function") return await option(run)
+  return option
 }
 
 export interface AgentHarness {
@@ -75,6 +126,22 @@ export interface AgentHarness {
 export async function createAgentHarness(options: AgentHarnessOptions): Promise<AgentHarness> {
   const live = options.live ?? false
   const record = options.record ?? false
+  const responseSchema: unknown = options.responseSchema
+  if (
+    responseSchema !== undefined &&
+    (typeof responseSchema !== "object" || responseSchema === null || Array.isArray(responseSchema))
+  ) {
+    throw new Error("createAgentHarness: `responseSchema` must be a JSON Schema object")
+  }
+  // Read through the server's own parser so the bound format — including the
+  // provider-facing schema name — is the one an AG-UI run would carry.
+  const responseFormatResult = readResponseFormat(
+    responseSchema !== undefined ? { hashbrown: { responseSchema } } : undefined,
+  )
+  if (!responseFormatResult.ok) {
+    throw new Error(`createAgentHarness: ${responseFormatResult.message}`)
+  }
+  const responseFormat = responseFormatResult.responseFormat
 
   // Guard: live mode requires a real API key before doing anything else.
   if (live && !process.env.OPENAI_API_KEY) {
@@ -172,6 +239,11 @@ export async function createAgentHarness(options: AgentHarnessOptions): Promise<
       }
       resolvedResume = resolution.resume
     }
+    const middlewareContext = await resolveMiddlewareContext(options.middlewareContext, {
+      threadId,
+      ...(driveOpts.input !== undefined ? { input: driveOpts.input } : {}),
+      ...(driveOpts.resume !== undefined ? { resume: driveOpts.resume } : {}),
+    })
     const streamArgs: Parameters<typeof streamResolvedRoute>[0] = {
       appRoot: options.appRoot,
       input:
@@ -184,6 +256,8 @@ export async function createAgentHarness(options: AgentHarnessOptions): Promise<
       threadId,
       ...(sandboxManager ? { sandboxManager } : {}),
       ...(resolvedResume ? { resume: resolvedResume } : {}),
+      ...(middlewareContext !== undefined ? { middlewareContext } : {}),
+      ...(responseFormat !== undefined ? { responseFormat } : {}),
     }
     const stream = streamResolvedRoute(streamArgs)
     const result = await collectRunResult(stream, threadId)

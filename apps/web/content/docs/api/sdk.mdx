@@ -2,12 +2,12 @@
 
 ## Use this when
 
-Start here when you build a B4.run application. `@b4run/sdk` owns the route-authoring types and helpers most application code uses. Reach for `/pure` only when an integration needs dependency-free path or hash utilities, and `/testing` when you author route scenarios for `b4 test`.
+Start here when you build a B4.run application. `@b4run/sdk` owns the route-authoring types and helpers most application code uses. Use `/pure` only when an integration needs dependency-free path or hash utilities, and `/testing` when you write route scenarios for `b4 test`.
 
 ## Install and import
 
 ```bash
-pnpm add @b4run/sdk
+npm install @b4run/sdk
 ```
 
 ```ts
@@ -24,7 +24,7 @@ import { scenarios } from "@b4run/sdk/testing"
 | `@b4run/sdk/pure` | edge-safe | dependency-free | integration | supported |
 | `@b4run/sdk/testing` | node-only | not-claimed | testing | supported |
 
-`@b4run/sdk/testing` is the route-scoped scenario API used by `b4 test`; it is not the `@b4run/testing` package, which provides a programmatic agent harness.
+`@b4run/sdk/testing` is the route-scoped scenario API used by `b4 test`. It's not the `@b4run/testing` package, which provides a programmatic agent harness.
 
 ## Public exports
 
@@ -44,7 +44,9 @@ import { scenarios } from "@b4run/sdk/testing"
 | `DelegationRule` | Express one named delegation policy. |
 | `DelegationRules` | Map subagent names to delegation policy. |
 | `DelegationVerdict` | Express a delegation constraint decision. |
-| `ReasoningConfig` | Configure model reasoning effort. |
+| `ReasoningConfig` | Configure model reasoning per provider. |
+| `OpenAIReasoningConfig` | Configure OpenAI reasoning effort and streamed summary. |
+| `AnthropicReasoningConfig` | Configure Anthropic extended thinking. |
 | `RetryConfig` | Configure model-call retry attempts and delay. |
 | `SubagentMap` | Map local subagent names to agents. |
 | `ToolScope` | Select and gate route tools. |
@@ -71,7 +73,12 @@ import { scenarios } from "@b4run/sdk/testing"
 | `defineMemory` | Declare a typed long-term memory schema. |
 | `ContinueResult` | Continue middleware execution with optional context. |
 | `B4Middleware` | Define the middleware export contract: a handler or a lifecycle definition. |
-| `MiddlewareDefinition` | Define middleware with `setup`, `dispose`, and `handle`. |
+| `MiddlewareDefinition` | Define middleware with `setup`, `dispose`, `handle`, and `after`. |
+| `MiddlewareAfterHook` | Validate or replace the final assistant message of an AG-UI run. |
+| `MiddlewareAfterRun` | Describe what `after` receives: the final message and the allowed context. |
+| `MiddlewareAfterResult` | Express an `after` decision: keep, replace, or reject. |
+| `MiddlewareAfterMessage` | Describe one message of the conversation an `after` run was started with. |
+| `ReplaceFinalMessageResult` | Replace the final assistant message from `after`. |
 | `MiddlewareHandler` | Define the per-request middleware function. |
 | `MiddlewareRequest` | Describe a middleware request. |
 | `MiddlewareSetupContext` | Describe what `setup` receives. |
@@ -85,6 +92,7 @@ import { scenarios } from "@b4run/sdk/testing"
 | `ThreadAccessDeny` | Express a deny decision with an optional status and body. |
 | `ThreadAccessPolicy` | Declare per-action thread authorization handlers. |
 | `ThreadAccessRequest` | Describe the thread request being authorized. |
+| `ThreadAccessRequestedWorkspace` | Describe the workspace an upload stages or a create chooses: the source digest, and on a create its links, baseline and `uploadedBy`, the stamps its uploads were allowed with. |
 | `ThreadAccessResult` | Express a thread authorization decision. |
 | `ThreadAction` | Name the coarse thread action being authorized. |
 | `ThreadOperation` | Name the specific endpoint operation being authorized. |
@@ -93,6 +101,30 @@ import { scenarios } from "@b4run/sdk/testing"
 | `defineThreadAccess` | Preserve types for a thread access policy. |
 | `deny` | Refuse a thread request. |
 | `permit` | Allow a thread request, optionally stamping it on create. |
+| `ApprovalGrantMode` | Name the approval-grant strictness: `off`, `optional`, or `required`. |
+| `ApprovalGrantMinter` | Mint one single-use approval grant for one parked interrupt. |
+| `InterruptGrantRecord` | Describe a stored grant row, which holds the hash and never the grant. |
+| `InterruptGrantStore` | Define the durable record of which parked approvals have been answered. |
+| `InterruptGrantConsumption` | Express the outcome of a conditional consume. |
+| `APPROVAL_GRANT_MODES` | List every approval-grant mode. |
+| `APPROVAL_GRANT_MINTER_KEY` | Name the run-config key the per-run minter travels under. |
+| `APPROVAL_GRANT_PREFIX` | Expose the `b4ag_` prefix that makes a grant recognizable. |
+| `APPROVAL_GRANT_BYTES` | Expose the randomness, in bytes, behind one grant. |
+| `isApprovalGrantMode` | Validate an approval-grant mode. |
+| `isApprovalGrantShape` | Check a grant arriving on the wire before it is hashed. |
+| `createApprovalGrant` | Mint one grant and return its plaintext and hash. |
+| `hashApprovalGrant` | Hash a grant for storage and comparison. |
+| `timingSafeHexEqual` | Compare two hex digests in constant time. |
+| `createMemoryInterruptGrantStore` | Create the in-process grant store used by tests and storeless runtimes. |
+| `ClientToolCallRecord` | Describe one row of the tool-call record: a client-provided call the server issued and is waiting on, or a server tool call recorded for identity — with the route that issued it and, inside a subagent, the launching `task` call. |
+| `ToolCallOrigin` | Say where a server tool call was issued from when inside a subagent: the child route's key and the launching `task` call id. |
+| `ClientToolCallStore` | Define the durable record of tool calls on AG-UI runs: which client calls are outstanding, answered, or voided, and which server calls were issued and settled. |
+| `ToolCallRecordKind` | Tell a client tool call row from a server tool call row. |
+| `ClientToolCallSettle` | Express the outcome of settling a server tool call row. |
+| `ClientToolCallAnswer` | Express the outcome of answering a client tool call. |
+| `ClientToolRecorder` | Record a tool call before it runs or its turn parks, and settle a server call afterward. |
+| `CLIENT_TOOL_RECORDER_KEY` | Name the run-config key the per-run client tool recorder travels under. |
+| `createMemoryClientToolCallStore` | Create the in-process client tool call store used by tests and embedders. |
 | `BuiltInModelProviderId` | Name a built-in model provider. |
 | `ModelProviderId` | Name a built-in or custom model provider. |
 | `inferProvider` | Infer a provider from a model ID. |
@@ -156,7 +188,7 @@ import { scenarios } from "@b4run/sdk/testing"
 
 ### `agent()` and `AgentConfig`
 
-Use `agent()` as a route module's default export. `model` and `systemPrompt` are required; optional policy, retry, reasoning, subagent, and tool fields are preserved on the branded descriptor.
+Use `agent()` as a route module's default export. `model` and `systemPrompt` are required. Optional policy, retry, reasoning, subagent, and tool fields are preserved on the branded descriptor.
 
 ```ts api-contract="@b4run/sdk#.:agent"
 export declare function agent<const Subagents extends SubagentMap = {}>(
@@ -186,7 +218,7 @@ export interface AgentConfig<Subagents extends SubagentMap = {}> {
 | `readonly description` | `string` | no | Describe the agent for selection. |
 | `readonly model` | `KnownModelId` | yes | Select the model. |
 | `readonly provider` | `ModelProviderId` | no | Override provider inference. |
-| `readonly reasoning` | `ReasoningConfig` | no | Tune reasoning effort. |
+| `readonly reasoning` | `ReasoningConfig` | no | Tune reasoning per provider. |
 | `readonly retry` | `RetryConfig` | no | Tune transient retry behavior. |
 | `readonly recursionLimit` | `number` | no | Cap LangGraph super-steps. |
 | `readonly subagents` | `Subagents` | no | Register child agents by name. |
@@ -197,18 +229,44 @@ export interface AgentConfig<Subagents extends SubagentMap = {}> {
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/sdk/test/agent.test.ts","testNames":["descriptor is recognized by isB4Agent","carries a tools scope through to the descriptor","omits tools when not provided"]}] */}
 agent() returns a branded descriptor and includes optional tool scope only when supplied.
 
-#### Exact agent configuration signatures
+#### Agent configuration signatures
 
 ```ts api-contract="@b4run/sdk#.:ReasoningConfig"
 export interface ReasoningConfig {
-  readonly effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
+  readonly openai?: OpenAIReasoningConfig
+  readonly anthropic?: AnthropicReasoningConfig
 }
 ```
 
 **Fields: `@b4run/sdk#.:ReasoningConfig`**
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `readonly effort` | `"none" \| "minimal" \| "low" \| "medium" \| "high" \| "xhigh"` | no | Set the model reasoning budget. |
+| `readonly openai` | `OpenAIReasoningConfig` | no | Apply when the route resolves to OpenAI. |
+| `readonly anthropic` | `AnthropicReasoningConfig` | no | Apply when the route resolves to Anthropic. |
+
+```ts api-contract="@b4run/sdk#.:OpenAIReasoningConfig"
+export interface OpenAIReasoningConfig {
+  readonly effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
+  readonly summary?: "auto" | "concise" | "detailed"
+}
+```
+
+**Fields: `@b4run/sdk#.:OpenAIReasoningConfig`**
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `readonly effort` | `"none" \| "minimal" \| "low" \| "medium" \| "high" \| "xhigh"` | no | Set the request's reasoning effort. |
+| `readonly summary` | `"auto" \| "concise" \| "detailed"` | no | Stream a reasoning summary on the Responses API. |
+
+```ts api-contract="@b4run/sdk#.:AnthropicReasoningConfig"
+export interface AnthropicReasoningConfig {
+  readonly budgetTokens: number
+}
+```
+
+**Fields: `@b4run/sdk#.:AnthropicReasoningConfig`**
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `readonly budgetTokens` | `number` | yes | Enable extended thinking with this token budget (at least 1024). |
 
 ```ts api-contract="@b4run/sdk#.:RetryConfig"
 export interface RetryConfig {
@@ -220,8 +278,8 @@ export interface RetryConfig {
 **Fields: `@b4run/sdk#.:RetryConfig`**
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `readonly maxAttempts` | `number` | no | Cap attempts for a model call. |
-| `readonly baseDelay` | `number` | no | Set the base retry delay. |
+| `readonly maxAttempts` | `number` | no | Set attempts per model call; defaults to `3`. |
+| `readonly baseDelay` | `number` | no | Set the first capacity rate-limit backoff; defaults to `1000`. |
 
 ```ts api-contract="@b4run/sdk#.:isB4Agent"
 export declare function isB4Agent(value: unknown): value is B4Agent
@@ -234,8 +292,12 @@ Middleware returns an explicit continue or reject result. Use `allow(context?)` 
 `defineMiddleware` accepts either the handler function or a lifecycle
 definition with optional `setup(ctx)` and `dispose()` hooks around `handle`.
 `setup` runs once, lazily, before the first gated request and is retried on the
-next request if it rejects; `dispose` runs from the Node runtimes' shutdown
-path. See [Lifecycle hooks](/docs/middleware#lifecycle-hooks).
+next request if it rejects. `dispose` runs from the Node runtimes' shutdown
+path. See [Lifecycle hooks](/docs/middleware#lifecycle-hooks). The definition
+may also carry `after(run)`, which receives an AG-UI run's final assistant
+message with the allowed context and may keep, replace, or `reject(...)` it
+before the client sees it. See
+[Validating the final assistant message](/docs/middleware#validating-the-final-assistant-message).
 
 ```ts api-contract="@b4run/sdk#.:defineMiddleware"
 export declare function defineMiddleware<T extends B4Middleware>(middleware: T): T
@@ -255,7 +317,7 @@ allow() and reject() return discriminated result objects; omitted context and bo
 
 ### `validateModelId()`
 
-Use this helper to improve author feedback for likely model-ID typos. It does not restrict custom model IDs.
+Flags likely model-ID typos. It does not restrict custom model IDs.
 
 ```ts api-contract="@b4run/sdk#.:validateModelId"
 export declare function validateModelId(opts: {
@@ -274,7 +336,7 @@ Treat `ok: false` as a warning for application feedback, not a runtime gate.
 
 ### `RouteConfig`
 
-`runtime`, `streaming`, and `tags` are reserved metadata and do not change execution today. Select deployment runtime with `build.targets`, select streaming through the endpoint or transport, and do not rely on tags for behavior.
+`runtime`, `streaming`, and `tags` are reserved metadata and don't change execution. Select deployment runtime with `build.targets`, select streaming through the endpoint or transport, and do not rely on tags for behavior.
 
 ```ts api-contract="@b4run/sdk#.:RouteConfig"
 export interface RouteConfig {
@@ -293,7 +355,7 @@ export interface RouteConfig {
 
 ### `defineMemory()`
 
-Declare the typed schema, kind, and namespace dimensions for a route's `memory.ts` module. `identity` is optional; semantic memory defaults its reconciliation identity elsewhere.
+Declare the typed schema, kind, and namespace dimensions for a route's `memory.ts` module. `identity` is optional. Semantic memory defaults its reconciliation identity elsewhere.
 
 ```ts api-contract="@b4run/sdk#.:defineMemory"
 export declare function defineMemory<S extends z.ZodTypeAny>(def: {
@@ -306,20 +368,18 @@ export declare function defineMemory<S extends z.ZodTypeAny>(def: {
 
 ### Choosing a surface
 
-Application routes normally import the root. Use `/pure` for infrastructure that must avoid runtime dependencies. Use `/testing` in `*.scenario.ts` files; use `@b4run/testing` when a test needs a programmatic harness instead. Its detailed reference lands with the testing package page.
+Application routes normally import the root. Use `/pure` for infrastructure that must avoid runtime dependencies. Use `/testing` in `*.scenario.ts` files, and `@b4run/testing` when a test needs a programmatic harness.
 
 ### Trusted initial source
 
 An authored tool's optional `ctx.workspace` is present only for an admitted
-managed workspace. It exposes `id`, `sourceDigest`, immutable `environment`, an
+managed workspace. It exposes `id`, `sourceDigest`, the pinned `environment`, an
 optional `baselineCommit`, and `readInitialFile(path): Promise<Uint8Array>`.
-Reads use the workspace read permission policy and return independently owned
-initial bytes. The context has no provider handle or lifecycle methods and
-cannot select another thread's source. Use `ctx.fs` for current files.
+Initial reads use the same read permission policy as ordinary file reads and
+return independently owned bytes. The context has no provider handle or lifecycle
+methods and cannot select another thread's source.
 
-Managed workspace tools receive `ctx.workspace` with the operation ID, source
-digest, pinned environment, and `readInitialFile(path)`. Initial reads use the
-same permissions as ordinary file reads. `ctx.fs.stat(path)` inspects entry kind,
+Use `ctx.fs` for current files. `ctx.fs.stat(path)` inspects entry kind,
 size, executable mode, and a symlink's target without following the leaf link;
 custom backends must supply `lstat` to support it.
 

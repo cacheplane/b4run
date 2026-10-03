@@ -9,12 +9,29 @@ export interface AnalyzeRouteToolsOptions {
   readonly sharedToolsDir: string | undefined
   /** Declaration location used as the base for emitted type references. */
   readonly typeReferenceFileName?: string
+  /**
+   * The app root the nearest `tsconfig.json` is searched up from, so the tool
+   * program compiles with the app's own `paths`, `baseUrl`, and `extends`
+   * chain. Defaults to `routeDir`.
+   */
+  readonly appRoot?: string
+  /** An explicit tsconfig to build the tool program with, instead of searching. */
+  readonly tsconfig?: string
+}
+
+/** How the backend finds the compiler options for a route's tool program. */
+export interface ToolCompilerConfig {
+  /** Explicit tsconfig path; when set, no search happens. */
+  readonly tsconfig?: string
+  /** Directory the nearest-`tsconfig.json` search starts from. */
+  readonly searchDir: string
 }
 
 export function createAnalyzeRouteTools(
   analyzeEffectiveToolFiles: (
     toolFiles: ReadonlyMap<string, string>,
     typeReferenceFileName?: string,
+    compilerConfig?: ToolCompilerConfig,
   ) => readonly AnalyzedTool[],
 ): (options: AnalyzeRouteToolsOptions) => readonly AnalyzedTool[] {
   return (options) => {
@@ -31,7 +48,11 @@ export function createAnalyzeRouteTools(
     const sortedToolFiles = new Map(
       [...effectiveToolFiles].sort(([left], [right]) => left.localeCompare(right)),
     )
-    return analyzeEffectiveToolFiles(sortedToolFiles, options.typeReferenceFileName)
+    const compilerConfig: ToolCompilerConfig = {
+      searchDir: options.appRoot ?? options.routeDir,
+      ...(options.tsconfig !== undefined ? { tsconfig: options.tsconfig } : {}),
+    }
+    return analyzeEffectiveToolFiles(sortedToolFiles, options.typeReferenceFileName, compilerConfig)
   }
 }
 

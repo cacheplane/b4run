@@ -8,15 +8,24 @@ import {
 } from "@b4run/workspace"
 import {
   verifyCapturedWorkspaceDefinition,
+  verifyImageReference,
   verifyReadyWorkspace,
   verifyWorkspaceIntent,
 } from "@b4run/workspace/node"
 import type { Docker, SpawnResult } from "./docker-cli.js"
 import { dockerExec } from "./docker-exec.js"
 import { dockerFilesystem } from "./docker-filesystem.js"
+import {
+  openDockerWorkspaceReader,
+  READER_LABEL,
+  readerLabelFor,
+} from "./docker-workspace-reader.js"
 import { prepareWorkspaceScript } from "./managed-workspace-prepare.js"
 
 const PREFIX = "b4.workspace."
+const VOLUME_PREFIX = "b4-ws-volume-"
+/** Reader containers over a managed volume; label and hardening match the provider-storage reader. */
+const READER_PREFIX = "b4-ws-reader-"
 const fail = (code: "conflict" | "lost" | "unsupported" | "uncertain", message: string): never => {
   throw new WorkspaceLifecycleError(code, message)
 }
@@ -25,7 +34,7 @@ function names(intent: WorkspaceCreateIntent) {
     .update(JSON.stringify([intent.environment.binding, intent.installationId, intent.operationId]))
     .digest("hex")
   return {
-    volume: `b4-ws-volume-${key}`,
+    volume: `${VOLUME_PREFIX}${key}`,
     record: `b4-ws-record-${key}`,
     prepare: `b4-ws-prepare-${key}`,
     session: `b4-ws-session-${key}-`,
@@ -45,7 +54,10 @@ const labelArgs = (values: Record<string, string>) =>
 type Inspected = { Labels?: Record<string, string>; Config?: { Labels?: Record<string, string> } }
 export function createDockerManagedWorkspaces(opts: {
   scope: string
-  image: string
+  /** The default image: what a thread that names none runs. Absent: every thread must name one. */
+  image?: string
+  /** Which other references a thread may name. The default image needs no entry. */
+  images?: (reference: string) => boolean
   docker: Docker
 }): ManagedWorkspaceProvider {
   const { docker } = opts
@@ -190,16 +202,60 @@ export function createDockerManagedWorkspaces(opts: {
     for (const id of ids) owned(await inspect("container", id, signal), intent)
     return ids
   }
+  /**
+   * The workspace's reader containers, by the label each carries. A reader is
+   * `--rm` and closed by its caller, but one abandoned at a read deadline, or whose
+   * close failed, would otherwise outlive the workspace it reads.
+   */
+  async function removeReaders(resourceId: string, signal: AbortSignal) {
+    const ids = (
+      await run(["ps", "-aq", "--filter", `label=${readerLabelFor(resourceId)}`], signal)
+    ).stdout
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+    for (const id of ids) {
+      const item = await inspect("container", id, signal)
+      if (!item) continue
+      if ((item.Config?.Labels ?? item.Labels)?.[READER_LABEL] !== resourceId)
+        fail("conflict", "Foreign Docker workspace reader")
+      await run(["rm", "-f", id], signal)
+      if (await inspect("container", id, signal)) fail("uncertain", "Docker removal not confirmed")
+    }
+  }
+  async function environmentFor(reference: string, signal: AbortSignal) {
+    const account = (await run(["info", "--format", "{{.ID}}"], signal)).stdout.trim()
+    const identity = (
+      await run(["image", "inspect", "--format", "{{.Id}}", reference], signal)
+    ).stdout.trim()
+    if (!account || !/^sha256:[0-9a-f]{64}$/.test(identity))
+      fail("unsupported", "Docker daemon/image identity unavailable")
+    return { binding: { provider: "docker", scope: opts.scope, account }, identity }
+  }
   return {
     name: "docker",
     async resolveEnvironment(signal) {
-      const account = (await run(["info", "--format", "{{.ID}}"], signal)).stdout.trim()
-      const identity = (
-        await run(["image", "inspect", "--format", "{{.Id}}", opts.image], signal)
-      ).stdout.trim()
-      if (!account || !/^sha256:[0-9a-f]{64}$/.test(identity))
-        fail("unsupported", "Docker daemon/image identity unavailable")
-      return { binding: { provider: "docker", scope: opts.scope, account }, identity }
+      if (opts.image === undefined)
+        return fail(
+          "unsupported",
+          "This Docker provider has no default image: every thread must name its own (sandbox.thread)",
+        )
+      return environmentFor(opts.image, signal)
+    },
+    async resolveImageEnvironment(image, signal) {
+      let reference: string
+      try {
+        reference = verifyImageReference(image)
+      } catch (error) {
+        return fail("unsupported", error instanceof Error ? error.message : String(error))
+      }
+      // Checked before any Docker call: a refused image costs nothing and creates nothing.
+      if (reference !== opts.image && opts.images?.(reference) !== true)
+        return fail(
+          "unsupported",
+          `Image ${reference} is not one this provider may run: allow it with dockerSandbox({ images })`,
+        )
+      return environmentFor(reference, signal)
     },
     async create(input, source, signal) {
       const intent = verifyWorkspaceIntent(input)
@@ -458,6 +514,52 @@ export function createDockerManagedWorkspaces(opts: {
         fail("conflict", "Session incarnation mismatch")
       await remove("container", name, intent, signal)
     },
+    /**
+     * Read the published workspace's volume WITHOUT touching any session.
+     *
+     * `stored()` is the same verification `reconnect` starts from: the record
+     * container exists and is ours, the persisted intent verifies, the daemon
+     * and scope binding are this provider's, the published record matches the
+     * reference, and the volume exists and is ours. The caller's provenance
+     * must then equal the stored record, exactly as `reconnect` requires, so a
+     * reference cannot be paired with another workspace's provenance. Nothing
+     * here lists or names a session container: no `ps`, no `keepers()`.
+     *
+     * The volume is created by `docker volume create` with the local driver, so
+     * it has a host mountpoint and the reader binds that path read-only. A bind
+     * refuses a missing source instead of creating a volume, which keeps the
+     * "a destroyed workspace stays destroyed" property of the provider-storage
+     * reader (see `openDockerWorkspaceReader`).
+     */
+    async openWorkspaceReader(input) {
+      const { intent, ready } = await stored(input.workspace.reference, input.signal)
+      try {
+        verifyReadyWorkspace(input.workspace, intent)
+      } catch (error) {
+        throw new WorkspaceLifecycleError("conflict", "Workspace provenance mismatch", {
+          cause: error,
+        })
+      }
+      if (JSON.stringify(input.workspace) !== JSON.stringify(ready))
+        fail("conflict", "Workspace provenance mismatch")
+      const n = names(intent)
+      return openDockerWorkspaceReader(
+        {
+          docker,
+          // The image the workspace was prepared with, pinned by digest, not the
+          // provider's mutable tag: the reader runs as the workspace's own owner.
+          image: intent.environment.identity,
+          volume: n.volume,
+          resourceId: n.volume.slice(VOLUME_PREFIX.length),
+          containerPrefix: READER_PREFIX,
+        },
+        {
+          threadId: intent.threadId,
+          signal: input.signal,
+          ...(input.runAsNonRoot === undefined ? {} : { runAsNonRoot: input.runAsNonRoot }),
+        },
+      )
+    },
     async destroy(target, signal) {
       const intent = verifyWorkspaceIntent(target.intent)
       await binding(intent, signal)
@@ -479,6 +581,7 @@ export function createDockerManagedWorkspaces(opts: {
       owned(await inspect("volume", n.volume, signal), intent)
       const ids = await keepers(intent, signal)
       for (const id of ids) await remove("container", id, intent, signal)
+      await removeReaders(n.volume.slice(VOLUME_PREFIX.length), signal)
       await remove("container", n.prepare, intent, signal)
       await remove("volume", n.volume, intent, signal)
       await remove("container", n.record, intent, signal)

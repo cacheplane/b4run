@@ -107,28 +107,17 @@ export function CodeGroup({ children }: CodeGroupProps) {
 
   const [active, setActive] = useState(0)
   const ref = useRef<HTMLDivElement>(null)
-  const [copied, setCopied] = useState(false)
 
   if (blocks.length === 0) return null
-
-  const copy = async () => {
-    const text = ref.current?.textContent ?? ""
-    await navigator.clipboard.writeText(text)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
 
   const current = blocks[active] ?? blocks[0]
   if (!current) return null
 
   return (
-    <div
-      data-code-frame
-      className="my-6 rounded-lg border border-divider overflow-hidden bg-surface"
-    >
+    <div data-code-frame className="my-6 overflow-hidden">
       <CodeHeaderRow
         left={
-          <div role="tablist" className="flex items-end gap-1">
+          <div role="tablist" className="flex min-w-0 flex-wrap items-end gap-1">
             {blocks.map((b, i) => (
               <TabPill
                 key={b.key}
@@ -139,7 +128,7 @@ export function CodeGroup({ children }: CodeGroupProps) {
             ))}
           </div>
         }
-        right={<CopyButton onCopy={copy} copied={copied} />}
+        right={<CopyButton getText={() => ref.current?.textContent ?? ""} />}
       />
       <div ref={ref}>
         <HeadlessPreContext.Provider value={true}>{current.pre}</HeadlessPreContext.Provider>

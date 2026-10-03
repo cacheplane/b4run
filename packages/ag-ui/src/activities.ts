@@ -1,7 +1,6 @@
 import { type ActivitySnapshotEvent, EventType } from "@ag-ui/core"
 
 export const B4_PLAN_ACTIVITY_TYPE = "b4.plan"
-export const B4_SUBAGENT_ACTIVITY_TYPE = "b4.subagent"
 
 export interface B4PlanActivityContent {
   readonly todos: ReadonlyArray<{
@@ -10,42 +9,26 @@ export interface B4PlanActivityContent {
   }>
 }
 
-export interface B4SubagentActivityContent {
-  readonly name: string
-  readonly depth: number
-  readonly status: "running" | "completed" | "failed"
-  readonly todos?: B4PlanActivityContent["todos"]
-  readonly tools: ReadonlyArray<{
-    readonly name: string
-    readonly status: "running" | "completed" | "incomplete"
-  }>
-  readonly totalToolCount: number
-  readonly error?: string
-}
+/**
+ * The capability chunks that become activities. A subagent's lifecycle is no
+ * longer one of them: it is presented with AG-UI 1.0's `SUBAGENT_*` events and
+ * `subagentRunId` attribution (see `outbound.ts`), and a child's own
+ * `plan_update` reaches this projector unwrapped, with the child as `owner`.
+ */
+export type B4ActivityChunkType = "plan_update"
 
-export type B4ActivityChunkType =
-  | "plan_update"
-  | "subagent.start"
-  | "subagent.plan_update"
-  | "subagent.tool_call"
-  | "subagent.tool_result"
-  | "subagent.message"
-  | "subagent.end"
-
-/** The two built-in orchestration tools that have canonical activities. */
-export type OrchestrationToolName = "writeTodos" | "task"
+/** The one built-in orchestration tool that has a canonical activity. */
+export type OrchestrationToolName = "writeTodos"
 
 /**
  * Correlation between a recognized activity and the root tool call that
  * produced it, keyed by the model/provider tool-call id (logical identity).
  * Package-private: it never reaches the wire. The consumer is the
- * orchestration suppression ledger described in the AG-UI
- * orchestration-projection design/plan under docs/superpowers, landing in a
- * follow-up slice — it will decide whether the generic tool frames for that
- * call are redundant with the activity emitted here.
- * Populated at exactly two boundaries: a valid `plan_update` carrying a
- * non-empty `tool_call_id`, and the first `subagent.start` for a given
- * `call_id`.
+ * orchestration suppression ledger, which decides whether the generic tool
+ * frames for that call are redundant with the activity emitted here.
+ * Populated at exactly one boundary: a valid ROOT `plan_update` carrying a
+ * non-empty `tool_call_id`. A child's plan never correlates — nothing of a
+ * child's is suppressed.
  */
 export interface B4ActivityCorrelation {
   readonly toolCallId: string
@@ -59,46 +42,15 @@ export interface ProjectedB4Activity {
 }
 
 export interface B4ActivityProjector {
-  project(type: B4ActivityChunkType, data: unknown): ProjectedB4Activity
-}
-
-interface SubagentIdentity {
-  readonly callId: string
-  readonly subagent: string
-  readonly routeId: string
-  readonly depth: number
-}
-
-interface InternalToolState {
-  readonly id: string
-  readonly name: string
-  status: "running" | "completed" | "incomplete"
-}
-
-interface InternalSubagentState {
-  readonly identity: SubagentIdentity
-  status: "running" | "completed" | "failed"
-  todos?: B4PlanActivityContent["todos"]
-  readonly seenToolIds: Set<string>
-  tools: InternalToolState[]
-  totalToolCount: number
-  error?: string
-  terminal: boolean
+  /**
+   * `owner` is the subagent (`call_id`, also its AG-UI `subagentRunId`) whose
+   * plan this is; absent for the root agent's own plan.
+   */
+  project(type: B4ActivityChunkType, data: unknown, owner?: string): ProjectedB4Activity
 }
 
 export function isB4ActivityChunkType(value: string): value is B4ActivityChunkType {
-  switch (value) {
-    case "plan_update":
-    case "subagent.start":
-    case "subagent.plan_update":
-    case "subagent.tool_call":
-    case "subagent.tool_result":
-    case "subagent.message":
-    case "subagent.end":
-      return true
-    default:
-      return false
-  }
+  return value === "plan_update"
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -124,227 +76,42 @@ function parseTodos(data: unknown): B4PlanActivityContent["todos"] | null {
   }
 }
 
-function parseSubagentIdentity(data: unknown): SubagentIdentity | null {
-  try {
-    if (!isRecord(data)) return null
-    const callId = data.call_id
-    const subagent = data.subagent
-    const routeId = data.route_id
-    const depth = data.depth
-    if (typeof callId !== "string" || callId.trim().length === 0) return null
-    if (typeof subagent !== "string" || subagent.trim().length === 0) return null
-    if (typeof routeId !== "string" || routeId.trim().length === 0) return null
-    if (!Number.isInteger(depth) || (depth as number) <= 0) return null
-    return {
-      callId,
-      subagent,
-      routeId,
-      depth: depth as number,
-    }
-  } catch {
-    return null
-  }
-}
-
-function identitiesMatch(left: SubagentIdentity, right: SubagentIdentity): boolean {
-  return (
-    left.callId === right.callId &&
-    left.subagent === right.subagent &&
-    left.routeId === right.routeId &&
-    left.depth === right.depth
-  )
-}
-
 function readRawNonemptyString(data: unknown, key: string): string | null {
   try {
     if (!isRecord(data)) return null
     const value = data[key]
-    return typeof value === "string" && value.trim().length > 0 ? value : null
+    return typeof value === "string" && value.length > 0 ? value : null
   } catch {
     return null
   }
 }
 
-function readTrimmedNonemptyString(data: unknown, key: string): string | null {
-  try {
-    if (!isRecord(data)) return null
-    const value = data[key]
-    return typeof value === "string" && value.trim().length > 0 ? value.trim() : null
-  } catch {
-    return null
-  }
-}
-
-function parseEndError(
-  data: unknown,
-): { readonly valid: false } | { readonly valid: true; error?: string } {
-  try {
-    if (!isRecord(data)) return { valid: false }
-    if (!Object.hasOwn(data, "error")) return { valid: true }
-    const value = data.error
-    if (typeof value !== "string") return { valid: false }
-    const trimmed = value.trim()
-    return trimmed.length === 0 ? { valid: true } : { valid: true, error: trimmed.slice(0, 400) }
-  } catch {
-    return { valid: false }
-  }
-}
-
-function subagentSnapshot(state: InternalSubagentState): ActivitySnapshotEvent {
-  return {
-    type: EventType.ACTIVITY_SNAPSHOT,
-    messageId: `b4:subagent:${state.identity.callId}`,
-    activityType: B4_SUBAGENT_ACTIVITY_TYPE,
-    replace: true,
-    content: {
-      name: state.identity.subagent,
-      depth: state.identity.depth,
-      status: state.status,
-      ...(state.todos !== undefined
-        ? { todos: state.todos.map((todo) => ({ content: todo.content, status: todo.status })) }
-        : {}),
-      tools: state.tools.map((tool) => ({ name: tool.name, status: tool.status })),
-      totalToolCount: state.totalToolCount,
-      ...(state.error !== undefined ? { error: state.error } : {}),
-    },
-  }
-}
-
-function projectEvent(event: ActivitySnapshotEvent | null): ProjectedB4Activity {
-  return { event }
-}
-
+/**
+ * Plan snapshots: complete replacements under one stable id per owner —
+ * `b4:plan:<runId>` for the root agent, `b4:plan:<call_id>` for a subagent,
+ * the latter tagged with the child's `subagentRunId`.
+ */
 export function createB4ActivityProjector(runId: string): B4ActivityProjector {
-  const subagents = new Map<string, InternalSubagentState>()
-
   return {
-    project(type, data) {
-      if (type === "plan_update") {
-        const parsedTodos = parseTodos(data)
-        if (parsedTodos === null) return projectEvent(null)
-        const event: ActivitySnapshotEvent = {
-          type: EventType.ACTIVITY_SNAPSHOT,
-          messageId: `b4:plan:${runId}`,
-          activityType: B4_PLAN_ACTIVITY_TYPE,
-          replace: true,
-          content: { todos: parsedTodos },
-        }
-        const toolCallId = readRawNonemptyString(data, "tool_call_id")
-        return {
-          event,
-          ...(toolCallId !== null
-            ? { orchestration: { toolCallId, toolName: "writeTodos" as const } }
-            : {}),
-        }
+    project(type, data, owner) {
+      if (type !== "plan_update") return { event: null }
+      const parsedTodos = parseTodos(data)
+      if (parsedTodos === null) return { event: null }
+      const event: ActivitySnapshotEvent = {
+        type: EventType.ACTIVITY_SNAPSHOT,
+        messageId: owner === undefined ? `b4:plan:${runId}` : `b4:plan:${owner}`,
+        activityType: B4_PLAN_ACTIVITY_TYPE,
+        replace: true,
+        content: { todos: parsedTodos },
+        ...(owner !== undefined ? { subagentRunId: owner } : {}),
       }
-
-      const parsedIdentity = parseSubagentIdentity(data)
-      if (parsedIdentity === null) return projectEvent(null)
-      const current = subagents.get(parsedIdentity.callId)
-
-      if (type === "subagent.start") {
-        if (current !== undefined) {
-          return projectEvent(
-            !current.terminal && identitiesMatch(current.identity, parsedIdentity)
-              ? subagentSnapshot(current)
-              : null,
-          )
-        }
-        const state: InternalSubagentState = {
-          identity: parsedIdentity,
-          status: "running",
-          seenToolIds: new Set(),
-          tools: [],
-          totalToolCount: 0,
-          terminal: false,
-        }
-        subagents.set(parsedIdentity.callId, state)
-        // Correlation fires only here, on the call that first establishes this
-        // subagent's identity — the deduped re-start above and every later
-        // lifecycle update return through projectEvent, which carries no correlation.
-        return {
-          event: subagentSnapshot(state),
-          orchestration: { toolCallId: parsedIdentity.callId, toolName: "task" as const },
-        }
+      const toolCallId = owner === undefined ? readRawNonemptyString(data, "tool_call_id") : null
+      return {
+        event,
+        ...(toolCallId !== null
+          ? { orchestration: { toolCallId, toolName: "writeTodos" as const } }
+          : {}),
       }
-
-      if (type === "subagent.plan_update") {
-        if (
-          current === undefined ||
-          current.terminal ||
-          !identitiesMatch(current.identity, parsedIdentity)
-        ) {
-          return projectEvent(null)
-        }
-        const parsedTodos = parseTodos(data)
-        if (parsedTodos === null) return projectEvent(null)
-        current.todos = parsedTodos
-        return projectEvent(subagentSnapshot(current))
-      }
-
-      if (type === "subagent.tool_call") {
-        if (
-          current === undefined ||
-          current.terminal ||
-          !identitiesMatch(current.identity, parsedIdentity)
-        ) {
-          return projectEvent(null)
-        }
-        const id = readRawNonemptyString(data, "id")
-        const name = readTrimmedNonemptyString(data, "tool")
-        if (id === null || name === null) return projectEvent(null)
-
-        const retainedIndex = current.tools.findIndex((tool) => tool.id === id)
-        if (retainedIndex !== -1) current.tools.splice(retainedIndex, 1)
-        if (!current.seenToolIds.has(id)) {
-          current.seenToolIds.add(id)
-          current.totalToolCount += 1
-        }
-        current.tools.push({ id, name, status: "running" })
-        if (current.tools.length > 5) current.tools.shift()
-        return projectEvent(subagentSnapshot(current))
-      }
-
-      if (type === "subagent.tool_result") {
-        if (
-          current === undefined ||
-          current.terminal ||
-          !identitiesMatch(current.identity, parsedIdentity)
-        ) {
-          return projectEvent(null)
-        }
-        const id = readRawNonemptyString(data, "id")
-        if (id === null) return projectEvent(null)
-        const tool = current.tools.find((candidate) => candidate.id === id)
-        if (tool === undefined) return projectEvent(null)
-        tool.status = "completed"
-        return projectEvent(subagentSnapshot(current))
-      }
-
-      if (type === "subagent.end") {
-        if (
-          current === undefined ||
-          current.terminal ||
-          !identitiesMatch(current.identity, parsedIdentity)
-        ) {
-          return projectEvent(null)
-        }
-        const parsedError = parseEndError(data)
-        if (!parsedError.valid) return projectEvent(null)
-        for (const tool of current.tools) {
-          if (tool.status === "running") tool.status = "incomplete"
-        }
-        if (parsedError.error !== undefined) {
-          current.status = "failed"
-          current.error = parsedError.error
-        } else {
-          current.status = "completed"
-        }
-        current.terminal = true
-        return projectEvent(subagentSnapshot(current))
-      }
-
-      return projectEvent(null)
     },
   }
 }

@@ -2954,6 +2954,263 @@ test("production observation maps allowlisted non-success audit conclusions to a
   assert.deepEqual(plan.conflicts, [])
 })
 
+async function observeDispatchedAttempt(fixture) {
+  const npmFixture = publishedNpmFixture(fixture.manifest)
+  const github = releaseFixtureReader(fixture, {
+    async getActionsRun({ runId }) {
+      assert.equal(runId, fixture.marker.audit.workflowRunId)
+      return present("actions-run", fixture.run)
+    },
+    async getActionsRunAttempt({ runId, attempt }) {
+      assert.equal(Number(runId), fixture.marker.attestationSet.workflowRunId)
+      assert.equal(attempt, fixture.marker.attestationSet.runAttempt)
+      return present("actions-run-attempt", prepareRun({ id: runId }))
+    },
+    async listActionsRunJobs({ runId }) {
+      return present(
+        "actions-run-jobs",
+        Number(runId) === fixture.marker.attestationSet.workflowRunId
+          ? [publisherJob({ startedAt: null })]
+          : fixture.jobs,
+      )
+    },
+  })
+  const { observation, diagnostics } = await observeProductionCandidate({
+    terminalRecordRef: "HEAD",
+    candidate: candidate(),
+    inventory: inventory(),
+    marker: MARKER,
+    git: gitReader(),
+    github,
+    npm: npmFixture.npm,
+    npmAuditFactory: npmFixture.npmAuditFactory,
+    attestations: attestationVerifier([]),
+  })
+  const plan = planRelease({
+    candidate: candidate(),
+    observation,
+    mode: "controller",
+  })
+  return { observation, diagnostics, plan }
+}
+
+test("production observation resumes complete-release-audit from a successful attempt attached under AUDIT_DISPATCHED", async () => {
+  // v0.13.0: correlate-audit attached the successful attempt and then failed on a
+  // transient asset read before verifyAuditSuccess advanced the marker.
+  const fixture = dispatchedAttemptFixture()
+  const { observation, diagnostics, plan } = await observeDispatchedAttempt(fixture)
+
+  assert.deepEqual(diagnostics, [])
+  assert.equal(observation.release.status, "draft")
+  assert.equal(observation.release.marker.phase, "AUDIT_DISPATCHED")
+  assert.deepEqual(observation.audit, {
+    status: "dispatched",
+    version: VERSION,
+    commitSha: COMMIT_SHA,
+    manifestSha256: fixture.marker.manifestSha256,
+    workflowRunId: fixture.auditResult.workflowRunId,
+    runAttempt: fixture.auditResult.runAttempt,
+    conclusion: null,
+  })
+  assert.equal(plan.state, "AUDIT_DISPATCHED")
+  assert.equal(plan.nextTransition, "complete-release-audit")
+  assert.deepEqual(plan.conflicts, [])
+})
+
+test("production observation resumes complete-release-audit from a premarker canonical receipt identical to its attempt", async () => {
+  // verifyAuditSuccess uploads audit-result.json before its marker CAS; a runner
+  // lost between the two leaves this state behind.
+  const fixture = dispatchedAttemptFixture({ canonical: "identical" })
+  const { observation, diagnostics, plan } = await observeDispatchedAttempt(fixture)
+
+  assert.deepEqual(diagnostics, [])
+  assert.equal(observation.release.status, "draft")
+  assert.equal(observation.release.marker.phase, "AUDIT_DISPATCHED")
+  assert.equal(observation.audit.status, "dispatched")
+  assert.equal(observation.audit.conclusion, null)
+  const canonical = observation.release.assets.find(({ name }) => name === "audit-result.json")
+  const attempt = observation.release.assets.find(
+    ({ name }) => name === `audit-attempt-${fixture.auditResult.workflowRunId}-2.json`,
+  )
+  assert.equal(canonical.sha256, attempt.sha256)
+  assert.equal(plan.state, "AUDIT_DISPATCHED")
+  assert.equal(plan.nextTransition, "complete-release-audit")
+  assert.deepEqual(plan.conflicts, [])
+
+  // The planner's own schema and evidence checks stay fail-closed on the same
+  // structural rule, independently of the observer's byte proof.
+  for (const [label, mutate] of [
+    [
+      "canonical digest differs from the attempt",
+      (assets) =>
+        assets.map((asset) =>
+          asset.name === "audit-result.json" ? { ...asset, sha256: "c".repeat(64) } : asset,
+        ),
+    ],
+    [
+      "canonical without a current-dispatch attempt",
+      (assets) => assets.filter(({ name }) => !name.startsWith("audit-attempt-")),
+    ],
+    [
+      "canonical matching only a historical dispatch's attempt",
+      (assets) =>
+        assets.map((asset) =>
+          asset.name.startsWith("audit-attempt-")
+            ? { ...asset, name: "audit-attempt-699-1.json" }
+            : asset,
+        ),
+    ],
+  ]) {
+    const mutated = structuredClone(observation)
+    mutated.release.assets = mutate(mutated.release.assets)
+    const blocked = planRelease({
+      candidate: candidate(),
+      observation: mutated,
+      mode: "controller",
+    })
+    assert.equal(blocked.nextTransition, null, label)
+    assert.ok(blocked.conflicts.length > 0, label)
+  }
+})
+
+test("production observation keeps a canonical receipt under AUDIT_RETRYABLE fail-closed", async () => {
+  const retryable = retryableReleaseFixture()
+  const bytes = retryable.bytesById.get(2_000)
+  retryable.bytesById.set(2_001, bytes)
+  retryable.assets = [
+    ...retryable.assets,
+    { id: 2_001, name: "audit-result.json", digest: `sha256:${digest(bytes)}`, size: bytes.length },
+  ]
+  const npmFixture = publishedNpmFixture(retryable.manifest)
+  const github = releaseFixtureReader(retryable, {
+    async getActionsRunAttempt({ runId, attempt }) {
+      if (Number(runId) === retryable.marker.attestationSet.workflowRunId) {
+        return present("actions-run-attempt", prepareRun({ id: runId }))
+      }
+      assert.equal(attempt, retryable.auditResult.runAttempt)
+      return present("actions-run-attempt", retryable.run)
+    },
+    async listActionsRunJobs({ runId }) {
+      return present(
+        "actions-run-jobs",
+        Number(runId) === retryable.marker.attestationSet.workflowRunId
+          ? [publisherJob({ startedAt: null })]
+          : retryable.jobs,
+      )
+    },
+  })
+  const { observation, diagnostics } = await observeProductionCandidate({
+    terminalRecordRef: "HEAD",
+    candidate: candidate(),
+    inventory: inventory(),
+    marker: MARKER,
+    git: gitReader(),
+    github,
+    npm: npmFixture.npm,
+    npmAuditFactory: npmFixture.npmAuditFactory,
+    attestations: attestationVerifier([]),
+  })
+  assert.equal(observation.release.status, "ambiguous")
+  assert.ok(diagnostics.some(({ code }) => code === "RELEASE_AUDIT_CANONICAL_PREMATURE"))
+})
+
+for (const [label, overrides, code] of [
+  [
+    "a failure-conclusion attempt",
+    {
+      auditResult: { conclusion: "failure" },
+      run: { conclusion: "timed_out" },
+    },
+    "RELEASE_AUDIT_DISPATCH_EVIDENCE_PREMATURE",
+  ],
+  [
+    "a successful attempt while the audit run is still in progress",
+    { run: { status: "in_progress", conclusion: null } },
+    "RELEASE_AUDIT_DISPATCH_EVIDENCE_PREMATURE",
+  ],
+  [
+    "a successful attempt superseded by a later terminal run attempt",
+    { run: { run_attempt: 3 }, extraJobs: true },
+    "RELEASE_AUDIT_DISPATCH_EVIDENCE_PREMATURE",
+  ],
+  [
+    "a successful attempt whose run concluded unsuccessfully",
+    { run: { conclusion: "failure" } },
+    "RELEASE_AUDIT_DISPATCH_EVIDENCE_PREMATURE",
+  ],
+  [
+    "a successful attempt for a different manifest digest",
+    { auditResult: { manifestSha256: "e".repeat(64) } },
+    "RELEASE_AUDIT_RECEIPT_IDENTITY_MISMATCH",
+  ],
+  [
+    "a successful attempt for a different candidate commit",
+    { auditResult: { commitSha: "d".repeat(40) } },
+    "RELEASE_AUDIT_RECEIPT_IDENTITY_MISMATCH",
+  ],
+  [
+    "a successful attempt whose filename names another run attempt",
+    { assetName: "audit-attempt-700-1.json" },
+    "RELEASE_AUDIT_ATTEMPT_IDENTITY_MISMATCH",
+  ],
+  [
+    "a successful attempt whose bytes differ from the listed digest",
+    { listedDigest: "c".repeat(64) },
+    "RELEASE_AUDIT_ASSET_DIGEST_MISMATCH",
+  ],
+  [
+    "a successful attempt with noncanonical bytes",
+    { noncanonical: true },
+    "RELEASE_AUDIT_ASSET_NONCANONICAL",
+  ],
+  [
+    "a premarker audit-result.json that differs from its attempt",
+    { canonical: "different" },
+    "RELEASE_AUDIT_CANONICAL_PREMATURE",
+  ],
+  [
+    "duplicate premarker audit-result.json receipts",
+    { canonical: "duplicate" },
+    "RELEASE_ASSET_IDENTITY_INVALID",
+  ],
+  [
+    "a premarker audit-result.json without its attempt",
+    { canonical: "identical", omitAttempt: true },
+    "RELEASE_AUDIT_CANONICAL_PREMATURE",
+  ],
+  [
+    "a premarker audit-result.json beside a failure attempt",
+    {
+      canonical: "identical",
+      auditResult: { conclusion: "failure" },
+      run: { conclusion: "timed_out" },
+    },
+    "RELEASE_AUDIT_DISPATCH_EVIDENCE_PREMATURE",
+  ],
+  [
+    "a premarker audit-result.json whose run is still in progress",
+    { canonical: "identical", run: { status: "in_progress", conclusion: null } },
+    "RELEASE_AUDIT_DISPATCH_EVIDENCE_PREMATURE",
+  ],
+  [
+    "duplicate current-dispatch attempts",
+    { duplicateAttempt: true },
+    "RELEASE_AUDIT_CURRENT_ATTEMPT_AMBIGUOUS",
+  ],
+]) {
+  test(`production observation stays fail-closed under AUDIT_DISPATCHED for ${label}`, async () => {
+    const fixture = dispatchedAttemptFixture(overrides)
+    const { observation, diagnostics, plan } = await observeDispatchedAttempt(fixture)
+
+    assert.equal(observation.release.status, "ambiguous")
+    assert.ok(
+      diagnostics.some((entry) => entry.code === code),
+      `${label}: ${JSON.stringify(diagnostics.map((entry) => entry.code))}`,
+    )
+    assert.equal(plan.nextTransition, null)
+  })
+}
+
 test("production observation blocks a published Release whose terminal marker is incomplete or mutable", async () => {
   const escrow = attestedReleaseFixture()
   const unsafeRelease = { ...escrow.release, draft: false, immutable: false }
@@ -4865,6 +5122,131 @@ function retryableReleaseFixture() {
   }
 }
 
+function dispatchedAttemptFixture({
+  auditResult: resultOverrides = {},
+  run: runOverrides = {},
+  extraJobs = false,
+  assetName = null,
+  listedDigest = null,
+  noncanonical = false,
+  canonical = null,
+  omitAttempt = false,
+  duplicateAttempt = false,
+} = {}) {
+  const audited = auditedReleaseFixture()
+  const auditResult = { ...audited.auditResult, ...resultOverrides }
+  if (auditResult.conclusion === "failure") {
+    auditResult.checks = [{ name: "published-artifacts", conclusion: "failure", detail: "failed" }]
+  }
+  const canonicalBytes = canonicalAuditResultBytes(auditResult)
+  const auditBytes = noncanonical
+    ? Buffer.from(`${JSON.stringify(auditResult, null, 2)}\n`)
+    : canonicalBytes
+  const marker = {
+    ...audited.marker,
+    revision: 6,
+    phase: "AUDIT_DISPATCHED",
+    audit: {
+      ...audited.marker.audit,
+      runAttempt: null,
+      attemptAssetName: null,
+      attemptSha256: null,
+      canonicalSha256: null,
+      conclusion: null,
+    },
+  }
+  const bytesById = new Map(audited.bytesById)
+  const baseAssets = audited.assets.filter(
+    (asset) =>
+      asset.name !== audited.marker.audit.attemptAssetName && asset.name !== "audit-result.json",
+  )
+  const terminal = [
+    [
+      2_000,
+      assetName ?? `audit-attempt-${auditResult.workflowRunId}-${auditResult.runAttempt}.json`,
+      auditBytes,
+    ],
+  ]
+  if (omitAttempt) terminal.pop()
+  if (canonical === "identical" || canonical === "duplicate") {
+    terminal.push([2_001, "audit-result.json", canonicalBytes])
+  }
+  if (canonical === "duplicate") terminal.push([2_003, "audit-result.json", canonicalBytes])
+  if (canonical === "different") {
+    terminal.push([
+      2_001,
+      "audit-result.json",
+      canonicalAuditResultBytes({ ...auditResult, finishedAt: "2026-08-25T10:02:00.000Z" }),
+    ])
+  }
+  if (duplicateAttempt) {
+    const earlier = { ...auditResult, runAttempt: 1, conclusion: "failure" }
+    earlier.checks = [{ name: "published-artifacts", conclusion: "failure", detail: "failed" }]
+    terminal.push([
+      2_002,
+      `audit-attempt-${earlier.workflowRunId}-1.json`,
+      canonicalAuditResultBytes(earlier),
+    ])
+  }
+  const assets = [
+    ...baseAssets,
+    ...terminal.map(([id, name, bytes], index) => {
+      bytesById.set(id, bytes)
+      return {
+        id,
+        name,
+        digest: `sha256:${index === 0 && listedDigest !== null ? listedDigest : digest(bytes)}`,
+        size: bytes.length,
+      }
+    }),
+  ]
+  const run = { ...audited.run, ...runOverrides }
+  let jobs = audited.jobs
+  if (auditResult.conclusion === "failure" || run.conclusion === "failure") {
+    jobs = jobs.map((job) =>
+      job.runAttempt === auditResult.runAttempt ? { ...job, conclusion: "failure" } : job,
+    )
+  }
+  if (run.status === "in_progress") {
+    jobs = jobs.map((job) =>
+      job.runAttempt === auditResult.runAttempt
+        ? { ...job, status: "in_progress", conclusion: null, completedAt: null }
+        : job,
+    )
+  }
+  if (extraJobs) {
+    jobs = [
+      ...jobs.map((job) =>
+        job.runAttempt === auditResult.runAttempt ? { ...job, conclusion: "failure" } : job,
+      ),
+      {
+        id: 7_003,
+        runAttempt: 3,
+        name: "verify",
+        status: "completed",
+        conclusion: "success",
+        startedAt: "2026-08-25T11:00:00.000Z",
+        completedAt: "2026-08-25T11:01:00.000Z",
+      },
+    ]
+  }
+  return {
+    ...audited,
+    marker,
+    auditResult,
+    assets,
+    bytesById,
+    release: {
+      ...audited.release,
+      draft: true,
+      immutable: false,
+      body: canonicalReleaseBody({ marker, manifest: null }),
+    },
+    run,
+    jobs,
+  }
+}
+
 function abandonedReleaseFixture() {
   const packageNames = [...CANONICAL_RELEASE_PACKAGE_ORDER].sort()
   const packages = packageNames.map((name) => ({
@@ -5553,8 +5935,15 @@ test("the production observer and resolver both require an explicit terminal rec
   )
 })
 
-for (const status of ["queued", "pending", "requested"]) {
-  test(`unstarted first publisher attempt accepts complete empty jobs: ${status}`, async () => {
+for (const [status, conclusion] of [
+  ["queued", null],
+  ["pending", null],
+  ["requested", null],
+  // Cancelled before it started: 21 of the 27 cancelled release.yml runs
+  // (e.g. 31356940801) report exactly zero jobs on attempt 1.
+  ["completed", "cancelled"],
+]) {
+  test(`unstarted first publisher attempt accepts complete empty jobs: ${status}/${conclusion}`, async () => {
     const run = {
       id: 400,
       run_attempt: 1,
@@ -5562,7 +5951,7 @@ for (const status of ["queued", "pending", "requested"]) {
       path: candidate().publisherWorkflow,
       head_branch: `v${VERSION}`,
       status,
-      conclusion: null,
+      conclusion,
     }
     const calls = []
     const github = githubReader({
@@ -5619,6 +6008,10 @@ test("ordinary no-candidate push skips remote arbitration after immutable mainte
 })
 
 for (const [label, change] of [
+  [
+    "cancelled while the listing shows it pending",
+    { status: "completed", conclusion: "cancelled" },
+  ],
   ["started", { status: "in_progress" }],
   ["retried", { run_attempt: 2 }],
   ["completed", { status: "completed", conclusion: "success" }],
@@ -5661,6 +6054,46 @@ for (const [label, change] of [
       })
       assert.ok(diagnostics.some((entry) => entry.code === "PUBLISHER_JOB_HISTORY_INVALID"))
     }
+  })
+}
+for (const [label, change] of [
+  ["a zero-job startup failure", { status: "completed", conclusion: "startup_failure" }],
+  ["a cancelled rerun attempt", { status: "completed", conclusion: "cancelled", run_attempt: 2 }],
+  ["a waiting run", { status: "waiting", conclusion: null }],
+]) {
+  test(`empty publisher jobs stay fail-closed for ${label}`, async () => {
+    const run = {
+      id: 400,
+      run_attempt: 1,
+      head_sha: COMMIT_SHA,
+      path: candidate().publisherWorkflow,
+      head_branch: `v${VERSION}`,
+      ...change,
+    }
+    const github = githubReader({
+      async listWorkflowRuns({ workflow }) {
+        return present("workflow-runs", workflow === "ci.yml" ? ciRuns() : [run])
+      },
+      async getActionsRun() {
+        return present("actions-run", run)
+      },
+      async listActionsRunJobsComplete() {
+        return present("actions-run-jobs-complete", [])
+      },
+      async listActionsRunJobs() {
+        return envelope("ERROR", "actions-run-jobs", 200, "ATTEMPT_COVERAGE_INCOMPLETE")
+      },
+    })
+    const { diagnostics } = await observeProductionCandidate({
+      terminalRecordRef: "HEAD",
+      candidate: candidate(),
+      inventory: inventory(),
+      marker: MARKER,
+      git: gitReader(),
+      github,
+      npm: npmReader(),
+    })
+    assert.ok(diagnostics.some((entry) => entry.code === "PUBLISHER_JOB_HISTORY_INVALID"))
   })
 }
 for (const mode of ["unavailable", "nonempty", "started", "retried", "completed"]) {
@@ -5811,4 +6244,199 @@ test("ordinary source, regular changeset notes and root prose keep the no-candid
     },
   })
   assert.equal(calls, 0)
+})
+
+function resolveInventoryReuse(reader, discoverScheduledCandidate, extra = {}) {
+  return resolveProductionCandidate({
+    terminalRecordRef: "HEAD",
+    event: { schedule: "17 * * * *" },
+    inventory: reader,
+    git: {},
+    github: {},
+    marker: MARKER,
+    discovery: {
+      async discoverManagedCandidate() {
+        return noCandidateSelection()
+      },
+      discoverScheduledCandidate,
+    },
+    ...extra,
+  })
+}
+
+test("inventory reuse shares concurrent and sequential reads across exact and global discovery", async () => {
+  const calls = []
+  const reader = {
+    async read({ ref }) {
+      assert.equal(this, reader)
+      calls.push(ref)
+      return inventory()
+    },
+  }
+  const discovery = {
+    async discoverManagedCandidate({ inventory: scoped }) {
+      const [first, concurrent] = await Promise.all([
+        scoped.read({ ref: COMMIT_SHA }),
+        scoped.read({ ref: COMMIT_SHA }),
+      ])
+      assert.equal(first, concurrent)
+      assert.equal(await scoped.read({ ref: COMMIT_SHA }), first)
+      await scoped.read({ ref: PARENT_SHA })
+      return noCandidateSelection()
+    },
+    async discoverScheduledCandidate({ inventory: scoped }) {
+      await scoped.read({ ref: COMMIT_SHA })
+      await scoped.read({ ref: PARENT_SHA })
+      return noCandidateSelection()
+    },
+  }
+  const args = { event: { ref: "refs/heads/main", after: COMMIT_SHA }, discovery }
+  await resolveInventoryReuse(reader, discovery.discoverScheduledCandidate, args)
+  assert.deepEqual(calls, [COMMIT_SHA, PARENT_SHA])
+  await reader.read({ ref: COMMIT_SHA })
+  await reader.read({ ref: COMMIT_SHA })
+  await resolveInventoryReuse(reader, discovery.discoverScheduledCandidate, args)
+  assert.deepEqual(calls, [COMMIT_SHA, PARENT_SHA, COMMIT_SHA, COMMIT_SHA, COMMIT_SHA, PARENT_SHA])
+})
+
+test("inventory reuse bypasses mutable, malformed, and uppercase refs with the original receiver", async () => {
+  const calls = []
+  const reader = {
+    read(input) {
+      assert.equal(this, reader)
+      calls.push(input)
+      if (input.ref !== "main" && input.ref !== "refs/heads/main") {
+        throw new TypeError("original validation")
+      }
+      return inventory()
+    },
+  }
+  await resolveInventoryReuse(reader, async ({ inventory: scoped }) => {
+    for (const ref of ["main", "refs/heads/main", COMMIT_SHA.toUpperCase(), "abc", "", null]) {
+      const input = { ref }
+      for (let count = 0; count < 2; count++) {
+        if (ref === "main" || ref === "refs/heads/main") await scoped.read(input)
+        else await assert.rejects(async () => scoped.read(input), /original validation/u)
+        assert.equal(calls.at(-1), input)
+      }
+    }
+    assert.equal(calls.length, 12)
+    return noCandidateSelection()
+  })
+})
+
+test("inventory reuse retries rejected, synchronously thrown, and non-valid results", async () => {
+  for (const failure of ["reject", "throw", "invalid", "unknown", "missing", "null"]) {
+    let calls = 0
+    const reader = {
+      read() {
+        calls++
+        if (calls === 1) {
+          if (failure === "reject") return Promise.reject(new Error("retry me"))
+          if (failure === "throw") throw new Error("retry me")
+          if (failure === "null") return null
+          if (failure === "missing") return {}
+          return { status: failure }
+        }
+        return inventory()
+      },
+    }
+    await resolveInventoryReuse(reader, async ({ inventory: scoped }) => {
+      if (failure === "reject" || failure === "throw") {
+        await assert.rejects(async () => scoped.read({ ref: COMMIT_SHA }), /retry me/u)
+      } else {
+        await scoped.read({ ref: COMMIT_SHA })
+      }
+      const valid = await scoped.read({ ref: COMMIT_SHA })
+      assert.equal(valid.status, "valid")
+      assert.equal(await scoped.read({ ref: COMMIT_SHA }), valid)
+      assert.equal(calls, 2, failure)
+      return noCandidateSelection()
+    })
+  }
+})
+
+test("inventory reuse returns deeply immutable copies without freezing source objects", async () => {
+  const source = inventory()
+  await resolveInventoryReuse({ read: () => source }, async ({ inventory: scoped }) => {
+    const copy = await scoped.read({ ref: COMMIT_SHA })
+    assert.notEqual(copy, source)
+    assert.deepEqual(copy, source)
+    assert.ok(Object.isFrozen(copy))
+    assert.ok(Object.isFrozen(copy.packages))
+    assert.ok(Object.isFrozen(copy.packages[0]))
+    assert.throws(() => {
+      copy.packages[0].version = "9.9.9"
+    }, TypeError)
+    source.packages[0].version = "1.2.3"
+    assert.equal((await scoped.read({ ref: COMMIT_SHA })).packages[0].version, VERSION)
+    return noCandidateSelection()
+  })
+  assert.equal(Object.isFrozen(source), false)
+  assert.equal(Object.isFrozen(source.packages[0]), false)
+})
+
+test("inventory reuse bounds entries including in-flight reads and bypasses overflow", async () => {
+  const calls = []
+  let unblock
+  const gate = new Promise((resolve) => {
+    unblock = resolve
+  })
+  const reader = {
+    async read({ ref }) {
+      calls.push(ref)
+      await gate
+      return { status: "valid", packages: [] }
+    },
+  }
+  await resolveInventoryReuse(reader, async ({ inventory: scoped }) => {
+    const refs = Array.from({ length: 2049 }, (_, index) => index.toString(16).padStart(40, "0"))
+    const pending = refs.slice(0, 2048).map((ref) => scoped.read({ ref }))
+    pending.push(scoped.read({ ref: refs[0] }))
+    pending.push(scoped.read({ ref: refs[2048] }), scoped.read({ ref: refs[2048] }))
+    unblock()
+    await Promise.all(pending)
+    await scoped.read({ ref: refs[0] })
+    await scoped.read({ ref: refs[2048] })
+    assert.equal(calls.length, 2051)
+    assert.equal(calls.filter((ref) => ref === refs[0]).length, 1)
+    assert.equal(calls.filter((ref) => ref === refs[2048]).length, 3)
+    return noCandidateSelection()
+  })
+})
+
+test("inventory reuse includes terminal callbacks while external evidence remains fresh", async () => {
+  let reads = 0
+  let externalReads = 0
+  const reader = {
+    read: () => {
+      reads++
+      return inventory()
+    },
+  }
+  const git = gitReader({
+    async listTree() {
+      externalReads++
+      return ""
+    },
+  })
+  await resolveInventoryReuse(
+    reader,
+    async ({ inventory: scoped, verifyTerminalPublication, verifyTerminalAbandonment }) => {
+      await scoped.read({ ref: COMMIT_SHA })
+      const input = { candidate: candidate(), release: {}, releaseRecord: {} }
+      // Incomplete external authority must still fail closed on each verification.
+      for (let index = 0; index < 2; index++) {
+        const beforePublication = externalReads
+        assert.equal(await verifyTerminalPublication(input), false)
+        assert.ok(externalReads > beforePublication)
+        const beforeAbandonment = externalReads
+        assert.equal(await verifyTerminalAbandonment(input), false)
+        assert.ok(externalReads > beforeAbandonment)
+      }
+      assert.equal(reads, 1)
+      return noCandidateSelection()
+    },
+    { git, github: githubReader(), npm: npmReader(), attestations: attestationVerifier([]) },
+  )
 })

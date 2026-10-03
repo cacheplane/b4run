@@ -1028,11 +1028,13 @@ const EXPECTED_API_ARTIFACT_POLICY_TUPLES = [
   ["import:@b4run/cli:./fetch", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/cli:./runtime", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/cli:./testing", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/cli:./workspace", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/core:.", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/core:./node", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/core:./internal/compiler", "internal", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/ag-ui:.", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/ag-ui:./sse", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/ag-ui:./client", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/ag-ui:./react", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/ag-ui:./react/styles.css", "catalog-only", "surfaceKind", "style-asset"],
   ["import:@b4run/memory:.", "detailed", "surfaceKind", "typescript-runtime"],
@@ -1203,12 +1205,13 @@ const EXPECTED_API_REQUIRED_CONTRACT_KEYS = [
   "@b4run/langgraph#./route-module:WorkflowRouteModule",
   "@b4run/langgraph#./route-module:assertExactlyOneEntry",
   "@b4run/langgraph#./route-module:normalizeRouteModule",
-  "@b4run/ag-ui#./sse:encodeAgUiSse",
+  "@b4run/ag-ui#./sse:agUiContentType",
+  "@b4run/ag-ui#./sse:encodeAgUiEvent",
+  "@b4run/ag-ui#./client:B4HttpAgent",
   "@b4run/ag-ui#.:B4_PLAN_ACTIVITY_TYPE",
-  "@b4run/ag-ui#.:B4_SUBAGENT_ACTIVITY_TYPE",
   "@b4run/ag-ui#.:B4RunInput",
   "@b4run/ag-ui#.:B4PlanActivityContent",
-  "@b4run/ag-ui#.:B4SubagentActivityContent",
+  "@b4run/ag-ui#.:B4UsageData",
   "@b4run/ag-ui#.:RunContext",
   "@b4run/ag-ui#.:ToAguiOptions",
   "@b4run/ag-ui#.:fromRunAgentInput",
@@ -1255,6 +1258,8 @@ const EXPECTED_API_REQUIRED_CONTRACT_KEYS = [
   "@b4run/permissions#.:PermissionsStore",
   "@b4run/sdk#.:AgentConfig",
   "@b4run/sdk#.:ReasoningConfig",
+  "@b4run/sdk#.:OpenAIReasoningConfig",
+  "@b4run/sdk#.:AnthropicReasoningConfig",
   "@b4run/sdk#.:RetryConfig",
   "@b4run/sdk#.:RouteConfig",
   "@b4run/sdk#.:agent",
@@ -1294,11 +1299,17 @@ const EXPECTED_API_REQUIRED_CONTRACT_KEYS = [
   "@b4run/workspace#.:BackendContext",
   "@b4run/workspace#.:ExecBackend",
   "@b4run/workspace#.:FilesystemBackend",
+  "@b4run/workspace#.:WalkedEntry",
   "@b4run/workspace#.:SandboxConfig",
   "@b4run/workspace#.:SandboxHandle",
   "@b4run/workspace#.:SandboxPolicy",
   "@b4run/workspace#.:SandboxProvider",
   "@b4run/workspace#.:SandboxSecurityPolicy",
+  "@b4run/workspace#.:SandboxWorkspaceReader",
+  "@b4run/workspace#.:OpenWorkspaceReaderInput",
+  "@b4run/workspace#.:OpenManagedWorkspaceReaderInput",
+  "@b4run/workspace#.:withWorkspaceReader",
+  "@b4run/workspace#.:scopedWorkspaceReader",
   "@b4run/workspace#.:SourceBundle",
   "@b4run/workspace#.:SourceFileInput",
   "@b4run/workspace#.:WorkspaceSourceDefinition",
@@ -1326,6 +1337,7 @@ const EDGE_SAFE_API_ADDRESSES = new Set([
   "import:@b4run/core:.",
   "import:@b4run/ag-ui:.",
   "import:@b4run/ag-ui:./sse",
+  "import:@b4run/ag-ui:./client",
   "import:@b4run/memory:./browse",
   "import:@b4run/memory:./namespace",
   "import:@b4run/memory:./reconcile",
@@ -1702,15 +1714,15 @@ if (process.argv[2] === "--analyze-detailed-api-references") {
 const checks = [
   {
     file: "apps/web/content/docs/api/sandbox.mdx",
-    patterns: ["pnpm add -D vitest", 'from "@b4run/sandbox/testing"'],
+    patterns: ["npm install -D vitest", 'from "@b4run/sandbox/testing"'],
   },
   {
     file: "apps/web/content/docs/api/memory.mdx",
     patterns: [
-      "SQLite stores memory rows—including content, data, source, and tags—as plaintext",
+      "SQLite stores memory rows (including content, data, source, and tags) as plaintext",
       "Low-level `MemoryStore` implementations can store typed procedural records",
       "the generated `remember` tool returns a not-yet-wired rejection",
-      "namespace organizes records; it is not a security boundary",
+      "namespace organizes records. It is not a security boundary",
     ],
   },
   {
@@ -1746,7 +1758,7 @@ const checks = [
     ],
   },
   {
-    file: "apps/web/content/docs/getting-started.mdx",
+    file: "apps/web/content/docs/recipes/research-assistant.mdx",
     patterns: ["b4.config.ts"],
   },
   {
@@ -1854,12 +1866,18 @@ const gettingStartedSource = readFileSync(
   resolve(repoRoot, "apps/web/content/docs/getting-started.mdx"),
   "utf8",
 )
+const researchAssistantSource = readFileSync(
+  resolve(repoRoot, "apps/web/content/docs/recipes/research-assistant.mdx"),
+  "utf8",
+)
 for (const required of [
   "[Deployment Options](/docs/deployment)",
   "[Node and Docker](/docs/deployment/node)",
 ]) {
-  if (!gettingStartedSource.includes(required)) {
-    failures.push(`apps/web/content/docs/getting-started.mdx is missing journey link: ${required}`)
+  if (!researchAssistantSource.includes(required)) {
+    failures.push(
+      `apps/web/content/docs/recipes/research-assistant.mdx is missing journey link: ${required}`,
+    )
   }
 }
 for (const forbidden of ["## 5. Ship it", "docker run -p 8000:8000"]) {
@@ -1875,7 +1893,7 @@ const gettingStartedFinalCards = gettingStartedSource.slice(
 const gettingStartedDecisionTitles = [
   ...gettingStartedFinalCards.matchAll(/\btitle:\s*"([^"]+)"/g),
 ].map((match) => match[1])
-const expectedGettingStartedDecisionTitles = ["Mental Model", "Add a Tool", "Deployment Options"]
+const expectedGettingStartedDecisionTitles = ["Build a Research Assistant", "Tools", "Routes"]
 if (
   JSON.stringify(gettingStartedDecisionTitles) !==
   JSON.stringify(expectedGettingStartedDecisionTitles)
@@ -2035,7 +2053,7 @@ const accuracyContracts = [
       "does not embed",
       '`memory.writes: "off"` makes the recorder a no-op',
       "failed episode records currently use `toolsUsed: []`",
-      "## Episodic memory",
+      '<span id="episodic-memory"></span>',
     ],
     forbidden: [
       "parked interrupts are completed runs",
@@ -2074,7 +2092,7 @@ const accuracyContracts = [
       "prompt injection",
       "rejecting every candidate insight deletes every persisted watermark",
       "repeat the model call and its cost",
-      "## Distillation",
+      "## The two commands",
     ],
     forbidden: [
       "distillation runs automatically",
@@ -2468,16 +2486,17 @@ const accuracyContracts = [
     file: "apps/web/content/docs/sandbox.mdx",
     required: [
       "## Quickstart",
-      "## What it is — and isn't",
+      "## What it is and isn't",
       "Docker reference implementation",
       "--pids-limit 512",
       "resources.timeoutMs",
       "code `124`",
       "--network none",
-      "best-effort",
+      "Neither the Docker nor the Kubernetes provider enforces `denylist`.",
+      "including the cloud metadata endpoint `169.254.169.254`",
       "preflight?():",
       "warnings?: readonly string[]",
-      "pnpm add @b4run/sandbox",
+      "npm install @b4run/sandbox",
       'import type { SandboxHandle, SandboxPolicy } from "@b4run/sandbox"',
       "Provider retention can shorten this lifecycle",
       "sandbox-docker-e2e",
@@ -2487,11 +2506,19 @@ const accuracyContracts = [
       "It is not authentication",
       "mutually untrusted workloads",
       "not automatically reattached, migrated, or deleted",
+      "## Reading a thread's workspace from another process",
+      'import { inspectWorkspace, withWorkspaceReader } from "@b4run/workspace"',
+      "It is not an authorization boundary",
+      "`ReadWriteOnce` PersistentVolumeClaim",
+      "not an atomic snapshot",
     ],
     forbidden: [
       "provider: kubernetesSandbox({",
       "helm upgrade --install b4-sandbox-infra",
-      'from "@b4run/workspace"',
+      // Sandbox CONTRACT types belong to `@b4run/sandbox` on this page. The
+      // workspace package still owns inspection, so a bare package name is too
+      // coarse a pin — it would ban the reader recipe's honest import.
+      'SandboxPolicy } from "@b4run/workspace"',
       'import type { SandboxHandle, SandboxPolicy, SandboxProvider } from "@b4run/sandbox"',
       "workspace can survive idle reap, process restart, or compute replacement",
       "gives each Agent Protocol thread an isolated filesystem",
@@ -2557,7 +2584,7 @@ const accuracyContracts = [
       "/docs/memory/long-term",
       "/docs/deployment",
       "/docs/sandbox",
-      "reserved `tool` and `subagent` keys use exact matching",
+      "reserved `tool`, `subagent` and `clientTool` keys use exact matching",
       "resource paths, bash commands, and memory scopes use prefix matching",
       "stay in memory and do not seed the runtime permissions store",
       "three explicit entries",
@@ -2567,7 +2594,7 @@ const accuracyContracts = [
       "injected `sandboxManager` takes precedence over `config.sandbox`",
       "injected `memoryStore` takes precedence over `config.memory.store`",
       'dockerSandbox({ scope: "my-app", image: "node:24-slim" })',
-      "pnpm add @b4run/postgres-storage pg",
+      "npm install @b4run/postgres-storage pg",
     ],
     forbidden: [
       "b4 start loads",
@@ -2765,6 +2792,8 @@ const accuracyContracts = [
       "POST /threads/:thread_id/runs/stream",
       "POST /threads/:thread_id/resume",
       "POST /threads/:thread_id/cancel",
+      "POST /threads/:thread_id/workspace/inspect",
+      "PUT /workspace/sources/:digest",
       "GET /memory/candidates",
       "POST /memory/candidates/:id/approve",
       "POST /memory/candidates/:id/reject",
@@ -2844,7 +2873,7 @@ const accuracyContracts = [
       "b4 inspect",
       "/threads/:thread_id/cancel",
       "fetch and print an integration blueprint",
-      "`b4 add` — list the blueprint catalog",
+      "`b4 add`: list the blueprint catalog",
       "five phases",
       "runtime readiness",
       "middleware-bypassing management routes",
@@ -3082,6 +3111,11 @@ if (
 
 const expectedB4ConfigSchemaPaths = [
   "appDir",
+  "approvals",
+  "approvals.grantRetentionMs",
+  "approvals.grantStore",
+  "approvals.grantTtlMs",
+  "approvals.grants",
   "backends",
   "backends.exec",
   "backends.filesystem",
@@ -3114,6 +3148,8 @@ const expectedB4ConfigSchemaPaths = [
   "memory.distill.reflect.maxRecords",
   "memory.distill.reflect.minNewRecords",
   "memory.distill.reflect.writes",
+  "memory.distill.retry",
+  "memory.distill.retry.maxAttempts",
   "memory.enabled",
   "memory.episodes",
   "memory.episodes.cap",
@@ -3155,6 +3191,13 @@ const expectedB4ConfigSchemaPaths = [
   "sandbox.network.mode",
   "sandbox.provider",
   "sandbox.workspace",
+  "sandbox.workspaceRead",
+  "sandbox.workspaceReadTimeoutMs",
+  "sandbox.stagedWorkspaces",
+  "sandbox.stagedWorkspaces.maxStagedBytes",
+  "sandbox.stagedWorkspaces.maxUploadBytes",
+  "sandbox.stagedWorkspaces.retentionMs",
+  "sandbox.stagedWorkspaces.uploadTimeoutMs",
   "sandbox.resources",
   "sandbox.resources.cpus",
   "sandbox.resources.diskGb",
@@ -3168,7 +3211,14 @@ const expectedB4ConfigSchemaPaths = [
   "sandbox.security.runAsNonRoot",
   "sandbox.security.runAsNonRoot.gid",
   "sandbox.security.runAsNonRoot.uid",
+  "sandbox.thread",
   "server",
+  "server.agui",
+  "server.agui.clientForwardedProps",
+  "server.agui.clientToolRetentionMs",
+  "server.agui.clientToolStore",
+  "server.agui.clientToolTtlMs",
+  "server.agui.clientTools",
   "server.cors",
   "server.cors.credentials",
   "server.cors.exposeHeaders",
@@ -3257,7 +3307,7 @@ for (const field of expectedB4ConfigSchemaPaths.filter((path) => !path.includes(
 }
 
 for (const requiredExampleText of [
-  '//   // network: { mode: "deny", allowlist: ["api.openai.com"] },',
+  '//   // network: { mode: "deny", allowlist: ["10.0.0.0/8"] }, // Kubernetes CIDRs; Docker ignores it',
   "//     // runAsNonRoot: { uid: 1000, gid: 1000 },",
 ]) {
   if (!completeConfigurationExample.includes(requiredExampleText)) {
@@ -3570,163 +3620,20 @@ if (!noSandboxInstall) {
   }
 }
 
-// Compatibility stubs keep a moved heading linkable without allowing the old
-// overview to grow back into a second copy of the canonical guide.
+// A moved section either leaves an invisible id that DocsPage forwards (see
+// apps/web/app/components/docs/legacy-anchors.ts) or keeps a short, real
+// section on the old page. These contracts cap the retained sections so the
+// old overview cannot grow back into a second copy of the canonical guide.
 const compatibilityStubContracts = [
-  {
-    file: "apps/web/content/docs/memory.mdx",
-    retainedHeading: "Long-term collection (`memory.ts`)",
-    canonicalHref: "/docs/memory/long-term",
-  },
-  {
-    file: "apps/web/content/docs/memory.mdx",
-    retainedHeading: "Generated tools",
-    canonicalHref: "/docs/memory/long-term",
-  },
-  {
-    file: "apps/web/content/docs/memory.mdx",
-    retainedHeading: "How recall ranks",
-    canonicalHref: "/docs/memory/retrieval",
-  },
-  {
-    file: "apps/web/content/docs/memory.mdx",
-    retainedHeading: "Semantic recall (opt-in)",
-    canonicalHref: "/docs/memory/retrieval",
-  },
-  {
-    file: "apps/web/content/docs/memory.mdx",
-    retainedHeading: "Postgres backend (pgvector)",
-    canonicalHref: "/docs/memory/retrieval",
-  },
-  {
-    file: "apps/web/content/docs/memory.mdx",
-    retainedHeading: "The injected index",
-    canonicalHref: "/docs/memory/retrieval",
-  },
-  ...[
-    "Episodic memory",
-    "Enabling the run recorder",
-    "What gets recorded",
-    "Retention",
-    "Time-windowed recall",
-    "Governance",
-    "Agent-authored episodes",
-  ].map((retainedHeading) => ({
-    file: "apps/web/content/docs/memory.mdx",
-    retainedHeading,
-    canonicalHref: "/docs/memory/episodes",
-  })),
-  {
-    file: "apps/web/content/docs/memory.mdx",
-    retainedHeading: "Distillation",
-    canonicalHref: "/docs/memory/distillation",
-    maxChars: 700,
-  },
-  ...[
-    "Consolidation",
-    "Reflection",
-    "Distilled records are found by keyword",
-    "Provenance",
-    "Cost",
-    "Running it on a schedule",
-    "Distillation configuration",
-  ].map((retainedHeading) => ({
-    file: "apps/web/content/docs/memory.mdx",
-    retainedHeading,
-    canonicalHref: "/docs/memory/distillation",
-  })),
-  ...[
-    "Write governance",
-    "`ask` mode",
-    "Reviewing candidates",
-    "Configuration",
-    "Testing",
-    "Verifying against a real model",
-    "What's deferred",
-  ].map((retainedHeading) => ({
-    file: "apps/web/content/docs/memory.mdx",
-    retainedHeading,
-    canonicalHref: "/docs/memory/long-term",
-  })),
-  {
-    file: "apps/web/content/docs/deployment.mdx",
-    retainedHeading: "Deploying to production (Node/Docker)",
-    canonicalHref: "/docs/deployment/node",
-  },
   {
     file: "apps/web/content/docs/deployment.mdx",
     retainedHeading: "Self-hosting",
     canonicalHref: "/docs/deployment/node",
   },
   {
-    file: "apps/web/content/docs/deployment.mdx",
-    retainedHeading: "Deploying on Kubernetes",
-    canonicalHref: "/docs/deployment/kubernetes",
-  },
-  {
-    file: "apps/web/content/docs/deployment.mdx",
-    retainedHeading: "The LangSmith / LangGraph Platform path",
-    canonicalHref: "/docs/deployment/langsmith",
-  },
-  {
-    file: "apps/web/content/docs/deployment.mdx",
-    retainedHeading: "Edge runtimes",
-    canonicalHref: "/docs/deployment/edge",
-  },
-  {
-    file: "apps/web/content/docs/deployment.mdx",
-    retainedHeading: "The `@b4run/cli/fetch` entry point",
-    canonicalHref: "/docs/deployment/edge",
-  },
-  {
-    file: "apps/web/content/docs/deployment.mdx",
-    retainedHeading: "The `hono` build target",
-    canonicalHref: "/docs/deployment/edge",
-  },
-  {
-    file: "apps/web/content/docs/deployment.mdx",
-    retainedHeading: "Why the stores are per-request",
-    canonicalHref: "/docs/deployment/edge",
-  },
-  {
-    file: "apps/web/content/docs/deployment.mdx",
-    retainedHeading: "What the edge cannot serve",
-    canonicalHref: "/docs/deployment/edge",
-  },
-  {
-    file: "apps/web/content/docs/deployment.mdx",
-    retainedHeading: "What is proven, and what is not",
-    canonicalHref: "/docs/deployment/edge",
-  },
-  {
     file: "apps/web/content/docs/sandbox.mdx",
     retainedHeading: "Kubernetes provider",
     canonicalHref: "/docs/sandbox/kubernetes",
-  },
-  {
-    file: "apps/web/content/docs/dev-server.mdx",
-    retainedHeading: "Agent Protocol endpoints",
-    canonicalHref: "/docs/dev-server/agent-protocol",
-  },
-  {
-    file: "apps/web/content/docs/dev-server.mdx",
-    retainedHeading: "SSE event types",
-    canonicalHref: "/docs/dev-server/agent-protocol",
-  },
-  {
-    file: "apps/web/content/docs/dev-server.mdx",
-    retainedHeading: "Thread lifecycle with curl",
-    canonicalHref: "/docs/dev-server/agent-protocol",
-  },
-  {
-    file: "apps/web/content/docs/dev-server.mdx",
-    retainedHeading: "One run at a time per thread",
-    canonicalHref: "/docs/dev-server/agent-protocol",
-  },
-  {
-    file: "apps/web/content/docs/dev-server.mdx",
-    retainedHeading: "Client disconnect",
-    canonicalHref: "/docs/dev-server/agent-protocol",
   },
   {
     file: "apps/web/content/docs/dev-server.mdx",
@@ -3743,52 +3650,6 @@ const compatibilityStubContracts = [
     retainedHeading: "Middleware",
     canonicalHref: "/docs/middleware",
   },
-  {
-    file: "apps/web/content/docs/sandbox.mdx",
-    retainedHeading: "Security hardening on Kubernetes",
-    canonicalHref: "/docs/sandbox/kubernetes",
-  },
-  {
-    file: "apps/web/content/docs/sandbox.mdx",
-    retainedHeading: "Network policy on Kubernetes",
-    canonicalHref: "/docs/sandbox/kubernetes",
-  },
-  {
-    file: "apps/web/content/docs/sandbox.mdx",
-    retainedHeading: "Deploying the sandbox infrastructure (Helm)",
-    canonicalHref: "/docs/sandbox/kubernetes",
-  },
-  {
-    file: "apps/web/content/docs/sandbox.mdx",
-    retainedHeading: "Key caveats",
-    canonicalHref: "/docs/sandbox/kubernetes",
-  },
-  {
-    file: "apps/web/content/docs/sandbox.mdx",
-    retainedHeading: "Deploying a B4.run app (Helm)",
-    canonicalHref: "/docs/sandbox/kubernetes",
-  },
-  {
-    file: "apps/web/content/docs/sandbox.mdx",
-    retainedHeading: "ServiceAccount and namespace wiring",
-    canonicalHref: "/docs/sandbox/kubernetes",
-  },
-  {
-    file: "apps/web/content/docs/sandbox.mdx",
-    retainedHeading: "Env, secrets, and replicas",
-    canonicalHref: "/docs/sandbox/kubernetes",
-  },
-  ...[
-    "Fixture files: author, commit, replay",
-    "Author inline and snapshot to a file",
-    "Record from a real model (local only)",
-    "Replay a fixture file in tests",
-    "Live mode (real model)",
-  ].map((retainedHeading) => ({
-    file: "apps/web/content/docs/testing-agents.mdx",
-    retainedHeading,
-    canonicalHref: "/docs/testing-agents/fixtures",
-  })),
   {
     file: "apps/web/content/docs/memory.mdx",
     retainedHeading: "Updating it",
@@ -3827,101 +3688,77 @@ for (const { file, retainedHeading, canonicalHref, maxChars = 600 } of compatibi
   }
 }
 
-function movedDeepLinks(legacyPath, canonicalHref, fragments) {
-  return fragments.map((fragment) => ({
-    legacyFile: docHrefToContentPath(legacyPath),
-    legacyHref: `${legacyPath}#${fragment}`,
-    canonicalHref,
-  }))
+// The legacy fragment map is shared with the site: DocsPage renders each
+// redirecting id and forwards it, so check it against the MDX it points at.
+const { LEGACY_ANCHORS, legacyRedirectsFor } = await tsImport(
+  pathToFileURL(resolve(repoRoot, "apps/web/app/components/docs/legacy-anchors.ts")).href,
+  import.meta.url,
+)
+const movedDeepLinkContracts = LEGACY_ANCHORS.map(({ legacyHref, canonicalHref }) => ({
+  legacyFile: docHrefToContentPath(legacyHref.split("#")[0]),
+  legacyHref,
+  canonicalHref,
+}))
+
+const docsPageSource = readFileSync(
+  resolve(repoRoot, "apps/web/app/components/docs/DocsPage.tsx"),
+  "utf8",
+)
+if (!docsPageSource.includes("<LegacyAnchorRedirect redirects={legacyRedirectsFor(href)} />")) {
+  failures.push(
+    "apps/web/app/components/docs/DocsPage.tsx must render <LegacyAnchorRedirect redirects={legacyRedirectsFor(href)} />",
+  )
 }
 
-const movedDeepLinkContracts = [
-  ...movedDeepLinks("/docs/memory", "/docs/memory/long-term", [
-    "long-term-collection-memoryts",
-    "generated-tools",
-    "write-governance",
-    "ask-mode",
-    "reviewing-candidates",
-    "configuration",
-    "testing",
-    "verifying-against-a-real-model",
-    "whats-deferred",
-  ]),
-  ...movedDeepLinks("/docs/memory", "/docs/memory/retrieval", [
-    "how-recall-ranks",
-    "semantic-recall-opt-in",
-    "postgres-backend-pgvector",
-    "the-injected-index",
-  ]),
-  ...movedDeepLinks("/docs/memory", "/docs/memory/episodes", [
-    "episodic-memory",
-    "enabling-the-run-recorder",
-    "what-gets-recorded",
-    "retention",
-    "time-windowed-recall",
-    "governance",
-    "agent-authored-episodes",
-  ]),
-  ...movedDeepLinks("/docs/memory", "/docs/memory/distillation", [
-    "distillation",
-    "consolidation",
-    "reflection",
-    "distilled-records-are-found-by-keyword",
-    "provenance",
-    "cost",
-    "running-it-on-a-schedule",
-    "distillation-configuration",
-  ]),
-  ...movedDeepLinks("/docs/deployment", "/docs/deployment/node", [
-    "deploying-to-production-nodedocker",
-  ]),
-  ...movedDeepLinks("/docs/deployment", "/docs/deployment/kubernetes", ["deploying-on-kubernetes"]),
-  ...movedDeepLinks("/docs/deployment", "/docs/deployment/langsmith", [
-    "the-langsmith--langgraph-platform-path",
-  ]),
-  ...movedDeepLinks("/docs/deployment", "/docs/deployment/edge", [
-    "edge-runtimes",
-    "the-b4runclifetch-entry-point",
-    "the-hono-build-target",
-    "why-the-stores-are-per-request",
-    "what-the-edge-cannot-serve",
-    "what-is-proven-and-what-is-not",
-  ]),
-  ...movedDeepLinks("/docs/deployment", "/docs/deployment", [
-    "what-b4-does-not-do",
-    "troubleshooting",
-    "related",
-  ]),
-  ...movedDeepLinks("/docs/deployment", "/docs/deployment/node", ["self-hosting"]),
-  ...movedDeepLinks("/docs/sandbox", "/docs/sandbox/kubernetes", [
-    "kubernetes-provider",
-    "security-hardening-on-kubernetes",
-    "network-policy-on-kubernetes",
-    "deploying-the-sandbox-infrastructure-helm",
-    "key-caveats",
-    "deploying-a-b4-app-helm",
-    "serviceaccount-and-namespace-wiring",
-    "env-secrets-and-replicas",
-  ]),
-  ...movedDeepLinks("/docs/dev-server", "/docs/dev-server/agent-protocol", [
-    "agent-protocol-endpoints",
-    "sse-event-types",
-    "thread-lifecycle-with-curl",
-    "one-run-at-a-time-per-thread",
-    "client-disconnect",
-  ]),
-  ...movedDeepLinks("/docs/dev-server", "/docs/ag-ui", ["ag-ui-endpoint"]),
-  ...movedDeepLinks("/docs/dev-server", "/docs/observability", ["tracing"]),
-  ...movedDeepLinks("/docs/dev-server", "/docs/middleware", ["middleware"]),
-  ...movedDeepLinks("/docs/memory", "/docs/workspace", ["updating-it"]),
-  ...movedDeepLinks("/docs/testing-agents", "/docs/testing-agents/fixtures", [
-    "fixture-files-author-commit-replay",
-    "author-inline-and-snapshot-to-a-file",
-    "record-from-a-real-model-local-only",
-    "replay-a-fixture-file-in-tests",
-    "live-mode-real-model",
-  ]),
-]
+const legacyHrefsSeen = new Set()
+for (const { legacyFile, legacyHref, canonicalHref, mode } of LEGACY_ANCHORS) {
+  const [legacyPath, fragment] = legacyHref.split("#")
+  if (legacyHrefsSeen.has(legacyHref)) failures.push(`${legacyHref} is mapped twice`)
+  legacyHrefsSeen.add(legacyHref)
+  const legacyContentPath = docHrefToContentPath(legacyPath)
+  if (!fragment || legacyContentPath !== `apps/web/content/docs/${legacyFile}`) {
+    failures.push(`${legacyHref} is not a fragment of ${legacyFile}`)
+    continue
+  }
+  const legacyContent = resolve(repoRoot, legacyContentPath)
+  const legacyPage = resolve(repoRoot, docHrefToPagePath(legacyPath))
+  if (!existsSync(legacyContent) || !existsSync(legacyPage)) {
+    failures.push(`${legacyHref} has no docs page to carry its id`)
+    continue
+  }
+  if (!readFileSync(legacyPage, "utf8").includes(`<DocsPage href="${legacyPath}"`)) {
+    failures.push(`${docHrefToPagePath(legacyPath)} must render DocsPage for ${legacyPath}`)
+  }
+  const legacyIds = maintainedHeadingIds(legacyContentPath, readFileSync(legacyContent, "utf8"))
+  const redirected = legacyRedirectsFor(legacyPath).filter(({ id }) => id === fragment)
+  if (mode === "section") {
+    if (!legacyIds.has(fragment)) failures.push(`${legacyHref} is missing its retained section`)
+    if (redirected.length > 0) failures.push(`${legacyHref} is both a section and a redirect`)
+  } else {
+    // The stub heading is gone; the id lives only in LegacyAnchorRedirect.
+    if (legacyIds.has(fragment)) {
+      failures.push(`${legacyHref} is a redirect but ${legacyFile} still has that id`)
+    }
+    if (redirected.length !== 1) failures.push(`${legacyHref} is not redirected exactly once`)
+  }
+
+  const [canonicalPath, canonicalFragment] = canonicalHref.split("#")
+  const canonicalContentPath = docHrefToContentPath(canonicalPath)
+  const canonicalContent = resolve(repoRoot, canonicalContentPath)
+  if (!existsSync(canonicalContent)) {
+    failures.push(`${legacyHref} -> ${canonicalHref} has no canonical page`)
+  } else if (
+    canonicalFragment !== undefined &&
+    !maintainedHeadingIds(canonicalContentPath, readFileSync(canonicalContent, "utf8")).has(
+      canonicalFragment,
+    )
+  ) {
+    failures.push(`${legacyHref} -> ${canonicalHref} has no such canonical heading`)
+  }
+  if (LEGACY_ANCHORS.some((anchor) => anchor.legacyHref === canonicalHref)) {
+    failures.push(`${legacyHref} -> ${canonicalHref} points at another legacy fragment`)
+  }
+}
 
 const maintainedDeepLinkFiles = [
   ...walkFiles(resolve(repoRoot, "apps/web/content/docs"), (file) => file.endsWith(".mdx")),
@@ -4057,7 +3894,7 @@ const canonicalOwnerContracts = [
   },
   {
     file: "apps/web/content/docs/access-control.mdx",
-    heading: "Execution sandbox — what a call can touch",
+    heading: "Execution sandbox",
     required: ["/docs/sandbox/kubernetes"],
   },
   {
@@ -4195,56 +4032,57 @@ const expectedNavDocEntries = [
   { label: "Tools", href: "/docs/tools" },
   { label: "State", href: "/docs/state" },
   { label: "Workspace Filesystem", href: "/docs/workspace" },
+  { label: "Middleware", href: "/docs/middleware" },
+  { label: "Dev Server", href: "/docs/dev-server" },
+  { label: "Planning", href: "/docs/planning" },
+  { label: "Skills", href: "/docs/skills" },
+  { label: "Subagents", href: "/docs/subagents" },
+  { label: "Context Management", href: "/docs/context-management" },
+  { label: "Reasoning", href: "/docs/reasoning-effort" },
+  { label: "Retry", href: "/docs/retry" },
   { label: "Memory", href: "/docs/memory" },
   { label: "Long-term Memory", href: "/docs/memory/long-term" },
   { label: "Recall and Retrieval", href: "/docs/memory/retrieval" },
   { label: "Episodes", href: "/docs/memory/episodes" },
   { label: "Distillation", href: "/docs/memory/distillation" },
-  { label: "Planning", href: "/docs/planning" },
-  { label: "Skills", href: "/docs/skills" },
-  { label: "Subagents", href: "/docs/subagents" },
-  { label: "Context Management", href: "/docs/context-management" },
-  { label: "Reasoning Effort", href: "/docs/reasoning-effort" },
-  { label: "Dev Server", href: "/docs/dev-server" },
+  { label: "Browse and Manage Memory", href: "/docs/memory/browse" },
   { label: "Agent Protocol", href: "/docs/dev-server/agent-protocol" },
-  { label: "Middleware", href: "/docs/middleware" },
   { label: "AG-UI and Web Clients", href: "/docs/ag-ui" },
   { label: "Embed the Runtime", href: "/docs/embedding" },
-  { label: "Blueprints", href: "/docs/blueprints" },
+  { label: "Testing Overview", href: "/docs/testing-overview" },
   { label: "Scenario Testing", href: "/docs/testing" },
   { label: "Agent Test Harness", href: "/docs/testing-agents" },
   { label: "Fixtures and Recording", href: "/docs/testing-agents/fixtures" },
   { label: "Evals", href: "/docs/evals" },
-  { label: "Persistence and Tenancy", href: "/docs/persistence" },
-  { label: "Production Topology", href: "/docs/production-topology" },
   { label: "Security Architecture", href: "/docs/security-architecture" },
-  { label: "Access Control", href: "/docs/access-control" },
   { label: "Thread Access", href: "/docs/thread-access" },
+  { label: "Access Control", href: "/docs/access-control" },
   { label: "Permissions", href: "/docs/permissions" },
-  { label: "Retry", href: "/docs/retry" },
-  { label: "Observability", href: "/docs/observability" },
-  { label: "Inspector", href: "/docs/inspector" },
-  { label: "Browse and Manage Memory", href: "/docs/memory/browse" },
-  { label: "Upgrading", href: "/docs/upgrading" },
+  { label: "Approval Grants", href: "/docs/approval-grants" },
+  { label: "Execution Sandbox", href: "/docs/sandbox" },
+  { label: "Kubernetes Sandbox", href: "/docs/sandbox/kubernetes" },
   { label: "Deployment Options", href: "/docs/deployment" },
   { label: "Node and Docker", href: "/docs/deployment/node" },
   { label: "Kubernetes", href: "/docs/deployment/kubernetes" },
-  { label: "LangSmith", href: "/docs/deployment/langsmith" },
-  { label: "Edge and Hono", href: "/docs/deployment/edge" },
   { label: "Vercel", href: "/docs/deployment/vercel" },
-  { label: "Execution Sandbox", href: "/docs/sandbox" },
-  { label: "Kubernetes Sandbox", href: "/docs/sandbox/kubernetes" },
+  { label: "Edge and Hono", href: "/docs/deployment/edge" },
+  { label: "LangSmith", href: "/docs/deployment/langsmith" },
+  { label: "Persistence and Tenancy", href: "/docs/persistence" },
+  { label: "Production Topology", href: "/docs/production-topology" },
+  { label: "Observability", href: "/docs/observability" },
+  { label: "Inspector", href: "/docs/inspector" },
+  { label: "Troubleshooting", href: "/docs/troubleshooting" },
+  { label: "Upgrading", href: "/docs/upgrading" },
   { label: "Recipes Overview", href: "/docs/recipes" },
   { label: "Add a Tool", href: "/docs/recipes/add-a-tool" },
   { label: "Typed State", href: "/docs/recipes/typed-state" },
   { label: "Auth Middleware", href: "/docs/recipes/auth-middleware" },
   { label: "Stream Output", href: "/docs/recipes/stream-output" },
-  {
-    label: "Retry Transient Model Calls",
-    href: "/docs/recipes/retry-flaky-tools",
-  },
+  { label: "Retry Transient Model Calls", href: "/docs/recipes/retry-flaky-tools" },
   { label: "Dispatch from a Route", href: "/docs/recipes/dispatch-from-route" },
+  { label: "Build a Research Assistant", href: "/docs/recipes/research-assistant" },
   { label: "Research Assistant Web UI", href: "/docs/recipes/research-web-ui" },
+  { label: "Blueprints", href: "/docs/blueprints" },
   { label: "Configuration Reference", href: "/docs/configuration" },
   { label: "CLI Reference", href: "/docs/cli" },
   { label: "API Reference", href: "/docs/api" },
@@ -4340,9 +4178,9 @@ if (apiReferenceRegistry) {
     ...navDocEntries.slice(apiHubIndex + 1),
   ]
   const expectedAllDocsPageCount = navDocEntries.length + API_REFERENCE_PAGES.length
-  if (navDocEntries.length !== 60 || expectedAllDocsPages.length !== expectedAllDocsPageCount) {
+  if (navDocEntries.length !== 64 || expectedAllDocsPages.length !== expectedAllDocsPageCount) {
     failures.push(
-      `Docs page registries must retain 60 journey pages plus every registered API reference leaf; received ${navDocEntries.length} journey pages, ${API_REFERENCE_PAGES.length} reference leaves, and ${expectedAllDocsPages.length} total pages`,
+      `Docs page registries must retain 64 journey pages plus every registered API reference leaf; received ${navDocEntries.length} journey pages, ${API_REFERENCE_PAGES.length} reference leaves, and ${expectedAllDocsPages.length} total pages`,
     )
   }
   const navModule = await tsImport(pathToFileURL(docsNavPath).href, import.meta.url).catch(
@@ -4408,15 +4246,15 @@ if (apiReferenceRegistry) {
   }
 
   const artifactAddresses = ARTIFACT_REGISTRY.map(apiReferenceRegistry.artifactAddressFor)
-  if (ARTIFACT_REGISTRY.length !== 48 || new Set(artifactAddresses).size !== 48) {
-    failures.push("ARTIFACT_REGISTRY must contain exactly 48 unique artifact addresses")
+  if (ARTIFACT_REGISTRY.length !== 50 || new Set(artifactAddresses).size !== 50) {
+    failures.push("ARTIFACT_REGISTRY must contain exactly 50 unique artifact addresses")
   }
   const importCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import").length
   const operatedCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "operated").length
   const generatedCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "generated").length
-  if (importCount !== 44 || operatedCount !== 3 || generatedCount !== 1) {
+  if (importCount !== 46 || operatedCount !== 3 || generatedCount !== 1) {
     failures.push(
-      `ARTIFACT_REGISTRY must contain 44 imports, 3 operated artifacts, and 1 generated artifact; received ${importCount}, ${operatedCount}, and ${generatedCount}`,
+      `ARTIFACT_REGISTRY must contain 46 imports, 3 operated artifacts, and 1 generated artifact; received ${importCount}, ${operatedCount}, and ${generatedCount}`,
     )
   }
   const invalidApplicationRecommendations = ARTIFACT_REGISTRY.filter(
@@ -4590,7 +4428,7 @@ if (apiReferenceRegistry) {
       "apps/web/content/docs/api.mdx package catalog must not contain active MDX components, declarations, or expressions beyond registered anchors and table line breaks",
     )
   }
-  const expectedGeneratedBoundary = `Generated surface: \`b4:routes\` — ${apiReferenceRegistry.artifactBoundaryFor(apiReferenceRegistry.GENERATED_ROUTES_ARTIFACT)}.`
+  const expectedGeneratedBoundary = `Generated surface: \`b4:routes\` (${apiReferenceRegistry.artifactBoundaryFor(apiReferenceRegistry.GENERATED_ROUTES_ARTIFACT)}).`
   if (
     catalogLines.filter((line) => line === expectedGeneratedBoundary).length !== 1 ||
     maskedCatalogSource.includes("Generated surface:") !== true
@@ -4729,6 +4567,13 @@ const contentDocHrefs = walkFiles(docsContentRoot, (file) => file.endsWith(".mdx
   .sort()
 const wrapperDocHrefs = walkFiles(docsWrapperRoot, (file) => basename(file) === "page.tsx")
   .filter((file) => file !== join(docsWrapperRoot, "page.tsx"))
+  // Dynamic segments such as [...slug] are routing fallbacks (the docs 404), not pages.
+  .filter(
+    (file) =>
+      !relative(docsWrapperRoot, file)
+        .split(/[\\/]/)
+        .some((part) => part.startsWith("[")),
+  )
   .map((file) => {
     const relativePath = relative(docsWrapperRoot, file).replaceAll("\\", "/")
     return `/docs/${relativePath.slice(0, -"/page.tsx".length)}`

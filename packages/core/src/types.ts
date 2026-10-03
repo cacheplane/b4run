@@ -1,5 +1,11 @@
 import type { PermissionMode, PermissionsStore } from "@b4run/permissions"
-import type { ModelProviderId, RouteKind } from "@b4run/sdk"
+import type {
+  ApprovalGrantMode,
+  ClientToolCallStore,
+  InterruptGrantStore,
+  ModelProviderId,
+  RouteKind,
+} from "@b4run/sdk"
 import type { ThreadsStore } from "@b4run/sqlite-storage"
 import type { ExecBackend, FilesystemBackend, SandboxConfig } from "@b4run/workspace"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
@@ -105,6 +111,52 @@ export interface B4Config {
      */
     readonly store?: PermissionsStore
   }
+  /**
+   * Human-in-the-loop approvals. See the approval-grants docs.
+   */
+  readonly approvals?: {
+    /**
+     * Whether a parked approval carries a single-use **grant** that must be
+     * echoed on resume — the fix for replay and staleness in #736.
+     *
+     * - `"off"` (default) — no grant is minted and none is required. Exactly
+     *   the pre-grant behavior.
+     * - `"optional"` — grants are minted and disclosed, and an interrupt that
+     *   HAS a grant requires it. An interrupt parked without one (before the
+     *   migration, or while the mode was `"off"`) resumes as before. The
+     *   softness is per-interrupt-age, not per-request: a per-request softness
+     *   would be a bypass.
+     * - `"required"` — a resume with no grant is refused, and a park that
+     *   cannot mint one is refused too, loudly. See the fail-closed rule on
+     *   `mintGrantForPark`.
+     *
+     * The setting is process-wide and ratchets up only: two app roots in one
+     * process share the strictest mode either asks for.
+     */
+    readonly grants?: ApprovalGrantMode
+    /**
+     * Lifetime of a minted grant, in milliseconds. Omitted means no TTL, and
+     * that is the default on purpose — a human approval may legitimately sit
+     * overnight, and an expiry that fires while someone is asleep turns a
+     * safety feature into an outage.
+     */
+    readonly grantTtlMs?: number
+    /**
+     * How long, in milliseconds, a settled grant record (consumed or voided)
+     * is kept before the runtime deletes it. Default `604800000` (7 days).
+     * Outstanding grants are never deleted, however old. Must be a positive
+     * integer no greater than one year (`31536000000`); anything else fails
+     * the boot.
+     */
+    readonly grantRetentionMs?: number
+    /**
+     * Where consumption is recorded. Defaults to the SQLite store beside the
+     * checkpointer on node, and to an in-process store elsewhere — which is
+     * NOT durable and NOT replica-safe, so a multi-replica deployment must
+     * configure a real one (`@b4run/postgres-storage`).
+     */
+    readonly grantStore?: InterruptGrantStore
+  }
   readonly checkpointer?: BaseCheckpointSaver
   readonly threadsStore?: ThreadsStore
   /**
@@ -207,6 +259,58 @@ export interface B4Config {
      * ```
      */
     readonly cors?: CorsConfig
+    /**
+     * Which client-supplied AG-UI envelope fields `POST /agui/:routeId` honors,
+     * per route. Both lists are empty unless set, which means the runtime
+     * REJECTS a non-empty `tools` or `forwardedProps` with a 422 rather than
+     * ignoring it — a client cannot tell an ignored field from an honored one,
+     * and both of these let a caller add to what the route decided.
+     *
+     * Entries are route ids as they appear in the route tree (`"/chat"`,
+     * `"/support/billing"`), matched exactly. An empty `tools: []` or
+     * `forwardedProps: {}` — what an AG-UI client sends when it has nothing to
+     * add — is accepted with or without the opt-in.
+     *
+     * ```ts
+     * server: { agui: { clientTools: ["/chat"] } }
+     * ```
+     */
+    readonly agui?: {
+      /** Route ids whose callers may send a non-empty `tools` array. */
+      readonly clientTools?: readonly string[]
+      /** Route ids whose callers may send a non-empty `forwardedProps` object. */
+      readonly clientForwardedProps?: readonly string[]
+      /**
+       * How long, in milliseconds, a client tool call waits for the client's
+       * result before it is abandoned. Default `600000` (10 minutes). Must be a
+       * positive integer no greater than one year (`31536000000`); anything
+       * else fails the boot rather than being silently replaced.
+       */
+      readonly clientToolTtlMs?: number
+      /**
+       * How long, in milliseconds, a settled client tool call record (answered
+       * or voided), an expired outstanding one, or a settled server tool call
+       * record is kept before the runtime deletes it. Default `604800000` (7
+       * days). The runtime prunes at
+       * `now - max(clientToolRetentionMs, clientToolTtlMs)`, so a record is
+       * never deleted while its call could still be answered. Must be a
+       * positive integer no greater than one year (`31536000000`); anything
+       * else fails the boot.
+       */
+      readonly clientToolRetentionMs?: number
+      /**
+       * Where tool calls on AG-UI runs are recorded, so a later
+       * `role: "tool"` message can be matched to a call this server issued.
+       * When some route is listed in `clientTools`, or this is set, every
+       * tool call on an AG-UI run is recorded (server calls as identity only);
+       * a leftover default file records client calls only.
+       * Defaults to a SQLite store at `<appRoot>/.b4/client-tool-calls.sqlite`
+       * on node — opened only when some route is listed in `clientTools`.
+       * Multi-replica deployments need a shared one
+       * (`@b4run/postgres-storage`'s `createPostgresClientToolCallStore`).
+       */
+      readonly clientToolStore?: ClientToolCallStore
+    }
   }
   readonly memory?: {
     readonly enabled?: boolean
@@ -258,7 +362,8 @@ export interface B4Config {
      *  7 days, consolidate.minBatchSize 5, consolidate.maxBatchSize 50,
      *  consolidate.ttlMs unset (summaries never expire),
      *  consolidate.sourceTtlMs 7 days; reflect.minNewRecords
-     *  10, reflect.maxRecords 100, reflect.writes "candidate". */
+     *  10, reflect.maxRecords 100, reflect.writes "candidate";
+     *  retry.maxAttempts 3. */
     readonly distill?: {
       /** Model id for the distillation pass. Default "gpt-5-mini". */
       readonly model?: string
@@ -266,6 +371,21 @@ export interface B4Config {
       readonly provider?: ModelProviderId
       /** Maximum batches processed per invocation. Default 5. */
       readonly maxBatches?: number
+      /**
+       * Retry for the distillation model's calls: `maxAttempts` per call,
+       * counting the first (default 3; `1` sends each call once). It becomes
+       * the chat model's `maxRetries` (`maxAttempts - 1`), which LangChain
+       * applies to server errors, network errors and rate limits with a
+       * `Retry-After` of 60s or less. Unlike `agent({ retry })` there is no
+       * `baseDelay`: distillation has no capacity rate-limit retry for it to
+       * pace, so `b4 memory consolidate`/`reflect` and `b4 check` reject it.
+       * Any other key, or a `maxAttempts` that isn't a whole number of at
+       * least 1, is rejected too (B4_E1009). Has no effect on the `ollama`
+       * provider, whose chat requests bypass LangChain's retry.
+       */
+      readonly retry?: {
+        readonly maxAttempts?: number
+      }
       readonly consolidate?: {
         /** Only consolidate records older than this many ms. Default 604800000 (7d). */
         readonly olderThanMs?: number

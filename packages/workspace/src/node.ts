@@ -13,9 +13,12 @@ export { type LocalFilesystemOptions, localFilesystem } from "./local-filesystem
 export {
   captureWorkspaceDefinition,
   createWorkspaceIntent,
+  stagedWorkspaceDefinition,
+  stagedWorkspaceFits,
   verifyCapturedWorkspaceDefinition,
   verifyCreationStatus,
   verifyReadyWorkspace,
+  verifyStagedWorkspaceReference,
   verifyWorkspaceIntent,
 } from "./managed-workspace-node.js"
 export {
@@ -26,3 +29,12 @@ export {
   verifySourceBundle,
 } from "./source-bundle.js"
 export { captureWorkspaceSource, type WorkspaceSourceDefinition } from "./source-capture.js"
+export {
+  MAX_THREAD_SANDBOX_RECORD_BYTES,
+  threadSandboxRecordBytes,
+  verifyImageReference,
+  verifyThreadSandbox,
+  verifyThreadSandboxPermissions,
+  verifyThreadSandboxPolicy,
+  verifyThreadSandboxRecord,
+} from "./thread-sandbox.js"

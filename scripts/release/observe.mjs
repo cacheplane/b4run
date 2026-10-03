@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto"
 import { canonicalAbandonmentBytes, parseAbandonmentReleaseBody } from "./abandonment.mjs"
-import { normalizeAdapterEnvelope, snapshotJson } from "./adapter-normalize.mjs"
+import {
+  isUnstartedFirstAttempt,
+  normalizeAdapterEnvelope,
+  snapshotJson,
+} from "./adapter-normalize.mjs"
 import { extractActionsArtifactZip } from "./artifact-store.mjs"
 import { auditExecutorIdentity, authorizeAuditExecutor } from "./audit-executor.mjs"
 import { discoverManagedCandidate, discoverScheduledCandidate } from "./candidate.mjs"
@@ -162,6 +166,7 @@ export async function resolveProductionCandidate({
 }) {
   assertTerminalRecordRef(terminalRecordRef)
   assertMethods(inventory, ["read"], "inventory reader")
+  inventory = reuseDiscoveryInventory(inventory)
   assertMethods(
     discovery,
     ["discoverManagedCandidate", "discoverScheduledCandidate"],
@@ -333,6 +338,35 @@ export async function resolveProductionCandidate({
     if (recovery !== null) normalized = normalizeProductionCandidateSelection(recovery)
   }
   return deepFreeze(normalized)
+}
+
+// Immutable inventories are reusable only for this resolution. Mutable authority
+// and callers of the original reader remain fresh; overflow bypasses the cache.
+function reuseDiscoveryInventory(reader) {
+  const pending = new Map()
+  return {
+    read(input) {
+      const ref = input?.ref
+      if (!isSha(ref)) return reader.read(input)
+      if (pending.has(ref)) return pending.get(ref)
+      if (pending.size >= 2048) return reader.read(input)
+      const result = Promise.resolve()
+        .then(() => reader.read(input))
+        .then((value) => {
+          if (value?.status !== "valid") {
+            pending.delete(ref)
+            return value
+          }
+          return deepFreeze(structuredClone(value))
+        })
+        .catch((error) => {
+          pending.delete(ref)
+          throw error
+        })
+      pending.set(ref, result)
+      return result
+    },
+  }
 }
 
 // Compare immutable first-parent trees, including modes and deletions. An
@@ -3210,7 +3244,7 @@ async function observeReleaseTerminal({
     }
     downloaded.push({ name: asset.name, bytes, result, sha256: asset.sha256 })
   }
-  validateAuditAssetPhase({ marker, downloaded })
+  validateAuditAssetPhase({ marker, downloaded, run })
   const status =
     marker.phase === "AUDIT_VERIFIED"
       ? "success"
@@ -3240,7 +3274,10 @@ async function observeReleaseTerminal({
       runAttempt: run.runAttempt,
       conclusion,
     },
-    auditResult: downloaded.find((asset) => asset.name === "audit-result.json")?.result ?? null,
+    auditResult:
+      marker.phase === "AUDIT_VERIFIED"
+        ? (downloaded.find((asset) => asset.name === "audit-result.json")?.result ?? null)
+        : null,
     abandonment: { requested: false, recorded: false, predecessor: null },
     assets: downloaded.map((asset) => ({
       name: asset.name,
@@ -3371,7 +3408,7 @@ export function validateProductionAuditRun({ value, jobs, candidate, marker, exe
   }
 }
 
-function validateAuditAssetPhase({ marker, downloaded }) {
+function validateAuditAssetPhase({ marker, downloaded, run }) {
   if (marker.phase === "AUDIT_VERIFIED") {
     validatePublicationAuditAssets(
       downloaded.map((asset) => ({ name: asset.name, bytes: asset.bytes })),
@@ -3379,12 +3416,14 @@ function validateAuditAssetPhase({ marker, downloaded }) {
     )
     return
   }
-  if (downloaded.some((asset) => asset.name === "audit-result.json")) {
+  const canonical = downloaded.find((asset) => asset.name === "audit-result.json")
+  if (canonical !== undefined && marker.phase !== "AUDIT_DISPATCHED") {
     throw observationError("RELEASE_AUDIT_CANONICAL_PREMATURE")
   }
   const identities = new Set()
   let current = null
   for (const asset of downloaded) {
+    if (asset === canonical) continue
     const match = /^audit-attempt-([1-9][0-9]*)-([1-9][0-9]*)\.json$/u.exec(asset.name)
     if (
       match === null ||
@@ -3410,9 +3449,32 @@ function validateAuditAssetPhase({ marker, downloaded }) {
     ) {
       throw observationError("RELEASE_AUDIT_RETRYABLE_EVIDENCE_INVALID")
     }
-  } else if (current !== null) {
+  } else if (current !== null && !isResumableSuccessfulAttempt({ marker, current, run })) {
     throw observationError("RELEASE_AUDIT_DISPATCH_EVIDENCE_PREMATURE")
   }
+  // verifyAuditSuccess uploads audit-result.json before its marker CAS, so a
+  // premarker canonical receipt is resumable only as a byte-identical copy of
+  // the exact successful attempt accepted above.
+  if (canonical !== undefined && (current === null || !canonical.bytes.equals(current.bytes))) {
+    throw observationError("RELEASE_AUDIT_CANONICAL_PREMATURE")
+  }
+}
+
+// correlate-audit attaches a successful attempt before verifyAuditSuccess
+// canonicalizes it and advances the marker; both steps are idempotent, so a
+// job that stops between them must stay resumable by complete-release-audit.
+// Only the exact successful terminal attempt of the recorded dispatch
+// qualifies; a failure attempt is recorded together with AUDIT_RETRYABLE.
+function isResumableSuccessfulAttempt({ marker, current, run }) {
+  return (
+    marker.phase === "AUDIT_DISPATCHED" &&
+    run.status === "completed" &&
+    run.conclusion === "success" &&
+    current.result.conclusion === "success" &&
+    current.result.workflowRunId === marker.audit.workflowRunId &&
+    current.result.runAttempt === run.runAttempt &&
+    current.name === `audit-attempt-${marker.audit.workflowRunId}-${run.runAttempt}.json`
+  )
 }
 
 function parseCanonicalAuditBytes(bytes) {
@@ -4522,25 +4584,18 @@ async function observeProductionPublicationHistory({
         runAttempt: value.run_attempt,
         status: value.status,
         conclusion: value.conclusion,
+        listed: value,
       })
     }
   }
 
   let started = false
   for (const run of runs) {
-    const unstartedFirstAttempt =
-      run.runAttempt === 1 &&
-      run.conclusion === null &&
-      ["queued", "pending", "requested"].includes(run.status)
+    // Queued behind this run, or cancelled before it started: no jobs, and so
+    // no publication history, once the empty listing is bracketed exactly.
+    const unstartedFirstAttempt = isUnstartedFirstAttempt(run.listed)
     const matchesUnstartedRun = (result) =>
-      result.status === "PRESENT" &&
-      result.value?.id === run.id &&
-      result.value.run_attempt === 1 &&
-      result.value.head_sha === candidate.commitSha &&
-      result.value.path === candidate.publisherWorkflow &&
-      result.value.head_branch === `v${candidate.version}` &&
-      result.value.status === run.status &&
-      result.value.conclusion === null
+      result.status === "PRESENT" && isUnstartedFirstAttempt(result.value, run.listed)
     if (unstartedFirstAttempt) {
       const readRun = () =>
         observeAdapter(() => github.getActionsRun({ runId: run.id }), {

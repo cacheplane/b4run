@@ -346,9 +346,30 @@ export interface B4ToolDefinition {
       // it. Read by the argument-constraint wrapper to build ConstraintContext.
       readonly threadId?: string
       readonly params?: Readonly<Record<string, string>>
+      /**
+       * The provider's id for this call, stable across LangGraph's re-execution
+       * of an interrupted tool node. Absent when the tool is invoked outside a
+       * model tool call.
+       */
+      readonly toolCallId?: string
     },
   ) => Promise<unknown> | unknown
   readonly schema?: unknown
+  /**
+   * End the run on this tool's successful result instead of handing control
+   * back to the model for another turn. For an agent whose answer is what the
+   * tool produced, this skips a model turn whose only job would be to say so.
+   * A failed call (the tool threw, or its arguments failed the schema) goes
+   * back to the model like any other tool error, so it can retry.
+   */
+  readonly returnDirect?: boolean
+  /**
+   * Set by `createClientToolStub` only. The tool is the server-side stub of a
+   * client-provided tool: it writes its own (client-kind) row in the tool-call
+   * record before it parks, so a backend adapter must NOT issue a server-kind
+   * row for it. Never set this on an authored or capability tool.
+   */
+  readonly clientTool?: true
 }
 
 export interface PromptFragment {

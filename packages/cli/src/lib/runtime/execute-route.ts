@@ -23,8 +23,15 @@ import {
 import { discoverRoutes, findB4App } from "@b4run/core/node"
 import type { PermissionMode, PermissionsStore } from "@b4run/permissions"
 import { createPermissionsStore } from "@b4run/permissions/node"
+import type { ClientToolCallStore, InterruptGrantStore } from "@b4run/sdk"
 import { isB4Agent } from "@b4run/sdk"
-import { createThreadsStore, sqliteCheckpointer, type ThreadsStore } from "@b4run/sqlite-storage"
+import {
+  createClientToolCallStore,
+  createInterruptGrantStore,
+  createThreadsStore,
+  sqliteCheckpointer,
+  type ThreadsStore,
+} from "@b4run/sqlite-storage"
 import type { ExecBackend, FilesystemBackend } from "@b4run/workspace"
 import { localExec, localFilesystem } from "@b4run/workspace/node"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
@@ -270,6 +277,69 @@ export async function resolveCheckpointer(appRoot: string): Promise<BaseCheckpoi
 }
 
 /**
+ * Resolves the {@link InterruptGrantStore} — where approval grants record that
+ * they were consumed — for the given appRoot.
+ *
+ * `config.approvals.grantStore` if `b4.config.ts` provides one, otherwise the
+ * default SQLite-backed store at `<appRoot>/.b4/interrupt-grants.sqlite`. Its
+ * own file rather than a table inside `checkpoints.sqlite` for the same reason
+ * the grant is not kept in the `writes` blob: the consumption record is
+ * B4.run's, it outlives the checkpoint that produced it, and LangGraph deletes
+ * its writes on its own schedule — which would drop the record at exactly the
+ * moment it is needed to answer a replay.
+ *
+ * Returns `undefined` when grants are off, so nothing is opened, nothing is
+ * migrated, and an app that never enables the feature never grows a file.
+ */
+export async function resolveInterruptGrantStore(
+  appRoot: string,
+): Promise<InterruptGrantStore | undefined> {
+  let approvals: B4Config["approvals"] | undefined
+  try {
+    approvals = (await loadB4Config({ appRoot })).config.approvals
+  } catch {
+    // No b4.config.ts or unreadable — grants stay off.
+  }
+  if ((approvals?.grants ?? "off") === "off") return undefined
+  if (approvals?.grantStore) return approvals.grantStore
+  return createInterruptGrantStore({
+    path: pureJoin(appRoot, ".b4/interrupt-grants.sqlite"),
+  })
+}
+
+/**
+ * Resolves the {@link ClientToolCallStore} — the retained record of tool calls
+ * on AG-UI runs, client-provided ones included (cacheplane/b4run#743) — for
+ * the given appRoot.
+ *
+ * `config.server.agui.clientToolStore` if `b4.config.ts` provides one,
+ * otherwise the default SQLite store at `<appRoot>/.b4/client-tool-calls.sqlite`.
+ * Returns `undefined` when no route opts in to client tools AND no store file
+ * exists, so an app that never uses the feature never grows a file. An
+ * existing file is opened even after the opt-in is removed: it may hold the
+ * records of calls still parked from before, and without it those threads
+ * could only answer `503 client_tool_store_unavailable`.
+ *
+ * A config store is returned as is; the fetch core shape-checks it at boot
+ * (`validateClientToolStore`) before it would ever reach this resolver.
+ */
+export async function resolveClientToolCallStore(
+  appRoot: string,
+): Promise<ClientToolCallStore | undefined> {
+  let agui: NonNullable<B4Config["server"]>["agui"] | undefined
+  try {
+    agui = (await loadB4Config({ appRoot })).config.server?.agui
+  } catch {
+    // No b4.config.ts or unreadable — no route can have opted in.
+  }
+  if (agui?.clientToolStore) return agui.clientToolStore
+  const path = pureJoin(appRoot, ".b4/client-tool-calls.sqlite")
+  const optedIn = Array.isArray(agui?.clientTools) && agui.clientTools.length > 0
+  if (!optedIn && !existsSync(path)) return undefined
+  return createClientToolCallStore({ path })
+}
+
+/**
  * Resolves a loaded PermissionsStore for the given appRoot: `config.permissions.store`
  * if the user's `b4.config.ts` provides one, otherwise config-seeded
  * allow/deny + mode (env override wins) over `.b4/permissions.json`. Either
@@ -355,6 +425,8 @@ export const nodeBootFallbacks: RuntimeBootFallbacks = {
   markerFs: nodeMarkerFs,
   resolveIdentityKeys,
   resolveCheckpointer,
+  resolveClientToolCallStore,
+  resolveInterruptGrantStore,
   resolveMemoryStore,
   resolveMemoryWrites,
   resolvePermissionsStore,

@@ -315,7 +315,13 @@ function addStatusDependentConflicts(observation, conflicts) {
       seen.add(asset.name)
       const expected = expectedByName.get(asset.name)
       if (expected === undefined) {
-        if (!releaseEvidenceAssetIsAllowed(asset, observation.release.marker)) {
+        if (
+          !releaseEvidenceAssetIsAllowed(
+            asset,
+            observation.release.marker,
+            observation.release.assets,
+          )
+        ) {
           conflicts.add("github-managed-asset-unexpected")
         }
       } else if (asset.sha256 !== expected.sha256) conflicts.add("github-asset-bytes-mismatch")
@@ -878,7 +884,7 @@ function validateObservedMarker(marker) {
   }
 }
 
-function releaseEvidenceAssetIsAllowed(asset, marker) {
+function releaseEvidenceAssetIsAllowed(asset, marker, assets) {
   if (marker?.phase === "ABANDONED_PREPUBLICATION") {
     return asset.name === "abandonment.json" && asset.sha256 === marker.abandonmentSha256
   }
@@ -903,10 +909,19 @@ function releaseEvidenceAssetIsAllowed(asset, marker) {
       asset.name !== marker.audit?.attemptAssetName || asset.sha256 === marker.audit.attemptSha256
     )
   }
+  if (asset.name !== "audit-result.json") return false
+  if (marker.phase === "AUDIT_VERIFIED") return asset.sha256 === marker.audit?.canonicalSha256
+  // A canonical receipt uploaded before its AUDIT_VERIFIED marker CAS must copy
+  // the current dispatch's attempt byte for byte.
   return (
-    marker.phase === "AUDIT_VERIFIED" &&
-    asset.name === "audit-result.json" &&
-    asset.sha256 === marker.audit?.canonicalSha256
+    marker.phase === "AUDIT_DISPATCHED" &&
+    isSha256(asset.sha256) &&
+    assets.some(
+      (attempt) =>
+        attempt.name.startsWith(`audit-attempt-${marker.audit?.workflowRunId}-`) &&
+        /^audit-attempt-[1-9][0-9]*-[1-9][0-9]*\.json$/u.test(attempt.name) &&
+        attempt.sha256 === asset.sha256,
+    )
   )
 }
 

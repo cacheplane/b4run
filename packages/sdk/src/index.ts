@@ -1,5 +1,6 @@
 export type {
   AgentConfig,
+  AnthropicReasoningConfig,
   B4Agent,
   ConstraintContext,
   ConstraintPredicate,
@@ -11,6 +12,7 @@ export type {
   DelegationRule,
   DelegationRules,
   DelegationVerdict,
+  OpenAIReasoningConfig,
   ReasoningConfig,
   RetryConfig,
   SubagentMap,
@@ -18,8 +20,40 @@ export type {
 } from "./agent.js"
 export { agent, isB4Agent } from "./agent.js"
 export type { BackendAdapter } from "./backend-adapter.js"
+export type {
+  ClientToolCallAnswer,
+  ClientToolCallRecord,
+  ClientToolCallSettle,
+  ClientToolCallStore,
+  ClientToolRecorder,
+  ToolCallOrigin,
+  ToolCallRecordKind,
+} from "./client-tool-calls.js"
+export {
+  CLIENT_TOOL_RECORDER_KEY,
+  createMemoryClientToolCallStore,
+} from "./client-tool-calls.js"
 export type { B4ErrorCode, B4ErrorDescriptor } from "./errors.js"
 export { B4_ERRORS, describeError, errorDocsUrl } from "./errors.js"
+export type {
+  ApprovalGrantMinter,
+  ApprovalGrantMode,
+  InterruptGrantConsumption,
+  InterruptGrantRecord,
+  InterruptGrantStore,
+} from "./interrupt-grants.js"
+export {
+  APPROVAL_GRANT_BYTES,
+  APPROVAL_GRANT_MINTER_KEY,
+  APPROVAL_GRANT_MODES,
+  APPROVAL_GRANT_PREFIX,
+  createApprovalGrant,
+  createMemoryInterruptGrantStore,
+  hashApprovalGrant,
+  isApprovalGrantMode,
+  isApprovalGrantShape,
+  timingSafeHexEqual,
+} from "./interrupt-grants.js"
 export type {
   AnthropicModelId,
   GoogleModelId,
@@ -39,12 +73,17 @@ export { defineMemory } from "./memory.js"
 export type {
   B4Middleware,
   ContinueResult,
+  MiddlewareAfterHook,
+  MiddlewareAfterMessage,
+  MiddlewareAfterResult,
+  MiddlewareAfterRun,
   MiddlewareDefinition,
   MiddlewareHandler,
   MiddlewareRequest,
   MiddlewareResult,
   MiddlewareSetupContext,
   RejectResult,
+  ReplaceFinalMessageResult,
 } from "./middleware.js"
 export { allow, defineMiddleware, reject } from "./middleware.js"
 export type {
@@ -65,6 +104,7 @@ export type {
   ThreadAccessDeny,
   ThreadAccessPolicy,
   ThreadAccessRequest,
+  ThreadAccessRequestedWorkspace,
   ThreadAccessResult,
   ThreadAction,
   ThreadOperation,

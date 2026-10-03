@@ -1,0 +1,18 @@
+{
+  "visible": {
+    "runner": "vitest",
+    "assertions": []
+  },
+  "independent": {
+    "runner": "node-test",
+    "file": "checks/runs-wait-output.test.ts",
+    "assertions": [
+      "A1: runs/wait answers 200 with the JSON body null when the route returns nothing",
+      "A2: B4's own runs/wait client reads that response as a passed run with a null output",
+      "A3: runs/wait and runs/stream agree that a route returning nothing succeeded",
+      "A4: runs/wait carries falsy outputs (0, false, the empty string) unchanged",
+      "A5: an output JSON cannot represent answers a named execution_error, not the catch-all",
+      "A6: runs/wait still carries an ordinary object output unchanged"
+    ]
+  }
+}

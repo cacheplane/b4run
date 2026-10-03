@@ -5,6 +5,7 @@ import { resourceScope } from "../resource-scope.js"
 import { createDocker, type Docker, type SpawnResult } from "./docker-cli.js"
 import { dockerExec } from "./docker-exec.js"
 import { dockerFilesystem } from "./docker-filesystem.js"
+import { openDockerWorkspaceReader } from "./docker-workspace-reader.js"
 import { createDockerManagedWorkspaces } from "./managed-workspace.js"
 import { createThreadLifecycleCoordinator } from "./thread-lifecycle.js"
 
@@ -12,8 +13,17 @@ const ROOT = "/workspace"
 export interface DockerSandboxOptions {
   /** Stable application/environment identity. Changing it selects different storage. */
   readonly scope: string
-  /** Container image for the sandbox (must include a POSIX shell). */
-  readonly image: string
+  /**
+   * Container image for the sandbox (must include a POSIX shell). Optional only
+   * with `images`, for an app whose every thread names its own image
+   * (`sandbox.thread`); the per-app lifecycle then refuses to start.
+   */
+  readonly image?: string
+  /**
+   * Managed workspaces: which image references a per-thread sandbox may name.
+   * Called before any Docker call; anything but `true` refuses the thread.
+   */
+  readonly images?: (reference: string) => boolean
   /** Injected for tests; defaults to the real docker CLI. */
   readonly docker?: Docker
 }
@@ -28,6 +38,14 @@ interface DockerLaunchConfig {
   readonly readOnlyRootFilesystem: boolean
   readonly pidsLimit: number
   readonly user: { readonly uid: number; readonly gid: number } | null
+  /**
+   * Always true: the keeper runs `sleep infinity` as PID 1, which never
+   * reaps. `--init` installs Docker's own PID 1 so descendants orphaned by a
+   * command are reaped instead of lingering as zombies. Recorded in the
+   * launch config so a keeper started before this flag existed is replaced
+   * rather than reused.
+   */
+  readonly init: boolean
 }
 
 interface DockerLifecycleState {
@@ -74,6 +92,7 @@ function resolveLaunchConfig(policy: SandboxPolicy): DockerLaunchConfig {
     readOnlyRootFilesystem: sec.readOnlyRootFilesystem ?? true,
     pidsLimit: sec.pidsLimit ?? 512,
     user,
+    init: true,
   })
 }
 
@@ -95,11 +114,30 @@ const isB4CodedError = (error: unknown): error is Error & { readonly code: strin
  * /workspace. acquire() reuses only a keeper owned by this provider lifecycle
  * with a matching persisted identity; otherwise it replaces the keeper while
  * preserving the volume. release() removes the container but KEEPS the volume;
- * destroy() removes both. Network: deny → --network none (exact); allow →
- * bridge (denylist is best-effort and NOT enforced here — see the spec's
- * honest-scope note). Host env is never inherited; only policy.env is passed.
+ * destroy() removes both. Network: deny → --network none (exact, so an
+ * allowlist is ignored); allow → bridge with open egress (a denylist is
+ * ignored, so the cloud metadata endpoint stays reachable). Host env is never
+ * inherited; only policy.env is passed.
  */
 export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
+  if (opts.images !== undefined && typeof opts.images !== "function")
+    throw new Error("dockerSandbox images must be a function of the image reference")
+  if (
+    opts.image === undefined
+      ? opts.images === undefined
+      : typeof opts.image !== "string" || !opts.image.trim()
+  )
+    throw new Error(
+      "dockerSandbox needs an image, or an images predicate when every thread names its own image",
+    )
+  /** The per-app image. Absent only when every thread names its own, and then nothing here may guess one. */
+  const defaultImage = (): string => {
+    if (opts.image === undefined)
+      throw sandboxUnavailable(
+        "Sandbox unavailable: this Docker provider has no default image. Configure sandbox.thread so each thread names one.",
+      )
+    return opts.image
+  }
   const resourceId = resourceScope(opts.scope)
   const containerName = (id: string) => `b4-sbx-${resourceId(id)}`
   const volumeName = (id: string) => `b4-sbx-vol-${resourceId(id)}`
@@ -112,7 +150,7 @@ export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
     recoverySignal: new AbortController().signal,
     launchConfig,
     launchConfigKey: launchConfigKey(launchConfig),
-    keeperIdentity: keeperIdentity(opts.image, launchConfig),
+    keeperIdentity: keeperIdentity(defaultImage(), launchConfig),
   })
 
   const isRecoveryAttempt = (token: unknown): token is DockerRecoveryAttempt =>
@@ -175,6 +213,10 @@ export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
     const user = launchConfig.user
 
     const hardening: string[] = [
+      // Not policy-controlled: without a reaper, PID 1 (`sleep infinity`)
+      // never wait()s, so orphaned descendants stay zombies that hold
+      // --pids-limit slots and keep kill(pid, 0) succeeding forever.
+      ...(launchConfig.init ? ["--init"] : []),
       ...(launchConfig.dropAllCapabilities ? ["--cap-drop", "ALL"] : []),
       ...(launchConfig.noNewPrivileges ? ["--security-opt", "no-new-privileges"] : []),
       "--pids-limit",
@@ -204,7 +246,7 @@ export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
             "0:0",
             "-v",
             `${volumeName(threadId)}:${ROOT}`,
-            opts.image,
+            defaultImage(),
             "sh",
             "-c",
             `mkdir -p ${ROOT} && chown ${user.uid}:${user.gid} ${ROOT}`,
@@ -235,7 +277,7 @@ export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
         ...envArgs,
         ...limits,
         ...hardening,
-        opts.image,
+        defaultImage(),
         "sleep",
         "infinity",
       ],
@@ -298,7 +340,12 @@ export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
 
   return {
     name: "docker",
-    workspaces: createDockerManagedWorkspaces({ scope: opts.scope, image: opts.image, docker }),
+    workspaces: createDockerManagedWorkspaces({
+      scope: opts.scope,
+      ...(opts.image !== undefined ? { image: opts.image } : {}),
+      ...(opts.images !== undefined ? { images: opts.images } : {}),
+      docker,
+    }),
     acquire({ threadId, policy, signal }): Promise<SandboxHandle> {
       return lifecycle.runExclusive(threadId, async () => {
         const requestedLaunchConfig = resolveLaunchConfig(policy)
@@ -348,6 +395,25 @@ export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
           workspaceRoot: ROOT,
         }
       })
+    },
+    openWorkspaceReader(input) {
+      // Intentionally NOT inside lifecycle.runExclusive: a read must never wait
+      // on (or be able to influence) the thread's keeper lifecycle.
+      let image: string
+      try {
+        image = defaultImage()
+      } catch (error) {
+        return Promise.reject(error)
+      }
+      return openDockerWorkspaceReader(
+        {
+          docker,
+          image,
+          volume: volumeName(input.threadId),
+          resourceId: resourceId(input.threadId),
+        },
+        input,
+      )
     },
     release(threadId) {
       return lifecycle.runExclusive(threadId, async () => {

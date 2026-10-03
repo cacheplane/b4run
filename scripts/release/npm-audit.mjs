@@ -184,6 +184,8 @@ export async function createNpmAuditVerifier({
       home: auditHome,
       cache: auditCache,
       preserveOidc: false,
+      // Revalidate cached metadata so retries can observe newly published versions.
+      additionalEnvironment: { npm_config_prefer_online: "true" },
     })
     const versionResult = await runNpm("npm", ["--version"], {
       cwd: auditHome,

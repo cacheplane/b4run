@@ -241,6 +241,7 @@ describe("prose workflow routing", () => {
       LANE_1: "success",
       LANE_2: "success",
       LANE_3: "success",
+      LANE_4: "success",
     }
     const light = {
       ...full,
@@ -249,6 +250,7 @@ describe("prose workflow routing", () => {
       LANE_1: "skipped",
       LANE_2: "skipped",
       LANE_3: "skipped",
+      LANE_4: "skipped",
     }
     expect(run(full)).toBe(0)
     expect(run(light)).toBe(0)
@@ -266,7 +268,7 @@ describe("prose workflow routing", () => {
         expect(run({ ...base, SCOPE_RESULT: result })).toBe(1)
       for (const key of ["PROSE_ONLY", "METADATA_ONLY"])
         for (const value of ["", "unknown"]) expect(run({ ...base, [key]: value })).toBe(1)
-      for (const key of ["LANE_0", "LANE_1", "LANE_2", "LANE_3"])
+      for (const key of ["LANE_0", "LANE_1", "LANE_2", "LANE_3", "LANE_4"])
         for (const result of ["failure", "cancelled", "", base === full ? "skipped" : "success"])
           expect(run({ ...base, [key]: result })).toBe(1)
     }
@@ -283,6 +285,18 @@ test("every full CI job preserves cancellation, push and failure behavior when p
     "sandbox-docker-e2e",
     "chart-apply-smoke",
   ])
+  // GitHub's startsWith ignores case and coerces both operands to strings.
+  const startsWith = (search: unknown, prefix: unknown) =>
+    String(search).toLowerCase().startsWith(String(prefix).toLowerCase())
+  // A software factory PR is recognised by its branch prefix (in any case) or
+  // by the factory App as its author; a person's branch is neither.
+  const factoryCases: [string, string, boolean][] = [
+    ["feature/x", "octocat", false],
+    ["factoryish/x", "octocat", false],
+    ["factory/wo-x", "octocat", true],
+    ["Factory/WO-X", "octocat", true],
+    ["feature/x", "b4-factory[bot]", true],
+  ]
   for (const [id, job] of Object.entries(workflow.jobs) as [
     string,
     { if?: string; needs?: string },
@@ -297,36 +311,56 @@ test("every full CI job preserves cancellation, push and failure behavior when p
         for (const result of ["success", "failure", "cancelled", "skipped", ""]) {
           for (const proseOnly of ["true", "false", ""])
             for (const metadataOnly of ["true", "false", ""]) {
-              for (const fork of [false, true]) {
-                const expression = source
-                  .replaceAll("cancelled()", JSON.stringify(cancelled))
-                  .replaceAll("github.event_name", JSON.stringify(event))
-                  .replaceAll(
-                    "github.event.pull_request.head.repo.full_name",
-                    JSON.stringify(fork ? "fork/repo" : "owner/repo"),
-                  )
-                  .replaceAll("github.repository", JSON.stringify("owner/repo"))
-                  .replaceAll("github.ref", JSON.stringify("refs/heads/main"))
-                  .replaceAll("needs.metadata_scope.result", JSON.stringify(result))
-                  .replaceAll("needs.metadata_scope.outputs.prose_only", JSON.stringify(proseOnly))
-                  .replaceAll(
-                    "needs.metadata_scope.outputs.metadata_only",
-                    JSON.stringify(metadataOnly),
-                  )
-                const actual = Function(`"use strict"; return (${expression});`)()
-                const expected =
-                  !cancelled &&
-                  !(
-                    event === "pull_request" &&
-                    result === "success" &&
-                    (proseOnly === "true" || (metadataJobs.has(id) && metadataOnly === "true"))
-                  ) &&
-                  !(id === "vercel-native" && event === "pull_request" && fork)
-                expect(
-                  actual,
-                  JSON.stringify({ id, cancelled, event, result, proseOnly, metadataOnly, fork }),
-                ).toBe(expected)
-              }
+              for (const fork of [false, true])
+                for (const [headRef, author, factory] of factoryCases) {
+                  const expression = source
+                    .replaceAll("cancelled()", JSON.stringify(cancelled))
+                    .replaceAll("github.event_name", JSON.stringify(event))
+                    .replaceAll(
+                      "github.event.pull_request.head.repo.full_name",
+                      JSON.stringify(fork ? "fork/repo" : "owner/repo"),
+                    )
+                    .replaceAll("github.event.pull_request.head.ref", JSON.stringify(headRef))
+                    .replaceAll("github.event.pull_request.user.login", JSON.stringify(author))
+                    .replaceAll("github.repository", JSON.stringify("owner/repo"))
+                    .replaceAll("github.ref", JSON.stringify("refs/heads/main"))
+                    .replaceAll("needs.metadata_scope.result", JSON.stringify(result))
+                    .replaceAll(
+                      "needs.metadata_scope.outputs.prose_only",
+                      JSON.stringify(proseOnly),
+                    )
+                    .replaceAll(
+                      "needs.metadata_scope.outputs.metadata_only",
+                      JSON.stringify(metadataOnly),
+                    )
+                  const actual = Function(
+                    "startsWith",
+                    `"use strict"; return (${expression});`,
+                  )(startsWith)
+                  const expected =
+                    !cancelled &&
+                    !(
+                      event === "pull_request" &&
+                      result === "success" &&
+                      (proseOnly === "true" || (metadataJobs.has(id) && metadataOnly === "true"))
+                    ) &&
+                    !(id === "vercel-native" && event === "pull_request" && fork) &&
+                    !(id === "vercel-native" && event === "pull_request" && factory)
+                  expect(
+                    actual,
+                    JSON.stringify({
+                      id,
+                      cancelled,
+                      event,
+                      result,
+                      proseOnly,
+                      metadataOnly,
+                      fork,
+                      headRef,
+                      author,
+                    }),
+                  ).toBe(expected)
+                }
             }
         }
       }

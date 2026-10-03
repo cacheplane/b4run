@@ -12,29 +12,40 @@ const tempDirs: string[] = []
 
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { force: true, recursive: true })))
-  vi.doUnmock("@langchain/langgraph/prebuilt")
+  vi.doUnmock("langchain")
   vi.doUnmock("@langchain/openai")
 })
 
 describe("subagent sandbox preparation", () => {
   it("inherits the root sandbox key and recompiles sandbox-bound children per dispatch", async () => {
     const appRoot = await fixtureApp()
-    const getForThread = vi.fn(async () => ({
-      exec: { execute: vi.fn() },
-      filesystem: {
-        list: vi.fn(),
-        mkdir: vi.fn(),
-        read: vi.fn(),
-        remove: vi.fn(),
-        stat: vi.fn(),
-        write: vi.fn(),
-      },
-      workspaceRoot: "/workspace",
-    }))
-    const createReactAgent = vi.fn((_options: unknown) => ({
+    const getForThread = vi.fn(
+      async (
+        _key: string,
+        _signal: AbortSignal,
+        _context?: {
+          metadata?: (signal: AbortSignal) => Promise<Readonly<Record<string, unknown>>>
+        },
+      ) => ({
+        exec: { execute: vi.fn() },
+        filesystem: {
+          list: vi.fn(),
+          mkdir: vi.fn(),
+          read: vi.fn(),
+          remove: vi.fn(),
+          stat: vi.fn(),
+          write: vi.fn(),
+        },
+        workspaceRoot: "/workspace",
+      }),
+    )
+    const createAgent = vi.fn((_options: unknown) => ({
       invoke: vi.fn(async () => ({ messages: [new AIMessage("Child complete.")] })),
     }))
-    vi.doMock("@langchain/langgraph/prebuilt", () => ({ createReactAgent }))
+    vi.doMock("langchain", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("langchain")>()),
+      createAgent,
+    }))
     vi.doMock("@langchain/openai", () => ({ ChatOpenAI: class {} }))
 
     await materializeResolvedRouteGraph({
@@ -42,21 +53,43 @@ describe("subagent sandbox preparation", () => {
       routeFile: join(appRoot, "src/app/parent/index.ts"),
       routeId: "/parent",
       routePath: "src/app/parent/index.ts",
-      sandboxManager: { getForThread, getWorkspace: () => undefined } as never,
+      sandboxManager: {
+        getForThread,
+        getWorkspace: () => undefined,
+        threadPermissions: () => undefined,
+      } as never,
       sandboxThreadId: "sandbox-root",
     })
 
-    expect(createReactAgent).toHaveBeenCalledTimes(1)
-    const task = findTaskTool(createReactAgent.mock.calls[0]?.[0])
+    expect(createAgent).toHaveBeenCalledTimes(1)
+    const task = findTaskTool(createAgent.mock.calls[0]?.[0])
 
     await invokeTask(task, "sandbox-first")
     await invokeTask(task, "sandbox-second")
 
-    expect(createReactAgent).toHaveBeenCalledTimes(3)
+    expect(createAgent).toHaveBeenCalledTimes(3)
     expect(getForThread).toHaveBeenCalledTimes(3)
     for (const call of getForThread.mock.calls) {
-      expect(call).toEqual(["sandbox-root", expect.any(AbortSignal)])
+      // Admission now always hands the manager a third, lazy admission
+      // context (see execute-route-core.ts) so a resolver can read the
+      // thread's stored metadata — a store-backed function here since this
+      // fixture's config carries no threadsStore.
+      expect(call).toEqual([
+        "sandbox-root",
+        expect.any(AbortSignal),
+        { metadata: expect.any(Function) },
+      ])
     }
+    // This fixture's `b4.config.ts` carries no `threadsStore`, and
+    // `materializeResolvedRouteGraph` (via execute-route.ts) supplies the
+    // Node fallbacks, so the loader falls all the way through to the
+    // default sqlite store for `appRoot`. No run in this test ever created
+    // or updated a row for "sandbox-root", so the loader resolves `{}`.
+    // Asserting `resolves.toEqual({})` here proves the loader is wired and
+    // actually callable through this path; keying admission by the PARENT
+    // thread (not the child) is covered by managed-workspace-runtime.test.ts.
+    const context = getForThread.mock.calls[0]?.[2]
+    await expect(context?.metadata?.(new AbortController().signal)).resolves.toEqual({})
   })
 })
 

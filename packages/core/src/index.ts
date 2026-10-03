@@ -1,6 +1,13 @@
 export type { ThreadsStore } from "@b4run/sqlite-storage"
 export type { BuildTargetName } from "./build-targets.js"
 export { BUILD_TARGET_NAMES, isBuildTargetName } from "./build-targets.js"
+export {
+  __resetApprovalGrantsForTests,
+  approvalGrantMode,
+  configureApprovalGrants,
+  MissingApprovalGrantMinterError,
+  mintGrantForPark,
+} from "./capabilities/approval-grants.js"
 export { createAgentsMdMarker } from "./capabilities/built-in/agents-md.js"
 export { createMemoryMarker } from "./capabilities/built-in/memory.js"
 export { createMemoryMdMarker, MAX_MEMORY_BYTES } from "./capabilities/built-in/memory-md.js"
@@ -10,6 +17,23 @@ export { createSkillsMarker } from "./capabilities/built-in/skills.js"
 export { createSubagentsMarker } from "./capabilities/built-in/subagents.js"
 export { createWorkspaceMarker } from "./capabilities/built-in/workspace.js"
 export { BUILT_IN_TOOL_NAMES } from "./capabilities/built-in-tool-names.js"
+export type {
+  ClientToolCallEnvelope,
+  ClientToolDefinition,
+  ClientToolResumeValue,
+  ClientToolStubOptions,
+} from "./capabilities/client-tools.js"
+export {
+  ABANDONED_CLIENT_TOOL_RESULT,
+  CLIENT_TOOL_CALL_TYPE,
+  CLIENT_TOOL_PREFIX,
+  CLIENT_TOOL_UNAVAILABLE_RESULT,
+  clientToolInterruptId,
+  createClientToolStub,
+  gateClientToolOp,
+  isClientToolCallEnvelope,
+  MissingClientToolRecorderError,
+} from "./capabilities/client-tools.js"
 export type {
   MemorySupersedeDetail,
   SubagentGateRequest,
@@ -57,6 +81,8 @@ export type {
 } from "./capabilities/types.js"
 export type { CreateWorkspaceFsOptions } from "./capabilities/workspace-fs.js"
 export { createWorkspaceFs } from "./capabilities/workspace-fs.js"
+export type { UnresolvedImport, UnresolvedToolInputTypeDetails } from "./compiler/errors.js"
+export { UnresolvedToolInputTypeError } from "./compiler/errors.js"
 export type { B4ConfigLoader } from "./config.js"
 export {
   __clearB4ConfigCacheForTests,
@@ -104,7 +130,7 @@ export type {
   ResolvedSubagent,
 } from "./subagents/types.js"
 export type { ScopeInput, ToolOrigin } from "./tool-scope.js"
-export { resolveToolScope, toolOrigin } from "./tool-scope.js"
+export { impliedToolDenials, resolveToolScope, toolOrigin } from "./tool-scope.js"
 export {
   renderB4Types,
   renderRouteTypes,

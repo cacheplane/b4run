@@ -1,9 +1,14 @@
+import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { seedB4Config } from "@b4run/core"
+import { THREAD_ACCESS_METADATA_KEY } from "@b4run/sdk"
+import { openWorkspaceInstallation, openWorkspaceInstallationReader } from "@b4run/sqlite-storage"
 import { afterEach, expect, it } from "vitest"
+import { createAimock } from "../../testing/dist/aimock-runner.js"
+import { script } from "../../testing/dist/fixture-builder.js"
 import { runBuildCommand } from "../src/commands/build.ts"
 import {
   createRuntimeFetchHandler,
@@ -163,3 +168,531 @@ it("resumes interrupted physical deletion and metadata cleanup at startup", asyn
   expect((await restarted.fetch(new Request("http://localhost/threads/one"))).status).toBe(404)
   expect((await run(restarted, "one")).status).not.toBe(200)
 })
+
+// `POST /threads` never accepts a caller-supplied id — the store generates
+// one (see sqlite-storage's `newThreadId`) — so a test that needs metadata
+// attached to a thread before its first run must create the thread this way
+// and use the id the server hands back, rather than a chosen literal.
+async function createThread(
+  handler: RuntimeFetchHandler,
+  metadata: Record<string, unknown>,
+): Promise<string> {
+  const response = await handler.fetch(
+    new Request("http://localhost/threads", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ metadata }),
+    }),
+  )
+  expect(response.status).toBe(200)
+  const body = (await response.json()) as { thread_id: string }
+  return body.thread_id
+}
+
+it("resolves each thread's workspace from its own metadata, once, and keeps it across restart", async () => {
+  const { appRoot } = await fixture()
+  // Each candidate source lives in its OWN directory: `source-capture`'s
+  // exact-inventory check requires the walked directory's file set to equal
+  // `include` precisely, so alpha and beta cannot share a directory with each
+  // other (or with the base fixture's `source/main.txt`).
+  await mkdir(join(appRoot, "source-alpha"), { recursive: true })
+  await mkdir(join(appRoot, "source-beta"), { recursive: true })
+  await writeFile(join(appRoot, "source-alpha/alpha.txt"), "alpha")
+  await writeFile(join(appRoot, "source-beta/beta.txt"), "beta")
+  const seen: string[] = []
+  const physical = managedProviderFixture()
+  const config = {
+    sandbox: {
+      provider: physical.provider,
+      workspace: async (thread: { threadId: string; metadata: Record<string, unknown> }) => {
+        seen.push(thread.threadId)
+        const isBeta = thread.metadata.task === "beta"
+        const file = isBeta ? "beta.txt" : "alpha.txt"
+        return {
+          source: {
+            directory: isBeta ? "source-beta" : "source-alpha",
+            include: [file],
+            files: [{ path: "main.txt", text: file }],
+          },
+        }
+      },
+    },
+  }
+  const boot = async () => {
+    const handler = await createRuntimeFetchHandler({ appRoot, config })
+    handlers.push(handler)
+    return handler
+  }
+  const first = await boot()
+  const a = await createThread(first, { task: "alpha" })
+  const b = await createThread(first, { task: "beta" })
+  expect((await run(first, a)).body).toMatchObject({ source: "alpha.txt", current: "alpha.txt" })
+  expect((await run(first, b)).body).toMatchObject({ source: "beta.txt", current: "beta.txt" })
+  // Pin the captured DIRECTORY itself, not only the `main.txt` overlay: read
+  // the real captured file by name, whose content is its own physical
+  // content ("alpha"/"beta") rather than the filename `files` stamped into
+  // `main.txt`. This proves each thread's admitted workspace is rooted in
+  // its own resolved source directory, not merely that `main.txt` differs.
+  expect((await run(first, a, { path: "alpha.txt" })).body).toMatchObject({ source: "alpha" })
+  expect((await run(first, b, { path: "beta.txt" })).body).toMatchObject({ source: "beta" })
+  await run(first, a)
+  expect(seen).toEqual([a, b])
+  await first.close()
+  const restarted = await boot()
+  expect((await run(restarted, b)).body).toMatchObject({ source: "beta.txt" })
+  // The already-admitted thread `a` keeps its own workspace across restart
+  // too, and the resolver is not re-invoked for it (only its physical
+  // record is reattached).
+  expect((await run(restarted, a)).body).toMatchObject({ source: "alpha.txt" })
+  expect(seen).toEqual([a, b])
+})
+
+it("passes the stored metadata with the reserved key stripped, and empty metadata for a run without a prior thread", async () => {
+  const { appRoot } = await fixture()
+  const seen: Record<string, unknown>[] = []
+  const physical = managedProviderFixture()
+  const config = {
+    sandbox: {
+      provider: physical.provider,
+      workspace: async (thread: { threadId: string; metadata: Record<string, unknown> }) => {
+        seen.push(thread.metadata)
+        return { source: { directory: "source", include: ["main.txt"] } }
+      },
+    },
+  }
+  const handler = await createRuntimeFetchHandler({ appRoot, config })
+  handlers.push(handler)
+  const withId = await createThread(handler, {
+    task: "x",
+    [THREAD_ACCESS_METADATA_KEY]: { forged: true },
+  })
+  await run(handler, withId)
+  await run(handler, "without")
+  expect(seen[0]).toMatchObject({ task: "x" })
+  expect(seen[0]).not.toHaveProperty(THREAD_ACCESS_METADATA_KEY)
+  // The "without" thread has no prior `POST /threads` call, so it is created
+  // fresh by `runs/wait` with no client metadata. The runtime stamps the
+  // route onto that thread's metadata BEFORE workspace admission resolves for
+  // it, so the resolver sees that stamp rather than an empty object.
+  expect(seen[1]).toEqual({ route: "/inspect#workflow" })
+})
+
+it("builds a resolver app to a resolver artifact and resolves per thread from the built manifest", async () => {
+  const { appRoot } = await fixture()
+  await mkdir(join(appRoot, "source-beta"), { recursive: true })
+  await writeFile(join(appRoot, "source-beta/beta.txt"), "beta")
+  await mkdir(join(appRoot, "node_modules/@b4run"), { recursive: true })
+  await symlink(new URL("..", import.meta.url), join(appRoot, "node_modules/@b4run/cli"), "dir")
+  const seen: string[] = []
+  const physical = managedProviderFixture()
+  const config = {
+    build: { targets: ["node"] as const },
+    sandbox: {
+      provider: physical.provider,
+      workspace: async (thread: { threadId: string; metadata: Record<string, unknown> }) => {
+        seen.push(thread.threadId)
+        return thread.metadata.task === "beta"
+          ? {
+              source: {
+                directory: "source-beta",
+                include: ["beta.txt"],
+                files: [{ path: "main.txt", text: "beta-overlay" }],
+              },
+            }
+          : { source: { directory: "source", include: ["main.txt"] } }
+      },
+    },
+  }
+  seedB4Config(appRoot, config)
+  await runBuildCommand({ cwd: appRoot, clean: true }, { stdout: () => {}, stderr: () => {} })
+  const workspace = JSON.parse(await readFile(join(appRoot, ".b4/build/workspace.json"), "utf8"))
+  expect(workspace).toEqual({ version: 2, kind: "resolver" })
+  const modules = await loadStaticModules(pathToFileURL(join(appRoot, ".b4/build/modules.mjs")))
+  const handler = await createRuntimeFetchHandler({
+    appRoot,
+    config,
+    modules: { ...modules, workspace },
+  })
+  handlers.push(handler)
+  const beta = await createThread(handler, { task: "beta" })
+  const plain = await createThread(handler, {})
+  expect((await run(handler, beta)).body).toMatchObject({
+    source: "beta-overlay",
+    current: "beta-overlay",
+  })
+  expect((await run(handler, beta, { path: "beta.txt" })).body).toMatchObject({ source: "beta" })
+  expect((await run(handler, plain)).body).toMatchObject({ source: "initial", current: "initial" })
+  expect(seen).toEqual([beta, plain])
+  await handler.close()
+})
+
+it("refuses to boot a resolver app from a stale static artifact", async () => {
+  const { appRoot, config: staticConfig } = await fixture()
+  await mkdir(join(appRoot, "node_modules/@b4run"), { recursive: true })
+  await symlink(new URL("..", import.meta.url), join(appRoot, "node_modules/@b4run/cli"), "dir")
+  seedB4Config(appRoot, { ...staticConfig, build: { targets: ["node"] } })
+  await runBuildCommand({ cwd: appRoot, clean: true }, { stdout: () => {}, stderr: () => {} })
+  const workspace = JSON.parse(await readFile(join(appRoot, ".b4/build/workspace.json"), "utf8"))
+  expect(workspace.version).toBe(1)
+  const modules = await loadStaticModules(pathToFileURL(join(appRoot, ".b4/build/modules.mjs")))
+  const physical = managedProviderFixture()
+  const resolverConfig = {
+    sandbox: {
+      provider: physical.provider,
+      workspace: async () => ({ source: { directory: "source", include: ["main.txt"] } }),
+    },
+  }
+  await expect(
+    createRuntimeFetchHandler({
+      appRoot,
+      config: resolverConfig,
+      modules: { ...modules, workspace },
+    }),
+  ).rejects.toThrow(/rebuild/i)
+})
+
+it("refuses to boot a static app from a stale resolver artifact", async () => {
+  const { appRoot, config: staticConfig } = await fixture()
+  await mkdir(join(appRoot, "node_modules/@b4run"), { recursive: true })
+  await symlink(new URL("..", import.meta.url), join(appRoot, "node_modules/@b4run/cli"), "dir")
+  const physical = managedProviderFixture()
+  const resolverConfig = {
+    build: { targets: ["node"] as const },
+    sandbox: {
+      provider: physical.provider,
+      workspace: async () => ({ source: { directory: "source", include: ["main.txt"] } }),
+    },
+  }
+  seedB4Config(appRoot, resolverConfig)
+  await runBuildCommand({ cwd: appRoot, clean: true }, { stdout: () => {}, stderr: () => {} })
+  const workspace = JSON.parse(await readFile(join(appRoot, ".b4/build/workspace.json"), "utf8"))
+  expect(workspace).toEqual({ version: 2, kind: "resolver" })
+  const modules = await loadStaticModules(pathToFileURL(join(appRoot, ".b4/build/modules.mjs")))
+  await expect(
+    createRuntimeFetchHandler({
+      appRoot,
+      config: staticConfig,
+      modules: { ...modules, workspace },
+    }),
+  ).rejects.toThrow(/rebuild/i)
+})
+
+it("fails b4 build on a misspelt sandbox key even with no workspace or thread", async () => {
+  const { appRoot } = await fixture()
+  const physical = managedProviderFixture()
+  seedB4Config(appRoot, {
+    build: { targets: ["node"] },
+    sandbox: { provider: physical.provider, thred: async () => ({}) },
+  } as never)
+  await expect(
+    runBuildCommand({ cwd: appRoot, clean: true }, { stdout: () => {}, stderr: () => {} }),
+  ).rejects.toThrow(/sandbox.thred is not a sandbox option/)
+})
+
+function threadConfig(physical: ReturnType<typeof managedProviderFixture>, seen: string[]) {
+  return {
+    sandbox: {
+      provider: physical.provider,
+      network: { mode: "deny" as const },
+      thread: async (thread: { threadId: string; metadata: Record<string, unknown> }) => {
+        seen.push(thread.threadId)
+        const big = thread.metadata.size === "big"
+        return {
+          workspace: { source: { directory: "source", include: ["main.txt"] } },
+          environment: { image: big ? "factory:big" : "factory:small" },
+          policy: { resources: { memoryMb: big ? 8192 : 512 } },
+        }
+      },
+    },
+  }
+}
+function identityOf(appRoot: string, threadId: string): string | undefined {
+  const reader = openWorkspaceInstallationReader(appRoot)
+  try {
+    return reader.associations.get(threadId)?.intent.environment.identity
+  } finally {
+    reader.close()
+  }
+}
+
+it("resolves each thread's image, policy and workspace once, and keeps them across restart", async () => {
+  const { appRoot } = await fixture()
+  const seen: string[] = []
+  const physical = managedProviderFixture()
+  const config = threadConfig(physical, seen)
+  const boot = async () => {
+    const handler = await createRuntimeFetchHandler({ appRoot, config })
+    handlers.push(handler)
+    return handler
+  }
+  const first = await boot()
+  const small = await createThread(first, { size: "small" })
+  const big = await createThread(first, { size: "big" })
+  expect((await run(first, small)).body).toMatchObject({ source: "initial" })
+  expect((await run(first, big)).body).toMatchObject({ source: "initial" })
+  expect(identityOf(appRoot, small)).toBe("immutable-template@factory:small")
+  expect(identityOf(appRoot, big)).toBe("immutable-template@factory:big")
+  expect(physical.policies.get(small)).toEqual({
+    network: { mode: "deny" },
+    resources: { memoryMb: 512 },
+  })
+  expect(physical.policies.get(big)).toEqual({
+    network: { mode: "deny" },
+    resources: { memoryMb: 8192 },
+  })
+  await first.close()
+  physical.policies.clear()
+  const restarted = await boot()
+  expect((await run(restarted, big)).body).toMatchObject({ source: "initial" })
+  expect(physical.policies.get(big)).toEqual({
+    network: { mode: "deny" },
+    resources: { memoryMb: 8192 },
+  })
+  expect(seen).toEqual([small, big])
+})
+
+it("builds a thread-sandbox app to the thread artifact and resolves per thread from the built manifest", async () => {
+  const { appRoot } = await fixture()
+  await mkdir(join(appRoot, "node_modules/@b4run"), { recursive: true })
+  await symlink(new URL("..", import.meta.url), join(appRoot, "node_modules/@b4run/cli"), "dir")
+  const seen: string[] = []
+  const physical = managedProviderFixture()
+  const config = { build: { targets: ["node"] as const }, ...threadConfig(physical, seen) }
+  seedB4Config(appRoot, config)
+  await runBuildCommand({ cwd: appRoot, clean: true }, { stdout: () => {}, stderr: () => {} })
+  const workspace = JSON.parse(await readFile(join(appRoot, ".b4/build/workspace.json"), "utf8"))
+  expect(workspace).toEqual({ version: 2, kind: "thread" })
+  const modules = await loadStaticModules(pathToFileURL(join(appRoot, ".b4/build/modules.mjs")))
+  const handler = await createRuntimeFetchHandler({
+    appRoot,
+    config,
+    modules: { ...modules, workspace },
+  })
+  handlers.push(handler)
+  const big = await createThread(handler, { size: "big" })
+  expect((await run(handler, big)).body).toMatchObject({ source: "initial" })
+  expect(identityOf(appRoot, big)).toBe("immutable-template@factory:big")
+  expect(seen).toEqual([big])
+  await handler.close()
+  // The same build, booted with a workspace resolver instead: the form changed.
+  await expect(
+    createRuntimeFetchHandler({
+      appRoot,
+      config: {
+        sandbox: {
+          provider: physical.provider,
+          workspace: async () => ({ source: { directory: "source", include: ["main.txt"] } }),
+        },
+      },
+      modules: { ...modules, workspace },
+    }),
+  ).rejects.toThrow(/rebuild/i)
+})
+
+it("gates each thread's filesystem calls with its own permissions", async () => {
+  const { appRoot } = await fixture()
+  await mkdir(join(appRoot, "src/app/probe/tools"), { recursive: true })
+  await writeFile(
+    join(appRoot, "src/app/probe/index.ts"),
+    "export const workflow=async (input,ctx)=>ctx.tools.probe(input)",
+  )
+  await writeFile(
+    join(appRoot, "src/app/probe/tools/probe.ts"),
+    "export default async function probe(input:{path:string},ctx){try{await ctx.fs.writeFile(input.path,'x');return {ok:true}}catch(error){return {error:error instanceof Error?error.message:String(error)}}}",
+  )
+  const physical = managedProviderFixture()
+  const config = {
+    permissions: { mode: "non-interactive" as const, allow: { writeFile: ["/everyone/"] } },
+    sandbox: {
+      provider: physical.provider,
+      thread: async (thread: { metadata: Record<string, unknown> }) => ({
+        workspace: { source: { directory: "source", include: ["main.txt"] } },
+        permissions:
+          thread.metadata.role === "writer"
+            ? { allow: { writeFile: ["/outside/"] } }
+            : { allow: {} },
+      }),
+    },
+  }
+  const handler = await createRuntimeFetchHandler({ appRoot, config })
+  handlers.push(handler)
+  const probe = async (id: string, path: string) => {
+    const response = await handler.fetch(
+      new Request(`http://localhost/threads/${id}/runs/wait`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ route: "/probe#workflow", input: { path } }),
+      }),
+    )
+    return (await response.json()) as { ok?: true; error?: string }
+  }
+  const writer = await createThread(handler, { role: "writer" })
+  const reader = await createThread(handler, { role: "reader" })
+  expect(await probe(writer, "/outside/file.txt")).toEqual({ ok: true })
+  expect((await probe(reader, "/outside/file.txt")).error).toMatch(
+    /Permission denied \(fail-closed\)/,
+  )
+  // The app's own allow-list does not reach a thread with permissions of its own.
+  expect((await probe(writer, "/everyone/file.txt")).error).toMatch(
+    /Permission denied \(fail-closed\)/,
+  )
+})
+
+it("scopes a thread over a configured permissions store (e.g. Postgres): its denials apply, its allows and grants do not", async () => {
+  const { appRoot } = await fixture()
+  await mkdir(join(appRoot, "src/app/probe/tools"), { recursive: true })
+  await writeFile(
+    join(appRoot, "src/app/probe/index.ts"),
+    "export const workflow=async (input,ctx)=>ctx.tools.probe(input)",
+  )
+  await writeFile(
+    join(appRoot, "src/app/probe/tools/probe.ts"),
+    "export default async function probe(input:{path:string},ctx){try{await ctx.fs.writeFile(input.path,'x');return {ok:true}}catch(error){return {error:error instanceof Error?error.message:String(error)}}}",
+  )
+  const granted: string[] = []
+  // Stands in for any non-file store (the Postgres one): the thread store reads only its mode
+  // and deny verdicts, and never writes to it.
+  const store = {
+    mode: "non-interactive" as const,
+    async load() {},
+    match: (tool: string, candidate: string) =>
+      tool === "writeFile" && candidate.startsWith("/outside/secret")
+        ? ("deny" as const)
+        : tool === "writeFile" && candidate.startsWith("/everyone/")
+          ? ("allow" as const)
+          : ("unknown" as const),
+    async addAllow(tool: string, pattern: string) {
+      granted.push(`${tool} ${pattern}`)
+    },
+  }
+  const physical = managedProviderFixture()
+  const config = {
+    permissions: { store },
+    sandbox: {
+      provider: physical.provider,
+      thread: async () => ({
+        workspace: { source: { directory: "source", include: ["main.txt"] } },
+        permissions: { allow: { writeFile: ["/outside/"] } },
+      }),
+    },
+  }
+  const handler = await createRuntimeFetchHandler({ appRoot, config })
+  handlers.push(handler)
+  const probe = async (path: string) => {
+    const response = await handler.fetch(
+      new Request("http://localhost/threads/one/runs/wait", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ route: "/probe#workflow", input: { path } }),
+      }),
+    )
+    return (await response.json()) as { ok?: true; error?: string }
+  }
+  expect(await probe("/outside/file.txt")).toEqual({ ok: true })
+  // The app store's deny verdict wins over the thread's allow.
+  expect((await probe("/outside/secret.txt")).error).toMatch(/Permission denied by user/)
+  expect((await probe("/everyone/file.txt")).error).toMatch(/Permission denied \(fail-closed\)/)
+  expect(granted).toEqual([])
+})
+
+it("records an interactive Always resumed through /resume in the thread's grants, never in .b4/permissions.json", async () => {
+  const previousMode = process.env.B4_PERMISSIONS_MODE
+  delete process.env.B4_PERMISSIONS_MODE // the app's default mode, interactive
+  const aimock = await createAimock({ fixtures: [] })
+  const previousBaseUrl = process.env.OPENAI_BASE_URL
+  const previousKey = process.env.OPENAI_API_KEY
+  process.env.OPENAI_BASE_URL = aimock.baseUrl
+  process.env.OPENAI_API_KEY = previousKey ?? "test-not-used"
+  try {
+    // One turn, two calls to the approval-gated tool. "Once" would park again on the second
+    // call; "Always" records the grant, and the second call runs under it without asking.
+    aimock.addFixtures(
+      script()
+        .user("deploy twice")
+        .callsTool("deployProd", { env: "staging" })
+        .callsTool("deployProd", { env: "prod" })
+        .replies("Deployed twice.")
+        .build(),
+    )
+    const { appRoot } = await fixture()
+    const files = {
+      "src/app/park/index.ts": `import { agent } from "@b4run/sdk"\nexport default agent({ model: "gpt-5-mini", systemPrompt: "Use the tools.", tools: { approve: ["deployProd"] } })\n`,
+      "src/app/park/tools/deployProd.ts":
+        "/** Deploy to an environment. */\nexport default async function deployProd(input: { env: string }): Promise<string> { return 'deployed to ' + input.env }\n",
+    }
+    for (const [path, text] of Object.entries(files)) {
+      await mkdir(join(appRoot, path, ".."), { recursive: true })
+      await writeFile(join(appRoot, path), text)
+    }
+    const physical = managedProviderFixture()
+    const config = {
+      sandbox: {
+        provider: physical.provider,
+        thread: async () => ({
+          workspace: { source: { directory: "source", include: ["main.txt"] } },
+          permissions: { allow: {} },
+        }),
+      },
+    }
+    const handler = await createRuntimeFetchHandler({ appRoot, config })
+    handlers.push(handler)
+    const text = async (response: Response) => {
+      expect(response.status).toBe(200)
+      return await response.text()
+    }
+    const pending = async () => {
+      const response = await handler.fetch(
+        new Request("http://localhost/threads/one/pending_interrupts"),
+      )
+      return ((await response.json()) as { interrupts: { interruptId: string }[] }).interrupts
+    }
+    await text(
+      await handler.fetch(
+        new Request("http://localhost/threads/one/runs/stream", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            route: "/park#agent",
+            input: { messages: [{ role: "user", content: "deploy twice" }] },
+          }),
+        }),
+      ),
+    )
+    const parked = await pending()
+    expect(parked).toHaveLength(1)
+    const resumed = await text(
+      await handler.fetch(
+        new Request("http://localhost/threads/one/resume", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            route: "/park#agent",
+            resume: [
+              { interruptId: parked[0]?.interruptId, status: "resolved", payload: "always" },
+            ],
+          }),
+        }),
+      ),
+    )
+    // The second call was allowed by the recorded grant: no new park, and the turn finished.
+    expect(resumed).not.toContain("event: interrupt")
+    expect(resumed).toContain("deployed to prod")
+    expect(await pending()).toEqual([])
+    expect(existsSync(join(appRoot, ".b4", "permissions.json"))).toBe(false)
+    await handler.close()
+    const installation = openWorkspaceInstallation(appRoot)
+    try {
+      expect(installation.threadSandboxes.grants("one")).toEqual({ tool: ["deployProd"] })
+    } finally {
+      installation.close()
+    }
+  } finally {
+    await aimock.close()
+    if (previousBaseUrl === undefined) delete process.env.OPENAI_BASE_URL
+    else process.env.OPENAI_BASE_URL = previousBaseUrl
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY
+    else process.env.OPENAI_API_KEY = previousKey
+    if (previousMode === undefined) delete process.env.B4_PERMISSIONS_MODE
+    else process.env.B4_PERMISSIONS_MODE = previousMode
+  }
+}, 60_000)

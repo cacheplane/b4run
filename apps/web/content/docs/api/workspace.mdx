@@ -2,12 +2,12 @@
 
 ## Use this when
 
-Use this package to implement or wrap filesystem, command, and execution-sandbox backends for a B4.run application. The root owns the portable backend and sandbox contracts, middleware composition, and logging wrappers. Import `/node` for local filesystem/shell implementations and immutable source capture utilities.
+Use this package to implement or wrap filesystem, command, and execution-sandbox backends for a B4.run application. The root has the portable backend and sandbox contracts, middleware composition, and logging wrappers. Import `/node` for local filesystem/shell implementations and immutable source capture utilities.
 
 ## Install and import
 
 ```bash
-pnpm add @b4run/workspace
+npm install @b4run/workspace
 ```
 
 ```ts
@@ -31,11 +31,26 @@ The root's emitted subpath graph has no runtime package or Node built-in depende
 | Export | Responsibility |
 |---|---|
 | `compose` | Compose backend middleware right-to-left. |
-| `inspectWorkspace` | Inspect a bounded text inventory through author filesystem APIs or a sandbox handle. |
+| `inspectWorkspace` | Inspect a bounded text inventory through author filesystem APIs, a sandbox handle, or a read-only workspace reader. |
 | `InspectWorkspaceOptions` | Set byte and entry limits, cancellation, omitted directories, and required root links. |
 | `WorkspaceInspection` | Return relative-path text files, validated links, byte count, and entry count. |
+| `WorkspaceInspectionError` | A named inspection refusal: `invalid_options`, `root_missing`, `refused`, `changed`. |
+| `isWorkspaceInspectionError` | Recognize an inspection refusal by name and code, including one thrown by a second copy of the package. |
+| `WorkspaceInspectionErrorCode` | Name why an inspection refused. |
+| `WorkspaceInspectionErrorDetail` | Carry the refused `root` and whether it was absent or not a directory. |
+| `WorkspaceReadLimitError` | A bounded read found more bytes than its limit; thrown by B4.run's backends. |
+| `isWorkspaceReadLimitError` | Recognize a read-limit refusal by name, including one thrown by a second copy of the package. |
+| `isCanonicalWorkspaceRoot` | Check an inspection root: relative leaf names with no empty, `.`, `..`, backslash or control-character segment. |
 | `WorkspaceDefinition` | Declare initial source, immutable environment links, and an optional Git baseline. |
 | `CapturedWorkspaceDefinition` | Hold a verified source bundle and canonical creation options. |
+| `StagedWorkspaceReference` | Name an uploaded source by digest, with the links and baseline a thread is created with (`sandbox.stagedWorkspaces`). |
+| `WorkspaceResolver` | Decide one thread's initial workspace from its id and client metadata, once, at first admission. |
+| `WorkspaceResolverInput` | What a resolver is told: the thread id, its stored client metadata with the reserved key stripped, the admitting run's abort signal, and `staged`, the verified workspace the thread was created with under `sandbox.stagedWorkspaces`. |
+| `ThreadSandboxResolver` | Decide one thread's workspace, image, policy and permissions from its id and client metadata, once, at first admission. |
+| `ThreadSandbox` | Declare one thread's workspace, an optional provider-interpreted image, optional policy overrides, and optional permission lists. |
+| `ThreadSandboxPolicy` | Name the network, environment and resource fields a thread may set for itself. |
+| `ThreadSandboxPermissions` | Describe one thread's own allow and deny lists. |
+| `ThreadSandboxRecord` | Hold the image reference, policy and permission lists B4.run recorded for a thread at its first admission. |
 | `WorkspaceEnvironment` | Bind an immutable environment identity to provider, account, and scope. |
 | `WorkspaceCreateIntent` | Persist an operation identity and complete creation digest before provider mutation. |
 | `WorkspaceReference` | Identify provider resources without credentials or executable configuration. |
@@ -45,7 +60,7 @@ The root's emitted subpath graph has no runtime package or Node built-in depende
 | `WorkspaceSession` | Expose filesystem and command backends for one admitted incarnation. |
 | `CreationStatus` | Distinguish absent, pending, ready, failed, and unknown creation outcomes. |
 | `WorkspaceDeletionTarget` | Clean up a persisted creation operation, including one with no ready reference. |
-| `ManagedWorkspaceProvider` | Own physical workspace creation, inspection, reconnection, release, and destruction. |
+| `ManagedWorkspaceProvider` | Own physical workspace creation, inspection, reconnection, release, destruction, optional reads, and optional per-thread images. |
 | `WorkspaceLifecycleErrorCode` | Classify lost, expired, conflicting, unsupported, retryable, and uncertain operations. |
 | `WorkspaceLifecycleError` | Report a typed workspace lifecycle failure. |
 | `SourceBundle` | Describe immutable canonical source content and its digest. |
@@ -53,15 +68,23 @@ The root's emitted subpath graph has no runtime package or Node built-in depende
 | `WorkspaceSourceDefinition` | Declare the source directory, exact inventory, exclusions, and additional files. |
 | `LocalExecOptions` | Configure the local command backend without importing its runtime. |
 | `LocalFilesystemOptions` | Configure the local filesystem backend without importing its runtime. |
-| `SandboxConfig` | Configure provider selection and lifecycle policy. |
+| `SandboxConfig` | Configure provider selection and lifecycle policy, including `workspaceRead: "http"`, which serves a thread's workspace over the Agent Protocol, and `stagedWorkspaces`, which accepts one at thread creation. |
 | `SandboxHandle` | Describe one acquired sandbox. |
 | `SandboxPolicy` | Describe per-thread network, environment, resource, and security policy. |
-| `SandboxProvider` | Define sandbox acquisition, release, and destruction. |
+| `SandboxProvider` | Define sandbox acquisition, release, destruction, and optional workspace reads. |
 | `SandboxSecurityPolicy` | Describe provider-agnostic hardening intent. |
+| `OpenWorkspaceReaderInput` | Name the thread to read, its cancellation signal, and the identity the reader runs as. |
+| `OpenManagedWorkspaceReaderInput` | Name the published managed workspace to read, its cancellation signal, and the identity the reader runs as. |
+| `SandboxWorkspaceReader` | Read one thread's workspace storage, with no write and no command surface. |
+| `ReadOnlyFilesystemBackend` | Define the read half of a filesystem, with inspection metadata required. |
+| `WorkspaceReadSource` | Describe the minimum a workspace inspector consumes. |
+| `withWorkspaceReader` | Open a thread's workspace reader, hand it to an operation, and always close it. |
+| `scopedWorkspaceReader` | Run an operation over any opened workspace reader and always close it. |
 | `BackendContext` | Carry cancellation and the active workspace root. |
 | `ExecBackend` | Define shell-command execution. |
 | `ExecMiddleware` | Wrap an execution backend. |
 | `FilesystemBackend` | Define text, binary, directory, canonicalization, and optional file operations. |
+| `WalkedEntry` | Describe one entry of a batched tree walk. |
 | `FilesystemMiddleware` | Wrap a filesystem backend. |
 | `LoggingOptions` | Configure backend log delivery. |
 | `withExecLogging` | Log command calls around an execution backend. |
@@ -69,7 +92,7 @@ The root's emitted subpath graph has no runtime package or Node built-in depende
 
 ### `@b4run/workspace/node`
 
-The `/node` entry owns the exports below. Types are also available from the dependency-free root; runtime functions are available only from `/node`.
+The `/node` entry owns the exports below. Its types are also exported from the dependency-free root. Its runtime functions are only in `/node`.
 
 | Export | Responsibility |
 |---|---|
@@ -86,26 +109,43 @@ The `/node` entry owns the exports below. Types are also available from the depe
 | `captureWorkspaceSource` | Capture the declared application source into a verified bundle. |
 | `captureWorkspaceDefinition` | Capture declared source and validate creation options. |
 | `verifyCapturedWorkspaceDefinition` | Validate and freeze a captured definition. |
+| `verifyStagedWorkspaceReference` | Validate and normalize a staged workspace reference: a bare digest, checked and sorted links, and only a `"git"` baseline. |
+| `stagedWorkspaceDefinition` | Build the captured definition a staged reference names over the held source, verifying it once and refusing a source that is not the one named. |
+| `stagedWorkspaceFits` | Check a staged reference's links and baseline against a source's recorded file paths, without its bytes. |
 | `createWorkspaceIntent` | Create a canonical immutable intent bound to operation and environment. |
 | `verifyWorkspaceIntent` | Validate the persisted intent and digest. |
 | `verifyReadyWorkspace` | Verify provider readiness against its persisted intent. |
 | `verifyCreationStatus` | Validate every provider inspection outcome before acting on it. |
+| `verifyImageReference` | Validate an image reference a thread names; flag-like references are refused. |
+| `verifyThreadSandbox` | Validate what a thread-sandbox resolver returned, refusing unknown keys by name. |
+| `verifyThreadSandboxPolicy` | Validate and normalize a thread's policy overrides. |
+| `verifyThreadSandboxPermissions` | Validate and normalize a thread's permission lists; empty patterns are refused. |
+| `verifyThreadSandboxRecord` | Validate and normalize a stored thread-sandbox record. |
+| `MAX_THREAD_SANDBOX_RECORD_BYTES` | Bound a thread-sandbox record's stored size; a larger record is refused at first admission. |
+| `threadSandboxRecordBytes` | Measure a verified thread-sandbox record as it is stored. |
 
 ## Key contracts
 
 ### Bounded text inspection
 
 `inspectWorkspace(source, options?)` accepts a `WorkspaceFs` or `SandboxHandle`.
-It returns `{ files, symlinks, totalBytes, entries }`; file keys are relative paths.
+It returns `{ files, symlinks, totalBytes, entries }`. File keys are relative paths.
 Metadata and binary reads are required. Unsupported entries, executable files,
 NUL bytes, invalid UTF-8, and exceeded limits fail inspection. UTF-8 BOMs remain
 part of the returned text.
 
 Defaults are 10,000 entries, 2 MiB per file, and 16 MiB total. Override these with
 `maxEntries`, `maxFileBytes`, and `maxTotalBytes`. `excludeRootDirectories` omits
-only directory subtrees; a file or link at an excluded name fails. Every entry in
+only directory subtrees. A file or link at an excluded name fails. Every entry in
 `expectedRootSymlinks` must exist with its exact raw link target. Other symlinks
 are rejected. `signal` cancels inspection.
+
+`root` (a sandbox handle or workspace reader only) starts the inspection at a
+relative directory: nothing outside it is read, keys are relative to it, and
+every segment must be a real directory, so a missing root or one that passes
+through a file or a symlink is a `root_missing` refusal naming it. Refusals are
+`WorkspaceInspectionError`s with a `code`; a backend's own failure is rethrown
+as it was thrown.
 
 ```ts
 import { inspectWorkspace } from "@b4run/workspace"
@@ -117,10 +157,17 @@ const inspection = await inspectWorkspace(ctx.fs, {
 })
 ```
 
+When a backend implements both `walkTree` and `readBinaryFiles`, inspection
+walks the tree in one call and reads the files in as few calls as the backend
+allows. The Docker and Kubernetes backends implement both, so inspecting a
+container workspace costs a few execs instead of one per entry. The checks and limits
+are the same either way. A batched inspection also refuses a file that grew
+between the walk and the read.
+
 Inspection uses separate metadata and read operations, so it is not an atomic
 snapshot. Quiesce writers or revalidate before acting on an inventory. Expected
 links establish link identity, not the contents of their targets. Custom backends
-must honor byte limits during reads to bound allocation; the built-in local,
+must honor byte limits during reads to bound allocation. The built-in local,
 Docker, and Kubernetes readers cap content before collecting it.
 
 ```ts api-contract="@b4run/workspace#.:BackendContext"
@@ -163,8 +210,42 @@ export interface FilesystemBackend {
   removeFile?(path: string, ctx: BackendContext): Promise<void>
   touchFile?(path: string, ctx: BackendContext): Promise<void>
   mkdir?(path: string, ctx: BackendContext): Promise<void>
+  walkTree?(
+    path: string,
+    ctx: BackendContext,
+    opts: { readonly maxEntries: number; readonly prune?: readonly string[] },
+  ): Promise<readonly WalkedEntry[]>
+  readBinaryFiles?(
+    requests: readonly { readonly path: string; readonly maxBytes: number }[],
+    ctx: BackendContext,
+  ): Promise<readonly Uint8Array[]>
 }
 ```
+
+`walkTree` returns every entry below `path` with the metadata `lstat` reports,
+without following symlinks. Names in `prune` are reported but not descended,
+and a walk over `maxEntries` throws instead of returning a partial tree.
+`readBinaryFiles` returns results in request order, with `readBinaryFile`'s
+`maxBytes` meaning for each request. Both are optional.
+
+```ts api-contract="@b4run/workspace#.:WalkedEntry"
+export interface WalkedEntry {
+  readonly path: string
+  readonly kind: "file" | "directory" | "symlink" | "other"
+  readonly size: number
+  readonly executable: boolean
+  readonly target?: string
+}
+```
+
+**Fields: `@b4run/workspace#.:WalkedEntry`**
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `readonly path` | `string` | yes | Name the entry by its `/`-separated path relative to the walked directory. |
+| `readonly kind` | `"file" \| "directory" \| "symlink" \| "other"` | yes | Report the entry's type without following a symlink. |
+| `readonly size` | `number` | yes | Report the size in bytes, as `lstat` would. |
+| `readonly executable` | `boolean` | yes | Report whether any execute bit is set. |
+| `readonly target` | `string` | no | Carry a symlink's raw link text. |
 
 ```ts api-contract="@b4run/workspace#.:ExecBackend"
 export interface ExecBackend {
@@ -214,7 +295,7 @@ export interface SandboxPolicy {
 **Fields: `@b4run/workspace#.:SandboxPolicy`**
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `readonly network` | `\| { readonly mode: "allow"; readonly denylist?: readonly string[] } \| { readonly mode: "deny"; readonly allowlist?: readonly string[] }` | yes | Set the provider's network policy intent. |
+| `readonly network` | `\| { readonly mode: "allow"; readonly denylist?: readonly string[] } \| { readonly mode: "deny"; readonly allowlist?: readonly string[] }` | yes | Set the provider's network policy intent. The reference Docker and Kubernetes providers do not enforce an allow-mode `denylist`. |
 | `readonly env` | `Readonly<Record<string, string>>` | no | Supply the sandbox environment explicitly. |
 | `readonly resources` | `{ readonly memoryMb?: number; readonly cpus?: number; readonly timeoutMs?: number; readonly diskGb?: number }` | no | Request provider resource limits. |
 | `readonly security` | `SandboxSecurityPolicy` | no | Override provider hardening intent. |
@@ -271,6 +352,7 @@ export interface SandboxProvider {
     readonly detail?: string
     readonly warnings?: readonly string[]
   }>
+  openWorkspaceReader?(input: OpenWorkspaceReaderInput): Promise<SandboxWorkspaceReader>
 }
 ```
 
@@ -280,9 +362,95 @@ export interface SandboxProvider {
 | `readonly workspaces` | `ManagedWorkspaceProvider` | no | Supply provider-owned durable workspace operations. |
 | `readonly name` | `string` | yes | Identify the provider. |
 
+`openWorkspaceReader` is an optional capability. Presence is the probe: a provider whose storage cannot be attached a second time omits it rather than implementing it unreliably. An implementation must leave the thread's sandbox undisturbed, make writes impossible rather than merely undocumented, and reject rather than return an empty view when the thread has no workspace storage.
+
+It is not an authorization boundary. The caller already holds the provider. Naming a thread id is not a claim of ownership.
+
+```ts api-contract="@b4run/workspace#.:SandboxWorkspaceReader"
+export interface SandboxWorkspaceReader extends WorkspaceReadSource {
+  readonly threadId: string
+  readonly filesystem: ReadOnlyFilesystemBackend
+  close(): Promise<void>
+}
+```
+
+**Fields: `@b4run/workspace#.:SandboxWorkspaceReader`**
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `readonly threadId` | `string` | yes | Identify the thread whose workspace is being read. |
+| `readonly filesystem` | `ReadOnlyFilesystemBackend` | yes | Read files, directories, and leaf metadata. |
+
+`close()` releases reader-side resources and is idempotent. It never touches the thread's sandbox. `workspaceRoot` comes from `WorkspaceReadSource` and names the absolute root inside the sandbox.
+
+```ts api-contract="@b4run/workspace#.:OpenWorkspaceReaderInput"
+export interface OpenWorkspaceReaderInput {
+  readonly threadId: string
+  readonly signal: AbortSignal
+  readonly runAsNonRoot?: SandboxSecurityPolicy["runAsNonRoot"]
+}
+```
+
+**Fields: `@b4run/workspace#.:OpenWorkspaceReaderInput`**
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `readonly threadId` | `string` | yes | Name the thread whose workspace storage to open. |
+| `readonly signal` | `AbortSignal` | yes | Cancel the open. |
+| `readonly runAsNonRoot` | `SandboxSecurityPolicy["runAsNonRoot"]` | no | Match the identity that owns the produced files; defaults to the provider's secure default. |
+
+```ts api-contract="@b4run/workspace#.:withWorkspaceReader"
+export declare function withWorkspaceReader<T>(
+  provider: SandboxProvider,
+  input: OpenWorkspaceReaderInput,
+  operation: (reader: SandboxWorkspaceReader) => Promise<T>,
+): Promise<T>
+```
+
+`withWorkspaceReader` closes the reader on both paths. A close failure surfaces on its own, and alongside a body failure as an `AggregateError` rather than replacing it. A provider without the capability throws instead of returning nothing.
+
+```ts api-contract="@b4run/workspace#.:scopedWorkspaceReader"
+export declare function scopedWorkspaceReader<T>(
+  open: () => Promise<SandboxWorkspaceReader>,
+  operation: (reader: SandboxWorkspaceReader) => Promise<T>,
+): Promise<T>
+```
+
+`scopedWorkspaceReader` is the lifetime rule behind `withWorkspaceReader` for any way of opening a reader: open lazily, run, always close, and never let a close failure hide a body failure. `withWorkspaceReader` and `@b4run/cli/workspace`'s `withManagedWorkspaceReader` both delegate to it.
+
+#### Managed workspace reads
+
+A workspace created through `sandbox.workspace` is a managed workspace. Its storage is named by the creating installation and operation, not by the thread id, so `SandboxProvider.openWorkspaceReader` cannot address it. `ManagedWorkspaceProvider.openWorkspaceReader`, optional under the same contract, is addressed by the published `ReadyWorkspace` instead.
+
+```ts api-contract="@b4run/workspace#.:OpenManagedWorkspaceReaderInput"
+export interface OpenManagedWorkspaceReaderInput {
+  readonly workspace: ReadyWorkspace
+  readonly signal: AbortSignal
+  readonly runAsNonRoot?: SandboxSecurityPolicy["runAsNonRoot"]
+}
+```
+
+**Fields: `@b4run/workspace#.:OpenManagedWorkspaceReaderInput`**
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `readonly workspace` | `ReadyWorkspace` | yes | Name the published workspace whose storage to open; the provider verifies it against its own record. |
+| `readonly signal` | `AbortSignal` | yes | Cancel the open. |
+| `readonly runAsNonRoot` | `SandboxSecurityPolicy["runAsNonRoot"]` | no | Match the identity that owns the produced files; defaults to the provider's secure default. |
+
+The Docker provider verifies the record, binding and volume exactly as `reconnect` does, then binds the managed volume's backing directory read-only in a separate networkless container. It never lists, starts, stops or replaces a session container. A lost record or volume is a `lost` error, never a recreated volume. A co-located host process obtains the `ReadyWorkspace` through `@b4run/sqlite-storage`'s `openWorkspaceInstallationReader`. `@b4run/cli/workspace`'s `withManagedWorkspaceReader` joins the two by thread id.
+
 ```ts api-contract="@b4run/workspace#.:SandboxConfig"
 export interface SandboxConfig {
-  readonly workspace?: WorkspaceDefinition
+  readonly workspace?: WorkspaceDefinition | WorkspaceResolver
+  readonly thread?: ThreadSandboxResolver
+  readonly workspaceRead?: "http"
+  readonly workspaceReadTimeoutMs?: number
+  readonly stagedWorkspaces?:
+    | boolean
+    | {
+        readonly maxUploadBytes?: number
+        readonly retentionMs?: number
+        readonly maxStagedBytes?: number
+        readonly uploadTimeoutMs?: number
+      }
   readonly provider: SandboxProvider
   readonly network?: SandboxPolicy["network"]
   readonly env?: SandboxPolicy["env"]
@@ -295,7 +463,11 @@ export interface SandboxConfig {
 **Fields: `@b4run/workspace#.:SandboxConfig`**
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `readonly workspace` | `WorkspaceDefinition` | no | Declare the initial managed workspace. |
+| `readonly workspace` | `WorkspaceDefinition \| WorkspaceResolver` | no | Declare the initial managed workspace: one definition for every thread, or a resolver that decides per thread at first admission. |
+| `readonly thread` | `ThreadSandboxResolver` | no | Decide each thread's workspace, image, policy and permissions once, at first admission; exclusive with `workspace`. |
+| `readonly workspaceRead` | `"http"` | no | Serve `POST /threads/:thread_id/workspace/inspect`, a read-only inventory of a thread's managed workspace behind the thread-access policy; refused without a policy. |
+| `readonly workspaceReadTimeoutMs` | `number` | no | Bound one workspace read, open to close, before it is abandoned with `504 workspace_read_timeout`; 1,000 to 1,800,000 ms, default 120,000. |
+| `readonly stagedWorkspaces` | `\| boolean \| { readonly maxUploadBytes?: number; readonly retentionMs?: number; readonly maxStagedBytes?: number; readonly uploadTimeoutMs?: number }` | no | Accept a thread's workspace at creation (`PUT /workspace/sources/:digest`, then `workspace` on `POST /threads`), handed to the resolver as `thread.staged`; needs a resolver and a thread-access policy. |
 | `readonly provider` | `SandboxProvider` | yes | Supply the sandbox provider. |
 | `readonly network` | `SandboxPolicy["network"]` | no | Set the default network policy. |
 | `readonly env` | `SandboxPolicy["env"]` | no | Set the default explicit environment. |
@@ -394,16 +566,16 @@ missing path, and returns an independently owned byte array.
 
 `captureWorkspaceSource` resolves directory and referenced file paths relative to
 `appRoot`. `directory: "."` selects that root. `include` is an exact inventory of
-regular files relative to the source directory; missing or extra files fail.
+regular files relative to the source directory. Missing or extra files fail.
 `excludeDirectories` names existing directory subtrees to skip, without following
 symlinks. Additional `files` entries declare destination paths with either a file
 reference relative to `appRoot`, or inline text and an optional executable flag.
-Text preserves BOMs and rejects malformed Unicode; referenced files preserve their
+Text preserves BOMs and rejects malformed Unicode. Referenced files preserve their
 executable flags. Duplicate destinations, conflicting ancestors, and inconsistent
 directory casing are rejected.
 
 Bundles allow at most 10,000 files, 16 MiB per file, and 64 MiB total content.
-Capture additionally limits distinct inspected filesystem paths to 10,000,
+Capture also limits distinct inspected filesystem paths to 10,000,
 including the app root, ancestor directories, exclusions, and extra references.
 Paths use an ASCII portability subset, at most 1,024 bytes per path and 255 bytes
 per segment. Traversal, absolute paths, backslashes, device names, leading/trailing
@@ -417,30 +589,51 @@ defense against a hostile host process swapping ancestor directories. Cancellati
 closes open handles and returns no completed bundle. These utilities do not create
 sandboxes or activate managed workspace recovery in runtime configuration.
 
-### Lifecycle, failure, and trust boundaries
+### Lifecycle, failures, and trust
 
 Backend methods receive absolute paths and a cancellation signal from their caller. Core owns the path jail and canonical-root enforcement. `localFilesystem` canonicalizes existing ancestors, including escaping symlinks, and does not enforce that boundary. Its reads default to a 256 KiB cap, allow a per-call override, and reject missing or oversized files. Writes create parent directories.
 
-`localExec` defaults to a 30-second timeout. A non-empty `allowedCommands` list rejects a command unless a regular expression matches. When `args.env` is omitted, `localExec` inherits `process.env`; when supplied, it replaces that environment. By contrast, `SandboxPolicy.env` is the explicit environment injected into a sandbox and does not inherit the host environment.
+`localExec` defaults to a 30-second timeout. A non-empty `allowedCommands` list rejects a command unless a regular expression matches. When `args.env` is omitted, `localExec` inherits `process.env`. When supplied, it replaces that environment. By contrast, `SandboxPolicy.env` is the explicit environment injected into a sandbox and does not inherit the host environment.
 
-Sandbox `release()` and `destroy()` express distinct lifecycle responsibilities, but exact persistence and cleanup behavior belongs to each provider. Security fields express provider-agnostic intent; an unset field does not by itself prove a particular provider's enforcement.
+Sandbox `release()` and `destroy()` have distinct lifecycle roles. Each provider defines the exact persistence and cleanup behavior. Security fields express provider-agnostic intent. An unset field does not by itself prove a particular provider's enforcement.
 
-Logging middleware defaults to `console.error`. A custom destination receives `{ method, args }`. Filesystem logging does not serialize binary content and passes through `realPath`, `statFile`, `removeFile`, `touchFile`, and `mkdir`; treat logged paths, command text, working directories, and text write contents as potentially sensitive.
+Logging middleware defaults to `console.error`. A custom destination receives `{ method, args }`. Filesystem logging does not serialize binary content and passes through `realPath`, `statFile`, `removeFile`, `touchFile`, and `mkdir`. Treat logged paths, command text, working directories, and text write contents as potentially sensitive.
 
 ### Managed workspace lifecycle
 
 Declare `sandbox.workspace` with an exact source inventory. `b4 build` captures
-source bytes for the Node target; startup verifies the artifact and retains it
+source bytes for the Node target. Startup verifies the artifact and retains it
 in the installation store. Existing threads retain their original source and
 provenance across deployment changes. Providers without `workspaces` support
-reject the configuration. The first qualified provider is Docker; managed
+reject the configuration. The first qualified provider is Docker. Managed
 workspace builds require `build: { targets: ["node"] }` and the existing app-root
 `workspace/` capability marker.
+
+`sandbox.workspace` may instead be a `WorkspaceResolver`: host code called once per
+thread, at the thread's first admission, with the thread id and its stored client
+metadata. B4.run captures what it returns (or verifies it, if already captured) and
+records it by digest in that thread's creation intent. It's never re-resolved. Later
+turns, restarts and readers all use the record.
+
+`b4 build` can't capture a resolver, so the artifact only records that one is
+configured, and startup refuses an artifact whose form disagrees with the loaded
+config. Deployed host code decides the result, never the client or the model. A
+resolver treats the metadata it is given as input to validate, not as authority.
+
+The resolver sees the thread's stored metadata with B4.run's reserved
+key stripped. On the server run endpoints (`runs/stream`, `runs/wait`, AG-UI), `route` is
+present and server-authoritative, because the runtime stamps it before admission and the
+store's merge overwrites any client value. Under `b4 run` it is absent. Every other key is
+client-writable, so never use metadata as an authorization input.
+
+`POST /threads` always assigns the id, so to attach metadata before the first
+resolution, create the thread and use the id it returns. `b4 run` creates a fresh
+thread per invocation, so the resolver runs on every run with empty metadata.
 
 Provider creation receives an immutable `SourceBundle`, bounded to 64 MiB of
 original content, and a persisted `WorkspaceCreateIntent`. Readiness must match
 that intent before tools receive a session. An unknown outcome cannot authorize
-a new operation. Release targets a compute incarnation; destroy targets the
+a new operation. Release targets a compute incarnation. Destroy targets the
 original operation and may run before readiness exists. Missing established
 storage is an explicit failure, never an instruction to reseed.
 
@@ -449,7 +642,20 @@ They cannot overlap source files or generated `.git` metadata. Docker requires
 a Node-capable preparation image, keeps those targets read-only, and supports
 UID/GID 1000 for managed non-root execution. Git baselines use fixed identity
 and time with ambient configuration and hooks disabled. The stored baseline
-commit is provenance; agent-writable `.git` contents are not verification truth.
+commit is provenance. Agent-writable `.git` contents are not verification truth.
+
+`sandbox.thread` goes one step further: a `ThreadSandboxResolver` returns the thread's
+workspace, an optional image and optional policy overrides, once, at first admission.
+Every thread admitted this way has a record, and a thread-mode admission of a thread
+without one is refused as a conflict.
+The provider's `resolveImageEnvironment` turns the image into the identity recorded in
+the creation intent, and B4.run writes the image reference and the policy to a
+per-thread record in the same transaction as the association. Every reconnect runs the
+thread's recorded policy over the app's; nothing is re-resolved. A provider without
+`resolveImageEnvironment` refuses a thread that names an image. When the resolver
+returns `permissions`, they go in the same record, and the thread's permission gates
+use them in place of the app's allow-list; its "Always" grants are kept beside the
+record and deleted with it (see [Per-thread permissions](/docs/permissions#per-thread-permissions)).
 
 ## Examples and related guides
 

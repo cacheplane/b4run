@@ -10,7 +10,7 @@
 
 - B4.run route discovery and the `tools/` convention
 - **Workspace capability** — when a route's working directory contains `workspace/`, B4.run
-  auto-contributes `readFile`/`writeFile`/`listDir`/`runBash` tools wired through pluggable
+  auto-contributes `readFile`/`writeFile`/`editFile`/`listDir`/`runBash` tools wired through pluggable
   backends. The filesystem and exec backends default to local node:fs / child_process; swap
   them in `b4.config.ts` for in-memory storage, remote sandboxes, etc.
 - `AGENTS.md` memory autoload — B4.run auto-injects `workspace/AGENTS.md` into the system prompt on every turn; the agent updates it via `writeFile`
@@ -25,10 +25,11 @@
 - **Subagents** — `/coordinator` dispatches to specialist subagents (`research`,
   `summarizer`) via an auto-generated `task({ subagent, input })` tool. Subagent runs
   bubble `subagent.*` Agent Protocol stream events with `call_id` correlation, and the
-  AG-UI adapter maps matching lifecycles to bounded replacement `b4.subagent`
-  snapshots. The basic web client registers `b4ActivityRenderers` from
-  `@b4run/ag-ui/react`, but drives only `/chat` and does not expose
-  `/coordinator`, so drive coordinator runs through Agent Protocol instead.
+  AG-UI adapter presents them as AG-UI 1.0 `SUBAGENT_STARTED/FINISHED/ERROR` with the
+  child's own text and tool calls tagged `subagentRunId` (`@b4run/ag-ui/react` renders
+  that tree with `useSubagentRuns` + `SubagentPanel`). The basic web client drives only
+  `/chat` and does not expose `/coordinator`, so drive coordinator runs through Agent
+  Protocol instead.
 - **HITL permissions** — `b4.config.ts` seeds allow/deny lists for `runBash`. Unknown
   commands in interactive mode emit an interrupt; resume the thread with `once`, `always`,
   or `deny` to continue. See [Permissions](../../apps/web/content/docs/permissions.mdx)
@@ -36,12 +37,12 @@
 - End-to-end streaming to a [CopilotKit](https://docs.copilotkit.ai) V2 web client over
   B4.run's AG-UI endpoint (`POST /agui/{routeId}`, see `@b4run/ag-ui`) for basic `/chat`
   messages. The browser uses CopilotKit's same-origin multi-route runtime under
-  `/api/copilotkit/*`; the runtime's `HttpAgent` owns the server-to-server B4.run call. The
+  `/api/copilotkit/*`; the runtime's `B4HttpAgent` owns the server-to-server B4.run call. The
   client presents plan/subagent activities and the standard permission decision control.
 
 ## Model choice
 
-This example uses `gpt-5` with `reasoning: { effort: "high" }`. In live testing, smaller models (`gpt-5-mini`, `gpt-5-nano`) tend to ignore explicit tool-use directives and produce generic "what can I help you with?" responses on the first turn — they don't reliably exercise the planning + memory capabilities. `gpt-5` engages with tools and actually drives an agent loop. The tradeoff: each turn costs more.
+This example uses `gpt-5` with `reasoning: { openai: { effort: "high", summary: "auto" } }`; the summary is what lets the web client show the model's reasoning as it streams. In live testing, smaller models (`gpt-5-mini`, `gpt-5-nano`) tend to ignore explicit tool-use directives and produce generic "what can I help you with?" responses on the first turn — they don't reliably exercise the planning + memory capabilities. `gpt-5` engages with tools and actually drives an agent loop. The tradeoff: each turn costs more.
 
 If you swap to a smaller model, expect to do more prompt-engineering work to get tool calls to fire.
 
@@ -81,7 +82,7 @@ examples/chat/
     └── app/
         ├── layout.tsx                 # imports @copilotkit/react-core/v2/styles.css
         ├── page.tsx                   # CopilotKit + CopilotSidebar
-        └── api/copilotkit/[...path]/route.ts # V2 runtime + HttpAgent → B4.run /agui/%2Fchat%23agent
+        └── api/copilotkit/[...path]/route.ts # V2 runtime + B4HttpAgent → B4.run /agui/%2Fchat%23agent
 ```
 
 ## Security caveats

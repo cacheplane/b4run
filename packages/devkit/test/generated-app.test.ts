@@ -46,10 +46,7 @@ describe("generated app helper", () => {
         access(resolve(generatedApp.appRoot, "test/agent.test.ts"), constants.F_OK),
       ).resolves.toBeUndefined()
       await expect(
-        access(
-          resolve(generatedApp.appRoot, "src/app/(public)/hello/[tenant]/evals/smoke.eval.ts"),
-          constants.F_OK,
-        ),
+        access(resolve(generatedApp.appRoot, "src/app/hello/evals/smoke.eval.ts"), constants.F_OK),
       ).resolves.toBeUndefined()
     } finally {
       await rm(baseDir, { force: true, recursive: true })

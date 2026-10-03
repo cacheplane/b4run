@@ -1,0 +1,7 @@
+# factory up's state directory (factory.config.ts): the registry, images, evidence, exports and logs.
+.factory/
+# factory up's checkout lock (one up per checkout: the apps' own stores live in their app roots),
+# and its siblings: .up.lock.takeover, .up.lock.new-*, .up.lock.stale-*.
+.up.lock*
+# A second checkout's own ports: copy factory.config.ts here and point FACTORY_CONFIG at it.
+factory.config.local.ts

@@ -5,6 +5,9 @@ import { resolveStaticSeoPage } from "../../seo/resolve"
 import { breadcrumbJsonLd, techArticleJsonLd } from "../../seo/structured-data"
 import { DocsBreadcrumb } from "./DocsBreadcrumb"
 import { DocsPrevNext } from "./DocsPrevNext"
+import { LegacyAnchorRedirect } from "./LegacyAnchorRedirect"
+import { legacyRedirectsFor } from "./legacy-anchors"
+import { MobileDocsTOC } from "./MobileDocsTOC"
 import { PageActions } from "./PageActions"
 
 interface Props {
@@ -27,15 +30,13 @@ export function DocsPage({ href, Content, promptSlug }: Props) {
           <JsonLd data={breadcrumbJsonLd(seoPage)} />
         </>
       ) : null}
-      <div className="flex items-start justify-between gap-4">
+      <div className="mb-4 flex items-center justify-between gap-4">
         <DocsBreadcrumb href={href} />
-        <PageActions
-          slug={slug}
-          {...(promptSlug ? { promptSlug } : {})}
-          {...(prompt?.body ? { promptBody: prompt.body } : {})}
-        />
+        <PageActions slug={slug} {...(prompt?.body ? { promptBody: prompt.body } : {})} />
       </div>
+      <MobileDocsTOC />
       <article className="prose-b4">
+        <LegacyAnchorRedirect redirects={legacyRedirectsFor(href)} />
         <Content />
       </article>
       <DocsPrevNext href={href} />

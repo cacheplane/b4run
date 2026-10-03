@@ -1,0 +1,148 @@
+import { readdirSync } from "node:fs"
+import type { SandboxPolicy, WorkspaceDefinition } from "@b4run/workspace"
+import type { WorkspaceReadOptions } from "../worker/workspace-reader.js"
+import { type CaptureRole, type CaptureTargetOptions, captureTarget } from "./archive.js"
+import type { TargetRecipe, TaskRecipe } from "./catalog.js"
+
+/**
+ * Every regular file under `absolute`, relative to it, forward-slash, sorted.
+ *
+ * The framework's own source capture requires `source.include` to name every file the
+ * capture will contain, exactly: it walks the whole directory and rejects anything the list
+ * does not name one-for-one. The target's own `capture.include` (used for `git archive` and
+ * for the environment identity) is not that list — a directory entry like `src` is shorthand
+ * there for everything under it — so the flat inventory is derived here from what the archive
+ * actually extracted, rather than restating the target's directory-shaped list.
+ */
+function capturedFiles(absolute: string): string[] {
+  const found: string[] = []
+  const stack: string[] = [""]
+  while (stack.length > 0) {
+    // biome-ignore lint/style/noNonNullAssertion: stack.length > 0 guards this pop
+    const relative = stack.pop()!
+    const directory = relative ? `${absolute}/${relative}` : absolute
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const child = relative ? `${relative}/${entry.name}` : entry.name
+      if (entry.isDirectory()) stack.push(child)
+      else if (entry.isFile()) found.push(child)
+      else throw new Error(`Unsupported entry in capture: ${child}`)
+    }
+  }
+  return found.sort()
+}
+
+/** Names {@link targetWorkspace} injects itself; a captured file cannot also claim one. */
+const RESERVED_CAPTURE_PATHS = ["TASK.md", ".gitignore"]
+
+/**
+ * How a drafter thread is inspected. These bounds apply to the re-rooted `draft/` read
+ * (the reader's `root` option, Task 3) and never to `repo/`: the wide capture holds
+ * executables and more bytes than an inspection allows, and is never read back.
+ * Four small text files is the whole of what the drafter is expected to write; a `draft/`
+ * that is larger than this is refused rather than read. No environment links and no
+ * baseline, so no root symlinks and no `.git` to exclude.
+ */
+export function drafterInspectionOptions(): WorkspaceReadOptions {
+  return {
+    excludeRootDirectories: [],
+    expectedRootSymlinks: {},
+    maxEntries: 200,
+    maxFileBytes: 512 * 1024,
+    maxTotalBytes: 2 * 1024 * 1024,
+  }
+}
+
+/** Denied network, and the target's measured CPU, memory and per-command ceiling. */
+export function targetSandboxPolicy(target: TargetRecipe): SandboxPolicy {
+  return {
+    network: { mode: "deny" },
+    env: { npm_config_cache: "/tmp/npm-cache", npm_config_update_notifier: "false" },
+    resources: {
+      memoryMb: target.resources.memoryMb,
+      cpus: target.resources.cpus,
+      timeoutMs: target.resources.commandTimeoutMs,
+    },
+  }
+}
+
+/**
+ * What a workspace is built from: a task, or anything task-shaped. `target:measure` builds the
+ * verifier's session for a target with no task behind it (no defect, a placeholder spec).
+ */
+export type WorkspaceTask = Pick<TaskRecipe, "id" | "target" | "specText" | "defectPatch">
+
+/**
+ * Pure declaration of what the workspace contains: the role's archive of the pinned subtree
+ * with the defect applied, the task spec as TASK.md, and the image's dependency tree linked
+ * at the root. The independent checks are not in the capture at all: the verifier writes them
+ * into the container of the session that grades them, which is not the one the visible suite
+ * ran in.
+ */
+export function targetWorkspace(
+  task: WorkspaceTask,
+  role: CaptureRole,
+  options: CaptureTargetOptions,
+): WorkspaceDefinition {
+  const captured = captureTarget(task, role, options)
+  const include = capturedFiles(captured.absolute)
+  for (const path of RESERVED_CAPTURE_PATHS)
+    if (include.includes(path))
+      throw new Error(`Task ${task.id}: the capture must not contain ${path}; it is reserved`)
+  return {
+    source: {
+      directory: captured.directory,
+      include,
+      files: [
+        { path: "TASK.md", text: task.specText },
+        // Build output the target declares as `snapshotIgnore` is also ignored in the
+        // workspace's own git repo, so the builder's `git status` is not noise. The baseline
+        // commit is unaffected: the prepare step force-adds sources and links.
+        {
+          path: ".gitignore",
+          text: `${["node_modules/", ...task.target.snapshotIgnore].join("\n")}\n`,
+        },
+      ],
+    },
+    environmentLinks: task.target.environmentLinks.map((link) => ({ ...link })),
+    baseline: "git",
+  }
+}
+
+/**
+ * The limits of the verifier's tamper snapshot: the framework's own defaults, restated so a
+ * change there is visible here. The verifier (`grade-suite.ts`) and `target:measure`
+ * (`measure/session.ts`) both snapshot with these, so a measurement sees exactly what a
+ * verification's tamper check sees.
+ */
+export const TAMPER_INSPECTION_LIMITS = {
+  maxEntries: 10_000,
+  maxFileBytes: 2 * 1024 * 1024,
+  maxTotalBytes: 16 * 1024 * 1024,
+} as const
+
+/**
+ * How a workspace built from {@link targetWorkspace} must be inspected, derived from the
+ * target rather than restated by each caller: `baseline: "git"` puts a `.git` directory in the
+ * workspace that is not part of the capture, and each environment link is a root symlink
+ * inspection refuses to walk unless told its exact target. The reader and the verifier share
+ * this so they cannot drift apart.
+ *
+ * Inspection can exclude root directories only, so build output under a package (e.g.
+ * `packages/devkit/dist`) is walked and counts toward the reader's entry and byte limits.
+ * `snapshotIgnore` has two consumers: the workspace's `.gitignore` (above) and the reader's
+ * observed set (via `ignorePrefixes`), because a builder that runs the target's build writes
+ * there legitimately and the assembly rule rejects any path the baseline lacks. The verifier's
+ * tamper comparison deliberately does NOT consult it: the build completes before the first
+ * snapshot, so a change under the build output while a suite runs is a tamper — and it is the
+ * directory the independent oracle reads. A target whose build output is large must still raise the reader's
+ * limits rather than expect exclusion — the filter is applied after the walk.
+ */
+export function targetInspectionOptions(task: Pick<TaskRecipe, "target">): WorkspaceReadOptions {
+  const expectedRootSymlinks: Record<string, string> = {}
+  for (const link of task.target.environmentLinks) expectedRootSymlinks[link.path] = link.target
+  return {
+    excludeRootDirectories: [".git"],
+    expectedRootSymlinks,
+    ignorePrefixes: [...task.target.snapshotIgnore],
+  }
+}

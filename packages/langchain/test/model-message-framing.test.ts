@@ -63,3 +63,101 @@ test("empty models and duplicate completions add no lifecycle events", async () 
     { type: "done", data: undefined },
   ])
 })
+
+test("block-array content, as Anthropic streams it once tools are bound, yields text tokens", async () => {
+  const chunks = await collect([
+    modelEvent("on_chat_model_stream", "a", {
+      chunk: { content: [{ type: "text", text: "Hel", index: 0 }] },
+    }),
+    modelEvent("on_chat_model_stream", "a", {
+      chunk: { content: [{ type: "text", text: "lo", index: 0 }] },
+    }),
+    modelEvent("on_chat_model_end", "a", {
+      output: { content: [{ type: "text", text: "Hello" }] },
+    }),
+  ])
+
+  expect(chunks).toEqual([
+    { type: "token", messageId: "a", data: "Hel" },
+    { type: "token", messageId: "a", data: "lo" },
+    { type: "message_end", data: { messageId: "a" } },
+    { type: "done", data: undefined },
+  ])
+})
+
+test("thinking and tool-use input carry no token; thinking becomes a reasoning chunk", async () => {
+  const chunks = await collect([
+    modelEvent("on_chat_model_stream", "a", {
+      chunk: { content: [{ type: "thinking", thinking: "let me see", index: 0 }] },
+    }),
+    modelEvent("on_chat_model_stream", "a", {
+      chunk: { content: [{ type: "input_json_delta", input: '{"q":', index: 1 }] },
+    }),
+    modelEvent("on_chat_model_stream", "a", {
+      chunk: { content: [{ type: "text", text: "", index: 2 }] },
+    }),
+    modelEvent("on_chat_model_end", "a", { output: {} }),
+  ])
+
+  // A reasoning-only invocation (thinking, then a tool call, no prose) still
+  // ends with `message_end`: that is what closes the AG-UI reasoning span.
+  expect(chunks).toEqual([
+    { type: "reasoning", messageId: "a", data: "let me see" },
+    { type: "message_end", data: { messageId: "a" } },
+    { type: "done", data: undefined },
+  ])
+})
+
+test("OpenAI Responses and LangChain standard reasoning blocks are reasoning too", async () => {
+  const chunks = await collect([
+    modelEvent("on_chat_model_stream", "b", {
+      chunk: { content: [{ type: "reasoning", reasoning: "step one", index: 0 }] },
+    }),
+    modelEvent("on_chat_model_stream", "b", {
+      chunk: { content: [{ type: "text", text: "Answer", index: 1 }] },
+    }),
+    modelEvent("on_chat_model_end", "b", { output: {} }),
+  ])
+
+  expect(chunks.slice(0, 2)).toEqual([
+    { type: "reasoning", messageId: "b", data: "step one" },
+    { type: "token", messageId: "b", data: "Answer" },
+  ])
+})
+
+test("redacted thinking and signature deltas carry nothing", async () => {
+  const chunks = await collect([
+    modelEvent("on_chat_model_stream", "c", {
+      chunk: {
+        content: [
+          { type: "redacted_thinking", data: "opaque", index: 0 },
+          { type: "thinking", signature: "sig", index: 0 },
+        ],
+      },
+    }),
+    modelEvent("on_chat_model_end", "c", { output: {} }),
+  ])
+
+  expect(chunks).toEqual([{ type: "done", data: undefined }])
+})
+
+test("a chunk with several text blocks joins them in order", async () => {
+  const chunks = await collect([
+    modelEvent("on_chat_model_stream", "a", {
+      chunk: {
+        content: [
+          { type: "text", text: "one ", index: 0 },
+          { type: "thinking", thinking: "…", index: 1 },
+          { type: "text", text: "two", index: 2 },
+        ],
+      },
+    }),
+    modelEvent("on_chat_model_end", "a", { output: {} }),
+  ])
+
+  // Reasoning and text of one chunk come out as one chunk each, reasoning first.
+  expect(chunks.slice(0, 2)).toEqual([
+    { type: "reasoning", messageId: "a", data: "…" },
+    { type: "token", messageId: "a", data: "one two" },
+  ])
+})

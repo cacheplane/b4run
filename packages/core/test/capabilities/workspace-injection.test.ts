@@ -64,9 +64,10 @@ describe("workspace marker — backend injection", () => {
     )
   })
 
-  it("still contributes all four tools with neither backends nor factories", async () => {
+  it("still contributes all five tools with neither backends nor factories", async () => {
     const contribution = await createWorkspaceMarker().load("/route", ctx())
     expect((contribution.tools ?? []).map((t) => t.name).sort()).toEqual([
+      "editFile",
       "listDir",
       "readFile",
       "runBash",

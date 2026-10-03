@@ -1,0 +1,14 @@
+{
+  "name": "b4-fixture-cli-flags",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --import tsx --test test/*.test.ts",
+    "check:independent": "node --import tsx --test checks/*.test.ts"
+  },
+  "dependencies": {
+    "commander": "15.0.0",
+    "tsx": "4.23.5"
+  }
+}

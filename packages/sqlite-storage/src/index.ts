@@ -1,5 +1,19 @@
 export type { SqliteCheckpointerOptions } from "./checkpointer/index.js"
 export { B4SqliteSaver, sqliteCheckpointer } from "./checkpointer/index.js"
+export type { ClientToolCallStoreOptions } from "./client-tool-calls/index.js"
+export { createClientToolCallStore } from "./client-tool-calls/index.js"
+export type {
+  ClientToolCallAnswer,
+  ClientToolCallRecord,
+  ClientToolCallStore,
+} from "./client-tool-calls/types.js"
+export type { InterruptGrantStoreOptions } from "./interrupt-grants/index.js"
+export { createInterruptGrantStore } from "./interrupt-grants/index.js"
+export type {
+  InterruptGrantConsumption,
+  InterruptGrantRecord,
+  InterruptGrantStore,
+} from "./interrupt-grants/types.js"
 export type {
   CreateThreadInput,
   Thread,
@@ -12,5 +26,15 @@ export type {
   WorkspaceAssociation,
   WorkspaceAssociationStore,
 } from "./workspace/association-store.js"
-export { openWorkspaceInstallation, type WorkspaceInstallation } from "./workspace/installation.js"
+export {
+  openWorkspaceInstallation,
+  openWorkspaceInstallationReader,
+  type WorkspaceInstallation,
+  type WorkspaceInstallationReader,
+} from "./workspace/installation.js"
 export type { WorkspaceSourceStore } from "./workspace/source-store.js"
+export {
+  WorkspaceStagedSourceError,
+  type WorkspaceStagedSourceStore,
+} from "./workspace/staged-source-store.js"
+export type { WorkspaceThreadSandboxStore } from "./workspace/thread-sandbox-store.js"

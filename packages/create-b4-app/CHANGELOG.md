@@ -1,5 +1,63 @@
 # create-dawn-ai-app
 
+## 0.13.1
+
+### Patch Changes
+
+- 0c76234: Move to AG-UI protocol 1.0 (`@ag-ui/core`/`@ag-ui/encoder` 1.0.1; `@ag-ui/client` optional peer `>=1.0.1 <2.0.0`; validators at `@ag-ui/core/schemas`). Approval grants (new in this release) travel over AG-UI in `metadata.grant` only, on interrupts and on resume entries; a 1.0 client strips a top-level `grant` in both directions. Breaking for AG-UI clients relative to 0.13.0: a cancelled or shut-down run ends with `RUN_FINISHED { outcome: cancelled }` instead of `RUN_ERROR`; a request declaring a foreign protocol major is refused with `400 unsupported_protocol_version`; a null route result is omitted rather than sent as `result: null`; messages carrying image, audio, video or document parts are refused with `422 multimodal_not_supported` until multimodal input lands. `RUN_STARTED` declares `protocolVersion: "1.0"`; a turn that leaves client-provided tool calls parked names them in `outcome.pendingToolCallIds`; 1.0 content parts are read as text; reasoning and activity history is dropped on the way in. Examples and the research scaffold pin CopilotKit 1.76.0 and `@ag-ui/client` 1.0.1 exactly.
+- Updated dependencies [0c76234]
+- Updated dependencies [c726631]
+  - @b4run/devkit@0.13.1
+
+## 0.13.0
+
+### Patch Changes
+
+- Updated dependencies [03795da]
+  - @b4run/devkit@0.13.0
+
+## 0.12.0
+
+### Patch Changes
+
+- @b4run/devkit@0.12.0
+
+## 0.11.2
+
+### Patch Changes
+
+- @b4run/devkit@0.11.2
+
+## 0.11.1
+
+### Patch Changes
+
+- Updated dependencies [837bcfb]
+  - @b4run/devkit@0.11.1
+
+## 0.11.0
+
+### Patch Changes
+
+- 24fd0fd: The basic template now scaffolds a single `/hello` agent route with one typed `greet` tool. It drops the route group, the `[tenant]` segment and `state.ts`, so a new app starts with the smallest working agent.
+
+  `basic` is now the default template, so `npm create b4-app@latest my-agent` scaffolds it. The research workspace is still available with `npm create b4-app@latest my-agent -- --template research`.
+
+- Updated dependencies [24fd0fd]
+  - @b4run/devkit@0.11.0
+
+## 0.10.0
+
+### Patch Changes
+
+- @b4run/devkit@0.10.0
+
+## 0.9.0
+
+### Patch Changes
+
+- @b4run/devkit@0.9.0
+
 ## 0.8.36
 
 ### Patch Changes

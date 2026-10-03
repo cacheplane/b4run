@@ -17,6 +17,7 @@ import { patchConfig } from "@langchain/core/runnables"
 import { DynamicStructuredTool } from "@langchain/core/tools"
 import { Command } from "@langchain/langgraph"
 import { z } from "zod"
+import { readCallOrigin, recordToolCall } from "./tool-call-recording.js"
 import { unwrapToolResult } from "./unwrap-tool-result.js"
 
 interface B4ToolDefinition {
@@ -29,9 +30,19 @@ interface B4ToolDefinition {
       readonly signal: AbortSignal
       readonly threadId?: string
       readonly params?: Readonly<Record<string, string>>
+      /**
+       * The provider's id for this call, stable across LangGraph's re-execution
+       * of an interrupted tool node. Absent when the tool is invoked outside a
+       * model tool call.
+       */
+      readonly toolCallId?: string
     },
   ) => Promise<unknown> | unknown
   readonly schema?: unknown
+  /** End the run on this tool's successful result; see the core `B4ToolDefinition`. */
+  readonly returnDirect?: boolean
+  /** The server-side stub of a client-provided tool; it records itself. Never issued as a server call. */
+  readonly clientTool?: true
 }
 
 export type OffloadFn = (
@@ -55,6 +66,11 @@ export function convertToolToLangChain(
     name: tool.name,
     description: tool.description ?? "",
     schema,
+    // A prebuilt agent that reads the flag ends the run on this tool's result
+    // instead of routing back to the model. B4's own agent routes clear it and
+    // end only on success (`endsOnReturnDirect`); a raw LangChain runnable
+    // handed these tools keeps LangChain's behavior.
+    ...(tool.returnDirect === true ? { returnDirect: true } : {}),
     func: async (input, runManager, config) => {
       const liveConfig = runManager
         ? patchConfig(config, { callbacks: runManager.getChild() })
@@ -73,56 +89,69 @@ export function convertToolToLangChain(
       for (const [key, value] of Object.entries(configurable)) {
         if (paramNameSet.has(key) && typeof value === "string") params[key] = value
       }
-      const rawResult = await tool.run(input, {
-        ...(middlewareContext ? { middleware: middlewareContext } : {}),
-        signal,
-        ...(threadId ? { threadId } : {}),
-        ...(Object.keys(params).length > 0 ? { params } : {}),
-      })
-      const { content, stateUpdates } = unwrapToolResult(rawResult)
       const toolCallId = extractToolCallId(liveConfig)
-      const finalContent = offload
-        ? await offload(content, tool.name, toolCallId || undefined, signal)
-        : content
+      // Server-kind row in the tool-call record, around the whole body (see
+      // `recordToolCall` for the park rule). The client stub records its own
+      // client-kind row and is skipped via its marker. Inside a subagent the row
+      // names the child's route key and the `task` call that launched it.
+      const origin = readCallOrigin(liveConfig)
+      const recorded =
+        tool.clientTool === true
+          ? undefined
+          : { toolCallId, toolName: tool.name, ...(origin ? { origin } : {}) }
+      const body = async () => {
+        const rawResult = await tool.run(input, {
+          ...(middlewareContext ? { middleware: middlewareContext } : {}),
+          signal,
+          ...(threadId ? { threadId } : {}),
+          ...(Object.keys(params).length > 0 ? { params } : {}),
+          ...(toolCallId !== "" ? { toolCallId } : {}),
+        })
+        const { content, stateUpdates } = unwrapToolResult(rawResult)
+        const finalContent = offload
+          ? await offload(content, tool.name, toolCallId || undefined, signal)
+          : content
 
-      const convertedResult = stateUpdates
-        ? new Command({
-            update: {
-              ...stateUpdates,
-              messages: [
-                new ToolMessage({
-                  content: finalContent,
-                  tool_call_id: toolCallId,
-                  name: tool.name,
-                }),
-              ],
-            },
-          })
-        : finalContent
+        const convertedResult = stateUpdates
+          ? new Command({
+              update: {
+                ...stateUpdates,
+                messages: [
+                  new ToolMessage({
+                    content: finalContent,
+                    tool_call_id: toolCallId,
+                    name: tool.name,
+                  }),
+                ],
+              },
+            })
+          : finalContent
 
-      for (const transformer of streamTransformers) {
-        if (transformer.observes !== "tool_result") continue
-        try {
-          for await (const output of transformer.transform({
-            toolName: tool.name,
-            toolOutput: convertedResult,
-            // The model/provider tool-call id — the public identity the root
-            // AG-UI tool frames use. `extractToolCallId` returns "" when the
-            // provider supplied none, in which case the field stays absent.
-            ...(toolCallId ? { toolCallId } : {}),
-          })) {
-            await dispatchCustomEvent(
-              "b4.capability",
-              { event: output.event, data: output.data },
-              liveConfig,
-            )
+        for (const transformer of streamTransformers) {
+          if (transformer.observes !== "tool_result") continue
+          try {
+            for await (const output of transformer.transform({
+              toolName: tool.name,
+              toolOutput: convertedResult,
+              // The model/provider tool-call id — the public identity the root
+              // AG-UI tool frames use. `extractToolCallId` returns "" when the
+              // provider supplied none, in which case the field stays absent.
+              ...(toolCallId ? { toolCallId } : {}),
+            })) {
+              await dispatchCustomEvent(
+                "b4.capability",
+                { event: output.event, data: output.data },
+                liveConfig,
+              )
+            }
+          } catch {
+            // Capability events are secondary; preserve the successful tool result.
           }
-        } catch {
-          // Capability events are secondary; preserve the successful tool result.
         }
-      }
 
-      return convertedResult
+        return convertedResult
+      }
+      return recorded ? recordToolCall(liveConfig, recorded, body) : body()
     },
   })
 }

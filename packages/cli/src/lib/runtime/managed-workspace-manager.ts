@@ -1,31 +1,105 @@
 import { randomUUID } from "node:crypto"
-import type { WorkspaceInstallation } from "@b4run/sqlite-storage"
+import type { ThreadPermissionGrants } from "@b4run/permissions"
+import { type WorkspaceInstallation, WorkspaceStagedSourceError } from "@b4run/sqlite-storage"
 import {
   type CapturedWorkspaceDefinition,
+  inspectWorkspace,
+  isWorkspaceInspectionError,
   type ManagedWorkspaceProvider,
   type ReadyWorkspace,
   type SandboxHandle,
   type SandboxPolicy,
   type SourceBundle,
+  type StagedWorkspaceReference,
+  scopedWorkspaceReader,
+  type ThreadSandboxPermissions,
+  type ThreadSandboxPolicy,
+  type ThreadSandboxRecord,
+  type WorkspaceEnvironment,
   WorkspaceLifecycleError,
   type WorkspaceSession,
   type WorkspaceSessionReference,
 } from "@b4run/workspace"
 import {
   createWorkspaceIntent,
+  MAX_THREAD_SANDBOX_RECORD_BYTES,
   readSourceFile,
+  stagedWorkspaceDefinition,
+  stagedWorkspaceFits,
+  threadSandboxRecordBytes,
   verifyCapturedWorkspaceDefinition,
   verifyCreationStatus,
   verifyReadyWorkspace,
+  verifySourceBundle,
+  verifyStagedWorkspaceReference,
+  verifyThreadSandboxRecord,
 } from "@b4run/workspace/node"
+import { threadPolicy } from "./thread-policy.js"
+import {
+  type StagedWorkspaceAttach,
+  type StagedWorkspaceCheck,
+  type StageSourceOutcome,
+  type ThreadWorkspaceInspectOutcome,
+  type ThreadWorkspaceInspectRequest,
+  WORKSPACE_READ_TIMEOUT_DEFAULT_MS,
+} from "./workspace-protocol.js"
+/** What admission tells the resolver about the thread. Metadata is loaded lazily: only a thread with no record needs it. */
+export interface WorkspaceAdmissionContext {
+  /** Loads the thread's stored client metadata. Called only for a thread with no workspace record. */
+  readonly metadata?: (signal: AbortSignal) => Promise<Readonly<Record<string, unknown>>>
+}
+/** What a thread-sandbox resolver decided, with its workspace already captured. */
+export interface ResolvedThreadSandbox {
+  readonly definition: CapturedWorkspaceDefinition
+  /** Handed to `provider.resolveImageEnvironment`; the identity it answers is recorded in the intent. */
+  readonly image?: string
+  readonly policy?: ThreadSandboxPolicy
+  /** Replaces the app's allow-list for this thread; recorded, with its grants beside it. */
+  readonly permissions?: ThreadSandboxPermissions
+}
+
+/** What a resolver is told about the thread it decides for (`WorkspaceResolverInput`). */
+export interface ManagedWorkspaceResolverInput {
+  readonly threadId: string
+  readonly metadata: Readonly<Record<string, unknown>>
+  readonly signal: AbortSignal
+  /** The verified workspace the thread was created with (`sandbox.stagedWorkspaces`). */
+  readonly staged?: CapturedWorkspaceDefinition
+}
+
 export interface ManagedWorkspaceManagerOptions {
   installation: WorkspaceInstallation
-  definition: CapturedWorkspaceDefinition
+  /** One definition for every thread. Omit when `captureDefinition` decides per thread. */
+  definition?: CapturedWorkspaceDefinition
   provider: ManagedWorkspaceProvider
   policy: SandboxPolicy
   idleTimeoutMs: number
   clock?: () => number
-  captureDefinition?: () => Promise<CapturedWorkspaceDefinition>
+  /**
+   * Called once per thread, at first admission, to produce that thread's
+   * definition. With `definition` also set, this wins and `definition` is
+   * NOT a fallback: a resolver that returns nothing is an error, never a
+   * silent switch to the app-root capture (development mode recaptures the
+   * static definition through this hook). Without `definition`, it is the
+   * only source and is required.
+   */
+  captureDefinition?: (
+    thread: ManagedWorkspaceResolverInput,
+  ) => Promise<CapturedWorkspaceDefinition>
+  /**
+   * Called once per thread, at first admission, to decide the thread's whole
+   * sandbox. Exclusive with `definition` and `captureDefinition`. Its image
+   * and policy are recorded with the association; every later admission,
+   * restart included, reads the record and never calls this again.
+   */
+  resolveThread?: (thread: ManagedWorkspaceResolverInput) => Promise<ResolvedThreadSandbox>
+  /**
+   * `sandbox.stagedWorkspaces`: a thread created with a staged workspace gets it
+   * as `staged` at first admission, uploads are kept within `maxStagedBytes`,
+   * and sources nothing references are reclaimed (uploads once older than
+   * `retentionMs`) at construction and before each upload.
+   */
+  staged?: { readonly retentionMs: number; readonly maxStagedBytes: number }
 }
 export interface AdmittedWorkspace {
   readonly ready: ReadyWorkspace
@@ -33,10 +107,102 @@ export interface AdmittedWorkspace {
   readonly readInitialFile: (path: string) => Uint8Array
 }
 
+function missingRecord(threadId: string): WorkspaceLifecycleError {
+  return new WorkspaceLifecycleError(
+    "conflict",
+    `Thread ${threadId} has no sandbox record: it was admitted before sandbox.thread was configured, or its record was lost. Delete the thread to resolve its sandbox again.`,
+  )
+}
+
+const TIMED_OUT: unique symbol = Symbol("timed out")
+
+/**
+ * Settle `work` within `timeoutMs`, or as soon as `signal` aborts, whichever comes
+ * first, even when the provider behind it never answers (open, reads and close all
+ * count). At either, `reading` is aborted so a provider that honours its signal
+ * stops; one that does not is abandoned, and its late result or failure dropped.
+ */
+async function withReadDeadline<T>(
+  work: Promise<T>,
+  reading: AbortController,
+  signal: AbortSignal,
+  timeoutMs: number,
+): Promise<T | typeof TIMED_OUT> {
+  work.catch(() => {})
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let onAbort: (() => void) | undefined
+  try {
+    return await Promise.race([
+      work,
+      new Promise<typeof TIMED_OUT>((resolve) => {
+        timer = setTimeout(() => {
+          reading.abort(new Error(`Workspace read deadline of ${timeoutMs} ms passed`))
+          resolve(TIMED_OUT)
+        }, timeoutMs)
+      }),
+      new Promise<never>((_, reject) => {
+        onAbort = () => {
+          reading.abort(signal.reason)
+          reject(signal.reason)
+        }
+        if (signal.aborted) onAbort()
+        else signal.addEventListener("abort", onAbort, { once: true })
+      }),
+    ])
+  } finally {
+    clearTimeout(timer)
+    if (onAbort) signal.removeEventListener("abort", onAbort)
+  }
+}
+
+/**
+ * A refusal of a workspace read, as the protocol names it; `undefined` for an
+ * error that is nobody's refusal (a backend failure, an unsupported provider),
+ * which the caller rethrows.
+ */
+export function inspectFailure(error: unknown): ThreadWorkspaceInspectOutcome | undefined {
+  if (isWorkspaceInspectionError(error)) {
+    const message = error.message
+    switch (error.code) {
+      case "root_missing":
+        return {
+          ok: false,
+          code: "workspace_root_missing",
+          message,
+          ...(error.detail.root !== undefined ? { root: error.detail.root } : {}),
+          ...(error.detail.kind !== undefined ? { kind: error.detail.kind } : {}),
+        }
+      case "changed":
+        return { ok: false, code: "workspace_changed", message }
+      case "refused":
+        return { ok: false, code: "workspace_inspection_refused", message }
+      case "invalid_options":
+        return { ok: false, code: "invalid_request", message }
+    }
+  }
+  if (error instanceof WorkspaceLifecycleError) {
+    const message = error.message
+    switch (error.code) {
+      case "lost":
+        return { ok: false, code: "workspace_lost", message }
+      case "expired":
+        return { ok: false, code: "workspace_expired", message }
+      case "conflict":
+        return { ok: false, code: "workspace_conflict", message }
+      case "retryable":
+      case "uncertain":
+        return { ok: false, code: "workspace_unavailable", message }
+      default:
+        return undefined
+    }
+  }
+  return undefined
+}
+
 /** B4 association/admission only; physical recovery belongs to the provider. */
 export class ManagedWorkspaceManager {
   readonly #options: ManagedWorkspaceManagerOptions
-  readonly #definition: CapturedWorkspaceDefinition
+  readonly #definition: CapturedWorkspaceDefinition | undefined
   readonly #sessions = new Map<
     string,
     { session: WorkspaceSession; lastUsedAt: number; workspace: AdmittedWorkspace }
@@ -49,8 +215,17 @@ export class ManagedWorkspaceManager {
   #closing = false
   constructor(options: ManagedWorkspaceManagerOptions) {
     this.#options = options
-    this.#definition = verifyCapturedWorkspaceDefinition(options.definition)
-    options.installation.sources.put(this.#definition.source)
+    if (options.resolveThread && (options.definition || options.captureDefinition))
+      throw new Error(
+        "A thread sandbox resolver is exclusive with a workspace definition or workspace resolver",
+      )
+    if (!options.definition && !options.captureDefinition && !options.resolveThread)
+      throw new Error("Managed workspaces need a definition or a resolver")
+    this.#definition = options.definition
+      ? verifyCapturedWorkspaceDefinition(options.definition)
+      : undefined
+    if (this.#definition) options.installation.sources.put(this.#definition.source)
+    if (options.staged) this.reclaimStagedSources()
   }
   #assertOpen() {
     if (this.#closed || this.#closing) throw new Error("Managed workspace manager is closed")
@@ -69,6 +244,66 @@ export class ManagedWorkspaceManager {
       .catch(() => {})
     return next
   }
+  /** The thread's definition and, for a thread-sandbox resolver, its record. */
+  async #resolve(
+    threadId: string,
+    context: WorkspaceAdmissionContext,
+    signal: AbortSignal,
+  ): Promise<{ definition: CapturedWorkspaceDefinition; sandbox?: ThreadSandboxRecord }> {
+    const { captureDefinition, resolveThread } = this.#options
+    if (!captureDefinition && !resolveThread) {
+      if (!this.#definition) throw new Error("Managed workspaces need a definition or a resolver")
+      return { definition: this.#definition }
+    }
+    const raw: unknown = await context.metadata?.(signal)
+    const metadata: Readonly<Record<string, unknown>> =
+      raw !== null && typeof raw === "object" && !Array.isArray(raw)
+        ? Object.freeze({ ...(raw as Record<string, unknown>) })
+        : Object.freeze({})
+    // Only while the app serves staged workspaces: an app that turned the option off
+    // stops handing creators' choices to its resolver.
+    const staged = this.#options.staged ? this.#stagedDefinition(threadId) : undefined
+    const input: ManagedWorkspaceResolverInput = {
+      threadId,
+      metadata,
+      signal,
+      ...(staged ? { staged } : {}),
+    }
+    if (resolveThread) {
+      const result = await resolveThread(input)
+      if (!result?.definition)
+        throw new Error("The thread sandbox resolver returned no workspace definition")
+      // Always a record, even an empty one: "no record" must only ever mean "not admitted in
+      // thread mode" or "lost", both of which admission refuses (D11).
+      const sandbox = verifyThreadSandboxRecord({
+        version: 1,
+        ...(result.image !== undefined ? { image: result.image } : {}),
+        ...(result.policy !== undefined ? { policy: result.policy } : {}),
+        ...(result.permissions !== undefined ? { permissions: result.permissions } : {}),
+      })
+      // Checked here, before any provider call or source row: a policy can pass every
+      // per-field bound and still not fit the stored record.
+      if (threadSandboxRecordBytes(sandbox) > MAX_THREAD_SANDBOX_RECORD_BYTES)
+        throw new WorkspaceLifecycleError(
+          "unsupported",
+          `Thread ${threadId}'s sandbox record exceeds ${MAX_THREAD_SANDBOX_RECORD_BYTES} bytes: its policy.env or permissions are too large`,
+        )
+      return { definition: result.definition, sandbox }
+    }
+    const definition = await captureDefinition?.(input)
+    if (!definition) throw new Error("The workspace resolver returned no workspace definition")
+    return { definition }
+  }
+  /** The environment for a thread that names its image. A provider without the capability refuses it. */
+  async #imageEnvironment(image: string, signal: AbortSignal): Promise<WorkspaceEnvironment> {
+    const { provider } = this.#options
+    if (typeof provider.resolveImageEnvironment !== "function")
+      throw new WorkspaceLifecycleError(
+        "unsupported",
+        `Managed workspace provider "${provider.name}" cannot run a per-thread image`,
+      )
+    return provider.resolveImageEnvironment(image, signal)
+  }
   retain(threadId: string): () => void {
     this.#assertOpen()
     const state = this.#options.installation.associations.get(threadId)?.state
@@ -86,7 +321,11 @@ export class ManagedWorkspaceManager {
       if (entry) entry.lastUsedAt = this.#now()
     }
   }
-  async getForThread(threadId: string, signal: AbortSignal): Promise<SandboxHandle> {
+  async getForThread(
+    threadId: string,
+    signal: AbortSignal,
+    context: WorkspaceAdmissionContext = {},
+  ): Promise<SandboxHandle> {
     this.#assertOpen()
     const release = this.retain(threadId)
     return this.#serial(threadId, async () => {
@@ -97,13 +336,49 @@ export class ManagedWorkspaceManager {
         throw new WorkspaceLifecycleError("conflict", "Workspace installation identity mismatch")
       if (record?.state === "deleting" || record?.state === "deleted")
         throw new WorkspaceLifecycleError("lost", "Workspace is deleting or deleted")
+      // An admitted session already holds the bundle it was verified with, in memory
+      // and frozen. While the association still names that operation and digest, the
+      // stored bundle is not consulted again: re-reading and re-hashing it here cost
+      // one full bundle verification per filesystem call (see the benchmark in the
+      // manager tests). A new session re-reads and re-verifies it below.
+      const admitted = this.#sessions.get(threadId)
+      if (
+        record &&
+        admitted &&
+        record.state === "ready" &&
+        !this.#retired.has(threadId) &&
+        admitted.workspace.ready.reference.operationId === record.intent.operationId &&
+        admitted.workspace.source.digest === record.intent.sourceDigest
+      ) {
+        const expiresAt = record.ready?.provenance.retention.expiresAt
+        if (expiresAt && Date.parse(expiresAt) <= this.#now())
+          throw new WorkspaceLifecycleError("expired", "Workspace retention deadline has passed")
+        admitted.lastUsedAt = this.#now()
+        return this.#handle(threadId, admitted.session.handle)
+      }
+      // One read of the thread's sandbox record, reused at reconnect below. In thread mode every
+      // admitted thread has one ({ version: 1 } at least). A thread with an association and none
+      // was admitted before the app switched to sandbox.thread, or its record was lost:
+      // re-admitting it would silently run the app's defaults. Refused before any resolver or
+      // provider call. (The fast path above only serves a session this check already admitted.)
+      let sandboxRecord = record ? installation.threadSandboxes.get(threadId) : undefined
+      if (record && this.#options.resolveThread && !sandboxRecord) throw missingRecord(threadId)
       if (!record) {
-        const definition = verifyCapturedWorkspaceDefinition(
-          (await this.#options.captureDefinition?.()) ?? this.#definition,
-        )
-        installation.sources.put(definition.source)
-        const environment = await provider.resolveEnvironment(signal)
+        // The resolver runs exactly here: a thread with no record. Every later
+        // admission of this thread finds the record and never reaches this branch.
+        const resolved = await this.#resolve(threadId, context, signal)
+        const definition = verifyCapturedWorkspaceDefinition(resolved.definition)
         signal.throwIfAborted()
+        // Refused before any provider call: a thread may not widen the app's network.
+        threadPolicy(policy, resolved.sandbox?.policy)
+        const environment =
+          resolved.sandbox?.image === undefined
+            ? await provider.resolveEnvironment(signal)
+            : await this.#imageEnvironment(resolved.sandbox.image, signal)
+        signal.throwIfAborted()
+        // Stored only once the environment resolved: a refused image or an
+        // unavailable daemon leaves no source row behind.
+        installation.sources.put(definition.source)
         record = installation.associations.create(
           createWorkspaceIntent({
             installationId: installation.installationId,
@@ -112,7 +387,9 @@ export class ManagedWorkspaceManager {
             definition,
             environment,
           }),
+          resolved.sandbox,
         )
+        sandboxRecord = resolved.sandbox
       }
       const source = installation.sources.get(record.intent.sourceDigest)
       if (!source) throw new WorkspaceLifecycleError("lost", "Workspace initial source is missing")
@@ -163,10 +440,17 @@ export class ManagedWorkspaceManager {
       )
         throw new WorkspaceLifecycleError("expired", "Workspace retention deadline has passed")
       signal.throwIfAborted()
-      const session = await provider.reconnect(ready, policy, signal)
+      const session = await provider.reconnect(
+        ready,
+        threadPolicy(policy, sandboxRecord?.policy),
+        signal,
+      )
       // Session identity is validated independently of the provider's backend object.
       const validated = verifyReadyWorkspace(
-        { reference: session.reference.workspace, provenance: ready.provenance },
+        {
+          reference: session.reference.workspace,
+          provenance: ready.provenance,
+        },
         record.intent,
       )
       if (JSON.stringify(validated.reference) !== JSON.stringify(ready.reference))
@@ -185,6 +469,10 @@ export class ManagedWorkspaceManager {
           "Provider returned a mismatched workspace session",
         )
       const operationId = record.intent.operationId
+      // The bundle was verified above; index it once rather than re-verifying the
+      // whole bundle for every file read. A miss (unknown or non-canonical path)
+      // falls through to readSourceFile for its validation and error.
+      let initialFiles: Map<string, string> | undefined
       const workspace = Object.freeze({
         ready,
         source,
@@ -193,7 +481,10 @@ export class ManagedWorkspaceManager {
           const current = installation.associations.get(threadId)
           if (current?.state !== "ready" || current.intent.operationId !== operationId)
             throw new Error("Workspace source is no longer admitted")
-          return readSourceFile(source, path)
+          initialFiles ??= new Map(source.files.map((file) => [file.path, file.base64]))
+          const base64 = typeof path === "string" ? initialFiles.get(path) : undefined
+          if (base64 === undefined) return readSourceFile(source, path)
+          return new Uint8Array(Buffer.from(base64, "base64"))
         },
       })
       const admittedSession = {
@@ -203,7 +494,11 @@ export class ManagedWorkspaceManager {
           incarnation: session.reference.incarnation,
         }),
       }
-      this.#sessions.set(threadId, { session: admittedSession, lastUsedAt: this.#now(), workspace })
+      this.#sessions.set(threadId, {
+        session: admittedSession,
+        lastUsedAt: this.#now(),
+        workspace,
+      })
       return this.#handle(threadId, session.handle)
     }).finally(release)
   }
@@ -275,11 +570,325 @@ export class ManagedWorkspaceManager {
       exec: wrap("exec", shape.exec),
     }
   }
+  /**
+   * The permissions a thread-sandbox resolver recorded for `threadId`, with the
+   * store its "Always" grants go to. Undefined for a thread whose record carries
+   * no permissions: it runs under the app's store unchanged. In thread mode a
+   * thread with no record at all is refused, never given the app's store: its
+   * record was lost, or it was never admitted in thread mode (D11).
+   */
+  threadPermissions(
+    threadId: string,
+  ):
+    | { readonly permissions: ThreadSandboxPermissions; readonly grants: ThreadPermissionGrants }
+    | undefined {
+    this.#assertOpen()
+    const sandboxes = this.#options.installation.threadSandboxes
+    const record = sandboxes.get(threadId)
+    if (!record) {
+      if (this.#options.resolveThread) throw missingRecord(threadId)
+      return undefined
+    }
+    const permissions = record.permissions
+    if (!permissions) return undefined
+    return {
+      permissions,
+      grants: {
+        list: () => sandboxes.grants(threadId),
+        add: (tool, pattern) => sandboxes.addGrant(threadId, tool, pattern),
+      },
+    }
+  }
   getWorkspace(threadId: string): AdmittedWorkspace | undefined {
     this.#assertOpen()
     const record = this.#options.installation.associations.get(threadId)
     if (record?.state !== "ready") return undefined
     return this.#sessions.get(threadId)?.workspace
+  }
+  /**
+   * A bounded, read-only inventory of the thread's published workspace, through
+   * the provider's reader: a separate, networkless container that never touches
+   * the thread's session. The reader runs as the APP's `security.runAsNonRoot`,
+   * the identity the workspace was written under. `retain` makes a concurrent
+   * `destroyThread` refuse until the read ends. The caller excludes runs.
+   */
+  async inspectThread(
+    threadId: string,
+    request: ThreadWorkspaceInspectRequest,
+    signal: AbortSignal,
+    options: { readonly timeoutMs?: number } = {},
+  ): Promise<ThreadWorkspaceInspectOutcome> {
+    this.#assertOpen()
+    const { installation, provider, policy } = this.#options
+    const record = installation.associations.get(threadId)
+    if (!record)
+      return {
+        ok: false,
+        code: "workspace_not_found",
+        message: `Thread ${threadId} has no workspace yet: it has not run`,
+      }
+    if (record.intent.installationId !== installation.installationId)
+      return {
+        ok: false,
+        code: "workspace_conflict",
+        message: "Workspace installation identity mismatch",
+      }
+    if (record.state === "deleting" || record.state === "deleted")
+      return {
+        ok: false,
+        code: "workspace_lost",
+        message: `Thread ${threadId}'s workspace is deleted`,
+      }
+    if (record.state === "creating" || !record.ready)
+      return {
+        ok: false,
+        code: "workspace_not_ready",
+        message: `Thread ${threadId}'s workspace is not published yet`,
+      }
+    const open = provider.openWorkspaceReader
+    if (typeof open !== "function")
+      throw new WorkspaceLifecycleError(
+        "unsupported",
+        `Managed workspace provider "${provider.name}" cannot read a workspace`,
+      )
+    let release: (() => void) | undefined
+    try {
+      const ready = verifyReadyWorkspace(record.ready, record.intent)
+      const expiresAt = ready.provenance.retention.expiresAt
+      if (expiresAt && Date.parse(expiresAt) <= this.#now())
+        return {
+          ok: false,
+          code: "workspace_expired",
+          message: `Thread ${threadId}'s workspace passed its retention deadline`,
+        }
+      release = this.retain(threadId)
+      const runAsNonRoot = policy.security?.runAsNonRoot
+      // The read's own signal: the caller's, or the deadline's.
+      const reading = new AbortController()
+      const inspection = await withReadDeadline(
+        scopedWorkspaceReader(
+          () =>
+            open.call(provider, {
+              workspace: ready,
+              signal: reading.signal,
+              ...(runAsNonRoot === undefined ? {} : { runAsNonRoot }),
+            }),
+          (reader) =>
+            inspectWorkspace(reader, {
+              signal: reading.signal,
+              maxEntries: request.maxEntries,
+              maxFileBytes: request.maxFileBytes,
+              maxTotalBytes: request.maxTotalBytes,
+              excludeRootDirectories: request.excludeRootDirectories,
+              expectedRootSymlinks: request.expectedRootSymlinks,
+              ...(request.root !== undefined ? { root: request.root } : {}),
+            }),
+        ),
+        reading,
+        signal,
+        options.timeoutMs ?? WORKSPACE_READ_TIMEOUT_DEFAULT_MS,
+      )
+      if (inspection === TIMED_OUT)
+        return {
+          ok: false,
+          code: "workspace_read_timeout",
+          message: `Thread ${threadId}'s workspace read did not finish within ${options.timeoutMs ?? WORKSPACE_READ_TIMEOUT_DEFAULT_MS} ms`,
+        }
+      return {
+        ok: true,
+        sourceDigest: record.intent.sourceDigest,
+        intentDigest: record.intent.digest,
+        inspection,
+      }
+    } catch (error) {
+      const refusal = signal.aborted ? undefined : inspectFailure(error)
+      if (refusal) return refusal
+      throw error
+    } finally {
+      release?.()
+    }
+  }
+  /** The verified definition a thread was created with, or undefined. A missing source is lost, never skipped. */
+  #stagedDefinition(threadId: string): CapturedWorkspaceDefinition | undefined {
+    const { installation } = this.#options
+    const reference = installation.staged.get(threadId)
+    if (!reference) return undefined
+    const source = installation.sources.get(reference.sourceDigest)
+    if (!source)
+      throw new WorkspaceLifecycleError(
+        "lost",
+        `Thread ${threadId}'s staged workspace source ${reference.sourceDigest} is missing`,
+      )
+    return stagedWorkspaceDefinition(reference, source)
+  }
+  #requireStaged(): { readonly retentionMs: number; readonly maxStagedBytes: number } {
+    this.#assertOpen()
+    const staged = this.#options.staged
+    if (!staged) throw new Error("Staged workspaces are off (sandbox.stagedWorkspaces)")
+    return staged
+  }
+  /**
+   * `PUT /workspace/sources/:digest`: keep a bundle under its own digest, which
+   * must be the path's. The bundle is verified here (every file against the
+   * digest it claims) before anything is compared or kept, so no body is ever
+   * held under a digest that is not its own. Reclaims first, so expired uploads
+   * free their share of the quota before this one is counted.
+   */
+  stageSource(
+    value: unknown,
+    digest: string,
+    uploader?: Readonly<Record<string, unknown>>,
+  ): StageSourceOutcome {
+    const staged = this.#requireStaged()
+    let bundle: SourceBundle
+    try {
+      bundle = verifySourceBundle(value)
+    } catch (error) {
+      return {
+        ok: false,
+        code: "workspace_source_invalid",
+        message: `Invalid workspace source: ${error instanceof Error ? error.message : String(error)}`,
+      }
+    }
+    if (bundle.digest !== digest)
+      return {
+        ok: false,
+        code: "digest_mismatch",
+        message: `The uploaded source's digest is ${bundle.digest}, not ${digest}`,
+      }
+    this.reclaimStagedSources()
+    try {
+      const status = this.#options.installation.staged.upload(
+        bundle,
+        this.#now(),
+        staged.maxStagedBytes,
+        uploader,
+      )
+      return { ok: true, status }
+    } catch (error) {
+      if (error instanceof WorkspaceStagedSourceError && error.code === "quota_exceeded")
+        return { ok: false, code: "staged_quota_exceeded", message: error.message }
+      if (error instanceof WorkspaceStagedSourceError && error.code === "uploader_invalid")
+        return { ok: false, code: "workspace_uploader_invalid", message: error.message }
+      throw error
+    }
+  }
+  /**
+   * The reference a create names, checked whole (held, and a definition the held
+   * source can make) before any thread row exists.
+   */
+  checkStagedWorkspace(value: unknown): StagedWorkspaceCheck {
+    this.#requireStaged()
+    let reference: StagedWorkspaceReference
+    try {
+      reference = verifyStagedWorkspaceReference(value)
+    } catch (error) {
+      return {
+        ok: false,
+        code: "workspace_invalid",
+        message: `Invalid workspace: ${error instanceof Error ? error.message : String(error)}`,
+      }
+    }
+    // The upload's recorded file paths, not its bytes: the bundle was verified once, at
+    // upload, and is verified again where it is used (first admission). A create reads no
+    // payload and hashes nothing, so naming a large source costs no more than a small one.
+    // Only an UPLOADED source is offered: one an admission stored for another thread is not.
+    const files = this.#options.installation.staged.files(reference.sourceDigest)
+    if (!files)
+      return {
+        ok: false,
+        code: "workspace_source_not_held",
+        message: `Workspace source ${reference.sourceDigest} is not held: PUT /workspace/sources/${reference.sourceDigest} first`,
+      }
+    try {
+      stagedWorkspaceFits(reference, files)
+    } catch (error) {
+      return {
+        ok: false,
+        code: "workspace_invalid",
+        message: `Invalid workspace: ${error instanceof Error ? error.message : String(error)}`,
+      }
+    }
+    return { ok: true, reference }
+  }
+  /**
+   * Who uploaded a source: the stamps the policy returned on its uploads, for the
+   * create's policy call (`requestedWorkspace.uploadedBy`). Empty when not uploaded.
+   */
+  stagedUploaders(digest: string): readonly Readonly<Record<string, unknown>>[] {
+    this.#requireStaged()
+    return this.#options.installation.staged.uploaders(digest)
+  }
+  /**
+   * Record a new thread's staged workspace. Refused for a thread that already has
+   * a workspace or a staged reference, and for a source no longer held (reclaimed
+   * since the check): the caller removes the thread row it just wrote.
+   */
+  attachStagedWorkspace(
+    threadId: string,
+    reference: StagedWorkspaceReference,
+  ): StagedWorkspaceAttach {
+    this.#requireStaged()
+    const { installation } = this.#options
+    if (installation.associations.get(threadId))
+      return {
+        ok: false,
+        code: "already_staged",
+        message: `Thread ${threadId} already has a workspace`,
+      }
+    try {
+      installation.staged.attach(threadId, reference)
+      return { ok: true }
+    } catch (error) {
+      if (!(error instanceof WorkspaceStagedSourceError)) throw error
+      return {
+        ok: false,
+        code: error.code === "not_held" ? "workspace_source_not_held" : "already_staged",
+        message: error.message,
+      }
+    }
+  }
+  /**
+   * Forget the workspace a thread was created with. `DELETE /threads/:id` calls it
+   * BEFORE the thread row goes: if the row delete then fails, the thread survives
+   * with no staged workspace (its resolver sees none), and a thread later created
+   * under the same id (run endpoints take client-chosen ids) never inherits it.
+   * Works with the option off, so cleanup never depends on it.
+   */
+  forgetStagedWorkspace(threadId: string): void {
+    this.#assertOpen()
+    this.#options.installation.staged.detach(threadId)
+  }
+  /** Boot sweep: forget the staged reference of every thread whose row no longer exists. */
+  async sweepStagedThreads(
+    exists: (threadId: string) => Promise<boolean>,
+  ): Promise<readonly string[]> {
+    this.#assertOpen()
+    const forgotten: string[] = []
+    for (const threadId of this.#options.installation.staged.threads()) {
+      if (await exists(threadId)) continue
+      this.#options.installation.staged.detach(threadId)
+      forgotten.push(threadId)
+    }
+    return forgotten
+  }
+  /**
+   * Delete held sources nothing references: no association that is not deleted,
+   * no staged thread, not the static definition, and (for an upload) not younger
+   * than the retention window. Synchronous, so it can interleave with an
+   * admission only at an `await`, and admission writes the source and its
+   * association with none between. No-op unless staged workspaces are on.
+   */
+  reclaimStagedSources(): readonly string[] {
+    const staged = this.#options.staged
+    if (!staged) return []
+    this.#assertOpen()
+    const { installation } = this.#options
+    const referenced = new Set<string>()
+    for (const record of installation.associations.list())
+      if (record.state !== "deleted") referenced.add(record.intent.sourceDigest)
+    if (this.#definition) referenced.add(this.#definition.source.digest)
+    return installation.staged.reclaim(Math.max(0, this.#now() - staged.retentionMs), referenced)
   }
   async reapIdle(): Promise<void> {
     this.#assertOpen()
@@ -334,6 +943,9 @@ export class ManagedWorkspaceManager {
     const record = this.#options.installation.associations.get(threadId)
     if (record?.state === "deleting")
       this.#options.installation.associations.completeDelete(threadId, record.revision)
+    // Unconditional and idempotent: a thread deleted before it ever ran has no
+    // association, and its staged reference must not pin a source.
+    this.#options.installation.staged.detach(threadId)
   }
   async settle(threadId: string, signal: AbortSignal | undefined): Promise<void> {
     if (!signal?.aborted) return

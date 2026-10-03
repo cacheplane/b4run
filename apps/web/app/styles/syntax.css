@@ -1,0 +1,37 @@
+/* Generated from lib/shiki-theme.ts by lib/shiki-classes.ts. Do not edit: change the
+   theme, then run `pnpm exec vitest --run -u app/components/docs/docs-syntax-theme.test.ts`.
+   Unlayered on purpose, so a token colour outranks layered rules as the inline
+   style it replaces did. */
+.sh0 {
+  color: #f5f4f0;
+}
+.sh1 {
+  color: #c5d985;
+}
+.sh2 {
+  color: #e5cb9b;
+}
+.sh3 {
+  color: #a3aa99;
+}
+.sh4 {
+  color: #a8d4e0;
+}
+.sh5 {
+  color: #c4c8bc;
+}
+.sh6 {
+  color: #f0ae95;
+}
+.shi {
+  font-style: italic;
+}
+.shb {
+  font-weight: bold;
+}
+.shu {
+  text-decoration: underline;
+}
+.shs {
+  text-decoration: line-through;
+}

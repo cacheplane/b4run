@@ -31,19 +31,20 @@ import {
   breadcrumbJsonLd,
   collectionPageJsonLd,
   siteJsonLd,
+  structuredBreadcrumbs,
   techArticleJsonLd,
 } from "./structured-data"
 
 const seoDirectory = dirname(fileURLToPath(import.meta.url))
 const GETTING_STARTED_PATH = "/docs/getting-started"
 const GETTING_STARTED_DESCRIPTION =
-  "Build a typed B4.run research agent with file-system routes, generated types, local tools, offline tests, and production build targets."
+  "Build your first B4.run agent: scaffold the basic template, write a typed tool, run it with a real model, and test it offline."
 const BLOG_INDEX_DESCRIPTION =
   "Writing on the agent stack, type-safety, and the tools we're building."
 const PRODUCTION_AS_OF = "2026-08-26"
-const HOME_TITLE = "B4.run — Ridiculous speed. Readable code."
+const HOME_TITLE = "B4.run: Ridiculous speed. Readable code."
 const HOME_DESCRIPTION =
-  "Build TypeScript agents with tools, workspaces, sandbox execution, and approval. Inspect a real recorded repair and run the blueprint yourself."
+  "Build TypeScript agents where files are features: tools, planning, memory, skills, subagents and evals. Scaffold your own app with one command."
 const BLOG_CONTENT_DIRECTORY = resolve(seoDirectory, "../../content/blog")
 const REPO_ROOT = resolve(seoDirectory, "../../../..")
 
@@ -133,7 +134,7 @@ describe("homepage SEO", () => {
             type: "image/png",
             width: 1200,
             height: 630,
-            alt: "B4.run — Ridiculous speed. Readable code.",
+            alt: "B4.run: Ridiculous speed. Readable code.",
           },
         ],
       },
@@ -147,7 +148,7 @@ describe("homepage SEO", () => {
             type: "image/png",
             width: 1200,
             height: 630,
-            alt: "B4.run — Ridiculous speed. Readable code.",
+            alt: "B4.run: Ridiculous speed. Readable code.",
           },
         ],
       },
@@ -214,11 +215,11 @@ describe("homepage SEO", () => {
     for (const term of [
       "typescript",
       "tools",
-      "workspaces",
-      "sandboxes",
-      "approval",
-      "recorded",
-      "blueprint",
+      "planning",
+      "memory",
+      "skills",
+      "subagents",
+      "evals",
     ])
       expect(html).toContain(term)
     expect(readFileSync(resolve(seoDirectory, "../layout.tsx"), "utf8")).not.toContain(
@@ -229,9 +230,10 @@ describe("homepage SEO", () => {
 
 describe("production SEO inventory", () => {
   it("applies an explicit UTC as-of date before normalizing posts, tags, and descriptions", () => {
+    // Strip both probe tags so only the scheduled and draft posts can create them.
     const visiblePosts = productionPosts().map((post) => ({
       ...post,
-      tags: post.tags.filter((tag) => tag !== "typescript"),
+      tags: post.tags.filter((tag) => tag !== "typescript" && tag !== "patterns"),
     }))
     const sourcePost = visiblePosts[0]
     expect(sourcePost).toBeDefined()
@@ -279,14 +281,14 @@ describe("production SEO inventory", () => {
     expect(before.map(({ path }) => path)).not.toContain("/blog/draft-inventory-post")
     expect(before.map(({ path }) => path)).not.toContain("/blog/tags/typescript")
     expect(before.map(({ path }) => path)).not.toContain("/blog/tags/patterns")
-    expect(before).toHaveLength(83)
+    expect(before).toHaveLength(91)
     expectNormalizedDescriptions(before)
     for (const pages of [publicationDate, after]) {
       expect(pages.map(({ path }) => path)).toContain("/blog/scheduled-inventory-post")
       expect(pages.map(({ path }) => path)).not.toContain("/blog/draft-inventory-post")
       expect(pages.map(({ path }) => path)).toContain("/blog/tags/typescript")
       expect(pages.map(({ path }) => path)).not.toContain("/blog/tags/patterns")
-      expect(pages).toHaveLength(85)
+      expect(pages).toHaveLength(93)
       expectNormalizedDescriptions(pages)
     }
   })
@@ -330,7 +332,7 @@ describe("production SEO inventory", () => {
     }
   })
 
-  it("builds one normalized route-kind union for the current 84 indexable routes", () => {
+  it("builds one normalized route-kind union for the current 92 indexable routes", () => {
     const buildSeoPageInventory = Reflect.get(seoResolvers, "buildSeoPageInventory")
     expect(buildSeoPageInventory).toBeTypeOf("function")
     if (typeof buildSeoPageInventory !== "function") return
@@ -344,24 +346,29 @@ describe("production SEO inventory", () => {
       "/",
       "/blog",
       ...ALL_DOCS_PAGES.map(({ href }) => href),
+      "/blog/b4-0-8-framework-around-the-agent",
+      "/blog/b4-at-the-edge",
       "/blog/eve-validates-the-shape",
+      "/blog/b4-0-4-release",
       "/blog/app-router-for-ai-agents",
       "/blog/why-we-built-b4",
-      "/blog/tags/philosophy",
       "/blog/tags/agents",
       "/blog/tags/typescript",
+      "/blog/tags/philosophy",
+      "/blog/tags/releases",
+      "/blog/tags/patterns",
     ])
-    expect(pages).toHaveLength(84)
+    expect(pages).toHaveLength(93)
     expect(pages.map(({ routeKind }) => routeKind)).toEqual([
       "home",
       "blog-index",
-      ...Array.from({ length: 76 }, () => "docs"),
-      ...Array.from({ length: 3 }, () => "blog-post"),
-      ...Array.from({ length: 3 }, () => "blog-tag"),
+      ...Array.from({ length: 80 }, () => "docs"),
+      ...Array.from({ length: 6 }, () => "blog-post"),
+      ...Array.from({ length: 5 }, () => "blog-tag"),
     ])
   })
 
-  it("keeps all 84 production descriptions normalized and globally unique", () => {
+  it("keeps all 93 production descriptions normalized and globally unique", () => {
     const buildSeoPageInventory = Reflect.get(seoResolvers, "buildSeoPageInventory")
     expect(buildSeoPageInventory).toBeTypeOf("function")
     if (typeof buildSeoPageInventory !== "function") return
@@ -370,7 +377,7 @@ describe("production SEO inventory", () => {
       readonly path: string
       readonly description: string
     }[]
-    expect(pages).toHaveLength(84)
+    expect(pages).toHaveLength(93)
     expectNormalizedDescriptions(pages)
   })
 })
@@ -404,8 +411,8 @@ describe("blog SEO API", () => {
     )
     const postPages = posts.map(resolveBlogSeoPage)
 
-    expect(posts).toHaveLength(3)
-    expect(tags).toEqual(["agents", "philosophy", "typescript"])
+    expect(posts).toHaveLength(6)
+    expect(tags).toEqual(["agents", "patterns", "philosophy", "releases", "typescript"])
     expect([
       resolveBlogIndexSeoPage().path,
       ...tagPages.map((page) => page.path),
@@ -413,9 +420,14 @@ describe("blog SEO API", () => {
     ]).toEqual([
       "/blog",
       "/blog/tags/agents",
+      "/blog/tags/patterns",
       "/blog/tags/philosophy",
+      "/blog/tags/releases",
       "/blog/tags/typescript",
+      "/blog/b4-0-8-framework-around-the-agent",
+      "/blog/b4-at-the-edge",
       "/blog/eve-validates-the-shape",
+      "/blog/b4-0-4-release",
       "/blog/app-router-for-ai-agents",
       "/blog/why-we-built-b4",
     ])
@@ -436,7 +448,20 @@ describe("blog SEO API", () => {
       expectValidDescription(description)
       expect(description).toContain(tag)
       expect(description).toContain(String(posts.length))
-      for (const post of posts) expect(description).toContain(post.title)
+      // Every title is listed when the titled form fits in 155 characters.
+      // Only then does the description fall back to a count-only summary.
+      const noun = posts.length === 1 ? "post" : "posts"
+      const titled = `Read ${posts.length} B4.run blog ${noun} tagged "${tag}": ${posts
+        .map((post) => post.title)
+        .join("; ")}.`
+      if (titled.length <= 155) {
+        expect(description).toBe(titled)
+        for (const post of posts) expect(description).toContain(post.title)
+      } else {
+        expect(description).toBe(
+          `Read ${posts.length} published B4.run blog ${noun} tagged "${tag}", selected from the current production-visible article collection.`,
+        )
+      }
       return description
     })
     expect(new Set(tagDescriptions).size).toBe(tagDescriptions.length)
@@ -619,6 +644,34 @@ describe("blog SEO API", () => {
   })
 })
 
+describe("docs social images", () => {
+  it("points every docs page's Open Graph and Twitter image at its own prerendered card", () => {
+    const urls = new Set<string>()
+    for (const page of Object.values(DOCS_SEO_PAGES)) {
+      const metadata = toMetadata(page)
+      const expected = {
+        url: `/og${page.path}`,
+        type: "image/png",
+        width: 1200,
+        height: 630,
+        alt: `${page.title} · B4.run docs`,
+      }
+
+      expect(metadata.openGraph?.images).toEqual([expected])
+      expect(metadata.twitter?.images).toEqual([expected])
+      urls.add(expected.url)
+    }
+    expect(urls.size).toBe(ALL_DOCS_PAGES.length)
+  })
+
+  it("keeps the site card on the homepage", () => {
+    const home = resolveStaticSeoPage("/")
+    expect(toMetadata(home).openGraph?.images).toEqual([
+      expect.objectContaining({ url: "/opengraph-image" }),
+    ])
+  })
+})
+
 describe("static SEO pages", () => {
   it("resolves one normalized Getting Started description across metadata and TechArticle data", () => {
     const page = resolveStaticSeoPage(GETTING_STARTED_PATH)
@@ -652,11 +705,11 @@ describe("static SEO pages", () => {
         description: GETTING_STARTED_DESCRIPTION,
         images: [
           {
-            url: "/opengraph-image",
+            url: "/og/docs/getting-started",
             type: "image/png",
             width: 1200,
             height: 630,
-            alt: "B4.run — Ridiculous speed. Readable code.",
+            alt: "Getting Started · B4.run docs",
           },
         ],
       },
@@ -666,11 +719,11 @@ describe("static SEO pages", () => {
         description: GETTING_STARTED_DESCRIPTION,
         images: [
           {
-            url: "/opengraph-image",
+            url: "/og/docs/getting-started",
             type: "image/png",
             width: 1200,
             height: 630,
-            alt: "B4.run — Ridiculous speed. Readable code.",
+            alt: "Getting Started · B4.run docs",
           },
         ],
       },
@@ -696,18 +749,23 @@ describe("static SEO pages", () => {
       const visibleBreadcrumbs = breadcrumbsFor(href)
       const visibleMarkup = renderToStaticMarkup(createElement(DocsBreadcrumb, { href }))
       const visibleLabels = [...visibleMarkup.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/g)].map(
-        (match) => match[1]?.match(/<(?:a [^>]*|span class="text-ink-muted")>([^<]+)</)?.[1] ?? "",
+        (match) =>
+          match[1]?.match(/<(?:a [^>]*|span class="text-ink-muted"[^>]*)>([^<]+)</)?.[1] ?? "",
       )
       const breadcrumbItems = breadcrumbJsonLd(page).itemListElement
 
-      expect(page.breadcrumbs, `${href} shared visible trail`).toEqual(visibleBreadcrumbs)
+      expect(page.breadcrumbs, `${href} shared visible trail`).toEqual([
+        { label: "Home", href: "/" },
+        ...visibleBreadcrumbs,
+      ])
       expect(visibleLabels, `${href} rendered visible labels`).toEqual(
         visibleBreadcrumbs.map(({ label: crumbLabel }) => crumbLabel),
       )
       expect(
         breadcrumbItems.map(({ name }) => name),
         `${href} JSON-LD labels and order`,
-      ).toEqual(visibleBreadcrumbs.map(({ label: crumbLabel }) => crumbLabel))
+      ).toEqual(structuredBreadcrumbs(page.breadcrumbs).map(({ label: crumbLabel }) => crumbLabel))
+      expect(breadcrumbItems.length, `${href} at least two items`).toBeGreaterThanOrEqual(2)
       expect(breadcrumbItems.at(-1), `${href} current-page crumb`).toEqual({
         "@type": "ListItem",
         position: breadcrumbItems.length,
@@ -730,11 +788,11 @@ describe("static SEO pages", () => {
     expect(resolveStaticSeoPage("/docs/not-registered")).toBeUndefined()
   })
 
-  it("registers exactly the 76 authored docs routes without the redirect", () => {
+  it("registers exactly the 80 authored docs routes without the redirect", () => {
     const expectedHrefs = ALL_DOCS_PAGES.map(({ href }) => href).sort()
     const registeredHrefs = Object.keys(DOCS_SEO_PAGES).sort()
 
-    expect(expectedHrefs).toHaveLength(76)
+    expect(expectedHrefs).toHaveLength(80)
     expect(registeredHrefs).toEqual(expectedHrefs)
     expect(registeredHrefs).not.toContain("/docs")
   })
@@ -767,7 +825,7 @@ describe("static SEO pages", () => {
   it("uses one unique, normalized, query-answering description per docs route", () => {
     const descriptions = Object.values(DOCS_SEO_PAGES).map((page) => page.description)
 
-    expect(descriptions).toHaveLength(76)
+    expect(descriptions).toHaveLength(80)
     expect(new Set(descriptions).size).toBe(descriptions.length)
     for (const description of descriptions) {
       expect(description).toBe(description.trim())
@@ -860,5 +918,44 @@ describe("JsonLd", () => {
     expect(html).toContain('type="application/ld+json"')
     expect(html).toContain("\\u003c/script>\\u003cscript>alert(1)\\u003c/script>")
     expect(html).not.toContain("</script><script>")
+  })
+})
+
+describe("article structured data completeness", () => {
+  it("gives every BlogPosting a social image and a modification date", () => {
+    for (const post of authoredPosts()) {
+      const page = resolveBlogSeoPage(post)
+      const entity = blogPostingJsonLd(page)
+
+      expect(entity.dateModified).toBe(page.lastModified)
+      expect(Number.isNaN(Date.parse(entity.dateModified))).toBe(false)
+      expect(entity.image).toBe(
+        post.ogImage !== undefined
+          ? new URL(post.ogImage, page.canonical).href
+          : `${page.canonical}/opengraph-image`,
+      )
+      expect(entity.image).toMatch(/^https:\/\/b4\.run\//)
+    }
+  })
+
+  it("prefers a post's explicit social image", () => {
+    const post = authoredPosts()[0]
+    if (!post) throw new Error("Expected an authored blog post")
+
+    const entity = blogPostingJsonLd(resolveBlogSeoPage({ ...post, ogImage: "/brand/card.png" }))
+    expect(entity.image).toBe("https://b4.run/brand/card.png")
+  })
+
+  it("identifies every TechArticle and credits the site organization", () => {
+    for (const page of Object.values(DOCS_SEO_PAGES)) {
+      const entity = techArticleJsonLd(page)
+
+      expect(entity["@id"]).toBe(`${page.canonical}#article`)
+      expect(entity.author).toEqual({ "@id": "https://b4.run/#organization" })
+      expect(entity.publisher).toEqual({ "@id": "https://b4.run/#organization" })
+      expect(entity.isPartOf).toEqual({ "@id": "https://b4.run/#website" })
+      expect(entity.image).toBe(`https://b4.run/og${page.path}`)
+    }
+    expect(siteJsonLd()["@graph"][0]["@id"]).toBe("https://b4.run/#organization")
   })
 })

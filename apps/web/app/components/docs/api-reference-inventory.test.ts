@@ -1968,7 +1968,7 @@ describe("foundational API reference pages", { timeout: 30_000 }, () => {
       "generated-routes.state-conditional",
       "generated-routes.tool-signatures",
       "ag-ui.activities.plan-snapshot",
-      "ag-ui.activities.subagent-privacy",
+      "ag-ui.subagents.lifecycle",
       "ag-ui.outbound.errors-as-events",
       "ag-ui.inbound.lossless-input",
       "memory.namespace.stable-encoding",
@@ -1986,6 +1986,7 @@ describe("foundational API reference pages", { timeout: 30_000 }, () => {
       "permissions.match.prefix",
       "permissions.tool.exact",
       "permissions.subagent.exact",
+      "permissions.clientTool.exact",
       "permissions.store.noninteractive",
       "workspace.compose.order",
       "workspace.exec.timeout",
@@ -2007,19 +2008,15 @@ describe("foundational API reference pages", { timeout: 30_000 }, () => {
     ])
   })
 
-  it("keeps AG-UI activity identifiers, payloads, and privacy behavior source-coupled", () => {
+  it("keeps AG-UI activity identifiers, payloads, and subagent lifecycle behavior source-coupled", () => {
     const content = foundationalContent("ag-ui")
-    for (const exportName of [
-      "B4_PLAN_ACTIVITY_TYPE",
-      "B4_SUBAGENT_ACTIVITY_TYPE",
-      "B4PlanActivityContent",
-      "B4SubagentActivityContent",
-    ]) {
+    for (const exportName of ["B4_PLAN_ACTIVITY_TYPE", "B4PlanActivityContent"]) {
       expect(content).toContain(`| \`${exportName}\` |`)
       expect(API_REQUIRED_CONTRACT_KEYS).toContain(`@b4run/ag-ui#.:${exportName}`)
     }
     expect(content).toContain("complete replacement snapshot")
-    expect(content).toContain("never includes child prompts, prose, tool inputs, tool outputs")
+    expect(content).toContain("before any event is attributed to it")
+    expect(content).toContain("every announced invocation closes before `RUN_FINISHED`")
   })
 })
 
@@ -2141,7 +2138,7 @@ describe("package API reference pages", { timeout: 30_000 }, () => {
 
   it("installs Vitest before showing the Sandbox testing subpath import", () => {
     const content = foundationalContent("sandbox")
-    const install = content.indexOf("pnpm add -D vitest")
+    const install = content.indexOf("npm install -D vitest")
     const testingImport = content.indexOf('from "@b4run/sandbox/testing"')
     expect(install).toBeGreaterThan(-1)
     expect(testingImport).toBeGreaterThan(install)
@@ -2231,12 +2228,14 @@ describe("package API reference pages", { timeout: 30_000 }, () => {
 
   it("keeps Permissions and Workspace lifecycle and trust boundaries explicit", () => {
     const permissions = foundationalContent("permissions")
-    expect(permissions).toContain("Reserved `tool` and `subagent` keys use exact matching")
+    expect(permissions).toContain(
+      "Reserved `tool`, `subagent` and `clientTool` keys use exact matching",
+    )
     expect(permissions).toContain("await `store.load()` before any store use")
     expect(permissions).toContain("especially before `addAllow()`")
     expect(permissions).not.toContain("Call `load()` before matching")
     expect(permissions).toContain("Only `addAllow()` persists a runtime decision")
-    expect(permissions).toContain("inline input object is public; `CreateOptions` is not exported")
+    expect(permissions).toContain("inline input object is public. `CreateOptions` is not exported")
 
     const workspace = foundationalContent("workspace")
     expect(workspace).toContain("Core owns the path jail")
@@ -2314,7 +2313,7 @@ describe("package API reference pages", { timeout: 30_000 }, () => {
       "validateBrowseQuery(query, { maxLimit: BROWSE_MAX_LIMIT })",
     )
     expect(foundationalContent("memory")).toContain(
-      "SQLite stores memory rows—including content, data, source, and tags—as plaintext",
+      "SQLite stores memory rows (including content, data, source, and tags) as plaintext",
     )
     expect(foundationalContent("memory")).toContain(
       "Low-level `MemoryStore` implementations can store typed procedural records",
@@ -2454,7 +2453,7 @@ ${packageExample("memory-pgvector").replace(
       "generated-routes.state-conditional",
       "generated-routes.tool-signatures",
       "ag-ui.activities.plan-snapshot",
-      "ag-ui.activities.subagent-privacy",
+      "ag-ui.subagents.lifecycle",
       "ag-ui.outbound.errors-as-events",
       "ag-ui.inbound.lossless-input",
       "memory.namespace.stable-encoding",
@@ -2472,6 +2471,7 @@ ${packageExample("memory-pgvector").replace(
       "permissions.match.prefix",
       "permissions.tool.exact",
       "permissions.subagent.exact",
+      "permissions.clientTool.exact",
       "permissions.store.noninteractive",
       "workspace.compose.order",
       "workspace.exec.timeout",

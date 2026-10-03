@@ -31,6 +31,8 @@ export async function defaultSummarize(args: {
   readonly model: string
   readonly previousSummary?: string
   readonly signal: AbortSignal
+  /** The chat model's `maxRetries`; the route's `retry.maxAttempts - 1`. */
+  readonly maxRetries?: number
   /** Test seam: override the model invocation. */
   readonly invokeModel?: (prompt: string) => Promise<string>
 }): Promise<string> {
@@ -38,7 +40,11 @@ export async function defaultSummarize(args: {
   if (args.invokeModel) return args.invokeModel(prompt)
 
   const provider = resolveProvider({ model: args.model })
-  const llm = (await createChatModel({ model: args.model, provider })) as {
+  const llm = (await createChatModel({
+    model: args.model,
+    provider,
+    ...(args.maxRetries !== undefined ? { maxRetries: args.maxRetries } : {}),
+  })) as {
     invoke: (input: unknown, options?: unknown) => Promise<{ content: unknown }>
   }
   const res = await llm.invoke([{ role: "user", content: prompt }], { signal: args.signal })

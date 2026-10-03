@@ -1,5 +1,64 @@
 # @dawn-ai/vite-plugin
 
+## 0.13.1
+
+### Patch Changes
+
+- Updated dependencies [f9350c4]
+- Updated dependencies [a683816]
+- Updated dependencies [17f16ea]
+- Updated dependencies [3b1be6e]
+  - @b4run/core@0.13.1
+
+## 0.13.0
+
+### Patch Changes
+
+- Updated dependencies [0d06d72]
+  - @b4run/core@0.13.0
+
+## 0.12.0
+
+### Patch Changes
+
+- Updated dependencies [ef4c901]
+- Updated dependencies [7f81d24]
+  - @b4run/core@0.12.0
+
+## 0.11.2
+
+### Patch Changes
+
+- @b4run/core@0.11.2
+
+## 0.11.1
+
+### Patch Changes
+
+- @b4run/core@0.11.1
+
+## 0.11.0
+
+### Patch Changes
+
+- Updated dependencies [a30db23]
+- Updated dependencies [54aa602]
+  - @b4run/core@0.11.0
+
+## 0.10.0
+
+### Patch Changes
+
+- @b4run/core@0.10.0
+
+## 0.9.0
+
+### Patch Changes
+
+- 9927409: Derive tool schemas with the app's own `tsconfig.json` and fail loudly on unresolved input types. The tool program `extractToolSchemasForRoute` / `extractToolTypesForRoute` build now reads the nearest `tsconfig.json` above the app root (honoring `extends`, `paths`, and `baseUrl`; an explicit `tsconfig` option is also accepted), so an input type imported through a path alias no longer resolves to `any` and derives its real schema. When a declared input type still resolves to `any`/`unknown`, or an import it depends on does not resolve, extraction throws `UnresolvedToolInputTypeError` naming the tool file, the type, and the tsconfig used; `b4 typegen` and `b4 verify` surface it as a failure instead of writing `{ properties: {} }`. Tools that take no input (`{}`, `Record<string, never>`, no parameter) keep working.
+- Updated dependencies [9927409]
+  - @b4run/core@0.9.0
+
 ## 0.8.36
 
 ### Patch Changes

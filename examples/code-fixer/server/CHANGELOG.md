@@ -1,5 +1,114 @@
 # @b4-example/code-fixer-server
 
+## 0.0.13
+
+### Patch Changes
+
+- Updated dependencies [f9350c4]
+- Updated dependencies [0c76234]
+- Updated dependencies [216befd]
+- Updated dependencies [a683816]
+- Updated dependencies [17f16ea]
+- Updated dependencies [3b1be6e]
+- Updated dependencies [c7282f4]
+- Updated dependencies [b0605d7]
+  - @b4run/sdk@0.13.1
+  - @b4run/cli@0.13.1
+  - @b4run/workspace@0.13.1
+  - @b4run/sandbox@0.13.1
+
+## 0.0.12
+
+### Patch Changes
+
+- Updated dependencies [f2ee6cf]
+- Updated dependencies [1f335b1]
+- Updated dependencies [0781125]
+- Updated dependencies [c301d77]
+- Updated dependencies [5260ecb]
+- Updated dependencies [3b489a5]
+- Updated dependencies [0dd8fff]
+- Updated dependencies [90b68be]
+- Updated dependencies [1da86ae]
+- Updated dependencies [79c5f63]
+- Updated dependencies [03795da]
+- Updated dependencies [fcf6d83]
+  - @b4run/workspace@0.13.0
+  - @b4run/sandbox@0.13.0
+  - @b4run/cli@0.13.0
+  - @b4run/sdk@0.13.0
+
+## 0.0.11
+
+### Patch Changes
+
+- Updated dependencies [ef4c901]
+- Updated dependencies [7f81d24]
+  - @b4run/cli@0.12.0
+  - @b4run/sandbox@0.12.0
+  - @b4run/sdk@0.12.0
+  - @b4run/workspace@0.12.0
+
+## 0.0.10
+
+### Patch Changes
+
+- Updated dependencies
+  - @b4run/cli@0.11.2
+  - @b4run/sandbox@0.11.2
+  - @b4run/sdk@0.11.2
+  - @b4run/workspace@0.11.2
+
+## 0.0.9
+
+### Patch Changes
+
+- Updated dependencies [837bcfb]
+- Updated dependencies [c282336]
+  - @b4run/cli@0.11.1
+  - @b4run/sdk@0.11.1
+  - @b4run/sandbox@0.11.1
+  - @b4run/workspace@0.11.1
+
+## 0.0.8
+
+### Patch Changes
+
+- Updated dependencies [a30db23]
+- Updated dependencies [0093dea]
+- Updated dependencies [54aa602]
+  - @b4run/cli@0.11.0
+  - @b4run/sandbox@0.11.0
+  - @b4run/sdk@0.11.0
+  - @b4run/workspace@0.11.0
+
+## 0.0.7
+
+### Patch Changes
+
+- Updated dependencies [185ae3c]
+- Updated dependencies [1cadde8]
+- Updated dependencies [71bccb3]
+  - @b4run/sandbox@0.10.0
+  - @b4run/cli@0.10.0
+  - @b4run/workspace@0.10.0
+  - @b4run/sdk@0.10.0
+
+## 0.0.6
+
+### Patch Changes
+
+- Updated dependencies [7c9627f]
+- Updated dependencies [67b18fe]
+- Updated dependencies [516c038]
+- Updated dependencies [6a59e00]
+- Updated dependencies [7410154]
+- Updated dependencies [9927409]
+  - @b4run/cli@0.9.0
+  - @b4run/sdk@0.9.0
+  - @b4run/workspace@0.9.0
+  - @b4run/sandbox@0.9.0
+
 ## 0.0.5
 
 ### Patch Changes

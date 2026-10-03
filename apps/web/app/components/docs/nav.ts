@@ -27,32 +27,44 @@ export const DOCS_NAV = [
       { label: "Tools", href: "/docs/tools" },
       { label: "State", href: "/docs/state" },
       { label: "Workspace Filesystem", href: "/docs/workspace" },
+      { label: "Middleware", href: "/docs/middleware" },
+      { label: "Dev Server", href: "/docs/dev-server" },
+    ],
+  },
+  {
+    label: "Agent Capabilities",
+    items: [
+      { label: "Planning", href: "/docs/planning" },
+      { label: "Skills", href: "/docs/skills" },
+      { label: "Subagents", href: "/docs/subagents" },
+      { label: "Context Management", href: "/docs/context-management" },
+      { label: "Reasoning", href: "/docs/reasoning-effort" },
+      { label: "Retry", href: "/docs/retry" },
+    ],
+  },
+  {
+    label: "Memory",
+    items: [
       { label: "Memory", href: "/docs/memory" },
       { label: "Long-term Memory", href: "/docs/memory/long-term" },
       { label: "Recall and Retrieval", href: "/docs/memory/retrieval" },
       { label: "Episodes", href: "/docs/memory/episodes" },
       { label: "Distillation", href: "/docs/memory/distillation" },
-      { label: "Planning", href: "/docs/planning" },
-      { label: "Skills", href: "/docs/skills" },
-      { label: "Subagents", href: "/docs/subagents" },
-      { label: "Context Management", href: "/docs/context-management" },
-      { label: "Reasoning Effort", href: "/docs/reasoning-effort" },
+      { label: "Browse and Manage Memory", href: "/docs/memory/browse" },
     ],
   },
   {
-    label: "Integrate",
+    label: "Connect Clients",
     items: [
-      { label: "Dev Server", href: "/docs/dev-server" },
       { label: "Agent Protocol", href: "/docs/dev-server/agent-protocol" },
-      { label: "Middleware", href: "/docs/middleware" },
       { label: "AG-UI and Web Clients", href: "/docs/ag-ui" },
       { label: "Embed the Runtime", href: "/docs/embedding" },
-      { label: "Blueprints", href: "/docs/blueprints" },
     ],
   },
   {
-    label: "Test",
+    label: "Test and Evaluate",
     items: [
+      { label: "Testing Overview", href: "/docs/testing-overview" },
       { label: "Scenario Testing", href: "/docs/testing" },
       { label: "Agent Test Harness", href: "/docs/testing-agents" },
       { label: "Fixtures and Recording", href: "/docs/testing-agents/fixtures" },
@@ -60,19 +72,15 @@ export const DOCS_NAV = [
     ],
   },
   {
-    label: "Operate",
+    label: "Secure",
     items: [
-      { label: "Persistence and Tenancy", href: "/docs/persistence" },
-      { label: "Production Topology", href: "/docs/production-topology" },
       { label: "Security Architecture", href: "/docs/security-architecture" },
-      { label: "Access Control", href: "/docs/access-control" },
       { label: "Thread Access", href: "/docs/thread-access" },
+      { label: "Access Control", href: "/docs/access-control" },
       { label: "Permissions", href: "/docs/permissions" },
-      { label: "Retry", href: "/docs/retry" },
-      { label: "Observability", href: "/docs/observability" },
-      { label: "Inspector", href: "/docs/inspector" },
-      { label: "Browse and Manage Memory", href: "/docs/memory/browse" },
-      { label: "Upgrading", href: "/docs/upgrading" },
+      { label: "Approval Grants", href: "/docs/approval-grants" },
+      { label: "Execution Sandbox", href: "/docs/sandbox" },
+      { label: "Kubernetes Sandbox", href: "/docs/sandbox/kubernetes" },
     ],
   },
   {
@@ -81,11 +89,20 @@ export const DOCS_NAV = [
       { label: "Deployment Options", href: "/docs/deployment" },
       { label: "Node and Docker", href: "/docs/deployment/node" },
       { label: "Kubernetes", href: "/docs/deployment/kubernetes" },
-      { label: "LangSmith", href: "/docs/deployment/langsmith" },
-      { label: "Edge and Hono", href: "/docs/deployment/edge" },
       { label: "Vercel", href: "/docs/deployment/vercel" },
-      { label: "Execution Sandbox", href: "/docs/sandbox" },
-      { label: "Kubernetes Sandbox", href: "/docs/sandbox/kubernetes" },
+      { label: "Edge and Hono", href: "/docs/deployment/edge" },
+      { label: "LangSmith", href: "/docs/deployment/langsmith" },
+    ],
+  },
+  {
+    label: "Operate",
+    items: [
+      { label: "Persistence and Tenancy", href: "/docs/persistence" },
+      { label: "Production Topology", href: "/docs/production-topology" },
+      { label: "Observability", href: "/docs/observability" },
+      { label: "Inspector", href: "/docs/inspector" },
+      { label: "Troubleshooting", href: "/docs/troubleshooting" },
+      { label: "Upgrading", href: "/docs/upgrading" },
     ],
   },
   {
@@ -98,7 +115,9 @@ export const DOCS_NAV = [
       { label: "Stream Output", href: "/docs/recipes/stream-output" },
       { label: "Retry Transient Model Calls", href: "/docs/recipes/retry-flaky-tools" },
       { label: "Dispatch from a Route", href: "/docs/recipes/dispatch-from-route" },
+      { label: "Build a Research Assistant", href: "/docs/recipes/research-assistant" },
       { label: "Research Assistant Web UI", href: "/docs/recipes/research-web-ui" },
+      { label: "Blueprints", href: "/docs/blueprints" },
     ],
   },
   {
@@ -133,29 +152,38 @@ export interface DocsCrumb {
   readonly href?: string
 }
 
-// Build breadcrumbs for a given href. Every ancestor is a real route and the
-// current page is the final, unlinked crumb.
+const DOCS_HOME = "/docs/getting-started"
+
+// Build breadcrumbs for a given href: Docs / <nav section> / <page>. The
+// section is a label, not a route, so it is left unlinked; every other
+// ancestor links to a real route and the current page is the final, unlinked
+// crumb. Docs links to the first page, so on that page Docs is unlinked too
+// rather than linking to itself.
 export function breadcrumbsFor(href: string): readonly DocsCrumb[] {
+  const DOCS_CRUMB: DocsCrumb =
+    href === DOCS_HOME ? { label: "Docs" } : { label: "Docs", href: DOCS_HOME }
   const referencePage = API_REFERENCE_PAGES.find((page) => page.href === href)
   if (referencePage) {
+    const hub = sectionFor(referencePage.parent.href)
     return [
-      { label: "Home", href: "/" },
-      {
-        label: "Docs",
-        href: "/docs/getting-started",
-      },
+      DOCS_CRUMB,
+      ...(hub ? [{ label: hub.label }] : []),
       { label: referencePage.parent.label, href: referencePage.parent.href },
       { label: referencePage.label },
     ]
   }
 
   const page = DOCS_PAGES.find((item) => item.href === href)
-  const crumbs: DocsCrumb[] = [{ label: "Home", href: "/" }]
-  if (href !== "/docs/getting-started") {
-    crumbs.push({ label: "Docs", href: "/docs/getting-started" })
-  }
-  if (page) crumbs.push({ label: page.label })
-  return crumbs
+  const section = sectionFor(href)
+  return [
+    DOCS_CRUMB,
+    ...(section ? [{ label: section.label }] : []),
+    ...(page ? [{ label: page.label }] : []),
+  ]
+}
+
+function sectionFor(href: string): DocsNavSection | undefined {
+  return DOCS_NAV.find((section) => section.items.some((item) => item.href === href))
 }
 
 export function siblingsFor(href: string): {

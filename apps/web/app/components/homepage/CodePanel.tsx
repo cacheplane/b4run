@@ -1,5 +1,6 @@
 "use client"
 import { useState } from "react"
+import { hangForHtml } from "./code-hang"
 import styles from "./homepage.module.css"
 import type { DisplayCode } from "./types"
 
@@ -17,16 +18,16 @@ export function CodePanel({
       await navigator.clipboard.writeText(code.raw)
       setCopy("Copied")
     } catch {
-      setCopy("Copy unavailable — select the source below.")
+      setCopy("Copy unavailable. Select the source below.")
     }
   }
   return (
-    <section className={styles.codePanel} aria-label={code.path}>
+    <section className={styles.codePanel} aria-label={code.label ?? code.path}>
       <div className={styles.codeHeading}>
         <span>{code.path}</span>
         {code.url && (
           <a href={code.url} target="_blank" rel="noopener noreferrer">
-            {code.linkLabel ?? "Full source"} ↗
+            {code.linkLabel ?? "Full source"}
           </a>
         )}
       </div>
@@ -37,7 +38,7 @@ export function CodePanel({
           aria-expanded={expanded}
           onClick={() => setExpanded(!expanded)}
         >
-          {expanded ? "Hide instructions" : "Show instructions"} · exact source
+          {expanded ? "Hide instructions" : "Show instructions"}
         </button>
       )}
       {/* biome-ignore lint/a11y/noNoninteractiveTabindex: Keyboard users can scroll long source lines in this named code region. */}
@@ -66,7 +67,7 @@ export function CodePanel({
                   {line}
                 </span>
                 {/* biome-ignore lint/security/noDangerouslySetInnerHtml: Only server-produced Shiki tokens; highlightCode escapes all source text. */}
-                <span dangerouslySetInnerHTML={{ __html: html }} />
+                <span data-hang={hangForHtml(html)} dangerouslySetInnerHTML={{ __html: html }} />
               </span>
             )
           })}

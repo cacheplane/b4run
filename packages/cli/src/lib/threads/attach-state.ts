@@ -14,6 +14,15 @@ export interface AttachInterrupt {
   readonly interruptId: string
   readonly resumeKey: string
   readonly value: unknown
+  /**
+   * The single-use approval grant for this parked call, when the runtime
+   * minted one. Echo it opaquely on the matching resume entry.
+   *
+   * Absent for an interrupt parked before approval grants were enabled, and
+   * absent whenever `approvals.grants` is `"off"` — so a client must treat it
+   * as optional and simply forward it when present.
+   */
+  readonly grant?: string
 }
 
 /** The reducer-shaped view of a `state` frame, regardless of durable/live path. */
@@ -55,7 +64,15 @@ function parseInterrupt(value: unknown): AttachInterrupt | null {
   const interruptId = readString(value, "interruptId")
   const resumeKey = readString(value, "resumeKey")
   if (interruptId === null || resumeKey === null) return null
-  return { interruptId, resumeKey, value: Object.hasOwn(value, "value") ? value.value : undefined }
+  // Read with the same guard as every other field: a version-skewed or
+  // malformed frame must degrade to "no grant" rather than crash the CLI.
+  const grant = readString(value, "grant")
+  return {
+    interruptId,
+    resumeKey,
+    value: Object.hasOwn(value, "value") ? value.value : undefined,
+    ...(grant !== null ? { grant } : {}),
+  }
 }
 
 function parseInterrupts(value: unknown): AttachInterrupt[] {

@@ -27,7 +27,7 @@ const tempDirs: string[] = []
 
 afterEach(async () => {
   permissionStores.length = 0
-  vi.doUnmock("@langchain/langgraph/prebuilt")
+  vi.doUnmock("langchain")
   vi.doUnmock("@langchain/openai")
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { force: true, recursive: true })))
 })
@@ -36,13 +36,16 @@ describe("subagent permission store inheritance", () => {
   it("shares one store and write queue across concurrent parent and child always decisions", async () => {
     const appRoot = await fixtureApp()
     const signal = new AbortController().signal
-    const createReactAgent = vi.fn((options: unknown) => ({
+    const createAgent = vi.fn((options: unknown) => ({
       invoke: vi.fn(async () => ({
         messages: [{ content: "Child complete." }],
       })),
       options,
     }))
-    vi.doMock("@langchain/langgraph/prebuilt", () => ({ createReactAgent }))
+    vi.doMock("langchain", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("langchain")>()),
+      createAgent,
+    }))
     vi.doMock("@langchain/openai", () => ({ ChatOpenAI: class {} }))
 
     await materializeResolvedRouteGraph({
@@ -52,7 +55,7 @@ describe("subagent permission store inheritance", () => {
       routePath: "/parent",
       signal,
     })
-    const task = findTaskTool(createReactAgent.mock.calls[0]?.[0])
+    const task = findTaskTool(createAgent.mock.calls[0]?.[0])
     await task.func({ input: "Inspect", subagent: "child" }, undefined, {
       configurable: { thread_id: "permission-thread" },
       signal,

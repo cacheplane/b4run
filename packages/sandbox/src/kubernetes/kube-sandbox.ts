@@ -143,9 +143,9 @@ export function kubernetesSandbox(opts: KubernetesSandboxOptions): SandboxProvid
 
     // Egress policy (best-effort — depends on a policy-capable CNI; preflight warns).
     // SandboxPolicy["network"]: mode "deny" is default-closed (an optional `allowlist`
-    // carves out exceptions); mode "allow" is default-open (a `denylist` would carve
-    // out exceptions, but KubeNetworkPolicySpec doesn't model that yet — out of scope,
-    // matching Docker's bare-allow-is-open baseline).
+    // carves out exceptions); mode "allow" is default-open and emits no policy, so a
+    // `denylist` is ignored, as in Docker. Only the b4-sandbox-infra chart's
+    // default-deny egress backstop restricts an allow-mode Pod.
     const wantsPolicy = policy.network.mode === "deny"
     if (wantsPolicy) {
       await client.upsertNamespacedNetworkPolicy(ns, {

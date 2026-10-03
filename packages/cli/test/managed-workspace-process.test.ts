@@ -7,17 +7,19 @@ import { join } from "node:path"
 import { dockerSandbox } from "@b4run/sandbox"
 import { expect, it } from "vitest"
 import { cleanupWorkspaces } from "../src/lib/runtime/cleanup-workspaces.ts"
+import { managedTestImage } from "./fixtures/managed-test-image.ts"
 
 it.skipIf(process.env.B4_TEST_DOCKER !== "1")(
   "recovers a real HTTP runtime and Docker edits after SIGKILL",
   async () => {
     const appRoot = await mkdtemp(join(tmpdir(), "b4-runtime-kill-")),
-      scope = `runtime-${randomUUID()}`
+      scope = `runtime-${randomUUID()}`,
+      image = managedTestImage()
     const children: ChildProcess[] = []
     async function boot() {
       const child = fork(
         new URL("./fixtures/managed-runtime-worker.ts", import.meta.url),
-        [appRoot, scope],
+        [appRoot, scope, image],
         { execArgv: ["--import", "tsx"], stdio: ["ignore", "pipe", "pipe", "ipc"] },
       )
       children.push(child)
@@ -83,7 +85,7 @@ it.skipIf(process.env.B4_TEST_DOCKER !== "1")(
       for (const child of children) await kill(child)
       await cleanupWorkspaces({
         appRoot,
-        provider: dockerSandbox({ scope, image: "b4-code-fixer:fixture-v1" }),
+        provider: dockerSandbox({ scope, image }),
       })
       await rm(appRoot, { recursive: true, force: true })
     }

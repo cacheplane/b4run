@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     name: "software-factory",
     include: ["test/**/*.test.ts"],
+    exclude: ["test/**/*.integration.test.ts"],
     fileParallelism: false,
     testTimeout: 30_000,
   },

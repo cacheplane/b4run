@@ -1,11 +1,22 @@
 import type { MDXComponents } from "mdx/types"
+import { type ComponentProps, isValidElement, type ReactNode } from "react"
 import { CopyPromptButton } from "./app/components/CopyPromptButton"
 import { RelatedCards } from "./app/components/docs/RelatedCards"
 import { Callout } from "./app/components/mdx/Callout"
 import { InlineCode, Pre, RehypeFigure } from "./app/components/mdx/CodeBlock"
 import { CodeGroup } from "./app/components/mdx/CodeGroup"
+import { HeadingAnchor } from "./app/components/mdx/HeadingAnchor"
 import { Step, Steps } from "./app/components/mdx/Steps"
 import { Tab, Tabs } from "./app/components/mdx/Tabs"
+import { getPrompt, type PromptSlug } from "./content/prompts"
+
+/** Plain text of a heading's children, for the self-link's accessible name. */
+function textOf(node: ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return String(node)
+  if (Array.isArray(node)) return node.map(textOf).join("")
+  if (isValidElement(node)) return textOf((node.props as { children?: ReactNode }).children)
+  return ""
+}
 
 export function useMDXComponents(components: MDXComponents): MDXComponents {
   return {
@@ -16,34 +27,44 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
     Tabs,
     Tab,
     RelatedCards,
-    CopyPromptButton,
+    // `promptSlug` resolves to the same registered prompt the page actions
+    // menu copies, so a page never offers two different "agent prompts".
+    CopyPromptButton: ({
+      promptSlug,
+      prompt,
+      ...props
+    }: Omit<ComponentProps<typeof CopyPromptButton>, "prompt"> & {
+      readonly promptSlug?: PromptSlug
+      readonly prompt?: string
+    }) => (
+      <CopyPromptButton
+        {...props}
+        prompt={promptSlug ? getPrompt(promptSlug).body : (prompt ?? "")}
+      />
+    ),
     // `id` comes from rehype-slug and is the in-page anchor target — every
     // heading override has to pass it through, at every level.
     h1: ({ children, id }) => (
-      <h1
-        id={id}
-        className="font-display text-4xl md:text-5xl font-semibold text-ink mb-6 tracking-tight"
-        style={{ fontVariationSettings: "'opsz' 144, 'SOFT' 50" }}
-      >
+      <h1 id={id} className="text-h1 text-ink mb-6">
         {children}
       </h1>
     ),
+    // H2 and H3 are the linkable sections (the TOC lists exactly these), so
+    // they carry the copy-link affordance. Ids stay the rehype-slug ids.
     h2: ({ children, id }) => (
-      <h2
-        id={id}
-        className="font-display text-2xl md:text-3xl font-semibold text-ink mt-10 mb-4 tracking-tight"
-        style={{ fontVariationSettings: "'opsz' 144, 'SOFT' 50" }}
-      >
+      <h2 id={id} className="group/heading text-h2 text-ink mt-10 mb-4">
         {children}
+        {id ? <HeadingAnchor id={id} label={textOf(children)} /> : null}
       </h2>
     ),
     h3: ({ children, id }) => (
-      <h3 id={id} className="text-lg font-semibold text-ink mt-8 mb-3">
+      <h3 id={id} className="group/heading text-h3 text-ink mt-8 mb-3">
         {children}
+        {id ? <HeadingAnchor id={id} label={textOf(children)} /> : null}
       </h3>
     ),
     h4: ({ children, id }) => (
-      <h4 id={id} className="text-base font-semibold text-ink mt-6 mb-2">
+      <h4 id={id} className="text-base text-ink mt-6 mb-2">
         {children}
       </h4>
     ),
@@ -61,35 +82,36 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
     ),
     li: ({ children }) => <li className="text-ink-muted">{children}</li>,
     blockquote: ({ children }) => (
-      <blockquote className="border-l-4 border-accent-saas bg-surface px-5 py-3 my-6 text-ink-muted italic">
+      <blockquote className="border-l-4 border-relay bg-surface px-5 py-3 my-6 text-ink-muted italic">
         {children}
       </blockquote>
     ),
     strong: ({ children }) => <strong className="text-ink font-semibold">{children}</strong>,
     table: ({ children }) => (
-      <div data-prose-table className="my-6 overflow-x-auto border border-divider rounded-lg">
+      // A named, focusable region so keyboard users can scroll a wide table
+      // (axe scrollable-region-focusable).
+      <section
+        data-prose-table
+        aria-label="Table"
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region must take focus to scroll by keyboard
+        tabIndex={0}
+        className="my-6 overflow-x-auto"
+      >
         <table className="w-full text-sm">{children}</table>
-      </div>
+      </section>
     ),
-    thead: ({ children }) => <thead className="bg-surface">{children}</thead>,
+    thead: ({ children }) => <thead>{children}</thead>,
     tbody: ({ children }) => (
-      <tbody className="[&>tr]:border-t [&>tr]:border-divider">{children}</tbody>
+      <tbody className="[&>tr]:border-t [&>tr]:border-rule">{children}</tbody>
     ),
     tr: ({ children }) => <tr>{children}</tr>,
     th: ({ children }) => (
-      <th className="text-left px-4 py-2 text-xs font-semibold text-ink-muted uppercase tracking-wide bg-surface border-b border-divider">
+      <th className="text-left px-4 py-2 text-xs font-semibold text-ink uppercase tracking-wide border-b border-rule">
         {children}
       </th>
     ),
     td: ({ children }) => <td className="px-4 py-2 text-ink-muted align-top">{children}</td>,
-    a: ({ children, href }) => (
-      <a
-        href={href}
-        className="text-accent-saas hover:text-accent-saas underline underline-offset-2 transition-colors"
-      >
-        {children}
-      </a>
-    ),
+    a: ({ children, href }) => <a href={href}>{children}</a>,
     ...components,
   }
 }

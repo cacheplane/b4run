@@ -2,6 +2,7 @@ import type {
   ThreadAccessDeny,
   ThreadAccessPolicy,
   ThreadAccessRequest,
+  ThreadAccessRequestedWorkspace,
   ThreadAction,
   ThreadOperation,
   ThreadSubject,
@@ -40,6 +41,13 @@ export interface GateSpec {
   readonly threadId?: string
   readonly thread?: Thread
   readonly requestedMetadata?: Record<string, unknown>
+  /**
+   * The workspace this request stages or chooses — see
+   * `ThreadAccessRequest.requestedWorkspace`. Set only by `PUT
+   * /workspace/sources/:digest` and by a `POST /threads` create whose body names
+   * a `workspace`; never on the create's recheck.
+   */
+  readonly requestedWorkspace?: ThreadAccessRequestedWorkspace
   /**
    * Whether this request continues a parked turn — see
    * `ThreadAccessRequest.resuming`. Optional HERE so the many call sites that
@@ -177,6 +185,7 @@ export function makeThreadGate(
       method,
       operation: spec.operation,
       requestedMetadata: spec.requestedMetadata,
+      requestedWorkspace: spec.requestedWorkspace,
       // Required on the published type, optional on the spec: an omitted spec
       // field is "this endpoint cannot resume", which is `false`.
       resuming: spec.resuming ?? false,

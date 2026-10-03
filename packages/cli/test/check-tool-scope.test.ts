@@ -55,6 +55,30 @@ test("warns when approve names an internally-gated workspace tool", async () => 
   expect(result.warnings.join("\n")).toMatch(/\/research.*runBash.*already gated/s)
 })
 
+test("treats editFile as a known, internally-gated workspace tool", async () => {
+  const result = await collectToolScopeIssues(manifest, {
+    loadScope: async () => ({ allow: ["editFile"], approve: ["editFile"] }),
+    routeLocalToolNames: async () => [],
+  })
+  expect(result.errors).toEqual([])
+  expect(result.warnings.join("\n")).toMatch(/\/research.*editFile.*already gated/s)
+})
+
+test("warns when approve names editFile that a writeFile deny withholds", async () => {
+  const result = await collectToolScopeIssues(manifest, {
+    loadScope: async () => ({ deny: ["writeFile"], approve: ["deployProd", "editFile"] }),
+    routeLocalToolNames: async () => ["deployProd"],
+  })
+  expect(result.errors).toEqual([])
+  expect(result.warnings.join("\n")).toMatch(/editFile.*denying writeFile also withholds/s)
+
+  const optedIn = await collectToolScopeIssues(manifest, {
+    loadScope: async () => ({ deny: ["writeFile"], allow: ["editFile"], approve: ["deployProd"] }),
+    routeLocalToolNames: async () => ["deployProd"],
+  })
+  expect(optedIn.warnings).toEqual([])
+})
+
 test("warns when approve intersects deny (dead entry)", async () => {
   const result = await collectToolScopeIssues(manifest, {
     loadScope: async () => ({ deny: ["deployProd"], approve: ["deployProd"] }),
@@ -196,4 +220,23 @@ test("clean constrain produces no issues", async () => {
   })
   expect(result.errors).toEqual([])
   expect(result.warnings).toEqual([])
+})
+
+test("flags an authored tool that uses the reserved client_ prefix, scope or not", async () => {
+  const result = await collectToolScopeIssues(manifest, {
+    loadScope: async () => undefined,
+    routeLocalToolNames: async () => ["search", "client_lookup"],
+  })
+  expect(result.errors.join("\n")).toMatch(
+    /\/research.*"client_lookup".*reserved "client_" prefix/s,
+  )
+  expect(result.errors.join("\n")).not.toMatch(/"search"/)
+})
+
+test("does not flag a tool that merely contains client_", async () => {
+  const result = await collectToolScopeIssues(manifest, {
+    loadScope: async () => undefined,
+    routeLocalToolNames: async () => ["get_client_record"],
+  })
+  expect(result.errors).toEqual([])
 })

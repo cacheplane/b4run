@@ -94,6 +94,42 @@ describe("bindMiddleware", () => {
     await expect(bound.dispose()).resolves.toBeUndefined()
   })
 
+  test("exposes no after hook for a plain function or a definition without one", () => {
+    const fn: B4Middleware = async () => ({ action: "continue" })
+    expect(bindMiddleware(fn, ctx).after).toBeUndefined()
+    expect(bindMiddleware({ handle: () => ({ action: "continue" }) }, ctx).after).toBeUndefined()
+    expect(bindMiddleware(undefined, ctx).after).toBeUndefined()
+  })
+
+  test("binds a definition's after hook behind the same lazy setup", async () => {
+    const calls: string[] = []
+    const bound = bindMiddleware(
+      {
+        setup: () => {
+          calls.push("setup")
+        },
+        handle: () => ({ action: "continue" }),
+        after: (run) => {
+          calls.push(`after:${run.finalMessage}`)
+          return { finalMessage: run.finalMessage.toUpperCase() }
+        },
+      },
+      ctx,
+    )
+    expect(bound.after).toBeDefined()
+    const result = await bound.after?.({
+      assistantId: "/chat#agent",
+      context: undefined,
+      finalMessage: "hi",
+      messages: [],
+      routeId: "/chat",
+      runId: "rn-1",
+      threadId: "th-1",
+    })
+    expect(result).toEqual({ finalMessage: "HI" })
+    expect(calls).toEqual(["setup", "after:hi"])
+  })
+
   test("does not run setup at bind time, only before the first request", async () => {
     let setupCalls = 0
     let seenCtx: { readonly appRoot: string } | undefined

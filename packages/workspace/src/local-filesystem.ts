@@ -12,6 +12,7 @@ import {
   writeFile,
 } from "node:fs/promises"
 import { basename, dirname, join } from "node:path"
+import { WorkspaceReadLimitError } from "./inspection-errors.js"
 import type { BackendContext, FilesystemBackend } from "./types.js"
 
 const DEFAULT_MAX_FILE_BYTES = 256 * 1024
@@ -30,7 +31,11 @@ export function localFilesystem(opts: LocalFilesystemOptions = {}): FilesystemBa
   async function assertWithinCap(path: string, limit: number): Promise<void> {
     const s = await stat(path)
     if (s.size > limit) {
-      throw new Error(`File too large: ${s.size} bytes (max ${limit}) at ${path}`)
+      throw new WorkspaceReadLimitError(
+        `File too large: ${s.size} bytes (max ${limit}) at ${path}`,
+        path,
+        limit,
+      )
     }
   }
 
@@ -52,7 +57,12 @@ export function localFilesystem(opts: LocalFilesystemOptions = {}): FilesystemBa
         ctx.signal.throwIfAborted()
         if (bytesRead === 0) return Buffer.concat(chunks, length)
         length += bytesRead
-        if (length > limit) throw new Error(`File too large: exceeds ${limit} bytes at ${path}`)
+        if (length > limit)
+          throw new WorkspaceReadLimitError(
+            `File too large: exceeds ${limit} bytes at ${path}`,
+            path,
+            limit,
+          )
         chunks.push(chunk.subarray(0, bytesRead))
       }
     } finally {

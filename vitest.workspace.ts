@@ -30,6 +30,7 @@ export default defineConfig({
       "./examples/research/server/vitest.config.ts",
       "./examples/code-fixer/server/vitest.config.ts",
       "./examples/software-factory/server/vitest.config.ts",
+      "./examples/software-factory/controller/vitest.config.ts",
       "./examples/research/web/vitest.config.ts",
       "./test/security-dependencies/vitest.config.ts",
     ],

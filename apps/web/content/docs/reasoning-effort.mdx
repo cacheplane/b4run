@@ -1,119 +1,111 @@
-# Reasoning Effort
+# Reasoning
 
-Reasoning effort is route-level model tuning for OpenAI-backed `agent()` routes.
-
-Use it when one agent route needs a different reasoning budget than the rest of the app. A support coordinator might stay cheap and fast, while a tool-heavy planning route might ask for deeper reasoning.
+`reasoning` tunes how hard an `agent()` route's model thinks, and whether the thinking is shown. It is keyed by provider, and only the block for the route's resolved provider is read.
 
 ## Quick start
-
-Set `reasoning.effort` on an `agent()` descriptor:
 
 ```ts title="src/app/support/[tenant]/index.ts"
 import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "gpt-5-mini",
-  reasoning: { effort: "high" },
+  reasoning: { openai: { effort: "high", summary: "auto" } },
   systemPrompt: "You are a careful support assistant.",
 })
 ```
 
-`ReasoningConfig` is exported from `@b4run/sdk`.
+`ReasoningConfig`, `OpenAIReasoningConfig` and `AnthropicReasoningConfig` are exported from `@b4run/sdk`.
 
-## Supported values
-
-B4.run's type surface accepts:
+## OpenAI
 
 ```ts
-type ReasoningEffort =
-  | "none"
-  | "minimal"
-  | "low"
-  | "medium"
-  | "high"
-  | "xhigh"
+reasoning: {
+  openai: {
+    effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
+    summary?: "auto" | "concise" | "detailed"
+  }
+}
 ```
 
-The model provider decides which values are meaningful for a given model. Non-reasoning models ignore the setting in B4.run's current OpenAI-backed materialization path.
+`effort` is the request's reasoning effort. The provider decides which values mean something for each model, and models without reasoning ignore it.
 
-If you omit `reasoning`, B4.run does not pass a `reasoningEffort` value. The model/provider default applies.
+`summary` asks the Responses API to stream a summary of the model's reasoning. Setting it moves the route to the Responses API (B4.run sets `ChatOpenAI`'s `useResponsesApi`), and the summary streams to clients as reasoning: AG-UI `REASONING_*` events, which CopilotKit renders as a reasoning message. Without `summary`, the model still reasons at the requested effort but nothing is shown.
+
+## Anthropic
+
+```ts
+reasoning: {
+  anthropic: {
+    budgetTokens: number // a whole number of at least 1024
+  }
+}
+```
+
+`budgetTokens` enables extended thinking with that budget (`ChatAnthropic`'s `thinking: { type: "enabled", budget_tokens }`). The thinking text streams to clients the same way an OpenAI summary does.
+
+## What B4.run checks
+
+The block must match the route's provider. `reasoning.openai` on a route that resolves to Anthropic, or either block on a provider with no reasoning controls, fails the route when its model is built, naming the misplaced key. A setting is never silently ignored. An unknown key (including the pre-0.14 flat `effort`) and a `budgetTokens` under 1024 fail the same way.
+
+B4.run does not check whether a particular model accepts the setting; that is the provider's error, surfaced as a model-call failure.
+
+Leave out `reasoning` and B4.run sends nothing, so the provider's default applies.
 
 ## Where it applies
 
-Reasoning effort applies to B4.run's `agent()` descriptor path, where `@b4run/langchain` materializes the descriptor with `ChatOpenAI`.
+Reasoning applies to `agent()` routes, where `@b4run/langchain` builds the model.
 
-It does not automatically affect:
+In `workflow`, raw `graph` and `chain` routes, and for any model you create yourself, set reasoning on that model instance.
 
-- `workflow` routes
-- raw `graph` routes
-- `chain` routes
-- models you instantiate manually inside your own graph or chain
-
-For those paths, configure reasoning on the model instance you create.
-
-## What B4.run passes through
-
-B4.run maps:
-
-```ts
-reasoning: { effort: "high" }
-```
-
-to the `ChatOpenAI` option:
-
-```ts
-{ reasoningEffort: "high" }
-```
-
-No prompt fragment, tool, state field, or stream event is added. Reasoning effort is descriptor configuration, not a file-based marker.
+`GET /agui/{routeId}` advertises `reasoning: { supported: true, streaming: true, encrypted: false }` exactly when the route's config makes reasoning stream, and `{ supported: false }` otherwise. See [AG-UI](/docs/ag-ui#reasoning).
 
 ## Choosing a value
 
-Start without a value unless you have evidence that a route needs one.
+Leave it unset until you see that a route needs it.
 
-Use lower values for routes where latency and cost matter more than deliberation:
-
-```ts
-reasoning: { effort: "minimal" }
-```
-
-Use higher values when the route is tool-heavy, planning-heavy, or asked to synthesize several pieces of evidence:
+Use lower effort for routes where speed and cost matter more than careful thinking:
 
 ```ts
-reasoning: { effort: "high" }
+reasoning: { openai: { effort: "minimal" } }
 ```
 
-Avoid using reasoning effort as a substitute for better tools or clearer route design. If the agent lacks the right context, increasing reasoning will not create it.
+Use higher effort when the route calls many tools, plans a lot, or has to combine several pieces of evidence:
+
+```ts
+reasoning: { openai: { effort: "high" } }
+```
+
+Show the reasoning (`summary`, `budgetTokens`) when users benefit from seeing the plan, such as a research assistant or a long tool loop. Leave it hidden for short answers, where it is noise.
+
+Of course, more reasoning won't make up for missing tools or context. If the agent doesn't have the information, thinking harder won't find it.
 
 ## Subagents
 
-Reasoning effort is per descriptor.
-
-If a parent and child route need different budgets, set them separately:
+Each `agent()` sets its own reasoning, so a parent and child can use different values:
 
 ```ts
 // parent
 export default agent({
   model: "gpt-5-mini",
-  reasoning: { effort: "low" },
+  reasoning: { openai: { effort: "low" } },
   systemPrompt: "Coordinate the work.",
 })
 
 // child
 export default agent({
   model: "gpt-5-mini",
-  reasoning: { effort: "high" },
+  reasoning: { openai: { effort: "high", summary: "auto" } },
   systemPrompt: "Analyze the evidence carefully.",
 })
 ```
 
-The parent setting does not automatically override the child setting.
+A child keeps its own setting, whatever the parent uses.
 
 ## Related
 
 <RelatedCards items={[
   { href: "/docs/agents", title: "Agents", subtitle: "agent descriptors and runtime materialization" },
-  { href: "/docs/api/sdk#agent-and-agentconfig", title: "SDK Reference", subtitle: "AgentConfig and ReasoningConfig" },
-  { href: "/docs/subagents", title: "Subagents", subtitle: "children configure their own reasoning effort" },
-  { href: "/docs/retry", title: "Retry", subtitle: "another route-level agent setting" },
+  { href: "/docs/api/sdk#agent-and-agentconfig", title: "SDK Reference", subtitle: "AgentConfig, ReasoningConfig and the provider blocks" },
+  { href: "/docs/subagents", title: "Subagents", subtitle: "children configure their own reasoning" },
+  { href: "/docs/ag-ui", title: "AG-UI and Web Clients", subtitle: "how reasoning reaches web clients" },
 ]} />

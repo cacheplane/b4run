@@ -23,8 +23,13 @@ import {
   applyCapabilities,
   type B4Config,
   type CapabilityContribution,
+  CLIENT_TOOL_PREFIX,
+  type ClientToolDefinition,
+  type ClientToolResumeValue,
+  configureApprovalGrants,
   createAgentsMdMarker,
   createCapabilityRegistry,
+  createClientToolStub,
   createMemoryMarker,
   createMemoryMdMarker,
   createPlanningMarker,
@@ -54,24 +59,41 @@ import {
   defaultSummarize,
   defaultTokenCounter,
   executeAgentTurn,
+  type JsonSchemaResponseFormat,
   materializeAgentGraph,
   type OffloadFn,
   OffloadStore,
   offloadToolOutput,
   type ResolvedSubagentGraph,
   type ResolvedSummarizationConfig,
+  resolveProvider,
+  resolveReasoningConfig,
   type SubagentResolver,
   streamAgent,
+  supportsJsonSchemaResponseFormat,
+  unsupportedResponseFormatMessage,
 } from "@b4run/langchain"
 import { routeNamespaceKey } from "@b4run/memory/namespace"
-import type { PermissionMode, PermissionsStore } from "@b4run/permissions"
-import type { B4Middleware, ThreadAccessPolicy } from "@b4run/sdk"
+import {
+  createThreadPermissionsStore,
+  type PermissionMode,
+  type PermissionsStore,
+} from "@b4run/permissions"
+import type {
+  ApprovalGrantMinter,
+  B4Middleware,
+  ClientToolCallStore,
+  ClientToolRecorder,
+  InterruptGrantStore,
+  ThreadAccessPolicy,
+} from "@b4run/sdk"
 import { type B4Agent, isB4Agent, type WorkspaceFs } from "@b4run/sdk"
 import type { ThreadsStore } from "@b4run/sqlite-storage"
 import type { ExecBackend, FilesystemBackend } from "@b4run/workspace"
 import type { RunnableConfig } from "@langchain/core/runnables"
 import { isGraphInterrupt } from "@langchain/langgraph"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
+import { stripReservedThreadMetadata } from "../dev/thread-metadata.js"
 import { createB4Context } from "./b4-context.js"
 import { checkToolNameUniqueness } from "./check-tool-name-uniqueness.js"
 import { routeCheckpointer } from "./checkpoint-route-provenance.js"
@@ -92,6 +114,7 @@ import {
   type RuntimeExecutionMode,
   type RuntimeExecutionResult,
 } from "./result.js"
+import { createRouteAssistantId } from "./route-identity.js"
 import type { LoadedRouteMemory } from "./route-memory-shape.js"
 import type { NormalizedRouteModule } from "./route-module-shape.js"
 import type { SandboxManager } from "./sandbox-manager.js"
@@ -145,6 +168,32 @@ export interface RuntimeBootFallbacks {
   readonly defaultThreadsStore: (appRoot: string) => ThreadsStore
   /** Config checkpointer, else the default sqlite saver (boot-level resolution). */
   readonly resolveCheckpointer: (appRoot: string) => Promise<BaseCheckpointSaver>
+  /**
+   * Where approval grants record that they were consumed.
+   *
+   * OPTIONAL, like `loadThreadAccess` and for the same reason: this interface
+   * is exported, and an external embedder constructing the bag as an object
+   * literal must not fail to typecheck against a new required member. Absence
+   * is NOT a silent ungating here — the park site fails closed under
+   * `approvals.grants: "required"` whatever this returns, and the resume
+   * endpoint answers `409 grant_unavailable` rather than falling through to
+   * the pre-grant path.
+   */
+  readonly resolveInterruptGrantStore?: (
+    appRoot: string,
+  ) => Promise<InterruptGrantStore | undefined>
+  /**
+   * Where outstanding client tool calls are recorded (cacheplane/b4run#743).
+   *
+   * OPTIONAL for the same exported-interface reason as
+   * `resolveInterruptGrantStore`. Absence is not an ungating: the AG-UI
+   * handler answers `503 client_tool_store_unavailable` to any run that sends
+   * client tools or answers a parked one, rather than parking a call nobody
+   * could match. Returns `undefined` when no route opts in to client tools.
+   */
+  readonly resolveClientToolCallStore?: (
+    appRoot: string,
+  ) => Promise<ClientToolCallStore | undefined>
   /** Config threads store, else the default sqlite store (boot-level resolution). */
   readonly resolveThreadsStore: (appRoot: string) => Promise<ThreadsStore>
   /** Config permissions + `.b4/permissions.json` (boot-level resolution). */
@@ -296,7 +345,15 @@ function resolveWorkspaceFsBackend(
   return () => requireFallbacks(fallbacks, "workspace filesystem backend").defaultFilesystem()
 }
 
-export type RouteResumePayload = Readonly<Record<string, "once" | "always" | "deny">>
+/**
+ * What `Command({ resume })` delivers, keyed by interrupt id: a permission
+ * decision, or a client tool's result. Internal only — the HTTP resume body
+ * (`isB4ResumeBody`) still admits decisions alone; a client tool result
+ * reaches a park only through the AG-UI handler's own resume.
+ */
+export type RouteResumePayload = Readonly<
+  Record<string, "once" | "always" | "deny" | ClientToolResumeValue>
+>
 
 export function toAgentInput(input: unknown, resume?: RouteResumePayload): unknown {
   return resume === undefined ? input : new Command({ resume })
@@ -339,6 +396,10 @@ export function toAgentInput(input: unknown, resume?: RouteResumePayload): unkno
  * immediately visible to the parent and its later turns. That sharing is
  * deliberate: it matches the process-wide `.b4/permissions.json` semantics
  * the per-request path has always had, without the per-child re-read.
+ * A thread whose sandbox carries its own permissions is the exception: each
+ * preparation (the parent's and every child's) builds its own thread-scoped
+ * store over the app's, so a child's "Always" goes to the thread's record and
+ * the parent sees it at its next preparation, not immediately.
  *
  * `config` is an already-constructed B4Config. When present it IS the
  * config — `b4.config.ts` is never read (and no memo consulted).
@@ -378,6 +439,12 @@ export type PrepareRouteExecutionOptions = Omit<BootResolvedInstances, "checkpoi
    */
   readonly sandboxThreadId?: string
   readonly subagentDepth?: number
+  /**
+   * Client-provided tool definitions for this run (already envelope-
+   * validated). Each becomes a `client_<name>` stub on an agent route; any
+   * other route kind refuses them. Never inherited by subagents.
+   */
+  readonly clientTools?: readonly ClientToolDefinition[]
 }
 
 interface ScenarioRouteInvocation {
@@ -422,6 +489,18 @@ export type MaterializeResolvedRouteGraphOptions = Omit<BootResolvedInstances, "
   readonly sandboxManager?: SandboxManager
   readonly sandboxThreadId?: string
   readonly signal?: AbortSignal
+  /**
+   * The thread the graph is materialized for, when it is one thread's (the
+   * AG-UI handler's close of abandoned client tool calls): prepared as that
+   * thread's turn is, so the graph matches the one that parked. Omitted for a
+   * deployment graph, which is thread-independent.
+   */
+  readonly threadId?: string
+  /**
+   * The client tools the run being materialized was prepared with, so the
+   * graph (and so its checkpoint's tool set) matches the parked run's.
+   */
+  readonly clientTools?: readonly ClientToolDefinition[]
 }
 
 /**
@@ -478,6 +557,15 @@ export async function* streamResolvedRoute(
      * as its input instead of the normal `input` field. Used by the resume
      * endpoint to replay a parked graph state after a permission interrupt.
      */
+    /**
+     * A JSON schema the root model's final message must match, from the
+     * client's AG-UI envelope (`hashbrown.responseSchema`). Bound on the root
+     * model as the provider's native schema-constrained output, alongside the
+     * route's tools; subagents never inherit it. Only an `agent` route on a
+     * provider that can honor it may carry one — `checkRouteResponseFormatSupport`
+     * is the request-time gate, and this path throws if it was skipped.
+     */
+    readonly responseFormat?: JsonSchemaResponseFormat
     readonly resume?: RouteResumePayload
     readonly routeFile: string
     readonly routeId: string
@@ -493,6 +581,25 @@ export async function* streamResolvedRoute(
      * endpoint can replay them.
      */
     readonly threadId?: string
+    /**
+     * Per-run approval-grant minter, forwarded to the agent-adapter, which
+     * puts it in `config.configurable` for the park site to read. Optional,
+     * like `threadId`: the HTTP layer supplies one, a direct caller (the
+     * testing harness, an embedder) may not, and the park site decides what
+     * that absence means under the configured mode.
+     */
+    readonly approvalGrantMinter?: ApprovalGrantMinter
+    /**
+     * Client-provided tool definitions for this run; see
+     * `PrepareRouteExecutionOptions.clientTools`.
+     */
+    readonly clientTools?: readonly ClientToolDefinition[]
+    /**
+     * Per-run client tool recorder, forwarded to the agent-adapter, which puts
+     * it in `config.configurable` for the client tool stubs to record their
+     * parks through. A stub that parks without one throws.
+     */
+    readonly clientToolRecorder?: ClientToolRecorder
   },
 ): AsyncGenerator<StreamChunk> {
   const sandboxRunKey = options.sandboxThreadId ?? options.threadId
@@ -522,6 +629,11 @@ export async function* streamResolvedRoute(
       sandboxed,
       bypassCache,
     } = prepared
+
+    if (options.responseFormat) {
+      const unsupported = responseFormatSupport(options.routeId, normalized)
+      if (unsupported) throw new Error(unsupported.message)
+    }
 
     if (normalized.kind !== "agent") {
       // Non-agent routes don't support incremental streaming — execute and emit done
@@ -583,8 +695,13 @@ export async function* streamResolvedRoute(
         ...(streamTransformers && streamTransformers.length > 0 ? { streamTransformers } : {}),
         ...(subagentResolver ? { subagentResolver } : {}),
         ...(options.threadId ? { threadId: options.threadId } : {}),
+        ...(options.approvalGrantMinter
+          ? { approvalGrantMinter: options.approvalGrantMinter }
+          : {}),
+        ...(options.clientToolRecorder ? { clientToolRecorder: options.clientToolRecorder } : {}),
         ...(bypassCache ? { bypassCache: true } : {}),
         ...(sandboxed ? { sandboxed: true } : {}),
+        ...(options.responseFormat ? { responseFormat: options.responseFormat } : {}),
       })) {
         switch (chunk.type) {
           case "token":
@@ -688,6 +805,258 @@ export async function* streamResolvedRoute(
     } finally {
       releaseSandbox?.()
     }
+  }
+}
+
+/** Why a route cannot take a client-supplied response schema. */
+export interface RouteResponseFormatUnsupported {
+  readonly ok: false
+  readonly message: string
+}
+
+/**
+ * Whether a route's ROOT model can be bound to a JSON-schema response format:
+ * an `agent()` descriptor route whose resolved provider has a schema-
+ * constrained output mode that coexists with tool calls (see
+ * `JSON_SCHEMA_RESPONSE_FORMAT_PROVIDERS` in `@b4run/langchain`). A chain,
+ * graph or workflow route owns its own model calls, so there is nothing for
+ * the runtime to bind. Pure — reads only the normalized module.
+ */
+function responseFormatSupport(
+  routeId: string,
+  normalized: Pick<NormalizedRouteModule, "entry" | "kind">,
+): RouteResponseFormatUnsupported | undefined {
+  if (normalized.kind !== "agent" || !isB4Agent(normalized.entry)) {
+    return { ok: false, message: nonAgentResponseFormatMessage(routeId, normalized.kind) }
+  }
+  const descriptor = normalized.entry
+  let provider: ReturnType<typeof resolveProvider>
+  try {
+    provider = resolveProvider({
+      model: descriptor.model,
+      ...(descriptor.provider !== undefined ? { provider: descriptor.provider } : {}),
+    })
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+  if (!supportsJsonSchemaResponseFormat(provider)) {
+    return { ok: false, message: unsupportedResponseFormatMessage(provider) }
+  }
+  return undefined
+}
+
+/**
+ * Why a route cannot take client-provided tools: only an `agent()` descriptor
+ * route binds its tool set to a model the runtime drives.
+ */
+function clientToolsSupport(
+  routeId: string,
+  normalized: Pick<NormalizedRouteModule, "entry" | "kind">,
+): PreparedRouteError | undefined {
+  if (normalized.kind !== "agent") {
+    return { ok: false, message: nonAgentClientToolsMessage(routeId, normalized.kind) }
+  }
+  if (!isB4Agent(normalized.entry)) {
+    return {
+      ok: false,
+      message: `Route "${routeId}" exports an agent runnable rather than an agent() descriptor; client-provided tools can only be added to an agent() route.`,
+    }
+  }
+  return undefined
+}
+
+/**
+ * Request-time preflight for client-provided tools, like
+ * `checkRouteResponseFormatSupport`: turns a route that cannot take them into
+ * a request error BEFORE any run side effect. `prepareRouteExecution`
+ * re-checks, so a caller that skips this still never gets a run that silently
+ * dropped the client's tools.
+ */
+export async function checkRouteClientToolsSupport(options: {
+  readonly appRoot: string
+  readonly bootFallbacks: RuntimeBootFallbacks | undefined
+  readonly routeFile: string
+  readonly routeId: string
+}): Promise<{ readonly ok: true } | PreparedRouteError> {
+  const prepared = await getPreparedRouteModules(
+    { appRoot: options.appRoot, routeFile: options.routeFile, routeId: options.routeId },
+    options.bootFallbacks,
+  )
+  return clientToolsSupport(options.routeId, prepared.module) ?? { ok: true }
+}
+
+/** Why a chain/graph/workflow route cannot take client-provided tools. */
+export function nonAgentClientToolsMessage(routeId: string, kind: string): string {
+  return `Route "${routeId}" is a ${kind} route; client-provided tools can only be added to an agent route.`
+}
+
+/** Why a chain/graph/workflow route cannot take a response schema. */
+export function nonAgentResponseFormatMessage(routeId: string, kind: string): string {
+  return `Route "${routeId}" is a ${kind} route; a response schema can only be applied to an agent route's root model.`
+}
+
+/**
+ * Request-time preflight for a client-supplied response schema: load the
+ * route's module (memoized per process, so this costs nothing the run itself
+ * would not pay) and report whether its root model can be bound to one.
+ * Callers use it to turn an unsupported schema into a request error BEFORE
+ * any run side effect; `streamResolvedRoute` re-checks and throws, so a
+ * caller that skips this still never gets a silently unconstrained run.
+ */
+export async function checkRouteResponseFormatSupport(options: {
+  readonly appRoot: string
+  readonly bootFallbacks: RuntimeBootFallbacks | undefined
+  readonly routeFile: string
+  readonly routeId: string
+}): Promise<{ readonly ok: true } | RouteResponseFormatUnsupported> {
+  const prepared = await getPreparedRouteModules(
+    { appRoot: options.appRoot, routeFile: options.routeFile, routeId: options.routeId },
+    options.bootFallbacks,
+  )
+  return responseFormatSupport(options.routeId, prepared.module) ?? { ok: true }
+}
+
+/**
+ * Whether the route's model will stream reasoning text: an `agent()`
+ * descriptor whose `reasoning` asks for it (OpenAI `summary`, Anthropic
+ * `budgetTokens`), resolved by the same function the chat-model factory
+ * applies — so `GET /agui/:routeId` claims exactly what the model is told. A
+ * config the factory would reject reports `ok: false` with its message; the
+ * run itself surfaces the error. Pure — reads only the normalized module.
+ */
+export async function checkRouteReasoningSupport(options: {
+  readonly appRoot: string
+  readonly bootFallbacks: RuntimeBootFallbacks | undefined
+  readonly routeFile: string
+  readonly routeId: string
+}): Promise<{ readonly ok: true; readonly streams: boolean } | PreparedRouteError> {
+  const prepared = await getPreparedRouteModules(
+    { appRoot: options.appRoot, routeFile: options.routeFile, routeId: options.routeId },
+    options.bootFallbacks,
+  )
+  const normalized = prepared.module
+  if (normalized.kind !== "agent" || !isB4Agent(normalized.entry)) {
+    return { ok: false, message: nonAgentReasoningMessage(options.routeId, normalized.kind) }
+  }
+  const descriptor = normalized.entry
+  try {
+    const provider = resolveProvider({
+      model: descriptor.model,
+      ...(descriptor.provider !== undefined ? { provider: descriptor.provider } : {}),
+    })
+    return { ok: true, streams: resolveReasoningConfig(provider, descriptor.reasoning).streams }
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/** Why a chain/graph/workflow route has no reasoning controls. */
+export function nonAgentReasoningMessage(routeId: string, kind: string): string {
+  return `Route "${routeId}" is a ${kind} route; reasoning controls apply only to an agent() route's root model.`
+}
+
+/**
+ * The subagents an `agent()` route can dispatch, resolved exactly as
+ * `prepareRouteExecution` resolves them for the `task` tool: explicit
+ * registrations through the descriptor route index, convention routes under
+ * `subagents/`, each with its model-facing description. One function so
+ * `GET /agui/:routeId`'s `multiAgent` claim and the tool that honours it can
+ * never disagree.
+ */
+async function resolveRouteSubagentRegistry(options: {
+  readonly appRoot: string
+  readonly descriptor: Parameters<typeof resolveSubagentRegistry>[0]["descriptor"]
+  readonly fallbacks: RuntimeBootFallbacks | undefined
+  readonly routeFile: string
+  readonly routeId: string
+  readonly routeManifest: RouteManifest | undefined
+  readonly staticModules: B4StaticModules | undefined
+}): Promise<readonly ResolvedSubagent[]> {
+  const { fallbacks } = options
+  const routeManifest =
+    options.routeManifest ??
+    (await requireFallbacks(fallbacks, "routeManifest").discoverRouteManifest(options.appRoot))
+  const staticMaps = options.staticModules
+    ? getCachedStaticDescriptorMaps(options.staticModules)
+    : undefined
+  const descriptorRouteIndex =
+    staticMaps?.descriptorRouteIndex ??
+    (await requireFallbacks(fallbacks, "subagent descriptor index").descriptorRouteIndex(
+      routeManifest,
+    ))
+  return resolveSubagentRegistry({
+    descriptor: options.descriptor,
+    descriptorRouteIndex,
+    parentRouteDir: pureDirname(options.routeFile),
+    parentRouteId: options.routeId,
+    routeManifest,
+    loadDescription: async (route) => {
+      if (staticMaps) {
+        const staticDescriptor = staticMaps.routeDescriptors.get(route.id)
+        return typeof staticDescriptor?.description === "string"
+          ? staticDescriptor.description
+          : "No description provided."
+      }
+      return await requireFallbacks(fallbacks, "subagent description").loadSubagentDescription(
+        route,
+      )
+    },
+  })
+}
+
+/** A subagent as `GET /agui/:routeId` advertises it (AG-UI `SubagentInfo`). */
+export interface RouteSubagentInfo {
+  readonly name: string
+  readonly description: string
+}
+
+/**
+ * The subagents a route can dispatch, for `GET /agui/:routeId`'s `multiAgent`
+ * section: the dispatchable members of the same registry the `task` tool is
+ * built from (a registration the delegation policy denies outright is not
+ * advertised). A chain/graph/workflow route or a raw runnable declares none;
+ * a registry that fails to resolve reports why, and the run surfaces it.
+ */
+export async function checkRouteSubagents(options: {
+  readonly appRoot: string
+  readonly bootFallbacks: RuntimeBootFallbacks | undefined
+  readonly routeFile: string
+  readonly routeId: string
+  readonly routeManifest?: RouteManifest
+  readonly staticModules?: B4StaticModules
+}): Promise<
+  { readonly ok: true; readonly subagents: readonly RouteSubagentInfo[] } | PreparedRouteError
+> {
+  const prepared = await getPreparedRouteModules(
+    { appRoot: options.appRoot, routeFile: options.routeFile, routeId: options.routeId },
+    options.bootFallbacks,
+  )
+  const normalized = prepared.module
+  if (normalized.kind !== "agent" || !isB4Agent(normalized.entry)) {
+    return {
+      ok: false,
+      message: `Route "${options.routeId}" declares no subagents: only an agent() descriptor route does.`,
+    }
+  }
+  try {
+    const registry = await resolveRouteSubagentRegistry({
+      appRoot: options.appRoot,
+      descriptor: normalized.entry,
+      fallbacks: options.bootFallbacks,
+      routeFile: options.routeFile,
+      routeId: options.routeId,
+      routeManifest: options.routeManifest,
+      staticModules: options.staticModules,
+    })
+    return {
+      ok: true,
+      subagents: dispatchableSubagents(registry).map(({ name, description }) => ({
+        name,
+        description,
+      })),
+    }
+  } catch (error) {
+    return { ok: false, message: formatErrorMessage(error) }
   }
 }
 
@@ -836,6 +1205,11 @@ async function prepareRouteExecutionForInvocation(
     fallbacks,
   )
   const normalized = prepared.module
+  const clientTools = options.clientTools ?? []
+  if (clientTools.length > 0) {
+    const unsupported = clientToolsSupport(options.routeId, normalized)
+    if (unsupported) return unsupported
+  }
   let tools = prepared.tools
   let bypassCache = false
   if (scenarioInvocation && scenarioInvocation.overrides.length > 0) {
@@ -886,22 +1260,64 @@ async function prepareRouteExecutionForInvocation(
   configCheckpointer = loadedB4Config?.checkpointer
   configThreadsStore = loadedB4Config?.threadsStore
 
+  // Put the approval-grant mode in force for this process, from the resolved
+  // config, BEFORE any route work can reach a park.
+  //
+  // This is the half of approval grants that deliberately does NOT ride in
+  // `config.configurable`. The minter does, because it is per-run; the mode
+  // cannot, because `configurable` injection is optional by construction and a
+  // mode that went missing alongside the minter could never detect the
+  // minter's absence. Setting it here means every path that prepares a route —
+  // including the testing harness and a direct `streamResolvedRoute` call —
+  // puts the operator's setting in force, so `"required"` fails closed at the
+  // park site even for an invoker that never learned to inject a minter.
+  // `configureApprovalGrants` only ratchets up.
+  configureApprovalGrants(loadedB4Config?.approvals?.grants ?? "off")
+
   // When a SandboxManager is configured and we have a stable thread id, resolve
   // the thread's sandbox handle and route the workspace filesystem/exec (and the
-  // workspace root) into it. All of readFile/writeFile/listDir/runBash redirect
+  // workspace root) into it. All of readFile/writeFile/editFile/listDir/runBash redirect
   // into the isolated env with no capability-logic change.
   let sandboxBackends: { filesystem: FilesystemBackend; exec: ExecBackend } | undefined
   let sandboxWorkspaceRoot: string | undefined
   const sandboxKey = options.sandboxThreadId ?? options.threadId
-  if (loadedB4Config?.sandbox?.workspace && (!options.sandboxManager?.managed || !sandboxKey)) {
+  if (
+    (loadedB4Config?.sandbox?.workspace || loadedB4Config?.sandbox?.thread) &&
+    (!options.sandboxManager?.managed || !sandboxKey)
+  ) {
     throw new Error(
       "Managed workspace execution requires an admitted Node runtime and a thread identity",
     )
   }
+
+  // Canonical store resolution, hoisted above the admission block below so
+  // both it and the rest of the request read the SAME row: an embedder that
+  // passes a stable threadId but no store must not see `{}` in the workspace
+  // resolver while the rest of the request reads the real thread. Placed
+  // AFTER the guard above: a fallback-less runtime with a managed workspace
+  // configured but no admitted sandbox/thread should still fail with that
+  // guard's actionable message, not this store's generic "no instance
+  // provided" — the guard only reads `loadedB4Config`/`options`, so nothing
+  // here depends on it running first.
+  const threadsStore: ThreadsStore =
+    options.threadsStore ??
+    configThreadsStore ??
+    requireFallbacks(fallbacks, "threadsStore").defaultThreadsStore(options.appRoot)
+
   if (options.sandboxManager && sandboxKey) {
     const handle = await options.sandboxManager.getForThread(
       sandboxKey,
       options.signal ?? new AbortController().signal,
+      {
+        // Loaded only when the thread has no workspace record yet. The key is
+        // the SANDBOX key, so a subagent resolves through its parent's thread.
+        // The store read takes no signal today; the manager re-checks the
+        // admission signal after the resolver returns.
+        metadata: async () => {
+          const thread = await threadsStore.getThread(sandboxKey)
+          return stripReservedThreadMetadata(thread?.metadata) ?? {}
+        },
+      },
     )
     sandboxBackends = { filesystem: handle.filesystem, exec: handle.exec }
     sandboxWorkspaceRoot = handle.workspaceRoot
@@ -930,11 +1346,6 @@ async function prepareRouteExecutionForInvocation(
     normalized.kind === "agent" && resolvedCheckpointer
       ? routeCheckpointer(resolvedCheckpointer, `${options.routeId}#${normalized.kind}`)
       : resolvedCheckpointer
-
-  const threadsStore: ThreadsStore =
-    options.threadsStore ??
-    configThreadsStore ??
-    requireFallbacks(fallbacks, "threadsStore").defaultThreadsStore(options.appRoot)
 
   // Deliberately outside the agent-only branch below: every route kind needs
   // the loaded store for ctx.fs permission gating, and createWorkspaceFs
@@ -965,6 +1376,27 @@ async function prepareRouteExecutionForInvocation(
       options.appRoot,
       permissionsConfig,
     )
+  }
+  // The app's store, before any thread scoping. A subagent's preparation is handed this,
+  // not the parent's thread-scoped store, and wraps it for itself: every thread-scoped
+  // store is built directly over the app's store, one layer deep.
+  const appPermissionsStore = permissionsStore
+  // A thread whose sandbox was resolved with its own permissions runs under a
+  // store built from that record: the app's mode and denials, the thread's own
+  // allow-list, and "Always" grants kept in the thread's record, never in
+  // `.b4/permissions.json`. Keyed by the SANDBOX key, so a subagent runs under
+  // its parent thread's permissions, as it runs in its parent's workspace. In
+  // thread mode a thread whose record is missing is refused by the manager
+  // here, never handed the app's store.
+  const threadPermissions = sandboxKey
+    ? options.sandboxManager?.threadPermissions(sandboxKey)
+    : undefined
+  if (threadPermissions) {
+    permissionsStore = createThreadPermissionsStore({
+      base: permissionsStore,
+      ...threadPermissions,
+    })
+    await permissionsStore.load()
   }
 
   const workspaceFsOptions = {
@@ -1046,30 +1478,16 @@ async function prepareRouteExecutionForInvocation(
     const staticMaps = options.staticModules
       ? getCachedStaticDescriptorMaps(options.staticModules)
       : undefined
-    const descriptorRouteIndex =
-      staticMaps?.descriptorRouteIndex ??
-      (await requireFallbacks(fallbacks, "subagent descriptor index").descriptorRouteIndex(
-        routeManifest,
-      ))
     let subagentRegistry: readonly ResolvedSubagent[]
     try {
-      subagentRegistry = await resolveSubagentRegistry({
+      subagentRegistry = await resolveRouteSubagentRegistry({
+        appRoot: options.appRoot,
         descriptor,
-        descriptorRouteIndex,
-        parentRouteDir: routeDir,
-        parentRouteId: options.routeId,
+        fallbacks,
+        routeFile: options.routeFile,
+        routeId: options.routeId,
         routeManifest,
-        loadDescription: async (route) => {
-          if (staticMaps) {
-            const staticDescriptor = staticMaps.routeDescriptors.get(route.id)
-            return typeof staticDescriptor?.description === "string"
-              ? staticDescriptor.description
-              : "No description provided."
-          }
-          return await requireFallbacks(fallbacks, "subagent description").loadSubagentDescription(
-            route,
-          )
-        },
+        staticModules: options.staticModules,
       })
     } catch (error) {
       return { message: formatErrorMessage(error), ok: false }
@@ -1242,6 +1660,16 @@ async function prepareRouteExecutionForInvocation(
     if (!check.ok) {
       return { message: check.message, ok: false }
     }
+    // `client_` names belong to the per-run client tool stubs injected below;
+    // an authored or capability tool there could be shadowed by, or shadow, a
+    // caller-defined tool.
+    const prefixed = [...tools, ...capTools].find((t) => t.name.startsWith(CLIENT_TOOL_PREFIX))
+    if (prefixed) {
+      return {
+        message: `Reserved tool name prefix: "${CLIENT_TOOL_PREFIX}" is reserved for client-provided tools (tool "${prefixed.name}").`,
+        ok: false,
+      }
+    }
 
     // Use the effective set so overridden tools are dropped before merging.
     const effectiveCapNames = new Set(check.effectiveCapabilityTools.map((t) => t.name))
@@ -1322,6 +1750,26 @@ async function prepareRouteExecutionForInvocation(
           : t
       })
     }
+    // Client-provided tools: appended AFTER scoping and the approve/constrain
+    // wrapping — `descriptor.tools` names the route's own tools, never a
+    // caller's, and each stub carries its own `clientTool` gate. The compiled-
+    // agent cache is keyed without tools, so a run with stubs must never read
+    // or seed it: bypass, or request N+1 reuses request N's tool set.
+    if (clientTools.length > 0) {
+      tools = [
+        ...tools,
+        ...clientTools.map(
+          (definition): DiscoveredToolDefinition => ({
+            ...createClientToolStub(definition, permissionsStore, {
+              replayOnly: definition.replayOnly === true,
+            }),
+            filePath: `<client:${definition.name}>`,
+            scope: "route-local",
+          }),
+        ),
+      ]
+      bypassCache = true
+    }
     stateFields = stateFields ? [...stateFields, ...capStateFields] : capStateFields
     promptFragments = capPromptFragments
     streamTransformers = capStreamTransformers
@@ -1348,7 +1796,7 @@ async function prepareRouteExecutionForInvocation(
           const childPrepared = await prepareRouteExecution({
             appRoot: options.appRoot,
             checkpointer: false,
-            permissionsStore,
+            permissionsStore: appPermissionsStore,
             routeManifest,
             ...(options.threadsStore ? { threadsStore: options.threadsStore } : {}),
             ...(options.memoryStore ? { memoryStore: options.memoryStore } : {}),
@@ -1375,6 +1823,8 @@ async function prepareRouteExecutionForInvocation(
           return {
             graph: withEpisodeRecording(graph, childPrepared),
             routeId: route.id,
+            routeKey: createRouteAssistantId(route.id, route.kind),
+            ...(entry.description !== "" ? { description: entry.description } : {}),
           }
         },
         registry: subagentRegistry,

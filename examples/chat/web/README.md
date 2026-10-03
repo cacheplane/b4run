@@ -3,21 +3,21 @@
 The canonical reference for **connecting a web client to B4.run over AG-UI**. This is a
 [CopilotKit](https://docs.copilotkit.ai) v2 app (`@copilotkit/react-core/v2` +
 `@copilotkit/runtime/v2`) whose required catch-all runtime route
-(`app/api/copilotkit/[...path]/route.ts`) registers an `HttpAgent` pointed at B4.run's
+(`app/api/copilotkit/[...path]/route.ts`) registers a `B4HttpAgent` (`@b4run/ag-ui/client`) pointed at B4.run's
 `POST /agui/{routeId}` endpoint (the URL-encoded assistant id, e.g.
 `%2Fchat%23agent`; see `@b4run/ag-ui`). It replaces the previous hand-rolled SSE
 smoke client.
 
 This app runs **live** against a real model — there is no aimock/demo mode here. The
 deterministic, no-key checks cover both boundaries: a loopback integration drives the
-real CopilotKit handler through `HttpAgent` and forwards a schema-valid AG-UI stream,
+real CopilotKit handler through `B4HttpAgent` and forwards a schema-valid AG-UI stream,
 while the package-owned browser test loads this page and proves it discovers
 `GET /api/copilotkit/info` without a legacy base-URL POST. Neither check calls a model.
 
 Scope: basic chat with the `/chat` route. B4.run's AG-UI adapter emits standard
-replacement `b4.plan` and `b4.subagent` activity snapshots when matching
-runtime chunks occur, and this client registers `b4ActivityRenderers` from
-`@b4run/ag-ui/react` so planning is presented rather than silent — the
+replacement `b4.plan` activity snapshots when the agent plans, and this client
+registers `b4ActivityRenderers` from `@b4run/ag-ui/react` so planning is
+presented rather than silent — the
 `/chat` route ships a `plan.md`, so the agent plans with `writeTodos`, and B4.run
 presents that only as an activity. It still drives only `/chat`, so it remains a
 transport-wiring example, not a coordinator UI.
@@ -27,13 +27,13 @@ transport-wiring example, not a coordinator UI.
 ```
 browser
   -> /api/copilotkit/* (app/api/copilotkit/[...path]/route.ts, this app, no API key)
-    -> HttpAgent -> POST /agui/%2Fchat%23agent  (B4.run dev server, holds OPENAI_API_KEY)
+    -> B4HttpAgent -> POST /agui/%2Fchat%23agent  (B4.run dev server, holds OPENAI_API_KEY)
       -> live /chat agent
         -> AG-UI event stream back to the browser
 ```
 
 - `app/api/copilotkit/[...path]/route.ts` — `CopilotRuntime` with
-  `agents: { default: new HttpAgent(...) }`, served through
+  `agents: { default: new B4HttpAgent(...) }`, served through
   `createCopilotRuntimeHandler` from `@copilotkit/runtime/v2` with
   `basePath: "/api/copilotkit"` and shared `GET`/`POST` exports. No LLM credentials
   live here; the B4.run server holds `OPENAI_API_KEY`.

@@ -113,6 +113,21 @@ export async function settleParkedRoute(options: {
   readonly routeKey: string
   readonly threadId: string
   readonly threadsStore: ThreadsStore
+  /**
+   * Void every approval grant the thread has now moved past, given the ids
+   * still parked after this turn.
+   *
+   * This is the staleness half of #736, and it hangs off "a turn settled"
+   * because that is the one moment B4.run knows the checkpoint advanced. It is
+   * supplied ONLY when `approvals.grants` is on, so a thread with grants off
+   * pays nothing — not even the extra `readParkedInterruptIds` on the parked
+   * branch, which exists solely to feed this.
+   *
+   * Must never throw: voiding is a tightening, and refusing to settle a turn
+   * because a bookkeeping UPDATE failed would trade a replay window for an
+   * outage.
+   */
+  readonly voidGrants?: (stillPending: readonly string[]) => Promise<void>
 }): Promise<void> {
   const { canPark, checkpointer, parked, previousParkedRoute, routeKey, threadId, threadsStore } =
     options
@@ -130,6 +145,18 @@ export async function settleParkedRoute(options: {
     const parkPatch = { [PARKED_ROUTE_KEY]: routeKey }
     assertNoReservedKey(parkPatch)
     await threadsStore.updateMetadata(threadId, parkPatch)
+    // A turn that parks AGAIN still advanced the checkpoint, so the grants for
+    // the calls it answered are now stale and must be voided — a resumed turn
+    // that parks a fresh prompt is the common case, not an edge one.
+    if (options.voidGrants && canPark) {
+      try {
+        await options.voidGrants([
+          ...(options.pendingAfter ?? (await readParkedInterruptIds(checkpointer, threadId))),
+        ])
+      } catch {
+        // See the contract on `voidGrants`: never fail a turn over this.
+      }
+    }
     return
   }
   // The stale-read direction that survives here is the harmless one: believing
@@ -138,6 +165,7 @@ export async function settleParkedRoute(options: {
   if (previousParkedRoute === undefined || !canPark) return
   try {
     const pending = options.pendingAfter ?? (await readParkedInterruptIds(checkpointer, threadId))
+    await options.voidGrants?.([...pending])
     if (pending.size > 0) return
     const clearPatch = { [PARKED_ROUTE_KEY]: null }
     assertNoReservedKey(clearPatch)

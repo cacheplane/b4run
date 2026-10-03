@@ -2,6 +2,7 @@ import type { B4Config, MemoryStoreLike, MemoryWritesMode } from "@b4run/core"
 import type { RecallRankingOptions, VectorRankingOptions } from "@b4run/memory"
 import type { ModelProviderId } from "@b4run/sdk"
 import { inferProvider } from "@b4run/sdk"
+import { type ResolvedDistillRetry, resolveDistillRetry } from "../memory/distill-retry-config.js"
 import { loadB4Config } from "../node-config.js"
 import { pureJoin } from "./pure-path.js"
 import { type ResolvedEpisodesConfig, resolveEpisodesFromConfig } from "./record-episode.js"
@@ -105,6 +106,8 @@ export interface ResolvedDistillConfig {
    */
   readonly providerAuthored: boolean
   readonly maxBatches: number
+  /** Validated `memory.distill.retry`; see `resolveDistillRetry`. */
+  readonly retry: ResolvedDistillRetry
   readonly consolidate: {
     readonly olderThanMs: number
     readonly minBatchSize: number
@@ -144,13 +147,17 @@ export interface ResolvedDistillConfig {
  * `node:` import of its own, so the split would buy nothing.
  */
 export async function resolveDistillConfig(appRoot: string): Promise<ResolvedDistillConfig> {
-  let distill: NonNullable<NonNullable<B4Config["memory"]>["distill"]> | undefined
+  let memory: B4Config["memory"] | undefined
   try {
     const loaded = await loadB4Config({ appRoot })
-    distill = loaded.config.memory?.distill
+    memory = loaded.config.memory
   } catch {
     // No b4.config.ts or unreadable — use defaults.
   }
+  // Outside the catch: a malformed `memory.distill.retry` must fail the
+  // command (B4_E1009), not quietly fall back to the default.
+  const retry = resolveDistillRetry(memory)
+  const distill = memory?.distill
   const model = distill?.model ?? "gpt-5-mini"
   const consolidate = distill?.consolidate
   const reflect = distill?.reflect
@@ -159,6 +166,7 @@ export async function resolveDistillConfig(appRoot: string): Promise<ResolvedDis
     provider: distill?.provider ?? inferProvider(model) ?? "openai",
     providerAuthored: distill?.provider !== undefined,
     maxBatches: distill?.maxBatches ?? 5,
+    retry,
     consolidate: {
       olderThanMs: consolidate?.olderThanMs ?? 7 * 86_400_000,
       minBatchSize: consolidate?.minBatchSize ?? 5,

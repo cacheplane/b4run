@@ -1,76 +1,25 @@
 "use client"
 
-import { useEffect, useState } from "react"
-
-interface Heading {
-  readonly id: string
-  readonly text: string
-  readonly level: 2 | 3
-}
-
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "")
-}
+import { Eyebrow } from "../ui/Eyebrow"
+import { useDocsHeadings } from "./use-docs-headings"
 
 export function DocsTOC() {
-  const [headings, setHeadings] = useState<readonly Heading[]>([])
-  const [activeId, setActiveId] = useState<string | null>(null)
-
-  useEffect(() => {
-    const article = document.querySelector("article.prose-b4")
-    if (!article) return
-
-    const elements = Array.from(article.querySelectorAll<HTMLHeadingElement>("h2, h3"))
-    const parsed: Heading[] = elements.map((el) => {
-      const text = el.textContent?.trim() ?? ""
-      const id = el.id || slugify(text)
-      if (!el.id) el.id = id
-      return {
-        id,
-        text,
-        level: el.tagName === "H2" ? 2 : 3,
-      }
-    })
-    setHeadings(parsed)
-
-    if (parsed.length === 0) return
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((e) => e.isIntersecting)
-          .sort(
-            (a, b) => a.target.getBoundingClientRect().top - b.target.getBoundingClientRect().top,
-          )
-        const first = visible[0]
-        if (first) setActiveId(first.target.id)
-      },
-      { rootMargin: "0px 0px -70% 0px", threshold: 1 },
-    )
-    for (const el of elements) observer.observe(el)
-    return () => observer.disconnect()
-  }, [])
+  const { headings, activeId } = useDocsHeadings()
 
   if (headings.length === 0) return null
 
   return (
-    <nav aria-label="On this page" className="sticky top-8 w-52 shrink-0 hidden lg:block text-sm">
-      <p className="text-xs text-ink-dim uppercase tracking-widest mb-3">On this page</p>
-      <ul className="space-y-2 border-l border-divider">
+    <nav aria-label="On this page" className="w-full hidden lg:block text-sm">
+      <Eyebrow className="mb-3">On this page</Eyebrow>
+      <ul className="space-y-2 border-l border-rule">
         {headings.map((h) => (
-          <li key={h.id} className={h.level === 3 ? "pl-5" : "pl-3"}>
+          <li key={h.id}>
             <a
               href={`#${h.id}`}
+              data-ui="nav-item"
               aria-current={activeId === h.id ? "location" : undefined}
-              className={`block py-0.5 transition-colors -ml-px border-l ${
-                activeId === h.id
-                  ? "text-accent-saas border-accent-saas"
-                  : "text-ink-dim border-transparent hover:text-ink"
-              }`}
-              style={{ paddingLeft: h.level === 3 ? 12 : 12 }}
+              className="py-0.5 -ml-px [overflow-wrap:anywhere]"
+              style={{ paddingLeft: h.level === 3 ? 24 : 12 }}
             >
               {h.text}
             </a>

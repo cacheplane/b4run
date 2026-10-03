@@ -1,0 +1,4 @@
+- [ ] Understand the customer request
+- [ ] Check account context
+- [ ] Decide whether to answer or escalate
+- [ ] Write the final response

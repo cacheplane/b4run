@@ -1,0 +1,2247 @@
+import { execFile, execFileSync, spawn as spawnChild } from "node:child_process"
+import {
+  appendFileSync,
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
+import { createServer, type Server } from "node:net"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { promisify } from "node:util"
+import { verifySourceBundle } from "@b4run/workspace/node"
+import { afterEach, describe, expect, it } from "vitest"
+import { BuilderHandoffSchema } from "../src/lib/builder-handoff.ts"
+import { DeliveryError } from "../src/lib/delivery/adapter.ts"
+import { openRegistryReader } from "../src/lib/registry/reader.ts"
+import { loadTask, loadTaskRecipe, tasksDir } from "../src/lib/targets/catalog.ts"
+import { openImageRegistry } from "../src/lib/targets/images.ts"
+import {
+  closeHarness,
+  ID as HARNESS_ID,
+  SOURCE as HARNESS_SOURCE,
+  harness,
+  harnessDir,
+} from "./delivery-harness.ts"
+import { createFakeGitHub, REPOSITORY } from "./fake-delivery-adapter.ts"
+import { fakeImageBuilder } from "./fake-image-builder.ts"
+import { createFakeVerifier } from "./fake-verifier.ts"
+import { BAD_DRAFTS, GOOD_DRAFT } from "./intake-fixtures.ts"
+import {
+  FIRST_DRAFTER_THREAD,
+  FIRST_THREAD,
+  type ServedController,
+  serveController,
+} from "./serve-controller.ts"
+import { useImages } from "./static-images.ts"
+
+const run = promisify(execFile)
+// Resolved from the package's own node_modules rather than relying on `pnpm` being on PATH
+// under vitest (it frequently is not in a spawned-child context). `.bin/tsx` is a shell shim
+// that `execFile(process.execPath, ...)` cannot run directly, so use tsx's own JS entry point.
+const tsxBin = join(import.meta.dirname, "../node_modules/tsx/dist/cli.mjs")
+const cliEntry = join(import.meta.dirname, "../src/cli.ts")
+const packageRoot = join(import.meta.dirname, "..")
+/** A lane with no controller names the image the handoff runs by id. */
+const IMAGE_ID_ARGS = ["--image-id", `sha256:${"1".repeat(64)}`]
+
+let dir: string
+// Undefined for the tests that serve nothing, and cleared after every test so a later one
+// cannot close an already-closed controller.
+let served: ServedController | undefined
+/** Processes a test started to hold a lock: killed by pid after every test, even a failed one. */
+const holders: { kill(): void }[] = []
+afterEach(async () => {
+  for (const holder of holders.splice(0)) holder.kill()
+  await served?.close()
+  served = undefined
+  rmSync(dir, { recursive: true, force: true })
+})
+
+interface Spawned {
+  readonly promise: Promise<{ stdout: string; stderr: string }>
+}
+
+/**
+ * The CLI as an operator runs it: a separate process, talking to a controller over HTTP and
+ * reading the registry read-only from the state directory. Nothing in the child builds a
+ * Factory, so nothing in the child needs a worker, a container or a builder installation —
+ * the in-process controller owns all of that, with the fakes `serveController` injects.
+ */
+async function boot(
+  worker: Parameters<typeof serveController>[1] = {},
+  overrides: Parameters<typeof serveController>[2] = {},
+  controllerEnv: Parameters<typeof serveController>[3] = {},
+) {
+  dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
+  served = await serveController(dir, worker, overrides, controllerEnv)
+  const env = {
+    ...process.env,
+    FACTORY_CONTROLLER_URL: served.url,
+    FACTORY_STATE_DIR: served.stateDir,
+    // The committed factory.config.ts would otherwise fill what a test deliberately unsets.
+    FACTORY_CONFIG: "none",
+  }
+  const spawn = (...args: string[]): Spawned => {
+    const promise = run(process.execPath, [tsxBin, cliEntry, ...args], { env, cwd: packageRoot })
+    // A child spawned and not awaited yet (the dispatch the cancel test interrupts) exits
+    // non-zero while the test is doing something else; without a handler attached here that
+    // is an unhandled rejection. `failing` attaches its own handler to the same promise.
+    promise.catch(() => undefined)
+    return { promise }
+  }
+  const cli = async (...args: string[]) => {
+    const { stdout, stderr } = await spawn(...args).promise
+    return { json: JSON.parse(stdout), stderr }
+  }
+  return { cli, spawn, env, stateDir: served.stateDir }
+}
+
+/** The exit-1 half of the contract: the body is still JSON on stdout. */
+async function failing(promise: Promise<{ stdout: string; stderr: string }>) {
+  const error = await promise.then(
+    () => undefined,
+    (e: { code?: number; stdout?: string; stderr?: string }) => e,
+  )
+  expect(error, "expected the command to exit non-zero").toBeDefined()
+  expect(error?.code).toBe(1)
+  return { stdout: error?.stdout ?? "", stderr: error?.stderr ?? "" }
+}
+
+/** Poll the journal read-only until `done` holds for its event types; the last types seen. */
+async function pollEvents(
+  stateDir: string,
+  id: string,
+  done: (types: readonly string[]) => boolean,
+  timeoutMs = 10_000,
+): Promise<readonly string[]> {
+  const deadline = Date.now() + timeoutMs
+  let types: readonly string[] = []
+  while (Date.now() < deadline) {
+    const reader = openRegistryReader(join(stateDir, "registry.sqlite"))
+    try {
+      types = reader.events(id).map((e) => e.type)
+    } finally {
+      reader.close()
+    }
+    if (done(types)) return types
+    await new Promise((r) => setTimeout(r, 25))
+  }
+  return types
+}
+
+async function pollState(
+  stateDir: string,
+  id: string,
+  done: (state: string | undefined) => boolean,
+  timeoutMs = 10_000,
+): Promise<string | undefined> {
+  const deadline = Date.now() + timeoutMs
+  let state: string | undefined
+  while (Date.now() < deadline) {
+    const reader = openRegistryReader(join(stateDir, "registry.sqlite"))
+    try {
+      state = reader.show(id)?.state
+    } finally {
+      reader.close()
+    }
+    if (done(state)) return state
+    await new Promise((r) => setTimeout(r, 25))
+  }
+  return state
+}
+
+describe("cli", () => {
+  it("creates, dispatches while tailing the journal, and reads rows, events and evidence", async () => {
+    const { cli } = await boot()
+    const { json: created } = await cli("create", "--task", "cli-flags")
+    expect(created).toMatchObject({ ok: true, state: "received" })
+    const id = created.row.id as string
+
+    const { json: settled, stderr } = await cli("dispatch", id)
+    expect(settled).toMatchObject({ ok: true })
+    expect(settled.row.state).toBe("awaiting_approval")
+    // The tail is the point of the read-only reader: the operator watches the run through
+    // the registry while the request that drives it is still open.
+    expect(stderr).toContain('"type":"transition"')
+
+    const { json: shown } = await cli("show", id)
+    expect(shown.id).toBe(id)
+    expect(shown.state).toBe("awaiting_approval")
+
+    const { json: events } = await cli("events", id)
+    expect(events.map((e: { type: string }) => e.type)).toContain("created")
+
+    const { json: list } = await cli("list")
+    expect(list).toHaveLength(1)
+
+    const { json: evidence } = await cli("evidence", id)
+    expect(evidence.candidate).not.toBeNull()
+    expect(evidence.bundle).not.toBeNull()
+    expect(evidence.receipt).not.toBeNull()
+    // A catalog work order had no intake, and the evidence says so rather than omitting it.
+    expect(evidence.oracleReceipt).toBeNull()
+
+    const { json: reconciled } = await cli("reconcile")
+    expect(reconciled).toMatchObject({ ok: true })
+  }, 90_000)
+
+  it("exits non-zero with the refusal on stdout when a command is refused", async () => {
+    const { cli, spawn } = await boot()
+    const { json: created } = await cli("create", "--task", "cli-flags")
+    const { stdout } = await failing(
+      spawn("approve", created.row.id, "--revision", "0", "--bundle", "0".repeat(64)).promise,
+    )
+    expect(JSON.parse(stdout)).toMatchObject({ ok: false })
+  }, 90_000)
+
+  it("exits non-zero when the dispatch settles blocked", async () => {
+    // A failing receipt is the shape a dispatching script most needs to be told about: the
+    // route returns ok, the run finished, and the result is not reviewable.
+    const { cli, spawn } = await boot({}, { verifier: createFakeVerifier({ verdict: "fail" }) })
+    const { json: created } = await cli("create", "--task", "cli-flags")
+    const { stdout } = await failing(spawn("dispatch", created.row.id).promise)
+    const outcome = JSON.parse(stdout)
+    expect(outcome.row.state).toBe("blocked")
+    expect(outcome.row.blockedReason).toBe("verification_failed")
+  }, 90_000)
+
+  it("exits non-zero when the budget cancels the dispatch", async () => {
+    // The other end a dispatch can settle at without being refused: the run never finished,
+    // the ticker spent its budget, and the row is `blocked`. A script must not read that as
+    // a delivered change either.
+    // A budget no real verification fits, so the dispatch refusal that guards it is waived.
+    const { cli, spawn } = await boot(
+      { run: "hang" },
+      { allowBudgetBelowVerifierDeadline: true },
+      { FACTORY_MAX_ACTIVE_MS: "1000" },
+    )
+    const { json: created } = await cli("create", "--task", "cli-flags")
+    const id = created.row.id as string
+    const { stdout } = await failing(spawn("dispatch", id).promise)
+    const outcome = JSON.parse(stdout)
+    expect(outcome.ok).toBe(false)
+    // The route returns as soon as the row leaves the active states, which is the moment the
+    // budget cancel is requested; whether the worker has confirmed the run ended by then is
+    // a race, and both answers are the same news for the operator.
+    expect(outcome.row.state).toMatch(/^(cancel_requested|blocked)$/)
+    if (outcome.row.state === "blocked") expect(outcome.row.blockedReason).toBe("budget_exhausted")
+    const { json: events } = await cli("events", id)
+    // The budget is what ended it, not an operator: the transition names the event.
+    expect(
+      events.map((e: { payload: { event?: string } }) => e.payload.event).filter(Boolean),
+    ).toContain("budget_exhausted")
+  }, 90_000)
+
+  it("cancels a live dispatch through the runtime, and the dispatch reports run_cancelled", async () => {
+    const { cli, spawn, stateDir } = await boot({ run: "hang" })
+    const { json: created } = await cli("create", "--task", "cli-flags")
+    const id = created.row.id as string
+
+    // Not awaited: this is the run the cancel has to reach into.
+    const dispatching = spawn("dispatch", id).promise
+    expect(
+      await pollState(stateDir, id, (state) => state === "dispatched" || state === "running"),
+    ).toMatch(/^(dispatched|running)$/)
+
+    const { json: cancelled } = await cli("cancel", id)
+    expect(cancelled.state).toMatch(/^(cancel_requested|cancelled)$/)
+
+    const { stdout } = await failing(dispatching)
+    expect(JSON.parse(stdout)).toMatchObject({ ok: false, refusal: "run_cancelled" })
+    expect(await pollState(stateDir, id, (state) => state === "cancelled")).toBe("cancelled")
+  }, 90_000)
+
+  it("cancels a dispatch the operator cancels while it builds its image", async () => {
+    const builder = fakeImageBuilder()
+    builder.hold()
+    const imagesDir = mkdtempSync(join(tmpdir(), "factory-cli-images-"))
+    const images = openImageRegistry({
+      path: join(imagesDir, "images.sqlite"),
+      builder,
+      platform: "linux/arm64",
+    })
+    // Configured before the boot: the served controller builds through the registry the
+    // process has configured (`serveController`), so the build below is this fake's.
+    const restore = useImages(images)
+    try {
+      const { cli, spawn, stateDir } = await boot()
+      const { json: created } = await cli("create", "--task", "cli-flags")
+      const id = created.row.id as string
+      // Not awaited: this is the dispatch the cancel has to reach, while it waits on the build.
+      const dispatching = spawn("dispatch", id).promise
+      expect(
+        await pollEvents(stateDir, id, (types) => types.includes("image_prepare_started")),
+      ).toContain("image_prepare_started")
+      expect(await pollState(stateDir, id, () => true)).toBe("received")
+      const { json: cancelled } = await cli("cancel", id)
+      expect(cancelled).toMatchObject({ ok: true })
+      const { stdout } = await failing(dispatching)
+      expect(JSON.parse(stdout)).toMatchObject({ ok: false })
+      expect(await pollState(stateDir, id, (state) => state === "cancelled")).toBe("cancelled")
+      const deadline = Date.now() + 10_000
+      while (builder.aborted === 0 && Date.now() < deadline)
+        await new Promise((r) => setTimeout(r, 25))
+      expect(builder.aborted).toBe(1)
+      expect(builder.requests).toHaveLength(1)
+    } finally {
+      builder.release()
+      restore()
+      images.close()
+      rmSync(imagesDir, { recursive: true, force: true })
+    }
+  }, 90_000)
+
+  it("reads the controller and the state directory from a config when the environment has neither", async () => {
+    const { cli, env } = await boot()
+    const { json: created } = await cli("create", "--task", "cli-flags")
+    const port = Number(new URL(served?.url ?? "").port)
+    const config = join(dir, "factory.config.ts")
+    // Only the controller's port is read by these commands; the workers' need only be distinct.
+    const [builder, drafter] = [65001, 65002].map((p) => (p === port ? p + 2 : p))
+    writeFileSync(
+      config,
+      `export default ${JSON.stringify({
+        state: served?.stateDir,
+        controller: { port },
+        builder: { port: builder },
+        drafter: { port: drafter },
+      })}\n`,
+    )
+    const { FACTORY_CONTROLLER_URL, FACTORY_STATE_DIR, ...bare } = env
+    const configured = { ...bare, FACTORY_CONFIG: config }
+    const { stdout } = await run(process.execPath, [tsxBin, cliEntry, "show", created.row.id], {
+      env: configured,
+      cwd: packageRoot,
+    })
+    expect(JSON.parse(stdout).id).toBe(created.row.id)
+    // The environment wins, and the disagreement is said once on stderr.
+    const { stderr } = await run(process.execPath, [tsxBin, cliEntry, "show", created.row.id], {
+      env: { ...configured, FACTORY_CONTROLLER_URL: "http://127.0.0.1:1" },
+      cwd: packageRoot,
+    })
+    expect(stderr).toContain("FACTORY_CONTROLLER_URL is http://127.0.0.1:1 in the environment")
+    // A named config that is not there refuses.
+    const missing = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "list"], {
+        env: { ...bare, FACTORY_CONFIG: join(dir, "absent.ts") },
+        cwd: packageRoot,
+      }),
+    )
+    expect(missing.stderr).toContain("No factory config at")
+  }, 90_000)
+
+  it("reads without a controller, and refuses to write without one", async () => {
+    const { cli, env } = await boot()
+    const { json: created } = await cli("create", "--task", "cli-flags")
+    const id = created.row.id as string
+    const { FACTORY_CONTROLLER_URL, ...readOnlyEnv } = env
+    const { stdout } = await run(process.execPath, [tsxBin, cliEntry, "show", id], {
+      env: readOnlyEnv,
+      cwd: packageRoot,
+    })
+    expect(JSON.parse(stdout).id).toBe(id)
+    const failed = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "create", "--task", "cli-flags"], {
+        env: readOnlyEnv,
+        cwd: packageRoot,
+      }),
+    )
+    expect(failed.stderr).toContain("FACTORY_CONTROLLER_URL")
+  }, 90_000)
+
+  /** A `gh` that answers `issue view` with a fixed issue and refuses everything else. */
+  function stubGh(issue: { title: string; body: string; url: string; state?: string }): string {
+    const path = join(dir, "gh")
+    writeFileSync(
+      path,
+      `#!/bin/sh
+case "$1 $2" in
+  "issue view") printf '%s\\n' '${JSON.stringify(issue)}' ;;
+  *) echo "unexpected gh $*" >&2; exit 1 ;;
+esac
+`,
+    )
+    chmodSync(path, 0o755)
+    return path
+  }
+
+  /** A repository whose `origin` is itself, so a shallow fetch of main works offline. */
+  async function localRepo(): Promise<{ root: string; head: string }> {
+    const root = join(dir, "repo")
+    const git = (...args: string[]) =>
+      run("git", ["-C", root, ...args], {
+        env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" },
+      })
+    await run("git", ["init", "-b", "main", root])
+    writeFileSync(join(root, "README.md"), "target\n")
+    await git("-c", "user.name=t", "-c", "user.email=t@t", "add", "README.md")
+    await git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init")
+    await git("remote", "add", "origin", root)
+    const { stdout } = await git("rev-parse", "HEAD")
+    return { root, head: stdout.trim() }
+  }
+
+  it("creates from an issue through a stubbed gh and a local target repository", async () => {
+    const { cli, env } = await boot()
+    const gh = stubGh({ title: "Fix the flag", body: "Body\n", url: "https://github.com/x/778" })
+    const { root, head } = await localRepo()
+    const issueEnv = { ...env, FACTORY_GH: gh, FACTORY_REPO_ROOT: root }
+    const { stdout } = await run(
+      process.execPath,
+      [tsxBin, cliEntry, "create", "--issue", "778", "--repo", "cacheplane/b4run"],
+      { env: issueEnv, cwd: packageRoot },
+    )
+    const created = JSON.parse(stdout)
+    expect(created).toMatchObject({ ok: true, state: "received" })
+    expect(created.row.origin).toMatchObject({
+      kind: "issue",
+      repository: "cacheplane/b4run",
+      number: 778,
+    })
+    expect(created.row.origin.bodyDigest).toMatch(/^[a-f0-9]{64}$/)
+    expect(created.row.pin).toBe(head)
+    expect(
+      readFileSync(join(served?.stateDir ?? "", "tasks", created.row.id, "issue.md"), "utf8"),
+    ).toBe("# Fix the flag (cacheplane/b4run#778)\n\nBody\n")
+    const { json: shown } = await cli("show", created.row.id)
+    expect(shown.pin).toBe(head)
+
+    const both = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "create", "--task", "cli-flags", "--issue", "778"], {
+        env: issueEnv,
+        cwd: packageRoot,
+      }),
+    )
+    expect(both.stderr).toContain("not both")
+    const neither = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "create"], { env: issueEnv, cwd: packageRoot }),
+    )
+    expect(neither.stderr).toContain("--task or --issue")
+    const notANumber = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "create", "--issue", "seven"], {
+        env: issueEnv,
+        cwd: packageRoot,
+      }),
+    )
+    expect(notANumber.stderr).toContain("positive integer")
+  }, 90_000)
+
+  it("creates a draft-PR work order with --deliver, and refuses what cannot be delivered", async () => {
+    const github = createFakeGitHub()
+    const { env } = await boot(
+      {},
+      {
+        delivery: {
+          draftPr: { repository: "cacheplane/b4run", baseBranch: "main", adapter: github },
+        },
+      },
+    )
+    const gh = stubGh({
+      title: "Fix the flag",
+      body: "Body\n",
+      url: "https://github.com/x/778",
+      state: "OPEN",
+    })
+    const { root } = await localRepo()
+    const issueEnv = { ...env, FACTORY_GH: gh, FACTORY_REPO_ROOT: root }
+    const create = (...args: string[]) =>
+      run(process.execPath, [tsxBin, cliEntry, "create", ...args], {
+        env: issueEnv,
+        cwd: packageRoot,
+      })
+    const created = JSON.parse(
+      (await create("--issue", "778", "--repo", "cacheplane/b4run", "--deliver", "draft-pr"))
+        .stdout,
+    )
+    expect(created).toMatchObject({ ok: true, state: "received" })
+    expect(created.row.delivery).toEqual({
+      kind: "draft-pr",
+      repository: "cacheplane/b4run",
+      baseBranch: "main",
+      branch: `factory/${created.row.id}`,
+      pathPrefix: null,
+      issueStateAtCreate: "open",
+    })
+    const catalog = await failing(create("--task", "cli-flags", "--deliver", "draft-pr"))
+    expect(catalog.stderr).toContain("is for issue work orders")
+    const bogus = await failing(create("--issue", "778", "--deliver", "pr"))
+    expect(bogus.stderr).toContain("--deliver takes local or draft-pr")
+    const elsewhere = await failing(
+      create("--issue", "778", "--repo", "someone/else", "--deliver", "draft-pr", "--key", "x"),
+    )
+    expect(JSON.parse(elsewhere.stdout)).toMatchObject({
+      ok: false,
+      refusal: "delivery_unavailable",
+      message: expect.stringContaining("not someone/else"),
+    })
+    // Nothing reached GitHub: create only records where the bundle will go.
+    expect(github.calls).toEqual([])
+  }, 90_000)
+
+  it("redelivers only on the bundle digest a person types or names in full, and never otherwise", async () => {
+    const h = await harness()
+    // A port nobody listens on: a command that gets past the gate fails to send, and says so.
+    const { url, server } = await dropping()
+    await new Promise((resolve) => server.close(resolve))
+    dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
+    const env = {
+      ...process.env,
+      FACTORY_CONTROLLER_URL: url,
+      FACTORY_STATE_DIR: harnessDir(),
+      FACTORY_CONFIG: "none",
+    }
+    const redeliver = (...args: string[]) =>
+      run(process.execPath, [tsxBin, cliEntry, "redeliver", HARNESS_ID, ...args], {
+        env,
+        cwd: packageRoot,
+      })
+    try {
+      // Still delivering: nothing to redeliver.
+      const live = await failing(redeliver())
+      expect(JSON.parse(live.stdout).message).toContain(
+        `Nothing to redeliver: ${HARNESS_ID} is delivering`,
+      )
+      h.github.fail("compare", new DeliveryError("rate_limited", "HTTP 403", 3_600_000, 403), {
+        times: 9,
+      })
+      expect(await h.deliver()).toMatchObject({
+        state: "blocked",
+        blockedReason: "delivery_rate_limited",
+      })
+      const digest = "b".repeat(64)
+      const callsAtBlock = h.github.calls.length
+      // No terminal and no --digest: shown, and nothing sent.
+      const piped = await failing(redeliver())
+      expect(piped.stderr).toContain(`bundle digest: ${digest}`)
+      expect(piped.stderr).toContain("it approves nothing new")
+      expect(JSON.parse(piped.stdout).message).toContain("There is no terminal")
+      expect(piped.stderr).not.toMatch(/fetch failed/)
+      // A --digest that is not the bundle's.
+      const wrong = await failing(redeliver("--digest", "a".repeat(64)))
+      expect(JSON.parse(wrong.stdout).message).toContain("is not the bundle digest shown above")
+      // At a terminal: a short or wrong prefix sends nothing.
+      for (const typed of ["bbbbbbb", "abababab", ""]) {
+        const declined = await interactive(env, ["redeliver", HARNESS_ID], typed)
+        expect(declined.code, typed).toBe(1)
+        expect(JSON.parse(declined.stdout).message, typed).toContain("does not match")
+        expect(declined.stderr, typed).not.toMatch(/fetch failed/)
+      }
+      // The right prefix, and the full digest, are sent (to a controller that is not there).
+      const typed = await interactive(env, ["redeliver", HARNESS_ID], "BBBBBBBB")
+      expect(typed.code).toBe(1)
+      expect(typed.stderr).toMatch(/fetch failed/)
+      const named = await failing(redeliver("--digest", digest))
+      expect(named.stderr).toMatch(/fetch failed/)
+      // The CLI never reaches GitHub itself: every call is the worker's, from before the block.
+      expect(h.github.calls).toHaveLength(callsAtBlock)
+    } finally {
+      closeHarness()
+    }
+  }, 90_000)
+
+  it("refuses to redeliver a delivery block waiting does not heal, before it asks for the digest", async () => {
+    const h = await harness()
+    const { url, server } = await dropping()
+    await new Promise((resolve) => server.close(resolve))
+    dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
+    const env = {
+      ...process.env,
+      FACTORY_CONTROLLER_URL: url,
+      FACTORY_STATE_DIR: harnessDir(),
+      FACTORY_CONFIG: "none",
+    }
+    try {
+      h.github.comparison = {
+        status: "ahead",
+        aheadBy: 2,
+        files: [{ filename: HARNESS_SOURCE }],
+        complete: true,
+      }
+      expect(await h.deliver()).toMatchObject({
+        state: "blocked",
+        blockedReason: "delivery_base_conflict",
+      })
+      const runAgain = `pnpm factory run --issue 912 --repo ${REPOSITORY} --deliver draft-pr --new`
+      for (const result of [
+        await failing(
+          run(process.execPath, [tsxBin, cliEntry, "redeliver", HARNESS_ID], {
+            env,
+            cwd: packageRoot,
+          }),
+        ),
+        // At a terminal too: refused before the prompt, so nothing waits for a typed prefix.
+        await interactive(env, ["redeliver", HARNESS_ID], "bbbbbbbb"),
+      ]) {
+        const outcome = JSON.parse(result.stdout)
+        expect(outcome).toMatchObject({
+          ok: false,
+          state: "blocked",
+          message: expect.stringContaining(
+            "blocked by delivery_base_conflict: waiting does not heal it",
+          ),
+          next: [`pnpm factory cancel ${HARNESS_ID}`, runAgain],
+        })
+        expect(result.stderr).not.toContain("first eight hex digits")
+        expect(result.stderr).not.toContain("bundle digest:")
+        expect(result.stderr).not.toMatch(/fetch failed/)
+      }
+    } finally {
+      closeHarness()
+    }
+  }, 90_000)
+
+  /**
+   * `approve` of the harness's draft-PR work order, sent to a controller that drops it: the CLI
+   * follows the row from the registry while the delivery (run here, once the CLI is following)
+   * blocks, and prints what it settled as.
+   */
+  async function approveFollowingABlock(
+    block: (h: Awaited<ReturnType<typeof harness>>) => void,
+  ): Promise<{ code: number | null; outcome: Record<string, unknown> }> {
+    const h = await harness()
+    const { url, server } = await dropping()
+    dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
+    try {
+      const child = spawnChild(
+        process.execPath,
+        [tsxBin, cliEntry, "approve", HARNESS_ID, "--revision", "0", "--bundle", "b".repeat(64)],
+        {
+          env: {
+            ...process.env,
+            FACTORY_CONTROLLER_URL: url,
+            FACTORY_STATE_DIR: harnessDir(),
+            FACTORY_CONFIG: "none",
+            FACTORY_CLI_ARRIVAL_WINDOW_MS: "30000",
+          },
+          cwd: packageRoot,
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      )
+      let stdout = ""
+      let stderr = ""
+      let delivered: Promise<unknown> | undefined
+      child.stdout.on("data", (chunk: Buffer) => {
+        stdout += chunk.toString()
+      })
+      child.stderr.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString()
+        // The row is marked before the request leaves: only now may the delivery move it.
+        if (delivered === undefined && stderr.includes("the request ended before its answer")) {
+          block(h)
+          delivered = h.deliver()
+        }
+      })
+      const code = await new Promise<number | null>((resolve) => child.on("close", resolve))
+      expect(delivered, stderr).toBeDefined()
+      await delivered
+      return { code, outcome: JSON.parse(stdout) }
+    } finally {
+      await new Promise((resolve) => server.close(resolve))
+      closeHarness()
+    }
+  }
+
+  it("approve names the redeliver a healable delivery block allows (D23)", async () => {
+    const { code, outcome } = await approveFollowingABlock((h) =>
+      h.github.fail("compare", new DeliveryError("unauthorized", "HTTP 401", undefined, 401)),
+    )
+    expect(code).toBe(1)
+    expect(outcome).toMatchObject({
+      ok: false,
+      state: "blocked",
+      next: [
+        `pnpm factory events ${HARNESS_ID}`,
+        `pnpm factory redeliver ${HARNESS_ID}`,
+        `pnpm factory cancel ${HARNESS_ID}`,
+      ],
+    })
+  }, 90_000)
+
+  it("approve names no redeliver for a delivery block waiting does not heal (D23)", async () => {
+    const { code, outcome } = await approveFollowingABlock((h) => {
+      h.github.comparison = {
+        status: "ahead",
+        aheadBy: 2,
+        files: [{ filename: HARNESS_SOURCE }],
+        complete: true,
+      }
+    })
+    expect(code).toBe(1)
+    expect(outcome).toMatchObject({
+      ok: false,
+      state: "blocked",
+      row: { blockedReason: "delivery_base_conflict" },
+      next: [`pnpm factory events ${HARNESS_ID}`, `pnpm factory cancel ${HARNESS_ID}`],
+    })
+  }, 90_000)
+
+  it("replays an issue at --pin without consulting origin/main", async () => {
+    const { env } = await boot()
+    const gh = stubGh({ title: "Fix the flag", body: "Body\n", url: "https://github.com/x/778" })
+    const { root, head: first } = await localRepo()
+    const git = (...args: string[]) =>
+      run("git", ["-C", root, ...args], {
+        env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" },
+      })
+    writeFileSync(join(root, "README.md"), "target, fixed\n")
+    await git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-am", "fix")
+    // An origin that answers nothing: a `git fetch origin main` (resolvePin) or any fetch at
+    // all would fail the create, so a pinned create that succeeds consulted neither.
+    await git("remote", "set-url", "origin", join(dir, "no-such-origin"))
+    const issueEnv = { ...env, FACTORY_GH: gh, FACTORY_REPO_ROOT: root }
+    const create = (...args: string[]) =>
+      run(
+        process.execPath,
+        [tsxBin, cliEntry, "create", "--issue", "778", "--repo", "cacheplane/b4run", ...args],
+        { env: issueEnv, cwd: packageRoot },
+      )
+
+    const created = JSON.parse((await create("--pin", first)).stdout)
+    expect(created).toMatchObject({ ok: true, state: "received" })
+    expect(created.row.pin).toBe(first)
+    expect(created.row.origin).toMatchObject({ kind: "issue", number: 778 })
+    // A short sha resolves in the checkout to the same commit.
+    const short = JSON.parse((await create("--pin", first.slice(0, 10), "--key", "short")).stdout)
+    expect(short.row.pin).toBe(first)
+    // Without --pin the same checkout cannot create: origin/main is what it would read.
+    const unpinned = await failing(create())
+    expect(unpinned.stderr).toContain("git fetch failed")
+
+    const absent = "0123456789abcdef0123456789abcdef01234567"
+    const refused = await failing(
+      run(
+        process.execPath,
+        [tsxBin, cliEntry, "create", "--issue", "778", "--repo", "x/y", "--pin", absent],
+        { env: { ...issueEnv, FACTORY_NO_FETCH: "1" }, cwd: packageRoot },
+      ),
+    )
+    expect(refused.stderr).toContain(`Issue 778 (replay) pins ${absent}`)
+    expect(refused.stderr).toContain("FACTORY_NO_FETCH=1")
+    const unknownShort = await failing(create("--pin", "0123456789"))
+    expect(unknownShort.stderr).toContain("pass the full 40-hex sha")
+    // A branch whose name is hex resolves (refs win over abbreviations) to wherever it points,
+    // which is not a commit the argument abbreviates: refused, not recorded as the pin.
+    const tip = (await git("rev-parse", "HEAD")).stdout.trim()
+    const hexName = tip.startsWith("cafe") ? "beef" : "cafe"
+    await git("branch", hexName, "HEAD")
+    const hexBranch = await failing(create("--pin", hexName, "--key", "hex-branch"))
+    expect(hexBranch.stderr).toContain(`--pin ${hexName} resolved to ${tip}`)
+    expect(hexBranch.stderr).toContain("pass the full 40-hex sha")
+    const withTask = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "create", "--task", "cli-flags", "--pin", first], {
+        env: issueEnv,
+        cwd: packageRoot,
+      }),
+    )
+    expect(withTask.stderr).toMatch(/--pin.*--issue.*--task/)
+  }, 90_000)
+
+  it("drives the intake gate: intake tails and parks, reject-intake redrafts, approve-intake needs the digest", async () => {
+    const { cli, spawn } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
+    if (!served) throw new Error("no controller")
+    served.workspace.queue(FIRST_DRAFTER_THREAD, [GOOD_DRAFT, GOOD_DRAFT])
+    const created = await served.run("create-cli-issue", "/work-orders/create#workflow", {
+      origin: {
+        kind: "issue",
+        repository: "cacheplane/b4run",
+        number: 778,
+        bodyDigest: "0".repeat(64),
+      },
+      pin: served.pin,
+      issue: { title: "spawnProcess leaks its deadline timer", body: "B" },
+    })
+    const id = (created.body as { row: { id: string } }).row.id
+
+    const { json: parked, stderr } = await cli("intake", id)
+    expect(parked).toMatchObject({ ok: true, state: "awaiting_intake_approval" })
+    expect(parked.row.state).toBe("awaiting_intake_approval")
+    expect(parked.row.taskDigest).toMatch(/^[a-f0-9]{64}$/)
+    // Tailed like a dispatch: the drafter's turn is watched through the registry.
+    expect(stderr).toContain('"type":"transition"')
+    expect(stderr).toContain("intake_drafted")
+
+    const noNote = await failing(spawn("reject-intake", id).promise)
+    expect(noNote.stderr).toContain("--note")
+    const wrongDigest = await failing(
+      spawn(
+        "approve-intake",
+        id,
+        "--revision",
+        String(parked.row.revision),
+        "--digest",
+        "b".repeat(64),
+      ).promise,
+    )
+    expect(JSON.parse(wrongDigest.stdout)).toMatchObject({
+      ok: false,
+      message: "Task digest does not match the work order's",
+    })
+
+    const { json: redrafted } = await cli("reject-intake", id, "--note", "name the timer")
+    expect(redrafted).toMatchObject({ ok: true, state: "awaiting_intake_approval" })
+    expect(redrafted.row.intakeAttempts).toBe(2)
+    // The redraft's own digest, not the rejected one's: the rejection cleared it.
+    expect(redrafted.row.taskDigest).toMatch(/^[a-f0-9]{64}$/)
+
+    // The digest an operator approves is the one `show` prints, not one from an earlier run.
+    const { json: shown } = await cli("show", id)
+    expect(shown.state).toBe("awaiting_intake_approval")
+    const { json: approved } = await cli(
+      "approve-intake",
+      id,
+      "--revision",
+      String(shown.revision),
+      "--digest",
+      shown.taskDigest,
+    )
+    expect(approved).toMatchObject({ ok: true, state: "received" })
+    expect(approved.row.taskDigest).toBe(shown.taskDigest)
+    // The proof the approved draft was parked on is evidence an approver can read: the
+    // receipt of the SECOND attempt, the one whose draft was approved.
+    const { json: evidence } = await cli("evidence", id)
+    expect(evidence.oracleReceipt).toMatchObject({ verdict: "fail", workOrderId: id })
+    const { json: events } = await cli("events", id)
+    const proofs = events.filter((e: { type: string }) => e.type === "oracle_receipt")
+    expect(proofs).toHaveLength(2)
+    expect(evidence.oracleReceipt.id).toBe(proofs[1].payload.receiptId)
+  }, 90_000)
+
+  it("follows the row when an awaiting dispatch's request times out while the work goes on", async () => {
+    // A builder turn slower than the request may wait: the injected timeout stands in for
+    // undici's 300 s headers timeout on `runs/wait`, which is what ended the live run's CLI.
+    const { env, stateDir } = await boot({ frameDelayMs: 1_500 })
+    const { stdout: createdOut } = await run(
+      process.execPath,
+      [tsxBin, cliEntry, "create", "--task", "cli-flags"],
+      { env, cwd: packageRoot },
+    )
+    const id = JSON.parse(createdOut).row.id as string
+    const { stdout, stderr } = await run(process.execPath, [tsxBin, cliEntry, "dispatch", id], {
+      env: { ...env, FACTORY_CLI_REQUEST_TIMEOUT_MS: "500" },
+      cwd: packageRoot,
+    })
+    expect(stderr).toContain("the request ended before its answer")
+    expect(stderr).toContain("following the row in the registry")
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: true,
+      state: "awaiting_approval",
+      message: "Settled as awaiting_approval (read from the registry after the request ended)",
+      row: { id, state: "awaiting_approval" },
+    })
+    expect(await pollState(stateDir, id, () => true)).toBe("awaiting_approval")
+  }, 90_000)
+
+  it("follows a dispatch that is still building its image when its request times out", async () => {
+    const builder = fakeImageBuilder()
+    builder.hold()
+    const imagesDir = mkdtempSync(join(tmpdir(), "factory-cli-images-"))
+    const images = openImageRegistry({
+      path: join(imagesDir, "images.sqlite"),
+      builder,
+      platform: "linux/arm64",
+    })
+    // Configured before the boot, as in the cancel-while-building test: the served controller
+    // builds through this registry, and the test's own catalog reads agree with it.
+    const restore = useImages(images)
+    try {
+      const { env, stateDir } = await boot()
+      const { stdout: createdOut } = await run(
+        process.execPath,
+        [tsxBin, cliEntry, "create", "--task", "cli-flags"],
+        { env, cwd: packageRoot },
+      )
+      const id = JSON.parse(createdOut).row.id as string
+      // The build outlives the request (500 ms) and the arrival window (1 s): only the journal
+      // says the request arrived and the work goes on.
+      setTimeout(() => builder.release(), 3_000)
+      const { stdout, stderr } = await run(process.execPath, [tsxBin, cliEntry, "dispatch", id], {
+        env: {
+          ...env,
+          FACTORY_CLI_REQUEST_TIMEOUT_MS: "500",
+          FACTORY_CLI_ARRIVAL_WINDOW_MS: "1000",
+        },
+        cwd: packageRoot,
+      })
+      expect(stderr).toContain("the request ended before its answer")
+      expect(stderr).toContain("image_prepare_started")
+      expect(JSON.parse(stdout)).toMatchObject({ ok: true, state: "awaiting_approval" })
+      expect(await pollState(stateDir, id, () => true)).toBe("awaiting_approval")
+    } finally {
+      builder.release()
+      restore()
+      images.close()
+      rmSync(imagesDir, { recursive: true, force: true })
+    }
+  }, 90_000)
+
+  it("reads back a dispatch refused after its image build, with the row still received", async () => {
+    const builder = fakeImageBuilder()
+    builder.hold()
+    builder.failNext("docker build failed")
+    const imagesDir = mkdtempSync(join(tmpdir(), "factory-cli-images-"))
+    const images = openImageRegistry({
+      path: join(imagesDir, "images.sqlite"),
+      builder,
+      platform: "linux/arm64",
+    })
+    const restore = useImages(images)
+    try {
+      const { env, stateDir } = await boot()
+      const { stdout: createdOut } = await run(
+        process.execPath,
+        [tsxBin, cliEntry, "create", "--task", "cli-flags"],
+        { env, cwd: packageRoot },
+      )
+      const id = JSON.parse(createdOut).row.id as string
+      // The build fails only after the request (500 ms) and the arrival window (1 s) are gone.
+      setTimeout(() => builder.release(), 3_000)
+      const { stdout, stderr } = await failing(
+        run(process.execPath, [tsxBin, cliEntry, "dispatch", id], {
+          env: {
+            ...env,
+            FACTORY_CLI_REQUEST_TIMEOUT_MS: "500",
+            FACTORY_CLI_ARRIVAL_WINDOW_MS: "1000",
+          },
+          cwd: packageRoot,
+        }),
+      )
+      expect(stderr).toContain("the request ended before its answer")
+      const outcome = JSON.parse(stdout)
+      expect(outcome).toMatchObject({ ok: false, state: "received" })
+      expect(outcome.message).toMatch(
+        /^Refused \(read from the registry after the request ended\): the image of target cli-flags .* could not be built: .*docker build failed/,
+      )
+      expect(await pollState(stateDir, id, () => true)).toBe("received")
+    } finally {
+      builder.release()
+      restore()
+      images.close()
+      rmSync(imagesDir, { recursive: true, force: true })
+    }
+  }, 90_000)
+
+  it("follows an approve past its request timeout: arrival and the export read from the registry", async () => {
+    // Approve re-verifies with the row still `awaiting_approval` at its revision (about 20
+    // minutes on the `cli` target), so the live run's CLI timed out and a repeat was refused
+    // `run_in_flight`. The journal says it arrived, and the row says it exported.
+    const verifier = createFakeVerifier({ verdict: "pass" })
+    const { cli, env } = await boot({}, { verifier })
+    const { json: created } = await cli("create", "--task", "cli-flags")
+    const id = created.row.id as string
+    const { json: dispatched } = await cli("dispatch", id)
+    expect(dispatched.row.state).toBe("awaiting_approval")
+    verifier.script = { verdict: "pass", delayMs: 2_000 }
+    const { stdout, stderr } = await run(
+      process.execPath,
+      [
+        tsxBin,
+        cliEntry,
+        "approve",
+        id,
+        "--revision",
+        String(dispatched.row.revision),
+        "--bundle",
+        dispatched.row.bundleDigest,
+      ],
+      { env: { ...env, FACTORY_CLI_REQUEST_TIMEOUT_MS: "500" }, cwd: packageRoot },
+    )
+    expect(stderr).toContain("the request ended before its answer")
+    expect(stderr).toContain('"type":"approve_started"')
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: true,
+      state: "exported",
+      message: "Settled as exported (read from the registry after the request ended)",
+    })
+  }, 90_000)
+
+  it("reports an approve refused after its request timed out, and exits non-zero", async () => {
+    const verifier = createFakeVerifier({ verdict: "pass" })
+    const { cli, env } = await boot({}, { verifier })
+    const { json: created } = await cli("create", "--task", "cli-flags")
+    const id = created.row.id as string
+    const { json: dispatched } = await cli("dispatch", id)
+    // The re-verification fails: the row stays `awaiting_approval`, an active state for the
+    // follow, and only the journal's refusal line ends it.
+    verifier.script = { verdict: "fail", delayMs: 2_000 }
+    const { stdout } = await failing(
+      run(
+        process.execPath,
+        [
+          tsxBin,
+          cliEntry,
+          "approve",
+          id,
+          "--revision",
+          String(dispatched.row.revision),
+          "--bundle",
+          dispatched.row.bundleDigest,
+        ],
+        { env: { ...env, FACTORY_CLI_REQUEST_TIMEOUT_MS: "500" }, cwd: packageRoot },
+      ),
+    )
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: false,
+      state: "awaiting_approval",
+      message:
+        "Refused (read from the registry after the request ended): Re-verification did not pass: fail",
+    })
+  }, 90_000)
+
+  it("follows the row past a timed-out intake, with the intake's exit code", async () => {
+    const { env } = await boot(
+      {},
+      {
+        verifier: createFakeVerifier({ independent: "fail" }),
+        drafter: { frameDelayMs: 1_500, run: "edits_only" },
+      },
+    )
+    if (!served) throw new Error("no controller")
+    served.workspace.set(FIRST_DRAFTER_THREAD, BAD_DRAFTS.badTarget as Record<string, string>)
+    const created = await served.run("create-cli-timeout", "/work-orders/create#workflow", {
+      origin: {
+        kind: "issue",
+        repository: "cacheplane/b4run",
+        number: 778,
+        bodyDigest: "0".repeat(64),
+      },
+      pin: served.pin,
+      issue: { title: "T", body: "B" },
+    })
+    const id = (created.body as { row: { id: string } }).row.id
+    const { stdout, stderr } = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "intake", id], {
+        env: { ...env, FACTORY_CLI_REQUEST_TIMEOUT_MS: "500" },
+        cwd: packageRoot,
+      }),
+    )
+    expect(stderr).toContain("the request ended before its answer")
+    // Blocked is not intake's success, whichever way the answer arrived: `ok` is the
+    // command's success set, as the route decides it, not "the row settled".
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: false,
+      state: "blocked",
+      row: { state: "blocked", blockedReason: "no_target_for_package" },
+    })
+  }, 90_000)
+
+  it("exits non-zero when an intake settles blocked", async () => {
+    const { cli, spawn } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
+    if (!served) throw new Error("no controller")
+    // A draft naming a package with no prepared target blocks at once: no redraft can
+    // prepare one, so this is the one refusal that never spends a second attempt.
+    served.workspace.set(FIRST_DRAFTER_THREAD, BAD_DRAFTS.badTarget as Record<string, string>)
+    const created = await served.run("create-cli-blocked", "/work-orders/create#workflow", {
+      origin: {
+        kind: "issue",
+        repository: "cacheplane/b4run",
+        number: 778,
+        bodyDigest: "0".repeat(64),
+      },
+      pin: served.pin,
+      issue: { title: "T", body: "B" },
+    })
+    const id = (created.body as { row: { id: string } }).row.id
+    const { stdout } = await failing(spawn("intake", id).promise)
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: false,
+      state: "blocked",
+      message: "Intake settled in blocked (no_target_for_package)",
+      row: { state: "blocked", blockedReason: "no_target_for_package", intakeAttempts: 1 },
+    })
+    const { json: shown } = await cli("show", id)
+    expect(shown.state).toBe("blocked")
+  }, 90_000)
+
+  it("exits non-zero when a rejection exhausts the drafter's attempts", async () => {
+    const { cli, spawn } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
+    if (!served) throw new Error("no controller")
+    // Two good drafts, two rejections: the default of two attempts is spent by the redraft,
+    // so the second rejection has nothing left to start and the work order blocks.
+    served.workspace.queue(FIRST_DRAFTER_THREAD, [GOOD_DRAFT, GOOD_DRAFT])
+    const created = await served.run("create-cli-exhausted", "/work-orders/create#workflow", {
+      origin: {
+        kind: "issue",
+        repository: "cacheplane/b4run",
+        number: 778,
+        bodyDigest: "0".repeat(64),
+      },
+      pin: served.pin,
+      issue: { title: "T", body: "B" },
+    })
+    const id = (created.body as { row: { id: string } }).row.id
+    const { json: parked } = await cli("intake", id)
+    expect(parked).toMatchObject({ ok: true, state: "awaiting_intake_approval" })
+    const { json: redrafted } = await cli("reject-intake", id, "--note", "again")
+    expect(redrafted).toMatchObject({ ok: true, row: { intakeAttempts: 2 } })
+    const { stdout } = await failing(spawn("reject-intake", id, "--note", "still no").promise)
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: false,
+      state: "blocked",
+      message: "Intake rejected; no drafter attempts remain, the work order is blocked",
+      row: { state: "blocked", blockedReason: "intake_attempts_exhausted" },
+    })
+    // A rejected draft is nobody's: `show` carries no digest and no target for it, and the
+    // evidence shows no oracle proof for a draft that is not the row's.
+    const { json: shown } = await cli("show", id)
+    expect(shown).toMatchObject({ state: "blocked", taskDigest: null, targetId: null })
+    const { json: evidence } = await cli("evidence", id)
+    expect(evidence.oracleReceipt).toBeNull()
+  }, 90_000)
+
+  /** Park a work order for approval through the real controller, and return its id. */
+  async function parkedIntake(cli: Awaited<ReturnType<typeof boot>>["cli"], key: string) {
+    if (!served) throw new Error("no controller")
+    served.workspace.set(FIRST_DRAFTER_THREAD, GOOD_DRAFT as Record<string, string>)
+    const created = await served.run(key, "/work-orders/create#workflow", {
+      origin: {
+        kind: "issue",
+        repository: "cacheplane/b4run",
+        number: 778,
+        bodyDigest: "0".repeat(64),
+      },
+      pin: served.pin,
+      issue: { title: "T", body: "B" },
+    })
+    const id = (created.body as { row: { id: string } }).row.id
+    const { json: parked } = await cli("intake", id)
+    expect(parked).toMatchObject({ ok: true, state: "awaiting_intake_approval" })
+    return { id, revision: parked.row.revision as number }
+  }
+
+  /**
+   * `review` as a person runs it at a terminal: `FACTORY_CLI_INTERACTIVE=1` stands in for a
+   * TTY on stdin. The answer is typed only once the prompt is on stderr, after `beforeAnswer`
+   * (a file edited between display and approval, say) has run.
+   */
+  async function interactive(
+    env: NodeJS.ProcessEnv,
+    args: readonly string[],
+    answer: string,
+    beforeAnswer: () => void = () => undefined,
+  ): Promise<{ code: number | null; stdout: string; stderr: string }> {
+    const child = spawnChild(process.execPath, [tsxBin, cliEntry, ...args], {
+      env: { ...env, FACTORY_CLI_INTERACTIVE: "1" },
+      cwd: packageRoot,
+      stdio: ["pipe", "pipe", "pipe"],
+    })
+    let stdout = ""
+    let stderr = ""
+    let answered = false
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString()
+    })
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString()
+      if (!answered && stderr.includes("first eight hex digits")) {
+        answered = true
+        beforeAnswer()
+        child.stdin.write(`${answer}\n`)
+      }
+    })
+    const code = await new Promise<number | null>((resolve) => child.on("close", resolve))
+    return { code, stdout, stderr }
+  }
+  /**
+   * `run` at a terminal: `FACTORY_CLI_INTERACTIVE=1` stands in for a TTY. Each time the review
+   * prompt appears on stderr, `answer(n)` (n from 0) is typed, or stdin is closed when it
+   * returns undefined. One answer per prompt, written only after it (Trap 11).
+   */
+  async function interactiveRun(
+    env: NodeJS.ProcessEnv,
+    args: readonly string[],
+    answer: (prompt: number) => string | undefined,
+  ): Promise<{ code: number | null; stdout: string; stderr: string }> {
+    const child = spawnChild(process.execPath, [tsxBin, cliEntry, "run", ...args], {
+      env: { ...env, FACTORY_CLI_INTERACTIVE: "1" },
+      cwd: packageRoot,
+      stdio: ["pipe", "pipe", "pipe"],
+    })
+    let stdout = ""
+    let stderr = ""
+    let prompts = 0
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString()
+    })
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString()
+      while (stderr.split("first eight hex digits").length - 1 > prompts) {
+        const typed = answer(prompts)
+        prompts += 1
+        if (typed === undefined) child.stdin.end()
+        else child.stdin.write(`${typed}\n`)
+      }
+    })
+    const code = await new Promise<number | null>((resolve) => child.on("close", resolve))
+    return { code, stdout, stderr }
+  }
+
+  /** Exit code and output of a spawned command, whatever the code. */
+  async function settled(promise: Promise<{ stdout: string; stderr: string }>) {
+    return promise.then(
+      ({ stdout, stderr }) => ({ code: 0, stdout, stderr }),
+      (e: { code?: number; stdout?: string; stderr?: string }) => ({
+        code: e.code ?? -1,
+        stdout: e.stdout ?? "",
+        stderr: e.stderr ?? "",
+      }),
+    )
+  }
+
+  /** The one-line candidate the export review tests use, left on the builder's thread. */
+  function repairedCandidate(): void {
+    const target = loadTask("cli-flags").target
+    const pinned = execFileSync(
+      "git",
+      ["-C", packageRoot, "show", `${target.pin}:${target.root}/src/cli.ts`],
+      { encoding: "utf8" },
+    )
+    served?.workspace.set(FIRST_THREAD, {
+      "src/cli.ts": pinned.replace(
+        "await program.parseAsync(process.argv)",
+        'await program.parseAsync(process.argv, { from: "node" })',
+      ),
+      "test/cli.test.ts": "spec\n",
+      "TASK.md": "task\n",
+    })
+  }
+
+  /** A live process a test lock can name as its `up`, with a command line `ps` shows. */
+  async function lockHolder() {
+    const marker = `factory-up-lock-holder-${process.pid}-${Date.now()}`
+    const child = spawnChild(process.execPath, ["-e", "setInterval(() => {}, 1000)", marker], {
+      stdio: "ignore",
+    })
+    await new Promise((resolve) => child.once("spawn", resolve))
+    holders.push({ kill: () => child.kill("SIGKILL") })
+    return {
+      child,
+      pid: child.pid as number,
+      command: marker,
+      kill: () => child.kill("SIGKILL"),
+    }
+  }
+
+  /** `<state>/up.lock` as `up` writes it, naming `holder` and the controller's approval window. */
+  function writeUpLock(
+    stateDir: string,
+    holder: { readonly pid: number; readonly command: string },
+    approvalTtlMs: number,
+  ): void {
+    mkdirSync(stateDir, { recursive: true })
+    writeFileSync(
+      join(stateDir, "up.lock"),
+      `${JSON.stringify({
+        up: { pid: holder.pid, command: holder.command, startedAt: new Date().toISOString() },
+        ports: { controller: 1, builder: 2, drafter: 3 },
+        controller: { approvalTtlMs, maxActiveMs: 1_200_000 },
+        children: {},
+      })}\n`,
+    )
+  }
+
+  const journal = (stateDir: string, id: string) => {
+    const reader = openRegistryReader(join(stateDir, "registry.sqlite"))
+    try {
+      return reader.events(id)
+    } finally {
+      reader.close()
+    }
+  }
+  const types = (stateDir: string, id: string) => journal(stateDir, id).map((e) => e.type)
+  /** Transitions are journalled as `transition` with the event in the payload. */
+  const transitions = (stateDir: string, id: string, event: string) =>
+    journal(stateDir, id).filter((e) => e.type === "transition" && e.payload.event === event)
+  /** Every work order, or none when the registry does not exist yet. */
+  const rows = (stateDir: string) => {
+    if (!existsSync(join(stateDir, "registry.sqlite"))) return []
+    const reader = openRegistryReader(join(stateDir, "registry.sqlite"))
+    try {
+      return reader.list()
+    } finally {
+      reader.close()
+    }
+  }
+
+  it("reviews an intake: shows the draft and its proof, and approves the digest of what it showed", async () => {
+    const { cli, spawn, env, stateDir } = await boot(
+      {},
+      { verifier: createFakeVerifier({ independent: "fail" }) },
+    )
+    const { id, revision } = await parkedIntake(cli, "create-cli-review")
+    const { json: row } = await cli("show", id)
+    const digest = row.taskDigest as string
+    const taskDir = join(stateDir, "tasks", id)
+
+    // The fake verifier records output digests it never writes: the oracle proof's output is
+    // missing, and a review refuses to approve what it could not show unless told explicitly.
+    const unseen = await failing(spawn("review", id, "--approve", "--digest", digest).promise)
+    expect(unseen.stderr).toContain("NOT IN THE ARTIFACT STORE")
+    expect(JSON.parse(unseen.stdout)).toMatchObject({
+      ok: false,
+      state: "awaiting_intake_approval",
+      row: { id, taskDigest: digest },
+    })
+    expect(JSON.parse(unseen.stdout).message).toContain("--allow-missing-evidence")
+
+    // Without a terminal and without --digest there is nothing to type the prefix into.
+    const noTty = await failing(spawn("review", id, "--allow-missing-evidence").promise)
+    expect(noTty.stderr).toContain("==> spec.md")
+    expect(noTty.stderr).toContain("!!! WARNING: The oracle proof's output")
+    expect(JSON.parse(noTty.stdout)).toMatchObject({ ok: false, state: "awaiting_intake_approval" })
+    expect(JSON.parse(noTty.stdout).message).toContain("--approve --digest")
+    const approveNoDigest = await failing(
+      spawn("review", id, "--approve", "--allow-missing-evidence").promise,
+    )
+    expect(JSON.parse(approveNoDigest.stdout).message).toContain("--approve --digest")
+    // A --digest is an approval only when --approve asks for one.
+    const strayDigest = await failing(spawn("review", id, "--digest", digest).promise)
+    expect(strayDigest.stderr).toContain("--digest goes with --approve")
+
+    // A prefix that is not the digest's sends nothing.
+    const wrong = await interactive(
+      env,
+      ["review", id, "--allow-missing-evidence"],
+      digest.startsWith("0") ? "11111111" : "00000000",
+    )
+    expect(wrong.code).toBe(1)
+    expect(JSON.parse(wrong.stdout)).toMatchObject({ ok: false })
+    expect(JSON.parse(wrong.stdout).message).toContain("does not match")
+    // Everything the approval covers was on the screen, and the digest of it.
+    for (const shown of [
+      "==> issue.md",
+      "==> spec.md",
+      "==> task.json",
+      "==> checks.json",
+      "==> checks/",
+    ])
+      expect(wrong.stderr).toContain(shown)
+    expect(wrong.stderr).toContain("Oracle proof")
+    expect(wrong.stderr).toContain(`Task digest of the 5 files above: ${digest}`)
+
+    // A file edited after it was displayed and before the prefix was typed: the CLI sends the
+    // digest of what it showed, and the route, recomputing from disk, refuses it.
+    const specPath = join(taskDir, "spec.md")
+    const original = readFileSync(specPath)
+    const raced = await interactive(
+      env,
+      ["review", id, "--allow-missing-evidence"],
+      digest.slice(0, 8),
+      () => appendFileSync(specPath, "\nA2: also approve this\n"),
+    )
+    expect(raced.code).toBe(1)
+    expect(JSON.parse(raced.stdout)).toMatchObject({
+      ok: false,
+      message: "Task digest does not match the generated task on disk",
+    })
+    // Edited before the review: the digest of what is displayed is not the row's, so the
+    // review refuses without asking and sends nothing.
+    const edited = await failing(
+      spawn("review", id, "--approve", "--digest", digest, "--allow-missing-evidence").promise,
+    )
+    expect(edited.stderr).toContain("also approve this")
+    expect(JSON.parse(edited.stdout).message).toContain("changed after the draft was proved")
+    writeFileSync(specPath, original)
+
+    // Scripts: a --digest that is not the displayed one is refused before anything is sent.
+    const scripted = await failing(
+      spawn("review", id, "--approve", "--digest", "b".repeat(64), "--allow-missing-evidence")
+        .promise,
+    )
+    expect(JSON.parse(scripted.stdout).message).toContain(
+      `not the task digest review displayed (${digest})`,
+    )
+    expect(await pollState(stateDir, id, () => true)).toBe("awaiting_intake_approval")
+
+    // Seven digits are not enough, even when they are the digest's.
+    const short = await interactive(
+      env,
+      ["review", id, "--allow-missing-evidence"],
+      digest.slice(0, 7),
+    )
+    expect(short.code).toBe(1)
+    expect(JSON.parse(short.stdout).message).toContain("at least eight hex digits")
+    // The whole digest pasted, over unchanged bytes: approved at the revision shown.
+    const approved = await interactive(
+      env,
+      ["review", id, "--allow-missing-evidence"],
+      ` ${digest.toUpperCase()} `,
+    )
+    expect(approved.code).toBe(0)
+    expect(JSON.parse(approved.stdout)).toMatchObject({
+      ok: true,
+      state: "received",
+      row: { taskDigest: digest },
+    })
+    const { json: events } = await cli("events", id)
+    expect(
+      events.find((e: { type: string }) => e.type === "intake_approved")?.payload.taskDigest,
+    ).toBe(digest)
+    expect(revision).toBe(row.revision)
+
+    // Nothing is parked for review any more: said so, not guessed at.
+    const nothing = await failing(spawn("review", id).promise)
+    expect(JSON.parse(nothing.stdout)).toMatchObject({ ok: false, state: "received" })
+    expect(JSON.parse(nothing.stdout).message).toMatch(/^Nothing to review: .* is received/)
+  }, 120_000)
+
+  it("warns at an intake review when dispatch would refuse the work order's budget", async () => {
+    // devkit verifies for up to 240 s, so dispatch needs 480 s left; this row has 400 s in all.
+    const { cli, spawn } = await boot(
+      {},
+      { verifier: createFakeVerifier({ independent: "fail" }) },
+      { FACTORY_MAX_ACTIVE_MS: "400000" },
+    )
+    const { id } = await parkedIntake(cli, "create-cli-budget")
+    const shown = await failing(spawn("review", id, "--allow-missing-evidence").promise)
+    expect(shown.stderr).toContain("!!! WARNING: This work order has")
+    expect(shown.stderr).toContain("dispatch will refuse it after you approve")
+    // Only a warning: the review still says what a person must do to approve.
+    expect(JSON.parse(shown.stdout).message).toContain("--approve --digest")
+  }, 90_000)
+
+  it("says budget not checked, with the reason, rather than staying silent when the task fails to load", async () => {
+    const { cli, env } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
+    const { id } = await parkedIntake(cli, "create-cli-budget-unloadable")
+    // A repository that cannot possibly hold the drafted task's pin: loadTaskRecipe's target
+    // load calls ensurePin, which throws instead of the budget check silently doing nothing.
+    // FACTORY_NO_FETCH=1 keeps it from trying (and failing slowly) to fetch from origin.
+    const emptyRepo = mkdtempSync(join(tmpdir(), "factory-cli-empty-repo-"))
+    try {
+      const shown = await failing(
+        run(process.execPath, [tsxBin, cliEntry, "review", id, "--allow-missing-evidence"], {
+          env: { ...env, FACTORY_REPO_ROOT: emptyRepo, FACTORY_NO_FETCH: "1" },
+          cwd: packageRoot,
+        }),
+      )
+      expect(shown.stderr).toContain("budget not checked: ")
+      expect(shown.stderr).toContain(`is not in the repository at ${emptyRepo}`)
+      // Still shown and still approvable: a budget check that could not run is not a refusal.
+      expect(shown.stderr).toContain("==> spec.md")
+      expect(JSON.parse(shown.stdout).message).toContain("--approve --digest")
+    } finally {
+      rmSync(emptyRepo, { recursive: true, force: true })
+    }
+  }, 90_000)
+
+  it("honours the interactive test seam only under vitest, and says so loudly (D25)", async () => {
+    const { cli, env } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
+    const { id } = await parkedIntake(cli, "create-cli-seam")
+    const outsideVitest: NodeJS.ProcessEnv = { ...env }
+    delete outsideVitest.VITEST
+    // An operator's exported seam on a pipe: no prompt, nothing sent. Stdin is closed at once,
+    // so a CLI that did ask ends on "No answer" instead of waiting out the test's timeout.
+    const pipedRun = run(
+      process.execPath,
+      [tsxBin, cliEntry, "review", id, "--allow-missing-evidence"],
+      { env: { ...outsideVitest, FACTORY_CLI_INTERACTIVE: "1" }, cwd: packageRoot },
+    )
+    pipedRun.child.stdin?.end()
+    const piped = await failing(pipedRun)
+    expect(piped.stderr).not.toContain("TEST SEAM")
+    expect(piped.stderr).not.toContain("first eight hex digits")
+    expect(JSON.parse(piped.stdout).message).toContain("--approve --digest")
+    // Under vitest the seam works, and announces itself.
+    const seam = await interactive(env, ["review", id, "--allow-missing-evidence"], "00000000")
+    expect(seam.stderr).toContain("!!! TEST SEAM: FACTORY_CLI_INTERACTIVE")
+
+    // A falsy-looking string is still truthy in JS: the seam must compare the exact value
+    // vitest sets, not just check the variable is present.
+    const falsyVitest = run(
+      process.execPath,
+      [tsxBin, cliEntry, "review", id, "--allow-missing-evidence"],
+      { env: { ...env, VITEST: "false", FACTORY_CLI_INTERACTIVE: "1" }, cwd: packageRoot },
+    )
+    falsyVitest.child.stdin?.end()
+    const falsy = await failing(falsyVitest)
+    expect(falsy.stderr).not.toContain("TEST SEAM")
+    expect(falsy.stderr).not.toContain("first eight hex digits")
+    expect(JSON.parse(falsy.stdout).message).toContain("--approve --digest")
+  }, 90_000)
+
+  it("reviews an intake for scripts, and rejects one with a note", async () => {
+    const { cli, spawn } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
+    if (!served) throw new Error("no controller")
+    served.workspace.queue(FIRST_DRAFTER_THREAD, [GOOD_DRAFT, GOOD_DRAFT])
+    const created = await served.run("create-cli-review-reject", "/work-orders/create#workflow", {
+      origin: {
+        kind: "issue",
+        repository: "cacheplane/b4run",
+        number: 778,
+        bodyDigest: "0".repeat(64),
+      },
+      pin: served.pin,
+      issue: { title: "T", body: "B" },
+    })
+    const id = (created.body as { row: { id: string } }).row.id
+    await cli("intake", id)
+
+    const noNote = await failing(spawn("review", id, "--reject").promise)
+    expect(noNote.stderr).toContain("--note")
+    const both = await failing(spawn("review", id, "--approve", "--reject", "--note", "x").promise)
+    expect(both.stderr).toContain("not both")
+
+    // --reject is reject-intake: the note is journalled and the redraft awaited.
+    const { json: redrafted } = await cli("review", id, "--reject", "--note", "name the timer")
+    expect(redrafted).toMatchObject({ ok: true, state: "awaiting_intake_approval" })
+    expect(redrafted.row.intakeAttempts).toBe(2)
+    const { json: events } = await cli("events", id)
+    expect(events.find((e: { type: string }) => e.type === "intake_rejected")?.payload.note).toBe(
+      "name the timer",
+    )
+
+    // --approve --digest is the scripting contract: the full digest, no prompt.
+    const { json: shown } = await cli("show", id)
+    const { json: approved } = await cli(
+      "review",
+      id,
+      "--approve",
+      "--digest",
+      shown.taskDigest,
+      "--allow-missing-evidence",
+    )
+    expect(approved).toMatchObject({ ok: true, state: "received" })
+  }, 120_000)
+
+  it("reviews an export: diffs the candidate against the pin, shows the receipt and the bundle, and approves or denies it", async () => {
+    const { cli, spawn, env } = await boot()
+    // The candidate is the target's file at its pin with one line changed: the review must
+    // show that hunk, not the file. `cli-flags` records no pin on the row; its target's is used.
+    const target = loadTask("cli-flags").target
+    const { stdout: pinned } = await run("git", [
+      "-C",
+      packageRoot,
+      "show",
+      `${target.pin}:${target.root}/src/cli.ts`,
+    ])
+    const lines = pinned.split("\n")
+    const last = lines.indexOf("await program.parseAsync(process.argv)")
+    expect(last).toBeGreaterThan(5)
+    const repaired = pinned.replace(
+      "await program.parseAsync(process.argv)",
+      'await program.parseAsync(process.argv, { from: "node" })',
+    )
+    served?.workspace.set(FIRST_THREAD, {
+      "src/cli.ts": repaired,
+      "test/cli.test.ts": "spec\n",
+      "TASK.md": "task\n",
+    })
+    const dispatchedOrder = async () => {
+      const { json: created } = await cli("create", "--task", "cli-flags")
+      const id = created.row.id as string
+      const { json: dispatched } = await cli("dispatch", id)
+      expect(dispatched.row.state).toBe("awaiting_approval")
+      return { id, bundle: dispatched.row.bundleDigest as string }
+    }
+    const first = await dispatchedOrder()
+    // The fake verifier records check-output digests it never writes: an export whose receipt
+    // output is missing is not approvable as displayed unless the person says so explicitly.
+    const unseen = await failing(
+      spawn("review", first.id, "--approve", "--digest", first.bundle).promise,
+    )
+    expect(unseen.stderr).toContain("NOT IN THE ARTIFACT STORE")
+    expect(JSON.parse(unseen.stdout)).toMatchObject({
+      ok: false,
+      state: "awaiting_approval",
+      row: { id: first.id, bundleDigest: first.bundle },
+    })
+    expect(JSON.parse(unseen.stdout).message).toContain(
+      "The receipt's check output (visible/output, independent/output)",
+    )
+    expect(JSON.parse(unseen.stdout).message).toContain("--allow-missing-evidence")
+    const wrong = await interactive(
+      env,
+      ["review", first.id, "--allow-missing-evidence"],
+      "zzzzzzzz",
+    )
+    expect(wrong.stderr).toContain("!!! WARNING: The receipt's check output")
+    expect(wrong.code).toBe(1)
+    expect(JSON.parse(wrong.stdout).message).toContain("does not match")
+    // The hunk around the changed line against the pin, not the whole file; the receipt; and
+    // the bundle with its digest.
+    expect(wrong.stderr).toContain(`==> src/cli.ts (diff against pin ${target.pin.slice(0, 12)})`)
+    expect(wrong.stderr).toContain(`@@ -${last - 2},4 +${last - 2},4 @@`)
+    expect(wrong.stderr).toContain("-await program.parseAsync(process.argv)\n")
+    expect(wrong.stderr).toContain('+await program.parseAsync(process.argv, { from: "node" })')
+    expect(wrong.stderr).not.toContain(lines[0])
+    // A pin the object store cannot read: the whole file, and the reason there is no diff.
+    const emptyRepo = join(dir, "empty-repo")
+    await run("git", ["init", "-q", emptyRepo])
+    const fallback = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "review", first.id, "--allow-missing-evidence"], {
+        env: { ...env, FACTORY_REPO_ROOT: emptyRepo, FACTORY_NO_FETCH: "1" },
+        cwd: packageRoot,
+      }),
+    )
+    expect(fallback.stderr).toContain(
+      "==> src/cli.ts (the whole file as the export writes it: no diff, because",
+    )
+    // The catalog loads the pin as `create` does; FACTORY_NO_FETCH=1 keeps it from fetching.
+    expect(fallback.stderr).toContain(
+      `pins ${target.pin}, which is not in the repository at ${emptyRepo} (FACTORY_NO_FETCH=1, not fetched)`,
+    )
+    expect(fallback.stderr).toContain(lines[0])
+    expect(fallback.stderr).toContain('await program.parseAsync(process.argv, { from: "node" })')
+    expect(wrong.stderr).toContain("--- Verification: receipt rc-")
+    expect(wrong.stderr).toContain(`Bundle digest of the payload above: ${first.bundle}`)
+    const notTheBundle = await failing(
+      spawn("review", first.id, "--approve", "--digest", "c".repeat(64), "--allow-missing-evidence")
+        .promise,
+    )
+    expect(JSON.parse(notTheBundle.stdout).message).toContain("not the bundle digest")
+
+    const approved = await interactive(
+      env,
+      ["review", first.id, "--allow-missing-evidence"],
+      first.bundle.slice(0, 8),
+    )
+    expect(approved.code).toBe(0)
+    expect(JSON.parse(approved.stdout)).toMatchObject({ ok: true, state: "exported" })
+
+    // --reject on an export is deny; the deny route takes no note, so the note is echoed.
+    // The fake builder names its second thread itself; the repair is scripted under it.
+    served?.workspace.set("fake-thread-1", {
+      "src/cli.ts": "export const fixed = true\n",
+      "test/cli.test.ts": "spec\n",
+      "TASK.md": "task\n",
+    })
+    const second = await dispatchedOrder()
+    const { json: denied } = await cli("review", second.id, "--reject", "--note", "wrong fix")
+    expect(denied).toMatchObject({ ok: true, state: "denied", note: "wrong fix" })
+  }, 120_000)
+
+  /** A TCP server that accepts each connection and drops it unread: the request never arrives. */
+  async function dropping(): Promise<{ url: string; server: Server }> {
+    const server = createServer((socket) => socket.destroy())
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+    const address = server.address()
+    if (address === null || typeof address === "string") throw new Error("no port")
+    return { url: `http://127.0.0.1:${address.port}`, server }
+  }
+
+  it("does not read a reject-intake that never reached the controller as settled", async () => {
+    // The review's false success: `reject-intake` starts from `awaiting_intake_approval`, its
+    // own success state, so a request lost in transport used to poll once, find the row
+    // there, and answer "Settled as awaiting_intake_approval", exit 0.
+    const { cli, env, stateDir } = await boot(
+      {},
+      { verifier: createFakeVerifier({ independent: "fail" }) },
+    )
+    const { id, revision } = await parkedIntake(cli, "create-cli-lost")
+    const { url, server } = await dropping()
+    try {
+      const { stdout, stderr } = await failing(
+        run(process.execPath, [tsxBin, cliEntry, "reject-intake", id, "--note", "redo"], {
+          env: { ...env, FACTORY_CONTROLLER_URL: url, FACTORY_CLI_ARRIVAL_WINDOW_MS: "1500" },
+          cwd: packageRoot,
+        }),
+      )
+      expect(stderr).toContain("the request ended before its answer")
+      expect(JSON.parse(stdout)).toMatchObject({
+        ok: false,
+        state: "awaiting_intake_approval",
+        row: { id, state: "awaiting_intake_approval", revision },
+      })
+      expect(JSON.parse(stdout).message).toMatch(/^The request did not reach the controller/)
+    } finally {
+      await new Promise((resolve) => server.close(resolve))
+    }
+    // Nothing moved: the draft is still parked at the revision the operator read.
+    expect(await pollState(stateDir, id, () => true)).toBe("awaiting_intake_approval")
+  }, 90_000)
+
+  it("does not poll after a refused connection: nothing was sent", async () => {
+    const { cli, env } = await boot({}, { verifier: createFakeVerifier({ independent: "fail" }) })
+    const { id } = await parkedIntake(cli, "create-cli-refused")
+    // A port nobody listens on: bound, read, closed.
+    const { url, server } = await dropping()
+    await new Promise((resolve) => server.close(resolve))
+    const started = Date.now()
+    const { stderr } = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "reject-intake", id, "--note", "redo"], {
+        env: { ...env, FACTORY_CONTROLLER_URL: url },
+        cwd: packageRoot,
+      }),
+    )
+    expect(stderr).not.toContain("following the row")
+    expect(stderr).toMatch(/fetch failed/)
+    // Well inside the default arrival window: it never waited on the row.
+    expect(Date.now() - started).toBeLessThan(30_000)
+  }, 90_000)
+
+  it("writes a builder handoff and its source without a controller, a registry or a Factory", async () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
+    // Deliberately neither variable: a command that still needed one would fail here.
+    const { FACTORY_CONTROLLER_URL, FACTORY_STATE_DIR, FACTORY_WORKER_URL, ...rest } = process.env
+    const out = join(dir, "handoffs")
+    const task = loadTask("cli-flags")
+    const targetId = task.target.id
+
+    // The per-process target file and the manifest file are retired: one builder serves every
+    // target and pin, and each work order's workspace is staged over the Agent Protocol.
+    for (const command of ["builder-target", "builder-manifest"]) {
+      const retired = await failing(
+        run(process.execPath, [tsxBin, cliEntry, command, "--out", dir], {
+          env: rest,
+          cwd: packageRoot,
+        }),
+      )
+      expect(retired.stderr).toContain(`Unknown command ${command}`)
+    }
+
+    // The work order defaults to the task: a lane with no controller names the files itself.
+    const { stdout } = await run(
+      process.execPath,
+      [tsxBin, cliEntry, "builder-handoff", "--task", "cli-flags", "--out", out, ...IMAGE_ID_ARGS],
+      { env: rest, cwd: packageRoot },
+    )
+    const written = JSON.parse(stdout)
+    expect(written.handoff).toBe(join(out, "cli-flags.handoff.json"))
+    expect(written.source).toBe(join(out, "cli-flags.source.json"))
+    const handoff = BuilderHandoffSchema.parse(JSON.parse(readFileSync(written.handoff, "utf8")))
+    expect(handoff).toMatchObject({ taskId: "cli-flags", workOrderId: "cli-flags", targetId })
+    // The target block: the image it was given, by id, its tag at the task's pin, and the pin.
+    expect(handoff.target.pin).toBe(task.target.pin)
+    expect(handoff.target.image).toBe(`sha256:${"1".repeat(64)}`)
+    expect(handoff.target.tag).toContain(`:${task.target.pin.slice(0, 12)}-`)
+    expect(handoff.target.policy.network.mode).toBe("deny")
+    // The source is the body `PUT /workspace/sources/<digest>` takes, under the handoff's digest.
+    const source = verifySourceBundle(JSON.parse(readFileSync(written.source, "utf8")))
+    expect(source.digest).toBe(handoff.workspace.sourceDigest)
+    expect(written.sourceDigest).toBe(source.digest)
+    const { stdout: named } = await run(
+      process.execPath,
+      [
+        tsxBin,
+        cliEntry,
+        "builder-handoff",
+        "--task",
+        "cli-flags",
+        "--work-order",
+        "wo-named",
+        "--out",
+        out,
+        ...IMAGE_ID_ARGS,
+      ],
+      { env: rest, cwd: packageRoot },
+    )
+    expect(JSON.parse(named).handoff).toBe(join(out, "wo-named.handoff.json"))
+    expect(
+      BuilderHandoffSchema.parse(
+        JSON.parse(readFileSync(join(out, "wo-named.handoff.json"), "utf8")),
+      ).workOrderId,
+    ).toBe("wo-named")
+  }, 60_000)
+
+  it("writes a builder handoff for a task generated under FACTORY_STATE_DIR", async () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
+    const { FACTORY_CONTROLLER_URL, FACTORY_WORKER_URL, ...rest } = process.env
+    // A generated task: the shipped one copied under a work-order id, minus reference.patch.
+    const generated = join(dir, "state", "tasks", "wo-0123456789abcdef")
+    cpSync(join(tasksDir, "cli-flags"), generated, { recursive: true })
+    rmSync(join(generated, "reference.patch"))
+    const taskFile = JSON.parse(readFileSync(join(generated, "task.json"), "utf8"))
+    writeFileSync(
+      join(generated, "task.json"),
+      JSON.stringify({ ...taskFile, id: "wo-0123456789abcdef" }),
+    )
+    const out = join(dir, "handoffs")
+    const { stdout } = await run(
+      process.execPath,
+      [
+        tsxBin,
+        cliEntry,
+        "builder-handoff",
+        "--task",
+        "wo-0123456789abcdef",
+        "--out",
+        out,
+        ...IMAGE_ID_ARGS,
+      ],
+      { env: { ...rest, FACTORY_STATE_DIR: join(dir, "state") }, cwd: packageRoot },
+    )
+    const { handoff } = JSON.parse(stdout)
+    expect(handoff).toBe(join(out, "wo-0123456789abcdef.handoff.json"))
+    expect(BuilderHandoffSchema.parse(JSON.parse(readFileSync(handoff, "utf8"))).taskId).toBe(
+      "wo-0123456789abcdef",
+    )
+  }, 60_000)
+
+  it("names the image the state directory's registry recorded, and refuses to guess one", async () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
+    const { FACTORY_CONTROLLER_URL, FACTORY_WORKER_URL, FACTORY_STATE_DIR, ...rest } = process.env
+    const out = join(dir, "handoffs")
+    const args = [tsxBin, cliEntry, "builder-handoff", "--task", "cli-flags", "--out", out]
+    // No --image-id and no state directory: nothing to read the image from.
+    const unnamed = await failing(run(process.execPath, args, { env: rest, cwd: packageRoot }))
+    expect(unnamed.stderr).toContain(
+      "builder-handoff needs --image-id, or FACTORY_STATE_DIR whose images.sqlite records",
+    )
+    const state = join(dir, "state")
+    mkdirSync(state, { recursive: true })
+    // A state directory with no registry: refused, and none is created.
+    const absent = await failing(
+      run(process.execPath, args, { env: { ...rest, FACTORY_STATE_DIR: state }, cwd: packageRoot }),
+    )
+    expect(absent.stderr).toContain(
+      `builder-handoff needs --image-id, or FACTORY_STATE_DIR whose images.sqlite records the task's image: no image registry at ${join(state, "images.sqlite")}`,
+    )
+    expect(existsSync(join(state, "images.sqlite"))).toBe(false)
+    // A registry that records nothing for the task's target at its pin.
+    openImageRegistry({ path: join(state, "images.sqlite"), builder: fakeImageBuilder() }).close()
+    const unrecorded = await failing(
+      run(process.execPath, args, { env: { ...rest, FACTORY_STATE_DIR: state }, cwd: packageRoot }),
+    )
+    expect(unrecorded.stderr).toContain("none is recorded for target")
+    // A malformed --image-id is refused, not passed through.
+    const malformed = await failing(
+      run(process.execPath, [...args, "--image-id", "alpine:latest"], {
+        env: rest,
+        cwd: packageRoot,
+      }),
+    )
+    expect(malformed.stderr).toContain("--image-id must be sha256:<64 hex>")
+
+    const registry = openImageRegistry({
+      path: join(state, "images.sqlite"),
+      builder: fakeImageBuilder(),
+    })
+    const ensured = await registry.ensure(loadTaskRecipe("cli-flags").target, {
+      signal: AbortSignal.timeout(5_000),
+    })
+    registry.close()
+    const { stdout } = await run(process.execPath, args, {
+      env: { ...rest, FACTORY_STATE_DIR: state },
+      cwd: packageRoot,
+    })
+    const handoff = BuilderHandoffSchema.parse(
+      JSON.parse(readFileSync(JSON.parse(stdout).handoff, "utf8")),
+    )
+    expect(handoff.target).toMatchObject({ image: ensured.image.localId, tag: ensured.tag })
+  }, 60_000)
+
+  it("run stops at the draft for a person: it shows what review shows, approves nothing, and names the commands", async () => {
+    const { env, spawn, stateDir } = await boot(
+      {},
+      { verifier: createFakeVerifier({ independent: "fail" }) },
+    )
+    if (!served) throw new Error("no controller")
+    served.workspace.queue(FIRST_DRAFTER_THREAD, [GOOD_DRAFT])
+    const gh = stubGh({ title: "spawnProcess leaks", body: "B\n", url: "https://github.com/x/778" })
+    const runEnv = { ...env, FACTORY_GH: gh, FACTORY_NO_FETCH: "1" }
+    const args = ["run", "--issue", "778", "--repo", "cacheplane/b4run", "--pin", served.pin]
+    const stopped = await settled(
+      run(process.execPath, [tsxBin, cliEntry, ...args, "--allow-missing-evidence"], {
+        env: runEnv,
+        cwd: packageRoot,
+      }),
+    )
+    expect(stopped.code).toBe(3)
+    const out = JSON.parse(stopped.stdout)
+    expect(out).toMatchObject({ ok: false, state: "awaiting_intake_approval", gate: "intake" })
+    const id = out.row.id as string
+    expect(out.next).toContain(`pnpm factory review ${id}`)
+    // The NEXT commands run prints are digest-free (the row in the JSON carries the digest, as
+    // `show` does): approving means a person running a review.
+    expect(JSON.stringify(out.next)).not.toMatch(/[a-f0-9]{64}/)
+    expect(out.howToApprove).not.toMatch(/[a-f0-9]{64}/)
+    // The display is review's own, and so is the digest it names.
+    const shown = await failing(spawn("review", id, "--allow-missing-evidence").promise)
+    for (const section of ["==> issue.md", "==> spec.md", "==> task.json", "Oracle proof"])
+      expect(stopped.stderr).toContain(section)
+    expect(stopped.stderr).toContain(`Task digest of the 5 files above: ${out.row.taskDigest}`)
+    expect(shown.stderr).toContain(`Task digest of the 5 files above: ${out.row.taskDigest}`)
+    expect(await pollState(stateDir, id, () => true)).toBe("awaiting_intake_approval")
+    expect(types(stateDir, id)).not.toContain("intake_approved")
+
+    // Run again: it resumes the same work order (no second create), and stops again.
+    const again = await settled(
+      run(process.execPath, [tsxBin, cliEntry, ...args, "--allow-missing-evidence"], {
+        env: runEnv,
+        cwd: packageRoot,
+      }),
+    )
+    expect(again.code).toBe(3)
+    expect(again.stderr).toContain(`resuming ${id}`)
+    expect(rows(stateDir)).toHaveLength(1)
+
+    // A wrong prefix at a terminal sends nothing, and says it is still waiting on a person.
+    const digest = out.row.taskDigest as string
+    const wrong = await interactiveRun(runEnv, [id, "--allow-missing-evidence"], () =>
+      digest.startsWith("0") ? "11111111" : "00000000",
+    )
+    expect(wrong.code).toBe(3)
+    expect(JSON.parse(wrong.stdout).message).toContain("Nothing was approved")
+    expect(types(stateDir, id)).not.toContain("intake_approved")
+    expect(await pollState(stateDir, id, () => true)).toBe("awaiting_intake_approval")
+  }, 120_000)
+
+  it("run refuses every way of approving by argument", async () => {
+    const { spawn, stateDir } = await boot()
+    for (const flags of [
+      ["--approve"],
+      ["--digest", "a".repeat(64)],
+      ["--reject"],
+      ["--note", "x"],
+      ["--revision", "1"],
+      ["--bundle", "a".repeat(64)],
+    ]) {
+      const refused = await failing(spawn("run", "--task", "cli-flags", ...flags).promise)
+      expect(refused.stderr).toContain("run never approves")
+    }
+    for (const flag of ["--yes", "--auto-approve"]) {
+      const unknown = await failing(spawn("run", "--task", "cli-flags", flag).promise)
+      expect(unknown.stderr).toMatch(/Unknown option/)
+    }
+    // Refused before anything was created.
+    expect(rows(stateDir)).toEqual([])
+  }, 60_000)
+
+  it("run takes a catalog task to its bundle, and exports only on the person's typed prefix", async () => {
+    const { env, stateDir } = await boot()
+    // The candidate the export review test uses: one changed line.
+    const target = loadTask("cli-flags").target
+    const { stdout: pinned } = await run("git", [
+      "-C",
+      packageRoot,
+      "show",
+      `${target.pin}:${target.root}/src/cli.ts`,
+    ])
+    served?.workspace.set(FIRST_THREAD, {
+      "src/cli.ts": pinned.replace(
+        "await program.parseAsync(process.argv)",
+        'await program.parseAsync(process.argv, { from: "node" })',
+      ),
+      "test/cli.test.ts": "spec\n",
+      "TASK.md": "task\n",
+    })
+    const bundle = () => rows(stateDir)[0]?.bundleDigest ?? ""
+    const done = await interactiveRun(
+      env,
+      ["--task", "cli-flags", "--allow-missing-evidence"],
+      (prompt) => (prompt === 0 ? bundle().slice(0, 8) : undefined),
+    )
+    expect(done.code).toBe(0)
+    expect(JSON.parse(done.stdout)).toMatchObject({ ok: true, state: "exported" })
+    expect(done.stderr).toContain("first eight hex digits")
+    const id = rows(stateDir)[0]?.id as string
+    expect(types(stateDir, id)).toContain("approve_started")
+
+    // Done is done: running it again creates nothing and answers from the registry.
+    const again = await settled(
+      run(process.execPath, [tsxBin, cliEntry, "run", "--task", "cli-flags"], {
+        env,
+        cwd: packageRoot,
+      }),
+    )
+    expect(again.code).toBe(0)
+    expect(JSON.parse(again.stdout)).toMatchObject({ ok: true, state: "exported" })
+    expect(rows(stateDir)).toHaveLength(1)
+    // --new starts another.
+    await settled(
+      run(process.execPath, [tsxBin, cliEntry, "run", "--task", "cli-flags", "--new"], {
+        env,
+        cwd: packageRoot,
+      }),
+    )
+    expect(rows(stateDir)).toHaveLength(2)
+  }, 120_000)
+
+  it("run stops at an expired bundle with the deny and cancel commands, and never asks again (D24)", async () => {
+    // A 1 ms window: the bundle has expired by the time anyone could type.
+    const { env, stateDir } = await boot({}, {}, { FACTORY_APPROVAL_TTL_MS: "1" })
+    const target = loadTask("cli-flags").target
+    const { stdout: pinned } = await run("git", [
+      "-C",
+      packageRoot,
+      "show",
+      `${target.pin}:${target.root}/src/cli.ts`,
+    ])
+    served?.workspace.set(FIRST_THREAD, {
+      "src/cli.ts": pinned.replace(
+        "await program.parseAsync(process.argv)",
+        'await program.parseAsync(process.argv, { from: "node" })',
+      ),
+      "test/cli.test.ts": "spec\n",
+      "TASK.md": "task\n",
+    })
+    let prompts = 0
+    const expired = await interactiveRun(
+      env,
+      ["--task", "cli-flags", "--allow-missing-evidence"],
+      () => {
+        prompts += 1
+        return (rows(stateDir)[0]?.bundleDigest ?? "").slice(0, 8)
+      },
+    )
+    expect(prompts).toBe(1)
+    expect(expired.code).toBe(1)
+    expect(expired.stderr).toContain("the controller's approval window is unknown")
+    const out = JSON.parse(expired.stdout)
+    expect(out.message).toContain("has expired")
+    expect(out.next).toEqual(expect.arrayContaining([`pnpm factory cancel ${out.row.id}`]))
+    expect(out.row.state).toBe("awaiting_approval")
+  }, 120_000)
+
+  it("run never prompts for a bundle the window `up` recorded says has expired (D24)", async () => {
+    const { env, stateDir } = await boot()
+    const target = loadTask("cli-flags").target
+    const { stdout: pinned } = await run("git", [
+      "-C",
+      packageRoot,
+      "show",
+      `${target.pin}:${target.root}/src/cli.ts`,
+    ])
+    served?.workspace.set(FIRST_THREAD, {
+      "src/cli.ts": pinned.replace(
+        "await program.parseAsync(process.argv)",
+        'await program.parseAsync(process.argv, { from: "node" })',
+      ),
+      "test/cli.test.ts": "spec\n",
+      "TASK.md": "task\n",
+    })
+    // A lock as `up` writes it, held by a live process, naming a 1 ms window: expired before
+    // run reaches the gate.
+    const holder = await lockHolder()
+    writeUpLock(stateDir, holder, 1)
+    let prompts = 0
+    const expired = await interactiveRun(
+      env,
+      ["--task", "cli-flags", "--allow-missing-evidence"],
+      () => {
+        prompts += 1
+        return undefined
+      },
+    )
+    expect(prompts).toBe(0)
+    expect(expired.code).toBe(1)
+    const out = JSON.parse(expired.stdout)
+    expect(out.message).toContain("has expired")
+    expect(out.next).toEqual(expect.arrayContaining([`pnpm factory cancel ${out.row.id}`]))
+    expect(types(stateDir, out.row.id)).not.toContain("approve_started")
+  }, 120_000)
+
+  it("run trusts an approval window only from a lock whose up still runs (a stale one is unknown)", async () => {
+    const { env, stateDir } = await boot()
+    repairedCandidate()
+    // The lock an `up` that was SIGKILLed left behind, naming a 1 ms window: its pid is gone.
+    const holder = await lockHolder()
+    holder.kill()
+    await new Promise((resolve) => holder.child.on("close", resolve))
+    writeUpLock(stateDir, holder, 1)
+    let prompts = 0
+    const waiting = await interactiveRun(
+      env,
+      ["--task", "cli-flags", "--allow-missing-evidence"],
+      () => {
+        prompts += 1
+        return undefined
+      },
+    )
+    // It asks (the bundle is not known to have expired), and waits on a person.
+    expect(prompts).toBe(1)
+    expect(waiting.code).toBe(3)
+    expect(waiting.stderr).toContain("the controller's approval window is unknown")
+    const out = JSON.parse(waiting.stdout)
+    expect(out.message).not.toContain("has expired")
+    expect(out.message).toContain("Waiting on a person")
+  }, 120_000)
+
+  it("run follows an approval another run sent that is still re-verifying, instead of asking again", async () => {
+    const { env, stateDir } = await boot({}, { verifier: createFakeVerifier({ delayMs: 3_000 }) })
+    repairedCandidate()
+    // A person approves at a terminal, then Ctrl-C's that run while the approval re-verifies.
+    const child = spawnChild(
+      process.execPath,
+      [tsxBin, cliEntry, "run", "--task", "cli-flags", "--allow-missing-evidence"],
+      { env: { ...env, FACTORY_CLI_INTERACTIVE: "1" }, cwd: packageRoot, stdio: "pipe" },
+    )
+    let stderr = ""
+    child.stdout.resume()
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString()
+      if (stderr.includes("first eight hex digits") && !child.stdin.writableEnded)
+        child.stdin.end(`${(rows(stateDir)[0]?.bundleDigest ?? "").slice(0, 8)}\n`)
+    })
+    const id = await (async () => {
+      for (let i = 0; i < 2_400; i++) {
+        const row = rows(stateDir)[0]
+        if (row && types(stateDir, row.id).includes("approve_started")) return row.id
+        await new Promise((r) => setTimeout(r, 25))
+      }
+      throw new Error("the approval never started")
+    })()
+    child.kill("SIGINT")
+    expect(await new Promise((resolve) => child.on("close", resolve))).toBe(130)
+    expect(rows(stateDir)[0]?.state).toBe("awaiting_approval")
+    // Resumed, run sees the approval in flight: it follows it to the export, and never says
+    // nothing was approved.
+    const resumed = await settled(
+      run(process.execPath, [tsxBin, cliEntry, "run", id], { env, cwd: packageRoot }),
+    )
+    expect(resumed.stdout).not.toContain("Nothing was approved")
+    expect(resumed.stderr).toContain("an approval re-verifying, sent earlier")
+    expect(resumed.stderr).not.toContain("first eight hex digits")
+    expect(resumed.code).toBe(0)
+    expect(JSON.parse(resumed.stdout)).toMatchObject({ ok: true, state: "exported" })
+    expect(types(stateDir, id).filter((t) => t === "approve_started")).toHaveLength(1)
+  }, 120_000)
+
+  it("run says a person is being waited on when Ctrl-C lands at a gate", async () => {
+    const { env, stateDir } = await boot()
+    repairedCandidate()
+    const child = spawnChild(
+      process.execPath,
+      [tsxBin, cliEntry, "run", "--task", "cli-flags", "--allow-missing-evidence"],
+      { env: { ...env, FACTORY_CLI_INTERACTIVE: "1" }, cwd: packageRoot, stdio: "pipe" },
+    )
+    let stderr = ""
+    child.stdout.resume()
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString()
+      if (stderr.includes("first eight hex digits") && !child.killed) child.kill("SIGINT")
+    })
+    expect(await new Promise((resolve) => child.on("close", resolve))).toBe(130)
+    const id = rows(stateDir)[0]?.id as string
+    expect(stderr).toContain("waiting on a person")
+    expect(stderr).not.toContain("the controller keeps working")
+    expect(stderr).toContain(`pnpm factory review ${id}`)
+    expect(types(stateDir, id)).not.toContain("approve_started")
+  }, 120_000)
+
+  it("run prints how to resume when Ctrl-C lands before it has chosen a work order", async () => {
+    // A controller that accepts the connection and never answers: run is in its health check.
+    const silent: Server = createServer(() => undefined)
+    await new Promise<void>((resolve) => silent.listen(0, "127.0.0.1", resolve))
+    const address = silent.address()
+    if (address === null || typeof address === "string") throw new Error("no port")
+    dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
+    try {
+      const child = spawnChild(process.execPath, [tsxBin, cliEntry, "run", "--task", "cli-flags"], {
+        env: {
+          ...process.env,
+          FACTORY_CONFIG: "none",
+          FACTORY_CONTROLLER_URL: `http://127.0.0.1:${address.port}`,
+          FACTORY_STATE_DIR: join(dir, "state"),
+        },
+        cwd: packageRoot,
+        stdio: ["ignore", "pipe", "pipe"],
+      })
+      let stderr = ""
+      child.stderr.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString()
+      })
+      // Once the child has connected, it is past installing its handlers.
+      await new Promise<void>((resolve) => silent.once("connection", () => resolve()))
+      child.kill("SIGINT")
+      expect(await new Promise((resolve) => child.on("close", resolve))).toBe(130)
+      expect(stderr).toContain("pnpm factory run --task cli-flags")
+    } finally {
+      silent.close()
+    }
+  }, 60_000)
+
+  it("run follows a create another run is sending on the same key, rather than failing", async () => {
+    const { cli, env, stateDir } = await boot(
+      {},
+      { verifier: createFakeVerifier({ delayMs: 4_000 }) },
+    )
+    repairedCandidate()
+    // One cli-flags work order already exists, so `run --new` creates generation 1. Hold that
+    // create's thread with a slow dispatch of the first, as a second run racing on the key would.
+    const { json: first } = await cli("create", "--task", "cli-flags", "--key", "first")
+    const key = "factory-run:task:cli-flags:1"
+    const held = served?.run(`create:${key}`, "/work-orders/dispatch#workflow", {
+      id: first.row.id,
+    })
+    for (let i = 0; i < 400 && rows(stateDir)[0]?.state === "received"; i++)
+      await new Promise((r) => setTimeout(r, 25))
+    const raced = await settled(
+      run(process.execPath, [tsxBin, cliEntry, "run", "--task", "cli-flags", "--new"], {
+        env,
+        cwd: packageRoot,
+      }),
+    )
+    await held
+    expect(raced.stderr).not.toMatch(/already in flight/)
+    expect(raced.stderr).toContain("being created")
+    expect(rows(stateDir)).toHaveLength(2)
+    expect(raced.stdout).not.toContain("run_in_flight")
+  }, 120_000)
+
+  it("run refuses a stray argument, and points a bare issue number at --issue", async () => {
+    const { spawn, stateDir } = await boot()
+    const bare = await failing(spawn("run", "714").promise)
+    expect(bare.stderr).toContain("--issue 714")
+    const extra = await failing(spawn("run", "--task", "cli-flags", "extra").promise)
+    expect(extra.stderr).toContain("extra")
+    expect(rows(stateDir)).toEqual([])
+  }, 60_000)
+
+  it("run, interrupted, leaves the work going, and resumes following the same work order", async () => {
+    const { env, stateDir } = await boot({}, { verifier: createFakeVerifier({ delayMs: 4_000 }) })
+    const child = spawnChild(process.execPath, [tsxBin, cliEntry, "run", "--task", "cli-flags"], {
+      env,
+      cwd: packageRoot,
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+    let stderr = ""
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString()
+    })
+    const id = await (async () => {
+      for (let i = 0; i < 400; i++) {
+        const row = rows(stateDir)[0]
+        if (row?.state === "verifying") return row.id
+        await new Promise((r) => setTimeout(r, 25))
+      }
+      throw new Error("never reached verifying")
+    })()
+    child.kill("SIGINT")
+    const code = await new Promise<number | null>((resolve) => child.on("close", resolve))
+    expect(code).toBe(130)
+    expect(stderr).toContain(`pnpm factory run ${id}`)
+    expect(stderr).toContain(`pnpm factory cancel ${id}`)
+    // Ctrl-C ended the following, not the work: nothing asked the controller to cancel.
+    expect(transitions(stateDir, id, "cancel")).toEqual([])
+    expect(["cancel_requested", "cancelled"]).not.toContain(rows(stateDir)[0]?.state)
+    // The controller finishes what run was following; a second run finds it and stops at the gate.
+    const resumed = await settled(
+      run(process.execPath, [tsxBin, cliEntry, "run", "--task", "cli-flags"], {
+        env,
+        cwd: packageRoot,
+      }),
+    )
+    expect(resumed.stderr).toContain(`resuming ${id}`)
+    expect(rows(stateDir)).toHaveLength(1)
+    // Where it settles is the stand-ins' business; what matters is that run followed the
+    // dispatch it did not send, and never sent a second.
+    expect(transitions(stateDir, id, "dispatch_committed")).toHaveLength(1)
+    expect([1, 3]).toContain(resumed.code)
+  }, 120_000)
+
+  it("up takes only --config, and needs a config to start anything", async () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-cli-")) // for afterEach; up refuses before using it
+    const env = { ...process.env, FACTORY_CONFIG: "none" }
+    const stray = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "up", "--task", "cli-flags"], {
+        env,
+        cwd: packageRoot,
+      }),
+    )
+    expect(stray.stderr).toContain("factory up takes only --config; not --task")
+    const positional = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "up", "extra"], { env, cwd: packageRoot }),
+    )
+    expect(positional.stderr).toContain("factory up takes no positional argument")
+    const none = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "up"], { env, cwd: packageRoot }),
+    )
+    expect(none.stderr).toContain("factory up needs a config")
+  }, 60_000)
+})

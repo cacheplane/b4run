@@ -343,11 +343,10 @@ export function agUiEsmProbeSource() {
   return `import assert from "node:assert/strict"
 
 import * as root from "@b4run/ag-ui"
-import { encodeAgUiSse } from "@b4run/ag-ui/sse"
+import { agUiContentType, encodeAgUiEvent } from "@b4run/ag-ui/sse"
 
 assert.deepEqual(Object.keys(root).sort(), [
   "B4_PLAN_ACTIVITY_TYPE",
-  "B4_SUBAGENT_ACTIVITY_TYPE",
   "createCounterIdFactory",
   "createDefaultIdFactory",
   "fromRunAgentInput",
@@ -355,7 +354,6 @@ assert.deepEqual(Object.keys(root).sort(), [
 ])
 
 assert.equal(root.B4_PLAN_ACTIVITY_TYPE, "b4.plan")
-assert.equal(root.B4_SUBAGENT_ACTIVITY_TYPE, "b4.subagent")
 
 for (const exportName of [
   "createCounterIdFactory",
@@ -367,20 +365,33 @@ for (const exportName of [
 }
 
 const event = { type: "RUN_STARTED", threadId: "published-smoke", runId: "published-smoke" }
-const encoded = encodeAgUiSse(event)
-assert.equal(encoded, \`data: \${JSON.stringify(event)}\\n\\n\`)
+assert.equal(agUiContentType(), "text/event-stream")
+assert.equal(agUiContentType("text/event-stream"), "text/event-stream")
+assert.equal(
+  agUiContentType("application/vnd.ag-ui.event+proto"),
+  "application/vnd.ag-ui.event+proto",
+)
 
-const payload = JSON.parse(encoded.slice("data: ".length, -2))
+const encoded = encodeAgUiEvent(event)
+assert.ok(encoded instanceof Uint8Array, "an SSE frame is bytes")
+const text = new TextDecoder().decode(encoded)
+assert.equal(text, \`data: \${JSON.stringify(event)}\\n\\n\`)
+
+const payload = JSON.parse(text.slice("data: ".length, -2))
 assert.equal(payload.type, "RUN_STARTED")
 assert.equal(payload.threadId, "published-smoke")
 assert.equal(payload.runId, "published-smoke")
+
+const frame = encodeAgUiEvent(event, "application/vnd.ag-ui.event+proto")
+assert.ok(frame instanceof Uint8Array, "a protobuf frame is bytes")
+const declared = new DataView(frame.buffer, frame.byteOffset, 4).getUint32(0, false)
+assert.equal(frame.length, 4 + declared, "a protobuf frame is its 4-byte length prefix plus the event")
 `
 }
 
 export function agUiTypeProbeSource() {
   return `import {
   B4_PLAN_ACTIVITY_TYPE,
-  B4_SUBAGENT_ACTIVITY_TYPE,
   createCounterIdFactory,
   createDefaultIdFactory,
   fromRunAgentInput,
@@ -392,12 +403,11 @@ export function agUiTypeProbeSource() {
   type B4PlanActivityContent,
   type B4ResumeRequest,
   type B4RunInput,
-  type B4SubagentActivityContent,
   type IdFactory,
   type RunContext,
   type ToAguiOptions,
 } from "@b4run/ag-ui"
-import { encodeAgUiSse as encodeAgUiSseFromSubpath } from "@b4run/ag-ui/sse"
+import { agUiContentType, encodeAgUiEvent } from "@b4run/ag-ui/sse"
 
 // @ts-expect-error MappedRunInput was removed from the canonical root
 import type { MappedRunInput } from "@b4run/ag-ui"
@@ -435,7 +445,6 @@ import { asToolResultData } from "@b4run/ag-ui"
 
 type RootValueSurface = readonly [
   typeof B4_PLAN_ACTIVITY_TYPE,
-  typeof B4_SUBAGENT_ACTIVITY_TYPE,
   typeof createCounterIdFactory,
   typeof createDefaultIdFactory,
   typeof fromRunAgentInput,
@@ -453,7 +462,6 @@ type RootTypeSurface = readonly [
   B4AgentStreamChunk,
   RunContext,
   B4PlanActivityContent,
-  B4SubagentActivityContent,
 ]
 
 declare const rootTypeSurface: RootTypeSurface
@@ -462,20 +470,12 @@ const idFactory: IdFactory = createCounterIdFactory()
 const chunk: B4AgentStreamChunk = { type: "token", data: "hello" }
 const context: RunContext = { threadId: "published-smoke", runId: "published-smoke" }
 const options: ToAguiOptions = { idFactory }
-const encoder: typeof encodeAgUiSseFromSubpath = encodeAgUiSseFromSubpath
+const encoder: typeof encodeAgUiEvent = encodeAgUiEvent
+const contentType: string = agUiContentType("text/event-stream")
 const planActivity: B4PlanActivityContent = {
   todos: [{ content: "Search the corpus", status: "in_progress" }],
 }
-const subagentActivity: B4SubagentActivityContent = {
-  name: "researcher",
-  depth: 1,
-  status: "running",
-  todos: planActivity.todos,
-  tools: [{ name: "searchCorpus", status: "completed" }],
-  totalToolCount: 1,
-}
 const planActivityType: "b4.plan" = B4_PLAN_ACTIVITY_TYPE
-const subagentActivityType: "b4.subagent" = B4_SUBAGENT_ACTIVITY_TYPE
 
 void [
   rootValueSurface,
@@ -484,10 +484,9 @@ void [
   context,
   options,
   encoder,
+  contentType,
   planActivity,
-  subagentActivity,
   planActivityType,
-  subagentActivityType,
 ]
 `
 }

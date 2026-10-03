@@ -2,17 +2,23 @@
 
 ## Use this when
 
-Use this package when a web client speaks AG-UI and your B4.run route emits B4.run stream chunks. Most applications should start with [AG-UI and Web Clients](/docs/ag-ui); use this reference when you are wiring a custom transport or client adapter.
+Use this package when a web client speaks AG-UI and your route emits B4.run stream chunks. Most applications should start with [AG-UI and Web Clients](/docs/ag-ui). This reference is for wiring a custom transport or client adapter.
 
 ## Install and import
 
 ```bash
-pnpm add @b4run/ag-ui
+npm install @b4run/ag-ui
 ```
 
 ```ts
 import { fromRunAgentInput, toAguiEvents } from "@b4run/ag-ui"
-import { encodeAgUiSse } from "@b4run/ag-ui/sse"
+import { encodeAgUiEvent } from "@b4run/ag-ui/sse"
+```
+
+A client that runs a B4.run route over HTTP, such as a CopilotKit runtime, imports the agent from the `./client` subpath:
+
+```ts
+import { B4HttpAgent } from "@b4run/ag-ui/client"
 ```
 
 In a React client, and only there, import the renderers from the `./react` subpath:
@@ -27,12 +33,15 @@ import { b4ActivityRenderers } from "@b4run/ag-ui/react"
 |---|---|---|---|---|
 | `@b4run/ag-ui` | edge-safe | not-claimed | integration | supported |
 | `@b4run/ag-ui/sse` | edge-safe | not-claimed | integration | supported |
+| `@b4run/ag-ui/client` | edge-safe | not-claimed | integration | supported |
 | `@b4run/ag-ui/react` | node-only | not-claimed | application | supported |
 | `@b4run/ag-ui/react/styles.css` | n/a | n/a | integration | supported |
 
-The adapter translates protocol data; it does not authenticate a caller or make client-supplied thread, run, state, tool, or context data authoritative.
+`@ag-ui/client` `>=1.0.1 <2.0.0` is an optional peer. Runtime validators (`RunAgentInputSchema`, `AgentCapabilitiesSchema`, `*EventSchema`) live at `@ag-ui/core/schemas` in 1.0; import types from `@ag-ui/core`.
 
-`@b4run/ag-ui/react` is the client-side entry: it ships ready-made CopilotKit renderers for B4.run's built-in orchestration activities, and React and `@copilotkit/react-core` are optional peer dependencies, so a server-only consumer that imports only the root or `/sse` entry installs neither. Its runtime is recorded as `node-only` because B4.run's edge guard requires an import graph free of unguarded Node globals, and React's own JSX runtime reaches for `process.env.NODE_ENV`. The entry is meant for browser bundles, where an application bundler substitutes that value as usual; it simply cannot carry B4.run's stricter edge-safe claim.
+The adapter only translates protocol data, so it neither authenticates a caller nor makes client-supplied thread, run, state, tool, or context data authoritative.
+
+`@b4run/ag-ui/react` is the client entry. It ships CopilotKit renderers for B4.run's built-in orchestration activities. React and `@copilotkit/react-core` are optional peer dependencies, so a server that imports only the root or `/sse` entry installs neither. `@ag-ui/client` is the same kind of optional peer, needed only by `./client`. The entry is recorded as `node-only` because B4.run's edge guard requires an import graph free of unguarded Node globals, and React's JSX runtime reads `process.env.NODE_ENV`. It is meant for browser bundles, where your bundler substitutes that value.
 
 ## Public exports
 
@@ -43,57 +52,81 @@ The adapter translates protocol data; it does not authenticate a caller or make 
 | `createCounterIdFactory` | Create deterministic IDs for tests and reproducible adapters. |
 | `createDefaultIdFactory` | Create unique runtime event IDs. |
 | `B4_PLAN_ACTIVITY_TYPE` | Identify B4.run plan activity snapshots as `b4.plan`. |
-| `B4_SUBAGENT_ACTIVITY_TYPE` | Identify B4.run subagent activity snapshots as `b4.subagent`. |
 | `B4PlanActivityContent` | Describe the complete public plan snapshot. |
-| `B4SubagentActivityContent` | Describe allowlisted subagent progress. |
 | `IdFactory` | Define event-ID generation. |
 | `B4Message` | Describe a normalized inbound message. |
 | `B4RunInput` | Describe normalized B4.run run input. |
 | `fromRunAgentInput` | Translate AG-UI run input to B4.run input. |
 | `B4InterruptEnvelope` | Describe a B4.run interrupt payload. |
+| `B4AguiInterrupt` | AG-UI's interrupt as B4.run emits it; the approval grant is at `metadata.grant`. |
 | `B4ResumeRequest` | Describe one resume decision. |
 | `AguiOutboundEvent` | Name events emitted by the outbound mapper. |
-| `ToAguiOptions` | Configure outbound event IDs. |
+| `ToAguiOptions` | Configure outbound event IDs, the cancelled outcome, and pending client tool calls. |
 | `toAguiEvents` | Translate a B4.run stream into AG-UI events. |
 | `B4AgentStreamChunk` | Describe accepted B4.run stream chunks. |
+| `B4UsageData` | Describe one model call's token usage as the `usage` chunk carries it. |
 | `RunContext` | Supply thread and run IDs for outbound events. |
 
 ### `@b4run/ag-ui/sse`
 
 | Export | Responsibility |
 |---|---|
-| `encodeAgUiSse` | Encode one AG-UI event as an SSE frame. |
+| `encodeAgUiEvent` | Encode one AG-UI event as the bytes of the binding `accept` selects: an SSE frame, or a length-prefixed protobuf frame. |
+| `agUiContentType` | The `content-type` of the binding `accept` selects. |
+
+### `@b4run/ag-ui/client`
+
+| Export | Responsibility |
+|---|---|
+| `B4HttpAgent` | An `@ag-ui/client` `HttpAgent` whose `getCapabilities()` reads the route's [capabilities](/docs/ag-ui#capabilities) from `GET` on the same URL. |
 
 ### `@b4run/ag-ui/react`
 
 | Export | Responsibility |
 |---|---|
-| `b4ActivityRenderers` | Register both built-in B4.run activity renderers with CopilotKit's `renderActivityMessages`. |
-| `b4PlanActivityRenderer` | Register only the plan activity renderer. |
-| `b4SubagentActivityRenderer` | Register only the subagent activity renderer. |
+| `b4ActivityRenderers` | Register B4.run's activity renderers (the plan) with CopilotKit's `renderActivityMessages`. |
+| `b4PlanActivityRenderer` | Register the plan activity renderer on its own. |
 | `PlanActivityCard` | Present one plan snapshot from its `content`. |
-| `SubagentActivityCard` | Present one subagent snapshot from its `content`. |
 | `ActivityChecklist` | Present a todo list from `todos`, truncated at `limit`. |
+| `useSubagentRuns` | Subscribe to an agent and keep the subagent tree of its current thread from `SUBAGENT_*` and attributed events. |
+| `reduceSubagentRuns` | The pure reducer behind `useSubagentRuns`, for non-React clients and tests. |
+| `EMPTY_SUBAGENT_RUNS` | The initial subagent-tree state. |
+| `isSubagentMessage` | Narrow a transcript message to one a subagent produced. |
+| `SubagentPanel` | Render the subagent tree: nested cards with each invocation's status, reasoning, prose, plan, tool calls and result. |
+| `SubagentEventSource` | The subscription seam `useSubagentRuns` needs from an agent. |
+| `SubagentRun` | Everything known about one subagent invocation. |
+| `SubagentRunsState` | The thread id and the invocations keyed by `subagentRunId`. |
+| `SubagentToolCall` | One tool call a subagent made, with its streamed arguments and result. |
 | `planActivityContentSchema` | Validate plan activity content in a custom renderer. |
-| `subagentActivityContentSchema` | Validate subagent activity content in a custom renderer. |
-| `SubagentActivityContentOutput` | Describe parsed subagent content, which admits an explicit `undefined` `todos`. |
 | `B4ActivityClassNames` | Name the per-part classes a card appends to its defaults (customization rung 2). |
 | `B4ActivityComponents` | Name the leaf slots (`TodoRow`, `ToolRow`) a card lets a consumer replace (customization rung 3). |
 | `B4TodoRowProps` | Describe the props passed to a replacement `TodoRow`. |
 | `B4ToolRowProps` | Describe the props passed to a replacement `ToolRow`. |
 | `cx` | Join a package default class with an optional consumer class (customization rung 4: what an ejected card imports in place of its internal `./parts.js` path). |
 
-`b4ActivityRenderers` is the drop-in default; the two individual renderers exist for clients that register only one of them or mix them with their own. The cards are plain React components and need no CopilotKit. `SubagentActivityContentOutput` is wider than the published `B4SubagentActivityContent` in exactly one way: this package compiles with `exactOptionalPropertyTypes` and zod does not, so a parsed value can carry an explicit `todos: undefined`. `ActivityChecklist`, `PlanActivityCard`, and `SubagentActivityCard` all accept optional `classNames` and `components` props built from these two types; see [`@b4run/ag-ui/react/styles.css`](#b4runag-uireactstylescss) below for rung 1 and the [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) for a runnable example of every rung.
+`b4ActivityRenderers` is the drop-in default. Use an individual renderer to register only one card or to mix it with your own. The cards are plain React components and don't need CopilotKit.
+
+`ActivityChecklist` and `PlanActivityCard` accept optional `classNames` and `components` props built from `B4ActivityClassNames` and `B4ActivityComponents`, and so does `SubagentPanel`, which renders the tree `useSubagentRuns` builds from the agent's `SUBAGENT_*` events. See [`@b4run/ag-ui/react/styles.css`](#b4runag-uireactstylescss) below for rung 1 and the [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) for a runnable example of every rung.
 
 ### `@b4run/ag-ui/react/styles.css`
 
-This subpath exposes the activity cards' default appearance as a stylesheet asset. It has no TypeScript export inventory, runtime compatibility classification, or purity claim; a bundler resolves it and it is never evaluated as JavaScript. Import it once, wherever your application imports its global CSS:
+This subpath is the activity cards' default stylesheet. It has no TypeScript exports, runtime classification, or purity claim. A bundler resolves it, and it is never evaluated as JavaScript. Import it once, wherever your application imports its global CSS:
 
 ```ts
 import "@b4run/ag-ui/react/styles.css"
 ```
 
-The sheet is optional — the cards render without it — and every rule that styles an element is scoped to the `b4-activity` prefix, so it cannot restyle the rest of an application; it additionally declares `--b4-activity-*` custom properties on `:root`. Restyle it by overriding its custom properties in your own CSS: `--b4-activity-surface`, `--b4-activity-border`, `--b4-activity-text`, `--b4-activity-muted`, `--b4-activity-running`, `--b4-activity-complete`, `--b4-activity-failed`, `--b4-activity-badge-bg`, `--b4-activity-radius`, `--b4-activity-gap`, `--b4-activity-font-size`, `--b4-activity-margin`, `--b4-activity-padding`, and `--b4-activity-header-weight`. `--b4-activity-badge-bg` defaults to `var(--b4-activity-border)`, so the depth badge follows the palette unless it is pointed elsewhere. Put the overrides in plain, unlayered CSS — a Tailwind `@theme` block is not a substitute, because token values declared there lose to this sheet. A dark palette applies under `prefers-color-scheme: dark`; setting `data-b4-theme="light"` or `data-b4-theme="dark"` on the root element pins one explicitly (the selectors match only `:root`, not an arbitrary ancestor). All three token blocks are wrapped in `:where()`, so they carry no specificity and an application's own `:root` override wins in every theme regardless of stylesheet order.
+The sheet is optional, and the cards render without it. Every rule that styles an element is scoped to the `b4-activity` prefix, so it can't restyle the rest of your application.
+
+The sheet also declares `--b4-activity-*` custom properties on `:root`. To restyle the cards, override these properties in your own CSS:
+
+- `--b4-activity-surface`, `--b4-activity-border`, `--b4-activity-text`, `--b4-activity-muted`
+- `--b4-activity-running`, `--b4-activity-complete`, `--b4-activity-failed`, `--b4-activity-badge-bg`
+- `--b4-activity-radius`, `--b4-activity-gap`, `--b4-activity-font-size`, `--b4-activity-margin`, `--b4-activity-padding`, and `--b4-activity-header-weight`
+
+`--b4-activity-badge-bg` defaults to `var(--b4-activity-border)`, so the depth badge follows the palette unless you point it elsewhere.
+
+Put the overrides in plain, unlayered CSS. A Tailwind `@theme` block won't work, because token values declared there lose to this sheet. A dark palette applies under `prefers-color-scheme: dark`. Set `data-b4-theme="light"` or `data-b4-theme="dark"` on the root element to pin one (the selectors match only `:root`). All three token blocks are wrapped in `:where()`, so they carry no specificity and your own `:root` override wins in every theme, whatever the stylesheet order.
 
 ## Key contracts
 
@@ -101,10 +134,6 @@ The sheet is optional — the cards render without it — and every rule that st
 
 ```ts api-contract="@b4run/ag-ui#.:B4_PLAN_ACTIVITY_TYPE"
 export declare const B4_PLAN_ACTIVITY_TYPE: "b4.plan"
-```
-
-```ts api-contract="@b4run/ag-ui#.:B4_SUBAGENT_ACTIVITY_TYPE"
-export declare const B4_SUBAGENT_ACTIVITY_TYPE: "b4.subagent"
 ```
 
 ```ts api-contract="@b4run/ag-ui#.:B4PlanActivityContent"
@@ -116,36 +145,23 @@ export interface B4PlanActivityContent {
 }
 ```
 
-```ts api-contract="@b4run/ag-ui#.:B4SubagentActivityContent"
-export interface B4SubagentActivityContent {
-  readonly name: string
-  readonly depth: number
-  readonly status: "running" | "completed" | "failed"
-  readonly todos?: B4PlanActivityContent["todos"]
-  readonly tools: ReadonlyArray<{
-    readonly name: string
-    readonly status: "running" | "completed" | "incomplete"
-  }>
-  readonly totalToolCount: number
-  readonly error?: string
-}
-```
-
 #### Behavior contract `ag-ui.activities.plan-snapshot`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/ag-ui/test/outbound.test.ts","testNames":["plan activity does not flush an open text message"]}] */}
 A valid plan update becomes a complete replacement snapshot with activity type `b4.plan` and the stable message ID `b4:plan:<runId>` without breaking an open assistant text message.
 
-#### Behavior contract `ag-ui.activities.subagent-privacy`
-{/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/ag-ui/test/activities.test.ts","testNames":["retains only the five newest tool summaries while counting each id once","completes once, marks running tools incomplete, and freezes terminal state","caps failure errors at 400 characters","consumes child messages and exposes only allowlisted public fields"]}] */}
-A subagent snapshot exposes allowlisted progress only: name, depth, status, optional todos, at most five tool name/status summaries, the total tool count, and an error capped at 400 characters. It never includes child prompts, prose, tool inputs, tool outputs, final answers, route IDs, call IDs, or raw runtime IDs.
+#### Behavior contract `ag-ui.subagents.lifecycle`
+{/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/ag-ui/test/outbound.test.ts","testNames":["start → SUBAGENT_STARTED hanging off the task call; end → FINISHED with the result; task frames flow","a child interrupt suspends the child, tags the interrupt, and text closes first","open children at done or stream end are closed with SUBAGENT_ERROR; a cancel too; RUN_ERROR abandons them"]}] */}
+A subagent is announced with `SUBAGENT_STARTED` before any event is attributed to it, every event it produces carries its `subagentRunId`, and every announced invocation closes before `RUN_FINISHED`: with `SUBAGENT_FINISHED` on its result, `suspended` at an interrupt, or `SUBAGENT_ERROR` on failure, cancel, or a stream that ended first.
 
 ### `ToAguiOptions`
 
-Supply an `IdFactory` when emitted IDs must be deterministic. Production integrations normally accept the default factory.
+Supply an `IdFactory` when emitted IDs must be deterministic. Production integrations use the default factory.
 
 ```ts api-contract="@b4run/ag-ui#.:ToAguiOptions"
 export interface ToAguiOptions {
   readonly idFactory?: IdFactory
+  readonly cancelled?: () => boolean
+  readonly pendingToolCallIds?: () => readonly string[] | Promise<readonly string[]>
 }
 ```
 
@@ -153,6 +169,8 @@ export interface ToAguiOptions {
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `readonly idFactory` | `IdFactory` | no | Override outbound event-ID generation. |
+| `readonly cancelled` | `() => boolean` | no | Asked once when the upstream stream throws; `true` ends the run with `RUN_FINISHED` and `outcome.type: "cancelled"` instead of `RUN_ERROR`. |
+| `readonly pendingToolCallIds` | `() => readonly string[] \| Promise<readonly string[]>` | no | Asked when the run succeeds, and may return a Promise; a non-empty list becomes `outcome.pendingToolCallIds`. A rejection ends the run as `RUN_ERROR`. |
 
 ### Inbound and outbound calls
 
@@ -178,6 +196,21 @@ export interface RunContext {
 }
 ```
 
+```ts api-contract="@b4run/ag-ui#.:B4UsageData"
+export interface B4UsageData {
+  readonly provider?: string | undefined
+  readonly model?: string | undefined
+  readonly usage_metadata: Readonly<Record<string, unknown>>
+}
+```
+
+**Fields: `@b4run/ag-ui#.:B4UsageData`**
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `readonly provider` | `string \| undefined` | no | Name the provider, lower-cased from LangChain's `ls_provider`. |
+| `readonly model` | `string \| undefined` | no | Name the model, from LangChain's `ls_model_name`. |
+| `readonly usage_metadata` | `Readonly<Record<string, unknown>>` | yes | Carry the provider's LangChain `usage_metadata` untouched; the mapper applies the protocol's accounting. |
+
 ```ts api-contract="@b4run/ag-ui#.:fromRunAgentInput"
 export declare function fromRunAgentInput(input: RunAgentInput): B4RunInput
 ```
@@ -190,9 +223,21 @@ export declare function toAguiEvents(
 ): AsyncGenerator<AguiOutboundEvent>
 ```
 
-```ts api-contract="@b4run/ag-ui#./sse:encodeAgUiSse"
-export declare function encodeAgUiSse(event: BaseEvent, accept?: string): string
+```ts api-contract="@b4run/ag-ui#./sse:encodeAgUiEvent"
+export declare function encodeAgUiEvent(event: BaseEvent, accept?: string): Uint8Array<ArrayBuffer>
 ```
+
+```ts api-contract="@b4run/ag-ui#./sse:agUiContentType"
+export declare function agUiContentType(accept?: string): string
+```
+
+```ts api-contract="@b4run/ag-ui#./client:B4HttpAgent"
+export declare class B4HttpAgent extends HttpAgent {
+  getCapabilities(): Promise<AgentCapabilities>
+}
+```
+
+`getCapabilities()` sends `GET` to the agent's `url` with its `headers` and `fetch`, and parses the answer with AG-UI's `AgentCapabilitiesSchema`. It throws on a non-2xx answer.
 
 #### Behavior contract `ag-ui.outbound.errors-as-events`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/ag-ui/test/outbound.test.ts","testNames":["upstream throw is emitted as RUN_ERROR, not thrown to the consumer"]}] */}
@@ -202,9 +247,9 @@ toAguiEvents turns an upstream throw into a final `RUN_ERROR` event and closes a
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/ag-ui/test/inbound.test.ts","testNames":["maps user and assistant messages to B4.run messages","maps a resume array to B4.run resume requests","omits the resume property for an empty resume array","raw preserves the original input for tools/state/context access"]}] */}
 fromRunAgentInput maps supported messages and resume entries into B4.run shapes, omits resume for an empty array, and preserves the untouched AG-UI input under raw for tools, state, and context.
 
-### Stream boundaries
+### Stream edge cases
 
-Unknown chunk kinds are ignored after closing an open text frame. A stream that ends without `done` still finishes successfully. Interrupts are accumulated in the `RUN_FINISHED` outcome; after an interrupt, later non-interrupt chunks are suppressed until the outcome. A malformed interrupt terminates with `RUN_ERROR`.
+Unknown chunk kinds are ignored after closing an open text frame. A stream that ends without `done` still finishes successfully. Interrupts are accumulated in the `RUN_FINISHED` outcome. After an interrupt, later non-interrupt chunks are suppressed until the outcome. A malformed interrupt terminates with `RUN_ERROR`.
 
 `fromRunAgentInput()` normalizes messages and resume entries. It preserves the original input as `raw`, leaving tools, state, and context for application-owned validation and policy.
 
@@ -212,11 +257,11 @@ Unknown chunk kinds are ignored after closing an open text frame. A stream that 
 
 ```ts
 import { type B4AgentStreamChunk, toAguiEvents } from "@b4run/ag-ui"
-import { encodeAgUiSse } from "@b4run/ag-ui/sse"
+import { encodeAgUiEvent } from "@b4run/ag-ui/sse"
 
 async function* aguiFrames(chunks: AsyncIterable<B4AgentStreamChunk>) {
   for await (const event of toAguiEvents(chunks, { threadId: "thread-1", runId: "run-1" })) {
-    yield encodeAgUiSse(event)
+    yield encodeAgUiEvent(event)
   }
 }
 ```

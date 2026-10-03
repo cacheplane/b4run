@@ -1,4 +1,9 @@
-import type { SandboxHandle, SandboxPolicy } from "./sandbox-types.js"
+import type {
+  SandboxHandle,
+  SandboxPolicy,
+  SandboxSecurityPolicy,
+  SandboxWorkspaceReader,
+} from "./sandbox-types.js"
 import type { SourceBundle } from "./source-bundle.js"
 import type { WorkspaceSourceDefinition } from "./source-capture.js"
 
@@ -11,6 +16,17 @@ export interface CapturedWorkspaceDefinition {
   readonly version: 1
   readonly source: SourceBundle
   readonly environmentLinks: readonly { readonly path: string; readonly target: string }[]
+  readonly baseline?: "git"
+}
+/**
+ * What `POST /threads` names to give a new thread a workspace staged with
+ * `PUT /workspace/sources/:digest` (`sandbox.stagedWorkspaces`). The files are
+ * the held source, addressed by its digest; the links and baseline, which the
+ * source digest does not cover, travel here.
+ */
+export interface StagedWorkspaceReference {
+  readonly sourceDigest: string
+  readonly environmentLinks?: readonly { readonly path: string; readonly target: string }[]
   readonly baseline?: "git"
 }
 export interface WorkspaceEnvironment {
@@ -72,9 +88,29 @@ export interface WorkspaceDeletionTarget {
   readonly intent: WorkspaceCreateIntent
   readonly reference?: WorkspaceReference
 }
+/**
+ * Addresses a managed workspace by its PUBLISHED record, never by a thread id:
+ * the provider's storage is named by the intent (installation, operation,
+ * binding), which no function of the thread id can reproduce.
+ */
+export interface OpenManagedWorkspaceReaderInput {
+  readonly workspace: ReadyWorkspace
+  readonly signal: AbortSignal
+  /** Same vocabulary and default as `OpenWorkspaceReaderInput.runAsNonRoot`. */
+  readonly runAsNonRoot?: SandboxSecurityPolicy["runAsNonRoot"]
+}
 export interface ManagedWorkspaceProvider {
   readonly name: string
   resolveEnvironment(signal: AbortSignal): Promise<WorkspaceEnvironment>
+  /**
+   * OPTIONAL capability: the environment for a thread that names its own image
+   * (`SandboxConfig.thread` returning `environment.image`). Presence of the
+   * method IS the capability probe: B4.run refuses a per-thread image on a
+   * provider without it rather than run the thread in the default image. An
+   * implementation MUST refuse, before any side effect, an image its operator
+   * did not allow.
+   */
+  resolveImageEnvironment?(image: string, signal: AbortSignal): Promise<WorkspaceEnvironment>
   /** Small-source transport retains verified immutable exact bytes in a SourceBundle. */
   create(
     intent: WorkspaceCreateIntent,
@@ -89,6 +125,15 @@ export interface ManagedWorkspaceProvider {
   ): Promise<WorkspaceSession>
   release(session: WorkspaceSessionReference, signal: AbortSignal): Promise<void>
   destroy(target: WorkspaceDeletionTarget, signal: AbortSignal): Promise<void>
+  /**
+   * OPTIONAL capability with the contract of `SandboxProvider.openWorkspaceReader`:
+   * a read-only view of the workspace's storage for a trusted, co-located host
+   * process that never creates, starts, stops or replaces a session, makes
+   * writes impossible, and rejects (never returns an empty view) when the
+   * workspace is gone. Presence of the method is the capability probe. Not an
+   * authorization boundary.
+   */
+  openWorkspaceReader?(input: OpenManagedWorkspaceReaderInput): Promise<SandboxWorkspaceReader>
 }
 export type WorkspaceLifecycleErrorCode =
   | "lost"

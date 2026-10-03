@@ -42,6 +42,8 @@ interface TestingModule {
     live?: boolean
     record?: boolean
     recordUpstream?: string
+    middlewareContext?: unknown
+    responseSchema?: unknown
   }): Promise<AgentHarnessShape>
   loadFixtures(path: string): unknown
   writeFixtures(path: string, fixtures: unknown): void
@@ -146,6 +148,12 @@ export async function runEvalCommand(
       ...(options.record && process.env.B4_RECORD_UPSTREAM
         ? { recordUpstream: process.env.B4_RECORD_UPSTREAM }
         : {}),
+      ...(loaded.definition.middlewareContext !== undefined
+        ? { middlewareContext: loaded.definition.middlewareContext }
+        : {}),
+      ...(loaded.definition.responseSchema !== undefined
+        ? { responseSchema: loaded.definition.responseSchema }
+        : {}),
     })
     try {
       let caseIndex = -1
@@ -185,7 +193,14 @@ export async function runEvalCommand(
               return harness.run({ input, fixtures: testCase.fixtures })
             }
             const result = await harness.run({ input })
-            const recorded = harness.getRecordedFixtures()
+            let recorded: unknown[]
+            try {
+              recorded = harness.getRecordedFixtures()
+            } catch (err) {
+              // The recording would not replay (#778): refuse to write a tape that
+              // the next plain `b4 eval` could not load.
+              throw new CliError(`Refused to record ${label}: ${formatErrorMessage(err)}`, 2)
+            }
             if (recorded.length === 0) {
               writeLine(io.stdout, `· ${label}: recorded 0 calls — skipped write`)
               return result

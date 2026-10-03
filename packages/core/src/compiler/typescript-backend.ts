@@ -5,9 +5,15 @@ import { basename, dirname, extname, relative, resolve, sep } from "node:path"
 // Tracking issue: https://github.com/microsoft/typescript-go/issues/4830
 import ts from "typescript"
 
+import type { ToolCompilerConfig } from "./analyze-route-tools.js"
+import { type UnresolvedImport, UnresolvedToolInputTypeError } from "./errors.js"
 import type { AnalyzedTool, PropertyInfo, TypeInfo } from "./model.js"
 
 const MAX_TYPE_DEPTH = 32
+
+// Diagnostics that mean "this import did not resolve": cannot find module,
+// module has no exported member (two spellings), namespace has no member.
+const UNRESOLVED_IMPORT_DIAGNOSTIC_CODES: ReadonlySet<number> = new Set([2307, 2305, 2724, 2694])
 
 interface ResolutionState {
   readonly activeTypes: Set<ts.Type>
@@ -17,8 +23,37 @@ interface ResolutionState {
 
 type CreateProgram = (rootNames: readonly string[], options: ts.CompilerOptions) => ts.Program
 
-export function analyzeToolSource(source: string, fileName: string): AnalyzedTool | null {
-  const options = compilerOptions()
+interface LoadedCompilerOptions {
+  readonly options: ts.CompilerOptions
+  /** The tsconfig the options came from, or `undefined` for the built-in defaults. */
+  readonly tsconfigPath: string | undefined
+  /** Where the nearest-tsconfig search started, or `undefined` when none ran. */
+  readonly searchedFrom: string | undefined
+}
+
+export interface AnalyzeToolSourceOptions {
+  /** An explicit tsconfig to build the program with, instead of searching. */
+  readonly tsconfig?: string
+  /**
+   * Directory the nearest-`tsconfig.json` search starts from. When neither
+   * this nor `tsconfig` is given the built-in defaults are used, as before.
+   */
+  readonly searchDir?: string
+}
+
+export function analyzeToolSource(
+  source: string,
+  fileName: string,
+  analyzeOptions: AnalyzeToolSourceOptions = {},
+): AnalyzedTool | null {
+  const loaded =
+    analyzeOptions.tsconfig !== undefined || analyzeOptions.searchDir !== undefined
+      ? loadCompilerOptions({
+          searchDir: analyzeOptions.searchDir ?? dirname(resolve(fileName)),
+          ...(analyzeOptions.tsconfig !== undefined ? { tsconfig: analyzeOptions.tsconfig } : {}),
+        })
+      : defaultCompilerOptions()
+  const options = loaded.options
 
   const filesystemHost = ts.createCompilerHost(options)
   const host: ts.CompilerHost = {
@@ -40,7 +75,7 @@ export function analyzeToolSource(source: string, fileName: string): AnalyzedToo
   }
 
   const program = ts.createProgram([fileName], options, host)
-  return analyzeProgramSource(program, fileName, basename(fileName, extname(fileName)))
+  return analyzeProgramSource(program, fileName, basename(fileName, extname(fileName)), loaded)
 }
 
 export function createAnalyzeToolFiles(
@@ -48,11 +83,13 @@ export function createAnalyzeToolFiles(
 ): (
   toolFiles: ReadonlyMap<string, string>,
   typeReferenceFileName?: string,
+  compilerConfig?: ToolCompilerConfig,
 ) => readonly AnalyzedTool[] {
-  return (toolFiles, typeReferenceFileName) => {
+  return (toolFiles, typeReferenceFileName, compilerConfig) => {
     if (toolFiles.size === 0) return []
 
-    const program = createProgram([...toolFiles.values()], compilerOptions())
+    const loaded = compilerConfig ? loadCompilerOptions(compilerConfig) : defaultCompilerOptions()
+    const program = createProgram([...toolFiles.values()], loaded.options)
     const typeReferenceFilePath = typeReferenceFileName ? resolve(typeReferenceFileName) : undefined
     const results: AnalyzedTool[] = []
 
@@ -60,7 +97,7 @@ export function createAnalyzeToolFiles(
       const moduleSpecifier = typeReferenceFilePath
         ? sourceModuleSpecifier(typeReferenceFilePath, fileName)
         : undefined
-      const analyzed = analyzeProgramSource(program, fileName, name, moduleSpecifier)
+      const analyzed = analyzeProgramSource(program, fileName, name, loaded, moduleSpecifier)
       if (analyzed) results.push(analyzed)
     }
 
@@ -73,14 +110,71 @@ const analyzeToolFilesWithProgram = createAnalyzeToolFiles()
 export function analyzeToolFiles(
   toolFiles: ReadonlyMap<string, string>,
   typeReferenceFileName?: string,
+  compilerConfig?: ToolCompilerConfig,
 ): readonly AnalyzedTool[] {
-  return analyzeToolFilesWithProgram(toolFiles, typeReferenceFileName)
+  return analyzeToolFilesWithProgram(toolFiles, typeReferenceFileName, compilerConfig)
+}
+
+/**
+ * Compiler options for a tool program. With a tsconfig (explicit, or the
+ * nearest `tsconfig.json` above `searchDir`) the app's own options are used —
+ * `extends`, `paths`, and `baseUrl` included — so an input type imported
+ * through an alias resolves exactly as it does for the app's compiler. Without
+ * one, the built-in defaults apply.
+ */
+function loadCompilerOptions(config: ToolCompilerConfig): LoadedCompilerOptions {
+  const tsconfigPath =
+    config.tsconfig !== undefined
+      ? resolve(config.tsconfig)
+      : ts.findConfigFile(resolve(config.searchDir), ts.sys.fileExists)
+  if (tsconfigPath === undefined) {
+    return {
+      ...defaultCompilerOptions(),
+      searchedFrom: resolve(config.searchDir),
+    }
+  }
+
+  const read = ts.readConfigFile(tsconfigPath, ts.sys.readFile)
+  if (read.error) {
+    throw new Error(
+      `Cannot read ${tsconfigPath} to build the tool program: ${ts.flattenDiagnosticMessageText(read.error.messageText, "\n")}`,
+    )
+  }
+
+  const parsed = ts.parseJsonConfigFileContent(
+    read.config,
+    ts.sys,
+    dirname(tsconfigPath),
+    undefined,
+    tsconfigPath,
+  )
+
+  return {
+    options: {
+      ...parsed.options,
+      // The tool program only reads types; never let an app's emit settings leak.
+      noEmit: true,
+      // Nullable fields must keep their `null` member to derive `anyOf` schemas.
+      strictNullChecks: true,
+    },
+    tsconfigPath,
+    searchedFrom: config.tsconfig !== undefined ? undefined : resolve(config.searchDir),
+  }
+}
+
+function defaultCompilerOptions(): LoadedCompilerOptions {
+  return {
+    options: compilerOptions(),
+    tsconfigPath: undefined,
+    searchedFrom: undefined,
+  }
 }
 
 function analyzeProgramSource(
   program: ts.Program,
   fileName: string,
   name: string,
+  loaded: LoadedCompilerOptions,
   sourceModuleSpecifier?: string,
 ): AnalyzedTool | null {
   const checker = program.getTypeChecker()
@@ -133,6 +227,23 @@ function analyzeProgramSource(
         firstParameter !== undefined,
       )
     : null
+  const parameter =
+    firstParameter && parameterType
+      ? resolveParameterType(parameterType, checker, sourceFile, isSourceFileDefaultLibrary)
+      : null
+
+  if (firstParameter && parameterType && parameter) {
+    assertToolInputResolved({
+      program,
+      sourceFile,
+      fileName,
+      toolName: name,
+      parameterSymbol: firstParameter,
+      parameterType,
+      parameter,
+      loaded,
+    })
+  }
 
   return {
     name,
@@ -149,11 +260,76 @@ function analyzeProgramSource(
     outputType:
       sourceModuleTypes?.outputType ??
       checker.typeToString(returnType, undefined, ts.TypeFormatFlags.NoTruncation),
-    parameter: parameterType
-      ? resolveParameterType(parameterType, checker, sourceFile, isSourceFileDefaultLibrary)
-      : null,
+    parameter,
     parameterDescriptions: leadingJsDoc.parameterDescriptions,
   }
+}
+
+/**
+ * Fail loudly when a declared input type produced nothing schema-worthy
+ * because it did not resolve — as opposed to the author choosing an empty
+ * input (`{}`, `any`, `unknown`, an alias to `{}`, or no annotation at all).
+ */
+function assertToolInputResolved(input: {
+  readonly program: ts.Program
+  readonly sourceFile: ts.SourceFile
+  readonly fileName: string
+  readonly toolName: string
+  readonly parameterSymbol: ts.Symbol
+  readonly parameterType: ts.Type
+  readonly parameter: TypeInfo
+  readonly loaded: LoadedCompilerOptions
+}): void {
+  if (input.parameter.kind !== "unknown") return
+
+  const declaration = input.parameterSymbol.valueDeclaration
+  if (!declaration || !ts.isParameter(declaration) || !declaration.type) return
+  const annotation = declaration.type
+  if (isAuthoredEmptyInput(annotation)) return
+
+  const resolvedToAnyOrUnknown = !!(
+    input.parameterType.flags &
+    (ts.TypeFlags.Any | ts.TypeFlags.Unknown)
+  )
+  const unresolvedImports = collectUnresolvedImports(input.program, input.sourceFile)
+  if (!resolvedToAnyOrUnknown && unresolvedImports.length === 0) return
+
+  throw new UnresolvedToolInputTypeError({
+    toolName: input.toolName,
+    fileName: input.fileName,
+    typeText: annotation.getText(input.sourceFile),
+    resolvedAs: resolvedToAnyOrUnknown
+      ? input.parameterType.flags & ts.TypeFlags.Any
+        ? "`any`"
+        : "`unknown`"
+      : "an object with no properties",
+    unresolvedImports,
+    tsconfigPath: input.loaded.tsconfigPath,
+    searchedFrom: input.loaded.searchedFrom,
+  })
+}
+
+function isAuthoredEmptyInput(annotation: ts.TypeNode): boolean {
+  if (annotation.kind === ts.SyntaxKind.AnyKeyword) return true
+  if (annotation.kind === ts.SyntaxKind.UnknownKeyword) return true
+  return ts.isTypeLiteralNode(annotation) && annotation.members.length === 0
+}
+
+function collectUnresolvedImports(
+  program: ts.Program,
+  sourceFile: ts.SourceFile,
+): readonly UnresolvedImport[] {
+  const unresolved: UnresolvedImport[] = []
+  for (const diagnostic of program.getSemanticDiagnostics(sourceFile)) {
+    if (!UNRESOLVED_IMPORT_DIAGNOSTIC_CODES.has(diagnostic.code)) continue
+    const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, " ")
+    const specifier =
+      diagnostic.start !== undefined && diagnostic.length !== undefined
+        ? sourceFile.text.slice(diagnostic.start, diagnostic.start + diagnostic.length)
+        : "<unknown>"
+    unresolved.push({ specifier, message })
+  }
+  return unresolved
 }
 
 function sourceModuleSpecifier(typeReferenceFileName: string, toolFileName: string): string {

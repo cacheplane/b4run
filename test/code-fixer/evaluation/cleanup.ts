@@ -3,11 +3,18 @@ import { readdir } from "node:fs/promises"
 import { join } from "node:path"
 import { cleanupWorkspaces } from "@b4run/cli"
 import { dockerSandbox } from "@b4run/sandbox"
-import { sandboxImage } from "../../../examples/code-fixer/server/src/project/workspace.js"
+import { preparedImageTag } from "../../../examples/code-fixer/server/src/project/image.js"
 
 /** Recover only installations inside this evaluation's private app directory. */
 export async function cleanupEvaluation(appRoot: string): Promise<void> {
   const failures: unknown[] = []
+  // Cleanup never creates a workspace, so an unreadable recipe must not stop it.
+  let sandboxImage = "b4-code-fixer:unresolved"
+  try {
+    sandboxImage = preparedImageTag(appRoot)
+  } catch (error) {
+    failures.push(error)
+  }
   const verifiers = join(appRoot, ".b4/code-fixer/verifiers")
   let entries: Dirent<string>[] = []
   try {

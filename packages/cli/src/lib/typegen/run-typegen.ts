@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, statSync } from "node:fs"
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, rm, writeFile } from "node:fs/promises"
 import { join, relative, sep } from "node:path"
 import type {
   ExtractedToolSchema,
@@ -43,14 +43,20 @@ const SUBAGENTS_EXTRA_TOOL: ExtractedToolType = {
 const WORKSPACE_EXTRA_TOOLS: readonly ExtractedToolType[] = [
   {
     name: "readFile",
-    description: "Read a UTF-8 file from the workspace.",
-    inputType: `{ path: string }`,
+    description: "Read a UTF-8 file from the workspace, optionally a 1-based inclusive line range.",
+    inputType: `{ path: string; startLine?: number | null; endLine?: number | null }`,
     outputType: `string`,
   },
   {
     name: "writeFile",
-    description: "Write a UTF-8 file inside the workspace.",
+    description: "Write a UTF-8 file inside the workspace, replacing its whole content.",
     inputType: `{ path: string; content: string }`,
+    outputType: `string`,
+  },
+  {
+    name: "editFile",
+    description: "Replace an exact, unique span of text in a workspace file.",
+    inputType: `{ path: string; oldText: string; newText: string; replaceAll?: boolean | null }`,
     outputType: `string`,
   },
   {
@@ -167,6 +173,7 @@ export async function runTypegen(options: {
 
   for (const route of manifest.routes) {
     const { types: tools, schemas } = extractToolArtifactsForRoute({
+      appRoot,
       routeDir: route.routeDir,
       sharedToolsDir,
       typeReferenceFileName: join(b4Dir, SCENARIO_TYPES_FILE),
@@ -203,6 +210,11 @@ export async function runTypegen(options: {
     if (schemas.length > 0) {
       toolSchemaCount += schemas.length
       await writeToolSchemas(b4Dir, route.id, schemas)
+    } else {
+      // No analyzable tools left: drop a manifest from an earlier run, or the
+      // runtime would keep injecting a schema for a tool that has since
+      // changed shape (it injects by tool name).
+      await rm(join(b4Dir, "routes", routeIdToSlug(route.id), "tools.json"), { force: true })
     }
 
     // Discover state

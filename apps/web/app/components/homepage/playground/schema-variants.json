@@ -1,0 +1,201 @@
+{
+  "tool": "greet",
+  "variants": [
+    {
+      "id": "base",
+      "formal": false,
+      "language": false,
+      "jsdoc": true,
+      "source": "/** Greet someone by name. */\nexport default async (input: { readonly name: string }) => {\n  return { message: `Hello, ${input.name}!` }\n}\n",
+      "schema": {
+        "name": "greet",
+        "description": "Greet someone by name.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": ["name"],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "id": "nodoc",
+      "formal": false,
+      "language": false,
+      "jsdoc": false,
+      "source": "export default async (input: { readonly name: string }) => {\n  return { message: `Hello, ${input.name}!` }\n}\n",
+      "schema": {
+        "name": "greet",
+        "description": "",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": ["name"],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "id": "language",
+      "formal": false,
+      "language": true,
+      "jsdoc": true,
+      "source": "/** Greet someone by name. */\nexport default async (input: { readonly name: string; readonly language: \"en\" | \"es\" }) => {\n  return { message: `Hello, ${input.name}!` }\n}\n",
+      "schema": {
+        "name": "greet",
+        "description": "Greet someone by name.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "language": {
+              "type": "string",
+              "enum": ["en", "es"]
+            }
+          },
+          "required": ["name", "language"],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "id": "language-nodoc",
+      "formal": false,
+      "language": true,
+      "jsdoc": false,
+      "source": "export default async (input: { readonly name: string; readonly language: \"en\" | \"es\" }) => {\n  return { message: `Hello, ${input.name}!` }\n}\n",
+      "schema": {
+        "name": "greet",
+        "description": "",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "language": {
+              "type": "string",
+              "enum": ["en", "es"]
+            }
+          },
+          "required": ["name", "language"],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "id": "formal",
+      "formal": true,
+      "language": false,
+      "jsdoc": true,
+      "source": "/** Greet someone by name. */\nexport default async (input: { readonly name: string; readonly formal?: boolean }) => {\n  return { message: `Hello, ${input.name}!` }\n}\n",
+      "schema": {
+        "name": "greet",
+        "description": "Greet someone by name.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "formal": {
+              "type": "boolean"
+            }
+          },
+          "required": ["name"],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "id": "formal-nodoc",
+      "formal": true,
+      "language": false,
+      "jsdoc": false,
+      "source": "export default async (input: { readonly name: string; readonly formal?: boolean }) => {\n  return { message: `Hello, ${input.name}!` }\n}\n",
+      "schema": {
+        "name": "greet",
+        "description": "",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "formal": {
+              "type": "boolean"
+            }
+          },
+          "required": ["name"],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "id": "formal-language",
+      "formal": true,
+      "language": true,
+      "jsdoc": true,
+      "source": "/** Greet someone by name. */\nexport default async (input: {\n  readonly name: string\n  readonly formal?: boolean\n  readonly language: \"en\" | \"es\"\n}) => {\n  return { message: `Hello, ${input.name}!` }\n}\n",
+      "schema": {
+        "name": "greet",
+        "description": "Greet someone by name.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "formal": {
+              "type": "boolean"
+            },
+            "language": {
+              "type": "string",
+              "enum": ["en", "es"]
+            }
+          },
+          "required": ["name", "language"],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "id": "formal-language-nodoc",
+      "formal": true,
+      "language": true,
+      "jsdoc": false,
+      "source": "export default async (input: {\n  readonly name: string\n  readonly formal?: boolean\n  readonly language: \"en\" | \"es\"\n}) => {\n  return { message: `Hello, ${input.name}!` }\n}\n",
+      "schema": {
+        "name": "greet",
+        "description": "",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "formal": {
+              "type": "boolean"
+            },
+            "language": {
+              "type": "string",
+              "enum": ["en", "es"]
+            }
+          },
+          "required": ["name", "language"],
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

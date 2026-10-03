@@ -48,7 +48,7 @@
       },
       {
         "name": "typegen",
-        "renderedBytes": 456,
+        "renderedBytes": 400,
         "status": "passed"
       },
       {
@@ -78,25 +78,20 @@
     "appRoot": "<app-root>",
     "routes": [
       {
-        "id": "/hello/[tenant]",
-        "pathname": "/hello/[tenant]",
+        "id": "/hello",
+        "pathname": "/hello",
         "kind": "agent",
-        "entryFile": "<app-root>/src/app/(public)/hello/[tenant]/index.ts",
-        "routeDir": "<app-root>/src/app/(public)/hello/[tenant]",
+        "entryFile": "<app-root>/src/app/hello/index.ts",
+        "routeDir": "<app-root>/src/app/hello",
         "segments": [
           {
             "kind": "static",
             "raw": "hello"
-          },
-          {
-            "kind": "dynamic",
-            "name": "tenant",
-            "raw": "[tenant]"
           }
         ]
       }
     ]
   },
-  "scenarioTypegenOutput": "import \"@b4run/sdk/testing\"\n\ndeclare module \"@b4run/sdk/testing\" {\n  interface RouteScenarioMap {\n    \"/hello/[tenant]\": {\n      readonly tools: {\n        readonly \"greet\": (input: Parameters<typeof import(\"../src/app/(public)/hello/[tenant]/tools/greet.js\").default>[0]) => Promise<Awaited<ReturnType<typeof import(\"../src/app/(public)/hello/[tenant]/tools/greet.js\").default>>>\n      }\n    }\n  }\n}\n",
-  "typegenOutput": "/// <reference path=\"./scenarios.generated.d.ts\" />\n\ndeclare module \"b4:routes\" {\n  export type B4RoutePath = \"/hello/[tenant]\";\n\n  export interface B4RouteParams {\n  \"/hello/[tenant]\": { tenant: string };\n  }\n\n  export interface B4RouteTools {\n    \"/hello/[tenant]\": {\n      readonly greet: (input: Parameters<typeof import(\"../src/app/(public)/hello/[tenant]/tools/greet.js\").default>[0]) => Promise<Awaited<ReturnType<typeof import(\"../src/app/(public)/hello/[tenant]/tools/greet.js\").default>>>;\n    };\n  }\n\n  export type RouteTools<P extends B4RoutePath> = B4RouteTools[P];\n\n  export interface B4RouteState {\n    \"/hello/[tenant]\": {\n      readonly context: string;\n    };\n  }\n\n  export type RouteState<P extends B4RoutePath> = B4RouteState[P];\n}\n"
+  "scenarioTypegenOutput": "import \"@b4run/sdk/testing\"\n\ndeclare module \"@b4run/sdk/testing\" {\n  interface RouteScenarioMap {\n    \"/hello\": {\n      readonly tools: {\n        readonly \"greet\": (input: Parameters<typeof import(\"../src/app/hello/tools/greet.js\").default>[0]) => Promise<Awaited<ReturnType<typeof import(\"../src/app/hello/tools/greet.js\").default>>>\n      }\n    }\n  }\n}\n",
+  "typegenOutput": "/// <reference path=\"./scenarios.generated.d.ts\" />\n\ndeclare module \"b4:routes\" {\n  export type B4RoutePath = \"/hello\";\n\n  export interface B4RouteParams {\n  \"/hello\": {};\n  }\n\n  export interface B4RouteTools {\n    \"/hello\": {\n      readonly greet: (input: Parameters<typeof import(\"../src/app/hello/tools/greet.js\").default>[0]) => Promise<Awaited<ReturnType<typeof import(\"../src/app/hello/tools/greet.js\").default>>>;\n    };\n  }\n\n  export type RouteTools<P extends B4RoutePath> = B4RouteTools[P];\n}\n"
 }

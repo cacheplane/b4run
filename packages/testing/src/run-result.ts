@@ -59,6 +59,39 @@ export function deriveToolResults(
   return results
 }
 
+/**
+ * Derive one observed tool result from a live `tool_result` stream chunk.
+ *
+ * The chunk's `output` is whatever the tool execution produced: a ToolMessage
+ * (live instance or serialized) for string-returning tools — including the
+ * `status: "error"` ToolMessage the adapter emits when a tool throws — a
+ * Command whose `update.messages` carries that ToolMessage, or a plain value
+ * for legacy producers. A plain value has no status and is never an error.
+ */
+export function deriveToolResultFromChunk(chunk: {
+  readonly name: string
+  readonly output: unknown
+}): ObservedToolResult {
+  const output = chunk.output
+  if (isRecord(output)) {
+    const direct = deriveToolResults([output])
+    if (direct.length === 1 && direct[0]) return withName(direct[0], chunk.name)
+    const update = output.update
+    if (isRecord(update) && Array.isArray(update.messages)) {
+      const nested = deriveToolResults(
+        update.messages.filter((m): m is Record<string, unknown> => isRecord(m)),
+      )
+      const last = nested[nested.length - 1]
+      if (last) return withName(last, chunk.name)
+    }
+  }
+  return { name: chunk.name, content: output, isError: false }
+}
+
+function withName(result: ObservedToolResult, fallback: string): ObservedToolResult {
+  return result.name === "" ? { ...result, name: fallback } : result
+}
+
 export interface CommandInterruptDetail {
   readonly command: string
   readonly suggestedPattern: string
@@ -162,6 +195,21 @@ function finalMessageFrom(state: Record<string, unknown>): string {
     if (!isAi) continue
     const content = m.kwargs?.content ?? m.content
     if (typeof content === "string") return content
+    // Providers that answer in content blocks (the OpenAI Responses API,
+    // Anthropic once tools are bound) put the prose in `text` blocks; thinking,
+    // tool-use and other blocks are not the assistant's final message.
+    if (Array.isArray(content)) {
+      return content
+        .map((block) =>
+          typeof block === "object" &&
+          block !== null &&
+          (block as { type?: unknown }).type === "text" &&
+          typeof (block as { text?: unknown }).text === "string"
+            ? (block as { text: string }).text
+            : "",
+        )
+        .join("")
+    }
   }
   return ""
 }
@@ -297,6 +345,7 @@ export async function collectRunResult(
 ): Promise<AgentRunResult> {
   const tokens: string[] = []
   const toolCalls: ObservedToolCall[] = []
+  const streamedToolResults: ObservedToolResult[] = []
   let state: Record<string, unknown> = {}
 
   const interrupts: InterruptInfo[] = []
@@ -352,6 +401,11 @@ export async function collectRunResult(
         toolCalls.push(entry)
         break
       }
+      case "tool_result": {
+        const c = chunk as unknown as { name: string; output: unknown }
+        streamedToolResults.push(deriveToolResultFromChunk(c))
+        break
+      }
       case "done": {
         const out = (chunk as unknown as { output?: unknown }).output
         if (out && typeof out === "object") state = out as Record<string, unknown>
@@ -381,7 +435,7 @@ export async function collectRunResult(
         const d = (chunk as unknown as { data?: Record<string, unknown> }).data ?? {}
         const callId = String(d.call_id ?? "")
         const run = subagentFor(callId)
-        run.toolCalls.push({ name: String(d.tool ?? ""), args: normalizeToolArgs(d.input) })
+        run.toolCalls.push({ name: String(d.name ?? ""), args: normalizeToolArgs(d.input) })
         break
       }
       case "subagent.end": {
@@ -429,7 +483,12 @@ export async function collectRunResult(
     threadId,
     tokens,
     toolCalls,
-    toolResults: deriveToolResults(finalMessages),
+    // Prefer what the run streamed: a thrown tool resolves on the wire as a
+    // `status: "error"` ToolMessage, so `isError` never depends on the final
+    // message list. Streams that carried no tool_result chunks (fixtures,
+    // legacy producers) still derive from the final messages.
+    toolResults:
+      streamedToolResults.length > 0 ? streamedToolResults : deriveToolResults(finalMessages),
     state,
     messages: finalMessages,
     finalMessage: finalMessageFrom(state),

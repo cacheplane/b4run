@@ -1,9 +1,11 @@
+import { CLIENT_TOOL_RECORDER_KEY } from "@b4run/sdk"
 import { AIMessage } from "@langchain/core/messages"
 import type { RunnableConfig } from "@langchain/core/runnables"
 import {
   Annotation,
   Command,
   END,
+  GraphInterrupt,
   type Interrupt,
   interrupt,
   isGraphInterrupt,
@@ -35,7 +37,7 @@ function allowedChild(
   graph: ResolvedSubagentGraph["graph"],
   routeId = "/parent/subagents/researcher",
 ): Awaited<ReturnType<SubagentResolver>> {
-  return { ok: true, child: { routeId, graph } }
+  return { ok: true, child: { routeId, routeKey: `${routeId}#agent`, graph } }
 }
 
 describe("convertSubagentTaskToLangChain", () => {
@@ -52,7 +54,9 @@ describe("convertSubagentTaskToLangChain", () => {
     const signal = new AbortController().signal
     const callbacks: RunnableConfig["callbacks"] = []
     const tags = ["live-parent"]
-    const parentStack = [{ callId: "outer", name: "planner", routeId: "/planner" }]
+    const parentStack = [
+      { callId: "outer", name: "planner", routeId: "/planner", routeKey: "/planner#agent" },
+    ]
     const config = {
       callbacks,
       configurable: { checkpoint_ns: "parent:1", thread_id: "thread-1" },
@@ -97,6 +101,7 @@ describe("convertSubagentTaskToLangChain", () => {
             callId: "task-live-1",
             name: "researcher",
             routeId: "/parent/subagents/researcher",
+            routeKey: "/parent/subagents/researcher#agent",
           },
         ],
       },
@@ -248,6 +253,73 @@ describe("convertSubagentTaskToLangChain", () => {
         depth: 1,
         error: "child went boom",
       },
+    ])
+  })
+
+  it("names the dispatching parent call and carries the child's description on start and end", async () => {
+    const child = { invoke: vi.fn(async () => childResult("found it")) }
+    const tool = convertSubagentTaskToLangChain(taskPlaceholder, async () => ({
+      ok: true,
+      child: {
+        routeId: "/planner/researcher",
+        routeKey: "/planner/researcher#agent",
+        description: "Finds sources",
+        graph: child,
+      },
+    }))
+    const root = new StateGraph(Annotation.Root({ messages: Annotation<unknown[]>() }))
+      .addNode("tools", new ToolNode([tool]))
+      .addEdge(START, "tools")
+      .addEdge("tools", END)
+      .compile()
+    const events: unknown[] = []
+    for await (const event of root.streamEvents(
+      {
+        messages: [
+          new AIMessage({
+            content: "",
+            tool_calls: [
+              {
+                name: "task",
+                args: { subagent: "researcher", input: "Find sources" },
+                id: "task-nested",
+                type: "tool_call",
+              },
+            ],
+          }),
+        ],
+      },
+      {
+        version: "v2",
+        // This parent is itself a subagent: its own dispatch is the top of the stack.
+        metadata: {
+          b4: {
+            subagent_depth: 1,
+            subagent_stack: [
+              { callId: "outer", name: "planner", routeId: "/planner", routeKey: "/planner#agent" },
+            ],
+          },
+        },
+      },
+    )) {
+      if (event.event === "on_custom_event" && event.name === "b4.subagent") events.push(event.data)
+    }
+    expect(events).toEqual([
+      expect.objectContaining({
+        phase: "start",
+        call_id: "task-nested",
+        parent_call_id: "outer",
+        subagent: "researcher",
+        description: "Finds sources",
+        depth: 2,
+      }),
+      expect.objectContaining({
+        phase: "end",
+        call_id: "task-nested",
+        parent_call_id: "outer",
+        description: "Finds sources",
+        final_message: "found it",
+      }),
     ])
   })
 
@@ -430,3 +502,151 @@ async function checkpointNamespaces(saver: MemorySaver, config: RunnableConfig):
   }
   return namespaces
 }
+
+describe("convertSubagentTaskToLangChain — the tool-call record", () => {
+  function recorder() {
+    const log: string[] = []
+    return {
+      log,
+      recorder: {
+        has: vi.fn(async () => false),
+        record: vi.fn(async () => {}),
+        issue: async (call: { toolCallId: string; toolName: string }) => {
+          log.push(`issue:${call.toolName}:${call.toolCallId}`)
+        },
+        settle: async (toolCallId: string) => {
+          log.push(`settle:${toolCallId}`)
+        },
+      },
+    }
+  }
+  const withRecorder = (rec: unknown, extra: Record<string, unknown> = {}): RunnableConfig =>
+    ({
+      configurable: { thread_id: "thread-rec", [CLIENT_TOOL_RECORDER_KEY]: rec },
+      toolCall: { id: "call_task_1" },
+      ...extra,
+    }) as RunnableConfig
+  const INPUT = { subagent: "researcher", input: "Go" }
+
+  it("records a root task with no origin, and a nested task with the enclosing subagent's origin", async () => {
+    const issued: unknown[] = []
+    const rec = {
+      has: vi.fn(async () => false),
+      record: vi.fn(async () => {}),
+      issue: async (c: unknown) => {
+        issued.push(c)
+      },
+      settle: async () => {},
+    }
+    const child = { invoke: vi.fn(async () => childResult("Done.")) }
+    const tool = convertSubagentTaskToLangChain(taskPlaceholder, async () => allowedChild(child))
+    await tool.func(INPUT, undefined, withRecorder(rec))
+    await tool.func(
+      INPUT,
+      undefined,
+      withRecorder(rec, {
+        toolCall: { id: "call_task_2" },
+        metadata: {
+          b4: {
+            subagent_depth: 1,
+            subagent_stack: [
+              {
+                callId: "call_task_1",
+                name: "planner",
+                routeId: "/parent/subagents/planner",
+                routeKey: "/parent/subagents/planner#agent",
+              },
+            ],
+          },
+        },
+      }),
+    )
+    expect(issued).toStrictEqual([
+      { toolCallId: "call_task_1", toolName: "task" },
+      {
+        toolCallId: "call_task_2",
+        toolName: "task",
+        origin: { routeId: "/parent/subagents/planner#agent", parentToolCallId: "call_task_1" },
+      },
+    ])
+  })
+
+  it("issues before the child runs and settles after it returns", async () => {
+    const { log, recorder: rec } = recorder()
+    const child = {
+      invoke: vi.fn(async () => {
+        log.push("child")
+        return childResult("Done.")
+      }),
+    }
+    const tool = convertSubagentTaskToLangChain(taskPlaceholder, async () => allowedChild(child))
+    expect(await tool.func(INPUT, undefined, withRecorder(rec))).toBe("Done.")
+    expect(log).toEqual(["issue:task:call_task_1", "child", "settle:call_task_1"])
+  })
+
+  it("stays open across a child park (GraphInterrupt rethrown)", async () => {
+    const { log, recorder: rec } = recorder()
+    const park = new GraphInterrupt([])
+    const child = {
+      invoke: vi.fn(async () => {
+        throw park
+      }),
+    }
+    const tool = convertSubagentTaskToLangChain(taskPlaceholder, async () => allowedChild(child))
+    await expect(tool.func(INPUT, undefined, withRecorder(rec))).rejects.toBe(park)
+    expect(log).toEqual(["issue:task:call_task_1"])
+  })
+
+  it("stays open across the resolver's own approval interrupt", async () => {
+    const { log, recorder: rec } = recorder()
+    const park = new GraphInterrupt([])
+    const tool = convertSubagentTaskToLangChain(taskPlaceholder, async () => {
+      throw park
+    })
+    await expect(tool.func(INPUT, undefined, withRecorder(rec))).rejects.toBe(park)
+    expect(log).toEqual(["issue:task:call_task_1"])
+  })
+
+  it("settles a depth refusal and a resolver denial like any refused tool", async () => {
+    const { log, recorder: rec } = recorder()
+    const resolver = vi.fn<SubagentResolver>(async () => ({ ok: false, message: "denied" }))
+    const tool = convertSubagentTaskToLangChain(taskPlaceholder, resolver)
+    expect(await tool.func(INPUT, undefined, withRecorder(rec))).toBe("denied")
+    expect(log).toEqual(["issue:task:call_task_1", "settle:call_task_1"])
+    log.length = 0
+    const deep = withRecorder(rec, {
+      metadata: { b4: { subagent_depth: 3, subagent_stack: [] } },
+    })
+    expect(await tool.func(INPUT, undefined, deep)).toMatch(/B4_E5003/)
+    expect(log).toEqual(["issue:task:call_task_1", "settle:call_task_1"])
+    expect(resolver).toHaveBeenCalledTimes(1)
+  })
+
+  it("settles a subagent_failed result", async () => {
+    const { log, recorder: rec } = recorder()
+    const child = {
+      invoke: vi.fn(async () => {
+        throw new Error("child blew up")
+      }),
+    }
+    const tool = convertSubagentTaskToLangChain(taskPlaceholder, async () => allowedChild(child))
+    expect(await tool.func(INPUT, undefined, withRecorder(rec))).toMatch(/^subagent_failed: /)
+    expect(log).toEqual(["issue:task:call_task_1", "settle:call_task_1"])
+  })
+
+  it("records nothing without a provider tool-call id, and still runs under the fallback id", async () => {
+    const { log, recorder: rec } = recorder()
+    let seenCallId: string | undefined
+    const resolver = vi.fn<SubagentResolver>(async ({ callId }) => {
+      seenCallId = callId
+      return allowedChild({ invoke: async () => childResult("Done.") })
+    })
+    const tool = convertSubagentTaskToLangChain(taskPlaceholder, resolver)
+    const config = {
+      configurable: { thread_id: "thread-rec", [CLIENT_TOOL_RECORDER_KEY]: rec },
+    } as RunnableConfig
+    expect(await tool.func(INPUT, undefined, config)).toBe("Done.")
+    expect(seenCallId).toMatch(/^task-/)
+    expect(log).toEqual([])
+  })
+})

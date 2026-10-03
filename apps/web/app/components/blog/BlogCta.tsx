@@ -1,20 +1,15 @@
-import { CopyCommand } from "../CopyCommand"
+import { CopyCommand } from "../ui/CopyCommand"
 import styles from "./blog.module.css"
 
 export function BlogCta() {
   return (
-    <section className={styles.cta}>
+    <section className={styles.cta} aria-labelledby="blog-cta-title">
       <div className={styles.ctaInner}>
-        <h2>Readable code. Real agents.</h2>
-        <p>
-          Start a project, or follow the developer agent from its first failing test to a verified
-          patch.
-        </p>
+        <h2 id="blog-cta-title">Build your own agent.</h2>
+        <p>Scaffold a project and walk through every file it gives you.</p>
         <div className={styles.ctaLinks}>
-          <CopyCommand command="npm create b4-app@latest my-agent" />
-          <a href="https://github.com/cacheplane/b4run/blob/main/examples/code-fixer/server/WALKTHROUGH.md">
-            Read the developer walkthrough ↗
-          </a>
+          <CopyCommand command="npm create b4-app@latest my-agent" variant="dark" />
+          <a href="/docs/getting-started">Read Getting Started</a>
         </div>
       </div>
     </section>

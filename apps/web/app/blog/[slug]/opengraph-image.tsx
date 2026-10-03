@@ -3,6 +3,7 @@ import { join } from "node:path"
 import { notFound } from "next/navigation"
 import { ImageResponse } from "next/og"
 import { webContentRoot } from "../../../lib/content-root"
+import { COLOR } from "../../../lib/design-tokens"
 import { getAuthoredPosts, selectVisiblePosts } from "../../components/blog/post-index"
 
 // Assets sit beside the content root in both the site build and test workspace.
@@ -59,8 +60,8 @@ export function renderBlogImage(post: BlogImageContent) {
         flexDirection: "column",
         justifyContent: "space-between",
         padding: "60px 72px",
-        background: "#f5f4f0",
-        color: "#111111",
+        background: COLOR.page,
+        color: COLOR.ink,
         fontFamily: "Inter",
       }}
     >
@@ -69,7 +70,7 @@ export function renderBlogImage(post: BlogImageContent) {
           fontSize: 22,
           letterSpacing: 4,
           textTransform: "uppercase",
-          color: "#55594f",
+          color: COLOR["ink-muted"],
         }}
       >
         {eyebrow}
@@ -95,19 +96,19 @@ export function renderBlogImage(post: BlogImageContent) {
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          borderTop: "1px solid #d6d6cc",
+          borderTop: `1px solid ${COLOR.rule}`,
           paddingTop: 24,
         }}
       >
         {/* biome-ignore lint/performance/noImgElement: ImageResponse renders the supplied vector wordmark. */}
         <img src={wordmark} width={172} height={38} alt="b4.run" />
-        <span style={{ fontSize: 22, color: "#55594f" }}>Notes on building agents.</span>
+        <span style={{ fontSize: 22, color: COLOR["ink-muted"] }}>Notes on building agents.</span>
         <div
           style={{
             width: 36,
             height: 36,
             borderRadius: "50%",
-            background: "#b4ce37",
+            background: COLOR.relay,
             display: "flex",
           }}
         />

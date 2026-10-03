@@ -2,53 +2,20 @@
 
 import {
   Children,
+  type CSSProperties,
   createContext,
+  Fragment,
   type HTMLAttributes,
   isValidElement,
   type ReactNode,
+  type RefObject,
   useContext,
+  useEffect,
   useRef,
   useState,
 } from "react"
-
-function CopyIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      role="img"
-    >
-      <title>Copy</title>
-      <rect x="5" y="5" width="9" height="9" rx="1.5" />
-      <path d="M11 5V3.5A1.5 1.5 0 009.5 2h-6A1.5 1.5 0 002 3.5v6A1.5 1.5 0 003.5 11H5" />
-    </svg>
-  )
-}
-
-function CheckIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      role="img"
-    >
-      <title>Copied</title>
-      <path d="M3 8.5l3.5 3.5L13 5" />
-    </svg>
-  )
-}
+import { CopyStatus, useCopyFeedback } from "../copy-feedback"
+import { Icon } from "../ui/Icon"
 
 interface PreProps extends HTMLAttributes<HTMLPreElement> {
   readonly children?: ReactNode
@@ -93,50 +60,35 @@ export function tabLabel(language: string | undefined, title: string | undefined
 
 export function Pre({ children, className, ...rest }: PreProps) {
   const ref = useRef<HTMLPreElement>(null)
-  const [copied, setCopied] = useState(false)
   const headless = useContext(HeadlessPreContext)
   const title = (rest as Record<string, unknown>)["data-rehype-pretty-code-title"] as
     | string
     | undefined
   const language = rest["data-language"]
 
-  const copy = async () => {
-    const text = ref.current?.textContent ?? ""
-    await navigator.clipboard.writeText(text)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
   if (headless) {
     return (
-      <pre
-        ref={ref}
-        className={`overflow-x-auto pl-3 pr-4 py-3 text-[13px] leading-[1.55] font-mono ${className ?? ""}`}
-        {...rest}
-      >
-        {children}
-      </pre>
+      <ScrollFade scrollerRef={ref}>
+        <pre ref={ref} className={`overflow-x-auto pl-3 pr-4 py-3 ${className ?? ""}`} {...rest}>
+          {children}
+        </pre>
+      </ScrollFade>
     )
   }
 
   const label = tabLabel(language, title)
 
   return (
-    <div
-      data-code-frame
-      className="relative my-6 rounded-lg border border-divider bg-surface overflow-hidden"
-    >
+    <div data-code-frame className="relative my-6 overflow-hidden">
       <CodeHeaderRow
         left={<TabPill label={label} active />}
-        right={<CopyButton onCopy={copy} copied={copied} />}
+        right={<CopyButton getText={() => ref.current?.textContent ?? ""} />}
       />
-      <pre
-        ref={ref}
-        className={`overflow-x-auto pl-3 pr-4 py-3 text-[13px] leading-[1.55] font-mono ${className ?? ""}`}
-        {...rest}
-      >
-        {children}
-      </pre>
+      <ScrollFade scrollerRef={ref}>
+        <pre ref={ref} className={`overflow-x-auto pl-3 pr-4 py-3 ${className ?? ""}`} {...rest}>
+          {children}
+        </pre>
+      </ScrollFade>
     </div>
   )
 }
@@ -153,13 +105,27 @@ export function CodeHeaderRow({
   readonly right: ReactNode
 }) {
   return (
-    <div
-      data-code-header
-      className="flex items-end justify-between px-3 pt-2 border-b border-divider bg-surface/60"
-    >
-      <div className="flex items-end gap-1">{left}</div>
+    <div data-code-header className="flex items-end justify-between pl-[18px] pr-3 pt-2">
+      {/* Tabs wrap onto a second row rather than scroll: a scrolling strip
+          is a keyboard-unreachable scroll region (axe scrollable-region-focusable). */}
+      <div className="flex min-w-0 flex-wrap items-end gap-1">{left}</div>
       <div className="pb-1.5">{right}</div>
     </div>
+  )
+}
+
+/** File paths may break after each "/" before any mid-name break. */
+function breakablePath(label: string): ReactNode {
+  const parts = label.split("/")
+  return parts.map((part, i) =>
+    i < parts.length - 1 ? (
+      // biome-ignore lint/suspicious/noArrayIndexKey: path segments are positional
+      <Fragment key={i}>
+        {part}/<wbr />
+      </Fragment>
+    ) : (
+      part
+    ),
   )
 }
 
@@ -173,14 +139,12 @@ export function TabPill({
   readonly onClick?: () => void
 }) {
   const isButton = typeof onClick === "function"
-  const baseClasses = `relative px-2 py-1.5 font-mono text-xs transition-colors ${
-    active ? "text-ink" : "text-ink-dim hover:text-ink"
-  }`
+  const baseClasses = "relative px-2 py-1.5 text-left font-mono text-xs transition-colors"
   const underline = active ? (
     <span
       aria-hidden
       data-code-active-marker
-      className="absolute left-1 right-1 -bottom-px h-[2px] rounded-full bg-accent-saas"
+      className="absolute left-1 right-1 -bottom-px h-[2px]"
     />
   ) : null
 
@@ -194,39 +158,110 @@ export function TabPill({
         aria-selected={active}
         className={baseClasses}
       >
-        {label}
+        {breakablePath(label)}
         {underline}
       </button>
     )
   }
   return (
     <span data-code-tab data-active={active} className={baseClasses}>
-      {label}
+      {breakablePath(label)}
       {underline}
     </span>
   )
 }
 
-export function CopyButton({
-  onCopy,
-  copied,
-}: {
-  readonly onCopy: () => void
-  readonly copied: boolean
-}) {
+/**
+ * Copies `getText()` and shows the result beside the button in a live region.
+ * The `after:` inset grows the 28px button's hit area to 44px (it is measured
+ * from the padding box, inside the 1px border).
+ */
+export function CopyButton({ getText }: { readonly getText: () => string }) {
+  const { state, copy } = useCopyFeedback()
+  const copied = state === "copied"
   return (
-    <button
-      type="button"
-      onClick={onCopy}
-      aria-label={copied ? "Copied" : "Copy code"}
-      className={`p-1.5 rounded border transition-colors ${
-        copied
-          ? "border-accent-saas/40 text-accent-saas bg-accent-saas/10"
-          : "border-divider text-ink-dim hover:text-ink hover:border-text-muted"
-      }`}
+    <span className="inline-flex items-center gap-2">
+      <CopyStatus state={state} className="text-xs text-ink-muted" />
+      <button
+        type="button"
+        onClick={() => void copy(getText())}
+        aria-label="Copy code"
+        data-copied={copied}
+        className={`relative p-1.5 border transition-colors after:absolute after:-inset-[9px] after:content-[''] ${
+          copied
+            ? "border-panel-accent text-panel-accent"
+            : "border-panel-rule text-panel-dim hover:text-panel-ink hover:border-panel-muted"
+        }`}
+      >
+        <Icon name={copied ? "check" : "copy"} />
+      </button>
+    </span>
+  )
+}
+
+/**
+ * Wraps a horizontally scrolling `<pre>` with edge fades that appear while
+ * there is more code off that edge, so clipped lines read as scrollable.
+ */
+function ScrollFade({
+  scrollerRef,
+  children,
+}: {
+  readonly scrollerRef: RefObject<HTMLPreElement | null>
+  readonly children: ReactNode
+}) {
+  const [edges, setEdges] = useState({ start: false, end: false })
+  const [background, setBackground] = useState<string | undefined>(undefined)
+  useEffect(() => {
+    const scroller = scrollerRef.current
+    if (!scroller) return
+    // Fade into whatever the code actually sits on: the panel inside a code
+    // frame, or a caller's own background.
+    for (let el: HTMLElement | null = scroller; el; el = el.parentElement) {
+      const color = getComputedStyle(el).backgroundColor
+      if (color && color !== "transparent" && !/rgba\(.*,\s*0\)$/.test(color)) {
+        setBackground(color)
+        break
+      }
+    }
+    const update = () => {
+      const max = scroller.scrollWidth - scroller.clientWidth
+      const start = scroller.scrollLeft > 1
+      const end = max - scroller.scrollLeft > 1
+      setEdges((prev) => (prev.start === start && prev.end === end ? prev : { start, end }))
+    }
+    update()
+    scroller.addEventListener("scroll", update, { passive: true })
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update)
+    observer?.observe(scroller)
+    return () => {
+      scroller.removeEventListener("scroll", update)
+      observer?.disconnect()
+    }
+  }, [scrollerRef])
+  return (
+    <div
+      className="relative"
+      data-code-scroll-fade={edges.end ? "end" : edges.start ? "start" : "none"}
+      style={background ? ({ "--code-fade-bg": background } as CSSProperties) : undefined}
     >
-      {copied ? <CheckIcon /> : <CopyIcon />}
-    </button>
+      {children}
+      {/* The gradients live in ui.css ([data-code-fade]) on the panel token. */}
+      <span
+        aria-hidden
+        data-code-fade="start"
+        className={`pointer-events-none absolute inset-y-0 left-0 w-6 transition-opacity ${
+          edges.start ? "opacity-100" : "opacity-0"
+        }`}
+      />
+      <span
+        aria-hidden
+        data-code-fade="end"
+        className={`pointer-events-none absolute inset-y-0 right-0 w-8 transition-opacity ${
+          edges.end ? "opacity-100" : "opacity-0"
+        }`}
+      />
+    </div>
   )
 }
 
@@ -302,11 +337,7 @@ export function RehypeFigure({
   const label = tabLabel(preLanguage, title)
 
   return (
-    <figure
-      data-code-frame
-      {...rest}
-      className="relative my-6 rounded-lg border border-divider bg-surface overflow-hidden"
-    >
+    <figure data-code-frame {...rest} className="relative my-6 overflow-hidden">
       <RehypeFigureHeader label={label} preChild={preChild} />
       <HeadlessPreContext.Provider value={true}>{preChild}</HeadlessPreContext.Provider>
     </figure>
@@ -315,24 +346,16 @@ export function RehypeFigure({
 
 function RehypeFigureHeader({ label, preChild }: { label: string; preChild: ReactNode }) {
   const ref = useRef<HTMLSpanElement>(null)
-  const [copied, setCopied] = useState(false)
-  const copy = async () => {
-    // The DOM <pre> is the next sibling of this header; resolve via the
-    // wrapping figure to find it.
-    const figure = ref.current?.closest("figure")
-    const pre = figure?.querySelector("pre")
-    const text = pre?.textContent ?? ""
-    await navigator.clipboard.writeText(text)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
+  // The DOM <pre> is the next sibling of this header; resolve via the
+  // wrapping figure to find it.
+  const text = () => ref.current?.closest("figure")?.querySelector("pre")?.textContent ?? ""
   // Silence preChild-unused warning when the header doesn't need it:
   void preChild
   return (
     <span ref={ref}>
       <CodeHeaderRow
         left={<TabPill label={label} active />}
-        right={<CopyButton onCopy={copy} copied={copied} />}
+        right={<CopyButton getText={text} />}
       />
     </span>
   )

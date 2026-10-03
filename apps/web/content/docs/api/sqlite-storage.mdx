@@ -2,12 +2,12 @@
 
 ## Use this when
 
-Use this Node-only package for local, single-process checkpoint and Agent Protocol thread persistence. It is not encrypted storage and is not shared multi-replica state.
+Use this Node-only package for local, single-process checkpoint and Agent Protocol thread persistence. It is not encrypted and not shared across replicas.
 
 ## Install and import
 
 ```bash
-pnpm add @b4run/sqlite-storage
+npm install @b4run/sqlite-storage
 ```
 
 ```ts
@@ -37,11 +37,26 @@ The package uses Node's `node:sqlite` `DatabaseSync` and LangGraph checkpoint co
 | `ThreadsStore` | Define thread create/read/delete/list/update operations. |
 | `ThreadsStoreOptions` | Select the thread database path. |
 | `createThreadsStore` | Open, migrate, and return a thread store. |
+| `InterruptGrantRecord` | Describe a stored approval-grant row. |
+| `InterruptGrantStore` | Define the approval-grant store contract. |
+| `InterruptGrantConsumption` | Describe a conditional consume's outcome. |
+| `InterruptGrantStoreOptions` | Select the approval-grant database path. |
+| `createInterruptGrantStore` | Open, migrate, and return an approval-grant store. |
+| `ClientToolCallRecord` | Describe a stored client tool call row. |
+| `ClientToolCallAnswer` | Describe an answer attempt's outcome. |
+| `ClientToolCallStore` | Define the client tool call store contract. |
+| `ClientToolCallStoreOptions` | Select the client tool call database path. |
+| `createClientToolCallStore` | Open, migrate, and return a client tool call store. |
 | `openWorkspaceInstallation` | Own a local installation's durable source and association storage. |
-| `WorkspaceInstallation` | Hold installation identity, guarded stores, and close. |
+| `WorkspaceInstallation` | Hold installation identity, guarded stores, per-thread sandbox records, staged workspace sources, and close. |
+| `openWorkspaceInstallationReader` | Open a read-only view of an installation another process owns, without its admission lock. |
+| `WorkspaceInstallationReader` | Hold installation identity, read-only association lookups, and close. |
 | `WorkspaceSourceStore` | Persist and retrieve verified source bundles. |
+| `WorkspaceStagedSourceStore` | Keep uploaded sources with their file paths and uploaders, and each thread's staged reference, and reclaim sources nothing references. |
+| `WorkspaceStagedSourceError` | Refuse a staging request by code: `not_held`, `already_staged`, `quota_exceeded`, or `uploader_invalid`. |
 | `WorkspaceAssociation` | Describe creating, ready, deleting, or deleted state with its revision. |
-| `WorkspaceAssociationStore` | Insert source-backed intents and transition associations by revision. |
+| `WorkspaceAssociationStore` | Insert source-backed intents, with an optional thread sandbox record in the same transaction, and transition associations by revision. |
+| `WorkspaceThreadSandboxStore` | Read the sandbox record a thread's first admission wrote, and keep that thread's "Always" grants. |
 
 
 ## Key contracts
@@ -100,6 +115,8 @@ export declare function createThreadsStore(
 ): import("./store.js").ThreadsStore
 ```
 
+### Behavior contracts
+
 #### Behavior contract `sqlite.checkpointer.persistence`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/sqlite-storage/test/checkpointer.test.ts","testNames":["persists across saver instances (file-backed)"]}] */}
 A file-backed SQLite checkpoint persists across saver instances.
@@ -118,7 +135,7 @@ SQLite opens with WAL mode, foreign keys enabled, and synchronous NORMAL.
 
 #### Database mode caveat
 
-WAL applies only to file-backed databases; `:memory:` skips the WAL statement.
+WAL applies only to file-backed databases. `:memory:` skips the WAL statement.
 
 #### Behavior contract `sqlite.public.no-close`
 {/* api-behavior-authorities: [{"kind":"source-ast","file":"packages/sqlite-storage/src/checkpointer/saver.ts","selector":"B4SqliteSaver.publicMembers"},{"kind":"source-ast","file":"packages/sqlite-storage/src/threads/store.ts","selector":"ThreadsStore.publicMembers"}] */}
@@ -126,23 +143,41 @@ The public SQLite saver and thread store expose no explicit close method.
 
 #### Database lifecycle and query caveats
 
-Each factory opens and retains a `DatabaseSync` handle. The public surface does not close automatically and provides no cleanup hook, so treat these as process-lifetime stores under the current API. Use separate files—such as `checkpoints.sqlite` and `threads.sqlite`—because both components use a global `schema_version` table and must not share one path.
+Each factory opens and retains a `DatabaseSync` handle. The public surface does not close automatically and has no cleanup hook, so treat these as process-lifetime stores. Use separate files (such as `checkpoints.sqlite` and `threads.sqlite`), because both components use a global `schema_version` table and must not share one path.
 
-Saver `list()` orders lexically by checkpoint ID, ignores the `filter` option, and returns lightweight tuples without pending writes. Fetch a specific tuple for full pending-write hydration. Thread status and metadata updates for a missing ID are no-ops; metadata updates shallow-merge.
+Saver `list()` orders lexically by checkpoint ID, ignores the `filter` option, and returns lightweight tuples without pending writes. Fetch a specific tuple to get its pending writes. Thread status and metadata updates for a missing ID are no-ops. Metadata updates shallow-merge.
 
 ### Workspace installations
 
 `openWorkspaceInstallation(appRoot)` owns `.b4/workspaces/state.sqlite` and a
 separate admission database. Only one active owner on one local host may manage
-an installation; separate state transactions permit concurrent threads. Close
+an installation. Separate state transactions permit concurrent threads. Close
 the owner after execution and provider cleanup settle. Interrupted initialization
-can resume; missing established state or mismatched identity fails closed.
+can resume. Missing established state or mismatched identity fails closed.
 Network filesystems, multiple hosts, and whole-state-directory replacement are
 unsupported. The runtime normally owns this connection for the application.
 
 Associations require retained source before insertion. Readiness is validated
 against the intent and uses an expected revision. Deleting state prevents new
-admission and stale readiness publication; deleted rows remain tombstones.
+admission and stale readiness publication. Deleted rows remain tombstones.
+
+`openWorkspaceInstallationReader(appRoot)` opens the same two databases
+read-only, takes no admission transaction, and so coexists with the live owner.
+It validates what the owner validates and requires a ready installation. It
+never creates the directory or either database, so a missing installation is an
+error rather than an empty view. It exposes `associations.get` and
+`associations.list` only. A co-located host process uses it to resolve a
+thread's published `ReadyWorkspace` for `@b4run/cli/workspace`'s
+`withManagedWorkspaceReader`.
+
+`WorkspaceInstallation.staged` serves `sandbox.stagedWorkspaces`. An upload is
+kept in the same content store, keyed by its own digest, with its file paths,
+size and uploaders; a re-upload rewrites nothing and refreshes its upload time.
+Only an uploaded source is stageable: a source an admission stored is not, even
+though its bytes are in the same table. A thread's staged reference is recorded
+in the same database, refused for a source that was not uploaded. `reclaim` deletes every source no association, staged thread or caller
+reference names, uploads only once older than the retention window, in one
+transaction. The read-only reader neither needs nor creates these tables.
 Cleanup errors retain deletion state so a later attempt can finish it.
 
 ## Examples and related guides

@@ -7,7 +7,7 @@ import { type AgentRunResult, createAgentHarness, script } from "@b4run/testing"
 import repairEval from "../../../examples/code-fixer/server/src/app/fix/evals/repair.eval.js"
 import { repairCriteria } from "../../../examples/code-fixer/server/src/app/fix/evals/scoring.js"
 import type prepareReview from "../../../examples/code-fixer/server/src/app/fix/tools/prepareReview.js"
-import { sandboxImage } from "../../../examples/code-fixer/server/src/review/verifier.js"
+import { preparedImageTag } from "../../../examples/code-fixer/server/src/project/image.js"
 import { failureStatus, redactEvidence, verdict } from "../evaluation/evidence.js"
 import { replayFixture, taskInput } from "../evaluation/replay.js"
 import { fixtureDirectory, loadManifest } from "../fixtures/catalog.js"
@@ -30,6 +30,8 @@ try {
     .update(await readFile(join(fixtureDirectory(task), "task.md")))
   for (const path of [...manifest.allowedSourcePaths, ...manifest.immutablePaths].sort())
     digest.update(path).update(await readFile(join(fixtureDirectory(task), "project", path)))
+  // The installation's own content-addressed image, which its agent and verifier run.
+  const sandboxImage = preparedImageTag(appRoot)
   const image = execFileSync("docker", ["image", "inspect", sandboxImage, "--format", "{{.Id}}"], {
     encoding: "utf8",
     timeout: 10_000,

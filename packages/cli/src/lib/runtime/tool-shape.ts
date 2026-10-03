@@ -29,6 +29,8 @@ export interface DiscoveredToolDefinition {
   ) => Promise<unknown> | unknown
   readonly schema?: unknown
   readonly scope: ToolScope
+  /** End the run on this tool's result; see `B4ToolDefinition.returnDirect`. */
+  readonly returnDirect?: boolean
 }
 
 export function injectGeneratedSchemas(
@@ -83,17 +85,26 @@ export function normalizeToolModule(
     readonly default?: unknown
     readonly description?: unknown
     readonly schema?: unknown
+    readonly returnDirect?: unknown
   }
   const { filePath, name, scope } = meta
   const definition = toolModule.default
   const description =
     typeof toolModule.description === "string" ? toolModule.description : undefined
   const schema = toolModule.schema !== undefined ? toolModule.schema : undefined
+  if (toolModule.returnDirect !== undefined && typeof toolModule.returnDirect !== "boolean") {
+    throw new Error(
+      `Tool file ${filePath} exports returnDirect, which must be a boolean (got ${describeValue(toolModule.returnDirect)}).\n` +
+        toolShapeDocsFooter(),
+    )
+  }
+  const returnDirect = toolModule.returnDirect === true ? { returnDirect: true } : {}
 
   if (typeof definition === "function") {
     return {
       ...(description ? { description } : {}),
       ...(schema ? { schema } : {}),
+      ...returnDirect,
       filePath,
       name,
       run: definition as DiscoveredToolDefinition["run"],
@@ -105,6 +116,7 @@ export function normalizeToolModule(
     return {
       ...(description ? { description } : {}),
       ...(schema ? { schema } : {}),
+      ...returnDirect,
       filePath,
       name,
       run: definition.run as DiscoveredToolDefinition["run"],
@@ -146,6 +158,10 @@ function looksLikeLangChainTool(value: unknown): value is { readonly name: strin
 
 function describeExport(value: unknown): string {
   if (value === undefined) return "no default export"
+  return describeValue(value)
+}
+
+function describeValue(value: unknown): string {
   if (value === null) return "null"
   if (isRecord(value)) return `an object with keys [${Object.keys(value).join(", ")}]`
   return `a ${typeof value}`

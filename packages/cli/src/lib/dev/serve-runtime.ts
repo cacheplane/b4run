@@ -31,6 +31,13 @@ export interface ServeRuntimeOptions {
   readonly memoryStore?: () => Promise<MemoryStore>
   /** Pre-loaded middleware — see `StartRuntimeServerOptions.middleware`. */
   readonly middleware?: B4Middleware
+  /**
+   * The build saw a thread access policy — see
+   * `StartRuntimeServerOptions.threadAccessExpected`. Set by the node target's
+   * generated `server.mjs`, so a `modules` manifest with no `threadAccess` key
+   * fails the boot instead of serving every thread endpoint open.
+   */
+  readonly threadAccessExpected?: boolean
 }
 
 export interface ServeRuntimeHandle {
@@ -102,6 +109,7 @@ export async function serveRuntime(opts: ServeRuntimeOptions): Promise<ServeRunt
     ...(opts.permissionsStore ? { permissionsStore: opts.permissionsStore } : {}),
     permissionsMode: "boot",
     port,
+    ...(opts.threadAccessExpected ? { threadAccessExpected: true } : {}),
     ...(opts.threadsStore ? { threadsStore: opts.threadsStore } : {}),
   })
 

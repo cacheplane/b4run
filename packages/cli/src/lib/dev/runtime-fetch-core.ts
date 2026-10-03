@@ -1,10 +1,18 @@
 import type { B4Config } from "@b4run/core"
-import { loadB4Config, seedB4Config } from "@b4run/core"
+import { configureApprovalGrants, loadB4Config, seedB4Config } from "@b4run/core"
 import type { MemoryStore } from "@b4run/memory"
 import type { PermissionsStore } from "@b4run/permissions"
-import type { MiddlewareHandler, MiddlewareRequest, ThreadAccessPolicy } from "@b4run/sdk"
+import type {
+  ApprovalGrantMode,
+  InterruptGrantStore,
+  MiddlewareAfterHook,
+  MiddlewareHandler,
+  MiddlewareRequest,
+  ThreadAccessPolicy,
+} from "@b4run/sdk"
 import { THREAD_ACCESS_METADATA_KEY } from "@b4run/sdk"
 import type { Thread, ThreadsStore } from "@b4run/sqlite-storage"
+import type { StagedWorkspaceReference } from "@b4run/workspace"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import { checkpointRoutes } from "../runtime/checkpoint-route-provenance.js"
 import {
@@ -19,11 +27,41 @@ import {
   seedPreparedRouteModules,
   streamResolvedRoute,
 } from "../runtime/execute-route-core.js"
+import { pureJoin } from "../runtime/pure-path.js"
 import type { SandboxManager } from "../runtime/sandbox-manager.js"
 import type { B4StaticModules } from "../runtime/static-modules-core.js"
 import { type StreamChunk, toSseEvent } from "../runtime/stream-types.js"
+import {
+  NO_WORKSPACE_PROTOCOL,
+  openedWorkspaceProtocol,
+  STAGED_CREATES_MAX_IN_FLIGHT,
+  workspaceProtocolPolicyMessage,
+} from "../runtime/workspace-protocol.js"
 import { abortableAsyncIterable } from "./abortable-iterable.js"
+import { handleAgUiCapabilitiesRequest } from "./agui-capabilities.js"
 import { handleAgUiFetchRequest } from "./agui-handler.js"
+import {
+  type ApprovalGrantRuntime,
+  gateResumeWithGrants,
+  minterFor,
+  resolveApprovalGrantRetentionMs,
+  validateInterruptGrantStore,
+  voidSupersededGrants,
+} from "./approval-grants.js"
+import {
+  payloadTooLarge,
+  RequestBodyTimeoutError,
+  RequestBodyTooLargeError,
+  readBoundedText,
+} from "./bounded-body.js"
+import {
+  anyRouteOptsInToClientTools,
+  type ClientToolRuntime,
+  resolveClientToolRetentionMs,
+  resolveClientToolTtlMs,
+  resolveRecordsServerCalls,
+  validateClientToolStore,
+} from "./client-tool-runtime.js"
 import type { CorsConfig } from "./cors.js"
 import { applyCorsHeaders, corsPreflightResponse, resolveCorsPolicy } from "./cors.js"
 import { createLiveTurnHub, type LiveTurnHub, type LiveTurnProducer } from "./live-turn-hub.js"
@@ -37,10 +75,13 @@ import { readParkedInterruptIds, readParkedRoute, settleParkedRoute } from "./pa
 import {
   type B4ResumeEntry,
   createPendingResumeClaims,
+  grantOf,
+  isClientToolPark,
   type PendingResumeClaims,
   parsePendingInterrupts,
   readPendingInterrupts,
   resolvePendingResume,
+  withoutClientToolParks,
 } from "./pending-interrupts.js"
 import { extractRouteParams } from "./request-context.js"
 import { createRunRegistry, type RunRegistry } from "./run-registry.js"
@@ -57,6 +98,15 @@ import { terminalStatus } from "./terminal-status.js"
 import { threadAccessBootLine, validateThreadAccessPolicy } from "./thread-access.js"
 import { createGatedThreadForRun, isThenable, makeThreadGate } from "./thread-gate.js"
 import { assertNoReservedKey, stripReservedThreadMetadata } from "./thread-metadata.js"
+import {
+  INSPECT_BODY_MAX_BYTES,
+  parseThreadWorkspaceRequest,
+  type StagedWorkspaceFieldValue,
+  stagedWorkspaceField,
+  THREAD_CREATE_BODY_MAX_BYTES,
+  threadWorkspaceResponse,
+  uploaderStampProblem,
+} from "./thread-workspace-http.js"
 
 // ---------------------------------------------------------------------------
 // Route-table types
@@ -162,6 +212,18 @@ class StaleThreadAccessManifestError extends Error {
   }
 }
 
+class UnboundThreadAccessManifestError extends Error {
+  readonly code = "B4_E3003"
+  constructor() {
+    super(
+      "This app was built with a thread access policy, but the static module manifest it " +
+        "booted with binds its thread access entry to nothing. B4.run will not boot with every " +
+        "thread endpoint ungated: re-run `b4 build` and deploy the whole build output together.",
+    )
+    this.name = "UnboundThreadAccessManifestError"
+  }
+}
+
 function threadAccessSourceLabel(source: {
   readonly fromManifest: boolean
   readonly fromOptions: boolean
@@ -199,19 +261,26 @@ class RuntimeCapabilityError extends Error {
 }
 
 /**
- * True for `text/event-stream` with or without parameters (`; charset=utf-8`).
+ * True for a body the runtime is still producing after `fetch` resolves: an
+ * AG-UI event stream in either HTTP binding, `text/event-stream` or
+ * `application/vnd.ag-ui.event+proto`, with or without parameters
+ * (`; charset=utf-8`).
  *
  * Deliberately not an exact compare: this predicate decides whether the
  * response is still producing bytes after `fetch` resolves, and a producer that
  * one day appends a charset would otherwise silently downgrade a live stream to
  * "settled" — releasing sandboxes and disposing per-request stores mid-stream,
- * the exact failure the tracking exists to prevent.
+ * the exact failure the tracking exists to prevent. The protobuf media type is
+ * spelled here rather than imported: `@b4run/ag-ui/sse` exports no constant for
+ * it, and `request-stores.test.ts` ties the literal to what that negotiator
+ * emits and checks a protobuf body holds the in-flight slot until it is read.
  *
  * Exported for the tests: no route produces a parameterized content-type today,
  * so the guard is only reachable directly.
  */
-export function isEventStream(contentType: string | null): boolean {
-  return contentType?.split(";", 1)[0]?.trim().toLowerCase() === "text/event-stream"
+export function isStreamingBody(contentType: string | null): boolean {
+  const mediaType = contentType?.split(";", 1)[0]?.trim().toLowerCase()
+  return mediaType === "text/event-stream" || mediaType === "application/vnd.ag-ui.event+proto"
 }
 
 export interface RouteMatcher {
@@ -383,6 +452,12 @@ export async function createRuntimeFetchHandler(
   // caller supplies none: each store must then be injected, or the first use
   // throws with a message naming what is missing.
   const fallbacks = options.bootFallbacks
+  // One read for every boot-time config decision — CORS and the AG-UI run
+  // envelope's per-route opt-ins. Deliberately NOT folded into `boot.config`
+  // below: that field means "the caller supplied a config object, so
+  // `b4.config.ts` must never be read", and a disk-loaded value there would
+  // erase the distinction route execution branches on.
+  const bootConfig = await readBootB4Config(options)
   const boot: RouteBoot = {
     ...(options.config ? { config: options.config } : {}),
     ...(fallbacks ? { bootFallbacks: fallbacks } : {}),
@@ -434,6 +509,7 @@ export async function createRuntimeFetchHandler(
     { appRoot: options.appRoot },
   )
   const middleware = boundMiddleware.handler
+  const middlewareAfter = boundMiddleware.after
   // After the request drain, so a `dispose` never ends a pool a request is
   // still using. A rejection is the operator's to see, not a reason to wedge
   // shutdown: the process is exiting either way.
@@ -448,16 +524,22 @@ export async function createRuntimeFetchHandler(
   }
   // BEFORE the resolution below, because the resolution cannot tell the
   // difference this catches: a stale manifest resolves to `undefined` exactly
-  // like an app that never had a policy. `in`, not truthiness — a key present
-  // and bound to undefined is a build that considered the policy and bound
-  // nothing, which is a legitimate (if unusual) hand-rolled embed, whereas a
-  // key that was never emitted means the manifest predates the policy.
+  // like an app that never had a policy, and then falls through to the disk
+  // probe — which reads a missing file as "no policy" and serves every thread
+  // endpoint open.
+  //
+  // With the build's record set, the manifest must carry a DEFINED policy. A
+  // key that was never emitted means the manifest predates the policy; a key
+  // present and bound to undefined is not a policy either, and no generated
+  // manifest emits it (`normalizeThreadAccessModule` throws instead), so only
+  // a hand-built or tampered manifest reaches that branch. Both refuse.
   //
   // Scoped to a manifest boot on purpose: without `modules` the policy comes
   // from the disk probe, which reads the app's CURRENT state and so cannot be
   // stale in this way.
-  if (options.threadAccessExpected && options.modules && !("threadAccess" in options.modules)) {
-    throw new StaleThreadAccessManifestError()
+  if (options.threadAccessExpected && options.modules) {
+    if (!("threadAccess" in options.modules)) throw new StaleThreadAccessManifestError()
+    if (options.modules.threadAccess === undefined) throw new UnboundThreadAccessManifestError()
   }
   // Authorization, unlike middleware, must never resolve to "allow all" by
   // accident: `loadThreadAccess` throws B4_E3003 rather than degrading when a
@@ -503,6 +585,90 @@ export async function createRuntimeFetchHandler(
     (bootStoresOptional
       ? undefined
       : await requireBoot(fallbacks, "checkpointer").resolveCheckpointer(options.appRoot))
+
+  // ── Approval grants ──────────────────────────────────────────────────────
+  //
+  // Resolved once, at boot, from the same config every other store comes from.
+  // `loadConfig` is memoized, so this is not a second disk read.
+  //
+  // `configureApprovalGrants` is called HERE as well as in
+  // `prepareRouteExecution`, and the duplication is deliberate: this runtime
+  // can answer `POST /threads/:id/resume` for a thread parked by an earlier
+  // process, before it has prepared a single route, and the resume endpoint
+  // must know the mode on its first request rather than on its second. The
+  // latch only ratchets up, so calling it twice cannot weaken anything.
+  const approvalConfig = (options.config ?? (await fallbacks?.loadConfig(options.appRoot)))
+    ?.approvals
+  const approvalGrantMode: ApprovalGrantMode = approvalConfig?.grants ?? "off"
+  configureApprovalGrants(approvalGrantMode)
+  // A config store is validated HERE, before the fallback — which would
+  // otherwise hand the same unchecked config value back — is consulted.
+  const interruptGrantStore: InterruptGrantStore | undefined =
+    approvalGrantMode === "off"
+      ? undefined
+      : (validateInterruptGrantStore(approvalConfig?.grantStore) ??
+        (await fallbacks?.resolveInterruptGrantStore?.(options.appRoot)))
+  // Validated even when grants are off, like every other typed setting: a
+  // mistyped value should fail the boot that would read it as configured. The
+  // store is checked only when it would be used.
+  const approvalGrantRetentionMs = resolveApprovalGrantRetentionMs(approvalConfig?.grantRetentionMs)
+  if (approvalGrantMode !== "off" && !interruptGrantStore) {
+    // Loud, once, at boot — not at the first resume. An operator who switched
+    // grants on and got no store has a misconfiguration, and the request-time
+    // symptom (`409 grant_unavailable`) points at the wrong thing.
+    console.warn(
+      `B4: approvals.grants is "${approvalGrantMode}" but no interrupt-grant store could be ` +
+        `resolved for ${options.appRoot}. Approvals cannot be granted or consumed. Set ` +
+        `approvals.grantStore in b4.config.ts, or run on a runtime with the node fallbacks.`,
+    )
+  }
+  const approvalGrants: ApprovalGrantRuntime = {
+    mode: approvalGrantMode,
+    retentionMs: approvalGrantRetentionMs,
+    ...(interruptGrantStore ? { store: interruptGrantStore } : {}),
+    ...(approvalConfig?.grantTtlMs !== undefined ? { ttlMs: approvalConfig.grantTtlMs } : {}),
+  }
+  // ── Client-provided tools ────────────────────────────────────────────────
+  //
+  // Resolved once, at boot, like the grant store. The TTL and a configured
+  // store are shape-checked here because `B4Config` has no runtime schema: a
+  // mistyped value fails the boot rather than reading as configured while it
+  // is ignored. A missing store is not fatal — the AG-UI handler refuses the
+  // runs that would need one (`503 client_tool_store_unavailable`) — but it
+  // is loud, once, here.
+  const aguiConfig = bootConfig?.server?.agui
+  const clientToolTtlMs = resolveClientToolTtlMs(aguiConfig?.clientToolTtlMs)
+  const clientToolRetentionMs = resolveClientToolRetentionMs(aguiConfig?.clientToolRetentionMs)
+  // A config store is validated HERE, before the fallback — which would
+  // otherwise hand the same unchecked config value back — is consulted.
+  const clientToolStore =
+    validateClientToolStore(aguiConfig?.clientToolStore) ??
+    (await fallbacks?.resolveClientToolCallStore?.(options.appRoot))
+  if (anyRouteOptsInToClientTools(bootConfig) && !clientToolStore) {
+    console.warn(
+      `B4: server.agui.clientTools names routes but no client tool store could be resolved for ` +
+        `${options.appRoot}. Runs that send client tools will be refused with a 503. Set ` +
+        `server.agui.clientToolStore in b4.config.ts, or run on a runtime with the node fallbacks.`,
+    )
+  }
+  const recordsServerCalls = resolveRecordsServerCalls(bootConfig)
+  if (clientToolStore && !recordsServerCalls) {
+    // Only the node fallback can get here: the default file is left over from
+    // an earlier opt-in. It still closes calls parked back then; it does not
+    // record server calls.
+    console.warn(
+      `B4: ${pureJoin(options.appRoot, ".b4", "client-tool-calls.sqlite")} exists but no route is listed in ` +
+        `server.agui.clientTools and no server.agui.clientToolStore is set. It is kept so calls ` +
+        `parked before the opt-in was removed can still be closed; server tool calls are not ` +
+        `recorded. Delete the file to drop it.`,
+    )
+  }
+  const clientTools: ClientToolRuntime = {
+    ...(clientToolStore ? { store: clientToolStore } : {}),
+    ttlMs: clientToolTtlMs,
+    retentionMs: clientToolRetentionMs,
+    recordsServerCalls,
+  }
   // Degrades rather than throws HERE: sandboxing is opt-in, so no fallbacks
   // means no sandbox provider — the same result as an app with no `sandbox`
   // config, and the right answer for every node app. What was missing is the
@@ -521,12 +687,29 @@ export async function createRuntimeFetchHandler(
       throw new Error(
         "Managed workspaces require stable boot-owned stores; requestStores is unsupported",
       )
+    // A workspace endpoint with no policy would be open to anyone who reaches the port.
+    // Checked against the RESOLVED policy, so an injected one counts and a missing file does not.
+    const opened = openedWorkspaceProtocol(
+      sandboxManager?.workspaceProtocol ?? NO_WORKSPACE_PROTOCOL,
+    )
+    if (opened.length > 0 && threadAccess === undefined)
+      throw new Error(workspaceProtocolPolicyMessage(opened))
     await sandboxManager?.reconcileDeletions(async (threadId) => {
       if (!threadsStore || !checkpointer)
         throw new Error("Managed deletion recovery requires boot-owned thread stores")
       if (typeof checkpointer.deleteThread === "function") await checkpointer.deleteThread(threadId)
       await threadsStore.deleteThread(threadId)
     })
+    // Forget the staged reference of every thread whose row is gone (a crash between the
+    // forget and the row delete, or rows deleted behind the runtime's back), so a thread
+    // later created under that id inherits nothing. Runs whether or not the option is on:
+    // cleanup never depends on it. A managed app always has boot-owned stores.
+    if (sandboxManager?.managed && threadsStore) {
+      const store = threadsStore
+      await sandboxManager.sweepStagedThreads(async (threadId) =>
+        Boolean(await store.getThread(threadId)),
+      )
+    }
     // The request-time half of `assertEdgeCapabilities`. One pass at boot, raised
     // per request (see RuntimeCapabilityError). `hasFilesystemFallback` is what
     // keeps this off every node path: `runtime-fetch-handler.ts` applies
@@ -860,9 +1043,12 @@ export async function createRuntimeFetchHandler(
     const routes = buildRouteTable({
       probeReadiness,
       appRoot: options.appRoot,
+      approvalGrants,
       apAttachMaxViewers,
       apSseHeartbeatIntervalMs,
       boot,
+      bootConfig,
+      clientTools,
       getCheckpointer,
       getMemoryStoreFor,
       getPermissionsStore,
@@ -870,6 +1056,7 @@ export async function createRuntimeFetchHandler(
       getThreadsStore,
       liveTurnHub,
       middleware,
+      ...(middlewareAfter ? { middlewareAfter } : {}),
       registry,
       resumeClaims,
       threadAccess,
@@ -934,14 +1121,14 @@ export async function createRuntimeFetchHandler(
         perRequest.set(request, lifetime)
         const response = await dispatch(routes, request, matched)
         const body = response.body
-        if (body && isEventStream(response.headers.get("content-type"))) {
-          // The Response exists but its SSE body is still streaming. Hold the
+        if (body && isStreamingBody(response.headers.get("content-type"))) {
+          // The Response exists but its event-stream body is still streaming. Hold the
           // in-flight slot until the stream settles (fully read, canceled, or
           // errored) so close() cannot release sandboxes mid-stream. The flag
           // flips only after the tracked Response has been constructed — if
           // construction throws, the finally below must still decrement.
           // Disposal chains onto the SAME settle hook, never onto `fetch`
-          // resolving: an SSE turn is still streaming at that point, and ending
+          // resolving: a streaming turn is still streaming at that point, and ending
           // a pool mid-stream breaks the tail of every streaming turn. Settling
           // the body only ARMS disposal — see maybeSettle for the run half.
           const tracked = new Response(
@@ -1068,7 +1255,7 @@ export async function createRuntimeFetchHandler(
       // that may still be executing AFTER its response was sent: a cancelled run
       // whose route ignored ctx.signal, or an abandoned /runs/wait that returned
       // 409 while invokeResolvedRoute kept going. Those return plain JSON, so the
-      // fetch wrapper (which only holds the slot for text/event-stream bodies)
+      // fetch wrapper (which only holds the slot for streaming event bodies)
       // has already decremented — draining on activeRequests alone would release
       // sandboxes out from under work still using them.
       //
@@ -1118,10 +1305,10 @@ export async function createRuntimeFetchHandler(
     // able to read ALL of them, including the failures. Stamping once here is
     // the only version of that with no path left uncovered.
     //
-    // Resolved at boot — see `readCorsConfig` for where the config comes from.
-    // Boot is also where a malformed origin list should fail, so an operator
-    // sees it on startup rather than on the first cross-origin request.
-    const corsPolicy = resolveCorsPolicy(await readCorsConfig(options))
+    // Resolved at boot — see `readBootB4Config` for where the config comes
+    // from. Boot is also where a malformed origin list should fail, so an
+    // operator sees it on startup rather than on the first cross-origin request.
+    const corsPolicy = resolveCorsPolicy(bootConfig?.server?.cors)
     const fetch = async (request: Request): Promise<Response> => {
       // A preflight never reaches the route table: it claims no in-flight slot
       // and needs no stores, and the router has no OPTIONS route that could
@@ -1251,9 +1438,19 @@ function isRowWeJustWrote(thread: Thread, stored: Record<string, unknown> | unde
  */
 export function buildRouteTable(ctx: {
   readonly appRoot: string
+  /** Boot-resolved approval-grant mode, store and TTL. See approval-grants.ts. */
+  readonly approvalGrants: ApprovalGrantRuntime
   readonly apAttachMaxViewers: number
   readonly apSseHeartbeatIntervalMs: number
   readonly boot: RouteBoot
+  /**
+   * The boot-resolved `b4.config.ts` (see `readBootB4Config`), separate from
+   * `boot.config` because that one means "a caller supplied a config object".
+   * Read for `server.agui`, the AG-UI run envelope's per-route opt-ins.
+   */
+  readonly bootConfig: B4Config | undefined
+  /** Boot-resolved client tool store and TTL. See client-tool-runtime.ts. */
+  readonly clientTools: ClientToolRuntime
   readonly getCheckpointer: (request: Request) => BaseCheckpointSaver
   readonly getMemoryStoreFor: (request: Request) => Promise<MemoryStore>
   readonly getPermissionsStore: (
@@ -1268,6 +1465,8 @@ export function buildRouteTable(ctx: {
   readonly getThreadsStore: (request: Request) => ThreadsStore
   readonly liveTurnHub: LiveTurnHub
   readonly middleware: MiddlewareHandler | undefined
+  /** The middleware's final-message hook; only the AG-UI route consumes it. */
+  readonly middlewareAfter?: MiddlewareAfterHook
   readonly registry: RuntimeRegistry
   /**
    * The boot-resolved policy. `buildRouteTable` runs before any request exists,
@@ -1291,10 +1490,13 @@ export function buildRouteTable(ctx: {
 }): RouteMatcher[] {
   const {
     appRoot,
+    approvalGrants,
     probeReadiness,
     apAttachMaxViewers,
     apSseHeartbeatIntervalMs,
     boot,
+    bootConfig,
+    clientTools,
     getCheckpointer,
     getMemoryStoreFor,
     getPermissionsStore,
@@ -1302,6 +1504,7 @@ export function buildRouteTable(ctx: {
     getThreadsStore,
     liveTurnHub,
     middleware,
+    middlewareAfter,
     registry,
     threadAccess,
     getShutdownSignal,
@@ -1314,6 +1517,14 @@ export function buildRouteTable(ctx: {
   // Populated by runs/stream and runs/wait; read by the resume endpoint so it
   // can re-invoke the correct route without requiring the client to repeat it.
   const threadRouteMap = new Map<string, string>()
+
+  // One workspace upload at a time per process (`PUT /workspace/sources/:digest`): a
+  // source costs several times its size in memory while it is decoded, parsed, verified
+  // and stored (D3), so a second concurrent upload is told to retry rather than doubling
+  // that peak.
+  let uploadInFlight = false
+  // Creates naming a staged workspace in progress (`STAGED_CREATES_MAX_IN_FLIGHT`).
+  let stagedCreatesInFlight = 0
 
   return [
     // ------------------------------------------------------------------
@@ -1352,14 +1563,40 @@ export function buildRouteTable(ctx: {
     // ------------------------------------------------------------------
     {
       handle: async (request) => {
-        const rawBody = await request.text()
+        const stagedOn = Boolean(sandboxManager?.workspaceProtocol.staged)
+        // The 1 MiB bound applies only to an app that accepts staged workspaces: every
+        // other app reads its create body exactly as before (no behaviour change; D3).
+        let rawBody: string
+        if (stagedOn) {
+          try {
+            rawBody = await readBoundedText(request, THREAD_CREATE_BODY_MAX_BYTES)
+          } catch (error) {
+            if (!(error instanceof RequestBodyTooLargeError)) throw error
+            // The gate answers first, as a plain create (nothing of the body was read), so
+            // an unauthorized caller gets its refusal whether or not the option is on and
+            // cannot tell the two apart by the size of what it sends.
+            const plain = makeThreadGate(
+              threadAccess,
+              request,
+            )({
+              action: "create",
+              operation: "thread.create",
+            })
+            const answered = isThenable(plain) ? await plain : plain
+            if (!answered.ok) return answered.response
+            return payloadTooLarge(error)
+          }
+        } else rawBody = await request.text()
         let metadata: Record<string, unknown> | undefined
+        let workspaceNamed = false
+        let workspaceField: unknown
         if (rawBody.trim()) {
           const parsed = parseJson(rawBody)
           if (!parsed.ok || !isRecord(parsed.value)) {
             return Response.json(createRequestErrorBody("Malformed request body"), { status: 400 })
           }
-          const bodyMetadata = (parsed.value as Record<string, unknown>).metadata
+          const body = parsed.value as Record<string, unknown>
+          const bodyMetadata = body.metadata
           if (bodyMetadata !== undefined) {
             if (!isRecord(bodyMetadata)) {
               return Response.json(createRequestErrorBody("metadata must be an object"), {
@@ -1367,6 +1604,35 @@ export function buildRouteTable(ctx: {
               })
             }
             metadata = bodyMetadata
+          }
+          if (Object.hasOwn(body, "workspace")) {
+            workspaceNamed = true
+            workspaceField = body.workspace
+          }
+        }
+        // A malformed field is a 400 whether or not the app accepts workspaces, so the
+        // answer reveals nothing about the option.
+        // `named` is the body's reference, checked below; `requestedWorkspace` is what the
+        // policy sees: the same reference plus who uploaded its source.
+        let named: StagedWorkspaceFieldValue | undefined
+        let requestedWorkspace: StagedWorkspaceFieldValue | undefined
+        if (workspaceNamed) {
+          const field = stagedWorkspaceField(workspaceField)
+          if (!field.ok)
+            return Response.json(
+              createRequestErrorBody(field.message, { code: "invalid_request" }),
+              { status: 400 },
+            )
+          // Who uploaded the named source, for the policy (`uploadedBy`): the stamps its
+          // uploads were allowed with. A lookup by digest, bounded to 64, before the gate so
+          // the policy can decide on it; an app without the option has no uploads.
+          named = field.reference
+          requestedWorkspace = {
+            ...field.reference,
+            uploadedBy:
+              stagedOn && sandboxManager
+                ? sandboxManager.stagedUploaders(field.reference.sourceDigest)
+                : [],
           }
         }
         // Unconditional, hook or no hook: the reserved key is B4.run's, contains
@@ -1379,45 +1645,123 @@ export function buildRouteTable(ctx: {
           action: "create",
           operation: "thread.create",
           ...(clientMetadata !== undefined ? { requestedMetadata: clientMetadata } : {}),
+          ...(requestedWorkspace !== undefined ? { requestedWorkspace } : {}),
         })
         const settled = isThenable(created) ? await created : created
         if (!settled.ok) return settled.response
 
-        const stored = settled.stamp
-          ? { ...(clientMetadata ?? {}), [THREAD_ACCESS_METADATA_KEY]: settled.stamp }
-          : clientMetadata
-        const input = stored !== undefined ? { metadata: stored } : {}
-
-        let thread = await getThreadsStore(request).createThread(input)
-
-        // Both of the following are inside the hook branch. A hook-less app
-        // makes the one createThread call above and returns, exactly as today.
-        if (threadAccess) {
-          // The id is server-generated and only 32 bits wide, so the row that
-          // came back is not necessarily the row we wrote: Postgres upserts on a
-          // collision and returns the existing row with its existing metadata,
-          // discarding the caller's. Retry rather than hand back a stranger's
-          // thread — a bare re-authorization would be safe but would 403 a
-          // create the caller was fully entitled to make.
-          for (let attempt = 1; attempt < 3 && !isRowWeJustWrote(thread, stored); attempt++) {
-            thread = await getThreadsStore(request).createThread(input)
+        // After the gate: a workspace this app will not serve is refused, never ignored
+        // (D12), and an unauthorized caller never learns whether the option is on.
+        if (requestedWorkspace !== undefined && !stagedOn)
+          return Response.json(
+            createRequestErrorBody(
+              "This app does not accept a workspace at thread creation (sandbox.stagedWorkspaces)",
+              { code: "workspace_not_accepted" },
+            ),
+            { status: 400 },
+          )
+        // Creates that name a workspace run a few at a time (429 past that), after the
+        // gate so an unauthorized caller never takes a slot.
+        if (requestedWorkspace !== undefined) {
+          if (stagedCreatesInFlight >= STAGED_CREATES_MAX_IN_FLIGHT)
+            return Response.json(
+              createRequestErrorBody(
+                "Too many thread creations naming a workspace are in progress; retry shortly",
+                { code: "workspace_create_in_flight" },
+              ),
+              { status: 429, headers: { "retry-after": "1" } },
+            )
+          stagedCreatesInFlight++
+        }
+        try {
+          // Checked whole BEFORE any thread row exists: a source this worker does not hold,
+          // or a definition it could not serve, leaves nothing behind.
+          let staged: StagedWorkspaceReference | undefined
+          if (requestedWorkspace !== undefined && sandboxManager) {
+            const checked = sandboxManager.checkStagedWorkspace(named)
+            if (!checked.ok)
+              return Response.json(
+                createRequestErrorBody(checked.message, { code: checked.code }),
+                {
+                  status: 422,
+                },
+              )
+            staged = checked.reference
           }
 
-          // Unconditional: authorize the ROW, not the intent. Never a stamp
-          // comparison — when the policy returns permit() with no stamp both
-          // sides are undefined, the comparison passes, and the loser proceeds
-          // on the winner's row with no re-authorization at all.
-          const recheck = gate({
-            action: "update",
-            operation: "thread.create",
-            thread,
-            threadId: thread.thread_id,
-          })
-          const rechecked = isThenable(recheck) ? await recheck : recheck
-          if (!rechecked.ok) return rechecked.response
-        }
+          const stored = settled.stamp
+            ? { ...(clientMetadata ?? {}), [THREAD_ACCESS_METADATA_KEY]: settled.stamp }
+            : clientMetadata
+          const input = stored !== undefined ? { metadata: stored } : {}
 
-        return Response.json(thread, { status: 200 })
+          let thread = await getThreadsStore(request).createThread(input)
+
+          // Both of the following are inside the hook branch. A hook-less app
+          // makes the one createThread call above and returns, exactly as today.
+          if (threadAccess) {
+            // The id is server-generated and only 32 bits wide, so the row that
+            // came back is not necessarily the row we wrote: Postgres upserts on a
+            // collision and returns the existing row with its existing metadata,
+            // discarding the caller's. Retry rather than hand back a stranger's
+            // thread — a bare re-authorization would be safe but would 403 a
+            // create the caller was fully entitled to make.
+            for (let attempt = 1; attempt < 3 && !isRowWeJustWrote(thread, stored); attempt++) {
+              thread = await getThreadsStore(request).createThread(input)
+            }
+
+            // Unconditional: authorize the ROW, not the intent. Never a stamp
+            // comparison — when the policy returns permit() with no stamp both
+            // sides are undefined, the comparison passes, and the loser proceeds
+            // on the winner's row with no re-authorization at all.
+            const recheck = gate({
+              action: "update",
+              operation: "thread.create",
+              thread,
+              threadId: thread.thread_id,
+            })
+            const rechecked = isThenable(recheck) ? await recheck : recheck
+            if (!rechecked.ok) return rechecked.response
+          }
+
+          if (staged && sandboxManager) {
+            // Only the row this request wrote may be given a workspace, and only that row
+            // may be removed again: a collision's existing row is refused and left exactly as
+            // it was. A source reclaimed between the check and here
+            // (`workspace_source_not_held`) is the same refusal: the row goes and the caller
+            // uploads again. `stagedWorkspaces` requires a policy, so the collision check
+            // above always ran.
+            const ours = isRowWeJustWrote(thread, stored)
+            const attached = ours
+              ? sandboxManager.attachStagedWorkspace(thread.thread_id, staged)
+              : ({
+                  ok: false,
+                  code: "thread_conflict",
+                  message: "Thread id collision: retry the create",
+                } as const)
+            if (!attached.ok) {
+              // Only a refusal that proves the attach wrote nothing removes the row.
+              // `already_staged` does not: `isRowWeJustWrote` compares metadata and
+              // timestamps, so two concurrent creates with identical metadata that collide
+              // on the 32-bit id both take the row as theirs, and the second would delete
+              // the first's thread. Kept, the row answers 409 to the second caller and
+              // stays the first's. Residual, not fixed (it would need a per-create nonce
+              // stored with the row, and row metadata is client-visible today): in the same
+              // collision, a SECOND create whose source was reclaimed deletes the shared row
+              // before the first attaches, leaving a staged row with no thread; the boot
+              // sweep and any run endpoint's create under that id forget it.
+              if (ours && attached.code === "workspace_source_not_held")
+                await getThreadsStore(request).deleteThread(thread.thread_id)
+              return Response.json(
+                createRequestErrorBody(attached.message, { code: attached.code }),
+                { status: 409 },
+              )
+            }
+          }
+
+          return Response.json(thread, { status: 200 })
+        } finally {
+          if (requestedWorkspace !== undefined) stagedCreatesInFlight--
+        }
       },
       method: "POST",
       pattern: /^\/threads(?:\?.*)?$/,
@@ -1500,6 +1844,10 @@ export function buildRouteTable(ctx: {
             { status: 409 },
           )
         }
+        // The staged reference goes FIRST: if anything below fails, the thread survives
+        // with no staged workspace (its resolver sees none), and a thread later created
+        // under this id through a run endpoint (client-chosen ids) inherits nothing.
+        if (sandboxManager?.managed) sandboxManager.forgetStagedWorkspace(threadId)
         if (sandboxManager?.managed) await sandboxManager.destroyThread(threadId)
         const checkpointer = getCheckpointer(request)
         // Checkpoints BEFORE the row, and deliberately not the other way round:
@@ -1601,6 +1949,7 @@ export function buildRouteTable(ctx: {
       handle: async (request, params) =>
         handleApStreamRequest({
           appRoot,
+          approvalGrants,
           apSseHeartbeatIntervalMs,
           boot,
           checkpointer: getCheckpointer(request),
@@ -1648,17 +1997,21 @@ export function buildRouteTable(ctx: {
     },
 
     // ------------------------------------------------------------------
-    // POST /agui/:routeId — AG-UI protocol endpoint (SSE)
+    // POST /agui/:routeId — AG-UI protocol endpoint (SSE, or HTTP+protobuf by Accept)
     // ------------------------------------------------------------------
     {
       handle: async (request, params) =>
         handleAgUiFetchRequest({
           appRoot,
+          approvalGrants,
           boot,
+          ...(bootConfig ? { config: bootConfig } : {}),
           checkpointer: getCheckpointer(request),
+          clientTools,
           getMemoryStore: () => getMemoryStoreFor(request),
           liveTurnHub,
           middleware,
+          ...(middlewareAfter ? { middlewareAfter } : {}),
           permissionsStore: getPermissionsStore(request),
           registry,
           resumeClaims,
@@ -1672,6 +2025,27 @@ export function buildRouteTable(ctx: {
           routeKey: params.routeId ?? "",
         }),
       method: "POST",
+      pattern: /^\/agui\/(?<routeId>[^/?#]+)(?:\?.*)?$/,
+    },
+
+    // ------------------------------------------------------------------
+    // GET /agui/:routeId — the route's AG-UI AgentCapabilities
+    // ------------------------------------------------------------------
+    {
+      handle: async (request, params) =>
+        handleAgUiCapabilitiesRequest({
+          appRoot,
+          approvalGrants,
+          boot,
+          clientTools,
+          ...(bootConfig ? { config: bootConfig } : {}),
+          middleware,
+          permissionsStore: getPermissionsStore(request),
+          registry,
+          request,
+          routeKey: params.routeId ?? "",
+        }),
+      method: "GET",
       pattern: /^\/agui\/(?<routeId>[^/?#]+)(?:\?.*)?$/,
     },
 
@@ -1724,6 +2098,7 @@ export function buildRouteTable(ctx: {
       handle: async (request, params) =>
         handleApWaitRequest({
           appRoot,
+          approvalGrants,
           boot,
           checkpointer: getCheckpointer(request),
           getMemoryStore: () => getMemoryStoreFor(request),
@@ -1809,12 +2184,207 @@ export function buildRouteTable(ctx: {
     },
 
     // ------------------------------------------------------------------
+    // POST /threads/:thread_id/workspace/inspect — read a thread's workspace
+    // ------------------------------------------------------------------
+    // Order: thread lookup, gate, THEN the feature check and the body. An unauthorized
+    // caller gets the gate's answer whether the feature is on or off, so the route never
+    // tells it which; an authorized caller of an app without `sandbox.workspaceRead`
+    // gets the same 404 as a route that does not exist. Nothing is read from the body
+    // until the caller is authorized. A `read` of the thread (`thread.workspace`), so a
+    // denial defaults to the same 404 a missing thread returns.
+    {
+      handle: async (request, params) => {
+        const threadId = params.thread_id ?? ""
+        const thread = await getThreadsStore(request).getThread(threadId)
+        const notFound = () =>
+          Response.json(createRequestErrorBody("Thread not found", { code: "thread_not_found" }), {
+            status: 404,
+          })
+        const gate = makeThreadGate(threadAccess, request)
+        const g = gate({
+          action: "read",
+          notFound,
+          operation: "thread.workspace",
+          threadId,
+          ...(thread ? { thread } : {}),
+        })
+        const settled = isThenable(g) ? await g : g
+        if (!settled.ok) return settled.response
+        if (!sandboxManager?.workspaceProtocol.read)
+          return Response.json(createRequestErrorBody("Not found"), { status: 404 })
+        if (!thread) return notFound()
+        let body: unknown = {}
+        try {
+          const raw = await readBoundedText(request, INSPECT_BODY_MAX_BYTES)
+          if (raw.trim()) {
+            const parsed = parseJson(raw)
+            if (!parsed.ok)
+              return Response.json(createRequestErrorBody("Malformed request body"), {
+                status: 400,
+              })
+            body = parsed.value
+          }
+        } catch (error) {
+          if (error instanceof RequestBodyTooLargeError) return payloadTooLarge(error)
+          throw error
+        }
+        // Every option, `root` included, is refused here before a reader is started.
+        const parsed = parseThreadWorkspaceRequest(body)
+        if (!parsed.ok)
+          return Response.json(
+            createRequestErrorBody(parsed.message, { code: "invalid_request" }),
+            {
+              status: 400,
+            },
+          )
+        // The read holds the thread's one run slot for its whole duration (D9): a run
+        // started meanwhile is the ordinary 409, a DELETE is refused, a cancel aborts the
+        // read, and shutdown drains it. After the gate, so a 409 never tells an
+        // unauthorized caller the thread is busy.
+        const slot = getRunRegistry(request).begin(threadId, getShutdownSignal(request))
+        if (!slot)
+          return Response.json(
+            createRequestErrorBody(`A run is already in flight for thread "${threadId}"`, {
+              code: "run_in_flight",
+            }),
+            { status: 409 },
+          )
+        try {
+          const outcome = await sandboxManager.inspectThread(
+            threadId,
+            parsed.request,
+            AbortSignal.any([slot.signal, request.signal]),
+          )
+          return threadWorkspaceResponse(threadId, parsed.request, outcome)
+        } catch (error) {
+          // A cancel, a shutdown and a departed client are answers, not server failures.
+          if (slot.cancelled)
+            return Response.json(
+              createRequestErrorBody(`The workspace read of thread "${threadId}" was cancelled`, {
+                code: "read_cancelled",
+              }),
+              { status: 409 },
+            )
+          if (slot.signal.aborted)
+            return Response.json(
+              createRequestErrorBody("The server is shutting down", { code: "shutting_down" }),
+              { status: 503 },
+            )
+          if (request.signal.aborted)
+            return Response.json(
+              createRequestErrorBody("The client closed the request", { code: "request_aborted" }),
+              { status: 499 },
+            )
+          throw error
+        } finally {
+          slot.release()
+        }
+      },
+      method: "POST",
+      pattern: /^\/threads\/(?<thread_id>[^/?#]+)\/workspace\/inspect(?:\?.*)?$/,
+    },
+
+    // ------------------------------------------------------------------
+    // PUT /workspace/sources/:digest — stage a workspace's files
+    // ------------------------------------------------------------------
+    // Order: digest shape (a 400 that reveals nothing), gate, THEN the feature check, the
+    // single-flight check and the body. An unauthorized caller gets the gate's answer
+    // whether the feature is on or off and never makes this worker buffer a byte; an
+    // authorized caller of an app without `sandbox.stagedWorkspaces` gets the 404 of a
+    // route that does not exist. Content-addressed and idempotent: 201 for new bytes, 200
+    // for bytes already held. A `create` with no thread (`workspace.source.put`).
+    {
+      handle: async (request, params) => {
+        const digest = params.digest ?? ""
+        if (!/^[0-9a-f]{64}$/.test(digest))
+          return Response.json(
+            createRequestErrorBody("The source digest must be 64 lowercase hex characters", {
+              code: "invalid_request",
+            }),
+            { status: 400 },
+          )
+        const gate = makeThreadGate(threadAccess, request)
+        const g = gate({
+          action: "create",
+          operation: "workspace.source.put",
+          requestedWorkspace: Object.freeze({ sourceDigest: digest }),
+        })
+        const settled = isThenable(g) ? await g : g
+        if (!settled.ok) return settled.response
+        const staged = sandboxManager?.workspaceProtocol.staged
+        if (!sandboxManager || !staged)
+          return Response.json(createRequestErrorBody("Not found"), { status: 404 })
+        // The policy's stamp becomes the upload's uploader; one that cannot be kept is
+        // refused now, from the policy's answer alone, before any of the body is read.
+        const stampProblem = settled.stamp ? uploaderStampProblem(settled.stamp) : undefined
+        if (stampProblem)
+          return Response.json(
+            createRequestErrorBody(stampProblem, { code: "workspace_uploader_invalid" }),
+            { status: 422 },
+          )
+        if (uploadInFlight)
+          return Response.json(
+            createRequestErrorBody("Another workspace upload is in progress; retry shortly", {
+              code: "upload_in_flight",
+            }),
+            { status: 429, headers: { "retry-after": "1" } },
+          )
+        uploadInFlight = true
+        try {
+          let raw: string
+          try {
+            // A deadline for the whole body: a client that trickles bytes would otherwise
+            // hold the one upload slot for as long as it likes.
+            raw = await readBoundedText(request, staged.maxUploadBytes, {
+              deadlineMs: staged.uploadTimeoutMs,
+            })
+          } catch (error) {
+            if (error instanceof RequestBodyTooLargeError) return payloadTooLarge(error)
+            if (error instanceof RequestBodyTimeoutError)
+              return Response.json(
+                createRequestErrorBody(error.message, {
+                  code: "upload_timeout",
+                  deadlineMs: error.deadlineMs,
+                }),
+                { status: 408 },
+              )
+            throw error
+          }
+          const parsed = parseJson(raw)
+          if (!parsed.ok)
+            return Response.json(createRequestErrorBody("Malformed request body"), { status: 400 })
+          // The stamp the policy returned for this upload is its uploader: kept with the
+          // upload and handed to the create that names it (`uploadedBy`), never a thread's.
+          const outcome = sandboxManager.stageSource(parsed.value, digest, settled.stamp)
+          if (!outcome.ok)
+            return Response.json(createRequestErrorBody(outcome.message, { code: outcome.code }), {
+              status:
+                outcome.code === "digest_mismatch"
+                  ? 400
+                  : outcome.code === "staged_quota_exceeded"
+                    ? 507
+                    : 422,
+            })
+          return Response.json(
+            { digest, status: outcome.status },
+            { status: outcome.status === "created" ? 201 : 200 },
+          )
+        } finally {
+          uploadInFlight = false
+        }
+      },
+      method: "PUT",
+      pattern: /^\/workspace\/sources\/(?<digest>[^/?#]+)(?:\?.*)?$/,
+    },
+
+    // ------------------------------------------------------------------
     // POST /threads/:thread_id/resume — resolve a parked interrupt
     // ------------------------------------------------------------------
     {
       handle: async (request, params) =>
         handleResumeRequest({
           appRoot,
+          approvalGrants,
           apSseHeartbeatIntervalMs,
           boot,
           checkpointer: getCheckpointer(request),
@@ -1841,11 +2411,11 @@ export function buildRouteTable(ctx: {
 }
 
 // ---------------------------------------------------------------------------
-// CORS config resolution
+// Boot config resolution
 // ---------------------------------------------------------------------------
 
 /**
- * `server.cors`, or undefined when this runtime has no config to read it from.
+ * The app's `B4Config`, or undefined when this runtime has no config to read.
  *
  * Three callers, three shapes:
  * - An edge runtime (or any caller that injects its own stores) passes
@@ -1854,19 +2424,20 @@ export function buildRouteTable(ctx: {
  *   lazily through the same memo, so loading here costs nothing extra.
  * - Neither: no config file and none supplied. That is a legal B4.run app, and
  *   `loadB4Config` signals it by throwing (`access` ENOENT). No config means
- *   no CORS, exactly like an app that omits the block — the same
- *   try/catch-to-defaults shape `resolveMemoryStore` uses for this case.
+ *   defaults everywhere — no CORS, and a closed AG-UI envelope — exactly like
+ *   an app that omits the blocks, and the same try/catch-to-defaults shape
+ *   `resolveMemoryStore` uses for this case.
  *
  * A config that EXISTS but is malformed still throws: the catch here covers
  * only obtaining the config, and `resolveCorsPolicy` validates afterwards.
  */
-async function readCorsConfig(options: {
+async function readBootB4Config(options: {
   readonly appRoot: string
   readonly config?: B4Config
-}): Promise<CorsConfig | undefined> {
-  if (options.config) return options.config.server?.cors
+}): Promise<B4Config | undefined> {
+  if (options.config) return options.config
   try {
-    return (await loadB4Config({ appRoot: options.appRoot })).config.server?.cors
+    return (await loadB4Config({ appRoot: options.appRoot })).config
   } catch {
     return undefined
   }
@@ -1920,7 +2491,41 @@ async function dispatch(
 // AP stream handler
 // ---------------------------------------------------------------------------
 
+/**
+ * The Agent Protocol refusal while a client-provided tool call is parked. It
+ * is answered, or abandoned, only through the AG-UI endpoint.
+ */
+function clientToolPendingOnAgentProtocol(): Response {
+  return Response.json(
+    createRequestErrorBody(
+      "A client-provided tool call is pending on this thread; it is answered or abandoned through the AG-UI endpoint.",
+      { code: "client_tool_pending" },
+    ),
+    { status: 409 },
+  )
+}
+
+/**
+ * `409 client_tool_pending` when a client tool call is parked on the thread,
+ * for the Agent Protocol run endpoints (`runs/stream`, `runs/wait`). A new
+ * run's input makes LangGraph discard the park, which would leave the model's
+ * tool call with no ToolMessage: every later model call on the thread is then
+ * rejected by the provider, and no park remains for an AG-UI abandon to close.
+ * Only the AG-UI endpoint can answer or close the call. Read after the
+ * thread-access gate (never an oracle on another caller's thread), under the
+ * run slot. A thread with no checkpoint has nothing parked.
+ */
+async function refuseOverParkedClientToolCall(
+  checkpointer: BaseCheckpointSaver,
+  threadId: string,
+): Promise<Response | undefined> {
+  const snapshot = await readPendingInterrupts(checkpointer, threadId)
+  if (!snapshot?.interrupts.some((entry) => isClientToolPark(entry.value))) return undefined
+  return clientToolPendingOnAgentProtocol()
+}
+
 async function handleApStreamRequest(options: {
+  readonly approvalGrants: ApprovalGrantRuntime
   readonly appRoot: string
   readonly apSseHeartbeatIntervalMs: number
   readonly boot: RouteBoot
@@ -1942,6 +2547,7 @@ async function handleApStreamRequest(options: {
 }): Promise<Response> {
   const {
     appRoot,
+    approvalGrants,
     apSseHeartbeatIntervalMs,
     boot,
     checkpointer,
@@ -1960,6 +2566,10 @@ async function handleApStreamRequest(options: {
     threadRouteMap,
     threadsStore,
   } = options
+
+  // Per-run minter for this thread. Built once per request so every
+  // `interrupt()` in the turn mints against the same thread and store.
+  const approvalGrantMinter = minterFor(approvalGrants, threadId)
 
   const rawBody = await request.text()
   const parsedBody = parseJson(rawBody)
@@ -2024,6 +2634,10 @@ async function handleApStreamRequest(options: {
     const settled = isThenable(g) ? await g : g
     if (!settled.ok) return settled.response
     if (!thread) {
+      // No row under this client-chosen id, so any staged workspace recorded for it is
+      // stale (its thread was deleted behind the runtime's back since the boot sweep):
+      // forget it before the row exists, so the new thread never inherits it.
+      sandboxManager?.forgetStagedWorkspace(threadId)
       const created = await createGatedThreadForRun({
         gate,
         operation: "run.stream",
@@ -2040,6 +2654,7 @@ async function handleApStreamRequest(options: {
   // re-authorized. PR A's contract is that an app with no policy file behaves
   // exactly as it did, and this line is what that means here.
   if (!thread) {
+    sandboxManager?.forgetStagedWorkspace(threadId)
     thread = await threadsStore.createThread({ thread_id: threadId })
   }
 
@@ -2060,6 +2675,19 @@ async function handleApStreamRequest(options: {
       }),
       { status: 409 },
     )
+  }
+  // Under the run slot, so no AG-UI turn can park between this read and the
+  // run. See refuseOverParkedClientToolCall.
+  let parkedClientCall: Response | undefined
+  try {
+    parkedClientCall = await refuseOverParkedClientToolCall(checkpointer, threadId)
+  } catch (error) {
+    run.release()
+    throw error
+  }
+  if (parkedClientCall) {
+    run.release()
+    return parkedClientCall
   }
 
   // Taken from the thread already loaded above, so the turn's own settle call
@@ -2173,6 +2801,11 @@ async function handleApStreamRequest(options: {
             signal: run.signal,
             ...(staticModules ? { staticModules } : {}),
             threadId,
+            // Injected into config.configurable by the agent-adapter for the
+            // park site to read. Absent — never a no-op minter — when grants
+            // are off or no store resolved; the park site decides what that
+            // absence means under the configured mode.
+            ...(approvalGrantMinter ? { approvalGrantMinter } : {}),
             threadsStore,
           })
           // Belt-and-braces, mirroring the AG-UI handler: pass the signal to
@@ -2197,6 +2830,18 @@ async function handleApStreamRequest(options: {
           // thread that reads "interrupted" with its prompt gated on whatever
           // route runs next.
           await settleParkedRoute({
+            ...(approvalGrants.mode === "off"
+              ? {}
+              : {
+                  voidGrants: async (stillPending) => {
+                    await voidSupersededGrants({
+                      ...(approvalGrants.store ? { store: approvalGrants.store } : {}),
+                      threadId,
+                      stillPending,
+                      retentionMs: approvalGrants.retentionMs,
+                    })
+                  },
+                }),
             canPark: route.mode === "agent",
             checkpointer,
             parked: sawInterrupt,
@@ -2229,6 +2874,18 @@ async function handleApStreamRequest(options: {
           // to be recorded here too — including when the failure IS the
           // success-path settle above. Retried, not skipped.
           await settleParkedRoute({
+            ...(approvalGrants.mode === "off"
+              ? {}
+              : {
+                  voidGrants: async (stillPending) => {
+                    await voidSupersededGrants({
+                      ...(approvalGrants.store ? { store: approvalGrants.store } : {}),
+                      threadId,
+                      stillPending,
+                      retentionMs: approvalGrants.retentionMs,
+                    })
+                  },
+                }),
             canPark: route.mode === "agent",
             checkpointer,
             parked: sawInterrupt,
@@ -2291,6 +2948,7 @@ async function handleApStreamRequest(options: {
 // ---------------------------------------------------------------------------
 
 async function handleApWaitRequest(options: {
+  readonly approvalGrants: ApprovalGrantRuntime
   readonly appRoot: string
   readonly boot: RouteBoot
   readonly checkpointer: BaseCheckpointSaver
@@ -2310,6 +2968,7 @@ async function handleApWaitRequest(options: {
 }): Promise<Response> {
   const {
     appRoot,
+    approvalGrants,
     boot,
     checkpointer,
     getMemoryStore,
@@ -2326,6 +2985,10 @@ async function handleApWaitRequest(options: {
     threadRouteMap,
     threadsStore,
   } = options
+
+  // Per-run minter for this thread. Built once per request so every
+  // `interrupt()` in the turn mints against the same thread and store.
+  const approvalGrantMinter = minterFor(approvalGrants, threadId)
 
   const rawBody = await request.text()
   const parsedBody = parseJson(rawBody)
@@ -2388,6 +3051,10 @@ async function handleApWaitRequest(options: {
     const settled = isThenable(g) ? await g : g
     if (!settled.ok) return settled.response
     if (!thread) {
+      // No row under this client-chosen id, so any staged workspace recorded for it is
+      // stale (its thread was deleted behind the runtime's back since the boot sweep):
+      // forget it before the row exists, so the new thread never inherits it.
+      sandboxManager?.forgetStagedWorkspace(threadId)
       const created = await createGatedThreadForRun({
         gate,
         operation: "run.wait",
@@ -2402,6 +3069,7 @@ async function handleApWaitRequest(options: {
 
   // Hook-less only — see the same line in handleApStreamRequest.
   if (!thread) {
+    sandboxManager?.forgetStagedWorkspace(threadId)
     thread = await threadsStore.createThread({ thread_id: threadId })
   }
 
@@ -2417,6 +3085,19 @@ async function handleApWaitRequest(options: {
       }),
       { status: 409 },
     )
+  }
+  // Under the run slot, so no AG-UI turn can park between this read and the
+  // run. See refuseOverParkedClientToolCall.
+  let parkedClientCall: Response | undefined
+  try {
+    parkedClientCall = await refuseOverParkedClientToolCall(checkpointer, threadId)
+  } catch (error) {
+    run.release()
+    throw error
+  }
+  if (parkedClientCall) {
+    run.release()
+    return parkedClientCall
   }
 
   // See handleApStreamRequest: taken from the thread already loaded above.
@@ -2506,6 +3187,18 @@ async function handleApWaitRequest(options: {
       ? await readParkedInterruptIds(checkpointer, threadId).catch(() => undefined)
       : undefined
     await settleParkedRoute({
+      ...(approvalGrants.mode === "off"
+        ? {}
+        : {
+            voidGrants: async (stillPending) => {
+              await voidSupersededGrants({
+                ...(approvalGrants.store ? { store: approvalGrants.store } : {}),
+                threadId,
+                stillPending,
+                retentionMs: approvalGrants.retentionMs,
+              })
+            },
+          }),
       canPark,
       checkpointer,
       parked: interruptIdsAfter
@@ -2545,6 +3238,11 @@ async function handleApWaitRequest(options: {
       signal: run.signal,
       ...(staticModules ? { staticModules } : {}),
       threadId,
+      // Injected into config.configurable by the agent-adapter for the
+      // park site to read. Absent — never a no-op minter — when grants
+      // are off or no store resolved; the park site decides what that
+      // absence means under the configured mode.
+      ...(approvalGrantMinter ? { approvalGrantMinter } : {}),
       threadsStore,
     })
 
@@ -2804,15 +3502,17 @@ async function handleApPendingInterruptsRequest(options: {
   // separately; this endpoint is not the place to compensate for it.)
   //
   // And what that leak is, stated precisely because it is easy to get
-  // backwards: it is DISCLOSURE, not approval. It is NOT bounded by /resume
-  // gating on an identity the attacker cannot forge — /resume resolves
-  // `threadRouteMap ?? metadata.route ?? body.route`, every term of which a
-  // park-swap controls. What actually stops them is that resuming the route
-  // they swapped in does not answer the prompt the other route parked: a plain
-  // graph route ignores `resume` entirely, and an agent route replays its own
-  // graph, destroying the pending set rather than resolving it. So the prompt
-  // stays unanswered — which makes this a confidentiality fix, and means the
-  // secrecy of `resumeKey` is not what the permission decision rests on.
+  // backwards: it is DISCLOSURE, not approval. /resume now resolves
+  // `parked_route` first (then `threadRouteMap ?? metadata.route ?? body.route`
+  // for a park that was never recorded), so a park-swap cannot repoint the
+  // route that answers a recorded park. A plain graph route ignores `resume` entirely, so
+  // swapping one in leaves the prompt unanswered. An AGENT route does not:
+  // every createAgent graph shares its node names, so resuming another agent
+  // route's park through it RESOLVES the prompt, under the wrong route's
+  // graph, prompt and tools. That is why /agui binds an approval resume to the
+  // route that parked it (`resume_route_mismatch`, agui-handler.ts) rather than
+  // trusting the route in its URL. The secrecy of `resumeKey` is still not what
+  // the permission decision rests on; route binding is.
   //
   // RESIDUALS, deliberately accepted. Every HTTP endpoint that can park records
   // it — /runs/stream, /runs/wait (on all four of its exit arms), /resume and
@@ -2909,11 +3609,21 @@ async function handleApPendingInterruptsRequest(options: {
   // A malformed pending-write set is still listed — this endpoint reports what
   // is parked, and POST /resume is the surface that refuses to act on writes it
   // cannot address safely (malformed_checkpoint).
-  const snapshot = await readPendingInterrupts(checkpointer, threadId)
+  // Client tool parks are not prompts: the client answers them with a tool
+  // message on its next run, so they are never listed here.
+  const pendingSnapshot = await readPendingInterrupts(checkpointer, threadId)
+  const snapshot = pendingSnapshot ? withoutClientToolParks(pendingSnapshot) : null
+  // `grant` is lifted alongside the verbatim `value` so a reconnecting client
+  // can answer the prompt without knowing the envelope's shape. Re-readable by
+  // design: single-use is a property of CONSUMPTION, not of disclosure, and a
+  // client that reloads must be able to get it again. The disclosure gate is
+  // unchanged — this endpoint is already gated on `thread.pending_interrupts`,
+  // and the grant inherits that gate exactly.
   const interrupts = (snapshot?.interrupts ?? []).map(({ interruptId, resumeKey, value }) => ({
     interruptId,
     resumeKey,
     value,
+    ...(grantOf(value) !== undefined ? { grant: grantOf(value) } : {}),
   }))
   return Response.json(
     { interrupts },
@@ -3107,9 +3817,17 @@ async function handleApAttachRequest(options: {
         }
         return
       }
-      const interrupts = (durableTuple ? parsePendingInterrupts(durableTuple).interrupts : []).map(
-        ({ interruptId, resumeKey, value }) => ({ interruptId, resumeKey, value }),
-      )
+      // Same lift as GET /threads/:id/pending_interrupts, and gated the same
+      // way (`thread.attach`). Both are channels that already carry the
+      // prompt, which is the whole reason the grant rides on them.
+      const interrupts = (
+        durableTuple ? withoutClientToolParks(parsePendingInterrupts(durableTuple)).interrupts : []
+      ).map(({ interruptId, resumeKey, value }) => ({
+        interruptId,
+        resumeKey,
+        value,
+        ...(grantOf(value) !== undefined ? { grant: grantOf(value) } : {}),
+      }))
       yield encodeEvent("state", {
         anchor: null,
         input: null,
@@ -3177,6 +3895,7 @@ async function handleApAttachRequest(options: {
 // ---------------------------------------------------------------------------
 
 async function handleResumeRequest(options: {
+  readonly approvalGrants: ApprovalGrantRuntime
   readonly appRoot: string
   readonly apSseHeartbeatIntervalMs: number
   readonly boot: RouteBoot
@@ -3199,6 +3918,7 @@ async function handleResumeRequest(options: {
 }): Promise<Response> {
   const {
     appRoot,
+    approvalGrants,
     apSseHeartbeatIntervalMs,
     boot,
     checkpointer,
@@ -3218,6 +3938,10 @@ async function handleResumeRequest(options: {
     threadRouteMap,
     threadsStore,
   } = options
+
+  // Per-run minter for this thread. Built once per request so every
+  // `interrupt()` in the turn mints against the same thread and store.
+  const approvalGrantMinter = minterFor(approvalGrants, threadId)
 
   if (!threadId) {
     return Response.json(createRequestErrorBody("Missing thread_id in resume URL"), {
@@ -3288,8 +4012,8 @@ async function handleResumeRequest(options: {
 
   let claimTransferredToStream = false
   try {
-    const pendingInterrupts = await readPendingInterrupts(checkpointer, threadId)
-    if (!pendingInterrupts) {
+    const pendingSnapshot = await readPendingInterrupts(checkpointer, threadId)
+    if (!pendingSnapshot) {
       return Response.json(
         createRequestErrorBody("Thread not found", {
           code: "thread_not_found",
@@ -3298,6 +4022,19 @@ async function handleResumeRequest(options: {
       )
     }
 
+    // One clear refusal whenever a client tool call is parked, alone or beside
+    // a permission park. It is answered by a `role: "tool"` message through
+    // the AG-UI endpoint, never here — and a PARTIAL resume answering only the
+    // permission parks is unsafe: the permission task's `__interrupt__` write
+    // survives until the superstep completes (so it is re-listed and
+    // re-demanded), and the client task re-runs on this path with no client
+    // tool stubs bound, so ToolNode resolves the park destructively as an
+    // invalid tool. Mixed parks must be answered in ONE resume covering every
+    // pending park, which only the AG-UI path can do.
+    if (pendingSnapshot.interrupts.some((entry) => isClientToolPark(entry.value))) {
+      return clientToolPendingOnAgentProtocol()
+    }
+    const pendingInterrupts = pendingSnapshot
     const resumeResolution = resolvePendingResume(body.resume, pendingInterrupts)
     if (!resumeResolution.ok) {
       return Response.json(
@@ -3311,14 +4048,22 @@ async function handleResumeRequest(options: {
       return Response.json(createRequestErrorBody("Resume entries are required"), { status: 409 })
     }
 
-    // Resolve which route last ran on this thread, in priority order:
-    //   1. in-memory map (fast-path, current server session)
-    //   2. durable thread metadata (survives a server restart)
-    //   3. client-supplied `route` in the resume body (explicit override)
+    // Resolve the route that answers this resume, in priority order:
+    //   1. `parked_route` — the route that PARKED, which no later run on the
+    //      thread can repoint (an agent run that fails before its graph runs
+    //      repoints `metadata.route` while the park survives; resuming through
+    //      that route would answer the prompt under the wrong graph)
+    //   2. in-memory map (fast-path, current server session)
+    //   3. durable thread metadata (survives a server restart)
+    //   4. client-supplied `route` in the resume body (explicit override)
+    // Resolved BEFORE the grant gate: it only reads server state, so it is no
+    // oracle, and a resume that cannot run on a usable route must not burn a
+    // single-use grant on the way to that refusal.
     const resumingThread = await threadsStore.getThread(threadId)
     const persistedRoute = resumingThread?.metadata.route
     const previousParkedRoute = readParkedRoute(resumingThread)
     const routeKey =
+      previousParkedRoute ??
       threadRouteMap.get(threadId) ??
       (typeof persistedRoute === "string" ? persistedRoute : undefined) ??
       body.route
@@ -3337,6 +4082,26 @@ async function handleResumeRequest(options: {
     if (!route) {
       return Response.json(createRequestErrorBody(`Unknown route: ${routeKey}`), { status: 404 })
     }
+
+    // Grants: verified and consumed HERE — after the thread-access gate, after
+    // `tryClaim`, and after the exact-set match, never before any of them.
+    // The ordering comment above explains why the gate must precede every side
+    // effect and every distinguishable error on this endpoint; grant checks
+    // inherit that rule wholesale, because their codes (`grant_consumed` vs
+    // `grant_invalid`) are exactly the kind of distinction that would turn
+    // this endpoint into an oracle on a victim's parked set.
+    //
+    // The design puts the grant check at step 4 and the exact-set match at
+    // step 5; they are swapped here. That only moves the grant check LATER,
+    // which is strictly less oracle surface, and it means a grant is never
+    // checked against a resume body whose shape has not been validated.
+    const refusedByGrant = await gateResumeWithGrants({
+      grants: approvalGrants,
+      threadId,
+      pending: pendingInterrupts.interrupts,
+      entries: body.resume,
+    })
+    if (refusedByGrant) return refusedByGrant
 
     const requestUrl = new URL(request.url)
     const mwRequest: MiddlewareRequest = {
@@ -3431,6 +4196,11 @@ async function handleResumeRequest(options: {
               signal: run.signal,
               ...(staticModules ? { staticModules } : {}),
               threadId,
+              // Injected into config.configurable by the agent-adapter for the
+              // park site to read. Absent — never a no-op minter — when grants
+              // are off or no store resolved; the park site decides what that
+              // absence means under the configured mode.
+              ...(approvalGrantMinter ? { approvalGrantMinter } : {}),
               threadsStore,
             })
             // Belt-and-braces, mirroring the AG-UI handler: pass the signal to
@@ -3452,6 +4222,18 @@ async function handleResumeRequest(options: {
             // parked; one that answers the last prompt retires it. Same
             // ordering and same failure contract as handleApStreamRequest.
             await settleParkedRoute({
+              ...(approvalGrants.mode === "off"
+                ? {}
+                : {
+                    voidGrants: async (stillPending) => {
+                      await voidSupersededGrants({
+                        ...(approvalGrants.store ? { store: approvalGrants.store } : {}),
+                        threadId,
+                        stillPending,
+                        retentionMs: approvalGrants.retentionMs,
+                      })
+                    },
+                  }),
               canPark: route.mode === "agent",
               checkpointer,
               parked: sawInterrupt,
@@ -3481,6 +4263,18 @@ async function handleResumeRequest(options: {
                 }
             safeEnqueue(controller, encoder.encode(toSseEvent(terminalChunk)))
             await settleParkedRoute({
+              ...(approvalGrants.mode === "off"
+                ? {}
+                : {
+                    voidGrants: async (stillPending) => {
+                      await voidSupersededGrants({
+                        ...(approvalGrants.store ? { store: approvalGrants.store } : {}),
+                        threadId,
+                        stillPending,
+                        retentionMs: approvalGrants.retentionMs,
+                      })
+                    },
+                  }),
               canPark: route.mode === "agent",
               checkpointer,
               parked: sawInterrupt,
@@ -3653,10 +4447,19 @@ function isB4ResumeBody(
         !Array.isArray(entry) &&
         typeof entry.interruptId === "string" &&
         entry.interruptId.length > 0 &&
+        // `grant` is admitted on BOTH shapes, and only as a string. The
+        // exact-key-set discipline is kept — an unknown key is still a 400 —
+        // because it is what stops a client smuggling extra fields into a
+        // resume. See `B4ResumeEntry.grant`.
         ((entry.status === "resolved" &&
           isPermissionDecision(entry.payload) &&
-          hasExactKeys(entry, ["interruptId", "payload", "status"])) ||
-          (entry.status === "cancelled" && hasExactKeys(entry, ["interruptId", "status"]))),
+          (hasExactKeys(entry, ["interruptId", "payload", "status"]) ||
+            (hasExactKeys(entry, ["grant", "interruptId", "payload", "status"]) &&
+              typeof entry.grant === "string"))) ||
+          (entry.status === "cancelled" &&
+            (hasExactKeys(entry, ["interruptId", "status"]) ||
+              (hasExactKeys(entry, ["grant", "interruptId", "status"]) &&
+                typeof entry.grant === "string")))),
     )
   )
 }

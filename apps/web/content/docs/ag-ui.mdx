@@ -1,15 +1,8 @@
 # AG-UI and Web Clients
 
-B4.run exposes [AG-UI](https://github.com/ag-ui-protocol/ag-ui) for browser clients
-alongside Agent Protocol. `@b4run/ag-ui` is the pure translation library: it
-maps B4.run stream chunks to AG-UI events and maps `RunAgentInput` back to a
-B4.run-shaped run input. The package owns no server, transport, or agent runtime.
+B4.run serves [AG-UI](https://github.com/ag-ui-protocol/ag-ui) for browser clients alongside Agent Protocol. `@b4run/ag-ui` is the translation library. It maps B4.run stream chunks to AG-UI events, and maps `RunAgentInput` back to a B4.run-shaped run input. It has no server, transport, or agent runtime of its own.
 
-`b4 dev` and the production runtime started by `b4 start` use that adapter to
-serve an SSE endpoint. This page is the canonical request, resume, threading,
-and lifecycle guide. See [Middleware](/docs/middleware) for execution gating
-and [Security Architecture](/docs/security-architecture) for the service routes
-that require outer authentication.
+`b4 dev` and the production runtime started by `b4 start` use that adapter to serve an SSE endpoint. This page covers requests, resume, threading, and lifecycle. See [Middleware](/docs/middleware) for execution gating and [Security Architecture](/docs/security-architecture) for the service routes that need outer authentication.
 
 ## The endpoint
 
@@ -19,31 +12,406 @@ content-type: application/json
 accept: text/event-stream
 ```
 
-The URL segment is the URL-encoded `<routeId>#<kind>` assistant id. For example,
-`/chat#agent` becomes `/agui/%2Fchat%23agent`. The request body is an AG-UI
-`RunAgentInput`. B4.run creates an unknown thread, invokes the same route runtime
-used by Agent Protocol, and streams translated events back as SSE.
+The URL segment is the URL-encoded `<routeId>#<kind>` assistant id. For example, `/chat#agent` becomes `/agui/%2Fchat%23agent`. The request body is an AG-UI `RunAgentInput`. B4.run creates the thread if it's new, invokes the same route runtime Agent Protocol uses, and streams translated events back as SSE, or as the HTTP+protobuf binding when `accept` admits `application/vnd.ag-ui.event+proto` (see [Transport](#transport)).
+
+B4.run speaks AG-UI protocol **1.0**; `RUN_STARTED` declares `protocolVersion: "1.0"`. A request declaring another `1.x`, or no parseable version, is served; a different major is refused (see [Envelope validation](#envelope-validation)). `@b4run/ag-ui` takes `@ag-ui/client` `>=1.0.1 <2.0.0` as an optional peer; the runtime validators moved to `@ag-ui/core/schemas`.
+
+`GET` on the same URL reports what the route honors. See [Capabilities](#capabilities).
+
+## Transport
+
+`accept` selects the AG-UI HTTP binding, by AG-UI's own rule: `text/event-stream` unless the header admits `application/vnd.ag-ui.event+proto` with a positive quality — named, or through a wildcard range such as `*/*` — in which case the response is `content-type: application/vnd.ag-ui.event+proto` and each event is a 4-byte unsigned big-endian length followed by exactly that many bytes of one protobuf-encoded event, with no separator between frames. The rule asks only whether protobuf is admitted, never how it ranks against SSE: `text/event-stream, */*;q=0.1` selects protobuf too. A client that cannot read protobuf must name `text/event-stream`; `@ag-ui/client` and CopilotKit do. A bare `curl` sends `*/*` and receives protobuf: pass `-H 'accept: text/event-stream'` to read the stream by eye.
+
+Both bindings carry the same events. The Agent Protocol attach stream (`GET /threads/:thread_id/runs/stream`, which `b4 threads tail` reads) is SSE whichever binding the primary client chose. WebSocket is not served.
+
+## Envelope validation
+
+The runtime validates the run envelope itself, so no app has to re-check
+B4.run's own wire format. Envelope refusals — the `422`s and the
+foreign-major `400` — carry [`B4_E5401`](/docs/errors) and are told apart by
+`error.details.code`; a body the schema itself rejects is a plain `400`.
+Unknown top-level keys are tolerated and never echoed; they do not become
+route params.
+
+| Status | `details.code` | When |
+|---|---|---|
+| `422` | `invalid_envelope` | the body is not a JSON object |
+| `422` | `invalid_thread_id` | `threadId` is missing, not a string, blank, or longer than 256 characters |
+| `422` | `invalid_run_id` | `runId` is missing, not a string, blank, or longer than 256 characters |
+| `400` | `unsupported_protocol_version` | the request declared an AG-UI protocol major this runtime does not speak |
+| `422` | `invalid_state` | `state` is present and is not a JSON object |
+| `422` | `multimodal_not_supported` | a message carried an image, audio, video or document part |
+| `422` | `client_tools_not_allowed` | `tools` is not an array, or is non-empty on a route that did not opt in |
+| `422` | `forwarded_props_not_allowed` | `forwardedProps` is not an object, or is non-empty on a route that did not opt in |
+
+### Client-supplied `tools` and `forwardedProps` are closed by default
+
+These two fields are not the app's inputs — they are the caller's attempt to
+add to what the *route* decided. A client that sends `tools: [...]` on a route
+whose tool set the server chose is asking for authority it was not given, and
+`forwardedProps` reaches route code the same way.
+
+B4.run rejects them rather than ignoring them. Silently dropping a field is
+indistinguishable, from outside, from honoring it: a client could not tell
+whether it had just widened the run. A route that genuinely wants them says so
+in `b4.config.ts`:
+
+```ts
+server: { agui: { clientTools: ["/chat"], clientForwardedProps: ["/chat"] } }
+```
+
+See [`server.agui`](/docs/configuration#serveragui) for the full key. An empty
+`tools: []` or `forwardedProps: {}` — what an AG-UI client sends when it has
+nothing to add — is always accepted, so an ordinary client is unaffected.
+
+Opting in to `clientTools` makes the model able to call the client's tools.
+See [Client-provided tools](#client-provided-tools) for the round trip, the
+limits, and what the opt-in does and does not protect against.
+
+<Callout type="warn" title="Behavior change">
+  Before this, a non-empty `tools` or `forwardedProps` was accepted and passed
+  through to the route as `raw` — and, for `tools`, never acted on: the adapter
+  did not interpret client tools then. An app that read either from `raw`, and
+  any client that sends frontend tools (a CopilotKit frontend action, for
+  instance), now gets a `422` where it used to get a silently narrower run,
+  unless the route is opted in to `clientTools`. Name the route in
+  `server.agui` to accept them.
+
+  In CopilotKit, `useFrontendTool` adds its tool to `tools` on every run, and
+  generated suggestions run with `tools: [copilotkitSuggest]` and
+  `forwardedProps: { toolChoice }`. Static suggestion lists
+  (`useConfigureSuggestions` with `{ title, message }` entries) and
+  render-only hooks (`useRenderTool`) send neither.
+
+  On a route opted in to `clientTools`, a generated-suggestion run's
+  `copilotkitSuggest` is a client tool like any other: the model can call it
+  as `client_copilotkitSuggest`, and the call parks like any client tool call.
+  B4.run does not force that call: it does not interpret `toolChoice`, and
+  `clientForwardedProps` accepts it without acting on it. On opted-in routes,
+  prefer static suggestion lists.
+</Callout>
+
+### Multimodal content is refused, not dropped
+
+A 1.0 message's `content` may be a list of parts. Text parts are concatenated in order. A message carrying an `image`, `audio`, `video` or `document` part is refused with `422` `multimodal_not_supported`, before middleware, so a client is told its media never reached the model rather than finding out by silence. `role: "reasoning"` and `role: "activity"` history is dropped on the way in: it is the client's stored artefact of an earlier turn, not something the assistant said.
+
+### Where the check runs
+
+Before route middleware and before the thread-access policy. The envelope
+check performs no I/O, takes no resume claim, reads no thread row and
+discloses nothing about one — it judges only what the caller said about
+itself. Running it first means an app's middleware is never handed an envelope
+the runtime has already decided not to honor, and a thread-access policy is
+never asked to authorize — or create a row for — a request that is about to be
+rejected. Because it never looks at a thread, it cannot leak whether one
+exists.
+
+`resume` is deliberately **not** decided here. Whether a turn genuinely resumes
+is not a property of the envelope: it depends on what is parked in the
+checkpointer, which B4.run only reads *after* the thread-access policy has
+authorized this caller to touch that thread. A `resume` that matches no pending
+interrupt is still rejected — as a `409` with `stale_interrupt`, and a turn
+that ignores a pending one as `409` `resume_required` — just at the point where
+the answer is actually known.
+
+## Client-provided tools
+
+A route named in [`server.agui.clientTools`](/docs/configuration#serveragui)
+lets the model call tools the client defines and runs itself — CopilotKit's
+`useFrontendTool`, for example. It is off by default and opted in per route.
+A route that is not named still refuses a non-empty `tools` with `422`
+`client_tools_not_allowed`. Only an `agent()` route can take client tools; on
+a chain, graph or workflow route, or a route that exports an agent runnable
+rather than an `agent()` descriptor, the run is refused with `422`
+`client_tools_not_supported`.
+
+```ts title="b4.config.ts"
+export default {
+  server: { agui: { clientTools: ["/chat"] } },
+}
+```
+
+### The round trip
+
+Each tool the client sends becomes a tool the model sees as `client_<name>`,
+with the description prefixed by
+`[Client-provided tool; definition authored by the caller]`. When the model
+calls one:
+
+1. The server records the call in the tool-call record (thread, route, tool-call id, expiry) and parks
+   the turn. The client sees the tool-call frames under the name **it**
+   registered — `openPanel`, not `client_openPanel` — followed by an ordinary
+   `RUN_FINISHED` with `outcome.type: "success"`, with `pendingToolCallIds`
+   naming the client calls this run left parked — AG-UI 1.0's prescribed shape for a frontend tool
+   call. There is no interrupt for the client to answer. A turn that parks an
+   approval in the same step ends with the `interrupt` outcome instead; the
+   client's follow-up is refused with `client_tool_pending` until the approval
+   is answered.
+2. The client runs the tool and, on its next run, sends its history with a
+   `{ role: "tool", toolCallId, content }` message carrying the result.
+3. The server matches that message against its record: a call it issued, on
+   this thread and this route, still outstanding and not expired. A match
+   resumes the parked turn with the result, and the model continues.
+
+Every AG-UI client resends its whole history on every run, so a tool message
+that matches nothing outstanding — an already-answered call, or one the
+server never issued — is treated as history and ignored, never as an error.
+A result is used exactly once: the resume value comes from the stored record,
+not from the message. On an opted-in route, a run whose last message is a
+tool message that matches nothing answers nothing: it returns an empty
+`RUN_STARTED` / `RUN_FINISHED`, and the model does not run. That makes a
+client's retry of a run that already resumed a harmless no-op.
+
+When the model calls several client tools in one turn, the client can answer
+them in one run or across several. A run that answers only some of them
+records those results and finishes as an ordinary success without touching the
+graph; the turn resumes once every call is answered. Only the route that
+issued a call can answer it: the record is bound to that route, and another
+route that shares the thread gets `409` `client_tool_pending` for a tool
+message it cannot answer.
+
+The thread's pending call is answered through this endpoint only.
+`POST /threads/:thread_id/resume` refuses with `409` `client_tool_pending`
+while a client tool call is parked.
+
+`GET /threads/:thread_id/state` shows the raw graph state. While a call is
+parked, `values` holds the model's tool call under its `client_`-prefixed
+name, and `next` lists the pending `__interrupt__` write.
+
+A permission prompt and a client tool call can park in the same model turn.
+Both are then answered in **one** AG-UI run: the tool message plus the
+`resume` entries for the prompt. A run that carries only the tool message is
+refused with `409` `resume_required`; the result it carried stays stored, so
+the next run only has to add the `resume` entries.
+
+### Abandoned calls
+
+A client that never answers must not leave the thread stuck, and because the
+park is invisible it cannot know it is holding one up. The call is abandoned
+when:
+
+- the client sends a new user message while the call is unanswered, or
+- the call has expired. The default lifetime is 10 minutes; set
+  `server.agui.clientToolTtlMs` to change it. Expiry is checked when the
+  thread is next used; no timer abandons a call.
+
+Abandoning closes each parked call with a tool result — the one the client
+already sent, if it did, otherwise
+`The client did not return a result for this tool call.` — and then runs the
+new user message as an ordinary turn. With no new message, the model replies
+to the closed calls. A result stored before the call expired is used; one
+that arrives after it expired is discarded.
+
+The closing tool results are written straight into the thread's checkpoint.
+No tool-result frame is streamed for them, and the route's result offloading
+and stream transformers do not see them.
+
+Any route on the thread can abandon a parked call with a new user message,
+including a route that did not issue it or does not take client tools, so the
+thread is never a dead end. A permission prompt pending on the same thread
+must be answered first. On the route that issued the call, the abandon is
+refused with `409` `resume_required`, as any new turn over a pending prompt
+is; on any other route, with `409` `client_tool_pending`.
+
+Abandon a parked call over AG-UI. While one is parked, the Agent Protocol run
+endpoints (`POST /threads/:thread_id/runs/stream` and `/runs/wait`) and
+`/resume` refuse with `409` `client_tool_pending`: a new run there would drop
+the park and leave the model's tool call with no result, which the provider
+rejects on every later turn.
+
+#### Repairing a thread after a deployment change
+
+Closing a parked call needs the route that issued it and the store that
+recorded it. If a deployment removes or renames that route, or removes the
+configured `clientToolStore`, while a call is parked, requests on the thread
+fail closed: `409` `client_tool_close_failed` for the route, `503`
+`client_tool_store_unavailable` for the store. Restore the route or the store
+so the call can be abandoned, or start a new thread.
+
+### The tool-call record
+
+When some route is listed in `server.agui.clientTools`, or
+`server.agui.clientToolStore` is set, every tool call the model makes on an
+AG-UI run is recorded, not only client ones, on every route. A server tool's
+row is identity only: thread, the route that issued it, run, tool name, when it was issued and
+when it returned or threw. No result text is stored; the checkpoint holds the
+tool message. A tool whose permission gate parks the turn is issued but not
+settled until it actually runs. The `task` call that launches a subagent is
+recorded like any other tool, open while the subagent is parked; the
+subagent's own tool calls are recorded against the parent thread, each naming the child route that issued it and the `task` call that launched the subagent (`parentToolCallId`; `null` for a root call).
+
+A default `.b4/client-tool-calls.sqlite` left over after every route dropped
+its opt-in is still opened, so calls parked back then can be closed, but it
+records no server calls; boot logs one warning saying so. Delete the file to
+drop it.
+
+The record is what makes the rule above a guarantee rather than a habit: a
+`role: "tool"` message is used only when it names an open client call this
+server issued on this thread; one naming a server call, an already-closed
+call, or nothing the server knows is history. It also means the server will
+not run a tool call it cannot account for: a row is written before the tool
+body runs, and if that write fails, the tool call fails like any other tool
+error. With a store that is unavailable, every server tool call on every
+AG-UI route fails until it is back. Each server tool call costs two store
+writes on such an app.
+
+Server rows join the same sweep as client ones. When a turn settles, at most
+once an hour per store, the runtime deletes rows of every thread closed longer
+ago than
+[`server.agui.clientToolRetentionMs`](/docs/configuration#serveragui) (7 days
+by default, never less than `clientToolTtlMs`): a server row once it is that
+long past settling, a client row once it is that long past its answer, void
+or expiry. Open rows — an unsettled server call, an outstanding unexpired
+client call — are never deleted. `b4 client-tools prune` runs the same pass on
+demand.
+An app with no store records nothing.
+
+### Limits
+
+These are starting bounds, not measured ones. They cap context budget; a
+definition that breaks one is refused with a `422` before the run starts.
+
+| Bound | Value |
+|---|---|
+| Tools per run | 32 |
+| Tool name | matches `^[a-zA-Z0-9_-]{1,64}$` and does not start with `client_` |
+| Description | at most 1,024 characters |
+| `parameters` | a JSON object schema (`type` omitted or `"object"`), at most 8,192 characters serialized and at most 8 schema levels deep |
+| All definitions together | at most 32,768 characters, counting each tool's name, description and serialized `parameters` |
+| Each tool result | at most 64 KiB (65,536 bytes of UTF-8) |
+| AG-UI request body | at most 8 MiB |
+
+An over-cap result is refused with `413` only when the run is answering —
+its last message is the tool message, for a call that is outstanding and not
+expired. Anywhere else, such as a resend of that history with a new user
+message, the over-cap result is dropped before anything is stored, and the
+call is abandoned like any unanswered one.
+
+The 8 MiB body ceiling applies to every `POST /agui/:routeId` request, opted
+in or not, because every AG-UI client resends the thread's history on each
+run. A very long conversation — one carrying many images inline, for
+instance — can reach it, and is refused with `413` `payload_too_large`.
+
+`$ref`, `oneOf` and `allOf` are accepted and bounded, but the tool converter
+does not enforce them, so the model's arguments are not checked against those
+constraints.
+
+Tool names starting with `client_` are reserved for client tools. An authored
+or capability tool with such a name fails route preparation, and `b4 check`
+reports an authored one before you run.
+
+### Threat model
+
+Client tool definitions are written by the caller, and every byte of them
+becomes prompt content. Treat them as untrusted input to the model.
+
+- **The bounds cap budget and blast radius. They do not prevent prompt
+  injection.** A description such as "always call this tool first" fits in
+  1,024 characters.
+- **The provenance label is not a defence.** The
+  `[Client-provided tool; definition authored by the caller]` prefix makes
+  it legible to the model and to anyone reading a trace where a tool came
+  from. A model can still follow what the description says.
+- **The authority is the server's opt-in.** A route takes client tools only
+  because its operator named it in `b4.config.ts`. Opt in only routes whose
+  callers you would let steer the model.
+- **A client tool cannot impersonate a server tool.** The `client_` prefix
+  keeps the two namespaces apart, and client tools are gated under their own
+  [`clientTool` permission key](/docs/permissions#client-provided-tools), so a
+  client tool named like a server tool never inherits that tool's approval.
+- **Results are untrusted tool output.** The client decides what its tool
+  returns; the model reads it as it reads any tool result.
+
+### Storage
+
+The record of outstanding calls lives in a client tool store. On node, B4.run
+opens a SQLite store at `.b4/client-tool-calls.sqlite` when any route is
+listed in `clientTools`. Edge and serverless deployments have no default:
+set `server.agui.clientToolStore` — `createPostgresClientToolCallStore` from
+`@b4run/postgres-storage`, for example — or every run that sends client tools
+is refused with `503` `client_tool_store_unavailable`. A deployment with more
+than one instance needs a shared store for the same reason.
+
+Records do not accumulate. Once a turn settles, the runtime deletes records
+answered, voided or expired — or, for a server tool call, settled — longer ago than
+[`server.agui.clientToolRetentionMs`](/docs/configuration#serveragui) (7 days
+by default, never less than the TTL), at most once an hour per store.
+`b4 client-tools prune` does the same on demand. An outstanding, unexpired
+record is never deleted. A call that was answered but whose thread never
+resumed is treated the same way once the window has passed: its record is
+gone, so a thread that returns after that closes the call with the abandoned
+result instead of the stored one.
+
+### Error codes
+
+`error.details.code` on the refusal says why:
+
+| Status | `details.code` | When |
+|---|---|---|
+| `422` | `client_tools_not_allowed` | `tools` is non-empty on a route not named in `clientTools` |
+| `422` | `client_tools_not_supported` | the route is not an `agent()` route |
+| `422` | `invalid_client_tool` | a definition is not an object with a string name, or its description or `parameters` has the wrong shape |
+| `422` | `invalid_client_tool_name` | a name breaks the name pattern or starts with `client_` |
+| `422` | `duplicate_client_tool` | two definitions share a name |
+| `422` | `client_tool_too_large` | a description or `parameters` is over its limit |
+| `422` | `client_tool_too_deep` | `parameters` nests more than 8 schema levels |
+| `422` | `client_tool_budget_exceeded` | more than 32 tools, or more than 32,768 characters of definitions |
+| `413` | `client_tool_result_too_large` | a run whose last message is a tool message answers an outstanding, unexpired call with a result over 64 KiB; nothing is recorded |
+| `503` | `client_tool_store_unavailable` | no client tool store is configured |
+| `409` | `client_tool_pending` | a client tool call is parked and this request can neither answer nor abandon it |
+| `409` | `client_tool_close_failed` | the parked calls could not be closed, for example because the route that issued them cannot be resolved |
+| `409` | `resume_required` | a permission prompt must be answered before the parked calls can be abandoned |
+| `500` | `client_tool_close_incomplete` | closing the parked calls did not complete; the new turn did not run |
+
+The `422` refusals carry [`B4_E5401`](/docs/errors).
+
+## Capabilities
+
+`GET /agui/{routeId}` answers with the route's AG-UI [`AgentCapabilities`](https://docs.ag-ui.com). Each claim is computed by the same check that `POST` enforces it with, so what a route advertises and what it honors cannot drift apart:
+
+| Field | Comes from |
+|---|---|
+| `tools.clientProvided` | the route is named in `server.agui.clientTools`, is an `agent()` route, and a client tool store is configured — every check `POST` applies to a non-empty `tools` |
+| `tools.supported`, `tools.parallelCalls` | the route is an `agent()` route; its tool calls run in parallel |
+| `output.structuredOutput` | the route's provider can bind a `hashbrown.responseSchema`, the check behind `response_schema_not_supported` |
+| `humanInTheLoop.interrupts` | the route is an agent route, the only kind that can park |
+| `humanInTheLoop.approvals` | an `agent()` route under an `interactive` permissions mode, on a runtime that can answer the approval: `approvals.grants: "required"` with no grant store refuses every resume, so it reports `false`. It means the route *can* pause for approval; whether a turn does depends on its tools and the grants already recorded |
+| `humanInTheLoop.approveWithEdits` | always `false`: a resume answers `once`, `always` or `deny` |
+| `transport.streaming`, `transport.httpBinary` | always `true`: the handler serves SSE, and protobuf when `accept` asks (see [Transport](#transport)) |
+| `reasoning.supported` | always `false` for now: nothing reasoning-shaped reaches the wire; flips when `REASONING_*` events ship |
+| `state.snapshots`, `state.deltas` | always `false`: no state snapshot or state delta event is emitted |
+| `state.persistentState` | `true` for an `agent()` route, whose graph runs under the boot checkpointer; `false` for a chain, graph or workflow route, invoked once without one |
+
+A chain, graph or workflow route reports `false` for client tools, tool calls, structured output, interrupts, approvals and persistent state. AG-UI treats an omitted field as unknown, so a claim B4.run cannot settle is left out rather than guessed. An agent route that exports a raw runnable omits approvals, parallel calls and `state.persistentState`, because its own code decides them. A runtime that cannot load route modules at all (no node fallbacks and no static manifest) answers only `transport`, `reasoning`, `state.snapshots` and `state.deltas` for an agent route — the claims that hold for every route. A route whose module fails to load is an error, as it is for a run. `multiAgent` and `state.memory` are omitted until AG-UI sub-project 2 settles them; `transport.websocket`, `transport.resumable` and `transport.pushNotifications` are omitted because nothing in the runtime serves them.
+
+Route middleware runs first, as it does for a run, but sees `method: "GET"`, no body and no route params, so middleware that authorizes on the request body refuses it. An unknown route is `404`. The response is `Cache-Control: no-store`, because middleware decides per caller who may see it.
+
+The stock `HttpAgent` does not read this endpoint. `B4HttpAgent` from `@b4run/ag-ui/client` is an `HttpAgent` whose `getCapabilities()` sends `GET` to the URL it runs against, with the same headers. CopilotKit's runtime calls `getCapabilities()` on each registered agent when it answers `/info`:
+
+```ts
+import { B4HttpAgent } from "@b4run/ag-ui/client"
+
+const agent = new B4HttpAgent({ url: `${b4Url}/agui/${encodeURIComponent("/chat#agent")}` })
+await agent.getCapabilities()
+```
+
+`getCapabilities()` throws on any non-2xx answer, including a `404` from a B4.run release that predates the endpoint, and after 10 seconds without an answer, instead of reporting nothing declared. CopilotKit catches the error and reports the agent without capabilities. `@ag-ui/client` is an optional peer dependency of `@b4run/ag-ui`; install it alongside if you import this subpath.
 
 ## Consuming it from a web UI
 
-`examples/chat/web` is the canonical reference client. Its CopilotKit runtime
-registers an `HttpAgent` pointed at B4.run's encoded route URL. The browser talks
-to the Next.js runtime route, while only the B4.run server holds model credentials.
+`examples/chat/web` is the reference client. Its CopilotKit runtime registers a `B4HttpAgent` pointed at B4.run's encoded route URL. The browser talks to the Next.js runtime route, and only the B4.run server holds model credentials:
 
 ```text
 browser
   -> CopilotKit runtime
-    -> HttpAgent -> POST /agui/%2Fchat%23agent
+    -> B4HttpAgent -> POST /agui/%2Fchat%23agent
       -> B4.run route runtime
         -> AG-UI event stream
 ```
 
-CopilotKit's sidebar uses the literal agent id `default` when none is supplied,
-so the example registers the B4.run route under that key. See
-`examples/chat/web/README.md` for the complete setup and smoke checklist.
+CopilotKit's sidebar uses the literal agent id `default` when none is supplied, so the example registers the B4.run route under that key. See `examples/chat/web/README.md` for the complete setup and smoke checklist.
 
-That client renders plan and researcher cards by passing the adapter's own
-renderer array to CopilotKit:
+The client renders the plan card by passing the adapter's renderer array to CopilotKit, and the subagent tree by mounting `SubagentPanel` on the agent's event stream:
 
 ```tsx
 import "@b4run/ag-ui/react/styles.css"
@@ -57,22 +425,22 @@ import { b4ActivityRenderers } from "@b4run/ag-ui/react"
 >
 ```
 
-The stylesheet import gives the cards B4.run's default appearance in light and
-dark; without it, the cards still render but with structured, unstyled
-markup. Override its `--b4-activity-*` CSS custom properties to restyle, or
-pass `classNames`/`components` to the card components for deeper
-customization — see the [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards)
-for the full ladder.
+```tsx
+import { SubagentPanel, useSubagentRuns } from "@b4run/ag-ui/react"
+import { useAgent } from "@copilotkit/react-core/v2"
 
-React and `@copilotkit/react-core` are optional peer dependencies, so a
-server-only consumer of the root or `/sse` entry installs nothing extra. The
-subpath also exports the two renderers individually, the card components, and
-the content schemas, for a client presenting the activities its own way. For the
-full application wiring — a thread rail, suggestions, generic tool cards, and
-permissions — see the
-[research web UI recipe](/docs/recipes/research-web-ui) and its
-[`examples/research/web`](https://github.com/cacheplane/b4run/tree/main/examples/research/web)
-implementation.
+function Subagents() {
+  const { agent } = useAgent()
+  const { runs } = useSubagentRuns(agent)
+  return <SubagentPanel runs={runs} />
+}
+```
+
+`useSubagentRuns` subscribes to the agent and folds `SUBAGENT_STARTED/FINISHED/ERROR` plus every event tagged `subagentRunId` into a tree of invocations — each with its name, status, tool calls, plan, reasoning, prose and result — which `SubagentPanel` renders nested, with the same stylesheet and customization ladder as the plan card. The stylesheet import gives both B4.run's default look in light and dark mode. Without it, they still render as structured, unstyled markup. To restyle them, override the `--b4-activity-*` CSS custom properties. For deeper changes, pass `classNames`/`components`. The [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) walks through every option.
+
+React and `@copilotkit/react-core` `>=1.76.0` are optional peer dependencies, so a server-only consumer of the root or `/sse` entry installs nothing extra. 1.76.0 is the first `@copilotkit/react-core` whose bundled AG-UI client speaks 1.0, the protocol B4.run serves; earlier releases resolve a pre-1.0 `@ag-ui/*` (0.0.59 on 1.70–1.75), and npm 7+ rejects the unmet peer with `ERESOLVE` where pnpm only warns. The `/react` subpath also exports the plan renderer, card and schema individually, and `reduceSubagentRuns` — the pure reducer behind the hook — for a client that presents the activities or the subagent tree its own way.
+
+For the full application wiring (a thread rail, suggestions, generic tool cards, and permissions), see the [research web UI recipe](/docs/recipes/research-web-ui) and its [`examples/research/web`](https://github.com/cacheplane/b4run/tree/main/examples/research/web) implementation.
 
 ## Adapter API
 
@@ -88,20 +456,18 @@ for await (const event of toAguiEvents(b4Chunks, { threadId, runId })) {
 }
 ```
 
-Transport helpers are isolated behind subpaths. An SSE server can encode an
-event without expanding the root API:
+Transport helpers live behind subpaths. For example, an HTTP server can encode an event like this:
 
 ```ts
-import { encodeAgUiSse } from "@b4run/ag-ui/sse"
+import { agUiContentType, encodeAgUiEvent } from "@b4run/ag-ui/sse"
 
-response.write(encodeAgUiSse(event, request.headers.accept))
+response.writeHead(200, { "content-type": agUiContentType(request.headers.accept) })
+response.write(encodeAgUiEvent(event, request.headers.accept))
 ```
 
 ### Outbound events
 
-`toAguiEvents(chunks, context)` is a stateful async generator. It frames B4.run's
-implicit assistant text and preserves upstream tool-call ids for result
-correlation.
+`toAguiEvents(chunks, context)` is a stateful async generator. It frames B4.run's implicit assistant text and keeps upstream tool-call ids so results can be correlated:
 
 | B4.run chunk | AG-UI event(s) |
 |---|---|
@@ -109,152 +475,137 @@ correlation.
 | `token` | `TEXT_MESSAGE_START` once, then `TEXT_MESSAGE_CONTENT` per delta |
 | `tool_call` | close open text, then `TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END` |
 | `tool_result` | close open text, then `TOOL_CALL_RESULT` |
-| `tool_call` and `tool_result` for a `writeTodos` or `task` call whose activity was emitted | no `TOOL_CALL_*` events; the activity is the whole presentation |
-| root `plan_update` | replacement `ACTIVITY_SNAPSHOT` with activity type `b4.plan` |
-| `subagent.start` and matching child plan/tool/result/end chunks | replacement `ACTIVITY_SNAPSHOT` with activity type `b4.subagent` |
-| `interrupt` | terminal `RUN_FINISHED` with `outcome.type: "interrupt"` |
-| `done` | terminal `RUN_FINISHED` with `outcome.type: "success"` |
+| `tool_result` for a tool that threw | `TOOL_CALL_RESULT` under the same `toolCallId`, with `content` set to the serialized `status: "error"` ToolMessage the model receives (serialized the same way as a successful result) |
+| `tool_call` and `tool_result` for a `writeTodos` call whose plan activity was emitted | none (the activity is the whole presentation) |
+| `plan_update` | replacement `ACTIVITY_SNAPSHOT` with activity type `b4.plan` — `b4:plan:${runId}` for the root agent, `b4:plan:${call_id}` tagged `subagentRunId` for a subagent's plan |
+| `subagent.start` | `SUBAGENT_STARTED { subagentRunId: call_id, name, description?, parentToolCallId: call_id, parentSubagentRunId? }` |
+| the child's `token`/`reasoning`/`message_end`/`tool_call`/`tool_call_args`/`tool_result`/`plan_update` chunks | the same events the root chunk produces, each tagged `subagentRunId: call_id` |
+| `subagent.end` with `final_message` / with `error` | `SUBAGENT_FINISHED { result, outcome: success }` / `SUBAGENT_ERROR { message }` |
+| a subagent still open at an interrupt, a cancel, or a stream that ended | `SUBAGENT_FINISHED { outcome: suspended, interruptIds? }` / `SUBAGENT_ERROR { code: "cancelled" }` / `SUBAGENT_ERROR { code: "unterminated" }`, before the terminal event |
+| `reasoning` (per model invocation, alongside its `token`s) | `REASONING_START` and `REASONING_MESSAGE_START { role: "reasoning" }` once, then `REASONING_MESSAGE_CONTENT` per delta; both closed at the invocation's `message_end` or the next tool or terminal boundary |
+| `usage` (one per model call, root or subagent) | none on its own; aggregated into `usage` on the terminal event |
+| `interrupt` | terminal `RUN_FINISHED` with `outcome.type: "interrupt"`; each interrupt's approval grant is at `metadata.grant` |
+| `done` | terminal `RUN_FINISHED` with `outcome.type: "success"`; when this run left client-provided tool calls parked, `outcome.pendingToolCallIds` names them; a null route result is omitted, never `null` |
+| `POST /threads/:id/cancel` or a server shutdown during the run | terminal `RUN_FINISHED` with `outcome.type: "cancelled"` |
 | upstream error | terminal `RUN_ERROR` |
+
+### Token usage
+
+Every terminal event — `RUN_FINISHED` with a `success`, `interrupt` or `cancelled` outcome, and `RUN_ERROR` — carries `usage: TokenUsage[]` when at least one model call in the run reported token counts, and omits the key otherwise (never `[]`). There is one entry per provider and model, so a coordinator on `gpt-5-mini` with a subagent on `gpt-5-nano` reports two entries; sum them for a run total. Counts follow the protocol's accounting: `inputTokens` and `outputTokens` are inclusive totals, and `cachedInputTokens`, `cacheWriteInputTokens` and `reasoningTokens` are parts of them. A count the provider did not return is absent, not zero. A cancelled or failed run reports what it accrued before the stop; a resumed run reports only its own calls.
+
+The same `usage` chunk reaches the Agent Protocol stream as `event: usage` with the provider's raw LangChain `usage_metadata`; it has no typed API there.
+
+### Reasoning
+
+When a route's [`reasoning`](/docs/reasoning-effort) asks the provider to show its thinking (OpenAI `summary`, Anthropic `budgetTokens`), each model invocation's reasoning is framed as one span and one `role: "reasoning"` message with their own ids, distinct from the invocation's assistant text. Reasoning and text of one invocation may interleave; both close when the invocation ends, and anything still open at a tool call, an interrupt, cancellation or an error is closed before the terminal event, as 1.0 requires. Redacted or encrypted reasoning is dropped, never carried, so `reasoning.encrypted` is `false`.
+
+`GET /agui/{routeId}` advertises `reasoning` from the same config the model is built with: `{ supported: true, streaming: true, encrypted: false }` when the route streams reasoning, and `{ supported: false }` otherwise. A route with only `effort` set reasons but streams nothing, and advertises `{ supported: false }`.
 
 ### Activity snapshots
 
-Activities use standard AG-UI framing and complete replacement snapshots. A
-root plan has stable message id `b4:plan:${runId}`, activity type `b4.plan`,
-and content containing only the complete todo list. Todo status is exactly
-`pending`, `in_progress`, or `completed`. B4.run emits no seeded-plan activity at
-run start; the first snapshot follows a valid root `plan_update`.
+Activities use standard AG-UI framing and complete replacement snapshots. The one activity B4.run emits is the plan: activity type `b4.plan`, content holding only the complete todo list, and a stable message id per owner — `b4:plan:${runId}` for the root agent and `b4:plan:${call_id}` for a subagent's own plan, which also carries that subagent's `subagentRunId`. Todo status is one of `pending`, `in_progress`, or `completed`. B4.run emits no seeded-plan activity at run start; the first snapshot follows a valid `plan_update`. Every event has `replace: true`, so later snapshots replace the same stable activity message. B4.run emits no activity deltas.
 
-Each subagent has stable message id `b4:subagent:${call_id}`, activity type
-`b4.subagent`, and complete content with its name, positive integer depth,
-`running`/`completed`/`failed` status, an optional current todo list, up to five
-recent child-tool name/status summaries, and the total observed tool count.
-Tool-summary status is exactly `running`, `completed`, or `incomplete`. A failed
-activity can also contain a human-readable error capped at 400 characters.
-Because every event has `replace: true`, later snapshots replace the same
-stable activity message.
+Unknown capability chunks close any open text message and are then ignored. Activities are informational. Only the standard interrupt UI resolves or cancels permission requests.
 
-The adapter validates the full internal identity
-`{ call_id, subagent, route_id, depth }` on every recognized child event. Only
-an exact match with the original `subagent.start` can update its activity;
-`call_id` is used only to form the stable standard message id, while `route_id`
-and child tool ids remain internal. None is duplicated in public content.
-`subagent.message` is consumed without emission.
+### Subagents
 
-This boundary excludes child reasoning and prose, prompts, tool inputs, tool
-outputs, final child answers, route ids, and raw runtime ids. It is an explicit
-allowlist rather than a generic capability mapping: unknown capability chunks
-retain the existing behavior of closing any open text message and then being
-ignored. B4.run emits neither activity deltas nor a raw advanced child stream.
-Activities are informational; standard interrupt UI remains the only place to
-resolve or cancel permission requests. No queued, waiting, cancelled, or
-parent-task correlation state is inferred.
+A subagent is presented the way AG-UI 1.0 defines it, not as an activity. When the `task` tool starts a child, the adapter emits `SUBAGENT_STARTED` with `subagentRunId` set to the `task` call's own tool-call id (`parentToolCallId` names that call; a nested child also carries `parentSubagentRunId`), the child's declared `name` and `description`. Everything the child then does — its assistant text, reasoning, tool calls and results, its plan snapshot — goes on the wire as the ordinary AG-UI events for those things, each tagged with that `subagentRunId`, so a client can show the child's full transcript or fold it away. The child's `final_message` ends it as `SUBAGENT_FINISHED { result, outcome: { type: "success" } }`; a thrown child ends it as `SUBAGENT_ERROR { message }`. The `task` call itself is an ordinary tool call with its own frames and result.
+
+Every announced invocation closes before the run ends, as 1.0 requires. A permission interrupt raised inside a child suspends it: `SUBAGENT_FINISHED { outcome: { type: "suspended", interruptIds } }` names the interrupts it raised, the interrupt itself carries the child's `subagentRunId`, and a parent suspended only because its child did carries no `interruptIds`. The resumed run announces the same `subagentRunId` again — the id is the tool-call id, which a resume replays unchanged. A cancel closes an open child with `SUBAGENT_ERROR { code: "cancelled" }`; a stream that ends without the child's `end` closes it with `code: "unterminated"`. `RUN_ERROR` abandons open children, as the protocol says it does. A chunk for a child that was never announced in this run is dropped.
+
+Root events never carry `subagentRunId`, and `RUN_STARTED`, `RUN_FINISHED` and `RUN_ERROR` never do. `GET /agui/{routeId}` advertises `multiAgent: { supported: true, delegation: true, handoffs: false, subagents: [{ name, description }] }` from the same subagent registry the `task` tool dispatches from, and omits the section for a route with no subagents.
 
 ### Canonical orchestration presentation
 
-B4.run's two built-in orchestration actions are presented once. When a
-`writeTodos` call produced the `b4.plan` activity, or a `task` call produced
-the `b4.subagent` activity because delegation actually started, the adapter
-emits no `TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END`, or
-`TOOL_CALL_RESULT` for that call. The chunk behind the activity carries the same
-tool-call id as the model's call (`plan_update.tool_call_id`, and the subagent's
-`call_id`); that correlation is internal and decides the suppression. It is not
-republished in activity content, which still excludes raw runtime ids. Only
-`b4.subagent` exposes the id at all, inside its stable `messageId`.
+B4.run presents its built-in planning action once. When a `writeTodos` call produced the `b4.plan` activity, the adapter emits no `TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END`, or `TOOL_CALL_RESULT` for that call. The chunk behind the activity carries the same tool-call id as the model's call (`plan_update.tool_call_id`); that internal correlation decides the suppression, and it stays out of activity content. A subagent's own `writeTodos` is never suppressed: its plan snapshot and its tool frames both flow, tagged with the child's id.
 
-Every other tool is unchanged. `recall`, `searchCorpus`, `readDoc`, `writeFile`,
-`runBash`, and any application tool still produce ordinary tool events.
+Every other tool is unchanged. `task`, `recall`, `searchCorpus`, `readDoc`, `writeFile`, `runBash`, and any application tool produce ordinary tool events.
 
-The rule fails open: whenever suppression cannot be proven, the generic frames
-are preserved and a client sees the ordinary tool card exactly as before. That
-includes a call with no tool-call id, a colliding tool-call id, a malformed
-activity payload, a resolver failure that means `subagent.start` never arrives,
-a result that arrives with no correlation, buffer limits, and a stream that ends
-early.
+The rule fails open. When the adapter can't prove the suppression is safe, the client sees the ordinary tool card. That covers a call with no tool-call id or a colliding one, a malformed plan payload, a result that arrives with no correlation, buffer limits, and a stream that ends early.
 
-At a permission interrupt belonging to the held call, the held frames are
-dropped rather than flushed, because the resumed run re-presents the same call
-under the same tool-call id and the client converges the two into one card.
-Unrelated held calls still flush before the interrupt.
+At a permission interrupt that belongs to the held call, the adapter drops the held frames rather than flushing them. The resumed run presents the same call again under the same tool-call id, and the client merges the two into one card. Unrelated held calls still flush before the interrupt.
 
-<Callout type="warn" title="Activities are the only surface for these two tools">
-  A client that registers no activity renderer sees less for `writeTodos` and
-  `task` than a generic tool renderer used to show. That is the contract:
-  activities are canonical for built-in orchestration, so render them. For a
-  React client, that is one line — pass `b4ActivityRenderers` from
-  `@b4run/ag-ui/react` to CopilotKit's `renderActivityMessages`.
+<Callout type="warn" title="Activities are the only surface for writeTodos">
+  A client with no activity renderer shows less for `writeTodos` than a generic
+  tool renderer used to. In React, pass `b4ActivityRenderers` to CopilotKit's
+  `renderActivityMessages`, as shown above. Subagents need no renderer
+  registration: mount `SubagentPanel` on the agent's event stream.
 </Callout>
 
 ### Inbound input
 
-`fromRunAgentInput(input)` translates every AG-UI message and preserves the
-original request as `raw`, where consumers can inspect tools, state, and context.
-The CLI endpoint forwards only the newest user message because B4.run owns the
-checkpointed conversation for the thread.
+`fromRunAgentInput(input)` translates every AG-UI message and keeps the original request as `raw`, where you can inspect tools, state, and context. The CLI endpoint forwards only the newest user message, because B4.run already keeps the checkpointed history for the thread.
 
-The standard top-level `RunAgentInput.resume` array is preserved as
-vocabulary-neutral B4.run resume requests:
+The standard top-level `RunAgentInput.resume` array becomes a list of B4.run resume requests:
 
 ```ts
 resume?: Array<{
   interruptId: string
   status: "resolved" | "cancelled"
   payload?: unknown
+  metadata?: { grant?: string }
 }>
 ```
 
-For a permission prompt, a resolved payload can carry a B4.run decision such as
-`"once"` or `"always"`; cancelling the interrupt maps to denial at the runtime
-boundary. Every answer must address one currently pending interrupt.
+Under [approval grants](/docs/approval-grants), echo the interrupt's grant back at `metadata.grant` on its resume entry. A 1.0 client strips any `grant` outside `metadata`.
+
+For a permission prompt, a resolved payload can carry a B4.run decision such as `"once"` or `"always"`. The runtime treats a cancelled interrupt as a denial. Every answer must address one currently pending interrupt.
+
+## Response schema
+
+Some AG-UI clients render the assistant's reply as UI. [Hashbrown](https://hashbrown.dev) is one. Its client sends `hashbrown: { ui: true, responseSchema }` on every run, where `responseSchema` is the JSON Schema the final assistant message must match.
+
+The runtime either applies that schema or rejects the run. It never ignores it, because to the client an ignored schema looks like an honored one until a reply fails to parse.
+
+**Applied.** On an `agent` route whose provider can constrain its final message to a schema while still calling tools, the schema is bound on the root model as that provider's native structured output:
+
+| Provider | How the schema is applied |
+| --- | --- |
+| `openai` | `response_format: { type: "json_schema", json_schema: { name: "hashbrown_response", schema, strict: true } }` on every root-model call, on both the Chat Completions and Responses paths. |
+| `anthropic` | `output_config.format = { type: "json_schema", schema }` on every root-model call. |
+
+Tool-calling turns are unaffected. A turn that calls tools still returns tool calls, and only the answering turn is constrained. The schema is bound on the **root** model only. Subagents, summarization, and memory extraction never see it. Because the binding is per request, a run that carries a schema always compiles a fresh agent graph and skips the process cache.
+
+Strict OpenAI structured outputs need a schema OpenAI accepts in strict mode: every object has `additionalProperties: false` and lists all of its properties in `required`. Hashbrown's schema builder emits that shape. OpenAI rejects a hand-written schema that breaks these rules, and you'll see it as a `RUN_ERROR`.
+
+**Rejected.** Anywhere else, the run is refused with `422` and error code `B4_E5402`. This happens before middleware context is built into a run, before the thread is created, and before a run slot is claimed. `error.details.code` says why:
+
+| `details.code` | Meaning |
+| --- | --- |
+| `invalid_response_schema` | `hashbrown` is present but not a JSON object, or `hashbrown.responseSchema` is present but not a JSON Schema object. Judged from the body alone, before middleware runs. |
+| `response_schema_not_supported` | The route is not an `agent` route, or its provider (`google`, `mistral`, `groq`, `ollama`, `xai`, `openrouter`) has no schema-constrained output mode that coexists with tool calls. Judged after middleware has admitted the caller. |
+
+A run without `hashbrown`, or with `hashbrown: { ui: true }` and no schema, is unchanged.
 
 ## Threading
 
-AG-UI's `threadId` is the B4.run thread id; there is no separate mapping table.
-AG-UI and Agent Protocol requests execute the same route code and use the same
-thread store and checkpointer. A caller can inspect state through Agent Protocol
-while a UI drives later turns through AG-UI.
+AG-UI's `threadId` is the B4.run thread id, with no mapping table in between. AG-UI and Agent Protocol requests run the same route code and use the same thread store and checkpointer, so a caller can inspect state through Agent Protocol while a UI drives later turns through AG-UI.
 
-A turn that parks on a permission prompt leaves the thread `interrupted` rather
-than `idle`, on both surfaces. The park is written to the checkpointer, so it
-outlives the response that carried it: a client reading `GET /threads/:thread_id`
-after a reload sees that a human is still being waited on instead of being told
-the agent finished.
+A permission prompt is answered on the route that parked it. An AG-UI `resume` sent to `/agui/<another route>` for the same thread is refused with `409` `resume_route_mismatch` before anything is consumed, so a caller admitted to one route cannot answer, and run under that route's graph, a prompt another route parked. The response does not name the parking route.
 
-They also share the same process-local one-active-run-per-thread gate. An
-ordinary run-slot collision—an AG-UI turn or Agent Protocol run that reaches an
-occupied slot—returns `409` with `error.details.code` set to `run_in_flight`.
-A second concurrent resume is stopped by the shared resume claim before it
-reaches the run registry and returns `resume_in_progress`. Shared durable stores
-do not distribute that coordination across replicas.
+A turn that parks on a permission prompt leaves the thread `interrupted` (not `idle`) on both surfaces. The park is written to the checkpointer, so it outlives the response that carried it. After a reload, a client reading `GET /threads/:thread_id` sees that the agent is still waiting on a person.
+
+Both surfaces also share the same process-local one-active-run-per-thread gate. An ordinary run-slot collision (an AG-UI turn or Agent Protocol run that reaches an occupied slot) returns `409` with `error.details.code` set to `run_in_flight`. A second concurrent resume is stopped by the shared resume claim before it reaches the run registry, and returns `resume_in_progress`. The gate lives in one process. Shared durable stores won't extend it across replicas.
 
 ## Middleware and service authentication
 
-B4.run execution middleware gates AG-UI route execution just as it gates Agent
-Protocol execution. It can reject the request or pass context into authored
-tools. It is not service-wide authentication: thread management, state,
-cancellation, memory-candidate management, and health routes bypass it. See
-[Middleware](/docs/middleware) for the request contract and
-[Security Architecture](/docs/security-architecture) before exposing the
-runtime outside a trusted local environment.
+B4.run execution middleware gates AG-UI route execution the same way it gates Agent Protocol execution. It can reject the request or pass context into authored tools. It only covers route execution. Thread management, state, cancellation, memory-candidate management, and health routes bypass it. See [Middleware](/docs/middleware) for the request contract, and read [Security Architecture](/docs/security-architecture) before you expose the runtime outside a trusted local environment.
 
 ## Disconnect and reconnect
 
 <Callout type="warn" title="No reconnect or replay support">
-  Each POST owns one SSE response. B4.run does not buffer emitted AG-UI events or
-  support last-event-id replay. If the connection drops, B4.run aborts that
-  ephemeral AG-UI run; the client cannot reattach to its event stream. A later
-  request against the same thread starts a new run from the latest completed
+  Each POST gets one SSE response. B4.run doesn't buffer emitted AG-UI events
+  or support last-event-id replay. If the connection drops, B4.run aborts that
+  AG-UI run, and the client cannot reattach to its event stream. A later
+  request on the same thread starts a new run from the latest completed
   checkpoint.
 </Callout>
 
-Aborting the run does not discard a park it already reached. A permission prompt
-raised before the disconnect is durable, so the thread stays `interrupted` and
-the next request can resume it.
+Aborting the run keeps any park it already reached. A permission prompt raised before the disconnect is durable, so the thread stays `interrupted` and the next request can resume it.
 
-The two surfaces differ here. Agent Protocol viewer disconnects continue the run;
-AG-UI viewer disconnects abort the run. For Agent Protocol, closing a
-`runs/stream`, `runs/wait`, or `resume` connection only detaches the viewer, so
-stop the run explicitly with `POST /threads/:thread_id/cancel`. Server shutdown
-also aborts in-flight work.
+The two surfaces differ here. Agent Protocol viewer disconnects continue the run. AG-UI viewer disconnects abort the run. For Agent Protocol, closing a `runs/stream`, `runs/wait`, or `resume` connection only detaches the viewer, so stop the run explicitly with `POST /threads/:thread_id/cancel`. Server shutdown also aborts in-flight work.
+
+A client disconnect emits nothing further, since no one is left to receive it. A run stopped by `POST /threads/:thread_id/cancel` or by a server shutdown ends on the AG-UI stream with `RUN_FINISHED` and `outcome.type: "cancelled"`, not `RUN_ERROR`. Agent Protocol attach viewers of an AG-UI-started run see `{ cancelled: true }` for a cancel and an error for a shutdown or a disconnect.
 
 ## Related
 

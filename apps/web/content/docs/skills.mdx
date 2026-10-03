@@ -1,10 +1,9 @@
 # Skills
 
-Skills let a route expose longer instructions without putting all of them in the system prompt.
+Skills let a route offer long instructions without putting them all in the system prompt.
+The model sees a short list of skills and calls `readSkill({ name })` when it needs one, so the prompt stays small.
 
-The model sees a short list of available skills and can call `readSkill({ name })` when one is relevant. That keeps the baseline prompt smaller while still making detailed procedures available on demand.
-
-Use skills for route-local instructions that are too long or too conditional for the main `systemPrompt`: refund rules, triage procedures, coding standards for a particular workflow, or escalation playbooks.
+Use skills for instructions that are too long for `systemPrompt` or only apply sometimes, such as refund rules, triage steps or escalation playbooks.
 
 ## Quick start
 
@@ -18,7 +17,7 @@ src/app/support/[tenant]/
       SKILL.md
 ```
 
-Every skill file must include frontmatter with a `description`:
+Every skill file needs frontmatter with a `description`:
 
 ```md title="src/app/support/[tenant]/skills/refund-policy/SKILL.md"
 ---
@@ -37,21 +36,17 @@ Use this skill when the customer asks about refunds, exchanges, credits, or exce
 When this route runs, B4.run adds:
 
 - a `# Skills` prompt section listing `refund-policy` and its description
-- a `readSkill({ name })` tool that returns the body of `SKILL.md`
-
-The body is not injected until the model asks for it.
+- a `readSkill({ name })` tool that returns the body of `SKILL.md` when the model asks for it
 
 ## Skill names
 
-By default, the skill name is the directory name.
+By default, the skill name is the directory name. For example, this file creates a skill named `refund-policy`:
 
 ```text
 skills/refund-policy/SKILL.md
 ```
 
-creates a skill named `refund-policy`.
-
-You can override the model-facing name with frontmatter:
+To give the model a different name, set `name` in the frontmatter:
 
 ```md
 ---
@@ -60,13 +55,13 @@ description: Instructions for refund, exchange, and exception questions.
 ---
 ```
 
-Skill names must be unique within the route. If two skills resolve to the same name, route preparation fails with a duplicate-name error.
+Each skill name must be unique within the route. If two skills end up with the same name, the route fails to load with a duplicate-name error.
 
-Directory names must start with a letter or number and can contain letters, numbers, underscores, and hyphens. Dotfiles, spaces, and punctuation-heavy names are ignored during discovery.
+A directory name starts with a letter or number and can contain letters, numbers, underscores, and hyphens. B4.run skips directories whose names start with a dot or contain spaces or other punctuation.
 
 ## What the model sees
 
-B4.run renders a compact prompt fragment:
+B4.run adds a short section to the prompt:
 
 ```text
 # Skills
@@ -77,23 +72,23 @@ to load its full instructions before acting.
 - **refund-policy** - Instructions for refund, exchange, and exception questions.
 ```
 
-Skill entries are sorted by name in the prompt.
+Skills are listed by name, in alphabetical order.
 
-The `readSkill` tool accepts:
+The `readSkill` tool takes:
 
 ```ts
 { name: string }
 ```
 
-For a known skill, it returns the markdown body after frontmatter. For an unknown skill, it returns a helpful string listing the available names. If the input shape is invalid, the tool schema validation rejects it.
+For a known skill, it returns the markdown body after the frontmatter. For an unknown name, it returns a string listing the available names. Input of the wrong shape fails schema validation.
 
-The full skill bodies are read during route preparation, not from disk on every `readSkill` call.
+B4.run reads the skill files once, when it prepares the route. `readSkill` serves them from memory.
 
 ## Frontmatter requirements
 
-`description` is required because it is the only information the model sees before choosing whether to load the skill.
+`description` is required, because it's all the model sees when it decides whether to load the skill.
 
-This is valid:
+Here is a valid skill:
 
 ```md
 ---
@@ -103,7 +98,7 @@ description: Use for billing dispute triage.
 ...
 ```
 
-This fails route preparation:
+This one fails to load:
 
 ```md
 Use for billing dispute triage.
@@ -119,13 +114,13 @@ name: billing-disputes
 ...
 ```
 
-The description should be short and action-oriented. It is not the full skill.
+Keep the description short, and say when to use the skill.
 
-B4.run's frontmatter parser is intentionally small. Use simple `key: value` fields; do not rely on full YAML features.
+B4.run's frontmatter parser is small on purpose. Stick to simple `key: value` fields rather than full YAML.
 
 ## Generated types
 
-`b4 typegen` includes `readSkill` in generated route tool types when a route has at least one valid `skills/<name>/SKILL.md` file.
+When a route has at least one valid `skills/<name>/SKILL.md` file, `b4 typegen` adds `readSkill` to that route's generated tool types.
 
 The generated input type is:
 
@@ -143,11 +138,9 @@ string
 
 Skills are implemented by `createSkillsMarker()`.
 
-During agent route preparation, B4.run discovers skill directories, reads frontmatter and body content, contributes the `readSkill` tool, and contributes the prompt fragment.
+When B4.run prepares an agent route, it reads each skill's frontmatter and body, then adds the `readSkill` tool and the prompt section.
 
-Skills do not add state fields or stream transformers. They are prompt plus tool only.
-
-The list of skills is loaded during route preparation. The full skill body is held by the tool and returned when `readSkill` runs.
+Skills add no state fields or stream transformers.
 
 ## Related
 

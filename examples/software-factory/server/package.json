@@ -1,21 +1,26 @@
 {
   "name": "@b4-example/software-factory-server",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.0.9",
   "type": "module",
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc -p . --noEmit",
     "lint": "biome check .",
-    "factory": "tsx src/cli.ts"
+    "check": "node scripts/in-lane.mjs b4 check",
+    "build": "node scripts/in-lane.mjs b4 build",
+    "dev": "b4 dev"
   },
   "dependencies": {
+    "@b4run/cli": "workspace:*",
+    "@b4run/sandbox": "workspace:*",
+    "@b4run/sdk": "workspace:*",
+    "@b4run/workspace": "workspace:*",
     "zod": "4.4.3"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.6",
     "@types/node": "26.1.2",
-    "tsx": "4.23.10",
     "typescript": "7.0.2",
     "vitest": "4.1.11"
   }

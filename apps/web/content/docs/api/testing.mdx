@@ -2,12 +2,12 @@
 
 ## Use this when
 
-Start here for programmatic tests of B4.run agents, tools, middleware, workspaces, stores, and Agent Protocol behavior. Use [`@b4run/sdk/testing`](/docs/api/sdk#b4runsdktesting) instead when authoring route-scoped scenario files for `b4 test`.
+Start here for programmatic tests of B4.run agents, tools, middleware, workspaces, stores, and Agent Protocol behavior. Use [`@b4run/sdk/testing`](/docs/api/sdk#b4runsdktesting) instead for route-scoped scenario files run by `b4 test`.
 
 ## Install and import
 
 ```bash
-pnpm add -D @b4run/testing vitest
+npm install -D @b4run/testing vitest
 ```
 
 ```ts
@@ -42,6 +42,8 @@ import { createAgentHarness, expectFinalMessage, script } from "@b4run/testing"
 | `writeFixtures` | Write fixtures to disk. |
 | `AgentHarness` | Drive an agent route in-process. |
 | `AgentHarnessOptions` | Configure an agent harness. |
+| `AgentHarnessMiddlewareContext` | Supply the middleware context as a value or per-turn factory. |
+| `AgentHarnessRunInfo` | Describe the turn a middleware context factory is evaluated for. |
 | `createAgentHarness` | Create an agent harness. |
 | `ThreadAccessCheckSpec` | Describe one thread-access case to exercise. |
 | `ThreadAccessHarness` | Drive a thread access policy in-process. |
@@ -97,9 +99,11 @@ export interface AgentHarnessOptions {
   readonly appRoot: string
   readonly route: string
   readonly fixtures?: FixtureSet
+  readonly middlewareContext?: AgentHarnessMiddlewareContext
   readonly live?: boolean
   readonly record?: boolean
   readonly recordUpstream?: string
+  readonly responseSchema?: Readonly<Record<string, unknown>>
 }
 ```
 
@@ -109,9 +113,11 @@ export interface AgentHarnessOptions {
 | `readonly appRoot` | `string` | yes | Select the B4.run application. |
 | `readonly route` | `string` | yes | Select the route key. |
 | `readonly fixtures` | `FixtureSet` | no | Seed mock responses. |
+| `readonly middlewareContext` | `AgentHarnessMiddlewareContext` | no | Supply the context `middleware.ts` would have produced. |
 | `readonly live` | `boolean` | no | Proxy to a live OpenAI endpoint. |
 | `readonly record` | `boolean` | no | Capture upstream traffic for replay. |
 | `readonly recordUpstream` | `string` | no | Override the record-mode upstream. |
+| `readonly responseSchema` | `Readonly<Record<string, unknown>>` | no | Constrain the root model's final message as a Hashbrown client's `hashbrown.responseSchema` does. |
 
 ```ts api-contract="@b4run/testing#.:AgentHarness"
 export interface AgentHarness {
@@ -209,9 +215,9 @@ AgentHarness reset starts a fresh scenario and clears prior fixtures; close is i
 
 ### Harness and fixture lifecycle
 
-Fixtures accumulate until `reset()`, and the first match wins. `reset()` starts a new harness thread and replaces fixtures; it does not erase every application store. Live and record are separate modes. `getRecordedFixtures()` returns only the latest run. The standalone `record()` helper spawns the aimock CLI and is not harness record mode.
+Fixtures accumulate until `reset()`, and the first match wins. `reset()` starts a new harness thread and replaces fixtures, but it does not erase every application store. Live and record are separate modes. `getRecordedFixtures()` returns only the latest run. The standalone `record()` helper spawns the aimock CLI and is not harness record mode.
 
-All four `run*Conformance` helpers register Vitest suites. Call them inside a test module with a fresh `makeStore`; they do not start Docker or Postgres. `createWorkspaceHarness()` is permissive by default and is not an execution sandbox. `fakeEmbedder()` is test data, not a production semantic model.
+All four `run*Conformance` helpers register Vitest suites. Call them inside a test module with a fresh `makeStore`, and start Docker or Postgres yourself. `createWorkspaceHarness()` is permissive by default and is not an execution sandbox. `fakeEmbedder()` is test data, not a production semantic model.
 
 ## Examples and related guides
 

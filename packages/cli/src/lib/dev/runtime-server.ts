@@ -95,17 +95,14 @@ export interface StartRuntimeServerOptions {
    * file for this app. Set by the generated entry point, which is a different
    * artifact from the manifest it imports — that separation is the whole point.
    *
-   * With it set, a `modules` manifest that carries no `threadAccess` KEY fails
-   * the boot: the two artifacts cannot have come from the same build, and the
-   * runtime this matters on (a bundled one) has no filesystem probe to fall
-   * back to, so it would otherwise come up with every thread endpoint open and
-   * log that the app has no policy. That is a real deployment shape — a
-   * manifest generated before the app grew a policy, shipped beside a newer
-   * entry point.
-   *
-   * The check is `"threadAccess" in modules`, not a truthiness test: a key
-   * present and bound to undefined is a build that considered the policy and
-   * bound nothing, which is a different fact from a key that was never emitted.
+   * With it set, a `modules` manifest that does not carry a DEFINED
+   * `threadAccess` policy fails the boot. A missing key means the two artifacts
+   * cannot have come from the same build — a manifest generated before the app
+   * grew a policy, shipped beside a newer entry point. A key bound to undefined
+   * is no policy either (no generated manifest emits one). Either way the boot
+   * would otherwise fall through to the disk probe — absent on a bundled
+   * runtime, and on node a probe that reads a missing file as "no policy" — and
+   * come up with every thread endpoint open.
    */
   readonly threadAccessExpected?: boolean
   /** Boot-resolved sandbox manager. Absent: built from `config.sandbox`. */

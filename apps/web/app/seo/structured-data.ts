@@ -1,3 +1,4 @@
+import { docsSocialImagePath } from "./social"
 import type {
   BlogPostingSeoPage,
   CollectionPageSeoPage,
@@ -11,13 +12,22 @@ const ORGANIZATION_ID = `${SITE_URL}#organization`
 const WEBSITE_ID = `${SITE_URL}#website`
 const LOGO_ID = `${SITE_URL}#logo`
 
+interface EntityReference {
+  readonly "@id": string
+}
+
 interface TechArticleJsonLd {
   readonly "@context": "https://schema.org"
   readonly "@type": "TechArticle"
+  readonly "@id": string
   readonly headline: string
   readonly description: string
   readonly url: string
   readonly dateModified: string
+  readonly image: string
+  readonly author: EntityReference
+  readonly publisher: EntityReference
+  readonly isPartOf: EntityReference
 }
 
 interface BreadcrumbListItemJsonLd {
@@ -86,6 +96,17 @@ export function webPageJsonLd(page: WebPageSeoPage) {
   } as const
 }
 
+/**
+ * The post's social card: an explicit `ogImage` when the post sets one,
+ * otherwise its co-located `opengraph-image` route. Next appends a
+ * content-hash query to the metadata URL; the bare route serves the same PNG.
+ */
+function blogPostingImage(page: BlogPostingSeoPage): string {
+  return page.socialImage !== undefined
+    ? new URL(page.socialImage, page.canonical).href
+    : `${page.canonical}/opengraph-image`
+}
+
 export function blogPostingJsonLd(page: BlogPostingSeoPage) {
   return {
     "@context": "https://schema.org",
@@ -95,6 +116,8 @@ export function blogPostingJsonLd(page: BlogPostingSeoPage) {
     description: page.description,
     url: page.canonical,
     datePublished: page.datePublished,
+    dateModified: page.lastModified,
+    image: blogPostingImage(page),
     author: {
       "@type": "Person",
       "@id": page.author.url,
@@ -111,11 +134,24 @@ export function techArticleJsonLd(page: TechArticleSeoPage): TechArticleJsonLd {
   return {
     "@context": "https://schema.org",
     "@type": page.kind,
+    "@id": `${page.canonical}#article`,
     headline: page.title,
     description: page.description,
     url: page.canonical,
     dateModified: page.lastModified,
+    image: new URL(docsSocialImagePath(page.path), SITE_URL).href,
+    // The docs are written and published by the project, not one person.
+    author: { "@id": ORGANIZATION_ID },
+    publisher: { "@id": ORGANIZATION_ID },
+    isPartOf: { "@id": WEBSITE_ID },
   }
+}
+
+/** The visible trail minus unlinked ancestors; the final crumb always stays. */
+export function structuredBreadcrumbs<T extends { readonly href?: string }>(
+  crumbs: readonly T[],
+): readonly T[] {
+  return crumbs.filter((crumb, index) => crumb.href !== undefined || index === crumbs.length - 1)
 }
 
 export function breadcrumbJsonLd(page: SeoPage): BreadcrumbListJsonLd {
@@ -123,10 +159,12 @@ export function breadcrumbJsonLd(page: SeoPage): BreadcrumbListJsonLd {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
     "@id": `${page.canonical}#breadcrumb`,
-    itemListElement: page.breadcrumbs.map((crumb, index) => {
+    // An unlinked ancestor (a docs nav section label) has no URL to give, and
+    // every ancestor ListItem needs one, so the list keeps linked ancestors.
+    itemListElement: structuredBreadcrumbs(page.breadcrumbs).map((crumb, index, crumbs) => {
       const item = crumb.href
         ? new URL(crumb.href, page.canonical).href
-        : page.kind !== "TechArticle" && index === page.breadcrumbs.length - 1
+        : page.kind !== "TechArticle" && index === crumbs.length - 1
           ? page.canonical
           : undefined
 

@@ -181,16 +181,18 @@ async function runGeneratedAppScenario(
 
     if (options.expectedFixtureName === "basic") {
       await writeFile(
-        join(appRoot, "src/app/(public)/hello/[tenant]/index.ts"),
+        join(appRoot, "src/app/hello/index.ts"),
         [
           'import greet from "./tools/greet.js"',
           "",
           "export const agent = {",
-          "  async invoke(input: { tenant: string }) {",
-          "    const info = await greet(input)",
+          "  async invoke(input: { messages: ReadonlyArray<{ content: unknown }> }) {",
+          "    // A plain agent receives non-parameter input as the user message.",
+          "    const name = String(input.messages.at(-1)?.content)",
+          "    const info = await greet({ name })",
           "    return {",
-          "      greeting: `Hello, ${info.name}!`,",
-          "      tenant: info.name,",
+          "      greeting: info.message,",
+          "      name,",
           "    }",
           "  },",
           "}",

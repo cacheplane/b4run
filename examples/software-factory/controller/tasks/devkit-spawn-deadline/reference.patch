@@ -1,0 +1,11 @@
+--- a/packages/devkit/src/testing/process.ts
++++ b/packages/devkit/src/testing/process.ts
+@@ -180,7 +180,7 @@
+   } catch (error) {
+     throw createSpawnProcessError(options, args, child, stderr, stdout, "spawn", error)
+   } finally {
+-    if (timeoutHandle !== undefined && closed) clearTimeout(timeoutHandle)
++    if (timeoutHandle !== undefined) clearTimeout(timeoutHandle)
+     if (abortListener !== undefined) options.signal?.removeEventListener("abort", abortListener)
+   }
+ 

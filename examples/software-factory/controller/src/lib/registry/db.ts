@@ -1,0 +1,246 @@
+import { mkdirSync } from "node:fs"
+import { dirname } from "node:path"
+import { DatabaseSync } from "node:sqlite"
+
+export const SCHEMA_VERSION = 6
+
+export interface Registry {
+  readonly db: DatabaseSync
+  close(): void
+}
+
+export class RegistryVersionError extends Error {
+  constructor(readonly found: number) {
+    super(
+      `Registry schema version ${found} is newer than this factory supports (${SCHEMA_VERSION}); upgrade the factory`,
+    )
+    this.name = "RegistryVersionError"
+  }
+}
+
+/**
+ * The reader's counterpart to RegistryVersionError. Only a writable connection can migrate,
+ * so a read-only open of an older registry can neither read it (the columns this build
+ * expects are absent) nor fix it.
+ */
+export class RegistryOutdatedError extends Error {
+  constructor(readonly found: number) {
+    super(
+      `Registry schema version ${found} is older than this factory needs (${SCHEMA_VERSION}); start the controller, which migrates it`,
+    )
+    this.name = "RegistryOutdatedError"
+  }
+}
+
+interface Migration {
+  readonly version: number
+  readonly up: string
+}
+
+/** Spec: "Registry schema". active_started_at is the open interval the budget ticker measures. */
+export const MIGRATIONS: readonly Migration[] = [
+  {
+    version: 1,
+    up: `
+      CREATE TABLE work_orders (
+        id TEXT PRIMARY KEY,
+        revision INTEGER NOT NULL,
+        state TEXT NOT NULL,
+        task_id TEXT NOT NULL,
+        worker_route TEXT NOT NULL,
+        worker_thread_id TEXT,
+        interrupt_id TEXT,
+        candidate_digest TEXT,
+        candidate_verified INTEGER,
+        blocked_reason TEXT,
+        failure_reason TEXT,
+        max_candidate_attempts INTEGER NOT NULL,
+        max_active_ms INTEGER NOT NULL,
+        active_ms INTEGER NOT NULL DEFAULT 0,
+        active_started_at TEXT,
+        awaiting_since TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE events (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        work_order_id TEXT NOT NULL REFERENCES work_orders(id),
+        type TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        at TEXT NOT NULL
+      );
+      CREATE INDEX events_by_work_order ON events(work_order_id, seq);
+      CREATE TABLE commands (
+        operation_key TEXT PRIMARY KEY,
+        work_order_id TEXT NOT NULL,
+        command TEXT NOT NULL,
+        intent TEXT NOT NULL,
+        outcome TEXT,
+        at TEXT NOT NULL
+      );
+      CREATE TABLE approvals (
+        id TEXT PRIMARY KEY,
+        work_order_id TEXT NOT NULL REFERENCES work_orders(id),
+        interrupt_id TEXT NOT NULL,
+        candidate_digest TEXT NOT NULL,
+        decision TEXT NOT NULL,
+        decided_by TEXT NOT NULL,
+        decided_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      );
+      CREATE TABLE deliveries (
+        work_order_id TEXT PRIMARY KEY REFERENCES work_orders(id),
+        candidate_digest TEXT NOT NULL,
+        receipt_path TEXT NOT NULL,
+        observed_at TEXT NOT NULL
+      );
+    `,
+  },
+  {
+    // `approvals.bundle_digest` is added nullable because SQLite cannot add a NOT NULL column
+    // without a default. The zod ApprovalSchema is what enforces its presence on write; no
+    // rung 0 rows exist in a registry that has never been released.
+    version: 2,
+    up: `
+      ALTER TABLE work_orders ADD COLUMN bundle_digest TEXT;
+      ALTER TABLE approvals ADD COLUMN bundle_digest TEXT;
+      -- The rung 0 interrupt coupling is gone: approvals now bind to a bundle digest, and
+      -- interrupt_id was NOT NULL, so it must be dropped rather than left dead and blocking
+      -- every insert.
+      ALTER TABLE approvals DROP COLUMN interrupt_id;
+      CREATE TABLE candidates (
+        digest TEXT PRIMARY KEY,
+        work_order_id TEXT NOT NULL REFERENCES work_orders(id),
+        baseline_digest TEXT NOT NULL,
+        changed_paths TEXT NOT NULL,
+        bytes INTEGER NOT NULL,
+        artifact_digest TEXT NOT NULL,
+        assembled_at TEXT NOT NULL
+      );
+      CREATE INDEX candidates_by_work_order ON candidates(work_order_id);
+      CREATE TABLE receipts (
+        id TEXT PRIMARY KEY,
+        work_order_id TEXT NOT NULL REFERENCES work_orders(id),
+        candidate_digest TEXT NOT NULL,
+        verifier_identity TEXT NOT NULL,
+        policy_digest TEXT NOT NULL,
+        environment_identity TEXT NOT NULL,
+        verdict TEXT NOT NULL,
+        checks TEXT NOT NULL,
+        issued_at TEXT NOT NULL
+      );
+      CREATE INDEX receipts_by_work_order ON receipts(work_order_id);
+      CREATE TABLE bundles (
+        digest TEXT PRIMARY KEY,
+        work_order_id TEXT NOT NULL REFERENCES work_orders(id),
+        candidate_digest TEXT NOT NULL,
+        receipt_id TEXT NOT NULL REFERENCES receipts(id),
+        payload TEXT NOT NULL,
+        frozen_at TEXT NOT NULL
+      );
+      CREATE INDEX bundles_by_work_order ON bundles(work_order_id);
+    `,
+  },
+  {
+    // The rung 0 field the worker reported its own verdict into. Rung 1 removed every channel
+    // by which a worker could claim its result and this column was only ever written null
+    // after that; left in place it reads as exactly the channel that no longer exists.
+    version: 3,
+    up: "ALTER TABLE work_orders DROP COLUMN candidate_verified;",
+  },
+  {
+    // The intake prefix (sub-project 3a). SQLite cannot add a NOT NULL column without a
+    // default, so the counters default and the rest are nullable; an existing row reads as a
+    // catalog work order that never went through intake, which is exactly what it was.
+    version: 4,
+    up: `
+      ALTER TABLE work_orders ADD COLUMN origin_kind TEXT NOT NULL DEFAULT 'catalog';
+      ALTER TABLE work_orders ADD COLUMN origin_repository TEXT;
+      ALTER TABLE work_orders ADD COLUMN origin_number INTEGER;
+      ALTER TABLE work_orders ADD COLUMN origin_body_digest TEXT;
+      ALTER TABLE work_orders ADD COLUMN pin TEXT;
+      ALTER TABLE work_orders ADD COLUMN target_id TEXT;
+      ALTER TABLE work_orders ADD COLUMN task_digest TEXT;
+      ALTER TABLE work_orders ADD COLUMN intake_attempts INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE work_orders ADD COLUMN max_intake_attempts INTEGER NOT NULL DEFAULT 2;
+    `,
+  },
+  {
+    // Candidate retries (the first live run's builder spent its one attempt on a parked
+    // command and stranded an approved task). The counter is backfilled from the journal, not
+    // defaulted to 0: a row that has already dispatched has spent an attempt, and reading it as
+    // unspent would let `retry` exceed the cap the row was created with. A dispatch is counted
+    // by its committed transition, so an orphaned `thread_created` spends nothing.
+    version: 5,
+    up: `
+      ALTER TABLE work_orders ADD COLUMN candidate_attempts INTEGER NOT NULL DEFAULT 0;
+      UPDATE work_orders SET candidate_attempts = (
+        SELECT count(*) FROM events
+        WHERE events.work_order_id = work_orders.id
+          AND events.type = 'transition'
+          AND json_extract(events.payload, '$.event') = 'dispatch_committed'
+      );
+    `,
+  },
+  {
+    // Rung 4: where an approved bundle goes, the outbox intent a draft-PR approval commits,
+    // and the pull request a delivery read back. Every existing row is a local export, which
+    // is what it was; an existing delivery is an export, with no pull request columns.
+    version: 6,
+    up: `
+      ALTER TABLE work_orders ADD COLUMN delivery TEXT NOT NULL DEFAULT '{"kind":"local"}';
+      CREATE TABLE delivery_outbox (
+        operation_key TEXT PRIMARY KEY,
+        work_order_id TEXT NOT NULL UNIQUE REFERENCES work_orders(id),
+        bundle_digest TEXT NOT NULL,
+        approval_id TEXT NOT NULL REFERENCES approvals(id),
+        intent TEXT NOT NULL,
+        step TEXT NOT NULL,
+        remote TEXT NOT NULL,
+        attempts INTEGER NOT NULL,
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      ALTER TABLE deliveries ADD COLUMN kind TEXT;
+      ALTER TABLE deliveries ADD COLUMN pr_number INTEGER;
+      ALTER TABLE deliveries ADD COLUMN pr_url TEXT;
+      ALTER TABLE deliveries ADD COLUMN head_sha TEXT;
+      ALTER TABLE deliveries ADD COLUMN tree_sha TEXT;
+      ALTER TABLE deliveries ADD COLUMN base_sha TEXT;
+      ALTER TABLE deliveries ADD COLUMN ahead_by INTEGER;
+    `,
+  },
+]
+
+/** Open (creating if needed) the factory registry. Refuses a newer on-disk schema. */
+export function openRegistry(path: string): Registry {
+  const isMemory = path === ":memory:"
+  if (!isMemory) mkdirSync(dirname(path), { recursive: true })
+  const db = new DatabaseSync(path)
+  if (!isMemory) db.exec("PRAGMA journal_mode = WAL")
+  db.exec("PRAGMA foreign_keys = ON")
+  db.exec("PRAGMA synchronous = NORMAL")
+  db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)")
+  const row = db.prepare("SELECT max(version) AS v FROM schema_version").get() as {
+    v: number | null
+  }
+  const current = row.v ?? 0
+  if (current > SCHEMA_VERSION) {
+    db.close()
+    throw new RegistryVersionError(current)
+  }
+  for (const migration of MIGRATIONS) {
+    if (migration.version <= current) continue
+    db.exec("BEGIN")
+    try {
+      db.exec(migration.up)
+      db.prepare("INSERT INTO schema_version(version) VALUES (?)").run(migration.version)
+      db.exec("COMMIT")
+    } catch (error) {
+      db.exec("ROLLBACK")
+      throw error
+    }
+  }
+  return { db, close: () => db.close() }
+}

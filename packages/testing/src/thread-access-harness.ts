@@ -2,6 +2,7 @@ import { normalizeThreadAccessResult } from "@b4run/cli/runtime"
 import type {
   ThreadAccessPolicy,
   ThreadAccessRequest,
+  ThreadAccessRequestedWorkspace,
   ThreadAccessResult,
   ThreadAction,
   ThreadOperation,
@@ -19,6 +20,13 @@ export interface ThreadAccessCheckSpec {
   readonly method?: string
   readonly url?: string
   readonly requestedMetadata?: Readonly<Record<string, unknown>>
+  /**
+   * The workspace the request stages or chooses — see
+   * `ThreadAccessRequest.requestedWorkspace`: `{ sourceDigest }` for a
+   * `workspace.source.put`, the whole reference for a `thread.create` that
+   * names one.
+   */
+  readonly requestedWorkspace?: ThreadAccessRequestedWorkspace
   /**
    * Whether this request continues a parked turn — see
    * `ThreadAccessRequest.resuming`. Defaults to `false`, the value every
@@ -70,6 +78,7 @@ export function createThreadAccessHarness(options: {
         method: spec.method ?? defaultMethod(spec.action),
         operation,
         requestedMetadata: spec.requestedMetadata,
+        requestedWorkspace: spec.requestedWorkspace,
         resuming: spec.resuming ?? false,
         thread: spec.thread,
         threadId: spec.threadId,

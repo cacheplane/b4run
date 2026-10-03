@@ -1,13 +1,37 @@
 import { createHash } from "node:crypto"
-import type { CapturedWorkspaceDefinition, WorkspaceDefinition } from "@b4run/workspace"
+import type {
+  CapturedWorkspaceDefinition,
+  WorkspaceDefinition,
+  WorkspaceResolver,
+} from "@b4run/workspace"
 import {
   captureWorkspaceDefinition,
   verifyCapturedWorkspaceDefinition,
 } from "@b4run/workspace/node"
-export interface WorkspaceBuildArtifact {
+
+/** A static definition, captured at build time. Version 1 is unchanged so existing builds keep booting. */
+export interface CapturedWorkspaceBuildArtifact {
   readonly version: 1
   readonly descriptorDigest: string
   readonly workspace: CapturedWorkspaceDefinition
+}
+/** A resolver: nothing to capture at build time. Boot verifies the config is still a resolver. */
+export interface ResolverWorkspaceBuildArtifact {
+  readonly version: 2
+  readonly kind: "resolver"
+}
+/** A thread-sandbox resolver: nothing to capture at build time. Boot verifies the config is still one. */
+export interface ThreadSandboxBuildArtifact {
+  readonly version: 2
+  readonly kind: "thread"
+}
+export type WorkspaceBuildArtifact =
+  | CapturedWorkspaceBuildArtifact
+  | ResolverWorkspaceBuildArtifact
+  | ThreadSandboxBuildArtifact
+
+export function threadSandboxArtifact(): ThreadSandboxBuildArtifact {
+  return Object.freeze({ version: 2, kind: "thread" })
 }
 function descriptorDigest(definition: WorkspaceDefinition): string {
   let entries = 0
@@ -49,12 +73,15 @@ function descriptorDigest(definition: WorkspaceDefinition): string {
 }
 export async function captureWorkspaceArtifact(
   appRoot: string,
-  definition: WorkspaceDefinition,
+  workspace: WorkspaceDefinition | WorkspaceResolver,
 ): Promise<WorkspaceBuildArtifact> {
-  const digest = descriptorDigest(definition)
-  const workspace = await captureWorkspaceDefinition(appRoot, definition)
-  return Object.freeze({ version: 1, descriptorDigest: digest, workspace })
+  if (typeof workspace === "function") return Object.freeze({ version: 2, kind: "resolver" })
+  const digest = descriptorDigest(workspace)
+  const captured = await captureWorkspaceDefinition(appRoot, workspace)
+  return Object.freeze({ version: 1, descriptorDigest: digest, workspace: captured })
 }
+
+/** Verify a static artifact against a static definition. A resolver artifact here means the config changed form. */
 export function verifyWorkspaceArtifact(
   value: unknown,
   definition: WorkspaceDefinition,
@@ -62,6 +89,7 @@ export function verifyWorkspaceArtifact(
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("Invalid workspace build artifact; rebuild the app")
   const record = value as Record<string, unknown>
+  if (record.version === 2) throw new Error("Workspace configuration changed; rebuild the app")
   if (
     Object.keys(record).sort().join(",") !== "descriptorDigest,version,workspace" ||
     record.version !== 1
@@ -70,4 +98,22 @@ export function verifyWorkspaceArtifact(
   if (record.descriptorDigest !== descriptorDigest(definition))
     throw new Error("Workspace configuration changed; rebuild the app")
   return verifyCapturedWorkspaceDefinition(record.workspace)
+}
+
+/**
+ * Verify a resolver artifact of `kind`. A static artifact, or the other
+ * resolver kind, means the config changed form since the build.
+ */
+export function verifyWorkspaceResolverArtifact(value: unknown, kind: "resolver" | "thread"): void {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("Invalid workspace build artifact; rebuild the app")
+  const record = value as Record<string, unknown>
+  if (record.version === 1) throw new Error("Workspace configuration changed; rebuild the app")
+  if (
+    Object.keys(record).sort().join(",") !== "kind,version" ||
+    record.version !== 2 ||
+    (record.kind !== "resolver" && record.kind !== "thread")
+  )
+    throw new Error("Invalid workspace build artifact; rebuild the app")
+  if (record.kind !== kind) throw new Error("Workspace configuration changed; rebuild the app")
 }

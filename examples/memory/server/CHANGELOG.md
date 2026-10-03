@@ -1,5 +1,122 @@
 # @dawn-example/memory
 
+## 0.0.36
+
+### Patch Changes
+
+- Updated dependencies [f9350c4]
+- Updated dependencies [0c76234]
+- Updated dependencies [216befd]
+- Updated dependencies [a683816]
+- Updated dependencies [377c1e9]
+- Updated dependencies [17f16ea]
+- Updated dependencies [3b1be6e]
+- Updated dependencies [c7282f4]
+  - @b4run/langchain@0.13.1
+  - @b4run/sdk@0.13.1
+  - @b4run/cli@0.13.1
+  - @b4run/core@0.13.1
+  - @b4run/memory-pgvector@0.13.1
+
+## 0.0.35
+
+### Patch Changes
+
+- Updated dependencies [1f335b1]
+- Updated dependencies [c301d77]
+- Updated dependencies [5260ecb]
+- Updated dependencies [3b489a5]
+- Updated dependencies [0dd8fff]
+- Updated dependencies [90b68be]
+- Updated dependencies [1da86ae]
+- Updated dependencies [79c5f63]
+- Updated dependencies [0d06d72]
+- Updated dependencies [fcf6d83]
+  - @b4run/cli@0.13.0
+  - @b4run/sdk@0.13.0
+  - @b4run/core@0.13.0
+  - @b4run/memory-pgvector@0.13.0
+  - @b4run/langchain@0.13.0
+
+## 0.0.34
+
+### Patch Changes
+
+- Updated dependencies [ef4c901]
+- Updated dependencies [212c43d]
+- Updated dependencies [7f81d24]
+  - @b4run/langchain@0.12.0
+  - @b4run/core@0.12.0
+  - @b4run/cli@0.12.0
+  - @b4run/memory-pgvector@0.12.0
+  - @b4run/sdk@0.12.0
+
+## 0.0.33
+
+### Patch Changes
+
+- Updated dependencies
+  - @b4run/cli@0.11.2
+  - @b4run/memory-pgvector@0.11.2
+  - @b4run/core@0.11.2
+  - @b4run/langchain@0.11.2
+  - @b4run/sdk@0.11.2
+
+## 0.0.32
+
+### Patch Changes
+
+- Updated dependencies [837bcfb]
+- Updated dependencies [c282336]
+  - @b4run/cli@0.11.1
+  - @b4run/sdk@0.11.1
+  - @b4run/core@0.11.1
+  - @b4run/langchain@0.11.1
+  - @b4run/memory-pgvector@0.11.1
+
+## 0.0.31
+
+### Patch Changes
+
+- Updated dependencies [18961bb]
+- Updated dependencies [a30db23]
+- Updated dependencies [0093dea]
+- Updated dependencies [54aa602]
+  - @b4run/langchain@0.11.0
+  - @b4run/cli@0.11.0
+  - @b4run/core@0.11.0
+  - @b4run/memory-pgvector@0.11.0
+  - @b4run/sdk@0.11.0
+
+## 0.0.30
+
+### Patch Changes
+
+- Updated dependencies [1cadde8]
+- Updated dependencies [71bccb3]
+  - @b4run/langchain@0.10.0
+  - @b4run/cli@0.10.0
+  - @b4run/memory-pgvector@0.10.0
+  - @b4run/core@0.10.0
+  - @b4run/sdk@0.10.0
+
+## 0.0.29
+
+### Patch Changes
+
+- Updated dependencies [7c9627f]
+- Updated dependencies [67b18fe]
+- Updated dependencies [516c038]
+- Updated dependencies [6a59e00]
+- Updated dependencies [7410154]
+- Updated dependencies [16ef75f]
+- Updated dependencies [9927409]
+  - @b4run/langchain@0.9.0
+  - @b4run/cli@0.9.0
+  - @b4run/sdk@0.9.0
+  - @b4run/core@0.9.0
+  - @b4run/memory-pgvector@0.9.0
+
 ## 0.0.28
 
 ### Patch Changes

@@ -228,6 +228,7 @@ async function verifyApp(options: VerifyOptions): Promise<VerifyAppOutcome> {
     const routeToolTypes: RouteToolTypes[] = []
     for (const route of manifest.routes) {
       const tools = await extractToolTypesForRoute({
+        appRoot: app.appRoot,
         routeDir: route.routeDir,
         sharedToolsDir,
       })

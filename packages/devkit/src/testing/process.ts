@@ -111,6 +111,11 @@ export async function spawnProcess(options: SpawnProcessOptions): Promise<SpawnP
     stderr += chunk.toString()
   })
 
+  // A child that exits before reading its stdin makes the pipe emit EPIPE; unhandled, that
+  // is an uncaught exception. The exit status reports the failure, so EPIPE is ignored here.
+  child.stdin.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code !== "EPIPE") throw error
+  })
   if (typeof options.stdin === "string") {
     child.stdin.write(options.stdin)
   }

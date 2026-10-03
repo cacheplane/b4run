@@ -1,0 +1,10 @@
+{
+  "branchPrefix": "factory/",
+  "botLogin": "b4-factory[bot]",
+  "protectedPaths": [
+    ".github/**",
+    "apps/web/vercel.json",
+    "apps/web/scripts/vercel-ignore-build.sh"
+  ],
+  "runFromBranchPaths": ["apps/web/vercel.json", "apps/web/scripts/vercel-ignore-build.sh"]
+}

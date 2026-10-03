@@ -33,7 +33,7 @@ it("getRecordingsSince windows to a single run (no cross-burst misalignment)", a
   await call("first")
   const burst1 = recorder.getRecordingsSince(j0, f0)
   expect(burst1).toHaveLength(1)
-  expect(burst1[0]?.response).toEqual({ content: "ONE" })
+  expect(burst1[0]?.response).toMatchObject({ content: "ONE" })
   expect(burst1[0]?.request.messages?.[0]).toEqual({ role: "user", content: "first" })
 
   // Burst 2 — windowed from AFTER burst 1; must NOT re-surface burst 1 or mis-pair
@@ -42,7 +42,7 @@ it("getRecordingsSince windows to a single run (no cross-burst misalignment)", a
   await call("second")
   const burst2 = recorder.getRecordingsSince(j1, f1)
   expect(burst2).toHaveLength(1)
-  expect(burst2[0]?.response).toEqual({ content: "TWO" })
+  expect(burst2[0]?.response).toMatchObject({ content: "TWO" })
   expect(burst2[0]?.request.messages?.[0]).toEqual({ role: "user", content: "second" })
 }, 30_000)
 
@@ -69,6 +69,9 @@ it("getRecordings() captures a proxied response from a local upstream", async ()
 
   const recordings = recorder.getRecordings()
   expect(recordings).toHaveLength(1)
-  expect(recordings[0]?.response).toEqual({ content: "from upstream" })
+  expect(recordings[0]?.response).toMatchObject({ content: "from upstream" })
+  // aimock >= 1.40 keeps the upstream's token usage on the recorded fixture, so a
+  // replay reports the recorded counts rather than a length-based estimate.
+  expect(recordings[0]?.response).toHaveProperty("usage")
   expect(recordings[0]?.request.messages?.[0]).toEqual({ role: "user", content: "ping" })
 }, 30_000)

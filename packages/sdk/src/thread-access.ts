@@ -34,6 +34,11 @@ export type ThreadAction = "create" | "read" | "update" | "delete"
  * - `run.resume` — `POST /threads/:id/resume` — `update`
  * - `run.agui` — `POST /agui/:routeId` — `update`, or the same
  *   `create`-then-`update` pair on a thread id with no row yet
+ * - `thread.workspace` — `POST /threads/:id/workspace/inspect` — `read`; served
+ *   only when the app sets `sandbox.workspaceRead: "http"`
+ * - `workspace.source.put` — `PUT /workspace/sources/:digest` — `create`, with
+ *   no `threadId` and no `thread`: an upload is not yet any thread's. Served
+ *   only when the app sets `sandbox.stagedWorkspaces`
  *
  * Starting a turn on a thread that exists mutates it, so it is an `update`.
  * Three of these endpoints also CREATE the thread when the id names no row, and
@@ -69,6 +74,40 @@ export type ThreadOperation =
   | "run.wait"
   | "run.resume"
   | "run.agui"
+  /**
+   * `POST /threads/:id/workspace/inspect`: a read of every file under the
+   * requested root of the thread's workspace. Discloses at least as much as
+   * `thread.state`, so it arrives as a `read` and a denial defaults to the same
+   * 404 a missing thread returns. Served only when the app sets
+   * `sandbox.workspaceRead: "http"`, which B4.run refuses without a policy.
+   */
+  | "thread.workspace"
+  /**
+   * `PUT /workspace/sources/:digest`: an upload of a workspace's files, which a
+   * later `thread.create` may name. Arrives as a `create` with no thread and
+   * `requestedWorkspace: { sourceDigest }`, so a policy's `create` handler
+   * decides it. A stamp returned here is not a thread's: it is kept with the
+   * upload as its uploader, and handed to the policy as
+   * `requestedWorkspace.uploadedBy` on a create that names it. Served only when the app sets
+   * `sandbox.stagedWorkspaces`, which B4.run refuses without a policy.
+   */
+  | "workspace.source.put"
+
+/** A workspace a request stages or chooses: see `ThreadAccessRequest.requestedWorkspace`. */
+export type ThreadAccessRequestedWorkspace = Readonly<{
+  sourceDigest: string
+  environmentLinks?: readonly Readonly<{ path: string; target: string }>[]
+  baseline?: "git"
+  /**
+   * On a `thread.create` only: who uploaded the named source. Each entry is the
+   * stamp a `workspace.source.put` allow returned for one upload of these bytes
+   * (unstamped uploads add nothing), in the order they first uploaded it, at most
+   * 64. Empty when the source was never uploaded with a stamp, or is not held.
+   * A policy that must keep one caller from choosing another's upload stamps
+   * uploads with the caller's identity and checks it here.
+   */
+  uploadedBy?: readonly Readonly<Record<string, unknown>>[]
+}>
 
 /**
  * The persisted thread as the policy sees it: the stored row, plus the server
@@ -131,6 +170,19 @@ export interface ThreadAccessRequest {
    * `run.*` create: those endpoints accept no thread metadata at all.
    */
   readonly requestedMetadata: Readonly<Record<string, unknown>> | undefined
+  /**
+   * The workspace this request stages or chooses (`sandbox.stagedWorkspaces`):
+   * on `workspace.source.put`, `{ sourceDigest }` of the upload; on a
+   * `thread.create` whose body names a `workspace`, the whole reference it names
+   * (digest, links, baseline) and `uploadedBy`, who uploaded that source. `undefined` on every other request, on a create
+   * without one, and on the create's `update` recheck. One rule in a policy
+   * (`if (req.requestedWorkspace)`) therefore covers both staging a workspace
+   * and choosing one, and lets a caller create threads without choosing what
+   * they run on. Shape-checked, not yet verified against held bytes. Enabling
+   * `stagedWorkspaces` means auditing your `create` handler: one written
+   * before it admits both unless it checks this field.
+   */
+  readonly requestedWorkspace: ThreadAccessRequestedWorkspace | undefined
   /**
    * This request carries a resume credential and will CONTINUE a parked turn —
    * an already-interrupted run answering the `interruptId`/`resumeKey` pair a

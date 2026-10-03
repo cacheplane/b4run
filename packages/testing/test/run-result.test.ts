@@ -24,6 +24,32 @@ it("reduces a stream into an AgentRunResult", async () => {
   expect(r.messages).toHaveLength(1)
 })
 
+it("reads the final message from content blocks, keeping only text", async () => {
+  // The OpenAI Responses API (and Anthropic once tools are bound) answer in
+  // blocks: reasoning and tool-use blocks are not the assistant's prose.
+  async function* blocks() {
+    yield {
+      type: "done",
+      output: {
+        messages: [
+          {
+            id: ["x", "y", "AIMessage"],
+            kwargs: {
+              content: [
+                { type: "reasoning", reasoning: "the user wants a greeting" },
+                { type: "text", text: "Hi! " },
+                { type: "text", text: "How can I help?" },
+              ],
+            },
+          },
+        ],
+      },
+    }
+  }
+  const r = await collectRunResult(blocks() as never, "t")
+  expect(r.finalMessage).toBe("Hi! How can I help?")
+})
+
 it("handles an empty/aborted stream", async () => {
   async function* empty() {}
   const r = await collectRunResult(empty() as never, "t")
@@ -66,12 +92,15 @@ it("captures interrupts, plan updates, and folds subagent events", async () => {
     yield { type: "subagent.start", data: child }
     yield {
       type: "subagent.tool_call",
-      data: { ...child, id: "tool-run-1", tool: "webSearch", input: { q: "x" } },
+      data: { ...child, id: "tool-run-1", name: "webSearch", input: { q: "x" } },
     }
-    yield { type: "subagent.message", data: { ...child, chunk: "Inspecting" } }
+    yield {
+      type: "subagent.token",
+      data: { ...child, data: "Inspecting", messageId: "child-model" },
+    }
     yield {
       type: "subagent.tool_result",
-      data: { ...child, id: "tool-run-1", tool: "webSearch", output: ["result"] },
+      data: { ...child, id: "tool-run-1", name: "webSearch", output: ["result"] },
     }
     yield {
       type: "subagent.memory.recalled",
@@ -106,18 +135,19 @@ it("captures interrupts, plan updates, and folds subagent events", async () => {
         route_id: "/research",
         depth: 1,
         id: "tool-run-1",
-        tool: "webSearch",
+        name: "webSearch",
         input: { q: "x" },
       },
     },
     {
-      type: "subagent.message",
+      type: "subagent.token",
       data: {
         call_id: "c1",
         subagent: "research",
         route_id: "/research",
         depth: 1,
-        chunk: "Inspecting",
+        data: "Inspecting",
+        messageId: "child-model",
       },
     },
     {
@@ -128,7 +158,7 @@ it("captures interrupts, plan updates, and folds subagent events", async () => {
         route_id: "/research",
         depth: 1,
         id: "tool-run-1",
-        tool: "webSearch",
+        name: "webSearch",
         output: ["result"],
       },
     },
@@ -338,6 +368,91 @@ it("captures a subagent error end", async () => {
   const r = await collectRunResult(s() as never, "t")
   expect(r.subagents[0]).toMatchObject({ name: "research", error: "boom" })
 })
+describe("collectRunResult tool results from the live stream", () => {
+  it("marks a thrown tool's streamed error ToolMessage as isError without reading the final messages", async () => {
+    async function* s() {
+      yield { type: "tool_call", id: "call_stmt_1", name: "customerStatement", input: { id: "x" } }
+      yield {
+        type: "tool_result",
+        id: "call_stmt_1",
+        name: "customerStatement",
+        output: {
+          type: "tool",
+          status: "error",
+          content: "Error: no such customer\n Please fix your mistakes.",
+          name: "customerStatement",
+          tool_call_id: "call_stmt_1",
+        },
+      }
+      yield { type: "done", output: { messages: [] } }
+    }
+    const r = await collectRunResult(s() as never, "t")
+    expect(r.toolResults).toEqual([
+      {
+        name: "customerStatement",
+        status: "error",
+        content: "Error: no such customer\n Please fix your mistakes.",
+        isError: true,
+      },
+    ])
+  })
+
+  it("reads a serialized ToolMessage, a Command's ToolMessage, and a plain output from the stream", async () => {
+    async function* s() {
+      yield {
+        type: "tool_result",
+        id: "c1",
+        name: "probe",
+        output: {
+          lc: 1,
+          type: "constructor",
+          id: ["langchain_core", "messages", "ToolMessage"],
+          kwargs: { status: "success", content: "probe-ok", name: "probe", tool_call_id: "c1" },
+        },
+      }
+      yield {
+        type: "tool_result",
+        id: "c2",
+        name: "writeTodos",
+        output: {
+          update: {
+            todos: [],
+            messages: [{ type: "tool", content: "{}", name: "writeTodos", tool_call_id: "c2" }],
+          },
+        },
+      }
+      yield { type: "tool_result", name: "legacy", output: { matched: 2 } }
+      yield { type: "done", output: { messages: [] } }
+    }
+    const r = await collectRunResult(s() as never, "t")
+    expect(r.toolResults).toEqual([
+      { name: "probe", status: "success", content: "probe-ok", isError: false },
+      { name: "writeTodos", content: "{}", isError: false },
+      { name: "legacy", content: { matched: 2 }, isError: false },
+    ])
+  })
+
+  it("falls back to the final messages when the stream carried no tool_result chunks", async () => {
+    async function* s() {
+      yield {
+        type: "done",
+        output: {
+          messages: [
+            {
+              id: ["langchain_core", "messages", "ToolMessage"],
+              kwargs: { name: "readDoc", status: "error", content: "Error: ENOENT" },
+            },
+          ],
+        },
+      }
+    }
+    const r = await collectRunResult(s() as never, "t")
+    expect(r.toolResults).toEqual([
+      { name: "readDoc", status: "error", content: "Error: ENOENT", isError: true },
+    ])
+  })
+})
+
 describe("deriveToolResults", () => {
   it("extracts tool results from serialized ToolMessages and flags errors", () => {
     const messages = [

@@ -337,16 +337,21 @@ describe("native subagent event projection", () => {
     expect(chunks).toEqual([
       { type: "token", data: "Parent ", messageId: "parent-model" },
       { type: "subagent.start", data: childIdentity },
+      // A child's text is framed like root text: a token with its invocation id…
       {
-        type: "subagent.message",
-        data: { ...childIdentity, chunk: "Child token" },
+        type: "subagent.token",
+        data: { ...childIdentity, data: "Child token", messageId: "child-model" },
       },
+      // …and a child tool runs through the same announce/result pairing. With
+      // no child on_chat_model_end in this fixture, the held on_tool_start
+      // resolves at on_tool_end under the execution run id, exactly as root
+      // does for a resume replay.
       {
         type: "subagent.tool_call",
         data: {
           ...childIdentity,
           id: "child-tool-run",
-          tool: "readFile",
+          name: "readFile",
           input: { path: "evidence.md" },
         },
       },
@@ -355,7 +360,7 @@ describe("native subagent event projection", () => {
         data: {
           ...childIdentity,
           id: "child-tool-run",
-          tool: "readFile",
+          name: "readFile",
           output: "evidence",
         },
       },
@@ -386,6 +391,112 @@ describe("native subagent event projection", () => {
     ])
     expect(chunks.filter(({ type }) => type === "tool_call")).toHaveLength(1)
     expect(chunks.filter(({ type }) => type === "tool_result")).toHaveLength(1)
+  })
+
+  test("a child model turn announces its tool calls under the model's logical id and ends its message", async () => {
+    const entry = {
+      invoke: vi.fn(),
+      async *streamEvents() {
+        yield {
+          event: "on_chat_model_stream",
+          run_id: "child-model",
+          name: "child-model",
+          data: {
+            chunk: {
+              content: [
+                { type: "thinking", thinking: "look it up", index: 0 },
+                { type: "text", text: "Searching", index: 1 },
+              ],
+              tool_call_chunks: [{ id: "call_search_1", name: "search", args: '{"q":', index: 0 }],
+            },
+          },
+          metadata,
+        }
+        yield {
+          event: "on_chat_model_stream",
+          run_id: "child-model",
+          name: "child-model",
+          data: { chunk: { content: [], tool_call_chunks: [{ args: '"agents"}', index: 0 }] } },
+          metadata,
+        }
+        yield {
+          event: "on_chat_model_end",
+          run_id: "child-model",
+          name: "child-model",
+          data: {
+            output: {
+              content: "Searching",
+              tool_calls: [{ id: "call_search_1", name: "search", args: { q: "agents" } }],
+              usage_metadata: { input_tokens: 3, output_tokens: 2 },
+            },
+          },
+          metadata,
+        }
+        yield {
+          event: "on_tool_start",
+          run_id: "search-run",
+          name: "search",
+          data: { input: { q: "agents" } },
+          metadata,
+        }
+        yield {
+          event: "on_tool_end",
+          run_id: "search-run",
+          name: "search",
+          data: { output: { tool_call_id: "call_search_1", content: "3 hits" } },
+          metadata,
+        }
+        yield { event: "on_chain_end", run_id: "root", name: "LangGraph", data: { output: {} } }
+      },
+    }
+    const chunks = []
+    for await (const chunk of streamAgent({
+      checkpointer: new MemorySaver(),
+      entry,
+      input: { question: "hi" },
+      routeParamNames: [],
+      signal: new AbortController().signal,
+      tools: [],
+    })) {
+      chunks.push(chunk)
+    }
+    const id = {
+      call_id: "call-child",
+      subagent: "researcher",
+      route_id: "/planner/researcher",
+      depth: 2,
+    }
+    const args = chunks.filter((chunk) => chunk.type === "subagent.tool_call_args")
+    expect(args.length).toBeGreaterThan(0)
+    for (const chunk of args) {
+      expect(chunk.data).toMatchObject({ ...id, id: "call_search_1", name: "search" })
+    }
+    expect(args.map((chunk) => (chunk.data as { delta: string }).delta).join("")).toBe(
+      '{"q":"agents"}',
+    )
+    expect(chunks.filter((chunk) => chunk.type !== "subagent.tool_call_args")).toEqual([
+      { type: "subagent.reasoning", data: { ...id, data: "look it up", messageId: "child-model" } },
+      { type: "subagent.token", data: { ...id, data: "Searching", messageId: "child-model" } },
+      {
+        type: "subagent.usage",
+        data: { ...id, usage_metadata: { input_tokens: 3, output_tokens: 2 } },
+      },
+      { type: "subagent.message_end", data: { ...id, messageId: "child-model" } },
+      {
+        type: "subagent.tool_call",
+        data: { ...id, id: "call_search_1", name: "search", input: { q: "agents" } },
+      },
+      {
+        type: "subagent.tool_result",
+        data: {
+          ...id,
+          id: "call_search_1",
+          name: "search",
+          output: { tool_call_id: "call_search_1", content: "3 hits" },
+        },
+      },
+      { type: "done", data: {} },
+    ])
   })
 
   test("treats malformed B4.run stacks as root metadata", async () => {
@@ -656,8 +767,11 @@ describe("native subagent event projection", () => {
 
 describe("executeAgent with B4Agent descriptors", () => {
   test("materializes v2 agents so parallel tool calls have independent graph tasks", async () => {
-    const createReactAgent = vi.fn(() => ({ invoke: vi.fn() }))
-    vi.doMock("@langchain/langgraph/prebuilt", () => ({ createReactAgent }))
+    const createAgent = vi.fn(() => ({ invoke: vi.fn() }))
+    vi.doMock("langchain", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("langchain")>()),
+      createAgent,
+    }))
     vi.doMock("@langchain/openai", () => ({
       ChatOpenAI: class {},
     }))
@@ -670,17 +784,20 @@ describe("executeAgent with B4Agent descriptors", () => {
         tools: [],
       })
 
-      expect(createReactAgent).toHaveBeenCalledWith(expect.objectContaining({ version: "v2" }))
+      expect(createAgent).toHaveBeenCalledWith(expect.objectContaining({ version: "v2" }))
     } finally {
       __resetMaterializedAgentsForTests()
-      vi.doUnmock("@langchain/langgraph/prebuilt")
+      vi.doUnmock("langchain")
       vi.doUnmock("@langchain/openai")
     }
   })
 
   test("does not reuse a compiled graph across distinct subagent resolvers", async () => {
-    const createReactAgent = vi.fn(() => ({ invoke: vi.fn() }))
-    vi.doMock("@langchain/langgraph/prebuilt", () => ({ createReactAgent }))
+    const createAgent = vi.fn(() => ({ invoke: vi.fn() }))
+    vi.doMock("langchain", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("langchain")>()),
+      createAgent,
+    }))
     vi.doMock("@langchain/openai", () => ({
       ChatOpenAI: class {},
     }))
@@ -716,18 +833,21 @@ describe("executeAgent with B4Agent descriptors", () => {
         tools: [task],
       })
 
-      expect(createReactAgent).toHaveBeenCalledTimes(2)
+      expect(createAgent).toHaveBeenCalledTimes(2)
       expect(second).not.toBe(first)
     } finally {
       __resetMaterializedAgentsForTests()
-      vi.doUnmock("@langchain/langgraph/prebuilt")
+      vi.doUnmock("langchain")
       vi.doUnmock("@langchain/openai")
     }
   })
 
   test("does not reuse a compiled graph when stream transformers change", async () => {
-    const createReactAgent = vi.fn(() => ({ invoke: vi.fn() }))
-    vi.doMock("@langchain/langgraph/prebuilt", () => ({ createReactAgent }))
+    const createAgent = vi.fn(() => ({ invoke: vi.fn() }))
+    vi.doMock("langchain", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("langchain")>()),
+      createAgent,
+    }))
     vi.doMock("@langchain/openai", () => ({
       ChatOpenAI: class {},
     }))
@@ -762,11 +882,11 @@ describe("executeAgent with B4Agent descriptors", () => {
         tools: [tool],
       })
 
-      expect(createReactAgent).toHaveBeenCalledTimes(2)
+      expect(createAgent).toHaveBeenCalledTimes(2)
       expect(second).not.toBe(first)
     } finally {
       __resetMaterializedAgentsForTests()
-      vi.doUnmock("@langchain/langgraph/prebuilt")
+      vi.doUnmock("langchain")
       vi.doUnmock("@langchain/openai")
     }
   })
@@ -774,9 +894,10 @@ describe("executeAgent with B4Agent descriptors", () => {
   test("B4Agent descriptor is recognized and does not throw invoke error", async () => {
     let openAIModel: unknown
 
-    vi.doMock("@langchain/langgraph/prebuilt", () => ({
-      createReactAgent: vi.fn((options: { llm: unknown }) => {
-        openAIModel = options.llm
+    vi.doMock("langchain", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("langchain")>()),
+      createAgent: vi.fn((options: { model: unknown }) => {
+        openAIModel = options.model
         return {
           invoke: vi.fn().mockResolvedValue(new AIMessage({ content: "OpenAI!" })),
         }
@@ -805,22 +926,25 @@ describe("executeAgent with B4Agent descriptors", () => {
       signal: new AbortController().signal,
       tools: [],
     }).finally(() => {
-      vi.doUnmock("@langchain/langgraph/prebuilt")
+      vi.doUnmock("langchain")
       vi.doUnmock("@langchain/openai")
     })
 
     expect((result as AIMessage).content).toBe("OpenAI!")
     expect((openAIModel as { options: Record<string, unknown> }).options).toEqual({
       model: "gpt-4o-mini",
+      // No `retry` on the descriptor: 3 attempts per model call.
+      maxRetries: 2,
     })
   })
 
   test("B4Agent descriptor explicit provider overrides model inference", async () => {
     let groqModel: unknown
 
-    vi.doMock("@langchain/langgraph/prebuilt", () => ({
-      createReactAgent: vi.fn((options: { llm: unknown }) => {
-        groqModel = options.llm
+    vi.doMock("langchain", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("langchain")>()),
+      createAgent: vi.fn((options: { model: unknown }) => {
+        groqModel = options.model
         return {
           invoke: vi.fn().mockResolvedValue(new AIMessage({ content: "Groq!" })),
         }
@@ -857,7 +981,7 @@ describe("executeAgent with B4Agent descriptors", () => {
       signal: new AbortController().signal,
       tools: [],
     }).finally(() => {
-      vi.doUnmock("@langchain/langgraph/prebuilt")
+      vi.doUnmock("langchain")
       vi.doUnmock("@langchain/openai")
       vi.doUnmock("@langchain/groq")
     })
@@ -865,6 +989,8 @@ describe("executeAgent with B4Agent descriptors", () => {
     expect((result as AIMessage).content).toBe("Groq!")
     expect((groqModel as { options: Record<string, unknown> }).options).toEqual({
       model: "gpt-4o-mini",
+      // No `retry` on the descriptor: 3 attempts per model call.
+      maxRetries: 2,
     })
   })
 
@@ -904,9 +1030,10 @@ describe("executeAgent with B4Agent descriptors", () => {
   test("B4Agent descriptor infers non-OpenAI provider from model", async () => {
     let anthropicModel: unknown
 
-    vi.doMock("@langchain/langgraph/prebuilt", () => ({
-      createReactAgent: vi.fn((options: { llm: unknown }) => {
-        anthropicModel = options.llm
+    vi.doMock("langchain", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("langchain")>()),
+      createAgent: vi.fn((options: { model: unknown }) => {
+        anthropicModel = options.model
         return {
           invoke: vi.fn().mockResolvedValue(new AIMessage({ content: "Anthropic!" })),
         }
@@ -942,7 +1069,7 @@ describe("executeAgent with B4Agent descriptors", () => {
       signal: new AbortController().signal,
       tools: [],
     }).finally(() => {
-      vi.doUnmock("@langchain/langgraph/prebuilt")
+      vi.doUnmock("langchain")
       vi.doUnmock("@langchain/openai")
       vi.doUnmock("@langchain/anthropic")
     })
@@ -950,6 +1077,8 @@ describe("executeAgent with B4Agent descriptors", () => {
     expect((result as AIMessage).content).toBe("Anthropic!")
     expect((anthropicModel as { options: Record<string, unknown> }).options).toEqual({
       model: "claude-sonnet-4-5",
+      // No `retry` on the descriptor: 3 attempts per model call.
+      maxRetries: 2,
     })
   })
 
@@ -994,8 +1123,9 @@ describe("executeAgent with B4Agent descriptors", () => {
 
   test("recursionLimit from the descriptor is passed into the graph config", async () => {
     const invoke = vi.fn().mockResolvedValue(new AIMessage({ content: "ok" }))
-    vi.doMock("@langchain/langgraph/prebuilt", () => ({
-      createReactAgent: vi.fn(() => ({ invoke })),
+    vi.doMock("langchain", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("langchain")>()),
+      createAgent: vi.fn(() => ({ invoke })),
     }))
     vi.doMock("@langchain/openai", () => ({
       ChatOpenAI: class {
@@ -1017,7 +1147,7 @@ describe("executeAgent with B4Agent descriptors", () => {
       signal: new AbortController().signal,
       tools: [],
     }).finally(() => {
-      vi.doUnmock("@langchain/langgraph/prebuilt")
+      vi.doUnmock("langchain")
       vi.doUnmock("@langchain/openai")
     })
 
@@ -1027,8 +1157,9 @@ describe("executeAgent with B4Agent descriptors", () => {
 
   test("no recursionLimit leaves the graph config default (unset)", async () => {
     const invoke = vi.fn().mockResolvedValue(new AIMessage({ content: "ok" }))
-    vi.doMock("@langchain/langgraph/prebuilt", () => ({
-      createReactAgent: vi.fn(() => ({ invoke })),
+    vi.doMock("langchain", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("langchain")>()),
+      createAgent: vi.fn(() => ({ invoke })),
     }))
     vi.doMock("@langchain/openai", () => ({
       ChatOpenAI: class {
@@ -1046,7 +1177,7 @@ describe("executeAgent with B4Agent descriptors", () => {
       signal: new AbortController().signal,
       tools: [],
     }).finally(() => {
-      vi.doUnmock("@langchain/langgraph/prebuilt")
+      vi.doUnmock("langchain")
       vi.doUnmock("@langchain/openai")
     })
 
@@ -1272,6 +1403,198 @@ describe("logical-identity root tool projection", () => {
     ])
   })
 
+  test("a thrown tool emits a tool_result carrying the error ToolMessage the model receives", async () => {
+    // LangGraph's ToolNode catches the throw and hands the model a
+    // `status: "error"` ToolMessage; on the wire that arrives as the tools
+    // node's on_chain_end, after an on_tool_error that carries only the raw
+    // (stringified) error and no tool-call id.
+    const errorToolMessage = {
+      type: "tool",
+      status: "error",
+      content: "Error: kaboom\n Please fix your mistakes.",
+      name: "customerStatement",
+      tool_call_id: "call_stmt_1",
+    }
+    const entry = streamOf([
+      {
+        event: "on_chat_model_end",
+        run_id: "model-1",
+        name: "model",
+        data: {
+          output: {
+            content: "",
+            tool_calls: [{ id: "call_stmt_1", name: "customerStatement", args: { id: "x" } }],
+          },
+        },
+      },
+      {
+        event: "on_tool_start",
+        run_id: "stmt-run-1",
+        name: "customerStatement",
+        data: { input: { input: '{"id":"x"}' } },
+      },
+      {
+        event: "on_tool_error",
+        run_id: "stmt-run-1",
+        name: "customerStatement",
+        data: { input: { input: '{"id":"x"}' }, error: "kaboom\n\nError: kaboom\n    at run" },
+      },
+      {
+        event: "on_chain_end",
+        run_id: "tools-1",
+        name: "tools",
+        data: { output: { messages: [errorToolMessage] } },
+      },
+      { event: "on_chain_end", run_id: "root", name: "LangGraph", data: { output: { ok: true } } },
+    ])
+
+    await expect(collect(entry)).resolves.toEqual([
+      {
+        type: "tool_call",
+        data: { id: "call_stmt_1", name: "customerStatement", input: { id: "x" } },
+      },
+      {
+        type: "tool_result",
+        data: { id: "call_stmt_1", name: "customerStatement", output: errorToolMessage },
+      },
+      { type: "done", data: { ok: true } },
+    ])
+  })
+
+  test("a thrown tool on the resume-replay path announces and resolves under the ToolMessage id", async () => {
+    const errorToolMessage = {
+      type: "tool",
+      status: "error",
+      content: "Error: denied\n Please fix your mistakes.",
+      name: "runBash",
+      tool_call_id: "call_runBash_0_0",
+    }
+    const entry = streamOf([
+      {
+        event: "on_tool_start",
+        run_id: "replay-run-1",
+        name: "runBash",
+        data: { input: { command: "fetch" } },
+      },
+      {
+        event: "on_tool_error",
+        run_id: "replay-run-1",
+        name: "runBash",
+        data: { input: { command: "fetch" }, error: "denied" },
+      },
+      {
+        event: "on_chain_end",
+        run_id: "tools-1",
+        name: "tools",
+        data: { output: { messages: [errorToolMessage] } },
+      },
+      { event: "on_chain_end", run_id: "root", name: "LangGraph", data: { output: { ok: true } } },
+    ])
+
+    await expect(collect(entry)).resolves.toEqual([
+      {
+        type: "tool_call",
+        data: { id: "call_runBash_0_0", name: "runBash", input: { command: "fetch" } },
+      },
+      {
+        type: "tool_result",
+        data: { id: "call_runBash_0_0", name: "runBash", output: errorToolMessage },
+      },
+      { type: "done", data: { ok: true } },
+    ])
+  })
+
+  test("a thrown tool whose error ToolMessage only surfaces in the final output still resolves once", async () => {
+    const olderError = {
+      type: "tool",
+      status: "error",
+      content: "Error: old\n Please fix your mistakes.",
+      name: "probe",
+      tool_call_id: "call_probe_old",
+    }
+    const thisTurnError = {
+      type: "tool",
+      status: "error",
+      content: "Error: new\n Please fix your mistakes.",
+      name: "probe",
+      tool_call_id: "call_probe_1",
+    }
+    const entry = streamOf([
+      {
+        event: "on_chat_model_end",
+        run_id: "model-1",
+        name: "model",
+        data: {
+          output: { content: "", tool_calls: [{ id: "call_probe_1", name: "probe", args: {} }] },
+        },
+      },
+      { event: "on_tool_start", run_id: "probe-run-1", name: "probe", data: { input: {} } },
+      { event: "on_tool_error", run_id: "probe-run-1", name: "probe", data: { error: "new" } },
+      {
+        event: "on_chain_end",
+        run_id: "root",
+        name: "LangGraph",
+        data: { output: { messages: [olderError, thisTurnError] } },
+      },
+    ])
+
+    await expect(collect(entry)).resolves.toEqual([
+      { type: "tool_call", data: { id: "call_probe_1", name: "probe", input: {} } },
+      { type: "tool_result", data: { id: "call_probe_1", name: "probe", output: thisTurnError } },
+      { type: "done", data: { messages: [olderError, thisTurnError] } },
+    ])
+  })
+
+  test("a successful sibling in the same tool step is never re-resolved from the tools node output", async () => {
+    const okToolMessage = {
+      type: "tool",
+      status: "success",
+      content: "fine",
+      name: "ok",
+      tool_call_id: "call_ok_1",
+    }
+    const errorToolMessage = {
+      type: "tool",
+      status: "error",
+      content: "Error: kaboom\n Please fix your mistakes.",
+      name: "bad",
+      tool_call_id: "call_bad_1",
+    }
+    const entry = streamOf([
+      {
+        event: "on_chat_model_end",
+        run_id: "model-1",
+        name: "model",
+        data: {
+          output: {
+            content: "",
+            tool_calls: [
+              { id: "call_ok_1", name: "ok", args: {} },
+              { id: "call_bad_1", name: "bad", args: {} },
+            ],
+          },
+        },
+      },
+      { event: "on_tool_start", run_id: "ok-run", name: "ok", data: { input: {} } },
+      { event: "on_tool_start", run_id: "bad-run", name: "bad", data: { input: {} } },
+      { event: "on_tool_end", run_id: "ok-run", name: "ok", data: { output: okToolMessage } },
+      { event: "on_tool_error", run_id: "bad-run", name: "bad", data: { error: "kaboom" } },
+      {
+        event: "on_chain_end",
+        run_id: "tools-1",
+        name: "tools",
+        data: { output: { messages: [okToolMessage, errorToolMessage] } },
+      },
+      { event: "on_chain_end", run_id: "root", name: "LangGraph", data: { output: {} } },
+    ])
+
+    const chunks = await collect(entry)
+    expect(chunks.filter((c) => c.type === "tool_result")).toEqual([
+      { type: "tool_result", data: { id: "call_ok_1", name: "ok", output: okToolMessage } },
+      { type: "tool_result", data: { id: "call_bad_1", name: "bad", output: errorToolMessage } },
+    ])
+  })
+
   test("a duplicate on_tool_end for the same run id never re-announces or swallows output", async () => {
     const entry = streamOf([
       {
@@ -1345,7 +1668,10 @@ describe("logical-identity root tool projection", () => {
     ])
   })
 
-  test("child tool events are untouched by the root re-key", async () => {
+  test("child tool events are re-keyed exactly like root's", async () => {
+    // The same three-way resolution applies to a child: the ToolMessage's
+    // logical id wins over the execution run id, so a resumed child replays
+    // under the id the model gave the call.
     const metadata = {
       b4: {
         subagent_stack: [{ callId: "call-child", name: "researcher", routeId: "/researcher" }],
@@ -1363,7 +1689,7 @@ describe("logical-identity root tool projection", () => {
         event: "on_tool_end",
         run_id: "child-tool-run",
         name: "readFile",
-        data: { output: { tool_call_id: "call_should_be_ignored", content: "text" } },
+        data: { output: { tool_call_id: "call_read_1", content: "text" } },
         metadata,
       },
       { event: "on_chain_end", run_id: "root", name: "LangGraph", data: { output: {} } },
@@ -1379,18 +1705,138 @@ describe("logical-identity root tool projection", () => {
     expect(chunks).toEqual([
       {
         type: "subagent.tool_call",
-        data: { ...childIdentity, id: "child-tool-run", tool: "readFile", input: { path: "a.md" } },
+        data: { ...childIdentity, id: "call_read_1", name: "readFile", input: { path: "a.md" } },
       },
       {
         type: "subagent.tool_result",
         data: {
           ...childIdentity,
-          id: "child-tool-run",
-          tool: "readFile",
-          output: { tool_call_id: "call_should_be_ignored", content: "text" },
+          id: "call_read_1",
+          name: "readFile",
+          output: { tool_call_id: "call_read_1", content: "text" },
         },
       },
       { type: "done", data: {} },
+    ])
+  })
+})
+
+describe("usage chunks", () => {
+  function streamOf(events: readonly Record<string, unknown>[]) {
+    return {
+      invoke: vi.fn(),
+      async *streamEvents() {
+        yield* events
+      },
+    }
+  }
+
+  async function collect(entry: { invoke: unknown; streamEvents: unknown }) {
+    const chunks = []
+    for await (const chunk of streamAgent({
+      checkpointer: new MemorySaver(),
+      entry: entry as never,
+      input: { question: "hi" },
+      routeParamNames: [],
+      signal: new AbortController().signal,
+      tools: [],
+    })) {
+      chunks.push(chunk)
+    }
+    return chunks
+  }
+
+  const USAGE = {
+    input_tokens: 120,
+    output_tokens: 30,
+    total_tokens: 150,
+    input_token_details: { cache_read: 100 },
+    output_token_details: { reasoning: 10 },
+  }
+
+  test("one usage chunk per on_chat_model_end, labelled from ls_provider/ls_model_name", async () => {
+    const entry = streamOf([
+      {
+        event: "on_chat_model_end",
+        run_id: "model-1",
+        name: "ChatOpenAI",
+        metadata: { ls_provider: "OpenAI", ls_model_name: "gpt-5-mini" },
+        data: { output: { content: "hi", usage_metadata: USAGE } },
+      },
+      { event: "on_chain_end", run_id: "root", name: "LangGraph", data: { output: {} } },
+    ])
+    const chunks = await collect(entry)
+    expect(chunks.filter((c) => c.type === "usage")).toEqual([
+      {
+        type: "usage",
+        data: { provider: "openai", model: "gpt-5-mini", usage_metadata: USAGE },
+      },
+    ])
+  })
+
+  test("a model call without usage_metadata emits no usage chunk", async () => {
+    const entry = streamOf([
+      {
+        event: "on_chat_model_end",
+        run_id: "model-1",
+        name: "ChatOpenAI",
+        metadata: { ls_provider: "OpenAI", ls_model_name: "gpt-5-mini" },
+        data: { output: { content: "hi" } },
+      },
+      { event: "on_chain_end", run_id: "root", name: "LangGraph", data: { output: {} } },
+    ])
+    const chunks = await collect(entry)
+    expect(chunks.some((c) => c.type === "usage")).toBe(false)
+  })
+
+  test("labels are omitted when LangChain metadata lacks them", async () => {
+    const entry = streamOf([
+      {
+        event: "on_chat_model_end",
+        run_id: "model-1",
+        name: "model",
+        data: { output: { content: "hi", usage_metadata: { input_tokens: 1, output_tokens: 1 } } },
+      },
+      { event: "on_chain_end", run_id: "root", name: "LangGraph", data: { output: {} } },
+    ])
+    const chunks = await collect(entry)
+    expect(chunks.filter((c) => c.type === "usage")).toEqual([
+      { type: "usage", data: { usage_metadata: { input_tokens: 1, output_tokens: 1 } } },
+    ])
+  })
+
+  test("a subagent's model call is reported as subagent.usage with its identity", async () => {
+    const child = {
+      b4: {
+        subagent_stack: [{ callId: "c1", name: "researcher", routeId: "/research#researcher" }],
+      },
+    }
+    const entry = streamOf([
+      {
+        event: "on_chat_model_end",
+        run_id: "child-model-1",
+        name: "ChatOpenAI",
+        metadata: { ...child, ls_provider: "OpenAI", ls_model_name: "gpt-5-nano" },
+        data: {
+          output: { content: "child", usage_metadata: { input_tokens: 5, output_tokens: 2 } },
+        },
+      },
+      { event: "on_chain_end", run_id: "root", name: "LangGraph", data: { output: {} } },
+    ])
+    const chunks = await collect(entry)
+    expect(chunks.filter((c) => c.type === "subagent.usage")).toEqual([
+      {
+        type: "subagent.usage",
+        data: {
+          call_id: "c1",
+          subagent: "researcher",
+          route_id: "/research#researcher",
+          depth: 1,
+          provider: "openai",
+          model: "gpt-5-nano",
+          usage_metadata: { input_tokens: 5, output_tokens: 2 },
+        },
+      },
     ])
   })
 })

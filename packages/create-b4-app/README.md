@@ -20,7 +20,7 @@ Requires Node.js 24 or later. Run `npm create b4-app@latest my-agent`; a global 
 
 ## Example
 
-Create the default research starter and run its fixture-backed test suite:
+Create the default basic starter, a single `/hello` agent with one typed tool, and run its offline test suite:
 
 ```bash
 npm create b4-app@latest my-agent
@@ -29,7 +29,7 @@ npm install
 npm test
 ```
 
-The `research` template is the default. Version 0.8.21 generated the earlier single-package research starter; version 0.8.22 introduced the `server` and `web` workspace. Run `npm view create-b4-app@latest version` to see which release the current dist-tag selects. For a smaller greeter application, select the optional `basic` template with `npm create b4-app@latest my-agent -- --template basic`.
+The `basic` template is the default. For the full deep-research assistant, a `server` and `web` npm workspace with subagents, memory, planning and a web UI, select the `research` template with `npm create b4-app@latest my-agent -- --template research`. For the research template, version 0.8.21 generated the earlier single-package starter and version 0.8.22 introduced the `server` and `web` workspace. Run `npm view create-b4-app@latest version` to see which release the current dist-tag selects.
 
 ## Runtime and stability
 

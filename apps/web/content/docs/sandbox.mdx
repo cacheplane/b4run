@@ -1,16 +1,18 @@
 # Execution Sandbox
 
-The execution sandbox gives a provider-keyed Agent Protocol thread an isolated filesystem, shell, and network boundary instead of letting workspace tools operate in the app's local `workspace/` directory. The built-in providers require an application scope and hash it with each logical thread ID to address resources. Applications still authorize thread access. Add a `sandbox` key to `b4.config.ts`, and B4.run routes `readFile`, `writeFile`, `listDir`, and `runBash` through a `SandboxProvider`. B4.run includes a Docker reference implementation; the same portable contract also supports other providers.
+The execution sandbox runs workspace tools in an isolated filesystem, shell and network, away from the app's local `workspace/` directory. Add a `sandbox` key to `b4.config.ts`, and B4.run routes `readFile`, `writeFile`, `editFile`, `listDir` and `runBash` through a `SandboxProvider`. B4.run ships a Docker reference implementation, and other providers can implement the same interface. The built-in providers hash an application scope with each logical thread ID to name their resources. Your application still authorizes thread access.
 
-This is one of three independent controls: [tool scoping](/docs/tools) decides which tools the model can call, [permissions](/docs/permissions) decide whether a call may run, and the sandbox constrains what an allowed call can touch. Use all three where your threat model calls for them.
+The sandbox is the third of four [access controls](/docs/access-control), after [tool scoping](/docs/tools#scoping-a-routes-tools) and [permissions](/docs/permissions) and before [guarded delegation](/docs/subagents#delegation-policy). It limits what an allowed call can touch.
 
 ## Quickstart
 
-Install Docker, start its daemon, and configure `dockerSandbox`:
+Install Docker, start its daemon, and add the package:
 
 ```bash
-pnpm add @b4run/sandbox
+npm install @b4run/sandbox
 ```
+
+Then configure `dockerSandbox` in **b4.config.ts**:
 
 ```ts title="b4.config.ts"
 import { config } from "@b4run/cli"
@@ -19,7 +21,7 @@ import { dockerSandbox } from "@b4run/sandbox"
 export default config({
   sandbox: {
     provider: dockerSandbox({ scope: "my-app", image: "node:24-slim" }),
-    network: { mode: "allow", denylist: ["169.254.169.254"] },
+    network: { mode: "deny" }, // no egress; see "Network policy"
     env: { NODE_ENV: "production" },
     resources: { memoryMb: 512, cpus: 1, timeoutMs: 120_000 },
     idleTimeoutMs: 600_000,
@@ -27,46 +29,111 @@ export default config({
 })
 ```
 
-No `sandbox` key means no behavior change: workspace tools still use the app's local `workspace/` directory. `b4 check` validates the configuration and calls the provider's optional `preflight()`. For Docker, that check confirms the daemon is reachable so a stopped daemon fails before the first agent turn.
+Without a `sandbox` key, workspace tools keep using the app's local `workspace/` directory. `b4 check` validates the configuration and calls the provider's optional `preflight()`. For Docker, that confirms the daemon is reachable, so a stopped daemon fails before the first agent turn.
 
 ## What's isolated
 
-- **Filesystem** — workspace file tools use a sandbox volume, not the host filesystem.
-- **Shell** — `runBash` executes in the sandbox and remains subject to permissions.
-- **Network** — `sandbox.network` expresses portable policy intent; enforcement depends on the provider.
-- **Environment** — the host environment is not inherited. Only `sandbox.env` entries are injected.
-- **Resources** — `memoryMb` and `cpus` cap compute; `timeoutMs` caps one command.
+- **Filesystem:** workspace file tools use a sandbox volume, not the host filesystem.
+- **Shell:** `runBash` executes in the sandbox and is still subject to permissions.
+- **Network:** `sandbox.network` states a portable policy. Enforcement depends on the provider.
+- **Environment:** only `sandbox.env` entries are injected. The host environment stays on the host.
+- **Resources:** `memoryMb` and `cpus` cap compute, and `timeoutMs` caps one command.
 
 ## Lifecycle
 
-B4.run passes the conversation thread ID to the provider and reuses the resulting sandbox across turns.
+B4.run passes the thread ID to the provider and reuses the resulting sandbox across turns:
 
 - `acquire()` creates or reattaches the thread's live compute and workspace.
-- Idle reap and `release()` discard warm compute but retain the workspace volume.
-- A later turn reattaches that retained volume.
-- Thread deletion calls `destroy()`, removing both compute and workspace data.
+- Idle reap and `release()` discard warm compute but keep the workspace volume.
+- A later turn reattaches that volume.
+- Thread deletion calls `destroy()`, which removes both compute and workspace data.
 
-Storage is named from a stable hash of the required application scope and thread ID so a provider can reattach it after compute is released. Provider retention can shorten this lifecycle: an operator-owned cleanup policy may delete released storage before the thread is deleted. See [Kubernetes Sandbox](/docs/sandbox/kubernetes) for that provider's reaper boundary. Subagents share their parent's thread and therefore share its sandbox.
+Storage is named from a stable hash of the application scope and thread ID, so a provider can reattach it after compute is released. Provider retention can shorten this lifecycle: an operator-owned cleanup policy may delete released storage before the thread is deleted. See [Kubernetes Sandbox](/docs/sandbox/kubernetes) for that provider's reaper. Subagents share their parent's thread, so they share its sandbox too.
 
 ### Application scope
 
-Both providers require `scope`, a stable application/environment identifier such
-as `code-fixer-production`. Scope and thread ID are hashed together for every
-container, volume, Pod, PVC, and NetworkPolicy name. Case and punctuation remain
-significant. Handles and tool context retain the original logical thread ID.
+Both providers require `scope`, a stable application and environment identifier such as `code-fixer-production`. Scope and thread ID are hashed together for every container, volume, Pod, PVC and NetworkPolicy name. Case and punctuation are significant. Handles and tool context keep the original logical thread ID.
 
-Use different scopes for independent applications or environments. Keep a scope
-stable across restarts and deployments; do not generate it on startup. Replicas
-using the same scope address the same storage, but scope adds no cross-process
-coordination. It is not authentication: authorize access to each thread and keep
-mutually untrusted workloads behind appropriate daemon/namespace boundaries.
+Use a different scope for each independent application or environment. Keep it stable across restarts and deployments, and don't generate it on startup. Replicas using the same scope address the same storage, but scope adds no cross-process coordination. It is not authentication: authorize access to each thread and keep mutually untrusted workloads behind separate daemon or namespace boundaries.
 
 <Callout type="warn" title="Breaking change: workspace resource names">
-  Upgrading from providers without scope changes all resource names. Old storage
-  is not automatically reattached, migrated, or deleted. Export any required data
-  before upgrading and explicitly manage the old resources. Changing scope also
-  selects different storage. Missing or blank scopes fail immediately.
+  Upgrading from providers without scope changes all resource names. Old storage is not automatically reattached, migrated, or deleted. Export any data you need before upgrading and clean up the old resources yourself. Changing scope also selects different storage. Missing or blank scopes fail immediately.
 </Callout>
+
+### Per-thread workspaces
+
+Most apps give every thread the same initial workspace. When threads need different starting points (say, one repository pin per work order), make `sandbox.workspace` a function of the thread:
+
+```ts title="b4.config.ts"
+export default config({
+  sandbox: {
+    provider: dockerSandbox({ scope: "factory", image: "factory-builder:pinned" }),
+    workspace: async ({ threadId, metadata, signal }) => {
+      const task = String(metadata.task ?? "")
+      signal.throwIfAborted()
+      if (!/^[a-z0-9-]+$/.test(task)) throw new Error(`thread ${threadId} names no task`)
+      // `include` is the exact list of files under `directory`, not a set of paths to admit.
+      return {
+        source: { directory: `tasks/${task}`, include: ["TASK.md", "src/index.ts", "src/lib.ts"] },
+        baseline: "git",
+      }
+    },
+  },
+})
+```
+
+Let's quickly review:
+
+- `include` must name every file under `directory`. Narrow the capture with `directory` and `excludeDirectories`, not with a partial `include` list.
+- The resolver runs once, when the thread is first admitted, and B4.run records its result by digest. Every later turn reads the record. Deleting the thread deletes the record, so a thread ID reused after deletion is resolved again.
+- A resolver that captures from the app root (`directory: "."`) must exclude `.b4` with `excludeDirectories`, because the installation's own state lives there. An excluded directory must already exist when the capture runs. That's always true at admission, but not for a static definition in a fresh clone at build time.
+- The resolver runs inside the thread's admission critical section. Honor `signal` and return promptly, because a hung resolver holds that thread's admission open.
+- Thread metadata is client input, so validate it as the example does.
+
+`b4 check` reports a resolver as "managed workspace is resolved per thread", and a built app carries a resolver marker instead of captured source.
+
+### Per-thread sandboxes
+
+When threads also need different images or limits (say, one toolchain per target), let `sandbox.thread` decide each thread's whole sandbox instead of `sandbox.workspace`:
+
+```ts title="b4.config.ts"
+const targets: Record<string, { image: string; memoryMb: number }> = {
+  small: { image: "builder-small:1a2b3c4d5e6f", memoryMb: 1024 },
+  large: { image: "builder-large:6f5e4d3c2b1a", memoryMb: 8192 },
+}
+
+export default config({
+  sandbox: {
+    provider: dockerSandbox({
+      scope: "builder",
+      images: (reference) => Object.values(targets).some((t) => t.image === reference),
+    }),
+    network: { mode: "deny" },
+    thread: async ({ threadId, metadata }) => {
+      const target = targets[String(metadata.target ?? "")]
+      if (!target) throw new Error(`thread ${threadId} names no known target`)
+      return {
+        workspace: { source: { directory: "project", include: ["package.json", "src/index.ts"] } },
+        environment: { image: target.image },
+        policy: { resources: { memoryMb: target.memoryMb } },
+        permissions: { allow: { bash: ["npm test"] } },
+      }
+    },
+  },
+})
+```
+
+Let's quickly review:
+
+- `sandbox.thread` and `sandbox.workspace` are exclusive. `b4 check`, `b4 build` and startup refuse both together, and refuse any key the `sandbox` block doesn't define.
+- The resolver runs once, when the thread is first admitted. B4.run records the image's immutable identity in the thread's creation intent, and the image reference and policy in a record written in the same transaction. Later turns, restarts and readers use the records, so changing the resolver or `images` never changes a thread that already exists.
+- `images` bounds what a resolver may name. The Docker provider refuses any other reference before it runs a Docker command, and always allows its own `image`. Without `image`, every thread must name one. Narrowing `images` later doesn't re-check existing threads: each keeps the image identity recorded at its first admission, so to revoke an image, delete the threads that use it.
+- A thread's `resources` merge over the app's key by key, and its `env` replaces the app's. Its `network` can keep or narrow the app's but never open a network the app denies. `security` stays the app's. Network allow and deny lists and `resources.diskGb` aren't accepted per thread, because managed workspaces don't enforce them.
+- `permissions` gives the thread its own allow-list, on top of the app's mode and denials. See [Per-thread permissions](/docs/permissions#per-thread-permissions).
+- Every thread admitted under `sandbox.thread` gets a record, even when the resolver chose no image or policy. A thread that has a workspace but no record (it was created before the app switched to `sandbox.thread`, or its record was lost) is refused rather than run with the app's defaults: delete it to resolve it again.
+- A provider supports per-thread images by implementing `resolveImageEnvironment`. A provider without it refuses a thread that names an image. Kubernetes has no managed workspaces, so it refuses `sandbox.thread` entirely.
+
+`b4 check` reports "workspace, image and policy are resolved per thread", and a built app carries a thread marker instead of captured source.
 
 ## Security hardening
 
@@ -79,16 +146,19 @@ The Docker provider applies these defaults:
 | Process count | `--pids-limit 512` |
 | Root filesystem | `--read-only`, with writable `/tmp` and `/run` tmpfs mounts |
 | User | `--user 1000:1000`, with `HOME=/workspace` |
+| Orphan reaping | `--init` (always on; not policy-controlled) |
 
-The portable `security` policy exposes `dropAllCapabilities`, `noNewPrivileges`, `readOnlyRootFilesystem`, `runAsNonRoot`, and `pidsLimit`. Each can be overridden for a compatible image, but every relaxation changes the isolation boundary.
+`--init` installs a real PID 1 in the session container. Without it, nothing reaps a descendant orphaned by a cancelled or timed-out command. The zombie holds a `--pids-limit` slot for the life of the container, and process-tree termination looks like it failed because the pid is still signalable.
+
+The portable `security` policy exposes `dropAllCapabilities`, `noNewPrivileges`, `readOnlyRootFilesystem`, `runAsNonRoot` and `pidsLimit`. You can override each one for a compatible image, but every relaxation weakens isolation.
 
 <Callout type="warn" title="Bake dependencies into the image">
-  The default non-root user and read-only root filesystem prevent runtime package installs and writes outside the workspace or scratch mounts. Install system and global dependencies when building the image.
+  The default non-root user and read-only root filesystem block runtime package installs and writes outside the workspace or scratch mounts. Install system and global dependencies when you build the image.
 </Callout>
 
 ### Per-command timeout
 
-`resources.timeoutMs` bounds one `runBash` call. Docker wraps the command with GNU `timeout`; an overrun exits with code `124`, rounded up to a whole second. The limit applies only when configured, and the sandbox image must contain the `timeout` binary. `node:24-slim`, Debian, and Ubuntu include or can install it; minimal and distroless images may not.
+`resources.timeoutMs` bounds one `runBash` call. Docker wraps the command with GNU `timeout`, and an overrun exits with code `124`. The limit is rounded up to a whole second and applies only when configured. The sandbox image must contain the `timeout` binary. `node:24-slim`, Debian and Ubuntu include it or can install it, but minimal and distroless images may not:
 
 ```ts
 sandbox: {
@@ -101,52 +171,132 @@ sandbox: {
 
 The portable policy has two modes:
 
-- `{ mode: "deny" }` asks the provider for default-closed egress. Docker enforces this with `--network none`.
-- `{ mode: "allow", denylist?: [...] }` leaves egress open and expresses hosts that should be blocked.
+- `{ mode: "deny", allowlist?: [...] }` asks the provider for default-closed egress. Docker enforces this with `--network none` and ignores `allowlist`. Kubernetes reads `allowlist` as CIDR exceptions.
+- `{ mode: "allow", denylist?: [...] }` leaves egress open. Neither the Docker nor the Kubernetes provider enforces `denylist`. A custom provider can.
 
-When omitted, the policy defaults to allow mode with `169.254.169.254` in the denylist. Docker's allow-mode denylist is best-effort, not a rigorous firewall; use an egress proxy or another provider when host-level filtering is a security boundary. Docker deny mode is the stronger reference behavior because `--network none` removes network access.
+When you omit it, the policy defaults to `{ mode: "allow" }`: open egress, including the cloud metadata endpoint `169.254.169.254`. On a cloud VM, that endpoint can hand the instance's credentials to any command the agent runs. Use `{ mode: "deny" }` when the sandbox does not need the network. When it does, block the endpoint outside B4.run: a host firewall or egress proxy for Docker, or the infrastructure chart's default-deny egress backstop or your own NetworkPolicy for Kubernetes.
 
-Provider mappings are intentionally not identical. Read the provider-specific guide before assuming Docker behavior applies elsewhere.
+Providers map the policy differently, so read the provider's guide before assuming Docker behavior applies elsewhere.
 
 ## Kubernetes provider
 
-Configuration, prerequisites, and the cluster security boundary live in [Kubernetes Sandbox](/docs/sandbox/kubernetes).
-
-### Security hardening on Kubernetes
-
-See [Kubernetes Sandbox](/docs/sandbox/kubernetes) for Pod security contexts, Pod Security Standards, resource controls, ServiceAccount-token isolation, and PID-limit scope.
-
-### Network policy on Kubernetes
-
-See [Kubernetes Sandbox](/docs/sandbox/kubernetes) for DNS exceptions, CNI requirements, and how chart and per-thread NetworkPolicies compose.
-
-## Deploying the sandbox infrastructure (Helm)
-
-Install and operate `b4-sandbox-infra` with the canonical [Kubernetes Sandbox guide](/docs/sandbox/kubernetes).
-
-### Key caveats
-
-Namespace alignment, storage, DNS, CNI enforcement, quotas, and PVC cleanup are covered in [Kubernetes Sandbox](/docs/sandbox/kubernetes).
-
-## Deploying a B4.run app (Helm)
-
-Deploy the app with [Kubernetes](/docs/deployment/kubernetes); operate its provider with [Kubernetes Sandbox](/docs/sandbox/kubernetes).
-
-### ServiceAccount and namespace wiring
-
-Use [Kubernetes Sandbox](/docs/sandbox/kubernetes) for RBAC and [Kubernetes deployment](/docs/deployment/kubernetes) for the app chart.
-
-### Env, secrets, and replicas
-
-See [Kubernetes deployment](/docs/deployment/kubernetes) for app settings and [Kubernetes Sandbox](/docs/sandbox/kubernetes) for namespace controls.
+Configuration, prerequisites and cluster security live in [Kubernetes Sandbox](/docs/sandbox/kubernetes).
 
 ## Subagents
 
-A subagent runs under its parent's conversation thread. The coordinator and all of its subagents therefore resolve to the same sandbox and workspace rather than receiving one sandbox each.
+A subagent runs under its parent's thread, so the coordinator and all of its subagents resolve to the same sandbox and workspace.
+
+## Reading a thread's workspace from another process
+
+A trusted process outside the runtime can read a thread's workspace without touching that thread's live sandbox. For example, a controller that dispatched work to an agent can check what came back:
+
+```ts
+import { dockerSandbox } from "@b4run/sandbox"
+import { inspectWorkspace, withWorkspaceReader } from "@b4run/workspace"
+
+// The same scope and image the worker runtime uses.
+const provider = dockerSandbox({ scope: "my-app", image: "node:24-slim" })
+
+const produced = await withWorkspaceReader(provider, { threadId, signal }, (reader) =>
+  inspectWorkspace(reader, {
+    excludeRootDirectories: [".git"],
+    maxTotalBytes: 2 * 1024 * 1024,
+  }),
+)
+```
+
+`withWorkspaceReader` opens the reader, hands it to the callback, and always closes it. Call `provider.openWorkspaceReader()` directly only if you need to manage `close()` yourself.
+
+A reader is safe while a worker is mid-thread or idle between turns. It never calls `acquire()`, so the worker's compute stays put. It reads the workspace through a separate, ephemeral, networkless container that mounts the workspace read-only. Writes fail at the kernel, and the reader object has no write method and no shell, so nothing on it can express a mutation. Reads after `close()` are refused up front, so you never see a confusing container error.
+
+`openWorkspaceReader` is optional on `SandboxProvider`, so check for it or let `withWorkspaceReader` raise. `dockerSandbox` implements it. `kubernetesSandbox` doesn't. Its per-thread storage is a `ReadWriteOnce` PersistentVolumeClaim, which a second Pod can mount only if it happens to land on the same node. A capability that works by accident of scheduling is worse than a missing one.
+
+Two things to know before you use it:
+
+- **It is not an authorization boundary.** It's a host-side API for a caller you already trust, one that holds the provider and with it the container runtime. Naming a thread ID proves nothing about ownership, so gate access to the calling process. Since it's neither an agent tool nor an HTTP endpoint, no route, permission or thread-access policy is consulted.
+- **The reader runs as uid/gid `1000:1000` by default**, matching the owner of a workspace produced under the default security policy. A thread that set `security.runAsNonRoot: false` produced root-owned files. Pass the same value as `runAsNonRoot` on the input so the reader can read restrictive modes.
+
+An inspection is not an atomic snapshot. Quiesce the writer (read after the turn ends) or revalidate before acting on the inventory.
+
+Docker readers are labelled `b4.sandbox.reader=<resource id>` and are removed on `close()`, including when the open itself fails. If `close()` can't remove the container, it raises and you can retry it. Deleting a thread whose workspace is managed (`sandbox.workspace` or `sandbox.thread`) also removes that workspace's readers, including one abandoned at a read deadline. Deleting a thread that uses provider storage leaves its readers in place, so a reader that's never closed outlives the thread. An operator finds leftovers by that label: `docker ps -aq --filter label=b4.sandbox.reader`.
+
+Reading needs a workspace volume with a host-visible backing path, which the default local volume driver provides. A volume that reports none is rejected. A named-volume mount would have silently recreated a deleted workspace instead of failing.
+
+## Reading a thread's workspace over HTTP
+
+A caller with no path to the worker's app root (another host, another container) reads a thread's managed workspace through the worker's own Agent Protocol port. Turn it on in `b4.config.ts`:
+
+```ts
+export default config({
+  sandbox: {
+    provider: dockerSandbox({ scope: "my-app", image: "node:24-slim" }),
+    workspace: async (thread) => definitionFor(thread),
+    workspaceRead: "http",
+  },
+})
+```
+
+and read with the client from `@b4run/cli/workspace`:
+
+```ts
+import { readThreadWorkspace } from "@b4run/cli/workspace"
+
+const read = await readThreadWorkspace(
+  "http://worker:4100",
+  threadId,
+  { root: "draft", excludeRootDirectories: [".git"] },
+  { headers: { authorization: `Bearer ${token}` }, expectedSourceDigest },
+)
+read.inspection.files // relative to `root`
+```
+
+The worker serves it with the same reader as above, inside its own process: a separate, networkless, read-only container, never the thread's session, running as the app's `security.runAsNonRoot`. The read holds the thread's run slot, so it never overlaps a turn: a run in flight answers `409 run_in_flight`, and a run started during the read gets the same.
+
+- **It needs a thread-access policy.** `b4 check`, `b4 build` and boot refuse `workspaceRead` without one, because the endpoint discloses every file under the requested root. The policy sees it as the `thread.workspace` operation, a `read`, so a denial answers the same 404 as a missing thread.
+- **It needs managed workspaces** (`sandbox.workspace` or `sandbox.thread`) and a provider whose managed workspaces can be read. `dockerSandbox` can.
+- **Limits.** `maxEntries` up to 10,000, `maxFileBytes` up to 16 MiB, `maxTotalBytes` up to 32 MiB; the defaults are `inspectWorkspace`'s. The request body is at most 64 KiB (`413 payload_too_large`). The answer is one JSON document of at most 64 MiB serialized: JSON escapes a control character to six bytes, so text within the byte limits can still be refused (`422 workspace_response_too_large`). `ignorePrefixes` drops paths from `files`, but they were read, so they count in `totalBytes`, `entries` and the limits. One read may take `sandbox.workspaceReadTimeoutMs` (default 120,000 ms), open to close; past it the read is abandoned, the run slot freed, and the answer is `504 workspace_read_timeout`.
+- **Refusals are named.** `404 workspace_not_found` (the thread has not run), `404 workspace_lost`, `410 workspace_expired`, `409 workspace_not_ready`, `409 workspace_conflict` (the workspace's record belongs to another installation), `409 workspace_changed` (the workspace changed while it was read; retry), `409 read_cancelled` (cancelled through `POST /threads/:thread_id/cancel`), `422 workspace_root_missing` with `root` and `kind`, `422 workspace_inspection_refused` (the workspace holds something the inspection does not admit: an executable, binary or non-UTF-8 file, a file or the whole tree over its byte limit, more entries than `maxEntries`, or an unexpected link), `400 invalid_request`, `503 workspace_unavailable` (the provider could not be reached; retry), `503 shutting_down`, `504 workspace_read_timeout`.
+- **The root is checked twice, not held.** Every segment of `root` is lstat'ed before the read and again after it, and a symlink or non-directory at either check is refused. A process in the thread's session that swaps a segment for a link and back between the two checks is not detected, because each read resolves its path afresh; what it could reach is bounded by the reader, a read-only, networkless container over the workspace's own volume.
+- **Check what you get.** The answer carries the thread's recorded `sourceDigest`. Pass the digest you expect as `expectedSourceDigest` and the client refuses an answer about another workspace; it also refuses an answer for another thread id.
+
+## Handing a thread its workspace at creation
+
+A creator on another host can give a new thread its exact workspace without a shared filesystem. Turn it on beside a resolver:
+
+```ts
+export default config({
+  sandbox: {
+    provider: dockerSandbox({ scope: "my-app", image: "node:24-slim" }),
+    stagedWorkspaces: true,
+    thread: async (thread) => {
+      if (!thread.staged) throw new Error("create threads with a staged workspace")
+      return { workspace: thread.staged }
+    },
+  },
+})
+```
+
+The creator uploads the files as a `SourceBundle` (from `captureWorkspaceDefinition` or `createSourceBundle` in `@b4run/workspace/node`), then names them when it creates the thread:
+
+```bash
+curl -X PUT "$WORKER/workspace/sources/$DIGEST" -H "authorization: Bearer $TOKEN" --data-binary @source.json
+curl -X POST "$WORKER/threads" -H "authorization: Bearer $TOKEN" \
+  -d '{"metadata":{},"workspace":{"sourceDigest":"'$DIGEST'","environmentLinks":[],"baseline":"git"}}'
+```
+
+- **Verified, then recorded.** The upload is checked byte for byte against the digest in its path, and kept under that digest only. A create may name only a source that was uploaded: one the worker stored for another thread's admission is not offered, though its digest is public, and answers `422 workspace_source_not_held` exactly as an unknown digest does. A create is also refused, before any thread exists, when the named links cannot sit beside the upload's files (`422 workspace_invalid`), checked against the file paths recorded at upload without reading the bytes again. The thread's reference is kept in the worker's installation, never in client-visible metadata. At the thread's first run the bytes are verified again and the resolver receives the definition as `thread.staged`; what it returns is recorded by digest and never resolved again.
+- **Either resolver.** A `sandbox.thread` resolver returns it as `workspace` beside its image, policy and permissions, and B4.run keeps the thread's sandbox record as it does for any other thread. A function `sandbox.workspace` returns it as is. A resolver may also refuse it, or ignore it: the staged workspace is the creator's choice, like metadata.
+- **Returning it as is trusts the creator with more than files.** `thread.staged.environmentLinks` are symlinks the creator chose, to any absolute path in the sandbox image (`/opt/deps`, but equally `/etc` or a mounted secret), and `baseline: "git"` asks for a Git baseline. B4.run checks that links are well formed and do not collide with the files; it does not know which targets your image makes safe. Unless every creator may choose them, have the resolver check `environmentLinks` against the targets your image provides and `baseline` against what you expect, and refuse anything else.
+- **Refused, not ignored.** A `workspace` sent to an app without `stagedWorkspaces` is `400 workspace_not_accepted`, after the policy has allowed the create.
+- **It needs a thread-access policy, and turning it on means auditing your `create` handler.** An upload arrives as `workspace.source.put`, a `create` with no thread; both it and a create that names a workspace carry `requestedWorkspace`, so one rule, `if (req.requestedWorkspace)`, decides who may stage and choose a workspace. A `create` handler written before this option admits both unless it checks that field. A stamp returned on an upload is kept as its uploader, and a create sees every uploader of the source it names in `requestedWorkspace.uploadedBy`, so a policy can require that a caller choose only what it uploaded (see [Workspace endpoints](/docs/thread-access#workspace-endpoints)). The upload route asks the policy before it reads a byte of the body, so an unauthorized caller neither costs the worker memory nor learns whether the option is on. `b4 check`, `b4 build` and boot refuse the option without a policy.
+- **Limits.** An upload is at most `maxUploadBytes` (default and ceiling 96 MiB, `413 payload_too_large`), and must arrive within `uploadTimeoutMs` (default 120,000 ms; `408 upload_timeout`). All uploaded sources together are at most `maxStagedBytes` (default 1 GiB; `507 staged_quota_exceeded`). The quota is one per worker, not per uploader: uploads are content-addressed and shared by everyone who uploads the same bytes, so a caller allowed to upload can fill it until the retention window frees space. Sources a thread's admission stored, and not uploaded, do not count. In an app with the option, `POST /threads` bodies are at most 1 MiB; a larger one is answered by the policy first, so a caller it refuses sees its refusal, not the limit. An app without the option reads create bodies as before.
+- **Retention.** An uploaded source nothing references (no thread names it, no live workspace was made from it) is deleted once older than `retentionMs` (default 24 hours); a source that was never uploaded (one left behind by an admission whose thread is gone) is deleted at once when nothing references it. Both happen when the worker starts and before each upload; a re-upload refreshes the window. A thread's reference goes when the thread is deleted, before its row, so a failed delete leaves a thread with no staged workspace rather than one that could pass it on. A create racing a reclaim of its source answers `409 workspace_source_not_held` and leaves no thread behind: upload again and retry.
+- **Cost.** Verifying and storing an upload holds it several times over in the worker's memory (the body as text, the parsed bundle, its canonical JSON: about four to five times its size at the peak), so a worker takes one upload at a time and answers `429 upload_in_flight` (with `retry-after`) to a second. Lower `maxUploadBytes` on a small worker. A create that names a workspace reads no source bytes (it checks the upload's recorded file paths), and at most four run at once (`429 workspace_create_in_flight`). The bytes are read and verified once more at the thread's first run, which costs about as much as the upload did.
+- **Cross-origin browsers.** `server.cors.methods` does not include `PUT` by default; add it for a browser client on another origin.
 
 ## Custom providers
 
-Implement `SandboxProvider` to integrate a microVM, cloud sandbox, or another isolation backend:
+Implement `SandboxProvider` to integrate a microVM, cloud sandbox or another isolation backend:
 
 ```ts
 import type { SandboxHandle, SandboxPolicy } from "@b4run/sandbox"
@@ -165,10 +315,16 @@ export interface SandboxProvider {
     readonly detail?: string
     readonly warnings?: readonly string[]
   }>
+  openWorkspaceReader?(input: OpenWorkspaceReaderInput): Promise<SandboxWorkspaceReader>
 }
 ```
 
-`acquire()` must be idempotent for a thread. `release()` drops warm compute while retaining workspace data; `destroy()` removes both. `preflight()` can fail a configuration before runtime or return `warnings` when a provider cannot prove a requested control.
+Let's quickly review:
+
+- `acquire()` must be idempotent for a thread.
+- `release()` drops warm compute and keeps workspace data. `destroy()` removes both.
+- `preflight()` can fail a configuration before runtime, or return `warnings` when the provider can't prove a requested control.
+- `openWorkspaceReader()` is optional. Implement it only if your backend can attach a thread's workspace storage a second time. It must not create, replace, start or stop the thread's sandbox, it must make writes impossible, and it must reject when the thread has no workspace storage. An empty view would tell a verifier "produced nothing" when the real answer is "does not exist".
 
 Validate the implementation with the shared conformance suite:
 
@@ -184,7 +340,7 @@ runProviderConformance({
 })
 ```
 
-The suite checks acquire/reattach idempotency, per-thread isolation, release-versus-destroy storage semantics, and numeric command exit codes.
+The suite checks acquire and reattach idempotency, per-thread isolation, release-versus-destroy storage semantics, and numeric command exit codes. If the provider implements `openWorkspaceReader`, it also checks that a reader sees what the thread produced, exposes no write or shell surface, rejects a thread with no storage, and leaves the thread's sandbox readable, writable and executable afterwards. Providers without the capability skip that block.
 
 ## Testing your agent
 
@@ -199,26 +355,28 @@ export default config({
 })
 ```
 
-This exercises B4.run's per-thread acquisition, reuse, and subagent wiring. Provider conformance and gated integration tests cover the actual isolation backend.
+This exercises B4.run's per-thread acquisition, reuse and subagent wiring. Provider conformance and gated integration tests cover the real isolation backend.
 
 ## Verifying the full arc (end-to-end)
 
 Two gated CI lanes exercise a built B4.run app, a real provider, command output inside the isolated workload, and cleanup after thread deletion:
 
 - `sandbox-docker-e2e` runs the app as a container and drives `dockerSandbox` to create a sibling container.
-- `sandbox-k8s-e2e` deploys the app and drives `kubernetesSandbox` to create a sandbox Pod; operational setup is in [Kubernetes Sandbox](/docs/sandbox/kubernetes).
+- `sandbox-k8s-e2e` deploys the app and drives `kubernetesSandbox` to create a sandbox Pod. Setup is in [Kubernetes Sandbox](/docs/sandbox/kubernetes).
 
-Both use a mocked model, assert that the in-sandbox process runs as UID `1000`, and confirm compute and storage are removed on thread deletion. They run only when `B4_TEST_SMOKE_E2E=1` is enabled.
+Both use a mocked model, assert that the in-sandbox process runs as UID `1000`, and confirm compute and storage are removed on thread deletion. They run only when `B4_TEST_SMOKE_E2E=1` is set.
 
-Only a B4.run runtime entry (`b4 dev`, `b4 start`, or the Node build target) constructs the configured sandbox. LangSmith platform artifacts do not run that runtime. Edge targets reject incompatible filesystem and sandbox capabilities rather than silently running workspace tools without isolation; see [Deployment Options](/docs/deployment).
+Only a B4.run runtime entry (`b4 dev`, `b4 start` or the Node build target) constructs the configured sandbox. LangSmith platform artifacts run without it. Edge targets reject incompatible filesystem and sandbox capabilities, so workspace tools never run there without isolation. See [Deployment Options](/docs/deployment).
 
-## What it is — and isn't
+<span id="what-it-is--and-isnt"></span>
 
-**It is:** a filesystem and process boundary keyed by the provider's derived thread resource name; explicit environment injection; CPU and memory controls; provider-specific network policy; a workspace lifecycle that outlives warm compute; and hardened Docker defaults including a non-root user, dropped capabilities, no privilege escalation, a read-only root filesystem, and a process-count limit.
+## What it is and isn't
 
-**It is not:** authorization, tool selection, or a guarantee against container-escape vulnerabilities. Tool scoping and permissions remain separate controls. Docker's allow-mode denylist is best-effort, and container isolation is not a microVM boundary. For hostile multi-tenant workloads, implement a stronger provider behind the same `SandboxProvider` seam and validate its controls against your threat model.
+**It is** a filesystem and process boundary keyed by the provider's derived thread resource name. It also gives you explicit environment injection, CPU and memory controls, provider-specific network policy, a workspace lifecycle that outlives warm compute, and hardened Docker defaults: a non-root user, dropped capabilities, no privilege escalation, a read-only root filesystem and a process-count limit.
 
-Kubernetes maps the same policy intent to different mechanisms and limitations. Treat [Kubernetes Sandbox](/docs/sandbox/kubernetes) as canonical for that provider rather than inferring Kubernetes behavior from Docker.
+**It is not** authorization, tool selection, or a guarantee against container-escape vulnerabilities. Tool scoping and permissions are separate controls. Allow-mode network is open egress, since the reference providers do not enforce `denylist`, and container isolation is weaker than a microVM. For hostile multi-tenant workloads, implement a stronger provider behind the same `SandboxProvider` interface and validate its controls against your threat model.
+
+Kubernetes maps the same policy to different mechanisms and limitations. Treat [Kubernetes Sandbox](/docs/sandbox/kubernetes) as the source of truth for that provider.
 
 ## Related
 

@@ -1,5 +1,5 @@
 import type { MemoryWritesMode, RouteManifest } from "@b4run/core"
-import { BUILT_IN_TOOL_NAMES } from "@b4run/core"
+import { BUILT_IN_TOOL_NAMES, CLIENT_TOOL_PREFIX, impliedToolDenials } from "@b4run/core"
 import { isB4Agent } from "@b4run/sdk"
 
 import { type NormalizedRouteModule, normalizeRouteModule } from "./load-route-kind.js"
@@ -18,7 +18,7 @@ export interface ToolScopeIssues {
 }
 
 /** Workspace tools with their own pattern-aware internal gates (bash/path). */
-const INTERNALLY_GATED = new Set(["runBash", "readFile", "writeFile", "listDir"])
+const INTERNALLY_GATED = new Set(["runBash", "readFile", "writeFile", "editFile", "listDir"])
 
 const BUILT_IN_TOOL_NAME_SET = new Set(BUILT_IN_TOOL_NAMES)
 
@@ -65,12 +65,19 @@ export async function collectToolScopeIssues(
   const warnings: string[] = []
   for (const route of manifest.routes) {
     if (route.kind !== "agent") continue
+    const localToolNames = await deps.routeLocalToolNames(manifest.appRoot, route.routeDir)
+    // `client_` names belong to the per-run stubs for client-provided tools;
+    // route preparation refuses an authored tool there, so check says so first.
+    const reserved = localToolNames.filter((name) => name.startsWith(CLIENT_TOOL_PREFIX))
+    if (reserved.length > 0) {
+      errors.push(
+        `✗ ${route.pathname}: tool name(s) ${reserved.map((name) => `"${name}"`).join(", ")} ` +
+          `use the reserved "${CLIENT_TOOL_PREFIX}" prefix, which belongs to client-provided tools. Rename them.`,
+      )
+    }
     const scope = await deps.loadScope(route.entryFile, manifest.appRoot)
     if (!scope || (!scope.allow && !scope.deny && !scope.approve && !scope.constrain)) continue
-    const available = new Set([
-      ...(await deps.routeLocalToolNames(manifest.appRoot, route.routeDir)),
-      ...BUILT_IN_TOOL_NAMES,
-    ])
+    const available = new Set([...localToolNames, ...BUILT_IN_TOOL_NAMES])
     const constrainNames = Object.keys(scope.constrain ?? {})
     const unknown = [
       ...(scope.allow ?? []),
@@ -86,6 +93,9 @@ export async function collectToolScopeIssues(
     }
     const deny = new Set(scope.deny ?? [])
     const allow = new Set(scope.allow ?? [])
+    // Denying writeFile also withholds editFile (see resolveToolScope in
+    // @b4run/core); an approve/constrain entry for the implied tool is dead.
+    const impliedDeny = new Set(impliedToolDenials(scope))
     const routeIsSubagent = isSubagentRoute(route.routeDir)
     for (const name of scope.approve ?? []) {
       if (name === "task") continue
@@ -98,6 +108,12 @@ export async function collectToolScopeIssues(
       if (deny.has(name)) {
         warnings.push(
           `⚠ ${route.pathname}: approve lists "${name}" but deny revokes it — deny wins; the approve entry is dead.`,
+        )
+      }
+      if (impliedDeny.has(name)) {
+        warnings.push(
+          `⚠ ${route.pathname}: approve lists "${name}", but denying writeFile also withholds "${name}" — ` +
+            `the approve entry is dead. Add "${name}" to allow to keep it while writeFile stays denied.`,
         )
       }
       if (opts?.memoryWrites === "ask" && name === "remember") {

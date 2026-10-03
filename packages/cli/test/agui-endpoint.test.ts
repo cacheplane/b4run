@@ -3,13 +3,14 @@ import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { decode } from "@ag-ui/proto"
 import { createSubagentsMarker } from "@b4run/core"
 import {
   convertSubagentTaskToLangChain,
   type SubagentResolver,
   streamAgent,
 } from "@b4run/langchain"
-import type { MiddlewareHandler } from "@b4run/sdk"
+import type { MiddlewareAfterHook, MiddlewareAfterRun, MiddlewareHandler } from "@b4run/sdk"
 import type { ThreadsStore } from "@b4run/sqlite-storage"
 import { dispatchCustomEvent } from "@langchain/core/callbacks/dispatch"
 import { AIMessage } from "@langchain/core/messages"
@@ -90,6 +91,35 @@ function parseSseEvents(text: string): Record<string, unknown>[] {
   })
 }
 
+/**
+ * Every frame of the HTTP+protobuf binding: a 4-byte unsigned big-endian
+ * length, then exactly that many bytes of one event, frames abutting with no
+ * separator. The whole body is read first, so frames split across transport
+ * chunks arrive here whole.
+ */
+function parseProtoFrames(bytes: Uint8Array): Record<string, unknown>[] {
+  const events: Record<string, unknown>[] = []
+  let offset = 0
+  while (offset < bytes.length) {
+    if (bytes.length - offset < 4) throw new Error(`truncated length prefix at byte ${offset}`)
+    const length = new DataView(bytes.buffer, bytes.byteOffset + offset, 4).getUint32(0, false)
+    offset += 4
+    if (bytes.length - offset < length) throw new Error(`truncated frame at byte ${offset}`)
+    events.push(decode(bytes.subarray(offset, offset + length)) as Record<string, unknown>)
+    offset += length
+  }
+  return events
+}
+
+async function postProtoRun(
+  port: number,
+  body: Record<string, unknown>,
+): Promise<{ events: Record<string, unknown>[]; response: Response }> {
+  const response = await requestRun(port, body, { accept: "application/vnd.ag-ui.event+proto" })
+  const bytes = new Uint8Array(await response.arrayBuffer())
+  return { events: parseProtoFrames(bytes), response }
+}
+
 async function postRun(
   port: number,
   body: Record<string, unknown>,
@@ -145,6 +175,7 @@ async function setupServer(
 
 interface ControlledServerOptions {
   readonly middleware?: MiddlewareHandler
+  readonly middlewareAfter?: MiddlewareAfterHook
   readonly checkpointer?: BaseCheckpointSaver
   readonly streamRoute: typeof streamResolvedRoute
   readonly shutdownSignal?: AbortSignal
@@ -175,6 +206,7 @@ async function setupControlledServer(controlled: ControlledServerOptions): Promi
         ({ getTuple: async () => undefined } as unknown as BaseCheckpointSaver),
       liveTurnHub: controlled.liveTurnHub ?? createLiveTurnHub(),
       middleware: controlled.middleware,
+      ...(controlled.middlewareAfter ? { middlewareAfter: controlled.middlewareAfter } : {}),
       registry: {
         appRoot,
         entries: [],
@@ -281,7 +313,11 @@ async function parallelSubagentTask(firstInterruptObserved: Promise<void>) {
     .compile()
   const resolver: SubagentResolver = async () => ({
     ok: true,
-    child: { graph: child, routeId: "/parent/subagents/researcher" },
+    child: {
+      graph: child,
+      routeId: "/parent/subagents/researcher",
+      routeKey: "/parent/subagents/researcher#agent",
+    },
   })
   return convertSubagentTaskToLangChain(placeholder, resolver)
 }
@@ -340,6 +376,47 @@ it("streams the canonical AG-UI lifecycle and successful result", async () => {
   })
   expect(events.map((event) => event.type)).not.toContain("STATE_SNAPSHOT")
   expect(events.map((event) => event.type)).not.toContain("CUSTOM")
+}, 60_000)
+
+it("serves the HTTP+protobuf binding when Accept asks for it, with the same events", async () => {
+  // aimock fixtures are matched, not consumed: one script serves both threads.
+  const { port } = await setupServer(script().user("hello").replies("Hi there!").build())
+  const sse = await postRun(port, {
+    threadId: "th-sse",
+    runId: "rn-sse",
+    messages: [{ id: "1", role: "user", content: "hello" }],
+  })
+  const binary = await postProtoRun(port, {
+    threadId: "th-proto",
+    runId: "rn-proto",
+    messages: [{ id: "1", role: "user", content: "hello" }],
+  })
+
+  expect(sse.response.headers.get("content-type")).toBe("text/event-stream")
+  expect(binary.response.status).toBe(200)
+  expect(binary.response.headers.get("content-type")).toBe("application/vnd.ag-ui.event+proto")
+  expect(binary.response.headers.get("cache-control")).toBe("no-cache")
+  // Negotiated from `accept`: both bindings say so to caches.
+  expect(binary.response.headers.get("vary")).toBe("accept")
+  expect(sse.response.headers.get("vary")).toBe("accept")
+  expect(binary.events.map((event) => event.type)).toEqual(sse.events.map((event) => event.type))
+  expect(binary.events[2]).toMatchObject({ delta: "Hi there!" })
+  expect(binary.events.at(-1)).toMatchObject({
+    outcome: { type: "success" },
+    runId: "rn-proto",
+    threadId: "th-proto",
+  })
+}, 60_000)
+
+it("answers SSE to a client that does not admit protobuf, whatever else it lists", async () => {
+  const { port } = await setupServer(script().user("hello").replies("Hi there!").build())
+  const response = await requestRun(
+    port,
+    { threadId: "th2", runId: "rn2", messages: [{ id: "1", role: "user", content: "hello" }] },
+    { accept: "text/event-stream, application/vnd.ag-ui.event+proto;q=0" },
+  )
+  expect(response.headers.get("content-type")).toBe("text/event-stream")
+  expect(parseSseEvents(await response.text()).map((event) => event.type)).toContain("RUN_FINISHED")
 }, 60_000)
 
 it("collects and resumes interleaved native parallel subagent interrupts", async () => {
@@ -518,6 +595,42 @@ it("rejects a concurrent AG-UI run on the same thread", async () => {
   releaseRoute?.()
   await first.text()
 }, 10_000)
+
+it("streams a tool call's arguments as several TOOL_CALL_ARGS deltas on the wire", async () => {
+  const input = { query: "pricing", limit: 5 }
+  const streamRoute: typeof streamResolvedRoute = async function* () {
+    yield { type: "tool_call_args", data: { id: "call-1", name: "lookup", delta: '{"query":' } }
+    yield { type: "tool_call_args", data: { id: "call-1", name: "lookup", delta: '"pricing",' } }
+    yield { type: "tool_call_args", data: { id: "call-1", name: "lookup", delta: '"limit":5}' } }
+    yield { type: "tool_call", id: "call-1", name: "lookup", input }
+    yield { type: "tool_result", id: "call-1", name: "lookup", output: { answer: "pricing" } }
+    yield { type: "done", output: { ok: true } }
+  }
+  const { port } = await setupControlledServer({ streamRoute })
+  const { events, response } = await postRun(port, {
+    threadId: "stream-thread",
+    runId: "stream-run",
+    messages: [{ id: "1", role: "user", content: "look up pricing" }],
+  })
+
+  expect(response.status).toBe(200)
+  const toolEvents = events.filter((event) => String(event.type).startsWith("TOOL_CALL"))
+  expect(toolEvents.map((event) => event.type)).toEqual([
+    "TOOL_CALL_START",
+    "TOOL_CALL_ARGS",
+    "TOOL_CALL_ARGS",
+    "TOOL_CALL_ARGS",
+    "TOOL_CALL_END",
+    "TOOL_CALL_RESULT",
+  ])
+  expect(new Set(toolEvents.map((event) => event.toolCallId))).toEqual(new Set(["call-1"]))
+  expect(
+    toolEvents
+      .filter((event) => event.type === "TOOL_CALL_ARGS")
+      .map((event) => String(event.delta))
+      .join(""),
+  ).toBe(JSON.stringify(input))
+})
 
 it("preserves the upstream invocation id across canonical AG-UI tool events", async () => {
   const upstreamInvocationId = "upstream-invocation-42"
@@ -1036,11 +1149,12 @@ it("keeps a parked thread interrupted when the client disconnects after the park
   await expect.poll(async () => threadStatus(port, "parked-then-disconnected")).toBe("interrupted")
 })
 
-it.each(["failure", "cancellation"])(
+it.each(["failure", "cancellation", "shutdown"])(
   "preserves AG-UI %s in the terminal frame sent to attach viewers",
   async (mode) => {
     const liveTurnHub = createLiveTurnHub()
     const runRegistry = createRunRegistry()
+    const shutdownController = new AbortController()
     let entered!: () => void
     const started = new Promise<void>((resolve) => {
       entered = resolve
@@ -1055,7 +1169,12 @@ it.each(["failure", "cancellation"])(
       await blocked
       throw new Error("route failed during live attach")
     }
-    const { port } = await setupControlledServer({ streamRoute, liveTurnHub, runRegistry })
+    const { port } = await setupControlledServer({
+      streamRoute,
+      liveTurnHub,
+      runRegistry,
+      shutdownSignal: shutdownController.signal,
+    })
     const running = postRun(port, {
       threadId: "attach-terminal",
       runId: "attach-terminal-run",
@@ -1066,15 +1185,27 @@ it.each(["failure", "cancellation"])(
     try {
       if (!attachment) throw new Error("Expected live turn attachment")
       if (mode === "cancellation") expect(runRegistry.cancel("attach-terminal")).toBe(true)
+      else if (mode === "shutdown") shutdownController.abort()
       else release()
       const { events } = await running
-      expect(events.some((event) => event.type === "RUN_ERROR")).toBe(true)
+      if (mode === "cancellation" || mode === "shutdown") {
+        // AG-UI 1.0: a cancel ends the run as cancelled, not as a failure.
+        expect(events.map((event) => event.type)).not.toContain("RUN_ERROR")
+        expect(events.at(-1)).toMatchObject({
+          type: "RUN_FINISHED",
+          outcome: { type: "cancelled" },
+        })
+      } else {
+        expect(events.some((event) => event.type === "RUN_ERROR")).toBe(true)
+      }
       expect(await attachment.next()).toEqual({
         type: "done",
         output:
           mode === "cancellation"
             ? { cancelled: true }
-            : { error: "route failed during live attach" },
+            : mode === "shutdown"
+              ? { error: "Server shutting down" }
+              : { error: "route failed during live attach" },
       })
       expect(await attachment.next()).toBeNull()
     } finally {
@@ -1151,4 +1282,182 @@ it("does not clone the request envelope when middleware is absent", async () => 
   } finally {
     clone.mockRestore()
   }
+})
+
+// ---------------------------------------------------------------------------
+// middleware `after` (issue #755): the final assistant message, validated or
+// rewritten server-side with the middleware context, before the client sees
+// its TEXT_MESSAGE_* frames and RUN_FINISHED.
+// ---------------------------------------------------------------------------
+
+/** A turn that talks, calls a tool, then answers — the answer is the final message. */
+const afterHookRoute: typeof streamResolvedRoute = async function* () {
+  yield { type: "chunk", data: "Looking", messageId: "m1" }
+  yield { type: "message_end", data: { messageId: "m1" } }
+  yield { type: "tool_call", id: "c1", name: "lookup", input: { q: "x" } }
+  yield { type: "tool_result", id: "c1", name: "lookup", output: "42" }
+  yield { type: "chunk", data: "The answer ", messageId: "m2" }
+  yield { type: "chunk", data: "is 42.", messageId: "m2" }
+  yield { type: "message_end", data: { messageId: "m2" } }
+  yield { type: "done", output: { ok: true } }
+}
+
+const AFTER_HOOK_RUN = {
+  threadId: "after-thread",
+  runId: "after-run",
+  messages: [{ id: "1", role: "user", content: "what is the answer?" }],
+}
+
+it("after hook: receives the final message with the middleware context, before RUN_FINISHED", async () => {
+  const seen: MiddlewareAfterRun[] = []
+  const { port } = await setupControlledServer({
+    middleware: () => ({ action: "continue", context: { tenant: "acme" } }),
+    middlewareAfter: (run) => {
+      seen.push(run)
+    },
+    streamRoute: afterHookRoute,
+  })
+  const { events, response } = await postRun(port, AFTER_HOOK_RUN)
+  expect(response.status).toBe(200)
+  expect(seen).toEqual([
+    {
+      assistantId: "/chat#agent",
+      context: { tenant: "acme" },
+      finalMessage: "The answer is 42.",
+      messages: [{ id: "1", role: "user", content: "what is the answer?" }],
+      routeId: "/chat",
+      runId: "after-run",
+      threadId: "after-thread",
+    },
+  ])
+  expect(events.map((event) => event.type)).toEqual([
+    "RUN_STARTED",
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",
+    "TOOL_CALL_START",
+    "TOOL_CALL_ARGS",
+    "TOOL_CALL_END",
+    "TOOL_CALL_RESULT",
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",
+    "RUN_FINISHED",
+  ])
+  expect(events.at(-1)).toMatchObject({ outcome: { type: "success" }, result: { ok: true } })
+})
+
+it("after hook: a hook that returns nothing leaves the emitted events identical to no hook", async () => {
+  const baseline = await setupControlledServer({ streamRoute: afterHookRoute })
+  const hooked = await setupControlledServer({
+    middlewareAfter: () => undefined,
+    streamRoute: afterHookRoute,
+  })
+  // Message ids are minted per run, so they are the one thing allowed to differ.
+  const stableIds = (sse: string) => sse.replace(/[0-9a-f]{8}-[0-9a-f-]{27}/g, "<id>")
+  const expected = stableIds(await (await requestRun(baseline.port, AFTER_HOOK_RUN)).text())
+  const actual = stableIds(await (await requestRun(hooked.port, AFTER_HOOK_RUN)).text())
+  expect(actual).toBe(expected)
+})
+
+it("after hook: replaces the final message; earlier text and tool frames are untouched", async () => {
+  const { port } = await setupControlledServer({
+    middlewareAfter: (run) => ({ finalMessage: `[checked] ${run.finalMessage}` }),
+    streamRoute: afterHookRoute,
+  })
+  const { events } = await postRun(port, AFTER_HOOK_RUN)
+  const text = events.filter((event) => event.type === "TEXT_MESSAGE_CONTENT")
+  expect(text.map((event) => event.delta)).toEqual(["Looking", "[checked] The answer is 42."])
+  expect(events.filter((event) => event.type === "TOOL_CALL_RESULT")).toHaveLength(1)
+  expect(events.at(-1)).toMatchObject({ type: "RUN_FINISHED", outcome: { type: "success" } })
+})
+
+it("after hook: reject() ends the run with RUN_ERROR and no final text", async () => {
+  const { port } = await setupControlledServer({
+    middlewareAfter: () => ({
+      action: "reject",
+      body: { error: "unknown component <Chart>" },
+      status: 422,
+    }),
+    streamRoute: afterHookRoute,
+  })
+  const { events, response } = await postRun(port, AFTER_HOOK_RUN)
+  expect(response.status).toBe(200)
+  expect(events.map((event) => event.type)).toEqual([
+    "RUN_STARTED",
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",
+    "TOOL_CALL_START",
+    "TOOL_CALL_ARGS",
+    "TOOL_CALL_END",
+    "TOOL_CALL_RESULT",
+    "RUN_ERROR",
+  ])
+  expect(events.at(-1)).toEqual({
+    type: "RUN_ERROR",
+    message: "unknown component <Chart>",
+    code: "middleware_rejected",
+  })
+  const thread = await fetch(`http://127.0.0.1:${port}/threads/after-thread`)
+  expect(await thread.json()).toMatchObject({ status: "idle" })
+})
+
+it("after hook: binds from a middleware file's lifecycle definition through the runtime", async () => {
+  const appRoot = await fixtureApp({
+    "src/app/context/index.ts":
+      "export const graph = async (_input, ctx) => ({ middleware: ctx.middleware })\n",
+    "src/middleware.ts": `
+      export default {
+        handle: (request) => ({ action: "continue", context: { tenant: request.headers["x-tenant"] } }),
+        after: (run) => run.context?.tenant === "acme"
+          ? { finalMessage: "validated for " + run.context.tenant }
+          : { action: "reject", status: 403, body: "tenant mismatch" },
+      }
+    `,
+  })
+  const runtime = await createRuntimeRequestListener({ appRoot })
+  cleanup.push(() => runtime.close())
+  const server = createServer(runtime.listener)
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  cleanup.push(() => new Promise<void>((resolve) => server.close(() => resolve())))
+  const port = (server.address() as AddressInfo).port
+  const post = async (threadId: string, tenant: string) => {
+    const response = await fetch(`http://127.0.0.1:${port}/agui/%2Fcontext%23graph`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "text/event-stream",
+        "x-tenant": tenant,
+      },
+      body: JSON.stringify({
+        context: [],
+        forwardedProps: {},
+        messages: [{ id: "1", role: "user", content: "hello" }],
+        runId: `run-${threadId}`,
+        state: {},
+        threadId,
+        tools: [],
+      }),
+    })
+    return parseSseEvents(await response.text())
+  }
+
+  const accepted = await post("after-file-ok", "acme")
+  expect(accepted.map((event) => event.type)).toEqual([
+    "RUN_STARTED",
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",
+    "RUN_FINISHED",
+  ])
+  expect(accepted[2]).toMatchObject({ delta: "validated for acme" })
+
+  const rejected = await post("after-file-rejected", "other")
+  expect(rejected.at(-1)).toEqual({
+    type: "RUN_ERROR",
+    message: "tenant mismatch",
+    code: "middleware_rejected",
+  })
 })

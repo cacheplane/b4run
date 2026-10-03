@@ -1,5 +1,9 @@
 {
-  "deleteFiles": ["src/app/(public)/hello/[tenant]/tools/greet.ts"],
+  "deleteFiles": [
+    "src/app/hello/index.ts",
+    "src/app/hello/tools/greet.ts",
+    "src/app/hello/evals/smoke.eval.ts"
+  ],
   "files": {
     "src/app/(public)/hello/[tenant]/index.ts": "interface GraphInput {\n  tenant: string;\n  greeting?: string;\n}\n\nexport async function graph(input: GraphInput): Promise<GraphInput> {\n  return {\n    ...input,\n    greeting: `Hello, ${input.tenant}!`,\n  };\n}\n"
   },

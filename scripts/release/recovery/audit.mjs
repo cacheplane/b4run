@@ -436,10 +436,10 @@ function auditDependencies(source, writer) {
   const observation = data(source, "observation")
   return {
     observation: Object.fromEntries(
-      ["github", "git", "npm", "npmAuditFactory", "attestations"].map((key) => [
-        key,
-        data(observation, key),
-      ]),
+      ["github", "git", "npm", "npmAuditFactory", "attestations"]
+        // An injected reader clock is optional; observation defaults to the wall clock.
+        .concat(Object.hasOwn(observation, "clock") ? ["clock"] : [])
+        .map((key) => [key, data(observation, key)]),
     ),
     authority: data(source, "authority"),
     ...(writer

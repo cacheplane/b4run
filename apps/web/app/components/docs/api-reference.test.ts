@@ -63,10 +63,12 @@ const EXPECTED_DETAILED_IMPORTS = [
   ["@b4run/cli", "./fetch"],
   ["@b4run/cli", "./runtime"],
   ["@b4run/cli", "./testing"],
+  ["@b4run/cli", "./workspace"],
   ["@b4run/core", "."],
   ["@b4run/core", "./node"],
   ["@b4run/ag-ui", "."],
   ["@b4run/ag-ui", "./sse"],
+  ["@b4run/ag-ui", "./client"],
   ["@b4run/ag-ui", "./react"],
   ["@b4run/memory", "."],
   ["@b4run/memory", "./browse"],
@@ -245,12 +247,13 @@ const EXPECTED_REQUIRED_CONTRACT_KEYS = [
   "@b4run/langgraph#./route-module:WorkflowRouteModule",
   "@b4run/langgraph#./route-module:assertExactlyOneEntry",
   "@b4run/langgraph#./route-module:normalizeRouteModule",
-  "@b4run/ag-ui#./sse:encodeAgUiSse",
+  "@b4run/ag-ui#./sse:agUiContentType",
+  "@b4run/ag-ui#./sse:encodeAgUiEvent",
+  "@b4run/ag-ui#./client:B4HttpAgent",
   "@b4run/ag-ui#.:B4_PLAN_ACTIVITY_TYPE",
-  "@b4run/ag-ui#.:B4_SUBAGENT_ACTIVITY_TYPE",
   "@b4run/ag-ui#.:B4RunInput",
   "@b4run/ag-ui#.:B4PlanActivityContent",
-  "@b4run/ag-ui#.:B4SubagentActivityContent",
+  "@b4run/ag-ui#.:B4UsageData",
   "@b4run/ag-ui#.:RunContext",
   "@b4run/ag-ui#.:ToAguiOptions",
   "@b4run/ag-ui#.:fromRunAgentInput",
@@ -297,6 +300,8 @@ const EXPECTED_REQUIRED_CONTRACT_KEYS = [
   "@b4run/permissions#.:PermissionsStore",
   "@b4run/sdk#.:AgentConfig",
   "@b4run/sdk#.:ReasoningConfig",
+  "@b4run/sdk#.:OpenAIReasoningConfig",
+  "@b4run/sdk#.:AnthropicReasoningConfig",
   "@b4run/sdk#.:RetryConfig",
   "@b4run/sdk#.:RouteConfig",
   "@b4run/sdk#.:agent",
@@ -336,11 +341,17 @@ const EXPECTED_REQUIRED_CONTRACT_KEYS = [
   "@b4run/workspace#.:BackendContext",
   "@b4run/workspace#.:ExecBackend",
   "@b4run/workspace#.:FilesystemBackend",
+  "@b4run/workspace#.:WalkedEntry",
   "@b4run/workspace#.:SandboxConfig",
   "@b4run/workspace#.:SandboxHandle",
   "@b4run/workspace#.:SandboxPolicy",
   "@b4run/workspace#.:SandboxProvider",
   "@b4run/workspace#.:SandboxSecurityPolicy",
+  "@b4run/workspace#.:SandboxWorkspaceReader",
+  "@b4run/workspace#.:OpenWorkspaceReaderInput",
+  "@b4run/workspace#.:OpenManagedWorkspaceReaderInput",
+  "@b4run/workspace#.:withWorkspaceReader",
+  "@b4run/workspace#.:scopedWorkspaceReader",
   "@b4run/workspace#.:SourceBundle",
   "@b4run/workspace#.:SourceFileInput",
   "@b4run/workspace#.:WorkspaceSourceDefinition",
@@ -699,7 +710,7 @@ describe("artifact registry", { timeout: 30_000 }, () => {
   it("uses unique keys in separate import and operated address spaces", () => {
     const addresses = ARTIFACT_REGISTRY.map(artifactAddressFor)
     expect(new Set(addresses).size).toBe(addresses.length)
-    expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import")).toHaveLength(44)
+    expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import")).toHaveLength(46)
     expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "operated")).toHaveLength(3)
     expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "generated")).toEqual([
       GENERATED_ROUTES_ARTIFACT,
@@ -1068,7 +1079,7 @@ describe("package catalog", { timeout: 30_000 }, () => {
 
   it("registers every authored high-value signature contract exactly once", () => {
     expect(API_REQUIRED_CONTRACT_KEYS).toEqual(EXPECTED_REQUIRED_CONTRACT_KEYS)
-    expect(API_REQUIRED_CONTRACT_KEYS).toHaveLength(113)
+    expect(API_REQUIRED_CONTRACT_KEYS).toHaveLength(122)
     expect(new Set(API_REQUIRED_CONTRACT_KEYS).size).toBe(API_REQUIRED_CONTRACT_KEYS.length)
     expect(API_REQUIRED_CONTRACT_KEYS).toContain("@b4run/sdk#.:agent")
     expect(API_REQUIRED_CONTRACT_KEYS).toContain("@b4run/memory#.:MemoryStore")

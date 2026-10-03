@@ -106,15 +106,15 @@ scripts respectively) — not workspace packages.
 
 ## Definition of Done
 
-The required `validate` job in `.github/workflows/ci.yml` aggregates four
+The required `validate` job in `.github/workflows/ci.yml` aggregates five
 independent lanes for code and release-bearing changes and succeeds only when all
-four succeed. Failure, cancellation, or an unexpected skipped lane blocks it.
+five succeed. Failure, cancellation, or an unexpected skipped lane blocks it.
 
 A pull request changing only regular, non-executable Markdown files under
 `docs/superpowers/runbooks/` uses the narrow prose path. The existing scope job
 checks the exact merge-base diff, both sides of file modes, and whitespace before
 emitting that result. `validate` still runs and requires successful classification
-and all four heavy lanes to be deliberately skipped. Mixed changes, other paths,
+and all five heavy lanes to be deliberately skipped. Mixed changes, other paths,
 missing or malformed results, and failed classification cannot pass this route.
 All pushes to main retain full validation; generated-metadata scope remains a
 separate exception for its existing infrastructure jobs.
@@ -136,6 +136,13 @@ checkout. The `pack-smoke` lane runs `pnpm pack:check` and
 `pnpm verify:typescript-tooling-pack`. The `harness-verify` lane runs
 `pnpm verify:harness:self-test` and the framework, runtime, and smoke harnesses.
 These gates remain part of repository validation.
+
+The `dependency-security-browser` lane installs dependencies and Chromium,
+builds `@b4run/ag-ui`, runs the CopilotKit v2 runtime against B4.run
+(`test/security-dependencies/copilotkit-v2-runtime.test.ts`) — the CopilotKit
+runtime check that gates merge (`copilotkit-examples-e2e` stays outside
+`validate`) — and then the dependency-security browser regressions. This lane
+runs only in CI; `pnpm ci:validate` does not include it.
 
 On pull requests, a separate `changesets` job also runs
 `node scripts/check-changesets.mjs` to require a changeset for user-facing
@@ -200,24 +207,32 @@ substitute for the other or optional release cleanup.
   a stale or skewed `dist/` (from a branch switch or a per-package filtered
   build) produces false negatives in ad-hoc scripts. Run `pnpm build` first;
   see `CONTRIBUTING.md`'s "Build before running anything against `dist/`".
-- **The SEO lastmod manifest regenerates on main, not in your PR.**
+- **Regenerate the SEO lastmod manifest in the PR that changes site content.**
   `apps/web/app/seo/lastmod.generated.json` records when each route's content
-  last changed, and it stays committed because it is the only store of that
-  history and is imported statically by the sitemap. Do NOT run
-  `pnpm --dir apps/web seo:lastmod` for an ordinary content edit — the
-  `SEO lastmod` workflow regenerates and commits it after your change reaches
-  main, and a PR that regenerates it conflicts with every other docs PR inside
-  a generated file. The one case you must regenerate is adding or removing a
-  page: a route the manifest has never seen has no timestamp, and
-  `requireValidLastModified` throws during the build. That gate is a test, not
-  a CI step: the web suite's route-coverage case (`covers every route the site
-  renders`, in `apps/web/app/seo/generate-lastmod.test.ts`) reds
-  `source-validate` until you regenerate, and
-  `pnpm --dir apps/web seo:lastmod:routes` reproduces it locally. If the
-  manifest ever does conflict on a merge or rebase, it is marked `-merge` in
-  `.gitattributes`, so git leaves valid JSON on one side instead of writing
-  conflict markers into generated content — regenerate on top of that rather
-  than hand-editing it.
+  last changed. After committing a content change (docs, blog, homepage), run
+  `pnpm --dir apps/web seo:lastmod` and commit the result. Only your own
+  routes' entries change: a route whose source digest matches its recorded
+  entry keeps that entry verbatim, whatever Git history says, so the squash
+  merge that re-dates your commits does not move the date, and
+  `seo:lastmod:check` still passes on main. A changed or new route is dated by
+  the committer date (UTC) of the newest commit touching its sources — which
+  is why you commit the content first; with uncommitted sources, or in a
+  shallow clone, the generator stamps the current time instead. The file stays
+  committed because deploy and CI checkouts are shallow and the sitemap
+  imports it statically. There is no job on main that regenerates it, so
+  the web suite's gate (`covers every route the site renders, recorded
+  against its current content`, in `apps/web/app/seo/generate-lastmod.test.ts`)
+  reds `source-validate` until you regenerate, and
+  `pnpm --dir apps/web seo:lastmod:routes` reproduces it locally. It fails
+  on a route the manifest has never seen (it has no timestamp, so
+  `requireValidLastModified` throws during the build), a route it covers
+  that the site no longer renders, and a docs or homepage route whose
+  content changed since it was recorded. It needs no Git history. Blog
+  listings are exempt from the content check, because a post committed
+  ahead of its date joins them on that day with no commit at all. If the manifest conflicts on a merge or rebase, it is marked
+  `-merge` in `.gitattributes`, so git leaves valid JSON on one side instead
+  of writing conflict markers — regenerate on top of that rather than
+  hand-editing it.
 - **Banned doc phrases.** `scripts/check-docs.mjs` greps `README.md`,
   `CONTRIBUTING.md`, `CONTRIBUTORS.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`,
   `apps/web/app`, `apps/web/content`, `docs/` (excluding

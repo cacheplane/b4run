@@ -1,8 +1,6 @@
 # Stream Output
 
-You want a route's response to arrive incrementally rather than as a single blob at the end. Here's how to call `/threads/:id/runs/stream` and read the SSE frames.
-
-## The code
+A research run can take a minute or more. Let's stream its output as it arrives by calling `/threads/:id/runs/stream` and reading the SSE frames:
 
 ```ts title="scripts/stream-research.ts"
 // 1. Create a thread first (or reuse an existing one).
@@ -49,7 +47,7 @@ while (true) {
 
     switch (eventType) {
       case "chunk":
-        // Streamed text fragment — append to display.
+        // Streamed text fragment: append it to the display.
         if (typeof payload === "string") process.stdout.write(payload)
         break
       case "tool_call":
@@ -68,8 +66,8 @@ while (true) {
         console.log("\n[done]", payload.output)
         break
       default:
-        // subagent.start, subagent.tool_call, subagent.tool_result,
-        // subagent.message, subagent.end, etc.
+        // subagent.start, subagent.token, subagent.tool_call,
+        // subagent.tool_result, subagent.end, etc.
         console.log(`[${eventType}]`, payload)
     }
   }
@@ -78,29 +76,35 @@ while (true) {
 
 ## SSE event types
 
-Every event frame is `event: <type>\ndata: <json>\n\n`. Parse the `event:` line to route frames correctly — do not treat all frames as the same type.
+Every event frame is `event: <type>\ndata: <json>\n\n`. Parse the `event:` line to tell the frame types apart.
+
+Every `subagent.*` payload carries the child's identity, written `…identity` below: `subagent` (its name), `route_id` and `depth`. Apart from that identity, a child event has exactly the shape of the root event of the same name.
 
 | Event type | Payload shape | Notes |
 |---|---|---|
-| `chunk` | `string` | Streamed text fragment from the LLM. |
-| `tool_call` | `{ name: string, input: unknown }` | LLM is calling a tool. |
-| `tool_result` | `{ name: string, output: unknown }` | Tool returned a result. |
+| `chunk` | `string` | Streamed text fragment from the model. |
+| `tool_call` | `{ name: string, input: unknown }` | The model is calling a tool. |
+| `tool_result` | `{ name: string, output: unknown }` | A tool returned a result. A tool that threw still emits one, and `output` is the `status: "error"` ToolMessage the model receives. |
 | `plan_update` | plan object | Emitted after a [Planning](/docs/planning) `writeTodos` result updates the route's todo state. (Does not write back to `plan.md`.) |
 | `interrupt` | interrupt object | Emitted when the agent hits a HITL interrupt point. |
-| `subagent.start` | `{ name, routeId, depth, call_id }` | A subagent started. |
-| `subagent.tool_call` | `{ call_id, name, input }` | Tool call inside a subagent. |
-| `subagent.tool_result` | `{ call_id, name, output }` | Tool result inside a subagent. |
-| `subagent.message` | `{ call_id, content }` | Text chunk from a subagent. |
-| `subagent.end` | `{ call_id, final_message?, error? }` | Subagent finished or failed. |
-| `done` | `{ output: unknown }` | Run complete; `output` is the final route result. |
+| `subagent.start` | `{ call_id, parent_call_id?, subagent, route_id, depth, description? }` | A subagent started. `parent_call_id` names the call that dispatched it when the parent is itself a subagent. |
+| `subagent.token` | `{ call_id, …identity, data, messageId }` | Text from the child, framed like root `chunk`s: `messageId` is the child's model invocation. |
+| `subagent.reasoning` | `{ call_id, …identity, data, messageId }` | The child's visible reasoning, when its route streams it. |
+| `subagent.message_end` | `{ call_id, …identity, messageId }` | The child's model invocation ended. |
+| `subagent.tool_call` | `{ call_id, …identity, id, name, input }` | Tool call inside a subagent, under the model's tool-call id. |
+| `subagent.tool_call_args` | `{ call_id, …identity, id, name, delta }` | Streamed arguments for that call, for display only. |
+| `subagent.tool_result` | `{ call_id, …identity, id, name, output }` | The result, under the same id. |
+| `subagent.usage` | `{ call_id, …identity, provider?, model?, usage_metadata }` | One child model call's token counts. |
+| `subagent.end` | `{ call_id, …identity, final_message?, error? }` | Subagent finished or failed. |
+| `done` | `{ output: unknown }` | Run complete. `output` is the final route result. |
 
 ## Notes
 
-- **AP URL shape.** The endpoint is `/threads/:id/runs/stream`; the body is `{ route, input }`. Create or retrieve a thread id via `POST /threads` first.
-- **`text/event-stream`, not JSON.** The response is raw SSE. Parse `event:` and `data:` lines per frame, or use a client like `eventsource-parser`.
-- **Heartbeats are comments.** A `: ping` heartbeat contains no `event:` or `data:` payload, so clients ignore it.
-- **Use `/threads/:id/runs/wait` when you don't need progress.** Streaming adds parsing complexity for callers. Pick `runs/stream` when partial output is meaningful — long agent reasoning, token-by-token text, intermediate workflow states, [planning](/docs/planning) updates, or [subagent](/docs/subagents) activity.
-- **Retry has limits during streams.** Retry is available only before the first stream event; any emitted token or event commits the response. See [Retry](/docs/retry) for the streaming caveat.
+- **AP URL shape.** The endpoint is `/threads/:id/runs/stream`, and the body is `{ route, input }`. Get a thread id from `POST /threads` first.
+- **The response is `text/event-stream`.** Parse the `event:` and `data:` lines in each frame, or use a client like `eventsource-parser`.
+- **Heartbeats are comments.** A `: ping` heartbeat has no `event:` or `data:` line, so clients skip it.
+- **Use `/threads/:id/runs/wait` when you don't need progress.** It returns one JSON result, which is less to parse. Pick `runs/stream` when partial output is useful: long agent reasoning, token-by-token text, intermediate workflow states, [planning](/docs/planning) updates, or [subagent](/docs/subagents) activity.
+- **Retry never repeats a token.** Each model call is retried only before its response starts. A response that fails after part of it has streamed isn't retried; the error comes through the stream. See [Retry](/docs/retry).
 
 ## Related
 

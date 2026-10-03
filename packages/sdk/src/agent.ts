@@ -5,8 +5,28 @@ const B4_AGENT: unique symbol = Symbol.for("b4.agent") as unknown as typeof B4_A
 
 declare const brand: unique symbol
 
+/**
+ * How an agent route retries a failed model call. Each model call in the
+ * tool loop retries on its own; B4.run never restarts the run, so tools don't
+ * run twice and streamed tokens are never sent again. See docs/retry.
+ */
 export interface RetryConfig {
+  /**
+   * Attempts per model call, counting the first. Default `3`; `1` sends each
+   * call once. Becomes the chat model's `maxRetries` (`maxAttempts - 1`),
+   * which covers server errors, network errors and rate limits with a short
+   * `Retry-After`, and also caps B4.run's retries of a capacity rate limit.
+   * The route's summarization model gets the same `maxRetries`.
+   */
   readonly maxAttempts?: number
+  /**
+   * Milliseconds before the first retry of a capacity rate limit (a 429 with
+   * no `Retry-After`); doubles each retry, plus up to 500ms of jitter, capped
+   * at 10 seconds. Default `1000`. A 429 whose `Retry-After` is over 60
+   * seconds (LangChain waits out shorter ones itself) isn't retried: the
+   * error surfaces at once, keeping the wait in `retryAfterMs`. LangChain's
+   * own backoff for other errors is fixed and doesn't read it.
+   */
   readonly baseDelay?: number
 }
 
@@ -84,8 +104,11 @@ export interface DelegationConfig<Name extends string> {
 }
 
 /**
- * Reasoning model tuning. Currently maps to OpenAI's `reasoningEffort`
- * parameter; non-reasoning models silently ignore it.
+ * OpenAI reasoning controls, applied when the route resolves to the `openai`
+ * provider. `effort` is the request's reasoning effort. `summary` asks the
+ * Responses API to stream a summary of the model's reasoning; setting it
+ * switches the route to the Responses API and is what makes reasoning text
+ * reach clients (AG-UI `REASONING_*`).
  *
  * Supported effort values (per OpenAI docs):
  *   - "none"    — disable reasoning entirely (gpt-5.1+ only)
@@ -95,8 +118,28 @@ export interface DelegationConfig<Name extends string> {
  *   - "high"    — deeper reasoning; recommended for tool-use-heavy agents
  *   - "xhigh"   — gpt-5.1-codex-max and later only
  */
-export interface ReasoningConfig {
+export interface OpenAIReasoningConfig {
   readonly effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
+  readonly summary?: "auto" | "concise" | "detailed"
+}
+
+/**
+ * Anthropic extended thinking, applied when the route resolves to the
+ * `anthropic` provider. `budgetTokens` (a whole number of at least 1024)
+ * enables thinking with that budget; the thinking text streams to clients.
+ */
+export interface AnthropicReasoningConfig {
+  readonly budgetTokens: number
+}
+
+/**
+ * Reasoning controls, keyed by provider. Only the sub-object for the route's
+ * resolved provider is read; a sub-object for another provider fails the route
+ * when its model is built, so a misplaced setting is never silently ignored.
+ */
+export interface ReasoningConfig {
+  readonly openai?: OpenAIReasoningConfig
+  readonly anthropic?: AnthropicReasoningConfig
 }
 
 export interface B4Agent<Subagents extends SubagentMap = SubagentMap> {

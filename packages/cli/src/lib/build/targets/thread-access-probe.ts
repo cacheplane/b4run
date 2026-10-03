@@ -26,7 +26,7 @@ export function assertNoThreadAccessPolicy(appRoot: string, target: string): voi
   throw new CliError(
     `The "${target}" build target cannot carry a thread access policy, and ${found} exists. ` +
       "Building it anyway would deploy every thread endpoint ungated. Remove the policy file, " +
-      'or build for the "node" target, which probes it at boot.',
+      'or build for the "node" target, which carries it in its build.',
     1,
     { code: "B4_E1005" },
   )

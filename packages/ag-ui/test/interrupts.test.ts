@@ -129,3 +129,54 @@ describe("fromAguiResume", () => {
     expect(Object.hasOwn(resume, "payload")).toBe(true)
   })
 })
+
+describe("toAguiInterrupt — approval grants", () => {
+  const envelope = {
+    interruptId: "perm-1",
+    kind: "tool",
+    callId: "call_deploy_0_0",
+    grant: "b4ag_abc",
+  }
+
+  test("keeps the grant in metadata only: the top-level field is one 1.0 clients strip", () => {
+    const interrupt = toAguiInterrupt(envelope)
+    if (interrupt === null) throw new Error("expected an interrupt")
+    expect(Object.hasOwn(interrupt, "grant")).toBe(false)
+    expect((interrupt.metadata as { grant?: string }).grant).toBe("b4ag_abc")
+  })
+})
+
+describe("fromAguiResume — approval grants", () => {
+  test("reads the grant from the entry's metadata", () => {
+    const [resume] = fromAguiResume([
+      {
+        interruptId: "perm-1",
+        status: "resolved",
+        payload: "once",
+        metadata: { grant: "b4ag_abc" },
+      },
+    ])
+    expect(resume).toEqual({
+      interruptId: "perm-1",
+      status: "resolved",
+      payload: "once",
+      grant: "b4ag_abc",
+    })
+  })
+
+  test("does not read a top-level grant: a 1.0 client never sends one", () => {
+    const [resume] = fromAguiResume([
+      { interruptId: "perm-1", status: "resolved", payload: "once", grant: "b4ag_abc" } as never,
+    ])
+    if (!resume) throw new Error("expected one entry")
+    expect(Object.hasOwn(resume, "grant")).toBe(false)
+  })
+
+  test("drops a non-string metadata grant — an opaque echo is not a JSON channel", () => {
+    const [resume] = fromAguiResume([
+      { interruptId: "perm-1", status: "cancelled", metadata: { grant: { evil: true } } },
+    ])
+    if (!resume) throw new Error("expected one entry")
+    expect(Object.hasOwn(resume, "grant")).toBe(false)
+  })
+})

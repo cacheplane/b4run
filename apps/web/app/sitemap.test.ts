@@ -148,8 +148,8 @@ describe("sitemap documentation entries", () => {
       .map((entry) => entry.url)
       .filter((url) => new URL(url).pathname.startsWith("/docs"))
 
-    expect(DOCS_PAGES).toHaveLength(60)
-    expect(ALL_DOCS_PAGES).toHaveLength(76)
+    expect(DOCS_PAGES).toHaveLength(64)
+    expect(ALL_DOCS_PAGES).toHaveLength(80)
     expect(docsUrls).toEqual(ALL_DOCS_PAGES.map((page) => `https://b4.run${page.href}`))
     expect(docsUrls).toContain("https://b4.run/docs/thread-access")
     expect(docsUrls).not.toContain("https://b4.run/docs")
@@ -172,11 +172,16 @@ describe("sitemap documentation entries", () => {
     expect(new Set(resolvedPaths)).toEqual(new Set(expectedPaths))
     expect(new Set(resolvedPaths).size).toBe(resolvedPaths.length)
     expect(resolvedPaths).not.toContain("/docs")
-    expect(resolvedPaths).not.toContain("/blog/b4-0-8-framework-around-the-agent")
-    expect(resolvedPaths).not.toContain("/blog/b4-at-the-edge")
-    expect(resolvedPaths).not.toContain("/blog/b4-0-4-release")
+    expect(resolvedPaths).toContain("/blog/b4-0-8-framework-around-the-agent")
+    expect(resolvedPaths).toContain("/blog/b4-at-the-edge")
+    expect(resolvedPaths).toContain("/blog/b4-0-4-release")
+    expect(resolvedPaths).toContain("/blog/tags/releases")
+    expect(resolvedPaths).toContain("/blog/tags/patterns")
+    // Both posts are dated after the frozen as-of date.
+    expect(resolvedPaths).not.toContain("/blog/build-a-code-fixing-agent-you-can-read")
+    expect(resolvedPaths).not.toContain("/blog/what-is-a-software-factory")
     expect(entries).toHaveLength(2 + ALL_DOCS_PAGES.length + posts.length + tags.length)
-    expect(entries).toHaveLength(84)
+    expect(entries).toHaveLength(93)
   })
 
   it("keeps production post and tag static params aligned with the frozen sitemap inventory", async () => {

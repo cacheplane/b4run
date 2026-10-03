@@ -1,5 +1,40 @@
 # @dawn-ai/devkit
 
+## 0.13.1
+
+### Patch Changes
+
+- 0c76234: Move to AG-UI protocol 1.0 (`@ag-ui/core`/`@ag-ui/encoder` 1.0.1; `@ag-ui/client` optional peer `>=1.0.1 <2.0.0`; validators at `@ag-ui/core/schemas`). Approval grants (new in this release) travel over AG-UI in `metadata.grant` only, on interrupts and on resume entries; a 1.0 client strips a top-level `grant` in both directions. Breaking for AG-UI clients relative to 0.13.0: a cancelled or shut-down run ends with `RUN_FINISHED { outcome: cancelled }` instead of `RUN_ERROR`; a request declaring a foreign protocol major is refused with `400 unsupported_protocol_version`; a null route result is omitted rather than sent as `result: null`; messages carrying image, audio, video or document parts are refused with `422 multimodal_not_supported` until multimodal input lands. `RUN_STARTED` declares `protocolVersion: "1.0"`; a turn that leaves client-provided tool calls parked names them in `outcome.pendingToolCallIds`; 1.0 content parts are read as text; reasoning and activity history is dropped on the way in. Examples and the research scaffold pin CopilotKit 1.76.0 and `@ag-ui/client` 1.0.1 exactly.
+- c726631: CopilotKit 1.76 hands `useAgent` a replacement agent instance for the same thread a beat after first render. The research web app applied a restored transcript to the first instance, so a reloaded thread came back empty in the browser. The app shell now carries an applied restore over to an empty, idle replacement instance for the same thread.
+
+## 0.13.0
+
+### Patch Changes
+
+- 03795da: A Docker command that exits before reading its stdin no longer crashes the process with an uncaught `EPIPE`. The Docker client and the devkit test process helper now ignore `EPIPE` on the child's stdin, where the exit status already reports the failure, and still surface any other stdin error. Batched workspace reads send their scripts over stdin, which made this reachable.
+
+## 0.12.0
+
+## 0.11.2
+
+## 0.11.1
+
+### Patch Changes
+
+- 837bcfb: `@b4run/cli` now exports the `B4Config` type alongside `config()`. Under pnpm's isolated `node_modules`, an app depends only on `@b4run/cli` and cannot resolve `@b4run/core`, so `export default config({})` in `b4.config.ts` failed `tsc` with TS2883 (the inferred `B4Config` type could not be named). This affected the research template. The basic template's `b4.config.ts` now uses `config({})` too.
+
+## 0.11.0
+
+### Patch Changes
+
+- 24fd0fd: The basic template now scaffolds a single `/hello` agent route with one typed `greet` tool. It drops the route group, the `[tenant]` segment and `state.ts`, so a new app starts with the smallest working agent.
+
+  `basic` is now the default template, so `npm create b4-app@latest my-agent` scaffolds it. The research workspace is still available with `npm create b4-app@latest my-agent -- --template research`.
+
+## 0.10.0
+
+## 0.9.0
+
 ## 0.8.36
 
 ## 0.8.35

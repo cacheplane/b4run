@@ -1,13 +1,22 @@
 import type { ReactNode } from "react"
 
+type Tone = "muted" | "olive" | "tint" | "panel"
+
 interface EyebrowProps {
   readonly children: ReactNode
-  readonly tone?: "default" | "accent"
+  /** muted on paper (default), olive for a highlighted label, tint (relay-ink) on a relay-tint surface, panel on the dark panel. */
+  readonly tone?: Tone
+  /** Optional; `string | undefined` so a CSS-module lookup can be passed straight through. */
+  readonly className?: string | undefined
+  /** Element to render; use `"span"` where a `<p>` is invalid, such as inside `<summary>`. */
+  readonly as?: "p" | "span"
 }
 
-export function Eyebrow({ children, tone = "default" }: EyebrowProps) {
-  const colorClass = tone === "accent" ? "text-accent-saas" : "text-ink-dim"
+/** The one eyebrow: JetBrains Mono 12px, uppercase, 0.07em (ui.css). */
+export function Eyebrow({ children, tone = "muted", className, as: Tag = "p" }: EyebrowProps) {
   return (
-    <p className={`text-xs font-semibold uppercase tracking-[0.06em] ${colorClass}`}>{children}</p>
+    <Tag data-ui="eyebrow" data-tone={tone} {...(className ? { className } : {})}>
+      {children}
+    </Tag>
   )
 }

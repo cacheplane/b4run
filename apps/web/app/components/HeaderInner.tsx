@@ -3,9 +3,14 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { BrandLogo } from "./BrandLogo"
-import { CopyCommand } from "./CopyCommand"
+import { DocsSearch, SearchShortcutHint } from "./docs/DocsSearch"
+import { loadDocsSearchIndex, openDocsSearch } from "./docs/docs-search-events"
 import homepageStyles from "./homepage/header.module.css"
 import { MobileMenu } from "./MobileMenu"
+import { Button } from "./ui/Button"
+import { CopyCommand } from "./ui/CopyCommand"
+import { Icon } from "./ui/Icon"
+import { SiteLink } from "./ui/SiteLink"
 
 function GitHubIcon() {
   return (
@@ -25,50 +30,111 @@ function GitHubIcon() {
   )
 }
 
+function isReadingLayout(pathname: string): boolean {
+  return pathname.startsWith("/docs") || /^\/blog\/(?!tags(\/|$))[^/]+\/?$/.test(pathname)
+}
+
+const preloadSearch = () => void loadDocsSearchIndex().catch(() => {})
+
+function MobileDocsSearchButton() {
+  return (
+    <button
+      type="button"
+      onClick={openDocsSearch}
+      onPointerEnter={preloadSearch}
+      onFocus={preloadSearch}
+      aria-label="Search docs"
+      aria-haspopup="dialog"
+      aria-keyshortcuts="Meta+K Control+K /"
+      data-mobile-docs-search
+      data-ui="icon-button"
+      className="md:hidden"
+    >
+      <Icon name="search" size="md" />
+    </button>
+  )
+}
+
+/** Desktop header search, for pages without the docs sidebar's search field. */
+function HeaderSearchButton() {
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={openDocsSearch}
+      onPointerEnter={preloadSearch}
+      onFocus={preloadSearch}
+      aria-haspopup="dialog"
+      aria-keyshortcuts="Meta+K Control+K /"
+      data-header-docs-search
+    >
+      <Icon name="search" />
+      Search docs
+      <SearchShortcutHint />
+    </Button>
+  )
+}
+
 interface HeaderInnerProps {
   readonly repoUrl: string
 }
 
 export function HeaderInner({ repoUrl }: HeaderInnerProps) {
   const pathname = usePathname()
-  const homepage = pathname === "/"
-  const brandPage = homepage || pathname.startsWith("/blog")
-
   const linkClass = (active: boolean) =>
     active ? "text-ink transition-colors" : "text-ink-muted hover:text-ink transition-colors"
+  const docsActive = pathname.startsWith("/docs")
+  const blogActive = pathname.startsWith("/blog")
+
+  // Same header everywhere; only its column tracks the page layout underneath:
+  // docs and blog posts are full-width reading layouts, everything else uses
+  // the homepage column.
+  const layout = pathname === "/" ? "home" : isReadingLayout(pathname) ? "reading" : "site"
 
   return (
-    <header
-      className={`sticky top-0 z-50 bg-page border-b border-divider ${brandPage ? homepageStyles.header : ""}`}
-    >
-      <div className="max-w-[1280px] mx-auto flex justify-between items-center px-6 md:px-8 py-4">
+    <header data-layout={layout} className={`sticky top-0 z-50 border-b ${homepageStyles.header}`}>
+      <div className={`${homepageStyles.bar} flex justify-between items-center`}>
         <BrandLogo imageClassName="h-8" variant="dark" />
-        <nav className="hidden md:flex items-center gap-6 text-sm">
-          <Link href="/docs/getting-started" className={linkClass(pathname.startsWith("/docs"))}>
+        <nav
+          aria-label="Main"
+          className={`hidden md:flex items-center gap-6 text-sm ${homepageStyles.nav}`}
+        >
+          <Link
+            href="/docs/getting-started"
+            className={linkClass(docsActive)}
+            {...(docsActive ? { "aria-current": "page" as const } : {})}
+          >
             Docs
           </Link>
-          <Link href="/blog" className={linkClass(pathname.startsWith("/blog"))}>
+          <Link
+            href="/blog"
+            className={linkClass(blogActive)}
+            {...(blogActive ? { "aria-current": "page" as const } : {})}
+          >
             Blog
           </Link>
-          <a
+          {docsActive ? null : <HeaderSearchButton />}
+          <SiteLink
             href={repoUrl}
-            target="_blank"
-            rel="noopener noreferrer"
             aria-label="GitHub"
+            data-no-arrow
             className="inline-flex items-center gap-1.5 text-ink-muted hover:text-ink transition-colors"
           >
             <GitHubIcon />
-          </a>
-          {homepage ? (
-            <a className={homepageStyles.blueprint} href="/blueprints/code-fixer.md">
-              Get the blueprint ↗
-            </a>
-          ) : (
-            <CopyCommand command="npm create b4-app@latest my-agent" />
-          )}
+          </SiteLink>
+          <CopyCommand
+            command="npm create b4-app@latest my-agent"
+            className={homepageStyles.chip ?? ""}
+          />
         </nav>
-        <MobileMenu />
+        <div className="flex items-center gap-1 md:hidden">
+          <MobileDocsSearchButton />
+          <MobileMenu />
+        </div>
       </div>
+      {/* One search dialog for the whole site: Cmd/Ctrl-K and "/" work on
+          every page, and every trigger above opens this instance. */}
+      <DocsSearch />
     </header>
   )
 }

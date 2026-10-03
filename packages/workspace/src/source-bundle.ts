@@ -26,9 +26,9 @@ export interface SourceBundle {
 }
 
 type Entry = SourceBundle["files"][number]
-const BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
-// Validate padding bits as well as alphabet, without allocating decoded buffers.
+// Decoded size from the encoded length alone, so every size limit is enforced
+// before any content is decoded.
 function base64Size(value: unknown): number {
   if (typeof value !== "string") throw new Error("Source base64 must be a string")
   if (value.length > 4 * Math.ceil(MAX_FILE_BYTES / 3))
@@ -37,16 +37,17 @@ function base64Size(value: unknown): number {
   const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0
   const size = (value.length / 4) * 3 - padding
   if (size > MAX_FILE_BYTES) throw new Error("Source file byte limit exceeded")
-  for (let i = 0; i < value.length - padding; i++) {
-    if (BASE64.indexOf(value.charAt(i)) === -1) throw new Error("Invalid source base64 alphabet")
-  }
-  if (
-    padding &&
-    (BASE64.indexOf(value.charAt(value.length - padding - 1)) & (padding === 2 ? 15 : 3)) !== 0
-  ) {
-    throw new Error("Noncanonical source base64 padding bits")
-  }
   return size
+}
+
+// Node's decoder is lenient (it skips whitespace and foreign characters, accepts
+// the URL-safe alphabet, and ignores padding bits) but its encoder is canonical,
+// so a value is canonical standard base64 exactly when it re-encodes to itself.
+// One native pass: a per-character JS loop blocked the event loop for tens of
+// milliseconds per multi-megabyte bundle, and bundles are verified at every layer.
+function checkBase64(value: string): void {
+  if (Buffer.from(value, "base64").toString("base64") !== value)
+    throw new Error("Noncanonical source base64")
 }
 
 function digest(files: readonly Entry[]): string {
@@ -108,6 +109,7 @@ export function verifySourceBundle(value: unknown): SourceBundle {
     return { path, base64: file.base64 as string, executable }
   })
   checkPaths(files)
+  for (const file of files) checkBase64(file.base64)
   const identity = digest(files)
   if (identity !== bundle.digest) throw new Error("Source bundle digest mismatch")
   return freeze(files, identity)

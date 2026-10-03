@@ -184,6 +184,93 @@ export default agent({
     }
   })
 
+  test("binds a fresh tool schema for a tool added without running b4 typegen", async () => {
+    const appRoot = await createFixtureApp({
+      "package.json": '{"type":"module"}\n',
+      "b4.config.ts": "export default {};\n",
+      "src/app/hello/index.ts": `import { agent } from "@b4run/sdk"
+export default agent({
+  model: "gpt-5-mini",
+  systemPrompt: "You are a helpful assistant.",
+})
+`,
+      "src/app/hello/tools/getLocalTime.ts": `/** Get the current local time in an IANA time zone, such as "Asia/Tokyo". */
+export default async (input: { readonly timeZone: string }) => ({ timeZone: input.timeZone })
+`,
+      // A stale manifest from an earlier typegen, when the tool took \`timezone\`.
+      ".b4/routes/hello/tools.json": `${JSON.stringify({
+        getLocalTime: {
+          description: "stale",
+          parameters: {
+            type: "object",
+            properties: { timezone: { type: "string" } },
+            required: ["timezone"],
+          },
+        },
+      })}\n`,
+    })
+    const mock = await createAimock({
+      fixtures: script().user("What time is it in Tokyo?").replies("It is noon.").build(),
+    })
+    const prevBaseUrl = process.env.OPENAI_BASE_URL
+    const prevApiKey = process.env.OPENAI_API_KEY
+    process.env.OPENAI_BASE_URL = mock.baseUrl
+    process.env.OPENAI_API_KEY = "test-not-used"
+
+    try {
+      const result = await invoke(["run", "/hello", "--cwd", appRoot], {
+        stdin: JSON.stringify({
+          messages: [{ role: "user", content: "What time is it in Tokyo?" }],
+        }),
+      })
+
+      expect(result.stderr).toBe("")
+      expect(result.exitCode).toBe(0)
+      const tools = mock.getRequests()[0]?.body?.tools as
+        | ReadonlyArray<{
+            readonly function?: {
+              readonly name?: string
+              readonly parameters?: {
+                readonly properties?: Record<string, unknown>
+                readonly required?: readonly string[]
+              }
+            }
+          }>
+        | undefined
+      const getLocalTime = tools?.find((tool) => tool.function?.name === "getLocalTime")
+      expect(Object.keys(getLocalTime?.function?.parameters?.properties ?? {})).toEqual([
+        "timeZone",
+      ])
+      expect(getLocalTime?.function?.parameters?.required).toEqual(["timeZone"])
+    } finally {
+      await mock.close()
+      if (prevBaseUrl === undefined) delete process.env.OPENAI_BASE_URL
+      else process.env.OPENAI_BASE_URL = prevBaseUrl
+      if (prevApiKey === undefined) delete process.env.OPENAI_API_KEY
+      else process.env.OPENAI_API_KEY = prevApiKey
+    }
+  })
+
+  test("warns on stderr and still runs when tool schemas cannot be regenerated", async () => {
+    const appRoot = await createFixtureApp({
+      "package.json": '{"type":"module"}\n',
+      "b4.config.ts": "export default {};\n",
+      "src/app/render/index.ts": `export const workflow = async () => ({ ok: true })
+`,
+      "src/app/render/tools/render.ts": `import type { RenderInput } from "@fixture/missing-contracts"
+export default async (input: RenderInput) => ({ input })
+`,
+    })
+
+    const result = await invoke(["run", "/render", "--cwd", appRoot], { stdin: "{}" })
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stderr).toContain("could not regenerate tool schemas")
+    expect(result.stderr).toContain("RenderInput")
+    expect(result.stderr).toContain("b4 typegen")
+    expect(JSON.parse(result.stdout)).toMatchObject({ output: { ok: true }, status: "passed" })
+  })
+
   test("executes the route directory's index.ts and exposes shared and route-local tools through ctx.tools", async () => {
     const appRoot = await createFixtureApp({
       "package.json": '{"type":"module"}\n',

@@ -3,6 +3,12 @@ import { join } from "node:path"
 import type { B4Config } from "@b4run/core"
 import type { SandboxProvider } from "@b4run/workspace"
 import { captureWorkspaceDefinition } from "@b4run/workspace/node"
+import { findThreadAccessFile } from "../dev/thread-access-node.js"
+import { sandboxConfigShapeErrors } from "./sandbox-config-shape.js"
+import {
+  workspaceProtocolOptionNames,
+  workspaceProtocolPolicyMessage,
+} from "./workspace-protocol.js"
 
 /** Validate the b4.config.ts sandbox block + run the provider preflight. */
 export async function collectSandboxErrors(
@@ -11,7 +17,12 @@ export async function collectSandboxErrors(
 ): Promise<{ readonly errors: readonly string[]; readonly warnings: readonly string[] }> {
   const sandbox = config.sandbox
   if (!sandbox) return { errors: [], warnings: [] }
+  const shape = sandboxConfigShapeErrors(sandbox)
+  if (shape.length > 0) return { errors: shape, warnings: [] }
   const errors: string[] = []
+  const opened = workspaceProtocolOptionNames(sandbox)
+  if (appRoot !== undefined && opened.length > 0 && findThreadAccessFile(appRoot) === undefined)
+    errors.push(workspaceProtocolPolicyMessage(opened))
   const warnings: string[] = []
   const p = sandbox.provider as Partial<SandboxProvider> | undefined
   if (
@@ -25,13 +36,15 @@ export async function collectSandboxErrors(
     )
     return { errors, warnings }
   }
-  if (sandbox.workspace) {
+  if (sandbox.workspace || sandbox.thread) {
     if (!p.workspaces) errors.push("Sandbox provider does not support managed workspaces")
     if (appRoot) {
       try {
         if (!(await stat(join(appRoot, "workspace"))).isDirectory())
           throw new Error("workspace/ must be a directory")
-        await captureWorkspaceDefinition(appRoot, sandbox.workspace)
+        // A resolver's result, workspace or whole sandbox, exists only once a thread does.
+        if (sandbox.workspace !== undefined && typeof sandbox.workspace !== "function")
+          await captureWorkspaceDefinition(appRoot, sandbox.workspace)
       } catch (error) {
         errors.push(
           `Invalid managed workspace: ${error instanceof Error ? error.message : String(error)}`,

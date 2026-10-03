@@ -1,10 +1,9 @@
 import { randomUUID } from "node:crypto"
-import { constants } from "node:fs"
+import { constants, existsSync } from "node:fs"
 import { access, mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 
-import { afterEach, expect, test } from "vitest"
-
+import { afterEach, describe, expect, test } from "vitest"
 import { createArtifactRoot } from "../../packages/devkit/src/testing/index.ts"
 import { createAimock, script } from "../../packages/testing/dist/index.js"
 import { getTestRegistryUrl } from "../harness/local-registry.ts"
@@ -21,6 +20,8 @@ import {
   withPackagedNpmServer,
 } from "../harness/packaged-app.ts"
 import { writeRegistryNpmrc } from "../harness/scaffold-packaging.ts"
+import { runWorkbenchBrowserJourney } from "../harness/workbench-browser.ts"
+import { runWorkbenchSuggestionJourneys } from "../harness/workbench-suggestions.ts"
 
 const tempDirs: TrackedTempDir[] = []
 // Measured on 2026-08-26, two-process session (macOS, node 24.19.0 / npm
@@ -81,6 +82,22 @@ const WEB_TODOS = [
 const WEB_GATED_PROMPT = "Web hop gate: run the external fetch script for the workbench check."
 const WEB_FETCH_COMMAND = "node scripts/fetch-source.mjs workbench hop"
 const WEB_GATED_REPLY = "Fetched external context after approval through the web client."
+// W7's own journey. Distinct from every other registered prompt — aimock matches
+// userMessage as a substring and breaks ties by registration order, so a prompt
+// that is a prefix of another (DEMO_PROMPT ⊂ SAFE_PROMPT) is a latent collision.
+const BROWSER_PROMPT = "Workbench gate: summarize the corpus on agent architectures."
+const BROWSER_REPLY = "ReAct and plan-and-execute are common. [corpus/agent-architectures.md]"
+// The safe root fixture's final reply. Named because W8 matches it on screen
+// with `{ exact: true }` — a dropped citation or changed punctuation there is a
+// 45-second wait on text that is visibly rendered.
+const RESEARCH_REPLY =
+  "I wrote a short report covering ReAct and plan-and-execute architectures. [corpus/agent-architectures.md]"
+// W8's third journey. The Workbench's "Teach it a preference" suggestion sends
+// this exact text; memory is in candidate mode in the template, so the
+// remember() call below becomes a row in the memory panel.
+const TEACH_PROMPT = "Remember that I prefer concise, cited reports."
+const TEACH_CONTENT = "User prefers concise, cited reports."
+const TEACH_REPLY = "Noted — I'll keep reports concise and cited."
 // CopilotKit's fetch-router matches `agent/<agentId>/run`; `default` is the id
 // the runtime route registers and every CopilotKit hook resolves.
 const COPILOTKIT_RUN_PATH = "/api/copilotkit/agent/default/run"
@@ -125,9 +142,7 @@ function createSafeResearchFixtures() {
     .callsTool("searchCorpus", { query: "agent architectures" })
     .callsTool("readDoc", { path: "corpus/agent-architectures.md" })
     .callsTool("writeFile", { path: "reports/agent-architectures.md", content: report })
-    .replies(
-      "I wrote a short report covering ReAct and plan-and-execute architectures. [corpus/agent-architectures.md]",
-    )
+    .replies(RESEARCH_REPLY)
     .build()
   const child = script()
     .user(SUBQUESTION)
@@ -164,25 +179,135 @@ function createWebHopFixtures() {
   ]
 }
 
+function createBrowserFixtures() {
+  return script()
+    .user(BROWSER_PROMPT)
+    .callsTool("searchCorpus", { query: "agent architectures" })
+    .callsTool("readDoc", { path: "corpus/agent-architectures.md" })
+    .replies(BROWSER_REPLY)
+    .build()
+}
+
+function createTeachFixture() {
+  return script()
+    .user(TEACH_PROMPT)
+    .callsTool("remember", {
+      data: { subject: "user", predicate: "prefers", value: "concise, cited reports" },
+      content: TEACH_CONTENT,
+    })
+    .replies(TEACH_REPLY)
+    .build()
+}
+
+/**
+ * aimock resolves a request by finding the first registered fixture whose
+ * `match.userMessage` is a SUBSTRING of the incoming user message
+ * (@copilotkit/aimock router.js:217-220) — so if one registered prompt contains
+ * another, the shorter one silently answers the longer one's turns whenever it
+ * was registered first. Registration order is not a contract worth relying on;
+ * this returns every offending pair so a new fixture fails loudly here rather
+ * than as an inexplicable journey mismatch a thousand lines later.
+ */
+function findPromptCollisions(
+  fixtures: readonly { readonly match: { readonly userMessage?: string } }[],
+): string[] {
+  const prompts = [
+    ...new Set(
+      fixtures.flatMap((fixture) =>
+        typeof fixture.match.userMessage === "string" ? [fixture.match.userMessage] : [],
+      ),
+    ),
+  ]
+  const collisions: string[] = []
+  for (const outer of prompts) {
+    for (const inner of prompts) {
+      if (inner !== outer && outer.includes(inner)) {
+        collisions.push(`"${inner}" is a substring of "${outer}"`)
+      }
+    }
+  }
+  return collisions
+}
+
+/**
+ * `String(value)` throws on a null-prototype object or one whose `toString`
+ * throws, and `flattenCause` renders inside the array literal that builds the
+ * wrapper error — so an unprintable cause would otherwise replace the whole
+ * diagnostic with a bare `TypeError`.
+ */
+function safeMessage(value: unknown): string {
+  try {
+    return value instanceof Error ? value.message : String(value)
+  } catch {
+    return "<unprintable cause>"
+  }
+}
+
+const FLATTEN_CAUSE_MAX_DEPTH = 8
+
+/**
+ * Vitest's JSON reporter serialises `message` but not `cause`, so an error
+ * wrapped for its file paths would reach CI with the real failure stripped.
+ * Flattens the chain (and an AggregateError's branches) into text.
+ */
+function flattenCause(error: unknown, depth = 0): string[] {
+  if (error === null || error === undefined) return []
+  if (depth >= FLATTEN_CAUSE_MAX_DEPTH) {
+    return [`caused by: <chain truncated at depth ${FLATTEN_CAUSE_MAX_DEPTH}>`]
+  }
+  // A primitive cause (`cause: "plain string"`) is worth reporting, but it has
+  // no `cause` of its own to walk, so it terminates the chain here.
+  const lines: string[] = [`caused by: ${safeMessage(error)}`]
+  if (typeof error !== "object") return lines
+  if (error instanceof AggregateError) {
+    let branches: unknown[] = []
+    try {
+      branches = Array.from(error.errors)
+    } catch {
+      branches = []
+    }
+    for (const branch of branches) {
+      lines.push(`  - ${safeMessage(branch)}`)
+    }
+  }
+  let cause: unknown
+  try {
+    cause = (error as { cause?: unknown }).cause
+  } catch {
+    cause = undefined
+  }
+  lines.push(...flattenCause(cause, depth + 1))
+  return lines
+}
+
 function correlateRootToolCalls(events: readonly AgUiEvent[]): Map<string, unknown> {
   const toolEvents = events.filter((event) =>
     ["TOOL_CALL_START", "TOOL_CALL_ARGS", "TOOL_CALL_END", "TOOL_CALL_RESULT"].includes(
       String(event.type),
     ),
   )
-  const starts = events.flatMap((event, index) =>
+  const allStarts = events.flatMap((event, index) =>
     event.type === "TOOL_CALL_START" ? [{ event, index }] : [],
   )
-  // `writeTodos` and `task` are absent by design: each presents once, as its
-  // b4.plan / b4.subagent activity, with no generic tool frames.
+  // `writeTodos` is absent by design: it presents once, as the b4.plan
+  // activity, with no generic tool frames. `task` is an ordinary tool call
+  // whose subagent is presented with SUBAGENT_* events; the child's own tool
+  // calls are on the wire too, tagged with its subagentRunId.
+  const starts = allStarts.filter(({ event }) => event.subagentRunId === undefined)
   expect(starts.map(({ event }) => event.toolCallName)).toEqual([
     "recall",
+    "task",
     "searchCorpus",
     "readDoc",
     "writeFile",
   ])
+  const childStarts = allStarts.filter(({ event }) => event.subagentRunId !== undefined)
+  expect(childStarts.map(({ event }) => event.toolCallName)).toEqual(["searchCorpus", "readDoc"])
+  expect(new Set(childStarts.map(({ event }) => event.subagentRunId))).toEqual(
+    new Set(["call_task_0_2"]),
+  )
 
-  const startIds = starts.map(({ event }) => event.toolCallId)
+  const startIds = allStarts.map(({ event }) => event.toolCallId)
   expect(startIds.every((id) => typeof id === "string")).toBe(true)
   expect(new Set(startIds).size).toBe(startIds.length)
   const knownIds = new Set(startIds)
@@ -190,10 +315,21 @@ function correlateRootToolCalls(events: readonly AgUiEvent[]): Map<string, unkno
     expect(typeof event.toolCallId).toBe("string")
     expect(knownIds.has(event.toolCallId)).toBe(true)
   }
-  for (const { event } of starts) {
+  for (const { event } of allStarts) {
     expect(String(event.toolCallId)).toMatch(/^call_/)
   }
+  // Every frame of a child's call carries the child's id; no root frame does.
+  for (const { event: start } of allStarts) {
+    for (const event of toolEvents.filter((event) => event.toolCallId === start.toolCallId)) {
+      if (start.subagentRunId === undefined) {
+        expect(event).not.toHaveProperty("subagentRunId")
+      } else {
+        expect(event.subagentRunId).toBe(start.subagentRunId)
+      }
+    }
+  }
 
+  // Root calls only: the child's calls repeat the root's tool names.
   const parsedArgsByName = new Map<string, unknown>()
   for (const { event: start } of starts) {
     const toolCallId = start.toolCallId
@@ -218,23 +354,17 @@ function correlateRootToolCalls(events: readonly AgUiEvent[]): Map<string, unkno
         return event.delta
       })
       .join("")
-    const outerArgs = JSON.parse(encodedArgs) as unknown
-    const parsedArgs =
-      outerArgs !== null &&
-      typeof outerArgs === "object" &&
-      !Array.isArray(outerArgs) &&
-      Object.keys(outerArgs).length === 1 &&
-      typeof Reflect.get(outerArgs, "input") === "string"
-        ? (JSON.parse(Reflect.get(outerArgs, "input") as string) as unknown)
-        : outerArgs
-    parsedArgsByName.set(toolCallName, parsedArgs)
+    // Every tool's input type resolves through the app's tsconfig (#759), so
+    // ARGS are the model's parsed args with no ToolNode {input} wrapper.
+    parsedArgsByName.set(toolCallName, JSON.parse(encodedArgs) as unknown)
   }
   return parsedArgsByName
 }
 
+/** The ROOT agent's prose: a subagent's text is on the wire too, tagged with its id. */
 function reconstructAssistantText(events: readonly AgUiEvent[]): string {
   return events
-    .filter((event) => event.type === "TEXT_MESSAGE_CONTENT")
+    .filter((event) => event.type === "TEXT_MESSAGE_CONTENT" && event.subagentRunId === undefined)
     .map((event) => {
       if (typeof event.delta !== "string") {
         throw new Error("AG-UI text delta was not a string")
@@ -532,16 +662,51 @@ function assertSafeResearchJourney(
   assertSuccessfulTerminal(events, ids)
 
   const parsedArgsByName = correlateRootToolCalls(events)
-  // `task`'s arguments no longer reach the wire — the subagent activity is its
-  // only presentation — so an ordinary tool carries the args-decoding pin.
-  expect(parsedArgsByName.has("task")).toBe(false)
+  // `task` is an ordinary tool call again, so its arguments reach the wire;
+  // `writeTodos` presents only as the plan activity.
+  expect(parsedArgsByName.get("task")).toEqual({ subagent: "researcher", input: SUBQUESTION })
   expect(parsedArgsByName.has("writeTodos")).toBe(false)
   expect(parsedArgsByName.get("searchCorpus")).toEqual({ query: "agent architectures" })
   const assistantText = reconstructAssistantText(events)
   expect(assistantText).toContain("[corpus/agent-architectures.md]")
   expect(assistantText).not.toContain(CHILD_REPLY)
+  // The child's prose is on the wire, attributed to it — and only there.
+  const childText = events
+    .filter(
+      (event) => event.type === "TEXT_MESSAGE_CONTENT" && event.subagentRunId === "call_task_0_2",
+    )
+    .map((event) => String(event.delta))
+    .join("")
+  expect(childText).toContain(CHILD_REPLY)
+
+  // The subagent's lifecycle: announced before anything is attributed to it,
+  // closed with its result before the run ends.
+  const kindsInOrder = events.map((event) => event.type)
+  const started = kindsInOrder.indexOf("SUBAGENT_STARTED")
+  const finished = kindsInOrder.indexOf("SUBAGENT_FINISHED")
+  expect(started).toBeGreaterThan(-1)
+  expect(finished).toBeGreaterThan(started)
+  expect(events[started]).toMatchObject({
+    subagentRunId: "call_task_0_2",
+    name: "researcher",
+    parentToolCallId: "call_task_0_2",
+  })
+  expect(events[finished]).toMatchObject({
+    subagentRunId: "call_task_0_2",
+    result: CHILD_REPLY,
+    outcome: { type: "success" },
+  })
+  // Everything attributed to the child lies strictly between its lifecycle events.
+  for (const [index, event] of events.entries()) {
+    if (event.subagentRunId === undefined) continue
+    if (event.type === "SUBAGENT_STARTED" || event.type === "SUBAGENT_FINISHED") continue
+    expect(index).toBeGreaterThan(started)
+    expect(index).toBeLessThan(finished)
+  }
+  expect(kindsInOrder).not.toContain("SUBAGENT_ERROR")
 
   const activities = events.filter((event) => event.type === "ACTIVITY_SNAPSHOT")
+  // The plan is the only activity: the subagent is SUBAGENT_* events above.
   expect(activities).toEqual([
     {
       type: "ACTIVITY_SNAPSHOT",
@@ -550,114 +715,25 @@ function assertSafeResearchJourney(
       replace: true,
       content: { todos },
     },
-    {
-      type: "ACTIVITY_SNAPSHOT",
-      messageId: "b4:subagent:call_task_0_2",
-      activityType: "b4.subagent",
-      replace: true,
-      content: {
-        name: "researcher",
-        depth: 1,
-        status: "running",
-        tools: [],
-        totalToolCount: 0,
-      },
-    },
-    {
-      type: "ACTIVITY_SNAPSHOT",
-      messageId: "b4:subagent:call_task_0_2",
-      activityType: "b4.subagent",
-      replace: true,
-      content: {
-        name: "researcher",
-        depth: 1,
-        status: "running",
-        tools: [{ name: "searchCorpus", status: "running" }],
-        totalToolCount: 1,
-      },
-    },
-    {
-      type: "ACTIVITY_SNAPSHOT",
-      messageId: "b4:subagent:call_task_0_2",
-      activityType: "b4.subagent",
-      replace: true,
-      content: {
-        name: "researcher",
-        depth: 1,
-        status: "running",
-        tools: [{ name: "searchCorpus", status: "completed" }],
-        totalToolCount: 1,
-      },
-    },
-    {
-      type: "ACTIVITY_SNAPSHOT",
-      messageId: "b4:subagent:call_task_0_2",
-      activityType: "b4.subagent",
-      replace: true,
-      content: {
-        name: "researcher",
-        depth: 1,
-        status: "running",
-        tools: [
-          { name: "searchCorpus", status: "completed" },
-          { name: "readDoc", status: "running" },
-        ],
-        totalToolCount: 2,
-      },
-    },
-    {
-      type: "ACTIVITY_SNAPSHOT",
-      messageId: "b4:subagent:call_task_0_2",
-      activityType: "b4.subagent",
-      replace: true,
-      content: {
-        name: "researcher",
-        depth: 1,
-        status: "running",
-        tools: [
-          { name: "searchCorpus", status: "completed" },
-          { name: "readDoc", status: "completed" },
-        ],
-        totalToolCount: 2,
-      },
-    },
-    {
-      type: "ACTIVITY_SNAPSHOT",
-      messageId: "b4:subagent:call_task_0_2",
-      activityType: "b4.subagent",
-      replace: true,
-      content: {
-        name: "researcher",
-        depth: 1,
-        status: "completed",
-        tools: [
-          { name: "searchCorpus", status: "completed" },
-          { name: "readDoc", status: "completed" },
-        ],
-        totalToolCount: 2,
-      },
-    },
   ])
 
-  // The generic frames for the two built-in orchestration calls are gone: the
-  // activities above are the only presentation of that work.
+  // The generic frames for writeTodos are gone: the plan activity is the only
+  // presentation of that work. The task call keeps its frames.
   const toolFrames = events.filter((event) =>
     ["TOOL_CALL_START", "TOOL_CALL_ARGS", "TOOL_CALL_END", "TOOL_CALL_RESULT"].includes(
       String(event.type),
     ),
   )
-  for (const suppressedId of ["call_writeTodos_0_1", "call_task_0_2"]) {
-    expect(toolFrames.map((event) => event.toolCallId)).not.toContain(suppressedId)
-  }
+  expect(toolFrames.map((event) => event.toolCallId)).not.toContain("call_writeTodos_0_1")
+  expect(toolFrames.map((event) => event.toolCallId)).toContain("call_task_0_2")
   expect(
     events.filter((event) => event.type === "TOOL_CALL_START").map((event) => event.toolCallName),
   ).not.toContain("writeTodos")
-  expect(
-    events.filter((event) => event.type === "TOOL_CALL_START").map((event) => event.toolCallName),
-  ).not.toContain("task")
 
   const activityIndices = activities.map((activity) => events.indexOf(activity))
-  const firstFinalTextIndex = events.findIndex((event) => event.type === "TEXT_MESSAGE_CONTENT")
+  const firstFinalTextIndex = events.findIndex(
+    (event) => event.type === "TEXT_MESSAGE_CONTENT" && event.subagentRunId === undefined,
+  )
   expect(firstFinalTextIndex).toBeGreaterThanOrEqual(0)
   expect(activityIndices.every((index) => index < firstFinalTextIndex)).toBe(true)
 
@@ -809,10 +885,10 @@ function assertResumedGatedJourney(
       return event.delta
     })
     .join("")
-  const outerArgs = JSON.parse(encodedArgs) as { readonly input?: unknown }
-  expect(Object.keys(outerArgs)).toEqual(["input"])
-  expect(typeof outerArgs.input).toBe("string")
-  expect(JSON.parse(String(outerArgs.input))).toEqual({ command: FETCH_COMMAND })
+  // No ToolNode {input} wrapper: tool input types resolve through the app's
+  // tsconfig (#759), so runBash's schema is `{ command }` and the resumed
+  // call replays the model's parsed args as-is, matching the gated run.
+  expect(JSON.parse(encodedArgs)).toEqual({ command: FETCH_COMMAND })
 
   const toolResult = correlated.find((event) => event.type === "TOOL_CALL_RESULT")
   if (toolResult === undefined || typeof toolResult.content !== "string") {
@@ -1024,6 +1100,93 @@ afterEach(async () => {
   await cleanupTrackedTempDirs(tempDirs)
 })
 
+// `flattenCause` renders inside the array literal that builds the wrapper error,
+// so anything it throws replaces the entire diagnostic — the failure paths this
+// lane preserves included.
+describe("flattenCause", () => {
+  test("reports a primitive cause instead of dropping it", () => {
+    const error = new Error("outer", { cause: "plain string" })
+    expect(flattenCause(error.cause)).toEqual(["caused by: plain string"])
+    expect(flattenCause(new Error("outer", { cause: 42 }).cause)).toEqual(["caused by: 42"])
+  })
+
+  test("walks an object chain and stops at an absent cause", () => {
+    const chained = new Error("top", { cause: new Error("middle", { cause: "bottom" }) })
+    expect(flattenCause(chained)).toEqual([
+      "caused by: top",
+      "caused by: middle",
+      "caused by: bottom",
+    ])
+    expect(flattenCause(undefined)).toEqual([])
+    expect(flattenCause(null)).toEqual([])
+  })
+
+  test("renders an unprintable cause rather than throwing", () => {
+    const nullPrototype = Object.assign(Object.create(null), { cause: "still walked" })
+    expect(flattenCause(nullPrototype)).toEqual([
+      "caused by: <unprintable cause>",
+      "caused by: still walked",
+    ])
+
+    const hostile = {
+      toString() {
+        throw new Error("no primitive for you")
+      },
+    }
+    expect(flattenCause(hostile)).toEqual(["caused by: <unprintable cause>"])
+
+    const throwingMessage = new Error("ignored")
+    Object.defineProperty(throwingMessage, "message", {
+      get() {
+        throw new Error("message getter exploded")
+      },
+    })
+    expect(flattenCause(throwingMessage)).toEqual(["caused by: <unprintable cause>"])
+  })
+
+  test("renders AggregateError branches, including unprintable ones", () => {
+    const aggregate = new AggregateError(
+      [new Error("branch one"), "branch two", Object.create(null)],
+      "all failed",
+    )
+    expect(flattenCause(aggregate)).toEqual([
+      "caused by: all failed",
+      "  - branch one",
+      "  - branch two",
+      "  - <unprintable cause>",
+    ])
+  })
+
+  test("marks a truncated cause chain instead of silently stopping", () => {
+    const cyclic: { cause?: unknown; message: string } = { message: "loop" }
+    cyclic.cause = cyclic
+    const lines = flattenCause(cyclic)
+    expect(lines).toHaveLength(9)
+    expect(lines[8]).toBe(`caused by: <chain truncated at depth ${FLATTEN_CAUSE_MAX_DEPTH}>`)
+  })
+
+  test("guards a throwing cause getter instead of letting it escape", () => {
+    const error = new Error("outer")
+    Object.defineProperty(error, "cause", {
+      get() {
+        throw new Error("cause getter exploded")
+      },
+    })
+    expect(flattenCause(error)).toEqual(["caused by: outer"])
+  })
+
+  test("guards a throwing errors getter on an AggregateError-like object", () => {
+    const hostile = Object.create(AggregateError.prototype) as AggregateError
+    Object.defineProperty(hostile, "message", { value: "all failed" })
+    Object.defineProperty(hostile, "errors", {
+      get() {
+        throw new Error("errors getter exploded")
+      },
+    })
+    expect(flattenCause(hostile)).toEqual(["caused by: all failed"])
+  })
+})
+
 // Proves the anchor before the lane has a second block to disambiguate: the
 // `dev:web` line starts with the whole `npm run dev` prefix, so an unanchored
 // `lastIndexOf` selects the WRONG block the moment a web child is recorded after
@@ -1060,7 +1223,7 @@ test("anchors the recorded server exit to a whole command line", () => {
   expect(() => assertRecordedServerExit(webFirst, { appRoot, script: "dev:web" })).toThrow()
 })
 
-test("activates the default research scaffold through the complete npm lifecycle", {
+test("activates the research scaffold (--template research) through the complete npm lifecycle", {
   timeout: ACTIVATION_TIMEOUT_MS,
 }, async ({ signal: testSignal }) => {
   const tempRoot = await createTrackedTempDir("b4-generated-research-activation-", tempDirs)
@@ -1072,6 +1235,25 @@ test("activates the default research scaffold through the complete npm lifecycle
   )
   const commandsTranscriptPath = join(expectedArtifactRoot, "transcripts", "commands.log")
   const agUiTranscriptPath = join(expectedArtifactRoot, "transcripts", "ag-ui.json")
+  // Repo-relative on purpose — `harness-verify` uploads `artifacts/testing/`
+  // only, and the rest of this test's artifact root lives under os.tmpdir().
+  const browserScreenshotPath = join(
+    process.cwd(),
+    "artifacts",
+    "testing",
+    "generated-research-activation",
+    "workbench-browser.png",
+  )
+  // W7 needs a real Chromium. Check it before the scaffold and the installs so a
+  // machine without one fails in seconds rather than after many minutes of work.
+  // `@playwright/test` is imported dynamically because this file also holds pure
+  // unit-ish assertions that must not pay for loading it.
+  const { chromium } = await import("@playwright/test")
+  if (!existsSync(chromium.executablePath())) {
+    throw new Error(
+      "Chromium is not installed for the Workbench browser gate; run: pnpm exec playwright install chromium",
+    )
+  }
   const childServer = {
     active: undefined as { stop(): Promise<void> } | undefined,
   }
@@ -1114,11 +1296,18 @@ test("activates the default research scaffold through the complete npm lifecycle
     await writeFile(agUiTranscriptPath, "", "utf8")
 
     aimock = await createAimock({ fixtures: [] })
-    aimock.addFixtures([
+    const registeredFixtures = [
       ...createSafeResearchFixtures(),
       ...createGatedAndBuiltFixtures(),
       ...createWebHopFixtures(),
-    ])
+      // W7: the Workbench's own journey, driven from a real browser.
+      ...createBrowserFixtures(),
+      // W8's third journey; the other two reuse SAFE_PROMPT and GATED_PROMPT.
+      ...createTeachFixture(),
+    ]
+    aimock.addFixtures(registeredFixtures)
+    // Guard, not an assertion about today's fixtures: see findPromptCollisions.
+    expect(findPromptCollisions(registeredFixtures)).toEqual([])
     const activeAimock = aimock
     const agUiRecorder = createAgUiTranscriptRecorder({
       aimockUrl: activeAimock.baseUrl,
@@ -1142,7 +1331,7 @@ test("activates the default research scaffold through the complete npm lifecycle
     })
     expect(installerDir).toBe(installerRoot)
     const creatorResult = await runPackagedNpmCommand({
-      args: ["exec", "--", "create-b4-app", appRoot],
+      args: ["exec", "--", "create-b4-app", appRoot, "--template", "research"],
       cwd: installerDir,
       signal: lifecycleSignal,
       transcriptPath: commandsTranscriptPath,
@@ -1156,7 +1345,7 @@ test("activates the default research scaffold through the complete npm lifecycle
     // lives. Pointed at `server/` deliberately — asserting against the app root
     // would pass vacuously now that nothing but the orchestrator lives there.
     await expect(
-      access(join(appRoot, "server/src/app/(public)/hello/[tenant]/index.ts"), constants.F_OK),
+      access(join(appRoot, "server/src/app/hello/index.ts"), constants.F_OK),
     ).rejects.toThrow()
     // The other half of the workspace: the scaffold ships a web client too.
     await expect(access(join(appRoot, "web/app/page.tsx"), constants.F_OK)).resolves.toBeUndefined()
@@ -1167,9 +1356,8 @@ test("activates the default research scaffold through the complete npm lifecycle
       .split("\n")
       .filter((line) => line.startsWith(`$ (cd ${installerDir} && npm exec `))
     expect(creatorCommandLines).toEqual([
-      `$ (cd ${installerDir} && npm exec -- create-b4-app ${appRoot})`,
+      `$ (cd ${installerDir} && npm exec -- create-b4-app ${appRoot} --template research)`,
     ])
-    expect(creatorCommandLines[0]?.split(/\s+/)).not.toContain("--template")
 
     await writeRegistryNpmrc(appRoot, getTestRegistryUrl())
     // The B4.run server lives in `server/`, and its `start` script is
@@ -1564,6 +1752,56 @@ test("activates the default research scaffold through the complete npm lifecycle
             expect(webResumeRunId).not.toBe(webGatedRunId)
             assertWebResumedJourney(webResumed.events, webInterrupt.gatedToolCallId)
 
+            // W7 — the Workbench, in a real browser. Everything above proves the
+            // web tier over HTTP; this proves the page renders, sends, streams,
+            // settles, persists the thread, and restores it after a reload —
+            // the README recording's journey, now required. The +3 is the
+            // browser fixture's two tool turns plus its reply, the browser's
+            // only path to a model being the B4 server behind the CopilotKit
+            // route. `chromium` comes from the preflight import at the top of
+            // this test rather than a second one here.
+            const browserJournalStart = activeAimock.getRequests().length
+            const browserResult = await runWorkbenchBrowserJourney(
+              {
+                webUrl,
+                prompt: BROWSER_PROMPT,
+                tools: ["searchCorpus", "readDoc"],
+                answer: BROWSER_REPLY,
+                // Repo-relative, not the harness's os.tmpdir() artifact root:
+                // harness-verify uploads only `artifacts/testing/`, so a
+                // screenshot written anywhere else never reaches CI.
+                screenshotPath: browserScreenshotPath,
+                signal: lifecycleSignal,
+              },
+              { chromium },
+            )
+            expect(browserResult.threadId).toMatch(
+              /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+            )
+            expect(activeAimock.getRequests()).toHaveLength(browserJournalStart + 3)
+
+            // W8 — the three empty-state suggestions, in the same browser. Each
+            // starts a new conversation, so each is its own thread and its own
+            // exact journal delta: Research = 10 (the root fixture's 7 turns plus
+            // the researcher subagent's 3), Gate = 2 (the runBash turn, then the
+            // resumed reply after Allow once), Teach = 2 (remember + reply).
+            // The activity cards, the permission gate and the memory panel are
+            // the surfaces a template or CopilotKit bump breaks first.
+            const suggestionsJournalStart = activeAimock.getRequests().length
+            await runWorkbenchSuggestionJourneys(
+              {
+                webUrl,
+                screenshotDir: dirname(browserScreenshotPath),
+                fetchCommand: FETCH_COMMAND,
+                gatedReply: GATED_REPLY,
+                researchReply: RESEARCH_REPLY,
+                teachContent: TEACH_CONTENT,
+                signal: lifecycleSignal,
+              },
+              { chromium },
+            )
+            expect(activeAimock.getRequests()).toHaveLength(suggestionsJournalStart + 14)
+
             return { webInterruptId: webInterrupt.interruptId }
           },
         )
@@ -1578,7 +1816,8 @@ test("activates the default research scaffold through the complete npm lifecycle
     // W6, second half — the SECOND child dies too, and its own block says so.
     assertRecordedServerExit(transcriptAfterDev, { appRoot, script: "dev:web" })
     // A leak canary, not a proof of the strip. It says only that nothing echoed
-    // the ambient key into a transcript this lane preserves and CI uploads —
+    // the ambient key into a transcript this lane preserves under its temp root
+    // and names in the failure message (CI uploads only `artifacts/testing/`) —
     // which holds largely because the web tier has no model path except through
     // B4.run, so there is little to echo it. Breaking `GENERATED_APP_UNSET_ENV`
     // for `dev:web` leaves this green; the assertion that actually fails is
@@ -1727,6 +1966,11 @@ test("activates the default research scaffold through the complete npm lifecycle
         `App root: ${appRoot}`,
         `Commands transcript: ${commandsTranscriptPath}`,
         `AG-UI transcript: ${agUiTranscriptPath}`,
+        `Browser screenshot (if W7 failed): ${browserScreenshotPath}`,
+        `Browser screenshots (if W8 failed): ${join(dirname(browserScreenshotPath), "workbench-browser-research.png")}, ${join(dirname(browserScreenshotPath), "workbench-browser-gate.png")}, ${join(dirname(browserScreenshotPath), "workbench-browser-teach.png")}`,
+        // Vitest's JSON reporter drops `cause`, so CI would otherwise see only
+        // the paths above and never the failure that produced them.
+        ...flattenCause(cause),
       ].join("\n"),
       { cause },
     )

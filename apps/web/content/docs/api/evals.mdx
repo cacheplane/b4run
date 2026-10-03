@@ -2,12 +2,12 @@
 
 ## Use this when
 
-Use this package when application behavior needs repeatable datasets, scorers, reports, and release gates. Build deterministic agent runs with `@b4run/testing`, then use `runEval()` to score them.
+Use this package when application behavior needs repeatable datasets, scorers, reports, and release gates. Build deterministic agent runs with `@b4run/testing`, then score them with `runEval()`.
 
 ## Install and import
 
 ```bash
-pnpm add -D @b4run/evals @b4run/testing
+npm install -D @b4run/evals @b4run/testing
 ```
 
 ```ts
@@ -20,7 +20,7 @@ import { contains, defineEval, gate, runEval } from "@b4run/evals"
 |---|---|---|---|---|
 | `@b4run/evals` | node-only | not-claimed | testing | supported |
 
-The root resolves JSON and JSONL datasets from disk, so it is a Node testing surface even though individual scorers may be pure.
+The root reads JSON and JSONL datasets from disk, so it is a Node testing surface even though some scorers are pure.
 
 ## Public exports
 
@@ -71,6 +71,8 @@ export interface EvalDefinition {
   readonly route?: string
   readonly dataset: Dataset
   readonly scorers: readonly Scorer[]
+  readonly middlewareContext?: AgentHarnessMiddlewareContext
+  readonly responseSchema?: Readonly<Record<string, unknown>>
   readonly threshold?: number
   readonly gate?: GatePolicy
 }
@@ -83,6 +85,8 @@ export interface EvalDefinition {
 | `readonly route` | `string` | no | Select a route key. |
 | `readonly dataset` | `Dataset` | yes | Supply inline, file, or factory cases. |
 | `readonly scorers` | `readonly Scorer[]` | yes | Score every case. |
+| `readonly middlewareContext` | `AgentHarnessMiddlewareContext` | no | Supply the context `middleware.ts` would have produced. |
+| `readonly responseSchema` | `Readonly<Record<string, unknown>>` | no | Constrain the root model's final message as the client's response schema does. |
 | `readonly threshold` | `number` | no | Shorthand for a mean gate. |
 | `readonly gate` | `GatePolicy` | no | Define explicit report pass policy. |
 
@@ -140,9 +144,9 @@ runEval scores every case with every scorer; a scorer exception becomes zero wit
 
 ### Evaluation semantics
 
-Cases and scorers run sequentially. A scorer error is contained, but a `runCase` error is not. An explicit `gate` wins over top-level `threshold`; without either, the report is informational with `gated: false` and `passed: true`. A scorer's own threshold controls its case pass bar and inclusion in `gate.perScorer()`; case pass status otherwise uses the separate default bar of `0.5`. `gate.perScorer()` ignores scorers without an explicit threshold.
+Cases and scorers run sequentially. A scorer error is contained, but a `runCase` error is not. An explicit `gate` wins over top-level `threshold`. Without either, the report is informational with `gated: false` and `passed: true`. A scorer's own threshold controls its case pass bar and inclusion in `gate.perScorer()`. Case pass status otherwise uses the separate default bar of `0.5`. `gate.perScorer()` ignores scorers without an explicit threshold.
 
-`defineEval()` rejects an empty inline dataset, but a file or factory may resolve empty. Programmatic `runEval()` resolves relative dataset paths from `baseDir` or the current working directory; the CLI supplies the eval file's context. `jsonEquals()` uses `JSON.stringify()` equality. `tokensUnder()` is strictly less than its budget and counts collected stream chunks or deltas, not model-tokenizer tokens. Memory scorers are behavioral signals—not authorization checks.
+`defineEval()` rejects an empty inline dataset, but a file or factory may resolve empty. Programmatic `runEval()` resolves relative dataset paths from `baseDir` or the current working directory. The CLI supplies the eval file's context. `jsonEquals()` uses `JSON.stringify()` equality. `tokensUnder()` is strictly less than its budget and counts collected stream chunks or deltas, not model-tokenizer tokens. Memory scorers are behavioral signals, not authorization checks.
 
 ## Examples and related guides
 

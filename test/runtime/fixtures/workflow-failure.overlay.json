@@ -1,6 +1,11 @@
 {
+  "deleteFiles": [
+    "src/app/hello/index.ts",
+    "src/app/hello/tools/greet.ts",
+    "src/app/hello/evals/smoke.eval.ts"
+  ],
   "files": {
-    "src/app/(public)/hello/[tenant]/index.ts": "import type { HelloState } from \"./state.js\";\n\nexport const workflow = async (state: HelloState): Promise<HelloState> => {\n  throw new Error(`Workflow execution failed for ${state.tenant}`);\n};\n"
+    "src/app/(public)/hello/[tenant]/index.ts": "interface HelloState {\n  greeting?: string;\n  tenant: string;\n}\n\nexport const workflow = async (state: HelloState): Promise<HelloState> => {\n  throw new Error(`Workflow execution failed for ${state.tenant}`);\n};\n"
   },
   "input": {
     "tenant": "workflow-tenant"

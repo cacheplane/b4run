@@ -1519,3 +1519,160 @@ describe("gated Postgres lane", () => {
     expect(postgresLaneRan).toBe(PGSTORAGE_LANE_REQUESTED)
   })
 })
+
+// ---------------------------------------------------------------------------
+// AG-UI approval resumes are bound to the route that parked. The Agent Protocol
+// resume endpoint never lets the caller choose the route — it resolves it from
+// server state — but /agui/:routeId takes the route from the URL, so without a
+// binding a caller admitted to a weaker route could answer, and run, an
+// approval parked under a stronger one.
+// ---------------------------------------------------------------------------
+
+/** An ordinary agent route with no middleware restriction, beside `/park`. */
+const OTHER_AGENT_ROUTE = [
+  'import { agent } from "@b4run/sdk"',
+  "export default agent({",
+  '  model: "gpt-5-mini",',
+  '  systemPrompt: "You are a test agent.",',
+  "})",
+  "",
+].join("\n")
+
+function aguiResumeRequest(
+  threadId: string,
+  routeKey: string,
+  interruptId: string,
+  headers: Record<string, string> = {},
+): Request {
+  return new Request(`http://localhost/agui/${encodeURIComponent(routeKey)}`, {
+    body: JSON.stringify({
+      context: [],
+      forwardedProps: {},
+      messages: [{ content: "deploy to staging", id: "m1", role: "user" }],
+      resume: [{ interruptId, payload: "once", status: "resolved" }],
+      runId: "r2",
+      state: {},
+      threadId,
+      tools: [],
+    }),
+    headers: { "content-type": "application/json", ...headers },
+    method: "POST",
+  })
+}
+
+describe("AG-UI approval resume route binding", () => {
+  it("refuses an approval resume sent to a route other than the one that parked", async () => {
+    await withAimock(
+      script()
+        .user("deploy to staging")
+        .callsTool("deployProd", { env: "staging" })
+        .replies("Deployed.")
+        .build(),
+    )
+    const handler = await createHandler(
+      await fixtureApp({
+        "src/middleware.ts": ADMIN_PARK_MIDDLEWARE,
+        "src/app/other/index.ts": OTHER_AGENT_ROUTE,
+      }),
+    )
+    const threadId = "t-agui-resume-route"
+
+    const parked = await handler.fetch(
+      aguiParkRequest(threadId, "deploy to staging", { "x-admin": "1" }),
+    )
+    expect(parked.status).toBe(200)
+    await drain(parked)
+    const [pending] = (await readPendingInterruptsBody(handler, threadId, { "x-admin": "1" }))
+      .interrupts
+    expect(pending?.interruptId).toMatch(/^perm-/)
+
+    // A caller /park's middleware would refuse, answering /park's approval
+    // through /other, which admits anyone.
+    const crossRoute = await handler.fetch(
+      aguiResumeRequest(threadId, "/other#agent", pending?.interruptId as string),
+    )
+    expect(crossRoute.status).toBe(409)
+    const body = (await crossRoute.json()) as ErrorBody
+    expect(body.error.details?.code).toBe("resume_route_mismatch")
+    // Never echo which route parked the thread.
+    expect(JSON.stringify(body)).not.toContain("/park")
+
+    // Nothing ran: the approval is still pending for the parking route.
+    const stillPending = await readPendingInterruptsBody(handler, threadId, { "x-admin": "1" })
+    expect(stillPending.interrupts.map((entry) => entry.interruptId)).toEqual([
+      pending?.interruptId,
+    ])
+
+    // The parking route can still resume it.
+    const sameRoute = await handler.fetch(
+      aguiResumeRequest(threadId, "/park#agent", pending?.interruptId as string, {
+        "x-admin": "1",
+      }),
+    )
+    expect(sameRoute.status).toBe(200)
+    expect(await readSseText(sameRoute)).toContain("deployed to staging")
+  }, 60_000)
+
+  /** Admin parks on /park, then a /broken agent run repoints metadata.route while the park survives. */
+  async function parkThenRepoint(threadId: string) {
+    await withAimock(
+      script()
+        .user("deploy to staging")
+        .callsTool("deployProd", { env: "staging" })
+        .replies("Deployed.")
+        .build(),
+    )
+    const handler = await createHandler(
+      await fixtureApp({
+        "src/app/broken/index.ts": BROKEN_AGENT_ROUTE,
+        "src/middleware.ts": ADMIN_PARK_MIDDLEWARE,
+      }),
+    )
+    const parked = await handler.fetch(
+      aguiParkRequest(threadId, "deploy to staging", { "x-admin": "1" }),
+    )
+    expect(parked.status).toBe(200)
+    await drain(parked)
+    const [pending] = (await readPendingInterruptsBody(handler, threadId, { "x-admin": "1" }))
+      .interrupts
+    // An agent route that dies before its graph runs repoints metadata.route
+    // to itself while the admin's park survives (pinned by the gating test above).
+    const swap = await handler.fetch(runStreamRequest(threadId, "/broken#agent", {}))
+    expect(swap.status).toBe(200)
+    expect(await readSseText(swap)).toContain("error")
+    const survived = await readPendingInterruptsBody(handler, threadId, { "x-admin": "1" })
+    expect(survived.interrupts.map((entry) => entry.interruptId)).toEqual([pending?.interruptId])
+    return { handler, interruptId: pending?.interruptId as string }
+  }
+
+  it("binds to parked_route, not a repointed metadata.route", async () => {
+    const threadId = "t-agui-resume-repoint"
+    const { handler, interruptId } = await parkThenRepoint(threadId)
+
+    const viaRepointed = await handler.fetch(
+      aguiResumeRequest(threadId, "/broken#agent", interruptId),
+    )
+    expect(viaRepointed.status).toBe(409)
+    expect(((await viaRepointed.json()) as ErrorBody).error.details?.code).toBe(
+      "resume_route_mismatch",
+    )
+    const stillPending = await readPendingInterruptsBody(handler, threadId, { "x-admin": "1" })
+    expect(stillPending.interrupts.map((entry) => entry.interruptId)).toEqual([interruptId])
+  }, 60_000)
+
+  it("resolves /threads/:id/resume to parked_route, so the parking route's middleware still decides", async () => {
+    const threadId = "t-ap-resume-repoint"
+    const { handler, interruptId } = await parkThenRepoint(threadId)
+
+    // Without parked_route first, the repointed /broken route answers: its
+    // middleware admits anyone. With it, /park's middleware refuses a non-admin.
+    const nonAdmin = await handler.fetch(resumeRequest(threadId, interruptId))
+    expect(nonAdmin.status).toBe(403)
+    const stillPending = await readPendingInterruptsBody(handler, threadId, { "x-admin": "1" })
+    expect(stillPending.interrupts.map((entry) => entry.interruptId)).toEqual([interruptId])
+
+    const admin = await handler.fetch(resumeRequest(threadId, interruptId, { "x-admin": "1" }))
+    expect(admin.status).toBe(200)
+    expect(await readSseText(admin)).toContain("deployed to staging")
+  }, 60_000)
+})

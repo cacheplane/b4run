@@ -34,10 +34,7 @@ const FOUNDATION_DOCS_NAV = [
     items: [
       { label: "Getting Started", href: "/docs/getting-started" },
       { label: "Mental Model", href: "/docs/mental-model" },
-      {
-        label: "Migrating from LangGraph",
-        href: "/docs/migrating-from-langgraph",
-      },
+      { label: "Migrating from LangGraph", href: "/docs/migrating-from-langgraph" },
     ],
   },
   {
@@ -48,55 +45,60 @@ const FOUNDATION_DOCS_NAV = [
       { label: "Tools", href: "/docs/tools" },
       { label: "State", href: "/docs/state" },
       { label: "Workspace Filesystem", href: "/docs/workspace" },
+      { label: "Middleware", href: "/docs/middleware" },
+      { label: "Dev Server", href: "/docs/dev-server" },
+    ],
+  },
+  {
+    label: "Agent Capabilities",
+    items: [
+      { label: "Planning", href: "/docs/planning" },
+      { label: "Skills", href: "/docs/skills" },
+      { label: "Subagents", href: "/docs/subagents" },
+      { label: "Context Management", href: "/docs/context-management" },
+      { label: "Reasoning", href: "/docs/reasoning-effort" },
+      { label: "Retry", href: "/docs/retry" },
+    ],
+  },
+  {
+    label: "Memory",
+    items: [
       { label: "Memory", href: "/docs/memory" },
       { label: "Long-term Memory", href: "/docs/memory/long-term" },
       { label: "Recall and Retrieval", href: "/docs/memory/retrieval" },
       { label: "Episodes", href: "/docs/memory/episodes" },
       { label: "Distillation", href: "/docs/memory/distillation" },
-      { label: "Planning", href: "/docs/planning" },
-      { label: "Skills", href: "/docs/skills" },
-      { label: "Subagents", href: "/docs/subagents" },
-      { label: "Context Management", href: "/docs/context-management" },
-      { label: "Reasoning Effort", href: "/docs/reasoning-effort" },
+      { label: "Browse and Manage Memory", href: "/docs/memory/browse" },
     ],
   },
   {
-    label: "Integrate",
+    label: "Connect Clients",
     items: [
-      { label: "Dev Server", href: "/docs/dev-server" },
       { label: "Agent Protocol", href: "/docs/dev-server/agent-protocol" },
-      { label: "Middleware", href: "/docs/middleware" },
       { label: "AG-UI and Web Clients", href: "/docs/ag-ui" },
       { label: "Embed the Runtime", href: "/docs/embedding" },
-      { label: "Blueprints", href: "/docs/blueprints" },
     ],
   },
   {
-    label: "Test",
+    label: "Test and Evaluate",
     items: [
+      { label: "Testing Overview", href: "/docs/testing-overview" },
       { label: "Scenario Testing", href: "/docs/testing" },
       { label: "Agent Test Harness", href: "/docs/testing-agents" },
-      {
-        label: "Fixtures and Recording",
-        href: "/docs/testing-agents/fixtures",
-      },
+      { label: "Fixtures and Recording", href: "/docs/testing-agents/fixtures" },
       { label: "Evals", href: "/docs/evals" },
     ],
   },
   {
-    label: "Operate",
+    label: "Secure",
     items: [
-      { label: "Persistence and Tenancy", href: "/docs/persistence" },
-      { label: "Production Topology", href: "/docs/production-topology" },
       { label: "Security Architecture", href: "/docs/security-architecture" },
-      { label: "Access Control", href: "/docs/access-control" },
       { label: "Thread Access", href: "/docs/thread-access" },
+      { label: "Access Control", href: "/docs/access-control" },
       { label: "Permissions", href: "/docs/permissions" },
-      { label: "Retry", href: "/docs/retry" },
-      { label: "Observability", href: "/docs/observability" },
-      { label: "Inspector", href: "/docs/inspector" },
-      { label: "Browse and Manage Memory", href: "/docs/memory/browse" },
-      { label: "Upgrading", href: "/docs/upgrading" },
+      { label: "Approval Grants", href: "/docs/approval-grants" },
+      { label: "Execution Sandbox", href: "/docs/sandbox" },
+      { label: "Kubernetes Sandbox", href: "/docs/sandbox/kubernetes" },
     ],
   },
   {
@@ -105,11 +107,20 @@ const FOUNDATION_DOCS_NAV = [
       { label: "Deployment Options", href: "/docs/deployment" },
       { label: "Node and Docker", href: "/docs/deployment/node" },
       { label: "Kubernetes", href: "/docs/deployment/kubernetes" },
-      { label: "LangSmith", href: "/docs/deployment/langsmith" },
-      { label: "Edge and Hono", href: "/docs/deployment/edge" },
       { label: "Vercel", href: "/docs/deployment/vercel" },
-      { label: "Execution Sandbox", href: "/docs/sandbox" },
-      { label: "Kubernetes Sandbox", href: "/docs/sandbox/kubernetes" },
+      { label: "Edge and Hono", href: "/docs/deployment/edge" },
+      { label: "LangSmith", href: "/docs/deployment/langsmith" },
+    ],
+  },
+  {
+    label: "Operate",
+    items: [
+      { label: "Persistence and Tenancy", href: "/docs/persistence" },
+      { label: "Production Topology", href: "/docs/production-topology" },
+      { label: "Observability", href: "/docs/observability" },
+      { label: "Inspector", href: "/docs/inspector" },
+      { label: "Troubleshooting", href: "/docs/troubleshooting" },
+      { label: "Upgrading", href: "/docs/upgrading" },
     ],
   },
   {
@@ -120,18 +131,11 @@ const FOUNDATION_DOCS_NAV = [
       { label: "Typed State", href: "/docs/recipes/typed-state" },
       { label: "Auth Middleware", href: "/docs/recipes/auth-middleware" },
       { label: "Stream Output", href: "/docs/recipes/stream-output" },
-      {
-        label: "Retry Transient Model Calls",
-        href: "/docs/recipes/retry-flaky-tools",
-      },
-      {
-        label: "Dispatch from a Route",
-        href: "/docs/recipes/dispatch-from-route",
-      },
-      {
-        label: "Research Assistant Web UI",
-        href: "/docs/recipes/research-web-ui",
-      },
+      { label: "Retry Transient Model Calls", href: "/docs/recipes/retry-flaky-tools" },
+      { label: "Dispatch from a Route", href: "/docs/recipes/dispatch-from-route" },
+      { label: "Build a Research Assistant", href: "/docs/recipes/research-assistant" },
+      { label: "Research Assistant Web UI", href: "/docs/recipes/research-web-ui" },
+      { label: "Blueprints", href: "/docs/blueprints" },
     ],
   },
   {
@@ -359,7 +363,9 @@ function filesUnder(
 ): string[] {
   return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
     const full = join(root, entry.name)
-    if (entry.isDirectory()) return filesUnder(full, matches, base)
+    // Dynamic segments ([...slug]) are routing fallbacks, not docs pages.
+    if (entry.isDirectory())
+      return entry.name.startsWith("[") ? [] : filesUnder(full, matches, base)
     return matches(entry.name) ? [relative(base, full)] : []
   })
 }
@@ -426,19 +432,19 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
     expect(DOCS_NAV).toEqual(FOUNDATION_DOCS_NAV)
   })
 
-  it("pins the exact 60-page reading order", () => {
+  it("pins the exact 63-page reading order", () => {
     const expectedPages = (FOUNDATION_DOCS_NAV as readonly DocsNavSection[]).flatMap(
       (section) => section.items,
     )
 
-    expect(expectedPages).toHaveLength(60)
+    expect(expectedPages).toHaveLength(64)
     expect(DOCS_PAGES).toEqual(expectedPages)
   })
 
   it("adds sixteen hidden API leaves immediately after the hub", () => {
-    expect(DOCS_NAV.reduce((count, section) => count + section.items.length, 0)).toBe(60)
-    expect(DOCS_PAGES).toHaveLength(60)
-    expect(ALL_DOCS_PAGES).toHaveLength(76)
+    expect(DOCS_NAV.reduce((count, section) => count + section.items.length, 0)).toBe(64)
+    expect(DOCS_PAGES).toHaveLength(64)
+    expect(ALL_DOCS_PAGES).toHaveLength(80)
 
     const hubIndex = ALL_DOCS_PAGES.findIndex(({ href }) => href === "/docs/api")
     expect(ALL_DOCS_PAGES.slice(hubIndex + 1, hubIndex + 17)).toEqual(API_REFERENCE_PAGES)
@@ -456,13 +462,24 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
 
   it("derives breadcrumbs and siblings from the registered order", () => {
     expect(breadcrumbsFor("/docs/ag-ui")).toEqual([
-      { label: "Home", href: "/" },
       { label: "Docs", href: "/docs/getting-started" },
+      { label: "Connect Clients" },
       { label: "AG-UI and Web Clients" },
     ])
-    expect(siblingsFor("/docs/dev-server/agent-protocol").prev?.href).toBe("/docs/dev-server")
-    expect(siblingsFor("/docs/dev-server/agent-protocol").next?.href).toBe("/docs/middleware")
-    expect(siblingsFor("/docs/ag-ui").prev?.href).toBe("/docs/middleware")
+    expect(breadcrumbsFor("/docs/tools")).toEqual([
+      { label: "Docs", href: "/docs/getting-started" },
+      { label: "Build" },
+      { label: "Tools" },
+    ])
+    // The first page keeps the Docs crumb and does not link to itself.
+    expect(breadcrumbsFor("/docs/getting-started")).toEqual([
+      { label: "Docs" },
+      { label: "Get Started" },
+      { label: "Getting Started" },
+    ])
+    expect(siblingsFor("/docs/dev-server/agent-protocol").prev?.href).toBe("/docs/memory/browse")
+    expect(siblingsFor("/docs/dev-server/agent-protocol").next?.href).toBe("/docs/ag-ui")
+    expect(siblingsFor("/docs/ag-ui").prev?.href).toBe("/docs/dev-server/agent-protocol")
     expect(siblingsFor("/docs/ag-ui").next?.href).toBe("/docs/embedding")
     expect(siblingsFor("/docs/faq").next).toBeNull()
   })
@@ -470,8 +487,8 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
   it("gives hidden API leaves a linked API hub and no journey siblings", () => {
     for (const leaf of API_REFERENCE_PAGES) {
       expect(breadcrumbsFor(leaf.href)).toEqual([
-        { label: "Home", href: "/" },
         { label: "Docs", href: "/docs/getting-started" },
+        { label: "Reference" },
         { label: "API Reference", href: "/docs/api" },
         { label: leaf.label },
       ])
@@ -479,20 +496,27 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
     }
   })
 
-  it("uses a real-link trail with the current route as the final crumb for all 75 pages", () => {
+  it("uses a Docs / section / page trail with the current route as the final crumb for all 78 pages", () => {
+    const sectionLabels = new Set<string>(DOCS_NAV.map((section) => section.label))
     for (const page of ALL_DOCS_PAGES) {
       const crumbs = breadcrumbsFor(page.href)
       const finalCrumb = crumbs.at(-1)
 
-      expect(crumbs[0], `${page.href} Home crumb`).toEqual({ label: "Home", href: "/" })
+      expect(crumbs[0], `${page.href} Docs crumb`).toEqual(
+        page.href === "/docs/getting-started"
+          ? { label: "Docs" }
+          : { label: "Docs", href: "/docs/getting-started" },
+      )
+      expect(crumbs[1]?.href, `${page.href} section crumb`).toBeUndefined()
+      expect(sectionLabels.has(crumbs[1]?.label ?? ""), `${page.href} section crumb`).toBe(true)
       expect(finalCrumb, `${page.href} final crumb`).toEqual({ label: page.label })
+      // Every ancestor except the section label is a real route.
       expect(
-        crumbs.slice(0, -1).every((crumb) => typeof crumb.href === "string"),
+        crumbs.slice(2, -1).every((crumb) => typeof crumb.href === "string"),
         `${page.href} linked ancestors`,
       ).toBe(true)
-      expect(new Set(crumbs.flatMap((crumb) => (crumb.href ? [crumb.href] : []))).size).toBe(
-        crumbs.length - 1,
-      )
+      const linked = crumbs.flatMap((crumb) => (crumb.href ? [crumb.href] : []))
+      expect(new Set(linked).size).toBe(linked.length)
       expect(crumbs.flatMap((crumb) => (crumb.href ? [crumb.href] : []))).not.toContain(page.href)
     }
   })
@@ -661,16 +685,23 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
       match[1] ? [match[1]] : [],
     )
 
-    expect(source).toContain("[Deployment Options](/docs/deployment)")
-    expect(source).toContain("[Node and Docker](/docs/deployment/node)")
+    expect(source).toContain("npm create b4-app@latest my-agent\n")
+    expect(source).not.toContain("--template")
     expect(source).not.toContain("## 5. Ship it")
     expect(source).not.toContain("docker run -p 8000:8000")
-    expect(cardTitles).toEqual(["Mental Model", "Add a Tool", "Deployment Options"])
+    expect(cardTitles).toEqual(["Build a Research Assistant", "Tools", "Routes"])
+  })
+
+  it("keeps the research recipe on the shipping journey", () => {
+    const source = readFileSync(join(CONTENT_ROOT, "recipes/research-assistant.mdx"), "utf8")
+    expect(source).toContain("[Deployment Options](/docs/deployment)")
+    expect(source).toContain("[Node and Docker](/docs/deployment/node)")
   })
 
   it("groups Recipes Overview around build, integrate, test, and deploy tasks", () => {
     const source = readFileSync(join(CONTENT_ROOT, "recipes/index.mdx"), "utf8")
     const recipeLabels = [
+      "Build a Research Assistant",
       "Add a Tool",
       "Typed State",
       "Retry Transient Model Calls",

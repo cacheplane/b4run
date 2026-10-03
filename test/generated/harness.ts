@@ -34,10 +34,9 @@ export type GeneratedScaffoldMode = "external" | "internal"
 interface RuntimeFixtureSpec {
   readonly expectedFixturePath: string
   readonly fixtureName: GeneratedRuntimeFixtureName
-  readonly input: {
-    readonly tenant: string
-  }
+  readonly input: Readonly<Record<string, string>>
   readonly mode: "agent" | "chain" | "graph" | "workflow"
+  readonly output: Readonly<Record<string, string>>
   readonly routeDir: string
   readonly routeId: string
   readonly routePath: string
@@ -75,12 +74,16 @@ const runtimeFixtures: Record<GeneratedRuntimeFixtureName, RuntimeFixtureSpec> =
     expectedFixturePath: join(FIXTURE_ROOT, "basic-runtime.expected.json"),
     fixtureName: "basic",
     input: {
-      tenant: "basic-tenant",
+      name: "Ada",
+    },
+    output: {
+      greeting: "Hello, Ada!",
+      name: "Ada",
     },
     mode: "agent",
-    routeDir: "src/app/(public)/hello/[tenant]",
-    routeId: "/hello/[tenant]",
-    routePath: "src/app/(public)/hello/[tenant]/index.ts",
+    routeDir: "src/app/hello",
+    routeId: "/hello",
+    routePath: "src/app/hello/index.ts",
     scenarioNames: {
       inProcess: "basic in-process scenario",
       server: "basic server scenario",
@@ -91,6 +94,10 @@ const runtimeFixtures: Record<GeneratedRuntimeFixtureName, RuntimeFixtureSpec> =
     expectedFixturePath: join(FIXTURE_ROOT, "custom-app-dir-runtime.expected.json"),
     fixtureName: "custom-app-dir",
     input: {
+      tenant: "custom-tenant",
+    },
+    output: {
+      greeting: "Hello, custom-tenant!",
       tenant: "custom-tenant",
     },
     mode: "graph",
@@ -107,6 +114,10 @@ const runtimeFixtures: Record<GeneratedRuntimeFixtureName, RuntimeFixtureSpec> =
     expectedFixturePath: join(FIXTURE_ROOT, "handwritten-runtime.expected.json"),
     fixtureName: "handwritten",
     input: {
+      tenant: "handwritten-tenant",
+    },
+    output: {
+      greeting: "Hello, handwritten-tenant!",
       tenant: "handwritten-tenant",
     },
     mode: "graph",
@@ -168,12 +179,13 @@ export async function prepareGeneratedRuntimeApp(options: {
           'import greet from "./tools/greet.js"',
           "",
           "export const agent = {",
-          "  async invoke(input: Record<string, unknown>, config?: Record<string, unknown>) {",
-          "    const tenant = (config?.configurable as Record<string, unknown>)?.tenant as string",
-          "    const info = await greet({ tenant })",
+          "  async invoke(input: { messages: ReadonlyArray<{ content: unknown }> }) {",
+          "    // A plain agent receives non-parameter input as the user message.",
+          "    const name = String(input.messages.at(-1)?.content)",
+          "    const info = await greet({ name })",
           "    return {",
-          "      greeting: `Hello, ${info.name}!`,",
-          "      tenant: info.name,",
+          "      greeting: info.message,",
+          "      name,",
           "    }",
           "  },",
           "}",
@@ -225,13 +237,10 @@ export async function prepareGeneratedRuntimeApp(options: {
 
 export async function expectBasicAuthoringLane(appRoot: string): Promise<void> {
   await expect(
-    access(resolve(appRoot, "src/app/(public)/hello/[tenant]/index.ts"), constants.F_OK),
+    access(resolve(appRoot, "src/app/hello/index.ts"), constants.F_OK),
   ).resolves.toBeUndefined()
   await expect(
-    access(resolve(appRoot, "src/app/(public)/hello/[tenant]/state.ts"), constants.F_OK),
-  ).resolves.toBeUndefined()
-  await expect(
-    access(resolve(appRoot, "src/app/(public)/hello/[tenant]/tools/greet.ts"), constants.F_OK),
+    access(resolve(appRoot, "src/app/hello/tools/greet.ts"), constants.F_OK),
   ).resolves.toBeUndefined()
 }
 
@@ -334,7 +343,7 @@ async function captureServerRequest(options: {
   readonly serverRequestUrl: string | null
 }> {
   const server = await startFakeAgentServer(async () => ({
-    body: createExpectedOutput(options.fixture),
+    body: options.fixture.output,
     statusCode: 200,
   }))
 
@@ -478,7 +487,7 @@ async function writeRunScenarioFile(options: {
       "    s",
       `      .input(${JSON.stringify(options.fixture.input)})`,
       "      .expectPassed()",
-      `      .expectOutput(${JSON.stringify(createExpectedOutput(options.fixture))})`,
+      `      .expectOutput(${JSON.stringify(options.fixture.output)})`,
       "      .expectMeta({",
       '        executionSource: "in-process",',
       `        mode: ${JSON.stringify(options.fixture.mode)},`,
@@ -491,7 +500,7 @@ async function writeRunScenarioFile(options: {
       `      .input(${JSON.stringify(options.fixture.input)})`,
       `      .server(${JSON.stringify(SERVER_URL_PLACEHOLDER)})`,
       "      .expectPassed()",
-      `      .expectOutput(${JSON.stringify(createExpectedOutput(options.fixture))})`,
+      `      .expectOutput(${JSON.stringify(options.fixture.output)})`,
       "      .expectMeta({",
       '        executionSource: "server",',
       `        mode: ${JSON.stringify(options.fixture.mode)},`,
@@ -500,7 +509,7 @@ async function writeRunScenarioFile(options: {
       "      })",
       "      .assert((result) => {",
       `        expectMeta(result, { executionSource: "server", mode: ${JSON.stringify(options.fixture.mode)} })`,
-      `        expectOutput(result, ${JSON.stringify({ tenant: options.fixture.input.tenant })})`,
+      `        expectOutput(result, ${JSON.stringify(options.fixture.input)})`,
       "      }),",
       "  )",
       "",
@@ -512,16 +521,6 @@ async function writeRunScenarioFile(options: {
 async function replaceInFile(filePath: string, search: string, replacement: string): Promise<void> {
   const source = await readFile(filePath, "utf8")
   await writeFile(filePath, source.replace(search, replacement), "utf8")
-}
-
-function createExpectedOutput(fixture: RuntimeFixtureSpec): {
-  readonly greeting: string
-  readonly tenant: string
-} {
-  return {
-    greeting: `Hello, ${fixture.input.tenant}!`,
-    tenant: fixture.input.tenant,
-  }
 }
 
 function selectRuntimeResult(result: unknown): unknown {

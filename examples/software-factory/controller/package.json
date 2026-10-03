@@ -1,0 +1,38 @@
+{
+  "name": "@b4-example/software-factory-controller",
+  "private": true,
+  "version": "0.0.7",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:sandbox": "vitest run --config vitest.sandbox.config.ts",
+    "test:github-scratch": "vitest run --config vitest.github.config.ts",
+    "test:sandbox:cli": "FACTORY_TEST_CLI_TARGET=1 vitest run --config vitest.sandbox.config.ts test/target-cli.integration.test.ts test/target-init.integration.test.ts",
+    "typecheck": "tsc -p . --noEmit",
+    "lint": "biome check .",
+    "factory": "node --import tsx src/cli.ts",
+    "target:prepare": "tsx scripts/prepare-target.ts",
+    "target:init": "tsx scripts/target-init.ts",
+    "target:measure": "tsx scripts/target-measure.ts",
+    "check": "b4 check",
+    "build": "b4 build",
+    "dev": "b4 dev"
+  },
+  "dependencies": {
+    "@b4run/cli": "workspace:*",
+    "@b4run/sandbox": "workspace:*",
+    "@b4run/sdk": "workspace:*",
+    "@b4run/workspace": "workspace:*",
+    "diff": "9.0.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@b4run/sqlite-storage": "workspace:*",
+    "@b4run/testing": "workspace:*",
+    "@biomejs/biome": "2.5.6",
+    "@types/node": "26.1.2",
+    "tsx": "4.23.10",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11"
+  }
+}

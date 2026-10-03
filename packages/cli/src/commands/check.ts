@@ -13,6 +13,7 @@ import {
 import { knownTargetNames } from "../lib/build/targets/index.js"
 import { assertRouteMarkerFileLimits } from "../lib/build/targets/marker-files.js"
 import { assertVercelBuildConfig } from "../lib/build/targets/vercel-config.js"
+import { resolveDistillRetry } from "../lib/memory/distill-retry-config.js"
 import { loadB4Config } from "../lib/node-config.js"
 import { CliError, type CommandIo, formatErrorMessage, writeLine } from "../lib/output.js"
 import { collectDelegationErrors } from "../lib/runtime/collect-delegation-errors.js"
@@ -98,6 +99,9 @@ export async function runCheckCommand(options: CheckOptions, io: CommandIo): Pro
 
     // Rejected target list or not: a mistyped opt-out must not pass check.
     assertVercelBuildConfig(loadedConfig.build)
+    // The same validation `b4 memory consolidate`/`reflect` apply before
+    // building their model, surfaced here so a near miss fails check too.
+    resolveDistillRetry(loadedConfig.memory)
 
     // Typed as known names, but a JS config arrives untyped — keep validating.
     const buildTargets: readonly string[] | undefined = loadedConfig.build?.targets
@@ -142,6 +146,20 @@ export async function runCheckCommand(options: CheckOptions, io: CommandIo): Pro
         code: "B4_E1002",
       })
     }
+    if (typeof loadedConfig.sandbox?.workspace === "function")
+      writeLine(io.stdout, "sandbox: managed workspace is resolved per thread")
+    if (typeof loadedConfig.sandbox?.thread === "function")
+      writeLine(io.stdout, "sandbox: workspace, image and policy are resolved per thread")
+    if (loadedConfig.sandbox?.workspaceRead === "http")
+      writeLine(io.stdout, "sandbox: thread workspaces are readable over HTTP (thread.workspace)")
+    if (
+      loadedConfig.sandbox?.stagedWorkspaces !== undefined &&
+      loadedConfig.sandbox.stagedWorkspaces !== false
+    )
+      writeLine(
+        io.stdout,
+        "sandbox: a thread's workspace may be handed over at creation (workspace.source.put)",
+      )
 
     await checkStaticModuleManifests(manifest, {
       includeEdge: Boolean(buildTargets?.includes("hono")),
@@ -207,7 +225,13 @@ async function checkStaticModuleManifest(manifest: RouteManifest, fileName: stri
   } catch (error) {
     throw new CliError(
       `Static module manifest failed to load:\n${modulesPath}\n${formatErrorMessage(error)}\n` +
-        "The manifest is stale or corrupt — re-run `b4 build` to regenerate it.",
+        // Loading it evaluates every module it imports — routes, middleware and
+        // the thread access policy — so an import-time throw in app code lands
+        // here too, and a rebuild would not fix that.
+        "Loading the manifest imports the app's modules (routes, middleware, thread access policy), " +
+        "so an app module that throws at import time — for example on a required environment " +
+        "variable that is unset — fails here. Otherwise the manifest is stale or corrupt — " +
+        "re-run `b4 build` to regenerate it.",
     )
   }
 

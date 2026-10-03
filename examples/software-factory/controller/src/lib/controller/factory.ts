@@ -1,0 +1,2509 @@
+import { createHash, randomUUID } from "node:crypto"
+import { existsSync, mkdirSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
+import { setTimeout as sleep } from "node:timers/promises"
+import {
+  type CapturedBuilderHandoff,
+  captureBuilderHandoff as captureBuilderHandoffOfTask,
+  stagedReferenceOf,
+} from "../builder-handoff.js"
+import { DEFAULT_WORKER_ROUTE } from "../config.js"
+import {
+  buildDeliveryIntent,
+  type DraftPrConfig,
+  preflightDelivery,
+  protectedChanges,
+} from "../delivery/approval.js"
+import { exportApproved } from "../delivery/export.js"
+import { createOutboxStore, type DeliveryIntent, type OutboxStore } from "../delivery/outbox.js"
+import { scrub } from "../delivery/scrub.js"
+import {
+  DEFAULT_DELIVERY_LIMITS,
+  type DeliveryLimits,
+  type DeliveryWorkerDeps,
+  runDelivery,
+} from "../delivery/worker.js"
+import { canon } from "../domain/digest.js"
+import {
+  CommandInFlightError,
+  DeliveryUnavailableError,
+  UnknownTaskError,
+  UnknownWorkOrderError,
+} from "../domain/errors.js"
+import {
+  ACTIVE_STATES,
+  blockedNext,
+  IllegalTransitionError,
+  isTerminal,
+  nextState,
+  REDELIVERABLE_BLOCKED_REASONS,
+  RETRYABLE_BLOCKED_REASONS,
+  type TransitionEvent,
+} from "../domain/states.js"
+import {
+  ApprovalSchema,
+  type Bundle,
+  type Candidate,
+  COMMIT_PATTERN,
+  type CommandIntent,
+  type CommandOutcome,
+  type FactoryEvent,
+  type IssueOrigin,
+  IssueOriginSchema,
+  type Receipt,
+  type RowDelivery,
+  type WorkOrderRow,
+} from "../domain/work-order.js"
+import {
+  type CaptureDrafterHandoffOptions,
+  type CapturedDrafterHandoff,
+  captureDrafterHandoff as captureDrafterHandoffOfPin,
+} from "../drafter-handoff.js"
+import { digestGeneratedTask, readGeneratedTask } from "../intake/generated-task.js"
+import { issueText } from "../intake/issue.js"
+import { oracleReceiptIdFor } from "../intake/oracle.js"
+import { promptFor } from "../prompts.js"
+import { type CommandLog, createCommandLog } from "../registry/commands.js"
+import { openRegistry } from "../registry/db.js"
+import { createEvidenceStore, type EvidenceStore } from "../registry/evidence.js"
+import { createWorkOrderStore, type WorkOrderPatch } from "../registry/work-orders.js"
+import {
+  BundlePayloadSchema,
+  type DraftPrBundlePayload,
+  draftPrDestinationId,
+} from "../review/bundle.js"
+import { type ArtifactStore, createArtifactStore } from "../storage/artifacts.js"
+import {
+  type CatalogOptions,
+  ensurePin,
+  isShippedTask,
+  loadTaskRecipe,
+  repositoryRoot,
+  type TargetRecipe,
+} from "../targets/catalog.js"
+import { ImageGoneError } from "../verification/docker-verifier.js"
+import { loadPolicy } from "../verification/policy.js"
+import type { Verifier } from "../verification/verifier.js"
+import type { CancelResult, WorkerClient } from "../worker/client.js"
+import type { InterruptFrame, StreamFrame } from "../worker/wire.js"
+import { type BudgetTicker, budgetShortfallFor, startBudgetTicker } from "./budget.js"
+import type { ControllerContext } from "./context.js"
+import { type BoundImage, bindingMoved, boundImageOf, prepareWorkOrderImage } from "./images.js"
+import { finishIntake, observeIntakeTurn, runIntake } from "./intake.js"
+import { deliveryCommandKey, reconcileAll, reconcileWorkOrder } from "./reconcile.js"
+import { denyPending, observeRun } from "./run-observer.js"
+import { consumeTurn } from "./turns.js"
+import { runVerification } from "./verify.js"
+import {
+  DRAFTER_UNCONFIGURED,
+  DrafterUnconfiguredError,
+  type DrafterWorker,
+  type TargetWorker,
+  type WorkerMap,
+} from "./workers.js"
+
+export interface FactoryOptions {
+  readonly registryPath: string
+  /**
+   * One builder worker per target and one drafter (`createWorkerMap` in the runtime). Every
+   * worker call goes through the row: `workerFor` for the target's builder, `drafter()` for
+   * the intake thread, `workerOfThread` for whichever holds the row's thread right now.
+   */
+  readonly workers: WorkerMap
+  /** Where the approved bytes are written, and the bundle's destination identity. */
+  readonly exportDir: string
+  /** Content-addressed evidence store for candidate and check output. */
+  readonly artifactsDir: string
+  /**
+   * Where an issue work order's `issue.md` (and later its drafted task) is written, under a
+   * directory named by the work order id. Must be the directory `configureCatalog` was given,
+   * or the catalog will never find what intake writes; the runtime passes the one config value
+   * to both.
+   */
+  readonly generatedTasksDir: string
+  /**
+   * Where the default handoff captures stage what they capture (`captures/<role>/...`):
+   * the runtime's `FACTORY_STATE_DIR`. Never the controller's app root: `b4 dev` watches that
+   * directory and restarts the server on a write it does not ignore, which killed `intake`
+   * mid-command the first time the factory ran under it.
+   */
+  readonly captureRoot: string
+  readonly verifier: Verifier
+  /**
+   * Captures the workspace `intake` stages on the drafter before it creates the thread (the
+   * wide capture of the repository at the row's pin), with its handoff. Injected so tests
+   * need neither the repository at a real pin nor the capture; the runtime uses the real one.
+   */
+  readonly captureDrafterHandoff?: (
+    options: CaptureDrafterHandoffOptions,
+  ) => Promise<CapturedDrafterHandoff>
+  /**
+   * Captures the workspace `dispatch` stages on the builder before it creates the thread (the
+   * task's workspace at the target's pin), with its handoff, named by the work order.
+   * Injected so a test can fail the capture or count it; the runtime (and every test that
+   * does not inject one) uses the real capture over the process-wide catalog.
+   */
+  readonly captureBuilderHandoff?: (input: {
+    readonly taskId: string
+    readonly workOrderId: string
+    readonly signal: AbortSignal
+    /**
+     * The work order's bound image (`image_bound`): its id is what the builder runs, its tag
+     * what it is named. Absent only under the `tasks` test seam, which binds none; the
+     * catalog capture refuses without one.
+     */
+    readonly image?: { readonly localId: string; readonly tag: string }
+  }) => Promise<CapturedBuilderHandoff>
+  /** The controller's own baseline for a task. Injected so tests need no container. */
+  captureBaseline(
+    taskId: string,
+    signal: AbortSignal,
+  ): Promise<{ readonly digest: string; readonly files: ReadonlyMap<string, string> }>
+  readonly maxChangedBytes?: number
+  /**
+   * Task id to prompt, consulted INSTEAD of the catalog when given: a test's fixed table.
+   * Without it every prompt is resolved from the catalog at the point of use.
+   */
+  readonly tasks?: Readonly<Record<string, string>>
+  /**
+   * Scopes ONLY the prompt lookup to a fixture catalog: for a test that drives create and
+   * the dispatch refusal over tasks the shipped catalog does not have. Policy, baseline, the
+   * verifier and the workspace reader read the process-wide search path `configureCatalog`
+   * sets, so a test that must dispatch a fixture task successfully uses that instead.
+   */
+  readonly promptCatalog?: CatalogOptions
+  readonly approvalTtlMs?: number
+  readonly maxActiveMs?: number
+  /**
+   * Test seam: dispatch or retry a row whose remaining budget is below twice its target's verifier deadline
+   * (still journalled). For a test of budget exhaustion itself, whose tiny budget no real
+   * target's verification fits; never set by the runtime's configuration.
+   */
+  readonly allowBudgetBelowVerifierDeadline?: boolean
+  /** Drafter turns an intake may spend before it blocks. Default 2. */
+  readonly maxIntakeAttempts?: number
+  /**
+   * Builder dispatches a work order may spend: the first, and one per `retry`. Default 2.
+   * Fixed on the row at create (`FACTORY_MAX_CANDIDATE_ATTEMPTS`).
+   */
+  readonly maxCandidateAttempts?: number
+  /** How long a cancel waits for the cancelled run's observer to settle. Default 10s. */
+  readonly cancelSettleMs?: number
+  readonly budgetTickMs?: number
+  /** How long close() waits for tracked runs to settle after aborting them. */
+  readonly closeTimeoutMs?: number
+  readonly now?: () => number
+  readonly actor?: string
+  readonly log?: (event: string, payload: Record<string, unknown>) => void
+  /**
+   * Draft-PR delivery (rung 4). Absent, `createFromIssue` refuses `draft-pr` and a row left
+   * `delivering` blocks `delivery_unauthorized` at reconcile. The runtime wires the GitHub
+   * adapter (`delivery/github/adapter.ts`); tests inject the in-memory one.
+   */
+  readonly delivery?: {
+    readonly draftPr: DraftPrConfig
+    readonly limits?: Partial<DeliveryLimits>
+    /** Test seam: the worker's waits. Default: a real, abortable sleep. */
+    readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>
+    /** Test seam: the worker's wall clock for its run bound. Default `Date.now`. */
+    readonly clock?: () => number
+  }
+  /** How long after its approval a blocked delivery may be redelivered. Default 24 hours. */
+  readonly redeliverWindowMs?: number
+}
+
+export interface Factory {
+  create(input: { taskId: string; operationKey?: string }): Promise<WorkOrderRow>
+  /**
+   * A work order from a GitHub issue: the origin and the pin are recorded on the row, the
+   * issue text is written as `<generatedTasksDir>/<id>/issue.md`, and `taskId` is the id
+   * itself, which is where intake will later materialise the drafted task.
+   */
+  createFromIssue(input: {
+    origin: IssueOrigin
+    pin: string
+    issue: { title: string; body: string }
+    /**
+     * Deliver the approved bundle as a draft pull request (rung 4 §3.1) instead of a local
+     * export. `issueState` is the issue's state as the CLI read it; the rest of the delivery
+     * comes from this controller's configuration and the work order's id.
+     */
+    deliver?: { readonly kind: "draft-pr"; readonly issueState: "open" | "closed" }
+    operationKey?: string
+  }): Promise<WorkOrderRow>
+  /**
+   * Start the drafter turn for an issue work order: from `received` with an issue origin,
+   * to `intake_running`. The tracked run reads, proves and parks the draft, or blocks.
+   */
+  intake(id: string, operationKey?: string): Promise<CommandOutcome>
+  /**
+   * The intake gate: the digest of the generated task on disk, recomputed now, must equal
+   * both the row's and the caller's. Approval returns the work order to `received`, where
+   * `dispatch` starts the rung 2 lifecycle on the generated task.
+   */
+  approveIntake(
+    id: string,
+    input: { revision: number; taskDigest: string; operationKey?: string },
+  ): Promise<CommandOutcome>
+  /** Journal the note and, attempts permitting, run another drafter turn with it quoted. */
+  rejectIntake(id: string, input: { note: string; operationKey?: string }): Promise<CommandOutcome>
+  /**
+   * `signal`: the caller's own (the dispatch route's `ctx.signal`). Aborted while dispatch waits
+   * on the task's image, it cancels the work order as `settleOutcome` would after the wait.
+   */
+  dispatch(
+    id: string,
+    operationKey?: string,
+    options?: { readonly signal?: AbortSignal },
+  ): Promise<CommandOutcome>
+  /**
+   * Return a work order a candidate failure blocked (`RETRYABLE_BLOCKED_REASONS`) to
+   * `received`, where `dispatch` starts a fresh builder thread, while it has candidate
+   * attempts left. The old thread's pending prompt is denied and its run cancelled; the
+   * approved task digest stays bound, and `dispatch` re-checks it.
+   */
+  retry(id: string, operationKey?: string): Promise<CommandOutcome>
+  approve(
+    id: string,
+    input: { revision: number; bundleDigest: string; operationKey?: string },
+  ): Promise<CommandOutcome>
+  deny(id: string, operationKey?: string): Promise<CommandOutcome>
+  /**
+   * Resume a draft-PR delivery a block the world can heal stopped (`delivery_unauthorized`,
+   * `delivery_rate_limited`, `delivery_unconfirmed`), under the approval already given, at the
+   * revision and bundle digest the caller displayed, within a day of that approval.
+   */
+  redeliver(
+    id: string,
+    input: { revision: number; bundleDigest: string; operationKey?: string },
+  ): Promise<CommandOutcome>
+  cancel(id: string, operationKey?: string): Promise<CommandOutcome>
+  show(id: string): WorkOrderRow | null
+  list(): WorkOrderRow[]
+  events(id: string): FactoryEvent[]
+  /** The frozen evidence behind the row: what an approver is asked to consent to. */
+  evidence(id: string): {
+    candidate: Candidate | null
+    receipt: Receipt | null
+    bundle: Bundle | null
+    /** The receipt that proved the approved draft's check fails on the baseline; null without intake. */
+    oracleReceipt: Receipt | null
+  }
+  waitFor(
+    id: string,
+    predicate: (row: WorkOrderRow) => boolean,
+    timeoutMs?: number,
+  ): Promise<WorkOrderRow>
+  /**
+   * Wait for the tracked background run of `id` (the builder turn and the verification
+   * that follows it) to settle, then return the row once it has left the active states.
+   * Times out with the row's current state in the message.
+   */
+  settle(id: string, timeoutMs: number): Promise<WorkOrderRow>
+  /**
+   * `settle` for an intake: the tracked run is the drafter turn and the read-and-prove that
+   * follows it (and any retry), and `intake_running` is an active state, so the same wait
+   * serves. Kept as its own name so a caller says which run it is waiting on.
+   */
+  settleIntake(id: string, timeoutMs: number): Promise<WorkOrderRow>
+  /** Reconcile one work order now (what boot does for all of them). */
+  reconcileWorkOrder(id: string): Promise<void>
+  /**
+   * The boot walk, on demand: settles open command intents and applies the rules to every
+   * non-terminal row, each inside its own guard. What `/reconcile` calls.
+   */
+  reconcileAll(): Promise<void>
+  close(): Promise<void>
+}
+
+// Re-exported where they have always been imported from: moving the classes must not make
+// every caller change its import.
+export { CommandInFlightError, UnknownTaskError, UnknownWorkOrderError }
+
+export async function createFactory(options: FactoryOptions): Promise<Factory> {
+  const registry = openRegistry(options.registryPath)
+  const store = createWorkOrderStore(registry.db)
+  const commands: CommandLog = createCommandLog(registry.db)
+  const outbox: OutboxStore = createOutboxStore(registry.db)
+  const evidenceStore: EvidenceStore = createEvidenceStore(registry.db)
+  const artifacts: ArtifactStore = createArtifactStore(options.artifactsDir)
+  const log = options.log ?? (() => {})
+  /**
+   * Who an approval or a denial is recorded as decided by, checked against the approval's own
+   * schema. Approve and deny read it before they begin their operation key: an actor the
+   * approval write would reject (`""`) otherwise throws inside the transaction and leaves the
+   * key in flight. A whitespace-only actor names nobody either, and is refused the same way.
+   */
+  const decidedByOf = (): { ok: true; actor: string } | { ok: false; message: string } => {
+    const actor = options.actor ?? "operator"
+    return actor.trim() !== "" && ApprovalSchema.shape.decidedBy.safeParse(actor).success
+      ? { ok: true, actor }
+      : { ok: false, message: "The factory's actor is empty: an approval names who decided it" }
+  }
+  /**
+   * The prompt for `taskId`, or the Error saying why the catalog cannot serve it. Resolved
+   * at the point of use and never at boot: one unprepared sibling target must not decide
+   * whether the controller boots, and a task generated after boot is dispatchable the moment
+   * its directory lands. A task the catalog cannot load is reported here, once per use.
+   */
+  const prompt = (taskId: string): string | Error => {
+    if (options.tasks) return options.tasks[taskId] ?? new Error(`Unknown task ${taskId}`)
+    try {
+      return promptFor(taskId, options.promptCatalog ?? {})
+    } catch (error) {
+      log("task_unavailable", { id: taskId, error: String(error) })
+      return error instanceof Error ? error : new Error(String(error))
+    }
+  }
+  /**
+   * The runtime's builder handoff: the task from the catalog the prompt came from
+   * (`promptCatalog` when a test scopes one, the process-wide search path otherwise),
+   * captured.
+   */
+  const captureBuilderHandoffFromCatalog: NonNullable<
+    FactoryOptions["captureBuilderHandoff"]
+  > = async (input) => {
+    if (input.image === undefined) throw new Error("dispatch bound no image")
+    return captureBuilderHandoffOfTask(loadTaskRecipe(input.taskId, options.promptCatalog ?? {}), {
+      workOrderId: input.workOrderId,
+      captureRoot: options.captureRoot,
+      signal: input.signal,
+      image: input.image,
+    })
+  }
+  const now = options.now ?? Date.now
+  const iso = () => new Date(now()).toISOString()
+  const abort = new AbortController()
+  const runs = new Map<string, Promise<void>>()
+  /**
+   * One per work order in a container phase (`verifying`, `intake_running`); aborted the
+   * moment the row leaves that state. A work order is in at most one such phase at a time,
+   * so one entry per id serves both.
+   */
+  const phases = new Map<string, AbortController>()
+  const PHASE_STATES: ReadonlySet<WorkOrderRow["state"]> = new Set(["verifying", "intake_running"])
+  /**
+   * One per work order waiting on an image at `dispatch` (in `received`, before the key):
+   * aborted by any transition that moves the row (a cancel) and by close(), and removed when
+   * the last dispatch waiting on it stops waiting (bound or refused).
+   */
+  const imageWaits = new Map<string, { controller: AbortController; waiters: number }>()
+  const imageWait = (id: string): { readonly signal: AbortSignal; release(): void } => {
+    let wait = imageWaits.get(id)
+    if (!wait) {
+      wait = { controller: new AbortController(), waiters: 0 }
+      imageWaits.set(id, wait)
+    }
+    wait.waiters += 1
+    const held = wait
+    let released = false
+    return {
+      signal: AbortSignal.any([abort.signal, held.controller.signal]),
+      release() {
+        if (released) return
+        released = true
+        held.waiters -= 1
+        if (held.waiters === 0 && imageWaits.get(id) === held) imageWaits.delete(id)
+      },
+    }
+  }
+  /**
+   * Dispatches in flight in this process, per work order, from their first line to their
+   * journalled end: a dispatch preparing its image sits in `received` with no tracked run,
+   * and reconciliation must not write off its build as a restart's.
+   */
+  const liveDispatches = new Map<string, number>()
+  let closed = false
+  /** Started only once reconciliation has run, so no tick can race the boot rules. */
+  let ticker: BudgetTicker | null = null
+
+  /** Sleep that resolves (rather than rejecting) when close() aborts. */
+  const quietSleep = (ms: number) => sleep(ms, undefined, { signal: abort.signal }).catch(() => {})
+
+  const mustGet = (id: string): WorkOrderRow => {
+    const row = store.get(id)
+    if (!row) throw new UnknownWorkOrderError(id)
+    return row
+  }
+  const isNonTerminalAndNotCancelling = (r: WorkOrderRow) =>
+    !isTerminal(r.state) && r.state !== "cancel_requested"
+
+  const recordEvent = (id: string, type: string, payload: Record<string, unknown> = {}) => {
+    store.appendEvent(id, type, payload, iso())
+    log(type, { id, ...payload })
+  }
+
+  const transition = (
+    id: string,
+    event: TransitionEvent,
+    patch: WorkOrderPatch = {},
+    payload: Record<string, unknown> = {},
+  ): WorkOrderRow => {
+    return store.transaction(() => {
+      const row = mustGet(id)
+      const to = nextState(row.state, event)
+      const accounting: WorkOrderPatch = {}
+      // Every committed dispatch spends a candidate attempt, whoever commits it: `dispatch`
+      // itself, or reconciliation adopting the thread a crashed dispatch left behind. Counted
+      // here, inside the transaction, from the row it moves.
+      if (event === "dispatch_committed") accounting.candidateAttempts = row.candidateAttempts + 1
+      const wasActive = ACTIVE_STATES.has(row.state)
+      const willBeActive = ACTIVE_STATES.has(to)
+      if (wasActive && !willBeActive) {
+        const open = row.activeStartedAt ? Math.max(0, now() - Date.parse(row.activeStartedAt)) : 0
+        accounting.activeMs = row.activeMs + open
+        accounting.activeStartedAt = null
+      } else if (!wasActive && willBeActive) {
+        accounting.activeStartedAt = iso()
+      }
+      const updated = store.update(id, row.revision, { ...patch, ...accounting, state: to }, iso())
+      recordEvent(id, "transition", { event, from: row.state, to, ...payload })
+      // Container work for a row that has left its phase has no one to report to: abort it
+      // now rather than let it run to the verifier's own deadline. An `intake_retry` keeps
+      // the row in `intake_running`, and so keeps its signal.
+      if (PHASE_STATES.has(row.state) && to !== row.state) {
+        phases.get(id)?.abort()
+        phases.delete(id)
+      }
+      if (to !== row.state) {
+        imageWaits.get(id)?.controller.abort(new Error(`work order ${id} left ${row.state}`))
+        imageWaits.delete(id)
+      }
+      return updated
+    })
+  }
+
+  const pauseBudget = (id: string, reason: string): boolean =>
+    store.transaction(() => {
+      const row = mustGet(id)
+      if (!ACTIVE_STATES.has(row.state) || row.activeStartedAt === null) return false
+      const activeMs = row.activeMs + Math.max(0, now() - Date.parse(row.activeStartedAt))
+      store.update(id, row.revision, { activeMs, activeStartedAt: null }, iso())
+      recordEvent(id, "budget_paused", { reason, activeMs })
+      return true
+    })
+  const resumeBudget = (id: string, reason: string): void =>
+    store.transaction(() => {
+      const row = mustGet(id)
+      if (!ACTIVE_STATES.has(row.state) || row.activeStartedAt !== null) return
+      store.update(id, row.revision, { activeStartedAt: iso() }, iso())
+      recordEvent(id, "budget_resumed", { reason })
+    })
+
+  const phaseSignal = (id: string): AbortSignal => {
+    let controller = phases.get(id)
+    if (!controller) {
+      controller = new AbortController()
+      phases.set(id, controller)
+    }
+    return AbortSignal.any([abort.signal, controller.signal])
+  }
+  const verificationSignal = phaseSignal
+  const intakeSignal = phaseSignal
+
+  const finish = (operationKey: string, outcome: CommandOutcome): CommandOutcome => {
+    commands.complete(operationKey, outcome)
+    return outcome
+  }
+
+  /**
+   * Replacing an entry is deliberate, not a race: the one caller that tracks over a live entry
+   * is a tracked run handing off to its own successor (a reconcile pass opened from inside it
+   * with `fromTrackedRun`, reattaching a new observer), and the entry it replaces is the run
+   * doing the replacing. Every other caller either asks `isTracked` first or starts the run of
+   * a state it has just moved the row into, which no tracked run holds; a delivery is joined
+   * through `deliveries`, never tracked twice. So it overwrites rather than throws: a throw
+   * would break that handoff.
+   */
+  const track = (id: string, run: Promise<void>) => {
+    const tracked: Promise<void> = run
+      .catch((error) => {
+        try {
+          // Scrubbed: a delivery's fault could quote a request (rung 4 §8.3).
+          recordEvent(id, "run_observer_error", {
+            error: scrub(String(error), options.delivery?.draftPr.adapter.secrets() ?? []),
+          })
+        } catch {
+          // close() gave up on this run and took the registry with it: there is nothing left
+          // to journal the fault on, and throwing here would be an unhandled rejection.
+        }
+      })
+      .finally(() => {
+        if (runs.get(id) === tracked) runs.delete(id)
+      })
+    runs.set(id, tracked)
+  }
+
+  /**
+   * Waiting is wall-clock work, not domain time: an injected `now` (tests, replay) must not
+   * be able to freeze or fast-forward it. An abort means stop waiting, not fail.
+   */
+  const settleRun = async (id: string, timeoutMs: number) => {
+    const run = runs.get(id)
+    if (!run) return
+    await Promise.race([run, quietSleep(timeoutMs)])
+  }
+
+  /**
+   * The target a row's builder thread belongs to: recorded on the row at `intake_drafted`
+   * for a generated task, the catalog's for a shipped one. A fixed prompt table (`tasks`, a
+   * test seam the runtime never sets) names no catalog and so no target: it resolves to the
+   * placeholder `*`, which no configured map has an entry for and only a test's fake map
+   * (which serves every id) answers. A task the
+   * catalog cannot load throws the catalog's own error: that is the task's fault (an
+   * unprepared target, say), which `dispatch` reports as such, not a missing worker.
+   */
+  function targetOf(row: WorkOrderRow): string {
+    if (row.targetId !== null) return row.targetId
+    if (options.tasks) return "*"
+    return loadTaskRecipe(row.taskId, options.promptCatalog ?? {}).target.id
+  }
+  /**
+   * What is LEFT of the row's active budget against its target's verifier deadline, when it is
+   * short. The budget is fixed on the row at create (`FACTORY_MAX_ACTIVE_MS`), not reset by
+   * `retry`, and covers the intake, every builder turn and every verification, each of which
+   * may take up to the target's deadline: an attempt started on less than twice that deadline
+   * (the verification, and as long again for the turn) can run out mid-verification and fail a
+   * candidate for the factory's own slowness. A fresh row's remainder is its whole budget, so
+   * one rule serves `create`'s warning, every `dispatch` and `retry`. Undefined when enough is
+   * left, or when the task does not load (its own refusal says why).
+   */
+  function budgetShortfall(row: WorkOrderRow):
+    | {
+        maxActiveMs: number
+        activeMs: number
+        remainingMs: number
+        verifierDeadlineMs: number
+        targetId: string
+      }
+    | undefined {
+    if (options.tasks) return undefined
+    let target: { id: string; resources: { verifierDeadlineMs: number } }
+    try {
+      target = loadTaskRecipe(row.taskId, options.promptCatalog ?? {}).target
+    } catch {
+      return undefined
+    }
+    const verifierDeadlineMs = target.resources.verifierDeadlineMs
+    const shortfall = budgetShortfallFor(row, verifierDeadlineMs)
+    if (shortfall === undefined) return undefined
+    return {
+      maxActiveMs: row.maxActiveMs,
+      activeMs: row.activeMs,
+      remainingMs: shortfall.remainingMs,
+      verifierDeadlineMs,
+      targetId: target.id,
+    }
+  }
+  function budgetMessage(
+    id: string,
+    shortfall: NonNullable<ReturnType<typeof budgetShortfall>>,
+  ): string {
+    return `Work order ${id} has ${Math.max(0, shortfall.remainingMs)} ms of its active budget left (${shortfall.activeMs} ms spent of ${shortfall.maxActiveMs} ms, FACTORY_MAX_ACTIVE_MS when it was created), below twice target ${shortfall.targetId}'s verifier deadline (${shortfall.verifierDeadlineMs} ms): the verification alone could exhaust it. Restart the controller with FACTORY_MAX_ACTIVE_MS=${shortfall.activeMs + 2 * shortfall.verifierDeadlineMs} or more (the README sizes it per target), cancel this work order and create it again`
+  }
+  /**
+   * The shortfall refusal for `phase`, journalled, or undefined when the budget suffices or the
+   * test seam waives it (still journalled). The one budget gate `dispatch` and `retry` share.
+   */
+  function budgetRefusal(id: string, row: WorkOrderRow, phase: string): string | undefined {
+    const shortfall = budgetShortfall(row)
+    if (shortfall === undefined) return undefined
+    recordEvent(id, "budget_below_verifier_deadline", { phase, ...shortfall })
+    return options.allowBudgetBelowVerifierDeadline ? undefined : budgetMessage(id, shortfall)
+  }
+  /**
+   * The image the row's task runs in: its binding if it has one the daemon still holds, else
+   * prepared (built, joined or re-verified) and bound. `undefined` when the task does not load:
+   * `prompt` then refuses it with the catalog's own reason.
+   */
+  async function prepareDispatchImage(
+    id: string,
+    row: WorkOrderRow,
+    signal: AbortSignal,
+  ): Promise<{ readonly refusal: string } | { readonly bound: BoundImage } | undefined> {
+    let recipe: TargetRecipe
+    try {
+      recipe = loadTaskRecipe(row.taskId, options.promptCatalog ?? {}).target
+    } catch {
+      return undefined
+    }
+    const result = await prepareWorkOrderImage(ctx, id, recipe, signal, { rebind: false })
+    if (result.ok) return { bound: result.bound }
+    return {
+      refusal:
+        result.kind === "aborted"
+          ? `Work order ${id} left received while its image was being prepared`
+          : result.reason,
+    }
+  }
+
+  /** The approved generated task's digest, re-read from disk: a refusal, or undefined when it holds. */
+  function approvedDigestRefusal(
+    id: string,
+    row: WorkOrderRow,
+    phase: string,
+  ): CommandOutcome | undefined {
+    if (row.taskDigest === null || row.state !== "received") return undefined
+    const onDisk = diskTaskDigest(id)
+    if ("error" in onDisk) {
+      recordEvent(id, "generated_task_unreadable", { phase, error: String(onDisk.error) })
+      return {
+        ok: false,
+        state: row.state,
+        message: `Generated task unreadable: ${String(onDisk.error)}`,
+      }
+    }
+    if (onDisk.digest !== row.taskDigest) {
+      recordEvent(id, "generated_task_changed", {
+        phase,
+        approved: row.taskDigest,
+        onDisk: onDisk.digest,
+      })
+      return {
+        ok: false,
+        state: row.state,
+        message: "Generated task on disk no longer matches the approved digest",
+      }
+    }
+    return undefined
+  }
+  const workerFor = (row: WorkOrderRow): TargetWorker => {
+    const targetId = targetOf(row)
+    return options.workers.forTarget(targetId)
+  }
+  const drafter = (): DrafterWorker => {
+    const worker = options.workers.drafter
+    if (worker === undefined) throw new DrafterUnconfiguredError()
+    return worker
+  }
+  /** Did `intake` record `row.workerThreadId` as the thread it created for the drafter? */
+  function isJournalledIntakeThread(row: WorkOrderRow): boolean {
+    if (row.workerThreadId === null) return false
+    return store
+      .events(row.id)
+      .some(
+        (event) =>
+          event.type === "intake_thread_created" && event.payload.threadId === row.workerThreadId,
+      )
+  }
+  /** Is the row's thread the drafter's? See `ControllerContext.workerOfThread`. */
+  function holdsIntakeThread(row: WorkOrderRow): boolean {
+    switch (row.state) {
+      case "intake_running":
+      case "awaiting_intake_approval":
+        return true
+      case "received":
+        return row.taskDigest !== null && row.workerThreadId !== null
+      // A cancel or a block can come from either phase, and the state alone no longer says
+      // which: the journal, written before the row ever held the thread, does.
+      case "cancel_requested":
+      case "blocked":
+        return isJournalledIntakeThread(row)
+      default:
+        return false
+    }
+  }
+  const workerOfThread = (row: WorkOrderRow) =>
+    holdsIntakeThread(row) ? drafter() : workerFor(row)
+
+  /**
+   * Delete a worker thread this controller has abandoned: one no row holds and nothing will
+   * read again. A thread left on the worker keeps its staged source referenced, and a worker
+   * never reclaims a referenced source, so abandoned threads would fill its staged quota until
+   * every upload is refused (507). Best-effort and journalled either way (`thread_deleted`, or
+   * `thread_delete_failed` for an operator), never failing the command that abandons it;
+   * idempotent, since the worker answers a thread it no longer has as deleted.
+   *
+   * Not covered: a thread the worker made whose id never reached the controller (the create
+   * answered after a crash, or its response was lost). The worker chooses thread ids, so
+   * there is no id to delete; that thread is the worker's to expire.
+   */
+  async function abandonThread(id: string, worker: WorkerClient, threadId: string): Promise<void> {
+    try {
+      const result = await worker.deleteThread(threadId)
+      recordEvent(id, "thread_deleted", { threadId, result })
+    } catch (error) {
+      recordEvent(id, "thread_delete_failed", { threadId, error: String(error) })
+    }
+  }
+
+  /**
+   * Is there a turn on `threadId` for the cancel to interrupt, and is the thread there at
+   * all? The worker is the authority, not the controller's in-memory `runs` map: after a
+   * restart that map is empty, and while a run is draining its last frames the map still
+   * holds a promise for a turn that has parked. An unreadable status is treated as live —
+   * cancelling a parked thread is a tolerated 409, whereas skipping the cancel of a live one
+   * leaks a run. A 404 (`missing`) is different: there is nothing to cancel and nothing to
+   * deny on a thread the worker does not have.
+   */
+  async function threadLiveness(
+    id: string,
+    worker: WorkerClient,
+    threadId: string,
+  ): Promise<"live" | "ended" | "missing" | "unknown"> {
+    try {
+      const thread = await worker.getThread(threadId)
+      if (!thread) return "missing"
+      return thread.status === "busy" ? "live" : "ended"
+    } catch (error) {
+      recordEvent(id, "thread_status_unknown", { error: String(error) })
+      return "unknown"
+    }
+  }
+
+  /**
+   * Shared by the cancel command, the budget ticker, and reconciliation. Cancels a live run,
+   * denies whatever prompt is still parked, and applies the terminal cancel row for `cause`.
+   *
+   * Nothing reaches a terminal cancel row without evidence: an undelivered cancel or an
+   * undelivered denial leaves the work order in `cancel_requested` and returns it unchanged,
+   * which is exactly the state reconciliation knows how to finish on the next boot. Callers
+   * read the returned row — never the fact that this function was called — as the outcome.
+   */
+  async function finishCancel(id: string, cause: "operator" | "budget"): Promise<WorkOrderRow> {
+    const row = mustGet(id)
+    // An intake that crashed after the drafter made its thread and before the row took it
+    // journalled the thread for a rerun to adopt. Cancelling the row abandons it instead.
+    const uncommittedIntake = row.workerThreadId === null ? journalledIntakeThreadId(id) : null
+    if (uncommittedIntake !== null) {
+      let client: WorkerClient | undefined
+      try {
+        client = drafter().client
+      } catch (error) {
+        recordEvent(id, "thread_delete_failed", {
+          threadId: uncommittedIntake,
+          error: String(error),
+        })
+      }
+      if (client !== undefined) await abandonThread(id, client, uncommittedIntake)
+    }
+    // An approval of the bundle the row holds means the builder's turn ended before the
+    // verification it was frozen from: a delivery (or an export) has no turn to cancel and no
+    // prompt to deny, and asking the builder about the row's old thread would hold the cancel
+    // on a builder that may be stopped (D24). Only that bundle's approval counts: one of a
+    // bundle the row no longer holds says nothing about the turn running now.
+    const pastTheBuilder =
+      row.bundleDigest !== null &&
+      store
+        .approvals(id)
+        .some(
+          (approval) =>
+            approval.decision === "approved" && approval.bundleDigest === row.bundleDigest,
+        )
+    if (row.workerThreadId && !pastTheBuilder) {
+      const threadId = row.workerThreadId
+      // Which worker holds the thread is the row's to say. A row whose worker is no longer
+      // configured (the drafter removed, a target's entry dropped) has nowhere to send the
+      // cancel and nothing to deny: the cancel is the operator's escape for a worker that is
+      // gone for good, so it settles the row with the fact journalled, rather than hold it
+      // in `cancel_requested` for a map that may never return.
+      let worker: WorkerClient | undefined
+      try {
+        worker = workerOfThread(row).client
+      } catch (error) {
+        recordEvent(id, "worker_unavailable", { phase: "cancel", error: String(error) })
+      }
+      const liveness = worker === undefined ? "missing" : await threadLiveness(id, worker, threadId)
+      let result: CancelResult | null = null
+      if (worker !== undefined && (liveness === "live" || liveness === "unknown")) {
+        try {
+          result = await worker.cancel(threadId)
+        } catch (error) {
+          // The turn may well still be running: a row reading `cancelled` here would be a
+          // claim the worker never confirmed.
+          recordEvent(id, "worker_cancel_failed", { error: String(error) })
+          return mustGet(id)
+        }
+        recordEvent(id, "worker_cancel", { result })
+        await settleRun(id, options.cancelSettleMs ?? 10_000)
+      }
+      if (liveness !== "missing" && result !== "thread_not_found") {
+        try {
+          await denyPending(ctx, id)
+        } catch (error) {
+          // A prompt still parked on the worker is a turn still waiting on us.
+          recordEvent(id, "pending_deny_failed", { error: String(error) })
+          return mustGet(id)
+        }
+      }
+    }
+    try {
+      return cause === "budget"
+        ? transition(id, "run_ended_after_budget", { blockedReason: "budget_exhausted" })
+        : transition(id, "run_ended_after_cancel")
+    } catch (error) {
+      // Something else settled the row while this cancel was talking to the worker.
+      if (!(error instanceof IllegalTransitionError)) throw error
+      recordEvent(id, "cancel_transition_skipped", { cause, error: String(error) })
+      return mustGet(id)
+    }
+  }
+
+  /** The delivery worker's collaborators, when this controller delivers draft PRs. */
+  const deliveryDeps: DeliveryWorkerDeps | undefined =
+    options.delivery === undefined
+      ? undefined
+      : {
+          adapter: options.delivery.draftPr.adapter,
+          limits: { ...DEFAULT_DELIVERY_LIMITS, ...options.delivery.limits },
+          // Resolves early (never rejects) when the signal aborts: a close is never held by
+          // a wait, and the worker reads the aborted signal as a stop (D26).
+          sleep:
+            options.delivery.sleep ??
+            ((ms, signal) => sleep(ms, undefined, { signal }).catch(() => undefined)),
+          clock: options.delivery.clock ?? Date.now,
+        }
+  /**
+   * The delivery running for each work order, from its start until it has settled. Its own
+   * map, beside `runs` (which close waits on): a join must find a delivery, never some other
+   * tracked run of the same id.
+   */
+  const deliveries = new Map<string, Promise<void>>()
+
+  /**
+   * What an `approve` or `redeliver` that started a delivery answers once it has settled (D23):
+   * `ok` only when delivered. A block or a stop leaves the approval recorded (it happened; the
+   * publication did not) and says what to do next; a block lists the commands in `next`, with
+   * `pnpm factory redeliver <id>` among them only for a reason waiting heals.
+   */
+  function deliveryOutcome(row: WorkOrderRow, command: "approve" | "redeliver"): CommandOutcome {
+    const events = `pnpm factory events ${row.id}`
+    if (row.state === "delivered")
+      return {
+        ok: true,
+        state: row.state,
+        message: `Delivered as ${store.delivery(row.id)?.receiptPath ?? "a draft pull request"}`,
+      }
+    const lead = command === "approve" ? "Approved; delivery" : "Delivery"
+    if (row.state === "blocked")
+      return {
+        ok: false,
+        state: row.state,
+        message: `${lead} ${command === "approve" ? "blocked" : "blocked again"}: ${row.blockedReason}. ${events}`,
+        // The redeliver only when waiting heals the reason, as `run` names it.
+        next: blockedNext(row.id, row.blockedReason),
+      }
+    return {
+      ok: false,
+      state: row.state,
+      message:
+        row.state === "delivering"
+          ? `${lead} stopped with the work order delivering; a restart or \`pnpm factory reconcile ${row.id}\` resumes it. ${events}`
+          : `${lead} stopped with the work order ${row.state}. ${events}`,
+    }
+  }
+
+  /**
+   * Answer the command that committed `id`'s delivery (the `approve` or `redeliver` whose key
+   * its last `approve_delivery` or `redeliver` transition names), once the delivery has
+   * settled. A delivery that stopped with the row still `delivering` (a close, D26) answers
+   * nothing: the key stays open, boot reconcile leaves it for the resumed delivery
+   * (`reconcileAll`), and the replay then returns what the delivery did, not a guess. Never
+   * throws: it runs as a delivery settles, possibly beside a close.
+   */
+  function settleDeliveryCommand(id: string): void {
+    try {
+      const row = mustGet(id)
+      if (row.state === "delivering") return
+      const committed = deliveryCommandKey(store.events(id))
+      if (committed === undefined) return
+      const open = commands.open().find((c) => c.operationKey === committed.operationKey)
+      if (open === undefined) return
+      commands.complete(open.operationKey, deliveryOutcome(row, committed.command))
+    } catch {
+      // A registry a close has taken: the key stays open for the next boot to settle.
+    }
+  }
+
+  /**
+   * Await the delivery a command just committed and answer the command with it. A close while
+   * it ran leaves the row `delivering` and the key open for the delivery the next boot
+   * resumes; touching the registry here would only fail on a closed database.
+   */
+  async function answerDelivery(
+    id: string,
+    key: string,
+    intent: CommandIntent & { readonly command: "approve" | "redeliver" },
+  ): Promise<CommandOutcome> {
+    await startDelivery(id)
+    if (closed)
+      throw new Error(
+        `The controller closed while delivering ${id}; the work order stays delivering, and a restart or \`pnpm factory reconcile ${id}\` resumes it. Replay this ${intent.command} for its answer.`,
+      )
+    // The delivery's settling may already have answered the key (`settleDeliveryCommand`).
+    return (
+      commands.outcome(key, id, intent) ?? finish(key, deliveryOutcome(mustGet(id), intent.command))
+    )
+  }
+
+  /**
+   * Run the delivery worker for `id`, tracked (close waits for it), or join the one already
+   * running: approve, reconcile (boot and route) and redeliver all come through here, so one
+   * work order never has two workers. A row left `delivering` by a controller that no longer
+   * delivers, or delivers elsewhere, blocks `delivery_unauthorized`: nothing can deliver it
+   * here, and `redeliver` resumes it once the approved destination is configured again.
+   */
+  function startDelivery(id: string): Promise<void> {
+    const running = deliveries.get(id)
+    if (running !== undefined) return running
+    const unable = (detail: string) => {
+      store.transaction(() => {
+        if (mustGet(id).state !== "delivering") return
+        recordEvent(id, "delivery_refused", { reason: "delivery_unauthorized", detail })
+        transition(id, "delivery_refused", { blockedReason: "delivery_unauthorized" })
+      })
+      settleDeliveryCommand(id)
+      return Promise.resolve()
+    }
+    if (deliveryDeps === undefined || options.delivery === undefined)
+      return unable("this controller has no draft-PR delivery configured")
+    // The approval named one repository and base; the controller may have been restarted
+    // configured for another (D27). An intent that does not parse is the worker's to refuse.
+    let intent: DeliveryIntent | undefined
+    try {
+      intent = outbox.get(id)?.intent
+    } catch {
+      intent = undefined
+    }
+    const { repository, baseBranch } = options.delivery.draftPr
+    if (
+      intent !== undefined &&
+      (intent.repository !== repository || intent.baseBranch !== baseBranch)
+    )
+      return unable(
+        `this controller delivers to ${repository} at ${baseBranch}; the approval names ${intent.repository} at ${intent.baseBranch}`,
+      )
+    track(id, runDelivery(ctx, deliveryDeps, id))
+    const settled = (runs.get(id) as Promise<void>).finally(() => {
+      if (deliveries.get(id) === settled) deliveries.delete(id)
+      settleDeliveryCommand(id)
+    })
+    deliveries.set(id, settled)
+    return settled
+  }
+
+  // The narrow view the run observer, the verifying phase and reconciliation share.
+  const ctx: ControllerContext = {
+    store,
+    outbox,
+    startDelivery,
+    commands,
+    evidence: evidenceStore,
+    artifacts,
+    verifier: options.verifier,
+    workerFor,
+    drafter,
+    workerOfThread,
+    generatedTasksDir: options.generatedTasksDir,
+    exportDir: options.exportDir,
+    maxChangedBytes: options.maxChangedBytes ?? 256 * 1024,
+    signal: abort.signal,
+    verificationSignal,
+    intakeSignal,
+    now,
+    iso,
+    mustGet,
+    recordEvent,
+    transition,
+    pauseBudget,
+    resumeBudget,
+    observeRun: (id, frames, observeOptions) => observeRun(ctx, id, frames, observeOptions),
+    captureBaseline: (taskId, signal) => options.captureBaseline(taskId, signal),
+    runVerification: (id) => runVerification(ctx, id),
+    observeIntakeTurn: (id, frames, observeOptions) =>
+      observeIntakeTurn(ctx, id, frames, observeOptions),
+    finishIntake: (id) => finishIntake(ctx, id),
+    denyPending: (id, denyOptions) => denyPending(ctx, id, denyOptions),
+    finishCancel: (id, cause) => finishCancel(id, cause),
+    settleRun,
+    track,
+    isTracked: (id) => runs.has(id),
+    isPreparingImage: (id) => liveDispatches.has(id),
+  }
+
+  /**
+   * Run the builder's turn on `id`'s thread. `input` is the prompt dispatch already resolved;
+   * an entry that reaches here without one (none today: dispatch is the only caller) resolves
+   * it itself, so this never sends an empty prompt.
+   */
+  async function startRun(id: string, input = prompt(mustGet(id).taskId)): Promise<void> {
+    const row = mustGet(id)
+    if (!row.workerThreadId) return
+    if (input instanceof Error) {
+      recordEvent(id, "prompt_missing", { taskId: row.taskId })
+      return
+    }
+    let frames: AsyncIterable<StreamFrame>
+    try {
+      const worker = workerFor(row)
+      frames = await worker.client.startRun(row.workerThreadId, worker.route, input, abort.signal)
+    } catch (error) {
+      recordEvent(id, "stream_lost", { phase: "run_start", error: String(error) })
+      return
+    }
+    await observeRun(ctx, id, frames)
+    // The turn is over; what it left behind is now the controller's to judge.
+    if (mustGet(id).state === "verifying") await runVerification(ctx, id)
+  }
+
+  /** The thread a crashed `intake` journalled before it could commit it to the row, if any. */
+  function journalledIntakeThreadId(id: string): string | null {
+    for (const event of store.events(id).reverse()) {
+      if (event.type !== "intake_thread_created") continue
+      const threadId = event.payload.threadId
+      if (typeof threadId === "string" && threadId.length > 0) return threadId
+    }
+    return null
+  }
+
+  /** The generated task's digest as it is on disk right now, or the reason it cannot be read. */
+  function diskTaskDigest(id: string): { digest: string } | { error: unknown } {
+    try {
+      return { digest: digestGeneratedTask(join(options.generatedTasksDir, id)) }
+    } catch (error) {
+      return { error }
+    }
+  }
+
+  /** The refusal for a row with no builder dispatch left to spend. */
+  function noAttemptsLeft(row: WorkOrderRow): string {
+    return `No candidate attempts remain: ${row.candidateAttempts} of ${row.maxCandidateAttempts} spent (FACTORY_MAX_CANDIDATE_ATTEMPTS when it was created); cancel it and create a new work order`
+  }
+
+  /**
+   * The insert both creates share. A caller-supplied operationKey is also the work-order
+   * address: the same key always names the same id, which is what makes create idempotent
+   * across a crash: a spent key whose row exists returns that row untouched.
+   */
+  function insertWorkOrder(
+    operationKey: string | undefined,
+    /** Both the command's recorded args and the `created` event's payload. */
+    payload: Record<string, unknown>,
+    fields: (id: string) => Pick<WorkOrderRow, "taskId" | "origin" | "pin" | "delivery">,
+  ): WorkOrderRow {
+    const id = operationKey
+      ? `wo-${createHash("sha256").update(operationKey).digest("hex").slice(0, 16)}`
+      : `wo-${randomUUID().replace(/-/g, "").slice(0, 16)}`
+    const key = operationKey ?? `create:${id}`
+    const begun = commands.begin(key, id, { command: "create", args: payload }, iso())
+    if (begun.status === "in_flight") throw new CommandInFlightError(key)
+    // A spent key with no row is a crash between the command log and the insert. The id is
+    // derived from the key, so re-running the insert is idempotent rather than a second work
+    // order — and throwing here would leave that key permanently unusable.
+    if (begun.status === "done") {
+      const existing = store.get(id)
+      if (existing) return existing
+    }
+    const at = iso()
+    const row: WorkOrderRow = {
+      id,
+      revision: 0,
+      state: "received",
+      ...fields(id),
+      // The route of the row's current thread: rewritten when a thread is committed to the
+      // row (`intake_started`, `dispatch_committed`), whose worker decides it.
+      workerRoute: DEFAULT_WORKER_ROUTE,
+      workerThreadId: null,
+      interruptId: null,
+      candidateDigest: null,
+      bundleDigest: null,
+      blockedReason: null,
+      failureReason: null,
+      candidateAttempts: 0,
+      maxCandidateAttempts: options.maxCandidateAttempts ?? 2,
+      maxActiveMs: options.maxActiveMs ?? 1_200_000,
+      activeMs: 0,
+      activeStartedAt: null,
+      awaitingSince: null,
+      targetId: null,
+      taskDigest: null,
+      intakeAttempts: 0,
+      maxIntakeAttempts: options.maxIntakeAttempts ?? 2,
+      createdAt: at,
+      updatedAt: at,
+    }
+    store.transaction(() => {
+      store.insert(row)
+      recordEvent(id, "created", payload)
+      // Only a fresh key has an outcome left to record; a replayed one already has its own.
+      if (begun.status === "new")
+        commands.complete(key, { ok: true, state: "received", message: "Created" })
+    })
+    return row
+  }
+
+  /** `Factory.dispatch` without the journalled refusal the method adds around it. */
+  async function dispatchOnce(
+    id: string,
+    operationKey?: string,
+    dispatchOptions: { readonly signal?: AbortSignal } = {},
+  ): Promise<CommandOutcome> {
+    let row = mustGet(id)
+    // An approved generated task is bound to the digest the person consented to, and the
+    // gate recomputed it at approval; this is the other end of that binding, so the window
+    // between approval and dispatch cannot hand the builder a task nobody approved.
+    // Checked BEFORE the key is spent, as `intake`'s config check is: what is on disk is
+    // not a function of the row's revision, and a refusal recorded under
+    // `dispatch:<id>:<revision>` would replay to the dispatch after the file is restored.
+    const changed = approvedDigestRefusal(id, row, "dispatch")
+    if (changed !== undefined) return changed
+    // The image the task runs in (spec item 4), before anything is spent: its binding if it
+    // has one the daemon still holds, else built (or re-verified) and bound. The row waits in
+    // `received`, which is not active, so a build costs its budget nothing. A cancel (any
+    // transition out of `received`) or the caller's own signal (the route, cancelled by the
+    // runtime when the operator cancels) abandons the wait; the caller's abort also cancels
+    // the work order, as `settleOutcome` does once a dispatch is running. Before the key: a
+    // failed build is not a function of the row's revision, and the dispatch after it must
+    // build again, not replay this refusal.
+    let bound: BoundImage | undefined
+    if (row.state === "received" && !options.tasks) {
+      const wait = imageWait(id)
+      const signal = AbortSignal.any([
+        wait.signal,
+        ...(dispatchOptions.signal !== undefined ? [dispatchOptions.signal] : []),
+      ])
+      let image: Awaited<ReturnType<typeof prepareDispatchImage>>
+      try {
+        image = await prepareDispatchImage(id, row, signal)
+      } finally {
+        wait.release()
+      }
+      if (dispatchOptions.signal?.aborted && isNonTerminalAndNotCancelling(mustGet(id)))
+        await factory.cancel(id, `cancel:${id}:aborted-dispatch`).catch(() => undefined)
+      row = mustGet(id)
+      if (image !== undefined && "refusal" in image)
+        return { ok: false, state: row.state, message: image.refusal }
+      if (row.state !== "received")
+        return { ok: false, state: row.state, message: `Cannot dispatch from ${row.state}` }
+      bound = image?.bound
+      // The wait may have been long: what the person approved must still be what is on disk.
+      const changedDuring = approvedDigestRefusal(id, row, "dispatch_after_image")
+      if (changedDuring !== undefined) return changedDuring
+    }
+    // Refuse rather than send an empty prompt: a worker asked to fix nothing still burns a
+    // thread and a run, and the resulting turn would fail in a way that looks like the
+    // worker. Re-resolved here rather than trusted from create: the task may have stopped
+    // loading since (its target re-prepared, say). Resolved BEFORE the key is spent: the
+    // lookup is where the target's pin is fetched into a shallow checkout (`loadTarget`'s
+    // `ensurePin`), and a fetch that fails is transient, not a function of the row's
+    // revision; the dispatch after the network mends is not the replay of this refusal. It
+    // also makes the capture below depend on nothing but the disk. The cause rides
+    // along so an unprepared target is not reported as a task nobody has heard of.
+    let input: string | Error | undefined
+    if (row.state === "received") {
+      input = prompt(row.taskId)
+      if (input instanceof Error)
+        return {
+          ok: false,
+          state: row.state,
+          message: options.tasks
+            ? `Unknown task ${row.taskId}`
+            : `Unknown task ${row.taskId}: ${input.message}`,
+        }
+    }
+    // A budget the verification alone may exhaust is refused before a thread and a turn are
+    // spent, and before the key: the remedy (raise FACTORY_MAX_ACTIVE_MS, create again) is
+    // the operator's, and a target re-prepared with a shorter deadline dispatches this row.
+    // What counts is what is LEFT: the intake and any earlier attempt spent from it.
+    if (row.state === "received") {
+      const refusal = budgetRefusal(id, row, "dispatch")
+      if (refusal !== undefined) return { ok: false, state: row.state, message: refusal }
+    }
+    const key = operationKey ?? `dispatch:${id}:${row.revision}`
+    const begun = commands.begin(key, id, { command: "dispatch", args: {} }, iso())
+    if (begun.status === "done") return begun.outcome
+    if (begun.status === "in_flight") throw new CommandInFlightError(key)
+    if (row.state !== "received")
+      return finish(key, {
+        ok: false,
+        state: row.state,
+        message: `Cannot dispatch from ${row.state}`,
+      })
+    // `retry` refuses past the cap, so only a row created with a cap it has already met
+    // (none today) reaches this; kept so the cap is the dispatch's to enforce, not the
+    // caller's to remember.
+    if (row.candidateAttempts >= row.maxCandidateAttempts)
+      return finish(key, {
+        ok: false,
+        state: row.state,
+        message: noAttemptsLeft(row),
+      })
+    // The pre-key lookup ran for every `received` row, and a row in any other state was
+    // refused just above; resolved again only if a refactor ever lets one through unset.
+    input ??= prompt(row.taskId)
+    if (input instanceof Error)
+      return finish(key, {
+        ok: false,
+        state: row.state,
+        message: options.tasks
+          ? `Unknown task ${row.taskId}`
+          : `Unknown task ${row.taskId}: ${input.message}`,
+      })
+    // The prompt loaded, so the task loads and names its target; the one builder serves it
+    // at its pin, from the workspace staged below.
+    const worker = workerFor(row)
+    // The workspace first: the builder serves only the staged source the thread names, and
+    // refuses a create naming one it does not hold. The pin is already in the object store
+    // (the prompt lookup above fetched it), so this fails only on the capture or the
+    // upload: under the key.
+    let captured: CapturedBuilderHandoff
+    try {
+      captured = await (options.captureBuilderHandoff ?? captureBuilderHandoffFromCatalog)({
+        taskId: row.taskId,
+        workOrderId: id,
+        signal: abort.signal,
+        ...(bound !== undefined ? { image: { localId: bound.image.localId, tag: bound.tag } } : {}),
+      })
+      const status = await worker.client.uploadSource(captured.workspace.source, abort.signal)
+      recordEvent(id, "builder_source_staged", {
+        sourceDigest: captured.handoff.workspace.sourceDigest,
+        status,
+      })
+    } catch (error) {
+      recordEvent(id, "builder_source_failed", { error: String(error) })
+      return finish(key, {
+        ok: false,
+        state: row.state,
+        message: `builder workspace could not be staged: ${String(error)}`,
+      })
+    }
+    let threadId: string
+    try {
+      threadId = await worker.client.createThread(
+        { factoryWorkOrderId: id, factoryBuilder: captured.handoff },
+        stagedReferenceOf(captured.workspace),
+        abort.signal,
+      )
+    } catch (error) {
+      // Nothing to remove: an upload no thread names is reclaimed by the builder once it
+      // is older than its retention window.
+      return finish(key, {
+        ok: false,
+        state: row.state,
+        message: `Thread creation failed: ${String(error)}`,
+      })
+    }
+    // Journalled before the transition so a crash in between still leaves the thread id in
+    // the event log: reconciliation can adopt the orphan thread instead of leaking it.
+    recordEvent(id, "thread_created", { threadId })
+    let dispatched: WorkOrderRow
+    try {
+      dispatched = transition(id, "dispatch_committed", {
+        workerThreadId: threadId,
+        workerRoute: worker.route,
+      })
+    } catch (error) {
+      // A cancel moved the row while the worker was creating the thread. The row cannot hold
+      // the thread now, so end it here rather than leak a thread nothing observes.
+      if (!(error instanceof IllegalTransitionError)) throw error
+      recordEvent(id, "thread_orphaned", { threadId })
+      try {
+        await worker.client.cancel(threadId)
+      } catch (cancelError) {
+        recordEvent(id, "worker_cancel_failed", { threadId, error: String(cancelError) })
+      }
+      await abandonThread(id, worker.client, threadId)
+      return finish(key, {
+        ok: false,
+        state: mustGet(id).state,
+        message: "Work order changed state while dispatching",
+      })
+    }
+    const outcome = finish(key, { ok: true, state: dispatched.state, message: "Dispatched" })
+    track(id, startRun(id, input))
+    return outcome
+  }
+
+  const factory: Factory = {
+    async create({ taskId, operationKey }) {
+      // Shipped catalog only, decided BEFORE the key is spent. The search path also resolves
+      // generated tasks, so without this a draft left under `<state>/tasks/` (refused, or
+      // never approved) could be created as a catalog work order with `taskDigest: null`,
+      // and dispatch and approve would bind nothing: a generated task is reachable only
+      // through `createFromIssue` + `intake` + `approveIntake`. An injected `tasks` map is
+      // the test seam and names its own catalog.
+      if (!options.tasks && !isShippedTask(taskId, options.promptCatalog?.tasksDir))
+        throw new UnknownTaskError(taskId)
+      if (prompt(taskId) instanceof Error) throw new UnknownTaskError(taskId)
+      const row = insertWorkOrder(operationKey, { taskId }, () => ({
+        taskId,
+        origin: { kind: "catalog" },
+        pin: null,
+        delivery: { kind: "local" },
+      }))
+      // A warning, not a refusal: the row is created (its budget cannot change after), and
+      // `dispatch` refuses it. Journalled once, so a replayed key adds nothing. A generated
+      // task has no target until its draft is approved; `dispatch` is its check.
+      const shortfall = budgetShortfall(row)
+      if (
+        shortfall !== undefined &&
+        !store.events(row.id).some((e) => e.type === "budget_below_verifier_deadline")
+      )
+        recordEvent(row.id, "budget_below_verifier_deadline", { phase: "create", ...shortfall })
+      return row
+    },
+
+    async createFromIssue({ origin, pin, issue, deliver, operationKey }) {
+      // Refused before the key is spent, like `create`'s task guard: the row parse inside the
+      // insert would roll the row back but leave the command in flight until the next boot.
+      const parsedOrigin = IssueOriginSchema.safeParse(origin)
+      if (!parsedOrigin.success) {
+        const [issue] = parsedOrigin.error.issues
+        const at = issue?.path.length ? `origin.${issue.path.join(".")}` : "origin"
+        throw new Error(`${at} is not an issue origin: ${issue?.message}`)
+      }
+      if (!COMMIT_PATTERN.test(pin)) throw new Error(`pin must be a 40-hex commit sha, got ${pin}`)
+      // A draft PR goes to the issue's repository from this controller's configuration, or
+      // nowhere (rung 4 §3.1): refused here, before the key is spent, like the checks above.
+      const draftPr = options.delivery?.draftPr
+      if (deliver !== undefined) {
+        if (draftPr === undefined)
+          throw new DeliveryUnavailableError(
+            "This controller has no draft-PR delivery configured (factory.config.ts delivery.draftPr); create it with --deliver local, or configure delivery and restart",
+          )
+        if (draftPr.repository !== origin.repository)
+          throw new DeliveryUnavailableError(
+            `This controller delivers to ${draftPr.repository}, not ${origin.repository}: a pull request goes to the issue's own repository`,
+          )
+      }
+      const delivery = (id: string): RowDelivery =>
+        deliver === undefined || draftPr === undefined
+          ? { kind: "local" }
+          : {
+              kind: "draft-pr",
+              repository: draftPr.repository,
+              baseBranch: draftPr.baseBranch,
+              branch: `factory/${id}`,
+              pathPrefix: null,
+              issueStateAtCreate: deliver.issueState,
+            }
+      const row = insertWorkOrder(
+        operationKey,
+        { origin, pin, ...(deliver !== undefined ? { deliver } : {}) },
+        (id) => ({ taskId: id, origin, pin, delivery: delivery(id) }),
+      )
+      // The issue text lands after the row: a directory with only `issue.md` is not a task the
+      // catalog lists, so nothing can dispatch it. Written only when absent, so a replayed key
+      // rewrites nothing and a crash between the insert and this write is repaired by the replay.
+      const directory = join(options.generatedTasksDir, row.id)
+      const path = join(directory, "issue.md")
+      if (!existsSync(path)) {
+        mkdirSync(directory, { recursive: true })
+        writeFileSync(
+          path,
+          issueText({ ...issue, repository: origin.repository, number: origin.number }),
+        )
+      }
+      return row
+    },
+
+    async intake(id, operationKey) {
+      const row = mustGet(id)
+      // Refused BEFORE the key is spent: a `received` row's revision does not change on a
+      // refusal, so a refusal recorded under `intake:<id>:<revision>` would replay to every
+      // later call at that revision — including the one after the operator sets
+      // `FACTORY_DRAFTER_URL` and restarts. None of these three is a function of the row's
+      // revision (same principle as `createFromIssue`'s validation).
+      const unspent = (message: string): CommandOutcome => ({
+        ok: false,
+        state: row.state,
+        message,
+      })
+      if (row.origin.kind !== "issue") return unspent("Cannot intake a catalog work order")
+      // An approved task is bound to the row's digest until dispatch: a redraft would replace
+      // the directory a person consented to, under the same id. Only a `received` row's digest
+      // means "approved" (a parked row's is the one awaiting approval); any other state is the
+      // revision-bound refusal below.
+      if (row.state === "received" && row.taskDigest !== null)
+        return unspent(
+          "Work order already has an approved task; reject-intake is the only way back",
+        )
+      // Refused here, not discovered after a thread and a turn were spent: without a drafter,
+      // nothing can run the turn or read what it wrote.
+      if (options.workers.drafter === undefined) return unspent(DRAFTER_UNCONFIGURED)
+      const drafterWorker = options.workers.drafter
+      // A retry after a rejection redrafts on the thread the first intake made: the drafter
+      // keeps its `draft/`, and the row already names it.
+      // A crashed `intake` journals `intake_thread_created` before `intake_started` reaches
+      // the row (the same window `dispatch` leaves): a rerun adopts that thread rather than
+      // leaving it idle on the worker and making a second one.
+      let threadId = row.workerThreadId ?? journalledIntakeThreadId(id)
+      // The pin is the one transient precondition of the capture below: a commit the
+      // repository does not hold yet is fetched here, and a fetch that fails is refused
+      // UNSPENT, so the same call after the network (or the operator) mends it is not the
+      // replay of this refusal. The capture and the upload, under the key, then fail only on
+      // the disk or the drafter.
+      let repository: string
+      try {
+        repository = options.promptCatalog?.repositoryRoot ?? repositoryRoot()
+        if (!threadId && row.pin !== null)
+          ensurePin(repository, id, row.pin, { label: `Work order ${id}'s draft` })
+      } catch (error) {
+        recordEvent(id, "pin_unavailable", { pin: row.pin, error: String(error) })
+        return unspent(
+          `pin ${row.pin} is not in the repository and could not be fetched: ${String(error)}`,
+        )
+      }
+      const key = operationKey ?? `intake:${id}:${row.revision}`
+      const begun = commands.begin(key, id, { command: "intake", args: {} }, iso())
+      if (begun.status === "done") return begun.outcome
+      if (begun.status === "in_flight") throw new CommandInFlightError(key)
+      const refuse = (message: string) =>
+        finish(key, { ok: false, state: mustGet(id).state, message })
+      if (row.state !== "received") return refuse(`Cannot intake from ${row.state}`)
+      let created = false
+      if (!threadId) {
+        // The workspace first: the drafter serves only the staged source the thread names,
+        // and refuses a create naming one it does not hold. A redraft (the thread exists)
+        // stages nothing: the thread was admitted with its workspace, and the pin cannot
+        // change.
+        if (row.pin === null) return refuse("An issue work order has no pin to draft at")
+        let captured: CapturedDrafterHandoff
+        try {
+          captured = await (options.captureDrafterHandoff ?? captureDrafterHandoffOfPin)({
+            workOrderId: id,
+            pin: row.pin,
+            repositoryRoot: repository,
+            captureRoot: options.captureRoot,
+            signal: abort.signal,
+          })
+          const status = await drafterWorker.client.uploadSource(
+            captured.workspace.source,
+            abort.signal,
+          )
+          recordEvent(id, "drafter_source_staged", {
+            sourceDigest: captured.handoff.workspace.sourceDigest,
+            status,
+          })
+        } catch (error) {
+          recordEvent(id, "drafter_source_failed", { error: String(error) })
+          return refuse(`drafter workspace could not be staged: ${String(error)}`)
+        }
+        try {
+          threadId = await drafterWorker.client.createThread(
+            { factoryWorkOrderId: id, factoryStage: "intake", factoryDrafter: captured.handoff },
+            stagedReferenceOf(captured.workspace),
+            abort.signal,
+          )
+        } catch (error) {
+          // Nothing to remove: an upload no thread names is reclaimed by the drafter once it
+          // is older than its retention window.
+          return refuse(`Thread creation failed: ${String(error)}`)
+        }
+        created = true
+        // Journalled before the transition, as dispatch does, so a crash in between leaves
+        // the thread id in the event log rather than leaking it.
+        recordEvent(id, "intake_thread_created", { threadId })
+      }
+      let started: WorkOrderRow
+      try {
+        started = transition(
+          id,
+          "intake_started",
+          { workerThreadId: threadId, workerRoute: drafterWorker.route },
+          { threadId },
+        )
+      } catch (error) {
+        // A cancel moved the row while the worker was creating the thread.
+        if (!(error instanceof IllegalTransitionError)) throw error
+        if (created) {
+          recordEvent(id, "thread_orphaned", { threadId })
+          try {
+            await drafterWorker.client.cancel(threadId)
+          } catch (cancelError) {
+            recordEvent(id, "worker_cancel_failed", { threadId, error: String(cancelError) })
+          }
+          await abandonThread(id, drafterWorker.client, threadId)
+        }
+        return refuse("Work order changed state while starting intake")
+      }
+      const outcome = finish(key, { ok: true, state: started.state, message: "Intake started" })
+      track(id, runIntake(ctx, id, {}))
+      return outcome
+    },
+
+    async approveIntake(id, { revision, taskDigest, operationKey }) {
+      const row = mustGet(id)
+      // Recomputed from disk before the key is spent, never read back from the row: the gate
+      // binds what the person read to what the builder and the verifier will be given, and a
+      // file edited under the directory since intake is exactly what it must catch.
+      const onDisk = diskTaskDigest(id)
+      // The default key carries the caller's digest, as the bundle digest does for `approve`,
+      // AND the digest on disk at call time. `approve` needs only the former because every
+      // refusal it can give is a function of the row's revision, which changes with the row;
+      // this gate's disk check is not — a refused approval whose file is then restored is a
+      // new intent, and a key without the disk digest would replay the refusal to it forever.
+      // A repeat of the same call over the same bytes still replays.
+      const key =
+        operationKey ??
+        `approve_intake:${id}:${revision}:${taskDigest}:${"digest" in onDisk ? onDisk.digest : "unreadable"}`
+      const begun = commands.begin(
+        key,
+        id,
+        { command: "approve_intake", args: { revision, taskDigest } },
+        iso(),
+      )
+      if (begun.status === "done") return begun.outcome
+      if (begun.status === "in_flight") throw new CommandInFlightError(key)
+      const refuse = (message: string) =>
+        finish(key, { ok: false, state: mustGet(id).state, message })
+      if (row.state !== "awaiting_intake_approval")
+        return refuse(`Cannot approve intake from ${row.state}`)
+      if (row.revision !== revision)
+        return refuse(`Stale revision ${revision}; work order is at ${row.revision}`)
+      if ("error" in onDisk) {
+        recordEvent(id, "generated_task_unreadable", { error: String(onDisk.error) })
+        return refuse(`Generated task unreadable: ${String(onDisk.error)}`)
+      }
+      if (onDisk.digest !== row.taskDigest)
+        return refuse("Task digest does not match the generated task on disk")
+      if (taskDigest !== row.taskDigest)
+        return refuse("Task digest does not match the work order's")
+      try {
+        store.transaction(() => {
+          transition(id, "approve_intake", {}, { taskDigest, operationKey: key })
+          recordEvent(id, "intake_approved", { taskDigest })
+        })
+      } catch (error) {
+        if (!(error instanceof IllegalTransitionError)) throw error
+        return refuse("Work order changed state while approving intake")
+      }
+      return finish(key, { ok: true, state: mustGet(id).state, message: "Intake approved" })
+    },
+
+    async rejectIntake(id, { note, operationKey }) {
+      const row = mustGet(id)
+      const key = operationKey ?? `reject_intake:${id}:${row.revision}`
+      const begun = commands.begin(key, id, { command: "reject_intake", args: { note } }, iso())
+      if (begun.status === "done") return begun.outcome
+      if (begun.status === "in_flight") throw new CommandInFlightError(key)
+      const refuse = (message: string) =>
+        finish(key, { ok: false, state: mustGet(id).state, message })
+      if (row.state !== "awaiting_intake_approval")
+        return refuse(`Cannot reject intake from ${row.state}`)
+      // The rejection is journalled whichever way the row goes: it is the person's reason,
+      // and the next drafter turn (if there is one) quotes it.
+      let next: WorkOrderRow
+      try {
+        next = store.transaction(() => {
+          recordEvent(id, "intake_rejected", { note, attempt: row.intakeAttempts })
+          // The rejected draft is no longer the row's, whichever way the row goes: its digest
+          // and target are cleared so nothing (a `show`, the evidence, a later approve-intake)
+          // can mistake it for the one being drafted, or for one a blocked row still holds.
+          if (row.intakeAttempts >= row.maxIntakeAttempts)
+            return transition(
+              id,
+              "intake_blocked",
+              { blockedReason: "intake_attempts_exhausted", taskDigest: null, targetId: null },
+              {
+                reason: note,
+                blockedReason: "intake_attempts_exhausted",
+                lastRefusal: "intake_rejected",
+                operationKey: key,
+              },
+            )
+          return transition(
+            id,
+            "reject_intake",
+            { taskDigest: null, targetId: null },
+            { reason: note, operationKey: key },
+          )
+        })
+      } catch (error) {
+        if (!(error instanceof IllegalTransitionError)) throw error
+        return refuse("Work order changed state while rejecting intake")
+      }
+      if (next.state === "blocked")
+        return finish(key, {
+          ok: true,
+          state: next.state,
+          message: "Intake rejected; no drafter attempts remain",
+        })
+      const outcome = finish(key, {
+        ok: true,
+        state: next.state,
+        message: "Intake rejected; redrafting",
+      })
+      track(id, runIntake(ctx, id, { note }))
+      return outcome
+    },
+
+    async dispatch(id, operationKey, dispatchOptions) {
+      const mark = store.events(id).at(-1)?.seq ?? 0
+      // A refusal (or a throw) after an image build started for this dispatch is journalled,
+      // so a caller that lost the request (the CLI's fallback) can tell a dispatch that ended
+      // in `received` from one still preparing its image. Other refusals write nothing new,
+      // as before.
+      const refused = (message: string) => {
+        if (store.events(id).some((e) => e.seq > mark && e.type === "image_prepare_started"))
+          recordEvent(id, "dispatch_refused", {
+            message,
+            ...(operationKey !== undefined ? { operationKey } : {}),
+          })
+      }
+      liveDispatches.set(id, (liveDispatches.get(id) ?? 0) + 1)
+      try {
+        let outcome: CommandOutcome
+        try {
+          outcome = await dispatchOnce(id, operationKey, dispatchOptions)
+        } catch (error) {
+          // A dispatch that lost the key to another (one that joined the same build, say) did
+          // not end the work: the key holder is still running and journals its own end.
+          if (!(error instanceof CommandInFlightError)) refused(String(error))
+          throw error
+        }
+        if (!outcome.ok) refused(outcome.message)
+        return outcome
+      } finally {
+        const live = (liveDispatches.get(id) ?? 1) - 1
+        if (live > 0) liveDispatches.set(id, live)
+        else liveDispatches.delete(id)
+      }
+    },
+
+    async retry(id, operationKey) {
+      // A caller's key that already holds an outcome is replayed before anything else: the
+      // pre-key refusals below read the row as it is NOW, and after a successful retry that
+      // row is `received`, which would answer the replay with a refusal it never earned.
+      if (operationKey !== undefined) {
+        const spent = commands.outcome(operationKey, id, { command: "retry", args: {} })
+        if (spent !== null) return spent
+      }
+      const row = mustGet(id)
+      const unspent = (message: string): CommandOutcome => ({
+        ok: false,
+        state: row.state,
+        message,
+      })
+      // Only a blocked row reaches the worker, and its refusals come BEFORE the key is spent:
+      // the attempt cap and the budget are refusals an operator reads and acts on, and the
+      // worker calls are not a function of the revision — an undelivered denial recorded
+      // under `retry:<id>:<revision>` would replay to the retry after the worker comes back.
+      // A denial that did land is idempotent: the next call finds nothing pending. Any other
+      // state is refused under the key below, like every other command's wrong-state refusal.
+      if (row.state === "blocked") {
+        if (row.blockedReason === null || !RETRYABLE_BLOCKED_REASONS.has(row.blockedReason))
+          return unspent(
+            `Cannot retry a work order blocked by ${row.blockedReason ?? "nothing"}: only a candidate failure is retried; cancel it instead`,
+          )
+        if (row.candidateAttempts >= row.maxCandidateAttempts) return unspent(noAttemptsLeft(row))
+        const refusal = budgetRefusal(id, row, "retry")
+        if (refusal !== undefined) return unspent(refusal)
+        if (row.workerThreadId !== null) {
+          // The old builder thread is abandoned, not reused: its workspace holds the failed
+          // candidate. A prompt still parked on it is denied, so no turn waits on an answer
+          // nobody will give, and whatever run is left on it is cancelled. The row's thread is
+          // the builder's (a retryable block is always the builder phase's), so the denial
+          // resumes on the builder's route.
+          try {
+            const worker = workerOfThread(row).client
+            await denyPending(ctx, id, { cancel: true })
+            const result = await worker.cancel(row.workerThreadId)
+            recordEvent(id, "worker_cancel", { result, phase: "retry" })
+          } catch (error) {
+            recordEvent(id, "retry_release_failed", {
+              threadId: row.workerThreadId,
+              error: String(error),
+            })
+            return unspent(`The old builder thread could not be released: ${String(error)}`)
+          }
+        }
+      }
+      const key = operationKey ?? `retry:${id}:${row.revision}`
+      const begun = commands.begin(key, id, { command: "retry", args: {} }, iso())
+      if (begun.status === "done") return begun.outcome
+      if (begun.status === "in_flight") throw new CommandInFlightError(key)
+      if (row.state !== "blocked")
+        return finish(key, {
+          ok: false,
+          state: row.state,
+          message: `Cannot retry from ${row.state}`,
+        })
+      let retried: WorkOrderRow
+      try {
+        retried = store.transaction(() => {
+          // The worker calls were awaits: re-read, so the row the transition moves is the
+          // row these checks passed.
+          const current = mustGet(id)
+          if (current.revision !== row.revision)
+            throw new IllegalTransitionError(current.state, "retry")
+          recordEvent(id, "retry", {
+            attempt: current.candidateAttempts + 1,
+            previousBlockedReason: current.blockedReason,
+            previousThreadId: current.workerThreadId,
+            operationKey: key,
+          })
+          return transition(id, "retry", {
+            workerThreadId: null,
+            interruptId: null,
+            candidateDigest: null,
+            bundleDigest: null,
+            blockedReason: null,
+            awaitingSince: null,
+          })
+        })
+      } catch (error) {
+        if (!(error instanceof IllegalTransitionError)) throw error
+        return finish(key, {
+          ok: false,
+          state: mustGet(id).state,
+          message: "Work order changed state while retrying",
+        })
+      }
+      return finish(key, {
+        ok: true,
+        state: retried.state,
+        message: `Retry ${retried.candidateAttempts + 1} of ${retried.maxCandidateAttempts} ready; dispatch it`,
+      })
+    },
+
+    async approve(id, { revision, bundleDigest, operationKey }) {
+      const row = mustGet(id)
+      // The default key carries the bundle digest as well as the revision: two approvals of
+      // the same revision naming different bundles are different intents, and one key cannot
+      // hold both.
+      const key = operationKey ?? `approve:${id}:${revision}:${bundleDigest}`
+      const command = { command: "approve" as const, args: { revision, bundleDigest } }
+      const decider = decidedByOf()
+      // A finished key still answers with its outcome; only a new one is refused, unbegun.
+      if (!decider.ok)
+        return (
+          commands.outcome(key, id, command) ?? {
+            ok: false,
+            state: row.state,
+            message: decider.message,
+          }
+        )
+      const begun = commands.begin(key, id, command, iso())
+      if (begun.status === "done") return begun.outcome
+      if (begun.status === "in_flight") throw new CommandInFlightError(key)
+      // Journalled as the command starts and as it is refused: the re-verification below holds
+      // the row in `awaiting_approval` at its revision for as long as a verification takes
+      // (about 20 minutes on the `cli` target), so these two lines are what a CLI whose request
+      // timed out reads to know the approval arrived, and that it was refused.
+      recordEvent(id, "approve_started", { bundleDigest, operationKey: key })
+      const refuse = (message: string) => {
+        recordEvent(id, "approve_refused", { message, operationKey: key })
+        return finish(key, { ok: false, state: mustGet(id).state, message })
+      }
+      if (row.state !== "awaiting_approval") return refuse(`Cannot approve from ${row.state}`)
+      if (row.revision !== revision)
+        return refuse(`Stale revision ${revision}; work order is at ${row.revision}`)
+      // Consent names the frozen bundle, not the bytes: the bundle digest covers the policy
+      // and the environment the verifier ran in, so a change to either invalidates it even
+      // when the candidate bytes are identical.
+      if (row.bundleDigest !== bundleDigest)
+        return refuse("Bundle digest does not match the frozen review bundle")
+      const since = row.awaitingSince ? Date.parse(row.awaitingSince) : Number.NaN
+      const ttl = options.approvalTtlMs ?? 900_000
+      if (!Number.isFinite(since) || now() > since + ttl)
+        return refuse("Review bundle has expired; deny or cancel it")
+
+      const bundle = evidenceStore.bundle(bundleDigest)
+      if (!bundle) return refuse("Frozen bundle is missing from the registry")
+      const candidate = evidenceStore.candidate(bundle.candidateDigest)
+      if (!candidate) return refuse("Assembled candidate is missing from the registry")
+
+      // Re-verify the same bytes under the same policy before writing anything. Nothing below
+      // this point may run if the re-verification did not pass: the export is the one thing
+      // the controller cannot take back.
+      // `artifacts.read` re-hashes the bytes against the digest it was asked for, so what is
+      // parsed here is the candidate the receipt was issued over and nothing else.
+      let changes: Record<string, string>
+      try {
+        changes = JSON.parse(await artifacts.read(candidate.artifactDigest)) as Record<
+          string,
+          string
+        >
+      } catch (error) {
+        recordEvent(id, "candidate_unreadable", { error: String(error) })
+        return refuse(`Approved bytes could not be read: ${String(error)}`)
+      }
+      // The image the work order bound (D5): the policy digests it and the re-verification
+      // runs in it, by id, whatever the registry records for the key since.
+      // A binding that will not parse is a refusal, not an escape: an exception here would
+      // leave this command's key in flight.
+      let bound: BoundImage | undefined
+      try {
+        bound = boundImageOf(store.events(id))
+      } catch (error) {
+        recordEvent(id, "image_unbound", { phase: "export", error: String(error) })
+        return refuse(`The work order's image binding could not be read: ${String(error)}`)
+      }
+      if (bound === undefined) {
+        recordEvent(id, "image_unbound", { phase: "export" })
+        return refuse("The work order has no bound image to re-verify in")
+      }
+      // A policy that will not load is a refusal, not an escape: an exception here would
+      // leave this command's key in flight and need a restart to reconcile.
+      let policy: ReturnType<typeof loadPolicy>
+      try {
+        policy = loadPolicy(row.taskId, bound.image)
+      } catch (error) {
+        recordEvent(id, "policy_unavailable", { phase: "export", error: String(error) })
+        return refuse(`Verification policy could not be loaded: ${String(error)}`)
+      }
+      const moved = bindingMoved(bound, policy.task.target, "export")
+      if (moved !== null) {
+        recordEvent(id, "image_changed", moved)
+        return refuse(
+          `The work order's image is bound to target ${bound.targetId} at ${bound.pin}, not the task's ${policy.task.target.id} at ${policy.task.target.pin}`,
+        )
+      }
+      // Consent named a whole claim, not the diff: the frozen payload asserts the policy,
+      // the specification, the baseline and the environment the passing verdict was earned
+      // under. Without comparing them, a changed checks fixture or a changed sandbox image
+      // would simply be re-verified under its NEW self and pass, and the export would go out
+      // under a bundle asserting the old one. The spec's invariant and the README both say a
+      // policy or environment change invalidates consent; this is where that is enforced.
+      const parsed = BundlePayloadSchema.safeParse(bundle.payload)
+      if (!parsed.success) {
+        recordEvent(id, "bundle_unreadable", { error: String(parsed.error) })
+        // No re-freeze exists from `awaiting_approval`: the way forward is a new work order.
+        return refuse(
+          "Frozen bundle payload could not be read; deny it and create a new work order",
+        )
+      }
+      const frozen = parsed.data
+      /** A refusal, not a throw: an exception here would strand this command's key. */
+      const invalidated = (field: string, was: string, current: string) => {
+        recordEvent(id, "bundle_invalidated", { field, frozen: was, current })
+        return refuse(`${field} changed since the bundle was frozen; freeze a new bundle`)
+      }
+      if (frozen.policyDigest !== policy.policyDigest)
+        return invalidated("Verification policy", frozen.policyDigest, policy.policyDigest)
+      if (frozen.specificationDigest !== policy.specificationDigest)
+        return invalidated(
+          "Task specification",
+          frozen.specificationDigest,
+          policy.specificationDigest,
+        )
+      if (frozen.candidateDigest !== candidate.digest)
+        return invalidated("Candidate", frozen.candidateDigest, candidate.digest)
+      // Where the bundle goes is part of what was approved: this controller's export directory
+      // for a local export, the one branch of one repository for a draft PR.
+      const destination =
+        frozen.operation === "draft-pr" ? draftPrDestinationId(frozen.delivery) : options.exportDir
+      if (frozen.destinationId !== destination)
+        return invalidated(
+          frozen.operation === "draft-pr" ? "Delivery destination" : "Export destination",
+          frozen.destinationId,
+          destination,
+        )
+      // The baseline is re-captured rather than read back from the candidate record: the
+      // record is frozen evidence and would agree with the bundle by construction, whereas
+      // the question is whether the fixture the candidate was diffed against is still the
+      // one on disk.
+      let baseline: Awaited<ReturnType<FactoryOptions["captureBaseline"]>>
+      try {
+        baseline = await options.captureBaseline(row.taskId, abort.signal)
+      } catch (error) {
+        recordEvent(id, "baseline_unavailable", { phase: "export", error: String(error) })
+        return refuse(`Baseline could not be captured: ${String(error)}`)
+      }
+      if (frozen.baselineDigest !== baseline.digest)
+        return invalidated("Baseline", frozen.baselineDigest, baseline.digest)
+      // Neither the origin nor the pin can move once the row exists, so these two are
+      // consistency assertions: a bundle naming another issue or another pin than the row
+      // is a bundle for some other work order, whatever its digest says.
+      const frozenOrigin = canon(frozen.origin)
+      const rowOrigin = canon(row.origin)
+      if (frozenOrigin !== rowOrigin) return invalidated("Origin", frozenOrigin, rowOrigin)
+      if (frozen.pin !== row.pin) return invalidated("Pin", String(frozen.pin), String(row.pin))
+      if (frozen.taskDigest !== row.taskDigest)
+        return invalidated("Task digest", String(frozen.taskDigest), String(row.taskDigest))
+      // The generated task is re-read from disk, as the baseline is re-captured: consent
+      // named the task the person approved at intake, and a file edited under the directory
+      // since the freeze (a loosened check, a widened allow-list) is not that task even when
+      // the candidate bytes and the policy it was verified under are unchanged.
+      if (frozen.taskDigest !== null) {
+        const onDisk = diskTaskDigest(id)
+        if ("error" in onDisk) {
+          recordEvent(id, "generated_task_unreadable", {
+            phase: "export",
+            error: String(onDisk.error),
+          })
+          return refuse(`Generated task unreadable: ${String(onDisk.error)}`)
+        }
+        if (onDisk.digest !== frozen.taskDigest)
+          return invalidated("Generated task", frozen.taskDigest, onDisk.digest)
+        // A generated task runs at its work order's pin (its `task.json` carries it), so the
+        // policy the export is re-verified under must be at the pin the bundle froze.
+        if (frozen.pin !== policy.environment.pin)
+          return invalidated("Generated task pin", String(frozen.pin), policy.environment.pin)
+      }
+
+      // A draft-PR bundle (rung 4 §3.4): everything that can refuse in seconds is asked before
+      // the re-verification, so a refusal never costs a verification. Nothing is written to
+      // GitHub here, and nothing is committed until the approval's own transaction.
+      // Both ways: a local bundle on a draft-PR row is as wrong as the reverse.
+      if (frozen.operation === "export-local" && row.delivery.kind !== "local")
+        return invalidated("Delivery", "export-local", row.delivery.kind)
+      let delivery:
+        | {
+            readonly config: DraftPrConfig
+            readonly payload: DraftPrBundlePayload
+            readonly specText: string
+            readonly issueText: string
+            readonly issueNumber: number
+          }
+        | undefined
+      if (frozen.operation === "draft-pr") {
+        const rowDelivery = row.delivery
+        const fromRow =
+          rowDelivery.kind === "draft-pr"
+            ? {
+                repository: rowDelivery.repository,
+                baseBranch: rowDelivery.baseBranch,
+                branch: rowDelivery.branch,
+                pathPrefix: rowDelivery.pathPrefix,
+                issueStateAtCreate: rowDelivery.issueStateAtCreate,
+              }
+            : rowDelivery
+        if (canon(frozen.delivery) !== canon(fromRow))
+          return invalidated("Delivery", canon(frozen.delivery), canon(fromRow))
+        // The frozen origin (equal to the row's, checked above) is what consent named.
+        if (frozen.origin.kind !== "issue")
+          return refuse("A draft-PR bundle must come from an issue work order")
+        const config = options.delivery?.draftPr
+        if (
+          config === undefined ||
+          config.repository !== frozen.delivery.repository ||
+          config.baseBranch !== frozen.delivery.baseBranch
+        )
+          return refuse(
+            `Delivery not configured for ${frozen.delivery.repository} at ${frozen.delivery.baseBranch}: configure it and restart the controller, then approve again inside the window`,
+          )
+        // Both the record's list and the approved bytes' own paths: the intent is built from
+        // the bytes, so a record that under-reports them must not let one through.
+        const reached = protectedChanges(frozen.delivery.pathPrefix, [
+          ...new Set([...candidate.changedPaths, ...Object.keys(changes)]),
+        ])
+        if (reached.length > 0) {
+          recordEvent(id, "delivery_protected_paths", { paths: reached })
+          return refuse(
+            `The candidate changes ${reached.join(", ")}, which a pull request from the factory may never change; deny it`,
+          )
+        }
+        const problem = await preflightDelivery(config.adapter, frozen.delivery, abort.signal)
+        if (problem !== undefined) {
+          recordEvent(id, "delivery_preflight_refused", { problem })
+          return refuse(`Delivery preflight: ${problem}`)
+        }
+        // The spec and the issue as approved: read once with the digest they are checked
+        // against, so the pull request quotes the bytes the bundle names.
+        let task: ReturnType<typeof readGeneratedTask>
+        try {
+          task = readGeneratedTask(join(options.generatedTasksDir, id))
+        } catch (error) {
+          return refuse(`Generated task unreadable: ${String(error)}`)
+        }
+        if (task.digest !== frozen.taskDigest)
+          return invalidated("Generated task", String(frozen.taskDigest), task.digest)
+        delivery = {
+          config,
+          payload: frozen,
+          specText: task.files.get("spec.md")?.toString("utf8") ?? "",
+          issueText: task.files.get("issue.md")?.toString("utf8") ?? "",
+          issueNumber: frozen.origin.number,
+        }
+      }
+
+      let receipt: Receipt
+      try {
+        receipt = await ctx.verifier.verify(
+          {
+            workOrderId: id,
+            taskId: row.taskId,
+            candidateDigest: candidate.digest,
+            changes,
+            policyDigest: policy.policyDigest,
+            image: bound.image,
+          },
+          abort.signal,
+        )
+      } catch (error) {
+        if (error instanceof ImageGoneError)
+          recordEvent(id, "image_changed", {
+            reason: "gone",
+            bound: bound.image.localId,
+            phase: "export",
+          })
+        recordEvent(id, "verifier_unavailable", { phase: "export", error: String(error) })
+        return refuse(`Re-verification could not run: ${String(error)}`)
+      }
+      // One unit, as in the verifying phase: a receipt row with no journal line would leave
+      // an auditor unable to say which of the two is the truth.
+      const rejected = receipt.verdict !== "pass" || receipt.candidateDigest !== candidate.digest
+      try {
+        store.transaction(() => {
+          evidenceStore.recordReceipt(receipt)
+          recordEvent(id, rejected ? "reverification_rejected" : "reverified", {
+            verdict: receipt.verdict,
+            receiptId: receipt.id,
+          })
+        })
+      } catch (error) {
+        // A write that will not land (a receipt id already stored with a different verdict, a
+        // full disk) is a refusal, not an escape: an exception here would leave this command's
+        // key in flight forever, which no restart can reconcile because the key is only ever
+        // completed by the command that owns it. Nothing was written to the export directory,
+        // so refusing leaves the review exactly where the operator found it.
+        recordEvent(id, "receipt_unrecorded", { phase: "export", error: String(error) })
+        return refuse(`Re-verification receipt could not be recorded: ${String(error)}`)
+      }
+      if (rejected) return refuse(`Re-verification did not pass: ${receipt.verdict}`)
+      // The environment identity is the verifier's own claim about what it ran in, so it can
+      // only be compared once the re-verification has issued a receipt. A pass earned in a
+      // different environment is not the pass this bundle froze.
+      if (receipt.environmentIdentity !== frozen.environmentIdentity)
+        return invalidated(
+          "Verifier environment",
+          frozen.environmentIdentity,
+          receipt.environmentIdentity,
+        )
+
+      // The verify above was an await: a cancel (operator or budget) may have moved the row,
+      // and `approve` is not a legal move from where it left it.
+      const approvalId = `ap-${randomUUID()}`
+      const decidedAt = iso()
+      const decidedBy = decider.actor
+      // Built before the transaction: a refusal here must not leave the key in flight.
+      let intent: DeliveryIntent | undefined
+      if (delivery !== undefined)
+        try {
+          intent = buildDeliveryIntent({
+            workOrderId: id,
+            bundleDigest,
+            payload: delivery.payload,
+            candidateArtifact: candidate.artifactDigest,
+            changes,
+            baseline: baseline.files,
+            issueNumber: delivery.issueNumber,
+            specText: delivery.specText,
+            issueText: delivery.issueText,
+            approvedAt: decidedAt,
+            decidedBy,
+            reverificationReceiptId: receipt.id,
+          })
+        } catch (error) {
+          return refuse(`The delivery intent could not be built: ${String(error)}`)
+        }
+      try {
+        store.transaction(() => {
+          store.recordApproval({
+            id: approvalId,
+            workOrderId: id,
+            bundleDigest,
+            candidateDigest: candidate.digest,
+            decision: "approved",
+            decidedBy,
+            decidedAt,
+            expiresAt: new Date(since + ttl).toISOString(),
+          })
+          if (intent === undefined) {
+            transition(id, "approve", {}, { bundleDigest, operationKey: key })
+            return
+          }
+          // The one authorization to publish (rung 4 §5.1): the intent commits with the
+          // approval and the transition, or none of them does. The transition first: a second
+          // approval that raced this one through the re-verification is then refused as an
+          // illegal move, not thrown out of the outbox's one-intent-per-work-order constraint.
+          transition(id, "approve_delivery", {}, { bundleDigest, operationKey: key })
+          outbox.insert({ approvalId, intent, now: decidedAt })
+        })
+      } catch (error) {
+        // The transaction rolled the authority record back with the transition.
+        if (!(error instanceof IllegalTransitionError)) throw error
+        return refuse("Work order changed state while approving")
+      }
+
+      // D23: `ok` only once delivered. A delivery that blocks or stops leaves the approval
+      // recorded (it happened; the publication did not) and says so.
+      if (intent !== undefined)
+        return answerDelivery(id, key, { command: "approve", args: { revision, bundleDigest } })
+
+      let path: string
+      try {
+        path = await exportApproved({ directory: options.exportDir, bundle, changes })
+      } catch (error) {
+        recordEvent(id, "export_failed", { error: String(error) })
+        if (mustGet(id).state === "exporting")
+          transition(id, "export_unconfirmed", { blockedReason: "export_unconfirmed" })
+        return finish(key, {
+          ok: false,
+          state: mustGet(id).state,
+          message: `Export failed: ${String(error)}`,
+        })
+      }
+
+      // The write was an await too, and a cancel may have landed while it ran. The bytes are
+      // on disk either way, so the delivery is journalled either way — a row that reads
+      // `cancelled` over a delivery that happened is the truth, and hiding the delivery
+      // would not be. Only the transition is conditional, because `receipt_observed` is
+      // illegal from anywhere a cancel could have moved the row to.
+      try {
+        store.transaction(() => {
+          store.recordDelivery({
+            workOrderId: id,
+            candidateDigest: candidate.digest,
+            receiptPath: path,
+            observedAt: iso(),
+          })
+          recordEvent(id, "delivery_written", { receiptPath: path })
+          if (mustGet(id).state === "exporting") transition(id, "receipt_observed")
+        })
+      } catch (error) {
+        // The bytes are on disk and this write did not land, which is the one thing worth
+        // saying out loud. Letting it escape would say it by leaving the operation key in
+        // flight forever, and the operator would be told nothing at all.
+        try {
+          recordEvent(id, "delivery_unrecorded", { receiptPath: path, error: String(error) })
+        } catch {
+          // The registry is the thing that just failed; there may be nowhere left to journal.
+        }
+        return finish(key, {
+          ok: false,
+          state: mustGet(id).state,
+          message: `Exported to ${path}, but the delivery could not be recorded: ${String(error)}`,
+        })
+      }
+      const final = mustGet(id)
+      return finish(key, {
+        ok: final.state === "exported",
+        state: final.state,
+        message:
+          final.state === "exported"
+            ? "Exported"
+            : "Exported, but the work order changed state while the bytes were being written",
+      })
+    },
+
+    async deny(id, operationKey) {
+      const row = mustGet(id)
+      const key = operationKey ?? `deny:${id}:${row.revision}`
+      const intent = { command: "deny" as const, args: {} }
+      const decider = decidedByOf()
+      if (!decider.ok)
+        return (
+          commands.outcome(key, id, intent) ?? {
+            ok: false,
+            state: row.state,
+            message: decider.message,
+          }
+        )
+      const begun = commands.begin(key, id, intent, iso())
+      if (begun.status === "done") return begun.outcome
+      if (begun.status === "in_flight") throw new CommandInFlightError(key)
+      const refuse = (message: string) =>
+        finish(key, { ok: false, state: mustGet(id).state, message })
+      if (row.state !== "awaiting_approval" && row.state !== "blocked")
+        return refuse(`Cannot deny from ${row.state}`)
+
+      // From `awaiting_approval` there is nothing parked on the worker: rung 1's builder route
+      // has no gate, and the review the operator is denying is the controller's own frozen
+      // bundle. Only a `blocked` row can be holding a prompt, and it is an unexpected one.
+      if (row.state === "blocked") {
+        // The blocked row's thread may be the drafter's (a drafter parked on a prompt blocks
+        // the row too) or the builder's: the row says which, and the deny goes there.
+        const threadId = row.workerThreadId
+        let worker: { client: WorkerClient; route: string } | undefined
+        let pending: InterruptFrame[] = []
+        try {
+          if (threadId) {
+            worker = workerOfThread(row)
+            pending = await worker.client.pendingInterrupts(threadId)
+          }
+        } catch (error) {
+          recordEvent(id, "pending_deny_failed", { error: String(error) })
+          return refuse(`Deny could not be delivered to the worker: ${String(error)}`)
+        }
+        // Re-read after the await: a cancel (operator or budget) may have moved the row while
+        // this deny was reading the worker, and `deny` is not legal from where it left it.
+        if (mustGet(id).state !== row.state) return refuse("Work order changed state while denying")
+        if (pending.length === 0 || !threadId || !worker)
+          // A blocked work order with nothing parked (verification_failed, say) has no prompt
+          // to deny; denying it would fake a decision the worker never heard.
+          return refuse("Nothing is pending to deny; cancel the work order instead")
+
+        try {
+          recordEvent(id, "pending_denied", { interruptIds: pending.map((p) => p.interruptId) })
+          const frames = await worker.client.resume(
+            threadId,
+            worker.route,
+            pending.map((p) => ({ interruptId: p.interruptId, payload: "deny" as const })),
+            abort.signal,
+          )
+          await consumeTurn(frames, {})
+        } catch (error) {
+          // Undelivered: the row keeps its state so the operator can retry or cancel, rather
+          // than reading `denied` for a denial the worker never received.
+          recordEvent(id, "pending_deny_failed", { error: String(error) })
+          return refuse(`Deny could not be delivered to the worker: ${String(error)}`)
+        }
+        // The resume was another await: the row may have moved again while the worker was
+        // hearing the denial.
+        if (mustGet(id).state !== row.state) return refuse("Work order changed state while denying")
+      }
+
+      // One unit, as in approve: a denied authority row without the transition (or the other
+      // way round) would leave reconciliation guessing which of the two is the truth.
+      let denied: WorkOrderRow
+      try {
+        denied = store.transaction(() => {
+          if (row.bundleDigest && row.candidateDigest)
+            store.recordApproval({
+              id: `ap-${randomUUID()}`,
+              workOrderId: id,
+              bundleDigest: row.bundleDigest,
+              candidateDigest: row.candidateDigest,
+              decision: "denied",
+              decidedBy: decider.actor,
+              decidedAt: iso(),
+              expiresAt: iso(),
+            })
+          return transition(id, "deny", {}, { operationKey: key })
+        })
+      } catch (error) {
+        // The transaction rolled the denied authority row back with it.
+        if (!(error instanceof IllegalTransitionError)) throw error
+        return refuse("Work order changed state while denying")
+      }
+      return finish(key, { ok: true, state: denied.state, message: "Denied" })
+    },
+    async redeliver(id, { revision, bundleDigest, operationKey }) {
+      const row = mustGet(id)
+      const key = operationKey ?? `redeliver:${id}:${revision}:${bundleDigest}`
+      const begun = commands.begin(
+        key,
+        id,
+        { command: "redeliver", args: { revision, bundleDigest } },
+        iso(),
+      )
+      if (begun.status === "done") return begun.outcome
+      if (begun.status === "in_flight") throw new CommandInFlightError(key)
+      const refuse = (message: string) =>
+        finish(key, { ok: false, state: mustGet(id).state, message })
+      if (row.state !== "blocked" || row.blockedReason === null)
+        return refuse(`Cannot redeliver from ${row.state}`)
+      if (!REDELIVERABLE_BLOCKED_REASONS.has(row.blockedReason))
+        return refuse(
+          `Cannot redeliver a work order blocked by ${row.blockedReason}: waiting does not heal it; cancel it and run the issue again with --new`,
+        )
+      if (row.revision !== revision)
+        return refuse(`Stale revision ${revision}; work order is at ${row.revision}`)
+      if (row.bundleDigest !== bundleDigest)
+        return refuse("Bundle digest does not match the approved bundle")
+      const approval = store
+        .approvals(id)
+        .find((a) => a.decision === "approved" && a.bundleDigest === bundleDigest)
+      // An intent that no longer parses is refused here rather than thrown, so the command
+      // settles instead of staying in flight.
+      let intent: ReturnType<typeof outbox.get>
+      try {
+        intent = outbox.get(id)
+      } catch {
+        return refuse("The delivery's recorded intent does not parse; it cannot be redelivered")
+      }
+      if (approval === undefined || intent === null)
+        return refuse("Nothing was approved for delivery on this work order")
+      const window = options.redeliverWindowMs ?? 86_400_000
+      if (now() > Date.parse(approval.decidedAt) + window)
+        return refuse(
+          `The approval is from ${approval.decidedAt}, more than ${window / 3_600_000} hours ago; cancel it and run the issue again with --new`,
+        )
+      try {
+        transition(
+          id,
+          "redeliver",
+          { blockedReason: null },
+          { operationKey: key, previousBlockedReason: row.blockedReason, step: intent.step },
+        )
+      } catch (error) {
+        if (!(error instanceof IllegalTransitionError)) throw error
+        return refuse("Work order changed state while redelivering")
+      }
+      return answerDelivery(id, key, { command: "redeliver", args: { revision, bundleDigest } })
+    },
+
+    async cancel(id, operationKey) {
+      const row = mustGet(id)
+      const key = operationKey ?? `cancel:${id}:${row.revision}`
+      const begun = commands.begin(key, id, { command: "cancel", args: {} }, iso())
+      if (begun.status === "done") return begun.outcome
+      if (begun.status === "in_flight") throw new CommandInFlightError(key)
+      if (isTerminal(row.state))
+        return finish(key, {
+          ok: false,
+          state: row.state,
+          message: `Work order is terminal (${row.state})`,
+        })
+      if (row.state === "cancel_requested")
+        return finish(key, {
+          ok: false,
+          state: row.state,
+          message: "Cancel already in progress",
+        })
+      // Recorded before any worker call: a crash in between leaves cancel_requested, which is
+      // exactly what reconciliation knows how to finish.
+      try {
+        transition(id, "cancel", {}, { operationKey: key })
+      } catch (error) {
+        // Something settled the row between the state checks above and here.
+        if (!(error instanceof IllegalTransitionError)) throw error
+        const current = mustGet(id).state
+        return finish(key, { ok: false, state: current, message: `Cannot cancel from ${current}` })
+      }
+      let final: WorkOrderRow
+      try {
+        final = await finishCancel(id, "operator")
+      } catch (error) {
+        return finish(key, {
+          ok: false,
+          state: mustGet(id).state,
+          message: `Cancel failed: ${String(error)}`,
+        })
+      }
+      // The row, not the call, is the outcome: an unconfirmed cancel is still cancel_requested,
+      // and reconciliation finishes it on the next boot.
+      if (final.state === "cancelled")
+        return finish(key, { ok: true, state: final.state, message: "Cancelled" })
+      return finish(key, {
+        ok: false,
+        state: final.state,
+        message:
+          final.state === "cancel_requested"
+            ? "Cancel not confirmed; the worker was unreachable. Reconciliation will finish it on restart"
+            : `Cancel did not complete; work order is ${final.state}`,
+      })
+    },
+
+    show: (id) => store.get(id),
+    list: () => store.list(),
+    events: (id) => store.events(id),
+
+    evidence(id) {
+      const row = mustGet(id)
+      const candidate = row.candidateDigest ? evidenceStore.candidate(row.candidateDigest) : null
+      const bundle = row.bundleDigest ? evidenceStore.bundle(row.bundleDigest) : null
+      const receipt = bundle ? evidenceStore.receipt(bundle.receiptId) : null
+      const oracleId = oracleReceiptIdFor(store.events(id), row.taskDigest)
+      const oracleReceipt = oracleId ? evidenceStore.receipt(oracleId) : null
+      return { candidate, receipt, bundle, oracleReceipt }
+    },
+
+    async waitFor(id, predicate, timeoutMs = 10_000) {
+      // Wall clock, for the same reason as settleRun: a frozen injected `now` would spin here.
+      const deadline = Date.now() + timeoutMs
+      while (true) {
+        const row = mustGet(id)
+        if (predicate(row)) return row
+        if (Date.now() >= deadline || abort.signal.aborted)
+          throw new Error(`Timed out waiting for ${id}; state is ${row.state}`)
+        await quietSleep(20)
+      }
+    },
+
+    async settle(id, timeoutMs) {
+      const deadline = Date.now() + timeoutMs
+      await settleRun(id, timeoutMs)
+      return factory.waitFor(
+        id,
+        (r) => !ACTIVE_STATES.has(r.state),
+        Math.max(0, deadline - Date.now()),
+      )
+    },
+    settleIntake: (id, timeoutMs) => factory.settle(id, timeoutMs),
+    reconcileWorkOrder: (id) => reconcileWorkOrder(ctx, id),
+    reconcileAll: () => reconcileAll(ctx),
+
+    async close() {
+      if (closed) return
+      closed = true
+      ticker?.stop()
+      abort.abort()
+      // Bounded: a run whose stream ignores the abort must not hold the process open.
+      await Promise.race([
+        Promise.allSettled([...runs.values()]),
+        sleep(options.closeTimeoutMs ?? 10_000),
+      ])
+      registry.close()
+    },
+  }
+
+  // Reconciliation first, the ticker second: the boot rules need only `finishCancel`, and a
+  // tick landing mid-walk would race them for the same rows. A boot that throws owns its own
+  // cleanup, since nothing is returned for anyone else to close.
+  try {
+    await reconcileAll(ctx)
+
+    // The budget is enforced on active time only (dispatched/running/exporting), so a work order
+    // parked on a person never expires. One command key per (id, revision) keeps the ticker's
+    // cancel out of the command log's way when an operator cancel is already recorded.
+    ticker = startBudgetTicker({
+      store,
+      now,
+      tickMs: options.budgetTickMs ?? 1_000,
+      // The ticker has no caller to reject to: anything escaping this callback would surface as
+      // an unhandled rejection and leave its key in flight forever. So the whole body is
+      // guarded — the row read, the command log, the transition and the worker calls — and a
+      // tick that raced close() stops before it can touch a closing registry.
+      onExhausted: async (id) => {
+        if (closed) return
+        let key: string | null = null
+        try {
+          const row = mustGet(id)
+          key = `budget:${id}:${row.revision}`
+          const begun = commands.begin(
+            key,
+            id,
+            { command: "cancel", args: { cause: "budget" } },
+            iso(),
+          )
+          if (begun.status !== "new") return
+          try {
+            transition(
+              id,
+              "budget_exhausted",
+              { blockedReason: "budget_exhausted" },
+              { maxActiveMs: row.maxActiveMs },
+            )
+          } catch (error) {
+            commands.complete(key, {
+              ok: false,
+              message: `Budget cancel skipped: ${String(error)}`,
+            })
+            return
+          }
+          // As in cancel: the row is the outcome, and an unconfirmed cancel is not a cancel.
+          const final = await finishCancel(id, "budget")
+          const ok = final.state === "blocked" && final.blockedReason === "budget_exhausted"
+          commands.complete(key, {
+            ok,
+            state: final.state,
+            message: ok
+              ? "Budget exhausted"
+              : `Budget cancel not confirmed; work order is ${final.state}`,
+          })
+        } catch (error) {
+          try {
+            recordEvent(id, "budget_cancel_failed", { error: String(error) })
+            if (key)
+              commands.complete(key, {
+                ok: false,
+                message: `Budget cancel failed: ${String(error)}`,
+              })
+          } catch {
+            // close() took the registry with it; there is nothing left to journal this on.
+          }
+        }
+      },
+    })
+  } catch (error) {
+    ticker?.stop()
+    registry.close()
+    throw error
+  }
+
+  return factory
+}

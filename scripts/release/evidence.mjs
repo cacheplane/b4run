@@ -455,7 +455,9 @@ function analyzeTerminalAssets(assets, marker, conflicts) {
         asset.status === "matching" &&
         asset.sha256 === marker.audit?.canonicalSha256 &&
         marker.audit?.canonicalSha256 === marker.audit?.attemptSha256
-      if (!canonicalExact) conflicts.add("github-audit-result-bytes-mismatch")
+      if (!canonicalExact && !isPremarkerCanonical(asset, assets, marker)) {
+        conflicts.add("github-audit-result-bytes-mismatch")
+      }
     } else if (asset.name === "abandonment.json") {
       hasAbandonment = true
       abandonmentExact =
@@ -481,6 +483,23 @@ function analyzeTerminalAssets(assets, marker, conflicts) {
     if (!canonicalExact) conflicts.add("github-audit-result-missing")
   }
   return { currentAttemptExact, canonicalExact }
+}
+
+// verifyAuditSuccess uploads audit-result.json before its AUDIT_VERIFIED marker
+// CAS; that premarker copy is resumable only when it matches the current
+// dispatch's attempt byte for byte. It never counts as canonicalExact.
+function isPremarkerCanonical(asset, assets, marker) {
+  return (
+    marker?.phase === "AUDIT_DISPATCHED" &&
+    asset.status === "matching" &&
+    assets.some(
+      (attempt) =>
+        attempt.name.startsWith(`audit-attempt-${marker.audit?.workflowRunId}-`) &&
+        /^audit-attempt-[1-9][0-9]*-[1-9][0-9]*\.json$/u.test(attempt.name) &&
+        attempt.status === "matching" &&
+        attempt.sha256 === asset.sha256,
+    )
+  )
 }
 
 function resumableSmokeAssetSubset(assets, conflicts) {

@@ -16,6 +16,7 @@ import {
 } from "../lib/runtime/load-run-scenarios.js"
 import type { RuntimeExecutionResult } from "../lib/runtime/result.js"
 import { evaluateScenarioToolExpectations } from "../lib/runtime/scenario-tool-expectations.js"
+import { refreshTypegenForRun } from "../lib/typegen/refresh-typegen.js"
 
 interface TestOptions {
   readonly cwd?: string
@@ -60,6 +61,17 @@ export async function runTestCommand(
 
     if (scenarios.length === 0) {
       throw new CliError("No run.test.ts scenarios found", 1)
+    }
+
+    // In-process scenarios bind tool schemas from `.b4/`; regenerate them once
+    // per app so a tool added or changed since the last `b4 typegen` is bound
+    // with its current input type. Server-targeted scenarios (`.server(url)`)
+    // use whatever the running server was booted with.
+    const inProcessAppRoots = new Set(
+      scenarios.filter((scenario) => !scenario.run?.url).map((scenario) => scenario.appRoot),
+    )
+    for (const appRoot of inProcessAppRoots) {
+      await refreshTypegenForRun(appRoot, io)
     }
 
     let passed = 0

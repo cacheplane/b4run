@@ -1,0 +1,80 @@
+import assert from "node:assert/strict"
+import { mkdtemp, writeFile, mkdir, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+const { createRuntimeFetchHandler } = await import(join(process.cwd(), "packages/cli/dist/runtime-exports.js"))
+
+async function makeFixture(routeSource: string) {
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-run-wait-"))
+  await mkdir(join(appRoot, "src/app/noop"), { recursive: true })
+  await writeFile(join(appRoot, "b4.config.ts"), "export default {}\n")
+  await writeFile(join(appRoot, "package.json"), '{ "name": "fixture", "type": "module" }\n')
+  await writeFile(join(appRoot, "src/app/noop/index.ts"), routeSource)
+  return appRoot
+}
+
+async function jsonPost(handler: any, path: string, body: unknown) {
+  const req = new Request(`http://localhost${path}`, {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: { "content-type": "application/json" },
+  })
+  return handler.fetch(req)
+}
+
+test("A1: POST /threads/:id/runs/wait returns a 200 response with content-type application/json and an empty body when the route returns undefined", async () => {
+  const appRoot = await makeFixture("export const workflow = async () => undefined\n")
+  try {
+    const handler = await createRuntimeFetchHandler({ appRoot })
+    try {
+      const res = await jsonPost(handler, "/threads/t-undef/runs/wait", { input: {}, route: "/noop#workflow" })
+      assert.equal(res.status, 200)
+      const ct = res.headers.get("content-type") ?? ""
+      assert.match(ct, /application\/json/)
+      const text = await res.text()
+      assert.equal(text, "")
+    } finally {
+      await handler.close()
+    }
+  } finally {
+    await rm(appRoot, { recursive: true, force: true })
+  }
+})
+
+test("A2: POST /threads/:id/runs/wait returns 200 and a JSON body for a route that returns an object (e.g. { ok: true })", async () => {
+  const appRoot = await makeFixture("export const workflow = async () => ({ ok: true })\n")
+  try {
+    const handler = await createRuntimeFetchHandler({ appRoot })
+    try {
+      const res = await jsonPost(handler, "/threads/t-ok/runs/wait", { input: {}, route: "/noop#workflow" })
+      assert.equal(res.status, 200)
+      const ct = res.headers.get("content-type") ?? ""
+      assert.match(ct, /application\/json/)
+      const body = await res.json()
+      assert.deepEqual(body, { ok: true })
+    } finally {
+      await handler.close()
+    }
+  } finally {
+    await rm(appRoot, { recursive: true, force: true })
+  }
+})
+
+test("A3: When a route execution throws, POST /threads/:id/runs/wait returns 500 with a JSON body whose error.kind is \"execution_error\".", async () => {
+  const appRoot = await makeFixture("export const workflow = async () => { throw new Error('boom') }\n")
+  try {
+    const handler = await createRuntimeFetchHandler({ appRoot })
+    try {
+      const res = await jsonPost(handler, "/threads/t-boom/runs/wait", { input: {}, route: "/noop#workflow" })
+      assert.equal(res.status, 500)
+      const ct = res.headers.get("content-type") ?? ""
+      assert.match(ct, /application\/json/)
+      const body = await res.json()
+      assert.equal(body?.error?.kind, "execution_error")
+    } finally {
+      await handler.close()
+    }
+  } finally {
+    await rm(appRoot, { recursive: true, force: true })
+  }
+})

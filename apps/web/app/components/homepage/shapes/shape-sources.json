@@ -1,0 +1,6 @@
+{
+  "agent": "import { agent } from \"@b4run/sdk\"\n\nexport default agent({\n  model: \"gpt-5-mini\",\n  systemPrompt: \"You are a friendly assistant. Use greet to greet people by name.\",\n})\n",
+  "workflow": "import type { RuntimeContext, RuntimeTool } from \"@b4run/sdk\"\n\n// Or use RouteTools from \"b4:routes\", which b4 typegen writes for you.\ntype Tools = {\n  readonly greet: RuntimeTool<{ readonly name: string }, { readonly message: string }>\n}\n\nexport async function workflow(input: { readonly name: string }, ctx: RuntimeContext<Tools>) {\n  const name = input.name.trim()\n  const { message } = await ctx.tools.greet({ name })\n  return { message }\n}\n",
+  "graph": "import { Annotation, END, START, StateGraph } from \"@langchain/langgraph\"\n\nconst Hello = Annotation.Root({\n  name: Annotation<string>,\n  message: Annotation<string>,\n})\n\nexport const graph = new StateGraph(Hello)\n  .addNode(\"greet\", (state) => ({ message: `Hello, ${state.name}!` }))\n  .addEdge(START, \"greet\")\n  .addEdge(\"greet\", END)\n  .compile()\n",
+  "chain": "import { RunnableSequence } from \"@langchain/core/runnables\"\n\nexport const chain = RunnableSequence.from([\n  (input: { readonly name: string }) => input.name.trim(),\n  (name: string) => ({ message: `Hello, ${name}!` }),\n])\n"
+}

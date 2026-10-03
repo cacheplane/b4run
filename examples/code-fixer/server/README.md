@@ -18,8 +18,13 @@ pnpm --filter @b4-example/code-fixer-server dev --port 3001
 
 Set `OPENAI_API_KEY` in the host environment or the server's local `.env` before
 starting. The default model is `gpt-5-mini`. The key stays on the host.
-`sandbox:prepare` builds the sample's dependencies into a Docker image; it runs
-once, and again when you change those dependencies.
+`sandbox:prepare` builds the sample's dependencies into a Docker image. The tag
+is derived from the `Dockerfile` (which pins `node:24-slim` by digest), the
+`.dockerignore` allowlist, and the sample's `package.json` and lockfile. Apps with
+the same inputs share one image, and changed inputs get a new tag, so preparing
+one checkout never re-points the image another is using. Preparing again reuses an
+existing tag. A base image already held locally is never pulled again. Set
+`B4_CODE_FIXER_REBUILD=1` to rebuild an existing tag.
 
 In a second terminal, create a thread and run the agent:
 
@@ -81,7 +86,8 @@ then `PORT=3001 pnpm --filter @b4-example/code-fixer-server start`. The API is t
 - `src/project/`: declares the sample's source and workspace policy.
 - `src/review/`: restricts changes, creates the review candidate, and verifies it.
 - `sample/`: the broken project, task, reference repair, and independent checks.
-- `scripts/prepare.ts`: the single Docker preparation step.
+- `scripts/prepare.ts`: the single Docker preparation step. `src/project/image.ts`
+  derives the image tag it builds and the app runs.
 - `test/`: focused tests and an offline replay of this sample.
 
 B4 owns workspace capture, lifecycle, filesystem access, inspection, and approval.
@@ -117,9 +123,8 @@ publication checks belong to the repository's
 ## Install through the blueprint
 
 `b4 add code-fixer` provides the installation instructions for your coding agent.
-The published blueprint remains pinned to its qualified B4 0.8.32 source.
-This checkout introduces a shared workspace API that must be released and
-qualified before that installation pin advances. Use this checkout's built
-packages while contributing; do not combine this source with older published B4
-packages. Maintainers verify a copied app against packed packages with
-`pnpm code-fixer:consumer --packed`.
+The published blueprint installs this app from source commit
+`89b95af3eb660fda8a45b2b5527da6bf8a29ea8d` with published B4 0.11.0 packages.
+Use this checkout's built packages while contributing. Do not combine this source
+with older published B4 packages. Maintainers verify a copied app against packed
+packages with `pnpm code-fixer:consumer --packed`.

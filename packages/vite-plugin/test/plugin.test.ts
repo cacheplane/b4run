@@ -127,6 +127,55 @@ function expectSingleRuntimeMetadataExports(code: string): void {
 }
 
 describe("transformToolSource", () => {
+  test("resolves an aliased input type through the app's tsconfig for an absolute id", async () => {
+    const appRoot = await mkdtemp(join(tmpdir(), "b4-vite-alias-"))
+    tempDirs.push(appRoot)
+    const toolFile = join(appRoot, "src", "app", "assistant", "tools", "render.ts")
+    const source = [
+      'import type { RenderInput } from "@fixture/contracts"',
+      "",
+      "export default async function render(input: RenderInput) {",
+      "  return input.text",
+      "}",
+      "",
+    ].join("\n")
+
+    await Promise.all([
+      createFile(
+        join(appRoot, "tsconfig.json"),
+        JSON.stringify({
+          compilerOptions: {
+            strict: true,
+            baseUrl: ".",
+            paths: { "@fixture/contracts": ["./shared/contracts.ts"] },
+          },
+        }),
+      ),
+      createFile(
+        join(appRoot, "shared", "contracts.ts"),
+        "export interface RenderInput { readonly text: string }\n",
+      ),
+      createFile(toolFile, source),
+    ])
+
+    const transformed = transformToolSource(source, toolFile)
+
+    expect(transformed).not.toBeNull()
+    expect(transformed).toContain('"text": __b4GeneratedZ.string()')
+    expect(transformed).toContain("export { __b4GeneratedSchema as schema }")
+  })
+
+  test("throws for an absolute id whose input type does not resolve", async () => {
+    const appRoot = await mkdtemp(join(tmpdir(), "b4-vite-unresolved-"))
+    tempDirs.push(appRoot)
+    const toolFile = join(appRoot, "src", "app", "assistant", "tools", "render.ts")
+    const source =
+      'import type { RenderInput } from "@fixture/contracts"\nexport default async function render(input: RenderInput) { return input }\n'
+    await createFile(toolFile, source)
+
+    expect(() => transformToolSource(source, toolFile)).toThrow(/RenderInput/)
+  })
+
   test("injects collision-free schema and description aliases for an ordinary typed tool", async () => {
     const source = `
 /**

@@ -30,7 +30,7 @@ describe("generated app runtime contract", () => {
       tempRoot,
     })
     const runTestSource = await readFile(
-      resolve(prepared.appRoot, "src/app/(public)/hello/[tenant]/run.test.ts"),
+      resolve(prepared.appRoot, "src/app/hello/run.test.ts"),
       "utf8",
     )
 
@@ -38,7 +38,7 @@ describe("generated app runtime contract", () => {
     expect(runTestSource).toContain(
       'import { expectMeta, expectOutput, scenarios } from "@b4run/sdk/testing"',
     )
-    expect(runTestSource).toContain('export default scenarios("/hello/[tenant]")')
+    expect(runTestSource).toContain('export default scenarios("/hello")')
     expect(runTestSource).not.toContain("export default [")
     const result = await runGeneratedRuntimeScenario(prepared)
     const expected = await readGeneratedExpectedFixture("basic")
@@ -100,10 +100,10 @@ describe("generated app runtime contract", () => {
     )
     expect(transcript).toContain(`$ (cd ${prepared.appRoot} && pnpm install)`)
     expect(transcript).toContain(
-      `$ (cd ${prepared.appRoot} && pnpm exec b4 run src/app/(public)/hello/[tenant]/index.ts)`,
+      `$ (cd ${prepared.appRoot} && pnpm exec b4 run src/app/hello/index.ts)`,
     )
     expect(transcript).toContain(
-      `$ (cd ${prepared.appRoot} && pnpm exec b4 run src/app/(public)/hello/[tenant]/index.ts --url`,
+      `$ (cd ${prepared.appRoot} && pnpm exec b4 run src/app/hello/index.ts --url`,
     )
     expect(transcript).toContain(`$ (cd ${prepared.appRoot} && pnpm exec b4 test)`)
     expect(transcript).toContain("$ b4 dev")

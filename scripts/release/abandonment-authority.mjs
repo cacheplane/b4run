@@ -1,4 +1,4 @@
-import { snapshotJson } from "./adapter-normalize.mjs"
+import { isUnstartedFirstAttempt, snapshotJson } from "./adapter-normalize.mjs"
 import { CANONICAL_RELEASE_PACKAGE_ORDER } from "./manifest.mjs"
 import { validateAllAttemptJobs } from "./metadata.mjs"
 import { isExactSemver, parseSemver } from "./semver.mjs"
@@ -86,6 +86,7 @@ export async function captureFreshAbandonmentEvidence({
     identity,
     context,
     currentRun,
+    github,
     listWorkflowRuns,
     listActionsRunJobs,
     now,
@@ -142,6 +143,7 @@ async function captureActionsHistory({
   identity,
   context,
   currentRun,
+  github,
   listWorkflowRuns,
   listActionsRunJobs,
   now,
@@ -171,6 +173,9 @@ async function captureActionsHistory({
     if (run.id === currentRun.id && run.run_attempt === currentRun.run_attempt) {
       currentMatches += 1
     }
+    // A run queued behind this one, or cancelled before it started, has no
+    // jobs and so no publication history to prove.
+    if (isUnstartedFirstAttempt(run) && (await runNeverStarted(github, run))) continue
     const jobs = snapshotJson(
       presentValue(await listActionsRunJobs({ runId: run.id }), "actions-run-jobs"),
     )
@@ -189,6 +194,27 @@ async function captureActionsHistory({
     publishJobStarted: false,
     registryMutationStarted: false,
   })
+}
+
+async function runNeverStarted(github, listed) {
+  const getActionsRun = bindMethod(github, "getActionsRun", "GitHub abandonment reader")
+  const listActionsRunJobsComplete = bindMethod(
+    github,
+    "listActionsRunJobsComplete",
+    "GitHub abandonment reader",
+  )
+  const before = presentValue(await getActionsRun({ runId: listed.id }), "actions-run")
+  const jobs = presentValue(
+    await listActionsRunJobsComplete({ runId: listed.id }, { allowEmptyFirstAttempt: true }),
+    "actions-run-jobs-complete",
+  )
+  const after = presentValue(await getActionsRun({ runId: listed.id }), "actions-run")
+  if (!Array.isArray(jobs)) throw new Error("Abandonment Actions job history is malformed")
+  if (jobs.length !== 0) return false
+  if (!isUnstartedFirstAttempt(before, listed) || !isUnstartedFirstAttempt(after, listed)) {
+    throw new Error("Abandonment Actions run without jobs is not proven unstarted")
+  }
+  return true
 }
 
 function normalizeCurrentRun(value, { identity, context }) {

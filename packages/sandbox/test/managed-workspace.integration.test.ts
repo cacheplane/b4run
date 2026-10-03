@@ -1,8 +1,12 @@
+import { execFileSync } from "node:child_process"
 import { randomUUID } from "node:crypto"
+import type { WorkspaceEnvironment } from "@b4run/workspace"
+import { inspectWorkspace, scopedWorkspaceReader } from "@b4run/workspace"
 import { createSourceBundle, createWorkspaceIntent } from "@b4run/workspace/node"
 import { describe, expect, it } from "vitest"
 import { createDocker } from "../src/docker/docker-cli.ts"
 import { createDockerManagedWorkspaces } from "../src/docker/managed-workspace.ts"
+import { managedTestImage } from "./support/managed-test-image.ts"
 
 describe.skipIf(process.env.B4_TEST_DOCKER !== "1")(
   "managed Docker qualification",
@@ -13,7 +17,7 @@ describe.skipIf(process.env.B4_TEST_DOCKER !== "1")(
         signal = new AbortController().signal
       const opts = {
         scope: `managed-test-${randomUUID()}`,
-        image: process.env.B4_TEST_MANAGED_IMAGE ?? "b4-code-fixer:fixture-v1",
+        image: managedTestImage(),
         docker,
       }
       const provider = createDockerManagedWorkspaces(opts)
@@ -116,7 +120,7 @@ describe.skipIf(process.env.B4_TEST_DOCKER !== "1")(
       }
       const opts = {
         scope: `interrupt-${randomUUID()}`,
-        image: process.env.B4_TEST_MANAGED_IMAGE ?? "b4-code-fixer:fixture-v1",
+        image: managedTestImage(),
         docker,
       }
       const provider = createDockerManagedWorkspaces(opts)
@@ -170,6 +174,223 @@ describe.skipIf(process.env.B4_TEST_DOCKER !== "1")(
         expect(await fresh.inspectCreation(intent, signal)).toEqual({ status: "absent" })
       } finally {
         await provider.destroy({ intent }, signal)
+      }
+    })
+  },
+)
+
+describe.skipIf(process.env.B4_TEST_DOCKER !== "1")(
+  "managed Docker workspace reader",
+  { timeout: 180000 },
+  () => {
+    it("reads a live and a released workspace without disturbing the session", async () => {
+      const docker = createDocker(),
+        signal = new AbortController().signal
+      const opts = {
+        scope: `managed-reader-${randomUUID()}`,
+        image: managedTestImage(),
+        docker,
+      }
+      const provider = createDockerManagedWorkspaces(opts)
+      const source = createSourceBundle([
+        { path: "kept.txt", bytes: Buffer.from("from source"), executable: false },
+      ])
+      const intent = createWorkspaceIntent({
+        operationId: randomUUID(),
+        installationId: randomUUID(),
+        threadId: "reader-thread",
+        definition: {
+          version: 1,
+          source,
+          environmentLinks: [
+            { path: "node_modules", target: "/opt/fixtures/cli-flags/node_modules" },
+          ],
+          baseline: "git",
+        },
+        environment: await provider.resolveEnvironment(signal),
+      })
+      const read = () =>
+        scopedWorkspaceReader(
+          () => provider.openWorkspaceReader?.({ workspace: ready, signal }) as never,
+          (reader) =>
+            inspectWorkspace(reader, {
+              signal,
+              excludeRootDirectories: [".git"],
+              expectedRootSymlinks: { node_modules: "/opt/fixtures/cli-flags/node_modules" },
+            }),
+        )
+      const readers = () =>
+        docker
+          .run(["ps", "-aq", "--filter", "label=b4.sandbox.reader"])
+          .then((r) => r.stdout.trim())
+      // `rm -f` on an auto-removing container can return while the daemon is
+      // still finishing the removal, so "gone" is polled, not sampled once.
+      const expectNoReaders = () => expect.poll(readers, { timeout: 10_000 }).toBe("")
+      const ready = await provider.create(intent, source, signal)
+      try {
+        const session = await provider.reconnect(ready, { network: { mode: "deny" } }, signal)
+        const container = (
+          await docker.run([
+            "ps",
+            "-q",
+            "--filter",
+            `label=b4.workspace.incarnation=${session.reference.incarnation}`,
+          ])
+        ).stdout.trim()
+        expect(container).not.toBe("")
+        const wrote = await docker.exec(container, [
+          "sh",
+          "-c",
+          "printf produced > /workspace/out.txt",
+        ])
+        expect(wrote.exitCode, wrote.stderr).toBe(0)
+
+        // Read while the session is LIVE.
+        const live = await read()
+        expect(live.files).toEqual({ "kept.txt": "from source", "out.txt": "produced" })
+        await expectNoReaders()
+        // The session: same container, still running, still writable.
+        const after = (
+          await docker.run([
+            "ps",
+            "-q",
+            "--filter",
+            `label=b4.workspace.incarnation=${session.reference.incarnation}`,
+            "--filter",
+            "status=running",
+          ])
+        ).stdout.trim()
+        expect(after).toBe(container)
+        const still = await docker.exec(container, [
+          "sh",
+          "-c",
+          "printf again >> /workspace/out.txt",
+        ])
+        expect(still.exitCode, still.stderr).toBe(0)
+
+        // Read after RELEASE: only the volume remains.
+        await provider.release(session.reference, signal)
+        const released = await read()
+        expect(released.files["out.txt"]).toBe("producedagain")
+        await expectNoReaders()
+
+        // A reader cannot write: the bind is read-only at the kernel.
+        const probe = await provider.openWorkspaceReader?.({ workspace: ready, signal })
+        try {
+          const name = (
+            await docker.run(["ps", "-q", "--filter", "label=b4.sandbox.reader"])
+          ).stdout.trim()
+          expect(name).not.toBe("")
+          const denied = await docker.exec(name, ["sh", "-c", "echo x > /workspace/forbidden"])
+          expect(denied.exitCode).not.toBe(0)
+          expect(denied.stderr).toMatch(/read-only file system/i)
+        } finally {
+          await probe?.close()
+        }
+      } finally {
+        await provider.destroy({ intent, reference: ready.reference }, signal)
+      }
+      // Destroyed stays destroyed: no volume is recreated by a read.
+      await expect(read()).rejects.toMatchObject({ code: "lost" })
+      expect(
+        (
+          await docker.run([
+            "volume",
+            "ls",
+            "-q",
+            "--filter",
+            `name=${ready.reference.resource.volume}`,
+          ])
+        ).stdout.trim(),
+      ).toBe("")
+    })
+  },
+)
+
+describe.skipIf(process.env.B4_TEST_DOCKER !== "1")(
+  "managed Docker per-thread images",
+  { timeout: 180000 },
+  () => {
+    it("runs two threads of one provider in two images under two policies", async () => {
+      const docker = createDocker(),
+        signal = new AbortController().signal
+      const base = managedTestImage()
+      // A second image with its own id: the base plus labels, built from the local base only.
+      // The base carries org.b4run.code-fixer.project=cli-flags, which managedTestImage() selects
+      // by (newest first): override it, or every other Docker test file would pick this variant
+      // up as "the" managed image, and this test's cleanup would delete it under them.
+      const variant = `b4-managed-variant:${randomUUID().slice(0, 12)}`
+      execFileSync("docker", ["build", "-t", variant, "-"], {
+        input: `FROM ${base}\nLABEL org.b4run.code-fixer.project="b4-managed-variant" org.b4run.test.variant="${variant}"\n`,
+        stdio: ["pipe", "ignore", "inherit"],
+      })
+      const provider = createDockerManagedWorkspaces({
+        scope: `per-thread-${randomUUID()}`,
+        image: base,
+        images: (reference) => reference === variant,
+        docker,
+      })
+      const source = createSourceBundle([
+        { path: "main.txt", bytes: Buffer.from("x"), executable: false },
+      ])
+      const installationId = randomUUID()
+      const intentFor = (threadId: string, environment: WorkspaceEnvironment) =>
+        createWorkspaceIntent({
+          operationId: randomUUID(),
+          installationId,
+          threadId,
+          definition: { version: 1, source, environmentLinks: [] },
+          environment,
+        })
+      const one = intentFor("one", await provider.resolveEnvironment(signal))
+      const two = intentFor(
+        "two",
+        await (provider.resolveImageEnvironment?.(
+          variant,
+          signal,
+        ) as Promise<WorkspaceEnvironment>),
+      )
+      await expect(
+        provider.resolveImageEnvironment?.("b4-not-allowed:latest", signal),
+      ).rejects.toMatchObject({ code: "unsupported" })
+      try {
+        expect(two.environment.identity).not.toBe(one.environment.identity)
+        const a = await provider.reconnect(
+          await provider.create(one, source, signal),
+          { network: { mode: "deny" }, resources: { memoryMb: 256 } },
+          signal,
+        )
+        const b = await provider.reconnect(
+          await provider.create(two, source, signal),
+          { network: { mode: "deny" }, resources: { memoryMb: 512 } },
+          signal,
+        )
+        const session = async (incarnation: string) => {
+          const id = (
+            await docker.run([
+              "ps",
+              "-q",
+              "--filter",
+              `label=b4.workspace.incarnation=${incarnation}`,
+            ])
+          ).stdout.trim()
+          return JSON.parse(
+            (await docker.run(["inspect", "--format", "{{json .}}", id])).stdout,
+          ) as { Image: string; HostConfig: { Memory: number } }
+        }
+        const sa = await session(a.reference.incarnation)
+        const sb = await session(b.reference.incarnation)
+        expect(sa.Image).toBe(one.environment.identity)
+        expect(sb.Image).toBe(two.environment.identity)
+        expect(sa.HostConfig.Memory).toBe(256 * 1024 * 1024)
+        expect(sb.HostConfig.Memory).toBe(512 * 1024 * 1024)
+      } finally {
+        await provider.destroy({ intent: one }, signal)
+        await provider.destroy({ intent: two }, signal)
+        // Best effort: a failure to untag must not mask the test's own result.
+        try {
+          execFileSync("docker", ["image", "rm", variant], { stdio: "ignore" })
+        } catch {}
       }
     })
   },

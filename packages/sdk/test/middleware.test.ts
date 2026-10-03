@@ -2,6 +2,8 @@ import { describe, expect, test } from "vitest"
 import {
   allow,
   defineMiddleware,
+  type MiddlewareAfterResult,
+  type MiddlewareAfterRun,
   type MiddlewareRequest,
   type MiddlewareResult,
   reject,
@@ -74,6 +76,25 @@ describe("defineMiddleware() — lifecycle object form", () => {
 
   test("accepts a definition with only handle", () => {
     const definition = { handle: () => reject(401) }
+    expect(defineMiddleware(definition)).toBe(definition)
+  })
+})
+
+describe("defineMiddleware() — after hook", () => {
+  test("accepts a definition with handle and after, and returns it as-is", () => {
+    const definition = {
+      handle: (_req: MiddlewareRequest): MiddlewareResult => allow({ tenant: "acme" }),
+      after: (run: MiddlewareAfterRun): MiddlewareAfterResult =>
+        run.context?.tenant === "acme" ? { finalMessage: run.finalMessage.trim() } : reject(403),
+    }
+    expect(defineMiddleware(definition)).toBe(definition)
+  })
+
+  test("after may return nothing to leave the final message untouched", () => {
+    const definition = {
+      handle: () => allow(),
+      after: (_run: MiddlewareAfterRun) => undefined,
+    }
     expect(defineMiddleware(definition)).toBe(definition)
   })
 })

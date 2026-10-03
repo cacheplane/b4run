@@ -68,6 +68,11 @@ export const B4_ERRORS = {
     title: "Route entry exports more than one route kind",
     docsPath: "/docs/cli#b4-check",
   },
+  B4_E1009: {
+    code: "B4_E1009",
+    title: "Invalid memory config",
+    docsPath: "/docs/configuration#memory",
+  },
   B4_E2001: {
     code: "B4_E2001",
     title: "Sandbox unavailable",
@@ -101,12 +106,12 @@ export const B4_ERRORS = {
   B4_E4001: {
     code: "B4_E4001",
     title: "Model provider package missing",
-    docsPath: "/docs/configuration",
+    docsPath: "/docs/agents#model-providers",
   },
   B4_E4002: {
     code: "B4_E4002",
     title: "Unknown model id",
-    docsPath: "/docs/configuration",
+    docsPath: "/docs/agents#model-providers",
   },
   B4_E5001: {
     code: "B4_E5001",
@@ -135,6 +140,16 @@ export const B4_ERRORS = {
     code: "B4_E5301",
     title: "Runtime store not provided",
     docsPath: "/docs/deployment",
+  },
+  B4_E5401: {
+    code: "B4_E5401",
+    title: "Invalid AG-UI run envelope",
+    docsPath: "/docs/ag-ui#envelope-validation",
+  },
+  B4_E5402: {
+    code: "B4_E5402",
+    title: "AG-UI response schema rejected",
+    docsPath: "/docs/ag-ui#response-schema",
   },
 } as const satisfies Record<string, B4ErrorDescriptor>
 

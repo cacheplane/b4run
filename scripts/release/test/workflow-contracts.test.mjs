@@ -23,6 +23,8 @@ import { ARTIFACT_STORE_SPARSE_FILES } from "../artifact-store.mjs"
 import { readBoundedFixture } from "../fixture-io.mjs"
 import { PUBLISHER_OVERALL_TIMEOUT_MS, PUBLISHER_SPARSE_FILES } from "../publisher.mjs"
 import { REQUIRED_RELEASE_SMOKE_LANES } from "../smoke-result.mjs"
+import { factoryGuardProblems, pullRequestContext } from "./factory-guard.mjs"
+import { evaluateExpression } from "./github-expression.mjs"
 
 const ROOT = fileURLToPath(new URL("../../..", import.meta.url))
 const requireFromCore = createRequire(path.join(ROOT, "packages", "core", "package.json"))
@@ -119,7 +121,7 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned for bounded, redacted candidate-discovery failure detail.
 // Repinned for the sixty-minute publisher budget; all smaller limits remain unchanged.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "4517526a46400854676eb700b641a292cb34a70be1670036ffcd9386e60cdac5"
+  "3de1cdad025b9aaf0c31b9cab2de9eecfb2a66a3904d55887efe22b497296cd8"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu
@@ -1055,7 +1057,11 @@ test("tag is the sole coordinator relay and exact-tag identity requires both ref
   assert.match(relay.run, /operation[\s"'=:]+reconcile/iu)
   assert.deepEqual(relay.env?.GITHUB_TOKEN, workflowExpression("github.token"))
   assert.equal(relay.env?.OPERATION, undefined)
-  assert.doesNotMatch(relay.run, /list.*runs|runs\/\?|poll|wait|sleep/iu)
+  // The relay reads the tag's runs exactly once so it never queues a second
+  // run behind a waiting one; it still never polls.
+  assert.equal(relay.run.match(/\/actions\/workflows\/\$WORKFLOW_ID\/runs\b/gu)?.length, 1)
+  assert.match(relay.run, /\/runs\?branch=v\$\{VERSION\}&per_page=100"/u)
+  assert.doesNotMatch(relay.run, /poll|sleep|\bwhile\b|\buntil\b|\bfor\b/iu)
   assert.doesNotMatch(relay.run, /abandon/iu)
   assert.doesNotMatch(source, /target_commitish|git\s+tag\s+(?!-a|-s)|createGithubReleases/iu)
 
@@ -2158,6 +2164,13 @@ test("dependency-security-browser has one exact isolated read-only descriptor", 
         descriptor: {
           name: "Install Chromium",
           run: "pnpm exec playwright install --with-deps chromium",
+        },
+      },
+      {
+        classification: "safe",
+        descriptor: {
+          name: "CopilotKit v2 runtime against B4.run",
+          run: "pnpm --filter @b4run/ag-ui build\npnpm exec vitest --run --config test/security-dependencies/vitest.config.ts test/security-dependencies/copilotkit-v2-runtime.test.ts\n",
         },
       },
       {
@@ -4767,3 +4780,279 @@ function unauditedEntrypoint() {
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value)
 }
+
+test("factory pull requests run no secret-bearing, deploying or writing job (rung 4 §9)", async (t) => {
+  const sources = await readWorkflowSourcesFromRoot(ROOT)
+  // The controller's own statement of the guard: the branch prefix and the bot login every
+  // guarded job skips, and the files a delivery may never change.
+  const guard = JSON.parse(
+    await readBoundedFixture(
+      path.join(ROOT, "examples/software-factory/controller/src/lib/delivery/guard.json"),
+      { root: ROOT },
+    ),
+  )
+  const parsed = () =>
+    Object.fromEntries(
+      Object.entries(sources).map(([file, source]) => [file, parseWorkflowSource(source, file)]),
+    )
+  assert.deepEqual(factoryGuardProblems(parsed(), guard), [])
+
+  // The guard must not stop what it does not mean to: a person's same-repository PR still
+  // runs every guarded job, and a push to main still runs vercel-native.
+  const workflows = parsed()
+  const person = (file) => pullRequestContext("blove/some-change", "blove", workflows[file].jobs)
+  for (const [file, job] of [
+    ["ci.yml", "vercel-native"],
+    ["auto-approve.yml", "approve"],
+    ["claude-review.yml", "review"],
+  ])
+    assert.equal(
+      evaluateExpression(workflows[file].jobs[job].if, person(file)),
+      true,
+      `${file} ${job}`,
+    )
+  const push = {
+    ...person("ci.yml"),
+    github: { event_name: "push", ref: "refs/heads/main", repository: "cacheplane/b4run" },
+  }
+  assert.equal(evaluateExpression(workflows["ci.yml"].jobs["vercel-native"].if, push), true)
+
+  const mutate = (file, edit) => {
+    const next = parsed()
+    edit(next[file], next)
+    return factoryGuardProblems(next, guard)
+  }
+  const ifOf = (workflow, job) => workflow.jobs[job].if
+  const cases = [
+    [
+      "vercel-native without the guard",
+      "ci.yml",
+      (w) => {
+        w.jobs["vercel-native"].if = ifOf(w, "vercel-native").replace(
+          / &&\n !startsWith\([^)]*\) &&\n [^)]*'b4-factory\[bot\]'/u,
+          "",
+        )
+      },
+    ],
+    [
+      "approve without the branch half",
+      "auto-approve.yml",
+      (w) => {
+        w.jobs.approve.if = ifOf(w, "approve").replace(/ && !startsWith\([^)]*\)/u, "")
+      },
+    ],
+    [
+      "approve without the author half",
+      "auto-approve.yml",
+      (w) => {
+        w.jobs.approve.if = ifOf(w, "approve").replace(
+          / && github\.event\.pull_request\.user\.login != '[^']*'/u,
+          "",
+        )
+      },
+    ],
+    [
+      "review with the bot login misspelt",
+      "claude-review.yml",
+      (w) => {
+        w.jobs.review.if = ifOf(w, "review").replace("b4-factory[bot]", "b4-factroy[bot]")
+      },
+    ],
+    [
+      "review keyed on head.label",
+      "claude-review.yml",
+      (w) => {
+        w.jobs.review.if = ifOf(w, "review").replace("head.ref", "head.label")
+      },
+    ],
+    [
+      "the guard on the wrong side of an ||",
+      "auto-approve.yml",
+      (w) => {
+        w.jobs.approve.if =
+          "github.event.pull_request.head.repo.full_name == github.repository || (!startsWith(github.event.pull_request.head.ref, 'factory/') && github.event.pull_request.user.login != 'b4-factory[bot]')"
+      },
+    ],
+    [
+      "a new job with a secret and no guard",
+      "ci.yml",
+      (w) => {
+        w.jobs.leak = {
+          "runs-on": "ubuntu-latest",
+          steps: [{ run: "true", env: { K: workflowExpression("secrets.NEW_KEY") } }],
+        }
+      },
+    ],
+    [
+      "a new job reading every secret through toJSON(secrets)",
+      "ci.yml",
+      (w) => {
+        w.jobs.leak = {
+          "runs-on": "ubuntu-latest",
+          steps: [{ run: "true", env: { K: workflowExpression("toJSON(secrets)") } }],
+        }
+      },
+    ],
+    [
+      "a new job indexing secrets by a matrix value",
+      "ci.yml",
+      (w) => {
+        w.jobs.leak = {
+          "runs-on": "ubuntu-latest",
+          strategy: { matrix: { name: ["NEW_KEY"] } },
+          steps: [{ run: "true", env: { K: workflowExpression("secrets[matrix.name]") } }],
+        }
+      },
+    ],
+    [
+      "a new job splitting secrets.NEW_KEY across lines",
+      "ci.yml",
+      (w) => {
+        w.jobs.leak = {
+          "runs-on": "ubuntu-latest",
+          steps: [{ run: `echo ${workflowExpression("secrets\n  .NEW_KEY")}` }],
+        }
+      },
+    ],
+    [
+      "a new job with an environment and an unguarded if",
+      "ci.yml",
+      (w) => {
+        w.jobs.deploy = {
+          if: "github.event_name == 'pull_request'",
+          environment: "x",
+          "runs-on": "ubuntu-latest",
+          steps: [],
+        }
+      },
+    ],
+    [
+      "a new job granted contents: write",
+      "kubernetes-compat.yml",
+      (w) => {
+        const [id] = Object.keys(w.jobs)
+        w.jobs[id].permissions = { contents: "write" }
+      },
+    ],
+    [
+      "a workflow on repository_dispatch",
+      "ci.yml",
+      (w) => {
+        w.on.repository_dispatch = null
+      },
+    ],
+    [
+      "a workflow on pull_request_target",
+      "auto-approve.yml",
+      (w) => {
+        w.on = { pull_request_target: w.on.pull_request }
+        w.jobs.approve.permissions = { "pull-requests": "write" }
+      },
+    ],
+    [
+      "a workflow on workflow_run",
+      "codeql.yml",
+      (w) => {
+        w.on.workflow_run = { workflows: ["CI"] }
+      },
+    ],
+    [
+      "a secret job gated only on a job output",
+      "ci.yml",
+      (w) => {
+        w.jobs.deploy = {
+          if: "needs.metadata_scope.outputs.deploy == 'true'",
+          needs: "metadata_scope",
+          "runs-on": "ubuntu-latest",
+          steps: [{ run: "true", env: { K: workflowExpression("secrets.NEW_KEY") } }],
+        }
+      },
+    ],
+    [
+      "a secret job that runs on failure()",
+      "ci.yml",
+      (w) => {
+        w.jobs.report = {
+          if: "failure()",
+          "runs-on": "ubuntu-latest",
+          steps: [{ run: "true", env: { K: workflowExpression("secrets.NEW_KEY") } }],
+        }
+      },
+    ],
+    [
+      "claude-review also on issue_comment (github.event.pull_request is null there)",
+      "claude-review.yml",
+      (w) => {
+        w.on.issue_comment = { types: ["created"] }
+      },
+    ],
+    [
+      "a local reusable workflow whose job deploys",
+      "ci.yml",
+      (w, all) => {
+        all["deploy.yml"] = {
+          on: { workflow_call: null },
+          permissions: { contents: "read" },
+          jobs: { deploy: { environment: "production", "runs-on": "ubuntu-latest", steps: [] } },
+        }
+        w.jobs.release = { uses: "./.github/workflows/deploy.yml" }
+      },
+    ],
+    [
+      "a pull_request workflow with no top-level permissions",
+      "kubernetes-compat.yml",
+      (w) => {
+        delete w.permissions
+      },
+    ],
+    [
+      "a push trigger widened past main",
+      "ci.yml",
+      (w) => {
+        w.on.push = { branches: ["main", "factory/**"] }
+      },
+    ],
+  ]
+  for (const [label, file, edit] of cases)
+    await t.test(label, () => {
+      assert.notDeepEqual(mutate(file, edit), [], `${label} must be refused`)
+    })
+  // The guard may be spelled with github.head_ref: the test knows it, so it is not a false alarm.
+  assert.deepEqual(
+    mutate("auto-approve.yml", (w) => {
+      w.jobs.approve.if =
+        "github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'factory/') && github.event.pull_request.user.login != 'b4-factory[bot]'"
+    }),
+    [],
+  )
+
+  // The guard lives in files a same-repository PR could edit; the controller refuses to
+  // deliver a change to any of them. Moving the Vercel script without moving its protection
+  // fails here.
+  const covered = (file) =>
+    guard.protectedPaths.some((entry) =>
+      entry.endsWith("/**") ? file.startsWith(entry.slice(0, -2)) : file === entry,
+    )
+  const vercel = JSON.parse(
+    await readBoundedFixture(path.join(ROOT, "apps/web/vercel.json"), { root: ROOT }),
+  )
+  const script = /^bash (\S+)$/u.exec(vercel.ignoreCommand)?.[1]
+  assert.ok(script, "apps/web/vercel.json's ignoreCommand must be `bash <script>`")
+  for (const file of [
+    ".github/workflows/ci.yml",
+    ".github/workflows/auto-approve.yml",
+    ".github/workflows/claude-review.yml",
+    "apps/web/vercel.json",
+    path.posix.join("apps/web", script),
+  ])
+    assert.ok(covered(file), `${file} must be a delivery-protected path`)
+  // The files the branch's own Vercel build runs must also not have changed on main since the
+  // pin; the workflows need not (a PR runs main's at the merge commit, and a factory PR can
+  // never change .github/**, a delivery-protected path).
+  assert.deepEqual(guard.runFromBranchPaths, [
+    "apps/web/vercel.json",
+    path.posix.join("apps/web", script),
+  ])
+  for (const file of guard.runFromBranchPaths)
+    assert.ok(covered(file), `${file} must be protected too`)
+})

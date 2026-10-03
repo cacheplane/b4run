@@ -155,6 +155,7 @@ export async function publishManifestSerially({
       : supersededResult(identity, sealedManifest)
   }
 
+  const pending = []
   for (let index = 0; index < sealedManifest.packages.length; index += 1) {
     const entry = sealedManifest.packages[index]
     let state = initial[index]
@@ -226,7 +227,12 @@ export async function publishManifestSerially({
 
     await publishTarball({ entry })
     candidateStarted = true
+    const acceptedAt = now()
     log({ event: "package-publish-accepted", name: entry.name })
+    if (!firstPublication) {
+      pending.push({ entry, acceptedAt })
+      continue
+    }
     await waitUntilVerified({
       entry,
       candidate: identity,
@@ -237,6 +243,23 @@ export async function publishManifestSerially({
       poll,
       log,
       now,
+    })
+  }
+
+  // Upload acceptance is not publication evidence. Queued time consumes each
+  // package's existing pending allowance while registry-side scans overlap.
+  for (const { entry, acceptedAt } of pending) {
+    await waitUntilVerified({
+      entry,
+      candidate: identity,
+      observeRegistry,
+      observeMetadata,
+      downloadRegistryTarball,
+      verifyPackage,
+      poll,
+      log,
+      now,
+      startedAt: acceptedAt,
     })
   }
 
@@ -654,9 +677,9 @@ async function waitUntilVerified({
   poll,
   log,
   now,
+  startedAt = now(),
 }) {
   let attempt = 0
-  const startedAt = now()
   for (;;) {
     attempt += 1
     // A package published for the first time is not immediately readable: its

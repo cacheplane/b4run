@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest"
 
-import { resolveToolScope, toolOrigin } from "../src/tool-scope.js"
+import { impliedToolDenials, resolveToolScope, toolOrigin } from "../src/tool-scope.js"
 
 const A = (name: string) => ({ name, origin: "authored" as const })
 const C = (name: string) => ({ name, origin: "capability" as const })
@@ -104,5 +104,52 @@ describe("resolveToolScope", () => {
       { isSubagent: false, routeId: "/ops" },
     )
     expect([...kept].sort()).toEqual(["deployProd", "runBash"])
+  })
+})
+
+describe("resolveToolScope — denying writeFile also withholds editFile", () => {
+  const tools = [A("search"), C("readFile"), C("writeFile"), C("editFile"), C("runBash")]
+  const top = { isSubagent: false, routeId: "/r" }
+  const sub = { isSubagent: true, routeId: "/r/subagents/s" }
+
+  test("top route deny writeFile removes editFile too", () => {
+    const keep = resolveToolScope(tools, { deny: ["writeFile"] }, top)
+    expect([...keep].sort()).toEqual(["readFile", "runBash", "search"])
+  })
+
+  test("an explicit allow of editFile opts back in while writeFile stays denied", () => {
+    const keep = resolveToolScope(tools, { deny: ["writeFile"], allow: ["editFile"] }, top)
+    expect(keep.has("editFile")).toBe(true)
+    expect(keep.has("writeFile")).toBe(false)
+    const subKeep = resolveToolScope(
+      tools,
+      { allow: ["readFile", "editFile"], deny: ["writeFile"] },
+      sub,
+    )
+    expect([...subKeep].sort()).toEqual(["editFile", "readFile", "search"])
+  })
+
+  test("an allow-list naming writeFile does not grant editFile", () => {
+    const keep = resolveToolScope(tools, { allow: ["writeFile"] }, sub)
+    expect([...keep].sort()).toEqual(["search", "writeFile"])
+  })
+
+  test("denying editFile alone leaves writeFile", () => {
+    const keep = resolveToolScope(tools, { deny: ["editFile"] }, top)
+    expect(keep.has("writeFile")).toBe(true)
+    expect(keep.has("editFile")).toBe(false)
+  })
+
+  test("a scope without editFile available still resolves (older tool sets)", () => {
+    const keep = resolveToolScope([C("readFile"), C("writeFile")], { deny: ["writeFile"] }, top)
+    expect([...keep]).toEqual(["readFile"])
+  })
+
+  test("impliedToolDenials reports only what deny implies and allow did not reclaim", () => {
+    expect(impliedToolDenials({ deny: ["writeFile"] })).toEqual(["editFile"])
+    expect(impliedToolDenials({ deny: ["writeFile"], allow: ["editFile"] })).toEqual([])
+    expect(impliedToolDenials({ deny: ["writeFile", "editFile"] })).toEqual([])
+    expect(impliedToolDenials({ allow: ["writeFile"] })).toEqual([])
+    expect(impliedToolDenials(undefined)).toEqual([])
   })
 })
