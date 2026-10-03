@@ -139,9 +139,10 @@ These gates remain part of repository validation.
 
 The `dependency-security-browser` lane installs dependencies and Chromium,
 builds `@b4run/ag-ui`, runs the CopilotKit v2 runtime against B4.run
-(`test/security-dependencies/copilotkit-v2-runtime.test.ts`) — the only
-end-to-end CopilotKit → B4.run check — and then the dependency-security
-browser regressions.
+(`test/security-dependencies/copilotkit-v2-runtime.test.ts`) — the CopilotKit
+runtime check that gates merge (`copilotkit-examples-e2e` stays outside
+`validate`) — and then the dependency-security browser regressions. This lane
+runs only in CI; `pnpm ci:validate` does not include it.
 
 On pull requests, a separate `changesets` job also runs
 `node scripts/check-changesets.mjs` to require a changeset for user-facing
