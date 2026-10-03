@@ -368,7 +368,12 @@ describe("toAguiEvents", () => {
       outcome: {
         type: "interrupt",
         interrupts: [
-          { id: "perm-1", reason: "command", metadata: { interruptId: "perm-1", kind: "command" } },
+          {
+            id: "perm-1",
+            reason: "command",
+            metadata: { interruptId: "perm-1", kind: "command" },
+            responseSchema: { type: "string", enum: ["once", "always", "deny"] },
+          },
         ],
       },
     })
@@ -395,11 +400,13 @@ describe("toAguiEvents", () => {
               id: "perm-1",
               reason: "command",
               metadata: { interruptId: "perm-1", kind: "command" },
+              responseSchema: { type: "string", enum: ["once", "always", "deny"] },
             },
             {
               id: "perm-2",
               reason: "tool",
               metadata: { interruptId: "perm-2", kind: "tool" },
+              responseSchema: { type: "string", enum: ["once", "always", "deny"] },
             },
           ],
         },
@@ -434,11 +441,13 @@ describe("toAguiEvents", () => {
               id: "perm-1",
               reason: "command",
               metadata: { interruptId: "perm-1", kind: "command" },
+              responseSchema: { type: "string", enum: ["once", "always", "deny"] },
             },
             {
               id: "perm-2",
               reason: "tool",
               metadata: { interruptId: "perm-2", kind: "tool" },
+              responseSchema: { type: "string", enum: ["once", "always", "deny"] },
             },
           ],
         },
@@ -1580,7 +1589,15 @@ describe("subagents", () => {
     const out = await collect([
       START,
       token("asking"),
-      { type: "interrupt", data: { interruptId: "i1", kind: "tool", callId: CHILD.call_id } },
+      {
+        type: "interrupt",
+        data: {
+          interruptId: "i1",
+          kind: "tool",
+          callId: CHILD.call_id,
+          toolCallId: "child-call-9",
+        },
+      },
       { type: "done" },
     ])
     const kinds = out.map((e) => e.type)
@@ -1593,12 +1610,32 @@ describe("subagents", () => {
     expect(out.at(-1)).toMatchObject({
       outcome: {
         type: "interrupt",
-        interrupts: [{ id: "i1", toolCallId: CHILD.call_id, subagentRunId: CHILD.call_id }],
+        interrupts: [{ id: "i1", toolCallId: "child-call-9", subagentRunId: CHILD.call_id }],
       },
     })
     expect(kinds.indexOf(EventType.TEXT_MESSAGE_END)).toBeLessThan(
       kinds.indexOf(EventType.SUBAGENT_FINISHED),
     )
+  })
+
+  test("a root gate's interrupt names its call and no subagent", async () => {
+    const out = await collect([
+      START,
+      {
+        type: "interrupt",
+        data: { interruptId: "r2", kind: "command", toolCallId: "call-root-1" },
+      },
+      { type: "done" },
+    ])
+    expect(out.at(-2)).toEqual({
+      type: EventType.SUBAGENT_FINISHED,
+      subagentRunId: CHILD.call_id,
+      outcome: { type: "suspended" },
+    })
+    const interrupt = (out.at(-1) as { outcome: { interrupts: Record<string, unknown>[] } }).outcome
+      .interrupts[0]
+    expect(interrupt).toMatchObject({ id: "r2", toolCallId: "call-root-1" })
+    expect(interrupt).not.toHaveProperty("subagentRunId")
   })
 
   test("a parent suspended only because its child interrupted carries no interruptIds; deepest closes first", async () => {

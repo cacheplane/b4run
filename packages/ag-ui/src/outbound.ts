@@ -376,7 +376,7 @@ export async function* toAguiEvents(
       closed.add(open.callId)
       if (reason.kind === "interrupt") {
         const interruptIds = reason.interrupts
-          .filter((interrupt) => interrupt.toolCallId === open.callId)
+          .filter((interrupt) => (interrupt.subagentRunId ?? interrupt.toolCallId) === open.callId)
           .map((interrupt) => interrupt.id)
         yield* ledger.onPassthrough({
           type: EventType.SUBAGENT_FINISHED,
@@ -416,11 +416,12 @@ export async function* toAguiEvents(
       runId: ctx.runId,
       outcome: {
         type: "interrupt",
-        interrupts: pendingInterrupts.map((interrupt) =>
-          interrupt.toolCallId !== undefined && suspended.has(interrupt.toolCallId)
-            ? { ...interrupt, subagentRunId: interrupt.toolCallId }
-            : interrupt,
-        ),
+        interrupts: pendingInterrupts.map((interrupt) => {
+          const run = interrupt.subagentRunId ?? interrupt.toolCallId
+          return run !== undefined && suspended.has(run) && interrupt.subagentRunId === undefined
+            ? { ...interrupt, subagentRunId: run }
+            : interrupt
+        }),
       },
       ...usage.terminal(),
     }

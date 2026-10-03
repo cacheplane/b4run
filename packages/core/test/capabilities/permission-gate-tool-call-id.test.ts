@@ -6,6 +6,7 @@ import {
   gateMemorySupersede,
   gateToolOp,
   wrapToolWithApproval,
+  wrapToolWithConstraint,
 } from "../../src/capabilities/permission-gate.js"
 
 const State = Annotation.Root({
@@ -92,5 +93,21 @@ describe("permission envelopes name the tool call they gate", () => {
     )
     const envelope = parkedEnvelope(await app.invoke({}, config))
     expect(envelope).toMatchObject({ kind: "tool", toolCallId: "call_deploy_2" })
+  })
+
+  it("wrapToolWithConstraint forwards the run context's toolCallId when the predicate escalates", async () => {
+    const wrapped = wrapToolWithConstraint<{ signal: AbortSignal; toolCallId?: string }, RunTool>(
+      { name: "deployProd", run: async () => "deployed" },
+      async () => ({ approve: true }),
+      askingStore(),
+      "/route",
+    )
+    const app = parkingGraph(() =>
+      Promise.resolve(
+        wrapped.run({}, { signal: new AbortController().signal, toolCallId: "call_deploy_3" }),
+      ),
+    )
+    const envelope = parkedEnvelope(await app.invoke({}, config))
+    expect(envelope).toMatchObject({ kind: "tool", toolCallId: "call_deploy_3" })
   })
 })
