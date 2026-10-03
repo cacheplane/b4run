@@ -40,7 +40,12 @@ vi.mock("@copilotkit/react-core/v2", () => ({
     renderActivityMessage: () => null,
     findRenderer: () => null,
   }),
-  useRenderToolCall: () => () => null,
+  // A marker string rather than `null`, so the transcript tests below can see
+  // where the tool card landed relative to the media drawn beside it.
+  useRenderToolCall:
+    () =>
+    ({ toolCall }: { toolCall: { function: { name: string } } }) =>
+      `tool-card:${toolCall.function.name}`,
   useInterrupt: () => null,
   useSuggestions: () => ({
     suggestions: [],
@@ -53,10 +58,12 @@ vi.mock("@copilotkit/react-core/v2", () => ({
 
 const { AppShell } = await import("./AppShell")
 const { CONNECT_SCREEN_HEADING } = await import("./ConnectScreen")
-const { RESTORED_HISTORY_NOTICE } = await import("./Transcript")
+const { RESTORED_HISTORY_NOTICE, Transcript } = await import("./Transcript")
 type ThreadSource = import("../lib/thread-source").ThreadSource
 type HydratedThread = import("../lib/hydrate").HydratedThread
 type ParkedInterrupt = import("../lib/thread-source").ParkedInterrupt
+type TranscriptMessage = import("../lib/transcript").TranscriptMessage
+type DropNotice = import("../lib/transcript").DropNotice
 
 interface FakeAgent {
   messages: unknown[]
@@ -772,5 +779,95 @@ describe("app shell connect screen", () => {
       await vi.advanceTimersByTimeAsync(SERVER_PROBE_INTERVAL_MS_FOR_TESTS * 2)
     })
     expect(fetchMock().mock.calls.length).toBe(callsBeforeUnmount)
+  })
+})
+
+/**
+ * `Transcript` mounted on its own, over the same CopilotKit mock: what it draws
+ * for media parts and drop notices is its own rendering, and going through the
+ * shell would only add a hydrate to wait out.
+ */
+describe("transcript media and notices", () => {
+  const PNG = { type: "image", source: { type: "data", value: "AAAA", mimeType: "image/png" } }
+
+  function renderTranscript(
+    messages: readonly TranscriptMessage[],
+    notices: readonly DropNotice[] = [],
+  ) {
+    act(() => {
+      root.render(
+        <Transcript
+          threadKey="thread-a"
+          messages={messages}
+          notices={notices}
+          isRunning={false}
+          onSelectSuggestion={() => {}}
+          hasRestoredHistory={false}
+          runError={null}
+          onDismissRunError={() => {}}
+          onRunError={() => {}}
+          threadSource={null}
+          onHydratedPendingChange={() => {}}
+        />,
+      )
+    })
+  }
+
+  test("a user message with an image shows its text AND the image", () => {
+    renderTranscript([
+      { id: "m1", role: "user", content: [{ type: "text", text: "what is this?" }, PNG] },
+    ])
+    expect(container.textContent).toContain("what is this?")
+    expect(container.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,AAAA")
+  })
+
+  test("a tool result's media is drawn after the tool card, which only ever gets text", () => {
+    renderTranscript([
+      {
+        id: "a1",
+        role: "assistant",
+        toolCalls: [
+          { id: "call-1", type: "function", function: { name: "renderChart", arguments: "{}" } },
+        ],
+      },
+      {
+        id: "t1",
+        role: "tool",
+        toolCallId: "call-1",
+        content: [{ type: "text", text: "Rendered a chart." }, PNG],
+      },
+    ])
+    const html = container.innerHTML
+    expect(html).toContain("tool-card:renderChart")
+    const img = container.querySelector("img")
+    expect(img?.getAttribute("src")).toBe("data:image/png;base64,AAAA")
+    expect(html.indexOf("tool-card:renderChart")).toBeLessThan(html.indexOf("<img"))
+  })
+
+  test("a drop notice says how many parts the model did not see, and why", () => {
+    renderTranscript(
+      [{ id: "m1", role: "user", content: "chart it" }],
+      [
+        {
+          parts: [
+            { index: 1, type: "image", source: "data", reason: "tool_result_media_unsupported" },
+            { index: 2, type: "audio", source: "data", reason: "modality_unsupported" },
+          ],
+        },
+      ],
+    )
+    expect(container.textContent).toContain(
+      "2 content parts were not sent to the model: image (tool_result_media_unsupported), audio (modality_unsupported)",
+    )
+  })
+
+  test("a single dropped part reads in the singular", () => {
+    renderTranscript(
+      [{ id: "m1", role: "user", content: "chart it" }],
+      [{ parts: [{ index: 1, type: "image", reason: "tool_result_media_unsupported" }] }],
+    )
+    expect(container.textContent).toContain(
+      "1 content part was not sent to the model: image (tool_result_media_unsupported)",
+    )
   })
 })

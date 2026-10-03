@@ -8,12 +8,15 @@ import { useEffect, useRef } from "react"
 import type { ThreadSource } from "../lib/thread-source"
 import {
   buildTranscriptItems,
+  type DropNotice,
+  type DroppedPartLike,
   type TranscriptItem,
   type TranscriptMessage,
   toolResultText,
 } from "../lib/transcript"
 import { EmptyState } from "./EmptyState"
 import { HydratedInterrupts } from "./HydratedInterrupts"
+import { MediaParts } from "./MediaParts"
 import { PermissionInterrupt } from "./PermissionInterrupt"
 import { RunError } from "./RunError"
 
@@ -27,6 +30,19 @@ import { RunError } from "./RunError"
  */
 export const RESTORED_HISTORY_NOTICE =
   "Restored from this conversation's saved history. Subagent cards from earlier runs aren't saved — new ones appear as they run."
+
+/**
+ * The line a `notice` item reads: how many parts the model never saw, and for
+ * each its type and the reason the adapter gave (`DropReason` in
+ * `packages/langchain/src/content-parts.ts`), verbatim — the reason codes are
+ * what a developer greps for, and paraphrasing them would hide which one fired.
+ */
+export function dropNoticeText(parts: readonly DroppedPartLike[]): string {
+  const count = parts.length
+  const noun = count === 1 ? "content part was" : "content parts were"
+  const list = parts.map((part) => `${part.type} (${part.reason})`).join(", ")
+  return `${count} ${noun} not sent to the model: ${list}`
+}
 
 export interface TranscriptProps {
   /**
@@ -44,6 +60,12 @@ export interface TranscriptProps {
    */
   readonly threadKey: string | undefined
   readonly messages: readonly TranscriptMessage[]
+  /**
+   * The `b4.content_parts_dropped` events `AppShell` collected for this
+   * thread, in arrival order. Each becomes a muted line after the tool call
+   * or user turn it is about.
+   */
+  readonly notices?: readonly DropNotice[]
   readonly isRunning: boolean
   readonly onSelectSuggestion: (message: string) => void
   /**
@@ -104,6 +126,7 @@ export interface TranscriptProps {
 export function Transcript({
   threadKey,
   messages,
+  notices = [],
   isRunning,
   onSelectSuggestion,
   hasRestoredHistory,
@@ -123,7 +146,7 @@ export function Transcript({
   // because nothing replaces the array until the first server event does.
   // Rebuilding every render is cheap, and the provider's `defaultThrottleMs`
   // already caps how often that happens.
-  const items = buildTranscriptItems(messages)
+  const items = buildTranscriptItems(messages, notices)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Follow the stream. No dependency array on purpose: a run appends text to an
@@ -143,10 +166,17 @@ export function Transcript({
     switch (item.kind) {
       case "user":
         return (
-          <div key={item.id} className="flex justify-end">
-            <p className="max-w-[85%] whitespace-pre-wrap break-words rounded-wb border border-wb-border bg-wb-surface px-3.5 py-2 text-sm leading-6">
-              {item.text}
-            </p>
+          <div key={item.id} className="flex flex-col items-end gap-2">
+            {item.text.length > 0 ? (
+              <p className="max-w-[85%] whitespace-pre-wrap break-words rounded-wb border border-wb-border bg-wb-surface px-3.5 py-2 text-sm leading-6">
+                {item.text}
+              </p>
+            ) : null}
+            {item.parts !== undefined ? (
+              <div className="max-w-[85%]">
+                <MediaParts parts={item.parts} />
+              </div>
+            ) : null}
           </div>
         )
       case "assistant":
@@ -200,11 +230,26 @@ export function Transcript({
                   }
                 : {}),
             })}
+            {/*
+              Media goes HERE, beside the card rather than inside it.
+              CopilotKit's tool renderer only ever receives
+              `contentToText(content)` — the parts are flattened to text before
+              `ToolCallCard`'s `render` sees them — so this is the only place a
+              tool result's image (or audio, video, document) can be drawn.
+            */}
+            {item.toolResult?.parts !== undefined ? (
+              <div className="mt-1.5">
+                <MediaParts parts={item.toolResult.parts} />
+              </div>
+            ) : null}
           </div>
         )
       case "notice":
-        // Nothing passes notices in yet; rendering them is the next change.
-        return null
+        return (
+          <p key={item.id} className="text-[12px] leading-5 text-wb-muted">
+            {dropNoticeText(item.parts)}
+          </p>
+        )
       default: {
         // Exhaustiveness, not a fallback. A new `TranscriptItem` kind must fail
         // to compile here rather than silently render as nothing.

@@ -521,7 +521,7 @@ describe("research template parity with examples/research/web", () => {
     )
     expect(
       templateSuffixedPaths.filter((path) => path.endsWith(".test.tsx.template")),
-    ).toHaveLength(10)
+    ).toHaveLength(11)
     expect(templateSuffixedPaths).toContain("gitignore.template")
     expect(templateSuffixedPaths).toContain("tsconfig.json.template")
 
