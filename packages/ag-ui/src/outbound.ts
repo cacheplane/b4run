@@ -385,7 +385,10 @@ export async function* toAguiEvents(
           return
         }
         case "content_parts_dropped": {
-          // CUSTOM ends an open chunk stream in its lane, so open text ends first.
+          // Not a protocol requirement: B4 frames text with START/CONTENT/END
+          // (never CHUNK events), and the 1.0 client accepts a CUSTOM while a
+          // message is open. Ending open text first is a tidiness choice, so
+          // the drop notice lands between messages rather than inside one.
           yield* flushText()
           yield* ledger.onPassthrough({
             type: EventType.CUSTOM,

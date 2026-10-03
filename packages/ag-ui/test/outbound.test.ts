@@ -869,6 +869,57 @@ describe("orchestration suppression", () => {
     ])
   })
 
+  test("a dropped-parts CUSTOM queues behind a held writeTodos call, in source order", async () => {
+    const dropped = { provider: "openai", model: "gpt-5-mini", parts: [] }
+    const custom = { type: EventType.CUSTOM, name: "b4.content_parts_dropped", value: dropped }
+
+    // Correlated: the call is suppressed in favour of its activity. The CUSTOM
+    // waited while the call was held, then drains in source order — it
+    // arrived before plan_update, so it precedes the activity.
+    const correlated = await collect([
+      {
+        type: "tool_call",
+        data: { id: "call_writeTodos_0_1", name: "writeTodos", input: { todos: TODOS } },
+      },
+      { type: "content_parts_dropped", data: dropped },
+      { type: "plan_update", data: { todos: TODOS, tool_call_id: "call_writeTodos_0_1" } },
+      {
+        type: "tool_result",
+        data: { id: "call_writeTodos_0_1", name: "writeTodos", output: "ok" },
+      },
+      { type: "done", data: {} },
+    ])
+    expect(correlated.map((event) => event.type)).toEqual([
+      EventType.RUN_STARTED,
+      EventType.CUSTOM,
+      EventType.ACTIVITY_SNAPSHOT,
+      EventType.RUN_FINISHED,
+    ])
+    expect(correlated[1]).toEqual(custom)
+
+    // Uncorrelated: the held call fails open to its generic frames, and the
+    // CUSTOM queued behind it never overtakes them.
+    const uncorrelated = await collect([
+      { type: "tool_call", data: { id: "call_writeTodos_0_1", name: "writeTodos", input: {} } },
+      { type: "content_parts_dropped", data: dropped },
+      {
+        type: "tool_result",
+        data: { id: "call_writeTodos_0_1", name: "writeTodos", output: "ok" },
+      },
+      { type: "done", data: {} },
+    ])
+    expect(uncorrelated.map((event) => event.type)).toEqual([
+      EventType.RUN_STARTED,
+      EventType.TOOL_CALL_START,
+      EventType.TOOL_CALL_ARGS,
+      EventType.TOOL_CALL_END,
+      EventType.CUSTOM,
+      EventType.TOOL_CALL_RESULT,
+      EventType.RUN_FINISHED,
+    ])
+    expect(uncorrelated[4]).toEqual(custom)
+  })
+
   test("a correlated task call presents only as a subagent activity", async () => {
     const events = await collect([
       {
