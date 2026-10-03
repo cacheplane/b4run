@@ -34,6 +34,7 @@ Settled with the maintainer during design, 2026-10-02:
 2. **Identity only for server rows.** No result text: the checkpoint holds the tool message, and
    server outputs are large enough that offloading exists.
 3. **Pruning is folded in** as a per-thread lazy sweep with a configurable retention window.
+   *(Superseded at merge by #898's global throttled sweep; see the note at §4.)*
 4. **`pendingToolCallIds` becomes record-derived**, on both the live and partial paths.
 5. **The writer for server rows is the LangChain tool converter**, where the tool executes.
 
@@ -208,6 +209,18 @@ close's issuing-route lookup) it considers `kind: "client"` rows only. The repla
 rebuild reads checkpoint parks, not records, and is unchanged.
 
 ## 4. Pruning
+
+> **Reconciled 2026-10-02 after cacheplane/b4run#898 landed on main.** #898 shipped its own
+> client-tool-call prune while this design was being implemented: a global
+> `prune({ before })` (all threads; `before` compared as ISO text), `server.agui.clientToolRetentionMs`
+> (default 7 days, never shorter than the TTL via `clientToolPruneCutoff`), an hourly throttled sweep
+> run when an AG-UI turn settles, and `b4 client-tools prune`. That design wins. This section's
+> original per-thread `prune({ threadId, before })`, `toolCallRetentionMs` and per-run prune under
+> the run slot were **dropped at merge**; the only pruning change this work keeps is that #898's
+> sweep also deletes **settled server rows** (`settledAt < before`) and never an unsettled one. The
+> TTL floor #898 already applies covers the resumed-replay re-read discussed below. The text that
+> follows is the pre-merge design, kept for the record.
+
 
 A new setting, `server.agui.toolCallRetentionMs`, resolved at boot next to `clientToolTtlMs` with
 the same validation shape: absent → 7 days (`604_800_000`); otherwise a positive safe integer no
