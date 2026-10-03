@@ -2,11 +2,13 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { AgentCapabilitiesSchema } from "@ag-ui/core/schemas"
+import { toLangChainContent } from "@b4run/langchain"
 import { afterEach, describe, expect, it } from "vitest"
 import { createAimock } from "../../testing/dist/aimock-runner.js"
 import { handleAgUiCapabilitiesRequest } from "../src/lib/dev/agui-capabilities.ts"
 import { createRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-handler.ts"
 import { nodeBootFallbacks } from "../src/lib/runtime/execute-route.ts"
+import { checkRouteModalitySupport } from "../src/lib/runtime/execute-route-core.ts"
 
 /**
  * `GET /agui/:routeId` advertises a route's AG-UI capabilities. The claims are
@@ -64,6 +66,11 @@ const NO_REASONING = { supported: false }
 const AGENT_STATE = { deltas: false, persistentState: true, snapshots: false }
 const RAW_STATE = { deltas: false, snapshots: false }
 const ONE_SHOT_STATE = { deltas: false, persistentState: false, snapshots: false }
+/** gpt-5-mini's profile: images and PDFs, no audio or video. */
+const GPT_5_MINI_MULTIMODAL = {
+  input: { audio: false, file: false, image: true, pdf: true, video: false },
+  output: { audio: false, image: false },
+}
 
 async function fixtureApp(
   options: { config?: string; files?: Record<string, string> } = {},
@@ -145,6 +152,7 @@ describe("GET /agui/:routeId", () => {
         interrupts: true,
         supported: true,
       },
+      multimodal: GPT_5_MINI_MULTIMODAL,
       output: { structuredOutput: true },
       reasoning: NO_REASONING,
       state: AGENT_STATE,
@@ -165,6 +173,25 @@ describe("GET /agui/:routeId", () => {
     expect((await capabilities(handler, "/open#agent")).reasoning).toEqual(NO_REASONING)
     expect((await capabilities(handler, "/echo#graph")).reasoning).toEqual(NO_REASONING)
     expect((await capabilities(handler, "/raw#agent")).reasoning).toEqual(NO_REASONING)
+  })
+
+  it("advertises multimodal input from the model profile on an agent route", async () => {
+    const handler = await createHandler(await fixtureApp())
+
+    expect((await capabilities(handler, "/open#agent")).multimodal).toEqual(GPT_5_MINI_MULTIMODAL)
+    expect((await capabilities(handler, "/closed#agent")).multimodal).toEqual(GPT_5_MINI_MULTIMODAL)
+    // gemini-2.5-flash: image, audio, video and PDF all true in its profile.
+    expect((await capabilities(handler, "/gemini#agent")).multimodal).toEqual({
+      input: { audio: true, file: false, image: true, pdf: true, video: true },
+      output: { audio: false, image: false },
+    })
+  })
+
+  it("omits multimodal for a raw runnable and a non-agent route", async () => {
+    const handler = await createHandler(await fixtureApp())
+
+    expect((await capabilities(handler, "/raw#agent")).multimodal).toBeUndefined()
+    expect((await capabilities(handler, "/echo#graph")).multimodal).toBeUndefined()
   })
 
   it("does not advertise client tools on an agent() route that did not opt in", async () => {
@@ -428,6 +455,48 @@ describe("GET /agui/:routeId agrees with what POST enforces", () => {
     expect(response.headers.get("content-type")).toBe("application/vnd.ag-ui.event+proto")
     await response.body?.cancel()
   })
+
+  it.each(["/open#agent", "/gemini#agent", "/thinking#agent"])(
+    "multimodal.input on %s equals what the run carries",
+    async (routeKey) => {
+      await withModel()
+      const appRoot = await fixtureApp()
+      const handler = await createHandler(appRoot)
+      const advertised = (await capabilities(handler, routeKey)).multimodal?.input
+
+      const routeId = routeKey.slice(0, routeKey.indexOf("#"))
+      const support = await checkRouteModalitySupport({
+        appRoot,
+        bootFallbacks: nodeBootFallbacks,
+        routeFile: join(appRoot, "src/app", routeId, "index.ts"),
+        routeId,
+      })
+      if (!support.ok) throw new Error(support.message)
+      const carried = (type: "image" | "audio" | "video" | "document") =>
+        toLangChainContent(
+          [
+            {
+              source: {
+                mimeType: type === "document" ? "application/pdf" : `${type}/x`,
+                type: "data",
+                value: "AAAA",
+              },
+              type,
+            },
+          ],
+          support.support,
+          undefined,
+          "user",
+        ).dropped.length === 0
+      expect(advertised).toEqual({
+        audio: carried("audio"),
+        file: false,
+        image: carried("image"),
+        pdf: carried("document"),
+        video: carried("video"),
+      })
+    },
+  )
 
   it("client tools with no client tool store", async () => {
     await withModel()

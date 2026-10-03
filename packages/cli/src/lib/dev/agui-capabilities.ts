@@ -52,6 +52,15 @@
  *   — as it is on a boot that cannot load route modules. `state.memory` is
  *   omitted: whether an app
  *   wires long-term memory is tool wiring this handler cannot see.
+ * - `multimodal.input` is `checkRouteModalitySupport`: the model profile
+ *   `resolveModalitySupport` reads, the same judgment `toLangChainContent`
+ *   applies at run time to keep or drop each part — `image` and `pdf` are
+ *   their inline-data support, `audio` and `video` theirs. `file` is `false`:
+ *   it is AG-UI's flag for arbitrary uploads the four part types do not
+ *   cover, and a provider file handle is a source, not that. `output` is all
+ *   `false`: AG-UI 1.0 defines no image or audio output carrier. The section
+ *   is omitted for a raw runnable, a chain/graph/workflow route, or a
+ *   provider package that is not installed.
  * - `multiAgent` is omitted: subagent tooling is app-wired, not
  *   route-declared, and no `SUBAGENT_*` event exists yet (sub-project 2).
  *
@@ -75,6 +84,7 @@ import type { MiddlewareHandler, MiddlewareRequest } from "@b4run/sdk"
 import {
   type BootResolvedInstances,
   checkRouteClientToolsSupport,
+  checkRouteModalitySupport,
   checkRouteReasoningSupport,
   checkRouteResponseFormatSupport,
 } from "../runtime/execute-route-core.js"
@@ -188,12 +198,14 @@ async function agentCapabilities(
   let isDescriptor: boolean
   let structuredOutput: boolean
   let streamsReasoning: boolean
+  let modality: Awaited<ReturnType<typeof checkRouteModalitySupport>>
   try {
-    // All three preflights share one memoized module load.
+    // All four preflights share one memoized module load.
     isDescriptor = (await checkRouteClientToolsSupport(routeModule)).ok
     structuredOutput = (await checkRouteResponseFormatSupport(routeModule)).ok
     const reasoningSupport = await checkRouteReasoningSupport(routeModule)
     streamsReasoning = reasoningSupport.ok && reasoningSupport.streams
+    modality = await checkRouteModalitySupport(routeModule)
   } catch (error) {
     // With node fallbacks the load is the one `POST` would do, and its
     // failure is the route's — surfaced, never dressed up as a document.
@@ -225,6 +237,23 @@ async function agentCapabilities(
       // it does on its own is not this runtime's to claim.
       ...(isDescriptor ? { approvals } : {}),
     },
+    ...(modality.ok
+      ? {
+          multimodal: {
+            // `file` is AG-UI's "arbitrary uploads the four parts do not
+            // cover"; a provider file HANDLE is a source, not that flag.
+            input: {
+              audio: modality.support.audio,
+              file: false,
+              image: modality.support.image.data,
+              pdf: modality.support.pdf.data,
+              video: modality.support.video,
+            },
+            // AG-UI 1.0 defines no image/audio output carrier.
+            output: { audio: false, image: false },
+          },
+        }
+      : {}),
     output: { structuredOutput },
     reasoning: streamsReasoning ? STREAMED_REASONING : NO_REASONING,
     state: stateCapabilities(isDescriptor ? true : undefined),
