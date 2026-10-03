@@ -52,6 +52,16 @@ The runtime root is edge-safe for B4.run's emitted Hono/workerd target. The evid
 | `JSON_SCHEMA_RESPONSE_FORMAT_PROVIDERS` | List the providers whose schema-constrained output coexists with tool calls. |
 | `supportsJsonSchemaResponseFormat` | Report whether a provider can be bound to a JSON-schema response format. |
 | `unsupportedResponseFormatMessage` | Produce the rejection message for a provider that cannot. |
+| `ModalitySupport` | Describe which content parts a route's model takes, by modality and source. |
+| `DEFAULT_MODALITY_SUPPORT` | Supply the support assumed for a model with no profile: images inline and by URL. |
+| `resolveModalitySupport` | Read a model's LangChain profile and apply the provider's converter limits. |
+| `ConvertedContent` | Describe converted message content and the parts dropped from it. |
+| `LangChainContentBlock` | Describe one LangChain standard content block. |
+| `DroppedPart` | Describe one dropped part: its index, type, source and reason. |
+| `DropReason` | Name why a part was dropped. |
+| `DroppedPartsReport` | Describe the parts dropped from one message, with the model and route they were judged against. |
+| `toLangChainContent` | Convert content parts to LangChain content blocks, dropping what the model cannot take. |
+| `formatDroppedPartsWarning` | Format the server-log warning that announces dropped parts. |
 | `providerPackages` | Map built-in provider IDs to integration packages. |
 | `seedModelImporter` | Install the process-global fallback provider importer. |
 | `inferProvider` | Re-export SDK provider inference. |
@@ -68,6 +78,8 @@ The runtime root is edge-safe for B4.run's emitted Hono/workerd target. The evid
 | `offloadToolOutput` | Replace oversized output with a saved-file preview stub. |
 | `buildStub` | Format a human-readable offloaded-output stub. |
 | `OffloadFn` | Describe the tool converter's output-offload callback. |
+| `ToolResultModality` | Describe the root model's modality support, used to shape a tool's media result. |
+| `B4_CONTENT_PARTS_KEY` | Name the `ToolMessage` `additional_kwargs` key that keeps every part a tool returned, for the UI. |
 | `convertToolToLangChain` | Convert a B4.run tool into a LangChain structured tool. |
 | `executeWithToolLoop` | Invoke a chain and execute bounded tool-call rounds. |
 | `UnwrappedToolResult` | Describe agent-visible content and optional state updates. |
@@ -179,7 +191,7 @@ export interface OffloadToolOutputCtx {
 
 ```ts api-contract="@b4run/langchain#.:UnwrappedToolResult"
 export interface UnwrappedToolResult {
-  readonly content: string
+  readonly content: string | readonly B4ContentPart[]
   readonly stateUpdates: Record<string, unknown> | undefined
 }
 ```
@@ -187,7 +199,7 @@ export interface UnwrappedToolResult {
 **Fields: `@b4run/langchain#.:UnwrappedToolResult`**
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `readonly content` | `string` | yes | Carry agent-visible content. |
+| `readonly content` | `string \| readonly B4ContentPart[]` | yes | Carry agent-visible content: text, or the content parts the tool returned. |
 | `readonly stateUpdates` | `Record<string, unknown> \| undefined` | yes | Carry optional channel updates. |
 
 Several callable exports use non-barrel helper shapes in their declarations. These shapes are listed here for reading. You can't import them:

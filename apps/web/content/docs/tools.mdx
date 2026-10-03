@@ -260,6 +260,8 @@ In an `agent` route, the model calls the tools. `b4 build` wires the route's too
   </Step>
 </Steps>
 
+A tool may return media. Return an array of content parts — `{ type: "text", text }` and `{ type: "image" | "audio" | "video" | "document", source }`, where `source` is `{ type: "data", value, mimeType }` (base64), `{ type: "url", value }` or `{ type: "file", value, provider? }` — or `{ result: parts, state }` to update state alongside. The type is `B4ContentPart` from `@b4run/sdk`. A `document` part must be a PDF (`mimeType: "application/pdf"`). Over AG-UI the parts travel as `TOOL_CALL_RESULT.content`; the model sees the media only when its profile and provider admit media in tool messages — on OpenAI it never does, though the UI still shows every part — and the result's text is what tool-output offloading bounds. See [AG-UI](/docs/ag-ui#multimodal-content-is-carried-and-what-the-model-cannot-take-is-announced).
+
 ## The generated declarations
 
 `b4 typegen` writes two artifacts:

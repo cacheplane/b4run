@@ -5118,6 +5118,12 @@ const forbiddenContent = [
     message: "describes pgvector as planned even though @b4run/memory-pgvector ships",
     shouldCheck: (filePath) => !/CHANGELOG\.md$/.test(filePath),
   },
+  {
+    pattern: /multimodal_not_supported|[Mm]ultimodal content is refused/,
+    message:
+      "describes the retired multimodal refusal; media parts are carried and what the model cannot take is dropped and announced",
+    shouldCheck: (filePath) => !/CHANGELOG\.md$/.test(filePath),
+  },
 ]
 
 const userFacingFiles = []

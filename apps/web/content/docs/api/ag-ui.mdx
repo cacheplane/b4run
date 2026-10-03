@@ -56,7 +56,7 @@ The adapter only translates protocol data, so it neither authenticates a caller 
 | `B4PlanActivityContent` | Describe the complete public plan snapshot. |
 | `B4SubagentActivityContent` | Describe allowlisted subagent progress. |
 | `IdFactory` | Define event-ID generation. |
-| `B4Message` | Describe a normalized inbound message. |
+| `B4Message` | Describe a normalized inbound message; `content` is text or AG-UI content parts. |
 | `B4RunInput` | Describe normalized B4.run run input. |
 | `fromRunAgentInput` | Translate AG-UI run input to B4.run input. |
 | `B4InterruptEnvelope` | Describe a B4.run interrupt payload. |
@@ -65,6 +65,7 @@ The adapter only translates protocol data, so it neither authenticates a caller 
 | `AguiOutboundEvent` | Name events emitted by the outbound mapper. |
 | `ToAguiOptions` | Configure outbound event IDs, the cancelled outcome, and pending client tool calls. |
 | `toAguiEvents` | Translate a B4.run stream into AG-UI events. |
+| `B4_CONTENT_PARTS_DROPPED_EVENT` | The `CUSTOM` event name (`b4.content_parts_dropped`) that announces parts the model could not use. |
 | `B4AgentStreamChunk` | Describe accepted B4.run stream chunks. |
 | `B4UsageData` | Describe one model call's token usage as the `usage` chunk carries it. |
 | `RunContext` | Supply thread and run IDs for outbound events. |
@@ -204,6 +205,18 @@ export interface B4RunInput {
 | `readonly messages` | `B4Message[]` | yes | Supply normalized messages. |
 | `readonly resume` | `B4ResumeRequest[]` | no | Supply normalized resume decisions. |
 | `readonly raw` | `RunAgentInput` | yes | Preserve the untouched AG-UI input. |
+
+```ts
+export interface B4Message {
+  readonly role: "user" | "assistant" | "system" | "developer" | "tool"
+  /** Plain text, or the ordered content parts the client sent (AG-UI 1.0). */
+  readonly content: string | readonly B4ContentPart[]
+  readonly id?: string
+  readonly toolCallId?: string
+}
+```
+
+`B4ContentPart` is exported by `@b4run/sdk` and is structurally AG-UI's `ContentPart`.
 
 ```ts api-contract="@b4run/ag-ui#.:RunContext"
 export interface RunContext {
