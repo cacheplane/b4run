@@ -149,7 +149,14 @@ whose name happens to start with the prefix is a server tool.
 
 Subagent tool calls run through the same converter under the parent thread id in the run config
 and are recorded against it. That is the thread any tool message would name, so it is the right
-key; no subagent-specific handling is added.
+key; no subagent-specific handling is added. The parent's `task` call itself — the orchestration
+tool that launches a subagent — is routed through the subagent bridge, not the converter, and is
+**not** recorded. A tool message naming its id is dropped as "no row", the same outcome as if it
+were recorded as a server row, so nothing is lost; recording it is left out of scope.
+
+A permission park is not completion: a tool whose gate parks by throwing `GraphInterrupt` is
+issued but **not** settled. The resumed re-execution issues again (a no-op on the key) and
+settles when the tool really returns or throws.
 
 ## 3. Readers
 
