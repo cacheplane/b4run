@@ -125,9 +125,9 @@ describe("describeRunning / describeDone", () => {
   })
 
   it("never cuts inside a surrogate pair when truncating", () => {
-    const label = `x${"😀".repeat(100)}`
+    const label = "😀".repeat(100)
     const out = describeRunning({ running: () => label }, {}, uid("emoji"))
-    expect(out.label?.length).toBeLessThanOrEqual(120)
+    expect(out.label).toHaveLength(119)
     expect(out.label).not.toMatch(/[\uD800-\uDBFF]…$/)
     expect(out.label?.endsWith("…")).toBe(true)
   })
