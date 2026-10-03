@@ -1,9 +1,54 @@
 "use client"
-import { type KeyboardEvent, useId, useRef, useState } from "react"
+import type { B4MediaPart } from "@b4run/sdk"
+import { type ChangeEvent, type KeyboardEvent, useId, useRef, useState } from "react"
 import { neutralButton } from "./ui"
 
+/**
+ * What a send hands up: the trimmed text, and the attached images as AG-UI
+ * media parts (text is NOT repeated in `parts` — the shell decides how the two
+ * become one message's content). `parts` is empty for a text-only send.
+ */
+export interface ComposerMessage {
+  readonly text: string
+  readonly parts: B4MediaPart[]
+}
+
+interface Attachment {
+  readonly id: string
+  readonly name: string
+  readonly part: B4MediaPart
+}
+
+/**
+ * A picked file as an inline image part: `readAsDataURL` gives
+ * `data:<mime>;base64,<bytes>`, and the part wants the bytes and the type
+ * separately. The filename rides in `metadata` so the transcript can label it.
+ */
+function readImage(file: File): Promise<B4MediaPart> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const url = typeof reader.result === "string" ? reader.result : ""
+      const comma = url.indexOf(",")
+      resolve({
+        type: "image",
+        source: { type: "data", value: url.slice(comma + 1), mimeType: file.type },
+        metadata: { filename: file.name },
+      })
+    }
+    reader.onerror = () => reject(reader.error ?? new Error(`Could not read ${file.name}`))
+    reader.readAsDataURL(file)
+  })
+}
+
 export interface ComposerProps {
-  readonly onSend: (message: string) => void
+  readonly onSend: (message: ComposerMessage) => void
+  /**
+   * Whether the route's model takes an image (`multimodal.input.image` in its
+   * capability document). False hides the attach control entirely: offering
+   * an upload the model will never see is worse than not offering it.
+   */
+  readonly canAttachImages: boolean
   /** Aborts the in-flight run. */
   readonly onStop: () => void
   /** True while a run is in flight. */
@@ -22,17 +67,46 @@ export interface ComposerProps {
   readonly isAwaitingApproval: boolean
 }
 
-export function Composer({ onSend, onStop, isRunning, isAwaitingApproval }: ComposerProps) {
+export function Composer({
+  onSend,
+  onStop,
+  canAttachImages,
+  isRunning,
+  isAwaitingApproval,
+}: ComposerProps) {
   const [value, setValue] = useState("")
+  const [attachments, setAttachments] = useState<readonly Attachment[]>([])
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
   const hintId = useId()
   const isBlocked = isRunning || isAwaitingApproval
-  const canSend = !isBlocked && value.trim().length > 0
+  // An image with no words is a complete question ("what is this?" is implied).
+  const canSend = !isBlocked && (value.trim().length > 0 || attachments.length > 0)
+
+  function onFiles(event: ChangeEvent<HTMLInputElement>) {
+    const files = [...(event.target.files ?? [])]
+    // Cleared so picking the same file again (after removing it) still fires.
+    event.target.value = ""
+    for (const file of files) {
+      void readImage(file).then(
+        (part) => {
+          setAttachments((current) => [
+            ...current,
+            { id: globalThis.crypto.randomUUID(), name: file.name, part },
+          ])
+        },
+        (error: unknown) => {
+          console.error("Composer: could not read the attachment", error)
+        },
+      )
+    }
+  }
 
   function send() {
     if (!canSend) return
-    onSend(value.trim())
+    onSend({ text: value.trim(), parts: attachments.map((attachment) => attachment.part) })
     setValue("")
+    setAttachments([])
     // Sending empties the box, which flips `canSend` false and disables the
     // very button the user just activated — and a disabled element cannot hold
     // focus, so it lands on <body> and the next Tab restarts from the top of
@@ -71,7 +145,58 @@ export function Composer({ onSend, onStop, isRunning, isAwaitingApproval }: Comp
           send()
         }}
       >
+        {attachments.length > 0 ? (
+          <ul className="mb-2 flex flex-wrap gap-1.5">
+            {attachments.map((attachment) => (
+              <li
+                key={attachment.id}
+                data-attachment=""
+                className="inline-flex max-w-full items-center gap-1.5 rounded-wb-sm border border-wb-border bg-wb-surface py-0.5 pl-2.5 pr-1 text-[12px] text-wb-muted"
+              >
+                <span className="truncate">{attachment.name}</span>
+                <button
+                  type="button"
+                  aria-label={`Remove ${attachment.name}`}
+                  onClick={() => {
+                    setAttachments((current) =>
+                      current.filter((candidate) => candidate.id !== attachment.id),
+                    )
+                  }}
+                  className="wb-focus rounded-wb-sm px-1 leading-5 hover:text-wb-text"
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         <div className="flex items-end gap-2 rounded-wb border border-wb-border bg-wb-surface p-2 transition-colors focus-within:border-wb-muted">
+          {canAttachImages ? (
+            <>
+              {/*
+                A real button driving a hidden input, rather than a styled
+                <label>: a label is not in the tab order, so a keyboard user
+                could not reach the picker at all.
+              */}
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                multiple
+                hidden
+                tabIndex={-1}
+                onChange={onFiles}
+              />
+              <button
+                type="button"
+                disabled={isBlocked}
+                onClick={() => fileRef.current?.click()}
+                className={`${neutralButton("md")} shrink-0 disabled:cursor-not-allowed disabled:opacity-40`}
+              >
+                Attach image
+              </button>
+            </>
+          ) : null}
           <textarea
             ref={inputRef}
             rows={1}

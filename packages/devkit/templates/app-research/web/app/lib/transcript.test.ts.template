@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest"
 import {
   buildTranscriptItems,
   type TranscriptMessage,
+  titleFor,
   toolResultText,
   userText,
 } from "./transcript"
@@ -230,6 +231,29 @@ describe("buildTranscriptItems with drop notices", () => {
     expect(items[3]).toEqual({ kind: "notice", id: "notice-0", parts: userDrop })
   })
 
+  test("a user-turn notice stamped with its turn stays after that turn once a later turn arrives", () => {
+    const userDrop = [{ index: 1, type: "audio", source: "data", reason: "modality_unsupported" }]
+    const items = buildTranscriptItems(
+      [
+        { id: "m1", role: "user", content: [{ type: "text", text: "listen" }, png] },
+        { id: "m2", role: "assistant", content: "I cannot hear that." },
+        { id: "m3", role: "user", content: "then summarize the corpus" },
+        { id: "m4", role: "assistant", content: "Here is the summary." },
+      ],
+      [{ anchorMessageId: "m1", parts: userDrop }],
+    )
+    expect(items.map((item) => item.id)).toEqual(["m1", "notice-0", "m2", "m3", "m4"])
+    expect(items[1]).toEqual({ kind: "notice", id: "notice-0", parts: userDrop })
+  })
+
+  test("a notice anchored to a user message that is gone is appended rather than lost", () => {
+    const items = buildTranscriptItems(
+      [{ id: "m1", role: "user", content: "hi" }],
+      [{ anchorMessageId: "m-gone", parts: dropped }],
+    )
+    expect(items.map((item) => item.id)).toEqual(["m1", "notice-0"])
+  })
+
   test("a notice with nothing to anchor to is appended rather than lost", () => {
     const items = buildTranscriptItems(
       [{ id: "m1", role: "assistant", content: "hi" }],
@@ -247,5 +271,24 @@ describe("buildTranscriptItems with drop notices", () => {
       ],
     )
     expect(items.map((item) => item.id)).toEqual(["call-1", "notice-0", "notice-1"])
+  })
+})
+
+describe("titleFor", () => {
+  test("a message with text is titled by its text", () => {
+    expect(titleFor("hello")).toBe("hello")
+    expect(titleFor([{ type: "text", text: "look" }, png])).toBe("look")
+  })
+
+  test("an image-only message is titled by what it carries, not left blank", () => {
+    expect(titleFor([png])).toBe("(image)")
+    expect(
+      titleFor([{ type: "audio", source: { type: "data", value: "UklG", mimeType: "audio/wav" } }]),
+    ).toBe("(audio)")
+  })
+
+  test("nothing to show is the empty string, which the rail leaves untitled", () => {
+    expect(titleFor("")).toBe("")
+    expect(titleFor(42)).toBe("")
   })
 })

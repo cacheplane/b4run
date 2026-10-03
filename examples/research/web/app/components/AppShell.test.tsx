@@ -26,10 +26,12 @@ import { afterEach, beforeEach, describe, expect, type Mock, test, vi } from "vi
 const mocks = vi.hoisted(() => ({
   agent: null as unknown as FakeAgent,
   runAgent: (async () => {}) as (params: unknown) => Promise<unknown>,
+  capabilities: undefined as unknown,
 }))
 
 vi.mock("@copilotkit/react-core/v2", () => ({
   useAgent: () => ({ agent: mocks.agent, isReady: true }),
+  useCapabilities: () => mocks.capabilities,
   useCopilotKit: () => ({
     copilotkit: {
       subscribe: () => ({ unsubscribe: () => {} }),
@@ -75,7 +77,13 @@ interface FakeAgent {
   addMessage: (message: unknown) => void
   setMessages: (messages: unknown[]) => void
   abortRun: () => void
-  subscribe: () => { unsubscribe: () => void }
+  subscribers: FakeSubscriber[]
+  subscribe: (subscriber: FakeSubscriber) => { unsubscribe: () => void }
+}
+
+interface FakeSubscriber {
+  onCustomEvent?: (params: { event: { name: string; value: unknown } }) => void
+  onRunFinishedEvent?: () => void
 }
 
 function makeAgent(): FakeAgent {
@@ -86,7 +94,10 @@ function makeAgent(): FakeAgent {
     setMessagesArgs: [],
     setMessagesCalls: 0,
     abortCalls: 0,
-    addMessage() {},
+    // Pushes, like `AbstractAgent.addMessage` — the transcript reads the list.
+    addMessage(message) {
+      this.messages.push(message)
+    },
     setMessages(messages) {
       this.setMessagesCalls += 1
       this.setMessagesArgs.push(messages)
@@ -96,9 +107,17 @@ function makeAgent(): FakeAgent {
       this.abortCalls += 1
     },
     // The rail's `MemoryPanel` subscribes for `onRunFinishedEvent` (it re-reads
-    // the candidate list when a run ends). Nothing in this file drives it; the
-    // fake only has to not throw on mount.
-    subscribe: () => ({ unsubscribe: () => {} }),
+    // the candidate list when a run ends) and the shell for `onCustomEvent`
+    // (drop notices). Recorded so a test can play an event at them.
+    subscribers: [],
+    subscribe(subscriber) {
+      this.subscribers.push(subscriber)
+      return {
+        unsubscribe: () => {
+          this.subscribers = this.subscribers.filter((candidate) => candidate !== subscriber)
+        },
+      }
+    },
   }
 }
 
@@ -226,6 +245,9 @@ beforeEach(() => {
   // assumes (no hydrated card, no composer block from that source).
   pendingInterrupts = vi.fn(async () => [])
   mocks.runAgent = async () => {}
+  // The default: the route's model takes images, which is what the research
+  // example's gpt-5-mini route declares.
+  mocks.capabilities = { multimodal: { input: { image: true } } }
   // The default: the probe reports B4.run up, which is what every pre-existing
   // test here assumes (the normal shell, not the connect screen). Tests
   // under "app shell connect screen" below override this per case.
@@ -869,5 +891,161 @@ describe("transcript media and notices", () => {
     expect(container.textContent).toContain(
       "1 content part was not sent to the model: image (tool_result_media_unsupported)",
     )
+  })
+})
+
+describe("app shell attachments and drop notices", () => {
+  function button(name: string): HTMLButtonElement | undefined {
+    return [...container.querySelectorAll("button")].find(
+      (candidate) => candidate.textContent === name,
+    )
+  }
+
+  function renderWith(onUserMessage: (message: string) => void) {
+    act(() => {
+      root.render(
+        <AppShell
+          threads={[]}
+          activeThreadId="thread-a"
+          onSelectThread={() => {}}
+          onCreateThread={() => {}}
+          onUserMessage={onUserMessage}
+          threadSource={stableSource}
+        />,
+      )
+    })
+  }
+
+  async function pickImage() {
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]')
+    if (input === null) throw new Error("no file input")
+    const file = new File([new Uint8Array([1, 2, 3])], "chart.png", { type: "image/png" })
+    Object.defineProperty(input, "files", { configurable: true, value: [file] })
+    await act(async () => {
+      input.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    await vi.waitFor(() => {
+      expect(container.querySelectorAll("[data-attachment]")).toHaveLength(1)
+    })
+  }
+
+  function playDrop(value: unknown) {
+    act(() => {
+      for (const subscriber of [...mocks.agent.subscribers]) {
+        subscriber.onCustomEvent?.({ event: { name: "b4.content_parts_dropped", value } })
+      }
+    })
+  }
+
+  const IMAGE_PART = {
+    type: "image",
+    source: { type: "data", value: "AQID", mimeType: "image/png" },
+    metadata: { filename: "chart.png" },
+  }
+
+  beforeEach(() => {
+    mocks.agent.messages = []
+    mocks.agent.pendingInterrupts = []
+  })
+
+  test("hides the attach control when the route's capabilities say nothing about images", () => {
+    mocks.capabilities = undefined
+    render("thread-a")
+    expect(button("Attach image")).toBeUndefined()
+    mocks.capabilities = { multimodal: { input: { image: false } } }
+    render("thread-a")
+    expect(button("Attach image")).toBeUndefined()
+  })
+
+  test("shows the attach control when the route's model takes an image", () => {
+    render("thread-a")
+    expect(button("Attach image")).not.toBeUndefined()
+  })
+
+  test("an image-only send adds an array-content user message and titles the thread (image)", async () => {
+    const onUserMessage = vi.fn<(message: string) => void>()
+    renderWith(onUserMessage)
+    await pickImage()
+    act(() => {
+      button("Send")?.click()
+    })
+    const sent = mocks.agent.messages.at(-1) as { role: string; content: unknown }
+    expect(sent.role).toBe("user")
+    expect(sent.content).toEqual([IMAGE_PART])
+    expect(onUserMessage).toHaveBeenCalledWith("(image)")
+  })
+
+  test("text and an image become one message: the text part first", async () => {
+    const onUserMessage = vi.fn<(message: string) => void>()
+    renderWith(onUserMessage)
+    const textarea = container.querySelector("textarea")
+    if (textarea === null) throw new Error("no composer")
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
+      setter?.call(textarea, "what does this show?")
+      textarea.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    await pickImage()
+    act(() => {
+      button("Send")?.click()
+    })
+    const sent = mocks.agent.messages.at(-1) as { content: unknown }
+    expect(sent.content).toEqual([{ type: "text", text: "what does this show?" }, IMAGE_PART])
+    expect(onUserMessage).toHaveBeenCalledWith("what does this show?")
+  })
+
+  test("a text-only send stays a plain string", () => {
+    render("thread-a")
+    const textarea = container.querySelector("textarea")
+    if (textarea === null) throw new Error("no composer")
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
+      setter?.call(textarea, "hello")
+      textarea.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    act(() => {
+      button("Send")?.click()
+    })
+    expect((mocks.agent.messages.at(-1) as { content: unknown }).content).toBe("hello")
+  })
+
+  test("a b4.content_parts_dropped event shows a notice after the turn it was about, even once a later turn arrives", () => {
+    mocks.agent.messages = [{ id: "u1", role: "user", content: "first turn" }]
+    render("thread-a")
+    playDrop({ parts: [{ index: 1, type: "image", reason: "modality_unsupported" }] })
+    const NOTICE = "1 content part was not sent to the model: image (modality_unsupported)"
+    expect(container.textContent).toContain(NOTICE)
+    // A second turn lands: the notice stays after the first one.
+    mocks.agent.messages.push(
+      { id: "a1", role: "assistant", content: "answer one" },
+      { id: "u2", role: "user", content: "second turn" },
+    )
+    render("thread-a")
+    const text = container.textContent ?? ""
+    expect(text.indexOf(NOTICE)).toBeGreaterThan(text.indexOf("first turn"))
+    expect(text.indexOf(NOTICE)).toBeLessThan(text.indexOf("second turn"))
+  })
+
+  test("ignores other custom events and malformed drop payloads", () => {
+    mocks.agent.messages = [{ id: "u1", role: "user", content: "hi" }]
+    render("thread-a")
+    act(() => {
+      for (const subscriber of [...mocks.agent.subscribers]) {
+        subscriber.onCustomEvent?.({ event: { name: "something.else", value: { parts: [] } } })
+      }
+    })
+    playDrop({ parts: "nope" })
+    expect(container.textContent).not.toContain("not sent to the model")
+  })
+
+  test("a thread switch clears the previous thread's notices", () => {
+    mocks.agent.messages = [{ id: "u1", role: "user", content: "hi" }]
+    render("thread-a")
+    playDrop({ parts: [{ index: 1, type: "image", reason: "modality_unsupported" }] })
+    expect(container.textContent).toContain("not sent to the model")
+    render("thread-b")
+    mocks.agent.messages.push({ id: "u9", role: "user", content: "new thread" })
+    render("thread-b")
+    expect(container.textContent).not.toContain("not sent to the model")
   })
 })

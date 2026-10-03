@@ -65,6 +65,13 @@ export interface DropNotice {
   readonly provider?: string
   readonly model?: string
   readonly toolCallId?: string
+  /**
+   * Not on the wire: stamped by the shell when a user-turn notice (no
+   * `toolCallId`) arrives — the id of the newest user message at that moment,
+   * which is the turn whose parts were dropped. Without it a notice could only
+   * follow "the newest user item", and would slide down to each later turn.
+   */
+  readonly anchorMessageId?: string
   readonly parts: readonly DroppedPartLike[]
 }
 
@@ -152,6 +159,18 @@ export function userText(content: unknown): string {
 }
 
 /**
+ * A thread's rail title for a user message: its text, or — for a message that
+ * is only media — what it carries, `(image)` say, so an image-only first turn
+ * does not leave the thread untitled. The empty string means nothing to show.
+ */
+export function titleFor(content: unknown): string {
+  const text = userText(content).trim()
+  if (text.length > 0) return text
+  const first = mediaParts(partsOf(content))[0]
+  return first !== undefined ? `(${first.type})` : ""
+}
+
+/**
  * Flattens the message list into render-order items.
  *
  * - An assistant message yields its text (when non-empty) and then one item per
@@ -169,9 +188,10 @@ export function userText(content: unknown): string {
  * - Each drop notice (the `b4.content_parts_dropped` events the shell
  *   collected, in arrival order) becomes a `notice` item: after the tool call
  *   it names, or — with no `toolCallId`, so the user's own message — after the
- *   newest user item. The event carries no message id, so a user-turn notice
- *   is anchored to the turn that was newest when it arrived only while that
- *   turn is still the newest. A notice with nothing to anchor to is appended.
+ *   user item the shell stamped it with (`anchorMessageId`), falling back to
+ *   the newest user item when it carries no stamp. A notice with nothing to
+ *   anchor to (an unknown tool call, a user message no longer listed) is
+ *   appended rather than lost.
  */
 export function buildTranscriptItems(
   messages: readonly TranscriptMessage[],
@@ -239,11 +259,17 @@ function withNotices(
 ): readonly TranscriptItem[] {
   if (notices.length === 0) return items
   const afterToolCall = new Map<string, TranscriptItem[]>()
-  const afterUser: TranscriptItem[] = []
+  const afterUser = new Map<string, TranscriptItem[]>()
   const unanchored: TranscriptItem[] = []
   const toolCallIds = new Set(items.flatMap((item) => (item.kind === "toolCall" ? [item.id] : [])))
-  let lastUserIndex = -1
-  for (const [index, item] of items.entries()) if (item.kind === "user") lastUserIndex = index
+  const userIds = new Set(items.flatMap((item) => (item.kind === "user" ? [item.id] : [])))
+  let lastUserId: string | undefined
+  for (const item of items) if (item.kind === "user") lastUserId = item.id
+  const push = (map: Map<string, TranscriptItem[]>, key: string, item: TranscriptItem) => {
+    const list = map.get(key) ?? []
+    list.push(item)
+    map.set(key, list)
+  }
 
   for (const [index, notice] of notices.entries()) {
     const item: TranscriptItem = {
@@ -253,20 +279,20 @@ function withNotices(
       parts: notice.parts,
     }
     if (notice.toolCallId !== undefined) {
-      if (toolCallIds.has(notice.toolCallId)) {
-        const list = afterToolCall.get(notice.toolCallId) ?? []
-        list.push(item)
-        afterToolCall.set(notice.toolCallId, list)
-      } else unanchored.push(item)
-    } else if (lastUserIndex >= 0) afterUser.push(item)
+      if (toolCallIds.has(notice.toolCallId)) push(afterToolCall, notice.toolCallId, item)
+      else unanchored.push(item)
+      continue
+    }
+    const userId = notice.anchorMessageId ?? lastUserId
+    if (userId !== undefined && userIds.has(userId)) push(afterUser, userId, item)
     else unanchored.push(item)
   }
 
   const merged: TranscriptItem[] = []
-  for (const [index, item] of items.entries()) {
+  for (const item of items) {
     merged.push(item)
     if (item.kind === "toolCall") merged.push(...(afterToolCall.get(item.id) ?? []))
-    if (index === lastUserIndex) merged.push(...afterUser)
+    if (item.kind === "user") merged.push(...(afterUser.get(item.id) ?? []))
   }
   merged.push(...unanchored)
   return merged
