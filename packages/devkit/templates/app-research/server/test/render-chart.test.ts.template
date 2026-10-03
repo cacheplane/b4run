@@ -46,6 +46,27 @@ describe("renderChart", () => {
     ).rejects.toThrow(/12/)
   })
 
+  it("rejects non-finite values", async () => {
+    for (const value of [Number.NaN, Number.POSITIVE_INFINITY]) {
+      await expect(
+        renderChart({ title: "x", series: [{ label: "a", value }] }, ctx),
+      ).rejects.toThrow(/finite/)
+    }
+  })
+
+  it("caps the drawn title and labels at 40 characters", async () => {
+    const long = "L".repeat(60)
+    const [, image] = await renderChart(
+      { title: "T".repeat(60), series: [{ label: long, value: 1 }] },
+      ctx,
+    )
+    const svg = svgOf(image)
+    expect(svg).toContain(`>${"L".repeat(40)}<`)
+    expect(svg).not.toContain("L".repeat(41))
+    expect(svg).toContain(`>${"T".repeat(40)}<`)
+    expect(svg).not.toContain("T".repeat(41))
+  })
+
   it("escapes labels and titles", async () => {
     const [, image] = await renderChart(
       { title: "<b>&", series: [{ label: "a<b", value: 1 }] },

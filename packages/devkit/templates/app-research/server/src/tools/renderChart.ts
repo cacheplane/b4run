@@ -6,6 +6,7 @@ const BAR_HEIGHT = 22
 const GAP = 8
 const LABEL_WIDTH = 120
 const TOP = 40
+const MAX_TEXT = 40
 
 function escapeXml(text: string): string {
   return text
@@ -13,6 +14,11 @@ function escapeXml(text: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
+}
+
+/** Cap drawn text so it fits the label column. */
+function clip(text: string): string {
+  return text.slice(0, MAX_TEXT)
 }
 
 function base64(text: string): string {
@@ -36,6 +42,9 @@ export default async (
 ): Promise<B4ContentPart[]> => {
   if (input.series.length === 0) throw new Error("renderChart needs at least one series entry")
   if (input.series.length > MAX_BARS) throw new Error(`renderChart draws at most ${MAX_BARS} bars`)
+  if (!input.series.every((entry) => Number.isFinite(entry.value))) {
+    throw new Error("renderChart values must be finite numbers")
+  }
   const max = Math.max(...input.series.map((entry) => entry.value), 0) || 1
   const height = TOP + input.series.length * (BAR_HEIGHT + GAP)
   const bars = input.series
@@ -43,13 +52,13 @@ export default async (
       const y = TOP + index * (BAR_HEIGHT + GAP)
       const width = Math.max(0, Math.round(((WIDTH - LABEL_WIDTH - 60) * entry.value) / max))
       return (
-        `<text x="0" y="${y + 16}" font-size="13">${escapeXml(entry.label)}</text>` +
+        `<text x="0" y="${y + 16}" font-size="13">${escapeXml(clip(entry.label))}</text>` +
         `<rect x="${LABEL_WIDTH}" y="${y}" width="${width}" height="${BAR_HEIGHT}" fill="#4f46e5"/>` +
         `<text x="${LABEL_WIDTH + width + 6}" y="${y + 16}" font-size="13">${entry.value}</text>`
       )
     })
     .join("")
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${height}" font-family="system-ui, sans-serif"><text x="0" y="22" font-size="16" font-weight="600">${escapeXml(input.title)}</text>${bars}</svg>`
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${height}" font-family="system-ui, sans-serif"><text x="0" y="22" font-size="16" font-weight="600">${escapeXml(clip(input.title))}</text>${bars}</svg>`
   const summary = `Chart "${input.title}": ${input.series.map((entry) => `${entry.label} ${entry.value}`).join(", ")}.`
   return [
     { type: "text", text: summary },
