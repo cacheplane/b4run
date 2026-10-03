@@ -297,7 +297,12 @@ does not require a wire event. B4.run does both:
 1. **Server log, always.** The CLI logs once per run, through the handler's
    existing `console.warn` convention:
    `B4: dropped 2 content part(s) from the user message: image/url (openai/gpt-5-mini: url_source_unsupported), audio/data (modality_unsupported). GET /agui/<route> lists what this route accepts.`
-   This is the only channel on the Agent Protocol path.
+   On the Agent Protocol stream the chunk also passes through as an SSE
+   event named `content_parts_dropped`, the way other capability chunks
+   (`plan_update`) do; the non-streaming `invoke` path has the log only.
+   Drops inside a subagent arrive as `subagent.content_parts_dropped` and
+   are logged the same way. The pointer names the route's assistant id
+   (`/chat#agent`), which is what `GET /agui/:routeId` resolves.
 2. **`CUSTOM` event on the AG-UI stream.** The adapter emits a new runtime
    chunk `{ type: "content_parts_dropped", data: { provider?, model?, toolCallId?, parts: DroppedPart[] } }`
    (`provider`/`model` name the route's model and are omitted on the
