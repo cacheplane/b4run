@@ -19,6 +19,27 @@
 
 ---
 
+## Shared rule: `prune`'s `before` is canonical
+
+Every store rejects a `before` that is not a canonical `Date#toISOString()` string, with one message, and compares timestamps as text (the SDK memory store, as landed in Task 2, is the reference). Each SQL store defines, next to its `rowToRecord`:
+
+```ts
+/** `prune` compares timestamps as text, so `before` must be the canonical `Date#toISOString()` form every stored timestamp has. */
+function assertCanonicalBefore(before: string): void {
+  let canonical: string | undefined
+  try {
+    canonical = new Date(before).toISOString()
+  } catch {
+    canonical = undefined
+  }
+  if (canonical !== before) {
+    throw new Error("prune: `before` must be a canonical Date#toISOString() value")
+  }
+}
+```
+
+and the store tests include: a non-canonical `before` (`"2026-09-10T00:00:00Z"`, `"nope"`) rejects with that message; a row whose terminal timestamp equals `before` is kept; a voided row with a recent `issuedAt` and an old `voidedAt` is pruned. (The Task 2 snippet in this plan predates that rule; the committed SDK code is authoritative.)
+
 ## File map
 
 | File | Change |
@@ -561,9 +582,7 @@ Add:
     },
 
     async prune({ threadId, before }) {
-      if (Number.isNaN(Date.parse(before))) {
-        throw new Error("prune: `before` is not a valid ISO-8601 instant")
-      }
+      assertCanonicalBefore(before)
       // ISO-8601 UTC strings compare chronologically as text. Terminal
       // timestamp per kind: voided_at or answered_at for a client row,
       // settled_at for a server row. An open row has none and never matches.
@@ -697,9 +716,7 @@ Add:
     },
 
     async prune({ threadId, before }) {
-      if (Number.isNaN(Date.parse(before))) {
-        throw new Error("prune: `before` is not a valid ISO-8601 instant")
-      }
+      assertCanonicalBefore(before)
       await ready()
       // Terminal timestamp per kind; an open row has none and never matches.
       // ISO-8601 UTC text compares chronologically under COLLATE "C".
