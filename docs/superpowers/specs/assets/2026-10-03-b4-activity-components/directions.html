@@ -1,0 +1,123 @@
+<style>
+  .dirs { display:flex; flex-direction:column; gap:28px; text-align:left; }
+  .dir { border:1px solid rgb(229,229,229); border-radius:14px; overflow:hidden; background:#fff; cursor:pointer; }
+  .dir.selected { outline:3px solid #7c3aed; }
+  .dhead { padding:12px 18px; border-bottom:1px solid rgb(240,240,240); background:rgb(250,250,250); }
+  .dhead h3 { margin:0; font-size:15px; }
+  .dhead p { margin:2px 0 0; font-size:13px; color:rgb(115,115,115); }
+  .chat { max-width:680px; margin:0 auto; padding:22px 20px 26px; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; font-size:15px; line-height:1.6; color:rgb(28,28,28); }
+  .user { margin-left:auto; width:max-content; max-width:75%; background:rgb(244,244,244); border-radius:18px; padding:8px 14px; margin-bottom:18px; }
+  .ans p { margin:10px 0 0; }
+  .muted { color:rgb(115,115,115); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:13px; }
+  .chev { display:inline-block; width:14px; text-align:center; color:rgb(150,150,150); font-size:12px; }
+  .shimmer { background: linear-gradient(90deg, rgb(115,115,115) 0%, rgb(200,200,200) 50%, rgb(115,115,115) 100%); background-size:200% 100%; -webkit-background-clip:text; background-clip:text; color:transparent; animation: sh 2s linear infinite; }
+  @keyframes sh { to { background-position: -200% 0; } }
+
+  /* A — quiet trace (current) */
+  .a .row { display:flex; align-items:center; gap:6px; color:rgb(115,115,115); font-size:14px; min-height:26px; }
+  .a .ip { display:inline-flex; width:18px; height:16px; align-items:center; justify-content:center; background:rgb(251,251,251); border:1px solid rgb(240,240,240); border-radius:999px; font-size:10px; }
+  .a .title { color:rgb(28,28,28); font-weight:500; }
+  .a .meta { margin-left:auto; font-size:12px; }
+  .a .amber { background:#fffbeb; color:#b45309; border-radius:999px; padding:0 7px; font-size:11px; }
+  .a .body { margin-left:6px; padding-left:16px; border-left:1px solid rgb(229,229,229); }
+  .a .todo { background:rgb(251,251,251); border-radius:8px; padding:4px 10px; margin:4px 0; font-size:13px; }
+
+  /* B — one activity summary, sentence steps */
+  .b .sum { display:inline-flex; align-items:center; gap:6px; color:rgb(115,115,115); font-size:14px; margin-bottom:6px; }
+  .b .steps { margin:4px 0 4px 7px; padding-left:18px; border-left:1px solid rgb(229,229,229); }
+  .b .step { display:flex; gap:10px; align-items:flex-start; font-size:14px; color:rgb(90,90,90); padding:5px 0; }
+  .b .ico { width:16px; flex:none; color:rgb(150,150,150); text-align:center; margin-top:1px; }
+  .b .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:5px; }
+  .b .chip { font-size:12px; border:1px solid rgb(229,229,229); border-radius:999px; padding:1px 9px; color:rgb(90,90,90); background:#fff; }
+  .b .sub { margin-top:4px; padding:8px 10px; border-radius:10px; background:rgb(250,250,250); font-size:13px; color:rgb(90,90,90); }
+  .b .gate { border:1px solid rgb(229,229,229); border-radius:14px; padding:12px 14px; margin:10px 0 4px; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+  .b .gate .q { font-weight:500; color:rgb(28,28,28); margin-bottom:6px; }
+  .b .code { font-family: ui-monospace, Menlo, monospace; font-size:13px; background:rgb(247,247,247); border-radius:8px; padding:6px 10px; margin-bottom:10px; }
+  .b .btn { display:inline-block; border-radius:999px; padding:5px 14px; font-size:13px; font-weight:500; margin-right:6px; }
+  .b .primary { background:rgb(28,28,28); color:#fff; } .b .secondary { border:1px solid rgb(220,220,220); } .b .ghost { color:rgb(115,115,115); }
+
+  /* C — timeline with plan as the spine */
+  .c .plan { border:1px solid rgb(232,232,232); border-radius:14px; padding:12px 16px; margin-bottom:12px; }
+  .c .ph { display:flex; align-items:center; gap:8px; font-size:14px; }
+  .c .ph b { font-weight:600; }
+  .c .bar { height:4px; border-radius:99px; background:rgb(238,238,238); margin:8px 0 10px; overflow:hidden; }
+  .c .bar i { display:block; height:100%; width:50%; background:rgb(28,28,28); border-radius:99px; }
+  .c .t { position:relative; padding-left:22px; margin:0; list-style:none; }
+  .c .t li { position:relative; padding:4px 0 8px; font-size:14px; }
+  .c .t li::before { content:""; position:absolute; left:-17px; top:12px; bottom:-6px; width:1px; background:rgb(229,229,229); }
+  .c .t li:last-child::before { display:none; }
+  .c .dot { position:absolute; left:-22px; top:6px; width:11px; height:11px; border-radius:50%; border:1.5px solid rgb(190,190,190); background:#fff; }
+  .c .dot.done { background:rgb(28,28,28); border-color:rgb(28,28,28); }
+  .c .dot.now { border-color:rgb(28,28,28); box-shadow:0 0 0 3px rgba(0,0,0,.08); }
+  .c .done-t { color:rgb(115,115,115); }
+  .c .acts { margin-top:3px; display:flex; flex-direction:column; gap:2px; }
+  .c .act { font-size:13px; color:rgb(115,115,115); display:flex; gap:6px; align-items:center; }
+  .c .gate { margin-top:6px; border-left:2px solid #f59e0b; padding:6px 0 6px 12px; }
+  .c .btn { display:inline-block; border-radius:8px; padding:4px 12px; font-size:13px; font-weight:500; margin-right:6px; }
+  .c .primary { background:rgb(28,28,28); color:#fff; } .c .secondary { border:1px solid rgb(220,220,220); } .c .ghost { color:rgb(115,115,115); }
+</style>
+
+<h2>Three directions for a whole research turn</h2>
+<p class="subtitle">Same moment in the same run: planning done, corpus searched, a researcher subagent working, a shell command waiting for approval. Click the one closest to what you want — then tell me what's still wrong with it.</p>
+
+<div class="dirs">
+  <div class="dir" data-choice="a-quiet-trace" onclick="toggleSelect(this)">
+    <div class="dhead"><h3>A · Quiet trace (what we have)</h3><p>Every tool call is its own row, named by function. Plan and subagent are traces too. Faithful threadplane; reads like a log.</p></div>
+    <div class="chat a">
+      <div class="user">Compare ReAct and plan-and-execute using the corpus.</div>
+      <div class="row"><span class="chev">›</span><span class="muted">Thought for 3s</span></div>
+      <div class="row"><span class="chev">›</span><span class="mono">recall</span><span class="ip">✓</span></div>
+      <div class="row"><span class="chev">⌄</span><span class="title">Plan</span><span class="meta">2 of 4 complete</span></div>
+      <div class="body"><div class="todo muted" style="text-decoration:line-through">✓ Restate the question</div><div class="todo muted" style="text-decoration:line-through">✓ Search the corpus</div><div class="todo">◠ Research each architecture</div><div class="todo">○ Write the comparison</div></div>
+      <div class="row"><span class="chev">›</span><span class="mono">searchCorpus</span><span class="ip">✓</span></div>
+      <div class="row"><span class="chev">⌄</span><span class="title">researcher</span><span class="amber">Running</span><span class="meta">2 tools</span></div>
+      <div class="body">
+        <div class="row"><span class="chev">›</span><span class="mono">readDoc</span><span class="ip">✓</span></div>
+        <div class="row"><span class="chev">⌄</span><span class="mono">runBash</span><span class="amber">Needs approval</span></div>
+        <div class="body"><div class="mono" style="background:rgb(251,251,251);border:1px solid rgb(240,240,240);border-radius:6px;padding:5px 8px;margin:4px 0 8px">node scripts/fetch-source.mjs https://example.org/paper</div>
+          <span style="display:inline-block;background:rgb(28,28,28);color:#fff;border-radius:8px;padding:3px 10px;font-size:12px;margin-right:4px">Allow once</span><span style="display:inline-block;border:1px solid rgb(229,229,229);border-radius:8px;padding:3px 10px;font-size:12px;margin-right:4px">Always allow</span><span class="muted" style="font-size:12px">Deny</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="dir" data-choice="b-activity-summary" onclick="toggleSelect(this)">
+    <div class="dhead"><h3>B · One activity summary, steps in plain language</h3><p>The whole turn's work lives under one line that streams what's happening now. Steps are sentences ("Searched the corpus for…"), not function names; sources as chips; the approval is a calm card. Closest to ChatGPT/Claude.</p></div>
+    <div class="chat b">
+      <div class="user">Compare ReAct and plan-and-execute using the corpus.</div>
+      <div class="sum"><span class="chev">⌄</span><span class="shimmer">Researching ReAct with a researcher…</span><span style="color:rgb(170,170,170)">· 38s</span></div>
+      <div class="steps">
+        <div class="step"><span class="ico">◇</span><div>Thought about how to approach the comparison</div></div>
+        <div class="step"><span class="ico">☰</span><div>Made a plan · <span class="muted">2 of 4 done</span></div></div>
+        <div class="step"><span class="ico">⌕</span><div>Searched the corpus for “ReAct plan-and-execute”<div class="chips"><span class="chip">agent-architectures.md</span><span class="chip">tool-use.md</span><span class="chip">+1</span></div></div></div>
+        <div class="step"><span class="ico">↳</span><div>Asked <b style="font-weight:500;color:rgb(28,28,28)">researcher</b> to summarize ReAct
+          <div class="sub">Read <span class="mono">agent-architectures.md</span> · wants to fetch an external source</div></div></div>
+      </div>
+      <div class="gate">
+        <div class="q">researcher wants to run a command</div>
+        <div class="code">node scripts/fetch-source.mjs https://example.org/paper</div>
+        <span class="btn primary">Allow once</span><span class="btn secondary">Always allow this command</span><span class="btn ghost">Deny</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="dir" data-choice="c-plan-timeline" onclick="toggleSelect(this)">
+    <div class="dhead"><h3>C · The plan is the spine</h3><p>A progress card with the plan as a timeline; each step's actions nest under the step that caused them, and the approval sits on the step that's blocked. Great for long agent runs; heavier for short ones.</p></div>
+    <div class="chat c">
+      <div class="user">Compare ReAct and plan-and-execute using the corpus.</div>
+      <div class="plan">
+        <div class="ph"><b>Researching</b><span class="muted">· 2 of 4 steps · 38s</span></div>
+        <div class="bar"><i></i></div>
+        <ul class="t">
+          <li><span class="dot done"></span><span class="done-t">Restate the question</span></li>
+          <li><span class="dot done"></span><span class="done-t">Search the corpus</span><div class="acts"><span class="act">⌕ Searched “ReAct plan-and-execute” · 3 results</span></div></li>
+          <li><span class="dot now"></span><b style="font-weight:500">Research each architecture</b>
+            <div class="acts"><span class="act">↳ researcher read agent-architectures.md</span></div>
+            <div class="gate"><div style="font-size:13px;margin-bottom:6px">researcher wants to run <span class="mono">node scripts/fetch-source.mjs …</span></div><span class="btn primary">Allow once</span><span class="btn secondary">Always allow</span><span class="btn ghost">Deny</span></div>
+          </li>
+          <li><span class="dot"></span><span class="muted">Write the comparison</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>

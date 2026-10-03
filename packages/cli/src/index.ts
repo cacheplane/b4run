@@ -2,6 +2,12 @@
 
 export { type B4Config, config } from "@b4run/core"
 export {
+  type ServeFallback,
+  type ServeHandle,
+  type ServeOptions,
+  serve,
+} from "./lib/dev/serve.js"
+export {
   type ServeRuntimeHandle,
   type ServeRuntimeOptions,
   serveRuntime,
