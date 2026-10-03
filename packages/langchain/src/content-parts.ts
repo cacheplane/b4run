@@ -37,6 +37,13 @@ export interface DroppedPart {
 /** A LangChain standard content block (`@langchain/core` `Multimodal.Standard` or a text block). */
 export type LangChainContentBlock = Readonly<Record<string, unknown>> & { readonly type: string }
 
+/**
+ * Hand `content` to LangChain as `contentBlocks:` (`new HumanMessage({ contentBlocks })`,
+ * `new ToolMessage({ contentBlocks, … })`), never `content:`. `@langchain/core`
+ * recognises only legacy `source_type` blocks under `content:`; `contentBlocks:`
+ * sets `response_metadata.output_version: "v1"`, which is what makes the OpenAI
+ * converters translate these blocks. A string `content` may be passed either way.
+ */
 export interface ConvertedContent {
   readonly content: string | readonly LangChainContentBlock[]
   readonly dropped: readonly DroppedPart[]
@@ -67,7 +74,7 @@ function supportsModality(
     case "video":
       return support.video
     case "document":
-      return support.pdf
+      return support.pdf.data || support.pdf.url || support.file.pdf
   }
 }
 
@@ -149,7 +156,17 @@ export function toLangChainContent(
         drop("modality_unsupported")
         continue
       }
-      if (part.source.type === "url" && !support.image.url) {
+      if (part.source.type === "url" && (!support.image.url || provider === "ollama")) {
+        // Ollama's converter decodes only base64 data URLs; a remote URL would be sent as "".
+        drop("url_source_unsupported")
+        continue
+      }
+    } else if (part.type === "document") {
+      if (part.source.type === "data" && !support.pdf.data) {
+        drop("modality_unsupported")
+        continue
+      }
+      if (part.source.type === "url" && !support.pdf.url) {
         drop("url_source_unsupported")
         continue
       }
@@ -166,6 +183,11 @@ export function toLangChainContent(
       continue
     }
     blocks.push(block(part.type === "document" ? "file" : part.type, part.source))
+  }
+  if (position === "tool" && blocks.every((b) => b.type === "text")) {
+    // A text-only list carries nothing a string does not, and some converters
+    // (ollama's tool message) reject non-string tool content.
+    return { content: blocks.map((b) => String(b.text)).join(""), dropped }
   }
   return { content: blocks.length === 0 ? "" : blocks, dropped }
 }

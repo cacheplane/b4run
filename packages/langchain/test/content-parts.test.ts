@@ -6,7 +6,7 @@ import { formatDroppedPartsWarning, toLangChainContent } from "../src/content-pa
 
 const ALL: ModalitySupport = {
   image: { data: true, url: true },
-  pdf: true,
+  pdf: { data: true, url: true },
   audio: true,
   video: true,
   toolResult: { image: true, pdf: true },
@@ -128,6 +128,46 @@ describe("toLangChainContent — user position", () => {
     ])
   })
 
+  it("gates pdf per source", () => {
+    const urlPdf = {
+      type: "document",
+      source: { type: "url", value: "https://x.test/a.pdf", mimeType: "application/pdf" },
+    } as const
+    const { content, dropped } = toLangChainContent(
+      [pdf, urlPdf],
+      { ...ALL, pdf: { data: true, url: false } },
+      "openai",
+      "user",
+    )
+    expect(content).toEqual([{ type: "file", data: "JVBERi0=", mimeType: "application/pdf" }])
+    expect(dropped).toEqual([
+      { index: 1, type: "document", source: "url", reason: "url_source_unsupported" },
+    ])
+  })
+
+  it("never sends ollama a remote image URL", () => {
+    expect(toLangChainContent([imgUrl], ALL, "ollama", "user").dropped).toEqual([
+      { index: 0, type: "image", source: "url", reason: "url_source_unsupported" },
+    ])
+  })
+
+  it("drops a file handle for ollama/mistral before the legacy image_url branch", () => {
+    const noFiles = { ...ALL, file: { image: false, pdf: false } }
+    for (const provider of ["ollama", "mistral"] as const) {
+      const { content, dropped } = toLangChainContent([handle], noFiles, provider, "user")
+      expect(content).toBe("")
+      expect(dropped).toEqual([
+        { index: 0, type: "image", source: "file", reason: "file_source_unsupported" },
+      ])
+    }
+  })
+
+  it("keeps a text-only user message as a block array", () => {
+    expect(
+      toLangChainContent([{ type: "text", text: "only text" }], ALL, "openai", "user").content,
+    ).toEqual([{ type: "text", text: "only text" }])
+  })
+
   it("a document is a PDF or nothing", () => {
     const notPdf = {
       type: "document",
@@ -178,6 +218,32 @@ describe("toLangChainContent — tool position", () => {
     expect(dropped).toEqual([
       { index: 2, type: "document", source: "data", reason: "tool_result_media_unsupported" },
       { index: 3, type: "audio", source: "data", reason: "tool_result_media_unsupported" },
+    ])
+  })
+})
+
+describe("toLangChainContent — tool position, text-only", () => {
+  it("collapses a text-only result to a string", () => {
+    const { content, dropped } = toLangChainContent(
+      [{ type: "text", text: "a" }, wav],
+      ALL,
+      "ollama",
+      "tool",
+    )
+    expect(content).toBe("a")
+    expect(dropped).toHaveLength(1)
+  })
+
+  it("keeps an array when media survives", () => {
+    const { content } = toLangChainContent(
+      [{ type: "text", text: "a" }, png],
+      ALL,
+      "openai",
+      "tool",
+    )
+    expect(content).toEqual([
+      { type: "text", text: "a" },
+      { type: "image", data: "AAAA", mimeType: "image/png" },
     ])
   })
 })
