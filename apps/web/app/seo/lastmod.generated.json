@@ -332,9 +332,9 @@
       "recordDigest": "094f28186cc75ed452620c8b360c6550d789893dc62a3016789466dc2555e4bb"
     },
     "/docs/recipes/research-web-ui": {
-      "lastModified": "2026-10-03T17:44:41.000Z",
-      "sourceDigest": "f07a2842a753bbb80683861b31f51e9dafb1ec91dc33f46dd928892a3c043e7f",
-      "recordDigest": "a8c38150da97da102b66d394fd69897a4ee76c40c6635ad73762baaef37bd1a3"
+      "lastModified": "2026-10-03T17:55:52.000Z",
+      "sourceDigest": "a5e7c2037d5918bfab28311babbe78b068c9649b2c0f36ca39589ca806b32692",
+      "recordDigest": "5bfd5d0fa36b12ce639246020a028bc89c7c3066ca0578ff6995e7a243307312"
     },
     "/docs/recipes/retry-flaky-tools": {
       "lastModified": "2026-09-29T18:42:00.000Z",

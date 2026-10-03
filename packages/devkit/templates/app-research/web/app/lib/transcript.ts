@@ -16,7 +16,7 @@
  */
 
 import type { B4ContentPart } from "@b4run/sdk"
-import { mediaParts, partsOf } from "./parts.js"
+import { mediaParts, partsOf } from "./parts"
 
 /** As published in `ToolCallSchema` — args arrive as a JSON *string*. */
 export interface TranscriptToolCall {

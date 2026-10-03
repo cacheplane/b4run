@@ -154,9 +154,13 @@ agent.addMessage({ id: globalThis.crypto.randomUUID(), role: "user", content })
 
 A text-only turn stays a plain string, so it's exactly what it was before attachments existed.
 
+The composer accepts PNG, JPEG, GIF and WebP images, the types OpenAI's vision input takes, and refuses any file over 4 MB. The cap matters because every turn sends the whole conversation to `/agui`, whose request body limit is 8 MiB, so one large image would break every turn after it.
+
 ### Media in the transcript
 
 User bubbles and tool cards draw their media with `app/components/MediaParts.tsx`: an `<img>` for an image, the native players for audio and video, a download chip for a document, and a chip naming the handle for a provider `file` source, which the browser can't load. A `url` source is loaded only when it's `http(s)`, because tool results are model-driven.
+
+Each part's MIME type has to match what the part claims to be. An image part whose type isn't `image/*` renders as a chip, and so does audio or video with the wrong type. Only PDF, CSV, Markdown and plain-text documents get a download link, and the downloaded file is named from the type (`document.pdf`), never from the part's filename, which is shown only as the label.
 
 Tool-result media is drawn beside the card, not inside it. CopilotKit's tool renderer only receives `contentToText(content)`, so the parts are flattened to text before `ToolCallCard` sees them. The app's `Transcript` keeps the result's parts and renders `MediaParts` under the card itself.
 
@@ -169,6 +173,8 @@ CopilotKit keeps no record of `CUSTOM` events, so the notices live only in the s
 ### Restored threads
 
 Hydration (`app/lib/hydrate.ts`) brings media back too. A checkpointed user message holds LangChain content blocks, not AG-UI parts, so `blocksToParts` in `app/lib/parts.ts` maps them back. A tool that returned parts keeps the full list in the tool message's `additional_kwargs.b4_content_parts`, while its `content` holds only what the model could take. The UI shows what the tool produced, so those parts win.
+
+A user image the adapter dropped is a different case. It never reached the model, so it isn't in the checkpoint, and it doesn't come back when the thread is restored.
 
 ### A chart the model doesn't see
 

@@ -1,5 +1,5 @@
 import { isContentPartArray } from "@b4run/sdk"
-import { blocksToParts } from "./parts.js"
+import { blocksToParts } from "./parts"
 import type { TranscriptMessage } from "./transcript.js"
 
 /**

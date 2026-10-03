@@ -130,7 +130,9 @@ describe("composer attachments", () => {
   test("offers an image-only file picker behind an Attach image button when it does", () => {
     const markup = render({ isRunning: false, isAwaitingApproval: false }, true)
     expect(markup).toContain("Attach image")
-    expect(markup).toMatch(/<input[^>]*type="file"[^>]*accept="image\/\*"[^>]*multiple=""/)
+    expect(markup).toMatch(
+      /<input[^>]*type="file"[^>]*accept="image\/png,image\/jpeg,image\/gif,image\/webp"[^>]*multiple=""/,
+    )
   })
 
   test("a pending attachment enables Send with no text, and sends the image as a data part", async () => {
@@ -214,8 +216,38 @@ describe("composer attachments", () => {
       input.dispatchEvent(new Event("change", { bubbles: true }))
     })
     expect(container.querySelectorAll("[data-attachment]")).toHaveLength(0)
-    expect(container.textContent).toContain("Only images can be attached")
-    expect(container.textContent?.split("Only images can be attached")).toHaveLength(2)
+    expect(container.textContent).toContain("Only PNG, JPEG, GIF or WebP images can be attached")
+    expect(
+      container.textContent?.split("Only PNG, JPEG, GIF or WebP images can be attached"),
+    ).toHaveLength(2)
+    expect(button("Send").disabled).toBe(true)
+  })
+
+  test("an image type the model does not take (SVG) is ignored too", async () => {
+    mount(vi.fn())
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]')
+    if (input === null) throw new Error("no file input")
+    const svg = new File(["<svg/>"], "chart.svg", { type: "image/svg+xml" })
+    Object.defineProperty(input, "files", { configurable: true, value: [svg] })
+    await act(async () => {
+      input.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    expect(container.querySelectorAll("[data-attachment]")).toHaveLength(0)
+    expect(container.textContent).toContain("Only PNG, JPEG, GIF or WebP images can be attached")
+  })
+
+  test("an image over 4 MB is refused, by name", async () => {
+    mount(vi.fn())
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]')
+    if (input === null) throw new Error("no file input")
+    const big = png()
+    Object.defineProperty(big, "size", { value: 4 * 1024 * 1024 + 1 })
+    Object.defineProperty(input, "files", { configurable: true, value: [big] })
+    await act(async () => {
+      input.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    expect(container.querySelectorAll("[data-attachment]")).toHaveLength(0)
+    expect(container.textContent).toContain("chart.png is larger than 4 MB")
     expect(button("Send").disabled).toBe(true)
   })
 

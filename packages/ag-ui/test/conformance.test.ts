@@ -362,6 +362,13 @@ it("a full turn passes 1.0 enforcement with nothing stripped", async () => {
     EventType.TOOL_CALL_RESULT,
   ])
   expect(partsFrames[partsFrames.length - 1]).toMatchObject({ content: PARTS_RESULT })
+  // ...and the client keeps it that way: `@ag-ui/client` stores the tool
+  // message with the part array as its content, which is what a UI reads.
+  expect(
+    agent.messages.find(
+      (message) => message.role === "tool" && message.toolCallId === PARTS_TOOL_CALL_ID,
+    ),
+  ).toMatchObject({ content: PARTS_RESULT })
 
   // Parts the model could not take are announced, once, as a vendor CUSTOM event.
   const customs = events.filter((event) => event.type === EventType.CUSTOM)

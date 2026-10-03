@@ -41,6 +41,20 @@ function readImage(file: File): Promise<B4MediaPart> {
   })
 }
 
+/**
+ * The image types the composer attaches: the ones OpenAI's vision input takes.
+ * The adapter has no image MIME gate of its own, so an `.svg` or `.heic` sent
+ * from here would reach the provider and come back as a 400.
+ */
+const ATTACHABLE_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const
+
+/**
+ * Per attachment. Every turn sends the WHOLE history over `/agui`, whose body
+ * limit is 8 MiB, so one large image would make every later turn fail; base64
+ * also grows the bytes by a third.
+ */
+const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024
+
 export interface ComposerProps {
   readonly onSend: (message: ComposerMessage) => void
   /**
@@ -93,10 +107,20 @@ export function Composer({
     const chosen = [...(event.target.files ?? [])]
     // Cleared so picking the same file again (after removing it) still fires.
     event.target.value = ""
-    // `accept="image/*"` is a hint to the OS dialog, not a guarantee ("All
-    // files" is one click away), and the route only declared images.
-    const files = chosen.filter((file) => file.type.startsWith("image/"))
-    setAttachHint(files.length < chosen.length ? "Only images can be attached" : null)
+    // `accept` is a hint to the OS dialog, not a guarantee ("All files" is one
+    // click away), so the type is checked again here.
+    const images = chosen.filter((file) =>
+      (ATTACHABLE_IMAGE_TYPES as readonly string[]).includes(file.type),
+    )
+    const tooLarge = images.filter((file) => file.size > MAX_ATTACHMENT_BYTES)
+    const files = images.filter((file) => file.size <= MAX_ATTACHMENT_BYTES)
+    setAttachHint(
+      tooLarge[0] !== undefined
+        ? `${tooLarge[0].name} is larger than 4 MB`
+        : images.length < chosen.length
+          ? "Only PNG, JPEG, GIF or WebP images can be attached"
+          : null,
+    )
     for (const file of files) {
       setPendingReads((count) => count + 1)
       void readImage(file)
@@ -203,7 +227,7 @@ export function Composer({
               <input
                 ref={fileRef}
                 type="file"
-                accept="image/*"
+                accept={ATTACHABLE_IMAGE_TYPES.join(",")}
                 multiple
                 hidden
                 tabIndex={-1}
