@@ -274,10 +274,11 @@ definition that breaks one is refused with a `422` before the run starts.
 | Description | at most 1,024 characters |
 | `parameters` | a JSON object schema (`type` omitted or `"object"`), at most 8,192 characters serialized and at most 8 schema levels deep |
 | All definitions together | at most 32,768 characters, counting each tool's name, description and serialized `parameters` |
-| Each tool result | at most 64 KiB (65,536 bytes of UTF-8) |
+| Each tool result | at most 64 KiB (65,536 bytes of UTF-8) of text/JSON; a part list is measured as JSON with inline media bytes excluded, and those bytes count against the 8 MiB body only |
 | AG-UI request body | at most 8 MiB |
 
-An over-cap result is refused with `413` only when the run is answering —
+An over-cap result — over 64 KiB of text/JSON, inline media bytes
+excluded — is refused with `413` only when the run is answering —
 its last message is the tool message, for a call that is outstanding and not
 expired. Anywhere else, such as a resend of that history with a new user
 message, the over-cap result is dropped before anything is stored, and the
@@ -338,6 +339,10 @@ resumed is treated the same way once the window has passed: its record is
 gone, so a thread that returns after that closes the call with the abandoned
 result instead of the stored one.
 
+A result made of content parts is kept in the same text column as a
+self-describing JSON envelope; rows written before parts were supported are
+plain text and read back unchanged, so no migration is needed.
+
 ### Error codes
 
 `error.details.code` on the refusal says why:
@@ -352,7 +357,7 @@ result instead of the stored one.
 | `422` | `client_tool_too_large` | a description or `parameters` is over its limit |
 | `422` | `client_tool_too_deep` | `parameters` nests more than 8 schema levels |
 | `422` | `client_tool_budget_exceeded` | more than 32 tools, or more than 32,768 characters of definitions |
-| `413` | `client_tool_result_too_large` | a run whose last message is a tool message answers an outstanding, unexpired call with a result over 64 KiB; nothing is recorded |
+| `413` | `client_tool_result_too_large` | a run whose last message is a tool message answers an outstanding, unexpired call with a result over 64 KiB of text/JSON (inline media bytes excluded); nothing is recorded |
 | `503` | `client_tool_store_unavailable` | no client tool store is configured |
 | `409` | `client_tool_pending` | a client tool call is parked and this request can neither answer nor abandon it |
 | `409` | `client_tool_close_failed` | the parked calls could not be closed, for example because the route that issued them cannot be resolved |
@@ -379,9 +384,9 @@ What the model cannot use is **dropped, never refused**, as the protocol require
 | `tool_result_media_unsupported` | the media came from a tool result, and the model or provider does not take media in a tool message |
 | `malformed_part` | the entry is not a valid content part (only reachable outside `/agui`, whose schema check refuses it with `400` first) |
 
-Inline parts count against the 8 MiB body ceiling; there is no per-part limit. The [capability document](#capabilities) does not yet say which parts a route accepts, so a client cannot hide an attach control ahead of time; the drop event is how it finds out.
+Inline parts count against the 8 MiB body ceiling; there is no per-part limit. The [capability document](#capabilities) says which parts a route's model accepts as inline bytes (`multimodal.input`), so a client can hide an attach control ahead of time; the server log warning for a drop ends by pointing at `GET /agui/<route>` for the same reason. URL support varies by provider and is not in the document; a URL part the model cannot take is reported by the drop event and warning.
 
-Tools can return parts too: a tool's result may be an array of the same parts (or `{ result: parts, state }`), and it travels as `TOOL_CALL_RESULT.content`. The model sees the media only as described above; the UI sees every part regardless. A [client-provided tool](#client-provided-tools) may answer with parts as well, but in this release a `role: "tool"` message's parts are stored and replayed to the model as their text only — an answer made only of media parts is stored as empty text. Carrying them through is the next step of this work.
+Tools can return parts too: a tool's result may be an array of the same parts (or `{ result: parts, state }`), and it travels as `TOOL_CALL_RESULT.content`. The model sees the media only as described above; the UI sees every part regardless. A [client-provided tool](#client-provided-tools) may answer with parts as well: a `role: "tool"` message's parts are stored as sent and replayed to the model under the same tool-result rules, so media reach the model only where the profile and provider allow it — never on OpenAI's Chat Completions path — and the UI gets every part on `TOOL_CALL_RESULT`. The one exception is a call closed by the [abandon path](#abandoned-calls), such as a new user message sent instead of resuming: the stored result is replayed as its text only, and the server logs a warning once the call is closed.
 
 `role: "reasoning"` and `role: "activity"` history is dropped on the way in: it is the client's stored artefact of an earlier turn, not something the assistant said.
 
@@ -398,11 +403,14 @@ Tools can return parts too: a tool's result may be an array of the same parts (o
 | `humanInTheLoop.approvals` | an `agent()` route under an `interactive` permissions mode, on a runtime that can answer the approval: `approvals.grants: "required"` with no grant store refuses every resume, so it reports `false`. It means the route *can* pause for approval; whether a turn does depends on its tools and the grants already recorded |
 | `humanInTheLoop.approveWithEdits` | always `false`: a resume answers `once`, `always` or `deny` |
 | `transport.streaming`, `transport.httpBinary` | always `true`: the handler serves SSE, and protobuf when `accept` asks (see [Transport](#transport)) |
-| `reasoning.supported` | always `false` for now: nothing reasoning-shaped reaches the wire; flips when `REASONING_*` events ship |
+| `reasoning` | `{ supported: true, streaming: true, encrypted: false }` when the route's `reasoning` config makes reasoning text stream (an OpenAI reasoning `summary` or an Anthropic thinking budget), framed as `REASONING_*` events; redacted or encrypted material is dropped, never carried. Otherwise `{ supported: false }`: effort alone, no `reasoning`, a config the provider rejects, a chain, graph or workflow route, or a raw runnable. See [Reasoning](#reasoning) |
+| `multimodal.input.image`, `.pdf`, `.audio`, `.video` | the route model's LangChain profile with the provider's converter limits — the same judgment that keeps or drops each part at run time. `image` and `pdf` describe the inline `data` source; URL support varies by provider (Gemini and Ollama drop image URLs, OpenAI drops PDF URLs), and a dropped URL part is reported in the run's [dropped-parts warning](#multimodal-content) |
+| `multimodal.input.file` | always `false`: AG-UI's flag for arbitrary uploads the four part types do not cover; a provider file handle is a source, not that |
+| `multimodal.output` | always `false`: AG-UI 1.0 defines no image or audio output carrier |
 | `state.snapshots`, `state.deltas` | always `false`: no state snapshot or state delta event is emitted |
 | `state.persistentState` | `true` for an `agent()` route, whose graph runs under the boot checkpointer; `false` for a chain, graph or workflow route, invoked once without one |
 
-A chain, graph or workflow route reports `false` for client tools, tool calls, structured output, interrupts, approvals and persistent state. AG-UI treats an omitted field as unknown, so a claim B4.run cannot settle is left out rather than guessed. An agent route that exports a raw runnable omits approvals, parallel calls and `state.persistentState`, because its own code decides them. A runtime that cannot load route modules at all (no node fallbacks and no static manifest) answers only `transport`, `reasoning`, `state.snapshots` and `state.deltas` for an agent route — the claims that hold for every route. A route whose module fails to load is an error, as it is for a run. `multiAgent` and `state.memory` are omitted until AG-UI sub-project 2 settles them; `transport.websocket`, `transport.resumable` and `transport.pushNotifications` are omitted because nothing in the runtime serves them.
+A chain, graph or workflow route reports `false` for client tools, tool calls, structured output, interrupts, approvals and persistent state. AG-UI treats an omitted field as unknown, so a claim B4.run cannot settle is left out rather than guessed. An agent route that exports a raw runnable omits approvals, parallel calls and `state.persistentState`, because its own code decides them. `multimodal` is omitted for a raw runnable, a chain, graph or workflow route, and a route whose provider package is missing or cannot be read; the rest of the document stands, and a run on that route still reports the real error. A runtime that cannot load route modules at all (no node fallbacks and no static manifest) answers only `transport`, `reasoning`, `state.snapshots` and `state.deltas` for an agent route — the claims that hold for every route. A route whose module fails to load is an error, as it is for a run. `multiAgent` and `state.memory` are omitted until AG-UI sub-project 2 settles them; `transport.websocket`, `transport.resumable` and `transport.pushNotifications` are omitted because nothing in the runtime serves them.
 
 Route middleware runs first, as it does for a run, but sees `method: "GET"`, no body and no route params, so middleware that authorizes on the request body refuses it. An unknown route is `404`. The response is `Cache-Control: no-store`, because middleware decides per caller who may see it.
 

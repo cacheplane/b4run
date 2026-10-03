@@ -124,6 +124,8 @@ import { scenarios } from "@b4run/sdk/testing"
 | `ClientToolRecorder` | Record a tool call before it runs or its turn parks, and settle a server call afterward. |
 | `CLIENT_TOOL_RECORDER_KEY` | Name the run-config key the per-run client tool recorder travels under. |
 | `createMemoryClientToolCallStore` | Create the in-process client tool call store used by tests and embedders. |
+| `encodeClientToolResult` | Encode a client tool result for a store's text column: text as itself, a part list as a self-describing JSON envelope. |
+| `decodeClientToolResult` | Decode a stored client tool result: an envelope back to its parts, anything else as the text it is. |
 | `B4ContentPart` | Describe one AG-UI 1.0 content part: a `B4TextPart` or a `B4MediaPart`. |
 | `B4TextPart` | Describe a `text` content part. |
 | `B4MediaPart` | Describe an `image`, `audio`, `video` or `document` part and its source. |
