@@ -152,8 +152,8 @@ record still groups the siblings. Nothing special-cases the prefix.
 - `apps/web/content/docs/ag-ui.mdx` "The tool-call record": one sentence on what a child row
   records (its own route, and the `task` that launched it).
 - `api/sdk.mdx`: the `ClientToolCallRecord` row mentions the parent link.
-- One patch changeset: `@b4run/sdk`, `@b4run/core` (only if the `B4Config` doc moves — otherwise
-  omit), `@b4run/langchain`, `@b4run/cli`, `@b4run/sqlite-storage`, `@b4run/postgres-storage`.
+- One patch changeset: `@b4run/sdk`, `@b4run/langchain`, `@b4run/cli`, `@b4run/sqlite-storage`,
+  `@b4run/postgres-storage`. `@b4run/core` is not touched.
   It states the `route_id` meaning change for child rows and the required `parentToolCallId`
   field as breaking for custom stores and recorder fakes.
 
