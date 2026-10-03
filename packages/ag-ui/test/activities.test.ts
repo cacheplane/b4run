@@ -39,7 +39,10 @@ describe("isB4ActivityChunkType", () => {
       "subagent.plan_update",
       "subagent.tool_call",
       "subagent.tool_result",
-      "subagent.message",
+      "subagent.token",
+      "subagent.message_end",
+      "subagent.reasoning",
+      "subagent.tool_call_args",
       "subagent.end",
     ]) {
       expect(isB4ActivityChunkType(type)).toBe(true)
@@ -167,13 +170,13 @@ describe("createB4ActivityProjector", () => {
     const call = projector.project("subagent.tool_call", {
       ...identity,
       id: "tool-1",
-      tool: "searchCorpus",
+      name: "searchCorpus",
       input: { secret: "private prompt" },
     })
     const result = projector.project("subagent.tool_result", {
       ...identity,
       id: "tool-1",
-      tool: "wrong-name-must-not-be-read",
+      name: "wrong-name-must-not-be-read",
       output: { secret: "private result" },
     })
 
@@ -197,7 +200,7 @@ describe("createB4ActivityProjector", () => {
     const called = projector.project("subagent.tool_call", {
       ...identity,
       id: "tool-1",
-      tool: "  searchCorpus  ",
+      name: "  searchCorpus  ",
     })
     expect(called?.content).toMatchObject({
       tools: [{ name: "searchCorpus", status: "running" }],
@@ -223,7 +226,7 @@ describe("createB4ActivityProjector", () => {
     const padded = projector.project("subagent.tool_call", {
       ...identity,
       id: "  tool-1  ",
-      tool: "  searchCorpusAgain  ",
+      name: "  searchCorpusAgain  ",
     })
     expect(padded?.content).toMatchObject({
       tools: [
@@ -255,7 +258,7 @@ describe("createB4ActivityProjector", () => {
       snapshot = projector.project("subagent.tool_call", {
         ...identity,
         id: `tool-${index}`,
-        tool: `toolName${index}`,
+        name: `toolName${index}`,
       })
     }
 
@@ -289,7 +292,7 @@ describe("createB4ActivityProjector", () => {
     const reinserted = projector.project("subagent.tool_call", {
       ...identity,
       id: "tool-1",
-      tool: "toolName1",
+      name: "toolName1",
     })
     expect(reinserted?.content).toMatchObject({
       tools: [
@@ -311,12 +314,12 @@ describe("createB4ActivityProjector", () => {
     projector.project("subagent.tool_call", {
       ...identity,
       id: "tool-running",
-      tool: "searchCorpus",
+      name: "searchCorpus",
     })
     projector.project("subagent.tool_call", {
       ...identity,
       id: "tool-completed",
-      tool: "readDoc",
+      name: "readDoc",
     })
     projector.project("subagent.tool_result", { ...identity, id: "tool-completed" })
 
@@ -344,7 +347,7 @@ describe("createB4ActivityProjector", () => {
       projector.project("subagent.tool_call", {
         ...identity,
         id: "tool-late",
-        tool: "lateTool",
+        name: "lateTool",
       }),
     ).toBeNull()
     expect(projector.project("subagent.plan_update", { ...identity, todos: [] })).toBeNull()
@@ -386,7 +389,7 @@ describe("createB4ActivityProjector", () => {
     projector.project("subagent.tool_call", {
       ...identity,
       id: "tool-1",
-      tool: "searchCorpus",
+      name: "searchCorpus",
     })
 
     const repeated = projector.project("subagent.start", identity)
@@ -408,11 +411,11 @@ describe("createB4ActivityProjector", () => {
       projector.project("subagent.tool_call", {
         ...identity,
         id: "tool-1",
-        tool: "searchCorpus",
+        name: "searchCorpus",
       }),
     ).toBeNull()
     expect(projector.project("subagent.tool_result", { ...identity, id: "tool-1" })).toBeNull()
-    expect(projector.project("subagent.message", { ...identity, content: "private" })).toBeNull()
+    expect(projector.project("subagent.token", { ...identity, content: "private" })).toBeNull()
     expect(projector.project("subagent.end", identity)).toBeNull()
   })
 
@@ -429,12 +432,12 @@ describe("createB4ActivityProjector", () => {
     projector.project("subagent.tool_call", {
       ...identity,
       id: "research-tool",
-      tool: "searchCorpus",
+      name: "searchCorpus",
     })
     projector.project("subagent.tool_call", {
       ...writerIdentity,
       id: "writer-tool",
-      tool: "draftReport",
+      name: "draftReport",
     })
 
     const researchEnded = projector.project("subagent.end", identity)
@@ -462,7 +465,7 @@ describe("createB4ActivityProjector", () => {
     const projector = createB4ActivityProjector("run-1")
     projector.project("subagent.start", { ...identity, private_start: "secret-start" })
     expect(
-      projector.project("subagent.message", {
+      projector.project("subagent.token", {
         ...identity,
         content: "private child prose",
         reasoning: "private reasoning",
@@ -471,13 +474,13 @@ describe("createB4ActivityProjector", () => {
     const call = projector.project("subagent.tool_call", {
       ...identity,
       id: "private-tool-id",
-      tool: "searchCorpus",
+      name: "searchCorpus",
       input: { query: "private query" },
     })
     projector.project("subagent.tool_result", {
       ...identity,
       id: "private-tool-id",
-      tool: "private result tool name",
+      name: "private result tool name",
       output: "private tool output",
     })
     const ended = projector.project("subagent.end", {
@@ -590,14 +593,14 @@ describe("createB4ActivityProjector", () => {
       projector.project("subagent.tool_call", {
         ...identity,
         id: " ",
-        tool: "searchCorpus",
+        name: "searchCorpus",
       }),
     ).toBeNull()
     expect(
       projector.project("subagent.tool_call", {
         ...identity,
         id: "tool-1",
-        tool: " ",
+        name: " ",
       }),
     ).toBeNull()
     expect(projector.project("subagent.tool_result", { ...identity, id: "unknown" })).toBeNull()
@@ -627,7 +630,7 @@ describe("createB4ActivityProjector", () => {
 
     const projector = createB4ActivityProjector("run-1")
     projector.project("subagent.start", identity)
-    const hostileTool = Object.defineProperty({ ...identity, tool: "searchCorpus" }, "id", {
+    const hostileTool = Object.defineProperty({ ...identity, name: "searchCorpus" }, "id", {
       get() {
         throw new Error("hostile tool id")
       },
@@ -640,8 +643,8 @@ describe("createB4ActivityProjector", () => {
         throw new Error("child prose must not be read")
       },
     })
-    expect(() => projector.project("subagent.message", hostileMessage)).not.toThrow()
-    expect(projector.project("subagent.message", hostileMessage)).toBeNull()
+    expect(() => projector.project("subagent.token", hostileMessage)).not.toThrow()
+    expect(projector.project("subagent.token", hostileMessage)).toBeNull()
 
     const hostileEnd = Object.defineProperty({ ...identity }, "final_message", {
       get() {
@@ -739,7 +742,7 @@ describe("orchestration correlation", () => {
     const toolCall = projector.project("subagent.tool_call", {
       ...IDENTITY,
       id: "child-tool-1",
-      tool: "readDoc",
+      name: "readDoc",
     })
     const end = projector.project("subagent.end", IDENTITY)
 
