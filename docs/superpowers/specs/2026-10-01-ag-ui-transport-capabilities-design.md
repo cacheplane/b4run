@@ -265,7 +265,8 @@ repository root.
 ## 8. Risks
 
 - **Wildcard clients get bytes they did not expect.** A bare `curl` or a
-  `fetch` with no `Accept` receives protobuf. This is the spec's rule and
+  `fetch` that sets no `Accept` (both send `*/*` on the wire) receives
+  protobuf. This is the spec's rule and
   the encoder's default; documented in `ag-ui.mdx`. Every B4.run client —
   `@ag-ui/client`, CopilotKit, `b4 threads`, the examples' routes — names
   `text/event-stream`.

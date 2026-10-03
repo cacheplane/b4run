@@ -1104,7 +1104,7 @@ export async function createRuntimeFetchHandler(
           // flips only after the tracked Response has been constructed — if
           // construction throws, the finally below must still decrement.
           // Disposal chains onto the SAME settle hook, never onto `fetch`
-          // resolving: an SSE turn is still streaming at that point, and ending
+          // resolving: a streaming turn is still streaming at that point, and ending
           // a pool mid-stream breaks the tail of every streaming turn. Settling
           // the body only ARMS disposal — see maybeSettle for the run half.
           const tracked = new Response(

@@ -341,7 +341,7 @@ The `422` refusals carry [`B4_E5401`](/docs/errors).
 | `humanInTheLoop.approveWithEdits` | always `false`: a resume answers `once`, `always` or `deny` |
 | `transport.streaming`, `transport.httpBinary` | always `true`: the handler serves SSE, and protobuf when `accept` asks (see [Transport](#transport)) |
 | `reasoning.supported` | always `false` for now: nothing reasoning-shaped reaches the wire; flips when `REASONING_*` events ship |
-| `state.snapshots`, `state.deltas` | always `false`: no `STATE_SNAPSHOT` or `STATE_DELTA` is emitted |
+| `state.snapshots`, `state.deltas` | always `false`: no state snapshot or state delta event is emitted |
 | `state.persistentState` | `true` for an `agent()` route, whose graph runs under the boot checkpointer; `false` for a chain, graph or workflow route, invoked once without one |
 
 A chain, graph or workflow route reports `false` for client tools, tool calls, structured output, interrupts, approvals and persistent state. AG-UI treats an omitted field as unknown, so a claim B4.run cannot settle is left out rather than guessed. An agent route that exports a raw runnable omits approvals, parallel calls and `state.persistentState`, because its own code decides them. A runtime that cannot load route modules at all (no node fallbacks and no static manifest) answers only `transport`, `reasoning`, `state.snapshots` and `state.deltas` for an agent route — the claims that hold for every route. A route whose module fails to load is an error, as it is for a run. `multiAgent` and `state.memory` are omitted until AG-UI sub-project 2 settles them; `transport.websocket`, `transport.resumable` and `transport.pushNotifications` are omitted because nothing in the runtime serves them.

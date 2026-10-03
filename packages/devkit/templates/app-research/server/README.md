@@ -25,6 +25,7 @@ and streams back a cited report:
 
 ```bash
 curl -N "http://127.0.0.1:3002/agui/%2Fresearch%23agent" \
+  -H 'accept: text/event-stream' \
   -H 'content-type: application/json' \
   -d '{"threadId":"t1","runId":"r1","state":{},"tools":[],"context":[],"forwardedProps":{},
        "messages":[{"id":"1","role":"user","content":"What are common agent architectures?"}]}'
