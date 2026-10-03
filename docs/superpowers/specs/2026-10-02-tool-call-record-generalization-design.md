@@ -192,13 +192,20 @@ id, in issue order (`listOutstanding`).
   same thread cannot void rows in between.
 - **Partial response:** the same read replaces the ids derived from checkpoint parks.
 
+Each read is scoped to what the request owns, so a stray row (a void that failed earlier) or a
+row from a run still in flight is never offered to the client as answerable: the live turn keeps
+rows issued by this run (by `runId`); the partial response intersects with the snapshot's client
+parks; the no-op path (a trailing tool message that answers nothing, reached only when no client
+park is pending) reports nothing pending.
+
 The stream normalizer's `onClientToolPark` callback and the handler's in-memory `parkedClientCallIds`
 set are deleted. The abandon and resume paths continue to read the checkpoint parks, because they
 need resume keys the record does not hold; the record is the source of *which calls are pending*,
 the checkpoint the source of *how to resume them*.
 
-The replay-only stub rebuild, which reads records for the parked ids, filters to `kind: "client"`
-explicitly.
+Where the handler matches records to checkpoint parks (the foreign-park check and the abandon
+close's issuing-route lookup) it considers `kind: "client"` rows only. The replay-only stub
+rebuild reads checkpoint parks, not records, and is unchanged.
 
 ## 4. Pruning
 
@@ -214,7 +221,12 @@ resolver runs earlier, under the resume claim; that is safe because prune delete
 rows, and the only non-open rows a resume depends on are answered client rows whose results the
 resolver has already copied into its decision. A row answered more than the retention window ago
 and never resumed (a crash between answer and resume, then an idle thread) is pruned, and the
-next run abandons its park with the fixed abandoned result instead of the stored one — accepted. Only non-open rows are eligible, so an outstanding client call survives
+next run abandons its park with the fixed abandoned result instead of the stored one — accepted.
+
+One more reader runs after prune: the resumed replay of a client stub re-reads its row through the
+recorder's `has`. So the cutoff is never shorter than the client-call TTL
+(`before = now − max(retentionMs, ttlMs)`): a row answered while its park is still resumable
+survives until the replay has re-read it, whatever the operator set retention to. Only non-open rows are eligible, so an outstanding client call survives
 until the TTL abandons it; the abandon voids it, and the next run on the thread may prune it. A
 prune failure is logged and the run continues: retention is housekeeping.
 
@@ -250,7 +262,7 @@ rows; that is accepted, and the docs say so.
 - **Turn resolver** (`@b4run/cli`): a message naming a server row, a closed client row, and an
   unknown id each store nothing; the existing answer path is unchanged.
 - **Handler** (`@b4run/cli`): `pendingToolCallIds` on the live path equals the record's open
-  client rows; the partial response reads the record; prune runs before the resolver on every run
+  client rows; the partial response reads the record; prune runs under the run slot on every run
   and its failure does not fail the run; the retention setting is validated at boot.
 - **Runtime config**: `toolCallRetentionMs` default, bounds, and the boot error message.
 
