@@ -334,6 +334,74 @@ describe("GET /agui/:routeId", () => {
     })
   })
 
+  it("omits multimodal, and keeps the rest, when the provider package cannot be read", async () => {
+    const appRoot = await fixtureApp()
+    const routeFile = join(appRoot, "src/app/open/index.ts")
+    const brokenInstall = async (): Promise<Record<string, unknown>> => {
+      throw new Error("SyntaxError in @langchain/openai")
+    }
+
+    const support = await checkRouteModalitySupport({
+      appRoot,
+      bootFallbacks: nodeBootFallbacks,
+      importer: brokenInstall,
+      routeFile,
+      routeId: "/open",
+    })
+    expect(support).toEqual({ ok: false, message: "SyntaxError in @langchain/openai" })
+
+    const response = await handleAgUiCapabilitiesRequest({
+      appRoot,
+      boot: { bootFallbacks: nodeBootFallbacks },
+      middleware: undefined,
+      modelImporter: brokenInstall,
+      registry: {
+        appRoot,
+        entries: [],
+        lookup: () => ({
+          assistantId: "/open#agent",
+          mode: "agent",
+          routeFile,
+          routeId: "/open",
+          routePath: "open/index.ts",
+        }),
+      },
+      request: new Request(capabilitiesUrl("/open#agent")),
+      routeKey: "/open#agent",
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      humanInTheLoop: {
+        approvals: false,
+        approveWithEdits: false,
+        interrupts: true,
+        supported: true,
+      },
+      output: { structuredOutput: true },
+      reasoning: NO_REASONING,
+      state: AGENT_STATE,
+      tools: { clientProvided: false, parallelCalls: true, supported: true },
+      transport: TRANSPORT,
+    })
+  })
+
+  it("names a provider package that does not export its chat model", async () => {
+    const appRoot = await fixtureApp()
+    expect(
+      await checkRouteModalitySupport({
+        appRoot,
+        bootFallbacks: nodeBootFallbacks,
+        importer: async () => ({}),
+        routeFile: join(appRoot, "src/app/open/index.ts"),
+        routeId: "/open",
+      }),
+    ).toEqual({
+      ok: false,
+      message: 'Provider package for "openai" is not installed or does not export its chat model',
+    })
+  })
+
   it("advertises the binary binding on a one-shot route", async () => {
     const handler = await createHandler(await fixtureApp())
     expect((await capabilities(handler, "/echo#graph")).transport).toEqual(TRANSPORT)

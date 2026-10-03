@@ -987,12 +987,15 @@ export type RouteModalitySupport =
  * run applies (`resolveModalitySupport`), read off the model's profile
  * without constructing it (most provider constructors throw without a
  * credential). `ok: false` for a non-agent route, a raw runnable, an
- * unresolvable provider, or a provider package that is not installed:
- * nothing is claimed in any of those cases.
+ * unresolvable provider, or a provider package that is not installed or
+ * cannot be read (any import or profile error): nothing is claimed in any of
+ * those cases, and the rest of the route's document stands.
  */
 export async function checkRouteModalitySupport(options: {
   readonly appRoot: string
   readonly bootFallbacks: RuntimeBootFallbacks | undefined
+  /** Test seam: replaces the provider-package import `readModelProfile` does. */
+  readonly importer?: Parameters<typeof readModelProfile>[0]["importer"]
   readonly routeFile: string
   readonly routeId: string
 }): Promise<RouteModalitySupport> {
@@ -1017,9 +1020,21 @@ export async function checkRouteModalitySupport(options: {
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) }
   }
-  const profiled = await readModelProfile({ provider, model: descriptor.model })
+  let profiled: Awaited<ReturnType<typeof readModelProfile>>
+  try {
+    profiled = await readModelProfile({
+      provider,
+      model: descriptor.model,
+      ...(options.importer !== undefined ? { importer: options.importer } : {}),
+    })
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
   if (!profiled) {
-    return { ok: false, message: `The provider package for "${provider}" is not installed.` }
+    return {
+      ok: false,
+      message: `Provider package for "${provider}" is not installed or does not export its chat model`,
+    }
   }
   return { ok: true, support: resolveModalitySupport(profiled, provider) }
 }

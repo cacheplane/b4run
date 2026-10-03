@@ -60,7 +60,8 @@
  *   cover, and a provider file handle is a source, not that. `output` is all
  *   `false`: AG-UI 1.0 defines no image or audio output carrier. The section
  *   is omitted for a raw runnable, a chain/graph/workflow route, or a
- *   provider package that is not installed.
+ *   provider package that is not installed or cannot be read — a broken
+ *   provider install leaves the rest of the document standing.
  * - `multiAgent` is omitted: subagent tooling is app-wired, not
  *   route-declared, and no `SUBAGENT_*` event exists yet (sub-project 2).
  *
@@ -131,6 +132,8 @@ export interface AgUiCapabilitiesRequestOptions {
   readonly clientTools?: Pick<ClientToolRuntime, "store">
   readonly config?: B4Config
   readonly middleware: MiddlewareHandler | undefined
+  /** Test seam: the provider-package import the `multimodal` preflight does. */
+  readonly modelImporter?: Parameters<typeof checkRouteModalitySupport>[0]["importer"]
   readonly permissionsStore?: PermissionsStore | (() => Promise<PermissionsStore>)
   readonly registry: RuntimeRegistry
   readonly request: Request
@@ -205,7 +208,10 @@ async function agentCapabilities(
     structuredOutput = (await checkRouteResponseFormatSupport(routeModule)).ok
     const reasoningSupport = await checkRouteReasoningSupport(routeModule)
     streamsReasoning = reasoningSupport.ok && reasoningSupport.streams
-    modality = await checkRouteModalitySupport(routeModule)
+    modality = await checkRouteModalitySupport({
+      ...routeModule,
+      ...(options.modelImporter !== undefined ? { importer: options.modelImporter } : {}),
+    })
   } catch (error) {
     // With node fallbacks the load is the one `POST` would do, and its
     // failure is the route's — surfaced, never dressed up as a document.
