@@ -375,7 +375,34 @@ describe("resolveClientToolTurn", () => {
     expect((await store.get(THREAD, "call-1"))?.result).toBe("")
   })
 
-  test("a media-only tool answer is stored as its text and the dropped media is announced", async () => {
+  test("a tool answer with parts is stored as parts and resumes with them", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const parts = [
+        { type: "text", text: "panel opened" },
+        { type: "image", source: { type: "data", value: "AAAA", mimeType: "image/png" } },
+      ] as const
+      const store = await storeWith(record("call-1"))
+      const turn = await resolveClientToolTurn({
+        store,
+        threadId: THREAD,
+        pending: snapshot(clientPark("call-1", KEY_A)),
+        messages: [user("go"), { role: "tool", toolCallId: "call-1", content: [...parts] }],
+        now: NOW,
+      })
+      expect(turn).toEqual({
+        mode: "resume",
+        resume: { [KEY_A]: { clientToolResult: parts } },
+        others: [],
+      })
+      expect((await store.get(THREAD, "call-1"))?.result).toEqual(parts)
+      expect(warn).not.toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  test("an answered parts result closes an abandon as its text, warning once", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     try {
       const store = await storeWith(record("call-1"))
@@ -389,23 +416,22 @@ describe("resolveClientToolTurn", () => {
             role: "tool",
             toolCallId: "call-1",
             content: [
-              {
-                type: "image",
-                source: { type: "data", value: "AAAA", mimeType: "image/png" },
-              },
+              { type: "text", text: "panel opened" },
+              { type: "image", source: { type: "data", value: "AAAA", mimeType: "image/png" } },
             ],
           },
+          user("next"),
         ],
         now: NOW,
       })
       expect(turn).toEqual({
-        mode: "resume",
-        resume: { [KEY_A]: { clientToolResult: "" } },
-        others: [],
+        mode: "abandon",
+        calls: [{ toolCallId: "call-1", toolName: "open_panel", result: "panel opened" }],
+        abandonedToolCallIds: [],
+        reason: "new_user_message",
       })
-      expect((await store.get(THREAD, "call-1"))?.result).toBe("")
       expect(warn.mock.calls.map((call) => String(call[0]))).toEqual([
-        "B4: client tool result for call-1 carried 1 media part(s); this release stores and replays its text only (sub-project 3 PR 2 carries them).",
+        "B4: client tool result for call-1 closed as text; its 1 media part(s) are not replayed on this path.",
       ])
     } finally {
       warn.mockRestore()

@@ -366,6 +366,48 @@ describe("POST /agui/:route with client-provided tools", () => {
     expect((await t.store.get(t.threadId, toolCallId))?.answeredAt).not.toBeNull()
   })
 
+  it("round trip with parts: stored as sent, replayed under the tool-result rules, the drop announced", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    cleanup.push(() => warn.mockRestore())
+    const t = await parkedRun([CALL_A])
+    const parts = [
+      { type: "text", text: "panel opened" },
+      { type: "image", source: { type: "data", value: "AAAA", mimeType: "image/png" } },
+    ]
+    const second = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-2", [
+        USER_HELLO,
+        assistantCalls(["call_a"]),
+        { id: "m3", role: "tool", toolCallId: "call_a", content: parts },
+      ]),
+    )
+    expect(second.status).toBe(200)
+    expect(second.text).toContain("Opened.")
+    expect((await t.store.get(t.threadId, "call_a"))?.result).toEqual(parts)
+
+    // gpt-5-mini's profile takes no media in a tool message: the model sees the text only.
+    const requests = t.aimock.getRequests()
+    expect(requests).toHaveLength(2)
+    const toolMessage = (requests[1]?.body?.messages ?? []).find(
+      (message) => (message as { role?: string }).role === "tool",
+    ) as { content: unknown } | undefined
+    expect(JSON.stringify(toolMessage?.content)).toContain("panel opened")
+    expect(JSON.stringify(toolMessage?.content)).not.toContain("AAAA")
+
+    const dropped = second.events.find(
+      (event) => event.type === "CUSTOM" && event.name === "b4.content_parts_dropped",
+    ) as { value?: { toolCallId?: string; parts?: unknown[] } } | undefined
+    expect(dropped?.value?.toolCallId).toBe("call_a")
+    expect(dropped?.value?.parts).toEqual([
+      expect.objectContaining({ index: 1, reason: "tool_result_media_unsupported" }),
+    ])
+    const result = second.events.find(
+      (event) => event.type === "TOOL_CALL_RESULT" && event.toolCallId === "call_a",
+    ) as { content?: unknown } | undefined
+    expect(result?.content).toEqual(parts)
+  })
+
   it("resent history is not a replay: a new user message after the round trip is a normal turn", async () => {
     const t = await parkedRun([CALL_A])
     const history = [
@@ -746,6 +788,47 @@ describe("POST /agui/:route with client-provided tools", () => {
         USER_HELLO,
         assistantCalls(["call_a"]),
         toolResult("m3", "call_a", big),
+      ]),
+    )
+    expect(response.status).toBe(413)
+    expect(response.json().code).toBe("client_tool_result_too_large")
+    expect((await t.store.get(t.threadId, "call_a"))?.answeredAt).toBeNull()
+  })
+
+  it("a parts result is screened on its text and JSON: 100 KB of inline bytes is the body's business", async () => {
+    const t = await parkedRun([CALL_A])
+    const parts = [
+      { type: "text", text: "0123456789" },
+      {
+        type: "image",
+        source: { type: "data", value: "A".repeat(100_000), mimeType: "image/png" },
+      },
+    ]
+    const response = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-2", [
+        USER_HELLO,
+        assistantCalls(["call_a"]),
+        { id: "m3", role: "tool", toolCallId: "call_a", content: parts },
+      ]),
+    )
+    expect(response.status).toBe(200)
+    expect((await t.store.get(t.threadId, "call_a"))?.result).toEqual(parts)
+  })
+
+  it("a parts result whose text alone is over the cap is refused with 413", async () => {
+    const t = await parkedRun([CALL_A])
+    const response = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-2", [
+        USER_HELLO,
+        assistantCalls(["call_a"]),
+        {
+          id: "m3",
+          role: "tool",
+          toolCallId: "call_a",
+          content: [{ type: "text", text: "x".repeat(MAX_CLIENT_TOOL_RESULT + 1) }],
+        },
       ]),
     )
     expect(response.status).toBe(413)

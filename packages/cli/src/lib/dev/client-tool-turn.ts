@@ -59,7 +59,13 @@ import {
   type ClientToolResumeValue,
   isClientToolCallEnvelope,
 } from "@b4run/core"
-import { type ClientToolCallRecord, type ClientToolCallStore, contentPartsText } from "@b4run/sdk"
+import {
+  type B4MessageContent,
+  type ClientToolCallRecord,
+  type ClientToolCallStore,
+  contentPartsText,
+  isContentPartArray,
+} from "@b4run/sdk"
 
 import {
   isClientToolPark,
@@ -81,7 +87,8 @@ export type ClientToolTurn =
       readonly mode: "abandon"
       /**
        * Every client park's call to close: unanswered ones get
-       * ABANDONED_CLIENT_TOOL_RESULT, answered ones keep their result.
+       * ABANDONED_CLIENT_TOOL_RESULT, answered ones keep their result's text
+       * (the close bypasses the tool-result converter; media are warned about).
        */
       readonly calls: ReadonlyArray<{
         readonly toolCallId: string
@@ -165,26 +172,19 @@ export async function resolveClientToolTurn(options: {
     if (typeof toolCallId !== "string" || !answerable.has(toolCallId)) continue
     // "already_answered" / "voided" / "missing" are history or a lost race:
     // ignored. A later duplicate message for the same call lands here too.
-    // PR 1 stores a client-tool result's text only; parts (a frontend
-    // screenshot answer) are carried in sub-project 3's PR 2 (spec §6) — until
-    // then a parts-only answer is stored as "", and the drop is announced.
-    if (Array.isArray(message.content)) {
-      const media = message.content.filter((part) => part.type !== "text").length
-      if (media > 0) {
-        console.warn(
-          `B4: client tool result for ${toolCallId} carried ${media} media part(s); this release stores and replays its text only (sub-project 3 PR 2 carries them).`,
-        )
-      }
-    }
-    await store.answer({ threadId, toolCallId, result: contentPartsText(message.content), at })
+    // Stored as sent: text, or the parts (a frontend screenshot answer). The
+    // resume hands them to the stub, whose result goes through the tool-result
+    // conversion like a server tool's (spec §6).
+    await store.answer({ threadId, toolCallId, result: message.content, at })
   }
 
   const rows = answerable.size > 0 ? await readRows(store, threadId) : rowsBefore
-  const answeredResult = (toolCallId: string | undefined): string | undefined => {
+  const answeredResult = (toolCallId: string | undefined): B4MessageContent | undefined => {
     if (toolCallId === undefined) return undefined
     const row = rows.get(toolCallId)
     if (row?.kind !== "client" || row.answeredAt === null || row.voidedAt !== null) return undefined
-    return typeof row.result === "string" ? row.result : undefined
+    const result: unknown = row.result
+    return typeof result === "string" || isContentPartArray(result) ? result : undefined
   }
 
   const abandon = (reason: ClientToolAbandonReason): ClientToolTurn => {
@@ -199,7 +199,10 @@ export async function resolveClientToolTurn(options: {
       calls.push({
         toolCallId,
         toolName: rows.get(toolCallId)?.toolName ?? envelopeName ?? "",
-        result: result ?? ABANDONED_CLIENT_TOOL_RESULT,
+        result:
+          result === undefined
+            ? ABANDONED_CLIENT_TOOL_RESULT
+            : abandonCloseText(toolCallId, result),
       })
     }
     return { mode: "abandon", calls, abandonedToolCallIds, reason }
@@ -221,6 +224,24 @@ export async function resolveClientToolTurn(options: {
   }
   if (allAnswered) return { mode: "resume", resume, others }
   return { mode: "partial" }
+}
+
+/**
+ * An answered result as the abandon close writes it. The close puts a
+ * `ToolMessage` straight into the `tools` node (`client-tool-abandon.ts`),
+ * bypassing the tool-result converter, so it carries text only; media the
+ * client sent are said once rather than lost silently.
+ */
+function abandonCloseText(toolCallId: string, result: B4MessageContent): string {
+  if (typeof result !== "string") {
+    const media = result.filter((part) => part.type !== "text").length
+    if (media > 0) {
+      console.warn(
+        `B4: client tool result for ${toolCallId} closed as text; its ${media} media part(s) are not replayed on this path.`,
+      )
+    }
+  }
+  return contentPartsText(result)
 }
 
 async function readRows(
