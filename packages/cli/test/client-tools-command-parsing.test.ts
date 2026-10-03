@@ -63,6 +63,7 @@ async function seededApp(): Promise<string> {
     voidedAt: new Date(Date.now() - 11 * 60 * 1000).toISOString(),
     kind: "client",
     settledAt: null,
+    parentToolCallId: null,
   }
   await store.issue(record)
   return appRoot

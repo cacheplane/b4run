@@ -6,10 +6,12 @@ import type { RunnableConfig } from "@langchain/core/runnables"
 import { DynamicStructuredTool } from "@langchain/core/tools"
 import { isGraphInterrupt } from "@langchain/langgraph"
 import type { z } from "zod"
-import { recordToolCall } from "./tool-call-recording.js"
+import { readCallOrigin, recordToolCall } from "./tool-call-recording.js"
 
 export interface ResolvedSubagentGraph {
   readonly routeId: string
+  /** The child route's key (`<routeId>#<mode>`), as the tool-call record names routes. */
+  readonly routeKey: string
   /** The child's declared description, surfaced on `subagent.start` for clients. */
   readonly description?: string
   readonly graph: {
@@ -37,6 +39,7 @@ interface B4SubagentStackEntry {
   readonly callId: string
   readonly name: string
   readonly routeId: string
+  readonly routeKey: string
 }
 
 const MAX_SUBAGENT_DEPTH = 3
@@ -62,9 +65,12 @@ export function convertSubagentTaskToLangChain(
       const toolRunId =
         typeof manager?.runId === "string" && manager.runId !== "" ? manager.runId : undefined
       const input = rawInput as { input: string; subagent: string }
+      // The enclosing context's origin — the stack as this task sees it, not
+      // including the entry it is about to push for its own child.
+      const origin = readCallOrigin(liveConfig)
       return recordToolCall(
         liveConfig,
-        { toolCallId: providerCallId ?? "", toolName: tool.name },
+        { toolCallId: providerCallId ?? "", toolName: tool.name, ...(origin ? { origin } : {}) },
         async () => {
           const parentB4 = readB4Metadata(liveConfig)
           const nextDepth = readDepth(parentB4) + 1
@@ -86,6 +92,7 @@ export function convertSubagentTaskToLangChain(
             callId,
             name: input.subagent,
             routeId: resolved.child.routeId,
+            routeKey: resolved.child.routeKey,
           }
           const childConfig: RunnableConfig = {
             ...liveConfig,
@@ -189,7 +196,8 @@ function isSubagentStackEntry(value: unknown): value is B4SubagentStackEntry {
   return (
     typeof entry.callId === "string" &&
     typeof entry.name === "string" &&
-    typeof entry.routeId === "string"
+    typeof entry.routeId === "string" &&
+    typeof entry.routeKey === "string"
   )
 }
 

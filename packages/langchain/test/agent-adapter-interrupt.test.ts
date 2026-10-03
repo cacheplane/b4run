@@ -379,7 +379,11 @@ describe("streamAgent — interrupt propagation", () => {
       },
       async () => ({
         ok: true,
-        child: { routeId: "/parent/subagents/researcher", graph: child },
+        child: {
+          routeId: "/parent/subagents/researcher",
+          routeKey: "/parent/subagents/researcher#agent",
+          graph: child,
+        },
       }),
     )
     const checkpointer = new MemorySaver()

@@ -64,6 +64,7 @@ function record(
     voidedAt: null,
     kind: "client",
     settledAt: null,
+    parentToolCallId: null,
     ...overrides,
   }
 }
