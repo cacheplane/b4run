@@ -90,30 +90,6 @@ limits, and what the opt-in does and does not protect against.
   prefer static suggestion lists.
 </Callout>
 
-### Multimodal content is carried, and what the model cannot take is announced
-
-A 1.0 message's `content` may be a list of parts: `text`, and `image`, `audio`, `video` or `document` parts whose `source` is inline bytes (`data`, base64 with a `mimeType`), a URL (`url`), or a handle the model provider issued (`file`). B4.run carries them to the route's model as LangChain content blocks: inline bytes as bytes, a URL as a URL — B4.run never fetches it; the provider does — and a provider handle as that provider's file id, when the route runs on the provider that minted it. A `document` is a PDF: a part whose `mimeType` is not `application/pdf` is not guessed at.
-
-Which parts a route's model takes is read from the model's LangChain profile, then narrowed by what each provider's LangChain converter can actually send. Images are carried inline and by URL where the profile allows; documents (`application/pdf` only) likewise, except that a PDF by URL never reaches an OpenAI model; audio and video only where the profile says so. A model with no profile — every `ollama` and `mistral` model, and an id the provider package does not know — takes images only (`ollama` inline only, since its converter cannot pass a URL through). Provider file handles are carried only on OpenAI (documents) and Anthropic (images and documents). Media in a tool result reaches the model only where both the profile and the provider allow it, which is never on OpenAI: B4.run uses its Chat Completions path, which sends a tool message as text.
-
-What the model cannot use is **dropped, never refused**, as the protocol requires: the run continues with the parts that remain, and the drop is announced for the developer — in the server log, one warning per message that lost parts, and on the stream as a `CUSTOM` event named `b4.content_parts_dropped`. Its `value` is `{ provider?, model?, toolCallId?, parts }`: `provider` and `model` name the route's model (omitted for a route that exports its own runnable), `toolCallId` is present when the parts came from a tool result, and each entry of `parts` is `{ index, type, source?, reason }`, where `index` is the part's position in the message and `reason` is one of:
-
-| `reason` | The part was dropped because |
-|---|---|
-| `modality_unsupported` | the model does not take this kind of media |
-| `url_source_unsupported` | the model or its provider cannot take this kind of media by URL |
-| `file_source_unsupported` | the provider cannot take a file handle for this kind of media |
-| `foreign_file_provider` | the handle names a different provider than the route's model |
-| `document_not_pdf` | a `document` part's `mimeType` is not `application/pdf` |
-| `tool_result_media_unsupported` | the media came from a tool result, and the model or provider does not take media in a tool message |
-| `malformed_part` | the entry is not a valid content part (only reachable outside `/agui`, whose schema check refuses it with `400` first) |
-
-Inline parts count against the 8 MiB body ceiling; there is no per-part limit. The [capability document](#capabilities) does not yet say which parts a route accepts, so a client cannot hide an attach control ahead of time; the drop event is how it finds out.
-
-Tools can return parts too: a tool's result may be an array of the same parts (or `{ result: parts, state }`), and it travels as `TOOL_CALL_RESULT.content`. The model sees the media only as described above; the UI sees every part regardless. A [client-provided tool](#client-provided-tools) may answer with parts as well, but in this release a `role: "tool"` message's parts are stored and replayed to the model as their text only — an answer made only of media parts is stored as empty text. Carrying them through is the next step of this work.
-
-`role: "reasoning"` and `role: "activity"` history is dropped on the way in: it is the client's stored artefact of an earlier turn, not something the assistant said.
-
 ### Where the check runs
 
 Before route middleware and before the thread-access policy. The envelope
@@ -132,6 +108,11 @@ authorized this caller to touch that thread. A `resume` that matches no pending
 interrupt is still rejected — as a `409` with `stale_interrupt`, and a turn
 that ignores a pending one as `409` `resume_required` — just at the point where
 the answer is actually known.
+
+Media parts are not judged here at all: whether the route's model can take a
+part depends on that model, so it is decided when the run reaches it, and a
+part it cannot take is [dropped and announced](#multimodal-content), not
+refused.
 
 ## Client-provided tools
 
@@ -346,6 +327,30 @@ result instead of the stored one.
 
 The `422` refusals carry [`B4_E5401`](/docs/errors).
 
+## Multimodal content
+
+A 1.0 message's `content` may be a list of parts: `text`, and `image`, `audio`, `video` or `document` parts whose `source` is inline bytes (`data`, base64 with a `mimeType`), a URL (`url`), or a handle the model provider issued (`file`). B4.run carries them to the route's model as LangChain content blocks: inline bytes as bytes, a URL as a URL — B4.run never fetches it; the provider does — and a provider handle as that provider's file id, when the route runs on the provider that minted it. A `document` is a PDF: a part whose `mimeType` is not `application/pdf` is not guessed at.
+
+Which parts a route's model takes is read from the model's LangChain profile, then narrowed by what each provider's LangChain converter can actually send. Images are carried inline and by URL where the profile allows; documents (`application/pdf` only) likewise, except that a PDF by URL never reaches an OpenAI model; audio and video only where the profile says so. A model with no profile — every `ollama` and `mistral` model, and an id the provider package does not know — takes images only (`ollama` inline only, since its converter cannot pass a URL through), plus the file handles below. Provider file handles are carried only on OpenAI (documents) and Anthropic (images and documents). Media in a tool result reaches the model only where both the profile and the provider allow it, which is never on OpenAI: B4.run uses its Chat Completions path, which sends a tool message as text.
+
+What the model cannot use is **dropped, never refused**, as the protocol requires: the run continues with the parts that remain, and the drop is announced for the developer — in the server log, one warning per user turn or tool result that lost parts, and on the stream as a `CUSTOM` event named `b4.content_parts_dropped`. Drops inside a subagent are logged only; the adapter does not map them to a `CUSTOM` event. Its `value` is `{ provider?, model?, toolCallId?, parts }`: `provider` and `model` name the route's model (omitted for a route that exports its own runnable), `toolCallId` is present when the parts came from a tool result, and each entry of `parts` is `{ index, type, source?, reason }`, where `index` is the part's position in the message and `reason` is one of:
+
+| `reason` | The part was dropped because |
+|---|---|
+| `modality_unsupported` | the model does not take this kind of media, or not as inline bytes |
+| `url_source_unsupported` | the model or its provider cannot take this kind of media by URL |
+| `file_source_unsupported` | the provider cannot take a file handle for this kind of media |
+| `foreign_file_provider` | the handle names a different provider than the route's model |
+| `document_not_pdf` | a `document` part's `mimeType` is not `application/pdf` |
+| `tool_result_media_unsupported` | the media came from a tool result, and the model or provider does not take media in a tool message |
+| `malformed_part` | the entry is not a valid content part (only reachable outside `/agui`, whose schema check refuses it with `400` first) |
+
+Inline parts count against the 8 MiB body ceiling; there is no per-part limit. The [capability document](#capabilities) does not yet say which parts a route accepts, so a client cannot hide an attach control ahead of time; the drop event is how it finds out.
+
+Tools can return parts too: a tool's result may be an array of the same parts (or `{ result: parts, state }`), and it travels as `TOOL_CALL_RESULT.content`. The model sees the media only as described above; the UI sees every part regardless. A [client-provided tool](#client-provided-tools) may answer with parts as well, but in this release a `role: "tool"` message's parts are stored and replayed to the model as their text only — an answer made only of media parts is stored as empty text. Carrying them through is the next step of this work.
+
+`role: "reasoning"` and `role: "activity"` history is dropped on the way in: it is the client's stored artefact of an earlier turn, not something the assistant said.
+
 ## Capabilities
 
 `GET /agui/{routeId}` answers with the route's AG-UI [`AgentCapabilities`](https://docs.ag-ui.com). Each claim is computed by the same check that `POST` enforces it with, so what a route advertises and what it honors cannot drift apart:
@@ -509,7 +514,7 @@ At a permission interrupt that belongs to the held call, the adapter drops the h
 
 ### Inbound input
 
-`fromRunAgentInput(input)` translates every AG-UI message and keeps the original request as `raw`, where you can inspect tools, state, and context. `B4Message.content` is a string or the ordered content parts the client sent; see [Multimodal content](#multimodal-content-is-carried-and-what-the-model-cannot-take-is-announced). The CLI endpoint forwards only the newest user message, because B4.run already keeps the checkpointed history for the thread.
+`fromRunAgentInput(input)` translates every AG-UI message and keeps the original request as `raw`, where you can inspect tools, state, and context. `B4Message.content` is a string or the ordered content parts the client sent; see [Multimodal content](#multimodal-content). The CLI endpoint forwards only the newest user message, because B4.run already keeps the checkpointed history for the thread.
 
 The standard top-level `RunAgentInput.resume` array becomes a list of B4.run resume requests:
 
