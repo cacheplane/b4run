@@ -31,6 +31,8 @@ export type {
 export {
   CLIENT_TOOL_RECORDER_KEY,
   createMemoryClientToolCallStore,
+  decodeClientToolResult,
+  encodeClientToolResult,
 } from "./client-tool-calls.js"
 export type {
   B4ContentPart,
