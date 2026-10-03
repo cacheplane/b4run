@@ -14,9 +14,10 @@
  *
  * Keyed on `(threadId, toolCallId)`: the provider's tool-call id is stable
  * across LangGraph's re-execution of an interrupted tool node. The client stub
- * writes client rows and the LangChain tool converter writes server rows
- * (`issue`/`settle`); a replayed `issue` of either is a no-op on the key, not
- * an orphan row.
+ * writes client rows; the LangChain tool converter and subagent bridge write
+ * server rows (`issue`/`settle`, via `recordToolCall`) when the recorder
+ * carries them; a replayed `issue` of either is a no-op on the key, not an
+ * orphan row.
  *
  * Edge-safe: no Node built-ins — `@b4run/sdk`'s main entry is loaded by the
  * edge targets.
@@ -131,9 +132,10 @@ export interface ClientToolCallStore {
 /**
  * What the writers call to maintain the record. The client stub in
  * `@b4run/core` writes client rows (`has`/`record`) before it parks; the
- * LangChain tool converter writes server rows (`issue`/`settle`) around each
- * server tool call. Per-run: it closes over the thread and run whose AG-UI
- * endpoint will receive the answer.
+ * LangChain tool converter and subagent bridge write server rows
+ * (`issue`/`settle`, via `recordToolCall`) around each server tool call. Per-run: it closes over the thread and run whose AG-UI
+ * endpoint will receive the answer. A recorder always carries `has`/`record`;
+ * it carries `issue`/`settle` only on runs that record server calls.
  */
 export interface ClientToolRecorder {
   /**
@@ -147,10 +149,15 @@ export interface ClientToolRecorder {
     readonly interruptId: string
     readonly toolName: string
   }): Promise<void>
-  /** Writes a server row for one of the server's own tool calls, before it runs. Idempotent on the id. */
-  issue(call: { readonly toolCallId: string; readonly toolName: string }): Promise<void>
-  /** Stamps the server row once the tool returned or threw. Idempotent. */
-  settle(toolCallId: string): Promise<void>
+  /**
+   * Writes a server row for one of the server's own tool calls, before it
+   * runs. Idempotent on the id. Absent when the runtime does not record
+   * server calls (no route opted into client tools and no configured store);
+   * a writer that finds it absent records nothing.
+   */
+  issue?(call: { readonly toolCallId: string; readonly toolName: string }): Promise<void>
+  /** Stamps the server row once the tool returned or threw. Idempotent. Absent together with `issue`. */
+  settle?(toolCallId: string): Promise<void>
 }
 
 function compareIssue(a: ClientToolCallRecord, b: ClientToolCallRecord): number {
