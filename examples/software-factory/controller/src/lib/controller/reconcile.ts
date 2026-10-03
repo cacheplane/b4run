@@ -1,6 +1,6 @@
 import { type ExportedState, exportedState, exportPath } from "../delivery/export.js"
 import { ACTIVE_STATES, isTerminal } from "../domain/states.js"
-import type { WorkOrderRow } from "../domain/work-order.js"
+import type { FactoryEvent, WorkOrderRow } from "../domain/work-order.js"
 import type { StreamFrame } from "../worker/wire.js"
 import type { ControllerContext } from "./context.js"
 import { dispatchPreparing } from "./images.js"
@@ -33,6 +33,17 @@ export async function reconcileAll(ctx: ControllerContext): Promise<void> {
         continue
       }
       handled.add(row.id)
+      // The command that committed a delivery the stop left `delivering` is answered by that
+      // delivery when it settles (the factory's `settleDeliveryCommand`), not here: answering
+      // it now would record "delivering" as its outcome, and a replay would return that
+      // forever after the resumed delivery finished.
+      if (
+        row.state === "delivering" &&
+        deliveryCommandKey(ctx.store.events(row.id))?.operationKey === open.operationKey
+      ) {
+        await safeReconcile(ctx, row.id)
+        continue
+      }
       // A `received` row's thread, if any, is the lingering intake thread of an approved
       // draft, so "no thread" is not the test for an uncommitted dispatch: the test is
       // whether the thread `dispatch` journalled is one the row does not hold.
@@ -62,6 +73,26 @@ export async function reconcileAll(ctx: ControllerContext): Promise<void> {
   for (const row of ctx.store.list()) {
     if (!isTerminal(row.state) && !handled.has(row.id)) await safeReconcile(ctx, row.id)
   }
+}
+
+/**
+ * The `approve` or `redeliver` that committed the work order's current delivery: the key its
+ * last `approve_delivery` or `redeliver` transition carries.
+ */
+export function deliveryCommandKey(
+  events: readonly FactoryEvent[],
+): { readonly operationKey: string; readonly command: "approve" | "redeliver" } | undefined {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const { type, payload } = events[i] as FactoryEvent
+    if (type !== "transition") continue
+    if (payload.event !== "approve_delivery" && payload.event !== "redeliver") continue
+    if (typeof payload.operationKey !== "string") return undefined
+    return {
+      operationKey: payload.operationKey,
+      command: payload.event === "approve_delivery" ? "approve" : "redeliver",
+    }
+  }
+  return undefined
 }
 
 /**
@@ -126,7 +157,12 @@ async function settleIncompleteDispatch(
  */
 function settledOk(row: WorkOrderRow): boolean {
   if (row.state === "blocked") return row.blockedReason === "budget_exhausted"
-  return row.state === "exported" || row.state === "cancelled" || row.state === "denied"
+  return (
+    row.state === "exported" ||
+    row.state === "delivered" ||
+    row.state === "cancelled" ||
+    row.state === "denied"
+  )
 }
 
 /** Journal a reconciliation note that must never itself abort the walk. */
@@ -226,6 +262,14 @@ export async function reconcileWorkOrder(
       return reconcileVerifying(ctx, row)
     case "exporting":
       return reconcileExporting(ctx, row)
+    case "delivering":
+      // Unlike an export, a delivery continues (rung 4 §5.4): the outbox intent is the
+      // authorization, and every step reads the remote before it writes. Started, not
+      // awaited: a boot reconcile under `factory up` is bounded, and GitHub may be slow.
+      // `startDelivery` joins a delivery already running (an approve's, an earlier
+      // reconcile's), so this can never start a second worker.
+      void ctx.startDelivery(row.id)
+      return
     case "cancel_requested":
       await ctx.finishCancel(id, row.blockedReason === "budget_exhausted" ? "budget" : "operator")
       return

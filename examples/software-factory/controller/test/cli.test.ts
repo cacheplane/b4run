@@ -17,9 +17,18 @@ import { promisify } from "node:util"
 import { verifySourceBundle } from "@b4run/workspace/node"
 import { afterEach, describe, expect, it } from "vitest"
 import { BuilderHandoffSchema } from "../src/lib/builder-handoff.ts"
+import { DeliveryError } from "../src/lib/delivery/adapter.ts"
 import { openRegistryReader } from "../src/lib/registry/reader.ts"
 import { loadTask, loadTaskRecipe, tasksDir } from "../src/lib/targets/catalog.ts"
 import { openImageRegistry } from "../src/lib/targets/images.ts"
+import {
+  closeHarness,
+  ID as HARNESS_ID,
+  SOURCE as HARNESS_SOURCE,
+  harness,
+  harnessDir,
+} from "./delivery-harness.ts"
+import { createFakeGitHub, REPOSITORY } from "./fake-delivery-adapter.ts"
 import { fakeImageBuilder } from "./fake-image-builder.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { BAD_DRAFTS, GOOD_DRAFT } from "./intake-fixtures.ts"
@@ -347,7 +356,7 @@ describe("cli", () => {
   }, 90_000)
 
   /** A `gh` that answers `issue view` with a fixed issue and refuses everything else. */
-  function stubGh(issue: { title: string; body: string; url: string }): string {
+  function stubGh(issue: { title: string; body: string; url: string; state?: string }): string {
     const path = join(dir, "gh")
     writeFileSync(
       path,
@@ -421,6 +430,255 @@ esac
       }),
     )
     expect(notANumber.stderr).toContain("positive integer")
+  }, 90_000)
+
+  it("creates a draft-PR work order with --deliver, and refuses what cannot be delivered", async () => {
+    const github = createFakeGitHub()
+    const { env } = await boot(
+      {},
+      {
+        delivery: {
+          draftPr: { repository: "cacheplane/b4run", baseBranch: "main", adapter: github },
+        },
+      },
+    )
+    const gh = stubGh({
+      title: "Fix the flag",
+      body: "Body\n",
+      url: "https://github.com/x/778",
+      state: "OPEN",
+    })
+    const { root } = await localRepo()
+    const issueEnv = { ...env, FACTORY_GH: gh, FACTORY_REPO_ROOT: root }
+    const create = (...args: string[]) =>
+      run(process.execPath, [tsxBin, cliEntry, "create", ...args], {
+        env: issueEnv,
+        cwd: packageRoot,
+      })
+    const created = JSON.parse(
+      (await create("--issue", "778", "--repo", "cacheplane/b4run", "--deliver", "draft-pr"))
+        .stdout,
+    )
+    expect(created).toMatchObject({ ok: true, state: "received" })
+    expect(created.row.delivery).toEqual({
+      kind: "draft-pr",
+      repository: "cacheplane/b4run",
+      baseBranch: "main",
+      branch: `factory/${created.row.id}`,
+      pathPrefix: null,
+      issueStateAtCreate: "open",
+    })
+    const catalog = await failing(create("--task", "cli-flags", "--deliver", "draft-pr"))
+    expect(catalog.stderr).toContain("is for issue work orders")
+    const bogus = await failing(create("--issue", "778", "--deliver", "pr"))
+    expect(bogus.stderr).toContain("--deliver takes local or draft-pr")
+    const elsewhere = await failing(
+      create("--issue", "778", "--repo", "someone/else", "--deliver", "draft-pr", "--key", "x"),
+    )
+    expect(JSON.parse(elsewhere.stdout)).toMatchObject({
+      ok: false,
+      refusal: "delivery_unavailable",
+      message: expect.stringContaining("not someone/else"),
+    })
+    // Nothing reached GitHub: create only records where the bundle will go.
+    expect(github.calls).toEqual([])
+  }, 90_000)
+
+  it("redelivers only on the bundle digest a person types or names in full, and never otherwise", async () => {
+    const h = await harness()
+    // A port nobody listens on: a command that gets past the gate fails to send, and says so.
+    const { url, server } = await dropping()
+    await new Promise((resolve) => server.close(resolve))
+    dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
+    const env = {
+      ...process.env,
+      FACTORY_CONTROLLER_URL: url,
+      FACTORY_STATE_DIR: harnessDir(),
+      FACTORY_CONFIG: "none",
+    }
+    const redeliver = (...args: string[]) =>
+      run(process.execPath, [tsxBin, cliEntry, "redeliver", HARNESS_ID, ...args], {
+        env,
+        cwd: packageRoot,
+      })
+    try {
+      // Still delivering: nothing to redeliver.
+      const live = await failing(redeliver())
+      expect(JSON.parse(live.stdout).message).toContain(
+        `Nothing to redeliver: ${HARNESS_ID} is delivering`,
+      )
+      h.github.fail("compare", new DeliveryError("rate_limited", "HTTP 403", 3_600_000, 403), {
+        times: 9,
+      })
+      expect(await h.deliver()).toMatchObject({
+        state: "blocked",
+        blockedReason: "delivery_rate_limited",
+      })
+      const digest = "b".repeat(64)
+      const callsAtBlock = h.github.calls.length
+      // No terminal and no --digest: shown, and nothing sent.
+      const piped = await failing(redeliver())
+      expect(piped.stderr).toContain(`bundle digest: ${digest}`)
+      expect(piped.stderr).toContain("it approves nothing new")
+      expect(JSON.parse(piped.stdout).message).toContain("There is no terminal")
+      expect(piped.stderr).not.toMatch(/fetch failed/)
+      // A --digest that is not the bundle's.
+      const wrong = await failing(redeliver("--digest", "a".repeat(64)))
+      expect(JSON.parse(wrong.stdout).message).toContain("is not the bundle digest shown above")
+      // At a terminal: a short or wrong prefix sends nothing.
+      for (const typed of ["bbbbbbb", "abababab", ""]) {
+        const declined = await interactive(env, ["redeliver", HARNESS_ID], typed)
+        expect(declined.code, typed).toBe(1)
+        expect(JSON.parse(declined.stdout).message, typed).toContain("does not match")
+        expect(declined.stderr, typed).not.toMatch(/fetch failed/)
+      }
+      // The right prefix, and the full digest, are sent (to a controller that is not there).
+      const typed = await interactive(env, ["redeliver", HARNESS_ID], "BBBBBBBB")
+      expect(typed.code).toBe(1)
+      expect(typed.stderr).toMatch(/fetch failed/)
+      const named = await failing(redeliver("--digest", digest))
+      expect(named.stderr).toMatch(/fetch failed/)
+      // The CLI never reaches GitHub itself: every call is the worker's, from before the block.
+      expect(h.github.calls).toHaveLength(callsAtBlock)
+    } finally {
+      closeHarness()
+    }
+  }, 90_000)
+
+  it("refuses to redeliver a delivery block waiting does not heal, before it asks for the digest", async () => {
+    const h = await harness()
+    const { url, server } = await dropping()
+    await new Promise((resolve) => server.close(resolve))
+    dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
+    const env = {
+      ...process.env,
+      FACTORY_CONTROLLER_URL: url,
+      FACTORY_STATE_DIR: harnessDir(),
+      FACTORY_CONFIG: "none",
+    }
+    try {
+      h.github.comparison = {
+        status: "ahead",
+        aheadBy: 2,
+        files: [{ filename: HARNESS_SOURCE }],
+        complete: true,
+      }
+      expect(await h.deliver()).toMatchObject({
+        state: "blocked",
+        blockedReason: "delivery_base_conflict",
+      })
+      const runAgain = `pnpm factory run --issue 912 --repo ${REPOSITORY} --deliver draft-pr --new`
+      for (const result of [
+        await failing(
+          run(process.execPath, [tsxBin, cliEntry, "redeliver", HARNESS_ID], {
+            env,
+            cwd: packageRoot,
+          }),
+        ),
+        // At a terminal too: refused before the prompt, so nothing waits for a typed prefix.
+        await interactive(env, ["redeliver", HARNESS_ID], "bbbbbbbb"),
+      ]) {
+        const outcome = JSON.parse(result.stdout)
+        expect(outcome).toMatchObject({
+          ok: false,
+          state: "blocked",
+          message: expect.stringContaining(
+            "blocked by delivery_base_conflict: waiting does not heal it",
+          ),
+          next: [`pnpm factory cancel ${HARNESS_ID}`, runAgain],
+        })
+        expect(result.stderr).not.toContain("first eight hex digits")
+        expect(result.stderr).not.toContain("bundle digest:")
+        expect(result.stderr).not.toMatch(/fetch failed/)
+      }
+    } finally {
+      closeHarness()
+    }
+  }, 90_000)
+
+  /**
+   * `approve` of the harness's draft-PR work order, sent to a controller that drops it: the CLI
+   * follows the row from the registry while the delivery (run here, once the CLI is following)
+   * blocks, and prints what it settled as.
+   */
+  async function approveFollowingABlock(
+    block: (h: Awaited<ReturnType<typeof harness>>) => void,
+  ): Promise<{ code: number | null; outcome: Record<string, unknown> }> {
+    const h = await harness()
+    const { url, server } = await dropping()
+    dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
+    try {
+      const child = spawnChild(
+        process.execPath,
+        [tsxBin, cliEntry, "approve", HARNESS_ID, "--revision", "0", "--bundle", "b".repeat(64)],
+        {
+          env: {
+            ...process.env,
+            FACTORY_CONTROLLER_URL: url,
+            FACTORY_STATE_DIR: harnessDir(),
+            FACTORY_CONFIG: "none",
+            FACTORY_CLI_ARRIVAL_WINDOW_MS: "30000",
+          },
+          cwd: packageRoot,
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      )
+      let stdout = ""
+      let stderr = ""
+      let delivered: Promise<unknown> | undefined
+      child.stdout.on("data", (chunk: Buffer) => {
+        stdout += chunk.toString()
+      })
+      child.stderr.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString()
+        // The row is marked before the request leaves: only now may the delivery move it.
+        if (delivered === undefined && stderr.includes("the request ended before its answer")) {
+          block(h)
+          delivered = h.deliver()
+        }
+      })
+      const code = await new Promise<number | null>((resolve) => child.on("close", resolve))
+      expect(delivered, stderr).toBeDefined()
+      await delivered
+      return { code, outcome: JSON.parse(stdout) }
+    } finally {
+      await new Promise((resolve) => server.close(resolve))
+      closeHarness()
+    }
+  }
+
+  it("approve names the redeliver a healable delivery block allows (D23)", async () => {
+    const { code, outcome } = await approveFollowingABlock((h) =>
+      h.github.fail("compare", new DeliveryError("unauthorized", "HTTP 401", undefined, 401)),
+    )
+    expect(code).toBe(1)
+    expect(outcome).toMatchObject({
+      ok: false,
+      state: "blocked",
+      next: [
+        `pnpm factory events ${HARNESS_ID}`,
+        `pnpm factory redeliver ${HARNESS_ID}`,
+        `pnpm factory cancel ${HARNESS_ID}`,
+      ],
+    })
+  }, 90_000)
+
+  it("approve names no redeliver for a delivery block waiting does not heal (D23)", async () => {
+    const { code, outcome } = await approveFollowingABlock((h) => {
+      h.github.comparison = {
+        status: "ahead",
+        aheadBy: 2,
+        files: [{ filename: HARNESS_SOURCE }],
+        complete: true,
+      }
+    })
+    expect(code).toBe(1)
+    expect(outcome).toMatchObject({
+      ok: false,
+      state: "blocked",
+      row: { blockedReason: "delivery_base_conflict" },
+      next: [`pnpm factory events ${HARNESS_ID}`, `pnpm factory cancel ${HARNESS_ID}`],
+    })
   }, 90_000)
 
   it("replays an issue at --pin without consulting origin/main", async () => {

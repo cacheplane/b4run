@@ -39,6 +39,7 @@ const issueRow = (patch: Partial<WorkOrderRow> = {}): WorkOrderRow => ({
   taskDigest: null,
   intakeAttempts: 0,
   maxIntakeAttempts: 2,
+  delivery: { kind: "local" },
   createdAt: "2026-09-28T00:00:00.000Z",
   updatedAt: "2026-09-28T00:00:00.000Z",
   ...patch,
@@ -146,6 +147,37 @@ describe("nextStep", () => {
         ]),
       })
   })
+
+  it("starts a draft-PR work order again as a draft PR at today's tip, not at the old pin", () => {
+    const draftPr = {
+      delivery: {
+        kind: "draft-pr",
+        repository: "cacheplane/b4run",
+        baseBranch: "main",
+        branch: "factory/wo-0000000000000001",
+        pathPrefix: null,
+        issueStateAtCreate: "open",
+      },
+    } as const
+    const again = "pnpm factory run --issue 714 --repo cacheplane/b4run --deliver draft-pr --new"
+    for (const state of ["denied", "cancelled", "failed"] as const) {
+      const step = at(state, draftPr)
+      expect(step).toMatchObject({ kind: "stop", next: expect.arrayContaining([again]) })
+      expect(JSON.stringify(step)).not.toContain("--pin")
+    }
+    const t0 = Date.parse("2026-09-28T00:00:00.000Z")
+    const expired = nextStep(
+      issueRow({
+        ...draftPr,
+        state: "awaiting_approval",
+        awaitingSince: "2026-09-28T00:00:00.000Z",
+      }),
+      [],
+      { now: t0 + 900_001, approvalTtlMs: 900_000 },
+    )
+    expect(expired).toMatchObject({ kind: "stop", next: expect.arrayContaining([again]) })
+    expect(JSON.stringify(expired)).not.toContain("--pin")
+  })
 })
 
 describe("chooseWorkOrder", () => {
@@ -195,7 +227,13 @@ describe("approvalStartedSinceParked", () => {
 /** Calls and inputs that approve or reject, or make a pipe answer the prompt. */
 const FORBIDDEN = [
   /\bapprove(Intake|Export)\b/,
-  /\.(approve|deny|rejectIntake|cancel|interrupt)\b/,
+  // Rung 4: run never redelivers either; a person does, with the digest's prefix (D10). Not the
+  // controller's or the client's method, not the CLI's own command, not its route.
+  /\.(approve|deny|rejectIntake|cancel|interrupt|redeliver)\b/,
+  /\bredeliver\s*\(/,
+  /work-orders\/redeliver/,
+  // The same methods named by a computed member access (`client()["redeliver"](…)`).
+  /\[\s*["'`](approve\w*|deny|rejectIntake|cancel|interrupt|redeliver)["'`]\s*\]/,
   /\brejectDraft\b/,
   /--approve|--digest/,
   /\bvalues\.(approve|reject|digest|key|note|revision|bundle)\b/,
@@ -367,6 +405,7 @@ describe("run's only way to an approval", () => {
     "awaiting",
     "client",
     "createRacing",
+    "deliverOption",
     "finish",
     "followBusyThread",
     "followJournal",
@@ -411,5 +450,28 @@ describe("run's only way to an approval", () => {
     // It interpolates the work order's id and nothing else: never a digest.
     const interpolated = [...body("howToApprove").matchAll(/\$\{([^}]*)\}/g)].map((m) => m[1])
     expect(new Set(interpolated)).toEqual(new Set(["id"]))
+  })
+})
+
+describe("run and a draft-PR delivery (rung 4)", () => {
+  it("follows a delivery, is done when delivered, and never redelivers by itself", () => {
+    expect(at("delivering")).toEqual({ kind: "follow", why: "it is delivering" })
+    expect(at("delivered")).toEqual({ kind: "done" })
+    const healable = at("blocked", { blockedReason: "delivery_rate_limited" })
+    expect(healable).toMatchObject({
+      kind: "stop",
+      next: [
+        "pnpm factory events wo-0000000000000001",
+        "pnpm factory redeliver wo-0000000000000001",
+        "pnpm factory cancel wo-0000000000000001",
+      ],
+    })
+    const conflict = at("blocked", { blockedReason: "delivery_base_conflict" })
+    expect(JSON.stringify(conflict)).not.toContain("redeliver")
+  })
+
+  it("answers a delivered newest work order as done", () => {
+    const delivered = issueRow({ state: "delivered" })
+    expect(chooseWorkOrder([delivered], false)).toEqual({ kind: "done", row: delivered })
   })
 })

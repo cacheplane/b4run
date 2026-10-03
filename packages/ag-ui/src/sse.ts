@@ -1,8 +1,30 @@
 import type { BaseEvent } from "@ag-ui/core"
 import { EventEncoder } from "@ag-ui/encoder"
 
-/** Encode one AG-UI event as an SSE frame (`data: <json>\n\n`). */
-export function encodeAgUiSse(event: BaseEvent, accept?: string): string {
-  const encoder = new EventEncoder(accept ? { accept } : {})
-  return encoder.encode(event)
+/**
+ * The AG-UI HTTP bindings, selected by the request's `Accept` header.
+ *
+ * SSE (`data: <json>\n\n`) unless `accept` admits
+ * `application/vnd.ag-ui.event+proto` with a positive quality — named
+ * explicitly, or through an `application` or a wildcard range — in which case
+ * each event is a 4-byte unsigned big-endian length followed by exactly that
+ * many bytes of one protobuf-encoded event, frames abutting with no separator.
+ * The rule is `@ag-ui/encoder`'s own, so the two functions always agree: a
+ * producer sets the header from one and writes the frames from the other.
+ */
+function encoder(accept?: string): EventEncoder {
+  return new EventEncoder(accept ? { accept } : {})
+}
+
+/** One AG-UI event as the bytes of the binding `accept` selects. */
+export function encodeAgUiEvent(event: BaseEvent, accept?: string): Uint8Array<ArrayBuffer> {
+  // @ag-ui/encoder declares Uint8Array<ArrayBufferLike> but always allocates a
+  // fresh ArrayBuffer (TextEncoder.encode, or new Uint8Array(new ArrayBuffer)),
+  // so a frame is a valid BodyInit for an edge `Response` without a copy.
+  return encoder(accept).encodeBinary(event) as Uint8Array<ArrayBuffer>
+}
+
+/** The `content-type` of the binding `accept` selects. */
+export function agUiContentType(accept?: string): string {
+  return encoder(accept).getContentType()
 }

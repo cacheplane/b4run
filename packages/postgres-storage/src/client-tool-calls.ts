@@ -108,16 +108,15 @@ export interface ClientToolCallStore {
     readonly at: string
   }): Promise<ClientToolCallSettle>
   /**
-   * Deletes the thread's NON-open rows whose terminal timestamp (`answeredAt`,
-   * `voidedAt` or `settledAt`, whichever is set) is older than `before`.
-   * `before` must be a canonical `Date#toISOString()` string (UTC, millisecond
-   * precision, `Z` suffix), as every stored timestamp is; a store rejects any
-   * other form by throwing. Such strings compare chronologically as text,
-   * which is what the SQL stores do. Open rows are never eligible, however
-   * old. Returns how many rows were deleted. A delete path is acceptable here,
-   * unlike for interrupt grants: a closed tool-call row carries no authority.
+   * Deletes rows that can no longer affect a turn: answered or voided client
+   * rows whose settle time (`voidedAt`, else `answeredAt`) is before `before`,
+   * outstanding client rows whose `expiresAt` is before `before`, and server
+   * rows settled before `before`. Open rows — an outstanding client call that
+   * is unexpired or has no expiry, and an unsettled server call — are kept.
+   * Returns how many rows were deleted. `before` is an ISO-8601 string
+   * compared as text.
    */
-  prune(options: { readonly threadId: string; readonly before: string }): Promise<number>
+  prune(options: { readonly before: string }): Promise<number>
 }
 
 /** A client-tool-call store that also owns Postgres lifecycle. */
@@ -168,27 +167,13 @@ function rowToRecord(row: CallRow): ClientToolCallRecord {
   }
 }
 
-/** `prune` compares timestamps as text, so `before` must be the canonical `Date#toISOString()` form every stored timestamp has. */
-function assertCanonicalBefore(before: string): void {
-  let canonical: string | undefined
-  try {
-    canonical = new Date(before).toISOString()
-  } catch {
-    canonical = undefined
-  }
-  if (canonical !== before) {
-    throw new Error("prune: `before` must be a canonical Date#toISOString() value")
-  }
-}
-
 /**
  * A Postgres-backed {@link ClientToolCallStore}: the multi-instance
  * counterpart of the SDK's memory store and `@b4run/sqlite-storage`'s store,
  * with the same outcome precedence and counting rules. Two kinds of row share
  * the table: `client` rows park and are answered or voided; `server` rows are
  * identity-only (issued, then settled). Listing, answering and voiding touch
- * client rows only; `settle` touches server rows only. `prune` requires a
- * canonical `Date#toISOString()` `before`, since timestamps compare as text.
+ * client rows only; `settle` touches server rows only.
  *
  * Every guarantee is a SQL predicate. `answer` is a conditional
  * `UPDATE … WHERE answered_at IS NULL AND voided_at IS NULL`, and the row the
@@ -350,17 +335,24 @@ export function createPostgresClientToolCallStore(
       return existing?.kind === "server" ? "already_settled" : "missing"
     },
 
-    async prune({ threadId, before }) {
-      assertCanonicalBefore(before)
+    async prune({ before }) {
       await ready()
-      // Terminal timestamp per kind; an open row has none and never matches.
-      // Canonical ISO-8601 UTC text compares chronologically under COLLATE "C".
+      // Client rows: the settle time is voided_at when set, else answered_at;
+      // an outstanding client row goes only once its expiry is behind the
+      // cutoff. Server rows: settled_at, and an unsettled one never goes.
+      // COLLATE "C" makes the ISO-8601 comparison byte-wise, so it is
+      // chronological whatever the database locale. The count comes from
+      // RETURNING because `SqlPool` exposes `rows` alone.
       const res = await pool.query<{ tool_call_id: string }>(
         `DELETE FROM ${table}
-         WHERE thread_id = $1
-           AND (CASE WHEN kind = 'client' THEN COALESCE(voided_at, answered_at) ELSE settled_at END) COLLATE "C" < $2
+         WHERE (kind = 'client' AND voided_at IS NOT NULL AND voided_at COLLATE "C" < $1)
+            OR (kind = 'client' AND voided_at IS NULL
+                AND answered_at IS NOT NULL AND answered_at COLLATE "C" < $1)
+            OR (kind = 'client' AND voided_at IS NULL AND answered_at IS NULL
+                AND expires_at IS NOT NULL AND expires_at COLLATE "C" < $1)
+            OR (kind = 'server' AND settled_at IS NOT NULL AND settled_at COLLATE "C" < $1)
          RETURNING tool_call_id`,
-        [threadId, before],
+        [before],
       )
       return res.rows.length
     },

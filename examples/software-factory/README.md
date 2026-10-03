@@ -360,8 +360,11 @@ has none of its own); never from `FACTORY_REPO_ROOT`'s, which names the target r
 says where the key came from, never its value, and refuses without one. The key goes to the
 builder and the drafter only: the controller's environment drops it, and by a deny-list also
 every variable ending in `_API_KEY` or starting `OPENAI_`, `ANTHROPIC_` or `AWS_`, plus
-`GH_TOKEN` and `GITHUB_TOKEN`. Any other variable of `up`'s environment (a credential by another
-name included) still reaches all three processes, so do not export secrets `up` has no use for.
+`GH_TOKEN` and `GITHUB_TOKEN`. No process gets `GH_TOKEN`, `GITHUB_TOKEN`, their `_ENTERPRISE_`
+forms or any `GITHUB_APP_` variable: neither worker calls GitHub (the CLI reads issues through
+`gh` in your shell, and only the controller delivers, with its own credential). Any other
+variable of `up`'s environment (a credential by another name included) still reaches the
+workers, so do not export secrets `up` has no use for.
 Each process's output is redacted (the token and the key never appear),
 prefixed with its name on `up`'s stdout, and appended to `<state>/logs/<app>.log`; `up`'s own
 lines go to `<state>/logs/up.log` too. `up`'s stdout is a log stream, not the CLI's JSON.
@@ -429,6 +432,202 @@ commands instead of asking.
 One known limitation: after a controller that was `SIGKILL`ed, a work order's thread can read
 `busy` with nothing running it, and `run` then follows it until its bound; `factory events
 <id>` shows whether anything is moving.
+
+## Delivering as a draft pull request (rung 4)
+
+Delivery needs a GitHub App and a `delivery` block in the factory config. Without one (the
+committed `factory.config.ts` has none, so a fresh checkout exports locally) the controller has
+no delivery configured, and `--deliver draft-pr` is refused with `delivery_unavailable` before
+anything is created.
+
+### Setting it up
+
+**The GitHub App and the rulesets are a person's job, done once** (spec §10 says why each
+permission and rule; [the rung 4 plan](../../docs/superpowers/plans/2026-10-01-software-factory-rung4.md)'s
+Task 4 has the steps and the `gh api` checks). In short: an app named `b4-factory` (the CI
+guards key on its bot login, `b4-factory[bot]`, in `controller/src/lib/delivery/guard.json`)
+with exactly `contents: write`, `pull_requests: write`, `issues: read` and `metadata: read`, no
+`workflows`, no events; installed on the target repository (and a scratch repository for the
+lane below) and nothing else; and the rulesets that keep it to `factory/**` branches it can
+create but never update, delete or move. The repository's squash and merge commit messages
+must not be the pull request's body (`PR_BODY`): the description quotes the model-written spec,
+and the approval's preflight refuses a repository that would copy it into `main`'s history,
+or whose repository read does not show the app both settings (it cannot tell, so it refuses).
+The private key stays in a file of yours, mode `0600`, with one name, outside this checkout's
+app roots and the state directory.
+
+**Enable it in a local config**, not the committed one: copy `factory.config.ts` to the
+gitignored `factory.config.local.ts`, point `FACTORY_CONFIG` at it (as for a second checkout's
+ports, above), and add:
+
+```ts
+delivery: {
+  draftPr: {
+    repository: "cacheplane/b4run",
+    baseBranch: "main",
+    app: { id: 123456, privateKeyFile: "~/.config/b4-factory/app.pem" },
+  },
+},
+```
+
+`app` names the app's numeric id and where its key is, never the key: `privateKeyFile` (`~`
+expanded; relative to the config file otherwise) or `privateKeyEnv: "B4_FACTORY_APP_KEY"`, the
+name of a variable in `up`'s environment holding the PEM. The config is refused, naming the
+field and never quoting it, when `privateKeyFile` holds something that is not a path (a PEM
+header, a line break, over 1024 characters), when `privateKeyEnv` names a variable every
+process needs or the factory owns (`PATH`, `HOME`, `TMPDIR`, `NODE_OPTIONS`, `LANG` or any
+`LC_`, any `FACTORY_`, `GH_TOKEN`, …: `up` takes the key's variable away from every child), and
+for a near-miss (`token`, `privateKey`, `installationId`, `branchPrefix` say what replaced
+them). Before starting anything `up` checks the key: the file must exist, be a regular file
+private to its owner and lie outside every app root and the state directory (by identity, so a
+link does not hide it), and either form must hold an RSA private key. It prints where the key
+came from, never the key:
+
+    up         │ GitHub App 123456: key from /Users/you/.config/b4-factory/app.pem (controller only, as a file)
+    up         │ GitHub App 123456: key from $B4_FACTORY_APP_KEY (controller only, as a file)
+
+**The controller takes four variables, all or none**, and `up` sets them:
+`FACTORY_GITHUB_APP_ID`, `FACTORY_GITHUB_APP_PRIVATE_KEY_FILE`, `FACTORY_DELIVERY_REPOSITORY`
+and `FACTORY_DELIVERY_BASE_BRANCH`. The key reaches it only as a file: with `privateKeyFile`,
+that path; with `privateKeyEnv`, a copy `up` writes to `<state>/run/github-app.pem` (exclusively,
+mode `0600`, in a directory that must be a real one you own, never a link) and removes when it
+stops. The controller deletes the two credential variables from its own environment the first
+time it reads them, so nothing it spawns inherits them. The inline `FACTORY_GITHUB_APP_PRIVATE_KEY`
+and the old `FACTORY_GITHUB_TOKEN` are refused by name, by the controller and by `up`.
+
+| Process | Holds | Never holds |
+|---|---|---|
+| Controller | the app id, the key file's path, the key in memory, and every installation token it mints (one for the approval's preflight and one for the delivery, more on a refresh or a redelivery), each kept in memory for the life of the process so its logs can be scrubbed of it | the OpenAI key, any provider key, `GH_TOKEN`/`GITHUB_TOKEN`, any `GITHUB_APP_` variable |
+| Builder, drafter | the OpenAI key, the worker token | any `FACTORY_GITHUB_`/`FACTORY_DELIVERY_` variable, the key's variable, `GH_TOKEN`/`GITHUB_TOKEN`, any `GITHUB_APP_` variable |
+| `up` | the key, read once to check it (and, for `privateKeyEnv`, to write the copy) | it passes the controller a path; its own `git`, `ps` and `docker` get neither the key's variable nor any delivery or `GITHUB_APP_` variable |
+| CI on a factory PR | a read-only `GITHUB_TOKEN` | the Vercel secrets, the Anthropic key, a write token |
+
+`up`'s output is redacted for the key as for the token (any line holding a 24-character run of
+the key's body, its whole PEM in base64, or its DER in hex).
+
+Each delivery mints an installation token downscoped to the one repository and exactly the
+four permissions, and refuses one granted less (`delivery_unauthorized`). Every request goes
+through one allow-listed function: the Git Data API reads and creates (blobs, trees, commits,
+a `factory/` ref), the draft pull request (`draft: true` and `maintainer_can_modify: false`
+only), the issue, compare and ruleset reads, the closing-issues GraphQL query, `GET /app` and
+the bot's own `GET /users/…`. No `PATCH`, `PUT` or `DELETE`; no redirect is followed; every
+request has a 30-second bound; every body is checked as it is sent.
+
+### The opt-in scratch lane
+
+    pnpm --filter @b4-example/software-factory-controller test:github-scratch
+
+runs the adapter against real GitHub and a scratch repository you own. It is never in CI and
+skips (5 skipped) unless all three of `FACTORY_TEST_GITHUB_SCRATCH=<owner/name>`,
+`FACTORY_TEST_GITHUB_APP_ID` and `FACTORY_TEST_GITHUB_APP_KEY_FILE` (a `0600` PEM) are set. The
+scratch repository needs the setup the plan's Task 4 describes (the file the cases change on
+`main`, issue #1 open, the app installed, the rulesets). Its five cases: a clean delivery read
+back; convergence after a lost ref-create response; the rulesets refusing a branch outside
+`factory/`, a tag and a move of the app's own branch; GitHub refusing a commit that changes
+`.github/workflows/` without the `workflows` permission; and a closing keyword inside the
+quoted spec linking no issue. Each run leaves its branches and draft pull requests for you to
+inspect and delete.
+
+With `FACTORY_TEST_GITHUB_RECORD=1` as well, the lane writes
+`controller/test/fixtures/github-contract.json`: per request, the method, the path template,
+the status and the body's top-level keys, never a value (check with
+`grep -E 'ghs_|eyJ|BEGIN'` → nothing). Commit it: `test/github-contract.test.ts` then replays the
+same delivery against the fake GitHub in the always-on suite and requires it to answer every
+recorded request with GitHub's status and at least its keys, so the fake cannot drift from
+GitHub silently. Until the first recorded run that replay is skipped.
+
+### Still manual, and known follow-ups
+
+Not done by any code here: creating the app, installing it, the rulesets and the scratch
+repository (Brian, the plan's Task 4); the scratch lane's first recorded run; and the live run
+on `cacheplane/b4run` (the plan's PR 5). Known follow-ups, each in the plan: the first recorded
+contract will need the fake to answer GitHub's extra top-level keys; the ruleset read takes the
+first page only (preflight checks the rule types it finds there); a 300-file comparison is
+assumed to fit the 10 MiB body cap; whether the repository read shows the app its merge commit
+message settings is for the scratch lane to confirm (preflight refuses `PR_BODY` and a missing
+setting, so a hidden one blocks every approval until it is shown); and
+`issues: read` may be dropped if the scratch lane shows reading a public issue does not need it
+(D5).
+
+### How it behaves
+
+`pnpm factory create --issue <n> --deliver draft-pr` (or `pnpm factory run --issue <n>
+--deliver draft-pr`) makes approving the bundle publish the change as a draft pull request
+instead of exporting it. Only issue work orders take it (a catalog task reproduces a defect
+already fixed on `main`), and only for the repository the controller is configured to deliver
+to. The default, `--deliver local`, is the export, unchanged. `create` also records whether the
+issue was open (`gh issue view --json …,state`).
+
+The choice is fixed at create and frozen into the bundle: the operation, the repository, the
+base branch, the branch and the pin are covered by the bundle digest the person types at the
+export gate, so nothing about where the change goes can move after approval. The review names
+it above everything else ("Approving publishes exactly this change as a draft pull request on
+…"). Approving publishes exactly that change, once: branch `factory/<id>`, one commit whose
+parent is the pin, a pull request opened as a draft against `main` (the configured base), its
+body saying `Refs #<n>` and quoting the approved spec with every issue reference broken, so
+merging it never closes the issue. `approve` (and the review that sends it) answers `ok: true`
+only when the work order is `delivered`, which the factory says only after reading the pull
+request back and finding the bundle's tree.
+
+Two states are new: **`delivering`** (the worker is publishing; not active time, so it spends
+no budget; a controller stopped mid-delivery leaves it `delivering` and the next reconcile
+resumes it) and **`delivered`** (terminal; `show`, `list` and `run` print the pull request's
+URL). A delivery that cannot finish blocks with one of seven reasons; the approval stays
+recorded either way:
+
+| Block | What happened | What to do |
+|---|---|---|
+| `delivery_base_conflict` | `main` changed a path the change touches (or a file the branch's own Vercel build runs) since the pin, the pin is no longer an ancestor of `main`, or the comparison could not be read in full | Cancel the work order, then `run --issue <n> --deliver draft-pr --new`: a new work order at a fresh pin |
+| `delivery_baseline_mismatch` | A changed file's blob at the pin is not the baseline the candidate was diffed against, or GitHub truncated a pin listing the comparison needs | Cancel the work order, then `run --issue <n> --deliver draft-pr --new` |
+| `delivery_branch_conflict` | `factory/<id>` holds a commit that is not this change, or its pull request was closed, has another base, or is not the factory's | Cancel the work order, then `run --issue <n> --deliver draft-pr --new` (the factory never updates or reopens) |
+| `delivery_issue_closed` | The issue was open at create and is closed now, or was transferred (301), deleted or had issues disabled (410) since | If the work is still wanted, cancel the work order, then `run --issue <n> --deliver draft-pr --new` |
+| `delivery_unauthorized` | A token could not be minted, the app is missing or under-permissioned, a 401 or a non-rate-limit 403 | Fix the app, then `pnpm factory redeliver <id>` |
+| `delivery_rate_limited` | Rate limited past the worker's bound | `pnpm factory redeliver <id>` later |
+| `delivery_unconfirmed` | `5xx` or network failures past the bound, or a read-back that disagrees with the bundle in a way none of the above explains | `pnpm factory events <id>`, then `pnpm factory redeliver <id>` |
+
+`pnpm factory redeliver <id>` resumes the approved delivery for those three reasons only,
+within 24 hours of the approval and at the revision and bundle digest it shows: it prints what
+the resumed delivery will publish and asks for the bundle digest's first eight hex digits at a
+terminal (or takes `--digest <sha256>` in full). It approves nothing new. Every other block
+needs a new work order, and `redeliver` refuses it saying so, before it asks for anything
+("waiting does not heal it; cancel it and run the issue again with --new") and names the command:
+`run --issue <n> --repo <owner/name> --deliver draft-pr --new`, with no `--pin`, so the new work
+order is pinned at `main`'s tip and delivers a draft PR again. Cancel the blocked one first, or
+the old blocked row leaves a later `run --issue <n>` ambiguous. `pnpm factory events <id>` has each step's journal
+and the remote ids that exist. `approve` and `review --approve` list the same next commands as
+`run` when the delivery blocks (`next` in their output), `pnpm factory redeliver <id>` among
+them only for these three reasons. A redeliver resumes from the step the worker stopped at and
+does not re-run the drift check (step a: the issue, `main`'s tip, the comparison and the pin's
+blobs), by design (spec §5.2): `main` moving after the check is what the pull request's own CI
+is for.
+
+`pnpm factory cancel <id>` during a delivery stops the worker before its next write and ends
+the work order `cancelled`; it removes nothing. A branch or pull request already created stays
+on GitHub (the journal names them), and deleting the branch or closing the pull request is a
+person's job. Confirm, the last step, only reads, so a cancel that lands while it runs still
+records the receipt: a `cancelled` work order may show a `pullRequest`, and the receipt is the
+truth about what was published.
+
+**`run` never approves or redelivers.** It stops at the bundle as it does for an export (the
+same review, now naming the delivery) and, at a block, prints the next commands
+(`redeliver` among them only when the reason allows) and exits 1. Its source pin test forbids
+every way to a redelivery, as it forbids every way to an approval. `run --issue <n>` without
+`--deliver` resumes the issue's work order whichever way it was created; with a `--deliver`
+that differs it refuses rather than switch it. A newest `delivered` work order is the answer,
+as an `exported` one is (exit 0).
+
+**The factory never merges, marks the pull request ready, closes it or pushes to it again.**
+The draft is the publication of an approval already given, not a second approval, and nothing
+done on it feeds back into the work order. CI on it tests the merge with today's `main`, which
+is not the verifier's question; a red CI is information for the person. What the person does
+with it:
+
+- **A change to a publishable package** (anything under `packages/`): adopt it. Check the
+  factory's commit out onto your own branch, add a changeset, open your own pull request (so
+  `vercel-native` and `claude-review`, which skip `factory/*` branches and the factory's bot,
+  run there), and close the factory's pull request with a link to yours. A candidate cannot add
+  a changeset, and AGENTS.md requires `vercel-native` green for a release-bearing change.
+- **A change only to examples, docs or scripts:** review it and merge it as is.
 
 ## Run it by hand
 

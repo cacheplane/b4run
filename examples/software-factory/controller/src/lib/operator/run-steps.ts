@@ -1,5 +1,5 @@
 import { dispatchPreparing } from "../controller/images.js"
-import { RETRYABLE_BLOCKED_REASONS, TERMINAL_STATES } from "../domain/states.js"
+import { blockedNext, RETRYABLE_BLOCKED_REASONS, TERMINAL_STATES } from "../domain/states.js"
 import type { FactoryEvent, WorkOrderRow } from "../domain/work-order.js"
 
 /** `run`'s exit code when it stopped at a person's gate and approved nothing. */
@@ -18,9 +18,17 @@ export type RunStep =
   | { readonly kind: "done" }
   | { readonly kind: "stop"; readonly message: string; readonly next: readonly string[] }
 
-/** The arguments `run` would be given to start this work order's issue or task over. */
-export function runAgainArgs(row: Pick<WorkOrderRow, "origin" | "pin" | "taskId">): string {
+/**
+ * The arguments `run` would be given to start this work order's issue or task over. A draft-PR
+ * work order starts again as a draft PR (create's default is local) at today's tip: its old pin
+ * is what a base conflict or baseline mismatch was about, so repeating it would only block again.
+ */
+export function runAgainArgs(
+  row: Pick<WorkOrderRow, "origin" | "pin" | "taskId" | "delivery">,
+): string {
   if (row.origin.kind === "catalog") return `--task ${row.taskId}`
+  if (row.delivery.kind === "draft-pr")
+    return `--issue ${row.origin.number} --repo ${row.origin.repository} --deliver draft-pr`
   const pin = row.pin === null ? "" : ` --pin ${row.pin}`
   return `--issue ${row.origin.number} --repo ${row.origin.repository}${pin}`
 }
@@ -98,6 +106,7 @@ export function nextStep(
     case "running":
     case "verifying":
     case "exporting":
+    case "delivering":
     case "cancel_requested":
       return { kind: "follow", why: `it is ${state}` }
     case "awaiting_intake_approval":
@@ -115,6 +124,7 @@ export function nextStep(
         }
       return { kind: "gate", gate: "export" }
     case "exported":
+    case "delivered":
       return { kind: "done" }
     case "blocked": {
       const reason = row.blockedReason
@@ -127,7 +137,7 @@ export function nextStep(
         message: `Blocked: ${reason ?? "no reason recorded"}`,
         next: retryable
           ? [`pnpm factory retry ${id}`, `pnpm factory run ${id}`]
-          : [`pnpm factory events ${id}`, `pnpm factory cancel ${id}`],
+          : blockedNext(id, reason),
       }
     }
     case "denied":
@@ -164,6 +174,7 @@ export function chooseWorkOrder(rows: readonly WorkOrderRow[], fresh: boolean): 
   const [only] = live
   if (only !== undefined) return { kind: "resume", row: only }
   const newest = [...rows].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
-  if (newest?.state === "exported") return { kind: "done", row: newest }
+  if (newest?.state === "exported" || newest?.state === "delivered")
+    return { kind: "done", row: newest }
   return { kind: "create" }
 }

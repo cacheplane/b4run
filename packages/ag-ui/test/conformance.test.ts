@@ -1,12 +1,13 @@
 import { createServer, type Server } from "node:http"
 import { HttpAgent } from "@ag-ui/client"
-import { type BaseEvent, EventType, PROTOCOL_VERSION } from "@ag-ui/core"
+import { type BaseEvent, EventType, PROTOCOL_VERSION, type RunAgentInput } from "@ag-ui/core"
 import { ActivitySnapshotEventSchema } from "@ag-ui/core/schemas"
+import { AGUI_MEDIA_TYPE } from "@ag-ui/encoder"
 import { afterAll, afterEach, expect, it, vi } from "vitest"
 import { B4_PLAN_ACTIVITY_TYPE, B4_SUBAGENT_ACTIVITY_TYPE } from "../src/activities.ts"
 import { createCounterIdFactory } from "../src/ids.js"
 import { type ToAguiOptions, toAguiEvents } from "../src/outbound.js"
-import { encodeAgUiSse } from "../src/sse.js"
+import { agUiContentType, encodeAgUiEvent } from "../src/sse.js"
 import type { B4AgentStreamChunk } from "../src/types.js"
 
 // The zero-warnings gate below is the whole point of this file: the 1.0
@@ -144,15 +145,19 @@ interface CannedRun {
   readonly options?: ToAguiOptions
   /** Test-only: rewrite an event before it is encoded, to prove the gate bites. */
   readonly mutate?: (event: BaseEvent) => BaseEvent
+  /** Test-only: the run id this canned run reports; defaults to its 1-based position. */
+  readonly runId?: string
 }
 
 /** The fixture server: answers each POST with the next canned run, and records every request body. */
 async function startCannedServer(runs: readonly CannedRun[]): Promise<{
   readonly url: string
   readonly bodies: unknown[]
+  readonly contentTypes: string[]
 }> {
   const queue = [...runs]
   const bodies: unknown[] = []
+  const contentTypes: string[] = []
   const cannedServer = createServer((req, res) => {
     void (async () => {
       const raw: Buffer[] = []
@@ -160,14 +165,17 @@ async function startCannedServer(runs: readonly CannedRun[]): Promise<{
       bodies.push(JSON.parse(Buffer.concat(raw).toString("utf8")))
       const run = queue.shift()
       if (!run) throw new Error("more runs requested than canned")
-      res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
+      const accept = req.headers.accept
+      const contentType = agUiContentType(accept)
+      contentTypes.push(contentType)
+      res.writeHead(200, { "content-type": contentType, "cache-control": "no-cache" })
       const events = toAguiEvents(
         run.stream(),
-        { threadId: "t1", runId: `r${bodies.length}` },
+        { threadId: "t1", runId: run.runId ?? `r${bodies.length}` },
         { idFactory: createCounterIdFactory(), ...run.options },
       )
       for await (const event of events) {
-        res.write(encodeAgUiSse(run.mutate ? run.mutate(event) : event))
+        res.write(encodeAgUiEvent(run.mutate ? run.mutate(event) : event, accept))
       }
       res.end()
     })().catch((error: unknown) => {
@@ -185,7 +193,7 @@ async function startCannedServer(runs: readonly CannedRun[]): Promise<{
   server = cannedServer
   const address = cannedServer.address()
   if (!address || typeof address === "string") throw new Error("Canned server has no TCP address")
-  return { url: `http://127.0.0.1:${address.port}`, bodies }
+  return { url: `http://127.0.0.1:${address.port}`, bodies, contentTypes }
 }
 
 /**
@@ -204,12 +212,29 @@ async function withNoWarnings<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-function newAgent(url: string): HttpAgent {
-  return new HttpAgent({
+/**
+ * `HttpAgent` names `text/event-stream` after spreading its constructor
+ * headers, so asking for the binary binding means overriding `requestInit`.
+ * Parsing needs no override: the client picks its parser from the response
+ * content type.
+ */
+class BinaryHttpAgent extends HttpAgent {
+  protected override requestInit(input: RunAgentInput): RequestInit {
+    const init = super.requestInit(input)
+    return {
+      ...init,
+      headers: { ...(init.headers as Record<string, string>), Accept: AGUI_MEDIA_TYPE },
+    }
+  }
+}
+
+function newAgent(url: string, binding: "sse" | "protobuf" = "sse"): HttpAgent {
+  const params: ConstructorParameters<typeof HttpAgent>[0] = {
     url,
     threadId: "t1",
     initialMessages: [{ id: "1", role: "user", content: "research agents" }],
-  })
+  }
+  return binding === "protobuf" ? new BinaryHttpAgent(params) : new HttpAgent(params)
 }
 
 /**
@@ -217,9 +242,13 @@ function newAgent(url: string): HttpAgent {
  * CompatibilityBoundary → enforceEvents → chunk expansion → verifyEvents all
  * run, under `withNoWarnings`.
  */
-async function runThroughClient(url: string, parameters: Parameters<HttpAgent["runAgent"]>[0]) {
+async function runThroughClient(
+  url: string,
+  parameters: Parameters<HttpAgent["runAgent"]>[0],
+  binding: "sse" | "protobuf" = "sse",
+) {
   return withNoWarnings(async () => {
-    const agent = newAgent(url)
+    const agent = newAgent(url, binding)
     const events: BaseEvent[] = []
     // Only collect here: the client logs and swallows a throwing subscriber, so assertions belong after runAgent returns.
     const result = await agent.runAgent(parameters, {
@@ -311,6 +340,23 @@ it("a full turn passes 1.0 enforcement with nothing stripped", async () => {
   expect(kinds).not.toContain(EventType.CUSTOM)
   expect(kinds).not.toContain(EventType.RAW)
   expect(kinds[kinds.length - 1]).toBe(EventType.RUN_FINISHED)
+})
+
+it("the HTTP+protobuf binding passes 1.0 enforcement with the same events", async () => {
+  const { url, contentTypes } = await startCannedServer([
+    { runId: "r1", stream: () => toAsync(CANNED) },
+    { runId: "r1", stream: () => toAsync(CANNED) },
+  ])
+  const sse = await runThroughClient(url, { runId: "r1" })
+  const binary = await runThroughClient(url, { runId: "r1" }, "protobuf")
+  expect(contentTypes).toEqual(["text/event-stream", AGUI_MEDIA_TYPE])
+
+  // Same turn, same run id, two bindings: the client's protobuf parser yields
+  // exactly what its SSE parser yields. Only the wall-clock timestamp differs.
+  const strip = (events: BaseEvent[]) =>
+    events.map(({ timestamp: _timestamp, rawEvent: _raw, ...event }) => event)
+  expect(binary.events.length).toBe(sse.events.length)
+  expect(strip(binary.events)).toEqual(strip(sse.events))
 })
 
 it("an approval interrupt keeps its grant in metadata, and the resume carries it back there", async () => {

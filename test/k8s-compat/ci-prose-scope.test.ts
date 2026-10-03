@@ -241,6 +241,7 @@ describe("prose workflow routing", () => {
       LANE_1: "success",
       LANE_2: "success",
       LANE_3: "success",
+      LANE_4: "success",
     }
     const light = {
       ...full,
@@ -249,6 +250,7 @@ describe("prose workflow routing", () => {
       LANE_1: "skipped",
       LANE_2: "skipped",
       LANE_3: "skipped",
+      LANE_4: "skipped",
     }
     expect(run(full)).toBe(0)
     expect(run(light)).toBe(0)
@@ -266,7 +268,7 @@ describe("prose workflow routing", () => {
         expect(run({ ...base, SCOPE_RESULT: result })).toBe(1)
       for (const key of ["PROSE_ONLY", "METADATA_ONLY"])
         for (const value of ["", "unknown"]) expect(run({ ...base, [key]: value })).toBe(1)
-      for (const key of ["LANE_0", "LANE_1", "LANE_2", "LANE_3"])
+      for (const key of ["LANE_0", "LANE_1", "LANE_2", "LANE_3", "LANE_4"])
         for (const result of ["failure", "cancelled", "", base === full ? "skipped" : "success"])
           expect(run({ ...base, [key]: result })).toBe(1)
     }

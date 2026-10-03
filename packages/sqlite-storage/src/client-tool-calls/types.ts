@@ -103,14 +103,13 @@ export interface ClientToolCallStore {
     readonly at: string
   }): Promise<ClientToolCallSettle>
   /**
-   * Deletes the thread's NON-open rows whose terminal timestamp (`answeredAt`,
-   * `voidedAt` or `settledAt`, whichever is set) is older than `before`.
-   * `before` must be a canonical `Date#toISOString()` string (UTC, millisecond
-   * precision, `Z` suffix), as every stored timestamp is; a store rejects any
-   * other form by throwing. Such strings compare chronologically as text,
-   * which is what the SQL stores do. Open rows are never eligible, however
-   * old. Returns how many rows were deleted. A delete path is acceptable here,
-   * unlike for interrupt grants: a closed tool-call row carries no authority.
+   * Deletes rows that can no longer affect a turn: answered or voided client
+   * rows whose settle time (`voidedAt`, else `answeredAt`) is before `before`,
+   * outstanding client rows whose `expiresAt` is before `before`, and server
+   * rows settled before `before`. Open rows — an outstanding client call that
+   * is unexpired or has no expiry, and an unsettled server call — are kept.
+   * Returns how many rows were deleted. `before` is an ISO-8601 string
+   * compared as text.
    */
-  prune(options: { readonly threadId: string; readonly before: string }): Promise<number>
+  prune(options: { readonly before: string }): Promise<number>
 }

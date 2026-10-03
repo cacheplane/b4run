@@ -1,6 +1,6 @@
 {
   "name": "@b4run/ag-ui",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "private": false,
   "type": "module",
   "license": "MIT",
@@ -38,6 +38,10 @@
       "types": "./dist/sse.d.ts",
       "default": "./dist/sse.js"
     },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "default": "./dist/client.js"
+    },
     "./react": {
       "types": "./dist/react/index.d.ts",
       "default": "./dist/react/index.js"
@@ -60,7 +64,7 @@
   },
   "peerDependencies": {
     "@ag-ui/client": ">=1.0.1 <2.0.0",
-    "@copilotkit/react-core": ">=1.66.0",
+    "@copilotkit/react-core": ">=1.76.0",
     "react": ">=19.0.0"
   },
   "peerDependenciesMeta": {
@@ -76,6 +80,7 @@
   },
   "devDependencies": {
     "@ag-ui/client": "1.0.1",
+    "@ag-ui/proto": "1.0.1",
     "@copilotkit/react-core": "1.76.0",
     "@b4run/config-typescript": "workspace:*",
     "@types/node": "26.1.2",

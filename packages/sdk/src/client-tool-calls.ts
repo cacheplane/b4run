@@ -117,16 +117,15 @@ export interface ClientToolCallStore {
     readonly at: string
   }): Promise<ClientToolCallSettle>
   /**
-   * Deletes the thread's NON-open rows whose terminal timestamp (`answeredAt`,
-   * `voidedAt` or `settledAt`, whichever is set) is older than `before`.
-   * `before` must be a canonical `Date#toISOString()` string (UTC, millisecond
-   * precision, `Z` suffix), as every stored timestamp is; a store rejects any
-   * other form by throwing. Such strings compare chronologically as text,
-   * which is what the SQL stores do. Open rows are never eligible, however
-   * old. Returns how many rows were deleted. A delete path is acceptable here,
-   * unlike for interrupt grants: a closed tool-call row carries no authority.
+   * Deletes rows that can no longer affect a turn: answered or voided client
+   * rows whose settle time (`voidedAt`, else `answeredAt`) is before `before`,
+   * outstanding client rows whose `expiresAt` is before `before`, and server
+   * rows settled before `before`. Open rows — an outstanding client call that
+   * is unexpired or has no expiry, and an unsettled server call — are kept.
+   * Returns how many rows were deleted. `before` is an ISO-8601 string
+   * compared as text.
    */
-  prune(options: { readonly threadId: string; readonly before: string }): Promise<number>
+  prune(options: { readonly before: string }): Promise<number>
 }
 
 /**
@@ -159,6 +158,17 @@ function compareIssue(a: ClientToolCallRecord, b: ClientToolCallRecord): number 
   return a.toolCallId < b.toolCallId ? -1 : a.toolCallId > b.toolCallId ? 1 : 0
 }
 
+/**
+ * Whether `prune({ before })` may delete this row. The memory store's `prune` predicate; the
+ * SQL stores carry the same rule in their DELETE.
+ */
+function isClientToolCallPrunable(row: ClientToolCallRecord, before: string): boolean {
+  if (row.kind === "server") return row.settledAt !== null && row.settledAt < before
+  if (row.voidedAt !== null) return row.voidedAt < before
+  if (row.answeredAt !== null) return row.answeredAt < before
+  return row.expiresAt !== null && row.expiresAt < before
+}
+
 /** In-process store for tests and embedders. Not durable. */
 export function createMemoryClientToolCallStore(): ClientToolCallStore {
   // Nested by thread so distinct (threadId, toolCallId) pairs can never collide.
@@ -169,8 +179,6 @@ export function createMemoryClientToolCallStore(): ClientToolCallStore {
     row.kind === "client"
       ? row.answeredAt === null && row.voidedAt === null
       : row.settledAt === null
-  const terminalAt = (row: ClientToolCallRecord): string | null =>
-    row.kind === "client" ? (row.voidedAt ?? row.answeredAt) : row.settledAt
   return {
     async issue(record) {
       let rows = threads.get(record.threadId)
@@ -223,26 +231,15 @@ export function createMemoryClientToolCallStore(): ClientToolCallStore {
       rows.set(toolCallId, { ...row, settledAt: at })
       return "settled"
     },
-    async prune({ threadId, before }) {
-      let canonical = false
-      try {
-        canonical = new Date(before).toISOString() === before
-      } catch {
-        canonical = false
-      }
-      if (!canonical) {
-        throw new Error("prune: `before` must be a canonical Date#toISOString() value")
-      }
-      const rows = threads.get(threadId)
-      if (!rows) return 0
+    async prune({ before }) {
       let count = 0
-      for (const [id, row] of rows) {
-        if (isOpen(row)) continue
-        const at = terminalAt(row)
-        if (at === null) continue
-        if (at >= before) continue
-        rows.delete(id)
-        count += 1
+      for (const [threadId, rows] of threads) {
+        for (const [id, row] of rows) {
+          if (!isClientToolCallPrunable(row, before)) continue
+          rows.delete(id)
+          count += 1
+        }
+        if (rows.size === 0) threads.delete(threadId)
       }
       return count
     },

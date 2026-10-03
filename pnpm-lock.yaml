@@ -577,6 +577,9 @@ importers:
       '@ag-ui/client':
         specifier: 1.0.1
         version: 1.0.1
+      '@ag-ui/proto':
+        specifier: 1.0.1
+        version: 1.0.1
       '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
@@ -644,6 +647,9 @@ importers:
         specifier: ^4.23.5
         version: 4.23.10
     devDependencies:
+      '@ag-ui/proto':
+        specifier: 1.0.1
+        version: 1.0.1
       '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript

@@ -48,27 +48,13 @@ function changeCount(changes: number | bigint): number {
   return typeof changes === "bigint" ? Number(changes) : changes
 }
 
-/** `prune` compares timestamps as text, so `before` must be the canonical `Date#toISOString()` form every stored timestamp has. */
-function assertCanonicalBefore(before: string): void {
-  let canonical: string | undefined
-  try {
-    canonical = new Date(before).toISOString()
-  } catch {
-    canonical = undefined
-  }
-  if (canonical !== before) {
-    throw new Error("prune: `before` must be a canonical Date#toISOString() value")
-  }
-}
-
 /**
  * SQLite-backed {@link ClientToolCallStore}: the durable counterpart of
  * `createMemoryClientToolCallStore` in `@b4run/sdk`, with the same outcome
  * precedence and counting rules. Every guarantee is a SQL predicate, not
  * JavaScript around a read. Holds both row kinds: `client` rows (parked,
  * later answered or voided) and `server` rows (identity only, issued then
- * settled). `prune` compares timestamps as text, so it requires the canonical
- * `Date#toISOString()` form and rejects anything else.
+ * settled).
  *
  * Does NOT enforce `expires_at`: expiry is the caller's job (the AG-UI handler
  * treats expired outstanding calls as abandoned and voids them).
@@ -189,20 +175,23 @@ export function makeClientToolCallStore(db: Db): ClientToolCallStore {
       return record?.kind === "server" ? "already_settled" : "missing"
     },
 
-    async prune({ threadId, before }) {
-      assertCanonicalBefore(before)
-      // Terminal timestamp per kind: voided_at or answered_at for a client
-      // row, settled_at for a server row. An open row has none and never
-      // matches. Canonical ISO-8601 UTC text compares chronologically.
+    async prune({ before }) {
+      // Client rows: the settle time is voided_at when set, else answered_at;
+      // an outstanding client row goes only once its expiry is behind the
+      // cutoff. Server rows: settled_at, and an unsettled one never goes. All
+      // timestamps are ISO-8601 text, so `<` is chronological.
       return changeCount(
         db
           .prepare(
             `DELETE FROM client_tool_calls
-             WHERE thread_id = ?
-               AND (CASE WHEN kind = 'client' THEN COALESCE(voided_at, answered_at) ELSE settled_at END) IS NOT NULL
-               AND (CASE WHEN kind = 'client' THEN COALESCE(voided_at, answered_at) ELSE settled_at END) < ?`,
+             WHERE (kind = 'client' AND voided_at IS NOT NULL AND voided_at < ?)
+                OR (kind = 'client' AND voided_at IS NULL
+                    AND answered_at IS NOT NULL AND answered_at < ?)
+                OR (kind = 'client' AND voided_at IS NULL AND answered_at IS NULL
+                    AND expires_at IS NOT NULL AND expires_at < ?)
+                OR (kind = 'server' AND settled_at IS NOT NULL AND settled_at < ?)`,
           )
-          .run(threadId, before).changes,
+          .run(before, before, before, before).changes,
       )
     },
   }

@@ -259,12 +259,13 @@ describe.skipIf(!enabled)("postgres client tool call store against real Postgres
     }
   }, 60_000)
 
-  test("settles a server row once and prunes only non-open rows older than before", async () => {
+  test("settles a server row once; prune deletes settled server rows older than before and keeps open ones", async () => {
     await withStore(async (store) => {
       const server = (id: string, settledAt: string | null) =>
         call({ toolCallId: id, kind: "server", interruptId: "", toolName: "readFile", settledAt })
       await store.issue(server("s-open", null))
       await store.issue(server("s-old", "2026-09-01T00:00:00.000Z"))
+      await store.issue(server("s-new", "2026-09-20T00:00:00.000Z"))
       await store.issue(call({ toolCallId: "c-old", voidedAt: "2026-09-01T00:00:00.000Z" }))
       await store.issue(
         call({ toolCallId: "c-answered", answeredAt: "2026-09-02T00:00:00.000Z", result: "red" }),
@@ -285,19 +286,16 @@ describe.skipIf(!enabled)("postgres client tool call store against real Postgres
         (await store.answer({ threadId: "t-1", toolCallId: "s-open", result: "x", at: AT }))
           .outcome,
       ).toBe("missing")
-      for (const before of ["2026-09-10T00:00:00Z", "nope"]) {
-        await expect(store.prune({ threadId: "t-1", before })).rejects.toThrow(
-          "prune: `before` must be a canonical Date#toISOString() value",
-        )
-      }
-      expect(await store.prune({ threadId: "t-1", before: "2026-09-10T00:00:00.000Z" })).toBe(3)
+      // Global: the other thread's voided row goes too.
+      expect(await store.prune({ before: "2026-09-10T00:00:00.000Z" })).toBe(4)
       expect((await store.listForThread("t-1")).map((r) => r.toolCallId).sort()).toEqual([
         "c-boundary",
         "c-open",
+        "s-new",
         "s-open",
         "s-stale",
       ])
-      expect((await store.listForThread("t-2")).map((r) => r.toolCallId)).toEqual(["other"])
+      expect(await store.listForThread("t-2")).toEqual([])
       await expect(
         store.issue(call({ toolCallId: "bad", kind: "other" as never })),
       ).rejects.toThrow()
@@ -334,5 +332,40 @@ describe.skipIf(!enabled)("postgres client tool call store against real Postgres
     } finally {
       await store.close()
     }
+  }, 60_000)
+
+  test("prune deletes settled and expired rows before the cutoff and keeps the rest, across threads", async () => {
+    await withStore(async (store) => {
+      const BEFORE = "2026-09-18T12:00:00.000Z"
+      await store.issue(
+        call({ toolCallId: "old_answered", answeredAt: "2026-09-18T10:30:00.000Z", result: "ok" }),
+      )
+      await store.issue(call({ toolCallId: "new_answered", answeredAt: BEFORE, result: "ok" }))
+      await store.issue(call({ toolCallId: "old_voided", voidedAt: "2026-09-18T10:30:00.000Z" }))
+      await store.issue(
+        call({
+          toolCallId: "answered_then_voided",
+          answeredAt: "2026-09-18T10:30:00.000Z",
+          result: "ok",
+          voidedAt: "2026-09-18T13:00:00.000Z",
+        }),
+      )
+      await store.issue(call({ toolCallId: "expired_old", expiresAt: "2026-09-18T10:10:00.000Z" }))
+      await store.issue(call({ toolCallId: "expires_at_cutoff", expiresAt: BEFORE }))
+      await store.issue(call({ toolCallId: "never_expires", expiresAt: null }))
+      await store.issue(
+        call({ threadId: "t-2", toolCallId: "other_thread", voidedAt: "2026-09-18T10:30:00.000Z" }),
+      )
+
+      expect(await store.prune({ before: BEFORE })).toBe(4)
+      expect(await store.prune({ before: BEFORE })).toBe(0)
+      expect((await store.listForThread("t-1")).map((row) => row.toolCallId).sort()).toEqual([
+        "answered_then_voided",
+        "expires_at_cutoff",
+        "never_expires",
+        "new_answered",
+      ])
+      expect(await store.listForThread("t-2")).toEqual([])
+    })
   }, 60_000)
 })

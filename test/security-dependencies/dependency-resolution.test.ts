@@ -613,6 +613,9 @@ describe("dependency security graph invariants", () => {
     expect(compilerOptions.lib).toEqual(["ES2022", "DOM", "DOM.Iterable"])
     expect(compilerOptions.noEmit).toBe(true)
     expect(compilerOptions.paths).toEqual({
+      // The examples import the ./client subpath, whose types exist only
+      // after a build; the unbuilt typecheck resolves it to source.
+      "@b4run/ag-ui/client": ["../../packages/ag-ui/src/client.ts"],
       "@copilotkit/react-core/v2": [
         "../../examples/chat/web/node_modules/@copilotkit/react-core/dist/v2/index.d.mts",
       ],
@@ -691,7 +694,7 @@ describe("dependency security graph invariants", () => {
       requireStringMap(agUiManifest.peerDependencies, `${agUiManifestPath}.peerDependencies`)[
         "@copilotkit/react-core"
       ],
-    ).toBe(">=1.66.0")
+    ).toBe(">=1.76.0")
     expect(
       requireStringMap(agUiManifest.peerDependencies, `${agUiManifestPath}.peerDependencies`)[
         "@ag-ui/client"

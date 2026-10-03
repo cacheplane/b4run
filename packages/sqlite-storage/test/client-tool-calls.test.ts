@@ -262,7 +262,7 @@ describe("createClientToolCallStore", () => {
     expect((await store.get("t-1", "call-s1"))?.voidedAt).toBeNull()
   })
 
-  it("prune deletes only non-open rows older than `before`, on this thread, and counts them", async () => {
+  it("prune deletes terminal rows of both kinds older than `before` on every thread, keeps open ones, and counts them", async () => {
     const store = newStore()
     const OLD = "2026-09-01T00:00:00.000Z"
     const NEW = "2026-09-20T00:00:00.000Z"
@@ -275,21 +275,36 @@ describe("createClientToolCallStore", () => {
     await store.issue(
       serverCall({ toolCallId: "open_server", issuedAt: "2020-01-01T00:00:00.000Z" }),
     )
-    await store.issue(call({ threadId: "t-2", toolCallId: "other_thread", voidedAt: OLD }))
-    expect(await store.prune({ threadId: "t-1", before: "2026-09-10T00:00:00.000Z" })).toBe(3)
+    await store.issue(serverCall({ threadId: "t-2", toolCallId: "other_thread", settledAt: OLD }))
+    expect(await store.prune({ before: "2026-09-10T00:00:00.000Z" })).toBe(4)
     expect((await store.listForThread("t-1")).map((r) => r.toolCallId).sort()).toEqual([
       "new_answered",
       "new_settled",
       "open_client",
       "open_server",
     ])
-    expect(await store.get("t-2", "other_thread")).toBeDefined()
+    expect(await store.get("t-2", "other_thread")).toBeUndefined()
   })
 
-  it("prune keeps a row whose terminal timestamp equals `before`, and goes by the terminal time, not issuedAt", async () => {
+  it("prune keeps an unsettled server row with an old issuedAt and a server row settled after `before`", async () => {
+    const store = newStore()
+    const AT = "2026-09-10T00:00:00.000Z"
+    await store.issue(serverCall({ toolCallId: "unsettled", issuedAt: "2020-01-01T00:00:00.000Z" }))
+    await store.issue(
+      serverCall({ toolCallId: "settled_later", settledAt: "2026-09-20T00:00:00.000Z" }),
+    )
+    expect(await store.prune({ before: AT })).toBe(0)
+    expect((await store.listForThread("t-1")).map((r) => r.toolCallId).sort()).toEqual([
+      "settled_later",
+      "unsettled",
+    ])
+  })
+
+  it("prune keeps rows whose terminal timestamp equals `before`, and goes by the terminal time, not issuedAt", async () => {
     const store = newStore()
     const AT = "2026-09-10T00:00:00.000Z"
     await store.issue(call({ toolCallId: "boundary", voidedAt: AT }))
+    await store.issue(serverCall({ toolCallId: "boundary_server", settledAt: AT }))
     await store.issue(
       call({
         toolCallId: "recent_issue_old_void",
@@ -297,17 +312,18 @@ describe("createClientToolCallStore", () => {
         voidedAt: "2026-09-01T00:00:00.000Z",
       }),
     )
-    expect(await store.prune({ threadId: "t-1", before: AT })).toBe(1)
-    expect((await store.listForThread("t-1")).map((r) => r.toolCallId)).toEqual(["boundary"])
-  })
-
-  it("prune rejects a `before` that is not canonical Date#toISOString output", async () => {
-    const store = newStore()
-    for (const bad of ["2026-09-10T00:00:00Z", "nope"]) {
-      await expect(store.prune({ threadId: "t-1", before: bad })).rejects.toThrow(
-        "prune: `before` must be a canonical Date#toISOString() value",
-      )
-    }
+    await store.issue(
+      serverCall({
+        toolCallId: "recent_issue_old_settle",
+        issuedAt: "2026-09-29T00:00:00.000Z",
+        settledAt: "2026-09-01T00:00:00.000Z",
+      }),
+    )
+    expect(await store.prune({ before: AT })).toBe(2)
+    expect((await store.listForThread("t-1")).map((r) => r.toolCallId).sort()).toEqual([
+      "boundary",
+      "boundary_server",
+    ])
   })
 
   it("migration 2 backfills a version-1 row as kind=client with no settledAt", async () => {
@@ -355,5 +371,68 @@ describe("createClientToolCallStore", () => {
   it("rejects a record whose kind is neither client nor server", async () => {
     const store = newStore()
     await expect(store.issue(call({ kind: "other" as never }))).rejects.toThrow()
+  })
+
+  describe("prune", () => {
+    const BEFORE = "2026-09-30T12:00:00.000Z"
+
+    it("deletes answered and voided rows settled before the cutoff and keeps later ones", async () => {
+      const store = newStore()
+      await store.issue(
+        call({ toolCallId: "old_answered", answeredAt: "2026-09-30T01:00:00.000Z", result: "ok" }),
+      )
+      await store.issue(call({ toolCallId: "new_answered", answeredAt: BEFORE, result: "ok" }))
+      await store.issue(call({ toolCallId: "old_voided", voidedAt: "2026-09-30T01:00:00.000Z" }))
+      await store.issue(call({ toolCallId: "new_voided", voidedAt: "2026-09-30T13:00:00.000Z" }))
+      expect(await store.prune({ before: BEFORE })).toBe(2)
+      expect((await store.listForThread("t-1")).map((row) => row.toolCallId).sort()).toEqual([
+        "new_answered",
+        "new_voided",
+      ])
+    })
+
+    it("a void is the settle time: an old answer with a recent void is kept", async () => {
+      const store = newStore()
+      await store.issue(
+        call({
+          toolCallId: "answered_then_voided",
+          answeredAt: "2026-09-30T01:00:00.000Z",
+          result: "ok",
+          voidedAt: "2026-09-30T13:00:00.000Z",
+        }),
+      )
+      expect(await store.prune({ before: BEFORE })).toBe(0)
+      expect(await store.get("t-1", "answered_then_voided")).toBeDefined()
+    })
+
+    it("deletes outstanding rows expired before the cutoff and keeps unexpired or never-expiring ones", async () => {
+      const store = newStore()
+      await store.issue(call({ toolCallId: "expired_old", expiresAt: "2026-09-30T00:10:00.000Z" }))
+      await store.issue(call({ toolCallId: "expires_at_cutoff", expiresAt: BEFORE }))
+      await store.issue(
+        call({ toolCallId: "expires_later", expiresAt: "2026-09-30T13:00:00.000Z" }),
+      )
+      await store.issue(call({ toolCallId: "never_expires", expiresAt: null }))
+      expect(await store.prune({ before: BEFORE })).toBe(1)
+      expect((await store.listOutstanding("t-1")).map((row) => row.toolCallId).sort()).toEqual([
+        "expires_at_cutoff",
+        "expires_later",
+        "never_expires",
+      ])
+    })
+
+    it("sweeps every thread and is idempotent", async () => {
+      const store = newStore()
+      await store.issue(
+        call({ threadId: "t-1", toolCallId: "a", voidedAt: "2026-09-30T01:00:00.000Z" }),
+      )
+      await store.issue(
+        call({ threadId: "t-2", toolCallId: "b", voidedAt: "2026-09-30T01:00:00.000Z" }),
+      )
+      expect(await store.prune({ before: BEFORE })).toBe(2)
+      expect(await store.prune({ before: BEFORE })).toBe(0)
+      expect(await store.listForThread("t-1")).toEqual([])
+      expect(await store.listForThread("t-2")).toEqual([])
+    })
   })
 })

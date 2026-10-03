@@ -37,11 +37,14 @@ import {
   workspaceProtocolPolicyMessage,
 } from "../runtime/workspace-protocol.js"
 import { abortableAsyncIterable } from "./abortable-iterable.js"
+import { handleAgUiCapabilitiesRequest } from "./agui-capabilities.js"
 import { handleAgUiFetchRequest } from "./agui-handler.js"
 import {
   type ApprovalGrantRuntime,
   gateResumeWithGrants,
   minterFor,
+  resolveApprovalGrantRetentionMs,
+  validateInterruptGrantStore,
   voidSupersededGrants,
 } from "./approval-grants.js"
 import {
@@ -53,8 +56,8 @@ import {
 import {
   anyRouteOptsInToClientTools,
   type ClientToolRuntime,
+  resolveClientToolRetentionMs,
   resolveClientToolTtlMs,
-  resolveToolCallRetentionMs,
   validateClientToolStore,
 } from "./client-tool-runtime.js"
 import type { CorsConfig } from "./cors.js"
@@ -256,19 +259,26 @@ class RuntimeCapabilityError extends Error {
 }
 
 /**
- * True for `text/event-stream` with or without parameters (`; charset=utf-8`).
+ * True for a body the runtime is still producing after `fetch` resolves: an
+ * AG-UI event stream in either HTTP binding, `text/event-stream` or
+ * `application/vnd.ag-ui.event+proto`, with or without parameters
+ * (`; charset=utf-8`).
  *
  * Deliberately not an exact compare: this predicate decides whether the
  * response is still producing bytes after `fetch` resolves, and a producer that
  * one day appends a charset would otherwise silently downgrade a live stream to
  * "settled" — releasing sandboxes and disposing per-request stores mid-stream,
- * the exact failure the tracking exists to prevent.
+ * the exact failure the tracking exists to prevent. The protobuf media type is
+ * spelled here rather than imported: `@b4run/ag-ui/sse` exports no constant for
+ * it, and `request-stores.test.ts` ties the literal to what that negotiator
+ * emits and checks a protobuf body holds the in-flight slot until it is read.
  *
  * Exported for the tests: no route produces a parameterized content-type today,
  * so the guard is only reachable directly.
  */
-export function isEventStream(contentType: string | null): boolean {
-  return contentType?.split(";", 1)[0]?.trim().toLowerCase() === "text/event-stream"
+export function isStreamingBody(contentType: string | null): boolean {
+  const mediaType = contentType?.split(";", 1)[0]?.trim().toLowerCase()
+  return mediaType === "text/event-stream" || mediaType === "application/vnd.ag-ui.event+proto"
 }
 
 export interface RouteMatcher {
@@ -589,11 +599,17 @@ export async function createRuntimeFetchHandler(
     ?.approvals
   const approvalGrantMode: ApprovalGrantMode = approvalConfig?.grants ?? "off"
   configureApprovalGrants(approvalGrantMode)
+  // A config store is validated HERE, before the fallback — which would
+  // otherwise hand the same unchecked config value back — is consulted.
   const interruptGrantStore: InterruptGrantStore | undefined =
     approvalGrantMode === "off"
       ? undefined
-      : (approvalConfig?.grantStore ??
+      : (validateInterruptGrantStore(approvalConfig?.grantStore) ??
         (await fallbacks?.resolveInterruptGrantStore?.(options.appRoot)))
+  // Validated even when grants are off, like every other typed setting: a
+  // mistyped value should fail the boot that would read it as configured. The
+  // store is checked only when it would be used.
+  const approvalGrantRetentionMs = resolveApprovalGrantRetentionMs(approvalConfig?.grantRetentionMs)
   if (approvalGrantMode !== "off" && !interruptGrantStore) {
     // Loud, once, at boot — not at the first resume. An operator who switched
     // grants on and got no store has a misconfiguration, and the request-time
@@ -606,6 +622,7 @@ export async function createRuntimeFetchHandler(
   }
   const approvalGrants: ApprovalGrantRuntime = {
     mode: approvalGrantMode,
+    retentionMs: approvalGrantRetentionMs,
     ...(interruptGrantStore ? { store: interruptGrantStore } : {}),
     ...(approvalConfig?.grantTtlMs !== undefined ? { ttlMs: approvalConfig.grantTtlMs } : {}),
   }
@@ -619,7 +636,7 @@ export async function createRuntimeFetchHandler(
   // is loud, once, here.
   const aguiConfig = bootConfig?.server?.agui
   const clientToolTtlMs = resolveClientToolTtlMs(aguiConfig?.clientToolTtlMs)
-  const toolCallRetentionMs = resolveToolCallRetentionMs(aguiConfig?.toolCallRetentionMs)
+  const clientToolRetentionMs = resolveClientToolRetentionMs(aguiConfig?.clientToolRetentionMs)
   // A config store is validated HERE, before the fallback — which would
   // otherwise hand the same unchecked config value back — is consulted.
   const clientToolStore =
@@ -635,7 +652,7 @@ export async function createRuntimeFetchHandler(
   const clientTools: ClientToolRuntime = {
     ...(clientToolStore ? { store: clientToolStore } : {}),
     ttlMs: clientToolTtlMs,
-    retentionMs: toolCallRetentionMs,
+    retentionMs: clientToolRetentionMs,
   }
   // Degrades rather than throws HERE: sandboxing is opt-in, so no fallbacks
   // means no sandbox provider — the same result as an app with no `sandbox`
@@ -1089,14 +1106,14 @@ export async function createRuntimeFetchHandler(
         perRequest.set(request, lifetime)
         const response = await dispatch(routes, request, matched)
         const body = response.body
-        if (body && isEventStream(response.headers.get("content-type"))) {
-          // The Response exists but its SSE body is still streaming. Hold the
+        if (body && isStreamingBody(response.headers.get("content-type"))) {
+          // The Response exists but its event-stream body is still streaming. Hold the
           // in-flight slot until the stream settles (fully read, canceled, or
           // errored) so close() cannot release sandboxes mid-stream. The flag
           // flips only after the tracked Response has been constructed — if
           // construction throws, the finally below must still decrement.
           // Disposal chains onto the SAME settle hook, never onto `fetch`
-          // resolving: an SSE turn is still streaming at that point, and ending
+          // resolving: a streaming turn is still streaming at that point, and ending
           // a pool mid-stream breaks the tail of every streaming turn. Settling
           // the body only ARMS disposal — see maybeSettle for the run half.
           const tracked = new Response(
@@ -1223,7 +1240,7 @@ export async function createRuntimeFetchHandler(
       // that may still be executing AFTER its response was sent: a cancelled run
       // whose route ignored ctx.signal, or an abandoned /runs/wait that returned
       // 409 while invokeResolvedRoute kept going. Those return plain JSON, so the
-      // fetch wrapper (which only holds the slot for text/event-stream bodies)
+      // fetch wrapper (which only holds the slot for streaming event bodies)
       // has already decremented — draining on activeRequests alone would release
       // sandboxes out from under work still using them.
       //
@@ -1965,7 +1982,7 @@ export function buildRouteTable(ctx: {
     },
 
     // ------------------------------------------------------------------
-    // POST /agui/:routeId — AG-UI protocol endpoint (SSE)
+    // POST /agui/:routeId — AG-UI protocol endpoint (SSE, or HTTP+protobuf by Accept)
     // ------------------------------------------------------------------
     {
       handle: async (request, params) =>
@@ -1993,6 +2010,27 @@ export function buildRouteTable(ctx: {
           routeKey: params.routeId ?? "",
         }),
       method: "POST",
+      pattern: /^\/agui\/(?<routeId>[^/?#]+)(?:\?.*)?$/,
+    },
+
+    // ------------------------------------------------------------------
+    // GET /agui/:routeId — the route's AG-UI AgentCapabilities
+    // ------------------------------------------------------------------
+    {
+      handle: async (request, params) =>
+        handleAgUiCapabilitiesRequest({
+          appRoot,
+          approvalGrants,
+          boot,
+          clientTools,
+          ...(bootConfig ? { config: bootConfig } : {}),
+          middleware,
+          permissionsStore: getPermissionsStore(request),
+          registry,
+          request,
+          routeKey: params.routeId ?? "",
+        }),
+      method: "GET",
       pattern: /^\/agui\/(?<routeId>[^/?#]+)(?:\?.*)?$/,
     },
 
@@ -2785,6 +2823,7 @@ async function handleApStreamRequest(options: {
                       ...(approvalGrants.store ? { store: approvalGrants.store } : {}),
                       threadId,
                       stillPending,
+                      retentionMs: approvalGrants.retentionMs,
                     })
                   },
                 }),
@@ -2828,6 +2867,7 @@ async function handleApStreamRequest(options: {
                       ...(approvalGrants.store ? { store: approvalGrants.store } : {}),
                       threadId,
                       stillPending,
+                      retentionMs: approvalGrants.retentionMs,
                     })
                   },
                 }),
@@ -3140,6 +3180,7 @@ async function handleApWaitRequest(options: {
                 ...(approvalGrants.store ? { store: approvalGrants.store } : {}),
                 threadId,
                 stillPending,
+                retentionMs: approvalGrants.retentionMs,
               })
             },
           }),
@@ -4174,6 +4215,7 @@ async function handleResumeRequest(options: {
                         ...(approvalGrants.store ? { store: approvalGrants.store } : {}),
                         threadId,
                         stillPending,
+                        retentionMs: approvalGrants.retentionMs,
                       })
                     },
                   }),
@@ -4214,6 +4256,7 @@ async function handleResumeRequest(options: {
                         ...(approvalGrants.store ? { store: approvalGrants.store } : {}),
                         threadId,
                         stillPending,
+                        retentionMs: approvalGrants.retentionMs,
                       })
                     },
                   }),

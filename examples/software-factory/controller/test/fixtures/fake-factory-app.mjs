@@ -4,8 +4,9 @@
 // redacts its children's output).
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
-import { appendFileSync, readFileSync } from "node:fs"
+import { appendFileSync, readFileSync, statSync } from "node:fs"
 import { createServer } from "node:http"
+import { dirname } from "node:path"
 
 const args = process.argv.slice(2)
 const option = (name) => args[args.indexOf(name) + 1]
@@ -25,7 +26,28 @@ report({
   workerUrl: process.env.FACTORY_WORKER_URL ?? null,
   drafterUrl: process.env.FACTORY_DRAFTER_URL ?? null,
   stateDir: process.env.FACTORY_STATE_DIR ?? null,
+  // Rung 4: names and booleans only, never a value that could hold key material.
+  deliveryVariables: Object.keys(process.env)
+    .filter((variable) => /^FACTORY_(?:GITHUB_APP_|DELIVERY_)|APP_KEY/.test(variable))
+    .sort(),
+  pemInEnvironment: Object.values(process.env).some((value) => value?.includes("PRIVATE KEY")),
+  keyFile: keyFileFacts(process.env.FACTORY_GITHUB_APP_PRIVATE_KEY_FILE),
 })
+
+/** Where the controller's key file is and whether it holds a key, private: never its content. */
+function keyFileFacts(path) {
+  if (path === undefined) return null
+  try {
+    return {
+      path,
+      mode: statSync(path).mode & 0o777,
+      directoryMode: statSync(dirname(path)).mode & 0o777,
+      isPem: readFileSync(path, "utf8").includes("PRIVATE KEY-----"),
+    }
+  } catch {
+    return { path, missing: true }
+  }
+}
 // A careless app that prints variables it was given: up must redact the secrets among them
 // everywhere it copies the line. The test names the variables (FAKE_APP_ECHO), so this stand-in
 // never names a secret itself; the values it prints are the test's fakes.

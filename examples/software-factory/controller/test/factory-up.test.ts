@@ -280,9 +280,14 @@ describe("each app's environment", () => {
       expect(byName.controller?.env[name], name).toBeUndefined()
     expect(byName.controller?.env.PATH).toBe("/bin")
     expect(byName.controller?.env.FACTORY_MAX_ACTIVE_MS).toBe("18000000")
-    // A deny-list, by design (D7 as landed): the workers still inherit the operator's other variables.
-    expect(byName.builder?.env).toMatchObject(secretsLike)
-    expect(byName.drafter?.env).toMatchObject(secretsLike)
+    // A deny-list, by design (D7 as landed): the workers still inherit the operator's other
+    // variables, but no GitHub token (neither worker calls GitHub).
+    const { GH_TOKEN, GITHUB_TOKEN, ...notGithub } = secretsLike
+    for (const name of ["builder", "drafter"]) {
+      expect(byName[name]?.env, name).toMatchObject(notGithub)
+      expect(byName[name]?.env.GH_TOKEN === undefined, name).toBe(true)
+      expect(byName[name]?.env.GITHUB_TOKEN === undefined, name).toBe(true)
+    }
   })
 })
 
@@ -311,7 +316,8 @@ describe("up's own subprocesses", () => {
         else if (source[end] === ")" && --depth === 0) break
       }
       expect(source.slice(call.index, end), call[0]).toMatch(
-        /env: (?:ownSubprocessEnv\(\)|gitEnv\b)/,
+        // `own`: realUpDeps' ownSubprocessEnv, given the config's secret variables.
+        /env: (?:ownSubprocessEnv\(\)|gitEnv\b|own\b)/,
       )
     }
   })
@@ -650,6 +656,7 @@ function row(id: string, state: WorkOrderRow["state"]): WorkOrderRow {
     taskDigest: null,
     intakeAttempts: 0,
     maxIntakeAttempts: 2,
+    delivery: { kind: "local" },
     createdAt: at,
     updatedAt: at,
   }

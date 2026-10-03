@@ -9,7 +9,12 @@ import { type ControllerClient, ControllerHttpError, createControllerClient } fr
 import { generatedTasksDirFor } from "./lib/config.js"
 import { budgetShortfallFor } from "./lib/controller/budget.js"
 import { dispatchPreparing, imageWaitBoundMs } from "./lib/controller/images.js"
-import { TERMINAL_STATES, type WorkOrderState } from "./lib/domain/states.js"
+import {
+  blockedNext,
+  REDELIVERABLE_BLOCKED_REASONS,
+  TERMINAL_STATES,
+  type WorkOrderState,
+} from "./lib/domain/states.js"
 import {
   COMMIT_PATTERN,
   DIGEST_PATTERN,
@@ -33,6 +38,7 @@ import {
   chooseWorkOrder,
   nextStep,
   RUN_WAITING_ON_A_PERSON,
+  runAgainArgs,
 } from "./lib/operator/run-steps.js"
 import { heldLockController, lineWriter, realUpDeps, stopOnSignals, up } from "./lib/operator/up.js"
 import { openRegistryReader } from "./lib/registry/reader.js"
@@ -52,7 +58,7 @@ import { openImageRegistryReader, recipeTag } from "./lib/targets/images.js"
 const USAGE = `factory <command> [options]
 
   create    --task <id> [--key <operationKey>]
-  create    --issue <n> [--repo <owner/name>] [--pin <sha>] [--key <operationKey>]
+  create    --issue <n> [--repo <owner/name>] [--pin <sha>] [--deliver local|draft-pr] [--key <operationKey>]
   intake          <workOrderId> [--key <operationKey>]
   review    <workOrderId> [--allow-missing-evidence]        (asks for at least the digest's first 8 hex digits)
   review    <workOrderId> --approve --digest <sha256> [--allow-missing-evidence] [--key <operationKey>]
@@ -63,13 +69,14 @@ const USAGE = `factory <command> [options]
   retry     <workOrderId> [--key <operationKey>]
   approve   <workOrderId> --revision <n> --bundle <sha256> [--key <operationKey>]
   deny      <workOrderId> [--key <operationKey>]
+  redeliver <workOrderId> [--digest <sha256>] [--key <operationKey>]   (asks for the bundle digest's first 8 hex digits)
   cancel    <workOrderId> [--key <operationKey>]   (uses BOTH variables)
   reconcile
   show      <workOrderId>
   events    <workOrderId>
   evidence  <workOrderId>
   list
-  run       --issue <n> [--repo <owner/name>] [--pin <sha>] [--new] [--allow-missing-evidence]
+  run       --issue <n> [--repo <owner/name>] [--pin <sha>] [--deliver local|draft-pr] [--new] [--allow-missing-evidence]
   run       --task <id> [--new] [--allow-missing-evidence]
   run       <workOrderId> [--allow-missing-evidence]
   up        [--config <path>]
@@ -99,6 +106,15 @@ the fetch). The repository is --repo, else FACTORY_REPOSITORY, else the checkout
 create --issue --pin <sha> replays the issue at that commit instead: origin/main is neither
 fetched nor read. The pin is a full sha, or a short one the checkout resolves; a full sha not in
 the object store is fetched from origin by sha, unless FACTORY_NO_FETCH=1, which refuses it.
+
+create --deliver draft-pr (issue work orders only) makes approving the bundle publish exactly
+that change as a draft pull request on the issue's repository, from branch factory/<id>, instead
+of exporting it; the default, local, is the export. The choice is fixed at create and frozen into
+the bundle the person approves. The controller must be configured to deliver to that repository.
+redeliver resumes a delivery blocked by delivery_unauthorized, delivery_rate_limited or
+delivery_unconfirmed, under the approval already given, within a day of it; every other delivery
+block needs a new work order: cancel it, then run --issue <n> --repo <owner/name> --deliver
+draft-pr --new, with no --pin, so the new work order is pinned at main's tip.
 
 intake runs the drafter turn and the oracle proof and waits for them, like dispatch. The draft
 it parks is a task directory under <FACTORY_STATE_DIR>/tasks/<workOrderId>/ (task.json, spec.md,
@@ -301,8 +317,12 @@ const INTAKE_ACTIVE: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>(["int
 const APPROVE_ACTIVE: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>([
   "awaiting_approval",
   "exporting",
+  "delivering",
 ])
-const APPROVE_SUCCESS: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>(["exported"])
+const APPROVE_SUCCESS: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>([
+  "exported",
+  "delivered",
+])
 /** The states an awaited `dispatch` is still working in: the builder's turn and verification. */
 const DISPATCH_ACTIVE: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>([
   "dispatched",
@@ -597,6 +617,7 @@ async function issueCreateInput(
   issueArg: string,
   repo: string | undefined,
   pinArg: string | undefined,
+  deliver: Deliver = "local",
 ) {
   const number = Number(issueArg)
   if (!/^\d+$/.test(issueArg) || !Number.isInteger(number) || number <= 0)
@@ -607,7 +628,8 @@ async function issueCreateInput(
   const gh = process.env.FACTORY_GH ?? "gh"
   const fetch = process.env.FACTORY_NO_FETCH !== "1"
   const replayPin = pinArg !== undefined ? await replayPinOf(root, pinArg) : undefined
-  const issue = await fetchIssue({ repository, number, gh })
+  // A draft PR records whether the issue was open at create (rung 4 §15 item 3).
+  const issue = await fetchIssue({ repository, number, gh, withState: deliver === "draft-pr" })
   let pin: string
   if (replayPin !== undefined) {
     // A replay: the commit is named, so origin/main is never consulted. A full sha missing from
@@ -620,8 +642,22 @@ async function issueCreateInput(
   return {
     origin: { kind: "issue" as const, repository, number, bodyDigest: issue.bodyDigest },
     pin,
-    issue: { title: issue.title, body: issue.body },
+    issue: {
+      title: issue.title,
+      body: issue.body,
+      ...(issue.state !== undefined ? { state: issue.state } : {}),
+    },
+    ...(deliver === "draft-pr" ? { deliver } : {}),
   }
+}
+
+type Deliver = "local" | "draft-pr"
+
+/** `--deliver`, checked: absent is undefined (each command says what that means). */
+function deliverOption(value: string | undefined): Deliver | undefined {
+  if (value === undefined) return undefined
+  if (value === "local" || value === "draft-pr") return value
+  throw new Error(`--deliver takes local or draft-pr, got ${JSON.stringify(value)}`)
 }
 
 /**
@@ -764,18 +800,27 @@ function intakeBudgetWarning(row: WorkOrderRow): string | undefined {
   return `This work order has ${Math.max(0, shortfall.remainingMs)} ms of active budget left, below twice target ${row.targetId}'s verifier deadline (${verifierDeadlineMs} ms): dispatch will refuse it after you approve. Reject or cancel it, restart pnpm factory up with FACTORY_MAX_ACTIVE_MS=${shortfall.neededMs} or more (the README sizes it per target), and run it again with --new`
 }
 
-/** Send an export approval and follow it as `approve` does: re-verification outlives the request. */
-function approveExport(
+/**
+ * Send an export approval and follow it as `approve` does: re-verification outlives the request.
+ * A delivery that blocked names what to run next, with `redeliver` only for a reason waiting
+ * heals (D23): the controller's answer lists it, and an answer read from the registry after the
+ * request ended gets the same list from the row.
+ */
+async function approveExport(
   id: string,
   input: { revision: number; bundleDigest: string; operationKey?: string },
 ): Promise<RouteOutcome> {
-  return awaiting(
+  const outcome = await awaiting(
     id,
     (controller) => controller.approve(id, input),
     APPROVE_ACTIVE,
     APPROVE_SUCCESS,
     { arrived: "approve_started", refused: "approve_refused" },
   )
+  const row = outcome.row
+  return outcome.next === undefined && row?.state === "blocked"
+    ? { ...outcome, next: blockedNext(row.id, row.blockedReason) }
+    : outcome
 }
 
 /** Send a rejection of a parked draft and await the redraft, as `reject-intake` does. */
@@ -902,7 +947,7 @@ async function reviewOutcome(id: string, options: ReviewOptions): Promise<Review
         built.row,
       )
     const answer = await ask(
-      `Approve ${built.kind === "intake" ? "this draft" : "this export"} at revision ${built.revision}? Type at least the first eight hex digits of the ${built.label} (or paste all of it) to approve; anything else sends nothing: `,
+      `Approve ${built.kind === "intake" ? "this draft" : built.publishes !== undefined ? "publishing this as a draft pull request" : "this export"} at revision ${built.revision}? Type at least the first eight hex digits of the ${built.label} (or paste all of it) to approve; anything else sends nothing: `,
     )
     if (answer === null)
       return declined("No answer: stdin ended before one was typed; nothing was sent", built.row)
@@ -933,6 +978,84 @@ async function reviewOutcome(id: string, options: ReviewOptions): Promise<Review
     ...operationKey,
   })
   return { kind: "sent", outcome, code: outcome.ok ? 0 : 1 }
+}
+
+/**
+ * `factory redeliver <id>`: resume a delivery a healable block stopped, under the approval
+ * already given (rung 4 §4, §15 item 7). It shows what the resumed delivery will publish and,
+ * like a review, takes the bundle digest's prefix typed at a terminal (or `--digest` in full):
+ * a resumed delivery is another round of remote writes, and a person says so.
+ */
+async function redeliver(
+  id: string,
+  options: { readonly digest: string | undefined; readonly key: string | undefined },
+): Promise<number> {
+  const { row, outbox } = read((reader) => ({ row: reader.show(id), outbox: reader.outbox(id) }))
+  if (!row) throw new Error(`Unknown work order ${id}`)
+  const refuse = (message: string) => {
+    print({ ok: false, state: row.state, message, row })
+    return 1
+  }
+  if (row.state !== "blocked" || outbox === null || row.bundleDigest === null)
+    return refuse(
+      `Nothing to redeliver: ${id} is ${row.state}${row.blockedReason ? ` (${row.blockedReason})` : ""}`,
+    )
+  // The controller refuses these too; refused here first, so nobody types a digest's prefix
+  // for a refusal (the same reasons `run` names no redeliver for).
+  if (row.blockedReason === null || !REDELIVERABLE_BLOCKED_REASONS.has(row.blockedReason)) {
+    print({
+      ok: false,
+      state: row.state,
+      message: `Cannot redeliver a work order blocked by ${row.blockedReason ?? "no reason recorded"}: waiting does not heal it; cancel it and run the issue again with --new`,
+      next: [`pnpm factory cancel ${id}`, `pnpm factory run ${runAgainArgs(row)} --new`],
+      row,
+    })
+    return 1
+  }
+  const { intent } = outbox
+  process.stderr.write(
+    [
+      `Redeliver ${id} (blocked by ${row.blockedReason}, revision ${row.revision})`,
+      `  ${intent.repository}: branch ${intent.branch} against ${intent.baseBranch}, branched at ${intent.pin}`,
+      `  approved ${intent.approvedAt} by ${intent.decidedBy}; the worker stopped after step ${outbox.step}`,
+      `  last error: ${outbox.lastError ?? "none recorded"}`,
+      `  bundle digest: ${row.bundleDigest}`,
+      "Redelivering resumes the approved delivery; it approves nothing new.",
+      "",
+    ].join("\n"),
+  )
+  if (options.digest !== undefined) {
+    if (options.digest !== row.bundleDigest)
+      return refuse(
+        `--digest ${options.digest} is not the bundle digest shown above; nothing was sent`,
+      )
+  } else {
+    if (!interactive())
+      return refuse(
+        "There is no terminal to type the bundle digest's prefix into; pass --digest <sha256> with the digest shown above",
+      )
+    const answer = (
+      (await ask("Type at least the first eight hex digits of the bundle digest to redeliver: ")) ??
+      ""
+    )
+      .trim()
+      .toLowerCase()
+    if (!(/^[0-9a-f]{8,64}$/.test(answer) && row.bundleDigest.startsWith(answer)))
+      return refuse("The typed prefix does not match the bundle digest shown; nothing was sent")
+  }
+  const outcome = await awaiting(
+    id,
+    (controller) =>
+      controller.redeliver(id, {
+        revision: row.revision,
+        bundleDigest: row.bundleDigest as string,
+        ...(options.key ? { operationKey: options.key } : {}),
+      }),
+    new Set<WorkOrderState>(["delivering"]),
+    new Set<WorkOrderState>(["delivered"]),
+  )
+  print(outcome)
+  return outcome.ok ? 0 : 1
 }
 
 function nothingToReview(id: string, row: WorkOrderRow): string {
@@ -980,6 +1103,8 @@ async function runWorkOrder(options: {
   readonly repo: string | undefined
   readonly pin: string | undefined
   readonly fresh: boolean
+  /** `--deliver`: undefined resumes whatever delivery the work order was created with. */
+  readonly deliver: Deliver | undefined
 }): Promise<string | { readonly outcome: unknown; readonly code: number }> {
   const rows = listRows()
   let matching: WorkOrderRow[]
@@ -1006,7 +1131,7 @@ async function runWorkOrder(options: {
     let fetched: Awaited<ReturnType<typeof issueCreateInput>> | undefined
     create = async () => {
       // Fetched once: a create retried after a racing run's (below) sends the same input.
-      fetched ??= await issueCreateInput(issueArg, repository, options.pin)
+      fetched ??= await issueCreateInput(issueArg, repository, options.pin, options.deliver)
       const input = fetched
       const generation = rows.filter((r) => sameIssue(r) && r.pin === input.pin).length
       return client().create({
@@ -1016,6 +1141,22 @@ async function runWorkOrder(options: {
     }
   }
   const choice = chooseWorkOrder(matching, options.fresh)
+  // A work order delivers the way it was created to (rung 4 §3.1): run resumes it only when
+  // --deliver says the same or nothing, and otherwise says so rather than switch it.
+  if (
+    (choice.kind === "resume" || choice.kind === "done") &&
+    options.deliver !== undefined &&
+    choice.row.delivery.kind !== options.deliver
+  )
+    return {
+      code: 1,
+      outcome: {
+        ok: false,
+        state: choice.row.state,
+        message: `${choice.row.id} was created to deliver ${choice.row.delivery.kind}, not ${options.deliver}; run it without --deliver, or add --new to start another`,
+        row: choice.row,
+      },
+    }
   switch (choice.kind) {
     case "resume":
       process.stderr.write(
@@ -1028,7 +1169,7 @@ async function runWorkOrder(options: {
         outcome: {
           ok: true,
           state: choice.row.state,
-          message: `Already exported as ${choice.row.id}; --new starts another`,
+          message: `Already ${choice.row.state} as ${choice.row.id}; --new starts another`,
           row: choice.row,
         },
       }
@@ -1208,6 +1349,7 @@ async function runCommand(
     readonly pin?: string | undefined
     readonly new: boolean
     readonly "allow-missing-evidence": boolean
+    readonly deliver?: string | undefined
   } & Readonly<
     Partial<Record<(typeof RUN_REFUSES)[number] | (typeof RUN_IGNORES)[number], unknown>>
   >,
@@ -1246,12 +1388,15 @@ async function runCommand(
     throw new Error("run --repo names an issue's repository: it takes --issue")
   if (values.new && id !== undefined)
     throw new Error("run --new starts a new work order: it takes --issue or --task, not an id")
+  const deliver = deliverOption(values.deliver)
+  if (deliver !== undefined && values.issue === undefined)
+    throw new Error("run --deliver chooses an issue work order's delivery: it takes --issue")
   // Ctrl-C ends the following, never the work: the controller carries on without this process.
   // Installed before anything is asked or sent, so an early Ctrl-C also says how to resume;
   // without --new, which would start yet another work order.
   const again =
     values.issue !== undefined
-      ? `--issue ${values.issue}${values.repo !== undefined ? ` --repo ${values.repo}` : ""}${values.pin !== undefined ? ` --pin ${values.pin}` : ""}`
+      ? `--issue ${values.issue}${values.repo !== undefined ? ` --repo ${values.repo}` : ""}${values.pin !== undefined ? ` --pin ${values.pin}` : ""}${deliver !== undefined ? ` --deliver ${deliver}` : ""}`
       : `--task ${values.task ?? ""}`
   let following: string | undefined = id
   /** The journal's last seq when `run` reached a person's gate; undefined away from one. */
@@ -1270,6 +1415,7 @@ async function runCommand(
       repo: values.repo,
       pin: values.pin,
       fresh: values.new,
+      deliver,
     }))
   if (typeof chosen !== "string") return finish(chosen.outcome, chosen.code)
   following = chosen
@@ -1291,11 +1437,20 @@ async function runCommand(
     const unmoved = () => read((reader) => reader.show(workOrder))?.revision === row.revision
     try {
       switch (step.kind) {
-        case "done":
+        case "done": {
+          const url = read((reader) => reader.delivery(workOrder))?.pullRequest?.url
           return finish(
-            { ok: true, state: row.state, message: `Exported under ${row.bundleDigest}`, row },
+            {
+              ok: true,
+              state: row.state,
+              message:
+                url !== undefined ? `Delivered as ${url}` : `Exported under ${row.bundleDigest}`,
+              row,
+              ...(url !== undefined ? { pullRequest: url } : {}),
+            },
             0,
           )
+        }
         case "stop":
           return finish(
             { ok: false, state: row.state, message: step.message, next: step.next, row },
@@ -1455,6 +1610,7 @@ async function main(argv: string[]): Promise<number> {
       "work-order": { type: "string" },
       "image-id": { type: "string" },
       config: { type: "string" },
+      deliver: { type: "string" },
       approve: { type: "boolean", default: false },
       reject: { type: "boolean", default: false },
       "allow-missing-evidence": { type: "boolean", default: false },
@@ -1502,7 +1658,7 @@ async function main(argv: string[]): Promise<number> {
     const out = lineWriter(process.stdout)
     // SIGHUP too: a closed terminal would otherwise leave the detached children running.
     const { stop, force } = stopOnSignals(process, out)
-    return await up(config, realUpDeps(out), stop, force)
+    return await up(config, realUpDeps(out, config), stop, force)
   }
   // Answered before anything is opened: writing a builder handoff reads the catalog and
   // captures an archive, and needs no controller; it opens the image registry read-only only
@@ -1551,11 +1707,16 @@ async function main(argv: string[]): Promise<number> {
               ? "create --pin replays an issue: it takes --issue, not --task (a catalog task's pin is its target's)"
               : "create --pin requires --issue",
           )
+        const deliver = deliverOption(values.deliver)
+        if (values.task && deliver === "draft-pr")
+          throw new Error(
+            "create --deliver draft-pr is for issue work orders: a catalog task reproduces a defect already fixed on main",
+          )
         const key = values.key ? { operationKey: values.key } : {}
         const input = values.task
           ? { taskId: values.task }
           : values.issue
-            ? await issueCreateInput(values.issue, values.repo, values.pin)
+            ? await issueCreateInput(values.issue, values.repo, values.pin, deliver)
             : null
         if (!input) throw new Error("create requires --task or --issue")
         const outcome = await client().create({ ...input, ...key })
@@ -1635,6 +1796,8 @@ async function main(argv: string[]): Promise<number> {
         print(outcome)
         return outcome.ok ? 0 : 1
       }
+      case "redeliver":
+        return await redeliver(needId(), { digest: values.digest, key: values.key })
       case "deny": {
         const outcome = await client().deny(needId(), values.key)
         print(outcome)
@@ -1648,9 +1811,13 @@ async function main(argv: string[]): Promise<number> {
         return outcome.ok ? 0 : 1
       }
       case "show": {
-        const row = read((reader) => reader.show(needId()))
+        const { row, receipt } = read((reader) => ({
+          row: reader.show(needId()),
+          receipt: reader.delivery(needId()),
+        }))
         if (!row) throw new Error(`Unknown work order ${id}`)
-        print(row)
+        // A delivered pull request is shown beside the row; an export's path stays in events.
+        print(receipt?.pullRequest ? { ...row, pullRequest: receipt.pullRequest } : row)
         return 0
       }
       case "events":
@@ -1660,7 +1827,14 @@ async function main(argv: string[]): Promise<number> {
         print(read((reader) => reader.evidence(needId())))
         return 0
       case "list":
-        print(read((reader) => reader.list()))
+        print(
+          read((reader) =>
+            reader.list().map((row) => {
+              const url = reader.delivery(row.id)?.pullRequest?.url
+              return url === undefined ? row : { ...row, pullRequest: url }
+            }),
+          ),
+        )
         return 0
       default:
         throw new Error(`Unknown command ${command}\n${USAGE}`)

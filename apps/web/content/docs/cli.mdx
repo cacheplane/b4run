@@ -1,6 +1,6 @@
 # CLI Reference
 
-B4.run ships a single `b4` binary with fifteen commands: `add`, `build`, `check`, `dev`, `docs`, `eval`, `inspect`, `memory`, `routes`, `run`, `start`, `test`, `threads`, `typegen`, and `verify`. Most commands read `b4.config.ts` from the current working directory or from `--cwd <path>`. `b4 dev` always uses the current working directory.
+B4.run ships a single `b4` binary with seventeen commands: `add`, `approvals`, `build`, `check`, `client-tools`, `dev`, `docs`, `eval`, `inspect`, `memory`, `routes`, `run`, `start`, `test`, `threads`, `typegen`, and `verify`. Most commands read `b4.config.ts` from the current working directory or from `--cwd <path>`. `b4 dev` always uses the current working directory.
 
 ## Running the CLI
 
@@ -341,6 +341,33 @@ b4 add <url>           # fetch a third-party blueprint from any URL
 
 See [Blueprints](/docs/blueprints) for authoring and catalog details.
 
+## `b4 approvals`
+
+`b4 approvals` manages the records behind
+[approval grants](/docs/approval-grants).
+
+```
+b4 approvals prune
+b4 approvals prune --retention <ms>
+```
+
+`prune` deletes grant records voided because the thread moved past the prompt
+longer ago than the retention window. A consumed grant is voided when its
+resumed turn completes; an outstanding grant, or a consumed grant whose resume
+never completed, is never deleted, however old. The window is
+[`approvals.grantRetentionMs`](/docs/configuration#approvals) (7 days by
+default); `--retention <ms>` overrides it for one pass. The runtime runs the
+same pass on its own, at most once an hour, so this is for cron or a one-off.
+It prints `pruned: <n>`. With grants on and no store file yet, it creates the
+default store file (`.b4/interrupt-grants.sqlite`) and prunes nothing; with
+grants off and no store file, it says so and exits cleanly.
+
+Flags:
+- `--retention <ms>`: retention window for this pass, a positive integer of at
+  most one year.
+- `--cwd <path>`: operate on a different app root. Give it before the
+  subcommand (`b4 approvals --cwd app prune`), as with `b4 memory`.
+
 ## `b4 docs`
 
 `b4 docs` prints the B4.run docs **bundled with the installed CLI**, so you (or a
@@ -358,6 +385,32 @@ The optional positional `[topic]` picks one doc by slug (with or without the
 `.md` suffix). An unknown topic exits non-zero and lists the available topics.
 In a source checkout, build the CLI first (`pnpm --filter @b4run/cli build`)
 so the bundled docs exist.
+
+## `b4 client-tools`
+
+`b4 client-tools` manages the records behind
+[client-provided tools](/docs/ag-ui#client-provided-tools) on the AG-UI endpoint.
+
+```
+b4 client-tools prune
+b4 client-tools prune --retention <ms>
+```
+
+`prune` deletes records that can no longer affect a turn: answered or voided
+calls settled longer ago than the retention window, and outstanding calls
+whose expiry is older than it. An outstanding, unexpired call is never
+deleted. The window is
+[`server.agui.clientToolRetentionMs`](/docs/configuration#serveragui) (7 days
+by default) and never shorter than `clientToolTtlMs`; `--retention <ms>`
+overrides it for one pass. The runtime runs the same pass on its own when a
+turn settles, at most once an hour, so this is for cron or a one-off. It
+prints `pruned: <n>`, or says so when the app has no client tool store.
+
+Flags:
+- `--retention <ms>`: retention window for this pass, a positive integer of at
+  most one year.
+- `--cwd <path>`: operate on a different app root. Give it before the
+  subcommand (`b4 client-tools --cwd app prune`), as with `b4 memory`.
 
 ## `b4 threads`
 

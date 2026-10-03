@@ -1,11 +1,12 @@
 {
   "name": "@b4-example/software-factory-controller",
   "private": true,
-  "version": "0.0.6",
+  "version": "0.0.7",
   "type": "module",
   "scripts": {
     "test": "vitest run",
     "test:sandbox": "vitest run --config vitest.sandbox.config.ts",
+    "test:github-scratch": "vitest run --config vitest.github.config.ts",
     "test:sandbox:cli": "FACTORY_TEST_CLI_TARGET=1 vitest run --config vitest.sandbox.config.ts test/target-cli.integration.test.ts test/target-init.integration.test.ts",
     "typecheck": "tsc -p . --noEmit",
     "lint": "biome check .",

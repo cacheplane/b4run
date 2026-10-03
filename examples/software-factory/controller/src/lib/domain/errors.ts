@@ -18,6 +18,18 @@ export class UnknownTaskError extends Error {
   }
 }
 
+/**
+ * `create --deliver draft-pr` that this controller cannot honour: it has no delivery
+ * configured, or it delivers to another repository than the issue's (rung 4 §3.1). Thrown
+ * before the operation key is spent.
+ */
+export class DeliveryUnavailableError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "DeliveryUnavailableError"
+  }
+}
+
 export class UnknownWorkOrderError extends Error {
   constructor(id: string) {
     super(`Unknown work order ${id}`)

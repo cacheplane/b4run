@@ -193,6 +193,71 @@ describe("createMemoryClientToolCallStore", () => {
     ;((await store.listForThread("t1"))[0] as { runId: string }).runId = "mutated"
     expect((await store.get("t1", "call_1"))?.runId).toBe("r1")
   })
+
+  describe("prune", () => {
+    const BEFORE = "2026-09-30T12:00:00.000Z"
+
+    it("deletes answered and voided rows settled before the cutoff and keeps later ones", async () => {
+      const store = createMemoryClientToolCallStore()
+      await store.issue(
+        call({ toolCallId: "old_answered", answeredAt: "2026-09-30T01:00:00.000Z", result: "ok" }),
+      )
+      await store.issue(
+        call({ toolCallId: "new_answered", answeredAt: "2026-09-30T12:00:00.000Z", result: "ok" }),
+      )
+      await store.issue(call({ toolCallId: "old_voided", voidedAt: "2026-09-30T01:00:00.000Z" }))
+      await store.issue(call({ toolCallId: "new_voided", voidedAt: "2026-09-30T13:00:00.000Z" }))
+      expect(await store.prune({ before: BEFORE })).toBe(2)
+      expect((await store.listForThread("t1")).map((row) => row.toolCallId)).toEqual([
+        "new_answered",
+        "new_voided",
+      ])
+    })
+
+    it("a void is the settle time: an old answer with a recent void is kept", async () => {
+      const store = createMemoryClientToolCallStore()
+      await store.issue(
+        call({
+          toolCallId: "answered_then_voided",
+          answeredAt: "2026-09-30T01:00:00.000Z",
+          result: "ok",
+          voidedAt: "2026-09-30T13:00:00.000Z",
+        }),
+      )
+      expect(await store.prune({ before: BEFORE })).toBe(0)
+      expect(await store.get("t1", "answered_then_voided")).toBeDefined()
+    })
+
+    it("deletes outstanding rows expired before the cutoff and keeps unexpired or never-expiring ones", async () => {
+      const store = createMemoryClientToolCallStore()
+      await store.issue(call({ toolCallId: "expired_old", expiresAt: "2026-09-30T00:10:00.000Z" }))
+      await store.issue(call({ toolCallId: "expires_at_cutoff", expiresAt: BEFORE }))
+      await store.issue(
+        call({ toolCallId: "expires_later", expiresAt: "2026-09-30T13:00:00.000Z" }),
+      )
+      await store.issue(call({ toolCallId: "never_expires", expiresAt: null }))
+      expect(await store.prune({ before: BEFORE })).toBe(1)
+      expect((await store.listOutstanding("t1")).map((row) => row.toolCallId)).toEqual([
+        "expires_at_cutoff",
+        "expires_later",
+        "never_expires",
+      ])
+    })
+
+    it("sweeps every thread and is idempotent", async () => {
+      const store = createMemoryClientToolCallStore()
+      await store.issue(
+        call({ threadId: "t1", toolCallId: "a", voidedAt: "2026-09-30T01:00:00.000Z" }),
+      )
+      await store.issue(
+        call({ threadId: "t2", toolCallId: "b", voidedAt: "2026-09-30T01:00:00.000Z" }),
+      )
+      expect(await store.prune({ before: BEFORE })).toBe(2)
+      expect(await store.prune({ before: BEFORE })).toBe(0)
+      expect(await store.listForThread("t1")).toEqual([])
+      expect(await store.listForThread("t2")).toEqual([])
+    })
+  })
 })
 
 function serverCall(over: Partial<ClientToolCallRecord> = {}): ClientToolCallRecord {
@@ -289,12 +354,12 @@ describe("createMemoryClientToolCallStore — server rows", () => {
   })
 })
 
-describe("createMemoryClientToolCallStore — prune", () => {
+describe("createMemoryClientToolCallStore — prune with server rows", () => {
   const T0 = "2026-09-01T00:00:00.000Z"
   const T1 = "2026-09-20T00:00:00.000Z"
   const BEFORE = "2026-09-10T00:00:00.000Z"
 
-  it("deletes only non-open rows whose terminal timestamp is older than `before`", async () => {
+  it("deletes terminal rows of both kinds older than `before` and keeps open ones", async () => {
     const store = createMemoryClientToolCallStore()
     await store.issue(call({ toolCallId: "old_answered", answeredAt: T0, result: "r" }))
     await store.issue(call({ toolCallId: "old_voided", voidedAt: T0 }))
@@ -308,7 +373,7 @@ describe("createMemoryClientToolCallStore — prune", () => {
         issuedAt: "2020-01-01T00:00:00.000Z",
       }),
     )
-    expect(await store.prune({ threadId: "t1", before: BEFORE })).toBe(3)
+    expect(await store.prune({ before: BEFORE })).toBe(3)
     expect((await store.listForThread("t1")).map((r) => r.toolCallId).sort()).toEqual([
       "new_answered",
       "new_settled",
@@ -317,35 +382,42 @@ describe("createMemoryClientToolCallStore — prune", () => {
     ])
   })
 
-  it("prunes one thread only and returns 0 when nothing qualifies", async () => {
+  it("deletes a settled server row older than `before` on every thread", async () => {
     const store = createMemoryClientToolCallStore()
-    await store.issue(call({ threadId: "t1", toolCallId: "x", voidedAt: T0 }))
-    await store.issue(call({ threadId: "t2", toolCallId: "x", voidedAt: T0 }))
-    expect(await store.prune({ threadId: "t1", before: BEFORE })).toBe(1)
-    expect(await store.get("t1", "x")).toBeUndefined()
-    expect(await store.get("t2", "x")).toBeDefined()
-    expect(await store.prune({ threadId: "t1", before: BEFORE })).toBe(0)
+    await store.issue(serverCall({ threadId: "t1", toolCallId: "s", settledAt: T0 }))
+    await store.issue(serverCall({ threadId: "t2", toolCallId: "s", settledAt: T0 }))
+    expect(await store.prune({ before: BEFORE })).toBe(2)
+    expect(await store.get("t1", "s")).toBeUndefined()
+    expect(await store.get("t2", "s")).toBeUndefined()
   })
 
-  it("keeps a row whose terminal timestamp equals `before`", async () => {
+  it("keeps an unsettled server row however old its issuedAt", async () => {
+    const store = createMemoryClientToolCallStore()
+    await store.issue(serverCall({ issuedAt: "2020-01-01T00:00:00.000Z" }))
+    expect(await store.prune({ before: BEFORE })).toBe(0)
+    expect(await store.get("t1", "call_s1")).toBeDefined()
+  })
+
+  it("keeps a server row settled after `before`", async () => {
+    const store = createMemoryClientToolCallStore()
+    await store.issue(serverCall({ settledAt: T1 }))
+    expect(await store.prune({ before: BEFORE })).toBe(0)
+    expect(await store.get("t1", "call_s1")).toBeDefined()
+  })
+
+  it("keeps rows whose terminal timestamp equals `before`", async () => {
     const store = createMemoryClientToolCallStore()
     await store.issue(call({ toolCallId: "edge", voidedAt: BEFORE }))
-    expect(await store.prune({ threadId: "t1", before: BEFORE })).toBe(0)
+    await store.issue(serverCall({ toolCallId: "edge_server", settledAt: BEFORE }))
+    expect(await store.prune({ before: BEFORE })).toBe(0)
     expect(await store.get("t1", "edge")).toBeDefined()
-  })
-
-  it("rejects a `before` that is not a canonical toISOString value", async () => {
-    const store = createMemoryClientToolCallStore()
-    const message = "prune: `before` must be a canonical Date#toISOString() value"
-    await expect(store.prune({ threadId: "t1", before: "2026-09-10T00:00:00Z" })).rejects.toThrow(
-      message,
-    )
-    await expect(store.prune({ threadId: "t1", before: "nope" })).rejects.toThrow(message)
+    expect(await store.get("t1", "edge_server")).toBeDefined()
   })
 
   it("decides on the terminal timestamp, not issuedAt", async () => {
     const store = createMemoryClientToolCallStore()
     await store.issue(call({ toolCallId: "recent_issue", issuedAt: T1, voidedAt: T0 }))
-    expect(await store.prune({ threadId: "t1", before: BEFORE })).toBe(1)
+    await store.issue(serverCall({ toolCallId: "recent_server", issuedAt: T1, settledAt: T0 }))
+    expect(await store.prune({ before: BEFORE })).toBe(2)
   })
 })

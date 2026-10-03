@@ -36,7 +36,7 @@
 - End-to-end streaming to a [CopilotKit](https://docs.copilotkit.ai) V2 web client over
   B4.run's AG-UI endpoint (`POST /agui/{routeId}`, see `@b4run/ag-ui`) for basic `/chat`
   messages. The browser uses CopilotKit's same-origin multi-route runtime under
-  `/api/copilotkit/*`; the runtime's `HttpAgent` owns the server-to-server B4.run call. The
+  `/api/copilotkit/*`; the runtime's `B4HttpAgent` owns the server-to-server B4.run call. The
   client presents plan/subagent activities and the standard permission decision control.
 
 ## Model choice
@@ -81,7 +81,7 @@ examples/chat/
     └── app/
         ├── layout.tsx                 # imports @copilotkit/react-core/v2/styles.css
         ├── page.tsx                   # CopilotKit + CopilotSidebar
-        └── api/copilotkit/[...path]/route.ts # V2 runtime + HttpAgent → B4.run /agui/%2Fchat%23agent
+        └── api/copilotkit/[...path]/route.ts # V2 runtime + B4HttpAgent → B4.run /agui/%2Fchat%23agent
 ```
 
 ## Security caveats

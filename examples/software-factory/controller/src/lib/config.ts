@@ -1,5 +1,7 @@
 import { join } from "node:path"
 import { z } from "zod"
+import { MAX_KEY_PATH_LENGTH, notAKeyPath } from "./delivery/github/jwt.js"
+import { BRANCH_PATTERN, REPOSITORY_PATTERN } from "./domain/work-order.js"
 import { DEFAULT_IMAGE_BUILD_TIMEOUT_MS, DEFAULT_MAX_IMAGE_BUILDS } from "./targets/images.js"
 
 const positiveInt = (name: string) =>
@@ -67,6 +69,27 @@ const EnvSchema = z.object({
   FACTORY_DRAFTER_URL: httpUrl("FACTORY_DRAFTER_URL").optional(),
   FACTORY_DRAFTER_ROUTE: z.string().min(1).default(DEFAULT_DRAFTER_ROUTE),
   /**
+   * Draft-PR delivery (rung 4 §8.2): all four or none. The key is a path to a file, never the
+   * key itself; `factory up` passes these to the controller alone.
+   */
+  FACTORY_GITHUB_APP_ID: positiveInt("FACTORY_GITHUB_APP_ID"),
+  // Refused by name, never quoted: a key pasted here would be printed by every message naming it.
+  FACTORY_GITHUB_APP_PRIVATE_KEY_FILE: z
+    .string()
+    .min(1)
+    .refine((value) => !notAKeyPath(value), {
+      message: `FACTORY_GITHUB_APP_PRIVATE_KEY_FILE must be the key file's path, not the key (it holds a PEM header or a line break, or is over ${MAX_KEY_PATH_LENGTH} characters)`,
+    })
+    .optional(),
+  FACTORY_DELIVERY_REPOSITORY: z
+    .string()
+    .regex(REPOSITORY_PATTERN, { message: "FACTORY_DELIVERY_REPOSITORY must be owner/name" })
+    .optional(),
+  FACTORY_DELIVERY_BASE_BRANCH: z
+    .string()
+    .regex(BRANCH_PATTERN, { message: "FACTORY_DELIVERY_BASE_BRANCH must be a branch name" })
+    .optional(),
+  /**
    * The secret every worker's thread-access policy requires: `authorization: Bearer <token>`.
    * Every message below names the variable and never its value.
    */
@@ -126,6 +149,13 @@ export interface FactoryConfig {
   readonly maxCandidateAttempts: number
   /** Sent to every worker as `authorization: Bearer <token>`. Never journalled or logged. */
   readonly workerToken: string
+  /** Draft-PR delivery, when all four of its variables are set. */
+  readonly delivery?: {
+    readonly repository: string
+    readonly baseBranch: string
+    readonly appId: number
+    readonly privateKeyFile: string
+  }
   /** One line per variable set here that the controller ignores; the runtime prints each at boot. */
   readonly warnings: readonly string[]
 }
@@ -149,6 +179,12 @@ const RETIRED: Readonly<Record<string, string>> = {
     "the controller reads the drafter's threads over its URL (sandbox.workspaceRead), not through its app root",
   FACTORY_TARGETS_DIR:
     "target.json is never written any more (images live in <FACTORY_STATE_DIR>/images.sqlite), so there is no copy to point at",
+  // Rung 4: never a key in the controller's environment, where every git and docker child it
+  // spawns would inherit it.
+  FACTORY_GITHUB_APP_PRIVATE_KEY:
+    "the controller reads the app's key from a file: set FACTORY_GITHUB_APP_PRIVATE_KEY_FILE (factory up writes one for privateKeyEnv)",
+  FACTORY_GITHUB_TOKEN:
+    "delivery uses a GitHub App: set FACTORY_GITHUB_APP_ID and FACTORY_GITHUB_APP_PRIVATE_KEY_FILE",
 }
 
 /**
@@ -188,6 +224,17 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
     throw invalid(
       "FACTORY_DRAFTER_ROUTE is set but the drafter is not: set FACTORY_DRAFTER_URL, or unset it",
     )
+  const deliveryNames = [
+    "FACTORY_GITHUB_APP_ID",
+    "FACTORY_GITHUB_APP_PRIVATE_KEY_FILE",
+    "FACTORY_DELIVERY_REPOSITORY",
+    "FACTORY_DELIVERY_BASE_BRANCH",
+  ] as const
+  const deliverySet = deliveryNames.filter((name) => isSet(name))
+  if (deliverySet.length > 0 && deliverySet.length < deliveryNames.length)
+    throw invalid(
+      `draft-PR delivery needs all of ${deliveryNames.join(", ")}; missing ${deliveryNames.filter((n) => !isSet(n)).join(", ")}`,
+    )
   const drafter: DrafterEndpoint | undefined =
     e.FACTORY_DRAFTER_URL !== undefined
       ? { url: e.FACTORY_DRAFTER_URL.replace(/\/$/, ""), route: e.FACTORY_DRAFTER_ROUTE }
@@ -209,6 +256,16 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
     maxIntakeAttempts: e.FACTORY_MAX_INTAKE_ATTEMPTS ?? 2,
     maxCandidateAttempts: e.FACTORY_MAX_CANDIDATE_ATTEMPTS ?? 2,
     workerToken: e.FACTORY_WORKER_TOKEN,
+    ...(deliverySet.length > 0
+      ? {
+          delivery: {
+            repository: e.FACTORY_DELIVERY_REPOSITORY as string,
+            baseBranch: e.FACTORY_DELIVERY_BASE_BRANCH as string,
+            appId: e.FACTORY_GITHUB_APP_ID as number,
+            privateKeyFile: e.FACTORY_GITHUB_APP_PRIVATE_KEY_FILE as string,
+          },
+        }
+      : {}),
     warnings: Object.keys(IGNORED)
       .filter((name) => env[name] !== undefined)
       .map((name) => IGNORED[name] as string),

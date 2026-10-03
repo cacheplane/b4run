@@ -993,7 +993,9 @@ export const API_REQUIRED_CONTRACT_KEYS = [
   "@b4run/langgraph#./route-module:WorkflowRouteModule",
   "@b4run/langgraph#./route-module:assertExactlyOneEntry",
   "@b4run/langgraph#./route-module:normalizeRouteModule",
-  "@b4run/ag-ui#./sse:encodeAgUiSse",
+  "@b4run/ag-ui#./sse:agUiContentType",
+  "@b4run/ag-ui#./sse:encodeAgUiEvent",
+  "@b4run/ag-ui#./client:B4HttpAgent",
   "@b4run/ag-ui#.:B4_PLAN_ACTIVITY_TYPE",
   "@b4run/ag-ui#.:B4_SUBAGENT_ACTIVITY_TYPE",
   "@b4run/ag-ui#.:B4RunInput",
@@ -1208,6 +1210,7 @@ export const ARTIFACT_REGISTRY = [
   ),
   runtimeImport("@b4run/ag-ui", ".", "detailed", "edge-safe", "integration"),
   runtimeImport("@b4run/ag-ui", "./sse", "detailed", "edge-safe", "integration"),
+  runtimeImport("@b4run/ag-ui", "./client", "detailed", "edge-safe", "integration"),
   runtimeImport("@b4run/ag-ui", "./react", "detailed", "node-only", "application"),
   staticImport(
     "@b4run/ag-ui",
@@ -1412,6 +1415,7 @@ export const PACKAGE_CATALOG = [
     [
       importAddress("@b4run/ag-ui", "."),
       importAddress("@b4run/ag-ui", "./sse"),
+      importAddress("@b4run/ag-ui", "./client"),
       importAddress("@b4run/ag-ui", "./react"),
       importAddress("@b4run/ag-ui", "./react/styles.css"),
     ],

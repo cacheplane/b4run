@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http"
 import type { RunAgentInput } from "@ag-ui/core"
 import { RunAgentInputSchema } from "@ag-ui/core/schemas"
 import { type B4AgentStreamChunk, fromRunAgentInput, toAguiEvents } from "@b4run/ag-ui"
-import { encodeAgUiSse } from "@b4run/ag-ui/sse"
+import { agUiContentType, encodeAgUiEvent } from "@b4run/ag-ui/sse"
 import type { B4Config, ClientToolDefinition, MemoryStoreLike } from "@b4run/core"
 import { CLIENT_TOOL_PREFIX, isClientToolCallEnvelope } from "@b4run/core"
 import type { PermissionsStore } from "@b4run/permissions"
@@ -33,6 +33,7 @@ import type { StreamChunk } from "../runtime/stream-types.js"
 import { abortableAsyncIterable } from "./abortable-iterable.js"
 import {
   type ApprovalGrantRuntime,
+  DEFAULT_APPROVAL_GRANT_RETENTION_MS,
   gateResumeWithGrants,
   minterFor,
   voidSupersededGrants,
@@ -48,9 +49,10 @@ import { readClientToolDefinitions } from "./client-tool-definitions.js"
 import {
   AGUI_BODY_MAX_BYTES,
   type ClientToolRuntime,
+  DEFAULT_CLIENT_TOOL_RETENTION_MS,
   DEFAULT_CLIENT_TOOL_TTL_MS,
-  DEFAULT_TOOL_CALL_RETENTION_MS,
   MAX_CLIENT_TOOL_RESULT,
+  pruneClientToolCalls,
 } from "./client-tool-runtime.js"
 import {
   type ClientToolTurn,
@@ -90,8 +92,8 @@ export interface AgUiFetchRequestOptions {
    *
    * Optional so direct callers (tests, embedders) keep their existing
    * behavior — and that optionality is safe HERE, unlike at the park site,
-   * because absence resolves to `{ mode: "off" }`, which is exactly the
-   * pre-grant path. The fail-closed decision lives at the park, not at the
+   * because absence resolves to mode `"off"` with the default retention,
+   * which is exactly the pre-grant path. The fail-closed decision lives at the park, not at the
    * handler.
    */
   readonly approvalGrants?: ApprovalGrantRuntime
@@ -362,7 +364,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     checkpointer,
     clientTools: clientToolRuntime = {
       ttlMs: DEFAULT_CLIENT_TOOL_TTL_MS,
-      retentionMs: DEFAULT_TOOL_CALL_RETENTION_MS,
+      retentionMs: DEFAULT_CLIENT_TOOL_RETENTION_MS,
     },
     config,
     getMemoryStore,
@@ -372,7 +374,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     permissionsStore,
     registry,
     resumeClaims,
-    approvalGrants = { mode: "off" },
+    approvalGrants = { mode: "off", retentionMs: DEFAULT_APPROVAL_GRANT_RETENTION_MS },
     runRegistry,
     threadAccess,
     threadsStore,
@@ -1049,25 +1051,6 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     }
     releaseRunBeforeStream = run.release
 
-    // Housekeeping for the tool-call record, under the slot so no successor
-    // run on this thread interleaves: closed rows older than the retention
-    // window go. Open rows are never eligible, so a parked call survives
-    // until the TTL abandons it. A failure here never fails the run.
-    // Never shorter than the TTL: a row answered while its park is still
-    // resumable must survive until the resumed replay has re-read it.
-    if (clientToolStore) {
-      try {
-        await clientToolStore.prune({
-          threadId,
-          before: new Date(
-            Date.now() - Math.max(clientToolRuntime.retentionMs, clientToolRuntime.ttlMs),
-          ).toISOString(),
-        })
-      } catch (error) {
-        console.warn(`B4: could not prune the tool-call record for ${threadId}.`, error)
-      }
-    }
-
     // A request that decided on a snapshot with NO client park may be about
     // to run a new turn past one that appeared since: a run still executing
     // when the snapshot was read can park a client tool call and release its
@@ -1176,7 +1159,6 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     }
 
     const accept = request.headers.get("accept") ?? undefined
-    const encoder = new TextEncoder()
     const releaseClaimWhenSettled = releaseResumeClaim
     let sourceCleanup: Promise<void> | undefined
     // A parked turn takes the NORMAL completion path — the adapter yields the
@@ -1200,6 +1182,13 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     const voidClientRecordsIfSettled = async (): Promise<void> => {
       if (!sawInterrupt && clientToolStore) {
         await voidSettledClientToolCalls(clientToolStore, checkpointer, threadId)
+        // Opportunistic retention, throttled per store and never allowed to
+        // fail the turn (see pruneClientToolCalls). Awaited on the close path
+        // on purpose: at most one DELETE an hour (a scan: nothing indexes the
+        // settle columns, and the table is self-limiting once it is pruned),
+        // and the integration test relies on it having run by the time the
+        // response ends.
+        await pruneClientToolCalls(clientToolStore, clientToolRuntime, new Date())
       }
     }
     // From here on, the stream owns both the request listeners and any resume
@@ -1309,7 +1298,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                     : { type: "done", output: { error: "Server shutting down" } }
                 }
               }
-              safeEnqueue(controller, encoder.encode(encodeAgUiSse(event, accept)))
+              safeEnqueue(controller, encodeAgUiEvent(event, accept))
             }
           } finally {
             // Unconditional, same as handleApStreamRequest: attachers must see
@@ -1335,6 +1324,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                         ...(approvalGrants.store ? { store: approvalGrants.store } : {}),
                         threadId,
                         stillPending,
+                        retentionMs: approvalGrants.retentionMs,
                       })
                     },
                   }),
@@ -1416,7 +1406,9 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       headers: {
         "cache-control": "no-cache",
         connection: "keep-alive",
-        "content-type": "text/event-stream",
+        "content-type": agUiContentType(accept),
+        // The binding is negotiated from `accept`, so a cache must key on it.
+        vary: "accept",
       },
       status: 200,
     })
@@ -1737,19 +1729,29 @@ async function clientToolPartialResponse(
   async function* done(): AsyncGenerator<B4AgentStreamChunk> {
     yield { type: "done", data: null }
   }
-  let body = ""
+  const frames: Uint8Array[] = []
+  let length = 0
   for await (const event of toAguiEvents(
     done(),
     { threadId, runId },
     { pendingToolCallIds: () => pendingToolCallIds },
   )) {
-    body += encodeAgUiSse(event, accept ?? undefined)
+    const frame = encodeAgUiEvent(event, accept ?? undefined)
+    frames.push(frame)
+    length += frame.length
+  }
+  const body = new Uint8Array(length)
+  let offset = 0
+  for (const frame of frames) {
+    body.set(frame, offset)
+    offset += frame.length
   }
   return new Response(body, {
     headers: {
       "cache-control": "no-cache",
       connection: "keep-alive",
-      "content-type": "text/event-stream",
+      "content-type": agUiContentType(accept ?? undefined),
+      vary: "accept",
     },
     status: 200,
   })

@@ -68,6 +68,7 @@ const EXPECTED_DETAILED_IMPORTS = [
   ["@b4run/core", "./node"],
   ["@b4run/ag-ui", "."],
   ["@b4run/ag-ui", "./sse"],
+  ["@b4run/ag-ui", "./client"],
   ["@b4run/ag-ui", "./react"],
   ["@b4run/memory", "."],
   ["@b4run/memory", "./browse"],
@@ -246,7 +247,9 @@ const EXPECTED_REQUIRED_CONTRACT_KEYS = [
   "@b4run/langgraph#./route-module:WorkflowRouteModule",
   "@b4run/langgraph#./route-module:assertExactlyOneEntry",
   "@b4run/langgraph#./route-module:normalizeRouteModule",
-  "@b4run/ag-ui#./sse:encodeAgUiSse",
+  "@b4run/ag-ui#./sse:agUiContentType",
+  "@b4run/ag-ui#./sse:encodeAgUiEvent",
+  "@b4run/ag-ui#./client:B4HttpAgent",
   "@b4run/ag-ui#.:B4_PLAN_ACTIVITY_TYPE",
   "@b4run/ag-ui#.:B4_SUBAGENT_ACTIVITY_TYPE",
   "@b4run/ag-ui#.:B4RunInput",
@@ -706,7 +709,7 @@ describe("artifact registry", { timeout: 30_000 }, () => {
   it("uses unique keys in separate import and operated address spaces", () => {
     const addresses = ARTIFACT_REGISTRY.map(artifactAddressFor)
     expect(new Set(addresses).size).toBe(addresses.length)
-    expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import")).toHaveLength(45)
+    expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import")).toHaveLength(46)
     expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "operated")).toHaveLength(3)
     expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "generated")).toEqual([
       GENERATED_ROUTES_ARTIFACT,
@@ -1075,7 +1078,7 @@ describe("package catalog", { timeout: 30_000 }, () => {
 
   it("registers every authored high-value signature contract exactly once", () => {
     expect(API_REQUIRED_CONTRACT_KEYS).toEqual(EXPECTED_REQUIRED_CONTRACT_KEYS)
-    expect(API_REQUIRED_CONTRACT_KEYS).toHaveLength(119)
+    expect(API_REQUIRED_CONTRACT_KEYS).toHaveLength(121)
     expect(new Set(API_REQUIRED_CONTRACT_KEYS).size).toBe(API_REQUIRED_CONTRACT_KEYS.length)
     expect(API_REQUIRED_CONTRACT_KEYS).toContain("@b4run/sdk#.:agent")
     expect(API_REQUIRED_CONTRACT_KEYS).toContain("@b4run/memory#.:MemoryStore")

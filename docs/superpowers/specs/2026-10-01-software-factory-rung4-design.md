@@ -893,6 +893,93 @@ Each is its own plan under `docs/superpowers/plans/`, PR and proof.
 1 and 2 run in parallel worktrees. 3 needs 2. 4 needs everything. Sub-project 1 must be merged
 before the first `factory/*` branch is created on `cacheplane/b4run`, which only 4 does.
 
+**As landed (PR 3).** Sub-project 2, implemented by
+[the rung 4 plan](../plans/2026-10-01-software-factory-rung4.md) Tasks 5-16 on
+`blove/factory-rung4-delivery` (stacked on PR 1's `blove/factory-rung4-ci-guards`, which
+provides `guard.json`). Delivery is **not yet usable end to end**: PR 3 runs only against an
+in-memory fake GitHub with fault injection and makes no network call. The real adapter, token
+minting, the controller's delivery configuration and `up`'s wiring arrive in PR 4; until then
+the runtime passes no delivery and `--deliver draft-pr` is refused at create with
+`delivery_unavailable` (plan D20). What landed: `--deliver` on `create` and `run`; the row's
+`delivery` and registry migration 6; the bundle's operation union, with the draft-PR digest
+covering operation, destination, pin and delivery (an existing export-local bundle digests
+identically, pinned); `delivering`, `delivered`, the seven delivery reasons and `run`'s steps
+for them; the protected paths at intake, approval and step (a); git blob and tree ids computed
+locally; the outbox committed with the approval; the worker's read-before-write steps;
+`redeliver`; and the delivery in `review`, `show` and `list`. Where it departs from this spec,
+the plan's decisions say why:
+
+- **D14 (spec correction 2).** The Git Data API sequence, the hashing, the PR body, the retry
+  policy and the scrubber are PR 3's, behind a `DeliveryAdapter` interface, tested once against
+  the fake; PR 4's adapter only maps HTTP to it (§13 sub-project 3 had them).
+- **D18 (correction 5).** The quoted spec is captured at approval: approve reads the generated
+  task once, refuses unless it digests to the frozen `taskDigest`, and stores `spec.md`'s text in
+  the outbox intent, so a resumed worker reads no file a person can edit (§7.2 re-read it at
+  render).
+- **D19 (correction 6).** Reconcile starts a `delivering` row's worker tracked and returns; it
+  does not await it (§5.4 "resumes"). `approve` and `redeliver` still await theirs.
+- **D21 (correction 10).** Approval's order: delivery equality, configured destination,
+  protected paths (no network), preflight (network), the generated task re-read, then the
+  re-verification (§3.4 had preflight before the protected paths).
+- **D23.** `approve` of a draft-PR bundle answers `ok: true` only when the work order is
+  `delivered`; a block answers `ok: false` with the reason and the approval stays recorded. The
+  CLI's `approve`, `review --approve` and `run` exit 1 and print the next commands
+  (`approve`'s and `review`'s outcome carries them as `next`, the same list `run` prints):
+  `pnpm factory events <id>`, `pnpm factory cancel <id>` and, for a healable reason only,
+  `pnpm factory redeliver <id>`.
+- **D24.** `cancel` during a delivery uses today's `finishCancel` (it asks the builder about the
+  row's old thread); the worker checks the row before every write and journals
+  `delivery_stopped` with the remote ids that exist.
+- **Correction 12.** `pathPrefix` is nullable on the row until intake fills it in the
+  `intake_drafted` transaction; the bundle requires it, and `verify` refuses a draft-PR row
+  without one as `verification_inconclusive`.
+
+**As landed (PR 4).** Sub-project 3, implemented by
+[the rung 4 plan](../plans/2026-10-01-software-factory-rung4.md) Tasks 17-22 on
+`blove/factory-rung4-adapter` (stacked on PR 3's `blove/factory-rung4-delivery`). Delivery is
+**configurable end to end**: the app's RS256 JWT and a downscoped installation token, minted
+with `node:crypto` (no new dependency); one allow-listed request function in
+`delivery/github/http.ts` that checks the URL handed to `fetch` (origin and path), sends with
+`redirect: "manual"` (any 3xx is unexpected), bounds every request at 30 s, caps bodies at
+10 MiB, and checks each POST body as it is sent against an exact key set; the real adapter over
+the Git Data API, the compare and ruleset reads and the closing-issues GraphQL query, bound to
+one repository; the controller's four delivery variables; `factory.config.ts`'s
+`delivery.draftPr` and `up`'s credential wiring and scrubbing; and the opt-in scratch lane with
+the contract the fake GitHub is held to. Where it departs from this spec, the plan's decisions
+say why:
+
+- **D5.** The app is granted `issues: read`, and every token is minted downscoped to exactly
+  `contents: write`, `pull_requests: write`, `metadata: read`, `issues: read`
+  (`DELIVERY_PERMISSIONS`, beside the allow-list in `http.ts`); a token granted less is
+  `delivery_unauthorized`. Whether a public issue's read needs it is for the scratch lane to show.
+- **D8.** `POST /pulls` is allowed only with `draft: true` (and `maintainer_can_modify: false`);
+  any other body is refused before a socket opens.
+- **D15 (correction 3).** The allow-list adds `GET /app` (JWT; the adapter refuses an app whose
+  slug is not `guard.json`'s bot) and `GET /users/{bot}` (token; any other login refused), and
+  the head listing carries `per_page=100`. Branch names in paths are unencoded.
+- **D16, D17 (correction 7).** The controller takes four variables, all or none:
+  `FACTORY_GITHUB_APP_ID`, `FACTORY_GITHUB_APP_PRIVATE_KEY_FILE`, `FACTORY_DELIVERY_REPOSITORY`,
+  `FACTORY_DELIVERY_BASE_BRANCH`. The key only as a file: the inline
+  `FACTORY_GITHUB_APP_PRIVATE_KEY` is refused by name, and the two credential variables are
+  deleted from the controller's environment when first read, refused configuration included.
+  `up`'s `privateKeyEnv` form writes `<state>/run/github-app.pem` (exclusively, `0600`, never
+  through a link) and removes it on stop.
+- **Correction 4.** The compare API reports no truncation; a comparison is complete when it
+  lists fewer than 300 files, and a 300-file answer is `delivery_base_conflict`.
+- **Beyond the spec.** §8.3's scrubbing is wider: no worker inherits any `FACTORY_GITHUB_` or
+  `FACTORY_DELIVERY_` variable, the key's variable, `GH_TOKEN`, `GITHUB_TOKEN` or any
+  `GITHUB_APP_` variable (neither worker calls GitHub); the controller gets no `GITHUB_APP_`
+  variable; `up`'s own `git`, `ps` and `docker` get none of them nor any variable holding a PEM.
+  `privateKeyEnv` may not name an essential or factory-owned variable (`PATH`, `HOME`, `LC_*`,
+  `FACTORY_*`, …), since `up` strips it from every child. A key pasted where a path belongs is
+  refused by name and never quoted.
+
+**The scratch lane's recorded results: none yet.** The app and the scratch repository did not
+exist when PR 4 landed, so the lane has only been shown to skip (5 skipped) without its
+variables, and `test/fixtures/github-contract.json` is not recorded; the contract replay skips
+until it is. The first by-hand run (plan Task 21 Step 3) records the fixture and its results;
+the live run is PR 5.
+
 ---
 
 ## 14. Proof

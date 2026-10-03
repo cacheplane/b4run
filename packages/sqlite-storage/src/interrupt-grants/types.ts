@@ -34,7 +34,10 @@ export interface InterruptGrantRecord {
 /** The outcome of a conditional consume. See {@link InterruptGrantStore.consume}. */
 export type InterruptGrantConsumption =
   | { readonly outcome: "consumed"; readonly record: InterruptGrantRecord }
-  | { readonly outcome: "already_consumed"; readonly record: InterruptGrantRecord }
+  | {
+      readonly outcome: "already_consumed"
+      readonly record: InterruptGrantRecord
+    }
   | { readonly outcome: "voided"; readonly record: InterruptGrantRecord }
   | { readonly outcome: "missing" }
 
@@ -51,9 +54,32 @@ export interface InterruptGrantStore {
     readonly decision: string
     readonly at: string
   }): Promise<InterruptGrantConsumption>
+  /**
+   * Stamp `voided_at` on every unvoided grant for `threadId` — consumed ones
+   * included — whose `interruptId` is NOT in `keepInterruptIds`, i.e. every
+   * grant whose parked prompt the thread has moved past. A consumed grant is
+   * voided here once its resumed turn has completed, which is what later lets
+   * `prune` delete it; a consumed grant whose prompt is still parked (its
+   * resume failed) is never voided and never pruned. Returns how many were
+   * voided.
+   *
+   * This is the staleness half of #736, and it is what replaces a stored
+   * `checkpoint_id`: "the thread moved on" becomes a fact B4 asserts rather
+   * than a behavior it inherits from LangGraph advancing the checkpoint.
+   */
   voidOutstanding(args: {
     readonly threadId: string
     readonly keepInterruptIds: readonly string[]
     readonly at: string
   }): Promise<number>
+
+  /**
+   * Deletes voided rows whose `voidedAt` is before `before`. Nothing else is
+   * ever deleted: an outstanding row is a parked prompt, and a consumed row
+   * that was never voided is a prompt whose resume did not complete — under
+   * `approvals.grants: "optional"` a parked prompt with no row would resume
+   * ungated. Returns how many rows were deleted. `before` is an ISO-8601
+   * string compared as text.
+   */
+  prune(options: { readonly before: string }): Promise<number>
 }

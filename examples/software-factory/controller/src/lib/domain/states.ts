@@ -8,6 +8,8 @@ export const STATES = [
   "awaiting_approval",
   "exporting",
   "exported",
+  "delivering",
+  "delivered",
   "denied",
   "cancel_requested",
   "cancelled",
@@ -18,12 +20,18 @@ export type WorkOrderState = (typeof STATES)[number]
 
 export const TERMINAL_STATES: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>([
   "exported",
+  "delivered",
   "denied",
   "cancelled",
   "failed",
 ])
 
-/** States that count toward the active-time budget. Waiting on a person is not active time. */
+/**
+ * States that count toward the active-time budget. Waiting on a person is not active time, and
+ * neither is `delivering`: the builder's budget is the wrong clock for waiting on GitHub, and
+ * `budget_exhausted` there would cancel a half-done publication. The delivery worker has its
+ * own bound (rung 4 spec §4, §6.5).
+ */
 export const ACTIVE_STATES: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>([
   "intake_running",
   "dispatched",
@@ -69,6 +77,26 @@ export const BLOCKED_REASONS = [
   // shrank past half its baseline: the builder rewrote a file it had only partly read.
   // Refused at assembly, before a verification that could only fail on it.
   "candidate_rejected",
+  // Rung 4, a draft-PR delivery (spec §4). Each is recorded, not blindly retried: main
+  // changed a path the change touches (or a protected path), or the pin left main's history,
+  // or the comparison could not be read whole.
+  "delivery_base_conflict",
+  // A changed path's blob at the pin is not the baseline the candidate was diffed against,
+  // or the pin's listing could not be read whole to compare (GitHub truncated it).
+  "delivery_baseline_mismatch",
+  // factory/<id> exists with a commit that is not this change, or its PR is closed or has
+  // another base.
+  "delivery_branch_conflict",
+  // The issue was open at create and is closed now, or no longer this repository's
+  // (transferred, deleted, or issues disabled on the repository).
+  "delivery_issue_closed",
+  // No token, no installation, a 401 or a non-rate-limit 403, or permissions too narrow.
+  "delivery_unauthorized",
+  // A rate limit outlasted the worker's bound.
+  "delivery_rate_limited",
+  // A 5xx or network failure outlasted the bound, or GitHub answered something the read-back
+  // cannot reconcile with the bundle.
+  "delivery_unconfirmed",
 ] as const
 export type BlockedReason = (typeof BLOCKED_REASONS)[number]
 
@@ -86,6 +114,29 @@ export const RETRYABLE_BLOCKED_REASONS: ReadonlySet<BlockedReason> = new Set<Blo
   "verification_failed",
   "verification_inconclusive",
 ])
+
+/**
+ * The delivery blocks `redeliver` may resume (spec §4): the world can heal (the app fixed, the
+ * limit reset, GitHub back) and every step reads before it writes. The others never heal by
+ * waiting; the remedy is a new work order.
+ */
+export const REDELIVERABLE_BLOCKED_REASONS: ReadonlySet<BlockedReason> = new Set<BlockedReason>([
+  "delivery_unauthorized",
+  "delivery_rate_limited",
+  "delivery_unconfirmed",
+])
+
+/**
+ * The commands for a work order blocked by a reason no retry answers: its journal, a redeliver
+ * when the reason is a delivery block the world can heal (a person redelivers; it asks for the
+ * bundle digest's prefix, like a review, and run never does), and cancel. `run`, `approve` and
+ * `review --approve` all print these (D23).
+ */
+export function blockedNext(id: string, reason: BlockedReason | null): string[] {
+  return reason !== null && REDELIVERABLE_BLOCKED_REASONS.has(reason)
+    ? [`pnpm factory events ${id}`, `pnpm factory redeliver ${id}`, `pnpm factory cancel ${id}`]
+    : [`pnpm factory events ${id}`, `pnpm factory cancel ${id}`]
+}
 
 export const FAILURE_REASONS = ["route_error", "ended_without_candidate"] as const
 export type FailureReason = (typeof FAILURE_REASONS)[number]
@@ -116,6 +167,10 @@ export const TRANSITION_EVENTS = [
   "approve_intake",
   "reject_intake",
   "retry",
+  "approve_delivery",
+  "delivery_confirmed",
+  "delivery_refused",
+  "redeliver",
 ] as const
 export type TransitionEvent = (typeof TRANSITION_EVENTS)[number]
 
@@ -164,6 +219,13 @@ const TABLE: Readonly<Record<TransitionEvent, Row>> = {
   // A candidate failure, attempts permitting, back to where `dispatch` starts a fresh builder
   // thread. The table cannot see the reason; `retry` refuses every block but a candidate's.
   retry: { blocked: "received" },
+  // Rung 4: approving a draft-PR bundle commits the outbox intent; the worker then confirms
+  // the delivery by reading it back, or records why it refused. `redeliver` resumes a block
+  // the world can heal; the command refuses every other reason.
+  approve_delivery: { awaiting_approval: "delivering" },
+  delivery_confirmed: { delivering: "delivered" },
+  delivery_refused: { delivering: "blocked" },
+  redeliver: { blocked: "delivering" },
 }
 
 export class IllegalTransitionError extends Error {

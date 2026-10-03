@@ -1607,7 +1607,7 @@ describe("AG-UI installed probes", () => {
     const source = agUiEsmProbeSource()
 
     assert.match(source, /import \* as root from "@b4run\/ag-ui"/)
-    assert.match(source, /import \{ encodeAgUiSse \} from "@b4run\/ag-ui\/sse"/)
+    assert.match(source, /import \{ agUiContentType, encodeAgUiEvent \} from "@b4run\/ag-ui\/sse"/)
     assert.ok(
       source.includes(`assert.deepEqual(Object.keys(root).sort(), [
   "B4_PLAN_ACTIVITY_TYPE",
@@ -1633,9 +1633,9 @@ describe("AG-UI installed probes", () => {
       "ESM probe must verify every canonical root export is a function",
     )
     assert.match(source, /type: "RUN_STARTED"/)
-    const exactSseAssertion = "assert.equal(encoded, `data: $" + "{JSON.stringify(event)}\\n\\n`)"
+    const exactSseAssertion = "assert.equal(text, `data: $" + "{JSON.stringify(event)}\\n\\n`)"
     assert.ok(source.includes(exactSseAssertion), "ESM probe must assert the exact SSE frame")
-    assert.match(source, /JSON\.parse\(encoded\.slice\("data: "\.length, -2\)\)/)
+    assert.match(source, /JSON\.parse\(text\.slice\("data: "\.length, -2\)\)/)
     for (const field of ["type", "threadId", "runId"]) {
       assert.match(source, new RegExp(`payload\\.${field}`))
     }
@@ -1728,7 +1728,7 @@ import { ${removedFunctionName} } from "@b4run/ag-ui"`),
       )
     }
     assert.match(source, /from "@b4run\/ag-ui\/sse"/)
-    assert.match(source, /typeof encodeAgUiSse/)
+    assert.match(source, /typeof encodeAgUiEvent/)
     assert.deepEqual(agUiTypeScriptConfig(), {
       compilerOptions: {
         module: "NodeNext",
@@ -1766,8 +1766,20 @@ import { ${removedFunctionName} } from "@b4run/ag-ui"`),
 
   it("rejects an installed SSE encoder with incorrect event data", async () => {
     const root = await createAgUiProbeFixture({
-      sseSource: `export function encodeAgUiSse(event) {
-  return "data: " + JSON.stringify({ ...event, threadId: "wrong-thread" }) + "\\n\\n"
+      sseSource: `export function agUiContentType(accept) {
+  return accept && accept.includes("application/vnd.ag-ui.event+proto")
+    ? "application/vnd.ag-ui.event+proto"
+    : "text/event-stream"
+}
+export function encodeAgUiEvent(event, accept) {
+  if (agUiContentType(accept) === "text/event-stream") {
+    return new TextEncoder().encode("data: " + JSON.stringify({ ...event, threadId: "wrong-thread" }) + "\\n\\n")
+  }
+  const bytes = new TextEncoder().encode(JSON.stringify(event))
+  const frame = new Uint8Array(4 + bytes.length)
+  new DataView(frame.buffer).setUint32(0, bytes.length, false)
+  frame.set(bytes, 4)
+  return frame
 }
 `,
     })
@@ -3383,15 +3395,28 @@ export interface B4SubagentActivityContent {
 `
   const sseJavaScript =
     options.sseSource ??
-    `export function encodeAgUiSse(event) {
-  return "data: " + JSON.stringify(event) + "\\n\\n"
+    `export function agUiContentType(accept) {
+  return accept && accept.includes("application/vnd.ag-ui.event+proto")
+    ? "application/vnd.ag-ui.event+proto"
+    : "text/event-stream"
+}
+export function encodeAgUiEvent(event, accept) {
+  if (agUiContentType(accept) === "text/event-stream") {
+    return new TextEncoder().encode("data: " + JSON.stringify(event) + "\\n\\n")
+  }
+  const bytes = new TextEncoder().encode(JSON.stringify(event))
+  const frame = new Uint8Array(4 + bytes.length)
+  new DataView(frame.buffer).setUint32(0, bytes.length, false)
+  frame.set(bytes, 4)
+  return frame
 }
 `
-  const sseDeclarations = `export declare function encodeAgUiSse(event: {
+  const sseDeclarations = `export declare function agUiContentType(accept?: string): string
+export declare function encodeAgUiEvent(event: {
   readonly type: string
   readonly threadId: string
   readonly runId: string
-}): string
+}, accept?: string): Uint8Array<ArrayBuffer>
 `
 
   await Promise.all([

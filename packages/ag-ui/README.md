@@ -20,14 +20,18 @@ Requires `@ag-ui/core` 1.0.1 (a dependency). `@ag-ui/client` `>=1.0.1 <2.0.0` is
 
 ```ts
 import { fromRunAgentInput, toAguiEvents } from "@b4run/ag-ui"
-import { encodeAgUiSse } from "@b4run/ag-ui/sse"
+import { agUiContentType, encodeAgUiEvent } from "@b4run/ag-ui/sse"
 
 const b4Input = fromRunAgentInput(runAgentInput)
+const accept = request.headers.accept
 
+response.writeHead(200, { "content-type": agUiContentType(accept) })
 for await (const event of toAguiEvents(b4Chunks, { threadId, runId })) {
-  response.write(encodeAgUiSse(event, request.headers.accept))
+  response.write(encodeAgUiEvent(event, accept))
 }
 ```
+
+`accept` selects the AG-UI HTTP binding: SSE unless the header admits `application/vnd.ag-ui.event+proto` with a positive quality (named, or through a wildcard such as `*/*`), then 4-byte big-endian length-prefixed protobuf frames. A client that cannot read protobuf names `text/event-stream`; `@ag-ui/client` and CopilotKit do.
 
 Plan and subagent activity snapshots are translated on the root surface; use the focused API reference for their exact identifiers and payload contracts.
 
@@ -64,6 +68,21 @@ Message identity does not deduplicate work repeated by graph checkpoint replay.
 Complete generation in a separate tool step before an approval-gated operation
 when the generated response must not repeat on resume.
 
+## HTTP client
+
+`@b4run/ag-ui/client` exports `B4HttpAgent`, an `@ag-ui/client` `HttpAgent`
+whose `getCapabilities()` reads `GET /agui/{routeId}`, the route's AG-UI
+capabilities, with the agent's own URL, headers and `fetch`. Register it
+wherever you would register an `HttpAgent`; CopilotKit's runtime reports what it
+returns from `/info`. It throws on a non-2xx answer. `@ag-ui/client` is an
+optional peer dependency, needed only for this subpath.
+
+```ts
+import { B4HttpAgent } from "@b4run/ag-ui/client"
+
+const agent = new B4HttpAgent({ url: "http://127.0.0.1:3001/agui/%2Fchat%23agent" })
+```
+
 ## React renderers
 
 `@b4run/ag-ui/react` renders those activity snapshots. The drop-in is one prop:
@@ -85,7 +104,7 @@ The subpath exports three layers, from drop-in to build-your-own:
 - `b4PlanActivityRenderer` and `b4SubagentActivityRenderer` — the individual renderers, for a client that wants one of them or mixes them with its own.
 - `PlanActivityCard`, `SubagentActivityCard`, and `ActivityChecklist` — plain React components taking `content`, plus `planActivityContentSchema` and `subagentActivityContentSchema`, the strict validators behind the renderers, for presenting the same activities another way.
 
-`react` and `@copilotkit/react-core` are optional peer dependencies used only by this subpath. Importing the root or `./sse` entry never loads it, so a server-only consumer installs nothing extra.
+`react` and `@copilotkit/react-core` (`>=1.76.0`) are optional peer dependencies used only by this subpath. Importing the root or `./sse` entry never loads it, so a server-only consumer installs nothing extra. The floor tracks the wire protocol: 1.76.0 is the first `@copilotkit/react-core` whose bundled AG-UI client speaks 1.0, the protocol B4.run serves, and earlier releases resolve a pre-1.0 `@ag-ui/*` (0.0.59 on 1.70–1.75). pnpm warns on an unmet optional peer; npm 7+ rejects it with `ERESOLVE`.
 
 ### Customizing the activity cards
 
@@ -174,7 +193,8 @@ Three keys are easy to confuse. `section` is a card's labelled region and exists
 
 - `@b4run/ag-ui` is a supported, edge-safe integration surface.
 - `@b4run/ag-ui/sse` is a supported, edge-safe integration surface.
-- `@b4run/ag-ui/react` is a supported React application surface, built for browser bundles. B4.run records its runtime as `node-only`, which means only that it does not pass B4.run's edge-safety guard — not that it requires Node: React's own JSX runtime reads `process.env.NODE_ENV`, which an application bundler substitutes as usual but the stricter edge guard rejects. The other two entries never load it.
+- `@b4run/ag-ui/client` is a supported, edge-safe integration surface.
+- `@b4run/ag-ui/react` is a supported React application surface, built for browser bundles. B4.run records its runtime as `node-only`, which means only that it does not pass B4.run's edge-safety guard — not that it requires Node: React's own JSX runtime reads `process.env.NODE_ENV`, which an application bundler substitutes as usual but the stricter edge guard rejects. The other entries never load it.
 - `@b4run/ag-ui/react/styles.css` is a supported integration surface carrying the cards' default appearance. It is a stylesheet asset, so it has no runtime classification at all: a bundler resolves it and nothing evaluates it as JavaScript. Import it once alongside your global CSS; it is optional, and every rule that styles an element is scoped to the `b4-activity` prefix (the sheet also declares `--b4-activity-*` custom properties on `:root`, which is intended and harmless — each of those three blocks is wrapped in `:where()`, so an application's own `:root` override always wins).
 
 They translate protocol data; they do not authenticate callers or make client-provided state authoritative.

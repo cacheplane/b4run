@@ -17,7 +17,7 @@ Yes. An `agent()` route runs on a LangChain chat model. B4.run infers the provid
 They solve different problems.
 
 - **Vercel AI SDK** is a client-and-server toolkit for chat UIs and provider-agnostic LLM calls. B4.run sits one layer up and organizes whole agent projects. You can use the AI SDK inside a B4.run route.
-- **CopilotKit** is a frontend-first framework for embedding copilots in existing apps. B4.run is backend-first: it produces a deployable agent runtime. The two work together through B4.run's AG-UI endpoint. Both `b4 dev` and `b4 start` serve `POST /agui/{routeId}` with the same route middleware, and the chat example wires a CopilotKit `HttpAgent` to it.
+- **CopilotKit** is a frontend-first framework for embedding copilots in existing apps. B4.run is backend-first: it produces a deployable agent runtime. The two work together through B4.run's AG-UI endpoint. Both `b4 dev` and `b4 start` serve `POST /agui/{routeId}` with the same route middleware, and the chat example wires a CopilotKit runtime to it through `B4HttpAgent`.
 - **Mastra** is a general-purpose agent framework with its own runtime and abstractions. B4.run is narrower. It keeps LangGraph and removes the boilerplate around it.
 
 If you're already on LangGraph, B4.run fits. If you're not, pick the framework whose runtime you want to live in.

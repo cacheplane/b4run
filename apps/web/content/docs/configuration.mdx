@@ -201,6 +201,7 @@ this field.
 approvals?: {
   grants?: "off" | "optional" | "required"
   grantTtlMs?: number
+  grantRetentionMs?: number
   grantStore?: InterruptGrantStore
 }
 ```
@@ -218,6 +219,18 @@ legitimately sit overnight. `grantStore` defaults to SQLite at
 `.b4/interrupt-grants.sqlite` on node and to a non-durable in-process store
 elsewhere, so a multi-replica deployment must supply one. See [Approval
 Grants](/docs/approval-grants).
+
+`grantRetentionMs` is how long a grant record voided because the thread moved
+past its prompt is kept before the runtime deletes it: `604800000` (7 days) by
+default, a positive integer of at most one year, anything else fails the boot.
+A consumed grant is voided when its resumed turn completes. The sweep runs
+wherever the runtime voids superseded grants, at most once an hour per store.
+An outstanding grant, or a consumed grant whose resume never completed, is
+never deleted, however old, because a parked prompt with no grant row resumes
+ungated under `"optional"`.
+[`b4 approvals prune`](/docs/cli#b4-approvals) runs the same pass by hand. A
+`grantStore` you supply is checked at boot while grants are on and must implement every store
+method, `prune` included.
 
 ### `checkpointer`
 
@@ -579,7 +592,7 @@ server?: {
     clientTools?: readonly string[]
     clientForwardedProps?: readonly string[]
     clientToolTtlMs?: number
-    toolCallRetentionMs?: number
+    clientToolRetentionMs?: number
     clientToolStore?: ClientToolCallStore
   }
 }
@@ -656,13 +669,9 @@ result on its next run can be matched to a call this server actually issued.
 abandoned — `600000` (10 minutes) by default; it must be a positive integer of
 at most one year (`31536000000`), and anything else fails the boot.
 
-`toolCallRetentionMs` is how long a closed tool-call record (a client call
-answered or abandoned, or a server tool call that ran) is kept before the
-thread's next AG-UI run prunes it — `604800000` (7 days) by default, never
-less than `clientToolTtlMs`; the same bounds and boot-failure rule as
-`clientToolTtlMs`. With a store resolved, every tool call on an AG-UI run is
-recorded, server tools included (identity only, no result text), and a store
-that cannot be written fails the tool call; see
+With a store resolved, every tool call on an AG-UI run is recorded, server
+tools included (identity only, no result text), and a store that cannot be
+written fails the tool call; see
 [The tool-call record](/docs/ag-ui#the-tool-call-record).
 
 `clientToolStore` is where tool calls on AG-UI runs are recorded. On node it defaults to a
@@ -675,6 +684,17 @@ one instance needs a shared one — `createPostgresClientToolCallStore` from
 client tools is refused with `503` `client_tool_store_unavailable` rather than
 parked on a call nobody could answer. A configured store missing any of the
 store methods fails the boot.
+
+Settled records are not kept forever. When an AG-UI turn settles, the runtime
+deletes answered or voided records older than `clientToolRetentionMs`,
+outstanding records whose expiry is older than it, and server tool call
+records settled before it, at most once an hour per store. The default is
+`604800000` (7 days); it must be a positive integer of at most one year,
+anything else fails the boot, and the window is never shorter than
+`clientToolTtlMs`. A record that is outstanding and unexpired, or a server
+tool call that has not settled, is never deleted.
+[`b4 client-tools prune`](/docs/cli#b4-client-tools) runs the same
+pass by hand, and a store you supply must implement `prune` as well.
 
 
 ## Postgres backend
