@@ -91,6 +91,29 @@ it("expectOffloaded asserts the tool output was offloaded to a stub", () => {
   expect(() => expectOffloaded(run, "applyFilter")).toThrow()
 })
 
+it("expectOffloaded reads array content on a serialized ToolMessage as its text", () => {
+  const run = {
+    ...base,
+    messages: [
+      {
+        id: ["lc", "messages", "ToolMessage"],
+        kwargs: {
+          name: "generateReport",
+          content: [
+            {
+              type: "text",
+              text: "Tool output offloaded — 50000 chars. Full output saved to: tool-outputs/x.txt",
+            },
+            { type: "image", data: "AAAA", mimeType: "image/png" },
+          ],
+        },
+      },
+    ],
+    state: { messages: [] },
+  } as unknown as AgentRunResult
+  expect(() => expectOffloaded(run, "generateReport")).not.toThrow()
+})
+
 // ── capability matchers ────────────────────────────────────────────────────
 const withInterrupt: AgentRunResult = {
   ...base,

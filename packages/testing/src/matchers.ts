@@ -117,14 +117,27 @@ export function expectStreamedTokens(run: AgentRunResult): void {
  * JSON-serialized AP shape (`{ id: [...], kwargs: { content } }`) and the
  * raw LangChain BaseMessage instance shape (`{ lc_id: [...], content }`).
  */
+function contentText(value: unknown): string | undefined {
+  if (typeof value === "string") return value
+  if (!Array.isArray(value)) return undefined
+  return value
+    .map((part) =>
+      typeof part === "object" &&
+      part !== null &&
+      (part as { type?: unknown }).type === "text" &&
+      typeof (part as { text?: unknown }).text === "string"
+        ? (part as { text: string }).text
+        : "",
+    )
+    .join("")
+}
+
 function resolveMessageContent(m: Record<string, unknown>): string | undefined {
   // JSON-serialized AP shape: { id: ["langchain_core","messages","ToolMessage"], kwargs: { content } }
-  const kwContent = (m as { kwargs?: { content?: string } }).kwargs?.content
-  if (typeof kwContent === "string") return kwContent
+  const kwContent = contentText((m as { kwargs?: { content?: unknown } }).kwargs?.content)
+  if (kwContent !== undefined) return kwContent
   // Raw BaseMessage instance shape: { lc_id: [...], content }
-  const rawContent = (m as { content?: unknown }).content
-  if (typeof rawContent === "string") return rawContent
-  return undefined
+  return contentText((m as { content?: unknown }).content)
 }
 
 /**
