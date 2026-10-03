@@ -1663,10 +1663,13 @@ async function screenOversizedClientToolResults<
     if (refused) {
       return {
         refused: Response.json(
-          createRequestErrorBody(`Client tool result exceeds ${MAX_CLIENT_TOOL_RESULT} bytes`, {
-            code: "client_tool_result_too_large",
-            maxBytes: MAX_CLIENT_TOOL_RESULT,
-          }),
+          createRequestErrorBody(
+            `Client tool result exceeds ${MAX_CLIENT_TOOL_RESULT} bytes of text/JSON (inline media bytes excluded)`,
+            {
+              code: "client_tool_result_too_large",
+              maxBytes: MAX_CLIENT_TOOL_RESULT,
+            },
+          ),
           { status: 413 },
         ),
         messages,

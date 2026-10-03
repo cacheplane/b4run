@@ -17,11 +17,15 @@ export const MAX_CLIENT_TOOL_TTL_MS = 365 * 24 * 60 * 60 * 1000
 /** How long a settled or expired client tool call record is kept by default: 7 days. */
 export const DEFAULT_CLIENT_TOOL_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 /**
- * The largest client tool result, in UTF-8 bytes, the endpoint will record.
- * Every byte of it becomes prompt content on the resumed turn, so it is
- * bounded like the definitions are; an over-cap result for an outstanding
- * call is refused with `413 client_tool_result_too_large` before it is
- * recorded.
+ * The largest client tool result, in UTF-8 bytes of text/JSON, the endpoint
+ * will record: a string as is, a part list as its JSON with every inline
+ * (`data`) media value blanked. That text becomes prompt content on the
+ * resumed turn, so it is bounded like the definitions are; an over-cap result
+ * for an outstanding call is refused with `413 client_tool_result_too_large`
+ * before it is recorded. Inline media bytes are not counted here: they are
+ * bounded by the AG-UI body ceiling (`AGUI_BODY_MAX_BYTES`) and reach the
+ * model only where the route model's profile and provider take media in a
+ * tool result (spec §6).
  */
 export const MAX_CLIENT_TOOL_RESULT = 64 * 1024
 export { AGUI_BODY_MAX_BYTES } from "./request-limits.js"

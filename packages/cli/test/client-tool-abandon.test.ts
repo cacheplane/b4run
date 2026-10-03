@@ -321,11 +321,9 @@ describe("closeAbandonedClientToolCalls — results and preconditions", () => {
     })
     if (turn.mode !== "abandon") throw new Error(`expected abandon, got ${turn.mode}`)
     expect(turn.calls).toEqual([
-      { toolCallId: "call_open", toolName: "openPanel", result: "panel 1 opened" },
+      { toolCallId: "call_open", toolName: "openPanel", result: "panel 1 opened", droppedMedia: 1 },
     ])
-    expect(warn.mock.calls.map((call) => String(call[0]))).toEqual([
-      "B4: client tool result for call_open closed as text; its 1 media part(s) are not replayed on this path.",
-    ])
+    expect(warn).not.toHaveBeenCalled()
 
     await closeAbandonedClientToolCalls({
       checkpointer: t.checkpointer,
@@ -333,6 +331,9 @@ describe("closeAbandonedClientToolCalls — results and preconditions", () => {
       threadId: t.threadId,
       calls: turn.calls,
     })
+    expect(warn.mock.calls.map((call) => String(call[0]))).toEqual([
+      "B4: client tool result for call_open closed as text; its 1 media part(s) are not replayed on this path.",
+    ])
     await t.turn({ input: { messages: [{ role: "user", content: "next" }] } })
     expect(requestSequence(t.aimock.getRequests()[1]).slice(2)).toEqual([
       "assistant:call_open",
@@ -342,6 +343,8 @@ describe("closeAbandonedClientToolCalls — results and preconditions", () => {
   })
 
   it("refuses while a permission park is pending, and writes nothing", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    cleanup.push(() => warn.mockRestore())
     const t = await parkedThread([DEPLOY_CALL, OPEN_CALL])
     const before = await t.pending()
     expect(before).toHaveLength(2)
@@ -350,11 +353,13 @@ describe("closeAbandonedClientToolCalls — results and preconditions", () => {
       checkpointer: t.checkpointer,
       graph: t.graph,
       threadId: t.threadId,
-      calls: [abandonedOpen],
+      // A parts answer that cannot close yet: nothing closed, so nothing is said.
+      calls: [{ ...abandonedOpen, result: "panel 1 opened", droppedMedia: 1 }],
     }).catch((caught: unknown) => caught)
     expect(error).toBeInstanceOf(ClientToolAbandonError)
     expect((error as ClientToolAbandonError).code).toBe("non_client_park_pending")
     expect(await t.pending()).toEqual(before)
+    expect(warn).not.toHaveBeenCalled()
   })
 
   it("refuses an unresolved client call left out of `calls`", async () => {

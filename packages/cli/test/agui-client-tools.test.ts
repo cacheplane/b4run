@@ -391,9 +391,10 @@ describe("POST /agui/:route with client-provided tools", () => {
     expect(requests).toHaveLength(2)
     const toolMessage = (requests[1]?.body?.messages ?? []).find(
       (message) => (message as { role?: string }).role === "tool",
-    ) as { content: unknown } | undefined
-    expect(JSON.stringify(toolMessage?.content)).toContain("panel opened")
-    expect(JSON.stringify(toolMessage?.content)).not.toContain("AAAA")
+    ) as { tool_call_id?: string; content: unknown } | undefined
+    // A text-only tool result collapses to a string.
+    expect(toolMessage?.tool_call_id).toBe("call_a")
+    expect(toolMessage?.content).toBe("panel opened")
 
     const dropped = second.events.find(
       (event) => event.type === "CUSTOM" && event.name === "b4.content_parts_dropped",

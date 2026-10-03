@@ -84,8 +84,15 @@ export interface AbandonedClientToolCall {
   readonly toolCallId: string
   /** The un-prefixed name the client registered; informational. */
   readonly toolName: string
-  /** `ABANDONED_CLIENT_TOOL_RESULT`, or the client's stored result. */
+  /** `ABANDONED_CLIENT_TOOL_RESULT`, or the client's stored result's text. */
   readonly result: string
+  /**
+   * Media parts the client's stored result carried that this close cannot
+   * write: the ToolMessage goes straight into the `tools` node, bypassing the
+   * tool-result converter, so only `result`'s text is replayed. Warned about
+   * once per call, after the close has committed. Absent means none.
+   */
+  readonly droppedMedia?: number
 }
 
 /**
@@ -224,6 +231,14 @@ export async function closeAbandonedClientToolCalls(
       "close_incomplete",
       "The close was written but the thread is not in the expected state; do not retry or run the turn",
     )
+  }
+  // Only now has anything closed: a refused or retried close never says so.
+  for (const call of calls) {
+    if (call.droppedMedia !== undefined && call.droppedMedia > 0) {
+      console.warn(
+        `B4: client tool result for ${call.toolCallId} closed as text; its ${call.droppedMedia} media part(s) are not replayed on this path.`,
+      )
+    }
   }
   return { closedToolCallIds: unresolved.map((call) => call.id as string) }
 }

@@ -87,13 +87,16 @@ export type ClientToolTurn =
       readonly mode: "abandon"
       /**
        * Every client park's call to close: unanswered ones get
-       * ABANDONED_CLIENT_TOOL_RESULT, answered ones keep their result's text
-       * (the close bypasses the tool-result converter; media are warned about).
+       * ABANDONED_CLIENT_TOOL_RESULT, answered ones keep their result's text.
+       * The close bypasses the tool-result converter, so `droppedMedia`
+       * counts the media parts it cannot replay; the close warns about them
+       * once it has committed (`closeAbandonedClientToolCalls`).
        */
       readonly calls: ReadonlyArray<{
         readonly toolCallId: string
         readonly toolName: string
         readonly result: string
+        readonly droppedMedia: number
       }>
       readonly abandonedToolCallIds: readonly string[]
       readonly reason: "new_user_message" | "expired" | "unanswerable"
@@ -188,7 +191,12 @@ export async function resolveClientToolTurn(options: {
   }
 
   const abandon = (reason: ClientToolAbandonReason): ClientToolTurn => {
-    const calls: Array<{ toolCallId: string; toolName: string; result: string }> = []
+    const calls: Array<{
+      toolCallId: string
+      toolName: string
+      result: string
+      droppedMedia: number
+    }> = []
     const abandonedToolCallIds: string[] = []
     for (const { toolCallId, envelopeName } of clientParks) {
       // A client-typed park with no toolCallId has no call to close by id;
@@ -199,10 +207,11 @@ export async function resolveClientToolTurn(options: {
       calls.push({
         toolCallId,
         toolName: rows.get(toolCallId)?.toolName ?? envelopeName ?? "",
-        result:
-          result === undefined
-            ? ABANDONED_CLIENT_TOOL_RESULT
-            : abandonCloseText(toolCallId, result),
+        result: result === undefined ? ABANDONED_CLIENT_TOOL_RESULT : contentPartsText(result),
+        droppedMedia:
+          result === undefined || typeof result === "string"
+            ? 0
+            : result.filter((part) => part.type !== "text").length,
       })
     }
     return { mode: "abandon", calls, abandonedToolCallIds, reason }
@@ -224,24 +233,6 @@ export async function resolveClientToolTurn(options: {
   }
   if (allAnswered) return { mode: "resume", resume, others }
   return { mode: "partial" }
-}
-
-/**
- * An answered result as the abandon close writes it. The close puts a
- * `ToolMessage` straight into the `tools` node (`client-tool-abandon.ts`),
- * bypassing the tool-result converter, so it carries text only; media the
- * client sent are said once rather than lost silently.
- */
-function abandonCloseText(toolCallId: string, result: B4MessageContent): string {
-  if (typeof result !== "string") {
-    const media = result.filter((part) => part.type !== "text").length
-    if (media > 0) {
-      console.warn(
-        `B4: client tool result for ${toolCallId} closed as text; its ${media} media part(s) are not replayed on this path.`,
-      )
-    }
-  }
-  return contentPartsText(result)
 }
 
 async function readRows(
