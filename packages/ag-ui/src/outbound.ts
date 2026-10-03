@@ -1,6 +1,11 @@
 import type {
   ActivitySnapshotEvent,
   Interrupt,
+  ReasoningEndEvent,
+  ReasoningMessageContentEvent,
+  ReasoningMessageEndEvent,
+  ReasoningMessageStartEvent,
+  ReasoningStartEvent,
   RunErrorEvent,
   RunFinishedEvent,
   RunStartedEvent,
@@ -40,6 +45,17 @@ export type AguiOutboundEvent =
   | ToolCallEndEvent
   | ToolCallResultEvent
   | ActivitySnapshotEvent
+  | ReasoningStartEvent
+  | ReasoningMessageStartEvent
+  | ReasoningMessageContentEvent
+  | ReasoningMessageEndEvent
+  | ReasoningEndEvent
+
+/** One invocation's open reasoning: the span and the message inside it. */
+interface OpenReasoning {
+  readonly spanId: string
+  readonly messageId: string
+}
 
 export interface ToAguiOptions {
   readonly idFactory?: IdFactory
@@ -96,6 +112,15 @@ export async function* toAguiEvents(
   const usage = createUsageCollector()
   let openMessageId: string | null = null
   const identifiedMessages = new Map<string, string>()
+  /**
+   * Reasoning is framed per model invocation like text: one span and one
+   * message, opened on the first delta. The span and message ids are distinct
+   * from each other and from the invocation's text message id — the 1.0
+   * reducer warns when one id is shared across text, reasoning and activity
+   * messages.
+   */
+  let openReasoning: OpenReasoning | null = null
+  const identifiedReasoning = new Map<string, OpenReasoning>()
   const pendingFallbackToolCallIds = new Map<string, string[]>()
   const pendingInterrupts: Interrupt[] = []
   /**
@@ -113,7 +138,36 @@ export async function* toAguiEvents(
       : { type: "success" }
   }
 
+  function* closeReasoning(open: OpenReasoning): Generator<AguiOutboundEvent> {
+    yield* ledger.onPassthrough({
+      type: EventType.REASONING_MESSAGE_END,
+      messageId: open.messageId,
+    })
+    yield* ledger.onPassthrough({ type: EventType.REASONING_END, messageId: open.spanId })
+  }
+
+  /** Anonymous reasoning closes at every boundary anonymous text does. */
+  function* flushReasoning(): Generator<AguiOutboundEvent> {
+    if (openReasoning !== null) {
+      const open = openReasoning
+      openReasoning = null
+      yield* closeReasoning(open)
+    }
+  }
+
+  function* openReasoningFrame(): Generator<AguiOutboundEvent, OpenReasoning> {
+    const open: OpenReasoning = { spanId: nextId("reasoningSpan"), messageId: nextId("reasoning") }
+    yield* ledger.onPassthrough({ type: EventType.REASONING_START, messageId: open.spanId })
+    yield* ledger.onPassthrough({
+      type: EventType.REASONING_MESSAGE_START,
+      messageId: open.messageId,
+      role: "reasoning",
+    })
+    return open
+  }
+
   function* flushText(): Generator<AguiOutboundEvent> {
+    yield* flushReasoning()
     if (openMessageId !== null) {
       const end: TextMessageEndEvent = {
         type: EventType.TEXT_MESSAGE_END,
@@ -124,7 +178,13 @@ export async function* toAguiEvents(
     }
   }
 
+  /** End an invocation: its reasoning (span and message), then its text. */
   function* closeIdentified(sourceId: string): Generator<AguiOutboundEvent> {
+    const reasoning = identifiedReasoning.get(sourceId)
+    if (reasoning !== undefined) {
+      identifiedReasoning.delete(sourceId)
+      yield* closeReasoning(reasoning)
+    }
     const messageId = identifiedMessages.get(sourceId)
     if (messageId === undefined) return
     identifiedMessages.delete(sourceId)
@@ -133,7 +193,9 @@ export async function* toAguiEvents(
 
   function* flushAllText(): Generator<AguiOutboundEvent> {
     yield* flushText()
-    for (const sourceId of identifiedMessages.keys()) yield* closeIdentified(sourceId)
+    for (const sourceId of new Set([...identifiedReasoning.keys(), ...identifiedMessages.keys()])) {
+      yield* closeIdentified(sourceId)
+    }
   }
 
   /** A terminal boundary reached with streamed calls still open: end them. */
@@ -214,6 +276,41 @@ export async function* toAguiEvents(
           yield* ledger.onPassthrough({
             type: EventType.TEXT_MESSAGE_CONTENT,
             messageId: openMessageId,
+            delta,
+          })
+          break
+        }
+        case "reasoning": {
+          const delta = typeof chunk.data === "string" ? chunk.data : ""
+          if (delta.length === 0) break
+          const sourceId =
+            "messageId" in chunk &&
+            typeof chunk.messageId === "string" &&
+            chunk.messageId.length > 0
+              ? chunk.messageId
+              : undefined
+          if (sourceId !== undefined) {
+            // An identified delta means the producer identifies invocations, so
+            // anonymous reasoning belongs to nothing current. This invocation's
+            // own text stays open: reasoning and text interleave until
+            // `message_end`.
+            yield* flushReasoning()
+            let open = identifiedReasoning.get(sourceId)
+            if (open === undefined) {
+              open = yield* openReasoningFrame()
+              identifiedReasoning.set(sourceId, open)
+            }
+            yield* ledger.onPassthrough({
+              type: EventType.REASONING_MESSAGE_CONTENT,
+              messageId: open.messageId,
+              delta,
+            })
+            break
+          }
+          if (openReasoning === null) openReasoning = yield* openReasoningFrame()
+          yield* ledger.onPassthrough({
+            type: EventType.REASONING_MESSAGE_CONTENT,
+            messageId: openReasoning.messageId,
             delta,
           })
           break
