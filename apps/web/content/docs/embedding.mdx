@@ -7,6 +7,7 @@ B4.run can run its own Node listener, or it can give you a web-standard fetch ha
 - Use `b4 start` or the generated Node server when B4.run can own the listener.
 - Use `serveRuntime` when your code should create and close that listener.
 - Use `createRuntimeFetchHandler` when an existing server, worker, test harness, or Hono app owns the transport and dependency lifetimes.
+- Use `serve` when one Node process must answer both B4.run's routes and your app's own.
 
 The rooted B4.run endpoint paths and middleware coverage stay the same when you embed. Your host still handles blanket authentication, tenant authorization, proxy behavior, readiness, and process shutdown.
 
@@ -34,6 +35,32 @@ console.log(`B4.run listening on ${runtime.url}`)
 ```
 
 `serveRuntime` defaults `installSignalHandlers` to `false`. If your host already coordinates several servers, keep signal handling there and call `await runtime.close()` in your own shutdown sequence. `b4 start` opts in. The generated Node `server.mjs` currently leaves it off.
+
+## Serve application routes beside the runtime
+
+An application that answers its own HTTP routes from the same process — a local development entry point, a small single-process deployment — needs one listener that splits requests between B4.run and itself. `serve` owns that split:
+
+```ts title="main.ts"
+import { serve } from "@b4run/cli"
+import handler from "./api.js"
+import middleware from "./middleware.js"
+
+await serve({
+  appRoot: process.cwd(),
+  middleware,
+  port: 4325,
+  // Everything the runtime does not own.
+  fallback: handler,
+})
+```
+
+Which paths the runtime owns is B4.run's fact, not the application's. `serve` routes `/healthz`, `/readyz`, `/agui`, `/threads`, `/memory`, and `/workspace` — with any deeper path under each — from the same definition the Vercel build target writes into its route table, so a local process and a deployed one cannot disagree. A hand-written prefix list instead goes stale the moment the runtime grows a surface: the new endpoint reaches the application handler and answers 404, or, behind a single-page fallback, answers an HTML document with a 200.
+
+Omit `fallback` and the runtime answers every path, including the 404 for paths it does not recognize.
+
+`serve` defaults `installSignalHandlers` to `true`, because it is an entry point rather than a component of a larger host. Its shutdown runs in the only order that terminates: stop accepting connections, close the runtime so in-flight runs abort and streams finish, then drop the connections still held open. Pass `installSignalHandlers: false` when the host owns signals, and call `await handle.close()` from its own shutdown path. `onListening` replaces the logged address line.
+
+Every other option is the runtime server's and is passed through untouched, including `modules`, `config`, `middleware`, and the boot-resolved stores.
 
 ## Compose the fetch runtime
 

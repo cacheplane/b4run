@@ -282,7 +282,7 @@ Let's quickly review the keys:
 - `routes` come first, before the filesystem phase. Vercel route keys pass through, but a `handle` entry is rejected because the build manages the phases.
 - `functionName` is the runtime function's name. It defaults to `b4`.
 
-The emitted `config.json` routes are ordered: your `routes`, then `{ handle: "filesystem" }`, then the runtime function, then the SPA fallback. Without a SPA fallback the runtime route stays the catch-all `/(.*)`. With one, the runtime is scoped to the surfaces it owns, `/(healthz|readyz|agui|threads|memory)(/.*)?`, so every other path reaches the SPA document.
+The emitted `config.json` routes are ordered: your `routes`, then `{ handle: "filesystem" }`, then the runtime function, then the SPA fallback. Without a SPA fallback the runtime route stays the catch-all `/(.*)`. With one, the runtime is scoped to the surfaces it owns, `/(healthz|readyz|agui|threads|memory|workspace)(/.*)?`, so every other path reaches the SPA document.
 
 The Build Output API also serves a function named `index` at `/`, so it would shadow a static `index.html`. That's why the runtime function is named `b4.func` and routed from `/b4`, whether or not the build emits static assets. That way, a deployment that adds a frontend later keeps its function name. Setting `functionName: "index"` beside `static` fails the build.
 

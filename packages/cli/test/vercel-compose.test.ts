@@ -202,7 +202,7 @@ describe("composeVercelRoutes", () => {
       { dest: "/b4", src: VERCEL_RUNTIME_ROUTE_SRC },
       { dest: "/index.html", src: "/(.*)" },
     ])
-    expect(VERCEL_RUNTIME_ROUTE_SRC).toBe("/(healthz|readyz|agui|threads|memory)(/.*)?")
+    expect(VERCEL_RUNTIME_ROUTE_SRC).toBe("/(healthz|readyz|agui|threads|memory|workspace)(/.*)?")
   })
 
   test("a bare runtime with only a static dir still gets the filesystem phase", () => {
