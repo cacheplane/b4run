@@ -10,7 +10,12 @@
  * message arrives.
  */
 import type { PermissionsStore } from "@b4run/permissions"
-import { CLIENT_TOOL_RECORDER_KEY, type ClientToolRecorder } from "@b4run/sdk"
+import {
+  type B4MessageContent,
+  CLIENT_TOOL_RECORDER_KEY,
+  type ClientToolRecorder,
+  isContentPartArray,
+} from "@b4run/sdk"
 import { getConfig, interrupt } from "@langchain/langgraph"
 import { codedReason, type GateResult } from "./permission-gate.js"
 import type { B4ToolDefinition } from "./types.js"
@@ -60,7 +65,8 @@ export interface ClientToolCallEnvelope {
 
 /** What the internal resume delivers to a parked client tool call. */
 export interface ClientToolResumeValue {
-  readonly clientToolResult: string
+  /** The client's answer as it sent it: text, or its content parts. */
+  readonly clientToolResult: B4MessageContent
 }
 
 export class MissingClientToolRecorderError extends Error {
@@ -111,10 +117,16 @@ export async function gateClientToolOp(
   return { allowed: true }
 }
 
-function readClientToolResult(resumed: unknown): string | undefined {
+/**
+ * The resumed result: text, or a structurally valid part list (an empty list
+ * is empty text, as the stores treat it). Anything else is `undefined`.
+ */
+function readClientToolResult(resumed: unknown): B4MessageContent | undefined {
   if (typeof resumed !== "object" || resumed === null) return undefined
-  const text = (resumed as Partial<Record<keyof ClientToolResumeValue, unknown>>).clientToolResult
-  return typeof text === "string" ? text : undefined
+  const result = (resumed as Partial<Record<keyof ClientToolResumeValue, unknown>>).clientToolResult
+  if (typeof result === "string") return result
+  if (isContentPartArray(result)) return result.length === 0 ? "" : result
+  return undefined
 }
 
 function readRecorder(): ClientToolRecorder | undefined {
@@ -134,8 +146,8 @@ function readRecorder(): ClientToolRecorder | undefined {
  * once, before the park, and a deny added while the call is parked cannot
  * discard a result the client already produced (its side effect happened).
  *
- * A resume value that is not `{ clientToolResult: string }` is never handed to
- * the model as a successful empty result; it reads as abandoned.
+ * A resume value that is not `{ clientToolResult: text | parts }` is never
+ * handed to the model as a successful empty result; it reads as abandoned.
  */
 export function createClientToolStub(
   definition: ClientToolDefinition,
@@ -167,6 +179,10 @@ export function createClientToolStub(
         input,
       }
       const resumed: unknown = interrupt(envelope)
+      // A part list rides the `{ result }` wrapper into `unwrapToolResult` →
+      // `convertToolToLangChain`, which applies the tool-result position rules
+      // (`toLangChainContent(…, "tool")`), announces any drop, and keeps the
+      // UI copy in `additional_kwargs.b4_content_parts` — nothing to do here.
       return { result: readClientToolResult(resumed) ?? ABANDONED_CLIENT_TOOL_RESULT }
     },
   }

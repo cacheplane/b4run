@@ -283,6 +283,51 @@ export function resolveModalitySupport(
   return override ? override(base) : base
 }
 
+/**
+ * A model's LangChain `profile` read off its class, without constructing it:
+ * every provider package's `profile` getter is a static per-id table that
+ * reads only `this.model` (verified against the installed openai, anthropic,
+ * google-genai, groq, xai and openrouter packages; `@langchain/core`'s base
+ * getter returns `{}`), and most constructors throw without a credential,
+ * which a capability document must not depend on. `undefined` when the
+ * provider package is not installed (the route could not run either) — the
+ * caller advertises nothing rather than guessing. A class without its own
+ * getter (`ollama`, `mistral`) yields an empty profile, so the provider
+ * fallback applies, exactly as at run time.
+ */
+export async function readModelProfile(options: {
+  readonly provider: BuiltInModelProviderId
+  readonly model: string
+  readonly importer?: Importer
+}): Promise<{ readonly model: string; readonly profile: unknown } | undefined> {
+  const spec = providerSpecs[options.provider]
+  const importer = options.importer ?? seededImporter ?? defaultModelImporter
+  let moduleExports: Record<string, unknown>
+  try {
+    moduleExports = await importer(spec.packageName)
+  } catch (error) {
+    if (isMissingModuleError(error, spec.packageName)) return undefined
+    throw error
+  }
+  const Constructor = moduleExports[spec.exportName]
+  if (typeof Constructor !== "function") return undefined
+  const getter = findProfileGetter(Constructor.prototype as object | null)
+  const profile = getter ? getter.call({ model: options.model }) : {}
+  return { model: options.model, profile }
+}
+
+function findProfileGetter(prototype: object | null): (() => unknown) | undefined {
+  for (
+    let current = prototype;
+    current !== null && current !== Object.prototype;
+    current = Object.getPrototypeOf(current) as object | null
+  ) {
+    const descriptor = Object.getOwnPropertyDescriptor(current, "profile")
+    if (descriptor?.get) return descriptor.get as () => unknown
+  }
+  return undefined
+}
+
 interface WithConfig {
   readonly withConfig: (config: Record<string, unknown>) => unknown
 }

@@ -1008,6 +1008,9 @@ importers:
       '@b4run/permissions':
         specifier: workspace:*
         version: link:../permissions
+      '@b4run/sdk':
+        specifier: workspace:*
+        version: link:../sdk
       pg:
         specifier: ^8.22.0
         version: 8.22.0
@@ -1079,6 +1082,9 @@ importers:
 
   packages/sqlite-storage:
     dependencies:
+      '@b4run/sdk':
+        specifier: workspace:*
+        version: link:../sdk
       '@b4run/workspace':
         specifier: workspace:*
         version: link:../workspace

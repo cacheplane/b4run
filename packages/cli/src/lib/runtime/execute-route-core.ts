@@ -61,6 +61,7 @@ import {
   executeAgentTurn,
   formatDroppedPartsWarning,
   type JsonSchemaResponseFormat,
+  type ModalitySupport,
   materializeAgentGraph,
   type OffloadFn,
   OffloadStore,
@@ -68,6 +69,8 @@ import {
   pickDroppedPartsReport,
   type ResolvedSubagentGraph,
   type ResolvedSummarizationConfig,
+  readModelProfile,
+  resolveModalitySupport,
   resolveProvider,
   resolveReasoningConfig,
   type SubagentResolver,
@@ -972,6 +975,68 @@ export async function checkRouteReasoningSupport(options: {
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) }
   }
+}
+
+/** What a route's root model takes as content parts, or why that is not settled. */
+export type RouteModalitySupport =
+  | { readonly ok: true; readonly support: ModalitySupport }
+  | PreparedRouteError
+
+/**
+ * What the route's root model takes as content parts — the same judgment the
+ * run applies (`resolveModalitySupport`), read off the model's profile
+ * without constructing it (most provider constructors throw without a
+ * credential). `ok: false` for a non-agent route, a raw runnable, an
+ * unresolvable provider, or a provider package that is not installed or
+ * cannot be read (any import or profile error): nothing is claimed in any of
+ * those cases, and the rest of the route's document stands.
+ */
+export async function checkRouteModalitySupport(options: {
+  readonly appRoot: string
+  readonly bootFallbacks: RuntimeBootFallbacks | undefined
+  /** Test seam: replaces the provider-package import `readModelProfile` does. */
+  readonly importer?: Parameters<typeof readModelProfile>[0]["importer"]
+  readonly routeFile: string
+  readonly routeId: string
+}): Promise<RouteModalitySupport> {
+  const prepared = await getPreparedRouteModules(
+    { appRoot: options.appRoot, routeFile: options.routeFile, routeId: options.routeId },
+    options.bootFallbacks,
+  )
+  const normalized = prepared.module
+  if (normalized.kind !== "agent" || !isB4Agent(normalized.entry)) {
+    return {
+      ok: false,
+      message: `Route "${options.routeId}" is not an agent() descriptor route; its model's input modalities are its own code's to decide.`,
+    }
+  }
+  const descriptor = normalized.entry
+  let provider: ReturnType<typeof resolveProvider>
+  try {
+    provider = resolveProvider({
+      model: descriptor.model,
+      ...(descriptor.provider !== undefined ? { provider: descriptor.provider } : {}),
+    })
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+  let profiled: Awaited<ReturnType<typeof readModelProfile>>
+  try {
+    profiled = await readModelProfile({
+      provider,
+      model: descriptor.model,
+      ...(options.importer !== undefined ? { importer: options.importer } : {}),
+    })
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+  if (!profiled) {
+    return {
+      ok: false,
+      message: `Provider package for "${provider}" is not installed or does not export its chat model`,
+    }
+  }
+  return { ok: true, support: resolveModalitySupport(profiled, provider) }
 }
 
 /** Why a chain/graph/workflow route has no reasoning controls. */

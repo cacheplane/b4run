@@ -264,7 +264,7 @@ describe("formatDroppedPartsWarning", () => {
       ],
     })
     expect(text).toBe(
-      "B4: dropped 2 content part(s) the model cannot use (openai/gpt-5-mini) on route /chat: audio/data (modality_unsupported), image/url (url_source_unsupported).",
+      "B4: dropped 2 content part(s) the model cannot use (openai/gpt-5-mini) on route /chat: audio/data (modality_unsupported), image/url (url_source_unsupported). GET /agui/%2Fchat lists what this route accepts.",
     )
   })
 
@@ -290,7 +290,7 @@ describe("formatDroppedPartsWarning", () => {
         parts: [{ index: 0, type: "video", source: "data", reason: "modality_unsupported" }],
       }),
     ).toBe(
-      "B4: dropped 1 content part(s) the model cannot use (openai/gpt-5-mini) on route /chat in tool result call-7: video/data (modality_unsupported).",
+      "B4: dropped 1 content part(s) the model cannot use (openai/gpt-5-mini) on route /chat in tool result call-7: video/data (modality_unsupported). GET /agui/%2Fchat lists what this route accepts.",
     )
   })
 

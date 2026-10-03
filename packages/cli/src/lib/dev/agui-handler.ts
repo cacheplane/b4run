@@ -7,6 +7,7 @@ import type { B4Config, ClientToolDefinition, MemoryStoreLike } from "@b4run/cor
 import { CLIENT_TOOL_PREFIX, isClientToolCallEnvelope } from "@b4run/core"
 import type { PermissionsStore } from "@b4run/permissions"
 import type {
+  B4MessageContent,
   ClientToolRecorder,
   MiddlewareAfterHook,
   MiddlewareAfterMessage,
@@ -15,7 +16,6 @@ import type {
   ThreadAccessPolicy,
   ToolCallOrigin,
 } from "@b4run/sdk"
-import { type B4MessageContent, contentPartsText } from "@b4run/sdk"
 import type { ThreadsStore } from "@b4run/sqlite-storage"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import { checkpointRoutes } from "../runtime/checkpoint-route-provenance.js"
@@ -1642,7 +1642,8 @@ function clientToolStoreUnavailable(): Response {
 }
 
 /**
- * Screens `role: "tool"` messages over MAX_CLIENT_TOOL_RESULT before
+ * Screens `role: "tool"` messages over MAX_CLIENT_TOOL_RESULT (measured by
+ * `resultTextForScreen`: text and JSON, not inline media bytes) before
  * `resolveClientToolTurn`, which stores answers before it decides anything,
  * so an over-cap result is never recorded.
  *
@@ -1672,7 +1673,7 @@ async function screenOversizedClientToolResults<
   const encoder = new TextEncoder()
   const oversized = (message: M): boolean =>
     message.role === "tool" &&
-    encoder.encode(messageText(message)).byteLength > MAX_CLIENT_TOOL_RESULT
+    encoder.encode(resultTextForScreen(message.content)).byteLength > MAX_CLIENT_TOOL_RESULT
   if (!messages.some(oversized)) return { messages }
   if (messages.at(-1)?.role === "tool") {
     const parked = clientToolCallIds(clientParks)
@@ -1690,10 +1691,13 @@ async function screenOversizedClientToolResults<
     if (refused) {
       return {
         refused: Response.json(
-          createRequestErrorBody(`Client tool result exceeds ${MAX_CLIENT_TOOL_RESULT} bytes`, {
-            code: "client_tool_result_too_large",
-            maxBytes: MAX_CLIENT_TOOL_RESULT,
-          }),
+          createRequestErrorBody(
+            `Client tool result exceeds ${MAX_CLIENT_TOOL_RESULT} bytes of text/JSON (inline media bytes excluded)`,
+            {
+              code: "client_tool_result_too_large",
+              maxBytes: MAX_CLIENT_TOOL_RESULT,
+            },
+          ),
           { status: 413 },
         ),
         messages,
@@ -1792,12 +1796,20 @@ async function clientToolPartialResponse(
 }
 
 /**
- * A message's text for the client-tool seams. PR 1 carries parts only to the
- * MODEL; a client-tool result with parts is stored and screened as its text
- * until sub-project 3's PR 2 widens the store contract (spec §6).
+ * What the 64 KiB client-tool-result screen measures (spec §6): a string as
+ * is; a part list as its JSON with every `data` source's `value` blanked.
+ * Text and JSON stay bounded by MAX_CLIENT_TOOL_RESULT; inline media bytes are
+ * bounded by the AG-UI body ceiling only.
  */
-function messageText(message: { readonly content: B4MessageContent }): string {
-  return contentPartsText(message.content)
+function resultTextForScreen(content: B4MessageContent): string {
+  if (typeof content === "string") return content
+  return JSON.stringify(
+    content.map((part) =>
+      part.type === "text" || part.source.type !== "data"
+        ? part
+        : { ...part, source: { ...part.source, value: "" } },
+    ),
+  )
 }
 
 /** The SDK-facing view of one inbound message: role, text, and the client's id when it sent one. */

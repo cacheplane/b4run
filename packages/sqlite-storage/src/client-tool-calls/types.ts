@@ -1,6 +1,11 @@
+import type { B4MessageContent } from "@b4run/sdk"
+
 /**
  * The tool-call record contract, declared structurally here rather than
- * imported from `@b4run/sdk`.
+ * imported from `@b4run/sdk`. Only the result's content type is imported:
+ * this package already depends on `@b4run/sdk` at run time for the result
+ * codec (`encodeClientToolResult` / `decodeClientToolResult`), so naming its
+ * `B4MessageContent` drags a consumer into nothing new.
  *
  * Identical shape — member for member — to `@b4run/sdk`'s
  * `ToolCallRecordKind`, `ClientToolCallRecord`, `ClientToolCallAnswer`,
@@ -36,8 +41,11 @@ export interface ClientToolCallRecord {
   readonly expiresAt: string | null
   /** Client rows only. */
   readonly answeredAt: string | null
-  /** The client's result text, set together with `answeredAt`. Client rows only. */
-  readonly result: string | null
+  /**
+   * The client's result — text, or an ordered part list — set together with
+   * `answeredAt`. Client rows only.
+   */
+  readonly result: B4MessageContent | null
   /** Client rows only. */
   readonly voidedAt: string | null
   /** Server rows only: when the tool returned or threw. */
@@ -95,7 +103,7 @@ export interface ClientToolCallStore {
   answer(options: {
     readonly threadId: string
     readonly toolCallId: string
-    readonly result: string
+    readonly result: B4MessageContent
     readonly at: string
   }): Promise<ClientToolCallAnswer>
   /**

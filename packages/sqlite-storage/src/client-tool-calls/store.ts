@@ -1,3 +1,4 @@
+import { decodeClientToolResult, encodeClientToolResult } from "@b4run/sdk"
 import type { Db } from "../internal/db.js"
 import type {
   ClientToolCallAnswer,
@@ -38,7 +39,10 @@ function rowToRecord(row: ClientToolCallRow): ClientToolCallRecord {
     issuedAt: row.issued_at,
     expiresAt: row.expires_at,
     answeredAt: row.answered_at,
-    result: row.result,
+    // No schema migration (spec §3.2): `result` stays TEXT. Text is stored as
+    // itself and a part list as a self-describing envelope, so rows written
+    // before parts existed decode as the text they are.
+    result: decodeClientToolResult(row.result),
     voidedAt: row.voided_at,
     settledAt: row.settled_at,
     parentToolCallId: row.parent_tool_call_id,
@@ -89,7 +93,8 @@ export function makeClientToolCallStore(db: Db): ClientToolCallStore {
         record.issuedAt,
         record.expiresAt,
         record.answeredAt,
-        record.result,
+        // TEXT column, envelope for parts (spec §3.2); `null` stays NULL.
+        record.result === null ? null : encodeClientToolResult(record.result),
         record.voidedAt,
         record.settledAt,
         record.parentToolCallId,
@@ -134,7 +139,8 @@ export function makeClientToolCallStore(db: Db): ClientToolCallStore {
                AND answered_at IS NULL
                AND voided_at IS NULL`,
           )
-          .run(at, result, threadId, toolCallId).changes,
+          // TEXT column, envelope for parts (spec §3.2).
+          .run(at, encodeClientToolResult(result), threadId, toolCallId).changes,
       )
       const record = readRow(threadId, toolCallId)
       if (record?.kind !== "client") return { outcome: "missing" }

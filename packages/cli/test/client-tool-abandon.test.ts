@@ -15,6 +15,7 @@ import {
   CONTINUE_AFTER_CLOSE,
   closeAbandonedClientToolCalls,
 } from "../src/lib/dev/client-tool-abandon.ts"
+import { resolveClientToolTurn } from "../src/lib/dev/client-tool-turn.ts"
 import { readPendingInterrupts } from "../src/lib/dev/pending-interrupts.ts"
 import {
   __resetRouteLoadCachesForTests,
@@ -180,7 +181,7 @@ async function parkedThread(toolCalls: readonly ToolCallSpec[]) {
 
   const graph = (await materializeResolvedRouteGraph(route)) as ClosableAgentGraph
   const pending = async () => (await readPendingInterrupts(checkpointer, threadId))?.interrupts
-  return { aimock, checkpointer, graph, pending, threadId, turn }
+  return { aimock, checkpointer, graph, pending, store, threadId, turn }
 }
 
 /** The model request as `role:detail` strings — tool calls by id, tool results with content. */
@@ -293,7 +294,58 @@ describe("closeAbandonedClientToolCalls — results and preconditions", () => {
     ])
   })
 
+  it("an answered parts result closes as its text and warns once (the close bypasses the converter)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    cleanup.push(() => warn.mockRestore())
+    const t = await parkedThread([OPEN_CALL])
+    const now = new Date()
+    await t.store.answer({
+      threadId: t.threadId,
+      toolCallId: "call_open",
+      result: [
+        { type: "text", text: "panel 1 opened" },
+        { type: "image", source: { type: "data", value: "AAAA", mimeType: "image/png" } },
+      ],
+      at: now.toISOString(),
+    })
+    const pending = await readPendingInterrupts(t.checkpointer, t.threadId)
+    if (!pending) throw new Error("expected a pending snapshot")
+    const turn = await resolveClientToolTurn({
+      store: t.store,
+      threadId: t.threadId,
+      pending,
+      messages: [
+        { role: "user", content: "go" },
+        { role: "user", content: "next" },
+      ],
+      now,
+    })
+    if (turn.mode !== "abandon") throw new Error(`expected abandon, got ${turn.mode}`)
+    expect(turn.calls).toEqual([
+      { toolCallId: "call_open", toolName: "openPanel", result: "panel 1 opened", droppedMedia: 1 },
+    ])
+    expect(warn).not.toHaveBeenCalled()
+
+    await closeAbandonedClientToolCalls({
+      checkpointer: t.checkpointer,
+      graph: t.graph,
+      threadId: t.threadId,
+      calls: turn.calls,
+    })
+    expect(warn.mock.calls.map((call) => String(call[0]))).toEqual([
+      "B4: client tool result for call_open closed as text; its 1 media part(s) are not replayed on this path.",
+    ])
+    await t.turn({ input: { messages: [{ role: "user", content: "next" }] } })
+    expect(requestSequence(t.aimock.getRequests()[1]).slice(2)).toEqual([
+      "assistant:call_open",
+      "tool:call_open=panel 1 opened",
+      "user:next",
+    ])
+  })
+
   it("refuses while a permission park is pending, and writes nothing", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    cleanup.push(() => warn.mockRestore())
     const t = await parkedThread([DEPLOY_CALL, OPEN_CALL])
     const before = await t.pending()
     expect(before).toHaveLength(2)
@@ -302,11 +354,13 @@ describe("closeAbandonedClientToolCalls — results and preconditions", () => {
       checkpointer: t.checkpointer,
       graph: t.graph,
       threadId: t.threadId,
-      calls: [abandonedOpen],
+      // A parts answer that cannot close yet: nothing closed, so nothing is said.
+      calls: [{ ...abandonedOpen, result: "panel 1 opened", droppedMedia: 1 }],
     }).catch((caught: unknown) => caught)
     expect(error).toBeInstanceOf(ClientToolAbandonError)
     expect((error as ClientToolAbandonError).code).toBe("non_client_park_pending")
     expect(await t.pending()).toEqual(before)
+    expect(warn).not.toHaveBeenCalled()
   })
 
   it("refuses an unresolved client call left out of `calls`", async () => {

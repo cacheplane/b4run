@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { type ClientToolCallRecord, createMemoryClientToolCallStore } from "../src/index.js"
+import {
+  type B4ContentPart,
+  type ClientToolCallRecord,
+  createMemoryClientToolCallStore,
+  decodeClientToolResult,
+  encodeClientToolResult,
+} from "../src/index.js"
 
 function call(over: Partial<ClientToolCallRecord> = {}): ClientToolCallRecord {
   return {
@@ -421,6 +427,62 @@ describe("createMemoryClientToolCallStore — prune with server rows", () => {
     await store.issue(call({ toolCallId: "recent_issue", issuedAt: T1, voidedAt: T0 }))
     await store.issue(serverCall({ toolCallId: "recent_server", issuedAt: T1, settledAt: T0 }))
     expect(await store.prune({ before: BEFORE })).toBe(2)
+  })
+})
+
+const parts: readonly B4ContentPart[] = [
+  { type: "text", text: "shot" },
+  { type: "image", source: { type: "data", value: "AAAA", mimeType: "image/png" } },
+]
+
+describe("client tool result codec", () => {
+  it("text round-trips as itself, parts as a self-describing envelope", () => {
+    expect(encodeClientToolResult("plain")).toBe("plain")
+    const encoded = encodeClientToolResult(parts)
+    expect(JSON.parse(encoded)).toEqual({ $b4: "content-parts", parts })
+    expect(decodeClientToolResult(encoded)).toEqual(parts)
+    expect(decodeClientToolResult("plain")).toBe("plain")
+  })
+
+  it("a stored text that merely looks like the envelope but is not a valid part list stays text", () => {
+    const text = JSON.stringify({ $b4: "content-parts", parts: [{ type: "blob" }] })
+    expect(decodeClientToolResult(text)).toBe(text)
+  })
+
+  it("an empty part list is empty text, in both directions", () => {
+    expect(encodeClientToolResult([])).toBe("")
+    expect(decodeClientToolResult(JSON.stringify({ $b4: "content-parts", parts: [] }))).toBe("")
+  })
+
+  it("malformed JSON that starts like the envelope stays text", () => {
+    const text = '{"$b4":"content-parts","parts":['
+    expect(decodeClientToolResult(text)).toBe(text)
+  })
+
+  it("a JSON object with a different $b4 tag stays text", () => {
+    const text = JSON.stringify({ $b4: "other", parts })
+    expect(decodeClientToolResult(text)).toBe(text)
+    const spaced = `{ "parts": ${JSON.stringify(parts)}, "$b4": "other" }`
+    expect(decodeClientToolResult(spaced)).toBe(spaced)
+  })
+
+  it("null stays null", () => {
+    expect(decodeClientToolResult(null)).toBeNull()
+  })
+})
+
+describe("memory store with a parts result", () => {
+  it("returns a parts result as parts", async () => {
+    const store = createMemoryClientToolCallStore()
+    await store.issue(call({ threadId: "t", toolCallId: "c1" }))
+    const answer = await store.answer({
+      threadId: "t",
+      toolCallId: "c1",
+      result: parts,
+      at: "2026-10-03T00:00:00.000Z",
+    })
+    expect(answer.outcome === "answered" && answer.record.result).toEqual(parts)
+    expect((await store.get("t", "c1"))?.result).toEqual(parts)
   })
 })
 
