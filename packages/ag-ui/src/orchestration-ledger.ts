@@ -35,8 +35,17 @@ export interface OrchestrationLedger {
     event: AguiOutboundEvent,
     correlation: B4ActivityCorrelation | undefined,
   ): AguiOutboundEvent[]
-  /** `name` is widened to `string` for the same reason as `onToolCall`. */
-  onToolResult(id: string | undefined, name: string, event: AguiOutboundEvent): AguiOutboundEvent[]
+  /**
+   * `name` is widened to `string` for the same reason as `onToolCall`.
+   * `events` is the result event plus anything that must share its fate (a
+   * trailing `failed` step): a suppressed result drops them all; otherwise
+   * they are routed exactly as the single result was.
+   */
+  onToolResult(
+    id: string | undefined,
+    name: string,
+    events: readonly AguiOutboundEvent[],
+  ): AguiOutboundEvent[]
   onPassthrough(event: AguiOutboundEvent): AguiOutboundEvent[]
   settle(interruptToolCallId?: string): AguiOutboundEvent[]
 }
@@ -211,8 +220,8 @@ export function createOrchestrationLedger(): OrchestrationLedger {
       return route([event])
     },
 
-    onToolResult(id, name, event) {
-      if (id === undefined || id === "") return route([event])
+    onToolResult(id, name, events) {
+      if (id === undefined || id === "") return route(events)
       if (suppressed.get(id) === name) {
         suppressed.delete(id)
         return []
@@ -220,7 +229,7 @@ export function createOrchestrationLedger(): OrchestrationLedger {
       const candidate = unresolved.get(id)
       // Resolving without touching `frames` is the fallback: they will emit.
       if (candidate !== undefined && candidate.name === name) unresolved.delete(id)
-      return route([event])
+      return route(events)
     },
 
     onPassthrough(event) {

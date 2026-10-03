@@ -391,18 +391,29 @@ it("a full turn passes 1.0 enforcement with nothing stripped", async () => {
 
   // Parts the model could not take are announced, once, as a vendor CUSTOM event.
   const custom = events.filter((event) => event.type === EventType.CUSTOM)
-  // The only other CUSTOM event B4.run emits is `b4.step`, and the 1.0 client passes it through intact.
-  expect(custom.length).toBeGreaterThan(0)
+  // B4.run's vendor events all use the `b4.` prefix: `b4.step` and `b4.content_parts_dropped`.
   for (const event of custom) {
     expect(event).toMatchObject({
       name: expect.stringMatching(/^b4\.(step|content_parts_dropped)$/),
     })
   }
   const steps = custom.filter((event) => event.name === "b4.step")
-  expect(steps).toHaveLength(2)
-  for (const event of steps) {
-    expect(event).toMatchObject({ value: { toolCallId: expect.any(String) } })
-  }
+  expect(steps.map((event) => event.value)).toEqual([
+    {
+      toolCallId: ORDINARY_TOOL_CALL_ID,
+      status: "running",
+      icon: "search",
+      label: "Searching the corpus for “agents”",
+    },
+    {
+      toolCallId: ORDINARY_TOOL_CALL_ID,
+      status: "completed",
+      icon: "search",
+      label: "Searched the corpus for “agents”",
+      sources: [{ title: "corpus/a.md" }],
+    },
+  ])
+  for (const step of steps) expect(step).not.toHaveProperty("subagentRunId")
   expect(custom.filter((event) => event.name !== "b4.step")).toEqual([
     expect.objectContaining({ name: "b4.content_parts_dropped", value: DROPPED }),
   ])

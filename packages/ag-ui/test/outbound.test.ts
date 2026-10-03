@@ -689,6 +689,32 @@ describe("orchestration suppression", () => {
     ])
   })
 
+  test("a suppressed writeTodos result takes its failed step with it", async () => {
+    const events = await collect([
+      {
+        type: "tool_call",
+        data: { id: "call_writeTodos_0_1", name: "writeTodos", input: { todos: TODOS } },
+      },
+      { type: "plan_update", data: { todos: TODOS, tool_call_id: "call_writeTodos_0_1" } },
+      {
+        type: "tool_result",
+        data: {
+          id: "call_writeTodos_0_1",
+          name: "writeTodos",
+          output: {
+            status: "error",
+            content: "boom",
+            name: "writeTodos",
+            tool_call_id: "call_writeTodos_0_1",
+          },
+        },
+      },
+      { type: "done", data: {} },
+    ])
+    expect(events.some((event) => event.type === EventType.CUSTOM)).toBe(false)
+    expect(events.some((event) => event.type === EventType.TOOL_CALL_RESULT)).toBe(false)
+  })
+
   test("a dropped-parts CUSTOM queues behind a held writeTodos call, in source order", async () => {
     const dropped = { provider: "openai", model: "gpt-5-mini", parts: [] }
     const custom = { type: EventType.CUSTOM, name: "b4.content_parts_dropped", value: dropped }
@@ -2112,8 +2138,24 @@ describe("toolResultView", () => {
         value: { toolCallId: "child_1", status: "running", label: "Reading a.md" },
       },
     ])
-    const kinds = events.map((event) => event.type)
-    expect(kinds.indexOf(EventType.CUSTOM)).toBeLessThan(kinds.indexOf(EventType.TOOL_CALL_RESULT))
+    const runningAt = events.findIndex(
+      (event) =>
+        event.type === EventType.CUSTOM &&
+        event.value.toolCallId === "call_s_1" &&
+        event.value.status === "running",
+    )
+    const resultAt = events.findIndex(
+      (event) => event.type === EventType.TOOL_CALL_RESULT && event.toolCallId === "call_s_1",
+    )
+    const completedAt = events.findIndex(
+      (event) =>
+        event.type === EventType.CUSTOM &&
+        event.value.toolCallId === "call_s_1" &&
+        event.value.status === "completed",
+    )
+    expect(runningAt).toBeGreaterThanOrEqual(0)
+    expect(runningAt).toBeLessThan(resultAt)
+    expect(resultAt).toBeLessThan(completedAt)
   })
 
   test("an error ToolMessage result is followed by a failed step for the same call", async () => {
@@ -2141,6 +2183,31 @@ describe("toolResultView", () => {
       name: "b4.step",
       value: { toolCallId: "call_e_1", status: "failed" },
     })
+  })
+
+  test("a step with an empty call id is ignored", async () => {
+    const events = await collect([
+      { type: "step", data: { tool_call_id: "", status: "running" } },
+      { type: "done", data: {} },
+    ])
+    expect(events.some((event) => event.type === EventType.CUSTOM)).toBe(false)
+  })
+
+  test("an unknown icon is dropped but the step survives", async () => {
+    const events = await collect([
+      {
+        type: "step",
+        data: { tool_call_id: "c", status: "running", icon: "sparkle", label: "Working" },
+      },
+      { type: "done", data: {} },
+    ])
+    const step = events.find((event) => event.type === EventType.CUSTOM)
+    expect(step).toEqual({
+      type: EventType.CUSTOM,
+      name: "b4.step",
+      value: { toolCallId: "c", status: "running", label: "Working" },
+    })
+    expect((step as { value: object }).value).not.toHaveProperty("icon")
   })
 
   test("a malformed step chunk is ignored", async () => {

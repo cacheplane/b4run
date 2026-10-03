@@ -1,3 +1,5 @@
+import { isToolDisplayIcon, type ToolDisplayIcon } from "@b4run/sdk"
+
 /** Run identity the consumer supplies; never synthesized by the mapper. */
 export interface RunContext {
   readonly threadId: string
@@ -100,7 +102,7 @@ export function asToolResultData(data: unknown): B4ToolResultData | null {
 export interface B4StepData {
   readonly tool_call_id: string
   readonly status: "running" | "completed" | "failed"
-  readonly icon?: string | undefined
+  readonly icon?: ToolDisplayIcon | undefined
   readonly label?: string | undefined
   readonly sources?: ReadonlyArray<{ readonly title: string; readonly href?: string }> | undefined
 }
@@ -123,7 +125,7 @@ export function asStepData(data: unknown): B4StepData | null {
   return {
     tool_call_id: data.tool_call_id,
     status: data.status as B4StepData["status"],
-    ...(typeof data.icon === "string" ? { icon: data.icon } : {}),
+    ...(isToolDisplayIcon(data.icon) ? { icon: data.icon } : {}),
     ...(typeof data.label === "string" ? { label: data.label } : {}),
     ...(sources !== undefined ? { sources } : {}),
   }

@@ -150,13 +150,17 @@ function stringifyArgs(input: unknown): string {
  * else is text, as before. `toolCallId` picks the right ToolMessage out of a
  * `Command`-wrapped result.
  */
-function toResultContent(output: unknown, toolCallId: string | undefined): string | ContentPart[] {
+function toResultContent(
+  output: unknown,
+  toolCallId: string | undefined,
+  view: ToolResultView,
+): string | ContentPart[] {
   if (isContentPartArray(output) && output.length > 0) return [...output]
   const kept = keptParts(output, toolCallId)
   if (kept) return kept
   // No parts kept: the text the model saw (a ToolMessage's content, a
   // Command's last ToolMessage, or a bare value serialized).
-  return toolResultView(output).content
+  return view.content
 }
 
 /** A bare value as result text: a string as-is, null/undefined empty, else JSON. */
@@ -688,21 +692,24 @@ export async function* toAguiEvents(
           tr.id === undefined ? state.pendingFallbackToolCallIds.get(tr.name) : undefined
         const toolCallId = tr.id ?? pending?.shift() ?? nextId("toolCall")
         if (pending?.length === 0) state.pendingFallbackToolCallIds.delete(tr.name)
+        const view = toolResultView(tr.output)
         const resultEvent: ToolCallResultEvent = tag(owner, {
           type: EventType.TOOL_CALL_RESULT,
           messageId: nextId("toolResult"),
           toolCallId,
-          content: toResultContent(tr.output, tr.id),
+          content: toResultContent(tr.output, tr.id, view),
         })
-        if (owner === undefined) {
-          yield* ledger.onToolResult(tr.id, tr.name, resultEvent)
-        } else {
-          yield* ledger.onPassthrough(resultEvent)
-        }
         // A tool that threw: say so on the step, since the result's text alone
-        // cannot tell an error from an answer.
-        if (toolResultView(tr.output).failed) {
-          yield* ledger.onPassthrough(stepEvent(owner, { toolCallId, status: "failed" }))
+        // cannot tell an error from an answer. The step shares the result's
+        // fate in the ledger (a suppressed result suppresses it too).
+        const events: AguiOutboundEvent[] = [
+          resultEvent,
+          ...(view.failed ? [stepEvent(owner, { toolCallId, status: "failed" })] : []),
+        ]
+        if (owner === undefined) {
+          yield* ledger.onToolResult(tr.id, tr.name, events)
+        } else {
+          for (const event of events) yield* ledger.onPassthrough(event)
         }
         break
       }
@@ -713,9 +720,7 @@ export async function* toAguiEvents(
           stepEvent(owner, {
             toolCallId: step.tool_call_id,
             status: step.status,
-            ...(step.icon !== undefined
-              ? { icon: step.icon as NonNullable<B4StepEventValue["icon"]> }
-              : {}),
+            ...(step.icon !== undefined ? { icon: step.icon } : {}),
             ...(step.label !== undefined ? { label: step.label } : {}),
             ...(step.sources !== undefined ? { sources: step.sources } : {}),
           }),
