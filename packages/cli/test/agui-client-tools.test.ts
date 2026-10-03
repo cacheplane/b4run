@@ -1909,9 +1909,10 @@ describe("the tool-call record covers every tool call on a run with a store", ()
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     try {
       const handler = await createHandler(appRoot)
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining("client-tool-calls.sqlite exists but no route is listed"),
+      const leftoverWarnings = warn.mock.calls.filter(([message]) =>
+        String(message).includes("client-tool-calls.sqlite exists but no route is listed"),
       )
+      expect(leftoverWarnings).toHaveLength(1)
       const threadId = `thread-${crypto.randomUUID()}`
       const first = await run(
         handler,

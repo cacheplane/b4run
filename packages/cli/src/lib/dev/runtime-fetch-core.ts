@@ -27,6 +27,7 @@ import {
   seedPreparedRouteModules,
   streamResolvedRoute,
 } from "../runtime/execute-route-core.js"
+import { pureJoin } from "../runtime/pure-path.js"
 import type { SandboxManager } from "../runtime/sandbox-manager.js"
 import type { B4StaticModules } from "../runtime/static-modules-core.js"
 import { type StreamChunk, toSseEvent } from "../runtime/stream-types.js"
@@ -656,7 +657,7 @@ export async function createRuntimeFetchHandler(
     // an earlier opt-in. It still closes calls parked back then; it does not
     // record server calls.
     console.warn(
-      `B4: ${options.appRoot}/.b4/client-tool-calls.sqlite exists but no route is listed in ` +
+      `B4: ${pureJoin(options.appRoot, ".b4", "client-tool-calls.sqlite")} exists but no route is listed in ` +
         `server.agui.clientTools and no server.agui.clientToolStore is set. It is kept so calls ` +
         `parked before the opt-in was removed can still be closed; server tool calls are not ` +
         `recorded. Delete the file to drop it.`,
