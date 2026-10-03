@@ -42,9 +42,9 @@
       "recordDigest": "9c823bb6e0c77817744984458823169e48c1921d1b3e3234569240927e23e8d1"
     },
     "/docs/ag-ui": {
-      "lastModified": "2026-10-03T18:00:01.000Z",
-      "sourceDigest": "aad8b7e0f60e757bd39c618611387862a4d280014a5b3a255fae77c058da61c8",
-      "recordDigest": "5a01b8313afe392841d3f7ac76f9117c650c56fcf8570117cb347c55549e19e1"
+      "lastModified": "2026-10-03T21:04:20.000Z",
+      "sourceDigest": "73458a776bf0d75d67848eafc4df7df89a7fa83aad69dbb3ef90bab514a2ebbd",
+      "recordDigest": "8fce774246b5388ccd5994e9f3b5d012b52ad17a80697152c99719ca844a876b"
     },
     "/docs/agents": {
       "lastModified": "2026-10-03T04:20:30.000Z",
@@ -57,9 +57,9 @@
       "recordDigest": "09dbdd470332de22d4276771b45cc9487b4eb03da616522b14bf38965705eacb"
     },
     "/docs/api/ag-ui": {
-      "lastModified": "2026-10-03T15:53:26.000Z",
-      "sourceDigest": "193e36e2132f67fb514fe1447899781761a2c069148eacff2b4de9f76ac4c415",
-      "recordDigest": "eec7bcbe12c1e1226eab43a17c2720faca21cb917fe2c65def43a8d8fbb3d16b"
+      "lastModified": "2026-10-03T21:04:20.000Z",
+      "sourceDigest": "4bd454f3cdba7a1722a77f94c41cbd6ce19480a1ae8c1e8397e3698eab46ba4c",
+      "recordDigest": "2202d4cb7f6810ed8ce7a3652bd482a74891546f07d9beaa31fa87dbff7340b9"
     },
     "/docs/api/cli": {
       "lastModified": "2026-09-25T17:07:15.000Z",
@@ -282,9 +282,9 @@
       "recordDigest": "469a26742d5ce45700de275fa7ffab78deb29e29c17b905a659973f196e152eb"
     },
     "/docs/permissions": {
-      "lastModified": "2026-09-30T21:52:21.000Z",
-      "sourceDigest": "343254fdff8c6a9785500f552b99cb3cbb6585a2adf22c6d440b5904b5289995",
-      "recordDigest": "3641dea65a440c52c5a1b8786122d76f4e4b2749646533fc2d8ec514105a2540"
+      "lastModified": "2026-10-03T21:04:20.000Z",
+      "sourceDigest": "299be14bbaece73cceb8ec2fa54eb7fe023f4f118a2225572e5aaed579323e2e",
+      "recordDigest": "25a0f37966f2a93502a4dc88e234e6ca606c0788b3bfe16c9fb89239afe560dd"
     },
     "/docs/persistence": {
       "lastModified": "2026-09-23T06:30:00.000Z",
