@@ -37,23 +37,42 @@ async function createThread(handler: Awaited<ReturnType<typeof setup>>): Promise
 }
 
 describe("Agent Protocol run body", () => {
-  it("is bounded like the AG-UI body: a declared over-cap length is 413 unread", async () => {
+  it.each(["runs/stream", "runs/wait", "resume"])(
+    "POST /threads/:id/%s: a declared over-cap length is 413 unread",
+    async (suffix) => {
+      const handler = await setup()
+      const threadId = await createThread(handler)
+      const res = await handler.fetch(
+        new Request(`http://localhost/threads/${threadId}/${suffix}`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "content-length": String(AGUI_BODY_MAX_BYTES + 1),
+          },
+          body: "{}",
+        }),
+      )
+      expect(res.status).toBe(413)
+    },
+  )
+
+  it("counts streamed bytes: an over-cap body with no content-length is 413", async () => {
     const handler = await setup()
     const threadId = await createThread(handler)
     const res = await handler.fetch(
       new Request(`http://localhost/threads/${threadId}/runs/wait`, {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "content-length": String(AGUI_BODY_MAX_BYTES + 1),
-        },
-        body: JSON.stringify({ route: "/echo#graph", input: {} }),
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          route: "/echo#graph",
+          input: { pad: "x".repeat(AGUI_BODY_MAX_BYTES) },
+        }),
       }),
     )
     expect(res.status).toBe(413)
   })
 
-  it("carries array content to the route intact", async () => {
+  it("array content reaches a graph route intact through the Agent Protocol path", async () => {
     const handler = await setup()
     const threadId = await createThread(handler)
     const parts = [
