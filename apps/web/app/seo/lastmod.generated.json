@@ -42,9 +42,9 @@
       "recordDigest": "9c823bb6e0c77817744984458823169e48c1921d1b3e3234569240927e23e8d1"
     },
     "/docs/ag-ui": {
-      "lastModified": "2026-10-01T20:40:30.000Z",
-      "sourceDigest": "90fb330b0a13bc9b407e2cefd9f48137f005fb381d00b2ea8fa9f853dbc91c7c",
-      "recordDigest": "cd38cd36920e0ca38cdf9a8ed5e92b6a11f5a8f0691a8d4465c8a5b4080f1891"
+      "lastModified": "2026-10-03T03:30:40.000Z",
+      "sourceDigest": "d7bcbc3f7656cac8fa641795aecdc7e5df6e617b46941d048eb2831cc9e76825",
+      "recordDigest": "5a5b2fb6aadcae7e41d6fe480d891d0cc1ed6e76b7ffd222c58186da2f942a0e"
     },
     "/docs/agents": {
       "lastModified": "2026-09-24T01:19:36.000Z",
@@ -57,9 +57,9 @@
       "recordDigest": "5791af3447e6d297b4ea73ed3c7e41e863f3d103810b8497fe3e4f614ad903ec"
     },
     "/docs/api/ag-ui": {
-      "lastModified": "2026-10-01T20:30:30.000Z",
-      "sourceDigest": "52ffb22ae7a2569f06798c623ce50ba4883a72e019da474a71a41864101c1f5c",
-      "recordDigest": "f27e37187477fbf63ea23f72774f29e2b7b1404f9220dc71f4d9ed52009b75f1"
+      "lastModified": "2026-10-03T03:30:40.000Z",
+      "sourceDigest": "508ff7a31eab91454ac31e2069993dafc5da1deeeca5025639d54d2ccd63c512",
+      "recordDigest": "138dae32aae3ee249b044ce9f41d732f41ad418024c29463445bc6e4eb8c913d"
     },
     "/docs/api/cli": {
       "lastModified": "2026-09-25T17:07:15.000Z",
@@ -117,9 +117,9 @@
       "recordDigest": "ed335a186f36d246daff928e95c194150092f40122f7eaf3724a3929cc65f5b9"
     },
     "/docs/api/sdk": {
-      "lastModified": "2026-09-30T21:52:20.000Z",
-      "sourceDigest": "c744f401e57d0d7a8f6bdad56b448e2c974f97bbdf97d9a68e1985725b252aea",
-      "recordDigest": "085062e65730baed4c68f6724d8aa26c2e590481880cb1e9867e377c302bc6a4"
+      "lastModified": "2026-10-03T03:30:40.000Z",
+      "sourceDigest": "fedeac7024eb84eb8bb05eee0193d6c5b4200b8336eb53873eda7349624676a4",
+      "recordDigest": "9d6a182159769ce24f038937afc27069f7d42d868388d1fc3fa07c77aec9688e"
     },
     "/docs/api/sqlite-storage": {
       "lastModified": "2026-09-30T21:52:20.000Z",
@@ -152,9 +152,9 @@
       "recordDigest": "0cdac7d400ced278d47e392680b7d47474f95a2271b594d44fab61b9d94c2616"
     },
     "/docs/configuration": {
-      "lastModified": "2026-09-30T21:52:21.000Z",
-      "sourceDigest": "d0ff1eccb37f1f54c9e9b126d3dfed9ee4e20cb99b2044971588216b2d4b395c",
-      "recordDigest": "2e4f007374430fbbbf49bd8b00ad591c38a0f25862152088f71b877dbab399fa"
+      "lastModified": "2026-10-03T03:30:40.000Z",
+      "sourceDigest": "e1dd659b6ff888b1f4597375b88f5a8d1e793433c457cf612261733217b513de",
+      "recordDigest": "9af892018c14af0e8927ff06fb25faf7c53346a939296aac8d0d2d17557eb6d8"
     },
     "/docs/context-management": {
       "lastModified": "2026-09-29T18:42:00.000Z",
