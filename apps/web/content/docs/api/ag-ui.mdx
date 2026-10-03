@@ -66,6 +66,7 @@ The adapter only translates protocol data, so it neither authenticates a caller 
 | `ToAguiOptions` | Configure outbound event IDs, the cancelled outcome, and pending client tool calls. |
 | `toAguiEvents` | Translate a B4.run stream into AG-UI events. |
 | `B4AgentStreamChunk` | Describe accepted B4.run stream chunks. |
+| `B4UsageData` | Describe one model call's token usage as the `usage` chunk carries it. |
 | `RunContext` | Supply thread and run IDs for outbound events. |
 
 ### `@b4run/ag-ui/sse`
@@ -210,6 +211,21 @@ export interface RunContext {
   readonly runId: string
 }
 ```
+
+```ts api-contract="@b4run/ag-ui#.:B4UsageData"
+export interface B4UsageData {
+  readonly provider?: string | undefined
+  readonly model?: string | undefined
+  readonly usage_metadata: Readonly<Record<string, unknown>>
+}
+```
+
+**Fields: `@b4run/ag-ui#.:B4UsageData`**
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `readonly provider` | `string \| undefined` | no | Name the provider, lower-cased from LangChain's `ls_provider`. |
+| `readonly model` | `string \| undefined` | no | Name the model, from LangChain's `ls_model_name`. |
+| `readonly usage_metadata` | `Readonly<Record<string, unknown>>` | yes | Carry the provider's LangChain `usage_metadata` untouched; the mapper applies the protocol's accounting. |
 
 ```ts api-contract="@b4run/ag-ui#.:fromRunAgentInput"
 export declare function fromRunAgentInput(input: RunAgentInput): B4RunInput

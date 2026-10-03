@@ -1213,6 +1213,7 @@ const EXPECTED_API_REQUIRED_CONTRACT_KEYS = [
   "@b4run/ag-ui#.:B4RunInput",
   "@b4run/ag-ui#.:B4PlanActivityContent",
   "@b4run/ag-ui#.:B4SubagentActivityContent",
+  "@b4run/ag-ui#.:B4UsageData",
   "@b4run/ag-ui#.:RunContext",
   "@b4run/ag-ui#.:ToAguiOptions",
   "@b4run/ag-ui#.:fromRunAgentInput",
