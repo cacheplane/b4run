@@ -33,6 +33,7 @@ import {
   isApprovalGrantShape,
   timingSafeHexEqual,
 } from "@b4run/sdk"
+import { resolvePositiveMs } from "./client-tool-runtime.js"
 import type { PendingInterrupt } from "./pending-interrupts.js"
 import { createRequestErrorBody } from "./server-errors.js"
 
@@ -48,6 +49,55 @@ export interface ApprovalGrantRuntime {
   readonly mode: ApprovalGrantMode
   readonly store?: InterruptGrantStore
   readonly ttlMs?: number
+  /** `approvals.grantRetentionMs`, resolved. See {@link pruneSettledGrants}. */
+  readonly retentionMs: number
+}
+
+/** An `approvals` setting that cannot be honored as written. */
+export class ApprovalGrantConfigError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "ApprovalGrantConfigError"
+  }
+}
+
+/** How long a settled grant record is kept by default: 7 days. */
+export const DEFAULT_APPROVAL_GRANT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
+
+/** `approvals.grantRetentionMs`, validated; a mistyped value fails the boot. */
+export function resolveApprovalGrantRetentionMs(value: unknown): number {
+  return resolvePositiveMs(
+    "approvals.grantRetentionMs",
+    value,
+    DEFAULT_APPROVAL_GRANT_RETENTION_MS,
+    (message) => new ApprovalGrantConfigError(message),
+  )
+}
+
+const GRANT_STORE_METHODS = [
+  "issue",
+  "get",
+  "listForThread",
+  "consume",
+  "voidOutstanding",
+  "prune",
+] as const
+
+/** `approvals.grantStore`, shape-checked: absent, or an object with every store method. */
+export function validateInterruptGrantStore(value: unknown): InterruptGrantStore | undefined {
+  if (value === undefined) return undefined
+  const missing =
+    typeof value === "object" && value !== null
+      ? GRANT_STORE_METHODS.filter(
+          (method) => typeof (value as Record<string, unknown>)[method] !== "function",
+        )
+      : [...GRANT_STORE_METHODS]
+  if (missing.length > 0) {
+    throw new ApprovalGrantConfigError(
+      `approvals.grantStore must be an InterruptGrantStore; missing ${missing.join(", ")}.`,
+    )
+  }
+  return value as InterruptGrantStore
 }
 
 /**

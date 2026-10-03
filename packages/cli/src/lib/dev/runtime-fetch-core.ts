@@ -43,6 +43,8 @@ import {
   type ApprovalGrantRuntime,
   gateResumeWithGrants,
   minterFor,
+  resolveApprovalGrantRetentionMs,
+  validateInterruptGrantStore,
   voidSupersededGrants,
 } from "./approval-grants.js"
 import {
@@ -590,11 +592,14 @@ export async function createRuntimeFetchHandler(
     ?.approvals
   const approvalGrantMode: ApprovalGrantMode = approvalConfig?.grants ?? "off"
   configureApprovalGrants(approvalGrantMode)
+  // A config store is validated HERE, before the fallback — which would
+  // otherwise hand the same unchecked config value back — is consulted.
   const interruptGrantStore: InterruptGrantStore | undefined =
     approvalGrantMode === "off"
       ? undefined
-      : (approvalConfig?.grantStore ??
+      : (validateInterruptGrantStore(approvalConfig?.grantStore) ??
         (await fallbacks?.resolveInterruptGrantStore?.(options.appRoot)))
+  const approvalGrantRetentionMs = resolveApprovalGrantRetentionMs(approvalConfig?.grantRetentionMs)
   if (approvalGrantMode !== "off" && !interruptGrantStore) {
     // Loud, once, at boot — not at the first resume. An operator who switched
     // grants on and got no store has a misconfiguration, and the request-time
@@ -607,6 +612,7 @@ export async function createRuntimeFetchHandler(
   }
   const approvalGrants: ApprovalGrantRuntime = {
     mode: approvalGrantMode,
+    retentionMs: approvalGrantRetentionMs,
     ...(interruptGrantStore ? { store: interruptGrantStore } : {}),
     ...(approvalConfig?.grantTtlMs !== undefined ? { ttlMs: approvalConfig.grantTtlMs } : {}),
   }

@@ -33,6 +33,7 @@ import type { StreamChunk } from "../runtime/stream-types.js"
 import { abortableAsyncIterable } from "./abortable-iterable.js"
 import {
   type ApprovalGrantRuntime,
+  DEFAULT_APPROVAL_GRANT_RETENTION_MS,
   gateResumeWithGrants,
   minterFor,
   voidSupersededGrants,
@@ -377,7 +378,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     permissionsStore,
     registry,
     resumeClaims,
-    approvalGrants = { mode: "off" },
+    approvalGrants = { mode: "off", retentionMs: DEFAULT_APPROVAL_GRANT_RETENTION_MS },
     runRegistry,
     threadAccess,
     threadsStore,
