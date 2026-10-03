@@ -377,7 +377,11 @@ attach control. `scripts/check-docs.mjs` gets a forbidden-phrase pin on
   reads text parts (the rule aimock's own matcher uses), so a recorded
   multimodal turn keys on its text; `matchers.ts` `resolveMessageContent`
   learns array content. Two new recorded gpt-5-mini fixtures: an image turn
-  (`data` and `url`), and a tool returning an image part.
+  (`data` and `url`), and a tool returning an image part (recorded with PR 3,
+  which needs a live session). Known limitation, predating this work: B4.run
+  keys a fixture on the FIRST user message with text while aimock replays on
+  the LAST; the two agree for every single-turn case, including the SDK's
+  split `[text] + [image]` form, and diverge only in a multi-turn recording.
 - Example: the existing research web tests gain a rendered-image case and an
   attach-control-hidden-when-capability-absent case.
 
