@@ -112,4 +112,19 @@ describe("convertToolToLangChain — runtime invoke path (ToolNode-style)", () =
     expect(msg?.content).toBe(JSON.stringify({ ok: true }))
     expect((cmd.update as Record<string, unknown>).stuff).toBe("value")
   })
+
+  it("a displayed tool invoked with a ToolCall returns a ToolMessage carrying b4_step", async () => {
+    const converted = convertToolToLangChain({
+      name: "readDoc",
+      display: { icon: "read", done: (input: { path: string }) => `Read ${input.path}` },
+      run: async () => "# Title",
+    })
+    const message = (await converted.invoke(
+      { name: "readDoc", args: { path: "corpus/a.md" }, id: "call_read_9", type: "tool_call" },
+      { configurable: { thread_id: "thread-1" } },
+    )) as { content: unknown; tool_call_id: string; additional_kwargs: Record<string, unknown> }
+    expect(message.tool_call_id).toBe("call_read_9")
+    expect(message.content).toBe('"# Title"')
+    expect(message.additional_kwargs.b4_step).toEqual({ icon: "read", label: "Read corpus/a.md" })
+  })
 })
