@@ -1,7 +1,7 @@
 import { CLIENT_TOOL_RECORDER_KEY } from "@b4run/sdk"
 import { GraphInterrupt } from "@langchain/langgraph"
 import { describe, expect, it, vi } from "vitest"
-import { recordToolCall } from "../src/tool-call-recording.ts"
+import { readCallOrigin, recordToolCall } from "../src/tool-call-recording.ts"
 
 function recorder() {
   const log: string[] = []
@@ -94,5 +94,70 @@ describe("recordToolCall", () => {
     } finally {
       warn.mockRestore()
     }
+  })
+})
+
+describe("readCallOrigin", () => {
+  const entry = (callId: string, routeKey: string) => ({
+    callId,
+    name: "researcher",
+    routeId: routeKey.replace(/#.*$/, ""),
+    routeKey,
+  })
+
+  it("is undefined at the root (no config, no metadata, empty stack)", () => {
+    expect(readCallOrigin(undefined)).toBeUndefined()
+    expect(readCallOrigin({ metadata: {} })).toBeUndefined()
+    expect(readCallOrigin({ metadata: { b4: { subagent_stack: [] } } })).toBeUndefined()
+  })
+
+  it("names the top stack entry's route key and task call id", () => {
+    const config = {
+      metadata: {
+        b4: {
+          subagent_stack: [
+            entry("call_task_outer", "/chat/subagents/planner#agent"),
+            entry("call_task_inner", "/chat/subagents/planner/subagents/researcher#agent"),
+          ],
+        },
+      },
+    }
+    expect(readCallOrigin(config)).toEqual({
+      routeId: "/chat/subagents/planner/subagents/researcher#agent",
+      parentToolCallId: "call_task_inner",
+    })
+  })
+
+  it("ignores a top entry without a route key", () => {
+    const config = {
+      metadata: { b4: { subagent_stack: [{ callId: "x", name: "n", routeId: "/r" }] } },
+    }
+    expect(readCallOrigin(config)).toBeUndefined()
+  })
+})
+
+describe("recordToolCall — origin", () => {
+  it("passes the origin through to issue untouched, and omits it when absent", async () => {
+    const issued: unknown[] = []
+    const rec = {
+      has: async () => false,
+      record: async () => {},
+      issue: async (call: unknown) => {
+        issued.push(call)
+      },
+      settle: async () => {},
+    }
+    const config = { configurable: { [CLIENT_TOOL_RECORDER_KEY]: rec } }
+    const origin = { routeId: "/chat/subagents/researcher#agent", parentToolCallId: "call_task_1" }
+    await recordToolCall(
+      config,
+      { toolCallId: "c1", toolName: "readFile", origin },
+      async () => "ok",
+    )
+    await recordToolCall(config, { toolCallId: "c2", toolName: "readFile" }, async () => "ok")
+    expect(issued).toEqual([
+      { toolCallId: "c1", toolName: "readFile", origin },
+      { toolCallId: "c2", toolName: "readFile" },
+    ])
   })
 })
