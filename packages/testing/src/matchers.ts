@@ -112,11 +112,7 @@ export function expectStreamedTokens(run: AgentRunResult): void {
   if (run.tokens.length === 0) fail("expected >=1 streamed token, got none")
 }
 
-/**
- * Resolve a message object to the `content` string, handling both the
- * JSON-serialized AP shape (`{ id: [...], kwargs: { content } }`) and the
- * raw LangChain BaseMessage instance shape (`{ lc_id: [...], content }`).
- */
+/** A content value as text: a string as is; an array's `text` parts joined. */
 function contentText(value: unknown): string | undefined {
   if (typeof value === "string") return value
   if (!Array.isArray(value)) return undefined
@@ -132,6 +128,11 @@ function contentText(value: unknown): string | undefined {
     .join("")
 }
 
+/**
+ * Resolve a message object to the `content` string, handling both the
+ * JSON-serialized AP shape (`{ id: [...], kwargs: { content } }`) and the
+ * raw LangChain BaseMessage instance shape (`{ lc_id: [...], content }`).
+ */
 function resolveMessageContent(m: Record<string, unknown>): string | undefined {
   // JSON-serialized AP shape: { id: ["langchain_core","messages","ToolMessage"], kwargs: { content } }
   const kwContent = contentText((m as { kwargs?: { content?: unknown } }).kwargs?.content)

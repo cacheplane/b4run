@@ -142,4 +142,19 @@ describe("recordingsToFixtures with multimodal requests", () => {
     ])
     expect(fixture?.match.userMessage).toBe("now this")
   })
+
+  it("keys on the text message when the SDK splits text and image into separate user messages", () => {
+    const [fixture] = recordingsToFixtures([
+      {
+        request: {
+          messages: [
+            { role: "user", content: [{ type: "text", text: "describe this" }] },
+            { role: "user", content: [{ type: "image_url", image_url: { url: "x" } }] },
+          ],
+        },
+        response: { content: "ok" },
+      },
+    ])
+    expect(fixture?.match.userMessage).toBe("describe this")
+  })
 })
