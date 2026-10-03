@@ -169,7 +169,7 @@ export interface ModalitySupport {
   readonly audio: boolean                                            // profile.audioInputs
   readonly video: boolean                                            // profile.videoInputs
   readonly toolResult: { readonly image: boolean; readonly pdf: boolean } // profile.imageToolMessage / pdfToolMessage
-  readonly file: boolean                                             // provider maps a FileSource handle
+  readonly file: { readonly image: boolean; readonly pdf: boolean }  // provider maps a FileSource handle, per part type
 }
 export function resolveModalitySupport(model: unknown, provider: BuiltInModelProviderId): ModalitySupport
 ```
@@ -182,8 +182,15 @@ export function resolveModalitySupport(model: unknown, provider: BuiltInModelPro
   URL); `mistral` → `image.data` and `image.url`; every other provider →
   `image.data` and `image.url`. Audio, video, pdf and tool-result media are
   claimed only when a profile says so.
-- `file` is a provider fact, not a profile one: `true` for `openai`,
-  `anthropic`, `google` (the converters that map `fileId`), `false` elsewhere.
+- `file` is a provider fact, not a profile one, per part type, verified
+  against the converters: `anthropic` maps a `fileId` for images and
+  documents; `openai`'s Chat Completions path (the one B4.run uses) maps it
+  only for `file` blocks, its image branch has no `fileId` case; `google`'s
+  converter throws on `fileId`. So `anthropic → { image: true, pdf: true }`,
+  `openai → { image: false, pdf: true }`, every other provider → none.
+- The reader follows a `RunnableBinding`'s `.bound` (depth-guarded): with a
+  response format bound, `createChatModel` returns `model.withConfig(...)`,
+  and for Anthropic that binding has no `profile` of its own.
 
 ### 4.2 `toLangChainContent`
 
@@ -206,7 +213,7 @@ export function toLangChainContent(
 |---|---|---|
 | `text` | always | — |
 | `image` data / url | `image.data` / `image.url` | drop (`modality_unsupported` / `url_source_unsupported`) |
-| `image` file | `file` and (`provider` absent or equal) | drop (`file_source_unsupported` / `foreign_file_provider`) |
+| `image` / `document` file | `file.image` / `file.pdf` and (`provider` absent or equal) | drop (`file_source_unsupported` / `foreign_file_provider`) |
 | `document` | `mimeType === "application/pdf"` and `pdf` | drop (`document_not_pdf` / `modality_unsupported`) |
 | `audio` / `video` | `audio` / `video` | drop |
 | any media, `position: "tool"` | additionally `toolResult.image` (image) / `toolResult.pdf` (pdf); audio/video never | drop (`tool_result_media_unsupported`) |
@@ -214,6 +221,11 @@ export function toLangChainContent(
 Mapping to LangChain standard blocks: `data` → `{ type, data: value, mimeType }`;
 `url` → `{ type, url: value, mimeType? }`; `file` → `{ type, fileId: value, mimeType? }`;
 `document` → LangChain `type: "file"`. Text parts → `{ type: "text", text }`.
+Exception: the `ollama` and `mistralai` converters accept only the legacy
+`image_url` block and throw on a standard `image` block, so for those two
+providers an image becomes `{ type: "image_url", image_url: { url } }`, with
+a `data` source rendered as a `data:<mimeType>;base64,<value>` URL (which is
+the form `ollama`'s converter decodes).
 A string input is returned as a string with no drops. A content array that
 ends up with no blocks at all becomes `""` (the run still proceeds; the model
 sees an empty user turn, which is what the client sent minus what it cannot
