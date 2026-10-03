@@ -125,6 +125,13 @@ export type {
   ThreadSubject,
 } from "./thread-access.js"
 export { defineThreadAccess, deny, permit, THREAD_ACCESS_METADATA_KEY } from "./thread-access.js"
+export type { ToolDisplay, ToolDisplayIcon, ToolDisplaySource } from "./tool-display.js"
+export {
+  describeToolDisplayProblem,
+  isToolDisplayIcon,
+  TOOL_DISPLAY_ICONS,
+  TOOL_DISPLAY_LABEL_MAX,
+} from "./tool-display.js"
 export type { Prettify } from "./types.js"
 export type { ModelIdValidation } from "./validate-model-id.js"
 export { validateModelId } from "./validate-model-id.js"
