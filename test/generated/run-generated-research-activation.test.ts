@@ -894,28 +894,10 @@ function assertResumedGatedJourney(
   if (toolResult === undefined || typeof toolResult.content !== "string") {
     throw new Error("Resumed runBash omitted its string tool result")
   }
-  const serializedToolMessage = JSON.parse(toolResult.content) as unknown
-  if (
-    serializedToolMessage === null ||
-    typeof serializedToolMessage !== "object" ||
-    Array.isArray(serializedToolMessage)
-  ) {
-    throw new Error("Resumed runBash result was not a serialized ToolMessage")
-  }
-  const toolMessage = serializedToolMessage as Record<string, unknown>
-  expect(toolMessage).toMatchObject({ lc: 1, type: "constructor" })
-  expect(toolMessage.id).toEqual(expect.arrayContaining(["langchain_core", "messages"]))
-  expect(Array.isArray(toolMessage.id) ? toolMessage.id.at(-1) : undefined).toBe("ToolMessage")
-  const kwargs = toolMessage.kwargs
-  if (kwargs === null || typeof kwargs !== "object" || Array.isArray(kwargs)) {
-    throw new Error("Serialized runBash ToolMessage omitted its kwargs")
-  }
-  expect(kwargs).toMatchObject({ status: "success", name: "runBash" })
-  const commandResult = Reflect.get(kwargs, "content")
-  if (typeof commandResult !== "string") {
-    throw new Error("Serialized runBash ToolMessage omitted its string content")
-  }
-  expect(JSON.parse(commandResult)).toEqual({
+  // The wire carries the tool's output — the text the model saw — not the
+  // serialized ToolMessage, so the resumed runBash result parses straight to
+  // the command's result.
+  expect(JSON.parse(toolResult.content)).toEqual({
     stdout: FETCH_STDOUT,
     stderr: "",
     exitCode: 0,
