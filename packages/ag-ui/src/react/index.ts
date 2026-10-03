@@ -40,14 +40,16 @@ export {
   type B4ToolRowProps,
   cx,
 } from "./parts.js"
+export { b4ActivityRenderers, b4PlanActivityRenderer } from "./renderers.js"
+export { SubagentPanel } from "./SubagentPanel.js"
+export { planActivityContentSchema } from "./schemas.js"
 export {
-  b4ActivityRenderers,
-  b4PlanActivityRenderer,
-  b4SubagentActivityRenderer,
-} from "./renderers.js"
-export { SubagentActivityCard } from "./SubagentActivityCard.js"
-export {
-  planActivityContentSchema,
-  type SubagentActivityContentOutput,
-  subagentActivityContentSchema,
-} from "./schemas.js"
+  EMPTY_SUBAGENT_RUNS,
+  isSubagentMessage,
+  reduceSubagentRuns,
+  type SubagentEventSource,
+  type SubagentRun,
+  type SubagentRunsState,
+  type SubagentToolCall,
+  useSubagentRuns,
+} from "./useSubagentRuns.js"
