@@ -1,6 +1,6 @@
 # AG-UI outbound reasoning (`REASONING_*`) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** An `agent()` route can ask its provider to stream visible reasoning (OpenAI Responses `summary`, Anthropic extended-thinking `budgetTokens`), the langchain adapter carries it as `reasoning` chunks, `toAguiEvents` frames it as 1.0 `REASONING_START/REASONING_MESSAGE_*/REASONING_END` with every span and message closed before the run ends, and `GET /agui/:routeId` advertises `reasoning.supported` from the exact fields the chat-model factory forwards.
 
@@ -53,7 +53,7 @@ Conventions (from `AGENTS.md`): run from the repo root on Node 24; format change
 - Modify: `packages/sdk/src/index.ts`
 - Modify: `packages/sdk/test/agent-config.contract.ts` (~lines 66-72)
 
-- [ ] **Step 1: Update the type-level contract test first**
+- [x] **Step 1: Update the type-level contract test first**
 
 In `packages/sdk/test/agent-config.contract.ts`, replace
 
@@ -85,12 +85,12 @@ type _ReasoningAnthropic = Expect<
 type _NoFlatEffort = Expect<Equal<"effort" extends keyof ReasoningConfig ? true : false, false>>
 ```
 
-- [ ] **Step 2: Run the sdk typecheck to see it fail**
+- [x] **Step 2: Run the sdk typecheck to see it fail**
 
 Run: `pnpm --filter @b4run/sdk typecheck`
 Expected: errors in `agent-config.contract.ts` (`Property 'openai' does not exist`).
 
-- [ ] **Step 3: Change the SDK type**
+- [x] **Step 3: Change the SDK type**
 
 In `packages/sdk/src/agent.ts`, replace the `ReasoningConfig` block (the doc comment starting `Reasoning model tuning.` through the closing `}`) with:
 
@@ -137,12 +137,12 @@ export interface ReasoningConfig {
 
 In `packages/sdk/src/index.ts`, find the export line that names `ReasoningConfig` and add `AnthropicReasoningConfig` and `OpenAIReasoningConfig` to it (alphabetical within the braces, matching the file's style).
 
-- [ ] **Step 4: Typecheck and run sdk tests**
+- [x] **Step 4: Typecheck and run sdk tests**
 
 Run: `pnpm --filter @b4run/sdk typecheck && pnpm --filter @b4run/sdk test`
 Expected: PASS. (`packages/sdk/test/public-api*.test.ts` may pin the export list — if it fails, add the two names to its expectation.)
 
-- [ ] **Step 5: Format and commit**
+- [x] **Step 5: Format and commit**
 
 ```bash
 (cd packages/sdk && pnpm exec biome check --write --config-path ../config-biome/biome.json src/agent.ts src/index.ts test/agent-config.contract.ts)
@@ -163,7 +163,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `packages/langchain/src/index.ts`
 - Modify: `packages/langchain/test/chat-model-factory.test.ts` (~lines 14-42)
 
-- [ ] **Step 1: Write the unit tests**
+- [x] **Step 1: Write the unit tests**
 
 Create `packages/langchain/test/reasoning-config.test.ts`:
 
@@ -253,12 +253,12 @@ describe("resolveReasoningConfig", () => {
 })
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `pnpm --filter @b4run/langchain exec vitest run test/reasoning-config.test.ts`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Create the resolver**
+- [x] **Step 3: Create the resolver**
 
 Create `packages/langchain/src/reasoning-config.ts`:
 
@@ -389,12 +389,12 @@ function describeValue(value: unknown): string {
 
 Check `BuiltInModelProviderId` is the exported name in `packages/langchain/src/model-provider-resolver.ts` (`grep -n "export type" packages/langchain/src/model-provider-resolver.ts`); if the type lives elsewhere (e.g. `chat-model-factory.ts` imports it from `./model-provider-resolver.js` already — mirror that import).
 
-- [ ] **Step 4: Run the resolver tests**
+- [x] **Step 4: Run the resolver tests**
 
 Run: `pnpm --filter @b4run/langchain exec vitest run test/reasoning-config.test.ts`
 Expected: PASS (10 tests). The wrong-provider message test expects exactly `…provider; set reasoning.anthropic instead.` and `…"ollama" provider, which has no reasoning controls in B4.run.` — if the punctuation differs, fix the template, not the test.
 
-- [ ] **Step 5: Apply it in the factory and update the factory tests**
+- [x] **Step 5: Apply it in the factory and update the factory tests**
 
 In `packages/langchain/src/chat-model-factory.ts`, add the import `import { resolveReasoningConfig } from "./reasoning-config.js"` and replace
 
@@ -477,12 +477,12 @@ In `packages/langchain/test/chat-model-factory.test.ts`, replace the two reasoni
 
 Note the third test asserts the error is thrown; `resolveReasoningConfig` runs after the importer in the current factory order — if you want it before the import (cheaper failure, consistent with the `responseFormat` check at the top of `createChatModel`), move the `Object.assign` line's resolution into a `const reasoning = resolveReasoningConfig(...)` right after the `responseFormat` guard and assign `reasoning.constructorOptions` where the old `if` was; then the test can also `expect(importer).not.toHaveBeenCalled()`. Do that.
 
-- [ ] **Step 6: Run the factory tests, typecheck**
+- [x] **Step 6: Run the factory tests, typecheck**
 
 Run: `pnpm --filter @b4run/langchain exec vitest run test/chat-model-factory.test.ts test/reasoning-config.test.ts && pnpm --filter @b4run/langchain typecheck`
 Expected: PASS; 0 type errors. (`agent-adapter.ts` line ~174 passes `descriptor.reasoning` straight through — it still typechecks because the type changed in the SDK, not the plumbing.)
 
-- [ ] **Step 7: Format and commit**
+- [x] **Step 7: Format and commit**
 
 ```bash
 (cd packages/langchain && pnpm exec biome check --write --config-path ../config-biome/biome.json src/reasoning-config.ts src/chat-model-factory.ts src/index.ts test/reasoning-config.test.ts test/chat-model-factory.test.ts)
@@ -499,7 +499,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Files:**
 - Create: `packages/langchain/test/chat-model-factory-reasoning.test.ts`
 
-- [ ] **Step 1: Write the test** (adapted from #897, which proved the old constructor field was dropped)
+- [x] **Step 1: Write the test** (adapted from #897, which proved the old constructor field was dropped)
 
 ```ts
 import { afterEach, describe, expect, test, vi } from "vitest"
@@ -573,12 +573,12 @@ describe("createChatModel reasoning, through the installed providers", () => {
 })
 ```
 
-- [ ] **Step 2: Run it**
+- [x] **Step 2: Run it**
 
 Run: `pnpm --filter @b4run/langchain exec vitest run test/chat-model-factory-reasoning.test.ts`
 Expected: PASS. If `ChatAnthropic.invocationParams` nests `thinking` differently (read `node_modules/@langchain/anthropic/dist/chat_models.js` `invocationParams`), adjust the assertion path — the point is that the budget reaches the request shape, not the exact nesting.
 
-- [ ] **Step 3: Format and commit**
+- [x] **Step 3: Format and commit**
 
 ```bash
 (cd packages/langchain && pnpm exec biome check --write --config-path ../config-biome/biome.json test/chat-model-factory-reasoning.test.ts)
@@ -596,7 +596,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `packages/langchain/src/agent-adapter.ts` (`chunkText` ~line 700; `on_chat_model_stream` ~line 755)
 - Modify: `packages/langchain/test/model-message-framing.test.ts` (~line 88)
 
-- [ ] **Step 1: Flip the framing pin and add the new cases**
+- [x] **Step 1: Flip the framing pin and add the new cases**
 
 In `packages/langchain/test/model-message-framing.test.ts`, read the test at ~line 88 (`"non-text blocks such as thinking and tool-use input carry no token"`): it streams a chunk whose content is `[{ type: "thinking", thinking: "let me see", index: 0 }]` and asserts no `token`. Change its name to `"thinking and tool-use input carry no token; thinking becomes a reasoning chunk"` and extend its assertions so that the collected chunks contain
 
@@ -676,12 +676,12 @@ and still no `token` for that chunk. Then add, in the same describe, using the s
 
 (Use whatever `collect` helper the file defines; if it's named differently, follow the file. If the file's existing fixtures end without `on_chain_end`, match that.)
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `pnpm --filter @b4run/langchain exec vitest run test/model-message-framing.test.ts`
 Expected: FAIL — no `reasoning` chunks produced.
 
-- [ ] **Step 3: Implement `chunkReasoning` and emit**
+- [x] **Step 3: Implement `chunkReasoning` and emit**
 
 In `packages/langchain/src/agent-adapter.ts`, after `chunkText`, add:
 
@@ -734,12 +734,12 @@ to
 
 Update the `textModelRunIds` doc comment in `RootToolProjectionState` (~line 300) from `/** Model invocations with open text output. */` to `/** Model invocations with open text or reasoning output, closed by \`message_end\`. */`.
 
-- [ ] **Step 4: Run the adapter suites**
+- [x] **Step 4: Run the adapter suites**
 
 Run: `pnpm --filter @b4run/langchain exec vitest run test/model-message-framing.test.ts test/agent-adapter.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Format and commit**
+- [x] **Step 5: Format and commit**
 
 ```bash
 (cd packages/langchain && pnpm exec biome check --write --config-path ../config-biome/biome.json src/agent-adapter.ts test/model-message-framing.test.ts)
@@ -759,7 +759,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `packages/ag-ui/src/outbound.ts`
 - Modify: `packages/ag-ui/test/outbound.test.ts` (~line 1427, the pin)
 
-- [ ] **Step 1: Ids**
+- [x] **Step 1: Ids**
 
 In `packages/ag-ui/src/ids.ts`, widen the kind union and prefixes:
 
@@ -779,7 +779,7 @@ const PREFIX: Record<Parameters<IdFactory>[0], string> = {
 
 and in `createCounterIdFactory` the counters object gains `reasoning: 0, reasoningSpan: 0`. In `packages/ag-ui/test/ids.test.ts` add to the first test `expect(id("reasoning")).toBe("rsn-1")` and `expect(id("reasoningSpan")).toBe("rspan-1")`, and to the second `expect(id("reasoning").startsWith("rsn-")).toBe(true)`.
 
-- [ ] **Step 2: Chunk type**
+- [x] **Step 2: Chunk type**
 
 In `packages/ag-ui/src/types.ts`, add after the `token` member:
 
@@ -792,7 +792,7 @@ In `packages/ag-ui/src/types.ts`, add after the `token` member:
     }
 ```
 
-- [ ] **Step 3: Replace the pin with the reasoning suite**
+- [x] **Step 3: Replace the pin with the reasoning suite**
 
 In `packages/ag-ui/test/outbound.test.ts`, delete the test `"no chunk becomes a REASONING_* event (capabilities advertise reasoning.supported: false)"` and append:
 
@@ -902,12 +902,12 @@ describe("reasoning", () => {
 })
 ```
 
-- [ ] **Step 4: Run to verify failure**
+- [x] **Step 4: Run to verify failure**
 
 Run: `pnpm --filter @b4run/ag-ui exec vitest run test/outbound.test.ts -t "reasoning" test/ids.test.ts`
 Expected: ids tests fail on unknown kinds; reasoning tests fail (no REASONING events).
 
-- [ ] **Step 5: Implement the framing**
+- [x] **Step 5: Implement the framing**
 
 In `packages/ag-ui/src/outbound.ts`:
 
@@ -1020,12 +1020,12 @@ Chunk case — add before `case "message_end":`:
 
 Note on the identified `token` case: it calls `yield* flushText()` which now also flushes *anonymous* reasoning — correct (an identified token means the producer identifies invocations, so anonymous reasoning belongs to nothing current). It must NOT close identified reasoning for the same source: text and reasoning of one invocation interleave until `message_end`. Verify by reading the first test's expected order.
 
-- [ ] **Step 6: Run the ag-ui suite and typecheck**
+- [x] **Step 6: Run the ag-ui suite and typecheck**
 
 Run: `pnpm --filter @b4run/ag-ui exec vitest run && pnpm --filter @b4run/ag-ui typecheck`
 Expected: PASS. If `openReasoningFrame`'s `Generator<AguiOutboundEvent, OpenReasoning>` return typing trips `yield*` inside a `Generator<AguiOutboundEvent>` function, annotate the callers as `Generator<AguiOutboundEvent, void>` — `yield*` of a generator with a return value is legal and gives the value.
 
-- [ ] **Step 7: Format and commit**
+- [x] **Step 7: Format and commit**
 
 ```bash
 (cd packages/ag-ui && pnpm exec biome check --write --config-path ../config-biome/biome.json src/ids.ts src/types.ts src/outbound.ts test/ids.test.ts test/outbound.test.ts)
@@ -1042,7 +1042,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Files:**
 - Modify: `packages/ag-ui/test/conformance.test.ts`
 
-- [ ] **Step 1: Reasoning in the canned turn**
+- [x] **Step 1: Reasoning in the canned turn**
 
 In `CANNED`, insert before `{ type: "token", data: "Researching" }`:
 
@@ -1076,7 +1076,7 @@ Also check what the client's message list holds: after `runThroughClient`, `agen
 
 (`runThroughClient` returns `{ agent, events, result }`; destructure `agent` too.)
 
-- [ ] **Step 2: Reasoning cut by an interrupt, then resumed**
+- [x] **Step 2: Reasoning cut by an interrupt, then resumed**
 
 Add a new test:
 
@@ -1124,12 +1124,12 @@ it("reasoning open at an interrupt is closed before RUN_FINISHED, and the resume
 
 Match the `resume` entry shape to what the existing approval-interrupt test in this file sends (read it; copy its `resume` literal and metadata).
 
-- [ ] **Step 3: Run the conformance suite**
+- [x] **Step 3: Run the conformance suite**
 
 Run: `pnpm --filter @b4run/ag-ui exec vitest run test/conformance.test.ts`
 Expected: PASS with zero warnings. A "stripped or translated" failure names the key the client removed — the likely culprit is a `role` on a non-`REASONING_MESSAGE_START` event or a missing `role: "reasoning"`.
 
-- [ ] **Step 4: Format and commit**
+- [x] **Step 4: Format and commit**
 
 ```bash
 (cd packages/ag-ui && pnpm exec biome check --write --config-path ../config-biome/biome.json test/conformance.test.ts)
@@ -1148,7 +1148,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `packages/cli/src/lib/dev/agui-capabilities.ts`
 - Modify: `packages/cli/test/agui-capabilities.test.ts`
 
-- [ ] **Step 1: Extend the capabilities test**
+- [x] **Step 1: Extend the capabilities test**
 
 In `packages/cli/test/agui-capabilities.test.ts`:
 
@@ -1189,12 +1189,12 @@ Rename the constant `REASONING` to `NO_REASONING` (keep `{ supported: false }`) 
   })
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `pnpm --filter @b4run/cli exec vitest run test/agui-capabilities.test.ts -t "advertises reasoning"`
 Expected: FAIL — `/thinking#agent` reports `{ supported: false }`.
 
-- [ ] **Step 3: Add the preflight**
+- [x] **Step 3: Add the preflight**
 
 In `packages/cli/src/lib/runtime/execute-route-core.ts`, add `resolveReasoningConfig` to the `@b4run/langchain` import list, and after `checkRouteResponseFormatSupport`:
 
@@ -1241,7 +1241,7 @@ export function nonAgentReasoningMessage(routeId: string, kind: string): string 
 
 Read `checkRouteResponseFormatSupport` (~line 904-915) to confirm `prepared.module` is the normalized module shape it passes to `responseFormatSupport` and mirror it exactly (the name may be `prepared.normalized`).
 
-- [ ] **Step 4: Use it in the capabilities handler**
+- [x] **Step 4: Use it in the capabilities handler**
 
 In `packages/cli/src/lib/dev/agui-capabilities.ts`:
 
@@ -1268,12 +1268,12 @@ with `let streamsReasoning: boolean` declared beside `isDescriptor`. In the retu
 
 - Rewrite the module doc-comment bullet on `reasoning.supported` to describe the new derivation and name the pins: `packages/langchain/test/reasoning-config.test.ts` (what streams), `packages/langchain/test/model-message-framing.test.ts` (blocks → `reasoning` chunks), `packages/ag-ui/test/outbound.test.ts` `describe("reasoning")` (chunks → `REASONING_*`).
 
-- [ ] **Step 5: Run the cli capabilities tests and typecheck**
+- [x] **Step 5: Run the cli capabilities tests and typecheck**
 
 Run: `pnpm --filter @b4run/cli exec vitest run test/agui-capabilities.test.ts && pnpm --filter @b4run/cli typecheck`
 Expected: PASS; 0 errors. (`agui-capabilities.ts` must stay free of `node:` imports — `execute-route-core` already is the source of its other two preflights, so this adds nothing new.)
 
-- [ ] **Step 6: Format and commit**
+- [x] **Step 6: Format and commit**
 
 ```bash
 (cd packages/cli && pnpm exec biome check --write --config-path ../config-biome/biome.json src/lib/runtime/execute-route-core.ts src/lib/dev/agui-capabilities.ts test/agui-capabilities.test.ts)
@@ -1295,11 +1295,11 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `docs/superpowers/specs/2026-10-02-ag-ui-1-0-outbound-richness-design.md` §9
 - Create: `.changeset/agui-reasoning.md`
 
-- [ ] **Step 1: Examples**
+- [x] **Step 1: Examples**
 
 In both chat example routes replace `reasoning: { effort: "high" },` with `reasoning: { openai: { effort: "high", summary: "auto" } },`. In `examples/chat/README.md` line 44 replace `` `reasoning: { effort: "high" }` `` with `` `reasoning: { openai: { effort: "high", summary: "auto" } }` `` and append the sentence: `The summary is what lets the web client show the model's reasoning as it streams.` Run `pnpm --filter @b4-example/chat-server typecheck` and `pnpm --filter @b4-example/chat-server test` (aimock serves `/v1/responses`, so the scripted fixtures still answer).
 
-- [ ] **Step 2: The reasoning page**
+- [x] **Step 2: The reasoning page**
 
 Rewrite `apps/web/content/docs/reasoning-effort.mdx` (slug kept) with H1 `# Reasoning` and these sections, keeping the existing `RelatedCards` block at the end:
 
@@ -1392,7 +1392,7 @@ A child keeps its own setting, whatever the parent uses.
 
 Nav: in `apps/web/app/components/docs/nav.ts` change the entry label `"Reasoning Effort"` to `"Reasoning"`; in `scripts/check-docs.mjs` ~line 4041 change `{ label: "Reasoning Effort", href: "/docs/reasoning-effort" }` to `{ label: "Reasoning", href: "/docs/reasoning-effort" }`. In `apps/web/content/docs/agents.mdx` line 106 → `` - [Reasoning](/docs/reasoning-effort) tunes effort and streams reasoning on `agent()` routes, per provider. `` and line 123's card `title: "Reasoning"`.
 
-- [ ] **Step 3: SDK API reference**
+- [x] **Step 3: SDK API reference**
 
 In `apps/web/content/docs/api/sdk.mdx`: in the exports table change the `ReasoningConfig` row to `| \`ReasoningConfig\` | Configure model reasoning per provider. |` and add rows `| \`OpenAIReasoningConfig\` | Configure OpenAI reasoning effort and streamed summary. |` and `| \`AnthropicReasoningConfig\` | Configure Anthropic extended thinking. |` after it. Replace the `ReasoningConfig` contract block + field table with:
 
@@ -1437,7 +1437,7 @@ export interface AnthropicReasoningConfig {
 
 Add `"@b4run/sdk#.:OpenAIReasoningConfig"` and `"@b4run/sdk#.:AnthropicReasoningConfig"` next to `"@b4run/sdk#.:ReasoningConfig"` in all three lists: `apps/web/app/components/docs/api-reference.ts`, `apps/web/app/components/docs/api-reference.test.ts` (and bump its `toHaveLength(122)` to `124`), `scripts/check-docs.mjs`. If `check-docs` reports the heading-id list (the `"reasoningconfig"` entry near line 4846) needs `"openaireasoningconfig"` / `"anthropicreasoningconfig"`, add them in the same order the page has them.
 
-- [ ] **Step 4: AG-UI docs**
+- [x] **Step 4: AG-UI docs**
 
 `apps/web/content/docs/ag-ui.mdx` outbound table — add before the `usage` row:
 
@@ -1455,7 +1455,7 @@ When a route's [`reasoning`](/docs/reasoning-effort) asks the provider to show i
 
 `apps/web/content/docs/api/ag-ui.mdx` — in the `@b4run/ag-ui` exports table, update `IdFactory`'s row if it names the kinds; otherwise nothing (the `IdFactory` contract block, if present as an `api-contract`, must match the new union — grep `IdFactory` in the file and update the type literal).
 
-- [ ] **Step 5: Upgrading entry**
+- [x] **Step 5: Upgrading entry**
 
 In `apps/web/content/docs/upgrading.mdx`, insert as the first entry under `## Changes by version`:
 
@@ -1465,11 +1465,11 @@ In `apps/web/content/docs/upgrading.mdx`, insert as the first entry under `## Ch
 `agent({ reasoning: { effort } })` is now `agent({ reasoning: { openai: { effort } } })`, and Anthropic routes gain `reasoning: { anthropic: { budgetTokens } }`. The flat `effort` is an unknown key and fails the route when its model is built, as does a block for a provider the route does not resolve to — before, a misplaced setting was silently ignored. Setting `openai.summary` moves the route to the OpenAI Responses API and streams the summary as AG-UI `REASONING_*` events; `GET /agui/{routeId}` advertises `reasoning.supported` accordingly. See [Reasoning](/docs/reasoning-effort).
 ```
 
-- [ ] **Step 6: Spec §9**
+- [x] **Step 6: Spec §9**
 
 In the spec, replace the four-PR list's items 2–4 with: `2. Reasoning — … plus the reasoning capability section (#883 merged before this PR, so the claim ships with the behaviour, as the pin in outbound.test.ts requires). 3. Subagents — … plus the multiAgent capability section.` and delete item 4. Update §4.6's opening to say the claim ships in PR 2.
 
-- [ ] **Step 7: Changeset**
+- [x] **Step 7: Changeset**
 
 Create `.changeset/agui-reasoning.md`:
 
@@ -1484,7 +1484,7 @@ Create `.changeset/agui-reasoning.md`:
 **Breaking:** `agent()`'s `reasoning` is keyed by provider. `reasoning: { effort }` becomes `reasoning: { openai: { effort } }`; a flat `effort`, an unknown key, or a block for a provider the route does not resolve to now fails the route when its model is built (before, a misplaced setting was silently ignored — and the OpenAI effort itself never reached the request, see #897). New controls make reasoning visible: `openai.summary: "auto" | "concise" | "detailed"` streams a reasoning summary (and moves the route to the Responses API), `anthropic.budgetTokens` enables extended thinking. The langchain adapter carries thinking and reasoning blocks as `reasoning` stream chunks; `@b4run/ag-ui` frames them as AG-UI 1.0 `REASONING_START` / `REASONING_MESSAGE_*` / `REASONING_END`, one span and one `role: "reasoning"` message per model invocation, every one closed before the run ends. `GET /agui/:routeId` advertises `reasoning: { supported: true, streaming: true, encrypted: false }` exactly when the route's config makes reasoning stream. `IdFactory` gains the `reasoning` and `reasoningSpan` kinds.
 ```
 
-- [ ] **Step 8: Commit content, regenerate lastmod, run the docs gates**
+- [x] **Step 8: Commit content, regenerate lastmod, run the docs gates**
 
 ```bash
 (cd apps/web && pnpm exec biome check --write --config-path ../../packages/config-biome/biome.json app/components/docs/nav.ts app/components/docs/api-reference.ts app/components/docs/api-reference.test.ts)
