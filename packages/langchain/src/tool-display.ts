@@ -17,6 +17,7 @@ export interface StepPayload {
   readonly sources?: readonly ToolDisplaySource[]
 }
 
+/** The converter sets `tool_call_id` and `status`; this module only produces the payload. */
 export interface StepEventData extends StepPayload {
   readonly tool_call_id: string
   readonly status: "running" | "completed"
@@ -24,17 +25,19 @@ export interface StepEventData extends StepPayload {
 
 const warned = new Set<string>()
 
-function warnOnce(toolName: string, field: string): void {
+function warnOnce(toolName: string, field: string, detail: string): void {
   const key = `${toolName}\u0000${field}`
   if (warned.has(key)) return
   warned.add(key)
-  console.warn(`[b4] display.${field} for tool "${toolName}" threw; using the default label`)
+  console.warn(`[b4] display.${field} for tool "${toolName}" ${detail}`)
 }
 
 function truncate(label: string): string {
-  return label.length > TOOL_DISPLAY_LABEL_MAX
-    ? `${label.slice(0, TOOL_DISPLAY_LABEL_MAX - 1)}…`
-    : label
+  if (label.length <= TOOL_DISPLAY_LABEL_MAX) return label
+  let head = label.slice(0, TOOL_DISPLAY_LABEL_MAX - 1)
+  const last = head.charCodeAt(head.length - 1)
+  if (last >= 0xd800 && last <= 0xdbff) head = head.slice(0, -1)
+  return `${head}…`
 }
 
 function readLabel(
@@ -45,9 +48,15 @@ function readLabel(
   try {
     const value = produce()
     if (value === undefined || value === null) return undefined
-    return truncate(String(value))
+    if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
+      warnOnce(toolName, field, "returned a non-text value; using the default label")
+      return undefined
+    }
+    const text = String(value).trim()
+    if (text === "") return undefined
+    return truncate(text)
   } catch {
-    warnOnce(toolName, field)
+    warnOnce(toolName, field, "threw; using the default label")
     return undefined
   }
 }
@@ -68,7 +77,7 @@ function readSources(
     }
     return sources
   } catch {
-    warnOnce(toolName, "sources")
+    warnOnce(toolName, "sources", "threw; showing no sources")
     return undefined
   }
 }
@@ -79,9 +88,8 @@ export function describeRunning(
   input: unknown,
   toolName: string,
 ): StepPayload {
-  const label = display.running
-    ? readLabel(toolName, "running", () => display.running?.(input))
-    : undefined
+  const fn = display.running
+  const label = fn ? readLabel(toolName, "running", () => fn(input)) : undefined
   return {
     ...(display.icon !== undefined ? { icon: display.icon } : {}),
     ...(label !== undefined ? { label } : {}),
@@ -95,12 +103,10 @@ export function describeDone(
   output: unknown,
   toolName: string,
 ): StepPayload {
-  const label = display.done
-    ? readLabel(toolName, "done", () => display.done?.(input, output))
-    : undefined
-  const sources = display.sources
-    ? readSources(toolName, () => display.sources?.(output))
-    : undefined
+  const doneFn = display.done
+  const sourcesFn = display.sources
+  const label = doneFn ? readLabel(toolName, "done", () => doneFn(input, output)) : undefined
+  const sources = sourcesFn ? readSources(toolName, () => sourcesFn(output)) : undefined
   return {
     ...(display.icon !== undefined ? { icon: display.icon } : {}),
     ...(label !== undefined ? { label } : {}),
