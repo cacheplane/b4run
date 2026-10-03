@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { createSkillsMarker } from "../../src/capabilities/built-in/skills.js"
+import { createSkillsMarker, READ_SKILL_DISPLAY } from "../../src/capabilities/built-in/skills.js"
 import { nodeMarkerFs } from "../../src/node-marker-fs.js"
 
 const ctx = {
@@ -137,6 +137,7 @@ describe("createSkillsMarker", () => {
     const marker = createSkillsMarker()
     const contribution = await marker.load(routeDir, ctx)
     const readSkill = contribution.tools?.[0]
+    expect(readSkill?.display).toBe(READ_SKILL_DISPLAY)
     const result = await readSkill?.run(
       { name: "foo" },
       {

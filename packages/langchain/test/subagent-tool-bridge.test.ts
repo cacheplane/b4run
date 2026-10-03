@@ -1,4 +1,4 @@
-import { CLIENT_TOOL_RECORDER_KEY } from "@b4run/sdk"
+import { CLIENT_TOOL_RECORDER_KEY, type ToolDisplay } from "@b4run/sdk"
 import { AIMessage } from "@langchain/core/messages"
 import type { RunnableConfig } from "@langchain/core/runnables"
 import {
@@ -648,5 +648,78 @@ describe("convertSubagentTaskToLangChain — the tool-call record", () => {
     expect(await tool.func(INPUT, undefined, config)).toBe("Done.")
     expect(seenCallId).toMatch(/^task-/)
     expect(log).toEqual([])
+  })
+
+  describe("b4.step", () => {
+    const display = {
+      icon: "agent" as const,
+      running: (i: { subagent: string; input: string }) => `Asking ${i.subagent} to ${i.input}`,
+      done: (i: { subagent: string }) => `${i.subagent} finished`,
+    }
+
+    async function runTask(placeholder: typeof taskPlaceholder & { display?: ToolDisplay }) {
+      const order: string[] = []
+      const child = {
+        invoke: vi.fn(async () => {
+          order.push("child")
+          return childResult("Done.")
+        }),
+      }
+      const tool = convertSubagentTaskToLangChain(placeholder, async () => allowedChild(child))
+      const root = new StateGraph(Annotation.Root({ messages: Annotation<unknown[]>() }))
+        .addNode("tools", new ToolNode([tool]))
+        .addEdge(START, "tools")
+        .addEdge("tools", END)
+        .compile()
+      const steps: unknown[] = []
+      for await (const event of root.streamEvents(
+        {
+          messages: [
+            new AIMessage({
+              content: "",
+              tool_calls: [
+                {
+                  name: "task",
+                  args: { subagent: "researcher", input: "summarize ReAct" },
+                  id: "task-step",
+                  type: "tool_call",
+                },
+              ],
+            }),
+          ],
+        },
+        { version: "v2" },
+      )) {
+        if (event.event === "on_custom_event" && event.name === "b4.step") {
+          steps.push(event.data)
+          order.push(`step:${(event.data as { status: string }).status}`)
+        }
+      }
+      return { steps, order }
+    }
+
+    it("streams running before the child and completed after it", async () => {
+      const { steps, order } = await runTask({ ...taskPlaceholder, display })
+      expect(order).toEqual(["step:running", "child", "step:completed"])
+      expect(steps).toEqual([
+        {
+          tool_call_id: "task-step",
+          status: "running",
+          icon: "agent",
+          label: "Asking researcher to summarize ReAct",
+        },
+        {
+          tool_call_id: "task-step",
+          status: "completed",
+          icon: "agent",
+          label: "researcher finished",
+        },
+      ])
+    })
+
+    it("dispatches nothing without a display", async () => {
+      const { steps } = await runTask(taskPlaceholder)
+      expect(steps).toEqual([])
+    })
   })
 })

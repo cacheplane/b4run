@@ -2,7 +2,10 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { createPlanningMarker } from "../../src/capabilities/built-in/planning.js"
+import {
+  createPlanningMarker,
+  WRITE_TODOS_DISPLAY,
+} from "../../src/capabilities/built-in/planning.js"
 import { nodeMarkerFs } from "../../src/node-marker-fs.js"
 
 const ctx = {
@@ -39,6 +42,7 @@ describe("createPlanningMarker", () => {
     const marker = createPlanningMarker()
     const contribution = await marker.load(routeDir, ctx)
     expect(contribution.tools?.[0]?.name).toBe("writeTodos")
+    expect(contribution.tools?.[0]?.display).toBe(WRITE_TODOS_DISPLAY)
   })
 
   it("contributes a todos state field when loaded", async () => {

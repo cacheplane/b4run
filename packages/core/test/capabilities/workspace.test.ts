@@ -5,7 +5,10 @@ import { createPermissionsStore } from "@b4run/permissions/node"
 import { localExec, localFilesystem } from "@b4run/workspace/node"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { createWorkspaceMarker } from "../../src/capabilities/built-in/workspace.js"
+import {
+  createWorkspaceMarker,
+  WORKSPACE_DISPLAY,
+} from "../../src/capabilities/built-in/workspace.js"
 import type { B4ToolDefinition, CapabilityMarkerContext } from "../../src/capabilities/types.js"
 import { nodeMarkerFs } from "../../src/node-marker-fs.js"
 
@@ -118,6 +121,13 @@ describe("createWorkspaceMarker — load", () => {
     const firstCall = fakeBackend.readFile.mock.calls[0]
     if (!firstCall) throw new Error("readFile was not called")
     expect(firstCall[0]).toBe(join(appRoot, "workspace", "hello.txt"))
+  })
+
+  it("every workspace tool carries its display", async () => {
+    const contribution = await createWorkspaceMarker().load(routeDir, ctx(appRoot))
+    for (const name of ["readFile", "writeFile", "editFile", "listDir", "runBash"] as const) {
+      expect(findTool(contribution.tools, name).display).toBe(WORKSPACE_DISPLAY[name])
+    }
   })
 
   it("rejects path-jail escapes when permissions store is present (non-interactive mode)", async () => {

@@ -1,7 +1,14 @@
+import type { ToolDisplay } from "@b4run/sdk"
 import { pureJoin } from "@b4run/sdk/pure"
 import { z } from "zod"
 import type { CapabilityMarker, MarkerFs, PromptFragment, StreamTransformer } from "../types.js"
 import { type PlanTodo, parsePlanMarkdown } from "./plan-md-parser.js"
+
+export const WRITE_TODOS_DISPLAY = {
+  icon: "plan",
+  running: () => "Updating the plan",
+  done: () => "Updated the plan",
+} satisfies ToolDisplay
 
 const PLAN_MD = "plan.md"
 export const MAX_PLAN_BYTES = 64 * 1024
@@ -40,6 +47,7 @@ export function createPlanningMarker(): CapabilityMarker {
         description:
           "Replace the agent's plan with the given list of todos. Pass the full list every time; this tool is not incremental.",
         schema: WRITE_TODOS_INPUT,
+        display: WRITE_TODOS_DISPLAY,
         run: (input: unknown) => {
           const validated = validateWriteTodosInput(input)
           return {

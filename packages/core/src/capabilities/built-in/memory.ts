@@ -1,3 +1,4 @@
+import type { ToolDisplay } from "@b4run/sdk"
 import { sha1Hex } from "@b4run/sdk/pure"
 import { z } from "zod"
 import { readRuntimeEnv } from "../../runtime-env.js"
@@ -10,6 +11,20 @@ import type {
   PromptFragment,
 } from "../types.js"
 import { resolveTimeExpr } from "./time-expr.js"
+
+export const MEMORY_DISPLAY = {
+  recall: {
+    icon: "memory",
+    running: (input: { query?: string }) =>
+      input.query ? `Recalling “${input.query}”` : "Checking memory",
+    done: () => "Checked memory",
+  },
+  remember: {
+    icon: "memory",
+    running: () => "Remembering this",
+    done: () => "Remembered this",
+  },
+} satisfies Record<string, ToolDisplay>
 
 const DEFAULT_SEMANTIC_IDENTITY = ["subject", "predicate"] as const
 
@@ -109,6 +124,7 @@ export function createMemoryMarker(): CapabilityMarker {
         name: "recall",
         description: "Recall typed long-term memories by keyword/kind/tags.",
         schema: recallSchema,
+        display: MEMORY_DISPLAY.recall,
         run: async (input: unknown) => {
           const q = (input ?? {}) as {
             query?: string
@@ -189,6 +205,7 @@ export function createMemoryMarker(): CapabilityMarker {
         name: "remember",
         description: "Store a typed long-term memory for later recall.",
         schema: rememberSchema,
+        display: MEMORY_DISPLAY.remember,
         run: async (input: unknown, ctx?: { readonly toolCallId?: string }) => {
           const inp = (input ?? {}) as {
             data?: unknown

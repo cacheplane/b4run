@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { createSubagentsMarker } from "../../src/capabilities/built-in/subagents.js"
+import { createSubagentsMarker, TASK_DISPLAY } from "../../src/capabilities/built-in/subagents.js"
 import type { CapabilityMarkerContext } from "../../src/capabilities/types.js"
 import type { ResolvedSubagent } from "../../src/subagents/types.js"
 
@@ -58,6 +58,7 @@ describe("createSubagentsMarker", () => {
     const marker = createSubagentsMarker()
     const contribution = await marker.load("/unused", context(registry))
     const task = contribution.tools?.[0]
+    expect(task?.display).toBe(TASK_DISPLAY)
     const schema = task?.schema as {
       readonly shape: { readonly subagent: { readonly options: readonly string[] } }
       safeParse(value: unknown): { readonly success: boolean }
