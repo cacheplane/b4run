@@ -42,7 +42,7 @@ describe("ToolDisplay", () => {
       'display.icon must be one of search, read, write, run, web, memory, plan, agent, think, tool (got "nope")',
     )
     expect(describeToolDisplayProblem({ running: "Searching" })).toBe(
-      "display.running must be a function (got "Searching")",
+      'display.running must be a function (got "Searching")',
     )
     expect(describeToolDisplayProblem({ sources: 1 })).toBe(
       "display.sources must be a function (got number)",
