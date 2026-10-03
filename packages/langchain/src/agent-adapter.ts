@@ -1,13 +1,37 @@
 import type { PromptFragment, StreamTransformer } from "@b4run/core"
 import { readRuntimeEnv } from "@b4run/core"
-import type { ApprovalGrantMinter, B4Agent, ClientToolRecorder, RetryConfig } from "@b4run/sdk"
-import { APPROVAL_GRANT_MINTER_KEY, CLIENT_TOOL_RECORDER_KEY, isB4Agent } from "@b4run/sdk"
-import { type BaseMessageLike, HumanMessage, SystemMessage } from "@langchain/core/messages"
+import type {
+  ApprovalGrantMinter,
+  B4Agent,
+  B4MessageContent,
+  BuiltInModelProviderId,
+  ClientToolRecorder,
+  RetryConfig,
+} from "@b4run/sdk"
+import {
+  APPROVAL_GRANT_MINTER_KEY,
+  CLIENT_TOOL_RECORDER_KEY,
+  isB4Agent,
+  isContentPartArray,
+} from "@b4run/sdk"
+import {
+  type BaseMessageLike,
+  type ContentBlock,
+  HumanMessage,
+  SystemMessage,
+} from "@langchain/core/messages"
 import { Command } from "@langchain/langgraph"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import { type CanonicalJsonStream, createCanonicalJsonStream } from "./canonical-json-stream.js"
-import { createChatModel, type JsonSchemaResponseFormat } from "./chat-model-factory.js"
+import {
+  createChatModel,
+  DEFAULT_MODALITY_SUPPORT,
+  type JsonSchemaResponseFormat,
+  type ModalitySupport,
+  resolveModalitySupport,
+} from "./chat-model-factory.js"
 import { trackCheckpointWrites } from "./checkpoint-writes.js"
+import { type DroppedPart, toLangChainContent } from "./content-parts.js"
 import { readLogicalToolCallId } from "./logical-tool-call-id.js"
 import { providerMaxRetries, resolveModelRetryPolicy } from "./model-call-retry.js"
 import { resolveProvider } from "./model-provider-resolver.js"
@@ -92,6 +116,26 @@ export function __resetMaterializedAgentsForTests(): void {
   materializedAgents = new WeakMap()
 }
 
+/** What the materialized agent's root model takes, read once at model construction. */
+interface MaterializedModality {
+  readonly support: ModalitySupport
+  readonly provider: BuiltInModelProviderId | undefined
+  readonly model: string | undefined
+}
+
+/**
+ * Keyed by the materialized agent, so a graph served from `materializedAgents`
+ * keeps the modality recorded when it was first built.
+ */
+const materializedModality = new WeakMap<AgentLike, MaterializedModality>()
+
+/** A raw runnable owns its own model: B4 cannot read it, so assume the conservative default. */
+const RAW_RUNNABLE_MODALITY: MaterializedModality = {
+  support: DEFAULT_MODALITY_SUPPORT,
+  provider: undefined,
+  model: undefined,
+}
+
 export async function composePromptMessages(
   systemPrompt: string,
   promptFragments: readonly PromptFragment[],
@@ -145,6 +189,24 @@ async function materializeAgent(
     import("./agent-middleware.js"),
   ])
 
+  const provider = resolveProvider({
+    model: descriptor.model,
+    ...(descriptor.provider !== undefined ? { provider: descriptor.provider } : {}),
+  })
+  const retry = resolveModelRetryPolicy(descriptor.retry)
+  const llm = await createChatModel({
+    model: descriptor.model,
+    provider,
+    maxRetries: providerMaxRetries(retry),
+    ...(descriptor.reasoning ? { reasoning: descriptor.reasoning } : {}),
+    ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
+  })
+  const modality: MaterializedModality = {
+    support: resolveModalitySupport(llm, provider),
+    provider,
+    model: descriptor.model,
+  }
+
   const langchainTools = tools.map((tool) => {
     if (tool.name === "task" && opts.subagentResolver) {
       return convertSubagentTaskToLangChain(tool, opts.subagentResolver)
@@ -160,19 +222,6 @@ async function materializeAgent(
     // not; B4's loop-entry middleware routes these instead (`endsOnReturnDirect`).
     converted.returnDirect = false
     return converted
-  })
-
-  const provider = resolveProvider({
-    model: descriptor.model,
-    ...(descriptor.provider !== undefined ? { provider: descriptor.provider } : {}),
-  })
-  const retry = resolveModelRetryPolicy(descriptor.retry)
-  const llm = await createChatModel({
-    model: descriptor.model,
-    provider,
-    maxRetries: providerMaxRetries(retry),
-    ...(descriptor.reasoning ? { reasoning: descriptor.reasoning } : {}),
-    ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
   })
 
   const runningSummaryField: ResolvedStateField = {
@@ -218,6 +267,7 @@ async function materializeAgent(
 
   // biome-ignore lint/suspicious/noExplicitAny: dynamically-built options don't satisfy createAgent's inferred generics
   const compiled = createAgent(agentOptions as any)
+  materializedModality.set(compiled as unknown as AgentLike, modality)
 
   if (cacheKey) {
     let byCheckpointer = materializedAgents.get(descriptor)
@@ -1255,7 +1305,6 @@ export async function* streamAgent(options: AgentOptions): AsyncGenerator<AgentS
   // verbatim without the usual input preparation and message extraction.
   const isCommandInput = options.input instanceof Command
   const { agentInput, config } = prepareAgentCall(options)
-  const messages = isCommandInput ? [] : extractMessages(agentInput)
 
   const resolver = options.subagentResolver
   const hasTaskTool = options.tools.some((t) => t.name === "task")
@@ -1283,9 +1332,13 @@ export async function* streamAgent(options: AgentOptions): AsyncGenerator<AgentS
         ...(options.responseFormat ? { responseFormat: options.responseFormat } : {}),
       },
     )
+    const modality = materializedModality.get(materializedAgent) ?? RAW_RUNNABLE_MODALITY
+    const extracted = isCommandInput ? NO_EXTRACTED_MESSAGES : extractMessages(agentInput, modality)
+    // Announced before the model turn: the run continues without the dropped parts.
+    if (extracted.dropped.length > 0) yield droppedPartsChunk(modality, extracted.dropped)
     // `retry` is applied per model call inside the graph (the model's
     // `maxRetries` and B4's capacity-429 middleware), never to the whole run.
-    const runnableInput = isCommandInput ? options.input : { messages }
+    const runnableInput = isCommandInput ? options.input : { messages: extracted.messages }
     const checkpointWrites = trackCheckpointWrites(options.checkpointer)
     yield* streamFromRunnable(materializedAgent, runnableInput, config, undefined, () =>
       checkpointWrites.settled(),
@@ -1316,7 +1369,13 @@ export async function* streamAgent(options: AgentOptions): AsyncGenerator<AgentS
     config.tools = langchainTools
   }
 
-  const runnableInput = isCommandInput ? options.input : { messages }
+  const extracted = isCommandInput
+    ? NO_EXTRACTED_MESSAGES
+    : extractMessages(agentInput, RAW_RUNNABLE_MODALITY)
+  if (extracted.dropped.length > 0) {
+    yield droppedPartsChunk(RAW_RUNNABLE_MODALITY, extracted.dropped)
+  }
+  const runnableInput = isCommandInput ? options.input : { messages: extracted.messages }
   yield* streamFromRunnable(options.entry, runnableInput, config, options.retry)
 }
 
@@ -1485,7 +1544,7 @@ async function* streamFromRunnable(
 
 interface InputMessage {
   readonly role: string
-  readonly content: string
+  readonly content: B4MessageContent
 }
 
 function isInputMessageArray(value: unknown): value is readonly InputMessage[] {
@@ -1497,21 +1556,71 @@ function isInputMessageArray(value: unknown): value is readonly InputMessage[] {
         typeof item === "object" &&
         item !== null &&
         typeof (item as { role?: unknown }).role === "string" &&
-        typeof (item as { content?: unknown }).content === "string",
+        (typeof (item as { content?: unknown }).content === "string" ||
+          isContentPartArray((item as { content?: unknown }).content)),
     )
   )
 }
 
-function extractMessages(input: Record<string, unknown>): HumanMessage[] {
+interface ExtractedMessages {
+  readonly messages: readonly HumanMessage[]
+  readonly dropped: readonly DroppedPart[]
+}
+
+const NO_EXTRACTED_MESSAGES: ExtractedMessages = { messages: [], dropped: [] }
+
+/**
+ * The user turn(s) for the model. Content parts become LangChain standard
+ * blocks under what the root model takes; what it cannot take is dropped and
+ * returned for the caller to announce — never a failed run (AG-UI 1.0).
+ *
+ * Blocks go in as `contentBlocks:`, never `content:` — `@langchain/core`
+ * recognises only legacy `source_type` blocks under `content:`, and only the
+ * `contentBlocks:` form marks the message v1 so the provider converters
+ * translate the standard blocks (see `ConvertedContent`).
+ */
+function extractMessages(
+  input: Record<string, unknown>,
+  modality: MaterializedModality,
+): ExtractedMessages {
   // LangGraph protocol format: {messages: [{role, content}, ...]}
   if (isInputMessageArray(input.messages)) {
-    return input.messages
+    const dropped: DroppedPart[] = []
+    const messages = input.messages
       .filter((msg) => msg.role === "user")
-      .map((msg) => new HumanMessage(msg.content))
+      .map((msg) => {
+        const converted = toLangChainContent(
+          msg.content,
+          modality.support,
+          modality.provider,
+          "user",
+        )
+        dropped.push(...converted.dropped)
+        return typeof converted.content === "string"
+          ? new HumanMessage(converted.content)
+          : new HumanMessage({
+              contentBlocks: converted.content as unknown as ContentBlock.Standard[],
+            })
+      })
+    return { messages, dropped }
   }
 
   // Legacy flat-object format: {key: value, ...}
-  return [new HumanMessage(formatAgentMessage(input))]
+  return { messages: [new HumanMessage(formatAgentMessage(input))], dropped: [] }
+}
+
+function droppedPartsChunk(
+  modality: MaterializedModality,
+  dropped: readonly DroppedPart[],
+): AgentStreamChunk {
+  return {
+    type: "content_parts_dropped",
+    data: {
+      ...(modality.provider !== undefined ? { provider: modality.provider } : {}),
+      ...(modality.model !== undefined ? { model: modality.model } : {}),
+      parts: dropped,
+    },
+  }
 }
 
 function formatAgentMessage(input: Record<string, unknown>): string {
