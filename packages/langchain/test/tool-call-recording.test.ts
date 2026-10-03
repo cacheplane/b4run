@@ -128,6 +128,18 @@ describe("readCallOrigin", () => {
     })
   })
 
+  it("returns the bridge's fallback task id as is: a dangling link still groups siblings", () => {
+    const config = {
+      metadata: {
+        b4: { subagent_stack: [entry("task-0f3a", "/chat/subagents/researcher#agent")] },
+      },
+    }
+    expect(readCallOrigin(config)).toEqual({
+      routeId: "/chat/subagents/researcher#agent",
+      parentToolCallId: "task-0f3a",
+    })
+  })
+
   it("ignores a top entry without a route key", () => {
     const config = {
       metadata: { b4: { subagent_stack: [{ callId: "x", name: "n", routeId: "/r" }] } },

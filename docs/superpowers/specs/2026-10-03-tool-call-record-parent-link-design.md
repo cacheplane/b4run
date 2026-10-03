@@ -65,13 +65,17 @@ it alone knows (thread, run, timestamps).
 ### The recorder contract
 
 ```ts
+interface ToolCallOrigin {
+  /** The issuing route's key (`<routeId>#<mode>`). */
+  readonly routeId: string
+  /** The enclosing `task` call's provider id. */
+  readonly parentToolCallId: string
+}
 issue?(call: {
   readonly toolCallId: string
   readonly toolName: string
-  /** The route that issued the call, as a route key. */
-  readonly routeId: string
-  /** The nearest enclosing `task` call's provider id; `null` at the root. */
-  readonly parentToolCallId: string | null
+  /** Absent at the root; the recorder then uses the run's route key with no parent. */
+  readonly origin?: ToolCallOrigin
 }): Promise<void>
 ```
 
@@ -134,12 +138,14 @@ record still groups the siblings. Nothing special-cases the prefix.
 ## 6. Testing
 
 - **Stores** (memory, SQLite, Postgres on the gated lane): `parentToolCallId` round-trips; the
-  14-column INSERT; migration 3 over a version-2 database reads old rows as `null`; DDL pin tests
-  for the appended version in Postgres.
+  14-column INSERT; migration 3 over a version-2 SQLite database reads old rows as `null` (the
+  Postgres column is nullable with no default, so the DDL pin covers it); DDL pin tests for the
+  appended version in Postgres.
 - **LangChain:** `readCallOrigin` on an empty stack, a one-level stack, a nested stack (top entry
-  wins); the converter inside a child config records the child's route key and the `task` id;
-  the bridge records a nested `task` with the enclosing origin and the root `task` with none;
-  a child under a fallback-id `task` records the dangling link.
+  wins), and a top entry whose `callId` is the bridge's `task-<uuid>` fallback (returned as is,
+  the dangling link); the converter inside a child config records the child's route key and the
+  `task` id; the bridge records a nested `task` with the enclosing origin and the root `task`
+  with none.
 - **CLI:** an AG-UI run that dispatches a subagent leaves rows whose `routeId` is the child key
   and whose `parentToolCallId` is the `task` call's provider id, while the `task` row itself has
   the run's route key and `null`; client rows still carry the run's route key; the foreign-park
