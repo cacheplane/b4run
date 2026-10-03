@@ -1,10 +1,10 @@
 import type { Migration } from "../internal/migrate.js"
 
 /**
- * `client_tool_calls` (cacheplane/b4run#743). Two rules, as for
+ * `client_tool_calls` (cacheplane/b4run#743). Versions 1-3 are frozen. Two rules, as for
  * interrupt_grants: a shipped migration is frozen — change the shape by
  * APPENDING a version, never by editing one — and no column default is
- * load-bearing: every INSERT names every column (migration 2's
+ * load-bearing: every INSERT names all fourteen columns (migration 2's
  * `DEFAULT 'client'` exists only to backfill rows that predate `kind`).
  */
 export const CLIENT_TOOL_CALLS_MIGRATIONS: readonly Migration[] = [
@@ -37,5 +37,11 @@ export const CLIENT_TOOL_CALLS_MIGRATIONS: readonly Migration[] = [
       ALTER TABLE client_tool_calls ADD COLUMN kind TEXT NOT NULL DEFAULT 'client' CHECK (kind IN ('client', 'server'));
       ALTER TABLE client_tool_calls ADD COLUMN settled_at TEXT;
     `,
+  },
+  {
+    // The parent `task` link for a subagent's calls; null at the root and for
+    // every row that predates it. No default and no CHECK: nullable is the rule.
+    version: 3,
+    up: "ALTER TABLE client_tool_calls ADD COLUMN parent_tool_call_id TEXT;",
   },
 ]

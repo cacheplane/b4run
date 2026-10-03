@@ -37,7 +37,7 @@ function allowedChild(
   graph: ResolvedSubagentGraph["graph"],
   routeId = "/parent/subagents/researcher",
 ): Awaited<ReturnType<SubagentResolver>> {
-  return { ok: true, child: { routeId, graph } }
+  return { ok: true, child: { routeId, routeKey: `${routeId}#agent`, graph } }
 }
 
 describe("convertSubagentTaskToLangChain", () => {
@@ -54,7 +54,9 @@ describe("convertSubagentTaskToLangChain", () => {
     const signal = new AbortController().signal
     const callbacks: RunnableConfig["callbacks"] = []
     const tags = ["live-parent"]
-    const parentStack = [{ callId: "outer", name: "planner", routeId: "/planner" }]
+    const parentStack = [
+      { callId: "outer", name: "planner", routeId: "/planner", routeKey: "/planner#agent" },
+    ]
     const config = {
       callbacks,
       configurable: { checkpoint_ns: "parent:1", thread_id: "thread-1" },
@@ -99,6 +101,7 @@ describe("convertSubagentTaskToLangChain", () => {
             callId: "task-live-1",
             name: "researcher",
             routeId: "/parent/subagents/researcher",
+            routeKey: "/parent/subagents/researcher#agent",
           },
         ],
       },
@@ -257,7 +260,12 @@ describe("convertSubagentTaskToLangChain", () => {
     const child = { invoke: vi.fn(async () => childResult("found it")) }
     const tool = convertSubagentTaskToLangChain(taskPlaceholder, async () => ({
       ok: true,
-      child: { routeId: "/planner/researcher", description: "Finds sources", graph: child },
+      child: {
+        routeId: "/planner/researcher",
+        routeKey: "/planner/researcher#agent",
+        description: "Finds sources",
+        graph: child,
+      },
     }))
     const root = new StateGraph(Annotation.Root({ messages: Annotation<unknown[]>() }))
       .addNode("tools", new ToolNode([tool]))
@@ -287,7 +295,9 @@ describe("convertSubagentTaskToLangChain", () => {
         metadata: {
           b4: {
             subagent_depth: 1,
-            subagent_stack: [{ callId: "outer", name: "planner", routeId: "/planner" }],
+            subagent_stack: [
+              { callId: "outer", name: "planner", routeId: "/planner", routeKey: "/planner#agent" },
+            ],
           },
         },
       },
@@ -517,6 +527,49 @@ describe("convertSubagentTaskToLangChain — the tool-call record", () => {
       ...extra,
     }) as RunnableConfig
   const INPUT = { subagent: "researcher", input: "Go" }
+
+  it("records a root task with no origin, and a nested task with the enclosing subagent's origin", async () => {
+    const issued: unknown[] = []
+    const rec = {
+      has: vi.fn(async () => false),
+      record: vi.fn(async () => {}),
+      issue: async (c: unknown) => {
+        issued.push(c)
+      },
+      settle: async () => {},
+    }
+    const child = { invoke: vi.fn(async () => childResult("Done.")) }
+    const tool = convertSubagentTaskToLangChain(taskPlaceholder, async () => allowedChild(child))
+    await tool.func(INPUT, undefined, withRecorder(rec))
+    await tool.func(
+      INPUT,
+      undefined,
+      withRecorder(rec, {
+        toolCall: { id: "call_task_2" },
+        metadata: {
+          b4: {
+            subagent_depth: 1,
+            subagent_stack: [
+              {
+                callId: "call_task_1",
+                name: "planner",
+                routeId: "/parent/subagents/planner",
+                routeKey: "/parent/subagents/planner#agent",
+              },
+            ],
+          },
+        },
+      }),
+    )
+    expect(issued).toStrictEqual([
+      { toolCallId: "call_task_1", toolName: "task" },
+      {
+        toolCallId: "call_task_2",
+        toolName: "task",
+        origin: { routeId: "/parent/subagents/planner#agent", parentToolCallId: "call_task_1" },
+      },
+    ])
+  })
 
   it("issues before the child runs and settles after it returns", async () => {
     const { log, recorder: rec } = recorder()

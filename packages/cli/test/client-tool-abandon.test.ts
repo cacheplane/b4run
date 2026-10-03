@@ -149,6 +149,7 @@ async function parkedThread(toolCalls: readonly ToolCallSpec[]) {
         voidedAt: null,
         kind: "client",
         settledAt: null,
+        parentToolCallId: null,
       }),
     issue: async () => {},
     settle: async () => {},

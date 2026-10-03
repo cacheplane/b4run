@@ -24,6 +24,7 @@ describe("guarded CLI subagent resolution", () => {
   it("dispatches convention-only children under the default allow rule", async () => {
     const prepareChild = vi.fn(async () => ({
       routeId: "/parent/subagents/researcher",
+      routeKey: "/parent/subagents/researcher#agent",
       graph: { invoke: vi.fn() },
     }))
     const resolver = buildGuardedSubagentResolver({
@@ -45,6 +46,7 @@ describe("guarded CLI subagent resolution", () => {
   it("uses explicit aliases without retaining the replaced convention leaf", async () => {
     const prepareChild = vi.fn(async () => ({
       routeId: "/parent/subagents/researcher",
+      routeKey: "/parent/subagents/researcher#agent",
       graph: { invoke: vi.fn() },
     }))
     const resolver = buildGuardedSubagentResolver({

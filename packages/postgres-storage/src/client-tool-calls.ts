@@ -19,7 +19,8 @@ import { throwNoPool } from "./sql.js"
  * `@b4run/sdk` at run time for the result codec, so naming its
  * `B4MessageContent` drags a consumer into nothing new.
  * Member for member identical to `@b4run/sdk`'s `ToolCallRecordKind`,
- * `ClientToolCallRecord`, `ClientToolCallAnswer`, `ClientToolCallSettle` and
+ * `ClientToolCallRecord`, `ClientToolCallAnswer`, `ClientToolCallSettle`,
+ * `ToolCallOrigin` and
  * `ClientToolCallStore`;
  * change one, change the other. Structural assignability at the wiring site
  * catches a drift.
@@ -38,9 +39,10 @@ export interface ClientToolCallRecord {
   readonly toolName: string
   readonly runId: string
   /**
-   * The route key (`<routeId>#<mode>`, e.g. `/chat#agent`) whose run issued
-   * the call. Only that route may answer or resume it; recorded here, while
-   * the call is issued, so it is never behind the park.
+   * The route that ISSUED the call, as a route key (`<routeId>#<mode>`): the
+   * AG-UI run's route for a root call, the child route for a subagent's call.
+   * Client rows are only ever issued by the root route, so for them this is
+   * also the route that may answer or resume the park.
    */
   readonly routeId: string
   readonly issuedAt: string
@@ -57,6 +59,13 @@ export interface ClientToolCallRecord {
   readonly voidedAt: string | null
   /** Server rows only: when the tool returned or threw. */
   readonly settledAt: string | null
+  /**
+   * The nearest enclosing `task` call's provider tool-call id — the call that
+   * launched the subagent this row was issued from; `null` for a root call.
+   * May name a row that does not exist when that `task` ran under the bridge's
+   * random fallback id; siblings still group.
+   */
+  readonly parentToolCallId: string | null
 }
 
 export type ClientToolCallAnswer =
@@ -66,6 +75,14 @@ export type ClientToolCallAnswer =
   | { readonly outcome: "missing" }
 
 export type ClientToolCallSettle = "settled" | "already_settled" | "missing"
+
+/** Where a server call was issued from, when not at the root: supplied by the writer. */
+export interface ToolCallOrigin {
+  /** The issuing route's key (`<routeId>#<mode>`). */
+  readonly routeId: string
+  /** The enclosing `task` call's provider id. */
+  readonly parentToolCallId: string
+}
 
 export interface ClientToolCallStore {
   /**
@@ -137,9 +154,9 @@ export interface PostgresClientToolCallStore extends ClientToolCallStore {
 
 export type PostgresClientToolCallStoreOptions = PostgresStoreOptions
 
-/** Every column, in migration order. The INSERT names and binds all thirteen. */
+/** Every column, in migration order. The INSERT names and binds all fourteen. */
 const COLUMNS =
-  "thread_id, tool_call_id, interrupt_id, tool_name, run_id, route_id, issued_at, expires_at, answered_at, result, voided_at, kind, settled_at"
+  "thread_id, tool_call_id, interrupt_id, tool_name, run_id, route_id, issued_at, expires_at, answered_at, result, voided_at, kind, settled_at, parent_tool_call_id"
 
 interface CallRow {
   thread_id: string
@@ -155,6 +172,7 @@ interface CallRow {
   voided_at: string | null
   kind: string
   settled_at: string | null
+  parent_tool_call_id: string | null
 }
 
 function rowToRecord(row: CallRow): ClientToolCallRecord {
@@ -175,6 +193,7 @@ function rowToRecord(row: CallRow): ClientToolCallRecord {
     result: decodeClientToolResult(row.result ?? null),
     voidedAt: row.voided_at ?? null,
     settledAt: row.settled_at ?? null,
+    parentToolCallId: row.parent_tool_call_id ?? null,
   }
 }
 
@@ -244,7 +263,7 @@ export function createPostgresClientToolCallStore(
       // when it resumes) leaves the existing row untouched.
       await pool.query(
         `INSERT INTO ${table} (${COLUMNS})
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
          ON CONFLICT (thread_id, tool_call_id) DO NOTHING`,
         [
           record.threadId,
@@ -261,6 +280,7 @@ export function createPostgresClientToolCallStore(
           record.voidedAt,
           record.kind,
           record.settledAt,
+          record.parentToolCallId,
         ],
       )
     },

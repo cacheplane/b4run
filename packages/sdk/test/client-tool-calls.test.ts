@@ -22,6 +22,7 @@ function call(over: Partial<ClientToolCallRecord> = {}): ClientToolCallRecord {
     result: null,
     voidedAt: null,
     settledAt: null,
+    parentToolCallId: null,
     ...over,
   }
 }
@@ -281,6 +282,7 @@ function serverCall(over: Partial<ClientToolCallRecord> = {}): ClientToolCallRec
     result: null,
     voidedAt: null,
     settledAt: null,
+    parentToolCallId: null,
     ...over,
   }
 }
@@ -481,5 +483,24 @@ describe("memory store with a parts result", () => {
     })
     expect(answer.outcome === "answered" && answer.record.result).toEqual(parts)
     expect((await store.get("t", "c1"))?.result).toEqual(parts)
+  })
+})
+
+describe("createMemoryClientToolCallStore — origin", () => {
+  it("stores the issuing route and the parent task link, null at the root", async () => {
+    const store = createMemoryClientToolCallStore()
+    await store.issue(serverCall({ toolCallId: "root", routeId: "/chat#agent" }))
+    await store.issue(
+      serverCall({
+        toolCallId: "child",
+        routeId: "/chat/subagents/researcher#agent",
+        parentToolCallId: "call_task_1",
+      }),
+    )
+    expect((await store.get("t1", "root"))?.parentToolCallId).toBeNull()
+    expect(await store.get("t1", "child")).toMatchObject({
+      routeId: "/chat/subagents/researcher#agent",
+      parentToolCallId: "call_task_1",
+    })
   })
 })

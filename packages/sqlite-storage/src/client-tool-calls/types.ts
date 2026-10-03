@@ -9,7 +9,7 @@ import type { B4MessageContent } from "@b4run/sdk"
  *
  * Identical shape — member for member — to `@b4run/sdk`'s
  * `ToolCallRecordKind`, `ClientToolCallRecord`, `ClientToolCallAnswer`,
- * `ClientToolCallSettle` and `ClientToolCallStore`
+ * `ClientToolCallSettle`, `ToolCallOrigin` and `ClientToolCallStore`
  * (`packages/sdk/src/client-tool-calls.ts`), so a store built here satisfies
  * the SDK's interface and vice versa. This package's emitted `.d.ts` must not
  * drag a consumer into another workspace package for its types. Change one,
@@ -30,9 +30,10 @@ export interface ClientToolCallRecord {
   readonly toolName: string
   readonly runId: string
   /**
-   * The route key (`<routeId>#<mode>`, e.g. `/chat#agent`) whose run issued
-   * the call. Only that route may answer or resume it; recorded here, while
-   * the call is issued, so it is never behind the park.
+   * The route that ISSUED the call, as a route key (`<routeId>#<mode>`): the
+   * AG-UI run's route for a root call, the child route for a subagent's call.
+   * Client rows are only ever issued by the root route, so for them this is
+   * also the route that may answer or resume the park.
    */
   readonly routeId: string
   readonly issuedAt: string
@@ -49,6 +50,13 @@ export interface ClientToolCallRecord {
   readonly voidedAt: string | null
   /** Server rows only: when the tool returned or threw. */
   readonly settledAt: string | null
+  /**
+   * The nearest enclosing `task` call's provider tool-call id — the call that
+   * launched the subagent this row was issued from; `null` for a root call.
+   * May name a row that does not exist when that `task` ran under the bridge's
+   * random fallback id; siblings still group.
+   */
+  readonly parentToolCallId: string | null
 }
 
 export type ClientToolCallAnswer =
@@ -61,6 +69,14 @@ export type ClientToolCallAnswer =
   | { readonly outcome: "missing" }
 
 export type ClientToolCallSettle = "settled" | "already_settled" | "missing"
+
+/** Where a server call was issued from, when not at the root: supplied by the writer. */
+export interface ToolCallOrigin {
+  /** The issuing route's key (`<routeId>#<mode>`). */
+  readonly routeId: string
+  /** The enclosing `task` call's provider id. */
+  readonly parentToolCallId: string
+}
 
 export interface ClientToolCallStore {
   /**

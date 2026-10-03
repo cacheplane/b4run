@@ -60,6 +60,14 @@ describe("CLIENT_TOOL_CALLS_MIGRATIONS", () => {
     )
   })
 
+  it("pins migration 3's SQL exactly", () => {
+    const migration = CLIENT_TOOL_CALLS_MIGRATIONS.find((m) => m.version === 3)
+    expect(migration).toBeDefined()
+    expect(normalize(migration?.up(NAMING) ?? "")).toBe(
+      "ALTER TABLE public.b4_client_tool_calls ADD COLUMN IF NOT EXISTS parent_tool_call_id text;",
+    )
+  })
+
   it("honours the prefix and schema it is given", () => {
     const sql = CLIENT_TOOL_CALLS_MIGRATIONS[0]?.up({ schema: "app", prefix: "t_1" }) ?? ""
     expect(sql).toContain("app.t_1_client_tool_calls")
@@ -90,7 +98,7 @@ describe("CLIENT_TOOL_CALLS_MIGRATIONS", () => {
 })
 
 describe("the statements the store issues", () => {
-  it("names all thirteen columns in every INSERT", async () => {
+  it("names all fourteen columns in every INSERT", async () => {
     const { pool, sql } = recordingPool()
     const store = createPostgresClientToolCallStore({ pool, assumeMigrated: true })
     await store.issue({
@@ -107,6 +115,7 @@ describe("the statements the store issues", () => {
       voidedAt: null,
       kind: "client",
       settledAt: null,
+      parentToolCallId: null,
     })
 
     const inserts = sql.filter((text) => /\bINSERT INTO\b/i.test(text))
@@ -127,8 +136,9 @@ describe("the statements the store issues", () => {
         "voided_at",
         "kind",
         "settled_at",
+        "parent_tool_call_id",
       ])
-      expect(insert.match(/\$\d+/g)).toHaveLength(13)
+      expect(insert.match(/\$\d+/g)).toHaveLength(14)
       expect(insert).toMatch(/ON CONFLICT \(thread_id, tool_call_id\) DO NOTHING/)
     }
   })

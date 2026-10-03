@@ -688,6 +688,45 @@ describe("convertToolToLangChain — the tool-call record", () => {
   const call = { args: {}, id: "call_1", name: "probe", type: "tool_call" as const }
   const configWith = (rec: unknown) => ({ configurable: { [CLIENT_TOOL_RECORDER_KEY]: rec } })
 
+  it("inside a subagent, records the child's route key and the launching task", async () => {
+    const issued: unknown[] = []
+    const rec = {
+      has: vi.fn(async () => false),
+      record: vi.fn(async () => {}),
+      issue: async (c: unknown) => {
+        issued.push(c)
+      },
+      settle: async () => {},
+    }
+    const tool = convertToolToLangChain({
+      name: "probe",
+      schema: { type: "object", properties: {} },
+      run: async () => "ok",
+    })
+    await tool.invoke(call, {
+      ...configWith(rec),
+      metadata: {
+        b4: {
+          subagent_stack: [
+            {
+              callId: "call_task_1",
+              name: "researcher",
+              routeId: "/chat/subagents/researcher",
+              routeKey: "/chat/subagents/researcher#agent",
+            },
+          ],
+        },
+      },
+    })
+    expect(issued).toStrictEqual([
+      {
+        toolCallId: "call_1",
+        toolName: "probe",
+        origin: { routeId: "/chat/subagents/researcher#agent", parentToolCallId: "call_task_1" },
+      },
+    ])
+  })
+
   it("issues before the tool body and settles after it returns", async () => {
     const { log, recorder: rec } = recorder()
     const tool = convertToolToLangChain({
