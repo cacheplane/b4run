@@ -3110,6 +3110,7 @@ if (
 const expectedB4ConfigSchemaPaths = [
   "appDir",
   "approvals",
+  "approvals.grantRetentionMs",
   "approvals.grantStore",
   "approvals.grantTtlMs",
   "approvals.grants",

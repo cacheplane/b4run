@@ -137,6 +137,16 @@ Only a SHA-256 hash of the grant is stored, for the same reason a password is no
 
 The table is deliberately not the checkpointer's `writes` blob. That blob is LangGraph's, it is returned to clients, and it is deleted on LangGraph's schedule rather than B4.run's — the consumption record would disappear at exactly the moment it is needed to answer a replay.
 
+Settled rows do not accumulate. Once a grant is consumed, or voided because
+the thread moved past its prompt, the runtime deletes the row after
+[`approvals.grantRetentionMs`](/docs/configuration#approvals) (7 days by
+default), sweeping at most once an hour wherever it voids superseded grants;
+`b4 approvals prune` does the same on demand. An outstanding grant is never
+deleted, even after `grantTtlMs` has passed: under `"optional"` a parked prompt
+with no row resumes without a grant, so deleting it would weaken exactly the
+prompt it protects. An expired grant keeps answering `409 grant_expired` until
+the thread moves on and the row is voided.
+
 ## Two limitations worth stating plainly
 
 ### At-most-once *delivery* is not exactly-once *effect*

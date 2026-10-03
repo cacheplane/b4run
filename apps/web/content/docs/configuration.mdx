@@ -201,6 +201,7 @@ this field.
 approvals?: {
   grants?: "off" | "optional" | "required"
   grantTtlMs?: number
+  grantRetentionMs?: number
   grantStore?: InterruptGrantStore
 }
 ```
@@ -218,6 +219,16 @@ legitimately sit overnight. `grantStore` defaults to SQLite at
 `.b4/interrupt-grants.sqlite` on node and to a non-durable in-process store
 elsewhere, so a multi-replica deployment must supply one. See [Approval
 Grants](/docs/approval-grants).
+
+`grantRetentionMs` is how long a settled grant record (consumed or voided) is
+kept before the runtime deletes it: `604800000` (7 days) by default, a
+positive integer of at most one year, anything else fails the boot. The
+sweep runs wherever the runtime voids superseded grants, at most once an hour
+per store. Outstanding grants are never deleted, however old, because a parked
+prompt with no grant row resumes ungated under `"optional"`.
+[`b4 approvals prune`](/docs/cli#b4-approvals) runs the same pass by hand. A
+`grantStore` you supply is checked at boot and must implement every store
+method, `prune` included.
 
 ### `checkpointer`
 
