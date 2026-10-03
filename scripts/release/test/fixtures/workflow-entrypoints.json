@@ -302,7 +302,7 @@
               "classification": "safe",
               "descriptor": {
                 "name": "Build example workspace dependencies",
-                "run": "pnpm --filter @b4run/ag-ui build"
+                "run": "pnpm --filter @b4run/ag-ui... build"
               }
             },
             {
@@ -380,7 +380,7 @@
               "classification": "safe",
               "descriptor": {
                 "name": "CopilotKit v2 runtime against B4.run",
-                "run": "pnpm --filter @b4run/ag-ui build\npnpm exec vitest --run --config test/security-dependencies/vitest.config.ts test/security-dependencies/copilotkit-v2-runtime.test.ts\n"
+                "run": "pnpm --filter @b4run/ag-ui... build\npnpm exec vitest --run --config test/security-dependencies/vitest.config.ts test/security-dependencies/copilotkit-v2-runtime.test.ts\n"
               }
             },
             {

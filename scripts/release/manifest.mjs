@@ -65,12 +65,39 @@ export const HISTORICAL_B4_RELEASE_PACKAGE_ORDER = Object.freeze([
   "create-b4-app",
 ])
 
-export const CANONICAL_RELEASE_PACKAGE_ORDER = Object.freeze([
+// B4 releases sealed before @b4run/ag-ui acquired its @b4run/sdk dependency
+// (v0.13.0 and v0.13.1 were published in this order). Preserve it
+// independently of the live publication topology.
+export const HISTORICAL_B4_PRE_AGUI_SDK_RELEASE_PACKAGE_ORDER = Object.freeze([
   "@b4run/ag-ui",
   "@b4run/config-biome",
   "@b4run/config-typescript",
   "@b4run/devkit",
   "@b4run/sdk",
+  "@b4run/langgraph",
+  "@b4run/permissions",
+  "@b4run/postgres-storage",
+  "@b4run/workspace",
+  "@b4run/sandbox",
+  "@b4run/sqlite-storage",
+  "@b4run/core",
+  "@b4run/langchain",
+  "@b4run/memory",
+  "@b4run/cli",
+  "@b4run/inspector",
+  "@b4run/memory-pgvector",
+  "@b4run/testing",
+  "@b4run/evals",
+  "@b4run/vite-plugin",
+  "create-b4-app",
+])
+
+export const CANONICAL_RELEASE_PACKAGE_ORDER = Object.freeze([
+  "@b4run/config-biome",
+  "@b4run/config-typescript",
+  "@b4run/devkit",
+  "@b4run/sdk",
+  "@b4run/ag-ui",
   "@b4run/langgraph",
   "@b4run/permissions",
   "@b4run/postgres-storage",
@@ -211,11 +238,13 @@ export function validateSealedReleaseManifest(value, { candidate } = {}) {
     packageOrder: manifest.packageOrder,
     version: manifest.version,
   })
-  // A sealed manifest retains its publication order, including the previous B4
-  // topology and the original repository's pre-rename family. Admission remains
-  // an exact code-owned allowlist; current preparation uses only the live order.
+  // A sealed manifest retains its publication order, including every previous
+  // B4 topology and the original repository's pre-rename family. Admission
+  // remains an exact code-owned allowlist; current preparation uses only the
+  // live order.
   if (
     !arraysEqual(manifest.packageOrder, CANONICAL_RELEASE_PACKAGE_ORDER) &&
+    !arraysEqual(manifest.packageOrder, HISTORICAL_B4_PRE_AGUI_SDK_RELEASE_PACKAGE_ORDER) &&
     !arraysEqual(manifest.packageOrder, HISTORICAL_B4_RELEASE_PACKAGE_ORDER) &&
     !arraysEqual(manifest.packageOrder, HISTORICAL_RELEASE_PACKAGE_ORDER)
   ) {

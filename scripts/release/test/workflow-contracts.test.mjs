@@ -120,8 +120,11 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned for bounded detection reads, verified queued runs, and ordinary-push no-ops.
 // Repinned for bounded, redacted candidate-discovery failure detail.
 // Repinned for the sixty-minute publisher budget; all smaller limits remain unchanged.
+// Repinned for the sealed v0.13 package order (scripts/release/manifest.mjs): @b4run/ag-ui
+// now depends on @b4run/sdk, so the live topology orders it after the SDK and the
+// order v0.13.0/v0.13.1 were published in is kept as a historical constant.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "9c4df4ea6c9a6ff80891ffd628ba53c9569684e32a155ad4946ce54d3109423d"
+  "9bcf8ba21b8537fa197c87b400c34f0aa6df6af6c3c91d5ea809d3d271afbe08"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu
@@ -2170,7 +2173,7 @@ test("dependency-security-browser has one exact isolated read-only descriptor", 
         classification: "safe",
         descriptor: {
           name: "CopilotKit v2 runtime against B4.run",
-          run: "pnpm --filter @b4run/ag-ui build\npnpm exec vitest --run --config test/security-dependencies/vitest.config.ts test/security-dependencies/copilotkit-v2-runtime.test.ts\n",
+          run: "pnpm --filter @b4run/ag-ui... build\npnpm exec vitest --run --config test/security-dependencies/vitest.config.ts test/security-dependencies/copilotkit-v2-runtime.test.ts\n",
         },
       },
       {
