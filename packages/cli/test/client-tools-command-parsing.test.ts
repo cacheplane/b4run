@@ -61,6 +61,8 @@ async function seededApp(): Promise<string> {
     answeredAt: null,
     result: null,
     voidedAt: new Date(Date.now() - 11 * 60 * 1000).toISOString(),
+    kind: "client",
+    settledAt: null,
   }
   await store.issue(record)
   return appRoot

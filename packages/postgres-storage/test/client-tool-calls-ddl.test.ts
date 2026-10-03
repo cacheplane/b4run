@@ -51,15 +51,33 @@ describe("CLIENT_TOOL_CALLS_MIGRATIONS", () => {
     )
   })
 
+  it("pins migration 2's SQL exactly", () => {
+    const migration = CLIENT_TOOL_CALLS_MIGRATIONS.find((m) => m.version === 2)
+    expect(migration).toBeDefined()
+    expect(normalize(migration?.up(NAMING) ?? "")).toBe(
+      "ALTER TABLE public.b4_client_tool_calls ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'client' CHECK (kind IN ('client', 'server')); " +
+        "ALTER TABLE public.b4_client_tool_calls ADD COLUMN IF NOT EXISTS settled_at text;",
+    )
+  })
+
   it("honours the prefix and schema it is given", () => {
     const sql = CLIENT_TOOL_CALLS_MIGRATIONS[0]?.up({ schema: "app", prefix: "t_1" }) ?? ""
     expect(sql).toContain("app.t_1_client_tool_calls")
     expect(sql).toContain("t_1_client_tool_calls_thread_idx")
   })
 
-  it("declares no column DEFAULT anywhere", () => {
+  it("declares no column DEFAULT except migration 2's backfill of `kind`", () => {
     for (const migration of CLIENT_TOOL_CALLS_MIGRATIONS) {
-      expect(migration.up(NAMING)).not.toMatch(/\bDEFAULT\b/i)
+      const sql = migration.up(NAMING)
+      if (migration.version === 2) {
+        // The one permitted DEFAULT: the ADD COLUMN needs it to backfill
+        // version-1 rows (all client calls). Every INSERT still names `kind`
+        // (pinned below), so it is never load-bearing.
+        expect(sql.match(/\bDEFAULT\b/gi)).toHaveLength(1)
+        expect(sql).toMatch(/kind text NOT NULL DEFAULT 'client'/)
+        continue
+      }
+      expect(sql).not.toMatch(/\bDEFAULT\b/i)
     }
   })
 
@@ -72,7 +90,7 @@ describe("CLIENT_TOOL_CALLS_MIGRATIONS", () => {
 })
 
 describe("the statements the store issues", () => {
-  it("names all eleven columns in every INSERT", async () => {
+  it("names all thirteen columns in every INSERT", async () => {
     const { pool, sql } = recordingPool()
     const store = createPostgresClientToolCallStore({ pool, assumeMigrated: true })
     await store.issue({
@@ -87,6 +105,8 @@ describe("the statements the store issues", () => {
       answeredAt: null,
       result: null,
       voidedAt: null,
+      kind: "client",
+      settledAt: null,
     })
 
     const inserts = sql.filter((text) => /\bINSERT INTO\b/i.test(text))
@@ -105,8 +125,10 @@ describe("the statements the store issues", () => {
         "answered_at",
         "result",
         "voided_at",
+        "kind",
+        "settled_at",
       ])
-      expect(insert.match(/\$\d+/g)).toHaveLength(11)
+      expect(insert.match(/\$\d+/g)).toHaveLength(13)
       expect(insert).toMatch(/ON CONFLICT \(thread_id, tool_call_id\) DO NOTHING/)
     }
   })
@@ -165,7 +187,7 @@ describe("the statements the store issues", () => {
 })
 
 describe("createPostgresClientToolCallStore prune", () => {
-  it("is one DELETE whose predicate carries the settle-time and expiry rules", async () => {
+  it("is one DELETE whose predicate carries the settle-time, expiry and server-settle rules", async () => {
     const { pool, sql } = recordingPool()
     const store = createPostgresClientToolCallStore({ pool, assumeMigrated: true })
     expect(await store.prune({ before: "2026-09-18T12:00:00.000Z" })).toBe(0)
@@ -173,9 +195,10 @@ describe("createPostgresClientToolCallStore prune", () => {
     expect(statement).toBeDefined()
     expect(normalize(statement ?? "")).toBe(
       "DELETE FROM public.b4_client_tool_calls " +
-        'WHERE (voided_at IS NOT NULL AND voided_at COLLATE "C" < $1) ' +
-        'OR (voided_at IS NULL AND answered_at IS NOT NULL AND answered_at COLLATE "C" < $1) ' +
-        'OR (voided_at IS NULL AND answered_at IS NULL AND expires_at IS NOT NULL AND expires_at COLLATE "C" < $1) ' +
+        "WHERE (kind = 'client' AND voided_at IS NOT NULL AND voided_at COLLATE \"C\" < $1) " +
+        "OR (kind = 'client' AND voided_at IS NULL AND answered_at IS NOT NULL AND answered_at COLLATE \"C\" < $1) " +
+        "OR (kind = 'client' AND voided_at IS NULL AND answered_at IS NULL AND expires_at IS NOT NULL AND expires_at COLLATE \"C\" < $1) " +
+        "OR (kind = 'server' AND settled_at IS NOT NULL AND settled_at COLLATE \"C\" < $1) " +
         "RETURNING tool_call_id",
     )
   })

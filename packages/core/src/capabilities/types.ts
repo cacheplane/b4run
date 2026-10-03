@@ -363,6 +363,13 @@ export interface B4ToolDefinition {
    * back to the model like any other tool error, so it can retry.
    */
   readonly returnDirect?: boolean
+  /**
+   * Set by `createClientToolStub` only. The tool is the server-side stub of a
+   * client-provided tool: it writes its own (client-kind) row in the tool-call
+   * record before it parks, so a backend adapter must NOT issue a server-kind
+   * row for it. Never set this on an authored or capability tool.
+   */
+  readonly clientTool?: true
 }
 
 export interface PromptFragment {

@@ -272,18 +272,14 @@ function clientFacingChunk(
  * ends with an ordinary `RUN_FINISHED` — the client runs the tool from the
  * tool-call frames and answers with a `role: "tool"` message next run.
  * `observeInterrupts` sits upstream and still sees it, so the turn is still
- * recorded as parked. Permission parks pass through untouched.
+ * recorded as parked; the parked ids are read from the record when the run
+ * finishes. Permission parks pass through untouched.
  */
 async function* normalizeB4Stream(
   chunks: AsyncIterable<StreamChunk>,
   clientToolNames: ReadonlySet<string> = new Set(),
-  onClientToolPark?: (toolCallId: string) => void,
 ): AsyncGenerator<B4AgentStreamChunk> {
   for await (const raw of chunks) {
-    if (raw.type === "interrupt") {
-      const data = (raw as { readonly data: unknown }).data
-      if (isClientToolCallEnvelope(data)) onClientToolPark?.(data.toolCallId)
-    }
     const chunk = clientFacingChunk(raw, clientToolNames)
     if (chunk === undefined) continue
     switch (chunk.type) {
@@ -717,7 +713,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       if (!store) return clientToolStoreUnavailable()
       const parkedIds = clientToolCallIds(clientParks)
       foreignClientPark = (await store.listForThread(threadId)).some(
-        (row) => parkedIds.has(row.toolCallId) && row.routeId !== routeKey,
+        (row) => row.kind === "client" && parkedIds.has(row.toolCallId) && row.routeId !== routeKey,
       )
     }
     const answersHere = clientParks.length > 0 && envelopePolicy.clientTools && !foreignClientPark
@@ -800,18 +796,27 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       // (a client retrying a run that already resumed), or a forgery. It
       // carries no new user input, so there is no turn to run — re-running
       // the last user message would answer it twice. Same no-op as `partial`,
-      // which makes client retries idempotent.
+      // which makes client retries idempotent. Nothing is pending: this
+      // branch is reached only when the snapshot has no client park, so any
+      // open row on the thread is a stray or belongs to a run still in flight
+      // — never this request's to report.
       return clientToolPartialResponse(threadId, input.runId, request.headers.get("accept"), [])
     }
     if (clientTurn.mode === "partial") {
       // Some parked calls answered, others not yet: the results are recorded,
       // the graph is not touched, and the run ends as an ordinary success so
-      // the client goes on to send the rest.
+      // the client goes on to send the rest. The pending ids are the
+      // snapshot's parks still open in the record: a stray open row that
+      // names no park here is not this request's to report.
       return clientToolPartialResponse(
         threadId,
         input.runId,
         request.headers.get("accept"),
-        clientTurn.pendingToolCallIds,
+        await outstandingClientCallIds(
+          clientToolRuntime.store,
+          threadId,
+          clientToolCallIds(clientParks),
+        ),
       )
     }
 
@@ -920,46 +925,70 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     // may still stand behind a replayed stub.
     const resumingToolCallIds: ReadonlySet<string> =
       clientTurn.mode === "resume" ? clientToolCallIds(clientParks) : new Set()
-    const clientToolRecorder: ClientToolRecorder | undefined =
-      runClientTools.length > 0 && clientToolStore
-        ? {
-            // A replay only for a live record: outstanding, or answered and
-            // being resumed by THIS request. A provider that reuses an id
-            // whose record was answered (and resumed) or voided long ago is
-            // making a NEW call, which must not park against that record —
-            // its stored result would be resumed as this call's answer.
-            has: async (toolCallId) => {
-              const row = await clientToolStore.get(threadId, toolCallId)
-              if (!row || row.voidedAt !== null) return false
-              return row.answeredAt === null || resumingToolCallIds.has(toolCallId)
-            },
-            // `issue` is a no-op on an existing key, so a NEW call whose id
-            // already has a record cannot be recorded; it fails instead of
-            // parking on a record it does not own. The stub's tool call then
-            // errors — nothing parks. Fixed message: never echoes the id.
-            record: async (call) => {
-              if (await clientToolStore.get(threadId, call.toolCallId)) {
-                throw new Error(
-                  "This client tool call id was already used on this thread; the call was not made.",
-                )
-              }
-              const issued = new Date()
-              await clientToolStore.issue({
-                threadId,
-                toolCallId: call.toolCallId,
-                interruptId: call.interruptId,
-                toolName: call.toolName,
-                runId: input.runId,
-                routeId: routeKey,
-                issuedAt: issued.toISOString(),
-                expiresAt: new Date(issued.getTime() + clientToolRuntime.ttlMs).toISOString(),
-                answeredAt: null,
-                result: null,
-                voidedAt: null,
-              })
-            },
-          }
-        : undefined
+    const clientToolRecorder: ClientToolRecorder | undefined = clientToolStore
+      ? {
+          // A replay only for a live record: outstanding, or answered and
+          // being resumed by THIS request. A provider that reuses an id
+          // whose record was answered (and resumed) or voided long ago is
+          // making a NEW call, which must not park against that record —
+          // its stored result would be resumed as this call's answer.
+          has: async (toolCallId) => {
+            const row = await clientToolStore.get(threadId, toolCallId)
+            if (row?.kind !== "client" || row.voidedAt !== null) return false
+            return row.answeredAt === null || resumingToolCallIds.has(toolCallId)
+          },
+          // `issue` is a no-op on an existing key, so a NEW call whose id
+          // already has a record cannot be recorded; it fails instead of
+          // parking on a record it does not own. The stub's tool call then
+          // errors — nothing parks. Fixed message: never echoes the id.
+          record: async (call) => {
+            if (await clientToolStore.get(threadId, call.toolCallId)) {
+              throw new Error(
+                "This client tool call id was already used on this thread; the call was not made.",
+              )
+            }
+            const issued = new Date()
+            await clientToolStore.issue({
+              threadId,
+              toolCallId: call.toolCallId,
+              kind: "client",
+              interruptId: call.interruptId,
+              toolName: call.toolName,
+              runId: input.runId,
+              routeId: routeKey,
+              issuedAt: issued.toISOString(),
+              expiresAt: new Date(issued.getTime() + clientToolRuntime.ttlMs).toISOString(),
+              answeredAt: null,
+              result: null,
+              voidedAt: null,
+              settledAt: null,
+            })
+          },
+          // Server-kind rows: identity only, written by the backend converter
+          // around every server tool call. Idempotent on the key, so the
+          // replay of a resumed tool node is a no-op.
+          issue: async (call) => {
+            await clientToolStore.issue({
+              threadId,
+              toolCallId: call.toolCallId,
+              kind: "server",
+              interruptId: "",
+              toolName: call.toolName,
+              runId: input.runId,
+              routeId: routeKey,
+              issuedAt: new Date().toISOString(),
+              expiresAt: null,
+              answeredAt: null,
+              result: null,
+              voidedAt: null,
+              settledAt: null,
+            })
+          },
+          settle: async (toolCallId) => {
+            await clientToolStore.settle({ threadId, toolCallId, at: new Date().toISOString() })
+          },
+        }
+      : undefined
     // Un-prefixed names, shared by both client-facing wires so an attacher and
     // the primary client see the same names.
     const clientToolNames: ReadonlySet<string> = new Set(runClientTools.map((tool) => tool.name))
@@ -1224,11 +1253,8 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
               },
               clientToolNames,
             )
-            const parkedClientCallIds = new Set<string>()
             for await (const event of toAguiEvents(
-              normalizeB4Stream(liveTappedStream, clientToolNames, (id) =>
-                parkedClientCallIds.add(id),
-              ),
+              normalizeB4Stream(liveTappedStream, clientToolNames),
               {
                 threadId,
                 runId: input.runId,
@@ -1238,8 +1264,23 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                 // client disconnect did not (nobody is listening for the
                 // frame, and attachers read the same terminal below).
                 cancelled: () => run.cancelled || shutdownSignal.aborted,
-                // The client-tool parks this turn raised (their interrupts stay hidden), named on the success outcome.
-                pendingToolCallIds: () => [...parkedClientCallIds],
+                // The client-tool parks this turn left open, from the record:
+                // asked when RUN_FINISHED is built, after every raw chunk has
+                // been consumed, so `sawInterrupt` is final. Only rows this run
+                // issued (each carries its run id): a call resumed this turn
+                // is already answered, and a stray open row from another run
+                // is not this turn's park. A turn that did not park has
+                // nothing pending (any stray row is voided right after, in the
+                // finally).
+                // Keyed on the client-supplied runId: a client that reused a
+                // runId on this thread could be shown a stray row from that
+                // earlier run, which AG-UI clients never do.
+                pendingToolCallIds: async () =>
+                  sawInterrupt && clientToolStore
+                    ? (await clientToolStore.listOutstanding(threadId))
+                        .filter((row) => row.runId === input.runId)
+                        .map((row) => row.toolCallId)
+                    : [],
               },
             )) {
               // The translator catches upstream errors and aborts, so the raw
@@ -1443,7 +1484,7 @@ async function closeAbandonedClientParks(options: {
   const parkedIds = clientToolCallIds(options.clientParks)
   const recordedRoutes = new Set(
     ((await options.store?.listForThread(threadId)) ?? [])
-      .filter((row) => parkedIds.has(row.toolCallId))
+      .filter((row) => row.kind === "client" && parkedIds.has(row.toolCallId))
       .map((row) => row.routeId),
   )
   const parkedRouteKey =
@@ -1657,6 +1698,21 @@ function withParkedClientTools(
     })
   }
   return rebuilt.length === 0 ? requested : [...requested, ...rebuilt]
+}
+
+/**
+ * The thread's open client-kind rows among `allowed`, by provider tool-call
+ * id, in issue order.
+ */
+async function outstandingClientCallIds(
+  store: ClientToolRuntime["store"],
+  threadId: string,
+  allowed: ReadonlySet<string>,
+): Promise<readonly string[]> {
+  if (!store) return []
+  return (await store.listOutstanding(threadId))
+    .filter((row) => allowed.has(row.toolCallId))
+    .map((row) => row.toolCallId)
 }
 
 /**

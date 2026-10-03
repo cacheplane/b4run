@@ -308,8 +308,9 @@ export async function resolveInterruptGrantStore(
 }
 
 /**
- * Resolves the {@link ClientToolCallStore} — the retained record behind
- * client-provided tools (cacheplane/b4run#743) — for the given appRoot.
+ * Resolves the {@link ClientToolCallStore} — the retained record of tool calls
+ * on AG-UI runs, client-provided ones included (cacheplane/b4run#743) — for
+ * the given appRoot.
  *
  * `config.server.agui.clientToolStore` if `b4.config.ts` provides one,
  * otherwise the default SQLite store at `<appRoot>/.b4/client-tool-calls.sqlite`.

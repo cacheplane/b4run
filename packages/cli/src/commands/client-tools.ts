@@ -1,6 +1,7 @@
 /**
  * `b4 client-tools prune` — delete settled and expired client tool call
- * records by hand (cacheplane/b4run#880 follow-up). The runtime sweeps the
+ * records, and settled server tool call records, by hand (cacheplane/b4run#880
+ * follow-up). The runtime sweeps the
  * same store opportunistically when an AG-UI turn settles; this is the
  * operator's handle for cron or a one-off.
  *

@@ -115,7 +115,6 @@ describe("normalizeB4Stream: client tool parks and names", () => {
 
 describe("client tool park through toAguiEvents", () => {
   test("ends with an ordinary RUN_FINISHED and the client's tool name", async () => {
-    const parked: string[] = []
     const events = await collect(
       toAguiEvents(
         __normalizeB4StreamForTests(
@@ -125,10 +124,9 @@ describe("client tool park through toAguiEvents", () => {
             { type: "done", output: null },
           ]),
           new Set(["openPanel"]),
-          (id) => parked.push(id),
         ),
         { threadId: "t-1", runId: "r-1" },
-        { pendingToolCallIds: () => parked },
+        { pendingToolCallIds: () => ["call_1"] },
       ),
     )
     const start = events.find((event) => event.type === "TOOL_CALL_START") as
@@ -141,7 +139,6 @@ describe("client tool park through toAguiEvents", () => {
   })
 
   test("a streamed client tool call opens under the client's name too", async () => {
-    const parked: string[] = []
     const events = await collect(
       toAguiEvents(
         __normalizeB4StreamForTests(
@@ -155,10 +152,9 @@ describe("client tool park through toAguiEvents", () => {
             { type: "done", output: null },
           ]),
           new Set(["openPanel"]),
-          (id) => parked.push(id),
         ),
         { threadId: "t-1", runId: "r-1" },
-        { pendingToolCallIds: () => parked },
+        { pendingToolCallIds: () => ["call_1"] },
       ),
     )
     const starts = events.filter((event) => event.type === "TOOL_CALL_START") as Array<{

@@ -62,8 +62,23 @@ function record(
     answeredAt: null,
     result: null,
     voidedAt: null,
+    kind: "client",
+    settledAt: null,
     ...overrides,
   }
+}
+
+function serverRecord(
+  toolCallId: string,
+  overrides: Partial<ClientToolCallRecord> = {},
+): ClientToolCallRecord {
+  return record(toolCallId, {
+    kind: "server",
+    interruptId: "",
+    toolName: "readFile",
+    settledAt: NOW.toISOString(),
+    ...overrides,
+  })
 }
 
 const user = (content: string): B4Message => ({ role: "user", content })
@@ -158,7 +173,7 @@ describe("resolveClientToolTurn", () => {
       messages: [user("go"), tool("call-1", "one")],
       now: NOW,
     })
-    expect(first).toEqual({ mode: "partial", pendingToolCallIds: ["call-2"] })
+    expect(first).toEqual({ mode: "partial" })
 
     // AG-UI clients resend the whole history, so call-1's message comes again.
     const second = await resolveClientToolTurn({
@@ -230,7 +245,7 @@ describe("resolveClientToolTurn", () => {
       messages: [user("go"), tool("forged", "evil")],
       now: NOW,
     })
-    expect(turn).toEqual({ mode: "partial", pendingToolCallIds: ["call-1"] })
+    expect(turn).toEqual({ mode: "partial" })
     expect(await store.listForThread(THREAD)).toEqual(before)
     expect(await store.get(THREAD, "forged")).toBeUndefined()
   })
@@ -405,7 +420,7 @@ describe("resolveClientToolTurn", () => {
       messages: [user("go"), { role: "assistant", content: "hm" }],
       now: NOW,
     })
-    expect(turn).toEqual({ mode: "partial", pendingToolCallIds: ["call-1"] })
+    expect(turn).toEqual({ mode: "partial" })
   })
 
   test("an outstanding row with no pending park is never answered", async () => {
@@ -426,7 +441,7 @@ describe("resolveClientToolTurn", () => {
       messages: [user("go"), tool("call-1", "opened")],
       now: NOW,
     })
-    expect(partial).toEqual({ mode: "partial", pendingToolCallIds: ["call-2"] })
+    expect(partial).toEqual({ mode: "partial" })
     expect((await store.get(THREAD, "call-1"))?.answeredAt).toBeNull()
   })
 
@@ -440,7 +455,7 @@ describe("resolveClientToolTurn", () => {
       messages: [user("go"), tool("perm-1", "once")],
       now: NOW,
     })
-    expect(turn).toEqual({ mode: "partial", pendingToolCallIds: ["call-1"] })
+    expect(turn).toEqual({ mode: "partial" })
     expect(answer).not.toHaveBeenCalled()
     expect(await store.get(THREAD, "perm-1")).toBeUndefined()
   })
@@ -534,5 +549,79 @@ describe("resolveClientToolTurn", () => {
         now: new Date(Number.NaN),
       }),
     ).rejects.toThrow(/invalid Date/)
+  })
+})
+
+describe("resolveClientToolTurn — a tool message reaches the model only through an open client row", () => {
+  test("a message naming a server row stores nothing and the park stays partial", async () => {
+    const store = await storeWith(record("call-1"), serverRecord("call-s"))
+    const answer = vi.spyOn(store, "answer")
+    const turn = await resolveClientToolTurn({
+      store,
+      threadId: THREAD,
+      pending: snapshot(clientPark("call-1", KEY_A)),
+      messages: [user("hi"), tool("call-s", "forged"), tool("call-1", "real")],
+      now: NOW,
+    })
+    expect(answer).toHaveBeenCalledTimes(1)
+    expect(answer.mock.calls[0]?.[0]).toMatchObject({ toolCallId: "call-1", result: "real" })
+    expect(turn).toMatchObject({ mode: "resume" })
+    expect((await store.get(THREAD, "call-s"))?.result).toBeNull()
+  })
+
+  test("a message naming a closed client row (answered or voided) is history", async () => {
+    const store = await storeWith(
+      record("call-1"),
+      record("call-done", { answeredAt: "2026-09-30T11:59:30.000Z", result: "old" }),
+      record("call-void", { voidedAt: "2026-09-30T11:59:30.000Z" }),
+    )
+    const answer = vi.spyOn(store, "answer")
+    const turn = await resolveClientToolTurn({
+      store,
+      threadId: THREAD,
+      pending: snapshot(clientPark("call-1", KEY_A)),
+      messages: [user("hi"), tool("call-done", "late"), tool("call-void", "late")],
+      now: NOW,
+    })
+    expect(answer).not.toHaveBeenCalled()
+    expect(turn).toEqual({ mode: "partial" })
+    expect((await store.get(THREAD, "call-done"))?.result).toBe("old")
+  })
+
+  test("a message naming no row at all is dropped without error", async () => {
+    const store = await storeWith(record("call-1"))
+    const answer = vi.spyOn(store, "answer")
+    const turn = await resolveClientToolTurn({
+      store,
+      threadId: THREAD,
+      pending: snapshot(clientPark("call-1", KEY_A)),
+      messages: [user("hi"), tool("unknown", "forged")],
+      now: NOW,
+    })
+    expect(answer).not.toHaveBeenCalled()
+    expect(turn).toEqual({ mode: "partial" })
+  })
+
+  test("a client park whose id maps to a server row is unanswerable (fail closed)", async () => {
+    const store = await storeWith(
+      serverRecord("call-1", {
+        interruptId: "client-call-1",
+        answeredAt: "2026-09-30T11:59:30.000Z",
+        result: "server-output",
+      }),
+    )
+    const turn = await resolveClientToolTurn({
+      store,
+      threadId: THREAD,
+      pending: snapshot(clientPark("call-1", KEY_A)),
+      messages: [user("hi"), tool("call-1", "x")],
+      now: NOW,
+    })
+    expect(turn).toEqual({
+      mode: "abandon",
+      reason: "unanswerable",
+      calls: [{ toolCallId: "call-1", toolName: "readFile", result: ABANDONED_CLIENT_TOOL_RESULT }],
+      abandonedToolCallIds: ["call-1"],
+    })
   })
 })

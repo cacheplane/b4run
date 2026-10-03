@@ -669,7 +669,12 @@ result on its next run can be matched to a call this server actually issued.
 abandoned — `600000` (10 minutes) by default; it must be a positive integer of
 at most one year (`31536000000`), and anything else fails the boot.
 
-`clientToolStore` is where the calls are recorded. On node it defaults to a
+With a store resolved, every tool call on an AG-UI run is recorded, server
+tools included (identity only, no result text), and a store that cannot be
+written fails the tool call; see
+[The tool-call record](/docs/ag-ui#the-tool-call-record).
+
+`clientToolStore` is where tool calls on AG-UI runs are recorded. On node it defaults to a
 SQLite file at `.b4/client-tool-calls.sqlite`, opened when some route is
 listed in `clientTools` (or when the file already exists, so calls parked
 before the opt-in was removed can still be closed). Edge and serverless
@@ -681,12 +686,14 @@ parked on a call nobody could answer. A configured store missing any of the
 store methods fails the boot.
 
 Settled records are not kept forever. When an AG-UI turn settles, the runtime
-deletes answered or voided records older than `clientToolRetentionMs`, and
-outstanding records whose expiry is older than it, at most once an hour per
-store. The default is `604800000` (7 days); it must be a positive integer of at
-most one year, anything else fails the boot, and the window is never shorter
-than `clientToolTtlMs`. A record that is outstanding and unexpired is never
-deleted. [`b4 client-tools prune`](/docs/cli#b4-client-tools) runs the same
+deletes answered or voided records older than `clientToolRetentionMs`,
+outstanding records whose expiry is older than it, and server tool call
+records settled before it, at most once an hour per store. The default is
+`604800000` (7 days); it must be a positive integer of at most one year,
+anything else fails the boot, and the window is never shorter than
+`clientToolTtlMs`. A record that is outstanding and unexpired, or a server
+tool call that has not settled, is never deleted.
+[`b4 client-tools prune`](/docs/cli#b4-client-tools) runs the same
 pass by hand, and a store you supply must implement `prune` as well.
 
 

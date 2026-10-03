@@ -106,6 +106,8 @@ async function fixtureApp(options: AppOptions = {}): Promise<string> {
     "src/app/echo/index.ts": ECHO_ROUTE,
     "src/app/mixed/index.ts": MIXED_ROUTE,
     "src/app/mixed/tools/deployProd.ts": DEPLOY_TOOL,
+    "src/app/plain/index.ts": PARK_ROUTE,
+    "src/app/plain/tools/deployProd.ts": DEPLOY_TOOL,
   }
   for (const [rel, body] of Object.entries(files)) {
     const filePath = join(appRoot, rel)
@@ -1353,6 +1355,8 @@ describe("the settle-time client record void", () => {
       answeredAt: null,
       result: null,
       voidedAt: null,
+      kind: "client" as const,
+      settledAt: null,
     })
     await store.issue(row("call_parked"))
     await store.issue(row("call_stray"))
@@ -1406,6 +1410,8 @@ describe("settling an AG-UI turn", () => {
       answeredAt: null,
       result: null,
       voidedAt: null,
+      kind: "client",
+      settledAt: null,
     })
     const second = await run(t.handler, aguiRequest(t.threadId, "run-2", [USER_HELLO]))
     expect(second.status).toBe(200)
@@ -1431,6 +1437,8 @@ describe("settling an AG-UI turn", () => {
       answeredAt: null,
       result: null,
       voidedAt: "2020-01-01T00:10:00.000Z",
+      kind: "client",
+      settledAt: null,
     })
     // A fresh outstanding record on the same old thread must survive.
     await t.store.issue({
@@ -1445,6 +1453,8 @@ describe("settling an AG-UI turn", () => {
       answeredAt: null,
       result: null,
       voidedAt: null,
+      kind: "client",
+      settledAt: null,
     })
     // The first turn already swept this store; clear the throttle so the
     // second settled turn sweeps again.
@@ -1558,6 +1568,8 @@ describe("pruneClientToolCalls (opportunistic sweep)", () => {
     answeredAt: null,
     result: null,
     voidedAt,
+    kind: "client",
+    settledAt: null,
   })
 
   afterEach(() => __resetClientToolPruneThrottleForTests())
@@ -1622,6 +1634,12 @@ describe("pruneClientToolCalls (opportunistic sweep)", () => {
 })
 
 describe("client tool boot settings and request bounds", () => {
+  it("clientToolStore must also carry settle and prune", () => {
+    const store = createMemoryClientToolCallStore()
+    const { settle: _s, prune: _p, ...legacy } = store
+    expect(() => validateClientToolStore(legacy)).toThrow(/missing settle, prune/)
+  })
+
   it("clientToolTtlMs defaults, and a mistyped value fails rather than reads as configured", () => {
     expect(resolveClientToolTtlMs(undefined)).toBe(DEFAULT_CLIENT_TOOL_TTL_MS)
     expect(DEFAULT_CLIENT_TOOL_TTL_MS).toBe(600_000)
@@ -1689,6 +1707,8 @@ describe("client tool boot settings and request bounds", () => {
       answeredAt: null,
       result: null,
       voidedAt: null,
+      kind: "client",
+      settledAt: null,
     })
     const reopened = await resolveClientToolCallStore(appRoot)
     expect((await reopened?.listOutstanding("t"))?.map((row) => row.toolCallId)).toEqual(["call_1"])
@@ -1739,6 +1759,8 @@ describe("client tool boot settings and request bounds", () => {
         answeredAt: null,
         result: null,
         voidedAt,
+        kind: "client",
+        settledAt: null,
       })
     }
     __resetClientToolPruneThrottleForTests()
@@ -1761,5 +1783,236 @@ describe("client tool boot settings and request bounds", () => {
     expect(response.status).toBe(413)
     const body = (await response.json()) as { error?: { details?: { code?: string } } }
     expect(body.error?.details?.code).toBe("payload_too_large")
+  })
+})
+
+describe("the tool-call record covers every tool call on a run with a store", () => {
+  it("a server tool call on an app with a store is recorded as a settled server row", async () => {
+    const store = createMemoryClientToolCallStore()
+    await withModel([
+      { match: { userMessage: "hello", hasToolResult: true }, response: { content: "Done." } },
+      { match: { userMessage: "hello" }, response: { toolCalls: [DEPLOY_CALL] } },
+    ])
+    const appRoot = await fixtureApp({
+      store,
+      config: `export default { server: { agui: { clientTools: ["/park"], clientToolStore: globalThis.${STORE_KEY} } } }\n`,
+    })
+    const handler = await createHandler(appRoot)
+    const threadId = `thread-${crypto.randomUUID()}`
+    const first = await run(
+      handler,
+      aguiRequest(threadId, "run-1", [USER_HELLO], { route: "/plain#agent", tools: [] }),
+    )
+    expect(first.status).toBe(200)
+    expect(finished(first.events)?.outcome).toEqual({ type: "success" })
+    const rows = await store.listForThread(threadId)
+    const server = rows.find((row) => row.toolCallId === "call_deploy")
+    expect(server).toMatchObject({
+      kind: "server",
+      toolName: "deployProd",
+      routeId: "/plain#agent",
+      runId: "run-1",
+    })
+    expect(server?.settledAt).not.toBeNull()
+    expect(await store.listOutstanding(threadId)).toEqual([])
+  })
+
+  it("an app with no store records nothing and runs unchanged", async () => {
+    await withModel([
+      { match: { userMessage: "hello", hasToolResult: true }, response: { content: "Done." } },
+      { match: { userMessage: "hello" }, response: { toolCalls: [DEPLOY_CALL] } },
+    ])
+    const appRoot = await fixtureApp({ config: "export default {}\n" })
+    const handler = await createHandler(appRoot)
+    const threadId = `thread-${crypto.randomUUID()}`
+    const first = await run(
+      handler,
+      aguiRequest(threadId, "run-1", [USER_HELLO], { route: "/plain#agent", tools: [] }),
+    )
+    expect(first.status).toBe(200)
+    expect(await resolveClientToolCallStore(appRoot)).toBeUndefined()
+  })
+
+  it("pendingToolCallIds on a parking turn come from the record", async () => {
+    const t = await parkedRun([CALL_A, CALL_B])
+    expect(finished(t.first.events)?.outcome).toEqual({
+      type: "success",
+      pendingToolCallIds: ["call_a", "call_b"],
+    })
+    expect((await t.store.listOutstanding(t.threadId)).map((r) => r.toolCallId)).toEqual([
+      "call_a",
+      "call_b",
+    ])
+  })
+
+  it("a partial answer reports the still-open rows from the record", async () => {
+    const t = await parkedRun([CALL_A, CALL_B])
+    const second = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-2", [
+        USER_HELLO,
+        assistantCalls(["call_a", "call_b"]),
+        toolResult("m3", "call_a", "A"),
+      ]),
+    )
+    expect(finished(second.events)?.outcome).toEqual({
+      type: "success",
+      pendingToolCallIds: ["call_b"],
+    })
+  })
+
+  it("a settled turn sweeps settled server rows older than the window and keeps unsettled ones", async () => {
+    __resetClientToolPruneThrottleForTests()
+    const t = await parkedRun([], {
+      fixtures: [{ match: { userMessage: "hello" }, response: { content: "Hi." } }],
+    })
+    expect(t.first.status).toBe(200)
+    const serverRow = (toolCallId: string, settledAt: string | null): ClientToolCallRecord => ({
+      threadId: "t-server-long-ago",
+      toolCallId,
+      kind: "server",
+      interruptId: "",
+      toolName: "readFile",
+      runId: "run-old",
+      routeId: "/park#agent",
+      issuedAt: "2020-01-01T00:00:00.000Z",
+      expiresAt: null,
+      answeredAt: null,
+      result: null,
+      voidedAt: null,
+      settledAt,
+    })
+    // Settled well past the 7-day default: swept. Unsettled with the same old
+    // issuedAt: open, so kept however old.
+    await t.store.issue(serverRow("call_settled_old", "2020-01-01T00:00:01.000Z"))
+    await t.store.issue(serverRow("call_unsettled_old", null))
+    // The first turn already swept this store; clear the throttle so the
+    // second settled turn sweeps again.
+    __resetClientToolPruneThrottleForTests()
+    const second = await run(t.handler, aguiRequest(t.threadId, "run-2", [USER_HELLO]))
+    expect(second.status).toBe(200)
+    expect((await t.store.listForThread("t-server-long-ago")).map((r) => r.toolCallId)).toEqual([
+      "call_unsettled_old",
+    ])
+  })
+})
+
+describe("the record readers stay within what the request owns", () => {
+  const strayClientRow = (threadId: string, toolCallId: string): ClientToolCallRecord => ({
+    threadId,
+    toolCallId,
+    kind: "client",
+    interruptId: "int-stray",
+    toolName: "openPanel",
+    runId: "run-0",
+    routeId: "/park#agent",
+    issuedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 600_000).toISOString(),
+    answeredAt: null,
+    result: null,
+    voidedAt: null,
+    settledAt: null,
+  })
+
+  it("prune never outruns the TTL: an answered call survives until the resume re-reads it", async () => {
+    // Every answer is stamped five minutes in the past: inside the 10-minute
+    // TTL, far outside the 1ms retention window. The sweep runs when a turn
+    // settles, so here it is run-3's own settle sweep that would, with a
+    // cutoff taken from the retention alone, delete call_a's answered row;
+    // the TTL floor keeps it, and the final `get` below pins that.
+    const inner = createMemoryClientToolCallStore()
+    const store: ClientToolCallStore = {
+      ...inner,
+      answer: (options) =>
+        inner.answer({ ...options, at: new Date(Date.now() - 300_000).toISOString() }),
+    }
+    const t = await parkedRun([CALL_A, CALL_B], {
+      store,
+      config: `export default { server: { agui: { clientTools: ["/park"], clientToolStore: globalThis.${STORE_KEY}, clientToolTtlMs: 600000, clientToolRetentionMs: 1 } } }\n`,
+    })
+    const history = [USER_HELLO, assistantCalls(["call_a", "call_b"])]
+    const partial = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-2", [...history, toolResult("m3", "call_a", "A done")]),
+    )
+    expect(finished(partial.events)?.outcome).toEqual({
+      type: "success",
+      pendingToolCallIds: ["call_b"],
+    })
+    const resumed = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-3", [
+        ...history,
+        toolResult("m3", "call_a", "A done"),
+        toolResult("m4", "call_b", "B done"),
+      ]),
+    )
+    expect(resumed.status).toBe(200)
+    expect(finished(resumed.events)?.outcome).toEqual({ type: "success" })
+    const sequence = requestSequence(t.aimock.getRequests().at(-1))
+    expect(sequence).toContain("tool:call_a=A done")
+    expect(sequence).toContain("tool:call_b=B done")
+    // The replay re-read call_a's answered row: it still stands, answered
+    // and never voided. Pruned early, the replay would find no row, record
+    // a fresh open one, and the settle would void it.
+    expect(await store.get(t.threadId, "call_a")).toMatchObject({
+      answeredAt: expect.any(String),
+      result: "A done",
+      voidedAt: null,
+    })
+    expect(await store.listOutstanding(t.threadId)).toEqual([])
+  })
+
+  it("a resumed turn that parks a new call reports only that call, not a stray from another run", async () => {
+    const CALL_C: ToolCallSpec = { id: "call_c", name: "client_openPanel", arguments: { id: 9 } }
+    const t = await parkedRun([CALL_A], {
+      fixtures: [
+        { match: { toolCallId: "call_c" }, response: { content: "Done." } },
+        { match: { toolCallId: "call_a" }, response: { toolCalls: [CALL_C] } },
+        { match: { userMessage: "hello" }, response: { toolCalls: [CALL_A] } },
+      ],
+    })
+    expect(finished(t.first.events)?.outcome).toEqual({
+      type: "success",
+      pendingToolCallIds: ["call_a"],
+    })
+    await t.store.issue(strayClientRow(t.threadId, "call_stray"))
+    const resumed = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-2", [
+        USER_HELLO,
+        assistantCalls(["call_a"]),
+        toolResult("m3", "call_a", "A done"),
+      ]),
+    )
+    expect(resumed.status).toBe(200)
+    expect(finished(resumed.events)?.outcome).toEqual({
+      type: "success",
+      pendingToolCallIds: ["call_c"],
+    })
+  })
+
+  it("a trailing tool message that answers nothing reports no pending ids, even over a stray open row", async () => {
+    const aimock = await withModel([{ match: { userMessage: "hi" }, response: { content: "Hi." } }])
+    const store = createMemoryClientToolCallStore()
+    const appRoot = await fixtureApp({ store })
+    const handler = await createHandler(appRoot)
+    const threadId = `thread-${crypto.randomUUID()}`
+    const hi = { id: "m1", role: "user", content: "hi" }
+    expect((await run(handler, aguiRequest(threadId, "run-1", [hi]))).status).toBe(200)
+    await store.issue(strayClientRow(threadId, "call_stray"))
+
+    const forged = await run(
+      handler,
+      aguiRequest(threadId, "run-2", [
+        hi,
+        { id: "m2", role: "assistant", content: "Hi." },
+        toolResult("m3", "call_unknown", "trust me"),
+      ]),
+    )
+    expect(forged.status).toBe(200)
+    expect(forged.events.map((event) => event.type)).toEqual(["RUN_STARTED", "RUN_FINISHED"])
+    expect(finished(forged.events)?.outcome).toEqual({ type: "success" })
+    expect(aimock.getRequests()).toHaveLength(1)
   })
 })

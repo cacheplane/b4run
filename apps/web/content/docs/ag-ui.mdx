@@ -138,11 +138,11 @@ with the description prefixed by
 `[Client-provided tool; definition authored by the caller]`. When the model
 calls one:
 
-1. The server records the call (thread, route, tool-call id, expiry) and parks
+1. The server records the call in the tool-call record (thread, route, tool-call id, expiry) and parks
    the turn. The client sees the tool-call frames under the name **it**
    registered — `openPanel`, not `client_openPanel` — followed by an ordinary
    `RUN_FINISHED` with `outcome.type: "success"`, with `pendingToolCallIds`
-   naming the parked calls — AG-UI 1.0's prescribed shape for a frontend tool
+   naming the client calls this run left parked — AG-UI 1.0's prescribed shape for a frontend tool
    call. There is no interrupt for the client to answer. A turn that parks an
    approval in the same step ends with the `interrupt` outcome instead; the
    client's follow-up is refused with `client_tool_pending` until the approval
@@ -228,6 +228,40 @@ fail closed: `409` `client_tool_close_failed` for the route, `503`
 `client_tool_store_unavailable` for the store. Restore the route or the store
 so the call can be abandoned, or start a new thread.
 
+### The tool-call record
+
+On an app where the store is resolved — some route is listed in
+`server.agui.clientTools`, `server.agui.clientToolStore` is set, or the default
+`.b4/client-tool-calls.sqlite` still exists from an earlier opt-in — every
+tool call the model makes on an AG-UI run is recorded, not only client ones,
+on every route. A server tool's row is identity only: thread, route, run, tool
+name, when it was issued and when it returned or threw. No result text is
+stored; the checkpoint holds the tool message. A tool whose permission gate
+parks the turn is issued but not settled until it actually runs. The parent's
+`task` call that launches a subagent is not recorded; the subagent's own tool
+calls are, against the parent thread.
+
+The record is what makes the rule above a guarantee rather than a habit: a
+`role: "tool"` message is used only when it names an open client call this
+server issued on this thread; one naming a server call, an already-closed
+call, or nothing the server knows is history. It also means the server will
+not run a tool call it cannot account for: a row is written before the tool
+body runs, and if that write fails, the tool call fails like any other tool
+error. With a store that is unavailable, every server tool call on every
+AG-UI route fails until it is back. Each server tool call costs two store
+writes on such an app.
+
+Server rows join the same sweep as client ones. When a turn settles, at most
+once an hour per store, the runtime deletes rows of every thread closed longer
+ago than
+[`server.agui.clientToolRetentionMs`](/docs/configuration#serveragui) (7 days
+by default, never less than `clientToolTtlMs`): a server row once it is that
+long past settling, a client row once it is that long past its answer, void
+or expiry. Open rows — an unsettled server call, an outstanding unexpired
+client call — are never deleted. `b4 client-tools prune` runs the same pass on
+demand.
+An app with no store records nothing.
+
 ### Limits
 
 These are starting bounds, not measured ones. They cap context budget; a
@@ -295,7 +329,7 @@ is refused with `503` `client_tool_store_unavailable`. A deployment with more
 than one instance needs a shared store for the same reason.
 
 Records do not accumulate. Once a turn settles, the runtime deletes records
-answered, voided or expired longer ago than
+answered, voided or expired — or, for a server tool call, settled — longer ago than
 [`server.agui.clientToolRetentionMs`](/docs/configuration#serveragui) (7 days
 by default, never less than the TTL), at most once an hour per store.
 `b4 client-tools prune` does the same on demand. An outstanding, unexpired
@@ -433,7 +467,7 @@ response.write(encodeAgUiEvent(event, request.headers.accept))
 | `reasoning` (per model invocation, alongside its `token`s) | `REASONING_START` and `REASONING_MESSAGE_START { role: "reasoning" }` once, then `REASONING_MESSAGE_CONTENT` per delta; both closed at the invocation's `message_end` or the next tool or terminal boundary |
 | `usage` (one per model call, root or subagent) | none on its own; aggregated into `usage` on the terminal event |
 | `interrupt` | terminal `RUN_FINISHED` with `outcome.type: "interrupt"`; each interrupt's approval grant is at `metadata.grant` |
-| `done` | terminal `RUN_FINISHED` with `outcome.type: "success"`; when the turn left client-provided tool calls parked, `outcome.pendingToolCallIds` names them; a null route result is omitted, never `null` |
+| `done` | terminal `RUN_FINISHED` with `outcome.type: "success"`; when this run left client-provided tool calls parked, `outcome.pendingToolCallIds` names them; a null route result is omitted, never `null` |
 | `POST /threads/:id/cancel` or a server shutdown during the run | terminal `RUN_FINISHED` with `outcome.type: "cancelled"` |
 | upstream error | terminal `RUN_ERROR` |
 

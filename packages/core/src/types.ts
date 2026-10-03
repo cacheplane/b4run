@@ -289,8 +289,9 @@ export interface B4Config {
       readonly clientToolTtlMs?: number
       /**
        * How long, in milliseconds, a settled client tool call record (answered
-       * or voided) or an expired outstanding one is kept before the runtime
-       * deletes it. Default `604800000` (7 days). The runtime prunes at
+       * or voided), an expired outstanding one, or a settled server tool call
+       * record is kept before the runtime deletes it. Default `604800000` (7
+       * days). The runtime prunes at
        * `now - max(clientToolRetentionMs, clientToolTtlMs)`, so a record is
        * never deleted while its call could still be answered. Must be a
        * positive integer no greater than one year (`31536000000`); anything
@@ -298,8 +299,10 @@ export interface B4Config {
        */
       readonly clientToolRetentionMs?: number
       /**
-       * Where outstanding client tool calls are recorded, so a later
+       * Where tool calls on AG-UI runs are recorded, so a later
        * `role: "tool"` message can be matched to a call this server issued.
+       * On an app with a store, every tool call on an AG-UI run is recorded
+       * (server calls as identity only).
        * Defaults to a SQLite store at `<appRoot>/.b4/client-tool-calls.sqlite`
        * on node — opened only when some route is listed in `clientTools`.
        * Multi-replica deployments need a shared one

@@ -70,9 +70,11 @@ export interface ToAguiOptions {
    * Asked when the run ends in success: the client-provided tool calls this
    * turn left parked, awaiting the client's results. 1.0 ends such a turn as
    * success with `pendingToolCallIds`, never as an interrupt. Absent or empty
-   * means none, and the key is then omitted (never `[]`).
+   * means none, and the key is then omitted (never `[]`). May be asynchronous:
+   * the runtime reads them from its tool-call record.
+   * A rejection ends the run as RUN_ERROR rather than reporting nothing pending.
    */
-  readonly pendingToolCallIds?: () => readonly string[]
+  readonly pendingToolCallIds?: () => readonly string[] | Promise<readonly string[]>
 }
 
 function stringifyArgs(input: unknown): string {
@@ -131,8 +133,8 @@ export async function* toAguiEvents(
    */
   const openStreamedToolCalls = new Map<string, string>()
 
-  function successOutcome(): NonNullable<RunFinishedEvent["outcome"]> {
-    const pending = options.pendingToolCallIds?.() ?? []
+  async function successOutcome(): Promise<NonNullable<RunFinishedEvent["outcome"]>> {
+    const pending = (await options.pendingToolCallIds?.()) ?? []
     return pending.length > 0
       ? { type: "success", pendingToolCallIds: [...pending] }
       : { type: "success" }
@@ -447,7 +449,7 @@ export async function* toAguiEvents(
             ...(Object.hasOwn(chunk, "data") && chunk.data !== undefined && chunk.data !== null
               ? { result: chunk.data }
               : {}),
-            outcome: successOutcome(),
+            outcome: await successOutcome(),
             ...usage.terminal(),
           }
           return
@@ -477,7 +479,7 @@ export async function* toAguiEvents(
       type: EventType.RUN_FINISHED,
       threadId: ctx.threadId,
       runId: ctx.runId,
-      outcome: successOutcome(),
+      outcome: await successOutcome(),
       ...usage.terminal(),
     }
   } catch (err) {

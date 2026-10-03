@@ -321,14 +321,15 @@ export const INTERRUPT_GRANTS_MIGRATIONS: readonly Migration[] = [
  * `test/client-tool-calls-ddl.test.ts`.
  *
  * 1. **A shipped migration is frozen.** Once a database has recorded
- *    `version = 1` in the component's migrations table, `runMigrations` never
+ *    `version = 1` (or 2) in the component's migrations table, `runMigrations` never
  *    issues this statement against it again, so editing version 1 changes only
- *    what a virgin database gets. Change the shape by APPENDING
- *    `{ version: 2, up: (naming) => \`ALTER TABLE …\` }`.
+ *    what a virgin database gets. Versions 1 and 2 are both frozen now. Change
+ *    the shape by APPENDING the next version
+ *    (`{ version: 3, up: (naming) => \`ALTER TABLE …\` }`).
  *
- * 2. **No column default is load-bearing.** There is deliberately not a single
- *    `DEFAULT` here: every INSERT names all eleven columns and supplies all eleven
- *    values, so a default could only mask a wiring bug.
+ * 2. **No column default is load-bearing.** Migration 2's `DEFAULT 'client'`
+ *    only backfills rows that predate `kind`; every INSERT names all thirteen
+ *    columns.
  *
  * Timestamps are app-generated ISO-8601 `text`, as in the other tables. The
  * primary key is `(thread_id, tool_call_id)` — the provider's tool-call id is
@@ -355,6 +356,16 @@ export const CLIENT_TOOL_CALLS_MIGRATIONS: readonly Migration[] = [
       );
       CREATE INDEX IF NOT EXISTS ${naming.prefix}_client_tool_calls_thread_idx
         ON ${qualify(naming, "client_tool_calls")} (thread_id);
+    `,
+  },
+  {
+    // `kind` is NOT NULL, so the ADD COLUMN carries a DEFAULT to backfill the
+    // version-1 rows (all client calls). The default exists for the backfill
+    // only; every INSERT names `kind`, pinned by the DDL test.
+    version: 2,
+    up: (naming) => `
+      ALTER TABLE ${qualify(naming, "client_tool_calls")} ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'client' CHECK (kind IN ('client', 'server'));
+      ALTER TABLE ${qualify(naming, "client_tool_calls")} ADD COLUMN IF NOT EXISTS settled_at text;
     `,
   },
 ]

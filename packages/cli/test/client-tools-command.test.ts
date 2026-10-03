@@ -52,6 +52,8 @@ const row = (over: Partial<ClientToolCallRecord>): ClientToolCallRecord => ({
   answeredAt: null,
   result: null,
   voidedAt: null,
+  kind: "client",
+  settledAt: null,
   ...over,
 })
 
