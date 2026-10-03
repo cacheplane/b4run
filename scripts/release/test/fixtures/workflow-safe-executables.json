@@ -450,7 +450,7 @@
         "stepIndex": 5,
         "step": "CopilotKit v2 runtime against B4.run",
         "kind": "run",
-        "value": "pnpm --filter @b4run/ag-ui build\npnpm exec vitest --run --config test/security-dependencies/vitest.config.ts test/security-dependencies/copilotkit-v2-runtime.test.ts\n"
+        "value": "pnpm --filter @b4run/ag-ui... build\npnpm exec vitest --run --config test/security-dependencies/vitest.config.ts test/security-dependencies/copilotkit-v2-runtime.test.ts\n"
       },
       {
         "classification": "safe",
@@ -770,7 +770,7 @@
         "stepIndex": 5,
         "step": "Build example workspace dependencies",
         "kind": "run",
-        "value": "pnpm --filter @b4run/ag-ui build"
+        "value": "pnpm --filter @b4run/ag-ui... build"
       },
       {
         "classification": "safe",

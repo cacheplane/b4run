@@ -59,11 +59,13 @@ import {
   defaultSummarize,
   defaultTokenCounter,
   executeAgentTurn,
+  formatDroppedPartsWarning,
   type JsonSchemaResponseFormat,
   materializeAgentGraph,
   type OffloadFn,
   OffloadStore,
   offloadToolOutput,
+  pickDroppedPartsReport,
   type ResolvedSubagentGraph,
   type ResolvedSummarizationConfig,
   resolveProvider,
@@ -751,6 +753,28 @@ export async function* streamResolvedRoute(
             // consumer.
             sawInterrupt = true
             yield { type: "interrupt", data: chunk.data }
+            break
+          }
+          case "content_parts_dropped":
+          case "subagent.content_parts_dropped": {
+            // The spec's lossy-downgrade warning: for the developer, on the
+            // server, whichever front door the run came through — and for a
+            // drop inside a subagent too, whose report rides alongside the
+            // child's identity fields. The chunk also passes through
+            // unchanged, so the AG-UI adapter can announce it on the stream.
+            // The pointer names the assistant id, which is what
+            // `GET /agui/:routeId` looks routes up by. A malformed report (no
+            // parts list) passes through silently, as in `executeAgentTurn`.
+            const report = pickDroppedPartsReport(chunk.data)
+            if (report) {
+              console.warn(
+                formatDroppedPartsWarning({
+                  ...report,
+                  routeId: createRouteAssistantId(options.routeId, "agent"),
+                }),
+              )
+            }
+            yield { type: chunk.type, data: chunk.data }
             break
           }
           default: {

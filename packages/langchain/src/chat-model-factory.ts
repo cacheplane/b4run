@@ -177,6 +177,112 @@ export function unsupportedResponseFormatMessage(provider: BuiltInModelProviderI
   )
 }
 
+/**
+ * What a route's model can take, as a content part: the one judgment behind
+ * both the run-time drop decision (`toLangChainContent`) and the capability
+ * document, once sub-project 3's PR 2 adds the `multimodal` section. Read off LangChain's per-model `profile`
+ * (`@langchain/core` `ModelProfile`), every flag defaulting to `false`; a
+ * model with no profile — every `ollama` and `mistral` model, an unknown id
+ * elsewhere — falls back to a conservative per-provider table. `file` is a
+ * provider fact, not a profile one: whether its converter maps a `fileId`.
+ * Provider overrides (converter limits the profile does not know about) apply
+ * after the profile, on both the profile and the fallback path.
+ */
+export interface ModalitySupport {
+  readonly image: { readonly data: boolean; readonly url: boolean }
+  readonly pdf: { readonly data: boolean; readonly url: boolean }
+  readonly audio: boolean
+  readonly video: boolean
+  readonly toolResult: { readonly image: boolean; readonly pdf: boolean }
+  /** Which part types this provider's converter maps a provider file handle (`fileId`) for. */
+  readonly file: { readonly image: boolean; readonly pdf: boolean }
+}
+
+/**
+ * Images inline or by URL, and nothing else. This is what every provider's
+ * converter handles only together with the conversion module's mapping:
+ * the `ollama` and `mistral` converters accept just the legacy `image_url`
+ * block, and `toLangChainContent` emits that for them.
+ */
+export const DEFAULT_MODALITY_SUPPORT: ModalitySupport = {
+  image: { data: true, url: true },
+  pdf: { data: false, url: false },
+  audio: false,
+  video: false,
+  toolResult: { image: false, pdf: false },
+  file: { image: false, pdf: false },
+}
+
+/** Per provider, which part types its LangChain converter maps a `fileId` for; absent → none. Verified against the converters: anthropic maps both; openai's Chat Completions path maps only `file` blocks (its image branch has no fileId case); google-genai throws on fileId. */
+const FILE_HANDLE_SUPPORT: Partial<Record<BuiltInModelProviderId, ModalitySupport["file"]>> = {
+  openai: { image: false, pdf: true },
+  anthropic: { image: true, pdf: true },
+}
+
+/** Provider converter limits the profile does not know about. Verified against the installed packages. */
+const PROVIDER_OVERRIDES: Partial<
+  Record<BuiltInModelProviderId, (support: ModalitySupport) => ModalitySupport>
+> = {
+  // Chat Completions (the path B4.run uses; `useResponsesApi` is never set): a `file` block
+  // maps only from `data`/`fileId` (a URL vanishes), and a tool message is reduced to its
+  // text, so media in a tool result never reaches the model.
+  openai: (s) => ({
+    ...s,
+    pdf: { ...s.pdf, url: false },
+    toolResult: { image: false, pdf: false },
+  }),
+}
+
+const PROVIDER_MODALITY_FALLBACK: Partial<Record<BuiltInModelProviderId, ModalitySupport>> = {
+  // `@langchain/ollama` base64-encodes `image_url` content and cannot pass a URL through.
+  ollama: { ...DEFAULT_MODALITY_SUPPORT, image: { data: true, url: false } },
+}
+
+interface ProfileFlags {
+  readonly imageInputs?: unknown
+  readonly imageUrlInputs?: unknown
+  readonly pdfInputs?: unknown
+  readonly audioInputs?: unknown
+  readonly videoInputs?: unknown
+  readonly imageToolMessage?: unknown
+  readonly pdfToolMessage?: unknown
+}
+
+function readProfile(model: unknown): ProfileFlags | undefined {
+  let current: unknown = model
+  for (let depth = 0; depth < 4 && typeof current === "object" && current !== null; depth++) {
+    const profile = (current as { readonly profile?: unknown }).profile
+    if (typeof profile === "object" && profile !== null && Object.keys(profile).length > 0) {
+      return profile as ProfileFlags
+    }
+    current = (current as { readonly bound?: unknown }).bound
+  }
+  return undefined
+}
+
+export function resolveModalitySupport(
+  model: unknown,
+  provider: BuiltInModelProviderId,
+): ModalitySupport {
+  const file = FILE_HANDLE_SUPPORT[provider] ?? DEFAULT_MODALITY_SUPPORT.file
+  const profile = readProfile(model)
+  const base: ModalitySupport = profile
+    ? {
+        image: { data: profile.imageInputs === true, url: profile.imageUrlInputs === true },
+        pdf: { data: profile.pdfInputs === true, url: profile.pdfInputs === true },
+        audio: profile.audioInputs === true,
+        video: profile.videoInputs === true,
+        toolResult: {
+          image: profile.imageToolMessage === true,
+          pdf: profile.pdfToolMessage === true,
+        },
+        file,
+      }
+    : { ...(PROVIDER_MODALITY_FALLBACK[provider] ?? DEFAULT_MODALITY_SUPPORT), file }
+  const override = PROVIDER_OVERRIDES[provider]
+  return override ? override(base) : base
+}
+
 interface WithConfig {
   readonly withConfig: (config: Record<string, unknown>) => unknown
 }

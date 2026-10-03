@@ -12,9 +12,28 @@ export interface Recording {
   readonly response: AimockResponse
 }
 
+/** The text of a recorded message: a string as is; an array's `text` parts joined (the rule aimock's matcher uses). */
+function messageText(content: unknown): string | undefined {
+  if (typeof content === "string") return content
+  if (!Array.isArray(content)) return undefined
+  const text = content
+    .map((part) =>
+      typeof part === "object" &&
+      part !== null &&
+      (part as { type?: unknown }).type === "text" &&
+      typeof (part as { text?: unknown }).text === "string"
+        ? (part as { text: string }).text
+        : "",
+    )
+    .join("")
+  return text.length > 0 ? text : undefined
+}
+
 function firstUserMessage(req: Recording["request"]): string | undefined {
   for (const m of req.messages ?? []) {
-    if (m.role === "user" && typeof m.content === "string") return m.content
+    if (m.role !== "user") continue
+    const text = messageText(m.content)
+    if (text !== undefined) return text
   }
   return undefined
 }

@@ -1,13 +1,14 @@
 import type { BaseMessage } from "@langchain/core/messages"
 import { createChatModel } from "../chat-model-factory.js"
 import { resolveProvider } from "../model-provider-resolver.js"
+import { messageContentText } from "./message-text.js"
 
 function renderMessages(messages: readonly BaseMessage[]): string {
   return messages
     .map((m) => {
       const getType = (m as { getType?: () => string }).getType
       const role = typeof getType === "function" ? getType.call(m) : "message"
-      const content = typeof m.content === "string" ? m.content : JSON.stringify(m.content)
+      const content = messageContentText(m.content).text
       const toolCalls = (m as { tool_calls?: unknown[] }).tool_calls
       const tc =
         toolCalls && toolCalls.length > 0 ? `\n[tool_calls: ${JSON.stringify(toolCalls)}]` : ""

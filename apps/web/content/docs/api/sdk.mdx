@@ -125,6 +125,18 @@ import { scenarios } from "@b4run/sdk/testing"
 | `ClientToolRecorder` | Record a tool call before it runs or its turn parks, and settle a server call afterward. |
 | `CLIENT_TOOL_RECORDER_KEY` | Name the run-config key the per-run client tool recorder travels under. |
 | `createMemoryClientToolCallStore` | Create the in-process client tool call store used by tests and embedders. |
+| `B4ContentPart` | Describe one AG-UI 1.0 content part: a `B4TextPart` or a `B4MediaPart`. |
+| `B4TextPart` | Describe a `text` content part. |
+| `B4MediaPart` | Describe an `image`, `audio`, `video` or `document` part and its source. |
+| `B4MediaPartType` | Name the four media part types. |
+| `B4PartSource` | Describe where a media part's bytes come from: inline data, a URL, or a provider file handle. |
+| `B4DataSource` | Describe inline base64 bytes with their `mimeType`. |
+| `B4UrlSource` | Describe a URL the provider fetches; B4.run never fetches it. |
+| `B4FileSource` | Describe a file handle issued by a model provider, optionally naming that provider. |
+| `B4MessageContent` | Describe what a user or tool message carries: a string or an ordered list of content parts. |
+| `isContentPart` | Check that an unvalidated value is a structurally valid content part. |
+| `isContentPartArray` | Check that an unvalidated value is an array of valid content parts. |
+| `contentPartsText` | Read a message's text: a string as is, or a part list's text parts in order. |
 | `BuiltInModelProviderId` | Name a built-in model provider. |
 | `ModelProviderId` | Name a built-in or custom model provider. |
 | `inferProvider` | Infer a provider from a model ID. |

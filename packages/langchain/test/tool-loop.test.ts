@@ -1,5 +1,5 @@
-import { AIMessage } from "@langchain/core/messages"
-import { describe, expect, test } from "vitest"
+import { AIMessage, ToolMessage } from "@langchain/core/messages"
+import { describe, expect, test, vi } from "vitest"
 import { executeWithToolLoop } from "../src/tool-loop.js"
 
 describe("executeWithToolLoop", () => {
@@ -74,5 +74,40 @@ describe("executeWithToolLoop", () => {
         maxIterations: 3,
       }),
     ).rejects.toThrow(/maximum.*iterations/i)
+  })
+
+  test("a content-part result reaches the model as its text; dropped media are warned about", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const seen: unknown[] = []
+    let callCount = 0
+    const mockChain = {
+      invoke: async (input: unknown) => {
+        callCount++
+        if (callCount === 1) {
+          return new AIMessage({
+            content: "",
+            tool_calls: [{ id: "call_1", name: "render", args: {} }],
+          })
+        }
+        seen.push(input)
+        return new AIMessage({ content: "done" })
+      },
+    }
+    const png = { type: "image", source: { type: "data", value: "AAAA", mimeType: "image/png" } }
+    try {
+      await executeWithToolLoop({
+        chain: mockChain,
+        input: { message: "draw" },
+        tools: [{ name: "render", run: async () => [{ type: "text", text: "chart" }, png] }],
+        signal: new AbortController().signal,
+      })
+      const toolMessage = (seen[0] as unknown[]).find(
+        (m) => m instanceof ToolMessage,
+      ) as ToolMessage
+      expect(toolMessage.content).toBe("chart")
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("image/data"))
+    } finally {
+      warn.mockRestore()
+    }
   })
 })

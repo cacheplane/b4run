@@ -60,6 +60,7 @@
   "dependencies": {
     "@ag-ui/core": "1.0.1",
     "@ag-ui/encoder": "1.0.1",
+    "@b4run/sdk": "workspace:*",
     "zod": "^4.4.3"
   },
   "peerDependencies": {

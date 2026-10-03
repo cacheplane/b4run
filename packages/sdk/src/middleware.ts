@@ -1,3 +1,5 @@
+import type { B4MessageContent } from "./content-parts.js"
+
 export interface MiddlewareRequest {
   /**
    * Detached snapshot of the original parsed JSON envelope on POST execution
@@ -35,7 +37,8 @@ export type MiddlewareHandler = (
 /** One message of the conversation a run was started with, as the client sent it. */
 export interface MiddlewareAfterMessage {
   readonly role: string
-  readonly content: string
+  /** What the client sent: text, or AG-UI 1.0 content parts. */
+  readonly content: B4MessageContent
   readonly id?: string
 }
 

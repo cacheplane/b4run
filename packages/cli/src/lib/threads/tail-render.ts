@@ -20,10 +20,46 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
+const MEDIA_TYPES: ReadonlySet<string> = new Set([
+  "image",
+  "audio",
+  "video",
+  "document",
+  "file",
+  "image_url",
+])
+
+/**
+ * A media part (AG-UI `{ type, source }`) or LangChain block (`{ type, data |
+ * url | fileId }`, `{ type: "image_url", image_url }`) as a short placeholder
+ * such as `[image image/png]`, so a tail never prints base64. Anything else is
+ * returned unchanged.
+ */
+function mediaPlaceholder(value: unknown): unknown {
+  if (!isRecord(value) || typeof value.type !== "string" || !MEDIA_TYPES.has(value.type)) {
+    return value
+  }
+  const source = isRecord(value.source) ? value.source : undefined
+  if (
+    source === undefined &&
+    !("data" in value || "url" in value || "fileId" in value || "image_url" in value)
+  ) {
+    return value
+  }
+  const type = value.type === "image_url" ? "image" : value.type
+  const mimeType =
+    typeof source?.mimeType === "string"
+      ? source.mimeType
+      : typeof value.mimeType === "string"
+        ? value.mimeType
+        : undefined
+  return mimeType !== undefined ? `[${type} ${mimeType}]` : `[${type}]`
+}
+
 function stringifyContent(content: unknown): string {
   if (typeof content === "string") return content
   try {
-    return JSON.stringify(content) ?? String(content)
+    return JSON.stringify(content, (_key, value) => mediaPlaceholder(value)) ?? String(content)
   } catch {
     return String(content)
   }

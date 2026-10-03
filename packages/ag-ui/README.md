@@ -14,7 +14,7 @@ Supported AG-UI protocol translation for B4.run runtime streams, client inputs, 
 pnpm add @b4run/ag-ui
 ```
 
-Requires `@ag-ui/core` 1.0.1 (a dependency). `@ag-ui/client` `>=1.0.1 <2.0.0` is an optional peer.
+Requires `@ag-ui/core` 1.0.1 and `@b4run/sdk` (the matching B4.run release, for the shared content-part types), both dependencies. `@ag-ui/client` `>=1.0.1 <2.0.0` is an optional peer.
 
 ## Example
 
