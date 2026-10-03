@@ -3,6 +3,7 @@ import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { decode } from "@ag-ui/proto"
 import { createSubagentsMarker } from "@b4run/core"
 import {
   convertSubagentTaskToLangChain,
@@ -88,6 +89,35 @@ function parseSseEvents(text: string): Record<string, unknown>[] {
       ?.slice("data: ".length)
     return data ? [JSON.parse(data) as Record<string, unknown>] : []
   })
+}
+
+/**
+ * Every frame of the HTTP+protobuf binding: a 4-byte unsigned big-endian
+ * length, then exactly that many bytes of one event, frames abutting with no
+ * separator. The whole body is read first, so frames split across transport
+ * chunks arrive here whole.
+ */
+function parseProtoFrames(bytes: Uint8Array): Record<string, unknown>[] {
+  const events: Record<string, unknown>[] = []
+  let offset = 0
+  while (offset < bytes.length) {
+    if (bytes.length - offset < 4) throw new Error(`truncated length prefix at byte ${offset}`)
+    const length = new DataView(bytes.buffer, bytes.byteOffset + offset, 4).getUint32(0, false)
+    offset += 4
+    if (bytes.length - offset < length) throw new Error(`truncated frame at byte ${offset}`)
+    events.push(decode(bytes.subarray(offset, offset + length)) as Record<string, unknown>)
+    offset += length
+  }
+  return events
+}
+
+async function postProtoRun(
+  port: number,
+  body: Record<string, unknown>,
+): Promise<{ events: Record<string, unknown>[]; response: Response }> {
+  const response = await requestRun(port, body, { accept: "application/vnd.ag-ui.event+proto" })
+  const bytes = new Uint8Array(await response.arrayBuffer())
+  return { events: parseProtoFrames(bytes), response }
 }
 
 async function postRun(
@@ -342,6 +372,47 @@ it("streams the canonical AG-UI lifecycle and successful result", async () => {
   })
   expect(events.map((event) => event.type)).not.toContain("STATE_SNAPSHOT")
   expect(events.map((event) => event.type)).not.toContain("CUSTOM")
+}, 60_000)
+
+it("serves the HTTP+protobuf binding when Accept asks for it, with the same events", async () => {
+  // aimock fixtures are matched, not consumed: one script serves both threads.
+  const { port } = await setupServer(script().user("hello").replies("Hi there!").build())
+  const sse = await postRun(port, {
+    threadId: "th-sse",
+    runId: "rn-sse",
+    messages: [{ id: "1", role: "user", content: "hello" }],
+  })
+  const binary = await postProtoRun(port, {
+    threadId: "th-proto",
+    runId: "rn-proto",
+    messages: [{ id: "1", role: "user", content: "hello" }],
+  })
+
+  expect(sse.response.headers.get("content-type")).toBe("text/event-stream")
+  expect(binary.response.status).toBe(200)
+  expect(binary.response.headers.get("content-type")).toBe("application/vnd.ag-ui.event+proto")
+  expect(binary.response.headers.get("cache-control")).toBe("no-cache")
+  // Negotiated from `accept`: both bindings say so to caches.
+  expect(binary.response.headers.get("vary")).toBe("accept")
+  expect(sse.response.headers.get("vary")).toBe("accept")
+  expect(binary.events.map((event) => event.type)).toEqual(sse.events.map((event) => event.type))
+  expect(binary.events[2]).toMatchObject({ delta: "Hi there!" })
+  expect(binary.events.at(-1)).toMatchObject({
+    outcome: { type: "success" },
+    runId: "rn-proto",
+    threadId: "th-proto",
+  })
+}, 60_000)
+
+it("answers SSE to a client that does not admit protobuf, whatever else it lists", async () => {
+  const { port } = await setupServer(script().user("hello").replies("Hi there!").build())
+  const response = await requestRun(
+    port,
+    { threadId: "th2", runId: "rn2", messages: [{ id: "1", role: "user", content: "hello" }] },
+    { accept: "text/event-stream, application/vnd.ag-ui.event+proto;q=0" },
+  )
+  expect(response.headers.get("content-type")).toBe("text/event-stream")
+  expect(parseSseEvents(await response.text()).map((event) => event.type)).toContain("RUN_FINISHED")
 }, 60_000)
 
 it("collects and resumes interleaved native parallel subagent interrupts", async () => {

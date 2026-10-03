@@ -44,6 +44,13 @@ const MIDDLEWARE = `
     : { action: "reject", status: 401, body: { error: "missing api key" } }
 `
 
+/** Claims every route makes, whatever its module says. */
+const TRANSPORT = { httpBinary: true, streaming: true }
+const REASONING = { supported: false }
+const AGENT_STATE = { deltas: false, persistentState: true, snapshots: false }
+const RAW_STATE = { deltas: false, snapshots: false }
+const ONE_SHOT_STATE = { deltas: false, persistentState: false, snapshots: false }
+
 async function fixtureApp(
   options: { config?: string; files?: Record<string, string> } = {},
 ): Promise<string> {
@@ -123,8 +130,10 @@ describe("GET /agui/:routeId", () => {
         supported: true,
       },
       output: { structuredOutput: true },
+      reasoning: REASONING,
+      state: AGENT_STATE,
       tools: { clientProvided: true, parallelCalls: true, supported: true },
-      transport: { streaming: true },
+      transport: TRANSPORT,
     })
   })
 
@@ -157,8 +166,10 @@ describe("GET /agui/:routeId", () => {
         supported: false,
       },
       output: { structuredOutput: false },
+      reasoning: REASONING,
+      state: ONE_SHOT_STATE,
       tools: { clientProvided: false, supported: false },
-      transport: { streaming: true },
+      transport: TRANSPORT,
     })
   })
 
@@ -172,8 +183,10 @@ describe("GET /agui/:routeId", () => {
     expect(await capabilities(handler, "/raw#agent")).toEqual({
       humanInTheLoop: { approveWithEdits: false, interrupts: true, supported: true },
       output: { structuredOutput: false },
+      reasoning: REASONING,
+      state: RAW_STATE,
       tools: { clientProvided: false },
-      transport: { streaming: true },
+      transport: TRANSPORT,
     })
   })
 
@@ -232,7 +245,7 @@ describe("GET /agui/:routeId", () => {
     expect(response.status).toBe(500)
   })
 
-  it("claims nothing about an agent route on a boot that cannot load route modules", async () => {
+  it("claims only what needs no route module on a boot that cannot load them", async () => {
     // No node fallbacks and no static manifest seeding the module cache — the
     // preflight `POST` would run cannot run here either.
     const routeFile = join(tmpdir(), `b4-unloadable-${Date.now()}`, "index.ts")
@@ -255,7 +268,18 @@ describe("GET /agui/:routeId", () => {
     })
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ transport: { streaming: true } })
+    // reasoning is a fact about the translator; persistentState needs the
+    // module, so it is omitted.
+    expect(await response.json()).toEqual({
+      reasoning: REASONING,
+      state: RAW_STATE,
+      transport: TRANSPORT,
+    })
+  })
+
+  it("advertises the binary binding on a one-shot route", async () => {
+    const handler = await createHandler(await fixtureApp())
+    expect((await capabilities(handler, "/echo#graph")).transport).toEqual(TRANSPORT)
   })
 
   it("is 404 for an unknown route", async () => {
@@ -345,6 +369,34 @@ describe("GET /agui/:routeId agrees with what POST enforces", () => {
       hashbrown: { responseSchema: { type: "object" } },
     })
     expect(schema === undefined).toBe(advertised.output?.structuredOutput)
+  })
+
+  it.each(ROUTES)("the binding on %s", async (routeKey) => {
+    await withModel()
+    const handler = await createHandler(await fixtureApp())
+    expect((await capabilities(handler, routeKey)).transport?.httpBinary).toBe(true)
+
+    const response = await handler.fetch(
+      new Request(capabilitiesUrl(routeKey), {
+        body: JSON.stringify({
+          context: [],
+          forwardedProps: {},
+          messages: [{ content: "hello", id: "m1", role: "user" }],
+          runId: "run-binding",
+          state: {},
+          threadId: `t-binding-${routeKey}`,
+          tools: [],
+        }),
+        headers: {
+          accept: "application/vnd.ag-ui.event+proto",
+          "content-type": "application/json",
+        },
+        method: "POST",
+      }),
+    )
+    expect(response.status).toBe(200)
+    expect(response.headers.get("content-type")).toBe("application/vnd.ag-ui.event+proto")
+    await response.body?.cancel()
   })
 
   it("client tools with no client tool store", async () => {

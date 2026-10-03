@@ -247,7 +247,8 @@ const EXPECTED_REQUIRED_CONTRACT_KEYS = [
   "@b4run/langgraph#./route-module:WorkflowRouteModule",
   "@b4run/langgraph#./route-module:assertExactlyOneEntry",
   "@b4run/langgraph#./route-module:normalizeRouteModule",
-  "@b4run/ag-ui#./sse:encodeAgUiSse",
+  "@b4run/ag-ui#./sse:agUiContentType",
+  "@b4run/ag-ui#./sse:encodeAgUiEvent",
   "@b4run/ag-ui#./client:B4HttpAgent",
   "@b4run/ag-ui#.:B4_PLAN_ACTIVITY_TYPE",
   "@b4run/ag-ui#.:B4_SUBAGENT_ACTIVITY_TYPE",
@@ -1077,7 +1078,7 @@ describe("package catalog", { timeout: 30_000 }, () => {
 
   it("registers every authored high-value signature contract exactly once", () => {
     expect(API_REQUIRED_CONTRACT_KEYS).toEqual(EXPECTED_REQUIRED_CONTRACT_KEYS)
-    expect(API_REQUIRED_CONTRACT_KEYS).toHaveLength(120)
+    expect(API_REQUIRED_CONTRACT_KEYS).toHaveLength(121)
     expect(new Set(API_REQUIRED_CONTRACT_KEYS).size).toBe(API_REQUIRED_CONTRACT_KEYS.length)
     expect(API_REQUIRED_CONTRACT_KEYS).toContain("@b4run/sdk#.:agent")
     expect(API_REQUIRED_CONTRACT_KEYS).toContain("@b4run/memory#.:MemoryStore")

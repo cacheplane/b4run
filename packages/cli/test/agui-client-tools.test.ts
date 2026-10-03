@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { decode } from "@ag-ui/proto"
 import { ABANDONED_CLIENT_TOOL_RESULT, CLIENT_TOOL_UNAVAILABLE_RESULT } from "@b4run/core"
 import {
   type ClientToolCallRecord,
@@ -166,7 +167,12 @@ function aguiRequest(
   threadId: string,
   runId: string,
   messages: readonly AguiMessage[],
-  options: { tools?: readonly unknown[]; route?: string; resume?: readonly unknown[] } = {},
+  options: {
+    tools?: readonly unknown[]
+    route?: string
+    resume?: readonly unknown[]
+    accept?: string
+  } = {},
 ): Request {
   return new Request(
     `http://localhost/agui/${encodeURIComponent(options.route ?? "/park#agent")}`,
@@ -181,7 +187,10 @@ function aguiRequest(
         tools: options.tools ?? [OPEN_PANEL],
         ...(options.resume ? { resume: options.resume } : {}),
       }),
-      headers: { accept: "text/event-stream", "content-type": "application/json" },
+      headers: {
+        accept: options.accept ?? "text/event-stream",
+        "content-type": "application/json",
+      },
       method: "POST",
     },
   )
@@ -197,12 +206,36 @@ function parseSseEvents(text: string): Record<string, unknown>[] {
   })
 }
 
+/**
+ * Every frame of the HTTP+protobuf binding: a 4-byte unsigned big-endian
+ * length, then exactly that many bytes of one event, frames abutting with no
+ * separator. The whole body is read first, so frames split across transport
+ * chunks arrive here whole.
+ */
+function parseProtoFrames(bytes: Uint8Array): Record<string, unknown>[] {
+  const events: Record<string, unknown>[] = []
+  let offset = 0
+  while (offset < bytes.length) {
+    if (bytes.length - offset < 4) throw new Error(`truncated length prefix at byte ${offset}`)
+    const length = new DataView(bytes.buffer, bytes.byteOffset + offset, 4).getUint32(0, false)
+    offset += 4
+    if (bytes.length - offset < length) throw new Error(`truncated frame at byte ${offset}`)
+    events.push(decode(bytes.subarray(offset, offset + length)) as Record<string, unknown>)
+    offset += length
+  }
+  return events
+}
+
 async function run(handler: Handler, request: Request) {
   const response = await handler.fetch(request)
-  const text = await response.text()
-  const isSse = response.headers.get("content-type")?.includes("text/event-stream") ?? false
+  const contentType = response.headers.get("content-type") ?? ""
+  const bytes = contentType.startsWith("application/vnd.ag-ui.event+proto")
+    ? new Uint8Array(await response.arrayBuffer())
+    : undefined
+  const text = bytes ? "" : await response.text()
+  const isSse = contentType.includes("text/event-stream")
   return {
-    events: isSse ? parseSseEvents(text) : [],
+    events: bytes ? parseProtoFrames(bytes) : isSse ? parseSseEvents(text) : [],
     /** `code` is the endpoint's own code (`error.details.code`); `b4Code` the registry code. */
     json: () => {
       const body = JSON.parse(text) as {
@@ -211,6 +244,7 @@ async function run(handler: Handler, request: Request) {
       return { code: body.error?.details?.code, b4Code: body.error?.code }
     },
     status: response.status,
+    vary: response.headers.get("vary"),
     text,
   }
 }
@@ -397,6 +431,28 @@ describe("POST /agui/:route with client-provided tools", () => {
     const sequence = requestSequence(t.aimock.getRequests().at(-1))
     expect(sequence).toContain("tool:call_a=A done")
     expect(sequence).toContain("tool:call_b=B done")
+  })
+
+  it("answers a partial result in the HTTP+protobuf binding when the client asks", async () => {
+    const t = await parkedRun([CALL_A, CALL_B])
+    expect(t.first.status).toBe(200)
+
+    const partial = await run(
+      t.handler,
+      aguiRequest(
+        t.threadId,
+        "run-2",
+        [USER_HELLO, assistantCalls(["call_a", "call_b"]), toolResult("m3", "call_a", "A done")],
+        { accept: "application/vnd.ag-ui.event+proto" },
+      ),
+    )
+    expect(partial.status).toBe(200)
+    expect(partial.vary).toBe("accept")
+    expect(partial.events.map((event) => event.type)).toEqual(["RUN_STARTED", "RUN_FINISHED"])
+    expect(finished(partial.events)?.outcome).toEqual({
+      type: "success",
+      pendingToolCallIds: ["call_b"],
+    })
   })
 
   it("a follow-up that omits `tools` still resumes the parked stub (default sqlite store)", async () => {

@@ -4,7 +4,7 @@ import { describe, expect, test } from "vitest"
 import { B4_PLAN_ACTIVITY_TYPE, B4_SUBAGENT_ACTIVITY_TYPE } from "../src/activities.ts"
 import { createCounterIdFactory } from "../src/ids.js"
 import { toAguiEvents } from "../src/outbound.js"
-import { encodeAgUiSse } from "../src/sse.js"
+import { encodeAgUiEvent } from "../src/sse.js"
 import type { B4AgentStreamChunk } from "../src/types.js"
 
 const CTX = { threadId: "th-1", runId: "rn-1" }
@@ -149,7 +149,8 @@ describe("toAguiEvents", () => {
     expect(result.content).toBe(expected)
 
     // zod output spells optionals as T | undefined; the wire type does not.
-    const dataLine = encodeAgUiSse(result as BaseEvent)
+    const dataLine = new TextDecoder()
+      .decode(encodeAgUiEvent(result as BaseEvent))
       .split("\n")
       .find((line) => line.startsWith("data: "))
     if (dataLine === undefined) throw new Error("SSE frame is missing a data line")
@@ -1421,5 +1422,17 @@ describe("1.0 null discipline", () => {
     const events = await collect([{ type: "done", data: null }])
     expect(events.at(-1)).toMatchObject({ type: EventType.RUN_FINISHED })
     expect(events.at(-1)).not.toHaveProperty("result")
+  })
+
+  test("no chunk becomes a REASONING_* event (capabilities advertise reasoning.supported: false)", async () => {
+    const events = await collect([
+      { type: "reasoning", data: "let me think" } as never,
+      { type: "thinking", data: { thinking: "…" } } as never,
+      { type: "token", data: "Hi" },
+      { type: "done", data: {} },
+    ])
+    // Flips with AG-UI sub-project 2: when the translator emits REASONING_*,
+    // agui-capabilities.ts's REASONING constant must flip in the same change.
+    expect(events.filter((event) => String(event.type).startsWith("REASONING"))).toEqual([])
   })
 })

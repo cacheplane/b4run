@@ -20,10 +20,11 @@ export const VERCEL_BUILD_OUTPUT_CONFIG = {
  * The runtime function's Vercel config.
  *
  * `supportsResponseStreaming` is not optional for this function: the runtime
- * answers `/agui/:routeId` and `/threads/:id/runs/stream` with
- * `text/event-stream`, and without the flag Vercel's Node launcher buffers the
- * whole body, so a browser receives nothing until the run finishes rather than
- * tokens as they are produced. It is a fact about what the runtime serves, not
+ * answers `/agui/:routeId` with `text/event-stream` or, when the request's
+ * `Accept` admits it (wildcards included), `application/vnd.ag-ui.event+proto`,
+ * and `/threads/:id/runs/stream` with `text/event-stream`; without the flag
+ * Vercel's Node launcher buffers the whole body, so a browser receives nothing
+ * until the run finishes rather than tokens as they are produced. It is a fact about what the runtime serves, not
  * a deployment preference, so it is fixed here rather than configurable.
  */
 export const VERCEL_FUNCTION_CONFIG = {

@@ -286,7 +286,7 @@ The emitted `config.json` routes are ordered: your `routes`, then `{ handle: "fi
 
 The Build Output API also serves a function named `index` at `/`, so it would shadow a static `index.html`. That's why the runtime function is named `b4.func` and routed from `/b4`, whether or not the build emits static assets. That way, a deployment that adds a frontend later keeps its function name. Setting `functionName: "index"` beside `static` fails the build.
 
-The runtime function always declares `supportsResponseStreaming: true`, and you can't turn it off. It answers `/agui/:routeId` and `/threads/:id/runs/stream` with `text/event-stream`. Without that flag, Vercel's Node launcher buffers the whole response, and the browser gets nothing until the run finishes.
+The runtime function always declares `supportsResponseStreaming: true`, and you can't turn it off. It answers `/agui/:routeId` with `text/event-stream`, or `application/vnd.ag-ui.event+proto` when the request's `accept` admits it, and `/threads/:id/runs/stream` with `text/event-stream`. Without that flag, Vercel's Node launcher buffers the whole response, and the browser gets nothing until the run finishes.
 
 The Vercel guide covers [how the composed tree is validated](/docs/deployment/vercel#compose-with-a-frontend).
 
