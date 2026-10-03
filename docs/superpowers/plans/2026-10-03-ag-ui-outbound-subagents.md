@@ -570,9 +570,9 @@ export function useSubagentRuns(agent: Pick<AbstractAgent, "subscribe"> | undefi
 
 ### Task 8: Validation and PR
 
-- [ ] Package gates for ag-ui, cli, devkit, web, research-web, chat-web, chat-server; `pnpm lint`; `pnpm ci:validate` (orphan check first; known contention flakes as before). The `copilotkit-examples-e2e` lane must be green on the PR (it rewrites example UIs).
-- [ ] Rebase onto `main` once 3a merges (`--onto`), rebuild, re-run; push `blove/agui-subagents`; PR title `feat(ag-ui)!: SUBAGENT_* lifecycle and attribution; b4.subagent removed; multiAgent capability (AG-UI 1.0 sub-project 2, PR 3b)`; bind; squash auto-merge if asked.
-- [ ] Close #885 in the PR body (`Closes #885`) — this is the last PR of the sub-project.
+- [x] Package gates for ag-ui, cli, devkit, web, research-web, chat-web, chat-server; `pnpm lint`; `pnpm ci:validate` (orphan check first; known contention flakes as before). The `copilotkit-examples-e2e` lane must be green on the PR (it rewrites example UIs).
+- [x] Rebase onto `main` once 3a merges (`--onto`), rebuild, re-run; push `blove/agui-subagents`; PR title `feat(ag-ui)!: SUBAGENT_* lifecycle and attribution; b4.subagent removed; multiAgent capability (AG-UI 1.0 sub-project 2, PR 3b)`; bind; squash auto-merge if asked.
+- [x] Close #885 in the PR body (`Closes #885`) — this is the last PR of the sub-project.
 
 ---
 
