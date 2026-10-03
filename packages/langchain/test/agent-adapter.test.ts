@@ -1870,9 +1870,17 @@ describe("b4.step custom events", () => {
   }
 
   function childMetadata(input: { callId: string; name: string; routeId: string; depth: number }) {
+    const outer = Array.from({ length: input.depth - 1 }, (_, i) => ({
+      callId: `outer-${i}`,
+      name: "outer",
+      routeId: "/outer",
+    }))
     return {
       b4: {
-        subagent_stack: [{ callId: input.callId, name: input.name, routeId: input.routeId }],
+        subagent_stack: [
+          ...outer,
+          { callId: input.callId, name: input.name, routeId: input.routeId },
+        ],
       },
     }
   }
@@ -1931,5 +1939,43 @@ describe("b4.step custom events", () => {
       },
     ])
     expect(chunks.some((chunk) => chunk.type === "step")).toBe(false)
+  })
+
+  test("a depth-2 child's step reports depth 2 and the top-of-stack call id", async () => {
+    const chunks = await collectChunksFromEvents([
+      {
+        event: "on_custom_event",
+        run_id: "custom-step-4",
+        name: "b4.step",
+        data: { tool_call_id: "deep_call", status: "running" },
+        metadata: childMetadata({
+          callId: "task-inner",
+          name: "writer",
+          routeId: "/r#writer",
+          depth: 2,
+        }),
+      },
+    ])
+    const step = chunks.find((chunk) => chunk.type === "subagent.step")
+    expect(step?.data).toMatchObject({
+      tool_call_id: "deep_call",
+      call_id: "task-inner",
+      depth: 2,
+    })
+  })
+
+  test("a root step passes an unknown key through unchanged", async () => {
+    const chunks = await collectChunksFromEvents([
+      {
+        event: "on_custom_event",
+        run_id: "custom-step-5",
+        name: "b4.step",
+        data: { tool_call_id: "call_9", status: "running", foo: 1 },
+      },
+    ])
+    expect(chunks).toContainEqual({
+      type: "step",
+      data: { tool_call_id: "call_9", status: "running", foo: 1 },
+    })
   })
 })

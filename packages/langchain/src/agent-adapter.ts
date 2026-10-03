@@ -49,6 +49,7 @@ import { convertSubagentTaskToLangChain, type SubagentResolver } from "./subagen
 import type { ResolvedSummarizationConfig } from "./summarization/index.js"
 import { composeSystemPrompt } from "./system-prompt.js"
 import { convertToolToLangChain, type OffloadFn } from "./tool-converter.js"
+import { B4_STEP_EVENT_NAME } from "./tool-display.js"
 
 export interface B4ToolDefinition {
   readonly description?: string
@@ -757,7 +758,8 @@ function childData(child: SubagentContext, data: unknown): Record<string, unknow
   // tool-call id (e.g. a subagent's writeTodos). Only ROOT orchestration
   // correlates a tool call with its activity, and the subagent activity
   // boundary keeps child tool ids internal, so the id is unconditionally
-  // dropped here rather than namespaced outward.
+  // dropped here rather than namespaced outward. Steps (`b4.step`) are the
+  // exception and keep theirs; see the `on_custom_event` case.
   const { tool_call_id: _toolCallId, ...publicData } = data
   return { ...publicData, ...childIdentity(child) }
 }
@@ -998,20 +1000,18 @@ function classifyStreamEvent(
       }
     }
     case "on_custom_event": {
-      if (event.name === "b4.step") {
+      if (event.name === B4_STEP_EVENT_NAME) {
         // A step names the call it describes. Unlike `childData`, a child's
         // step KEEPS its tool_call_id: since #914 a child's tool frames are
         // public (tagged `subagentRunId`), so the id is the one the client
-        // already has for that call.
+        // already has for that call. `childData` still strips ids from
+        // capability events on purpose; don't route steps through it or relax
+        // it there.
         if (!isRecord(event.data) || typeof event.data.tool_call_id !== "string") break
         return {
           capturesFinalOutput: false,
           child,
-          chunks: [
-            child
-              ? { type: "subagent.step", data: { ...event.data, ...childIdentity(child) } }
-              : { type: "step", data: event.data },
-          ],
+          chunks: [wrapChild(child, { type: "step", data: event.data })],
           finalOutput: undefined,
           interrupts: [],
         }
