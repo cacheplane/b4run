@@ -21,8 +21,10 @@ export type { BackendAdapter } from "./backend-adapter.js"
 export type {
   ClientToolCallAnswer,
   ClientToolCallRecord,
+  ClientToolCallSettle,
   ClientToolCallStore,
   ClientToolRecorder,
+  ToolCallRecordKind,
 } from "./client-tool-calls.js"
 export {
   CLIENT_TOOL_RECORDER_KEY,
