@@ -1364,6 +1364,8 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
         "cache-control": "no-cache",
         connection: "keep-alive",
         "content-type": agUiContentType(accept),
+        // The binding is negotiated from `accept`, so a cache must key on it.
+        vary: "accept",
       },
       status: 200,
     })
@@ -1691,6 +1693,7 @@ async function clientToolPartialResponse(
       "cache-control": "no-cache",
       connection: "keep-alive",
       "content-type": agUiContentType(accept ?? undefined),
+      vary: "accept",
     },
     status: 200,
   })

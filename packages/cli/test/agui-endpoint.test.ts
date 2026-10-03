@@ -392,6 +392,9 @@ it("serves the HTTP+protobuf binding when Accept asks for it, with the same even
   expect(binary.response.status).toBe(200)
   expect(binary.response.headers.get("content-type")).toBe("application/vnd.ag-ui.event+proto")
   expect(binary.response.headers.get("cache-control")).toBe("no-cache")
+  // Negotiated from `accept`: both bindings say so to caches.
+  expect(binary.response.headers.get("vary")).toBe("accept")
+  expect(sse.response.headers.get("vary")).toBe("accept")
   expect(binary.events.map((event) => event.type)).toEqual(sse.events.map((event) => event.type))
   expect(binary.events[2]).toMatchObject({ delta: "Hi there!" })
   expect(binary.events.at(-1)).toMatchObject({

@@ -244,6 +244,7 @@ async function run(handler: Handler, request: Request) {
       return { code: body.error?.details?.code, b4Code: body.error?.code }
     },
     status: response.status,
+    vary: response.headers.get("vary"),
     text,
   }
 }
@@ -446,6 +447,7 @@ describe("POST /agui/:route with client-provided tools", () => {
       ),
     )
     expect(partial.status).toBe(200)
+    expect(partial.vary).toBe("accept")
     expect(partial.events.map((event) => event.type)).toEqual(["RUN_STARTED", "RUN_FINISHED"])
     expect(finished(partial.events)?.outcome).toEqual({
       type: "success",
