@@ -19,7 +19,7 @@ describe("resolveModalitySupport", () => {
   it("reads every flag off the model profile", () => {
     expect(resolveModalitySupport({ profile: fullProfile }, "anthropic")).toEqual({
       image: { data: true, url: true },
-      pdf: true,
+      pdf: { data: true, url: true },
       audio: true,
       video: true,
       toolResult: { image: true, pdf: true },
@@ -30,7 +30,7 @@ describe("resolveModalitySupport", () => {
   it("defaults an absent flag to false", () => {
     const support = resolveModalitySupport({ profile: { imageInputs: true } }, "openai")
     expect(support.image).toEqual({ data: true, url: false })
-    expect(support.pdf).toBe(false)
+    expect(support.pdf).toEqual({ data: false, url: false })
     expect(support.audio).toBe(false)
     expect(support.toolResult).toEqual({ image: false, pdf: false })
   })
@@ -74,10 +74,23 @@ describe("resolveModalitySupport", () => {
     )
   })
 
+  it("openai: pdf url is false and toolResult is all-false even when the profile claims them", () => {
+    const support = resolveModalitySupport({ profile: fullProfile }, "openai")
+    expect(support.pdf).toEqual({ data: true, url: false })
+    expect(support.toolResult).toEqual({ image: false, pdf: false })
+    expect(support.image).toEqual({ data: true, url: true })
+  })
+
+  it("the override applies on the fallback path too", () => {
+    const support = resolveModalitySupport({}, "openai")
+    expect(support.toolResult).toEqual({ image: false, pdf: false })
+    expect(support.pdf).toEqual({ data: false, url: false })
+  })
+
   it("the default claims images by data and url and nothing else", () => {
     expect(DEFAULT_MODALITY_SUPPORT).toEqual({
       image: { data: true, url: true },
-      pdf: false,
+      pdf: { data: false, url: false },
       audio: false,
       video: false,
       toolResult: { image: false, pdf: false },

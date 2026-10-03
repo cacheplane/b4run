@@ -185,10 +185,12 @@ export function unsupportedResponseFormatMessage(provider: BuiltInModelProviderI
  * model with no profile — every `ollama` and `mistral` model, an unknown id
  * elsewhere — falls back to a conservative per-provider table. `file` is a
  * provider fact, not a profile one: whether its converter maps a `fileId`.
+ * Provider overrides (converter limits the profile does not know about) apply
+ * after the profile, on both the profile and the fallback path.
  */
 export interface ModalitySupport {
   readonly image: { readonly data: boolean; readonly url: boolean }
-  readonly pdf: boolean
+  readonly pdf: { readonly data: boolean; readonly url: boolean }
   readonly audio: boolean
   readonly video: boolean
   readonly toolResult: { readonly image: boolean; readonly pdf: boolean }
@@ -204,7 +206,7 @@ export interface ModalitySupport {
  */
 export const DEFAULT_MODALITY_SUPPORT: ModalitySupport = {
   image: { data: true, url: true },
-  pdf: false,
+  pdf: { data: false, url: false },
   audio: false,
   video: false,
   toolResult: { image: false, pdf: false },
@@ -215,6 +217,20 @@ export const DEFAULT_MODALITY_SUPPORT: ModalitySupport = {
 const FILE_HANDLE_SUPPORT: Partial<Record<BuiltInModelProviderId, ModalitySupport["file"]>> = {
   openai: { image: false, pdf: true },
   anthropic: { image: true, pdf: true },
+}
+
+/** Provider converter limits the profile does not know about. Verified against the installed packages. */
+const PROVIDER_OVERRIDES: Partial<
+  Record<BuiltInModelProviderId, (support: ModalitySupport) => ModalitySupport>
+> = {
+  // Chat Completions (the path B4.run uses; `useResponsesApi` is never set): a `file` block
+  // maps only from `data`/`fileId` (a URL vanishes), and a tool message is reduced to its
+  // text, so media in a tool result never reaches the model.
+  openai: (s) => ({
+    ...s,
+    pdf: { ...s.pdf, url: false },
+    toolResult: { image: false, pdf: false },
+  }),
 }
 
 const PROVIDER_MODALITY_FALLBACK: Partial<Record<BuiltInModelProviderId, ModalitySupport>> = {
@@ -250,20 +266,21 @@ export function resolveModalitySupport(
 ): ModalitySupport {
   const file = FILE_HANDLE_SUPPORT[provider] ?? DEFAULT_MODALITY_SUPPORT.file
   const profile = readProfile(model)
-  if (!profile) {
-    return { ...(PROVIDER_MODALITY_FALLBACK[provider] ?? DEFAULT_MODALITY_SUPPORT), file }
-  }
-  return {
-    image: { data: profile.imageInputs === true, url: profile.imageUrlInputs === true },
-    pdf: profile.pdfInputs === true,
-    audio: profile.audioInputs === true,
-    video: profile.videoInputs === true,
-    toolResult: {
-      image: profile.imageToolMessage === true,
-      pdf: profile.pdfToolMessage === true,
-    },
-    file,
-  }
+  const base: ModalitySupport = profile
+    ? {
+        image: { data: profile.imageInputs === true, url: profile.imageUrlInputs === true },
+        pdf: { data: profile.pdfInputs === true, url: profile.pdfInputs === true },
+        audio: profile.audioInputs === true,
+        video: profile.videoInputs === true,
+        toolResult: {
+          image: profile.imageToolMessage === true,
+          pdf: profile.pdfToolMessage === true,
+        },
+        file,
+      }
+    : { ...(PROVIDER_MODALITY_FALLBACK[provider] ?? DEFAULT_MODALITY_SUPPORT), file }
+  const override = PROVIDER_OVERRIDES[provider]
+  return override ? override(base) : base
 }
 
 interface WithConfig {
