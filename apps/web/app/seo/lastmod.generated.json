@@ -42,9 +42,9 @@
       "recordDigest": "9c823bb6e0c77817744984458823169e48c1921d1b3e3234569240927e23e8d1"
     },
     "/docs/ag-ui": {
-      "lastModified": "2026-10-03T03:55:33.000Z",
-      "sourceDigest": "0e1468f5db9cf8928941dde025526a80573b3fcd4bc0857484498a5f1fec4ee2",
-      "recordDigest": "4294b0b46aaa544d7f0a45a43c91c291943ed5949300e61cf64038042f4c1532"
+      "lastModified": "2026-10-03T04:12:31.000Z",
+      "sourceDigest": "9d85ea84f6ae2ffa3b89d905c31cbbd5df579c35385ff68a6a393f7b53aee246",
+      "recordDigest": "9ebc4d027f79148eb32d96be2e908343dc423bc1e1aae8adb9ec6981d94b276e"
     },
     "/docs/agents": {
       "lastModified": "2026-09-24T01:19:36.000Z",
@@ -117,9 +117,9 @@
       "recordDigest": "ed335a186f36d246daff928e95c194150092f40122f7eaf3724a3929cc65f5b9"
     },
     "/docs/api/sdk": {
-      "lastModified": "2026-10-03T03:30:40.000Z",
-      "sourceDigest": "fedeac7024eb84eb8bb05eee0193d6c5b4200b8336eb53873eda7349624676a4",
-      "recordDigest": "9d6a182159769ce24f038937afc27069f7d42d868388d1fc3fa07c77aec9688e"
+      "lastModified": "2026-10-03T04:12:31.000Z",
+      "sourceDigest": "ff2a6db6abbc4346cd58ee752a516996cdcf7d445e2fee573e7ed25c77b2cd52",
+      "recordDigest": "cce30f442e08c721eb5d2c57e3ad8e4acbc9c521d6407068a7e498748b8306ef"
     },
     "/docs/api/sqlite-storage": {
       "lastModified": "2026-09-30T21:52:20.000Z",
@@ -147,9 +147,9 @@
       "recordDigest": "fbd8a797655a538b9b346d8599f16e88a7764828f45b2628a910f2df1f1e2a53"
     },
     "/docs/cli": {
-      "lastModified": "2026-10-03T02:54:00.000Z",
-      "sourceDigest": "c39b1c52a46b2f44a68c29ccd0323adcebd72d721782ba32096be4ed483c2aa7",
-      "recordDigest": "af13ee1a7b3250cb6f852b1b3653dcfcfadbf4c1712269886b5edf98320639c8"
+      "lastModified": "2026-10-03T04:12:31.000Z",
+      "sourceDigest": "58ba06b7840b2cc90ddb42a1958ac0bb7a5ff4c01322b03a2eaf44e8e6a6a7fb",
+      "recordDigest": "91176baccf6eac2931b74ed6f154e68f0ea8db21e57b58891b842340d1066968"
     },
     "/docs/configuration": {
       "lastModified": "2026-10-03T03:46:44.000Z",
