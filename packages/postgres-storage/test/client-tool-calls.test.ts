@@ -2,6 +2,7 @@ import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testconta
 import { afterAll, beforeAll, describe, expect, test } from "vitest"
 import type { ClientToolCallRecord } from "../src/client-tool-calls.js"
 import { createPostgresClientToolCallStore } from "../src/node.js"
+import { CLIENT_TOOL_CALLS_MIGRATIONS, runMigrations } from "../src/schema.js"
 
 const enabled = process.env.B4_TEST_PGSTORAGE === "1"
 let container: StartedPostgreSqlContainer
@@ -22,6 +23,8 @@ const call = (over: Partial<ClientToolCallRecord> = {}): ClientToolCallRecord =>
   answeredAt: null,
   result: null,
   voidedAt: null,
+  kind: "client",
+  settledAt: null,
   ...over,
 })
 
@@ -253,6 +256,83 @@ describe.skipIf(!enabled)("postgres client tool call store against real Postgres
       expect(res.rows[0]).toEqual({ ok: 1 })
     } finally {
       await pool.end()
+    }
+  }, 60_000)
+
+  test("settles a server row once and prunes only non-open rows older than before", async () => {
+    await withStore(async (store) => {
+      const server = (id: string, settledAt: string | null) =>
+        call({ toolCallId: id, kind: "server", interruptId: "", toolName: "readFile", settledAt })
+      await store.issue(server("s-open", null))
+      await store.issue(server("s-old", "2026-09-01T00:00:00.000Z"))
+      await store.issue(call({ toolCallId: "c-old", voidedAt: "2026-09-01T00:00:00.000Z" }))
+      await store.issue(
+        call({ toolCallId: "c-answered", answeredAt: "2026-09-02T00:00:00.000Z", result: "red" }),
+      )
+      await store.issue(call({ toolCallId: "c-boundary", voidedAt: "2026-09-10T00:00:00.000Z" }))
+      await store.issue(call({ toolCallId: "c-open", issuedAt: "2020-01-01T00:00:00.000Z" }))
+      await store.issue({ ...server("s-stale", null), issuedAt: "2020-01-01T00:00:00.000Z" })
+      await store.issue(
+        call({ threadId: "t-2", toolCallId: "other", voidedAt: "2020-01-01T00:00:00.000Z" }),
+      )
+      expect(await store.settle({ threadId: "t-1", toolCallId: "s-open", at: AT })).toBe("settled")
+      expect(await store.settle({ threadId: "t-1", toolCallId: "s-open", at: AT })).toBe(
+        "already_settled",
+      )
+      expect(await store.settle({ threadId: "t-1", toolCallId: "c-open", at: AT })).toBe("missing")
+      expect((await store.listOutstanding("t-1")).map((r) => r.toolCallId)).toEqual(["c-open"])
+      expect(
+        (await store.answer({ threadId: "t-1", toolCallId: "s-open", result: "x", at: AT }))
+          .outcome,
+      ).toBe("missing")
+      for (const before of ["2026-09-10T00:00:00Z", "nope"]) {
+        await expect(store.prune({ threadId: "t-1", before })).rejects.toThrow(
+          "prune: `before` must be a canonical Date#toISOString() value",
+        )
+      }
+      expect(await store.prune({ threadId: "t-1", before: "2026-09-10T00:00:00.000Z" })).toBe(3)
+      expect((await store.listForThread("t-1")).map((r) => r.toolCallId).sort()).toEqual([
+        "c-boundary",
+        "c-open",
+        "s-open",
+        "s-stale",
+      ])
+      expect((await store.listForThread("t-2")).map((r) => r.toolCallId)).toEqual(["other"])
+      await expect(
+        store.issue(call({ toolCallId: "bad", kind: "other" as never })),
+      ).rejects.toThrow()
+    })
+  }, 60_000)
+
+  test("migration 2 backfills version-1 rows as client", async () => {
+    const prefix = freshPrefix()
+    const { Pool } = await import("pg")
+    const pool = new Pool({ connectionString: url })
+    try {
+      // Seed version 1 as a real deployment would: recorded in the migrations table.
+      const v1 = CLIENT_TOOL_CALLS_MIGRATIONS.find((m) => m.version === 1)
+      if (!v1) throw new Error("migration 1 missing")
+      await runMigrations(pool, [v1], {
+        schema: "public",
+        prefix,
+        component: "client_tool_calls",
+      })
+      await pool.query(
+        `INSERT INTO public.${prefix}_client_tool_calls (thread_id, tool_call_id, interrupt_id, tool_name, run_id, route_id, issued_at, expires_at, answered_at, result, voided_at)
+         VALUES ('t-1', 'legacy', 'client-legacy', 'pick', 'r0', '/park#agent', '2026-09-18T00:00:00.000Z', NULL, NULL, NULL, NULL)`,
+      )
+    } finally {
+      await pool.end()
+    }
+    const store = createPostgresClientToolCallStore({ connectionString: url, tablePrefix: prefix })
+    try {
+      // The store's own migration pass: version 1 is already recorded, so only version 2 runs.
+      const row = await store.get("t-1", "legacy")
+      expect(row?.kind).toBe("client")
+      expect(row?.settledAt).toBeNull()
+      expect((await store.listOutstanding("t-1")).map((r) => r.toolCallId)).toEqual(["legacy"])
+    } finally {
+      await store.close()
     }
   }, 60_000)
 })
