@@ -1,5 +1,6 @@
 export type {
   AgentConfig,
+  AnthropicReasoningConfig,
   B4Agent,
   ConstraintContext,
   ConstraintPredicate,
@@ -11,6 +12,7 @@ export type {
   DelegationRule,
   DelegationRules,
   DelegationVerdict,
+  OpenAIReasoningConfig,
   ReasoningConfig,
   RetryConfig,
   SubagentMap,
