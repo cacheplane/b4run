@@ -161,7 +161,7 @@ no new handler logic.
 
 - Per store: voided-old deleted; voided-recent kept; consumed-never-voided
   KEPT however old (a stuck park); consumed-then-voided-old deleted;
-  consumed-old-then-voided-recent kept; outstanding with `expiresAt` far in
+  outstanding with `expiresAt` far in
   the past kept; outstanding with `expiresAt: null` kept; cross-thread;
   idempotent (second call returns 0). `voidOutstanding` stamps a consumed row
   not in the keep list and leaves one in it alone. Postgres: gated
