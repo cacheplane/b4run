@@ -540,10 +540,10 @@ pnpm build && node scripts/check-docs.mjs && node scripts/check-changesets.mjs &
 
 ### Task 7: Validation and PR
 
-- [ ] `pnpm --filter @b4run/langchain --filter @b4run/cli --filter @b4run/testing --filter @b4run/ag-ui typecheck` and `test`; `pnpm --filter @b4-example/chat-server test`; `pnpm lint`.
-- [ ] `pnpm ci:validate` in the background (kill orphans first if a previous run was killed). The known contention flakes: `sandbox/bounded-filesystem`, `cli/vercel-target`, `cli/cli.test` 5s/30s timeouts — confirm in isolation before dismissing.
-- [ ] Rebase onto `main` once #910 merges (`git rebase --onto origin/main <pr2-tip>`), rebuild, re-run the four packages' tests.
-- [ ] Push `blove/agui-subagent-stream`, open the PR (title `feat!: subagent stream events carry the root shapes (AG-UI 1.0 sub-project 2, PR 3a)`, body from this plan's header + the changeset), bind it, enable squash auto-merge if the user asked for merge-on-green.
+- [x] `pnpm --filter @b4run/langchain --filter @b4run/cli --filter @b4run/testing --filter @b4run/ag-ui typecheck` and `test`; `pnpm --filter @b4-example/chat-server test`; `pnpm lint`.
+- [x] `pnpm ci:validate` in the background (kill orphans first if a previous run was killed). The known contention flakes: `sandbox/bounded-filesystem`, `cli/vercel-target`, `cli/cli.test` 5s/30s timeouts — confirm in isolation before dismissing.
+- [x] Rebase onto `main` once #910 merges (`git rebase --onto origin/main <pr2-tip>`), rebuild, re-run the four packages' tests.
+- [x] Push `blove/agui-subagent-stream`, open the PR (title `feat!: subagent stream events carry the root shapes (AG-UI 1.0 sub-project 2, PR 3a)`, body from this plan's header + the changeset), bind it, enable squash auto-merge if the user asked for merge-on-green.
 
 ---
 
