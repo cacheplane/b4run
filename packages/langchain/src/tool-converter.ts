@@ -17,7 +17,7 @@ import { patchConfig } from "@langchain/core/runnables"
 import { DynamicStructuredTool } from "@langchain/core/tools"
 import { Command } from "@langchain/langgraph"
 import { z } from "zod"
-import { recordToolCall } from "./tool-call-recording.js"
+import { readCallOrigin, recordToolCall } from "./tool-call-recording.js"
 import { unwrapToolResult } from "./unwrap-tool-result.js"
 
 interface B4ToolDefinition {
@@ -92,8 +92,13 @@ export function convertToolToLangChain(
       const toolCallId = extractToolCallId(liveConfig)
       // Server-kind row in the tool-call record, around the whole body (see
       // `recordToolCall` for the park rule). The client stub records its own
-      // client-kind row and is skipped via its marker.
-      const recorded = tool.clientTool === true ? undefined : { toolCallId, toolName: tool.name }
+      // client-kind row and is skipped via its marker. Inside a subagent the row
+      // names the child's route key and the `task` call that launched it.
+      const origin = readCallOrigin(liveConfig)
+      const recorded =
+        tool.clientTool === true
+          ? undefined
+          : { toolCallId, toolName: tool.name, ...(origin ? { origin } : {}) }
       const body = async () => {
         const rawResult = await tool.run(input, {
           ...(middlewareContext ? { middleware: middlewareContext } : {}),

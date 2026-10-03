@@ -116,7 +116,8 @@ import { scenarios } from "@b4run/sdk/testing"
 | `hashApprovalGrant` | Hash a grant for storage and comparison. |
 | `timingSafeHexEqual` | Compare two hex digests in constant time. |
 | `createMemoryInterruptGrantStore` | Create the in-process grant store used by tests and storeless runtimes. |
-| `ClientToolCallRecord` | Describe one row of the tool-call record: a client-provided call the server issued and is waiting on, or a server tool call recorded for identity. |
+| `ClientToolCallRecord` | Describe one row of the tool-call record: a client-provided call the server issued and is waiting on, or a server tool call recorded for identity — with the route that issued it and, inside a subagent, the launching `task` call. |
+| `ToolCallOrigin` | Say where a server tool call was issued from when inside a subagent: the child route's key and the launching `task` call id. |
 | `ClientToolCallStore` | Define the durable record of tool calls on AG-UI runs: which client calls are outstanding, answered, or voided, and which server calls were issued and settled. |
 | `ToolCallRecordKind` | Tell a client tool call row from a server tool call row. |
 | `ClientToolCallSettle` | Express the outcome of settling a server tool call row. |

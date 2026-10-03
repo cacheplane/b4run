@@ -25,6 +25,7 @@ const call = (over: Partial<ClientToolCallRecord> = {}): ClientToolCallRecord =>
   voidedAt: null,
   kind: "client",
   settledAt: null,
+  parentToolCallId: null,
   ...over,
 })
 
@@ -366,6 +367,22 @@ describe.skipIf(!enabled)("postgres client tool call store against real Postgres
         "new_answered",
       ])
       expect(await store.listForThread("t-2")).toEqual([])
+    })
+  }, 60_000)
+
+  test("round-trips the parent task link; a root row reads null", async () => {
+    await withStore(async (store) => {
+      await store.issue(
+        call({
+          toolCallId: "child",
+          kind: "server",
+          interruptId: "",
+          parentToolCallId: "call_task_1",
+        }),
+      )
+      expect((await store.get("t-1", "child"))?.parentToolCallId).toBe("call_task_1")
+      await store.issue(call({ toolCallId: "root", kind: "server", interruptId: "" }))
+      expect((await store.get("t-1", "root"))?.parentToolCallId).toBeNull()
     })
   }, 60_000)
 })

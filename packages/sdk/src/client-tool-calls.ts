@@ -40,9 +40,10 @@ export interface ClientToolCallRecord {
   readonly toolName: string
   readonly runId: string
   /**
-   * The route key (`<routeId>#<mode>`, e.g. `/chat#agent`) whose run issued
-   * the call. Only that route may answer or resume it; recorded here, while
-   * the call is issued, so it is never behind the park.
+   * The route that ISSUED the call, as a route key (`<routeId>#<mode>`): the
+   * AG-UI run's route for a root call, the child route for a subagent's call.
+   * Client rows are only ever issued by the root route, so for them this is
+   * also the route that may answer or resume the park.
    */
   readonly routeId: string
   readonly issuedAt: string
@@ -56,6 +57,13 @@ export interface ClientToolCallRecord {
   readonly voidedAt: string | null
   /** Server rows only: when the tool returned or threw. */
   readonly settledAt: string | null
+  /**
+   * The nearest enclosing `task` call's provider tool-call id — the call that
+   * launched the subagent this row was issued from; `null` for a root call.
+   * May name a row that does not exist when that `task` ran under the bridge's
+   * random fallback id; siblings still group.
+   */
+  readonly parentToolCallId: string | null
 }
 
 export type ClientToolCallAnswer =
@@ -68,6 +76,14 @@ export type ClientToolCallAnswer =
   | { readonly outcome: "missing" }
 
 export type ClientToolCallSettle = "settled" | "already_settled" | "missing"
+
+/** Where a server call was issued from, when not at the root: supplied by the writer. */
+export interface ToolCallOrigin {
+  /** The issuing route's key (`<routeId>#<mode>`). */
+  readonly routeId: string
+  /** The enclosing `task` call's provider id. */
+  readonly parentToolCallId: string
+}
 
 export interface ClientToolCallStore {
   /**
@@ -151,11 +167,17 @@ export interface ClientToolRecorder {
   }): Promise<void>
   /**
    * Writes a server row for one of the server's own tool calls, before it
-   * runs. Idempotent on the id. Absent when the runtime does not record
+   * runs. Idempotent on the id. `origin` is where the call was issued from
+   * when inside a subagent; absent at the root, and the recorder then uses the
+   * run's route key with no parent. Absent when the runtime does not record
    * server calls (no route opted into client tools and no configured store);
    * a writer that finds it absent records nothing.
    */
-  issue?(call: { readonly toolCallId: string; readonly toolName: string }): Promise<void>
+  issue?(call: {
+    readonly toolCallId: string
+    readonly toolName: string
+    readonly origin?: ToolCallOrigin
+  }): Promise<void>
   /** Stamps the server row once the tool returned or threw. Idempotent. Absent together with `issue`. */
   settle?(toolCallId: string): Promise<void>
 }

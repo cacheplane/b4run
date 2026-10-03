@@ -390,6 +390,7 @@ function guardedResolver(options: {
       (async () => ({
         graph: options.child,
         routeId,
+        routeKey: `${routeId}#agent`,
       })),
     registry: [
       {
@@ -508,7 +509,11 @@ function parallelInterruptingChild() {
 }
 
 function childHandle(graph: ResolvedSubagentGraph["graph"]): ResolvedSubagentGraph {
-  return { graph, routeId: "/parent/subagents/researcher" }
+  return {
+    graph,
+    routeId: "/parent/subagents/researcher",
+    routeKey: "/parent/subagents/researcher#agent",
+  }
 }
 
 function taskInput(callId: string, subagent: string, input: string): { messages: AIMessage[] } {

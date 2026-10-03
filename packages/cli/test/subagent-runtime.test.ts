@@ -44,6 +44,7 @@ describe("lazy CLI subagent runtime context", () => {
   it("passes live params, signal, dispatch id, depth, and root sandbox key to child preparation", async () => {
     const prepareChild = vi.fn(async () => ({
       routeId: registry[0].routeId,
+      routeKey: `${registry[0].routeId}#agent`,
       graph: { invoke: vi.fn() },
     }))
     const resolver = buildGuardedSubagentResolver({
@@ -74,6 +75,7 @@ describe("lazy CLI subagent runtime context", () => {
   it("does not cache child graphs across dispatch-specific signals", async () => {
     const prepareChild = vi.fn(async () => ({
       routeId: registry[0].routeId,
+      routeKey: `${registry[0].routeId}#agent`,
       graph: { invoke: vi.fn() },
     }))
     const rootSignal = new AbortController().signal
@@ -134,6 +136,7 @@ describe("lazy CLI subagent runtime context", () => {
     const prepareChild = vi.fn(async () => ({
       graph: stableGraph,
       routeId: registry[0].routeId,
+      routeKey: `${registry[0].routeId}#agent`,
     }))
     const rootSignal = new AbortController().signal
     const resolver = buildGuardedSubagentResolver({
@@ -193,6 +196,7 @@ describe("lazy CLI subagent runtime context", () => {
     const prepareChild = vi.fn(async () => ({
       graph: { invoke: vi.fn() },
       routeId: registry[0].routeId,
+      routeKey: `${registry[0].routeId}#agent`,
     }))
     const resolver = buildGuardedSubagentResolver({
       fallbackSignal: rootSignal,
@@ -213,6 +217,7 @@ describe("lazy CLI subagent runtime context", () => {
     const prepareChild = vi.fn(async () => ({
       graph: { invoke: vi.fn() },
       routeId: registry[0].routeId,
+      routeKey: `${registry[0].routeId}#agent`,
     }))
     const resolver = buildGuardedSubagentResolver({
       fallbackSignal: rootSignal,
@@ -244,7 +249,11 @@ describe("lazy CLI subagent runtime context", () => {
     const prepareChild = vi
       .fn()
       .mockRejectedValueOnce(new Error("setup failed"))
-      .mockResolvedValueOnce({ graph: { invoke: vi.fn() }, routeId: registry[0].routeId })
+      .mockResolvedValueOnce({
+        graph: { invoke: vi.fn() },
+        routeId: registry[0].routeId,
+        routeKey: `${registry[0].routeId}#agent`,
+      })
     const resolver = buildGuardedSubagentResolver({
       fallbackSignal: liveSignal,
       interruptCapable: true,
