@@ -648,7 +648,7 @@ Replace the "declares no column DEFAULT anywhere" case with:
   })
 ```
 
-In "names all eleven columns in every INSERT": rename to "names all thirteen columns in every INSERT", add `kind: "client"` and `settledAt: null` to the issued record, change the expected column list to `["thread_id", "tool_call_id", "kind", "interrupt_id", "tool_name", "run_id", "route_id", "issued_at", "expires_at", "answered_at", "result", "voided_at", "settled_at"]`, and `toHaveLength(13)`. Any other test in that file constructing a record gets `kind: "client"` and `settledAt: null` too.
+In "names all eleven columns in every INSERT": rename to "names all thirteen columns in every INSERT", add `kind: "client"` and `settledAt: null` to the issued record, change the expected column list to `["thread_id", "tool_call_id", "interrupt_id", "tool_name", "run_id", "route_id", "issued_at", "expires_at", "answered_at", "result", "voided_at", "kind", "settled_at"]` (Postgres appends new columns last, so migration order puts `kind` and `settled_at` at the end), and `toHaveLength(13)`. Any other test in that file constructing a record gets `kind: "client"` and `settledAt: null` too.
 
 Run: `pnpm --filter @b4run/postgres-storage test -- test/client-tool-calls-ddl.test.ts`
 Expected: FAIL.
@@ -674,7 +674,7 @@ Update the constant's doc comment rule 2 to say "No column default is load-beari
 
 - [ ] **Step 3: Mirror types and implement**
 
-In `packages/postgres-storage/src/client-tool-calls.ts`: mirror the SDK types exactly as in Task 3 Step 4 (`kind`, `settledAt`, `ToolCallRecordKind`, `ClientToolCallSettle`, `settle`, `prune`). Update `COLUMNS` to the 13-column list in migration order (`thread_id, tool_call_id, interrupt_id, tool_name, run_id, route_id, issued_at, expires_at, answered_at, result, voided_at, kind, settled_at`) — **note the order**: Postgres appends new columns last, and the DDL test expects the INSERT's column list to equal the migration order. Update the DDL test's expected list in Step 1 to that order: `[..., "voided_at", "kind", "settled_at"]`. `CallRow` gains `kind: string` and `settled_at: string | null`; `rowToRecord` maps `kind: row.kind === "server" ? "server" : "client"` and `settledAt: row.settled_at ?? null`. `issue` binds 13 values (`record.kind`, `record.settledAt` last).
+In `packages/postgres-storage/src/client-tool-calls.ts`: mirror the SDK types exactly as in Task 3 Step 4 (`kind`, `settledAt`, `ToolCallRecordKind`, `ClientToolCallSettle`, `settle`, `prune`). Update `COLUMNS` to the 13-column list in migration order (`thread_id, tool_call_id, interrupt_id, tool_name, run_id, route_id, issued_at, expires_at, answered_at, result, voided_at, kind, settled_at`) — the order the DDL test in Step 1 pins. `CallRow` gains `kind: string` and `settled_at: string | null`; `rowToRecord` maps `kind: row.kind === "server" ? "server" : "client"` and `settledAt: row.settled_at ?? null`. `issue` binds 13 values (`record.kind`, `record.settledAt` last).
 
 `listOutstanding`: `WHERE thread_id = $1 AND kind = 'client' AND answered_at IS NULL AND voided_at IS NULL`.
 `answer`: add `AND kind = 'client'`; after the re-read, `if (!existing || existing.kind !== "client") return { outcome: "missing" }`.
@@ -1404,15 +1404,14 @@ describe("the tool-call record covers every tool call on a run with a store", ()
     })
     const handler = await createHandler(appRoot)
     const threadId = `thread-${crypto.randomUUID()}`
-    // /mixed's deployProd needs approval; resolve it with bypass by running a plain tool route instead:
     const first = await run(
       handler,
-      aguiRequest(threadId, "run-1", [USER_HELLO], { route: "/mixed#agent", tools: [] }),
+      aguiRequest(threadId, "run-1", [USER_HELLO], { route: "/plain#agent", tools: [] }),
     )
     expect(first.status).toBe(200)
     const rows = await store.listForThread(threadId)
     const server = rows.find((row) => row.toolCallId === "call_deploy")
-    expect(server).toMatchObject({ kind: "server", toolName: "deployProd", routeId: "/mixed#agent", runId: "run-1" })
+    expect(server).toMatchObject({ kind: "server", toolName: "deployProd", routeId: "/plain#agent", runId: "run-1" })
     expect(server?.settledAt).not.toBeNull()
     expect(await store.listOutstanding(threadId)).toEqual([])
     void aimock
@@ -1426,7 +1425,7 @@ describe("the tool-call record covers every tool call on a run with a store", ()
     const appRoot = await fixtureApp({ config: "export default {}\n" })
     const handler = await createHandler(appRoot)
     const threadId = `thread-${crypto.randomUUID()}`
-    const first = await run(handler, aguiRequest(threadId, "run-1", [USER_HELLO], { route: "/mixed#agent", tools: [] }))
+    const first = await run(handler, aguiRequest(threadId, "run-1", [USER_HELLO], { route: "/plain#agent", tools: [] }))
     expect(first.status).toBe(200)
     expect(await resolveClientToolCallStore(appRoot)).toBeUndefined()
     void aimock
@@ -1500,7 +1499,7 @@ describe("the tool-call record covers every tool call on a run with a store", ()
 })
 ```
 
-Add `import type { ClientToolCallRecord } from "@b4run/sdk"` and `vi` to the vitest import. The `/mixed` route's `deployProd` requires approval through `tools: { approve: [...] }`; if the first test parks on an approval instead of running the tool, switch it to a fixture route without an approve list: add to `fixtureApp` a `"src/app/plain/index.ts"` with `agent({ model: "gpt-5-mini", systemPrompt: "t" })` and `"src/app/plain/tools/deployProd.ts": DEPLOY_TOOL`, and use `route: "/plain#agent"`.
+Add `import type { ClientToolCallRecord } from "@b4run/sdk"` and `vi` to the vitest import. The `/mixed` route gates `deployProd` behind approval, so these tests use a new fixture route whose tool runs without one: add to `fixtureApp`'s `files` map `"src/app/plain/index.ts": PARK_ROUTE` and `"src/app/plain/tools/deployProd.ts": DEPLOY_TOOL` (`PARK_ROUTE` is an agent with no approve list; a route-local `tools/` directory is auto-discovered).
 
 Run: `pnpm --filter @b4run/cli test -- test/agui-client-tools.test.ts -t "covers every tool call"`
 Expected: FAIL.
@@ -1741,4 +1740,4 @@ PR title: `feat: the tool-call record covers every tool call (follow-up to #880)
 
 **Type consistency.** `kind: ToolCallRecordKind`, `settledAt`, `settle({ threadId, toolCallId, at }) → ClientToolCallSettle`, `prune({ threadId, before }) → number`, recorder `issue({ toolCallId, toolName })` / `settle(toolCallId)`, `ClientToolRuntime.retentionMs`, `resolveToolCallRetentionMs`, `DEFAULT_TOOL_CALL_RETENTION_MS`, `MAX_TOOL_CALL_RETENTION_MS`, `clientTool?: true`, `outstandingClientCallIds(store, threadId)` — used with the same names and shapes across tasks.
 
-**Known caution for the implementer.** Postgres appends `kind` and `settled_at` after `voided_at`; the SQLite `SELECT_COLUMNS` order is only a projection and may differ, but the Postgres `COLUMNS` constant must list `kind, settled_at` last to match the DDL pin test in Task 4 Step 1 (whose expected list is corrected in Step 3 to that order).
+**Known caution for the implementer.** Postgres appends `kind` and `settled_at` after `voided_at`, and Task 4's `COLUMNS` constant and DDL pin both use that order. SQLite's `SELECT_COLUMNS` places `kind` third; that is only a projection and INSERT order, both explicit, so the two stores need not agree.
