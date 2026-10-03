@@ -132,4 +132,14 @@ describe("tool discovery error messages", () => {
       /display\.running must be a function \(got "Searching"\)/,
     )
   })
+
+  it("keeps a display export when the default export is a { run } object", async () => {
+    writeTool(
+      "search.ts",
+      `export const display = { icon: "search" }
+      export default { run: async () => "ok" }`,
+    )
+    const [tool] = await discover()
+    expect(tool?.display?.icon).toBe("search")
+  })
 })

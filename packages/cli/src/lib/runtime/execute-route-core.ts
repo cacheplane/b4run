@@ -1719,6 +1719,7 @@ async function prepareRouteExecutionForInvocation(
           // Adapt capability-contributed tools (which lack filePath/scope)
           // into the DiscoveredToolDefinition shape used by the runtime.
           const overridable = (t as unknown as { overridable?: boolean }).overridable
+          // Capability tools skip normalizeToolModule, so every B4ToolDefinition field a runtime reads must be copied here by hand (description, schema, display, overridable).
           capTools.push({
             ...(t.description !== undefined ? { description: t.description } : {}),
             filePath: `<capability:${t.name}>`,
