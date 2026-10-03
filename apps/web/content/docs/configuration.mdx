@@ -677,7 +677,7 @@ written fails the tool call; see
 `clientToolStore` is where tool calls on AG-UI runs are recorded. On node it defaults to a
 SQLite file at `.b4/client-tool-calls.sqlite`, opened when some route is
 listed in `clientTools` (or when the file already exists, so calls parked
-before the opt-in was removed can still be closed). Edge and serverless
+before the opt-in was removed can still be closed). Listing a route in `clientTools`, or setting `clientToolStore`, is also what turns on recording of server tool calls; a leftover file alone does not, and boot warns about it. Edge and serverless
 deployments have no default and must set one, and a deployment with more than
 one instance needs a shared one — `createPostgresClientToolCallStore` from
 `@b4run/postgres-storage`, for example. With no store at all, a run that sends

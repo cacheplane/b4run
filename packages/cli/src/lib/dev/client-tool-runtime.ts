@@ -1,7 +1,9 @@
 /**
  * Boot-resolved settings for client-provided tools on the AG-UI endpoint
  * (cacheplane/b4run#743), and the request-size bounds the endpoint enforces
- * for them. Pure and edge-safe: no node: imports.
+ * for them, including the recording gate: server tool calls are recorded only
+ * when config opts in (`recordsServerCalls`), never because a default store
+ * file was left behind. Pure and edge-safe: no node: imports.
  */
 import type { B4Config } from "@b4run/core"
 import type { ClientToolCallStore } from "@b4run/sdk"
@@ -37,6 +39,13 @@ export interface ClientToolRuntime {
   readonly ttlMs: number
   /** `server.agui.clientToolRetentionMs`, resolved. See {@link clientToolPruneCutoff}. */
   readonly retentionMs: number
+  /**
+   * Whether server tool calls are recorded on this app's AG-UI runs: some
+   * route is listed in `server.agui.clientTools`, or `server.agui.clientToolStore`
+   * is configured. From config alone — a leftover default store file keeps
+   * client parks answerable but never turns this on.
+   */
+  readonly recordsServerCalls: boolean
 }
 
 /** A `server.agui` client-tool setting that cannot be honored as written. */
@@ -145,6 +154,11 @@ export function validateClientToolStore(value: unknown): ClientToolCallStore | u
 export function anyRouteOptsInToClientTools(config: B4Config | undefined): boolean {
   const routes = config?.server?.agui?.clientTools
   return Array.isArray(routes) && routes.length > 0
+}
+
+/** `ClientToolRuntime.recordsServerCalls`, from config alone. */
+export function resolveRecordsServerCalls(config: B4Config | undefined): boolean {
+  return anyRouteOptsInToClientTools(config) || config?.server?.agui?.clientToolStore !== undefined
 }
 
 function describe(value: unknown): string {

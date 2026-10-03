@@ -27,6 +27,7 @@ import {
   seedPreparedRouteModules,
   streamResolvedRoute,
 } from "../runtime/execute-route-core.js"
+import { pureJoin } from "../runtime/pure-path.js"
 import type { SandboxManager } from "../runtime/sandbox-manager.js"
 import type { B4StaticModules } from "../runtime/static-modules-core.js"
 import { type StreamChunk, toSseEvent } from "../runtime/stream-types.js"
@@ -58,6 +59,7 @@ import {
   type ClientToolRuntime,
   resolveClientToolRetentionMs,
   resolveClientToolTtlMs,
+  resolveRecordsServerCalls,
   validateClientToolStore,
 } from "./client-tool-runtime.js"
 import type { CorsConfig } from "./cors.js"
@@ -666,10 +668,23 @@ export async function createRuntimeFetchHandler(
         `server.agui.clientToolStore in b4.config.ts, or run on a runtime with the node fallbacks.`,
     )
   }
+  const recordsServerCalls = resolveRecordsServerCalls(bootConfig)
+  if (clientToolStore && !recordsServerCalls) {
+    // Only the node fallback can get here: the default file is left over from
+    // an earlier opt-in. It still closes calls parked back then; it does not
+    // record server calls.
+    console.warn(
+      `B4: ${pureJoin(options.appRoot, ".b4", "client-tool-calls.sqlite")} exists but no route is listed in ` +
+        `server.agui.clientTools and no server.agui.clientToolStore is set. It is kept so calls ` +
+        `parked before the opt-in was removed can still be closed; server tool calls are not ` +
+        `recorded. Delete the file to drop it.`,
+    )
+  }
   const clientTools: ClientToolRuntime = {
     ...(clientToolStore ? { store: clientToolStore } : {}),
     ttlMs: clientToolTtlMs,
     retentionMs: clientToolRetentionMs,
+    recordsServerCalls,
   }
   // Degrades rather than throws HERE: sandboxing is opt-in, so no fallbacks
   // means no sandbox provider — the same result as an app with no `sandbox`
