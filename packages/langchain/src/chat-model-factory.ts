@@ -192,25 +192,30 @@ export interface ModalitySupport {
   readonly audio: boolean
   readonly video: boolean
   readonly toolResult: { readonly image: boolean; readonly pdf: boolean }
-  readonly file: boolean
+  /** Which part types this provider's converter maps a provider file handle (`fileId`) for. */
+  readonly file: { readonly image: boolean; readonly pdf: boolean }
 }
 
-/** Images inline or by URL, and nothing else: what every provider's converter handles. */
+/**
+ * Images inline or by URL, and nothing else. This is what every provider's
+ * converter handles only together with the conversion module's mapping:
+ * the `ollama` and `mistral` converters accept just the legacy `image_url`
+ * block, and `toLangChainContent` emits that for them.
+ */
 export const DEFAULT_MODALITY_SUPPORT: ModalitySupport = {
   image: { data: true, url: true },
   pdf: false,
   audio: false,
   video: false,
   toolResult: { image: false, pdf: false },
-  file: false,
+  file: { image: false, pdf: false },
 }
 
-/** Providers whose LangChain converter maps a provider file handle (`fileId`). */
-export const FILE_HANDLE_PROVIDERS: readonly BuiltInModelProviderId[] = [
-  "openai",
-  "anthropic",
-  "google",
-]
+/** Per provider, which part types its LangChain converter maps a `fileId` for; absent → none. Verified against the converters: anthropic maps both; openai's Chat Completions path maps only `file` blocks (its image branch has no fileId case); google-genai throws on fileId. */
+const FILE_HANDLE_SUPPORT: Partial<Record<BuiltInModelProviderId, ModalitySupport["file"]>> = {
+  openai: { image: false, pdf: true },
+  anthropic: { image: true, pdf: true },
+}
 
 const PROVIDER_MODALITY_FALLBACK: Partial<Record<BuiltInModelProviderId, ModalitySupport>> = {
   // `@langchain/ollama` base64-encodes `image_url` content and cannot pass a URL through.
@@ -228,19 +233,22 @@ interface ProfileFlags {
 }
 
 function readProfile(model: unknown): ProfileFlags | undefined {
-  if (typeof model !== "object" || model === null) return undefined
-  const profile = (model as { readonly profile?: unknown }).profile
-  if (typeof profile !== "object" || profile === null || Object.keys(profile).length === 0) {
-    return undefined
+  let current: unknown = model
+  for (let depth = 0; depth < 4 && typeof current === "object" && current !== null; depth++) {
+    const profile = (current as { readonly profile?: unknown }).profile
+    if (typeof profile === "object" && profile !== null && Object.keys(profile).length > 0) {
+      return profile as ProfileFlags
+    }
+    current = (current as { readonly bound?: unknown }).bound
   }
-  return profile as ProfileFlags
+  return undefined
 }
 
 export function resolveModalitySupport(
   model: unknown,
   provider: BuiltInModelProviderId,
 ): ModalitySupport {
-  const file = FILE_HANDLE_PROVIDERS.includes(provider)
+  const file = FILE_HANDLE_SUPPORT[provider] ?? DEFAULT_MODALITY_SUPPORT.file
   const profile = readProfile(model)
   if (!profile) {
     return { ...(PROVIDER_MODALITY_FALLBACK[provider] ?? DEFAULT_MODALITY_SUPPORT), file }

@@ -17,7 +17,6 @@ export type { JsonSchemaResponseFormat, ModalitySupport } from "./chat-model-fac
 export {
   createChatModel,
   DEFAULT_MODALITY_SUPPORT,
-  FILE_HANDLE_PROVIDERS,
   JSON_SCHEMA_RESPONSE_FORMAT_PROVIDERS,
   providerPackages,
   resolveModalitySupport,

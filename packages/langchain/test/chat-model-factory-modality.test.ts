@@ -17,13 +17,13 @@ const fullProfile = {
 
 describe("resolveModalitySupport", () => {
   it("reads every flag off the model profile", () => {
-    expect(resolveModalitySupport({ profile: fullProfile }, "google")).toEqual({
+    expect(resolveModalitySupport({ profile: fullProfile }, "anthropic")).toEqual({
       image: { data: true, url: true },
       pdf: true,
       audio: true,
       video: true,
       toolResult: { image: true, pdf: true },
-      file: true,
+      file: { image: true, pdf: true },
     } satisfies ModalitySupport)
   })
 
@@ -44,11 +44,34 @@ describe("resolveModalitySupport", () => {
     expect(resolveModalitySupport(undefined, "groq")).toEqual(DEFAULT_MODALITY_SUPPORT)
   })
 
-  it("claims file handles only for the providers whose converters map fileId", () => {
-    expect(resolveModalitySupport({ profile: fullProfile }, "openai").file).toBe(true)
-    expect(resolveModalitySupport({ profile: fullProfile }, "anthropic").file).toBe(true)
-    expect(resolveModalitySupport({ profile: fullProfile }, "xai").file).toBe(false)
-    expect(resolveModalitySupport({}, "openai").file).toBe(true)
+  it("claims file handles per part type, as each provider's converter maps fileId", () => {
+    const file = (provider: Parameters<typeof resolveModalitySupport>[1]) =>
+      resolveModalitySupport({ profile: fullProfile }, provider).file
+    expect(file("anthropic")).toEqual({ image: true, pdf: true })
+    expect(file("openai")).toEqual({ image: false, pdf: true })
+    expect(file("google")).toEqual({ image: false, pdf: false })
+    expect(file("xai")).toEqual({ image: false, pdf: false })
+    expect(resolveModalitySupport({}, "openai").file).toEqual({ image: false, pdf: true })
+  })
+
+  it("reads the profile through a prototype getter and RunnableBinding layers", () => {
+    class Profiled {
+      get profile() {
+        return fullProfile
+      }
+    }
+    const expected = resolveModalitySupport({ profile: fullProfile }, "anthropic")
+    expect(resolveModalitySupport(new Profiled(), "anthropic")).toEqual(expected)
+    expect(resolveModalitySupport({ bound: new Profiled() }, "anthropic")).toEqual(expected)
+    expect(resolveModalitySupport({ bound: { bound: new Profiled() } }, "anthropic")).toEqual(
+      expected,
+    )
+  })
+
+  it("falls back when a binding's bound model has an empty profile", () => {
+    expect(resolveModalitySupport({ bound: { profile: {} } }, "mistral")).toEqual(
+      DEFAULT_MODALITY_SUPPORT,
+    )
   })
 
   it("the default claims images by data and url and nothing else", () => {
@@ -58,7 +81,7 @@ describe("resolveModalitySupport", () => {
       audio: false,
       video: false,
       toolResult: { image: false, pdf: false },
-      file: false,
+      file: { image: false, pdf: false },
     })
   })
 })
