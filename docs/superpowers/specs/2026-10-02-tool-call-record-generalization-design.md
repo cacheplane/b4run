@@ -155,6 +155,8 @@ tool that launches a subagent — is routed through the subagent bridge, not the
 **not** recorded. A tool message naming its id is dropped as "no row", the same outcome as if it
 were recorded as a server row, so nothing is lost; recording it is left out of scope.
 
+> Superseded 2026-10-03: the `task` call is now recorded; see `2026-10-03-tool-call-record-scope-and-task-design.md`.
+
 A permission park is not completion: a tool whose gate parks by throwing `GraphInterrupt` is
 issued but **not** settled. The resumed re-execution issues again (a no-op on the key) and
 settles when the tool really returns or throws.
@@ -253,6 +255,7 @@ rows; that is accepted, and the docs say so.
 - **Store present, route not opted in:** the recorder is still injected, so server rows are
   recorded. This is the point of scope B: the record covers every call on an app that can
   receive tool messages.
+  *(Narrowed 2026-10-03: a store that resolved only because the default file exists no longer records server calls; same spec.)*
 - **Resume replay:** the tool node re-executes; the converter calls `issue` again and the key
   makes it a no-op; `settle` stamps once.
 - **Cancel mid-tool:** the abort unwinds `tool.run`, `finally` settles the row.
