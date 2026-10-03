@@ -249,7 +249,7 @@ describe("toLangChainContent — tool position, text-only", () => {
 })
 
 describe("formatDroppedPartsWarning", () => {
-  it("names the model, each part and its reason, and points at the capability document", () => {
+  it("names the model, the route, and each part with its reason", () => {
     const text = formatDroppedPartsWarning({
       provider: "openai",
       model: "gpt-5-mini",
@@ -260,11 +260,11 @@ describe("formatDroppedPartsWarning", () => {
       ],
     })
     expect(text).toBe(
-      "B4: dropped 2 content part(s) the model cannot use (openai/gpt-5-mini): audio/data (modality_unsupported), image/url (url_source_unsupported). GET /agui/%2Fchat lists what this route accepts.",
+      "B4: dropped 2 content part(s) the model cannot use (openai/gpt-5-mini) on route /chat: audio/data (modality_unsupported), image/url (url_source_unsupported).",
     )
   })
 
-  it("omits the capability pointer without a route id", () => {
+  it("omits the route without a route id", () => {
     expect(
       formatDroppedPartsWarning({
         provider: "ollama",

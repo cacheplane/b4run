@@ -179,8 +179,8 @@ export function unsupportedResponseFormatMessage(provider: BuiltInModelProviderI
 
 /**
  * What a route's model can take, as a content part: the one judgment behind
- * both the run-time drop decision (`toLangChainContent`) and the `multimodal`
- * section of `GET /agui/:routeId`. Read off LangChain's per-model `profile`
+ * both the run-time drop decision (`toLangChainContent`) and the capability
+ * document, once sub-project 3's PR 2 adds the `multimodal` section. Read off LangChain's per-model `profile`
  * (`@langchain/core` `ModelProfile`), every flag defaulting to `false`; a
  * model with no profile — every `ollama` and `mistral` model, an unknown id
  * elsewhere — falls back to a conservative per-provider table. `file` is a

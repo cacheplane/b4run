@@ -2,7 +2,8 @@
 /**
  * AG-UI content parts → LangChain standard content blocks, under what the
  * route's model can take. Pure: the one place that decides a part is dropped,
- * so the capability document (`GET /agui/:routeId`) and the run agree.
+ * so the capability document (once sub-project 3's PR 2 adds the `multimodal`
+ * section) and the run agree.
  *
  * Spec (AG-UI 1.0, run-input): a producer handed a part it cannot use MUST NOT
  * fail the run; it skips the part, continues, and warns. The drops come back
@@ -237,15 +238,13 @@ export function droppedPartsData(
   }
 }
 
-/** The spec's developer warning: what was dropped, why, and where to see what is accepted. */
+/** The spec's developer warning: what was dropped, why, and on which route. */
 export function formatDroppedPartsWarning(report: DroppedPartsReport): string {
   const model = `${report.provider ?? "unknown"}/${report.model ?? "unknown"}`
   const list = report.parts
     .map((part) => `${part.type}/${part.source ?? "?"} (${part.reason})`)
     .join(", ")
-  const pointer =
-    report.routeId !== undefined
-      ? ` GET /agui/${encodeURIComponent(report.routeId)} lists what this route accepts.`
-      : ""
-  return `B4: dropped ${report.parts.length} content part(s) the model cannot use (${model}): ${list}.${pointer}`
+  // Sub-project 3's PR 2 reintroduces a `GET /agui/:routeId` pointer once the `multimodal` section exists.
+  const route = report.routeId !== undefined ? ` on route ${report.routeId}` : ""
+  return `B4: dropped ${report.parts.length} content part(s) the model cannot use (${model})${route}: ${list}.`
 }
