@@ -16,7 +16,7 @@ import { dispatchCustomEvent } from "@langchain/core/callbacks/dispatch/web"
 import { ToolMessage } from "@langchain/core/messages"
 import { patchConfig } from "@langchain/core/runnables"
 import { DynamicStructuredTool } from "@langchain/core/tools"
-import { Command } from "@langchain/langgraph"
+import { Command, isGraphInterrupt } from "@langchain/langgraph"
 import { z } from "zod"
 import { unwrapToolResult } from "./unwrap-tool-result.js"
 
@@ -98,6 +98,10 @@ export function convertToolToLangChain(
       const recorder =
         tool.clientTool === true || toolCallId === "" ? undefined : readRecorder(liveConfig)
       if (recorder) await recorder.issue({ toolCallId, toolName: tool.name })
+      // A permission gate parks by throwing a GraphInterrupt. A park is not
+      // completion: the row stays open, and the resumed re-execution issues
+      // again (a no-op on the key) and settles when the tool really returns.
+      let parked = false
       try {
         const rawResult = await tool.run(input, {
           ...(middlewareContext ? { middleware: middlewareContext } : {}),
@@ -149,8 +153,11 @@ export function convertToolToLangChain(
         }
 
         return convertedResult
+      } catch (error) {
+        parked = isGraphInterrupt(error)
+        throw error
       } finally {
-        if (recorder) {
+        if (recorder && !parked) {
           try {
             await recorder.settle(toolCallId)
           } catch (error) {

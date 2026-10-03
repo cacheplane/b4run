@@ -1,6 +1,6 @@
 import type { StreamTransformerInput } from "@b4run/core"
 import { CLIENT_TOOL_RECORDER_KEY } from "@b4run/sdk"
-import { type Command, isCommand } from "@langchain/langgraph"
+import { type Command, GraphInterrupt, isCommand } from "@langchain/langgraph"
 import { beforeEach, describe, expect, it, test, vi } from "vitest"
 import { convertToolToLangChain, jsonSchemaToZod } from "../src/tool-converter.ts"
 
@@ -674,8 +674,8 @@ describe("convertToolToLangChain — the tool-call record", () => {
     return {
       log,
       recorder: {
-        has: async () => false,
-        record: async () => {},
+        has: vi.fn(async () => false),
+        record: vi.fn(async () => {}),
         issue: async (call: { toolCallId: string; toolName: string }) => {
           log.push(`issue:${call.toolName}:${call.toolCallId}`)
         },
@@ -700,6 +700,21 @@ describe("convertToolToLangChain — the tool-call record", () => {
     })
     await tool.invoke(call, configWith(rec))
     expect(log).toEqual(["issue:probe:call_1", "run", "settle:call_1"])
+    expect(rec.has).not.toHaveBeenCalled()
+    expect(rec.record).not.toHaveBeenCalled()
+  })
+
+  it("does not settle when the tool parks on a GraphInterrupt", async () => {
+    const { log, recorder: rec } = recorder()
+    const tool = convertToolToLangChain({
+      name: "probe",
+      schema: { type: "object", properties: {} },
+      run: async () => {
+        throw new GraphInterrupt([])
+      },
+    })
+    await expect(tool.invoke(call, configWith(rec))).rejects.toThrow()
+    expect(log).toEqual(["issue:probe:call_1"])
   })
 
   it("settles when the tool throws, and the error still propagates", async () => {
