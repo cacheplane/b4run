@@ -28,6 +28,18 @@ export {
   CLIENT_TOOL_RECORDER_KEY,
   createMemoryClientToolCallStore,
 } from "./client-tool-calls.js"
+export type {
+  B4ContentPart,
+  B4DataSource,
+  B4FileSource,
+  B4MediaPart,
+  B4MediaPartType,
+  B4MessageContent,
+  B4PartSource,
+  B4TextPart,
+  B4UrlSource,
+} from "./content-parts.js"
+export { contentPartsText, isContentPart, isContentPartArray } from "./content-parts.js"
 export type { B4ErrorCode, B4ErrorDescriptor } from "./errors.js"
 export { B4_ERRORS, describeError, errorDocsUrl } from "./errors.js"
 export type {
