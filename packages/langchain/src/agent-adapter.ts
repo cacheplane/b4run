@@ -217,6 +217,7 @@ async function materializeAgent(
       opts.offload,
       opts.routeParamNames ?? [],
       opts.streamTransformers ?? [],
+      modality,
     )
     // `createAgent` ends the run on a flagged tool's result by name, error or
     // not; B4's loop-entry middleware routes these instead (`endsOnReturnDirect`).
@@ -1363,6 +1364,7 @@ export async function* streamAgent(options: AgentOptions): AsyncGenerator<AgentS
           options.offload,
           options.routeParamNames,
           options.streamTransformers ?? [],
+          RAW_RUNNABLE_MODALITY,
         ),
   )
   if (langchainTools.length > 0) {

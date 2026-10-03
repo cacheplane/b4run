@@ -102,3 +102,35 @@ describe("unwrapToolResult", () => {
     })
   })
 })
+
+const png = {
+  type: "image",
+  source: { type: "data", value: "AAAA", mimeType: "image/png" },
+} as const
+
+describe("unwrapToolResult with content parts", () => {
+  it("keeps a part array as parts", () => {
+    const parts = [{ type: "text", text: "chart" }, png]
+    expect(unwrapToolResult(parts)).toEqual({ content: parts, stateUpdates: undefined })
+  })
+
+  it("keeps a wrapped part array and its state", () => {
+    const parts = [png]
+    expect(unwrapToolResult({ result: parts, state: { n: 1 } })).toEqual({
+      content: parts,
+      stateUpdates: { n: 1 },
+    })
+  })
+
+  it("an array that is not a part list is still JSON", () => {
+    expect(unwrapToolResult([1, 2])).toEqual({ content: "[1,2]", stateUpdates: undefined })
+    expect(unwrapToolResult([{ type: "text" }])).toEqual({
+      content: '[{"type":"text"}]',
+      stateUpdates: undefined,
+    })
+  })
+
+  it("an empty array is JSON, as before", () => {
+    expect(unwrapToolResult([])).toEqual({ content: "[]", stateUpdates: undefined })
+  })
+})

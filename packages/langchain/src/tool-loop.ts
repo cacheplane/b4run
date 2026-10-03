@@ -1,4 +1,7 @@
+import { isContentPartArray } from "@b4run/sdk"
 import { AIMessage, ToolMessage } from "@langchain/core/messages"
+import { DEFAULT_MODALITY_SUPPORT } from "./chat-model-factory.js"
+import { toLangChainContent } from "./content-parts.js"
 
 const DEFAULT_MAX_ITERATIONS = 10
 
@@ -56,7 +59,13 @@ export async function executeWithToolLoop(options: ExecuteWithToolLoopOptions): 
             signal,
           })
           return new ToolMessage({
-            content: JSON.stringify(output),
+            // No profile and no stream here: the default refuses tool-result
+            // media, so a part list collapses to its text and the UI gets nothing extra.
+            content:
+              isContentPartArray(output) && output.length > 0
+                ? (toLangChainContent(output, DEFAULT_MODALITY_SUPPORT, undefined, "tool")
+                    .content as ToolMessage["content"])
+                : JSON.stringify(output),
             tool_call_id: call.id ?? "",
           })
         } catch (error) {
