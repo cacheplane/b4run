@@ -22,7 +22,7 @@
  * edge targets.
  */
 
-import { type B4ContentPart, type B4MessageContent, isContentPartArray } from "./content-parts.js"
+import { type B4MessageContent, isContentPartArray } from "./content-parts.js"
 
 /** `config.configurable` key the adapter injects the per-run recorder under. */
 export const CLIENT_TOOL_RECORDER_KEY = "__b4ClientToolRecorder"
@@ -165,14 +165,15 @@ const CLIENT_TOOL_RESULT_ENVELOPE = "content-parts"
  * structurally valid list; anything else is the text it is.
  */
 export function encodeClientToolResult(result: B4MessageContent): string {
-  return typeof result === "string"
-    ? result
-    : JSON.stringify({ $b4: CLIENT_TOOL_RESULT_ENVELOPE, parts: result })
+  if (typeof result === "string") return result
+  // An empty list carries nothing: it is empty text, as inbound messages treat it.
+  if (result.length === 0) return ""
+  return JSON.stringify({ $b4: CLIENT_TOOL_RESULT_ENVELOPE, parts: result })
 }
 
 /** Inverse of {@link encodeClientToolResult}; `null` stays `null`. */
 export function decodeClientToolResult(stored: string | null): B4MessageContent | null {
-  if (stored === null || !stored.startsWith('{"$b4":')) return stored
+  if (stored === null || !stored.startsWith("{")) return stored
   try {
     const value: unknown = JSON.parse(stored)
     if (
@@ -181,7 +182,7 @@ export function decodeClientToolResult(stored: string | null): B4MessageContent 
       (value as { $b4?: unknown }).$b4 === CLIENT_TOOL_RESULT_ENVELOPE
     ) {
       const parts = (value as { parts?: unknown }).parts
-      if (isContentPartArray(parts)) return parts as readonly B4ContentPart[]
+      if (isContentPartArray(parts)) return parts.length === 0 ? "" : parts
     }
   } catch {
     // Not JSON after all: it is the text it looks like.

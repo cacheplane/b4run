@@ -447,6 +447,23 @@ describe("client tool result codec", () => {
     expect(decodeClientToolResult(text)).toBe(text)
   })
 
+  it("an empty part list is empty text, in both directions", () => {
+    expect(encodeClientToolResult([])).toBe("")
+    expect(decodeClientToolResult(JSON.stringify({ $b4: "content-parts", parts: [] }))).toBe("")
+  })
+
+  it("malformed JSON that starts like the envelope stays text", () => {
+    const text = '{"$b4":"content-parts","parts":['
+    expect(decodeClientToolResult(text)).toBe(text)
+  })
+
+  it("a JSON object with a different $b4 tag stays text", () => {
+    const text = JSON.stringify({ $b4: "other", parts })
+    expect(decodeClientToolResult(text)).toBe(text)
+    const spaced = `{ "parts": ${JSON.stringify(parts)}, "$b4": "other" }`
+    expect(decodeClientToolResult(spaced)).toBe(spaced)
+  })
+
   it("null stays null", () => {
     expect(decodeClientToolResult(null)).toBeNull()
   })
