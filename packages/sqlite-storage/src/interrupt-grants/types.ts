@@ -56,4 +56,13 @@ export interface InterruptGrantStore {
     readonly keepInterruptIds: readonly string[]
     readonly at: string
   }): Promise<number>
+
+  /**
+   * Deletes settled rows — consumed or voided — whose settle time (`voidedAt`,
+   * else `consumedAt`) is before `before`. Outstanding rows are never deleted,
+   * whatever `expiresAt` says: a parked prompt with no row would resume
+   * ungated under `approvals.grants: "optional"`. Returns how many rows were
+   * deleted. `before` is an ISO-8601 string compared as text.
+   */
+  prune(options: { readonly before: string }): Promise<number>
 }

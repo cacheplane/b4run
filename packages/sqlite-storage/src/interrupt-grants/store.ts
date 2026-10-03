@@ -175,5 +175,20 @@ export function makeInterruptGrantStore(db: Db): InterruptGrantStore {
                AND interrupt_id NOT IN (${placeholders})`
       return changeCount(db.prepare(sql).run(at, threadId, ...keepInterruptIds).changes)
     },
+
+    async prune({ before }) {
+      // Settled rows only: the settle time is voided_at when set, else
+      // consumed_at. Outstanding rows are never deleted — a parked prompt
+      // with no row resumes ungated under approvals.grants "optional".
+      return changeCount(
+        db
+          .prepare(
+            `DELETE FROM interrupt_grants
+             WHERE (voided_at IS NOT NULL AND voided_at < ?)
+                OR (voided_at IS NULL AND consumed_at IS NOT NULL AND consumed_at < ?)`,
+          )
+          .run(before, before).changes,
+      )
+    },
   }
 }

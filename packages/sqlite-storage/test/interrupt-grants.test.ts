@@ -235,4 +235,67 @@ describe("createInterruptGrantStore", () => {
     expect(replay.outcome).toBe("already_consumed")
     expect(replay.outcome === "already_consumed" && replay.record.consumedDecision).toBe("always")
   })
+
+  describe("prune", () => {
+    const BEFORE = "2026-09-30T12:00:00.000Z"
+
+    it("deletes consumed and voided rows settled before the cutoff and keeps later ones", async () => {
+      const store = newStore()
+      await store.issue(
+        record({
+          interruptId: "old_consumed",
+          consumedAt: "2026-09-30T01:00:00.000Z",
+          consumedDecision: "once",
+        }),
+      )
+      await store.issue(
+        record({ interruptId: "new_consumed", consumedAt: BEFORE, consumedDecision: "once" }),
+      )
+      await store.issue(record({ interruptId: "old_voided", voidedAt: "2026-09-30T01:00:00.000Z" }))
+      await store.issue(record({ interruptId: "new_voided", voidedAt: "2026-09-30T13:00:00.000Z" }))
+      expect(await store.prune({ before: BEFORE })).toBe(2)
+      expect((await store.listForThread("t-1")).map((row) => row.interruptId).sort()).toEqual([
+        "new_consumed",
+        "new_voided",
+      ])
+    })
+
+    it("a void is the settle time: an old consume with a recent void is kept", async () => {
+      const store = newStore()
+      await store.issue(
+        record({
+          interruptId: "consumed_then_voided",
+          consumedAt: "2026-09-30T01:00:00.000Z",
+          consumedDecision: "once",
+          voidedAt: "2026-09-30T13:00:00.000Z",
+        }),
+      )
+      expect(await store.prune({ before: BEFORE })).toBe(0)
+      expect(await store.get("t-1", "consumed_then_voided")).toBeDefined()
+    })
+
+    it("never deletes an outstanding row, expired or not", async () => {
+      const store = newStore()
+      await store.issue(
+        record({ interruptId: "expired_long_ago", expiresAt: "2020-01-01T00:00:00.000Z" }),
+      )
+      await store.issue(record({ interruptId: "never_expires", expiresAt: null }))
+      expect(await store.prune({ before: BEFORE })).toBe(0)
+      expect((await store.listForThread("t-1")).length).toBe(2)
+    })
+
+    it("sweeps every thread and is idempotent", async () => {
+      const store = newStore()
+      await store.issue(
+        record({ threadId: "t-1", interruptId: "a", voidedAt: "2026-09-30T01:00:00.000Z" }),
+      )
+      await store.issue(
+        record({ threadId: "t-2", interruptId: "b", voidedAt: "2026-09-30T01:00:00.000Z" }),
+      )
+      expect(await store.prune({ before: BEFORE })).toBe(2)
+      expect(await store.prune({ before: BEFORE })).toBe(0)
+      expect(await store.listForThread("t-1")).toEqual([])
+      expect(await store.listForThread("t-2")).toEqual([])
+    })
+  })
 })
