@@ -1,9 +1,15 @@
 import type { Db } from "../internal/db.js"
-import type { ClientToolCallAnswer, ClientToolCallRecord, ClientToolCallStore } from "./types.js"
+import type {
+  ClientToolCallAnswer,
+  ClientToolCallRecord,
+  ClientToolCallSettle,
+  ClientToolCallStore,
+} from "./types.js"
 
 interface ClientToolCallRow {
   thread_id: string
   tool_call_id: string
+  kind: string
   interrupt_id: string
   tool_name: string
   run_id: string
@@ -13,15 +19,17 @@ interface ClientToolCallRow {
   answered_at: string | null
   result: string | null
   voided_at: string | null
+  settled_at: string | null
 }
 
 const SELECT_COLUMNS =
-  "thread_id, tool_call_id, interrupt_id, tool_name, run_id, route_id, issued_at, expires_at, answered_at, result, voided_at"
+  "thread_id, tool_call_id, kind, interrupt_id, tool_name, run_id, route_id, issued_at, expires_at, answered_at, result, voided_at, settled_at"
 
 function rowToRecord(row: ClientToolCallRow): ClientToolCallRecord {
   return {
     threadId: row.thread_id,
     toolCallId: row.tool_call_id,
+    kind: row.kind === "server" ? "server" : "client",
     interruptId: row.interrupt_id,
     toolName: row.tool_name,
     runId: row.run_id,
@@ -31,6 +39,7 @@ function rowToRecord(row: ClientToolCallRow): ClientToolCallRecord {
     answeredAt: row.answered_at,
     result: row.result,
     voidedAt: row.voided_at,
+    settledAt: row.settled_at,
   }
 }
 
@@ -39,11 +48,27 @@ function changeCount(changes: number | bigint): number {
   return typeof changes === "bigint" ? Number(changes) : changes
 }
 
+/** `prune` compares timestamps as text, so `before` must be the canonical `Date#toISOString()` form every stored timestamp has. */
+function assertCanonicalBefore(before: string): void {
+  let canonical: string | undefined
+  try {
+    canonical = new Date(before).toISOString()
+  } catch {
+    canonical = undefined
+  }
+  if (canonical !== before) {
+    throw new Error("prune: `before` must be a canonical Date#toISOString() value")
+  }
+}
+
 /**
  * SQLite-backed {@link ClientToolCallStore}: the durable counterpart of
  * `createMemoryClientToolCallStore` in `@b4run/sdk`, with the same outcome
  * precedence and counting rules. Every guarantee is a SQL predicate, not
- * JavaScript around a read.
+ * JavaScript around a read. Holds both row kinds: `client` rows (parked,
+ * later answered or voided) and `server` rows (identity only, issued then
+ * settled). `prune` compares timestamps as text, so it requires the canonical
+ * `Date#toISOString()` form and rejects anything else.
  *
  * Does NOT enforce `expires_at`: expiry is the caller's job (the AG-UI handler
  * treats expired outstanding calls as abandoned and voids them).
@@ -63,11 +88,12 @@ export function makeClientToolCallStore(db: Db): ClientToolCallStore {
       // The PRIMARY KEY decides: a replayed issue (LangGraph re-runs the stub
       // when it resumes) leaves the existing row untouched.
       db.prepare(
-        `INSERT INTO client_tool_calls(${SELECT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO client_tool_calls(${SELECT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(thread_id, tool_call_id) DO NOTHING`,
       ).run(
         record.threadId,
         record.toolCallId,
+        record.kind,
         record.interruptId,
         record.toolName,
         record.runId,
@@ -77,6 +103,7 @@ export function makeClientToolCallStore(db: Db): ClientToolCallStore {
         record.answeredAt,
         record.result,
         record.voidedAt,
+        record.settledAt,
       )
     },
 
@@ -97,7 +124,7 @@ export function makeClientToolCallStore(db: Db): ClientToolCallStore {
       const rows = db
         .prepare(
           `SELECT ${SELECT_COLUMNS} FROM client_tool_calls
-           WHERE thread_id = ? AND answered_at IS NULL AND voided_at IS NULL
+           WHERE thread_id = ? AND kind = 'client' AND answered_at IS NULL AND voided_at IS NULL
            ORDER BY issued_at, tool_call_id`,
         )
         .all(threadId) as unknown as ClientToolCallRow[]
@@ -114,13 +141,14 @@ export function makeClientToolCallStore(db: Db): ClientToolCallStore {
                SET answered_at = ?, result = ?
              WHERE thread_id = ?
                AND tool_call_id = ?
+               AND kind = 'client'
                AND answered_at IS NULL
                AND voided_at IS NULL`,
           )
           .run(at, result, threadId, toolCallId).changes,
       )
       const record = readRow(threadId, toolCallId)
-      if (!record) return { outcome: "missing" }
+      if (record?.kind !== "client") return { outcome: "missing" }
       if (changes > 0) return { outcome: "answered", record }
       // Voided wins over already-answered, as in the SDK's memory store.
       if (record.voidedAt !== null) return { outcome: "voided", record }
@@ -141,9 +169,40 @@ export function makeClientToolCallStore(db: Db): ClientToolCallStore {
           .prepare(
             `UPDATE client_tool_calls
                SET voided_at = ?
-             WHERE thread_id = ? AND answered_at IS NULL AND voided_at IS NULL${named}`,
+             WHERE thread_id = ? AND kind = 'client' AND answered_at IS NULL AND voided_at IS NULL${named}`,
           )
           .run(at, threadId, ...(toolCallIds ?? [])).changes,
+      )
+    },
+
+    async settle({ threadId, toolCallId, at }): Promise<ClientToolCallSettle> {
+      const changes = changeCount(
+        db
+          .prepare(
+            `UPDATE client_tool_calls SET settled_at = ?
+             WHERE thread_id = ? AND tool_call_id = ? AND kind = 'server' AND settled_at IS NULL`,
+          )
+          .run(at, threadId, toolCallId).changes,
+      )
+      if (changes > 0) return "settled"
+      const record = readRow(threadId, toolCallId)
+      return record?.kind === "server" ? "already_settled" : "missing"
+    },
+
+    async prune({ threadId, before }) {
+      assertCanonicalBefore(before)
+      // Terminal timestamp per kind: voided_at or answered_at for a client
+      // row, settled_at for a server row. An open row has none and never
+      // matches. Canonical ISO-8601 UTC text compares chronologically.
+      return changeCount(
+        db
+          .prepare(
+            `DELETE FROM client_tool_calls
+             WHERE thread_id = ?
+               AND (CASE WHEN kind = 'client' THEN COALESCE(voided_at, answered_at) ELSE settled_at END) IS NOT NULL
+               AND (CASE WHEN kind = 'client' THEN COALESCE(voided_at, answered_at) ELSE settled_at END) < ?`,
+          )
+          .run(threadId, before).changes,
       )
     },
   }
