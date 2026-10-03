@@ -56,9 +56,11 @@ import {
 } from "@b4run/core"
 import {
   Command,
+  type DroppedPartsReport,
   defaultSummarize,
   defaultTokenCounter,
   executeAgentTurn,
+  formatDroppedPartsWarning,
   type JsonSchemaResponseFormat,
   materializeAgentGraph,
   type OffloadFn,
@@ -749,6 +751,20 @@ export async function* streamResolvedRoute(
             // consumer.
             sawInterrupt = true
             yield { type: "interrupt", data: chunk.data }
+            break
+          }
+          case "content_parts_dropped": {
+            // The spec's lossy-downgrade warning: for the developer, on the
+            // server, whichever front door the run came through. The chunk
+            // also passes through, so the AG-UI adapter can announce it on the
+            // stream as a CUSTOM event.
+            console.warn(
+              formatDroppedPartsWarning({
+                ...(chunk.data as Omit<DroppedPartsReport, "routeId">),
+                routeId: options.routeId,
+              }),
+            )
+            yield { type: chunk.type, data: chunk.data }
             break
           }
           default: {
