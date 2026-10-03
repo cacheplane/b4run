@@ -13,13 +13,19 @@ import { type B4ContentPart, type BuiltInModelProviderId, contentPartsText } fro
 // still installed on Node: `@langchain/langgraph`'s main entry does it, and
 // B4.run always loads that.
 import { dispatchCustomEvent } from "@langchain/core/callbacks/dispatch/web"
-import { type ContentBlock, ToolMessage } from "@langchain/core/messages"
+import { type MessageContent, ToolMessage } from "@langchain/core/messages"
 import { patchConfig } from "@langchain/core/runnables"
 import { DynamicStructuredTool } from "@langchain/core/tools"
 import { Command } from "@langchain/langgraph"
 import { z } from "zod"
 import { DEFAULT_MODALITY_SUPPORT, type ModalitySupport } from "./chat-model-factory.js"
-import { type LangChainContentBlock, toLangChainContent } from "./content-parts.js"
+import {
+  type DroppedPart,
+  droppedPartsData,
+  type LangChainContentBlock,
+  toLangChainContent,
+  V1_RESPONSE_METADATA,
+} from "./content-parts.js"
 import { unwrapToolResult } from "./unwrap-tool-result.js"
 
 interface B4ToolDefinition {
@@ -122,28 +128,21 @@ export function convertToolToLangChain(
         const converted = toLangChainContent(content, support, modality?.provider, "tool")
         // Offload bounds the text; media bypass it (their size is the body's business).
         const text = contentPartsText(content)
-        const offloadedText = offload
-          ? await offload(text, tool.name, toolCallId || undefined, signal)
-          : text
-        if (typeof converted.content === "string") {
-          finalContent = offloadedText
-        } else {
-          const media = converted.content.filter((block) => block.type !== "text")
-          finalContent =
-            offloadedText.length > 0 ? [{ type: "text", text: offloadedText }, ...media] : media
-        }
+        const offloadedText =
+          offload && text.length > 0
+            ? await offload(text, tool.name, toolCallId || undefined, signal)
+            : text
+        finalContent =
+          typeof converted.content === "string"
+            ? offloadedText
+            : placeToolText(content, converted.content, converted.dropped, offloadedText)
         if (converted.dropped.length > 0) {
           try {
             await dispatchCustomEvent(
               "b4.capability",
               {
                 event: "content_parts_dropped",
-                data: {
-                  ...(modality?.provider !== undefined ? { provider: modality.provider } : {}),
-                  ...(modality?.model !== undefined ? { model: modality.model } : {}),
-                  ...(toolCallId ? { toolCallId } : {}),
-                  parts: converted.dropped,
-                },
+                data: droppedPartsData(modality, converted.dropped, toolCallId),
               },
               liveConfig,
             )
@@ -153,23 +152,21 @@ export function convertToolToLangChain(
         }
       }
 
-      const toolMessage = (): ToolMessage => {
-        const common = {
+      const toolMessage = (): ToolMessage =>
+        new ToolMessage({
           tool_call_id: toolCallId,
           name: tool.name,
           ...(partsForUi !== undefined
             ? { additional_kwargs: { [B4_CONTENT_PARTS_KEY]: partsForUi } }
             : {}),
-        }
-        // Blocks go in as `contentBlocks:` — `@langchain/core` translates
-        // standard blocks for a provider converter only in that form.
-        return typeof finalContent === "string"
-          ? new ToolMessage({ ...common, content: finalContent })
-          : new ToolMessage({
-              ...common,
-              contentBlocks: finalContent as unknown as ContentBlock.Standard[],
-            })
-      }
+          // Blocks go in as `content:` with the v1 mark (see `V1_RESPONSE_METADATA`).
+          ...(typeof finalContent === "string"
+            ? { content: finalContent }
+            : {
+                content: finalContent as unknown as MessageContent,
+                response_metadata: V1_RESPONSE_METADATA,
+              }),
+        })
 
       const convertedResult = stateUpdates
         ? new Command({ update: { ...stateUpdates, messages: [toolMessage()] } })
@@ -202,6 +199,35 @@ export function convertToolToLangChain(
       return convertedResult
     },
   })
+}
+
+/**
+ * The model-visible blocks of a part result: the one (offloaded) text block
+ * sits where the tool's FIRST text part was, the surviving media keep their
+ * order around it; no text part (or empty text) means media only. `blocks` is
+ * `toLangChainContent`'s output for `parts` — the survivors, in order.
+ */
+function placeToolText(
+  parts: readonly B4ContentPart[],
+  blocks: readonly LangChainContentBlock[],
+  dropped: readonly DroppedPart[],
+  text: string,
+): LangChainContentBlock[] {
+  const droppedAt = new Set(dropped.map((drop) => drop.index))
+  const placed: LangChainContentBlock[] = []
+  let next = 0
+  let textPlaced = false
+  for (const [index, part] of parts.entries()) {
+    if (droppedAt.has(index)) continue
+    const block = blocks[next++]
+    if (part.type === "text") {
+      if (!textPlaced && text.length > 0) placed.push({ type: "text", text })
+      textPlaced = true
+      continue
+    }
+    if (block !== undefined) placed.push(block)
+  }
+  return placed
 }
 
 function toZodSchema(value: unknown): z.ZodTypeAny {

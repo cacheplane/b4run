@@ -132,10 +132,64 @@ describe("tool results with content parts", () => {
     expect(wrapped.additional_kwargs[B4_CONTENT_PARTS_KEY]).toBeUndefined()
   })
 
-  it("a media-only result carries no empty text block", async () => {
-    const converted = convertToolToLangChain(tool([png]), undefined, undefined, [], [], OPENAI)
+  it("the text keeps the place of the tool's first text part; media keep their order", async () => {
+    const offload = vi.fn(async (content: string) => content)
+    const converted = convertToolToLangChain(
+      tool([png, { type: "text", text: "a" }, wav, { type: "text", text: "b" }]),
+      undefined,
+      offload,
+      [],
+      [],
+      { ...OPENAI, support: { ...ALL, toolResult: { image: true, pdf: false } } },
+    )
+    const out = (await converted.invoke({}, config)) as ToolMessage
+    expect(out.content).toEqual([
+      { type: "image", data: "AAAA", mimeType: "image/png" },
+      { type: "text", text: "ab" },
+    ])
+    const ordered = convertToolToLangChain(
+      tool([png, { type: "text", text: "after" }]),
+      undefined,
+      undefined,
+      [],
+      [],
+      OPENAI,
+    )
+    const second = (await ordered.invoke({}, config)) as ToolMessage
+    expect(second.content).toEqual([
+      { type: "image", data: "AAAA", mimeType: "image/png" },
+      { type: "text", text: "after" },
+    ])
+  })
+
+  it("serializes with the blocks under kwargs.content and the v1 mark", async () => {
+    const converted = convertToolToLangChain(
+      tool([{ type: "text", text: "here" }, png]),
+      undefined,
+      undefined,
+      [],
+      [],
+      OPENAI,
+    )
+    const out = (await converted.invoke({}, config)) as ToolMessage
+    const serialized = JSON.parse(JSON.stringify(out))
+    expect(serialized.kwargs.content).toEqual([
+      { type: "text", text: "here" },
+      { type: "image", data: "AAAA", mimeType: "image/png" },
+    ])
+    expect(serialized.kwargs.response_metadata).toMatchObject({ output_version: "v1" })
+    expect(serialized.kwargs.additional_kwargs[B4_CONTENT_PARTS_KEY]).toEqual([
+      { type: "text", text: "here" },
+      png,
+    ])
+  })
+
+  it("a media-only result carries no empty text block and never calls offload", async () => {
+    const offload = vi.fn(async (content: string) => content)
+    const converted = convertToolToLangChain(tool([png]), undefined, offload, [], [], OPENAI)
     const out = (await converted.invoke({}, config)) as ToolMessage
     expect(out.content).toEqual([{ type: "image", data: "AAAA", mimeType: "image/png" }])
+    expect(offload).not.toHaveBeenCalled()
     expect(out.additional_kwargs.b4_content_parts).toEqual([png])
   })
 

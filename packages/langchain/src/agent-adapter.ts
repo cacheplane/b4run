@@ -16,8 +16,8 @@ import {
 } from "@b4run/sdk"
 import {
   type BaseMessageLike,
-  type ContentBlock,
   HumanMessage,
+  type MessageContent,
   SystemMessage,
 } from "@langchain/core/messages"
 import { Command } from "@langchain/langgraph"
@@ -35,8 +35,10 @@ import {
   type ConvertedContent,
   type DroppedPart,
   type DroppedPartsReport,
+  droppedPartsData,
   formatDroppedPartsWarning,
   toLangChainContent,
+  V1_RESPONSE_METADATA,
 } from "./content-parts.js"
 import { readLogicalToolCallId } from "./logical-tool-call-id.js"
 import { providerMaxRetries, resolveModelRetryPolicy } from "./model-call-retry.js"
@@ -1588,10 +1590,11 @@ const NO_EXTRACTED_MESSAGES: ExtractedMessages = { messages: [], dropped: [] }
  * blocks under what the root model takes; what it cannot take is dropped and
  * returned for the caller to announce — never a failed run (AG-UI 1.0).
  *
- * Blocks go in as `contentBlocks:`, never `content:` — `@langchain/core`
- * recognises only legacy `source_type` blocks under `content:`, and only the
- * `contentBlocks:` form marks the message v1 so the provider converters
- * translate the standard blocks (see `ConvertedContent`).
+ * Blocks go in as `content:` with `response_metadata.output_version: "v1"` —
+ * the v1 mark is what makes the provider converters translate standard blocks
+ * (`@langchain/core` alone recognises only legacy `source_type` blocks). Not
+ * `contentBlocks:`: that form serializes without `kwargs.content`, which every
+ * reader of a stored message (testing, episodes, hydration) looks at.
  */
 function extractMessages(
   input: Record<string, unknown>,
@@ -1608,7 +1611,8 @@ function extractMessages(
         return typeof converted.content === "string"
           ? new HumanMessage(converted.content)
           : new HumanMessage({
-              contentBlocks: converted.content as unknown as ContentBlock.Standard[],
+              content: converted.content as unknown as MessageContent,
+              response_metadata: V1_RESPONSE_METADATA,
             })
       })
     return { messages, dropped }
@@ -1663,14 +1667,7 @@ function droppedPartsChunk(
   modality: MaterializedModality,
   dropped: readonly DroppedPart[],
 ): AgentStreamChunk {
-  return {
-    type: "content_parts_dropped",
-    data: {
-      ...(modality.provider !== undefined ? { provider: modality.provider } : {}),
-      ...(modality.model !== undefined ? { model: modality.model } : {}),
-      parts: dropped,
-    },
-  }
+  return { type: "content_parts_dropped", data: droppedPartsData(modality, dropped) }
 }
 
 function formatAgentMessage(input: Record<string, unknown>): string {

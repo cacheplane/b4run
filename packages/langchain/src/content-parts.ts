@@ -44,11 +44,12 @@ export interface DroppedPart {
 export type LangChainContentBlock = Readonly<Record<string, unknown>> & { readonly type: string }
 
 /**
- * Hand `content` to LangChain as `contentBlocks:` (`new HumanMessage({ contentBlocks })`,
- * `new ToolMessage({ contentBlocks, … })`), never `content:`. `@langchain/core`
- * recognises only legacy `source_type` blocks under `content:`; `contentBlocks:`
- * sets `response_metadata.output_version: "v1"`, which is what makes the OpenAI
- * converters translate these blocks. A string `content` may be passed either way.
+ * Hand block `content` to LangChain as `content:` together with
+ * `response_metadata: V1_RESPONSE_METADATA`. `@langchain/core` recognises only
+ * legacy `source_type` blocks unless the message is marked v1, and the v1 mark
+ * is what makes the provider converters translate these blocks. Not
+ * `contentBlocks:` — that form serializes without `kwargs.content`. A string
+ * `content` needs no mark.
  */
 export interface ConvertedContent {
   readonly content: string | readonly LangChainContentBlock[]
@@ -198,13 +199,42 @@ export function toLangChainContent(
   return { content: blocks.length === 0 ? "" : blocks, dropped }
 }
 
+/**
+ * Set on a message built with standard blocks under `content:`. The v1 mark is
+ * what makes the provider converters translate standard blocks; `content:`
+ * (not `contentBlocks:`) keeps `kwargs.content` in the serialized message.
+ */
+export const V1_RESPONSE_METADATA: Readonly<{ output_version: "v1" }> = Object.freeze({
+  output_version: "v1",
+})
+
 export interface DroppedPartsReport {
-  readonly provider: string | undefined
-  readonly model: string | undefined
+  readonly provider?: string
+  readonly model?: string
   readonly routeId?: string
   readonly messageId?: string
   readonly toolCallId?: string
   readonly parts: readonly DroppedPart[]
+}
+
+/**
+ * The data of a `content_parts_dropped` announcement — the agent stream chunk
+ * and the tool converter's `b4.capability` event share this one shape, so the
+ * two cannot drift. Unknown provider/model are omitted, never `undefined`.
+ */
+export function droppedPartsData(
+  modality:
+    | { readonly provider?: string | undefined; readonly model?: string | undefined }
+    | undefined,
+  parts: readonly DroppedPart[],
+  toolCallId?: string,
+): Omit<DroppedPartsReport, "routeId"> {
+  return {
+    ...(modality?.provider !== undefined ? { provider: modality.provider } : {}),
+    ...(modality?.model !== undefined ? { model: modality.model } : {}),
+    ...(toolCallId ? { toolCallId } : {}),
+    parts,
+  }
 }
 
 /** The spec's developer warning: what was dropped, why, and where to see what is accepted. */

@@ -1,7 +1,7 @@
 import { isContentPartArray } from "@b4run/sdk"
 import { AIMessage, ToolMessage } from "@langchain/core/messages"
 import { DEFAULT_MODALITY_SUPPORT } from "./chat-model-factory.js"
-import { toLangChainContent } from "./content-parts.js"
+import { formatDroppedPartsWarning, toLangChainContent } from "./content-parts.js"
 
 const DEFAULT_MAX_ITERATIONS = 10
 
@@ -58,14 +58,21 @@ export async function executeWithToolLoop(options: ExecuteWithToolLoopOptions): 
             ...(middlewareContext ? { middleware: middlewareContext } : {}),
             signal,
           })
+          if (!isContentPartArray(output) || output.length === 0) {
+            return new ToolMessage({
+              content: JSON.stringify(output),
+              tool_call_id: call.id ?? "",
+            })
+          }
+          // No profile and no stream here: the default refuses tool-result
+          // media, so a part list collapses to its text and the UI gets nothing
+          // extra; the developer warning is the only signal of the drop.
+          const converted = toLangChainContent(output, DEFAULT_MODALITY_SUPPORT, undefined, "tool")
+          if (converted.dropped.length > 0) {
+            console.warn(formatDroppedPartsWarning({ parts: converted.dropped }))
+          }
           return new ToolMessage({
-            // No profile and no stream here: the default refuses tool-result
-            // media, so a part list collapses to its text and the UI gets nothing extra.
-            content:
-              isContentPartArray(output) && output.length > 0
-                ? (toLangChainContent(output, DEFAULT_MODALITY_SUPPORT, undefined, "tool")
-                    .content as ToolMessage["content"])
-                : JSON.stringify(output),
+            content: converted.content as ToolMessage["content"],
             tool_call_id: call.id ?? "",
           })
         } catch (error) {

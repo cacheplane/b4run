@@ -92,7 +92,7 @@ function humanMessage(): BaseMessage | undefined {
   return seenMessages.at(-1)?.find((m) => m.getType() === "human")
 }
 
-/** Constructed via `contentBlocks:`, the message's `content` is the block array itself. */
+/** Constructed with the blocks under `content:`, the message's `content` is the block array itself. */
 function humanContent(): unknown {
   return humanMessage()?.content
 }
@@ -113,8 +113,16 @@ describe("multimodal user input", () => {
       { type: "image", data: "AAAA", mimeType: "image/png" },
       { type: "audio", data: "UklG", mimeType: "audio/wav" },
     ])
-    // `contentBlocks:` construction marks the message v1, which the provider converters key on.
+    // The v1 mark is what the provider converters key on to translate standard blocks.
     expect(humanMessage()?.response_metadata).toMatchObject({ output_version: "v1" })
+    // Serialized, the blocks stay under `kwargs.content` — where every stored-message reader looks.
+    const serialized = JSON.parse(JSON.stringify(humanMessage()))
+    expect(serialized.kwargs.content).toEqual([
+      { type: "text", text: "what is this" },
+      { type: "image", data: "AAAA", mimeType: "image/png" },
+      { type: "audio", data: "UklG", mimeType: "audio/wav" },
+    ])
+    expect(serialized.kwargs.response_metadata).toMatchObject({ output_version: "v1" })
     expect(chunks.some((c) => c.type === "content_parts_dropped")).toBe(false)
   })
 
