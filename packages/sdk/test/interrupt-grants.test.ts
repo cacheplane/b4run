@@ -46,15 +46,28 @@ describe("createMemoryInterruptGrantStore", () => {
     expect((await store.get("t1", "i1"))?.consumedAt).toBeNull()
   })
 
-  it("voids only the thread's outstanding grants outside keepInterruptIds", async () => {
+  it("voids the thread's grants outside keepInterruptIds, consumed ones included", async () => {
     const store = createMemoryInterruptGrantStore()
     const at = "2026-09-30T00:02:00.000Z"
     await store.issue(grant({ interruptId: "keep" }))
     await store.issue(grant({ interruptId: "stale" }))
     await store.issue(grant({ interruptId: "done", consumedAt: at, consumedDecision: "once" }))
     await store.issue(grant({ threadId: "t2", interruptId: "other" }))
-    expect(await store.voidOutstanding({ threadId: "t1", keepInterruptIds: ["keep"], at })).toBe(1)
+    expect(
+      await store.voidOutstanding({
+        threadId: "t1",
+        keepInterruptIds: ["keep"],
+        at,
+      }),
+    ).toBe(2)
     expect((await store.get("t1", "stale"))?.voidedAt).toBe(at)
+    // The consumed row is voided too — its resumed turn completed — and keeps
+    // its consumption record.
+    expect(await store.get("t1", "done")).toMatchObject({
+      voidedAt: at,
+      consumedAt: at,
+      consumedDecision: "once",
+    })
     expect((await store.get("t1", "keep"))?.voidedAt).toBeNull()
     expect((await store.get("t2", "other"))?.voidedAt).toBeNull()
     expect((await store.listForThread("t1")).map((row) => row.interruptId).sort()).toEqual([
@@ -62,6 +75,30 @@ describe("createMemoryInterruptGrantStore", () => {
       "keep",
       "stale",
     ])
+  })
+
+  it("voidOutstanding is idempotent: an already-voided row keeps its timestamp and is not counted", async () => {
+    const store = createMemoryInterruptGrantStore()
+    await store.issue(grant({ interruptId: "a" }))
+    await store.issue(grant({ interruptId: "b", consumedAt: "2026-09-30T00:01:00.000Z" }))
+    const first = "2026-09-30T00:02:00.000Z"
+    const second = "2026-09-30T00:03:00.000Z"
+    expect(
+      await store.voidOutstanding({
+        threadId: "t1",
+        keepInterruptIds: [],
+        at: first,
+      }),
+    ).toBe(2)
+    expect(
+      await store.voidOutstanding({
+        threadId: "t1",
+        keepInterruptIds: [],
+        at: second,
+      }),
+    ).toBe(0)
+    expect((await store.get("t1", "a"))?.voidedAt).toBe(first)
+    expect((await store.get("t1", "b"))?.voidedAt).toBe(first)
   })
 
   // The store used to key a flat Map on `${threadId}\0${interruptId}`, so a
@@ -85,46 +122,62 @@ describe("createMemoryInterruptGrantStore", () => {
 
   describe("prune", () => {
     const BEFORE = "2026-09-30T12:00:00.000Z"
+    const OLD = "2026-09-30T01:00:00.000Z"
+    const RECENT = "2026-09-30T13:00:00.000Z"
 
-    it("deletes consumed and voided rows settled before the cutoff and keeps later ones", async () => {
+    it("deletes voided rows before the cutoff; keeps a recent void and one exactly at the cutoff", async () => {
       const store = createMemoryInterruptGrantStore()
-      await store.issue(
-        grant({
-          interruptId: "old_consumed",
-          consumedAt: "2026-09-30T01:00:00.000Z",
-          consumedDecision: "once",
-        }),
-      )
-      await store.issue(
-        grant({ interruptId: "new_consumed", consumedAt: BEFORE, consumedDecision: "once" }),
-      )
-      await store.issue(grant({ interruptId: "old_voided", voidedAt: "2026-09-30T01:00:00.000Z" }))
-      await store.issue(grant({ interruptId: "new_voided", voidedAt: "2026-09-30T13:00:00.000Z" }))
-      expect(await store.prune({ before: BEFORE })).toBe(2)
+      await store.issue(grant({ interruptId: "old_voided", voidedAt: OLD }))
+      await store.issue(grant({ interruptId: "new_voided", voidedAt: RECENT }))
+      await store.issue(grant({ interruptId: "at_cutoff", voidedAt: BEFORE }))
+      expect(await store.prune({ before: BEFORE })).toBe(1)
       expect((await store.listForThread("t1")).map((row) => row.interruptId).sort()).toEqual([
-        "new_consumed",
+        "at_cutoff",
         "new_voided",
       ])
     })
 
-    it("a void is the settle time: an old consume with a recent void is kept", async () => {
+    it("a consumed grant whose prompt is still parked is never pruned", async () => {
+      // A resume consumes the row BEFORE the resumed run executes. If that run
+      // fails the prompt stays parked with a consumed, unvoided row; deleting
+      // it would let the prompt resume ungated under approvals.grants "optional".
+      const store = createMemoryInterruptGrantStore()
+      await store.issue(
+        grant({
+          interruptId: "stuck",
+          consumedAt: OLD,
+          consumedDecision: "once",
+          voidedAt: null,
+        }),
+      )
+      expect(await store.prune({ before: BEFORE })).toBe(0)
+      expect(await store.get("t1", "stuck")).toMatchObject({
+        consumedAt: OLD,
+        voidedAt: null,
+      })
+    })
+
+    it("deletes a consumed grant once it has been voided before the cutoff", async () => {
       const store = createMemoryInterruptGrantStore()
       await store.issue(
         grant({
           interruptId: "consumed_then_voided",
-          consumedAt: "2026-09-30T01:00:00.000Z",
+          consumedAt: OLD,
           consumedDecision: "once",
-          voidedAt: "2026-09-30T13:00:00.000Z",
+          voidedAt: OLD,
         }),
       )
-      expect(await store.prune({ before: BEFORE })).toBe(0)
-      expect(await store.get("t1", "consumed_then_voided")).toBeDefined()
+      expect(await store.prune({ before: BEFORE })).toBe(1)
+      expect(await store.get("t1", "consumed_then_voided")).toBeUndefined()
     })
 
     it("never deletes an outstanding row, expired or not", async () => {
       const store = createMemoryInterruptGrantStore()
       await store.issue(
-        grant({ interruptId: "expired_long_ago", expiresAt: "2020-01-01T00:00:00.000Z" }),
+        grant({
+          interruptId: "expired_long_ago",
+          expiresAt: "2020-01-01T00:00:00.000Z",
+        }),
       )
       await store.issue(grant({ interruptId: "never_expires", expiresAt: null }))
       expect(await store.prune({ before: BEFORE })).toBe(0)
@@ -136,12 +189,8 @@ describe("createMemoryInterruptGrantStore", () => {
 
     it("sweeps every thread and is idempotent", async () => {
       const store = createMemoryInterruptGrantStore()
-      await store.issue(
-        grant({ threadId: "t1", interruptId: "a", voidedAt: "2026-09-30T01:00:00.000Z" }),
-      )
-      await store.issue(
-        grant({ threadId: "t2", interruptId: "b", voidedAt: "2026-09-30T01:00:00.000Z" }),
-      )
+      await store.issue(grant({ threadId: "t1", interruptId: "a", voidedAt: OLD }))
+      await store.issue(grant({ threadId: "t2", interruptId: "b", voidedAt: OLD }))
       expect(await store.prune({ before: BEFORE })).toBe(2)
       expect(await store.prune({ before: BEFORE })).toBe(0)
       expect(await store.listForThread("t1")).toEqual([])

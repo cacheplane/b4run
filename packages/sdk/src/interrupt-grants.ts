@@ -142,7 +142,10 @@ export type InterruptGrantConsumption =
   | { readonly outcome: "consumed"; readonly record: InterruptGrantRecord }
   /** Someone already answered. Carries the recorded decision so a
    *  double-submitting UI can render "already approved" instead of re-prompting. */
-  | { readonly outcome: "already_consumed"; readonly record: InterruptGrantRecord }
+  | {
+      readonly outcome: "already_consumed"
+      readonly record: InterruptGrantRecord
+    }
   | { readonly outcome: "voided"; readonly record: InterruptGrantRecord }
   | { readonly outcome: "missing" }
 
@@ -171,9 +174,13 @@ export interface InterruptGrantStore {
     readonly at: string
   }): Promise<InterruptGrantConsumption>
   /**
-   * Stamp `voided_at` on every unconsumed, unvoided grant for `threadId`
-   * whose `interruptId` is NOT in `keepInterruptIds` — i.e. every grant whose
-   * parked call the thread has moved past. Returns how many were voided.
+   * Stamp `voided_at` on every unvoided grant for `threadId` — consumed ones
+   * included — whose `interruptId` is NOT in `keepInterruptIds`, i.e. every
+   * grant whose parked prompt the thread has moved past. A consumed grant is
+   * voided here once its resumed turn has completed, which is what later lets
+   * `prune` delete it; a consumed grant whose prompt is still parked (its
+   * resume failed) is never voided and never pruned. Returns how many were
+   * voided.
    *
    * This is the staleness half of #736, and it is what replaces a stored
    * `checkpoint_id`: "the thread moved on" becomes a fact B4 asserts rather
@@ -186,11 +193,12 @@ export interface InterruptGrantStore {
   }): Promise<number>
 
   /**
-   * Deletes settled rows — consumed or voided — whose settle time (`voidedAt`,
-   * else `consumedAt`) is before `before`. Outstanding rows are never deleted,
-   * whatever `expiresAt` says: a parked prompt with no row would resume
-   * ungated under `approvals.grants: "optional"`. Returns how many rows were
-   * deleted. `before` is an ISO-8601 string compared as text.
+   * Deletes voided rows whose `voidedAt` is before `before`. Nothing else is
+   * ever deleted: an outstanding row is a parked prompt, and a consumed row
+   * that was never voided is a prompt whose resume did not complete — under
+   * `approvals.grants: "optional"` a parked prompt with no row would resume
+   * ungated. Returns how many rows were deleted. `before` is an ISO-8601
+   * string compared as text.
    */
   prune(options: { readonly before: string }): Promise<number>
 }
@@ -258,10 +266,8 @@ export function isApprovalGrantShape(value: unknown): value is string {
 }
 
 /** The memory store's `prune` predicate; the SQL stores carry the same rule in their DELETE. */
-function isSettledBefore(row: InterruptGrantRecord, before: string): boolean {
-  if (row.voidedAt !== null) return row.voidedAt < before
-  if (row.consumedAt !== null) return row.consumedAt < before
-  return false
+function isVoidedBefore(row: InterruptGrantRecord, before: string): boolean {
+  return row.voidedAt !== null && row.voidedAt < before
 }
 
 /**
@@ -293,7 +299,9 @@ export function createMemoryInterruptGrantStore(): InterruptGrantStore {
       return row ? { ...row } : undefined
     },
     async listForThread(threadId) {
-      return [...(threads.get(threadId)?.values() ?? [])].map((row) => ({ ...row }))
+      return [...(threads.get(threadId)?.values() ?? [])].map((row) => ({
+        ...row,
+      }))
     },
     async consume({ threadId, interruptId, decision, at }) {
       const rows = threads.get(threadId)
@@ -301,7 +309,11 @@ export function createMemoryInterruptGrantStore(): InterruptGrantStore {
       if (!rows || !row) return { outcome: "missing" }
       if (row.voidedAt !== null) return { outcome: "voided", record: { ...row } }
       if (row.consumedAt !== null) return { outcome: "already_consumed", record: { ...row } }
-      const next: InterruptGrantRecord = { ...row, consumedAt: at, consumedDecision: decision }
+      const next: InterruptGrantRecord = {
+        ...row,
+        consumedAt: at,
+        consumedDecision: decision,
+      }
       rows.set(interruptId, next)
       return { outcome: "consumed", record: { ...next } }
     },
@@ -312,7 +324,7 @@ export function createMemoryInterruptGrantStore(): InterruptGrantStore {
       let voided = 0
       for (const [interruptId, row] of rows) {
         if (keep.has(interruptId)) continue
-        if (row.consumedAt !== null || row.voidedAt !== null) continue
+        if (row.voidedAt !== null) continue
         rows.set(interruptId, { ...row, voidedAt: at })
         voided++
       }
@@ -322,7 +334,7 @@ export function createMemoryInterruptGrantStore(): InterruptGrantStore {
       let count = 0
       for (const [threadId, rows] of threads) {
         for (const [interruptId, row] of rows) {
-          if (!isSettledBefore(row, before)) continue
+          if (!isVoidedBefore(row, before)) continue
           rows.delete(interruptId)
           count += 1
         }
