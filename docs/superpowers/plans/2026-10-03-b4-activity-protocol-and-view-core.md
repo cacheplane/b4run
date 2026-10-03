@@ -2486,6 +2486,23 @@ describe("reduceTurns", () => {
     expect(errored.turns[0]?.steps[0]).toMatchObject({ status: "failed" })
   })
 
+  it("merges repeated running steps for one call into a single step and never downgrades done", async () => {
+    // LangGraph re-executes a resumed tool node, so the converter dispatches a
+    // second `running` for the same tool_call_id before `completed`.
+    const view = await fold([
+      { type: "tool_call", data: { id: "r1", name: "searchCorpus", input: { query: "a" } } },
+      { type: "step", data: { tool_call_id: "r1", status: "running", label: "Searching" } },
+      { type: "step", data: { tool_call_id: "r1", status: "running", label: "Searching again" } },
+      { type: "tool_result", data: { id: "r1", name: "searchCorpus", output: "ok" } },
+      { type: "step", data: { tool_call_id: "r1", status: "completed", label: "Searched" } },
+      { type: "step", data: { tool_call_id: "r1", status: "running", label: "Late running" } },
+      { type: "done", data: {} },
+    ])
+    const tools = view.turns[0]?.steps.filter((step) => step.kind === "tool") ?? []
+    expect(tools).toHaveLength(1)
+    expect(tools[0]).toMatchObject({ id: "r1", status: "done", label: "Late running" })
+  })
+
   it("starts over on a different thread and appends a turn on the same one", () => {
     const first = reduceTurns(EMPTY_TURNS, { type: EventType.RUN_STARTED, threadId: "a", runId: "1" } as BaseEvent)
     const second = reduceTurns(first, { type: EventType.RUN_STARTED, threadId: "a", runId: "2" } as BaseEvent)
