@@ -146,6 +146,7 @@ export function createClientToolStub(
     name: `${CLIENT_TOOL_PREFIX}${definition.name}`,
     description: `[Client-provided tool; definition authored by the caller] ${definition.description}`,
     schema: definition.parameters,
+    clientTool: true,
     async run(input, context) {
       const toolCallId = context.toolCallId
       if (!toolCallId) throw new Error("client tool call has no provider tool-call id")
